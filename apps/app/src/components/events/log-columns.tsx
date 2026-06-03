@@ -1,32 +1,19 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
-import { cn } from "@strait/ui/utils/index";
+import { DropdownMenuItem } from "@strait/ui/components/dropdown-menu";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 
 import { createActionsColumn } from "@/components/tables/shared-columns";
 import type { EventTrigger } from "@/hooks/api/types";
 import { EyeIcon, FileTextIcon, LinkSquareIcon } from "@/lib/icons";
-import { EVENT_STATUS_STYLES } from "@/lib/status";
 
 export const logColumns: ColumnDef<EventTrigger>[] = [
   {
     accessorKey: "status",
     header: "Status",
-    cell: ({ row }) => {
-      const style =
-        EVENT_STATUS_STYLES[row.original.status] ?? EVENT_STATUS_STYLES.waiting;
-      return (
-        <div className="flex items-center gap-2">
-          <span className={cn("size-2 shrink-0 rounded-full", style.dot)} />
-          <Badge
-            className={cn("shrink-0 capitalize", style.badge)}
-            variant="outline"
-          >
-            {row.original.status}
-          </Badge>
-        </div>
-      );
-    },
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
   },
   {
     accessorKey: "event_key",
@@ -65,23 +52,35 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
   },
   createActionsColumn<EventTrigger>([
     {
-      label: "Copy Event Key",
+      label: "Copy event key",
       icon: FileTextIcon,
-      onClick: (row) => {
-        navigator.clipboard.writeText(row.original.event_key);
-      },
+      render: (row) => (
+        <DropdownMenuItem
+          onClick={() => navigator.clipboard.writeText(row.original.event_key)}
+        >
+          <HugeiconsIcon className="mr-2 size-3.5" icon={FileTextIcon} />
+          Copy event key
+        </DropdownMenuItem>
+      ),
     },
     {
-      label: "Copy Run ID",
+      label: "Copy run ID",
       icon: LinkSquareIcon,
-      onClick: (row) => {
-        navigator.clipboard.writeText(
-          row.original.job_run_id ?? row.original.workflow_run_id ?? ""
-        );
-      },
+      render: (row) => (
+        <DropdownMenuItem
+          onClick={() =>
+            navigator.clipboard.writeText(
+              row.original.job_run_id ?? row.original.workflow_run_id ?? ""
+            )
+          }
+        >
+          <HugeiconsIcon className="mr-2 size-3.5" icon={LinkSquareIcon} />
+          Copy run ID
+        </DropdownMenuItem>
+      ),
     },
     {
-      label: "View Details",
+      label: "View details",
       icon: EyeIcon,
       onClick: () => {
         // TODO: navigate to event detail

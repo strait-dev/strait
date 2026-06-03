@@ -9,16 +9,24 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@strait/ui/components/alert-dialog";
-import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import { Input } from "@strait/ui/components/input";
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridSelectionBar,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
@@ -30,13 +38,12 @@ import {
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useMemo, useState } from "react";
 import { z } from "zod/v4";
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
-import { DataTableFloatingBar } from "@/components/ui/data-table/data-table-floating-bar";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { PaginatedResponse, WebhookSubscription } from "@/hooks/api/types";
 import {
@@ -46,20 +53,25 @@ import {
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   EyeIcon,
-  FilterIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
   WebhookIcon,
 } from "@/lib/icons";
 import { WEBHOOK_STATUS_OPTIONS } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
+
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
 
 export const searchSchema = z.object({
   query: z.string().optional(),
-  status: z.array(z.string()).optional(),
+  status: searchArraySchema,
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/webhooks/")({
@@ -165,18 +177,11 @@ function WebhooksPage() {
     return { active, inactive };
   }, [filteredData]);
 
-  function toggleStatus(status: string) {
-    const current = new Set(selectedStatuses);
-    if (current.has(status)) {
-      current.delete(status);
-    } else {
-      current.add(status);
-    }
-    const arr = Array.from(current);
+  function handleStatusFiltersChange(statuses: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        status: arr.length > 0 ? arr : undefined,
+        status: statuses.length > 0 ? statuses : undefined,
         cursor: undefined,
       }),
     });
@@ -187,18 +192,21 @@ function WebhooksPage() {
   }
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="Create a webhook to receive notifications about run events."
-      hideButton
-      icon={
-        <HugeiconsIcon
-          className="text-muted-foreground"
-          icon={WebhookIcon}
-          size={24}
-        />
-      }
-      title="No webhooks yet"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia media="icon" size="lg">
+          <HugeiconsIcon
+            className="text-muted-foreground"
+            icon={WebhookIcon}
+            size={24}
+          />
+        </EmptyMedia>
+        <EmptyTitle>No webhooks yet</EmptyTitle>
+        <EmptyDescription>
+          Create a webhook to receive notifications about run events.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -213,12 +221,12 @@ function WebhooksPage() {
             {filteredData.length === 1 ? "" : "s"}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-success" />
+            <StatusBadge dotOnly size="xs" status="active" />
             <span className="tabular-nums">{summary.active}</span>
             <span className="text-muted-foreground">active</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block size-1.5 rounded-full bg-muted-foreground/40" />
+            <StatusBadge dotOnly size="xs" status="inactive" />
             <span className="tabular-nums">{summary.inactive}</span>
             <span className="text-muted-foreground">inactive</span>
           </span>
@@ -226,49 +234,31 @@ function WebhooksPage() {
       )}
 
       <div className="flex items-center gap-3 pb-2.5">
-        <div className="relative w-full max-w-[500px]">
-          <HugeiconsIcon
-            className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-            icon={SearchIcon}
-            size={16}
-          />
-          <Input
-            aria-label="Search"
-            className="pl-9"
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  query: e.target.value || undefined,
-                  cursor: undefined,
-                }),
-              })
-            }
-            placeholder="Search webhooks..."
-            value={search.query ?? ""}
-          />
-        </div>
+        <InputWithStartIcon
+          aria-label="Search"
+          containerClassName="w-full max-w-[500px]"
+          icon={<HugeiconsIcon icon={SearchIcon} size={16} />}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                query: e.target.value || undefined,
+                cursor: undefined,
+              }),
+            })
+          }
+          placeholder="Search webhooks"
+          value={search.query ?? ""}
+        />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Status
-            {selectedStatuses.length > 0 && (
-              <Badge variant="default">{selectedStatuses.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {WEBHOOK_STATUS_OPTIONS.map((status) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedStatuses.includes(status)}
-                key={status}
-                onCheckedChange={() => toggleStatus(status)}
-              >
-                {status}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          onChange={handleStatusFiltersChange}
+          options={WEBHOOK_STATUS_OPTIONS.map((status) => ({
+            label: status,
+            value: status,
+          }))}
+          values={selectedStatuses}
+        />
 
         <Button
           className="ml-auto"
@@ -280,74 +270,61 @@ function WebhooksPage() {
         </Button>
       </div>
 
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const webhook = table.getRowModel().rows[idx]?.original;
-          if (webhook) {
-            handleRowClick(webhook);
-          }
-        }}
-      >
-        <DataTable
-          ariaLabel="Webhooks"
-          cursorPagination={{
-            pageSize: pagination.perPage,
-            hasMore: typed?.has_more ?? false,
-            canGoBack: pagination.canGoBack,
-            onNext: () => {
-              if (typed?.next_cursor) {
-                pagination.goNext(typed.next_cursor);
-              }
-            },
-            onPrev: pagination.goPrev,
-            onPageSizeChange: pagination.setPerPage,
-          }}
-          emptyState={emptyState}
-          floatingBar={
-            <DataTableFloatingBar
-              actions={[
-                ...(selectedIds.length === 1
-                  ? [
-                      {
-                        label: "View",
-                        icon: EyeIcon,
-                        onClick: () => {
-                          const webhook = table
-                            .getRowModel()
-                            .rows.find(
-                              (r) => r.id === selectedIds[0]
-                            )?.original;
-                          if (webhook) {
-                            handleRowClick(webhook);
-                          }
-                        },
-                      },
-                    ]
-                  : []),
-                {
-                  label: "Delete",
-                  icon: TrashIcon,
-                  onClick: () => setDeleteTarget(selectedIds),
-                  variant: "destructive" as const,
-                },
-              ]}
-              onClearSelection={() => setRowSelection({})}
-              selectedCount={selectedIds.length}
-            />
-          }
+      <div onClickCapture={stopInteractiveRowClick}>
+        <DataGrid
+          emptyMessage={emptyState}
+          onRowClick={handleRowClick}
+          recordCount={table.getRowModel().rows.length}
           table={table}
-        />
+          tableClassNames={{ base: "min-w-[1200px]" }}
+        >
+          <DataGridContainer>
+            <DataGridScrollArea>
+              <DataGridTable />
+            </DataGridScrollArea>
+          </DataGridContainer>
+          <CursorPagination
+            cursor={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
+            }}
+            table={table}
+          />
+          <DataGridSelectionBar
+            actions={[
+              ...(selectedIds.length === 1
+                ? [
+                    {
+                      label: "View",
+                      icon: EyeIcon,
+                      onClick: () => {
+                        const webhook = table
+                          .getRowModel()
+                          .rows.find((r) => r.id === selectedIds[0])?.original;
+                        if (webhook) {
+                          handleRowClick(webhook);
+                        }
+                      },
+                    },
+                  ]
+                : []),
+              {
+                label: "Delete",
+                icon: TrashIcon,
+                onClick: () => setDeleteTarget(selectedIds),
+                variant: "destructive",
+              },
+            ]}
+          />
+        </DataGrid>
       </div>
 
       <AlertDialog

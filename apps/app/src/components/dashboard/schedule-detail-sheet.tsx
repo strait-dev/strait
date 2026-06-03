@@ -1,12 +1,18 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import {
   Sheet,
   SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
 import type { Job } from "@/hooks/api/types";
 import {
@@ -15,29 +21,12 @@ import {
   ClockIcon,
   RefreshIcon,
 } from "@/lib/icons";
-import StatusBadge from "./status-badge";
 
 type ScheduleDetailSheetProps = {
   schedule: Job | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
-
-const DetailRow = ({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) => (
-  <div className="flex items-center gap-2 text-sm">
-    <HugeiconsIcon className="size-3.5 text-muted-foreground" icon={icon} />
-    <span className="text-muted-foreground">{label}</span>
-    <span className="ml-auto font-mono text-sm">{value}</span>
-  </div>
-);
 
 const ScheduleDetailSheet = ({
   schedule,
@@ -72,28 +61,36 @@ const ScheduleDetailSheet = ({
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
               Schedule
             </h4>
-            <div className="space-y-2.5">
-              <DetailRow
-                icon={CalendarIcon}
-                label="Cron"
-                value={schedule.cron || "-"}
-              />
-              <DetailRow
-                icon={ClockIcon}
-                label="Timeout"
-                value={`${schedule.timeout_secs}s`}
-              />
-              <DetailRow
-                icon={RefreshIcon}
-                label="Max Attempts"
-                value={`${schedule.max_attempts}`}
-              />
-              <DetailRow
-                icon={BriefcaseIcon}
-                label="Job"
-                value={schedule.name}
-              />
-            </div>
+            <DescriptionList orientation="horizontal" size="sm">
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5" icon={CalendarIcon} />
+                Cron
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {schedule.cron || "-"}
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5" icon={ClockIcon} />
+                Timeout
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {schedule.timeout_secs}s
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5" icon={RefreshIcon} />
+                Max Attempts
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {schedule.max_attempts}
+              </DescriptionDetails>
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3.5" icon={BriefcaseIcon} />
+                Job
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {schedule.name}
+              </DescriptionDetails>
+            </DescriptionList>
           </div>
 
           {/* Description */}

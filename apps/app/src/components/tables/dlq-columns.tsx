@@ -1,3 +1,5 @@
+import { Button } from "@strait/ui/components/button";
+import { IdCell } from "@strait/ui/components/id-cell";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import type { JobRun } from "@/hooks/api/types";
@@ -18,33 +20,30 @@ export const createDlqColumns = (
     accessorKey: "id",
     header: "Run ID",
     cell: ({ row }) => (
-      <button
+      <Button
         aria-label={`View run ${row.original.id}`}
-        className="font-mono text-xs underline-offset-2 hover:underline"
+        className="font-mono"
         onClick={(event) => {
           event.stopPropagation();
           actions.onView?.(row.original);
         }}
-        type="button"
+        size="xs"
+        variant="link"
       >
-        <code>{row.original.id.slice(0, 8)}</code>
-      </button>
+        {row.original.id.slice(0, 8)}
+      </Button>
     ),
   },
   {
     accessorKey: "job_id",
     header: "Job",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">
-        {row.original.job_id.slice(0, 8)}
-      </span>
-    ),
+    cell: ({ row }) => <IdCell id={row.original.job_id} length={8} />,
   },
   {
     accessorKey: "error",
     header: "Error",
     cell: ({ row }) => (
-      <span className="line-clamp-1 text-destructive text-sm">
+      <span className="line-clamp-1 text-sm">
         {row.original.error || "\u2014"}
       </span>
     ),

@@ -1,4 +1,8 @@
 import { Button } from "@strait/ui/components/button";
+import {
+  NoticeBanner,
+  NoticeBannerAction,
+} from "@strait/ui/components/notice-banner";
 import { useQuery } from "@tanstack/react-query";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { getCustomerPortalUrlServerFn } from "@/lib/subscription";
@@ -30,30 +34,37 @@ const PaymentStatusBanner = () => {
 
   if (isRestricted) {
     return (
-      <div className="flex items-center justify-between rounded border border-destructive/50 bg-destructive/10 px-4 py-2">
-        <p className="text-destructive text-sm">
-          Your account is restricted due to failed payment. New runs are
-          blocked.
-        </p>
-        <Button onClick={handleUpdatePayment} variant="destructive">
-          Update Payment Method
-        </Button>
-      </div>
+      <NoticeBanner
+        action={
+          <NoticeBannerAction>
+            <Button onClick={handleUpdatePayment} variant="destructive">
+              Update payment method
+            </Button>
+          </NoticeBannerAction>
+        }
+        title="Account restricted"
+        variant="destructive"
+      >
+        Your account is restricted due to failed payment. New runs are blocked.
+      </NoticeBanner>
     );
   }
 
   return (
-    <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-2">
-      <p className="text-sm text-warning">
-        Payment failed.
-        {graceEnd
-          ? ` Update your payment method by ${graceEnd} to avoid service interruption.`
-          : " Please update your payment method."}
-      </p>
-      <Button onClick={handleUpdatePayment} variant="default">
-        Update Payment
-      </Button>
-    </div>
+    <NoticeBanner
+      action={
+        <NoticeBannerAction>
+          <Button onClick={handleUpdatePayment}>Update payment</Button>
+        </NoticeBannerAction>
+      }
+      title="Payment failed"
+      variant="warning"
+    >
+      Payment failed.
+      {graceEnd
+        ? ` Update your payment method by ${graceEnd} to avoid service interruption.`
+        : " Please update your payment method."}
+    </NoticeBanner>
   );
 };
 

@@ -10,7 +10,6 @@ import {
   AlarmClockIcon as _AlarmClockIcon,
   AlertCircleIcon as _AlertCircleIcon,
   CreditCardIcon as _CreditCardIcon,
-  FilterIcon as _FilterIcon,
   HelpCircleIcon as _HelpCircleIcon,
   LinkSquare01Icon as _LinkSquare01Icon,
   MoreVerticalIcon as _MoreVerticalIcon,
@@ -22,7 +21,6 @@ import {
   Add01Icon,
   Alert02Icon,
   ArrowDown01Icon,
-  ArrowDownRight01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUpRight01Icon,
@@ -35,7 +33,6 @@ import {
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
-  Copy01Icon,
   Delete02Icon,
   File01Icon,
   GitBranchIcon,
@@ -44,7 +41,6 @@ import {
   Key01Icon,
   Layers01Icon,
   Link01Icon,
-  Loading03Icon,
   Logout05Icon,
   Mail01Icon,
   Moon02Icon,
@@ -73,11 +69,9 @@ export const PlayActionIcon = PlayIcon;
 export const PauseActionIcon = PauseIcon;
 export const PlusIcon = Add01Icon;
 export const TrashIcon = Delete02Icon;
-export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
 export const SearchIcon = Search01Icon;
 export const PencilEditIcon = PencilEdit02Icon;
-export const CopyIcon = Copy01Icon;
 
 // Status / feedback
 export const AlertIcon = Alert02Icon;
@@ -95,7 +89,6 @@ export const ChevronDownIcon = ArrowDown01Icon;
 export const ChevronLeftIcon = ArrowLeft01Icon;
 export const ChevronRightIcon = ArrowRight01Icon;
 export const ArrowUpRightIcon = ArrowUpRight01Icon;
-export const ArrowDownRightIcon = ArrowDownRight01Icon;
 
 // Content / files
 export const FileTextIcon = File01Icon;
@@ -135,6 +128,5 @@ export const AlarmClockIcon = _AlarmClockIcon;
 export const AlertCircleIcon = _AlertCircleIcon;
 export const LinkSquareIcon = _LinkSquare01Icon;
 export const SparklesIcon = _SparklesIcon;
-export const LoadingIcon = Loading03Icon;
 export const UnfoldMoreIcon = _UnfoldMoreIcon;
 export const UsersAltIcon = UserMultipleIcon;

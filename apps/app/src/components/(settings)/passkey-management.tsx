@@ -7,14 +7,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import {
   passkeysQueryOptions,
   useAddPasskey,
   useDeletePasskey,
 } from "@/hooks/auth/use-account";
-import { KeyIcon, LoadingIcon, TrashIcon } from "@/lib/icons";
+import { KeyIcon, TrashIcon } from "@/lib/icons";
 
 const PasskeyManagement = () => {
   const { data: passkeys = [], isLoading } = useQuery(passkeysQueryOptions());
@@ -66,10 +76,7 @@ const PasskeyManagement = () => {
           </div>
           <Button disabled={addPasskey.isPending} onClick={handleAdd}>
             {addPasskey.isPending ? (
-              <HugeiconsIcon
-                className="size-3 animate-spin"
-                icon={LoadingIcon}
-              />
+              <Spinner size="xs" />
             ) : (
               <HugeiconsIcon className="size-3" icon={KeyIcon} />
             )}
@@ -80,7 +87,7 @@ const PasskeyManagement = () => {
       <CardContent>
         {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+            <Spinner />
             Loading passkeys...
           </div>
         )}
@@ -90,50 +97,44 @@ const PasskeyManagement = () => {
           </p>
         )}
         {!isLoading && passkeys.length > 0 && (
-          <div className="flex flex-col gap-3">
+          <ItemGroup>
             {passkeys.map((passkey) => {
               const isDeleting =
                 deletePasskey.isPending &&
                 deletePasskey.variables === passkey.id;
 
               return (
-                <div
-                  className="flex items-center justify-between rounded-md border p-3"
-                  key={passkey.id}
-                >
-                  <div className="flex items-center gap-3">
+                <Item key={passkey.id} variant="outline">
+                  <ItemMedia variant="icon">
                     <HugeiconsIcon
                       className="size-4 text-muted-foreground"
                       icon={KeyIcon}
                     />
-                    <div>
-                      <p className="font-medium text-sm">
-                        {passkey.name ?? "Passkey"}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        Added {formatDate(passkey.createdAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    disabled={isDeleting}
-                    onClick={() => handleDelete(passkey.id)}
-                    variant="destructive"
-                  >
-                    {isDeleting ? (
-                      <HugeiconsIcon
-                        className="size-3 animate-spin"
-                        icon={LoadingIcon}
-                      />
-                    ) : (
-                      <HugeiconsIcon className="size-3" icon={TrashIcon} />
-                    )}
-                    Remove
-                  </Button>
-                </div>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>{passkey.name ?? "Passkey"}</ItemTitle>
+                    <ItemDescription>
+                      Added {formatDate(passkey.createdAt)}
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
+                      disabled={isDeleting}
+                      onClick={() => handleDelete(passkey.id)}
+                      variant="destructive"
+                    >
+                      {isDeleting ? (
+                        <Spinner size="xs" />
+                      ) : (
+                        <HugeiconsIcon className="size-3" icon={TrashIcon} />
+                      )}
+                      Remove
+                    </Button>
+                  </ItemActions>
+                </Item>
               );
             })}
-          </div>
+          </ItemGroup>
         )}
       </CardContent>
     </Card>

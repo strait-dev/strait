@@ -20,8 +20,17 @@
 
 type Edition = "cloud" | "community";
 
+const viteEnv = (
+  import.meta as ImportMeta & {
+    env?: { VITE_STRAIT_EDITION?: string };
+  }
+).env;
+
 const RAW_EDITION: string | undefined =
-  import.meta.env.VITE_STRAIT_EDITION ?? undefined;
+  viteEnv?.VITE_STRAIT_EDITION ??
+  (typeof process === "undefined"
+    ? undefined
+    : process.env.VITE_STRAIT_EDITION);
 
 export const EDITION: Edition =
   RAW_EDITION === "community" ? "community" : "cloud";

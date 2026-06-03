@@ -201,5 +201,5 @@ Billing is handled through Stripe. The dashboard includes usage tracking, spendi
 
 | Package | Path | Purpose |
 |---|---|---|
-| `@strait/ui` | `packages/ui` | Shared component library (Tailwind v4, Radix) |
+| `@strait/ui` | npm package | Shared component library (Tailwind v4, Base UI) |
 | `@strait/transactional` | `packages/transactional` | Email templates (React Email) |

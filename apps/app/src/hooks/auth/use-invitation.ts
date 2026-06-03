@@ -29,11 +29,6 @@ interface InvitationParams {
   organizationId: string;
 }
 
-/** Parameters for invitation ID queries. */
-interface InvitationIdParams {
-  invitationId: string;
-}
-
 const toDate = (value: unknown) =>
   value instanceof Date ? value : new Date(String(value));
 
@@ -76,22 +71,6 @@ const listInvitationsServerFn = createServerFn({ method: "GET" })
     );
   });
 
-const getInvitationServerFn = createServerFn({ method: "GET" })
-  .inputValidator((data: { id: string }) => data)
-  .handler(async ({ data }) => {
-    const headers = getRequestHeaders();
-    const invitation = await (await getAuth()).api.getInvitation({
-      query: { id: data.id },
-      headers,
-    });
-
-    if (!invitation) {
-      return null;
-    }
-
-    return mapInvitation(invitation);
-  });
-
 const createInvitationServerFn = createServerFn({ method: "POST" })
   .inputValidator(
     (data: { email: string; role: InvitationRole; organizationId: string }) =>
@@ -129,15 +108,6 @@ export const invitationsQueryOptions = (params: InvitationParams) =>
     staleTime: DEFAULT_STALE_TIME,
     gcTime: DEFAULT_GC_TIME,
     placeholderData: keepPreviousData,
-  });
-
-/** Query options for fetching a single invitation. */
-export const invitationQueryOptions = (params: InvitationIdParams) =>
-  queryOptions({
-    queryKey: ["invitations", params.invitationId],
-    queryFn: () => getInvitationServerFn({ data: { id: params.invitationId } }),
-    staleTime: DEFAULT_STALE_TIME,
-    gcTime: DEFAULT_GC_TIME,
   });
 
 /** Represents public invitation data for unauthenticated users. */
@@ -340,4 +310,4 @@ export const useRejectInvitation = () => {
   });
 };
 
-export type { InvitationIdParams, InvitationParams };
+export type { InvitationParams };

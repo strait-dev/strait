@@ -5,6 +5,10 @@ import {
   CollapsibleTrigger,
 } from "@strait/ui/components/collapsible";
 import {
+  CommandMenu,
+  type CommandMenuGroup,
+} from "@strait/ui/components/command-menu";
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -16,10 +20,12 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSearchButton,
+  SidebarSeparator,
 } from "@strait/ui/components/sidebar";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useRouterState } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Suspense, useMemo } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { isCommunityEdition } from "@/lib/edition";
 import {
@@ -33,8 +39,10 @@ import {
   HelpCircleIcon,
   LayersIcon,
   PlayActionIcon,
+  SettingsOutlineIcon,
   SparklesIcon,
   TrendingUpIcon,
+  UserIcon,
   WebhookIcon,
   WorkflowIcon,
 } from "@/lib/icons";
@@ -43,7 +51,6 @@ import OrganizationDropdownMenu from "../organization/organization-dropdown-menu
 import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
 import TrialUpgradeCard from "../subscription/trial-upgrade-card";
-import CommandMenu from "./command-menu";
 
 type NavItem = {
   title: string;
@@ -53,7 +60,17 @@ type NavItem = {
   exact?: boolean;
 };
 
+type CommandRoute = NavItem & {
+  keywords: string[];
+};
+
 const mainNav: NavItem[] = [
+  {
+    title: "Getting Started",
+    url: "/app",
+    icon: SparklesIcon,
+    exact: true,
+  },
   { title: "Dashboard", url: "/app/dashboard", icon: DashboardIcon },
   { title: "Analytics", url: "/app/analytics", icon: TrendingUpIcon },
   { title: "Jobs", url: "/app/jobs", icon: BriefcaseIcon },
@@ -69,11 +86,27 @@ const observabilityNav: NavItem[] = [
   { title: "Webhooks", url: "/app/webhooks", icon: WebhookIcon },
 ];
 
+const commandRoutes: CommandRoute[] = [
+  ...mainNav.map((item) => ({
+    title: item.title,
+    url: item.url,
+    icon: item.icon,
+    keywords: [item.title.toLowerCase()],
+  })),
+  ...observabilityNav.map((item) => ({
+    title: item.title,
+    url: item.url,
+    icon: item.icon,
+    keywords: [item.title.toLowerCase()],
+  })),
+];
+
 type Props = {
   session: NonNullable<Session>;
 };
 
 const AppSidebar = ({ session }: Props) => {
+  const navigate = useNavigate();
   const { data: subscriptionState } = useSuspenseQuery(
     subscriptionStateQueryOptions()
   );
@@ -82,6 +115,59 @@ const AppSidebar = ({ session }: Props) => {
   const pathname = useRouterState({
     select: (s) => s.location.pathname,
   });
+  const orgSettingsRoute = session.user.defaultOrganizationId
+    ? `/app/org/${session.user.defaultOrganizationId}`
+    : "/app/settings";
+
+  const commandGroups = useMemo<CommandMenuGroup[]>(
+    () => [
+      {
+        heading: "Navigation",
+        items: commandRoutes.map((route) => ({
+          label: route.title,
+          icon: route.icon,
+          keywords: route.keywords,
+          onSelect: () => navigate({ to: route.url }),
+        })),
+      },
+      {
+        heading: "Settings",
+        items: [
+          {
+            label: "Account Settings",
+            icon: UserIcon,
+            keywords: ["profile", "password", "email", "account"],
+            onSelect: () => navigate({ to: "/app/settings" }),
+          },
+          {
+            label: "Organization Settings",
+            icon: SettingsOutlineIcon,
+            keywords: ["org", "team", "billing", "subscription", "members"],
+            onSelect: () => navigate({ to: orgSettingsRoute }),
+          },
+        ],
+      },
+      {
+        heading: "Quick Actions",
+        items: [
+          {
+            label: "Create job",
+            icon: BriefcaseIcon,
+            shortcut: "⌘N",
+            keywords: ["new", "create", "add"],
+            onSelect: () => navigate({ to: "/app/jobs" }),
+          },
+          {
+            label: "Create workflow",
+            icon: WorkflowIcon,
+            keywords: ["new", "create", "add", "pipeline"],
+            onSelect: () => navigate({ to: "/app/workflows" }),
+          },
+        ],
+      },
+    ],
+    [navigate, orgSettingsRoute]
+  );
 
   /** Check whether a nav item is active based on the current pathname. */
   const isActive = (item: NavItem) => {
@@ -94,7 +180,7 @@ const AppSidebar = ({ session }: Props) => {
 
   return (
     <Sidebar collapsible="offcanvas">
-      <SidebarHeader className="h-16 border-sidebar-border border-b">
+      <SidebarHeader className="h-16">
         <div className="flex h-full w-full items-center px-2">
           <Link to="/app">
             <span className="sr-only">Strait</span>
@@ -108,9 +194,9 @@ const AppSidebar = ({ session }: Props) => {
           </Link>
         </div>
       </SidebarHeader>
+      <SidebarSeparator />
 
-      <SidebarContent>
-        {/* Project switcher */}
+      <SidebarContent className="pt-2">
         <SidebarGroup>
           <SidebarGroupLabel>Project</SidebarGroupLabel>
           <SidebarMenu>
@@ -120,23 +206,25 @@ const AppSidebar = ({ session }: Props) => {
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* Search */}
         <SidebarGroup>
-          <CommandMenu organizationId={session.user.defaultOrganizationId} />
+          <CommandMenu
+            groups={commandGroups}
+            placeholder="Search..."
+            trigger={<SidebarSearchButton placeholder="Search..." />}
+          />
         </SidebarGroup>
 
-        {/* Main navigation */}
         <SidebarGroup>
           <SidebarMenu>
             {mainNav.map((item) => (
               <SidebarMenuItem key={item.url}>
                 <SidebarMenuButton
-                  isActive={isActive(item)}
+                  active={isActive(item)}
                   render={<Link to={item.url} />}
                   tooltip={item.title}
                 >
                   <HugeiconsIcon
-                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                     icon={item.icon}
                     size={22}
                   />
@@ -147,7 +235,6 @@ const AppSidebar = ({ session }: Props) => {
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* Observability group */}
         <SidebarGroup>
           <Collapsible className="group/collapsible" defaultOpen>
             <SidebarGroupLabel
@@ -165,12 +252,12 @@ const AppSidebar = ({ session }: Props) => {
                   {observabilityNav.map((item) => (
                     <SidebarMenuItem key={item.url}>
                       <SidebarMenuButton
-                        isActive={isActive(item)}
+                        active={isActive(item)}
                         render={<Link to={item.url} />}
                         tooltip={item.title}
                       >
                         <HugeiconsIcon
-                          className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                          className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                           icon={item.icon}
                           size={22}
                         />
@@ -184,15 +271,12 @@ const AppSidebar = ({ session }: Props) => {
           </Collapsible>
         </SidebarGroup>
 
-        {/* Billing — cloud edition only. Self-host builds hide this
-            entire section so users cannot reach Stripe checkout or
-            the customer portal. See `src/lib/edition.ts`. */}
         {isCommunityEdition ? null : (
           <SidebarGroup>
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
-                  isActive={
+                  active={
                     pathname === "/app/billing" ||
                     pathname.startsWith("/app/billing/")
                   }
@@ -200,7 +284,7 @@ const AppSidebar = ({ session }: Props) => {
                   tooltip="Billing"
                 >
                   <HugeiconsIcon
-                    className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+                    className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
                     icon={CreditCardIcon}
                     size={22}
                   />
@@ -215,22 +299,9 @@ const AppSidebar = ({ session }: Props) => {
       {!isCommunityEdition && hasPendingPayment ? <PaymentPendingCard /> : null}
       {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
 
-      <SidebarFooter className="flex flex-col border-sidebar-border border-t">
+      <SidebarSeparator />
+      <SidebarFooter className="flex flex-col">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={pathname === "/app"}
-              render={<Link search={{ quickstart: true }} to="/app" />}
-              tooltip="Quick start"
-            >
-              <HugeiconsIcon
-                className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
-                icon={SparklesIcon}
-                size={20}
-              />
-              <span>Quick start</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               render={(props) => (
@@ -246,7 +317,7 @@ const AppSidebar = ({ session }: Props) => {
               tooltip="Documentation"
             >
               <HugeiconsIcon
-                className="text-muted-foreground/65"
+                className="text-muted-foreground"
                 icon={HelpCircleIcon}
                 size={20}
               />

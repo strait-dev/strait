@@ -5,6 +5,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { Field, FieldLabel } from "@strait/ui/components/field";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { Separator } from "@strait/ui/components/separator";
+import { Slider } from "@strait/ui/components/slider";
 import { useState } from "react";
 import { PLAN_LIMITS, type PlanTier } from "@/lib/billing-constants";
 
@@ -68,6 +78,9 @@ const findRecommendedPlan = (costs: { tier: PlanTier; cost: number }[]) => {
   return best.tier;
 };
 
+const getSliderValue = (value: number | readonly number[], fallback: number) =>
+  Array.isArray(value) ? (value[0] ?? fallback) : value;
+
 const PricingCalculator = () => {
   const [runsPerMonth, setRunsPerMonth] = useState(50_000);
   const [members, setMembers] = useState(3);
@@ -87,77 +100,67 @@ const PricingCalculator = () => {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="space-y-2">
+        <Field>
           <div className="flex items-center justify-between">
-            <label
-              className="text-muted-foreground text-sm"
-              htmlFor="calc-runs"
-            >
-              Runs per month
-            </label>
+            <FieldLabel>Runs per month</FieldLabel>
             <span className="font-mono text-sm tabular-nums">
               {runsPerMonth.toLocaleString()}
             </span>
           </div>
-          <input
-            className="w-full accent-foreground"
-            id="calc-runs"
+          <Slider
+            aria-label="Runs per month"
             max={30_000_000}
             min={0}
-            onChange={(e) => setRunsPerMonth(Number(e.target.value))}
+            onValueChange={(value) => setRunsPerMonth(getSliderValue(value, 0))}
             step={50_000}
-            type="range"
-            value={runsPerMonth}
+            value={[runsPerMonth]}
           />
-          <div className="flex justify-between text-muted-foreground/60 text-xs">
+          <div className="flex justify-between text-muted-foreground text-xs">
             <span>0</span>
             <span>30M</span>
           </div>
-        </div>
+        </Field>
 
-        <div className="space-y-2">
+        <Field>
           <div className="flex items-center justify-between">
-            <label
-              className="text-muted-foreground text-sm"
-              htmlFor="calc-members"
-            >
-              Team members
-            </label>
+            <FieldLabel>Team members</FieldLabel>
             <span className="font-mono text-sm tabular-nums">{members}</span>
           </div>
-          <input
-            className="w-full accent-foreground"
-            id="calc-members"
+          <Slider
+            aria-label="Team members"
             max={50}
             min={1}
-            onChange={(e) => setMembers(Number(e.target.value))}
+            onValueChange={(value) => setMembers(getSliderValue(value, 1))}
             step={1}
-            type="range"
-            value={members}
+            value={[members]}
           />
-          <div className="flex justify-between text-muted-foreground/60 text-xs">
+          <div className="flex justify-between text-muted-foreground text-xs">
             <span>1</span>
             <span>50</span>
           </div>
-        </div>
+        </Field>
 
-        <div className="space-y-2 border-border border-t pt-4">
-          {planCosts.map(({ tier, cost }) => (
-            <div
-              className="flex items-center justify-between rounded-md px-3 py-2 text-sm transition-colors hover:bg-muted/50"
-              key={tier}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{PLAN_LABELS[tier]}</span>
-                {recommended === tier ? (
-                  <Badge variant="success-light">Best value</Badge>
-                ) : null}
-              </div>
-              <span className="font-mono tabular-nums">
-                {cost < 0 ? "Custom" : `$${cost.toFixed(2)}/mo`}
-              </span>
-            </div>
-          ))}
+        <div className="space-y-3 pt-1">
+          <Separator />
+          <ItemGroup className="gap-2">
+            {planCosts.map(({ tier, cost }) => (
+              <Item key={tier} size="xs" variant="ghost">
+                <ItemContent>
+                  <ItemTitle>
+                    {PLAN_LABELS[tier]}
+                    {recommended === tier ? (
+                      <Badge variant="success-light">Best value</Badge>
+                    ) : null}
+                  </ItemTitle>
+                </ItemContent>
+                <ItemActions>
+                  <span className="font-mono text-sm tabular-nums">
+                    {cost < 0 ? "Custom" : `$${cost.toFixed(2)}/mo`}
+                  </span>
+                </ItemActions>
+              </Item>
+            ))}
+          </ItemGroup>
         </div>
       </CardContent>
     </Card>

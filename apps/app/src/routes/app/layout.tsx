@@ -1,3 +1,4 @@
+import { Separator } from "@strait/ui/components/separator";
 import {
   SidebarInset,
   SidebarProvider,
@@ -216,28 +217,28 @@ function RouteComponent() {
     <SidebarProvider>
       <Sidebar session={session} />
       <SidebarInset>
-        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center border-b bg-background">
-          <div className="w-full px-2">
-            <div className="flex w-full items-center justify-between">
-              <div className="flex items-center gap-3">
-                <SidebarTrigger className="-ml-1 text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary" />
-                <HeaderBreadcrumb />
-              </div>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <ThemeToggle />
-                <span className="hidden sm:inline-flex">
-                  <FeedbackDialog user={session.user} />
-                </span>
-                <SupportDialog user={session.user} />
-                <HeaderUserMenu user={session.user} />
+        <div className="sticky top-0 z-30 shrink-0">
+          <header className="flex h-16 items-center">
+            <div className="w-full px-2">
+              <div className="flex w-full items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <SidebarTrigger className="-ml-1 text-muted-foreground group-data-[active=true]/menu-button:text-primary" />
+                  <HeaderBreadcrumb />
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <ThemeToggle />
+                  <span className="hidden sm:inline-flex">
+                    <FeedbackDialog user={session.user} />
+                  </span>
+                  <SupportDialog user={session.user} />
+                  <HeaderUserMenu user={session.user} />
+                </div>
               </div>
             </div>
-          </div>
-        </header>
-        <div
-          className="flex flex-1 flex-col gap-4 bg-background pt-0"
-          vaul-drawer-wrapper=""
-        >
+          </header>
+          <Separator />
+        </div>
+        <div className="flex flex-1 flex-col gap-4 pt-0" vaul-drawer-wrapper="">
           <div className="space-y-2 px-4 pt-2">
             <PaymentStatusBanner />
             <UpgradeNudgeBanner />

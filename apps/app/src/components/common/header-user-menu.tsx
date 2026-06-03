@@ -14,12 +14,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useAnalytics } from "@/hooks/analytics/use-analytics";
 import { authClient } from "@/lib/auth-client";
-import { LoadingIcon, LogOutIcon, SettingsOutlineIcon } from "@/lib/icons";
+import { LogOutIcon, SettingsOutlineIcon } from "@/lib/icons";
 import { captureException, clearSentryUser } from "@/lib/sentry";
 import type { AuthUser } from "@/routes/__root";
 
@@ -72,15 +73,7 @@ const HeaderUserMenu = ({ user }: Props) => {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            className="size-8 rounded-lg p-0"
-            size="icon"
-            variant="ghost"
-          />
-        }
-      >
+      <DropdownMenuTrigger render={<Button size="icon" variant="ghost" />}>
         <Avatar className="size-8">
           {user.image ? (
             <AvatarImage alt="User Avatar" src={user.image} />
@@ -123,7 +116,7 @@ const HeaderUserMenu = ({ user }: Props) => {
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={isSigningOut} onClick={handleLogout}>
           {isSigningOut ? (
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+            <Spinner />
           ) : (
             <HugeiconsIcon className="size-4" icon={LogOutIcon} />
           )}

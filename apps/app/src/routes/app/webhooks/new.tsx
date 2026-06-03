@@ -1,4 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@strait/ui/components/alert";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
@@ -8,12 +13,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { Checkbox } from "@strait/ui/components/checkbox";
+import {
+  CardCheckboxGroup,
+  CardCheckboxItem,
+} from "@strait/ui/components/card-checkbox";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { SecretInput } from "@strait/ui/components/secret-input";
+import { Separator } from "@strait/ui/components/separator";
 import { Shell } from "@strait/ui/components/shell";
-import { toast } from "@strait/ui/components/toast/index";
-import { cn } from "@strait/ui/utils/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -25,13 +35,7 @@ import {
 } from "@/hooks/api/use-webhooks";
 import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { formatFieldErrors } from "@/lib/form-errors";
-import {
-  CheckIcon,
-  ChevronLeftIcon,
-  CopyIcon,
-  LoadingIcon,
-  PlusIcon,
-} from "@/lib/icons";
+import { CheckIcon, ChevronLeftIcon, PlusIcon } from "@/lib/icons";
 import { tierAtLeast } from "@/lib/plan-tiers";
 
 const BASIC_EVENTS = [
@@ -152,35 +156,19 @@ function CreateWebhookPage() {
       </div>
 
       {createdWebhook && (
-        <div className="mx-auto mb-6 max-w-2xl rounded-md border bg-muted/40 p-4">
-          <div className="mb-3 flex items-start gap-3">
-            <HugeiconsIcon
-              className="mt-0.5 size-4 text-emerald-600"
-              icon={CheckIcon}
+        <Alert className="mx-auto mb-6 max-w-2xl" variant="success">
+          <HugeiconsIcon className="size-4" icon={CheckIcon} />
+          <AlertTitle>Webhook created</AlertTitle>
+          <AlertDescription>
+            Copy this signing secret now. It will not be shown again.
+            <SecretInput
+              aria-label="Webhook signing secret"
+              className="mt-3 font-mono"
+              readOnly
+              value={createdWebhook.signing_secret}
             />
-            <div className="min-w-0 flex-1">
-              <h2 className="font-medium text-sm">Webhook created</h2>
-              <p className="mt-1 text-muted-foreground text-sm">
-                Copy this signing secret now. It will not be shown again.
-              </p>
-            </div>
-          </div>
-          <div className="rounded-md border bg-background p-3">
-            <code className="break-all text-sm">
-              {createdWebhook.signing_secret}
-            </code>
-          </div>
-          <div className="mt-4 flex flex-wrap justify-end gap-3">
-            <Button
-              onClick={() => {
-                navigator.clipboard.writeText(createdWebhook.signing_secret);
-                toast.success("Signing secret copied to clipboard.");
-              }}
-              variant="outline"
-            >
-              <HugeiconsIcon className="size-4" icon={CopyIcon} />
-              Copy secret
-            </Button>
+          </AlertDescription>
+          <div className="col-start-2 mt-4 flex flex-wrap justify-end gap-3">
             <Button
               onClick={() =>
                 router.navigate({
@@ -192,7 +180,7 @@ function CreateWebhookPage() {
               View webhook
             </Button>
           </div>
-        </div>
+        </Alert>
       )}
 
       <form
@@ -255,67 +243,43 @@ function CreateWebhookPage() {
             <form.Field name="event_types">
               {(field) => (
                 <Field>
-                  <div className="space-y-3">
+                  <CardCheckboxGroup>
                     {BASIC_EVENTS.map((event) => (
-                      // biome-ignore lint/a11y/noLabelWithoutControl: Checkbox is a custom component wrapping a native input
-                      <label
-                        className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent px-3 py-2.5 transition-colors hover:bg-muted/50"
+                      <CardCheckboxItem
+                        checked={field.state.value.includes(event.value)}
+                        description={event.description}
+                        id={`event-type-${event.value}`}
                         key={event.value}
-                      >
-                        <Checkbox
-                          checked={field.state.value.includes(event.value)}
-                          className="mt-0.5"
-                          onCheckedChange={() => toggleEventType(event.value)}
-                        />
-                        <div>
-                          <span className="font-medium text-sm">
-                            {event.label}
-                          </span>
-                          <p className="text-muted-foreground text-xs">
-                            {event.description}
-                          </p>
-                        </div>
-                      </label>
+                        label={event.label}
+                        layout="start"
+                        onCheckedChange={() => toggleEventType(event.value)}
+                      />
                     ))}
 
-                    <div className="my-2 border-t" />
+                    <Separator className="my-1" />
 
                     {PRO_EVENTS.map((event) => (
-                      // biome-ignore lint/a11y/noLabelWithoutControl: Checkbox is a custom component wrapping a native input
-                      <label
-                        className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent px-3 py-2.5 transition-colors hover:bg-muted/50"
+                      <CardCheckboxItem
+                        checked={field.state.value.includes(event.value)}
+                        description={event.description}
+                        disabled={!hasProEvents}
+                        id={`event-type-${event.value}`}
                         key={event.value}
-                      >
-                        <Checkbox
-                          checked={field.state.value.includes(event.value)}
-                          className="mt-0.5"
-                          disabled={!hasProEvents}
-                          onCheckedChange={() => toggleEventType(event.value)}
-                        />
-                        <div className="flex-1">
-                          <span
-                            className={cn(
-                              "font-medium text-sm",
-                              !hasProEvents && "text-muted-foreground"
-                            )}
-                          >
+                        label={
+                          <>
                             {event.label}
-                          </span>
-                          {!hasProEvents && (
-                            <Badge
-                              className="ml-1.5 text-[10px]"
-                              variant="outline"
-                            >
-                              Pro
-                            </Badge>
-                          )}
-                          <p className="text-muted-foreground text-xs">
-                            {event.description}
-                          </p>
-                        </div>
-                      </label>
+                            {!hasProEvents && (
+                              <Badge className="ml-1.5" variant="outline">
+                                Pro
+                              </Badge>
+                            )}
+                          </>
+                        }
+                        layout="start"
+                        onCheckedChange={() => toggleEventType(event.value)}
+                      />
                     ))}
-                  </div>
+                  </CardCheckboxGroup>
                   {field.state.meta.isTouched &&
                     field.state.meta.errors.length > 0 && (
                       <FieldError className="mt-2" id={`${field.name}-error`}>
@@ -344,10 +308,7 @@ function CreateWebhookPage() {
                 type="submit"
               >
                 {isSubmitting || createWebhook.isPending ? (
-                  <HugeiconsIcon
-                    className="size-4 animate-spin"
-                    icon={LoadingIcon}
-                  />
+                  <Spinner />
                 ) : (
                   <HugeiconsIcon className="size-4" icon={PlusIcon} />
                 )}

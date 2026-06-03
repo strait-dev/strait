@@ -1,3 +1,9 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
+import { Button } from "@strait/ui/components/button";
+import { EmptyMedia } from "@strait/ui/components/empty";
+import { Kbd } from "@strait/ui/components/kbd";
+import { Spinner } from "@strait/ui/components/spinner";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -6,6 +12,7 @@ import AuthLayout from "@/components/(auth)/auth-layout";
 import ErrorComponent from "@/components/common/error-component";
 import NotFound from "@/components/common/not-found";
 import { apiRequest } from "@/lib/api-client.server";
+import { CheckCircleIcon } from "@/lib/icons";
 import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveProjectAccess } from "@/middlewares/require-access";
 
@@ -67,11 +74,8 @@ function DeviceAuthPage() {
         title="Device Authorization"
       >
         <p className="text-center text-muted-foreground text-sm">
-          No authorization code provided. Run{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-            strait login
-          </code>{" "}
-          in your terminal to get started.
+          No authorization code provided. Run <Kbd>strait login</Kbd> in your
+          terminal to get started.
         </p>
       </AuthLayout>
     );
@@ -102,21 +106,9 @@ function DeviceAuthPage() {
         title="Device Authorized"
       >
         <div className="flex flex-col items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-full bg-success/10">
-            <svg
-              className="size-6 text-success"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M5 13l4 4L19 7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+          <EmptyMedia media="icon" size="lg" variant="success">
+            <HugeiconsIcon className="size-6" icon={CheckCircleIcon} />
+          </EmptyMedia>
           <p className="text-center text-muted-foreground text-sm">
             The Strait CLI has been authorized successfully.
             <br />
@@ -137,38 +129,42 @@ function DeviceAuthPage() {
           <p className="text-muted-foreground text-sm">
             Confirm this code matches your terminal:
           </p>
-          <div className="rounded-lg border-2 border-border bg-muted/50 px-6 py-3">
-            <span className="font-bold font-mono text-2xl text-foreground">
-              {code}
-            </span>
-          </div>
+          <Kbd className="px-6 py-3 font-bold text-2xl" size="lg">
+            {code}
+          </Kbd>
         </div>
 
         {error ? (
-          <div
-            className="w-full rounded-md bg-destructive/10 p-3 text-destructive text-sm"
-            role="alert"
-          >
-            {error}
-          </div>
+          <Alert className="w-full" variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
 
         <div className="flex w-full gap-3">
-          <button
-            className="flex-1 rounded border border-border bg-background px-4 py-2.5 font-medium text-foreground text-sm transition-colors hover:bg-muted"
+          <Button
+            className="flex-1"
             onClick={() => window.close()}
             type="button"
+            variant="secondary-outline"
           >
             Deny
-          </button>
-          <button
-            className="flex-1 rounded bg-primary px-4 py-2.5 font-medium text-primary-foreground text-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+          </Button>
+          <Button
+            className="flex-1"
             disabled={status === "approving"}
             onClick={handleApprove}
             type="button"
+            variant="brand-solid"
           >
-            {status === "approving" ? "Authorizing..." : "Authorize"}
-          </button>
+            {status === "approving" ? (
+              <>
+                <Spinner />
+                Authorizing...
+              </>
+            ) : (
+              "Authorize"
+            )}
+          </Button>
         </div>
 
         <p className="text-center text-muted-foreground text-xs">

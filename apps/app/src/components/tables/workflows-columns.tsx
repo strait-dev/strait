@@ -1,6 +1,7 @@
+import { Badge } from "@strait/ui/components/badge";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import type { ColumnDef } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
-import StatusBadge from "@/components/dashboard/status-badge";
 import type { Workflow } from "@/hooks/api/types";
 import { EyeIcon, PauseActionIcon, PlayActionIcon } from "@/lib/icons";
 import { createActionsColumn, createSelectColumn } from "./shared-columns";
@@ -51,7 +52,11 @@ export const createWorkflowColumns = (
   {
     accessorKey: "version",
     header: "Version",
-    cell: ({ row }) => <code className="text-xs">v{row.original.version}</code>,
+    cell: ({ row }) => (
+      <Badge mono size="xs" variant="secondary-light">
+        v{row.original.version}
+      </Badge>
+    ),
   },
   {
     accessorKey: "updated_at",

@@ -5,23 +5,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { AreaChart, BarChart, LineChart } from "@strait/ui/components/charts";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import ErrorComponent from "@/components/common/error-component";
 import {
   computeQueryOptions,
@@ -29,7 +19,6 @@ import {
   performanceQueryOptions,
   topCostsQueryOptions,
 } from "@/hooks/api/use-analytics";
-import { CHART_COLORS } from "@/lib/status-colors";
 
 type AnalyticsWindow = "7d" | "30d" | "90d";
 
@@ -39,44 +28,31 @@ const WINDOWS: { value: AnalyticsWindow; label: string }[] = [
   { value: "90d", label: "90 days" },
 ];
 
+const COST_TRENDS_CONFIG = {
+  amount_cents: { label: "Cost", color: "chart-3" },
+} satisfies ChartConfig;
+
+const TOP_COSTS_CONFIG = {
+  amount_cents: { label: "Cost", color: "chart-4" },
+} satisfies ChartConfig;
+
+const RUN_VOLUME_CONFIG = {
+  run_count: { label: "Runs", color: "chart-1" },
+} satisfies ChartConfig;
+
+const SUCCESS_RATE_CONFIG = {
+  success_rate: { label: "Success Rate", color: "chart-1" },
+} satisfies ChartConfig;
+
+const formatDollars = (value: number) => `$${(value / 100).toFixed(2)}`;
+const formatDollarsAxis = (value: number) => `$${(value / 100).toFixed(0)}`;
+const formatPercent = (value: number) => `${value.toFixed(1)}%`;
+
 export const Route = createFileRoute("/app/analytics")({
   head: () => ({ meta: [{ title: "Analytics · Strait" }] }),
   errorComponent: ErrorComponent,
   component: AnalyticsPage,
 });
-
-function ChartTooltip({
-  active,
-  payload,
-  labelFormatter,
-  valueFormatter,
-}: {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
-  labelFormatter?: (label: string) => string;
-  valueFormatter?: (value: number) => string;
-}) {
-  if (!(active && payload?.length)) {
-    return null;
-  }
-  const item = payload[0];
-  return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 shadow-md">
-      <div className="flex items-center gap-2">
-        <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: item.color }}
-        />
-        <span className="text-muted-foreground text-xs">
-          {labelFormatter ? labelFormatter(item.name) : item.name}
-        </span>
-        <span className="ml-auto font-medium text-popover-foreground text-sm tabular-nums">
-          {valueFormatter ? valueFormatter(item.value) : item.value}
-        </span>
-      </div>
-    </div>
-  );
-}
 
 function AnalyticsPage() {
   const [window, setWindow] = useState<AnalyticsWindow>("30d");
@@ -124,53 +100,18 @@ function AnalyticsPage() {
           <CardContent>
             {costData.length > 0 ? (
               <div className="h-[240px]">
-                <ResponsiveContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <AreaChart data={costData}>
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      dataKey="date"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={(v: number) => `$${(v / 100).toFixed(0)}`}
-                    />
-                    <Tooltip
-                      content={
-                        <ChartTooltip
-                          valueFormatter={(v) => `$${(v / 100).toFixed(2)}`}
-                        />
-                      }
-                      cursor={{
-                        stroke: "var(--muted-foreground)",
-                        strokeDasharray: "3 3",
-                      }}
-                    />
-                    <Area
-                      dataKey="amount_cents"
-                      fill={CHART_COLORS.active}
-                      fillOpacity={0.15}
-                      stroke={CHART_COLORS.active}
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <AreaChart
+                  config={COST_TRENDS_CONFIG}
+                  containerHeight={240}
+                  data={costData}
+                  dataKey="date"
+                  legend={false}
+                  valueFormatter={formatDollars}
+                  yAxisProps={{ tickFormatter: formatDollarsAxis }}
+                />
               </div>
             ) : (
-              <p className="py-8 text-center text-muted-foreground text-sm">
-                No cost data available for this time window.
-              </p>
+              <ChartEmptyState message="No cost data available for this time window." />
             )}
           </CardContent>
         </Card>
@@ -185,50 +126,20 @@ function AnalyticsPage() {
           <CardContent>
             {topCostData.length > 0 ? (
               <div className="h-[240px]">
-                <ResponsiveContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <BarChart data={topCostData} layout="vertical">
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={(v: number) => `$${(v / 100).toFixed(0)}`}
-                      type="number"
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      dataKey="project_name"
-                      tick={{ fontSize: 12 }}
-                      type="category"
-                      width={120}
-                    />
-                    <Tooltip
-                      content={
-                        <ChartTooltip
-                          valueFormatter={(v) => `$${(v / 100).toFixed(2)}`}
-                        />
-                      }
-                      cursor={{ fill: "var(--muted)" }}
-                    />
-                    <Bar
-                      dataKey="amount_cents"
-                      fill={CHART_COLORS.warning}
-                      radius={[0, 2, 2, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart
+                  config={TOP_COSTS_CONFIG}
+                  containerHeight={240}
+                  data={topCostData}
+                  dataKey="project_name"
+                  layout="vertical"
+                  legend={false}
+                  valueFormatter={formatDollars}
+                  xAxisProps={{ tickFormatter: formatDollarsAxis }}
+                  yAxisProps={{ width: 120 }}
+                />
               </div>
             ) : (
-              <p className="py-8 text-center text-muted-foreground text-sm">
-                No project cost data available for this time window.
-              </p>
+              <ChartEmptyState message="No project cost data available for this time window." />
             )}
           </CardContent>
         </Card>
@@ -241,42 +152,16 @@ function AnalyticsPage() {
           <CardContent>
             {computeData.length > 0 ? (
               <div className="h-[240px]">
-                <ResponsiveContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <BarChart data={computeData}>
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      dataKey="date"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <Tooltip
-                      content={<ChartTooltip />}
-                      cursor={{ fill: "var(--muted)" }}
-                    />
-                    <Bar
-                      dataKey="run_count"
-                      fill={CHART_COLORS.success}
-                      radius={[2, 2, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <BarChart
+                  config={RUN_VOLUME_CONFIG}
+                  containerHeight={240}
+                  data={computeData}
+                  dataKey="date"
+                  legend={false}
+                />
               </div>
             ) : (
-              <p className="py-8 text-center text-muted-foreground text-sm">
-                No run volume data available for this time window.
-              </p>
+              <ChartEmptyState message="No run volume data available for this time window." />
             )}
           </CardContent>
         </Card>
@@ -289,53 +174,21 @@ function AnalyticsPage() {
           <CardContent>
             {perfData.length > 0 ? (
               <div className="h-[240px]">
-                <ResponsiveContainer
-                  height="100%"
-                  minHeight={1}
-                  minWidth={1}
-                  width="100%"
-                >
-                  <LineChart data={perfData}>
-                    <CartesianGrid
-                      className="stroke-border"
-                      strokeDasharray="3 3"
-                    />
-                    <XAxis
-                      className="text-muted-foreground"
-                      dataKey="date"
-                      tick={{ fontSize: 12 }}
-                    />
-                    <YAxis
-                      className="text-muted-foreground"
-                      domain={[0, 100]}
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={(v: number) => `${v}%`}
-                    />
-                    <Tooltip
-                      content={
-                        <ChartTooltip
-                          valueFormatter={(v) => `${v.toFixed(1)}%`}
-                        />
-                      }
-                      cursor={{
-                        stroke: "var(--muted-foreground)",
-                        strokeDasharray: "3 3",
-                      }}
-                    />
-                    <Line
-                      dataKey="success_rate"
-                      dot={false}
-                      stroke={CHART_COLORS.success}
-                      strokeWidth={2}
-                      type="monotone"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <LineChart
+                  config={SUCCESS_RATE_CONFIG}
+                  containerHeight={240}
+                  data={perfData}
+                  dataKey="date"
+                  legend={false}
+                  valueFormatter={formatPercent}
+                  yAxisProps={{
+                    domain: [0, 100],
+                    tickFormatter: (value: number) => `${value}%`,
+                  }}
+                />
               </div>
             ) : (
-              <p className="py-8 text-center text-muted-foreground text-sm">
-                No performance data available for this time window.
-              </p>
+              <ChartEmptyState message="No performance data available for this time window." />
             )}
           </CardContent>
         </Card>

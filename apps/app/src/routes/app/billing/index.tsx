@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Shell } from "@strait/ui/components/shell";
+import { Skeleton } from "@strait/ui/components/skeleton";
 import {
   Tabs,
   TabsContent,
@@ -16,7 +17,6 @@ import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import InlineError from "@/components/common/inline-error";
 import NotFound from "@/components/common/not-found";
 import { QueryErrorBoundary } from "@/components/common/query-error-boundary";
-import TabSkeleton from "@/components/common/tab-skeleton";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import { anomalyAlertsQueryOptions } from "@/hooks/billing/use-anomaly-alerts";
 import { anomalyConfigQueryOptions } from "@/hooks/billing/use-anomaly-config";
@@ -48,6 +48,8 @@ const SpendingLimitsTab = lazy(
 const UsageHistoryTab = lazy(
   () => import("@/components/billing/usage-history-tab")
 );
+
+const tabFallback = <Skeleton className="h-64" />;
 
 export const Route = createFileRoute("/app/billing/")({
   head: () => ({ meta: [{ title: "Billing · Strait" }] }),
@@ -144,7 +146,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <UsageDashboard />
               </Suspense>
             </QueryErrorBoundary>
@@ -159,7 +161,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <UsageHistoryTab />
               </Suspense>
             </QueryErrorBoundary>
@@ -174,7 +176,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <ProjectCostsTab />
               </Suspense>
             </QueryErrorBoundary>
@@ -189,7 +191,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <SpendingLimitsTab />
               </Suspense>
             </QueryErrorBoundary>
@@ -204,7 +206,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <AddonsTab />
               </Suspense>
             </QueryErrorBoundary>
@@ -219,7 +221,7 @@ function RouteComponent() {
                 />
               )}
             >
-              <Suspense fallback={<TabSkeleton />}>
+              <Suspense fallback={tabFallback}>
                 <AlertsForecastTab />
               </Suspense>
             </QueryErrorBoundary>

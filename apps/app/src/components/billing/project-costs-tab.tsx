@@ -5,6 +5,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import type { ChartConfig } from "@strait/ui/components/chart";
+import { ChartEmptyState } from "@strait/ui/components/chart-empty-state";
+import { BarChart } from "@strait/ui/components/charts";
+import { MetricCard } from "@strait/ui/components/metric-card";
 import { Progress } from "@strait/ui/components/progress";
 import {
   Table,
@@ -16,14 +20,9 @@ import {
 } from "@strait/ui/components/table";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { projectCostsQueryOptions } from "@/hooks/billing/use-project-costs";
 import { formatMicroUsd } from "@/lib/format";
-import { CHART_COLORS } from "@/lib/status-colors";
-import ChartTooltip from "../dashboard/chart-tooltip";
-import ResponsiveChartContainer from "../dashboard/responsive-chart-container";
 import ProjectBudgetDialog from "./project-budget-dialog";
-import UsageStatCard from "./usage-stat-card";
 
 type BudgetDialogState = {
   projectId: string;
@@ -31,6 +30,10 @@ type BudgetDialogState = {
   budgetMicro: number;
   action: string;
 } | null;
+
+const COST_BY_PROJECT_CONFIG = {
+  total_microusd: { label: "Total Cost", color: "chart-3" },
+} satisfies ChartConfig;
 
 const ProjectCostsTab = () => {
   const { data: costs } = useQuery(projectCostsQueryOptions());
@@ -58,9 +61,7 @@ const ProjectCostsTab = () => {
     return (
       <Card>
         <CardContent className="flex h-48 items-center justify-center">
-          <p className="text-muted-foreground text-sm">
-            No project cost data for this billing period.
-          </p>
+          <ChartEmptyState message="No project cost data for this billing period." />
         </CardContent>
       </Card>
     );
@@ -69,17 +70,24 @@ const ProjectCostsTab = () => {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <UsageStatCard
-          label="Total Runs"
+        <MetricCard
+          size="sm"
+          title="Total Runs"
           value={totals.runs.toLocaleString()}
         />
-        <UsageStatCard
-          label="Compute Cost"
+        <MetricCard
+          size="sm"
+          title="Compute Cost"
           value={formatMicroUsd(totals.compute)}
         />
-        <UsageStatCard label="AI Cost" value={formatMicroUsd(totals.ai)} />
-        <UsageStatCard
-          label="Total Cost"
+        <MetricCard
+          size="sm"
+          title="AI Cost"
+          value={formatMicroUsd(totals.ai)}
+        />
+        <MetricCard
+          size="sm"
+          title="Total Cost"
           value={formatMicroUsd(totals.total)}
         />
       </div>
@@ -89,58 +97,16 @@ const ProjectCostsTab = () => {
           <CardTitle className="font-medium text-sm">Cost by Project</CardTitle>
         </CardHeader>
         <CardContent>
-          <div
-            style={{
-              height: `${Math.max(200, costs.length * 36)}px`,
-            }}
-          >
-            <ResponsiveChartContainer
-              height="100%"
-              minHeight={1}
-              minWidth={1}
-              width="100%"
-            >
-              <BarChart data={sortedCosts} layout="vertical">
-                <CartesianGrid
-                  className="stroke-border"
-                  strokeDasharray="3 3"
-                />
-                <XAxis
-                  className="text-muted-foreground"
-                  tick={{ fontSize: 12 }}
-                  tickFormatter={(v: number) => formatMicroUsd(v)}
-                  type="number"
-                />
-                <YAxis
-                  className="text-muted-foreground"
-                  dataKey="name"
-                  tick={{ fontSize: 12 }}
-                  type="category"
-                  width={100}
-                />
-                <Tooltip
-                  content={
-                    <ChartTooltip
-                      labelMap={{
-                        total_microusd: {
-                          label: "Total Cost",
-                          color: CHART_COLORS.active,
-                          format: formatMicroUsd,
-                        },
-                      }}
-                    />
-                  }
-                  cursor={{ fill: "var(--muted)" }}
-                />
-                <Bar
-                  dataKey="total_microusd"
-                  fill={CHART_COLORS.active}
-                  isAnimationActive={false}
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveChartContainer>
-          </div>
+          <BarChart
+            config={COST_BY_PROJECT_CONFIG}
+            containerHeight={Math.max(200, costs.length * 36)}
+            data={sortedCosts}
+            dataKey="name"
+            layout="vertical"
+            legend={false}
+            valueFormatter={formatMicroUsd}
+            yAxisProps={{ width: 100 }}
+          />
         </CardContent>
       </Card>
 
@@ -196,7 +162,6 @@ const ProjectCostsTab = () => {
                             {formatMicroUsd(budget)}
                           </span>
                           <Button
-                            className="h-6 px-1.5 text-xs"
                             onClick={() =>
                               setBudgetDialog({
                                 projectId: entry.project_id,
@@ -205,6 +170,7 @@ const ProjectCostsTab = () => {
                                 action: budgetAction || "notify",
                               })
                             }
+                            size="xs"
                             variant="ghost"
                           >
                             Edit
@@ -212,7 +178,6 @@ const ProjectCostsTab = () => {
                         </div>
                       ) : (
                         <Button
-                          className="h-6 px-1.5 text-xs"
                           onClick={() =>
                             setBudgetDialog({
                               projectId: entry.project_id,
@@ -221,6 +186,7 @@ const ProjectCostsTab = () => {
                               action: "notify",
                             })
                           }
+                          size="xs"
                           variant="ghost"
                         >
                           Set Budget

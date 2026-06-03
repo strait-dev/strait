@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Separator } from "@strait/ui/components/separator";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { costEstimateQueryOptions } from "@/hooks/billing/use-cost-estimate";
@@ -75,7 +76,8 @@ const CostEstimateCard = ({ timeoutSecs }: CostEstimateCardProps) => {
 
         {estimate ? (
           <>
-            <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
+            <Separator />
+            <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground text-sm">
                 Estimated cost
               </span>
@@ -102,12 +104,15 @@ const CostEstimateCard = ({ timeoutSecs }: CostEstimateCardProps) => {
             ) : null}
           </>
         ) : (
-          <div className="flex items-center justify-between gap-3 border-border border-t pt-3">
-            <span className="text-muted-foreground text-sm">
-              Estimated cost
-            </span>
-            <span className="text-muted-foreground text-xs">-</span>
-          </div>
+          <>
+            <Separator />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground text-sm">
+                Estimated cost
+              </span>
+              <span className="text-muted-foreground text-xs">-</span>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
