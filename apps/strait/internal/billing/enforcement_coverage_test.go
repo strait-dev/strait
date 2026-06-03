@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	straitcache "strait/internal/cache"
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
@@ -386,6 +387,30 @@ func TestNewEnforcer_CacheInitialized(t *testing.T) {
 	if enforcer.orgCache == nil {
 		t.Fatal("expected orgCache to be initialized")
 	}
+}
+
+func TestNewEnforcer_RegistersStrongCacheNamespace(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() {
+		_ = rdb.Close()
+		mr.Close()
+	})
+	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "billing-test"})
+
+	enforcer := NewEnforcer(store, rdb, slog.Default(), WithCacheBus(nil, registry))
+
+	if enforcer.orgCache == nil {
+		t.Fatal("expected orgCache to be initialized")
+	}
+	for _, namespace := range registry.RegisteredNamespaces() {
+		if namespace == orgLimitsCacheNamespace {
+			return
+		}
+	}
+	t.Fatalf("cache namespace %s was not registered; registered namespaces: %v", orgLimitsCacheNamespace, registry.RegisteredNamespaces())
 }
 
 // InvalidateOrgCache -- cache invalidation

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"github.com/google/uuid"
@@ -81,6 +82,20 @@ func (r *Registry) Register(namespace string, handler NamespaceHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[namespace] = handler
+}
+
+func (r *Registry) RegisteredNamespaces() []string {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	namespaces := make([]string, 0, len(r.handlers))
+	for namespace := range r.handlers {
+		namespaces = append(namespaces, namespace)
+	}
+	sort.Strings(namespaces)
+	return namespaces
 }
 
 func (r *Registry) Unregister(namespace string) {
