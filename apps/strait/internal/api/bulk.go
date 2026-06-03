@@ -519,61 +519,21 @@ func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRuns
 		return nil, huma.Error500InternalServerError("failed to fetch runs")
 	}
 
-	results := make([]BulkCancelResult, 0, len(req.RunIDs))
 	canceled := 0
-	failed := 0
-	var cancelableIDs []string
-	for _, runID := range req.RunIDs {
-		run, ok := runsMap[runID]
-		if !ok {
-			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
-			failed++
-			continue
-		}
-		if err := requireProjectMatch(ctx, run.ProjectID); err != nil {
-			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
-			failed++
-			continue
-		}
-		if err := s.requireRunEnvironmentMatch(ctx, run); err != nil {
-			results = append(results, BulkCancelResult{ID: runID, Status: "failed", Error: "run not found"})
-			failed++
-			continue
-		}
-		if run.Status.IsTerminal() {
-			results = append(results, BulkCancelResult{ID: runID, Status: string(run.Status), Error: "run already in terminal state"})
-			failed++
-			continue
-		}
-		cancelableIDs = append(cancelableIDs, runID)
-	}
+	selection := s.selectBulkCancelableRuns(ctx, req.RunIDs, runsMap)
 
-	if len(cancelableIDs) > 0 {
+	if len(selection.cancelableIDs) > 0 {
 		now := time.Now()
-		cancelResults, cancelErr := s.store.BulkCancelRuns(ctx, cancelableIDs, now, "canceled by user (bulk)")
+		cancelResults, cancelErr := s.store.BulkCancelRuns(ctx, selection.cancelableIDs, now, "canceled by user (bulk)")
 		if cancelErr != nil {
 			return nil, huma.Error500InternalServerError("failed to cancel runs")
 		}
 
-		canceledSet := make(map[string]struct{}, len(cancelResults))
-		for _, cr := range cancelResults {
-			canceledSet[cr.ID] = struct{}{}
-			results = append(results, BulkCancelResult{ID: cr.ID, Status: string(domain.StatusCanceled)})
-			canceled++
-		}
-
-		// A run can leave the cancelable set between the initial fetch and
-		// the update. Keep that race visible in the per-run response.
-		for _, id := range cancelableIDs {
-			if _, ok := canceledSet[id]; !ok {
-				results = append(results, BulkCancelResult{ID: id, Status: string(runsMap[id].Status), Error: "failed to cancel (status may have changed)"})
-				failed++
-			}
-		}
+		canceled = selection.appendStoreResults(runsMap, cancelResults)
 
 		// Child cancellation is best-effort: parent cancellation has already
 		// succeeded, and retrying the whole request would duplicate results.
-		if _, err := s.store.CancelChildRunsByParentIDs(ctx, cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
+		if _, err := s.store.CancelChildRunsByParentIDs(ctx, selection.cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
 			slog.Error("failed to cancel child runs in bulk", "error", err)
 		}
 	}
@@ -581,15 +541,15 @@ func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRuns
 	s.emitAuditEvent(ctx, domain.AuditActionRunBulkCancelled, "run", "", map[string]any{
 		"total":    len(req.RunIDs),
 		"canceled": canceled,
-		"failed":   failed,
+		"failed":   selection.failed,
 	})
 
 	return &BulkCancelRunsOutput{
 		Body: BulkCancelResponse{
-			Results:  results,
+			Results:  selection.results,
 			Total:    len(req.RunIDs),
 			Canceled: canceled,
-			Failed:   failed,
+			Failed:   selection.failed,
 		},
 	}, nil
 }
