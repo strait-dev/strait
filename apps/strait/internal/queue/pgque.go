@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"sync"
@@ -45,6 +46,7 @@ type PgQueConfig struct {
 	ConsumerName        string
 	NackDelay           time.Duration
 	ReceiveWindow       int
+	Logger              *slog.Logger
 }
 
 func (c PgQueConfig) normalized() PgQueConfig {
@@ -73,8 +75,11 @@ type PgQueQueue struct {
 	db          store.DBTX
 	runWriter   *PostgresRunWriter
 	cfg         PgQueConfig
+	logger      *slog.Logger
 	routeMu     sync.Mutex
 	routeStates map[string]*pgQueRouteState
+
+	workerRouteCursor atomic.Uint64
 }
 
 type pgQueRouteState struct {
@@ -132,10 +137,16 @@ func NewPgQueQueue(db store.DBTX, runWriter *PostgresRunWriter, cfg PgQueConfig)
 	if runWriter == nil {
 		runWriter = NewPostgresRunWriter(db)
 	}
+	cfg = cfg.normalized()
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &PgQueQueue{
 		db:          db,
 		runWriter:   runWriter,
-		cfg:         cfg.normalized(),
+		cfg:         cfg,
+		logger:      logger,
 		routeStates: make(map[string]*pgQueRouteState),
 	}
 }
@@ -857,10 +868,12 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 		return nil, err
 	}
 	claimed := make([]domain.JobRun, 0, n)
-	for _, routeKey := range routes {
+	start := q.nextWorkerRouteStart(len(routes))
+	for i := range routes {
 		if len(claimed) >= n {
 			break
 		}
+		routeKey := routes[(start+i)%len(routes)]
 		batch, err := q.dequeueFromRoute(ctx, n-len(claimed), routeKey, pgQueClaimFilter{
 			ExecutionMode: domain.ExecutionModeWorker,
 			WorkerRefs:    refs,
@@ -871,6 +884,13 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 		claimed = append(claimed, batch...)
 	}
 	return claimed, nil
+}
+
+func (q *PgQueQueue) nextWorkerRouteStart(routeCount int) int {
+	if routeCount <= 1 {
+		return 0
+	}
+	return int((q.workerRouteCursor.Add(1) - 1) % uint64(routeCount))
 }
 
 func (q *PgQueQueue) ForceTick(ctx context.Context, routeKey string) error {
@@ -970,11 +990,26 @@ func (q *PgQueQueue) RunTicker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = q.pgque(q.db).tickerAll(ctx)
+			if err := q.pgque(q.db).tickerAll(ctx); err != nil {
+				q.logBackgroundError(ctx, "pgque ticker failed", err)
+			}
 		case <-maintenance.C:
-			_ = q.Maintain(ctx)
+			if err := q.Maintain(ctx); err != nil {
+				q.logBackgroundError(ctx, "pgque maintenance failed", err)
+			}
 		}
 	}
+}
+
+func (q *PgQueQueue) logBackgroundError(ctx context.Context, message string, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	logger := q.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn(message, "error", err)
 }
 
 func (q *PgQueQueue) Maintain(ctx context.Context) error {

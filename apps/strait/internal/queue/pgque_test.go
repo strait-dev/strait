@@ -1,9 +1,11 @@
 package queue
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -177,6 +179,71 @@ func TestPgQueMaintainWrapsPhaseErrors(t *testing.T) {
 				t.Fatalf("Maintain() error = %v, want wrapped %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestPgQueNextWorkerRouteStartRotates(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	got := []int{
+		q.nextWorkerRouteStart(3),
+		q.nextWorkerRouteStart(3),
+		q.nextWorkerRouteStart(3),
+		q.nextWorkerRouteStart(3),
+		q.nextWorkerRouteStart(3),
+	}
+	want := []int{0, 1, 2, 0, 1}
+	if !slices.Equal(got, want) {
+		t.Fatalf("route starts = %v, want %v", got, want)
+	}
+}
+
+func TestPgQueNextWorkerRouteStartHandlesSmallRouteCounts(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	if got := q.nextWorkerRouteStart(0); got != 0 {
+		t.Fatalf("route start for zero routes = %d, want 0", got)
+	}
+	if got := q.nextWorkerRouteStart(1); got != 0 {
+		t.Fatalf("route start for one route = %d, want 0", got)
+	}
+	if got := q.nextWorkerRouteStart(2); got != 0 {
+		t.Fatalf("first route start for two routes = %d, want 0", got)
+	}
+	if got := q.nextWorkerRouteStart(2); got != 1 {
+		t.Fatalf("second route start for two routes = %d, want 1", got)
+	}
+}
+
+func TestPgQueLogBackgroundErrorWritesWarning(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	}))
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{Logger: logger})
+
+	q.logBackgroundError(context.Background(), "pgque ticker failed", errors.New("tick failed"))
+
+	got := buf.String()
+	if !strings.Contains(got, "pgque ticker failed") {
+		t.Fatalf("log output = %q, want message", got)
+	}
+	if !strings.Contains(got, "tick failed") {
+		t.Fatalf("log output = %q, want error", got)
+	}
+}
+
+func TestPgQueLogBackgroundErrorSkipsCanceledContext(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	}))
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{Logger: logger})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	q.logBackgroundError(ctx, "pgque ticker failed", errors.New("tick failed"))
+
+	if got := buf.String(); got != "" {
+		t.Fatalf("log output = %q, want empty output", got)
 	}
 }
 
