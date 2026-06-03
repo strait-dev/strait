@@ -589,13 +589,14 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		WHERE id = (
 			SELECT jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			%s
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s

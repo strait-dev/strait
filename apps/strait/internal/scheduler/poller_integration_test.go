@@ -35,7 +35,11 @@ func intCountRunsByStatus(t *testing.T, ctx context.Context, st *store.Queries, 
 	t.Helper()
 	var count int
 	if err := getTestDB(t).Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status = $2`,
+		`SELECT COUNT(*)
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.job_id = $1
+		  AND COALESCE(s.status, jr.status) = $2`,
 		jobID, status,
 	).Scan(&count); err != nil {
 		t.Fatalf("count runs by status: %v", err)

@@ -3873,21 +3873,58 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 }
 
 func (q *Queries) ActivateDueRuns(ctx context.Context, limit int) (int64, error) {
-	tag, err := q.db.Exec(ctx,
-		`UPDATE job_runs SET status = 'queued'
-		 WHERE id IN (
-		     SELECT id FROM job_runs
-		     WHERE status = 'delayed'
-		     AND scheduled_at <= NOW()
-		     ORDER BY scheduled_at ASC
-		     LIMIT $1
-		     FOR UPDATE SKIP LOCKED
-		 ) AND status = 'delayed'`,
-		limit)
-	if err != nil {
+	if limit <= 0 {
+		return 0, nil
+	}
+
+	query := `
+		WITH candidates AS MATERIALIZED (
+			SELECT s.run_id, s.ready_generation, s.attempt
+			FROM job_run_state s
+			WHERE s.status = 'delayed'
+			  AND s.scheduled_at <= NOW()
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_terminal_state t
+			      WHERE t.run_id = s.run_id
+			  )
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_ready_events ready
+			      WHERE ready.run_id = s.run_id
+			        AND ready.ready_generation = s.ready_generation
+			        AND ready.reason = 'delayed_due'
+			  )
+			ORDER BY s.scheduled_at ASC, s.run_id ASC
+			LIMIT $1
+			FOR UPDATE OF s SKIP LOCKED
+		),
+		inserted_ready AS (
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			SELECT run_id, ready_generation, attempt, 'delayed_due'
+			FROM candidates
+			ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+			RETURNING run_id, attempt
+		),
+		lifecycle_events AS (
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			SELECT run_id, 'delayed', 'queued', attempt, '{"ready_event": true}'::jsonb
+			FROM inserted_ready
+			RETURNING 1
+		),
+		cache_versions AS (
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			SELECT run_id, strait_next_run_cache_version(run_id)
+			FROM inserted_ready
+			RETURNING 1
+		)
+		SELECT COUNT(*) FROM inserted_ready`
+
+	var count int64
+	if err := q.db.QueryRow(ctx, query, limit).Scan(&count); err != nil {
 		return 0, fmt.Errorf("activate due runs: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }
 
 // BulkCancelResult holds the per-run outcome of a bulk cancel.

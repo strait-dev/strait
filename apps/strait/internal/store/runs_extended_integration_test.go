@@ -1029,6 +1029,56 @@ func TestRuns_ActivateDueRuns_HappyPath(t *testing.T) {
 	if got.Status != domain.StatusQueued {
 		t.Fatalf("status = %s, want queued", got.Status)
 	}
+
+	var ledgerStatus, stateStatus, readStatus domain.RunStatus
+	var readyEvents, lifecycleEvents int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, rs.status,
+		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = jr.id AND reason = 'delayed_due'),
+		       (SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = jr.id AND from_status = 'delayed' AND to_status = 'queued')
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
+		WHERE jr.id = $1`,
+		r.ID,
+	).Scan(&ledgerStatus, &stateStatus, &readStatus, &readyEvents, &lifecycleEvents); err != nil {
+		t.Fatalf("query split delayed activation state: %v", err)
+	}
+	if ledgerStatus != domain.StatusDelayed {
+		t.Fatalf("job_runs status = %s, want immutable delayed ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusDelayed {
+		t.Fatalf("job_run_state status = %s, want delayed hot state", stateStatus)
+	}
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %s, want queued readiness overlay", readStatus)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("delayed_due ready events = %d, want 1", readyEvents)
+	}
+	if lifecycleEvents != 1 {
+		t.Fatalf("delayed->queued lifecycle events = %d, want 1", lifecycleEvents)
+	}
+
+	count, err = q.ActivateDueRuns(ctx, 100)
+	if err != nil {
+		t.Fatalf("duplicate ActivateDueRuns() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("duplicate count = %d, want 0", count)
+	}
+	var duplicateReadyEvents int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_ready_events
+		WHERE run_id = $1 AND reason = 'delayed_due'`,
+		r.ID,
+	).Scan(&duplicateReadyEvents); err != nil {
+		t.Fatalf("query duplicate delayed_due ready events: %v", err)
+	}
+	if duplicateReadyEvents != 1 {
+		t.Fatalf("delayed_due ready events after duplicate = %d, want 1", duplicateReadyEvents)
+	}
 }
 
 func TestRuns_ActivateDueRuns_KeepsFuture(t *testing.T) {
