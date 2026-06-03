@@ -225,8 +225,8 @@ func TestIsValidAddonType(t *testing.T) {
 func TestAllAddonTypes_Count(t *testing.T) {
 	t.Parallel()
 	types := AllAddonTypes()
-	if len(types) != 6 {
-		t.Errorf("AllAddonTypes() count = %d, want 6", len(types))
+	if len(types) != 5 {
+		t.Errorf("AllAddonTypes() count = %d, want 5", len(types))
 	}
 }
 

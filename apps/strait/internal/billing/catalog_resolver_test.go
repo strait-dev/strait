@@ -62,7 +62,6 @@ func TestCatalogResolver_AddonForLookupKey(t *testing.T) {
 		want AddonType
 	}{
 		{"strait_addon_concurrency_100", AddonConcurrency100},
-		{"strait_addon_log_drain_10gb", AddonLogDrain10GB},
 		{"strait_addon_history_30d", AddonHistory30d},
 		{"strait_addon_compliance_archive", AddonComplianceArchive},
 		{"strait_addon_dedicated_pool", AddonDedicatedWorkers},
@@ -86,6 +85,9 @@ func TestCatalogResolver_IsAddonLookupKey(t *testing.T) {
 	}
 	if r.IsAddonLookupKey("strait_pro_monthly") {
 		t.Error("plan tier lookup key must not register as addon")
+	}
+	if r.IsAddonLookupKey("strait_addon_log_drain_10gb") {
+		t.Error("removed log-drain volume add-on must not register as addon")
 	}
 	if r.IsAddonLookupKey("") {
 		t.Error("empty lookup key must not register as addon")
@@ -120,10 +122,10 @@ func TestCatalogResolver_Counts(t *testing.T) {
 		t.Errorf("TierCount() = %d, want 9", got)
 	}
 
-	// 6 canonical addons each have a lookup key. Deprecated entries have no
-	// lookup key set. Total = 6.
-	if got := r.AddonCount(); got != 6 {
-		t.Errorf("AddonCount() = %d, want 6", got)
+	// 5 launch/roadmap addons each have a lookup key. Removed entries have no
+	// lookup key set. Total = 5.
+	if got := r.AddonCount(); got != 5 {
+		t.Errorf("AddonCount() = %d, want 5", got)
 	}
 }
 

@@ -36,7 +36,6 @@ const planSuffix = {
 };
 const addonConst = {
   concurrency_100: "AddonConcurrency100",
-  log_drain_10gb: "AddonLogDrain10GB",
   history_30d: "AddonHistory30d",
   compliance_archive: "AddonComplianceArchive",
   dedicated_workers: "AddonDedicatedWorkers",

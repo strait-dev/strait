@@ -308,11 +308,6 @@ type Config struct {
 	StripeStarterOveragePriceID string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
 	StripeProOveragePriceID     string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
 	StripeScaleOveragePriceID   string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
-	// Add-on price IDs for optional per-org upgrades.
-	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
-	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
-	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
-
 	// Prometheus uptime source for the SLA credit calculator. When
 	// PrometheusQueryURL is unset the SLACalculator falls back to a
 	// 100% StaticUptimeSource (no breaches), which keeps community /

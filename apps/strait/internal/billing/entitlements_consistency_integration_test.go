@@ -131,7 +131,6 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 	}
 	addonTypes := []billing.AddonType{
 		billing.AddonConcurrency100,
-		billing.AddonLogDrain10GB,
 		billing.AddonHistory30d,
 		billing.AddonEnvironments5,
 	}

@@ -152,7 +152,6 @@ func TestNotionLock_AddonPrices(t *testing.T) {
 
 	want := map[AddonType]int{
 		AddonConcurrency100:    2000,  // $20
-		AddonLogDrain10GB:      2500,  // $25
 		AddonHistory30d:        4000,  // $40
 		AddonComplianceArchive: 5000,  // $50
 		AddonDedicatedWorkers:  20000, // $200

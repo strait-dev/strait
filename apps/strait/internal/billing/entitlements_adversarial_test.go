@@ -113,7 +113,7 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 	rng := rand.New(rand.NewSource(0xBEE51EBE))
 
 	addonTypes := []AddonType{
-		AddonConcurrency100, AddonLogDrain10GB, AddonHistory30d,
+		AddonConcurrency100, AddonHistory30d,
 		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5,
 		AddonType("ghost_addon"), AddonType(""),
 	}

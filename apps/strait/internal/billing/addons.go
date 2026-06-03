@@ -11,7 +11,6 @@ type AddonType string
 
 const (
 	AddonConcurrency100    AddonType = "concurrency_100"
-	AddonLogDrain10GB      AddonType = "log_drain_10gb"
 	AddonHistory30d        AddonType = "history_30d"
 	AddonComplianceArchive AddonType = "compliance_archive"
 	AddonDedicatedWorkers  AddonType = "dedicated_workers"
@@ -22,7 +21,6 @@ const (
 func AllAddonTypes() []AddonType {
 	return []AddonType{
 		AddonConcurrency100,
-		AddonLogDrain10GB,
 		AddonHistory30d,
 		AddonComplianceArchive,
 		AddonDedicatedWorkers,
@@ -33,7 +31,7 @@ func AllAddonTypes() []AddonType {
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
 	switch t {
-	case AddonConcurrency100, AddonLogDrain10GB, AddonHistory30d,
+	case AddonConcurrency100, AddonHistory30d,
 		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5:
 		return true
 	}
@@ -58,14 +56,6 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 		LookupKey:   "strait_addon_concurrency_100",
 		PackSize:    100,
 		PriceCents:  2000, // $20/mo
-		MaxTotal:    -1,
-	},
-	AddonLogDrain10GB: {
-		Type:        AddonLogDrain10GB,
-		DisplayName: "+10 GB Log Drain",
-		LookupKey:   "strait_addon_log_drain_10gb",
-		PackSize:    10,   // +10 GB
-		PriceCents:  2500, // $25/mo
 		MaxTotal:    -1,
 	},
 	AddonHistory30d: {
@@ -145,10 +135,6 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 			if result.MaxConcurrentRuns != -1 {
 				result.MaxConcurrentRuns += increment
 			}
-		case AddonLogDrain10GB:
-			// LogDrain10GB is marketing-only; GB-level enforcement is intentionally
-			// not implemented (decision 2026-05-15). Drain-count enforcement remains
-			// via MaxLogDrainsPerOrg.
 		case AddonHistory30d:
 			if result.RetentionDays > 0 {
 				result.RetentionDays += increment
