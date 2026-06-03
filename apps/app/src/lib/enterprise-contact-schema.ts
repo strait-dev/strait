@@ -9,10 +9,10 @@ export const TEAM_SIZES = [
 ] as const;
 
 export const USE_CASES = [
-  "SSO / compliance requirements",
+  "Roadmap security / compliance",
   "High volume workloads",
-  "Dedicated infrastructure",
-  "Data residency",
+  "Roadmap isolation requirements",
+  "Roadmap residency requirements",
   "Other",
 ] as const;
 
