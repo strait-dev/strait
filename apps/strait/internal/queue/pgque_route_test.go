@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var pgQueRouteBenchmarkSink []string
+
 func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
 	routeKey := pgQueWorkerRouteKey(strings.Repeat("project", 20), strings.Repeat("queue", 20), strings.Repeat("env", 20))
 
@@ -129,6 +131,53 @@ func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
 	}
 	if queryCount != 2 {
 		t.Fatalf("route lookup count = %d, want 2", queryCount)
+	}
+}
+
+func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
+	ctx := context.Background()
+	prefix := pgQueWorkerRouteKey("project-a", "priority", "")
+	knownRoutes := []string{
+		prefix + "production",
+		prefix + "staging",
+		prefix + "canary",
+	}
+	queryCount := 0
+	allowQuery := true
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			if !allowQuery {
+				b.Fatal("cached worker route lookup queried the database")
+			}
+			queryCount++
+			return &stringRows{values: knownRoutes}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	refs := []domain.WorkerQueueRef{{
+		ProjectID: "project-a",
+		QueueName: "priority",
+	}}
+
+	if _, err := q.workerRouteKeys(ctx, refs); err != nil {
+		b.Fatalf("workerRouteKeys warmup error = %v", err)
+	}
+	q.routeMu.Lock()
+	entry := q.routeCache[prefix]
+	entry.expiresAt = time.Now().Add(time.Hour)
+	q.routeCache[prefix] = entry
+	q.routeMu.Unlock()
+	allowQuery = false
+	b.ReportAllocs()
+	for b.Loop() {
+		routes, err := q.workerRouteKeys(ctx, refs)
+		if err != nil {
+			b.Fatalf("workerRouteKeys cached error = %v", err)
+		}
+		pgQueRouteBenchmarkSink = routes
+	}
+	if queryCount != 1 {
+		b.Fatalf("route lookup count = %d, want 1", queryCount)
 	}
 }
 

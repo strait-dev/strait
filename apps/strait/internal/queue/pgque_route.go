@@ -145,6 +145,9 @@ func (q *PgQueQueue) readyGenerations(ctx context.Context, db store.DBTX, runIDs
 }
 
 func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQueueRef) ([]string, error) {
+	if len(refs) == 1 {
+		return q.workerRouteKeysForSingleRef(ctx, refs[0])
+	}
 	routes := make([]string, 0, len(refs))
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
@@ -171,6 +174,17 @@ func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQu
 		}
 	}
 	return routes, nil
+}
+
+func (q *PgQueQueue) workerRouteKeysForSingleRef(ctx context.Context, ref domain.WorkerQueueRef) ([]string, error) {
+	if ref.ProjectID == "" || ref.QueueName == "" {
+		return nil, nil
+	}
+	queueName := runQueueName(ref.QueueName)
+	if ref.EnvironmentID != "" {
+		return []string{pgQueWorkerRouteKey(ref.ProjectID, queueName, ref.EnvironmentID)}, nil
+	}
+	return q.workerRoutesForPrefix(ctx, pgQueWorkerRouteKey(ref.ProjectID, queueName, ""))
 }
 
 func (q *PgQueQueue) workerRoutesForPrefix(ctx context.Context, prefix string) ([]string, error) {
@@ -201,7 +215,9 @@ func (q *PgQueQueue) cachedWorkerRoutes(prefix string) []string {
 		delete(q.routeCache, prefix)
 		return nil
 	}
-	return append([]string{}, entry.routes...)
+	// Route cache entries are immutable after storage. Returning the stored
+	// slice avoids allocating on every worker dequeue poll.
+	return entry.routes
 }
 
 func (q *PgQueQueue) cacheWorkerRoutes(prefix string, routes []string) {
