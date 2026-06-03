@@ -679,7 +679,6 @@ type DebugBundle struct {
 	Run               *JobRun               `json:"run"`
 	Events            []RunEvent            `json:"events"`
 	Checkpoints       []RunCheckpoint       `json:"checkpoints"`
-	ToolCalls         []RunToolCall         `json:"tool_calls"`
 	Outputs           []RunOutput           `json:"outputs"`
 	ResourceSnapshots []RunResourceSnapshot `json:"resource_snapshots"`
 }

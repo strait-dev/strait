@@ -6244,12 +6244,6 @@ func TestGetDebugBundle(t *testing.T) {
 		t.Fatalf("CreateRunCheckpoint() error = %v", err)
 	}
 
-	// Insert a tool call
-	tc := &domain.RunToolCall{ID: newID(), RunID: run.ID, ToolName: "search", Input: json.RawMessage(`{"q":"test"}`), Output: json.RawMessage(`{"r":"ok"}`), DurationMs: 42, Status: "completed"}
-	if err := q.CreateRunToolCall(ctx, tc); err != nil {
-		t.Fatalf("CreateRunToolCall() error = %v", err)
-	}
-
 	// Insert an output
 	out := &domain.RunOutput{ID: newID(), RunID: run.ID, OutputKey: "result", Value: json.RawMessage(`{"v":1}`)}
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
@@ -6271,9 +6265,6 @@ func TestGetDebugBundle(t *testing.T) {
 	}
 	if len(bundle.Checkpoints) != 1 {
 		t.Fatalf("bundle.Checkpoints len = %d, want 1", len(bundle.Checkpoints))
-	}
-	if len(bundle.ToolCalls) != 1 {
-		t.Fatalf("bundle.ToolCalls len = %d, want 1", len(bundle.ToolCalls))
 	}
 	if len(bundle.Outputs) != 1 {
 		t.Fatalf("bundle.Outputs len = %d, want 1", len(bundle.Outputs))
@@ -6312,12 +6303,6 @@ func TestGetDebugBundle_EmptyCollections(t *testing.T) {
 	}
 	if len(bundle.Checkpoints) != 0 {
 		t.Fatalf("bundle.Checkpoints len = %d, want 0", len(bundle.Checkpoints))
-	}
-	if bundle.ToolCalls == nil {
-		t.Fatal("bundle.ToolCalls is nil, want empty slice")
-	}
-	if len(bundle.ToolCalls) != 0 {
-		t.Fatalf("bundle.ToolCalls len = %d, want 0", len(bundle.ToolCalls))
 	}
 	if bundle.Outputs == nil {
 		t.Fatal("bundle.Outputs is nil, want empty slice")

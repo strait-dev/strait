@@ -5897,7 +5897,6 @@ export type components = {
       outputs: components["schemas"]["RunOutput"][] | null;
       resource_snapshots: components["schemas"]["RunResourceSnapshot"][] | null;
       run: components["schemas"]["JobRun"];
-      tool_calls: components["schemas"]["RunToolCall"][] | null;
     };
     DebugStep: {
       /** Format: int64 */
@@ -6960,18 +6959,6 @@ export type components = {
       /** Format: date-time */
       updated_at: string;
       value: unknown;
-    };
-    RunToolCall: {
-      /** Format: date-time */
-      created_at: string;
-      /** Format: int64 */
-      duration_ms?: number;
-      id: string;
-      input?: unknown;
-      output?: unknown;
-      run_id: string;
-      status: string;
-      tool_name: string;
     };
     SDKAnnotateRequest: {
       /**

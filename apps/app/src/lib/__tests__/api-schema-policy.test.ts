@@ -17,6 +17,7 @@ const removedPublicApiMarkers = [
   "list-run-tool-calls",
   "sdk-tool-call",
   "sdk-iteration",
+  "tool_calls",
   "input_tokens",
   "output_tokens",
   "prompt_tokens",

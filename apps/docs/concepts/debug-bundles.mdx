@@ -6,7 +6,7 @@ icon: 'bug'
 
 ## When to use
 
-A job is failing intermittently and logs alone don't explain why. Enable debug mode to capture events, checkpoints, progress, tool calls, outputs, and resource utilization. Once the run completes, retrieve the bundle and inspect what happened.
+A job is failing intermittently and logs alone don't explain why. Enable debug mode to capture events, checkpoints, progress, outputs, and resource utilization. Once the run completes, retrieve the bundle and inspect what happened.
 
 ## Enabling debug mode
 
@@ -36,7 +36,6 @@ The second approach is useful when a run is already in progress and you want to 
 |---|---|
 | Events | State changes and events emitted during the run |
 | Checkpoints | Snapshots of run state at each step boundary |
-| Tool calls | Input, output, and duration of each tool invocation |
 | Outputs | Final and intermediate outputs from the run |
 | Resource snapshots | CPU, memory, and other resource metrics during execution |
 
@@ -58,9 +57,6 @@ curl https://api.strait.dev/v1/runs/{runID}/debug-bundle \
   ],
   "checkpoints": [
     {"step": 1, "state": "executing", "at": "2026-01-15T10:00:01Z"}
-  ],
-  "tool_calls": [
-    {"name": "search", "input": {"query": "Q4 results"}, "output": "...", "duration_ms": 340}
   ],
   "outputs": [
     {"step": 2, "value": "Q4 revenue grew 12% year-over-year..."}

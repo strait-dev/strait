@@ -92,6 +92,7 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"list-run-tool-calls",
 		"sdk-tool-call",
 		"sdk-iteration",
+		"tool_calls",
 		"max_tokens_per_run",
 		"max_tool_calls_per_run",
 		"max_iterations_per_run",

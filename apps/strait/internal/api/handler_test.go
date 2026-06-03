@@ -2401,7 +2401,6 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 				Run:         &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
 				Events:      []domain.RunEvent{{ID: "evt-1", RunID: "run-1", Message: "started"}},
 				Checkpoints: []domain.RunCheckpoint{{ID: "cp-1", RunID: "run-1", Sequence: 1}},
-				ToolCalls:   []domain.RunToolCall{},
 				Outputs:     []domain.RunOutput{},
 			}, nil
 		},
