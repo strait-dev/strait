@@ -33,9 +33,6 @@ export type SubscriptionStatus =
   | "unpaid"
   | "none";
 
-/** Billing interval for the subscription price. */
-export type BillingInterval = "month" | "year";
-
 /** Raw subscription data as returned by the Stripe lookup in use-subscription.ts. */
 export type SubscriptionData = {
   id: string;

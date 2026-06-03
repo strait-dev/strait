@@ -21,7 +21,8 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
@@ -34,7 +35,7 @@ import {
   useResendOrganizationDeletionCode,
   useVerifyOrganizationDeletion,
 } from "@/hooks/auth/use-organization";
-import { AlertIcon, LoadingIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
+import { AlertIcon, RefreshIcon, TrashIcon } from "@/lib/icons";
 
 type Props = {
   organizationId: string;
@@ -188,12 +189,12 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Delete Organization</CardTitle>
+        <CardTitle>Delete organization</CardTitle>
         <CardDescription>
           Permanently delete this organization and all associated data.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pb-6">
         <Alert variant="destructive">
           <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertDescription>
@@ -203,20 +204,20 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           </AlertDescription>
         </Alert>
       </CardContent>
-      <CardFooter className="flex justify-end">
+      <CardFooter className="flex justify-end border-t px-6 py-4">
         <AlertDialog
           onOpenChange={(open) => !open && handleClose()}
           open={isOpen}
         >
           <Button onClick={handleOpen} variant="destructive">
             <HugeiconsIcon className="size-4" icon={TrashIcon} />
-            Delete Organization
+            Delete organization
           </Button>
           <AlertDialogContent>
             {step === "confirm" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Organization</AlertDialogTitle>
+                  <AlertDialogTitle>Delete organization</AlertDialogTitle>
                   <AlertDialogDescription>
                     This will permanently delete{" "}
                     <strong>{organizationName}</strong> and all its data. Type
@@ -241,7 +242,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
-                      className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      className="w-fit"
                       disabled={
                         confirmName !== organizationName ||
                         requestDeletion.isPending
@@ -250,12 +251,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                         e.preventDefault();
                         handleRequestDeletion();
                       }}
+                      variant="destructive-solid"
                     >
                       {requestDeletion.isPending ? (
-                        <HugeiconsIcon
-                          className="size-4 animate-spin"
-                          icon={LoadingIcon}
-                        />
+                        <Spinner />
                       ) : (
                         <HugeiconsIcon className="size-4" icon={TrashIcon} />
                       )}
@@ -268,7 +267,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
             {step === "verify" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Enter Verification Code</AlertDialogTitle>
+                  <AlertDialogTitle>Enter verification code</AlertDialogTitle>
                   <AlertDialogDescription>
                     A verification code has been sent to your email. Enter it
                     below to confirm deletion.
@@ -276,7 +275,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                 </AlertDialogHeader>
                 <div className="py-2">
                   <Field>
-                    <FieldLabel>Verification Code</FieldLabel>
+                    <FieldLabel>Verification code</FieldLabel>
                     <Input
                       maxLength={6}
                       onChange={(e) => setVerificationCode(e.target.value)}
@@ -285,9 +284,10 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                     />
                   </Field>
                   <Button
-                    className="mt-2 h-auto gap-1 p-0 text-muted-foreground text-xs hover:text-foreground"
+                    className="mt-2"
                     disabled={resendCooldown > 0 || resendCode.isPending}
                     onClick={handleResendCode}
+                    size="xs"
                     variant="link"
                   >
                     <HugeiconsIcon icon={RefreshIcon} size={12} />
@@ -302,7 +302,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
-                      className="w-fit bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      className="w-fit"
                       disabled={
                         verificationCode.length < 6 ||
                         verifyDeletion.isPending ||
@@ -313,16 +313,14 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                         e.preventDefault();
                         handleVerifyAndDelete();
                       }}
+                      variant="destructive-solid"
                     >
                       {isPending ? (
-                        <HugeiconsIcon
-                          className="size-4 animate-spin"
-                          icon={LoadingIcon}
-                        />
+                        <Spinner />
                       ) : (
                         <HugeiconsIcon className="size-4" icon={TrashIcon} />
                       )}
-                      Delete Organization
+                      Delete organization
                     </AlertDialogAction>
                   </div>
                 </AlertDialogFooter>
@@ -331,16 +329,13 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
             {step === "deleting" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Deleting Organization...</AlertDialogTitle>
+                  <AlertDialogTitle>Deleting organization...</AlertDialogTitle>
                   <AlertDialogDescription>
                     Please wait while we delete your organization.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="flex items-center justify-center py-6">
-                  <HugeiconsIcon
-                    className="size-6 animate-spin"
-                    icon={LoadingIcon}
-                  />
+                  <Spinner size="lg" />
                 </div>
               </>
             )}

@@ -5,12 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createServerFn } from "@tanstack/react-start";
-import type {
-  APIKey,
-  ListParams,
-  PaginatedResponse,
-  RotateAPIKeyResponse,
-} from "@/hooks/api/types";
+import type { APIKey, ListParams, PaginatedResponse } from "@/hooks/api/types";
 import { queryKeys } from "@/hooks/query-keys";
 import { DEFAULT_GC_TIME, DEFAULT_STALE_TIME } from "@/hooks/utils";
 import { getPostHog } from "@/lib/analytics";
@@ -87,26 +82,6 @@ export const revokeApiKeyFn = createServerFn({ method: "POST" })
     );
   });
 
-export const rotateApiKeyFn = createServerFn({ method: "POST" })
-  .inputValidator(
-    (data: { keyId: string; gracePeriodMinutes?: number }) => data
-  )
-  .middleware([authMiddleware])
-  .handler(async ({ context, data }) => {
-    await requireActiveProjectAdmin(context);
-    return await runWithSentryReport(
-      apiEffect<RotateAPIKeyResponse>(
-        apiPath`/v1/api-keys/${data.keyId}/rotate`,
-        {
-          method: "POST",
-          body: data.gracePeriodMinutes
-            ? { grace_period_minutes: data.gracePeriodMinutes }
-            : undefined,
-        }
-      )
-    );
-  });
-
 export const apiKeysQueryOptions = (search?: ListParams) =>
   queryOptions({
     queryKey: queryKeys.apiKeys.list(search).queryKey,
@@ -155,27 +130,6 @@ export const useRevokeApiKey = () => {
     onError: (err, variables) => {
       getPostHog()?.capture("mutation_error", {
         action: "api_key_revoked",
-        error_message: err instanceof Error ? err.message : "Unknown error",
-        key_id: variables,
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.apiKeys._def });
-    },
-  });
-};
-
-export const useRotateApiKey = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["apiKeys", "rotate"],
-    mutationFn: (keyId: string) => rotateApiKeyFn({ data: { keyId } }),
-    onSuccess: (_data, keyId) => {
-      getPostHog()?.capture("api_key_rotated", { key_id: keyId });
-    },
-    onError: (err, variables) => {
-      getPostHog()?.capture("mutation_error", {
-        action: "api_key_rotated",
         error_message: err instanceof Error ? err.message : "Unknown error",
         key_id: variables,
       });

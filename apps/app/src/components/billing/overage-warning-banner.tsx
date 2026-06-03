@@ -1,4 +1,8 @@
 import { Button } from "@strait/ui/components/button";
+import {
+  NoticeBanner,
+  NoticeBannerAction,
+} from "@strait/ui/components/notice-banner";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -60,36 +64,38 @@ const OverageWarningBanner = () => {
 
   if (isInOverage) {
     return (
-      <div className="flex items-center justify-between rounded border border-destructive/30 bg-destructive/5 px-4 py-3">
-        <p className="text-destructive text-sm">
-          You're <strong>${overageDollars}</strong> over your included credit.
-          Set a spending limit to control costs.
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => navigate({ to: "/app/billing" })}
-            variant="destructive"
-          >
-            Set limit
-          </Button>
-          <Button onClick={handleDismiss} variant="ghost">
-            Dismiss
-          </Button>
-        </div>
-      </div>
+      <NoticeBanner
+        action={
+          <NoticeBannerAction>
+            <Button
+              onClick={() => navigate({ to: "/app/billing" })}
+              variant="destructive"
+            >
+              Set limit
+            </Button>
+          </NoticeBannerAction>
+        }
+        dismissible
+        onDismiss={handleDismiss}
+        title="Included credit exceeded"
+        variant="destructive"
+      >
+        You're <strong>${overageDollars}</strong> over your included credit. Set
+        a spending limit to control costs.
+      </NoticeBanner>
     );
   }
 
   return (
-    <div className="flex items-center justify-between rounded border border-warning/30 bg-warning/5 px-4 py-3">
-      <p className="text-sm text-warning">
-        You've used <strong>{Math.round(creditUsedPercent)}%</strong> of your $
-        {includedCreditDollars} compute credit this period.
-      </p>
-      <Button onClick={handleDismiss} variant="ghost">
-        Dismiss
-      </Button>
-    </div>
+    <NoticeBanner
+      dismissible
+      onDismiss={handleDismiss}
+      title="Compute credit running low"
+      variant="warning"
+    >
+      You've used <strong>{Math.round(creditUsedPercent)}%</strong> of your $
+      {includedCreditDollars} compute credit this period.
+    </NoticeBanner>
   );
 };
 

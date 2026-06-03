@@ -7,6 +7,15 @@ const TIER_RANK: Record<string, number> = {
   enterprise: 5,
 };
 
+const TIER_LABEL: Record<string, string> = {
+  free: "Free",
+  starter: "Starter",
+  pro: "Pro",
+  scale: "Scale",
+  business: "Business",
+  enterprise: "Enterprise",
+};
+
 /** Returns true if switching from `currentTier` to `targetTier` is a downgrade. */
 export function isDowngrade(
   currentTier: string | undefined,
@@ -95,4 +104,10 @@ export function canUseFeature(
     return true;
   }
   return tierAtLeast(tier, minTier);
+}
+
+/** Returns the human-readable minimum tier label for a gated feature. */
+export function getFeatureMinimumPlanLabel(feature: PlanFeature): string {
+  const minTier = FEATURE_MIN_TIER[feature];
+  return TIER_LABEL[minTier] ?? minTier;
 }

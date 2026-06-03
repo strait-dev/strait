@@ -2,7 +2,29 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@strait/ui/components/badge";
 
 import { Button } from "@strait/ui/components/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -18,14 +40,10 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useState } from "react";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import StatusBadge from "@/components/dashboard/status-badge";
 import { createRunColumns } from "@/components/tables/runs-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { Job, JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -134,23 +152,25 @@ function ScheduleDetailPage() {
       </div>
 
       {/* Cron Display Card */}
-      <div className="rounded-md border p-4">
-        <div className="flex items-center gap-3">
-          <HugeiconsIcon
-            className="text-muted-foreground"
-            icon={CalendarIcon}
-            size={20}
-          />
-          <div>
-            <p className="font-medium text-muted-foreground text-xs uppercase">
-              Cron Schedule
-            </p>
-            <code className="font-normal text-sm">
-              {job.cron || "No schedule"}
-            </code>
+      <Card>
+        <CardContent>
+          <div className="flex items-center gap-3">
+            <HugeiconsIcon
+              className="text-muted-foreground"
+              icon={CalendarIcon}
+              size={20}
+            />
+            <div>
+              <p className="font-medium text-muted-foreground text-xs uppercase">
+                Cron Schedule
+              </p>
+              <Badge mono size="sm" variant="secondary-light">
+                {job.cron || "No schedule"}
+              </Badge>
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Tabs */}
       <Tabs className="w-full" onValueChange={setActiveTab} value={activeTab}>
@@ -160,31 +180,46 @@ function ScheduleDetailPage() {
         </TabsList>
 
         <TabsContent className="mt-6" value="history">
-          <DataTable
-            emptyState={
-              <TableEmptyState
-                description="No runs yet. Runs will appear here each time the schedule fires."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-foreground"
-                    icon={ActivityIcon}
-                  />
-                }
-                title="No runs found"
-              />
+          <DataGrid
+            emptyMessage={
+              <Empty className="h-[300px]">
+                <EmptyHeader>
+                  <EmptyMedia media="icon" size="lg">
+                    <HugeiconsIcon
+                      className="size-6 text-foreground"
+                      icon={ActivityIcon}
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle>No runs found</EmptyTitle>
+                  <EmptyDescription>
+                    No runs yet. Runs will appear here each time the schedule
+                    fires.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             }
+            recordCount={runs?.data.length ?? 0}
             table={runsTable}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+              <DataGridPagination />
+            </DataGridContainer>
+          </DataGrid>
         </TabsContent>
 
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
-          <div className="space-y-3 rounded-md border p-4">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-              Configuration
-            </h4>
-            <div className="space-y-2.5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
               <ConfigRow
                 icon={GlobeIcon}
                 label="Endpoint"
@@ -205,24 +240,26 @@ function ScheduleDetailPage() {
                 label="Timeout"
                 value={`${job.timeout_secs}s`}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Tags */}
           {job.tags && Object.keys(job.tags).length > 0 && (
-            <div className="rounded-md border p-4">
-              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                <HugeiconsIcon icon={TagIcon} size={12} />
-                Tags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                  <HugeiconsIcon icon={TagIcon} size={12} />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-1.5">
                 {Object.entries(job.tags).map(([key, val]) => (
                   <Badge key={key} variant="secondary">
                     {key}: {String(val)}
                   </Badge>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>

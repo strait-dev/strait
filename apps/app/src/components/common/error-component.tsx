@@ -11,6 +11,12 @@ import {
   AlertTitle,
 } from "@strait/ui/components/alert";
 import { Button } from "@strait/ui/components/button";
+import { CodeBlock } from "@strait/ui/components/code-block";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
 import { useQueryErrorResetBoundary } from "@tanstack/react-query";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
@@ -68,14 +74,19 @@ const ErrorComponent = ({ error }: { error: Error }) => {
               <AccordionItem value="error-details">
                 <AccordionTrigger>View error details</AccordionTrigger>
                 <AccordionContent>
-                  <div className="rounded-md bg-muted p-4">
-                    <h3 className="mb-2 font-medium text-sm">Error details:</h3>
-                    <p className="mb-4 text-sm">{error.message}</p>
-                    <h3 className="mb-2 font-medium text-sm">Error trace:</h3>
-                    <pre className="overflow-x-auto whitespace-pre-wrap text-xs">
-                      {error.stack}
-                    </pre>
-                  </div>
+                  <DescriptionList size="sm">
+                    <DescriptionTerm>Error details</DescriptionTerm>
+                    <DescriptionDetails>{error.message}</DescriptionDetails>
+                    <DescriptionTerm>Error trace</DescriptionTerm>
+                    <DescriptionDetails>
+                      <CodeBlock
+                        code={error.stack ?? error.message}
+                        copyable={false}
+                        maxHeight={320}
+                        wrap
+                      />
+                    </DescriptionDetails>
+                  </DescriptionList>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
@@ -290,12 +290,9 @@ function RouteComponent() {
     <Shell>
       <h1 className="sr-only">Upgrade plan</h1>
       {search.canceled ? (
-        <Alert className="mb-6 border-warning/30 bg-warning/5">
-          <HugeiconsIcon
-            className="size-4 text-warning"
-            icon={AlertCircleIcon}
-          />
-          <AlertDescription className="text-warning">
+        <Alert className="mb-6" variant="warning">
+          <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
+          <AlertDescription>
             Checkout was canceled. You can try again by selecting a plan below.
           </AlertDescription>
         </Alert>
@@ -303,21 +300,18 @@ function RouteComponent() {
 
       {search.error ? (
         <Alert variant="destructive">
-          <HugeiconsIcon
-            className="size-4 text-destructive"
-            icon={AlertCircleIcon}
-          />
+          <HugeiconsIcon className="size-4" icon={AlertCircleIcon} />
           <AlertDescription>{search.error}</AlertDescription>
         </Alert>
       ) : null}
 
       <div className="space-y-8">
         {hasActiveSubscription ? (
-          <Card className="border-border bg-muted/50">
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />
-                Customer Portal
+                Customer portal
               </CardTitle>
               <CardDescription>
                 Manage your subscription, payment methods and invoices
@@ -330,7 +324,7 @@ function RouteComponent() {
                 onClick={handleOpenPortal}
               >
                 <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
-                {isPortalLoading ? "Opening..." : "Access Customer Portal"}
+                {isPortalLoading ? "Opening..." : "Access customer portal"}
               </Button>
             </CardContent>
           </Card>

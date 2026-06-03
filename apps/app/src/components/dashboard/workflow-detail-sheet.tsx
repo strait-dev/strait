@@ -1,6 +1,21 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { BadgeProps } from "@strait/ui/components/badge";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
+import {
+  DescriptionDetails,
+  DescriptionList,
+  DescriptionTerm,
+} from "@strait/ui/components/description-list";
+import { FeatureBadge } from "@strait/ui/components/feature-lock";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { MetricCard } from "@strait/ui/components/metric-card";
 import {
   Sheet,
   SheetContent,
@@ -8,13 +23,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@strait/ui/components/sheet";
-import { cn } from "@strait/ui/utils/index";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import { Link } from "@tanstack/react-router";
-import FeatureBadge from "@/components/billing/feature-badge";
 import type { Workflow, WorkflowStepType } from "@/hooks/api/types";
 import { useTriggerWorkflow } from "@/hooks/api/use-workflows";
+import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import { ClockIcon, PlayActionIcon, TagIcon } from "@/lib/icons";
-import StatusBadge from "./status-badge";
+import {
+  canUseFeature,
+  getFeatureMinimumPlanLabel,
+  type PlanFeature,
+} from "@/lib/plan-tiers";
 
 type WorkflowDetailSheetProps = {
   workflow: Workflow | null;
@@ -22,26 +41,27 @@ type WorkflowDetailSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-const STEP_TYPE_COLORS: Record<WorkflowStepType, string> = {
-  job: "bg-chart-2",
-  approval: "bg-chart-3",
-  sub_workflow: "bg-chart-5",
-  wait_for_event: "bg-chart-1",
-  sleep: "bg-muted-foreground",
-};
+const STEP_TYPE_BADGE_VARIANTS = {
+  job: "info-light",
+  approval: "warning-light",
+  sub_workflow: "secondary-light",
+  wait_for_event: "primary-light",
+  sleep: "secondary-light",
+} satisfies Record<WorkflowStepType, BadgeProps["variant"]>;
 
-const StatCell = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) => (
-  <div className="rounded-md border p-3 text-center">
-    <p className="font-normal text-lg">{value}</p>
-    <p className="text-muted-foreground text-xs">{label}</p>
-  </div>
-);
+function renderFeatureBadge(currentPlan: string, feature: PlanFeature) {
+  if (canUseFeature(currentPlan, feature)) {
+    return null;
+  }
+
+  return (
+    <FeatureBadge
+      className="ml-1.5"
+      plan={getFeatureMinimumPlanLabel(feature)}
+      size="xs"
+    />
+  );
+}
 
 const WorkflowDetailSheet = ({
   workflow,
@@ -49,6 +69,7 @@ const WorkflowDetailSheet = ({
   onOpenChange,
 }: WorkflowDetailSheetProps) => {
   const triggerWorkflow = useTriggerWorkflow();
+  const currentPlan = useCurrentPlan();
 
   if (!workflow) {
     return null;
@@ -74,9 +95,9 @@ const WorkflowDetailSheet = ({
           </div>
           {/* Stats Grid */}
           <div className="grid grid-cols-3 gap-2">
-            <StatCell label="Success %" value="96.5%" />
-            <StatCell label="Runs" value="584" />
-            <StatCell label="Last Run" value="8m ago" />
+            <MetricCard size="sm" title="Success %" value="96.5%" />
+            <MetricCard size="sm" title="Runs" value="584" />
+            <MetricCard size="sm" title="Last Run" value="8m ago" />
           </div>
 
           {/* Step List Preview */}
@@ -84,7 +105,7 @@ const WorkflowDetailSheet = ({
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
               Steps
             </h4>
-            <div className="space-y-2">
+            <ItemGroup className="gap-2">
               {(
                 [
                   { name: "validate-input", type: "job" as const },
@@ -95,29 +116,27 @@ const WorkflowDetailSheet = ({
                   { name: "cool-down", type: "sleep" as const },
                 ] as const
               ).map((step) => (
-                <div
-                  className="flex items-center gap-2 rounded-md border px-3 py-2"
-                  key={step.name}
-                >
-                  <span
-                    className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      STEP_TYPE_COLORS[step.type]
-                    )}
-                  />
-                  <span className="text-sm">{step.name}</span>
-                  <span className="ml-auto flex items-center text-muted-foreground text-sm">
-                    {step.type}
-                    {step.type === "approval" && (
-                      <FeatureBadge feature="approval_gates" />
-                    )}
-                    {step.type === "sub_workflow" && (
-                      <FeatureBadge feature="sub_workflows" />
-                    )}
-                  </span>
-                </div>
+                <Item key={step.name} size="xs" variant="outline">
+                  <ItemContent>
+                    <ItemTitle>{step.name}</ItemTitle>
+                  </ItemContent>
+                  <ItemActions>
+                    <Badge
+                      dot
+                      radius="md"
+                      size="xs"
+                      variant={STEP_TYPE_BADGE_VARIANTS[step.type]}
+                    >
+                      {step.type}
+                    </Badge>
+                    {step.type === "approval" &&
+                      renderFeatureBadge(currentPlan, "approval_gates")}
+                    {step.type === "sub_workflow" &&
+                      renderFeatureBadge(currentPlan, "sub_workflows")}
+                  </ItemActions>
+                </Item>
               ))}
-            </div>
+            </ItemGroup>
           </div>
 
           {/* Configuration */}
@@ -125,37 +144,27 @@ const WorkflowDetailSheet = ({
             <h4 className="mb-3 font-medium text-muted-foreground text-xs uppercase">
               Configuration
             </h4>
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HugeiconsIcon className="size-3" icon={ClockIcon} />
-                  Timeout
-                </span>
-                <span className="font-mono text-sm">
-                  {workflow.timeout_secs}s
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Max Concurrent</span>
-                <span className="font-mono text-sm">
-                  {workflow.max_concurrent_runs}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  Max Parallel Steps
-                </span>
-                <span className="font-mono text-sm">
-                  {workflow.max_parallel_steps}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Schedule</span>
-                <span className="font-mono text-sm">
-                  {workflow.cron || "Manual"}
-                </span>
-              </div>
-            </div>
+            <DescriptionList orientation="horizontal" size="sm">
+              <DescriptionTerm>
+                <HugeiconsIcon className="size-3" icon={ClockIcon} />
+                Timeout
+              </DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {workflow.timeout_secs}s
+              </DescriptionDetails>
+              <DescriptionTerm>Max Concurrent</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {workflow.max_concurrent_runs}
+              </DescriptionDetails>
+              <DescriptionTerm>Max Parallel Steps</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {workflow.max_parallel_steps}
+              </DescriptionDetails>
+              <DescriptionTerm>Schedule</DescriptionTerm>
+              <DescriptionDetails className="font-mono">
+                {workflow.cron || "Manual"}
+              </DescriptionDetails>
+            </DescriptionList>
           </div>
 
           {/* Tags */}

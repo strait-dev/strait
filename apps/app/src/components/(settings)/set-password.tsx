@@ -1,4 +1,3 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -7,10 +6,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { LoadingIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 type Props = {
@@ -91,12 +90,7 @@ const SetPassword = ({ email }: Props) => {
             onClick={handleRequestPasswordSetup}
             variant="outline"
           >
-            {isLoading ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : null}
+            {isLoading ? <Spinner /> : null}
             {cooldown > 0
               ? `Resend in ${cooldown}s`
               : "Resend password setup email"}
@@ -117,9 +111,7 @@ const SetPassword = ({ email }: Props) => {
       </CardHeader>
       <CardContent>
         <Button disabled={isLoading} onClick={handleRequestPasswordSetup}>
-          {isLoading ? (
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
-          ) : null}
+          {isLoading ? <Spinner /> : null}
           Send password setup email
         </Button>
       </CardContent>

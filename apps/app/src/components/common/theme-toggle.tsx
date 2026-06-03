@@ -18,7 +18,8 @@ const ThemeToggle = () => {
 
   return (
     <Button
-      className="text-muted-foreground/65 group-data-[active=true]/menu-button:text-primary"
+      aria-label="Toggle theme"
+      className="text-muted-foreground group-data-[active=true]/menu-button:text-primary"
       onClick={toggleTheme}
       size="icon"
       variant="outline"

@@ -7,7 +7,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { toast } from "@strait/ui/components/toast/index";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { Spinner } from "@strait/ui/components/spinner";
+import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -16,7 +32,7 @@ import {
   useRevokeOtherSessions,
   useRevokeSession,
 } from "@/hooks/auth/use-account";
-import { GlobeIcon, LoadingIcon, LogOutIcon } from "@/lib/icons";
+import { GlobeIcon, LogOutIcon } from "@/lib/icons";
 
 const SessionManagement = () => {
   const navigate = useNavigate();
@@ -109,12 +125,7 @@ const SessionManagement = () => {
                 onClick={handleRevokeAll}
                 variant="outline"
               >
-                {revokeOtherSessions.isPending ? (
-                  <HugeiconsIcon
-                    className="size-3 animate-spin"
-                    icon={LoadingIcon}
-                  />
-                ) : null}
+                {revokeOtherSessions.isPending ? <Spinner size="xs" /> : null}
                 Revoke all others
               </Button>
             )}
@@ -124,10 +135,7 @@ const SessionManagement = () => {
               variant="destructive"
             >
               {revokeAllSessions.isPending ? (
-                <HugeiconsIcon
-                  className="size-3 animate-spin"
-                  icon={LoadingIcon}
-                />
+                <Spinner size="xs" />
               ) : (
                 <HugeiconsIcon className="size-3" icon={LogOutIcon} />
               )}
@@ -139,15 +147,22 @@ const SessionManagement = () => {
       <CardContent>
         {isLoading && (
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+            <Spinner />
             Loading sessions...
           </div>
         )}
         {!isLoading && sessions.length === 0 && (
-          <p className="text-muted-foreground text-sm">No active sessions.</p>
+          <Empty border={false} className="py-4">
+            <EmptyHeader>
+              <EmptyTitle>No active sessions</EmptyTitle>
+              <EmptyDescription>
+                Active browser sessions will appear here when you sign in.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
         {!isLoading && sessions.length > 0 && (
-          <div className="flex flex-col gap-3">
+          <ItemGroup>
             {sessions.map((session) => {
               const isCurrent = session.isCurrent;
               const isRevoking =
@@ -155,49 +170,43 @@ const SessionManagement = () => {
                 revokeSession.variables === session.id;
 
               return (
-                <div
-                  className="flex items-center justify-between rounded-md border p-3"
-                  key={session.id}
-                >
-                  <div className="flex items-center gap-3">
+                <Item key={session.id} variant="outline">
+                  <ItemMedia variant="icon">
                     <HugeiconsIcon
                       className="size-4 text-muted-foreground"
                       icon={GlobeIcon}
                     />
-                    <div>
-                      <p className="font-medium text-sm">
-                        {parseUserAgent(session.userAgent)}
-                        {isCurrent && (
-                          <span className="ml-2 text-muted-foreground text-xs">
-                            (current)
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {session.ipAddress ?? "Unknown IP"} &middot; Last active{" "}
-                        {formatDate(session.updatedAt)}
-                      </p>
-                    </div>
-                  </div>
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>
+                      {parseUserAgent(session.userAgent)}
+                      {isCurrent && (
+                        <span className="ml-2 text-muted-foreground text-xs">
+                          (current)
+                        </span>
+                      )}
+                    </ItemTitle>
+                    <ItemDescription>
+                      {session.ipAddress ?? "Unknown IP"} &middot; Last active{" "}
+                      {formatDate(session.updatedAt)}
+                    </ItemDescription>
+                  </ItemContent>
                   {!isCurrent && (
-                    <Button
-                      disabled={isRevoking}
-                      onClick={() => handleRevoke(session.id)}
-                      variant="outline"
-                    >
-                      {isRevoking ? (
-                        <HugeiconsIcon
-                          className="size-3 animate-spin"
-                          icon={LoadingIcon}
-                        />
-                      ) : null}
-                      Revoke
-                    </Button>
+                    <ItemActions>
+                      <Button
+                        disabled={isRevoking}
+                        onClick={() => handleRevoke(session.id)}
+                        variant="outline"
+                      >
+                        {isRevoking ? <Spinner size="xs" /> : null}
+                        Revoke
+                      </Button>
+                    </ItemActions>
                   )}
-                </div>
+                </Item>
               );
             })}
-          </div>
+          </ItemGroup>
         )}
       </CardContent>
     </Card>

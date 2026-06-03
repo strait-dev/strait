@@ -11,15 +11,21 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
-import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
-import { Input } from "@strait/ui/components/input";
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -30,15 +36,15 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
-import TableEmptyState from "@/components/common/table-empty-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
 import { createDlqColumns } from "@/components/tables/dlq-columns";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { JobRun, PaginatedResponse } from "@/hooks/api/types";
 import {
@@ -49,21 +55,21 @@ import {
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
-import {
-  AlertIcon,
-  FilterIcon,
-  RefreshIcon,
-  SearchIcon,
-  TrashIcon,
-} from "@/lib/icons";
+import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
+
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
 
 export const searchSchema = z.object({
   query: z.string().optional(),
-  errorType: z.array(z.string()).optional(),
+  errorType: searchArraySchema,
   cursor: z.string().optional(),
-  perPage: z.number().optional(),
+  perPage: z.coerce.number().optional(),
 });
 
 export const Route = createFileRoute("/app/dlq/")({
@@ -116,9 +122,39 @@ function DlqPage() {
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const tableData = hasProject ? (typed?.data ?? []) : [];
+  const selectedErrorTypes = search.errorType ?? [];
+
+  const filteredData = useMemo(() => {
+    let runs = tableData;
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      runs = runs.filter((run) =>
+        [
+          run.id,
+          run.job_id,
+          run.error,
+          run.error_class,
+          run.status,
+          run.triggered_by,
+        ]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
+    if (selectedErrorTypes.length === 0) {
+      return runs;
+    }
+    return runs.filter((run) =>
+      selectedErrorTypes.some((errorType) =>
+        [run.error, run.error_class]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(errorType))
+      )
+    );
+  }, [tableData, search.query, selectedErrorTypes]);
 
   const table = useReactTable({
-    data: tableData,
+    data: filteredData,
     columns: createDlqColumns({
       onView: (run) => {
         setSelectedRun(run);
@@ -156,7 +192,7 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
-  const allDlqIds = (typed?.data ?? []).map((r) => r.id);
+  const allDlqIds = filteredData.map((r) => r.id);
   const handleRetryAll = useCallback(() => {
     if (allDlqIds.length === 0) {
       return;
@@ -164,36 +200,31 @@ function DlqPage() {
     bulkRetry.mutate({ ids: allDlqIds });
   }, [allDlqIds, bulkRetry]);
 
-  const selectedErrorTypes = search.errorType ?? [];
-
-  function toggleErrorType(errorType: string) {
-    const current = new Set(selectedErrorTypes);
-    if (current.has(errorType)) {
-      current.delete(errorType);
-    } else {
-      current.add(errorType);
-    }
-    const arr = Array.from(current);
+  function handleErrorTypeFiltersChange(errorTypes: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        errorType: arr.length > 0 ? arr : undefined,
+        errorType: errorTypes.length > 0 ? errorTypes : undefined,
         cursor: undefined,
       }),
     });
   }
 
-  const totalCount = tableData.length;
+  const totalCount = filteredData.length;
 
   const emptyState = hasProject ? (
-    <TableEmptyState
-      description="No dead letter items. Failed runs that exhaust retries will appear here."
-      hideButton
-      icon={
-        <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />
-      }
-      title="No dead letter items"
-    />
+    <Empty className="h-[300px]">
+      <EmptyHeader>
+        <EmptyMedia media="icon" size="lg">
+          <HugeiconsIcon className="size-6 text-foreground" icon={AlertIcon} />
+        </EmptyMedia>
+        <EmptyTitle>No dead letter items</EmptyTitle>
+        <EmptyDescription>
+          No dead letter items. Failed runs that exhaust retries will appear
+          here.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   ) : (
     <NoProjectState user={session.user} />
   );
@@ -214,49 +245,33 @@ function DlqPage() {
 
       {/* Toolbar */}
       <div className="flex items-center gap-2 pb-2.5">
-        <div className="relative w-full max-w-[500px]">
-          <HugeiconsIcon
-            className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-            icon={SearchIcon}
-            size={16}
-          />
-          <Input
-            aria-label="Search"
-            className="pl-9"
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  query: e.target.value || undefined,
-                  cursor: undefined,
-                }),
-              })
-            }
-            placeholder="Search by job, run ID, or error..."
-            value={search.query ?? ""}
-          />
-        </div>
+        <InputWithStartIcon
+          aria-label="Search"
+          containerClassName="w-full max-w-[500px]"
+          icon={<HugeiconsIcon icon={SearchIcon} size={16} />}
+          onChange={(e) =>
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                query: e.target.value || undefined,
+                cursor: undefined,
+              }),
+            })
+          }
+          placeholder="Search dead letters"
+          value={search.query ?? ""}
+        />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Error Type
-            {selectedErrorTypes.length > 0 && (
-              <Badge variant="default">{selectedErrorTypes.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {DLQ_ERROR_TYPES.map((errorType) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedErrorTypes.includes(errorType)}
-                key={errorType}
-                onCheckedChange={() => toggleErrorType(errorType)}
-              >
-                <span className="capitalize">{errorType}</span>
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          field="errorType"
+          label="Error type"
+          onChange={handleErrorTypeFiltersChange}
+          options={DLQ_ERROR_TYPES.map((errorType) => ({
+            label: errorType,
+            value: errorType,
+          }))}
+          values={selectedErrorTypes}
+        />
 
         {hasSelection ? (
           <>
@@ -266,7 +281,7 @@ function DlqPage() {
               variant="outline"
             >
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
-              Retry Selected ({selectedIds.length})
+              Retry selected ({selectedIds.length})
             </Button>
             <AlertDialog>
               <AlertDialogTrigger
@@ -280,7 +295,7 @@ function DlqPage() {
                       icon={TrashIcon}
                       size={14}
                     />
-                    Discard Selected ({selectedIds.length})
+                    Discard selected ({selectedIds.length})
                   </Button>
                 }
               />
@@ -347,44 +362,39 @@ function DlqPage() {
       </div>
 
       {/* Table */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noNoninteractiveElementInteractions lint/a11y/noStaticElementInteractions: event delegation on table container */}
-      <div
-        className="[&_tbody_tr]:cursor-pointer"
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          if (target.closest("a, button, input[type=checkbox]")) {
-            return;
-          }
-          const row = target.closest("tr[data-row-index]");
-          if (!row) {
-            return;
-          }
-          const idx = Number(row.getAttribute("data-row-index"));
-          const run = table.getRowModel().rows[idx]?.original;
-          if (run) {
-            setSelectedRun(run);
-            setSheetOpen(true);
-          }
-        }}
-      >
+      <div onClickCapture={stopInteractiveRowClick}>
         <div className="pt-2">
-          <DataTable
-            ariaLabel="Dead letter queue"
-            cursorPagination={{
-              pageSize: pagination.perPage,
-              hasMore: typed?.has_more ?? false,
-              canGoBack: pagination.canGoBack,
-              onNext: () => {
-                if (typed?.next_cursor) {
-                  pagination.goNext(typed.next_cursor);
-                }
-              },
-              onPrev: pagination.goPrev,
-              onPageSizeChange: pagination.setPerPage,
+          <DataGrid
+            emptyMessage={emptyState}
+            onRowClick={(run) => {
+              setSelectedRun(run);
+              setSheetOpen(true);
             }}
-            emptyState={emptyState}
+            recordCount={table.getRowModel().rows.length}
             table={table}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+            </DataGridContainer>
+            <CursorPagination
+              cursor={{
+                pageSize: pagination.perPage,
+                hasMore: typed?.has_more ?? false,
+                canGoBack: pagination.canGoBack,
+                onNext: () => {
+                  if (typed?.next_cursor) {
+                    pagination.goNext(typed.next_cursor);
+                  }
+                },
+                onPrev: pagination.goPrev,
+                onPageSizeChange: pagination.setPerPage,
+              }}
+              table={table}
+            />
+          </DataGrid>
         </div>
       </div>
 

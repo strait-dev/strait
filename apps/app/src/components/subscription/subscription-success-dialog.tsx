@@ -9,6 +9,7 @@ import {
   CredenzaHeader,
   CredenzaTitle,
 } from "@strait/ui/components/credenza";
+import { EmptyMedia } from "@strait/ui/components/empty";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2Icon, CreditCardIcon, SparklesIcon } from "@/lib/icons";
 
@@ -60,12 +61,9 @@ const SubscriptionSuccessDialog = ({
       <CredenzaContent className="sm:max-w-[500px]">
         <CredenzaHeader className="text-center">
           <div className="mb-6 flex justify-center">
-            <div className="rounded-lg bg-success/10 p-4">
-              <HugeiconsIcon
-                className="size-12 text-success"
-                icon={CheckCircle2Icon}
-              />
-            </div>
+            <EmptyMedia media="icon" size="lg" variant="success">
+              <HugeiconsIcon className="size-12" icon={CheckCircle2Icon} />
+            </EmptyMedia>
           </div>
           <CredenzaTitle className="text-balance text-2xl">
             {isNewSubscription ? "Welcome to Strait!" : null}
@@ -84,27 +82,17 @@ const SubscriptionSuccessDialog = ({
         {/* Feature highlights */}
         <div className="px-6 pb-2">
           <div className="flex justify-center gap-3">
-            <Badge
-              className="flex items-center gap-1 px-3 py-1"
-              variant="success"
-            >
-              <HugeiconsIcon className="size-3" icon={SparklesIcon} />
+            <Badge iconLeft={SparklesIcon} size="lg" variant="success">
               Premium Features
             </Badge>
-            <Badge
-              className="flex items-center gap-1 px-3 py-1"
-              variant="info-light"
-            >
-              <HugeiconsIcon className="size-3" icon={CreditCardIcon} />
+            <Badge iconLeft={CreditCardIcon} size="lg" variant="info-light">
               Manage Billing
             </Badge>
           </div>
         </div>
 
         <CredenzaFooter className="flex justify-center pt-4">
-          <Button className="px-8" onClick={handleClose}>
-            Start Exploring
-          </Button>
+          <Button onClick={handleClose}>Start exploring</Button>
         </CredenzaFooter>
       </CredenzaContent>
     </Credenza>

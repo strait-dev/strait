@@ -1,3 +1,4 @@
+import { Card, CardContent } from "@strait/ui/components/card";
 import type { ReactNode } from "react";
 
 type AuthLayoutProps = {
@@ -7,9 +8,9 @@ type AuthLayoutProps = {
 };
 
 const AuthLayout = ({ children, title, description }: AuthLayoutProps) => (
-  <div className="flex min-h-dvh w-full items-center justify-center bg-background">
-    <div className="w-full max-w-[450px] overflow-hidden rounded border border-border/50 bg-background shadow-sm">
-      <div className="flex flex-col gap-4 p-8">
+  <div className="flex min-h-dvh w-full items-center justify-center">
+    <Card className="w-full max-w-[450px] overflow-hidden">
+      <CardContent className="flex flex-col gap-4 p-8">
         <div className="flex flex-col items-center gap-2">
           <div className="mb-1">
             <img
@@ -31,8 +32,8 @@ const AuthLayout = ({ children, title, description }: AuthLayoutProps) => (
           ) : null}
         </div>
         {children}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   </div>
 );
 

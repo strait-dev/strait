@@ -15,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@strait/ui/components/dropdown-menu";
 import { SidebarMenuButton } from "@strait/ui/components/sidebar";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
@@ -186,7 +186,7 @@ const OrganizationDropdownMenu = ({ user, session }: Props) => {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded"
+          className="w-[--radix-dropdown-menu-trigger-width] min-w-56"
           side="bottom"
           sideOffset={4}
         >

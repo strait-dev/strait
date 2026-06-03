@@ -1,9 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@strait/ui/components/avatar";
+import { Avatar, AvatarFallback } from "@strait/ui/components/avatar";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -15,11 +11,12 @@ import {
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
 import { Input } from "@strait/ui/components/input";
+import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
-import { toast } from "@strait/ui/components/toast/index";
+import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { z } from "zod/v4";
 import {
   organizationQueryOptions,
@@ -27,7 +24,7 @@ import {
 } from "@/hooks/auth/use-organization";
 import { queryKeys } from "@/hooks/query-keys";
 import { formatFieldErrors } from "@/lib/form-errors";
-import { LoadingIcon, PencilEditIcon, StoreIcon } from "@/lib/icons";
+import { PencilEditIcon, StoreIcon } from "@/lib/icons";
 import { captureException } from "@/lib/sentry";
 
 const orgFormSchema = z.object({
@@ -36,7 +33,6 @@ const orgFormSchema = z.object({
   description: z.string(),
   email: z.string(),
   website: z.string(),
-  logo: z.string(),
 });
 
 type OrgMetadata = {
@@ -74,7 +70,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
     organizationQueryOptions(organizationId)
   );
   const updateOrganization = useUpdateOrganization();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const meta = parseMetadata(organization?.metadata);
 
@@ -85,7 +80,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       description: meta.description ?? "",
       email: meta.email ?? "",
       website: meta.website ?? "",
-      logo: organization?.logo ?? "",
     },
     validators: { onChange: orgFormSchema },
     onSubmit: ({ value }) => {
@@ -104,7 +98,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                 organizationId,
                 name: value.name,
                 slug: value.slug || undefined,
-                logo: value.logo || undefined,
                 metadata,
               })
               .then(() => {
@@ -139,34 +132,9 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
         description: orgMeta.description ?? "",
         email: orgMeta.email ?? "",
         website: orgMeta.website ?? "",
-        logo: organization.logo ?? "",
       });
     }
   }, [organization, form]);
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Logo must be under 2MB.");
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      toast.error("File must be an image.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      form.setFieldValue("logo", result);
-    };
-    reader.readAsDataURL(file);
-  };
 
   const isProcessing = isSubmitting || updateOrganization.isPending;
 
@@ -175,7 +143,7 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       <Card>
         <CardContent className="py-8">
           <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm">
-            <HugeiconsIcon className="size-4 animate-spin" icon={LoadingIcon} />
+            <Spinner />
             Loading organization...
           </div>
         </CardContent>
@@ -190,9 +158,9 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Organization Details</CardTitle>
+        <CardTitle>Organization details</CardTitle>
         <CardDescription>
-          Update your organization's name, logo, and information.
+          Update your organization's name and public information.
         </CardDescription>
       </CardHeader>
       <form
@@ -201,43 +169,19 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-6">
-            {/* Logo */}
-            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3">
               <Avatar className="size-16">
-                <form.Field name="logo">
-                  {(field) =>
-                    field.state.value ? (
-                      <AvatarImage
-                        alt={organization.name}
-                        src={field.state.value}
-                      />
-                    ) : null
-                  }
-                </form.Field>
                 <AvatarFallback className="text-lg">
                   <HugeiconsIcon className="size-6" icon={StoreIcon} />
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col gap-1">
-                <Button
-                  onClick={() => fileInputRef.current?.click()}
-                  type="button"
-                  variant="outline"
-                >
-                  Upload Logo
-                </Button>
-                <p className="text-muted-foreground text-xs">
-                  PNG, JPG or SVG. Max 2MB.
-                </p>
-                <input
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleLogoUpload}
-                  ref={fileInputRef}
-                  type="file"
-                />
+                <span className="font-medium text-sm">{organization.name}</span>
+                <span className="text-muted-foreground text-sm">
+                  Logo uploads are not available yet.
+                </span>
               </div>
             </div>
 
@@ -409,41 +353,47 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end gap-4">
-          <Button
-            className="w-fit"
-            disabled={!form.state.isDirty || isProcessing}
-            onClick={() => {
-              if (!isProcessing) {
-                form.reset();
-              }
-            }}
-            type="button"
-            variant="secondary"
+        <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
+          <form.Subscribe
+            selector={(state) => ({
+              canSubmit: state.canSubmit,
+              isDirty: state.isDirty,
+              isSubmitting: state.isSubmitting,
+            })}
           >
-            Cancel
-          </Button>
+            {({ canSubmit, isDirty, isSubmitting }) => (
+              <>
+                <Button
+                  className="w-fit"
+                  disabled={!isDirty || isProcessing}
+                  onClick={() => {
+                    if (!isProcessing) {
+                      form.reset();
+                    }
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
 
-          <Button
-            className="w-fit"
-            disabled={
-              !form.state.isDirty ||
-              form.state.isSubmitting ||
-              !form.state.canSubmit ||
-              isProcessing
-            }
-            type="submit"
-          >
-            {isProcessing ? (
-              <HugeiconsIcon
-                className="size-4 animate-spin"
-                icon={LoadingIcon}
-              />
-            ) : (
-              <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                <Button
+                  className="w-fit"
+                  disabled={
+                    !isDirty || isSubmitting || !canSubmit || isProcessing
+                  }
+                  type="submit"
+                >
+                  {isProcessing ? (
+                    <Spinner />
+                  ) : (
+                    <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                  )}
+                  Save changes
+                </Button>
+              </>
             )}
-            Save changes
-          </Button>
+          </form.Subscribe>
         </CardFooter>
       </form>
     </Card>

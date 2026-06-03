@@ -175,8 +175,11 @@ export async function kvIncrementWithTtl(
         await kv.expire(key, opts.ex);
       }
       return count;
-    } catch {
-      throw new Error("KV increment failed");
+    } catch (error) {
+      console.warn("KV increment failed, using in-memory fallback", {
+        key,
+        error,
+      });
     }
   }
 

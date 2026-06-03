@@ -7,7 +7,33 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
+import { ConfigRow } from "@strait/ui/components/config-row";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridPagination,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@strait/ui/components/empty";
+import { FeatureLock } from "@strait/ui/components/feature-lock";
+import { IdCell } from "@strait/ui/components/id-cell";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemGroup,
+  ItemTitle,
+} from "@strait/ui/components/item";
+import { MetricCard } from "@strait/ui/components/metric-card";
 import { Shell } from "@strait/ui/components/shell";
+import { StatusBadge } from "@strait/ui/components/status-badge";
 import {
   Tabs,
   TabsContent,
@@ -15,7 +41,7 @@ import {
   TabsTrigger,
 } from "@strait/ui/components/tabs";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   type ColumnDef,
   getCoreRowModel,
@@ -25,15 +51,10 @@ import {
 } from "@tanstack/react-table";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
-import FeatureLock from "@/components/billing/feature-lock";
-import ConfigRow from "@/components/common/config-row";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
-import TableEmptyState from "@/components/common/table-empty-state";
-import StatusBadge from "@/components/dashboard/status-badge";
 import WorkflowDAGFlow from "@/components/dashboard/workflow-dag-flow";
-import { DataTable } from "@/components/ui/data-table/data-table";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type {
   PaginatedResponse,
@@ -50,6 +71,7 @@ import {
   workflowRunsQueryOptions,
   workflowStepsQueryOptions,
 } from "@/hooks/api/use-workflows";
+import { useCurrentPlan } from "@/hooks/billing/use-current-plan";
 import {
   ActivityIcon,
   CheckCircleIcon,
@@ -59,6 +81,7 @@ import {
   RefreshIcon,
   TagIcon,
 } from "@/lib/icons";
+import { canUseFeature } from "@/lib/plan-tiers";
 
 export const Route = createFileRoute("/app/workflows/$id")({
   head: () => ({ meta: [{ title: "Workflow · Strait" }] }),
@@ -78,9 +101,7 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   {
     accessorKey: "id",
     header: "Run ID",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.original.id.slice(0, 8)}</span>
-    ),
+    cell: ({ row }) => <IdCell id={row.original.id} length={8} />,
   },
   {
     accessorKey: "status",
@@ -102,7 +123,9 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
     accessorKey: "workflow_version",
     header: "Version",
     cell: ({ row }) => (
-      <code className="text-xs">v{row.original.workflow_version}</code>
+      <Badge mono size="xs" variant="secondary-light">
+        v{row.original.workflow_version}
+      </Badge>
     ),
   },
   {
@@ -115,8 +138,37 @@ const workflowRunColumns: ColumnDef<WorkflowRun>[] = [
   },
 ];
 
+type LockedDAGFeature = {
+  title: string;
+  description: string;
+};
+
+function getLockedDAGFeature(
+  currentPlan: string,
+  hasApprovalGate: boolean,
+  hasSubWorkflow: boolean
+): LockedDAGFeature | null {
+  if (hasApprovalGate && !canUseFeature(currentPlan, "approval_gates")) {
+    return {
+      title: "Approval Gates",
+      description: "Requires the Pro plan or higher",
+    };
+  }
+
+  if (hasSubWorkflow && !canUseFeature(currentPlan, "sub_workflows")) {
+    return {
+      title: "Sub-Workflows",
+      description: "Requires the Pro plan or higher",
+    };
+  }
+
+  return null;
+}
+
 function WorkflowDetailPage() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
+  const currentPlan = useCurrentPlan();
   usePageEvent("workflow_detail_viewed", { workflow_id: id });
   const { data: workflow } = useSuspenseQuery(workflowQueryOptions(id)) as {
     data: Workflow | undefined;
@@ -157,6 +209,13 @@ function WorkflowDetailPage() {
   const successRate =
     totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
   const recentRuns = (runs ?? []).slice(0, 5);
+  const hasApprovalGate = dagSteps.some((step) => step.type === "approval");
+  const hasSubWorkflow = dagSteps.some((step) => step.type === "sub_workflow");
+  const lockedDAGFeature = getLockedDAGFeature(
+    currentPlan,
+    hasApprovalGate,
+    hasSubWorkflow
+  );
 
   if (!workflow) {
     return (
@@ -225,45 +284,24 @@ function WorkflowDetailPage() {
         <TabsContent className="mt-6 space-y-6" value="overview">
           {/* Stats row */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={CheckCircleIcon} size={14} />
-                  Success Rate
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl tabular-nums">
-                  {successRate}%
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={ActivityIcon} size={14} />
-                  Total Runs
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl tabular-nums">{totalRuns}</p>
-              </CardContent>
-            </Card>
-
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-                  <HugeiconsIcon icon={ClockIcon} size={14} />
-                  Avg Duration
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="font-normal text-2xl text-muted-foreground tabular-nums">
-                  --
-                </p>
-              </CardContent>
-            </Card>
+            <MetricCard
+              icon={CheckCircleIcon}
+              size="sm"
+              title="Success Rate"
+              value={`${successRate}%`}
+            />
+            <MetricCard
+              icon={ActivityIcon}
+              size="sm"
+              title="Total Runs"
+              value={totalRuns}
+            />
+            <MetricCard
+              icon={ClockIcon}
+              size="sm"
+              title="Avg Duration"
+              value="--"
+            />
           </div>
 
           {/* Recent activity timeline */}
@@ -277,31 +315,30 @@ function WorkflowDetailPage() {
                   No recent activity.
                 </p>
               ) : (
-                <div className="space-y-3">
+                <ItemGroup>
                   {recentRuns.map((run) => (
-                    <div
-                      className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1 text-sm hover:bg-accent"
-                      key={run.id}
-                    >
+                    <Item key={run.id} size="xs" variant="ghost">
                       <StatusBadge
                         showDot
                         size="xs"
                         status={run.status as WorkflowRunStatus}
                       />
-                      <span className="font-mono text-muted-foreground text-xs">
-                        {run.id.slice(0, 8)}
-                      </span>
-                      <Badge className="capitalize" size="xs" variant="outline">
+                      <ItemContent>
+                        <ItemTitle className="font-mono">
+                          {run.id.slice(0, 8)}
+                        </ItemTitle>
+                      </ItemContent>
+                      <Badge size="xs" variant="outline">
                         {run.triggered_by}
                       </Badge>
-                      <span className="ml-auto text-muted-foreground text-xs">
+                      <ItemActions>
                         {formatDistanceToNow(new Date(run.created_at), {
                           addSuffix: true,
                         })}
-                      </span>
-                    </div>
+                      </ItemActions>
+                    </Item>
                   ))}
-                </div>
+                </ItemGroup>
               )}
             </CardContent>
           </Card>
@@ -309,52 +346,72 @@ function WorkflowDetailPage() {
 
         {/* DAG Tab */}
         <TabsContent className="mt-6 space-y-4" value="dag">
-          {dagSteps.some((s) => s.type === "approval") && (
-            <FeatureLock feature="approval_gates">
-              <div />
-            </FeatureLock>
-          )}
-          {dagSteps.some((s) => s.type === "sub_workflow") && (
-            <FeatureLock feature="sub_workflows">
-              <div />
-            </FeatureLock>
-          )}
-          <Card>
-            <CardContent className="p-0">
-              <WorkflowDAGFlow steps={dagSteps} />
-            </CardContent>
-          </Card>
+          <FeatureLock
+            action={
+              lockedDAGFeature ? (
+                <Button
+                  onClick={() => navigate({ to: "/app/upgrade" })}
+                  variant="default"
+                >
+                  Upgrade
+                </Button>
+              ) : null
+            }
+            description={lockedDAGFeature?.description}
+            locked={Boolean(lockedDAGFeature)}
+            planLabel={lockedDAGFeature ? "Pro" : undefined}
+            title={lockedDAGFeature?.title}
+          >
+            <Card>
+              <CardContent className="p-0">
+                <WorkflowDAGFlow steps={dagSteps} />
+              </CardContent>
+            </Card>
+          </FeatureLock>
         </TabsContent>
 
         {/* Recent Runs Tab */}
         <TabsContent className="mt-6" value="runs">
-          <DataTable
-            ariaLabel="Workflow runs"
-            emptyState={
-              <TableEmptyState
-                description="No runs yet. Trigger this workflow to start an execution."
-                hideButton
-                icon={
-                  <HugeiconsIcon
-                    className="size-6 text-foreground"
-                    icon={ActivityIcon}
-                  />
-                }
-                title="No runs found"
-              />
+          <DataGrid
+            emptyMessage={
+              <Empty className="h-[300px]">
+                <EmptyHeader>
+                  <EmptyMedia media="icon" size="lg">
+                    <HugeiconsIcon
+                      className="size-6 text-foreground"
+                      icon={ActivityIcon}
+                    />
+                  </EmptyMedia>
+                  <EmptyTitle>No runs found</EmptyTitle>
+                  <EmptyDescription>
+                    No runs yet. Trigger this workflow to start an execution.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
             }
+            recordCount={runs.length}
             table={runsTable}
-          />
+            tableClassNames={{ base: "min-w-[1200px]" }}
+          >
+            <DataGridContainer>
+              <DataGridScrollArea>
+                <DataGridTable />
+              </DataGridScrollArea>
+              <DataGridPagination />
+            </DataGridContainer>
+          </DataGrid>
         </TabsContent>
 
         {/* Settings Tab */}
         <TabsContent className="mt-6 space-y-6" value="settings">
           {/* Configuration */}
-          <div className="space-y-3 rounded-md border p-4">
-            <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-              Configuration
-            </h4>
-            <div className="space-y-2.5">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5">
               <ConfigRow
                 icon={ClockIcon}
                 label="Timeout"
@@ -392,24 +449,26 @@ function WorkflowDetailPage() {
                 label="Version Policy"
                 value={workflow.version_policy}
               />
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Tags */}
           {workflow.tags && Object.keys(workflow.tags).length > 0 && (
-            <div className="rounded-md border p-4">
-              <h4 className="mb-3 flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-                <HugeiconsIcon icon={TagIcon} size={12} />
-                Tags
-              </h4>
-              <div className="flex flex-wrap gap-1.5">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+                  <HugeiconsIcon icon={TagIcon} size={12} />
+                  Tags
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-1.5">
                 {Object.entries(workflow.tags).map(([key, val]) => (
                   <Badge key={key} variant="secondary">
                     {key}: {val}
                   </Badge>
                 ))}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>

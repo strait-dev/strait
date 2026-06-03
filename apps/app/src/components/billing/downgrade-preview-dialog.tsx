@@ -1,6 +1,10 @@
+import { Alert, AlertDescription } from "@strait/ui/components/alert";
 import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
-import { Checkbox } from "@strait/ui/components/checkbox";
+import {
+  CardCheckboxGroup,
+  CardCheckboxItem,
+} from "@strait/ui/components/card-checkbox";
 import {
   Dialog,
   DialogClose,
@@ -10,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@strait/ui/components/dialog";
+import { Spinner } from "@strait/ui/components/spinner";
 import {
   Table,
   TableBody,
@@ -34,14 +39,14 @@ type DowngradePreviewDialogProps = {
   isLoading?: boolean;
 };
 
-const ActionBadge = ({ action }: { action: string }) => {
+const actionBadge = (action: string) => {
   if (action === "ok") {
-    return <Badge variant="success-light">OK</Badge>;
+    return { label: "OK", variant: "success-light" as const };
   }
   if (action === "reduce") {
-    return <Badge variant="warning">Reduce</Badge>;
+    return { label: "Reduce", variant: "warning" as const };
   }
-  return <Badge variant="destructive">Remove</Badge>;
+  return { label: "Remove", variant: "destructive" as const };
 };
 
 const DowngradePreviewContent = ({
@@ -60,7 +65,7 @@ const DowngradePreviewContent = ({
   if (isPreviewLoading) {
     return (
       <div className="flex h-32 items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading preview...</p>
+        <Spinner />
       </div>
     );
   }
@@ -82,8 +87,8 @@ const DowngradePreviewContent = ({
   return (
     <div className="space-y-4 py-2">
       {preview.effective_date ? (
-        <div className="rounded-md border bg-muted/50 p-3">
-          <p className="text-muted-foreground text-sm">
+        <Alert>
+          <AlertDescription>
             Effective date:{" "}
             <span className="font-medium text-foreground">
               {new Date(preview.effective_date).toLocaleDateString("en-US", {
@@ -92,21 +97,21 @@ const DowngradePreviewContent = ({
                 day: "numeric",
               })}
             </span>
-          </p>
-          <p className="mt-1 text-muted-foreground text-xs">
-            Your current plan will remain active until this date.
-          </p>
-        </div>
+            <span className="mt-1 block text-xs">
+              Your current plan will remain active until this date.
+            </span>
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {hasIssues ? (
-        <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
-          <p className="text-sm text-warning">
+        <Alert variant="warning">
+          <AlertDescription>
             Some resources exceed the limits of the{" "}
             {capitalize(preview.target_plan)} plan. You may need to reduce usage
             before downgrading.
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <Table>
@@ -119,20 +124,23 @@ const DowngradePreviewContent = ({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {preview.impacts.map((impact) => (
-            <TableRow key={impact.resource}>
-              <TableCell>{capitalize(impact.resource)}</TableCell>
-              <TableCell className="text-right tabular-nums">
-                {impact.current.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {impact.limit.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right">
-                <ActionBadge action={impact.action} />
-              </TableCell>
-            </TableRow>
-          ))}
+          {preview.impacts.map((impact) => {
+            const badge = actionBadge(impact.action);
+            return (
+              <TableRow key={impact.resource}>
+                <TableCell>{capitalize(impact.resource)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {impact.current.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {impact.limit.toLocaleString()}
+                </TableCell>
+                <TableCell className="text-right">
+                  <Badge variant={badge.variant}>{badge.label}</Badge>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
 
@@ -141,33 +149,24 @@ const DowngradePreviewContent = ({
           <p className="font-medium text-sm">
             Required actions before downgrade
           </p>
-          {manualActions.map((action) => {
-            const checkboxId = `downgrade-action-${action.resource}`;
-            return (
-              <div
-                className="flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-muted/50"
-                key={action.resource}
-              >
-                <Checkbox
+          <CardCheckboxGroup>
+            {manualActions.map((action) => {
+              const checkboxId = `downgrade-action-${action.resource}`;
+              return (
+                <CardCheckboxItem
                   checked={!!checkedActions[action.resource]}
+                  description={`Current: ${action.current.toLocaleString()} / New limit: ${action.limit.toLocaleString()}`}
                   id={checkboxId}
+                  key={action.resource}
+                  label={`${action.action === "reduce" ? "Reduce" : "Remove"} ${action.resource.toLowerCase()}`}
+                  layout="start"
                   onCheckedChange={(checked) =>
                     onToggleAction(action.resource, !!checked)
                   }
                 />
-                <div>
-                  <label className="text-sm" htmlFor={checkboxId}>
-                    {action.action === "reduce" ? "Reduce" : "Remove"}{" "}
-                    {action.resource.toLowerCase()}
-                  </label>
-                  <p className="text-muted-foreground text-xs">
-                    Current: {action.current.toLocaleString()} / New limit:{" "}
-                    {action.limit.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </CardCheckboxGroup>
         </div>
       ) : null}
     </div>
