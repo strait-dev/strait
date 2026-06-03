@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+var pgQueCandidateBenchmarkSink []pgQueCandidate
+
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
 	ackErr := errors.New("temporary ack failure")
@@ -305,6 +307,65 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 	}
 	if batch != nil {
 		t.Fatalf("activeBatchLocked() batch = %#v, want nil", batch)
+	}
+}
+
+func TestUnclaimedReservedCandidates(t *testing.T) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+	}
+	runs := []domain.JobRun{
+		{ID: "run-1"},
+		{ID: "run-3"},
+	}
+
+	unclaimed := unclaimedReservedCandidates(candidates, runs)
+
+	if len(unclaimed) != 1 || unclaimed[0].Event.RunID != "run-2" {
+		t.Fatalf("unclaimed candidates = %+v, want run-2", unclaimed)
+	}
+
+	allClaimed := unclaimedReservedCandidates(candidates, []domain.JobRun{
+		{ID: "run-1"},
+		{ID: "run-2"},
+		{ID: "run-3"},
+	})
+	if len(allClaimed) != 0 {
+		t.Fatalf("all-claimed unclaimed candidates = %+v, want none", allClaimed)
+	}
+
+	noneClaimed := unclaimedReservedCandidates(candidates, nil)
+	if !slices.Equal(noneClaimed, candidates) {
+		t.Fatalf("none-claimed candidates = %+v, want all candidates", noneClaimed)
+	}
+}
+
+func BenchmarkUnclaimedReservedCandidatesAllClaimed(b *testing.B) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+		{Event: pgQueReadyEvent{RunID: "run-4"}},
+		{Event: pgQueReadyEvent{RunID: "run-5"}},
+		{Event: pgQueReadyEvent{RunID: "run-6"}},
+		{Event: pgQueReadyEvent{RunID: "run-7"}},
+		{Event: pgQueReadyEvent{RunID: "run-8"}},
+	}
+	runs := []domain.JobRun{
+		{ID: "run-1"},
+		{ID: "run-2"},
+		{ID: "run-3"},
+		{ID: "run-4"},
+		{ID: "run-5"},
+		{ID: "run-6"},
+		{ID: "run-7"},
+		{ID: "run-8"},
+	}
+
+	for b.Loop() {
+		pgQueCandidateBenchmarkSink = unclaimedReservedCandidates(candidates, runs)
 	}
 }
 

@@ -53,6 +53,18 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 		return nil, selected, true, nil
 	}
 
+	unclaimed := unclaimedReservedCandidates(candidates, runs)
+	return runs, unclaimed, false, nil
+}
+
+func unclaimedReservedCandidates(candidates []pgQueCandidate, runs []domain.JobRun) []pgQueCandidate {
+	if len(runs) == 0 {
+		return candidates
+	}
+	if len(runs) == len(candidates) {
+		return nil
+	}
+
 	claimed := make(map[string]struct{}, len(runs))
 	for _, run := range runs {
 		claimed[run.ID] = struct{}{}
@@ -64,7 +76,7 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 			unclaimed = append(unclaimed, candidate)
 		}
 	}
-	return runs, unclaimed, false, nil
+	return unclaimed
 }
 
 func (q *PgQueQueue) claimRuns(
