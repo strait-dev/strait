@@ -101,7 +101,7 @@ const DeleteAccount = ({ user }: Props) => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-4">
             <Alert variant="destructive">
               <HugeiconsIcon className="size-4" icon={AlertIcon} />
@@ -197,7 +197,7 @@ const DeleteAccount = ({ user }: Props) => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end gap-4">
+        <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
           <AlertDialog onOpenChange={setIsDialogOpen} open={isDialogOpen}>
             <AlertDialogTrigger
               render={

@@ -311,7 +311,7 @@ function RouteComponent() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <HugeiconsIcon className="size-5" icon={LinkSquareIcon} />
-                Customer Portal
+                Customer portal
               </CardTitle>
               <CardDescription>
                 Manage your subscription, payment methods and invoices
@@ -324,7 +324,7 @@ function RouteComponent() {
                 onClick={handleOpenPortal}
               >
                 <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
-                {isPortalLoading ? "Opening..." : "Access Customer Portal"}
+                {isPortalLoading ? "Opening..." : "Access customer portal"}
               </Button>
             </CardContent>
           </Card>

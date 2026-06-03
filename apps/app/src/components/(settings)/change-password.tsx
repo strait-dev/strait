@@ -72,7 +72,7 @@ const ChangePassword = () => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-4">
             <form.Field name="currentPassword">
               {(field) => (
@@ -172,19 +172,25 @@ const ChangePassword = () => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end">
-          <Button
-            className="w-fit"
-            disabled={
-              !form.state.isDirty ||
-              form.state.isSubmitting ||
-              !form.state.canSubmit
-            }
-            type="submit"
+        <CardFooter className="flex justify-end border-t px-6 py-4">
+          <form.Subscribe
+            selector={(state) => ({
+              canSubmit: state.canSubmit,
+              isDirty: state.isDirty,
+              isSubmitting: state.isSubmitting,
+            })}
           >
-            {form.state.isSubmitting ? <Spinner /> : null}
-            Change password
-          </Button>
+            {({ canSubmit, isDirty, isSubmitting }) => (
+              <Button
+                className="w-fit"
+                disabled={!isDirty || isSubmitting || !canSubmit}
+                type="submit"
+              >
+                {isSubmitting ? <Spinner /> : null}
+                Change password
+              </Button>
+            )}
+          </form.Subscribe>
         </CardFooter>
       </form>
     </Card>

@@ -1,18 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
 import {
   DataGrid,
   DataGridContainer,
   DataGridScrollArea,
   DataGridTable,
 } from "@strait/ui/components/data-grid";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
@@ -22,7 +14,6 @@ import {
 } from "@strait/ui/components/empty";
 import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
-import { StatusBadge } from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -36,6 +27,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import ExpandedEventDetail from "@/components/events/expanded-event-detail";
@@ -44,7 +36,7 @@ import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
-import { FileTextIcon, FilterIcon, SearchIcon } from "@/lib/icons";
+import { FileTextIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUSES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -136,18 +128,11 @@ function LogsPage() {
     getRowId: (row) => row.id,
   });
 
-  function toggleStatus(status: string) {
-    const current = new Set(selectedStatuses);
-    if (current.has(status)) {
-      current.delete(status);
-    } else {
-      current.add(status);
-    }
-    const arr = Array.from(current);
+  function handleStatusFiltersChange(statuses: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        statuses: arr.length > 0 ? arr : undefined,
+        statuses: statuses.length > 0 ? statuses : undefined,
         cursor: undefined,
       }),
     });
@@ -193,37 +178,25 @@ function LogsPage() {
               }),
             })
           }
-          placeholder="Search events by key or run ID..."
+          placeholder="Search events"
           value={search.query ?? ""}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Status
-            {selectedStatuses.length > 0 && (
-              <Badge variant="default">{selectedStatuses.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-36">
-            {EVENT_STATUSES.map((status) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedStatuses.includes(status)}
-                key={status}
-                onCheckedChange={() => toggleStatus(status)}
-              >
-                <StatusBadge status={status} />
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          onChange={handleStatusFiltersChange}
+          options={EVENT_STATUSES.map((status) => ({
+            label: status,
+            value: status,
+          }))}
+          values={selectedStatuses}
+        />
       </div>
 
       <div onClickCapture={stopInteractiveRowClick}>
         <DataGrid
           emptyMessage={emptyState}
           onRowClick={handleRowClick}
-          recordCount={typed?.data.length ?? 0}
+          recordCount={table.getRowModel().rows.length}
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >

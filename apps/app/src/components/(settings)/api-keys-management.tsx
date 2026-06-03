@@ -21,6 +21,12 @@ import {
 } from "@strait/ui/components/card";
 import { Checkbox } from "@strait/ui/components/checkbox";
 import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -46,19 +52,17 @@ import {
   SelectValue,
 } from "@strait/ui/components/select";
 import { Spinner } from "@strait/ui/components/spinner";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@strait/ui/components/table";
 import { toast } from "@strait/ui/components/toast";
 import { useForm } from "@tanstack/react-form";
 import { useQuery } from "@tanstack/react-query";
+import {
+  type ColumnDef,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { useState } from "react";
 import { z } from "zod/v4";
+import type { APIKey } from "@/hooks/api/types";
 import {
   apiKeysQueryOptions,
   useCreateApiKey,
@@ -152,13 +156,120 @@ const ApiKeysManagement = () => {
     }
   };
 
+  const columns: ColumnDef<APIKey>[] = [
+    {
+      accessorKey: "name",
+      header: "Name",
+      cell: ({ row }) => (
+        <span className="font-medium">{row.original.name}</span>
+      ),
+    },
+    {
+      accessorKey: "key_prefix",
+      header: "Key",
+      cell: ({ row }) => (
+        <Badge className="font-mono" variant="secondary">
+          {row.original.key_prefix}...
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: "scopes",
+      header: "Scopes",
+      cell: ({ row }) => (
+        <div className="flex flex-wrap gap-1">
+          {(row.original.scopes ?? []).map((scope) => (
+            <Badge key={scope} variant="outline">
+              {scope}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      accessorKey: "created_at",
+      header: "Created",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {formatDate(row.original.created_at)}
+        </span>
+      ),
+    },
+    {
+      id: "last_used_at",
+      header: "Last used",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {formatDate(
+            (row.original as Record<string, unknown>).last_used_at as
+              | string
+              | null
+          )}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      cell: ({ row }) => {
+        const isRevoking =
+          revokeKey.isPending && revokeKey.variables === row.original.id;
+        return (
+          <div className="flex justify-end">
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={<Button disabled={isRevoking} variant="destructive" />}
+              >
+                {isRevoking ? (
+                  <Spinner size="xs" />
+                ) : (
+                  <HugeiconsIcon className="size-3" icon={TrashIcon} />
+                )}
+                Revoke
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Revoke "{row.original.name}"?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently revoke this API key. Applications
+                    using it will lose access immediately.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() =>
+                      handleRevoke(row.original.id, row.original.name)
+                    }
+                  >
+                    Revoke key
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        );
+      },
+      enableSorting: false,
+    },
+  ];
+
+  const table = useReactTable({
+    data: keys,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    getRowId: (row) => row.id,
+  });
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>API Keys</CardTitle>
+              <CardTitle>API keys</CardTitle>
               <CardDescription>
                 Manage API keys for programmatic access to your organization.
               </CardDescription>
@@ -175,13 +286,13 @@ const ApiKeysManagement = () => {
             >
               <DialogTrigger render={<Button />}>
                 <HugeiconsIcon className="size-4" icon={PlusIcon} />
-                Create Key
+                Create key
               </DialogTrigger>
               <DialogContent>
                 {createdKey ? (
                   <>
                     <DialogHeader>
-                      <DialogTitle>API Key Created</DialogTitle>
+                      <DialogTitle>API key created</DialogTitle>
                       <DialogDescription>
                         Copy this key now. You won't be able to see it again.
                       </DialogDescription>
@@ -206,7 +317,7 @@ const ApiKeysManagement = () => {
                     }}
                   >
                     <DialogHeader>
-                      <DialogTitle>Create API Key</DialogTitle>
+                      <DialogTitle>Create API key</DialogTitle>
                       <DialogDescription>
                         Create a new API key for programmatic access.
                       </DialogDescription>
@@ -216,7 +327,7 @@ const ApiKeysManagement = () => {
                         {(field) => (
                           <Field>
                             <FieldLabel htmlFor={field.name}>
-                              Key Name
+                              Key name
                             </FieldLabel>
                             <Input
                               aria-describedby={
@@ -234,7 +345,7 @@ const ApiKeysManagement = () => {
                               onChange={(e) =>
                                 field.handleChange(e.target.value)
                               }
-                              placeholder="e.g. Production API Key"
+                              placeholder="e.g. Production API key"
                               type="text"
                               value={field.state.value}
                             />
@@ -350,7 +461,7 @@ const ApiKeysManagement = () => {
                                 icon={PlusIcon}
                               />
                             )}
-                            Create Key
+                            Create key
                           </Button>
                         )}
                       </form.Subscribe>
@@ -380,101 +491,17 @@ const ApiKeysManagement = () => {
             </Empty>
           )}
           {!isLoading && keys.length > 0 && (
-            <Table size="lg" variant="bordered">
-              <TableHeader>
-                <TableRow>
-                  <TableHead scope="col">Name</TableHead>
-                  <TableHead scope="col">Key</TableHead>
-                  <TableHead className="hidden md:table-cell" scope="col">
-                    Scopes
-                  </TableHead>
-                  <TableHead className="hidden sm:table-cell" scope="col">
-                    Created
-                  </TableHead>
-                  <TableHead className="hidden sm:table-cell" scope="col">
-                    Last Used
-                  </TableHead>
-                  <TableHead className="text-right" scope="col" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {keys.map((key) => {
-                  const isRevoking =
-                    revokeKey.isPending && revokeKey.variables === key.id;
-                  return (
-                    <TableRow key={key.id}>
-                      <TableCell className="font-medium">{key.name}</TableCell>
-                      <TableCell>
-                        <Badge className="font-mono" variant="secondary">
-                          {key.key_prefix}...
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <div className="flex flex-wrap gap-1">
-                          {(key.scopes ?? []).map((scope) => (
-                            <Badge key={scope} variant="outline">
-                              {scope}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">
-                        {formatDate(key.created_at)}
-                      </TableCell>
-                      <TableCell className="hidden text-muted-foreground sm:table-cell">
-                        {formatDate(
-                          (key as Record<string, unknown>).last_used_at as
-                            | string
-                            | null
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <AlertDialog>
-                          <AlertDialogTrigger
-                            render={
-                              <Button
-                                disabled={isRevoking}
-                                variant="destructive"
-                              />
-                            }
-                          >
-                            {isRevoking ? (
-                              <Spinner size="xs" />
-                            ) : (
-                              <HugeiconsIcon
-                                className="size-3"
-                                icon={TrashIcon}
-                              />
-                            )}
-                            Revoke
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Revoke "{key.name}"?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently revoke this API key. Any
-                                applications using it will lose access
-                                immediately.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleRevoke(key.id, key.name)}
-                              >
-                                Revoke Key
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+            <DataGrid
+              recordCount={keys.length}
+              table={table}
+              tableClassNames={{ base: "min-w-[900px]" }}
+            >
+              <DataGridContainer>
+                <DataGridScrollArea>
+                  <DataGridTable />
+                </DataGridScrollArea>
+              </DataGridContainer>
+            </DataGrid>
           )}
         </CardContent>
       </Card>

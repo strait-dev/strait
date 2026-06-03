@@ -213,10 +213,10 @@ const PricingCard = ({
       return "Get Started Free";
     }
     if (isEnterprise) {
-      return "Contact Sales";
+      return "Contact sales";
     }
     if (isCurrentPlan) {
-      return "Current Plan";
+      return "Current plan";
     }
     return isSelected ? buttonText : "Choose this plan";
   };

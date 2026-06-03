@@ -11,7 +11,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@strait/ui/components/alert-dialog";
-import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   DataGrid,
@@ -19,12 +18,6 @@ import {
   DataGridScrollArea,
   DataGridTable,
 } from "@strait/ui/components/data-grid";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
@@ -43,10 +36,11 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import RunDetailSheet from "@/components/dashboard/run-detail-sheet";
@@ -61,13 +55,7 @@ import {
   useRetryDlqItem,
 } from "@/hooks/api/use-dlq";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
-import {
-  AlertIcon,
-  FilterIcon,
-  RefreshIcon,
-  SearchIcon,
-  TrashIcon,
-} from "@/lib/icons";
+import { AlertIcon, RefreshIcon, SearchIcon, TrashIcon } from "@/lib/icons";
 import { DLQ_ERROR_TYPES } from "@/lib/status";
 import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
@@ -134,9 +122,39 @@ function DlqPage() {
 
   const typed = data as PaginatedResponse<JobRun> | undefined;
   const tableData = hasProject ? (typed?.data ?? []) : [];
+  const selectedErrorTypes = search.errorType ?? [];
+
+  const filteredData = useMemo(() => {
+    let runs = tableData;
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      runs = runs.filter((run) =>
+        [
+          run.id,
+          run.job_id,
+          run.error,
+          run.error_class,
+          run.status,
+          run.triggered_by,
+        ]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
+    if (selectedErrorTypes.length === 0) {
+      return runs;
+    }
+    return runs.filter((run) =>
+      selectedErrorTypes.some((errorType) =>
+        [run.error, run.error_class]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(errorType))
+      )
+    );
+  }, [tableData, search.query, selectedErrorTypes]);
 
   const table = useReactTable({
-    data: tableData,
+    data: filteredData,
     columns: createDlqColumns({
       onView: (run) => {
         setSelectedRun(run);
@@ -174,7 +192,7 @@ function DlqPage() {
     bulkDiscard.mutate({ ids: selectedIds });
   }, [selectedIds, bulkDiscard]);
 
-  const allDlqIds = (typed?.data ?? []).map((r) => r.id);
+  const allDlqIds = filteredData.map((r) => r.id);
   const handleRetryAll = useCallback(() => {
     if (allDlqIds.length === 0) {
       return;
@@ -182,26 +200,17 @@ function DlqPage() {
     bulkRetry.mutate({ ids: allDlqIds });
   }, [allDlqIds, bulkRetry]);
 
-  const selectedErrorTypes = search.errorType ?? [];
-
-  function toggleErrorType(errorType: string) {
-    const current = new Set(selectedErrorTypes);
-    if (current.has(errorType)) {
-      current.delete(errorType);
-    } else {
-      current.add(errorType);
-    }
-    const arr = Array.from(current);
+  function handleErrorTypeFiltersChange(errorTypes: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        errorType: arr.length > 0 ? arr : undefined,
+        errorType: errorTypes.length > 0 ? errorTypes : undefined,
         cursor: undefined,
       }),
     });
   }
 
-  const totalCount = tableData.length;
+  const totalCount = filteredData.length;
 
   const emptyState = hasProject ? (
     <Empty className="h-[300px]">
@@ -249,30 +258,20 @@ function DlqPage() {
               }),
             })
           }
-          placeholder="Search by job, run ID, or error..."
+          placeholder="Search dead letters"
           value={search.query ?? ""}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Error Type
-            {selectedErrorTypes.length > 0 && (
-              <Badge variant="default">{selectedErrorTypes.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {DLQ_ERROR_TYPES.map((errorType) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedErrorTypes.includes(errorType)}
-                key={errorType}
-                onCheckedChange={() => toggleErrorType(errorType)}
-              >
-                <span className="capitalize">{errorType}</span>
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          field="errorType"
+          label="Error type"
+          onChange={handleErrorTypeFiltersChange}
+          options={DLQ_ERROR_TYPES.map((errorType) => ({
+            label: errorType,
+            value: errorType,
+          }))}
+          values={selectedErrorTypes}
+        />
 
         {hasSelection ? (
           <>
@@ -282,7 +281,7 @@ function DlqPage() {
               variant="outline"
             >
               <HugeiconsIcon className="mr-1.5" icon={RefreshIcon} size={14} />
-              Retry Selected ({selectedIds.length})
+              Retry selected ({selectedIds.length})
             </Button>
             <AlertDialog>
               <AlertDialogTrigger
@@ -296,7 +295,7 @@ function DlqPage() {
                       icon={TrashIcon}
                       size={14}
                     />
-                    Discard Selected ({selectedIds.length})
+                    Discard selected ({selectedIds.length})
                   </Button>
                 }
               />
@@ -371,7 +370,7 @@ function DlqPage() {
               setSelectedRun(run);
               setSheetOpen(true);
             }}
-            recordCount={typed?.data.length ?? 0}
+            recordCount={table.getRowModel().rows.length}
             table={table}
             tableClassNames={{ base: "min-w-[1200px]" }}
           >

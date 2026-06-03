@@ -235,7 +235,7 @@ const SpendingLimitsTab = () => {
             }
             onClick={handleSave}
           >
-            {updateLimit.isPending ? "Saving..." : "Save Spending Limit"}
+            {updateLimit.isPending ? "Saving..." : "Save spending limit"}
           </Button>
         </CardContent>
       </Card>

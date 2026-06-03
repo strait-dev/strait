@@ -95,12 +95,12 @@ const PersonalInfo = ({ user }: Props) => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-4">
             <form.Field name="name">
               {(field) => (
                 <Field className="w-full">
-                  <FieldLabel htmlFor={field.name}>Full Name</FieldLabel>
+                  <FieldLabel htmlFor={field.name}>Full name</FieldLabel>
                   <Input
                     aria-describedby={
                       field.state.meta.isTouched &&
@@ -163,38 +163,47 @@ const PersonalInfo = ({ user }: Props) => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end gap-4">
-          <Button
-            className="w-fit"
-            disabled={!form.state.isDirty || isProcessing}
-            onClick={() => {
-              if (!isProcessing) {
-                form.reset();
-              }
-            }}
-            type="button"
-            variant="secondary"
+        <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
+          <form.Subscribe
+            selector={(state) => ({
+              canSubmit: state.canSubmit,
+              isDirty: state.isDirty,
+              isSubmitting: state.isSubmitting,
+            })}
           >
-            Cancel
-          </Button>
+            {({ canSubmit, isDirty, isSubmitting }) => (
+              <>
+                <Button
+                  className="w-fit"
+                  disabled={!isDirty || isProcessing}
+                  onClick={() => {
+                    if (!isProcessing) {
+                      form.reset();
+                    }
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
 
-          <Button
-            className="w-fit"
-            disabled={
-              !form.state.isDirty ||
-              form.state.isSubmitting ||
-              !form.state.canSubmit ||
-              isProcessing
-            }
-            type="submit"
-          >
-            {isProcessing ? (
-              <Spinner />
-            ) : (
-              <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                <Button
+                  className="w-fit"
+                  disabled={
+                    !isDirty || isSubmitting || !canSubmit || isProcessing
+                  }
+                  type="submit"
+                >
+                  {isProcessing ? (
+                    <Spinner />
+                  ) : (
+                    <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                  )}
+                  Save changes
+                </Button>
+              </>
             )}
-            Save changes
-          </Button>
+          </form.Subscribe>
         </CardFooter>
       </form>
     </Card>

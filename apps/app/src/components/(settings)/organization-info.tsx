@@ -1,9 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@strait/ui/components/avatar";
+import { Avatar, AvatarFallback } from "@strait/ui/components/avatar";
 import { Button } from "@strait/ui/components/button";
 import {
   Card,
@@ -14,10 +10,6 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Field, FieldError, FieldLabel } from "@strait/ui/components/field";
-import {
-  FileUpload,
-  type FileWithPreview,
-} from "@strait/ui/components/file-upload";
 import { Input } from "@strait/ui/components/input";
 import { Spinner } from "@strait/ui/components/spinner";
 import { Textarea } from "@strait/ui/components/textarea";
@@ -41,7 +33,6 @@ const orgFormSchema = z.object({
   description: z.string(),
   email: z.string(),
   website: z.string(),
-  logo: z.string(),
 });
 
 type OrgMetadata = {
@@ -89,7 +80,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
       description: meta.description ?? "",
       email: meta.email ?? "",
       website: meta.website ?? "",
-      logo: organization?.logo ?? "",
     },
     validators: { onChange: orgFormSchema },
     onSubmit: ({ value }) => {
@@ -108,7 +98,6 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
                 organizationId,
                 name: value.name,
                 slug: value.slug || undefined,
-                logo: value.logo || undefined,
                 metadata,
               })
               .then(() => {
@@ -143,24 +132,9 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
         description: orgMeta.description ?? "",
         email: orgMeta.email ?? "",
         website: orgMeta.website ?? "",
-        logo: organization.logo ?? "",
       });
     }
   }, [organization, form]);
-
-  const handleLogoUpload = (files: FileWithPreview[]) => {
-    const file = files[0]?.file;
-    if (!(file instanceof File)) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      form.setFieldValue("logo", result);
-    };
-    reader.readAsDataURL(file);
-  };
 
   const isProcessing = isSubmitting || updateOrganization.isPending;
 
@@ -184,9 +158,9 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Organization Details</CardTitle>
+        <CardTitle>Organization details</CardTitle>
         <CardDescription>
-          Update your organization's name, logo, and information.
+          Update your organization's name and public information.
         </CardDescription>
       </CardHeader>
       <form
@@ -195,39 +169,20 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
           form.handleSubmit();
         }}
       >
-        <CardContent>
+        <CardContent className="pb-6">
           <div className="flex flex-col gap-6">
-            {/* Logo */}
-            <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3">
               <Avatar className="size-16">
-                <form.Field name="logo">
-                  {(field) =>
-                    field.state.value ? (
-                      <AvatarImage
-                        alt={organization.name}
-                        src={field.state.value}
-                      />
-                    ) : null
-                  }
-                </form.Field>
                 <AvatarFallback className="text-lg">
                   <HugeiconsIcon className="size-6" icon={StoreIcon} />
                 </AvatarFallback>
               </Avatar>
-              <FileUpload
-                accept="image/*"
-                className="w-full sm:max-w-sm"
-                label="Upload logo"
-                maxFiles={1}
-                maxSize={2 * 1024 * 1024}
-                onError={(errors) => {
-                  for (const error of errors) {
-                    toast.error(error);
-                  }
-                }}
-                onValueChange={handleLogoUpload}
-                size="sm"
-              />
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-sm">{organization.name}</span>
+                <span className="text-muted-foreground text-sm">
+                  Logo uploads are not available yet.
+                </span>
+              </div>
             </div>
 
             {/* Name & Slug */}
@@ -398,38 +353,47 @@ const OrganizationInfo = ({ organizationId }: OrganizationInfoProps) => {
           </div>
         </CardContent>
 
-        <CardFooter className="flex justify-end gap-4">
-          <Button
-            className="w-fit"
-            disabled={!form.state.isDirty || isProcessing}
-            onClick={() => {
-              if (!isProcessing) {
-                form.reset();
-              }
-            }}
-            type="button"
-            variant="secondary"
+        <CardFooter className="flex justify-end gap-3 border-t px-6 py-4">
+          <form.Subscribe
+            selector={(state) => ({
+              canSubmit: state.canSubmit,
+              isDirty: state.isDirty,
+              isSubmitting: state.isSubmitting,
+            })}
           >
-            Cancel
-          </Button>
+            {({ canSubmit, isDirty, isSubmitting }) => (
+              <>
+                <Button
+                  className="w-fit"
+                  disabled={!isDirty || isProcessing}
+                  onClick={() => {
+                    if (!isProcessing) {
+                      form.reset();
+                    }
+                  }}
+                  type="button"
+                  variant="secondary"
+                >
+                  Cancel
+                </Button>
 
-          <Button
-            className="w-fit"
-            disabled={
-              !form.state.isDirty ||
-              form.state.isSubmitting ||
-              !form.state.canSubmit ||
-              isProcessing
-            }
-            type="submit"
-          >
-            {isProcessing ? (
-              <Spinner />
-            ) : (
-              <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                <Button
+                  className="w-fit"
+                  disabled={
+                    !isDirty || isSubmitting || !canSubmit || isProcessing
+                  }
+                  type="submit"
+                >
+                  {isProcessing ? (
+                    <Spinner />
+                  ) : (
+                    <HugeiconsIcon className="size-4" icon={PencilEditIcon} />
+                  )}
+                  Save changes
+                </Button>
+              </>
             )}
-            Save changes
-          </Button>
+          </form.Subscribe>
         </CardFooter>
       </form>
     </Card>

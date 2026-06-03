@@ -52,19 +52,19 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
   },
   createActionsColumn<EventTrigger>([
     {
-      label: "Copy Event Key",
+      label: "Copy event key",
       icon: FileTextIcon,
       render: (row) => (
         <DropdownMenuItem
           onClick={() => navigator.clipboard.writeText(row.original.event_key)}
         >
           <HugeiconsIcon className="mr-2 size-3.5" icon={FileTextIcon} />
-          Copy Event Key
+          Copy event key
         </DropdownMenuItem>
       ),
     },
     {
-      label: "Copy Run ID",
+      label: "Copy run ID",
       icon: LinkSquareIcon,
       render: (row) => (
         <DropdownMenuItem
@@ -75,12 +75,12 @@ export const logColumns: ColumnDef<EventTrigger>[] = [
           }
         >
           <HugeiconsIcon className="mr-2 size-3.5" icon={LinkSquareIcon} />
-          Copy Run ID
+          Copy run ID
         </DropdownMenuItem>
       ),
     },
     {
-      label: "View Details",
+      label: "View details",
       icon: EyeIcon,
       onClick: () => {
         // TODO: navigate to event detail

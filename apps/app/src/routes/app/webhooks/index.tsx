@@ -9,7 +9,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@strait/ui/components/alert-dialog";
-import { Badge } from "@strait/ui/components/badge";
 import { Button } from "@strait/ui/components/button";
 import {
   DataGrid,
@@ -18,12 +17,6 @@ import {
   DataGridSelectionBar,
   DataGridTable,
 } from "@strait/ui/components/data-grid";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
@@ -47,6 +40,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import { createWebhookColumns } from "@/components/tables/webhooks-columns";
@@ -59,7 +53,6 @@ import {
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   EyeIcon,
-  FilterIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
@@ -184,18 +177,11 @@ function WebhooksPage() {
     return { active, inactive };
   }, [filteredData]);
 
-  function toggleStatus(status: string) {
-    const current = new Set(selectedStatuses);
-    if (current.has(status)) {
-      current.delete(status);
-    } else {
-      current.add(status);
-    }
-    const arr = Array.from(current);
+  function handleStatusFiltersChange(statuses: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        status: arr.length > 0 ? arr : undefined,
+        status: statuses.length > 0 ? statuses : undefined,
         cursor: undefined,
       }),
     });
@@ -261,30 +247,18 @@ function WebhooksPage() {
               }),
             })
           }
-          placeholder="Search webhooks..."
+          placeholder="Search webhooks"
           value={search.query ?? ""}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Status
-            {selectedStatuses.length > 0 && (
-              <Badge variant="default">{selectedStatuses.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {WEBHOOK_STATUS_OPTIONS.map((status) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedStatuses.includes(status)}
-                key={status}
-                onCheckedChange={() => toggleStatus(status)}
-              >
-                {status}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          onChange={handleStatusFiltersChange}
+          options={WEBHOOK_STATUS_OPTIONS.map((status) => ({
+            label: status,
+            value: status,
+          }))}
+          values={selectedStatuses}
+        />
 
         <Button
           className="ml-auto"
@@ -300,7 +274,7 @@ function WebhooksPage() {
         <DataGrid
           emptyMessage={emptyState}
           onRowClick={handleRowClick}
-          recordCount={typed?.data.length ?? 0}
+          recordCount={table.getRowModel().rows.length}
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >

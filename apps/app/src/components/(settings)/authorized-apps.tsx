@@ -177,7 +177,7 @@ function ConsentRow({
               />
               <AlertDialogAction
                 onClick={onRevoke}
-                render={<Button variant="destructive">Revoke Access</Button>}
+                render={<Button variant="destructive">Revoke access</Button>}
               />
             </div>
           </AlertDialogContent>

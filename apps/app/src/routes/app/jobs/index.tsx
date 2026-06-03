@@ -1,6 +1,4 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Badge } from "@strait/ui/components/badge";
-import { Button } from "@strait/ui/components/button";
 import {
   DataGrid,
   DataGridContainer,
@@ -8,12 +6,6 @@ import {
   DataGridSelectionBar,
   DataGridTable,
 } from "@strait/ui/components/data-grid";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@strait/ui/components/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
@@ -36,6 +28,7 @@ import { useEffect, useMemo, useState } from "react";
 import { z } from "zod/v4";
 import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
 import JobDetailSheet from "@/components/dashboard/job-detail-sheet";
@@ -52,7 +45,6 @@ import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import {
   BriefcaseIcon,
   EyeIcon,
-  FilterIcon,
   PauseActionIcon,
   PlayActionIcon,
   SearchIcon,
@@ -203,18 +195,11 @@ function JobsPage() {
     (id) => rowSelection[id]
   );
 
-  function toggleStatus(status: string) {
-    const current = new Set(selectedStatuses);
-    if (current.has(status)) {
-      current.delete(status);
-    } else {
-      current.add(status);
-    }
-    const arr = Array.from(current);
+  function handleStatusFiltersChange(statuses: string[]) {
     navigate({
       search: (prev) => ({
         ...prev,
-        status: arr.length > 0 ? arr : undefined,
+        status: statuses.length > 0 ? statuses : undefined,
         cursor: undefined,
       }),
     });
@@ -263,37 +248,25 @@ function JobsPage() {
               }),
             });
           }}
-          placeholder="Search jobs..."
+          placeholder="Search jobs"
           value={query}
         />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" />}>
-            <HugeiconsIcon className="mr-1.5" icon={FilterIcon} size={14} />
-            Status
-            {selectedStatuses.length > 0 && (
-              <Badge variant="default">{selectedStatuses.length}</Badge>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            {ENABLED_STATUS_OPTIONS.map((status) => (
-              <DropdownMenuCheckboxItem
-                checked={selectedStatuses.includes(status)}
-                key={status}
-                onCheckedChange={() => toggleStatus(status)}
-              >
-                {status}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <FacetedStatusFilter
+          onChange={handleStatusFiltersChange}
+          options={ENABLED_STATUS_OPTIONS.map((status) => ({
+            label: status,
+            value: status,
+          }))}
+          values={selectedStatuses}
+        />
       </div>
 
       <div onClickCapture={stopInteractiveRowClick}>
         <DataGrid
           emptyMessage={emptyState}
           onRowClick={handleRowClick}
-          recordCount={typed?.data.length ?? 0}
+          recordCount={table.getRowModel().rows.length}
           table={table}
           tableClassNames={{ base: "min-w-[1200px]" }}
         >

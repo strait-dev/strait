@@ -251,7 +251,7 @@ const ThresholdForm = ({
       {isDirty && (
         <div className="mt-4 flex justify-end">
           <Button disabled={mutation.isPending} onClick={handleSave}>
-            {mutation.isPending ? "Saving..." : "Save Thresholds"}
+            {mutation.isPending ? "Saving..." : "Save thresholds"}
           </Button>
         </div>
       )}

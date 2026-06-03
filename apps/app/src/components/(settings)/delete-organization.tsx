@@ -189,12 +189,12 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Delete Organization</CardTitle>
+        <CardTitle>Delete organization</CardTitle>
         <CardDescription>
           Permanently delete this organization and all associated data.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pb-6">
         <Alert variant="destructive">
           <HugeiconsIcon className="size-4" icon={AlertIcon} />
           <AlertDescription>
@@ -204,20 +204,20 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
           </AlertDescription>
         </Alert>
       </CardContent>
-      <CardFooter className="flex justify-end">
+      <CardFooter className="flex justify-end border-t px-6 py-4">
         <AlertDialog
           onOpenChange={(open) => !open && handleClose()}
           open={isOpen}
         >
           <Button onClick={handleOpen} variant="destructive">
             <HugeiconsIcon className="size-4" icon={TrashIcon} />
-            Delete Organization
+            Delete organization
           </Button>
           <AlertDialogContent>
             {step === "confirm" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Organization</AlertDialogTitle>
+                  <AlertDialogTitle>Delete organization</AlertDialogTitle>
                   <AlertDialogDescription>
                     This will permanently delete{" "}
                     <strong>{organizationName}</strong> and all its data. Type
@@ -267,7 +267,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
             {step === "verify" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Enter Verification Code</AlertDialogTitle>
+                  <AlertDialogTitle>Enter verification code</AlertDialogTitle>
                   <AlertDialogDescription>
                     A verification code has been sent to your email. Enter it
                     below to confirm deletion.
@@ -275,7 +275,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                 </AlertDialogHeader>
                 <div className="py-2">
                   <Field>
-                    <FieldLabel>Verification Code</FieldLabel>
+                    <FieldLabel>Verification code</FieldLabel>
                     <Input
                       maxLength={6}
                       onChange={(e) => setVerificationCode(e.target.value)}
@@ -320,7 +320,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
                       ) : (
                         <HugeiconsIcon className="size-4" icon={TrashIcon} />
                       )}
-                      Delete Organization
+                      Delete organization
                     </AlertDialogAction>
                   </div>
                 </AlertDialogFooter>
@@ -329,7 +329,7 @@ const DeleteOrganization = ({ organizationId, organizationName }: Props) => {
             {step === "deleting" && (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Deleting Organization...</AlertDialogTitle>
+                  <AlertDialogTitle>Deleting organization...</AlertDialogTitle>
                   <AlertDialogDescription>
                     Please wait while we delete your organization.
                   </AlertDialogDescription>

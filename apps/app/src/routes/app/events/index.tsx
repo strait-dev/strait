@@ -1,6 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ActivityFeed } from "@strait/ui/components/activity-feed";
-import { Button } from "@strait/ui/components/button";
+import {
+  DataGrid,
+  DataGridContainer,
+  DataGridScrollArea,
+  DataGridTable,
+} from "@strait/ui/components/data-grid";
 import {
   Empty,
   EmptyDescription,
@@ -8,28 +12,42 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@strait/ui/components/empty";
+import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
-import {
-  formatStatusLabel,
-  StatusBadge,
-} from "@strait/ui/components/status-badge";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 import { zodValidator } from "@tanstack/zod-adapter";
+import { useMemo } from "react";
 import { z } from "zod/v4";
+import { CursorPagination } from "@/components/common/cursor-pagination";
 import ErrorComponent from "@/components/common/error-component";
+import { FacetedStatusFilter } from "@/components/common/faceted-status-filter";
 import NoProjectState from "@/components/common/no-project-state";
 import TablePageSkeleton from "@/components/common/table-page-skeleton";
+import { logColumns } from "@/components/events/log-columns";
 import { usePageEvent } from "@/hooks/analytics/use-page-event";
 import type { EventTrigger, PaginatedResponse } from "@/hooks/api/types";
 import { eventsQueryOptions } from "@/hooks/api/use-events";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
-import { ActivityIcon } from "@/lib/icons";
+import { ActivityIcon, SearchIcon } from "@/lib/icons";
 import { EVENT_STATUSES } from "@/lib/status";
+import { stopInteractiveRowClick } from "@/lib/table-interactions";
 import type { AppRouteContext } from "@/routes/app/layout";
 
+const searchArraySchema = z.preprocess(
+  (value) => (typeof value === "string" ? [value] : value),
+  z.array(z.string()).optional()
+);
+
 export const searchSchema = z.object({
-  status: z.string().optional(),
+  query: z.string().optional(),
+  status: searchArraySchema,
   cursor: z.string().optional(),
   perPage: z.coerce.number().optional(),
 });
@@ -40,7 +58,6 @@ export const Route = createFileRoute("/app/events/")({
   loaderDeps: ({ search }) => ({
     limit: search.perPage ?? 20,
     cursor: search.cursor,
-    status: search.status,
   }),
   loader: async ({ context, deps }) => {
     const { session } = context as AppRouteContext;
@@ -50,7 +67,6 @@ export const Route = createFileRoute("/app/events/")({
         eventsQueryOptions({
           limit: deps.limit,
           cursor: deps.cursor,
-          status: deps.status,
         })
       );
     }
@@ -74,13 +90,56 @@ function EventsPage() {
     ...eventsQueryOptions({
       limit: pagination.perPage,
       cursor: pagination.cursor,
-      status: search.status,
     }),
     enabled: hasProject,
   });
 
   const typed = data as PaginatedResponse<EventTrigger> | undefined;
-  const events = hasProject ? (typed?.data ?? []) : [];
+  const selectedStatuses = search.status ?? [];
+  const events = useMemo(() => {
+    let items = hasProject ? (typed?.data ?? []) : [];
+    const query = search.query?.trim().toLowerCase();
+    if (query) {
+      items = items.filter((event) =>
+        [
+          event.id,
+          event.event_key,
+          event.job_run_id,
+          event.workflow_run_id,
+          event.source_type,
+          event.status,
+          event.trigger_type,
+        ]
+          .filter(Boolean)
+          .some((value) => value?.toLowerCase().includes(query))
+      );
+    }
+    if (selectedStatuses.length === 0) {
+      return items;
+    }
+    return items.filter((event) => selectedStatuses.includes(event.status));
+  }, [typed, hasProject, search.query, selectedStatuses]);
+
+  const table = useReactTable({
+    data: events,
+    columns: logColumns,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    manualPagination: true,
+    state: { globalFilter: search.query ?? "" },
+    getRowId: (row) => row.id,
+  });
+
+  function handleStatusFiltersChange(statuses: string[]) {
+    navigate({
+      search: (prev) => ({
+        ...prev,
+        status: statuses.length > 0 ? statuses : undefined,
+        cursor: undefined,
+      }),
+    });
+  }
 
   if (!hasProject) {
     return (
@@ -94,98 +153,78 @@ function EventsPage() {
   return (
     <Shell>
       <h1 className="sr-only">Events</h1>
-      {/* Status filter */}
-      <div className="flex items-center gap-2 pb-2.5">
-        <Button
-          onClick={() =>
+      <div className="flex items-center gap-3 pb-2.5">
+        <InputWithStartIcon
+          aria-label="Search"
+          containerClassName="w-full max-w-[500px]"
+          icon={<HugeiconsIcon icon={SearchIcon} size={16} />}
+          onChange={(e) =>
             navigate({
               search: (prev) => ({
                 ...prev,
-                status: undefined,
+                query: e.target.value || undefined,
                 cursor: undefined,
               }),
             })
           }
-          variant={search.status ? "ghost" : "secondary"}
-        >
-          All
-        </Button>
-        {EVENT_STATUSES.map((status) => {
-          const active = search.status === status;
-          return (
-            <Button
-              key={status}
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    status: active ? undefined : status,
-                    cursor: undefined,
-                  }),
-                })
-              }
-              variant={active ? "secondary" : "ghost"}
-            >
-              <StatusBadge dotOnly size="xs" status={status} />
-              {formatStatusLabel(status)}
-            </Button>
-          );
-        })}
+          placeholder="Search events"
+          value={search.query ?? ""}
+        />
+        <FacetedStatusFilter
+          onChange={handleStatusFiltersChange}
+          options={EVENT_STATUSES.map((status) => ({
+            label: status,
+            value: status,
+          }))}
+          values={selectedStatuses}
+        />
       </div>
 
-      {/* Timeline */}
-      {events.length === 0 ? (
-        <Empty className="h-[300px]">
-          <EmptyHeader>
-            <EmptyMedia media="icon" size="lg">
-              <HugeiconsIcon
-                className="size-6 text-foreground"
-                icon={ActivityIcon}
-              />
-            </EmptyMedia>
-            <EmptyTitle>No events found</EmptyTitle>
-            <EmptyDescription>
-              Events will appear here after triggers are received for this
-              project.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <ActivityFeed
-          height="auto"
-          items={events.map((event) => ({
-            id: event.id,
-            status: event.status,
-            title: event.event_key,
-            timestamp: event.requested_at,
-            description: `${event.trigger_type} | ${event.source_type}`,
-          }))}
-        />
-      )}
-
-      {/* Pagination controls */}
-      {(pagination.canGoBack || typed?.has_more) && (
-        <div className="flex items-center justify-between pt-4">
-          <Button
-            disabled={!pagination.canGoBack}
-            onClick={pagination.goPrev}
-            variant="outline"
-          >
-            Previous
-          </Button>
-          <Button
-            disabled={!typed?.has_more}
-            onClick={() => {
-              if (typed?.next_cursor) {
-                pagination.goNext(typed.next_cursor);
-              }
+      <div onClickCapture={stopInteractiveRowClick}>
+        <DataGrid
+          emptyMessage={
+            <Empty className="h-[300px]">
+              <EmptyHeader>
+                <EmptyMedia media="icon" size="lg">
+                  <HugeiconsIcon
+                    className="size-6 text-foreground"
+                    icon={ActivityIcon}
+                  />
+                </EmptyMedia>
+                <EmptyTitle>No events found</EmptyTitle>
+                <EmptyDescription>
+                  Events will appear here after triggers are received for this
+                  project.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          }
+          recordCount={table.getRowModel().rows.length}
+          table={table}
+          tableClassNames={{ base: "min-w-[1200px]" }}
+        >
+          <DataGridContainer>
+            <DataGridScrollArea>
+              <DataGridTable />
+            </DataGridScrollArea>
+          </DataGridContainer>
+          <CursorPagination
+            cursor={{
+              pageSize: pagination.perPage,
+              hasMore: typed?.has_more ?? false,
+              canGoBack: pagination.canGoBack,
+              onNext: () => {
+                if (typed?.next_cursor) {
+                  pagination.goNext(typed.next_cursor);
+                }
+              },
+              onPrev: pagination.goPrev,
+              onPageSizeChange: pagination.setPerPage,
             }}
-            variant="outline"
-          >
-            Next
-          </Button>
-        </div>
-      )}
+            table={table}
+          />
+        </DataGrid>
+      </div>
     </Shell>
   );
 }

@@ -151,14 +151,14 @@ const AppSidebar = ({ session }: Props) => {
         heading: "Quick Actions",
         items: [
           {
-            label: "Create Job",
+            label: "Create job",
             icon: BriefcaseIcon,
             shortcut: "⌘N",
             keywords: ["new", "create", "add"],
             onSelect: () => navigate({ to: "/app/jobs" }),
           },
           {
-            label: "Create Workflow",
+            label: "Create workflow",
             icon: WorkflowIcon,
             keywords: ["new", "create", "add", "pipeline"],
             onSelect: () => navigate({ to: "/app/workflows" }),

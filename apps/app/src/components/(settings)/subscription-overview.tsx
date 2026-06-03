@@ -186,7 +186,7 @@ const SubscriptionOverview = () => {
           </CardHeader>
           <CardContent>
             <Button render={<Link preload="intent" to="/app/upgrade" />}>
-              Choose Plan
+              Choose plan
             </Button>
           </CardContent>
         </Card>
@@ -269,7 +269,7 @@ const SubscriptionOverview = () => {
               onClick={handleOpenPortal}
             >
               <HugeiconsIcon className="size-4" icon={LinkSquareIcon} />
-              {isLoading === "portal" ? "Opening..." : "Customer Portal"}
+              {isLoading === "portal" ? "Opening..." : "Customer portal"}
             </Button>
 
             <Button
@@ -279,7 +279,7 @@ const SubscriptionOverview = () => {
               variant="outline"
             >
               <HugeiconsIcon className="size-4" icon={SparklesIcon} />
-              {planInfo.isActive ? "Change Plan" : "Choose Plan"}
+              {planInfo.isActive ? "Change plan" : "Choose plan"}
             </Button>
 
             {planInfo.isActive && planInfo.isCanceled ? (
