@@ -6,14 +6,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
 )
 
 const (
-	pgQueHTTPRouteKey = "http"
-	pgQueQueuePrefix  = "stq_"
+	pgQueHTTPRouteKey        = "http"
+	pgQueQueuePrefix         = "stq_"
+	pgQueWorkerRouteCacheTTL = time.Second
 )
 
 func pgQueQueueName(routeKey string) string {
@@ -188,19 +190,27 @@ func (q *PgQueQueue) workerRoutesForPrefix(ctx context.Context, prefix string) (
 }
 
 func (q *PgQueQueue) cachedWorkerRoutes(prefix string) []string {
+	now := time.Now()
 	q.routeMu.Lock()
 	defer q.routeMu.Unlock()
-	routes := q.routeCache[prefix]
-	if routes == nil {
+	entry, ok := q.routeCache[prefix]
+	if !ok {
 		return nil
 	}
-	return append([]string{}, routes...)
+	if !now.Before(entry.expiresAt) {
+		delete(q.routeCache, prefix)
+		return nil
+	}
+	return append([]string{}, entry.routes...)
 }
 
 func (q *PgQueQueue) cacheWorkerRoutes(prefix string, routes []string) {
 	q.routeMu.Lock()
 	defer q.routeMu.Unlock()
-	q.routeCache[prefix] = append([]string{}, routes...)
+	q.routeCache[prefix] = pgQueRouteCacheEntry{
+		routes:    append([]string{}, routes...),
+		expiresAt: time.Now().Add(pgQueWorkerRouteCacheTTL),
+	}
 }
 
 func (q *PgQueQueue) invalidateWorkerRouteCache(routeKey string) {

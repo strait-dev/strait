@@ -70,7 +70,7 @@ type PgQueQueue struct {
 	logger      *slog.Logger
 	routeMu     sync.Mutex
 	routeStates map[string]*pgQueRouteState
-	routeCache  map[string][]string
+	routeCache  map[string]pgQueRouteCacheEntry
 
 	workerRouteCursor atomic.Uint64
 }
@@ -81,6 +81,11 @@ type pgQueRouteState struct {
 	configured    atomic.Bool
 	lastForceTick time.Time
 	activeBatch   *pgQueActiveBatch
+}
+
+type pgQueRouteCacheEntry struct {
+	routes    []string
+	expiresAt time.Time
 }
 
 type pgQueReadyEvent struct {
@@ -118,7 +123,7 @@ func NewPgQueQueue(db store.DBTX, runWriter *PostgresRunWriter, cfg PgQueConfig)
 		cfg:         cfg,
 		logger:      logger,
 		routeStates: make(map[string]*pgQueRouteState),
-		routeCache:  make(map[string][]string),
+		routeCache:  make(map[string]pgQueRouteCacheEntry),
 	}
 }
 

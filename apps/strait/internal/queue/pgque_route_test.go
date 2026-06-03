@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 
@@ -117,6 +118,56 @@ func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
 	if err := q.ensureRoute(ctx, db, stagingRoute, pgQueQueueName(stagingRoute)); err != nil {
 		t.Fatalf("ensureRoute error = %v", err)
 	}
+
+	second, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		t.Fatalf("workerRouteKeys second error = %v", err)
+	}
+	want := []string{productionRoute, stagingRoute, prefix}
+	if !slices.Equal(second, want) {
+		t.Fatalf("second worker routes = %v, want %v", second, want)
+	}
+	if queryCount != 2 {
+		t.Fatalf("route lookup count = %d, want 2", queryCount)
+	}
+}
+
+func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
+	ctx := context.Background()
+	prefix := pgQueWorkerRouteKey("project-a", "priority", "")
+	productionRoute := prefix + "production"
+	stagingRoute := prefix + "staging"
+	routeSnapshots := [][]string{
+		{productionRoute},
+		{productionRoute, stagingRoute},
+	}
+	queryCount := 0
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+			idx := min(queryCount, len(routeSnapshots)-1)
+			queryCount++
+			return &stringRows{values: routeSnapshots[idx]}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	refs := []domain.WorkerQueueRef{{
+		ProjectID: "project-a",
+		QueueName: "priority",
+	}}
+
+	first, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		t.Fatalf("workerRouteKeys first error = %v", err)
+	}
+	if !slices.Equal(first, []string{productionRoute, prefix}) {
+		t.Fatalf("first worker routes = %v", first)
+	}
+
+	q.routeMu.Lock()
+	entry := q.routeCache[prefix]
+	entry.expiresAt = time.Now().Add(-time.Second)
+	q.routeCache[prefix] = entry
+	q.routeMu.Unlock()
 
 	second, err := q.workerRouteKeys(ctx, refs)
 	if err != nil {
