@@ -410,14 +410,7 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 
 func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 	t.Parallel()
-	created := false
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error {
-			created = true
-			return nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"provider":"openai","model":"gpt-4","prompt_tokens":10,"completion_tokens":5}`)
@@ -425,9 +418,6 @@ func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for launch-inactive usage route, got %d: %s", w.Code, w.Body.String())
-	}
-	if created {
-		t.Fatal("CreateRunUsage should not be called for unregistered usage route")
 	}
 }
 

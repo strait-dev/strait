@@ -309,14 +309,7 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 
 func TestListRunUsageRoute_NotRegistered(t *testing.T) {
 	t.Parallel()
-	called := false
-	ms := &APIStoreMock{
-		ListRunUsageFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
-			called = true
-			return nil, nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/usage", ""))
@@ -324,30 +317,17 @@ func TestListRunUsageRoute_NotRegistered(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for launch-inactive usage route, got %d: %s", w.Code, w.Body.String())
 	}
-	if called {
-		t.Fatal("ListRunUsage should not be called for unregistered usage route")
-	}
 }
 
 func TestHandleListRunToolCalls_RouteLaunchInactive(t *testing.T) {
 	t.Parallel()
-	var called bool
-	ms := &APIStoreMock{
-		ListRunToolCallsFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
-			called = true
-			return []domain.RunToolCall{{ID: "tc-1", RunID: runID}}, nil
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/tool-calls", ""))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for launch-inactive tool-calls route, got %d: %s", w.Code, w.Body.String())
-	}
-	if called {
-		t.Fatal("ListRunToolCalls should not be called for unregistered tool-calls route")
 	}
 }
 
