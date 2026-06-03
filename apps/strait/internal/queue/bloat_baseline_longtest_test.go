@@ -622,6 +622,8 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 			'outbox_batches',
 			'workflow_step_runs',
 			'workflow_progression_events',
+			'workflow_progression_event_claims',
+			'workflow_progression_event_processed',
 			'event_triggers'
 		)
 		   OR s.relname LIKE 'job_runs_%'
