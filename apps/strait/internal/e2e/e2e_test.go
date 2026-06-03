@@ -1342,7 +1342,8 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	ctx := context.Background()
-	dequeued, err := testQueue.Dequeue(ctx)
+	q := newIsolatedQueue(t)
+	dequeued, err := q.Dequeue(ctx)
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
