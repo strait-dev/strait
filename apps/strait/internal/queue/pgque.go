@@ -104,9 +104,10 @@ type pgQueReadyEvent struct {
 }
 
 type pgQueCandidate struct {
-	Message pgQueMessage
-	Event   pgQueReadyEvent
-	Order   int
+	Message             pgQueMessage
+	Event               pgQueReadyEvent
+	Order               int
+	HasConcurrencyLimit bool
 }
 
 type pgQueMessage struct {
@@ -1143,7 +1144,7 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
 	}
 	if len(candidates) > 0 {
-		if err := q.applyLatestCandidatePriorities(ctx, candidates); err != nil {
+		if err := q.refreshCandidateClaimState(ctx, candidates); err != nil {
 			return pgQueBatchReservation{}, err
 		}
 		sort.SliceStable(candidates, func(i, j int) bool {
@@ -1171,8 +1172,8 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 	return pgQueBatchReservation{Batch: batch, Candidates: candidates, Invalid: invalid}, nil
 }
 
-func (q *PgQueQueue) applyLatestCandidatePriorities(ctx context.Context, candidates []pgQueCandidate) error {
-	if len(candidates) <= 1 {
+func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates []pgQueCandidate) error {
+	if len(candidates) == 0 {
 		return nil
 	}
 	ids := make([]string, 0, len(candidates))
@@ -1186,7 +1187,9 @@ func (q *PgQueQueue) applyLatestCandidatePriorities(ctx context.Context, candida
 			FROM unnest($1::text[]) AS input(run_id)
 		)
 		SELECT input.run_id,
-		       COALESCE(priority.priority, s.priority) AS priority
+		       COALESCE(priority.priority, s.priority) AS priority,
+		       s.job_max_concurrency IS NOT NULL
+		           OR s.job_max_concurrency_per_key IS NOT NULL AS has_concurrency_limit
 		FROM input
 		JOIN job_run_state s ON s.run_id = input.run_id
 		LEFT JOIN LATERAL (
@@ -1203,24 +1206,36 @@ func (q *PgQueQueue) applyLatestCandidatePriorities(ctx context.Context, candida
 	}
 	defer rows.Close()
 
-	priorities := make(map[string]int, len(candidates))
+	stateByRunID := make(map[string]pgQueCandidateClaimState, len(candidates))
 	for rows.Next() {
-		var runID string
-		var priority int
-		if err := rows.Scan(&runID, &priority); err != nil {
-			return fmt.Errorf("pgque candidate priority scan: %w", err)
+		var state pgQueCandidateClaimState
+		if err := rows.Scan(
+			&state.runID,
+			&state.priority,
+			&state.hasConcurrencyLimit,
+		); err != nil {
+			return fmt.Errorf("pgque candidate claim state scan: %w", err)
 		}
-		priorities[runID] = priority
+		stateByRunID[state.runID] = state
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("pgque candidate priority rows: %w", err)
+		return fmt.Errorf("pgque candidate claim state rows: %w", err)
 	}
 	for i := range candidates {
-		if priority, ok := priorities[candidates[i].Event.RunID]; ok {
-			candidates[i].Event.Priority = priority
+		state, ok := stateByRunID[candidates[i].Event.RunID]
+		if !ok {
+			continue
 		}
+		candidates[i].Event.Priority = state.priority
+		candidates[i].HasConcurrencyLimit = state.hasConcurrencyLimit
 	}
 	return nil
+}
+
+type pgQueCandidateClaimState struct {
+	runID               string
+	priority            int
+	hasConcurrencyLimit bool
 }
 
 func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRouteState, batch *pgQueActiveBatch, returnCandidates []pgQueCandidate) error {
@@ -1305,7 +1320,15 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 		generations = append(generations, candidate.Event.Generation)
 	}
 
-	runs, err := q.claimRuns(ctx, ids, generations, limit, filter)
+	hasLimitedCandidates := false
+	for _, candidate := range selected {
+		if candidate.HasConcurrencyLimit {
+			hasLimitedCandidates = true
+			break
+		}
+	}
+
+	runs, err := q.claimRuns(ctx, ids, generations, limit, filter, hasLimitedCandidates)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -1327,7 +1350,14 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	return runs, unclaimed, false, nil
 }
 
-func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
+func (q *PgQueQueue) claimRuns(
+	ctx context.Context,
+	ids []string,
+	generations []int64,
+	limit int,
+	filter pgQueClaimFilter,
+	hasLimitedCandidates bool,
+) ([]domain.JobRun, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -1335,36 +1365,10 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 		return nil, fmt.Errorf("pgque claim runs: mismatched id/generation counts")
 	}
 
-	hasLimitedCandidates, err := q.hasLimitedClaimCandidates(ctx, ids, generations)
-	if err != nil {
-		return nil, err
-	}
 	if hasLimitedCandidates {
 		return q.claimRunsWithConcurrency(ctx, ids, generations, limit, filter)
 	}
 	return q.claimRunsUnconstrained(ctx, ids, generations, limit, filter)
-}
-
-func (q *PgQueQueue) hasLimitedClaimCandidates(ctx context.Context, ids []string, generations []int64) (bool, error) {
-	var hasLimited bool
-	if err := q.db.QueryRow(ctx, `
-		WITH input AS (
-			SELECT *
-			FROM unnest($1::text[], $2::bigint[]) AS u(id, generation)
-		)
-		SELECT EXISTS (
-			SELECT 1
-			FROM input
-			JOIN job_run_state s ON s.run_id = input.id
-			WHERE s.ready_generation = input.generation
-			  AND (
-			      s.job_max_concurrency IS NOT NULL
-			      OR s.job_max_concurrency_per_key IS NOT NULL
-			  )
-		)`, ids, generations).Scan(&hasLimited); err != nil {
-		return false, fmt.Errorf("pgque check limited claim candidates: %w", err)
-	}
-	return hasLimited, nil
 }
 
 func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
