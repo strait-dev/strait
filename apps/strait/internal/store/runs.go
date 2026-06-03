@@ -2778,7 +2778,8 @@ func (q *Queries) syncLegacyQueueEntryStatus(ctx context.Context, id string, sta
 		UPDATE queue_entries
 		SET run_status = $2,
 		    updated_at = NOW()
-		WHERE run_id = $1`,
+		WHERE run_id = $1
+		  AND run_status IS DISTINCT FROM $2`,
 		id, status,
 	)
 	if err != nil {

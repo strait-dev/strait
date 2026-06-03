@@ -144,6 +144,62 @@ func TestQueueEngine_BatchlogQueuedToExecutingDirectTransition(t *testing.T) {
 	}
 }
 
+func TestQueueEntryRunStatusSyncSkipsNoOp(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-queue-entry-noop-sync")
+	legacy := queue.NewPostgresQueue(testDB.Pool)
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	if err := legacy.Enqueue(ctx, run); err != nil {
+		t.Fatalf("legacy Enqueue: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE queue_entries
+		SET run_status = $2
+		WHERE run_id = $1`,
+		run.ID,
+		string(domain.StatusDequeued),
+	); err != nil {
+		t.Fatalf("prime queue_entries run_status: %v", err)
+	}
+	var xminBefore string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM queue_entries
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&xminBefore); err != nil {
+		t.Fatalf("query queue_entries xmin before transition: %v", err)
+	}
+
+	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus queued->dequeued: %v", err)
+	}
+
+	var xminAfter string
+	var status, runStatus string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, status, run_status
+		FROM queue_entries
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&xminAfter, &status, &runStatus); err != nil {
+		t.Fatalf("query queue_entries after transition: %v", err)
+	}
+	if xminAfter != xminBefore {
+		t.Fatalf("queue_entries no-op run_status sync changed xmin from %s to %s", xminBefore, xminAfter)
+	}
+	if status != "ready" {
+		t.Fatalf("queue_entries status = %q, want ready", status)
+	}
+	if runStatus != string(domain.StatusDequeued) {
+		t.Fatalf("queue_entries run_status = %q, want %q", runStatus, domain.StatusDequeued)
+	}
+}
+
 func TestBatchlog_BackfillDoesNotDuplicateExistingQueuedRuns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
