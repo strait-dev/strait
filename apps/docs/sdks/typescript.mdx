@@ -230,7 +230,6 @@ The `run` handler receives a `RunContext` (`ctx`) with methods for reporting pro
 | `ctx.sendEvent(event, payload)` | Emit a typed event |
 | `ctx.spawnRun(jobOrRef, payload)` | Spawn a child run |
 | `ctx.waitForEvent(eventName, opts?)` | Pause until a matching event arrives |
-| `ctx.toolCall(name, input, output)` | Record a tool call for monitoring |
 | `ctx.heartbeat()` | Signal liveness to prevent timeout |
 | `ctx.output(partial)` | Stream partial output back to the caller |
 | `ctx.isCancelled()` | Check if the run has been cancelled |
@@ -258,7 +257,7 @@ expect(ctx.events).toHaveLength(0);
 expect(ctx.spawnedRuns).toHaveLength(0);
 ```
 
-The test context records all calls to `reportProgress`, `logger`, `sendEvent`, `spawnRun`, `checkpoint`, and `toolCall` so you can assert on side effects without mocking.
+The test context records calls to `reportProgress`, `logger`, `sendEvent`, `spawnRun`, and `checkpoint` so you can assert on side effects without mocking.
 
 ## Composition Helpers
 

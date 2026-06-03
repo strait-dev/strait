@@ -181,18 +181,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] heartbeat failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 2. Report tool call
-	if code, _, err := sdk.post("/tool-call", map[string]any{
-		"tool_name":   "web_search",
-		"input":       map[string]any{"query": "strait orchestrator"},
-		"output":      map[string]any{"results": 5},
-		"duration_ms": 120,
-		"status":      "success",
-	}); err != nil || code >= 300 {
-		ep.addError(fmt.Sprintf("[%s] tool-call failed: code=%d err=%v", runID, code, err))
-	}
-
-	// 3. Report resource snapshot
+	// 2. Report resource snapshot
 	if code, _, err := sdk.post("/resource-snapshot", map[string]any{
 		"cpu_percent":      35.5 + rand.Float64()*30,
 		"memory_mb":        256 + rand.Float64()*512,
@@ -203,7 +192,7 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] resource-snapshot failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 4. Set run state (existing KV per-run)
+	// 3. Set run state (existing KV per-run)
 	if code, _, err := sdk.post("/state", map[string]any{
 		"key":   "progress",
 		"value": map[string]any{"step": 1, "total": 3},
@@ -211,12 +200,12 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] set-state failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 6. Read state back
+	// 4. Read state back
 	if code, _, err := sdk.get("/state/progress"); err != nil || code >= 300 {
 		ep.addError(fmt.Sprintf("[%s] get-state failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 7. Write persistent memory
+	// 5. Write persistent memory
 	if code, _, err := sdk.post("/memory/last-query", map[string]any{
 		"value":    map[string]any{"query": "test", "ts": time.Now().Unix()},
 		"ttl_secs": 3600,
@@ -224,12 +213,12 @@ func (ep *jobEndpoint) handleRun(w http.ResponseWriter, r *http.Request) {
 		ep.addError(fmt.Sprintf("[%s] set-memory failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 8. Read persistent memory back
+	// 6. Read persistent memory back
 	if code, _, err := sdk.get("/memory/last-query"); err != nil || code >= 300 {
 		ep.addError(fmt.Sprintf("[%s] get-memory failed: code=%d err=%v", runID, code, err))
 	}
 
-	// 9. Write output
+	// 7. Write output
 	if code, _, err := sdk.post("/output", map[string]any{
 		"output_key": "result",
 		"value":      map[string]any{"answer": "42"},
@@ -394,12 +383,6 @@ func TestEndToEndJobExecution(t *testing.T) {
 				return 0
 			}
 
-			_, toolBody, _ := client.do("GET", "/v1/runs/"+id+"/tool-calls", nil)
-			toolsN := countItems(toolBody)
-			if toolsN == 0 {
-				t.Errorf("run %s: expected tool call records", id)
-			}
-
 			_, resBody, _ := client.do("GET", "/v1/runs/"+id+"/resources", nil)
 			resourcesN := countItems(resBody)
 			if resourcesN == 0 {
@@ -418,8 +401,8 @@ func TestEndToEndJobExecution(t *testing.T) {
 				t.Errorf("run %s: expected output entries", id)
 			}
 
-			t.Logf("run %s: COMPLETED (tools=%d resources=%d state=%d outputs=%d)",
-				id, toolsN, resourcesN, stateN, outputsN)
+			t.Logf("run %s: COMPLETED (resources=%d state=%d outputs=%d)",
+				id, resourcesN, stateN, outputsN)
 		} else {
 			failed++
 			t.Logf("run %s: %s", id, run.Status)

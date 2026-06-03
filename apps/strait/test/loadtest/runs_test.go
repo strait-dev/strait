@@ -351,69 +351,6 @@ func TestRuns_ListCheckpoints(t *testing.T) {
 	})
 }
 
-func TestRuns_ListUsage(t *testing.T) {
-	mustClean(t)
-	projectID := "proj-usage-" + newID()
-	jobID := seedJob(t, projectID)
-	runID, runToken := seedRun(t, jobID)
-
-	for i := range 3 {
-		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/usage", fmt.Sprintf(
-			`{"provider":"openai","model":"gpt-4","prompt_tokens":%d,"completion_tokens":%d,"cost_microusd":%d}`,
-			100*(i+1), 50*(i+1), 500*(i+1),
-		), http.Header{"Authorization": []string{"Bearer " + runToken}})
-	}
-
-	tgt := newTargeter("GET", "/v1/runs/"+runID+"/usage", nil)
-
-	t.Run("baseline", func(t *testing.T) {
-		m := runBaseline(t, "list-usage", tgt)
-		assertLatencySLA(t, m)
-		assertSuccessRate(t, m, 0.99)
-	})
-	t.Run("stress", func(t *testing.T) {
-		m := runStress(t, "list-usage", tgt)
-		assertSuccessRate(t, m, 0.95)
-		assertNoServerErrors(t, m)
-	})
-	t.Run("spike", func(t *testing.T) {
-		m := runSpike(t, "list-usage", tgt)
-		assertSuccessRate(t, m, 0.90)
-		assertNoServerErrors(t, m)
-	})
-}
-
-func TestRuns_ListToolCalls(t *testing.T) {
-	mustClean(t)
-	projectID := "proj-tc-" + newID()
-	jobID := seedJob(t, projectID)
-	runID, runToken := seedRun(t, jobID)
-
-	for i := range 3 {
-		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/tool-call", fmt.Sprintf(
-			`{"tool_name":"search","input":{"q":"test-%d"},"output":{"result":"ok"}}`, i,
-		), http.Header{"Authorization": []string{"Bearer " + runToken}})
-	}
-
-	tgt := newTargeter("GET", "/v1/runs/"+runID+"/tool-calls", nil)
-
-	t.Run("baseline", func(t *testing.T) {
-		m := runBaseline(t, "list-tool-calls", tgt)
-		assertLatencySLA(t, m)
-		assertSuccessRate(t, m, 0.99)
-	})
-	t.Run("stress", func(t *testing.T) {
-		m := runStress(t, "list-tool-calls", tgt)
-		assertSuccessRate(t, m, 0.95)
-		assertNoServerErrors(t, m)
-	})
-	t.Run("spike", func(t *testing.T) {
-		m := runSpike(t, "list-tool-calls", tgt)
-		assertSuccessRate(t, m, 0.90)
-		assertNoServerErrors(t, m)
-	})
-}
-
 func TestRuns_ListOutputs(t *testing.T) {
 	mustClean(t)
 	projectID := "proj-out-" + newID()
