@@ -244,6 +244,27 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForBillingUsage(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresCostAnalytics(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile("../store/cost_analytics.go")
+	if err != nil {
+		t.Fatalf("read store cost analytics: %v", err)
+	}
+	for _, token := range []string{
+		"run_usage",
+		"u.cost_microusd",
+		"u.total_tokens",
+		"u.model",
+		"usage_cost_microusd), 0)",
+		"SUM(total_tokens)",
+	} {
+		if strings.Contains(string(body), token) {
+			t.Fatalf("Postgres cost analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 

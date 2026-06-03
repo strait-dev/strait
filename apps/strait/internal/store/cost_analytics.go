@@ -75,63 +75,39 @@ func (q *Queries) GetCostAnalytics(ctx context.Context, projectID string, from, 
 }
 
 func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
-	// Totals from the legacy run_usage table.
-	usageQuery := `
-		SELECT COALESCE(SUM(u.cost_microusd), 0),
-		       COALESCE(SUM(u.total_tokens), 0),
-		       COUNT(DISTINCT jr.id)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
-		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3`
-	if err := q.db.QueryRow(ctx, usageQuery, projectID, from, to).Scan(
-		&result.TotalUsageCostMicrousd, &result.TotalTokens, &result.RunCount,
+	totalsQuery := `
+		SELECT COALESCE(SUM(compute_cost_microusd), 0),
+		       COALESCE(SUM(run_count), 0)
+		FROM cost_stats_hourly
+		WHERE project_id = $1 AND hour >= $2 AND hour < $3`
+	if err := q.db.QueryRow(ctx, totalsQuery, projectID, from, to).Scan(
+		&result.TotalComputeCostMicrousd, &result.RunCount,
 	); err != nil {
-		return nil, fmt.Errorf("cost analytics usage totals: %w", err)
+		return nil, fmt.Errorf("cost analytics launch totals: %w", err)
 	}
-
-	// run_compute_usage was dropped in 000227; compute cost is now 0 until
-	// the flat per-run cost path is wired in.
-	result.TotalComputeCostMicrousd = 0
-
-	// By model breakdown.
-	modelQuery := `
-		SELECT u.model,
-		       SUM(u.cost_microusd),
-		       SUM(u.total_tokens),
-		       COUNT(*)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
-		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
-		GROUP BY u.model
-		ORDER BY SUM(u.cost_microusd) DESC`
-	rows, err := q.db.Query(ctx, modelQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("cost analytics by model: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var m CostByModel
-		if err := rows.Scan(&m.Model, &m.CostMicrousd, &m.TotalTokens, &m.UsageCount); err != nil {
-			return nil, fmt.Errorf("cost analytics by model scan: %w", err)
+	if result.RunCount == 0 {
+		runCountQuery := `
+			SELECT COUNT(*)::bigint
+			FROM job_runs
+			WHERE project_id = $1 AND created_at >= $2 AND created_at < $3`
+		var runCount int64
+		if err := q.db.QueryRow(ctx, runCountQuery, projectID, from, to).Scan(&runCount); err != nil {
+			return nil, fmt.Errorf("cost analytics launch run count: %w", err)
 		}
-		result.ByModel = append(result.ByModel, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("cost analytics by model rows: %w", err)
+		result.RunCount = int(runCount)
 	}
 
 	// By job breakdown.
 	jobQuery := `
 		SELECT jr.job_id,
 		       COALESCE(j.slug, jr.job_id),
-		       SUM(u.cost_microusd),
+		       0::bigint,
 		       COUNT(DISTINCT jr.id)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
+		FROM job_runs jr
 		LEFT JOIN jobs j ON j.id = jr.job_id
 		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
 		GROUP BY jr.job_id, j.slug
-		ORDER BY SUM(u.cost_microusd) DESC`
+		ORDER BY COUNT(DISTINCT jr.id) DESC`
 	jobRows, err := q.db.Query(ctx, jobQuery, projectID, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("cost analytics by job: %w", err)
@@ -153,9 +129,9 @@ func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, fr
 
 func (q *Queries) getCostAnalyticsMaterialized(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
 	totalsQuery := `
-		SELECT COALESCE(SUM(usage_cost_microusd), 0),
+		SELECT 0::bigint,
 		       COALESCE(SUM(compute_cost_microusd), 0),
-		       COALESCE(SUM(total_tokens), 0),
+		       0::bigint,
 		       COALESCE(SUM(run_count), 0)
 		FROM cost_stats_hourly
 		WHERE project_id = $1 AND hour >= $2 AND hour < $3`
@@ -166,45 +142,16 @@ func (q *Queries) getCostAnalyticsMaterialized(ctx context.Context, projectID st
 		return nil, fmt.Errorf("materialized cost analytics totals: %w", err)
 	}
 
-	// By model and by job breakdowns still use live tables (materialized table
-	// does not store per-model or per-job splits).
-	modelQuery := `
-		SELECT u.model,
-		       SUM(u.cost_microusd),
-		       SUM(u.total_tokens),
-		       COUNT(*)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
-		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
-		GROUP BY u.model
-		ORDER BY SUM(u.cost_microusd) DESC`
-	rows, err := q.db.Query(ctx, modelQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("materialized cost analytics by model: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var m CostByModel
-		if err := rows.Scan(&m.Model, &m.CostMicrousd, &m.TotalTokens, &m.UsageCount); err != nil {
-			return nil, fmt.Errorf("materialized cost analytics by model scan: %w", err)
-		}
-		result.ByModel = append(result.ByModel, m)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("materialized cost analytics by model rows: %w", err)
-	}
-
 	jobQuery := `
 		SELECT jr.job_id,
 		       COALESCE(j.slug, jr.job_id),
-		       SUM(u.cost_microusd),
+		       0::bigint,
 		       COUNT(DISTINCT jr.id)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
+		FROM job_runs jr
 		LEFT JOIN jobs j ON j.id = jr.job_id
 		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
 		GROUP BY jr.job_id, j.slug
-		ORDER BY SUM(u.cost_microusd) DESC`
+		ORDER BY COUNT(DISTINCT jr.id) DESC`
 	jobRows, err := q.db.Query(ctx, jobQuery, projectID, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("materialized cost analytics by job: %w", err)
@@ -240,12 +187,11 @@ func (q *Queries) GetCostTrends(ctx context.Context, projectID string, from, to 
 func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from, to time.Time) ([]CostTrendPoint, error) {
 	query := `
 		SELECT date_trunc('hour', jr.created_at) AS period,
-		       COALESCE(SUM(u.cost_microusd), 0),
 		       0::BIGINT,
-		       COALESCE(SUM(u.total_tokens), 0),
+		       0::BIGINT,
+		       0::BIGINT,
 		       COUNT(DISTINCT jr.id)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
+		FROM job_runs jr
 		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
 		GROUP BY date_trunc('hour', jr.created_at)
 		ORDER BY period`
@@ -272,9 +218,9 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID string, from, to time.Time) ([]CostTrendPoint, error) {
 	query := `
 		SELECT date_trunc('day', hour) AS period,
-		       COALESCE(SUM(usage_cost_microusd), 0),
+		       0::BIGINT,
 		       COALESCE(SUM(compute_cost_microusd), 0),
-		       COALESCE(SUM(total_tokens), 0),
+		       0::BIGINT,
 		       COALESCE(SUM(run_count), 0)
 		FROM cost_stats_hourly
 		WHERE project_id = $1 AND hour >= $2 AND hour < $3
@@ -300,40 +246,13 @@ func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID strin
 	return points, rows.Err()
 }
 
-// GetTopCosts returns the top N most expensive jobs by legacy usage cost.
+// GetTopCosts returns top-cost entities. Launch billing does not expose
+// per-job cost attribution, so this returns an empty list until that is wired.
 func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]TopCostItem, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetTopCosts")
 	defer span.End()
 
-	query := `
-		SELECT jr.job_id,
-		       COALESCE(j.slug, jr.job_id),
-		       SUM(u.cost_microusd),
-		       COUNT(DISTINCT jr.id)
-		FROM run_usage u
-		JOIN job_runs jr ON jr.id = u.run_id
-		LEFT JOIN jobs j ON j.id = jr.job_id
-		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
-		GROUP BY jr.job_id, j.slug
-		ORDER BY SUM(u.cost_microusd) DESC
-		LIMIT $4`
-
-	rows, err := q.db.Query(ctx, query, projectID, from, to, limit)
-	if err != nil {
-		return nil, fmt.Errorf("top costs: %w", err)
-	}
-	defer rows.Close()
-
-	items := make([]TopCostItem, 0, limit)
-	for rows.Next() {
-		var item TopCostItem
-		if err := rows.Scan(&item.ID, &item.Name, &item.CostMicrousd, &item.RunCount); err != nil {
-			return nil, fmt.Errorf("top costs scan: %w", err)
-		}
-		item.ItemType = "job"
-		items = append(items, item)
-	}
-	return items, rows.Err()
+	return []TopCostItem{}, nil
 }
 
 // AggregateCostStatsHourly materializes cost data for a given hour into cost_stats_hourly.
@@ -350,17 +269,15 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 	query := `
 		INSERT INTO cost_stats_hourly (project_id, hour, usage_cost_microusd, compute_cost_microusd, total_tokens, run_count)
 		SELECT
-			jr.project_id,
+			b.project_id,
 			$1 AS hour,
-			COALESCE(SUM(u.cost_microusd), 0) AS usage_cost_microusd,
-			0 AS compute_cost_microusd,
-			COALESCE(SUM(u.total_tokens), 0) AS total_tokens,
-			COUNT(DISTINCT jr.id) AS run_count
-		FROM job_runs jr
-		LEFT JOIN run_usage u ON u.run_id = jr.id
-		WHERE jr.created_at >= $1 AND jr.created_at < $2
-		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
-		GROUP BY jr.project_id
+			0 AS usage_cost_microusd,
+			COALESCE(SUM(b.compute_cost_microusd), 0) AS compute_cost_microusd,
+			0 AS total_tokens,
+			COUNT(*) AS run_count
+		FROM billing_cost_events b
+		WHERE b.created_at >= $1 AND b.created_at < $2
+		GROUP BY b.project_id
 		ON CONFLICT (project_id, hour) DO UPDATE SET
 			usage_cost_microusd = EXCLUDED.usage_cost_microusd,
 			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
@@ -390,58 +307,5 @@ func (q *Queries) GetCostOutliers(ctx context.Context, projectID string, from, t
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetCostOutliers")
 	defer span.End()
 
-	query := `
-		WITH run_costs AS (
-			SELECT
-				u.run_id,
-				jr.job_id,
-				SUM(u.cost_microusd) AS cost_microusd
-			FROM run_usage u
-			JOIN job_runs jr ON jr.id = u.run_id
-			WHERE jr.project_id = $1
-			  AND jr.created_at >= $2
-			  AND jr.created_at < $3
-			GROUP BY u.run_id, jr.job_id
-		),
-		job_stats AS (
-			SELECT
-				job_id,
-				AVG(cost_microusd) AS avg_cost,
-				STDDEV_POP(cost_microusd) AS stddev_cost
-			FROM run_costs
-			GROUP BY job_id
-			HAVING STDDEV_POP(cost_microusd) > 0
-		)
-		SELECT
-			rc.run_id,
-			rc.job_id,
-			rc.cost_microusd,
-			js.avg_cost,
-			js.stddev_cost,
-			(rc.cost_microusd - js.avg_cost) / js.stddev_cost AS deviations_above
-		FROM run_costs rc
-		JOIN job_stats js ON js.job_id = rc.job_id
-		WHERE rc.cost_microusd > js.avg_cost + ($4 * js.stddev_cost)
-		ORDER BY deviations_above DESC
-		LIMIT 100`
-
-	rows, err := q.db.Query(ctx, query, projectID, from, to, threshold)
-	if err != nil {
-		return nil, fmt.Errorf("get cost outliers: %w", err)
-	}
-	defer rows.Close()
-
-	outliers := make([]CostOutlier, 0)
-	for rows.Next() {
-		var o CostOutlier
-		if err := rows.Scan(&o.RunID, &o.JobID, &o.CostMicrousd, &o.AvgCostMicrousd, &o.StddevMicrousd, &o.DeviationsAbove); err != nil {
-			return nil, fmt.Errorf("get cost outliers scan: %w", err)
-		}
-		outliers = append(outliers, o)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("get cost outliers rows: %w", err)
-	}
-
-	return outliers, nil
+	return []CostOutlier{}, nil
 }
