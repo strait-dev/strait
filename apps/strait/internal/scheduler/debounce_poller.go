@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,8 +10,6 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -120,40 +117,7 @@ func (p *DebouncePoller) fireDebounce(ctx context.Context, d domain.DebouncePend
 	if job.Paused {
 		return nil
 	}
-	var tags map[string]string
-	if len(d.Tags) > 0 {
-		_ = json.Unmarshal(d.Tags, &tags)
-	}
-
-	now := time.Now()
-	var expiresAt time.Time
-	if d.TTLSecs != nil && *d.TTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(*d.TTLSecs) * time.Second)
-	} else if job.RunTTLSecs > 0 {
-		expiresAt = now.Add(time.Duration(job.RunTTLSecs) * time.Second)
-	} else {
-		expiresAt = now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-	}
-
-	run := &domain.JobRun{
-		ID:             debounceRunID(d.ID),
-		JobID:          d.JobID,
-		ProjectID:      d.ProjectID,
-		Tags:           tags,
-		Status:         domain.StatusQueued,
-		Attempt:        1,
-		Payload:        d.Payload,
-		TriggeredBy:    domain.TriggerDebounce,
-		Priority:       d.Priority,
-		ConcurrencyKey: d.ConcurrencyKey,
-		JobVersion:     job.Version,
-		JobVersionID:   job.VersionID,
-		CreatedBy:      d.CreatedBy,
-		ExpiresAt:      &expiresAt,
-		ExecutionMode:  job.ExecutionMode,
-		QueueName:      job.Queue,
-		IdempotencyKey: "debounce:" + d.ID,
-	}
+	run := newDebounceRun(d, job, time.Now())
 
 	if err := p.withDebounceAdmissionGuard(ctx, job, func(enqueueCtx context.Context, tx store.DBTX) error {
 		if tx != nil {
@@ -273,11 +237,4 @@ func (p *DebouncePoller) checkJobFireRateLimit(ctx context.Context, job *domain.
 		}
 	}
 	return nil
-}
-
-func debounceRunID(pendingID string) string {
-	if pendingID != "" {
-		return pendingID
-	}
-	return uuid.Must(uuid.NewV7()).String()
 }
