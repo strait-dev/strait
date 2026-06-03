@@ -1353,9 +1353,7 @@ func registerWorkerSubscribers(
 		exec.Subscribe(worker.PubSubSubscriber(pub))
 	}
 	if chExporter != nil {
-		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries, worker.ClickHouseSubscriberDeps{
-			UsageLister: queries,
-		}))
+		exec.Subscribe(worker.ClickHouseSubscriber(chExporter, queries))
 	}
 }
 

@@ -201,6 +201,30 @@ func TestLaunchPricingDoesNotRequireLegacyAITelemetryInCoreInterfaces(t *testing
 	}
 }
 
+func TestLaunchPricingDoesNotExportLegacyAIUsageToClickHouse(t *testing.T) {
+	t.Parallel()
+
+	forbidden := []string{
+		"ClickHouseSubscriberDeps",
+		"ListRunUsage(",
+		"RunUsageEventRecord",
+		"run_usage_events",
+		"PromptTokens",
+		"CompletionTokens",
+	}
+	for _, path := range []string{"../../cmd/strait/services.go", "../worker/subscriber_clickhouse.go"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(body), token) {
+				t.Fatalf("%s wires legacy AI usage export token %q; launch ClickHouse subscriber must stay orchestration-only", path, token)
+			}
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 
