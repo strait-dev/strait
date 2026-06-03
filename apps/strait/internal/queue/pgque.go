@@ -582,6 +582,13 @@ func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX
 			      FROM job_run_terminal_state t
 			      WHERE t.run_id = s.run_id
 			  )
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_ready_events ready
+			      WHERE ready.run_id = s.run_id
+			        AND ready.ready_generation = s.ready_generation
+			        AND ready.reason = 'paused_resume'
+			  )
 			FOR UPDATE OF s SKIP LOCKED
 		),
 		updated AS (

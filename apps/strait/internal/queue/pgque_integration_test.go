@@ -618,6 +618,55 @@ func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing
 		t.Fatalf("paused_resume ready events = %d, want 1", readyEvents)
 	}
 
+	var firstResumeLifecycleEvents, firstResumeCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+		       (SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = s.run_id AND from_status = 'paused' AND to_status = 'queued'),
+		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1`,
+		run.ID,
+	).Scan(&firstResumeLifecycleEvents, &firstResumeCacheVersions); err != nil {
+		t.Fatalf("query first requeue side rows: %v", err)
+	}
+	if firstResumeLifecycleEvents != 1 {
+		t.Fatalf("paused resume lifecycle events = %d, want 1", firstResumeLifecycleEvents)
+	}
+
+	requeued, err = q.RequeuePausedJobRuns(ctx, wfRun.ID)
+	if err != nil {
+		t.Fatalf("second RequeuePausedJobRuns: %v", err)
+	}
+	if requeued != 0 {
+		t.Fatalf("second RequeuePausedJobRuns requeued = %d, want 0", requeued)
+	}
+
+	var duplicateGeneration int64
+	var duplicateReadyEvents, duplicateLifecycleEvents, duplicateCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = s.run_id AND reason = 'paused_resume'),
+		       (SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = s.run_id AND from_status = 'paused' AND to_status = 'queued'),
+		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1`,
+		run.ID,
+	).Scan(&duplicateGeneration, &duplicateReadyEvents, &duplicateLifecycleEvents, &duplicateCacheVersions); err != nil {
+		t.Fatalf("query duplicate requeue state: %v", err)
+	}
+	if duplicateGeneration != afterGeneration {
+		t.Fatalf("ready_generation after duplicate requeue = %d, want %d", duplicateGeneration, afterGeneration)
+	}
+	if duplicateReadyEvents != 1 {
+		t.Fatalf("paused_resume ready events after duplicate requeue = %d, want 1", duplicateReadyEvents)
+	}
+	if duplicateLifecycleEvents != 1 {
+		t.Fatalf("paused resume lifecycle events after duplicate requeue = %d, want 1", duplicateLifecycleEvents)
+	}
+	if duplicateCacheVersions != firstResumeCacheVersions {
+		t.Fatalf("cache versions after duplicate requeue = %d, want %d", duplicateCacheVersions, firstResumeCacheVersions)
+	}
+
 	var queueEntries int
 	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM queue_entries WHERE run_id = $1`, run.ID).Scan(&queueEntries); err != nil {
 		t.Fatalf("queue_entries count: %v", err)
