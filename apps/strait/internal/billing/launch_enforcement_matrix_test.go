@@ -285,6 +285,35 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresPerformanceAnalytics(t 
 	}
 }
 
+func TestLaunchPricingCostBudgetSumsDoNotReadLegacyAIUsage(t *testing.T) {
+	t.Parallel()
+
+	bodyBytes, err := os.ReadFile("../store/runs.go")
+	if err != nil {
+		t.Fatalf("read store runs: %v", err)
+	}
+	body := string(bodyBytes)
+	for _, fn := range []string{"SumRunCostMicrousd", "SumProjectDailyCostMicrousd"} {
+		start := strings.Index(body, "func (q *Queries) "+fn)
+		if start < 0 {
+			t.Fatalf("store runs missing %s", fn)
+		}
+		next := strings.Index(body[start+1:], "\nfunc ")
+		if next < 0 {
+			t.Fatalf("store runs missing function boundary after %s", fn)
+		}
+		fnBody := body[start : start+1+next]
+		for _, token := range []string{"run_usage", "cost_microusd) FROM run_usage", "u.cost_microusd"} {
+			if strings.Contains(fnBody, token) {
+				t.Fatalf("%s reads legacy AI usage token %q; launch cost budgets must use billing cost events", fn, token)
+			}
+		}
+		if !strings.Contains(fnBody, "billing_cost_events") {
+			t.Fatalf("%s must read billing_cost_events for launch cost budgets", fn)
+		}
+	}
+}
+
 func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.T) {
 	t.Parallel()
 

@@ -6054,7 +6054,7 @@ func TestSumRunCostMicrousd(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-sum-cost")
 	run := mustCreateRun(t, ctx, q, job)
 
-	// No usage yet
+	// No launch cost event yet.
 	total, err := q.SumRunCostMicrousd(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("SumRunCostMicrousd() error = %v", err)
@@ -6063,14 +6063,14 @@ func TestSumRunCostMicrousd(t *testing.T) {
 		t.Fatalf("total = %d, want 0", total)
 	}
 
-	// Add usage records
-	u1 := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 1000, Provider: "openai"}
-	if err := q.CreateRunUsage(ctx, u1); err != nil {
-		t.Fatalf("CreateRunUsage(1) error = %v", err)
-	}
-	u2 := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, CostMicrousd: 2500, Provider: "openai"}
-	if err := q.CreateRunUsage(ctx, u2); err != nil {
-		t.Fatalf("CreateRunUsage(2) error = %v", err)
+	_, err = testDB.Pool.Exec(ctx, `
+		INSERT INTO billing_cost_events (
+			idempotency_key, org_id, project_id, period_date, execution_mode,
+			compute_cost_microusd, created_at
+		) VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, NOW())
+	`, "strait:cost_recorded:"+run.ID, "org-sum-cost", job.ProjectID, "http", int64(3500))
+	if err != nil {
+		t.Fatalf("insert billing cost event: %v", err)
 	}
 
 	total, err = q.SumRunCostMicrousd(ctx, run.ID)
@@ -6088,12 +6088,13 @@ func TestSumProjectDailyCostMicrousd(t *testing.T) {
 	mustClean(t, ctx)
 
 	projectID := "project-daily-cost"
-	job := mustCreateJob(t, ctx, q, projectID)
-	run := mustCreateRun(t, ctx, q, job)
-
-	u := &domain.RunUsage{ID: newID(), RunID: run.ID, Model: "gpt-4", PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150, CostMicrousd: 5000, Provider: "openai"}
-	if err := q.CreateRunUsage(ctx, u); err != nil {
-		t.Fatalf("CreateRunUsage() error = %v", err)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO billing_cost_events (
+			idempotency_key, org_id, project_id, period_date, execution_mode,
+			compute_cost_microusd, created_at
+		) VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, NOW())
+	`, "test:daily-cost:"+newID(), "org-daily-cost", projectID, "http", int64(5000)); err != nil {
+		t.Fatalf("insert billing cost event: %v", err)
 	}
 
 	total, err := q.SumProjectDailyCostMicrousd(ctx, projectID, "UTC")
