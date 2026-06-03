@@ -1,5 +1,15 @@
 package queue
 
+// Strait's pgque queue engine uses a vendored and modified SQL snapshot of
+// PgQue, PgQ Universal Edition: https://github.com/NikolayS/pgque.
+// PgQue is Apache-2.0 licensed and includes code derived from PgQ, originally
+// developed at Skype Technologies OU by Marko Kreen under the ISC License.
+// Permission to use, copy, modify, and distribute the PgQ-derived portions is
+// granted with copyright and permission notices retained; those portions are
+// provided "AS IS" without warranty.
+// Strait uses PgQue as its PostgreSQL ready-event log; Strait owns run state,
+// execution ownership, retries, workflows, workers, observability, and APIs.
+
 import (
 	"context"
 	"encoding/json"

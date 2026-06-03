@@ -1,9 +1,11 @@
 ---
-title: "Queue Batchlog Rollout Benchmark"
-description: "PgQue-inspired queue rewrite benchmark summary and rollout guidance."
+title: "Queue PgQue Rollout Benchmark"
+description: "PgQue-backed queue benchmark summary and rollout guidance."
 ---
 
-This report summarizes the local benchmark pass for the PgQue-inspired queue work. The latest PgQue gate was captured on June 2, 2026 on an Apple M1 Pro with testcontainer Postgres.
+This report summarizes the local benchmark pass for Strait's PgQue-backed queue work. The latest PgQue gate was captured on June 2, 2026 on an Apple M1 Pro with testcontainer Postgres.
+
+Strait's `pgque` engine uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque), PgQ Universal Edition, by Nikolay Samokhvalov. PgQue is licensed under Apache 2.0 and includes code derived from PgQ, originally developed at Skype Technologies OU by Marko Kreen under the ISC License. Strait uses PgQue as the PostgreSQL ready-event log and owns the surrounding job orchestration, run state, execution ownership, retry, workflow, worker, observability, and API layers.
 
 ## Result
 
