@@ -10,9 +10,12 @@ import (
 	"time"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/config"
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // stubPlanLimitEnforcer is a hand-rolled implementation of planLimitEnforcer
@@ -73,10 +76,26 @@ func (s *stubPlanLimitEnforcer) callsLen() int {
 
 type releaseRecordingReservationEnforcer struct {
 	stubPlanLimitEnforcer
+
+	reserveErr           error
+	reserveCalls         int
+	lastReservationOrgID string
+	lastReservationID    string
+	lastReservationLease time.Duration
+
 	releaseCalls atomic.Int64
 }
 
-func (r *releaseRecordingReservationEnforcer) ReserveWorkerConnection(context.Context, string, string, time.Duration) (func(), error) {
+func (r *releaseRecordingReservationEnforcer) ReserveWorkerConnection(_ context.Context, orgID, reservationID string, lease time.Duration) (func(), error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reserveCalls++
+	r.lastReservationOrgID = orgID
+	r.lastReservationID = reservationID
+	r.lastReservationLease = lease
+	if r.reserveErr != nil {
+		return nil, r.reserveErr
+	}
 	return func() {
 		r.releaseCalls.Add(1)
 	}, nil
@@ -84,6 +103,94 @@ func (r *releaseRecordingReservationEnforcer) ReserveWorkerConnection(context.Co
 
 func (r *releaseRecordingReservationEnforcer) RenewWorkerConnection(context.Context, string, string, time.Duration) error {
 	return nil
+}
+
+func TestCheckPlanConnectionLimit_UsesDistributedReservation(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &releaseRecordingReservationEnforcer{
+		stubPlanLimitEnforcer: stubPlanLimitEnforcer{
+			orgIDForProject: map[string]string{"proj-a": "org-1"},
+			limit:           0,
+		},
+	}
+	svc := &workerService{
+		registry:        NewConnectionRegistry(),
+		billingEnforcer: enforcer,
+		cfg:             &config.Config{WorkerHeartbeatTimeout: 10 * time.Second},
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err != nil {
+		t.Fatalf("checkPlanConnectionLimit: %v", err)
+	}
+	if orgID != "org-1" {
+		t.Fatalf("orgID = %q, want org-1", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Fatalf("fallback CheckWorkerConnectionLimit calls = %d, want 0", got)
+	}
+
+	enforcer.mu.Lock()
+	reserveCalls := enforcer.reserveCalls
+	reservationOrgID := enforcer.lastReservationOrgID
+	reservationID := enforcer.lastReservationID
+	reservationLease := enforcer.lastReservationLease
+	enforcer.mu.Unlock()
+
+	if reserveCalls != 1 {
+		t.Fatalf("ReserveWorkerConnection calls = %d, want 1", reserveCalls)
+	}
+	if reservationOrgID != "org-1" || reservationID != "reservation-1" {
+		t.Fatalf("reservation call = org %q reservation %q, want org-1 reservation-1", reservationOrgID, reservationID)
+	}
+	if reservationLease != 30*time.Second {
+		t.Fatalf("reservation lease = %s, want 30s", reservationLease)
+	}
+
+	release()
+	if got := enforcer.releaseCalls.Load(); got != 1 {
+		t.Fatalf("release calls = %d, want 1", got)
+	}
+}
+
+func TestCheckPlanConnectionLimit_ReservationDenialIsResourceExhausted(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &releaseRecordingReservationEnforcer{
+		stubPlanLimitEnforcer: stubPlanLimitEnforcer{
+			orgIDForProject: map[string]string{"proj-a": "org-1"},
+			limit:           -1,
+		},
+		reserveErr: errors.New("worker connection cap reached"),
+	}
+	svc := &workerService{
+		registry:        NewConnectionRegistry(),
+		billingEnforcer: enforcer,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err == nil {
+		t.Fatal("expected reservation denial to reject connection")
+	}
+	if code := status.Code(err); code != codes.ResourceExhausted {
+		t.Fatalf("status code = %s, want %s", code, codes.ResourceExhausted)
+	}
+	if orgID != "org-1" {
+		t.Fatalf("orgID = %q, want org-1", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
+	}
+	if got := enforcer.releaseCalls.Load(); got != 0 {
+		t.Fatalf("release calls = %d, want 0", got)
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Fatalf("fallback CheckWorkerConnectionLimit calls = %d, want 0", got)
+	}
 }
 
 func TestRegisterWorkerStream_ReleasesReservationWhenRegistryRejects(t *testing.T) {
