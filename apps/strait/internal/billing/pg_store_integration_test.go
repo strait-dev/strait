@@ -3205,7 +3205,7 @@ func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	}
 	t.Fatal("org not found in stale subscriptions list")
 }
-func TestPgStore_UsageCTE_UsageCostOnlyNoCompute(t *testing.T) {
+func TestPgStore_UsageAggregation_IgnoresLegacyRunUsage(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 	pgStore := billing.NewPgStore(testDB.Pool)
@@ -3242,11 +3242,14 @@ func TestPgStore_UsageCTE_UsageCostOnlyNoCompute(t *testing.T) {
 			if r.ComputeCostMicro != 0 {
 				t.Errorf("ComputeCostMicro = %d, want 0", r.ComputeCostMicro)
 			}
-			if r.UsageTokensTotal != 150 {
-				t.Errorf("UsageTokensTotal = %d, want 150", r.UsageTokensTotal)
+			if r.RunsCount != 1 {
+				t.Errorf("RunsCount = %d, want 1", r.RunsCount)
 			}
-			if r.UsageCostMicro != 500000 {
-				t.Errorf("UsageCostMicro = %d, want 500000", r.UsageCostMicro)
+			if r.UsageTokensTotal != 0 {
+				t.Errorf("UsageTokensTotal = %d, want 0", r.UsageTokensTotal)
+			}
+			if r.UsageCostMicro != 0 {
+				t.Errorf("UsageCostMicro = %d, want 0", r.UsageCostMicro)
 			}
 			return
 		}

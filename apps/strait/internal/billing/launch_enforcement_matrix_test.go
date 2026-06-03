@@ -225,6 +225,25 @@ func TestLaunchPricingDoesNotExportLegacyAIUsageToClickHouse(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingDoesNotReadLegacyAIUsageForBillingUsage(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile("../billing/pg_store.go")
+	if err != nil {
+		t.Fatalf("read billing pg store: %v", err)
+	}
+	for _, token := range []string{
+		"FROM run_usage",
+		"JOIN run_usage",
+		"ru.total_tokens",
+		"ru.cost_microusd",
+	} {
+		if strings.Contains(string(body), token) {
+			t.Fatalf("billing usage reads legacy AI usage token %q; launch billing usage must use orchestration-run records only", token)
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 
