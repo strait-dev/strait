@@ -24,6 +24,7 @@ var pgQueWorkerRefArgsBenchmarkSink struct {
 	environmentIDs []string
 }
 var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
+var pgQueCandidateRunIDsBenchmarkSink []string
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -398,6 +399,20 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 	}
 }
 
+func TestPgQueCandidateRunIDsPreservesOrder(t *testing.T) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+	}
+
+	runIDs := pgQueCandidateRunIDs(candidates)
+
+	if !slices.Equal(runIDs, []string{"run-1", "run-2", "run-3"}) {
+		t.Fatalf("run IDs = %v", runIDs)
+	}
+}
+
 func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
 	candidates := []pgQueCandidate{
 		{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}},
@@ -412,6 +427,23 @@ func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
 
 	for b.Loop() {
 		pgQueClaimSelectionBenchmarkSink = selectPgQueClaimCandidates(candidates, len(candidates))
+	}
+}
+
+func BenchmarkPgQueCandidateRunIDs(b *testing.B) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+		{Event: pgQueReadyEvent{RunID: "run-4"}},
+		{Event: pgQueReadyEvent{RunID: "run-5"}},
+		{Event: pgQueReadyEvent{RunID: "run-6"}},
+		{Event: pgQueReadyEvent{RunID: "run-7"}},
+		{Event: pgQueReadyEvent{RunID: "run-8"}},
+	}
+
+	for b.Loop() {
+		pgQueCandidateRunIDsBenchmarkSink = pgQueCandidateRunIDs(candidates)
 	}
 }
 

@@ -286,10 +286,7 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 	if len(candidates) == 0 {
 		return nil
 	}
-	ids := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		ids = append(ids, candidate.Event.RunID)
-	}
+	ids := pgQueCandidateRunIDs(candidates)
 
 	rows, err := q.db.Query(ctx, `
 		WITH input AS (
@@ -340,6 +337,14 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 		candidates[i].HasConcurrencyLimit = state.hasConcurrencyLimit
 	}
 	return nil
+}
+
+func pgQueCandidateRunIDs(candidates []pgQueCandidate) []string {
+	ids := make([]string, len(candidates))
+	for i, candidate := range candidates {
+		ids[i] = candidate.Event.RunID
+	}
+	return ids
 }
 
 type pgQueCandidateClaimState struct {
