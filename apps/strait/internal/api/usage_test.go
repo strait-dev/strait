@@ -58,10 +58,6 @@ func (m *mockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (bil
 	return billing.GetPlanLimits(domain.PlanFree), nil
 }
 
-func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
-	return 0, nil
-}
-
 func (m *mockBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }

@@ -131,6 +131,52 @@ func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
+	t.Parallel()
+
+	forbidden := []string{
+		"CheckDailyRunLimit(",
+		"DecrDailyRunCount(",
+		"GetDailyRunCount(",
+		"ReconcileDailyRunCounts(",
+		"WithDailyRunCounter(",
+		"DailyRunCounter",
+	}
+	scanRoots := []string{
+		"../api",
+		"../queue",
+		"../scheduler",
+		"../worker",
+		"../../cmd",
+	}
+
+	for _, root := range scanRoots {
+		root := root
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			for _, token := range forbidden {
+				if strings.Contains(string(body), token) {
+					t.Fatalf("%s wires legacy daily run quota token %q; launch billing must use monthly run allowance", path, token)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for legacy daily run quota wiring: %v", root, err)
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 

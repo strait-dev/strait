@@ -68,9 +68,6 @@ func (e rateLimitPlanEnforcer) GetActiveProjectOrgID(context.Context, string) (s
 func (e rateLimitPlanEnforcer) GetOrgPlanLimits(context.Context, string) (billing.OrgPlanLimits, error) {
 	return e.limits, nil
 }
-func (e rateLimitPlanEnforcer) GetDailyRunCount(context.Context, string) (int64, error) {
-	return 0, nil
-}
 func (e rateLimitPlanEnforcer) GetMonthlyRunCount(context.Context, string) (int64, error) {
 	return e.used, nil
 }

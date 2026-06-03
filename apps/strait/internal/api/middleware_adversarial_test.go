@@ -1148,10 +1148,6 @@ func (m *adversarialBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ strin
 	return billing.OrgPlanLimits{}, nil
 }
 
-func (m *adversarialBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
-	return 0, nil
-}
-
 func (m *adversarialBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
