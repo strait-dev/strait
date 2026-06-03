@@ -87,17 +87,7 @@ func TestLoadQueue_DequeueThroughput(t *testing.T) {
 	}
 
 	start := time.Now()
-	dequeued := 0
-	for {
-		run, err := testQueue.Dequeue(ctx)
-		if err != nil {
-			break
-		}
-		if run == nil {
-			break
-		}
-		dequeued++
-	}
+	dequeued := len(dequeueRunsEventually(t, testQueue, volume))
 	elapsed := time.Since(start)
 	t.Logf("Dequeued %d items in %v (%.0f/sec)", dequeued, elapsed, float64(dequeued)/elapsed.Seconds())
 
@@ -277,14 +267,9 @@ func TestLoadQueue_FSMTransitionThroughput(t *testing.T) {
 		}
 	}
 
-	dequeued := 0
-	for dequeued < volume {
-		run, err := testQueue.Dequeue(ctx)
-		if err != nil || run == nil {
-			break
-		}
-		runIDs[dequeued] = run.ID
-		dequeued++
+	dequeuedRuns := dequeueRunsEventually(t, testQueue, volume)
+	for i, run := range dequeuedRuns {
+		runIDs[i] = run.ID
 	}
 
 	start := time.Now()

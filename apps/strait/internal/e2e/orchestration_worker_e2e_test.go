@@ -21,6 +21,9 @@ func TestOrchestrationWorkerE2E_TriggerCreatesClaimableWorkerRuns(t *testing.T) 
 
 	job := createWorkerJob(t, projectID, "Worker Routing Job", "worker-routing-"+newID(), queueName)
 	jobID := asString(t, job, "id")
+	queueRefs := []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: queueName}}
+	q := newIsolatedQueue(t)
+	primeWorkerQueue(t, q, queueRefs)
 
 	runIDs := make(map[string]bool, runCount)
 	for i := range runCount {
@@ -67,10 +70,7 @@ func TestOrchestrationWorkerE2E_TriggerCreatesClaimableWorkerRuns(t *testing.T) 
 		t.Fatalf("routing rows = %d, want %d", seen, runCount)
 	}
 
-	claimed, err := testQueue.DequeueNForWorkerQueues(ctx, runCount, []domain.WorkerQueueRef{{ProjectID: projectID, QueueName: queueName}})
-	if err != nil {
-		t.Fatalf("DequeueNForWorker: %v", err)
-	}
+	claimed := dequeueWorkerRunsEventually(t, q, runCount, queueRefs)
 	if len(claimed) != runCount {
 		t.Fatalf("DequeueNForWorker returned %d runs, want %d", len(claimed), runCount)
 	}

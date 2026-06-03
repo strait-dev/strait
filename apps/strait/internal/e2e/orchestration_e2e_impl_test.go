@@ -91,12 +91,12 @@ func triggerJobNoAssert(t *testing.T, jobID string) (int, map[string]any) {
 	return w.Code, resp
 }
 
-// countRunsByStatus counts job_runs rows for a given job ID and status in the DB.
+// countRunsByStatus counts run read-state rows for a given job ID and status.
 func countRunsByStatus(t *testing.T, ctx context.Context, jobID string, status domain.RunStatus) int {
 	t.Helper()
 	var n int
 	err := testEnv.DB.Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status = $2`,
+		`SELECT COUNT(*) FROM job_run_read_state WHERE job_id = $1 AND status = $2`,
 		jobID, string(status),
 	).Scan(&n)
 	if err != nil {
@@ -293,10 +293,12 @@ func TestEndToEndWorkerMode(t *testing.T) {
 			assignment := ta.TaskAssignment
 			tasksReceived.Add(1)
 
-			// Simulate run executing → complete: update DB status.
+			// Simulate run executing -> complete: update DB status.
 			runStore := store.New(testEnv.DB.Pool)
-			_ = runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusQueued, domain.StatusDequeued, nil)
-			_ = runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()})
+			if err := runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusQueued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
+				t.Errorf("set run %s executing: %v", assignment.RunId, err)
+				continue
+			}
 
 			// Send TaskResult back via result channel.
 			result := &workerv1.TaskResult{
@@ -308,7 +310,10 @@ func TestEndToEndWorkerMode(t *testing.T) {
 			resultChannels.Send(assignment.RunId, projectID, workerID, result)
 
 			// Update run to completed.
-			_ = runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()})
+			if err := runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
+				t.Errorf("complete run %s: %v", assignment.RunId, err)
+				continue
+			}
 
 			// Record cost.
 			if costErr := costRecorder.RecordWorkerRunCost(ctx, orgID, projectID, assignment.RunId); costErr != nil {
@@ -522,9 +527,10 @@ func TestEndToEndHTTPMode(t *testing.T) {
 		}
 
 		// Simulate executor success path: advance run to completed.
-		_ = runStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, nil)
-		_ = runStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting,
-			map[string]any{"started_at": time.Now()})
+		if err := runStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusExecuting,
+			map[string]any{"started_at": time.Now()}); err != nil {
+			t.Fatalf("set run %s executing: %v", runID, err)
+		}
 		if err := runStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted,
 			map[string]any{"finished_at": time.Now()}); err != nil {
 			t.Fatalf("update run %s to completed: %v", runID, err)

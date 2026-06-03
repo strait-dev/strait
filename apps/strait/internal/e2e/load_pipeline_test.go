@@ -41,12 +41,9 @@ func TestLoadPipeline_TriggerDequeueComplete(t *testing.T) {
 	triggerElapsed := time.Since(start)
 
 	dequeueStart := time.Now()
-	var runIDs []string
-	for range volume {
-		run, err := testQueue.Dequeue(ctx)
-		if err != nil || run == nil {
-			break
-		}
+	dequeuedRuns := dequeueRunsEventually(t, testQueue, volume)
+	runIDs := make([]string, 0, len(dequeuedRuns))
+	for _, run := range dequeuedRuns {
 		runIDs = append(runIDs, run.ID)
 	}
 	dequeueElapsed := time.Since(dequeueStart)

@@ -565,6 +565,46 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		return fmt.Errorf("clean tables: %w", err)
 	}
 
+	if err := tdb.cleanPgQueTables(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (tdb *TestDB) cleanPgQueTables(ctx context.Context) error {
+	rows, err := tdb.Pool.Query(ctx, `
+		SELECT tablename
+		FROM pg_tables
+		WHERE schemaname = 'pgque'
+		  AND (
+		      tablename IN ('retry_queue', 'dead_letter')
+		      OR (tablename LIKE 'event\_%' AND tablename <> 'event_template')
+		  )
+		ORDER BY tablename`)
+	if err != nil {
+		return fmt.Errorf("list pgque tables: %w", err)
+	}
+	defer rows.Close()
+
+	tables := make([]string, 0)
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return fmt.Errorf("scan pgque table: %w", err)
+		}
+		tables = append(tables, pgx.Identifier{"pgque", tableName}.Sanitize())
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list pgque table rows: %w", err)
+	}
+	if len(tables) == 0 {
+		return nil
+	}
+
+	if _, err := tdb.Pool.Exec(ctx, `TRUNCATE TABLE `+strings.Join(tables, ", ")+` CASCADE`); err != nil {
+		return fmt.Errorf("clean pgque tables: %w", err)
+	}
 	return nil
 }
 
