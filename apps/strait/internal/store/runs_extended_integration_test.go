@@ -1762,6 +1762,95 @@ func TestRuns_RescheduleRun_SamePayloadDoesNotRewriteLedger(t *testing.T) {
 	}
 }
 
+func TestRuns_UpdateRunStatus_SameLedgerPayloadDoesNotRewriteJobRuns(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-status-ledger-payload-noop")
+	payload := json.RawMessage(`{"kind":"same","value":1}`)
+	unchanged := baseRun(job, newID())
+	unchanged.Status = domain.StatusExecuting
+	unchanged.Payload = payload
+	if err := q.CreateRun(ctx, unchanged); err != nil {
+		t.Fatalf("CreateRun unchanged error = %v", err)
+	}
+
+	var beforeXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_runs
+		WHERE id = $1`,
+		unchanged.ID,
+	).Scan(&beforeXmin); err != nil {
+		t.Fatalf("query job_runs xmin before same-payload status update: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, unchanged.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"payload":     payload,
+		"finished_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus unchanged payload error = %v", err)
+	}
+
+	var afterXmin string
+	var terminalStatus domain.RunStatus
+	var gotPayload json.RawMessage
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.xmin::text, rs.status, jr.payload
+		FROM job_runs jr
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
+		WHERE jr.id = $1`,
+		unchanged.ID,
+	).Scan(&afterXmin, &terminalStatus, &gotPayload); err != nil {
+		t.Fatalf("query same-payload status update result: %v", err)
+	}
+	if afterXmin != beforeXmin {
+		t.Fatalf("same-payload status update changed job_runs xmin from %s to %s", beforeXmin, afterXmin)
+	}
+	if terminalStatus != domain.StatusCompleted {
+		t.Fatalf("terminal status = %q, want completed", terminalStatus)
+	}
+	if !jsonEqual(gotPayload, payload) {
+		t.Fatalf("payload = %s, want %s", string(gotPayload), string(payload))
+	}
+
+	changed := baseRun(job, newID())
+	changed.Status = domain.StatusExecuting
+	changed.Payload = payload
+	if err := q.CreateRun(ctx, changed); err != nil {
+		t.Fatalf("CreateRun changed error = %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_runs
+		WHERE id = $1`,
+		changed.ID,
+	).Scan(&beforeXmin); err != nil {
+		t.Fatalf("query job_runs xmin before changed-payload status update: %v", err)
+	}
+	changedPayload := json.RawMessage(`{"kind":"changed","value":2}`)
+	if err := q.UpdateRunStatus(ctx, changed.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"payload":     changedPayload,
+		"finished_at": time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus changed payload error = %v", err)
+	}
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, payload
+		FROM job_runs
+		WHERE id = $1`,
+		changed.ID,
+	).Scan(&afterXmin, &gotPayload); err != nil {
+		t.Fatalf("query changed-payload status update result: %v", err)
+	}
+	if afterXmin == beforeXmin {
+		t.Fatalf("changed-payload status update kept job_runs xmin %s, want a real update", afterXmin)
+	}
+	if !jsonEqual(gotPayload, changedPayload) {
+		t.Fatalf("changed payload = %s, want %s", string(gotPayload), string(changedPayload))
+	}
+}
+
 func TestRuns_RescheduleRun_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

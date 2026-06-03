@@ -2847,6 +2847,7 @@ func normalizeRunLifecycleFields(fields map[string]any) map[string]any {
 
 func (q *Queries) updateRunLedgerFields(ctx context.Context, id string, fields map[string]any) error {
 	setClauses := make([]string, 0, len(fields))
+	changePredicates := make([]string, 0, len(fields))
 	args := []any{id}
 	param := 2
 	keys := lo.Keys(fields)
@@ -2863,6 +2864,7 @@ func (q *Queries) updateRunLedgerFields(ctx context.Context, id string, fields m
 					return fmt.Errorf("marshal metadata: %w", err)
 				}
 				setClauses = append(setClauses, fmt.Sprintf("metadata = COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
+				changePredicates = append(changePredicates, fmt.Sprintf("COALESCE(metadata, '{}'::jsonb) IS DISTINCT FROM COALESCE(metadata, '{}'::jsonb) || $%d::jsonb", param))
 				args = append(args, encoded)
 				param++
 				continue
@@ -2894,13 +2896,16 @@ func (q *Queries) updateRunLedgerFields(ctx context.Context, id string, fields m
 			}
 		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		changePredicates = append(changePredicates, fmt.Sprintf("%s IS DISTINCT FROM $%d", key, param))
 		args = append(args, value)
 		param++
 	}
 	if len(setClauses) == 0 {
 		return nil
 	}
-	if _, err := q.db.Exec(ctx, fmt.Sprintf("UPDATE job_runs SET %s WHERE id = $1", strings.Join(setClauses, ", ")), args...); err != nil {
+	query := fmt.Sprintf("UPDATE job_runs SET %s WHERE id = $1", strings.Join(setClauses, ", "))
+	query += " AND (" + strings.Join(changePredicates, " OR ") + ")"
+	if _, err := q.db.Exec(ctx, query, args...); err != nil {
 		return fmt.Errorf("update run ledger fields: %w", err)
 	}
 	return nil
