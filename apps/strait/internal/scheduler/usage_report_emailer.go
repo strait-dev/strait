@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"strait/internal/billing"
-	"strait/internal/domain"
 
 	"github.com/resend/resend-go/v2"
 )
@@ -101,28 +100,12 @@ func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
 			continue
 		}
 
-		// Only send for paid plans.
-		tier := billing.GetPlanLimits(domain.PlanTier(sub.PlanTier))
-		if tier.PriceMonthlyUsd == 0 && tier.PriceAnnualUsd == 0 {
-			continue // free or enterprise with custom billing
-		}
-
-		// Check opt-in preference.
-		if !sub.MonthlyUsageEmail {
+		candidate, ok := newUsageReportCandidate(orgID, sub, todayStart)
+		if !ok {
 			continue
 		}
 
-		// Check if the billing period ended before today. Same-day periods are
-		// left for tomorrow so usage aggregation has settled.
-		if sub.CurrentPeriodEnd == nil {
-			continue
-		}
-		periodEnd := sub.CurrentPeriodEnd.UTC().Truncate(24 * time.Hour)
-		if !periodEnd.Before(todayStart) {
-			continue
-		}
-
-		claimed, dedupErr := re.claimReportSend(ctx, orgID, periodEnd)
+		claimed, dedupErr := re.claimReportSend(ctx, candidate.orgID, candidate.periodEnd)
 		if dedupErr != nil {
 			re.logger.Warn("usage report emailer: report claim failed",
 				"org_id", orgID, "error", dedupErr)
@@ -133,9 +116,9 @@ func (re *UsageReportEmailer) checkAndSend(ctx context.Context) {
 			continue
 		}
 
-		if !re.sendReport(ctx, orgID, sub) {
+		if !re.sendReport(ctx, candidate.orgID, candidate.sub) {
 			completed = false
-			re.releaseReportClaim(ctx, orgID, periodEnd)
+			re.releaseReportClaim(ctx, candidate.orgID, candidate.periodEnd)
 		}
 	}
 	if completed {
