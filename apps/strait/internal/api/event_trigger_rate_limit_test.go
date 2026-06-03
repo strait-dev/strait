@@ -72,6 +72,7 @@ func makeEventStreamAPIKeyServer(t *testing.T) (*Server, map[string]*domain.APIK
 			}, nil
 		},
 	}
+	installEventTriggerProjectLookupFallback(ms)
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
