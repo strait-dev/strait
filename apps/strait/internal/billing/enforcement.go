@@ -592,7 +592,7 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 			limits = EffectiveLimits(limits, addons)
 		}
 
-		// Apply subscription-level add-on adjustments (add_ons JSONB column).
+		// Keep the legacy add_ons JSONB compatibility step inert.
 		limits = ApplySubscriptionAddOns(limits, sub.AddOns)
 
 		// Opportunistically populate the snapshot column so subsequent
@@ -2182,17 +2182,9 @@ type SpendingLimitResponse struct {
 	IsHardCapped      bool    `json:"is_hard_capped"`
 }
 
-// ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
-// add-ons stored in the legacy add_ons JSONB column. Only launch-active packs
-// may change runtime limits; retired worker-connection packs are intentionally
-// ignored even if stale rows still contain those fields.
-func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
-	result := base
-
-	// Extra data retention: each pack adds retentionPackDays days.
-	if addOns.RetentionPack > 0 && result.RetentionDays > 0 {
-		result.RetentionDays += addOns.RetentionPack * retentionPackDays
-	}
-
-	return result
+// ApplySubscriptionAddOns is kept as an inert compatibility step for legacy
+// organization_subscriptions.add_ons rows. Launch add-ons are represented by
+// organization_addons and applied by EffectiveLimits.
+func ApplySubscriptionAddOns(base OrgPlanLimits, _ SubscriptionAddOns) OrgPlanLimits {
+	return base
 }

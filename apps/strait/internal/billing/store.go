@@ -5,13 +5,10 @@ import (
 	"time"
 )
 
-// SubscriptionAddOns captures per-org optional add-on quantities.
-// Each field holds the number of purchased packs of that add-on type.
-// The zero value means no add-ons purchased.
-type SubscriptionAddOns struct {
-	RetentionPack     int `json:"retention_pack"`
-	WorkerConnections int `json:"worker_connections"`
-}
+// SubscriptionAddOns captures the legacy organization_subscriptions.add_ons
+// payload. Launch add-ons are stored in organization_addons; this JSONB column
+// is intentionally inert so stale rows cannot grant entitlements.
+type SubscriptionAddOns struct{}
 
 // OrgSubscription represents an organization's subscription state.
 type OrgSubscription struct {

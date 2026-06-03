@@ -1,3 +1,4 @@
+-- safety-ok: launch branch rename before public release; application code and OpenAPI were updated in the same branch.
 DO $$
 BEGIN
     IF EXISTS (

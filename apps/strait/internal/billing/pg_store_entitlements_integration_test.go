@@ -30,16 +30,11 @@ func TestPgStore_UpdateEntitlements_RoundTrip(t *testing.T) {
 
 	want := billing.ComputeEntitlements(&billing.OrgSubscription{
 		PlanTier: string(domain.PlanPro),
-		AddOns:   billing.SubscriptionAddOns{RetentionPack: 2, WorkerConnections: 4},
 	}, []billing.Addon{
 		{AddonType: billing.AddonConcurrency100, Quantity: 1, Active: true},
 		{AddonType: billing.AddonEnvironments5, Quantity: 1, Active: true},
+		{AddonType: billing.AddonHistory30d, Quantity: 1, Active: true},
 	})
-	base := billing.GetPlanLimits(domain.PlanPro)
-	if want.WorkerConnections != base.WorkerConnections {
-		t.Fatalf("precondition: legacy worker-connection packs should be ignored, got %d want %d",
-			want.WorkerConnections, base.WorkerConnections)
-	}
 
 	if err := pgStore.UpdateEntitlements(ctx, orgID, want); err != nil {
 		t.Fatalf("UpdateEntitlements: %v", err)

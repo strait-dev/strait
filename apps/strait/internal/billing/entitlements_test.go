@@ -48,27 +48,18 @@ func TestComputeEntitlements_RoundTripMatchesPipeline(t *testing.T) {
 			[]Addon{{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true}},
 			SubscriptionAddOns{}},
 
-		{"pro_subscription_retention_pack",
-			domain.PlanPro,
-			nil,
-			SubscriptionAddOns{RetentionPack: 2}},
-		{"pro_legacy_worker_connections_ignored",
-			domain.PlanPro,
-			nil,
-			SubscriptionAddOns{WorkerConnections: 5}},
-
-		{"pro_table_and_subscription_addons",
+		{"pro_table_addons",
 			domain.PlanPro,
 			[]Addon{
 				{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
 				{AddonType: AddonHistory30d, Quantity: 1, Active: true},
 			},
-			SubscriptionAddOns{RetentionPack: 1, WorkerConnections: 3}},
+			SubscriptionAddOns{}},
 
 		{"enterprise_with_packs_stays_unlimited",
 			domain.PlanEnterprise,
 			[]Addon{{AddonType: AddonConcurrency100, Quantity: 10, Active: true}},
-			SubscriptionAddOns{WorkerConnections: 100}},
+			SubscriptionAddOns{}},
 	}
 
 	for _, tc := range cases {
@@ -108,23 +99,13 @@ func TestComputeEntitlements_UnknownTierFallsBackToFree(t *testing.T) {
 	}
 }
 
-func TestApplySubscriptionAddOns_IgnoresLaunchInactiveLegacyPacks(t *testing.T) {
+func TestApplySubscriptionAddOns_IgnoresLegacyJSONBPacks(t *testing.T) {
 	t.Parallel()
 
 	base := GetPlanLimits(domain.PlanPro)
-	got := ApplySubscriptionAddOns(base, SubscriptionAddOns{
-		WorkerConnections: 100,
-	})
-
-	if got.WorkerConnections != base.WorkerConnections {
-		t.Errorf("legacy worker pack changed WorkerConnections: got %d, want %d",
-			got.WorkerConnections, base.WorkerConnections)
-	}
-
-	withRetention := ApplySubscriptionAddOns(base, SubscriptionAddOns{RetentionPack: 1})
-	if withRetention.RetentionDays != base.RetentionDays+retentionPackDays {
-		t.Errorf("retention pack did not apply: got %d, want %d",
-			withRetention.RetentionDays, base.RetentionDays+retentionPackDays)
+	got := ApplySubscriptionAddOns(base, SubscriptionAddOns{})
+	if !reflect.DeepEqual(got, base) {
+		t.Errorf("legacy JSONB add-ons changed launch entitlements\n got:  %+v\n want: %+v", got, base)
 	}
 }
 
@@ -162,16 +143,13 @@ func TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline(t *testing.T) {
 	}
 }
 
-// TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons locks the
-// composition order: table addons run first, then subscription-row JSONB
-// adjustments. Both touch RetentionDays — exercising both confirms the
-// ordering produces additive (not conflicting) results.
-func TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons(t *testing.T) {
+// TestComputeEntitlements_TableAddonsExtendRetention locks retention extension
+// to the launch-active organization_addons path.
+func TestComputeEntitlements_TableAddonsExtendRetention(t *testing.T) {
 	t.Parallel()
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanScale),
-		AddOns:   SubscriptionAddOns{RetentionPack: 1},
 	}
 	addons := []Addon{
 		{AddonType: AddonHistory30d, Quantity: 1, Active: true},
@@ -179,9 +157,8 @@ func TestComputeEntitlements_TableAddonsApplyBeforeSubscriptionAddons(t *testing
 
 	got := ComputeEntitlements(sub, addons)
 
-	// Scale retention = 60; +30 from table addon (history_30d), +30 from
-	// subscription pack (retentionPackDays = 30) = 120.
-	wantRetention := RetentionScale + 30 + retentionPackDays
+	// Scale retention = 60; +30 from table addon (history_30d) = 90.
+	wantRetention := RetentionScale + 30
 	if got.RetentionDays != wantRetention {
 		t.Errorf("retention composition: got %d, want %d", got.RetentionDays, wantRetention)
 	}

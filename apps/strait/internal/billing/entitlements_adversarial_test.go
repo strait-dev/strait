@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -157,19 +158,20 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 	}
 }
 
-// TestComputeEntitlements_HandcraftedFieldsCannotLeak builds a fake
-// OrgSubscription wired with every JSONB pack at oversized values, then
-// confirms only the documented packs influence the snapshot — no field on
-// OrgPlanLimits gets written by anything other than the catalog/addon paths.
-func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
+// TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak builds a fake
+// OrgSubscription from a stale add_ons JSONB payload and confirms it cannot
+// influence the snapshot. Launch add-ons must come from organization_addons.
+func TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak(t *testing.T) {
 	t.Parallel()
+
+	var addOns SubscriptionAddOns
+	if err := json.Unmarshal([]byte(`{"retention_pack":999,"worker_connections":999}`), &addOns); err != nil {
+		t.Fatalf("unmarshal legacy add_ons: %v", err)
+	}
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanFree),
-		AddOns: SubscriptionAddOns{
-			RetentionPack:     999,
-			WorkerConnections: 999,
-		},
+		AddOns:   addOns,
 		// Override fields that ComputeEntitlements MUST ignore — those
 		// are operator runtime knobs, not part of the snapshot.
 		OverrideDailyRunLimit:      new(1_000_000),
@@ -179,14 +181,12 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 	got := ComputeEntitlements(sub, nil)
 	free := GetPlanLimits(domain.PlanFree)
 
-	// Free RetentionDays > 0, so RetentionPack adds. Legacy worker-connection
-	// packs must not affect launch entitlements.
-	if got.RetentionDays != free.RetentionDays+999*retentionPackDays {
-		t.Errorf("retention pack: got %d, want %d",
-			got.RetentionDays, free.RetentionDays+999*retentionPackDays)
+	if got.RetentionDays != free.RetentionDays {
+		t.Errorf("legacy JSONB add-ons changed RetentionDays: got %d, want %d",
+			got.RetentionDays, free.RetentionDays)
 	}
 	if got.WorkerConnections != free.WorkerConnections {
-		t.Errorf("legacy worker pack changed WorkerConnections: got %d, want %d",
+		t.Errorf("legacy JSONB add-ons changed WorkerConnections: got %d, want %d",
 			got.WorkerConnections, free.WorkerConnections)
 	}
 	// Override fields must not bleed into the snapshot — those are loaded
@@ -207,10 +207,7 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanEnterprise),
-		AddOns: SubscriptionAddOns{
-			RetentionPack:     5,
-			WorkerConnections: 5,
-		},
+		AddOns:   SubscriptionAddOns{},
 	}
 
 	got := ComputeEntitlements(sub, []Addon{
