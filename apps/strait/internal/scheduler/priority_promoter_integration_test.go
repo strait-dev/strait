@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/testutil"
@@ -27,7 +26,7 @@ func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, promoterE
 	tdb := getTestDB(t)
 	intTestClean(t, ctx)
 	st := store.New(tdb.Pool)
-	q := queue.NewPostgresQueue(tdb.Pool)
+	q := intTestQueue(t)
 	return tdb, st, q
 }
 

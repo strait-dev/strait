@@ -66,7 +66,7 @@ func TestOutboxFlusher_ConcurrentFlushersSameIdempotencyKeyNoDuplicateRuns(t *te
 	}
 	intWriteOutboxEntries(t, ctx, entries)
 
-	q := queue.NewPostgresQueue(getTestDB(t).Pool)
+	q := intTestQueue(t)
 	flusherA := scheduler.NewOutboxFlusher(getTestDB(t).Pool, q, scheduler.OutboxFlusherConfig{BatchSize: 1})
 	flusherB := scheduler.NewOutboxFlusher(getTestDB(t).Pool, q, scheduler.OutboxFlusherConfig{BatchSize: 1})
 
@@ -993,7 +993,11 @@ func BenchmarkOutbox(b *testing.B) {
 		b.Fatalf("CleanTables() error = %v", err)
 	}
 	job := intCreateJobTB(b, ctx, st, "proj-outbox-bench")
-	q := queue.NewPostgresQueue(tdb.Pool)
+	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresQueue(tdb.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "outbox-bench-" + intNewID(),
+		ReceiveWindow: 100,
+	})
 	flusher := scheduler.NewOutboxFlusher(tdb.Pool, q, scheduler.OutboxFlusherConfig{
 		BatchSize: 100,
 	})

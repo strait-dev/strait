@@ -27,7 +27,7 @@ import (
 
 // Queue Health Benchmark.
 //
-// Measures the Postgres queue's health under sustained load, capturing
+// Measures PgQue health under sustained load, capturing
 // the exact metrics that predict the MVCC/bloat death spiral described
 // in Brandur's 2015 post and PlanetScale's 2026 analysis.
 //
@@ -498,7 +498,7 @@ finished:
 	final := collector.collect()
 	snapshots = append(snapshots, final)
 
-	printReport(t, cfg, snapshots)
+	printReport(t, cfg, benchQ.engine, snapshots)
 
 	if final.DeadTupleRatio > 0.50 {
 		t.Errorf("CRITICAL: final dead tuple ratio %.4f exceeds 50%% threshold", final.DeadTupleRatio)
@@ -664,7 +664,7 @@ finished2:
 	final := collector.collect()
 	snapshots = append(snapshots, final)
 
-	printReport(t, cfg, snapshots)
+	printReport(t, cfg, benchQ.engine, snapshots)
 
 	writeResults(t, "queue_health_bench_longtxn_results.json", map[string]any{
 		"config": cfg, "scenario": "long_transaction_xmin_pin", "snapshots": snapshots,
@@ -823,7 +823,7 @@ finished:
 	final := collector.collect()
 	snapshots = append(snapshots, final)
 
-	printReport(t, cfg, snapshots)
+	printReport(t, cfg, benchQ.engine, snapshots)
 
 	if final.SlotWalLagBytes <= 0 {
 		t.Errorf("expected stalled logical slot to accumulate WAL lag")
@@ -834,13 +834,20 @@ finished:
 	})
 }
 
-func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
+func printReport(t *testing.T, cfg benchConfig, engine string, snapshots []healthSnapshot) {
 	t.Helper()
 	if len(snapshots) == 0 {
 		return
 	}
 
 	final := snapshots[len(snapshots)-1]
+	latencySnap := final
+	for i := len(snapshots) - 2; i >= 0; i-- {
+		if snapshots[i].DequeueP50us > 0 || snapshots[i].DequeueP95us > 0 || snapshots[i].DequeueP99us > 0 {
+			latencySnap = snapshots[i]
+			break
+		}
+	}
 
 	var maxDead, maxLive, maxP99, maxSlotWalLag, maxWALBytes int64
 	var maxDeadRatio, maxOldestAge, sumEnqRate, sumDeqRate float64
@@ -891,11 +898,10 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	sb.WriteString("              QUEUE HEALTH BENCHMARK RESULTS\n")
 	sb.WriteString("====================================================================\n")
 	fmt.Fprintf(&sb, "  Duration:          %v\n", cfg.Duration)
-	fmt.Fprintf(&sb, "  Queue engine:      %s\n", benchQ.engine)
+	fmt.Fprintf(&sb, "  Queue engine:      %s\n", engine)
 	fmt.Fprintf(&sb, "  Workers:           %d\n", cfg.Workers)
 	fmt.Fprintf(&sb, "  Batch size:        %d\n", cfg.BatchSize)
 	fmt.Fprintf(&sb, "  Target enqueue:    %d ops/sec (%d runs/sec)\n", cfg.EnqueueRateHz, cfg.EnqueueRateHz*cfg.BatchSize)
-	fmt.Fprintf(&sb, "  Cursor:            %v\n", cfg.UseCursor)
 	sb.WriteString("\n")
 	sb.WriteString("---- Throughput ----\n")
 	fmt.Fprintf(&sb, "  Total enqueued:    %d\n", final.EnqueuedTotal)
@@ -904,11 +910,11 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	fmt.Fprintf(&sb, "  Avg dequeue rate:  %.0f runs/sec\n", avgDeqRate)
 	sb.WriteString("\n")
 	sb.WriteString("---- Dequeue Latency (claim batch) ----\n")
-	fmt.Fprintf(&sb, "  Final P50:         %d us\n", final.DequeueP50us)
-	fmt.Fprintf(&sb, "  Final P95:         %d us\n", final.DequeueP95us)
-	fmt.Fprintf(&sb, "  Final P99:         %d us\n", final.DequeueP99us)
+	fmt.Fprintf(&sb, "  Latest steady P50: %d us\n", latencySnap.DequeueP50us)
+	fmt.Fprintf(&sb, "  Latest steady P95: %d us\n", latencySnap.DequeueP95us)
+	fmt.Fprintf(&sb, "  Latest steady P99: %d us\n", latencySnap.DequeueP99us)
 	fmt.Fprintf(&sb, "  Max P99:           %d us\n", maxP99)
-	fmt.Fprintf(&sb, "  Max single:        %d us\n", final.DequeueMaxUs)
+	fmt.Fprintf(&sb, "  Latest steady max: %d us\n", latencySnap.DequeueMaxUs)
 	sb.WriteString("\n")
 	sb.WriteString("---- Dead Tuples (MVCC Bloat) ----\n")
 	fmt.Fprintf(&sb, "  Final dead:        %d\n", final.DeadTuples)
@@ -980,7 +986,16 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 
 func writeResults(t *testing.T, filename string, data any) {
 	t.Helper()
-	f, err := os.Create(filename)
+	dir := os.Getenv("BENCH_RESULTS_DIR")
+	if dir == "" {
+		dir = "benchmark-results"
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Logf("create benchmark results dir: %v (non-fatal)", err)
+		return
+	}
+	path := dir + "/" + filename
+	f, err := os.Create(path)
 	if err != nil {
 		t.Logf("write results: %v (non-fatal)", err)
 		return
@@ -989,7 +1004,7 @@ func writeResults(t *testing.T, filename string, data any) {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(data)
-	t.Logf("Results written to %s", filename)
+	t.Logf("Results written to %s", path)
 }
 
 // TestQueueHealthBench_Compare loads two JSON result files and prints a

@@ -43,6 +43,15 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 	return triggerLimitTestDB
 }
 
+func newTriggerLimitPgQueQueue(t *testing.T, db *testutil.TestDB) *queue.PgQueQueue {
+	t.Helper()
+	return queue.NewPgQueQueue(db.Pool, queue.NewPostgresQueue(db.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "api-trigger-limit-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+}
+
 func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
@@ -53,7 +62,7 @@ func TestIntegration_TriggerLimitGuard_SerializesQueuedQuota(t *testing.T) {
 	}
 
 	st := store.NewWithContextRouting(db.Pool)
-	q := queue.NewPostgresQueue(db.Pool)
+	q := newTriggerLimitPgQueQueue(t, db)
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:      "test-secret-value",
@@ -131,7 +140,7 @@ func TestIntegration_TriggerLimitGuard_SerializesJobRateLimit(t *testing.T) {
 	}
 
 	st := store.NewWithContextRouting(db.Pool)
-	q := queue.NewPostgresQueue(db.Pool)
+	q := newTriggerLimitPgQueQueue(t, db)
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{
 			InternalSecret:      "test-secret-value",
@@ -203,7 +212,7 @@ func TestIntegration_TriggerLimitGuard_SerializesProjectQuotaAcrossJobs(t *testi
 	}
 
 	st := store.NewWithContextRouting(db.Pool)
-	q := queue.NewPostgresQueue(db.Pool)
+	q := newTriggerLimitPgQueQueue(t, db)
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{InternalSecret: "test-secret-value", MaxBulkTriggerItems: 500, JWTSigningKey: testJWTSigningKey},
 		Store:  st, Queue: q, Edition: domain.EditionCloud,
@@ -265,7 +274,7 @@ func TestIntegration_BulkTriggerLimitGuard_RejectsBatchBeyondQueuedQuota(t *test
 	}
 
 	st := store.NewWithContextRouting(db.Pool)
-	q := queue.NewPostgresQueue(db.Pool)
+	q := newTriggerLimitPgQueQueue(t, db)
 	srv := NewServer(ServerDeps{
 		Config: &config.Config{InternalSecret: "test-secret-value", MaxBulkTriggerItems: 500, JWTSigningKey: testJWTSigningKey},
 		Store:  st, Queue: q, Edition: domain.EditionCloud,
