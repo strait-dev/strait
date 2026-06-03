@@ -1939,6 +1939,62 @@ func TestRunCheckpoints(t *testing.T) {
 	}
 }
 
+func TestRunCheckpointsConcurrentSequenceAllocation(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-checkpoints-concurrent")
+	run := mustCreateRun(t, ctx, q, job)
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(executing) error = %v", err)
+	}
+
+	const checkpointCount = 32
+	errs := make(chan error, checkpointCount)
+	var wg sync.WaitGroup
+	for i := range checkpointCount {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			checkpoint := &domain.RunCheckpoint{
+				RunID:  run.ID,
+				Source: "sdk",
+				State:  json.RawMessage(`{"cursor":` + strconv.Itoa(i) + `}`),
+			}
+			errs <- q.CreateRunCheckpointForActiveRun(ctx, checkpoint, run.Attempt)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("CreateRunCheckpointForActiveRun() concurrent error = %v", err)
+		}
+	}
+
+	checkpoints, err := q.ListRunCheckpoints(ctx, run.ID, checkpointCount, nil)
+	if err != nil {
+		t.Fatalf("ListRunCheckpoints() error = %v", err)
+	}
+	if len(checkpoints) != checkpointCount {
+		t.Fatalf("ListRunCheckpoints() len = %d, want %d", len(checkpoints), checkpointCount)
+	}
+	seen := make(map[int]bool, checkpointCount)
+	for _, checkpoint := range checkpoints {
+		seen[checkpoint.Sequence] = true
+	}
+	for sequence := 1; sequence <= checkpointCount; sequence++ {
+		if !seen[sequence] {
+			t.Fatalf("missing checkpoint sequence %d; got %#v", sequence, seen)
+		}
+	}
+}
+
 func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

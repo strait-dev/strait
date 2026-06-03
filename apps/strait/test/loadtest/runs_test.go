@@ -268,7 +268,7 @@ func TestRuns_ListRunEvents(t *testing.T) {
 	mustClean(t)
 	projectID := "proj-re-" + newID()
 	jobID := seedJob(t, projectID)
-	runID, runToken := seedRun(t, jobID)
+	runID, runToken := seedExecutingRun(t, jobID)
 
 	for i := range 10 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/log", fmt.Sprintf(
@@ -324,7 +324,7 @@ func TestRuns_ListCheckpoints(t *testing.T) {
 	mustClean(t)
 	projectID := "proj-ckpt-" + newID()
 	jobID := seedJob(t, projectID)
-	runID, runToken := seedRun(t, jobID)
+	runID, runToken := seedExecutingRun(t, jobID)
 
 	for i := range 5 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/checkpoint", fmt.Sprintf(
@@ -355,7 +355,7 @@ func TestRuns_ListOutputs(t *testing.T) {
 	mustClean(t)
 	projectID := "proj-out-" + newID()
 	jobID := seedJob(t, projectID)
-	runID, runToken := seedRun(t, jobID)
+	runID, runToken := seedExecutingRun(t, jobID)
 
 	for i := range 3 {
 		httpDo(t, "POST", "/sdk/v1/runs/"+runID+"/output", fmt.Sprintf(
@@ -388,13 +388,13 @@ func TestRuns_ListByMetadata(t *testing.T) {
 	jobID := seedJob(t, projectID)
 
 	for range 10 {
-		id, token := seedRun(t, jobID)
+		id, token := seedExecutingRun(t, jobID)
 		httpDo(t, "POST", "/sdk/v1/runs/"+id+"/annotate",
 			`{"annotations":{"env":"prod","region":"us-east"}}`,
 			http.Header{"Authorization": []string{"Bearer " + token}})
 	}
 	for range 5 {
-		id, token := seedRun(t, jobID)
+		id, token := seedExecutingRun(t, jobID)
 		httpDo(t, "POST", "/sdk/v1/runs/"+id+"/annotate",
 			`{"annotations":{"env":"staging"}}`,
 			http.Header{"Authorization": []string{"Bearer " + token}})

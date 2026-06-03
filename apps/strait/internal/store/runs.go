@@ -464,24 +464,9 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 		checkpoint.Source = "sdk"
 	}
 
-	query := `
-		WITH next_seq AS (
-			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
-			FROM run_checkpoints
-			WHERE run_id = $1
-		)
-		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
-		VALUES ($2, $1, (SELECT seq FROM next_seq), $3, $4)
-		RETURNING sequence, created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		checkpoint.RunID,
-		checkpoint.ID,
-		checkpoint.Source,
-		dbscan.NilIfEmptyRawMessage(checkpoint.State),
-	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	err := q.WithTxQueries(ctx, func(txQ *Queries) error {
+		return txQ.createRunCheckpointLocked(ctx, checkpoint, 0, false)
+	})
 	if err != nil {
 		return fmt.Errorf("create run checkpoint: %w", err)
 	}
@@ -500,34 +485,9 @@ func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoin
 		checkpoint.Source = "sdk"
 	}
 
-	query := `
-		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND attempt = $5
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
-		),
-		next_seq AS (
-			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
-			FROM run_checkpoints
-			WHERE run_id = $1
-		)
-		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
-		SELECT $2, active_run.id, next_seq.seq, $3, $4
-		FROM active_run, next_seq
-		RETURNING sequence, created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		checkpoint.RunID,
-		checkpoint.ID,
-		checkpoint.Source,
-		dbscan.NilIfEmptyRawMessage(checkpoint.State),
-		attempt,
-	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	err := q.WithTxQueries(ctx, func(txQ *Queries) error {
+		return txQ.createRunCheckpointLocked(ctx, checkpoint, attempt, true)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, checkpoint.RunID, attempt)
@@ -536,6 +496,49 @@ func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoin
 	}
 
 	return nil
+}
+
+func (q *Queries) createRunCheckpointLocked(ctx context.Context, checkpoint *domain.RunCheckpoint, attempt int, requireActive bool) error {
+	lockQuery := `
+		SELECT id
+		FROM job_runs
+		WHERE id = $1
+		FOR UPDATE`
+	args := []any{checkpoint.RunID}
+	if requireActive {
+		lockQuery = `
+			SELECT id
+			FROM job_runs
+			WHERE id = $1
+			  AND attempt = $2
+			  AND status IN ('executing', 'waiting')
+			FOR UPDATE`
+		args = append(args, attempt)
+	}
+
+	var lockedRunID string
+	if err := q.db.QueryRow(ctx, lockQuery, args...).Scan(&lockedRunID); err != nil {
+		return err
+	}
+
+	query := `
+		WITH next_seq AS (
+			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
+			FROM run_checkpoints
+			WHERE run_id = $1
+		)
+		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
+		VALUES ($2, $1, (SELECT seq FROM next_seq), $3, $4)
+		RETURNING sequence, created_at`
+
+	return q.db.QueryRow(
+		ctx,
+		query,
+		checkpoint.RunID,
+		checkpoint.ID,
+		checkpoint.Source,
+		dbscan.NilIfEmptyRawMessage(checkpoint.State),
+	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
 }
 
 func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
