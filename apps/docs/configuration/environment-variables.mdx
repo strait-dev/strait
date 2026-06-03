@@ -72,19 +72,14 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `PERMISSION_CACHE_TTL` | `5m` | RBAC permission cache TTL. |
 | `PROJECT_QUOTA_CACHE_TTL` | `60s` | Project quota cache TTL. |
 
-## Queue and Workflow Engines
+## Queue
 
-The default `pgque` queue engine uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque). PgQue provides the PostgreSQL ready-event log. Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs.
+Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) as its PostgreSQL ready-event log. Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs.
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUEUE_ENGINE` | `pgque` | Queue storage engine. `pgque` uses PgQue as the default ready-event log for bloat-resistant queue storage; set `batchlog` or `legacy` only for rollback. |
-| `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Queue maintenance tick interval. Higher values reduce queue table churn at the cost of dispatch latency. |
 | `QUEUE_PGQUE_MAINTENANCE_INTERVAL` | `30s` | PgQue maintenance interval. Strait runs PgQue maintenance from its ticker so ready-event tables rotate without operator-managed cron. |
 | `QUEUE_PGQUE_ROTATION_PERIOD` | `5m` | PgQue event-table rotation period for Strait queue routes. Shorter periods reclaim acknowledged ready-event rows sooner. |
-| `QUEUE_USE_DENORMALIZED_DEQUEUE` | `true` | Use the fully denormalized dequeue path when the selected queue engine supports it. |
-| `OUTBOX_ENGINE` | `batchlog` | Outbox promotion engine. `batchlog` promotes through narrow claim rows and archives successful rows asynchronously. |
-| `WORKFLOW_PROGRESSION_ENGINE` | `batchlog` | Workflow progression engine. `batchlog` records progression events and drains workflow batches. |
 
 ## API Limits
 

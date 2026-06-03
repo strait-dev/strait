@@ -151,7 +151,6 @@ func TestRecordPartitionStats_MaxValues(t *testing.T) {
 func TestPartitionMetricLabel_BoundsCardinality(t *testing.T) {
 	tests := map[string]string{
 		"job_runs":              "job_runs",
-		"job_run_queue":         "job_run_queue",
 		"job_runs_p2026_04":     "job_runs_partition",
 		"job_runs_p9999_12":     "job_runs_partition",
 		"":                      "unknown",
@@ -196,7 +195,6 @@ func FuzzPartitionLabelCardinality(f *testing.F) {
 		got := partitionMetricLabel(label)
 		allowed := map[string]bool{
 			"job_runs":           true,
-			"job_run_queue":      true,
 			"job_runs_partition": true,
 			"unknown":            true,
 			"other":              true,

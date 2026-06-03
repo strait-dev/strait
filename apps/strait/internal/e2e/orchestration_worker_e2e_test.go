@@ -33,9 +33,8 @@ func TestOrchestrationWorkerE2E_TriggerCreatesClaimableWorkerRuns(t *testing.T) 
 	}
 
 	rows, err := testEnv.DB.Pool.Query(ctx,
-		`SELECT jr.id, jr.execution_mode, jr.queue_name, q.execution_mode, q.queue_name
+		`SELECT jr.id, jr.execution_mode, jr.queue_name
 		 FROM job_runs jr
-		 JOIN job_run_queue q ON q.run_id = jr.id
 		 WHERE jr.job_id = $1`,
 		jobID,
 	)
@@ -46,18 +45,18 @@ func TestOrchestrationWorkerE2E_TriggerCreatesClaimableWorkerRuns(t *testing.T) 
 
 	seen := 0
 	for rows.Next() {
-		var runID, runMode, runQueue, claimMode, claimQueue string
-		if err := rows.Scan(&runID, &runMode, &runQueue, &claimMode, &claimQueue); err != nil {
+		var runID, runMode, runQueue string
+		if err := rows.Scan(&runID, &runMode, &runQueue); err != nil {
 			t.Fatalf("scan routing row: %v", err)
 		}
 		if !runIDs[runID] {
 			t.Fatalf("unexpected run id %q in routing query", runID)
 		}
-		if runMode != string(domain.ExecutionModeWorker) || claimMode != string(domain.ExecutionModeWorker) {
-			t.Fatalf("run %s modes = (%q,%q), want worker/worker", runID, runMode, claimMode)
+		if runMode != string(domain.ExecutionModeWorker) {
+			t.Fatalf("run %s mode = %q, want worker", runID, runMode)
 		}
-		if runQueue != queueName || claimQueue != queueName {
-			t.Fatalf("run %s queues = (%q,%q), want %q", runID, runQueue, claimQueue, queueName)
+		if runQueue != queueName {
+			t.Fatalf("run %s queue = %q, want %q", runID, runQueue, queueName)
 		}
 		seen++
 	}

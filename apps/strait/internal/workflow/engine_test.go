@@ -972,6 +972,7 @@ type mockCallbackStore struct {
 	markCompensationRunTerminalFn       func(ctx context.Context, jobRunID string, status string, output json.RawMessage, errMsg string, finishedAt time.Time) (*domain.CompensationRun, error)
 	countIncompleteCompensationRunsFn   func(ctx context.Context, workflowRunID string) (int, error)
 	requeuePausedJobRunsFn              func(ctx context.Context, workflowRunID string) (int64, error)
+	createWorkflowProgressionEventFn    func(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
 }
 
 func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, stepRunID string) (*domain.EventTrigger, error) {
@@ -979,6 +980,13 @@ func (m *mockCallbackStore) GetEventTriggerByStepRunID(ctx context.Context, step
 		return m.getEventTriggerByStepRunIDFn(ctx, stepRunID)
 	}
 	return nil, nil
+}
+
+func (m *mockCallbackStore) CreateWorkflowProgressionEvent(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error {
+	if m.createWorkflowProgressionEventFn != nil {
+		return m.createWorkflowProgressionEventFn(ctx, workflowRunID, stepRunID, stepRef, status)
+	}
+	return nil
 }
 
 func (m *mockCallbackStore) GetEventTriggerByEventKey(ctx context.Context, eventKey string) (*domain.EventTrigger, error) {
@@ -1463,7 +1471,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 
 	t.Run("completed run updates step and workflow", func(t *testing.T) {
 		t.Parallel()
-		workflowUpdated := false
+		progressionCreated := false
 		stepUpdated := false
 		ms := &mockCallbackStore{
 			getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
@@ -1493,11 +1501,11 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
 				return []domain.WorkflowStep{{ID: "s1", StepRef: "s1"}}, nil
 			},
-			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusCompleted {
-					t.Fatalf("unexpected workflow transition %s -> %s", from, to)
+			createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
+				if workflowRunID != "wr-1" || stepRunID != "sr-1" || stepRef != "s1" || status != string(domain.StepCompleted) {
+					t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
 				}
-				workflowUpdated = true
+				progressionCreated = true
 				return nil
 			},
 		}
@@ -1507,8 +1515,8 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !stepUpdated || !workflowUpdated {
-			t.Fatalf("expected step and workflow updates, step=%v workflow=%v", stepUpdated, workflowUpdated)
+		if !stepUpdated || !progressionCreated {
+			t.Fatalf("expected step update and progression event, step=%v progression=%v", stepUpdated, progressionCreated)
 		}
 	})
 
@@ -1986,8 +1994,8 @@ func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testi
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
 			return nil
 		},
-		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
-			return nil, baseErr
+		createWorkflowProgressionEventFn: func(_ context.Context, _, _, _, _ string) error {
+			return baseErr
 		},
 	}
 
@@ -1996,8 +2004,8 @@ func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testi
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "process completed step s1") {
-		t.Errorf("error = %v, want process completed step context", err)
+	if !strings.Contains(err.Error(), "create workflow progression event") {
+		t.Errorf("error = %v, want progression event context", err)
 	}
 	if !errors.Is(err, baseErr) {
 		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
@@ -2040,7 +2048,7 @@ func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.
 
 func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 	t.Parallel()
-	startCalls := 0
+	progressionCreated := false
 	ms := &mockCallbackStore{
 		getStepRunByJobRunIDFn: func(_ context.Context, _ string) (*domain.WorkflowStepRun, error) {
 			return &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepRunning}, nil
@@ -2069,15 +2077,11 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 		updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
 			return nil
 		},
-	}
-	engStore := &mockEngineStore{
-		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-			if id == "sr-b" && status == domain.StepRunning {
-				startCalls++
+		createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
+			if workflowRunID != "wr-1" || stepRunID != "sr-a" || stepRef != "a" || status != string(domain.StepCompleted) {
+				t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
 			}
-			if id == "sr-b" && fields["job_run_id"] != nil {
-				startCalls++
-			}
+			progressionCreated = true
 			return nil
 		},
 	}
@@ -2088,15 +2092,15 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 		}
 		return nil
 	}}
-	engine := NewWorkflowEngine(engStore, mq, slog.Default())
+	engine := NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default())
 	cb := NewStepCallback(ms, engine, slog.Default())
 
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-a", WorkflowStepRunID: "sr-a", Status: domain.StatusCompleted})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if startCalls == 0 {
-		t.Fatal("expected child step to be started")
+	if !progressionCreated {
+		t.Fatal("expected progression event to be created")
 	}
 }
 
@@ -5394,9 +5398,7 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 	// propagateToParent → find parent step → mark parent step completed →
 	// fanIn on parent (no deps) → checkWorkflowCompletion on parent.
 
-	parentStepCompleted := false
-	childWfMarkedCompleted := false
-	parentWfMarkedCompleted := false
+	progressionCreated := false
 
 	ms := &mockCallbackStore{
 		getStepRunByJobRunIDFn: func(_ context.Context, jobRunID string) (*domain.WorkflowStepRun, error) {
@@ -5412,15 +5414,8 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			}, nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-			if id == "sr-parent-sub" && status == domain.StepCompleted {
-				parentStepCompleted = true
-				// Verify output contains aggregated child outputs
-				if out, ok := fields["output"]; ok {
-					raw, _ := json.Marshal(out)
-					if len(raw) == 0 {
-						t.Error("expected non-empty output for parent step")
-					}
-				}
+			if id == "sr-child-root" && status != domain.StepCompleted {
+				t.Fatalf("child step status = %s, want completed", status)
 			}
 			return nil
 		},
@@ -5447,15 +5442,6 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			default:
 				return nil, nil
 			}
-		},
-		updateWorkflowRunStatusFn: func(_ context.Context, id string, _, to domain.WorkflowRunStatus, _ map[string]any) error {
-			if id == "child-run-1" && to == domain.WfStatusCompleted {
-				childWfMarkedCompleted = true
-			}
-			if id == "parent-run-1" && to == domain.WfStatusCompleted {
-				parentWfMarkedCompleted = true
-			}
-			return nil
 		},
 		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
 			switch workflowRunID {
@@ -5496,6 +5482,13 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			}
 			return nil, nil
 		},
+		createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
+			if workflowRunID != "child-run-1" || stepRunID != "sr-child-root" || stepRef != "child-root" || status != string(domain.StepCompleted) {
+				t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
+			}
+			progressionCreated = true
+			return nil
+		},
 	}
 
 	engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
@@ -5511,14 +5504,8 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 		t.Fatalf("OnJobRunTerminal() error = %v", err)
 	}
 
-	if !childWfMarkedCompleted {
-		t.Fatal("expected child workflow run to be marked completed")
-	}
-	if !parentStepCompleted {
-		t.Fatal("expected parent step run to be marked completed")
-	}
-	if !parentWfMarkedCompleted {
-		t.Fatal("expected parent workflow run to be marked completed")
+	if !progressionCreated {
+		t.Fatal("expected progression event to be created")
 	}
 }
 

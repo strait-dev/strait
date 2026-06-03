@@ -49,9 +49,18 @@ func intTestStore(t *testing.T) *store.Queries {
 	return store.New(getTestDB(t).Pool)
 }
 
-func intTestQueue(t *testing.T) *queue.PostgresQueue {
+func intTestQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
-	return queue.NewPostgresQueue(getTestDB(t).Pool)
+	db := getTestDB(t).Pool
+	q := queue.NewPgQueQueue(db, queue.NewPostgresQueue(db), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "scheduler-" + intNewID(),
+		ReceiveWindow: 100,
+	})
+	tickerCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go q.RunTicker(tickerCtx)
+	return q
 }
 
 func intTestClean(t *testing.T, ctx context.Context) {
@@ -301,6 +310,13 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 	}); err != nil {
 		t.Fatalf("UpdateRunStatus() to executing error = %v", err)
 	}
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		UPDATE job_run_heartbeats
+		SET heartbeat_at = $2
+		WHERE run_id = $1
+	`, run.ID, staleHeartbeat); err != nil {
+		t.Fatalf("age heartbeat row: %v", err)
+	}
 
 	// Create a reaper with a 5-minute stale threshold.
 	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
@@ -370,6 +386,13 @@ func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *tes
 		"heartbeat_at": staleHeartbeat,
 	}); err != nil {
 		t.Fatalf("UpdateRunStatus() to executing error = %v", err)
+	}
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		UPDATE job_run_heartbeats
+		SET heartbeat_at = $2
+		WHERE run_id = $1
+	`, run.ID, staleHeartbeat); err != nil {
+		t.Fatalf("age heartbeat row: %v", err)
 	}
 
 	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)

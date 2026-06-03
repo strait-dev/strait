@@ -17,7 +17,11 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue) {
+type promoterEnqueuer interface {
+	Enqueue(ctx context.Context, run *domain.JobRun) error
+}
+
+func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, promoterEnqueuer) {
 	t.Helper()
 	ctx := context.Background()
 	tdb := getTestDB(t)
@@ -27,7 +31,7 @@ func setupForPromoter(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.Po
 	return tdb, st, q
 }
 
-func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q *queue.PostgresQueue, n int, priority int, ageBackdate time.Duration) []*domain.JobRun {
+func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q promoterEnqueuer, n int, priority int, ageBackdate time.Duration) []*domain.JobRun {
 	t.Helper()
 	ctx := context.Background()
 	job := &domain.Job{

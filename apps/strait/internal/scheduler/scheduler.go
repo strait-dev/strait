@@ -53,7 +53,7 @@ type Scheduler struct {
 	dunner                   DunnerRunner
 	slaCalculator            SLACalculatorRunner
 	counterReconciler        *CounterReconciler
-	claimReconciler          *ClaimReconciler
+	readyRunReconciler       *ReadyRunReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
 	partitionReclaimer       *PartitionReclaimer
@@ -210,10 +210,10 @@ func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	}
 }
 
-// WithClaimReconciler enables periodic claim table drift reconciliation.
-func WithClaimReconciler(r *ClaimReconciler) SchedulerOption {
+// WithReadyRunReconciler enables periodic ready-event repair.
+func WithReadyRunReconciler(r *ReadyRunReconciler) SchedulerOption {
 	return func(s *Scheduler) {
-		s.claimReconciler = r
+		s.readyRunReconciler = r
 	}
 }
 
@@ -479,8 +479,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.counterReconciler != nil {
 		s.tracker.track(ctx, &s.wg, "counter_reconciler", func(componentCtx context.Context) { s.counterReconciler.Run(componentCtx) })
 	}
-	if s.claimReconciler != nil {
-		s.tracker.track(ctx, &s.wg, "claim_reconciler", func(componentCtx context.Context) { s.claimReconciler.Run(componentCtx) })
+	if s.readyRunReconciler != nil {
+		s.tracker.track(ctx, &s.wg, "ready_run_reconciler", func(componentCtx context.Context) {
+			s.readyRunReconciler.Run(componentCtx)
+		})
 	}
 	if s.partitionEnsurer != nil {
 		s.tracker.track(ctx, &s.wg, "partition_ensurer", func(componentCtx context.Context) { s.partitionEnsurer.Run(componentCtx) })

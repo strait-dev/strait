@@ -738,7 +738,7 @@ func (q *Queries) ReceiveEventAndRequeueRun(ctx context.Context, triggerID strin
 		// Event receipt is the one valid resume edge from waiting back to
 		// queued. It intentionally bypasses the public FSM validator while
 		// still using the split-state transition helper for cache, lifecycle,
-		// ready-generation, and legacy queue synchronization.
+		// and ready-generation updates.
 		moved, err := txQ.tryUpdateRunStateStatus(ctx, jobRunID, domain.StatusWaiting, domain.StatusQueued, nil, nil)
 		if err != nil {
 			return fmt.Errorf("requeue run: %w", err)

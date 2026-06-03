@@ -45,13 +45,9 @@ func assertCurrentGenerationActiveClaim(t *testing.T, ctx context.Context, runID
 	}
 }
 
-func TestQueueEngine_PgQueSelectable(t *testing.T) {
-	q, err := queue.NewQueueEngine(testDB.Pool, queue.EnginePgQue, queue.BatchlogConfig{TickInterval: 10 * time.Millisecond})
-	if err != nil {
-		t.Fatalf("NewQueueEngine(pgque): %v", err)
-	}
-	if _, ok := q.(*queue.PgQueQueue); !ok {
-		t.Fatalf("queue = %T, want *PgQueQueue", q)
+func TestPgQue_ConstructsQueue(t *testing.T) {
+	if q := mustPgQueQueue(t); q == nil {
+		t.Fatal("mustPgQueQueue() returned nil")
 	}
 }
 

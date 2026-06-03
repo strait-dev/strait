@@ -78,6 +78,19 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 	return job
 }
 
+func newWorkerQueue(t *testing.T, env *testutil.TestEnv) *queue.PgQueQueue {
+	t.Helper()
+	q := queue.NewPgQueQueue(env.DB.Pool, queue.NewPostgresQueue(env.DB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "worker-" + newID(),
+		ReceiveWindow: 100,
+	})
+	tickerCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go q.RunTicker(tickerCtx)
+	return q
+}
+
 // newExecutor creates an Executor wired to real Postgres queue, store, and
 // optionally a Redis publisher. The returned Executor is ready to Run().
 func newExecutor(
@@ -86,10 +99,10 @@ func newExecutor(
 	endpointURL string,
 	concurrency int,
 	httpClient *http.Client,
-) (*worker.Executor, *queue.PostgresQueue) {
+) (*worker.Executor, *queue.PgQueQueue) {
 	t.Helper()
 
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	st := store.New(env.DB.Pool)
 	pub := pubsub.NewRedisPublisher(env.Redis.Client)
 
@@ -141,7 +154,7 @@ func TestJobExecutionEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-e2e", srv.URL)
 
 	run := &domain.JobRun{
@@ -197,7 +210,7 @@ func TestHeartbeatWithRealRedis(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-heartbeat", "https://example.com/noop")
 
 	// Create a run in executing state so heartbeats can be written.
@@ -256,7 +269,7 @@ func TestDispatchWithRealQueue(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-dispatch", srv.URL)
 
 	const runCount = 5
@@ -344,7 +357,7 @@ func TestConcurrentJobExecution(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-concurrent", srv.URL)
 
 	const runCount = 8
@@ -406,7 +419,7 @@ func TestFailedJobHandling(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	// Create a job with max_attempts=1 so it immediately fails without retries.
 	job := &domain.Job{
 		ID:          newID(),
@@ -488,7 +501,7 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-shutdown", srv.URL)
 
 	run := &domain.JobRun{
@@ -578,7 +591,7 @@ func TestEndToEndWithPayloadAndResult(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-payload", srv.URL)
 
 	payload := json.RawMessage(`{"key":"value","numbers":[1,2,3]}`)

@@ -7,7 +7,7 @@ import (
 
 func TestEvaluateQueueBloatGate_PassesBloatFirstCandidate(t *testing.T) {
 	baseline := QueueBenchmarkReport{
-		Engine: "batchlog",
+		Engine: "previous",
 		Counters: QueueBenchmarkCounters{
 			Completed: 1000,
 			WALBytes:  10_000,
@@ -57,7 +57,7 @@ func TestEvaluateQueueBloatGate_PassesBloatFirstCandidate(t *testing.T) {
 
 func TestEvaluateQueueBloatGate_FailsWALAndBloatRegression(t *testing.T) {
 	baseline := QueueBenchmarkReport{
-		Engine:         "batchlog",
+		Engine:         "previous",
 		Counters:       QueueBenchmarkCounters{Completed: 1000, WALBytes: 10_000},
 		DequeueLatency: LatencySummary{P99: 10 * time.Millisecond},
 		Relations:      []RelationBloatSample{{Name: "queue_entries", LiveTuples: 1000, DeadTuples: 20}},

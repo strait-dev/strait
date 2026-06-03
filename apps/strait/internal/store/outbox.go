@@ -48,7 +48,7 @@ type QuarantinedOutboxRow struct {
 	RetryOfOutboxID *string
 }
 
-const claimOutboxBatchlogSQL = `
+const claimOutboxSQL = `
 	WITH candidates AS (
 		SELECT oc.outbox_id
 		FROM outbox_claims oc
@@ -106,8 +106,8 @@ func ClaimUnconsumedOutboxInTx(ctx context.Context, tx pgx.Tx, limit int) ([]Out
 	return claimOutboxOnConn(ctx, tx, limit)
 }
 
-func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwner string, leaseDuration time.Duration) ([]OutboxRow, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimOutboxBatchlogInTx")
+func ClaimOutboxInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwner string, leaseDuration time.Duration) ([]OutboxRow, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ClaimOutboxInTx")
 	defer span.End()
 
 	if limit <= 0 {
@@ -120,9 +120,9 @@ func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwn
 		leaseOwner = "outbox-flusher"
 	}
 
-	rows, err := tx.Query(ctx, claimOutboxBatchlogSQL, limit, leaseOwner, leaseDuration)
+	rows, err := tx.Query(ctx, claimOutboxSQL, limit, leaseOwner, leaseDuration)
 	if err != nil {
-		return nil, fmt.Errorf("claim batchlog outbox: %w", err)
+		return nil, fmt.Errorf("claim outbox claim-log rows: %w", err)
 	}
 	defer rows.Close()
 
@@ -134,15 +134,15 @@ func ClaimOutboxBatchlogInTx(ctx context.Context, tx pgx.Tx, limit int, leaseOwn
 			&r.IdempotencyKey, &r.ScheduledAt, &r.Priority, &r.CreatedAt, &r.RetryOfOutboxID,
 			&r.ExecutionMode, &r.QueueName,
 		); err != nil {
-			return nil, fmt.Errorf("scan batchlog outbox: %w", err)
+			return nil, fmt.Errorf("scan outbox claim-log row: %w", err)
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-func ReclaimExpiredOutboxBatchlogClaimsInTx(ctx context.Context, tx pgx.Tx) (int64, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReclaimExpiredOutboxBatchlogClaimsInTx")
+func ReclaimExpiredOutboxClaimsInTx(ctx context.Context, tx pgx.Tx) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.ReclaimExpiredOutboxClaimsInTx")
 	defer span.End()
 
 	tag, err := tx.Exec(ctx, `
@@ -329,14 +329,14 @@ func (q *Queries) CountUnconsumedOutbox(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (q *Queries) CountClaimableOutboxBatchlog(ctx context.Context) (int, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountClaimableOutboxBatchlog")
+func (q *Queries) CountClaimableOutbox(ctx context.Context) (int, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountClaimableOutbox")
 	defer span.End()
 
 	var count int
 	err := q.db.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_claims WHERE status = 'ready'`).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count claimable batchlog outbox: %w", err)
+		return 0, fmt.Errorf("count claimable outbox claim-log rows: %w", err)
 	}
 	return count, nil
 }
@@ -358,8 +358,8 @@ func (q *Queries) OldestUnconsumedOutboxAge(ctx context.Context) (time.Duration,
 	return time.Duration(age * float64(time.Second)), nil
 }
 
-func (q *Queries) OldestClaimableOutboxBatchlogAge(ctx context.Context) (time.Duration, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestClaimableOutboxBatchlogAge")
+func (q *Queries) OldestClaimableOutboxAge(ctx context.Context) (time.Duration, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.OldestClaimableOutboxAge")
 	defer span.End()
 
 	var age float64
@@ -369,7 +369,7 @@ func (q *Queries) OldestClaimableOutboxBatchlogAge(ctx context.Context) (time.Du
 		WHERE status = 'ready'
 	`).Scan(&age)
 	if err != nil {
-		return 0, fmt.Errorf("oldest claimable batchlog outbox age: %w", err)
+		return 0, fmt.Errorf("oldest claimable outbox claim-log age: %w", err)
 	}
 	return time.Duration(age * float64(time.Second)), nil
 }

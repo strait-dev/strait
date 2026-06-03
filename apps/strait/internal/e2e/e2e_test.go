@@ -29,7 +29,7 @@ import (
 var (
 	testEnv    *testutil.TestEnv
 	testStore  *store.Queries
-	testQueue  *queue.PostgresQueue
+	testQueue  *queue.PgQueQueue
 	testServer *api.Server
 )
 
@@ -46,7 +46,12 @@ func TestMain(m *testing.M) {
 
 	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey(testEncryptionKey)
-	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresQueue(testEnv.DB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "e2e-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+	go testQueue.RunTicker(ctx)
 	testEncryptor, err := crypto.NewKeyRotatorFromStrings(testEncryptionKey)
 	if err != nil {
 		log.Fatalf("setup test encryptor: %v", err)

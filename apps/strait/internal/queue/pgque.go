@@ -71,7 +71,7 @@ func (c PgQueConfig) normalized() PgQueConfig {
 
 type PgQueQueue struct {
 	db          store.DBTX
-	legacy      *PostgresQueue
+	runWriter   *PostgresQueue
 	cfg         PgQueConfig
 	routeMu     sync.Mutex
 	routeStates map[string]*pgQueRouteState
@@ -128,13 +128,13 @@ const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.
 		          u.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
 		          u.next_retry_at, u.expires_at, u.parent_run_id, u.priority, u.idempotency_key, u.job_version, u.created_at, u.workflow_step_run_id, u.execution_trace, u.debug_mode, u.continuation_of, u.lineage_depth, u.tags, u.job_version_id, u.created_by, u.batch_id, u.concurrency_key, u.execution_mode, u.is_rollback, u.replayed_run_id`
 
-func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQueQueue {
-	if legacy == nil {
-		legacy = NewPostgresQueue(db)
+func NewPgQueQueue(db store.DBTX, runWriter *PostgresQueue, cfg PgQueConfig) *PgQueQueue {
+	if runWriter == nil {
+		runWriter = NewPostgresQueue(db)
 	}
 	return &PgQueQueue{
 		db:          db,
-		legacy:      legacy,
+		runWriter:   runWriter,
 		cfg:         cfg.normalized(),
 		routeStates: make(map[string]*pgQueRouteState),
 	}
@@ -143,7 +143,7 @@ func NewPgQueQueue(db store.DBTX, legacy *PostgresQueue, cfg PgQueConfig) *PgQue
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
-		if err := q.legacy.Enqueue(ctx, run); err != nil {
+		if err := q.runWriter.Enqueue(ctx, run); err != nil {
 			return err
 		}
 		if run.Status == domain.StatusQueued {
@@ -183,7 +183,7 @@ func (q *PgQueQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain
 	if err := q.markPgQueStorage(ctx, tx); err != nil {
 		return err
 	}
-	if err := q.legacy.EnqueueInTx(ctx, tx, run); err != nil {
+	if err := q.runWriter.EnqueueInTx(ctx, tx, run); err != nil {
 		return err
 	}
 	if run.Status != domain.StatusQueued {
@@ -201,7 +201,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	}
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
-		inserted, err := q.legacy.EnqueueBatch(ctx, runs)
+		inserted, err := q.runWriter.EnqueueBatch(ctx, runs)
 		if err != nil {
 			return 0, err
 		}
@@ -218,11 +218,11 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	legacy := NewPostgresQueue(tx)
+	txRunWriter := NewPostgresQueue(tx)
 	if err := q.markPgQueStorage(ctx, tx); err != nil {
 		return 0, err
 	}
-	inserted, err := legacy.EnqueueBatch(ctx, runs)
+	inserted, err := txRunWriter.EnqueueBatch(ctx, runs)
 	if err != nil {
 		return 0, err
 	}
@@ -1189,6 +1189,29 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 	return normalized
 }
 
+func workerQueueRefArgs(refs []domain.WorkerQueueRef) ([]string, []string, []string) {
+	if len(refs) == 0 {
+		return nil, nil, nil
+	}
+	projectIDs := make([]string, 0, len(refs))
+	queueNames := make([]string, 0, len(refs))
+	environmentIDs := make([]string, 0, len(refs))
+	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
+	for _, ref := range refs {
+		if ref.ProjectID == "" || ref.QueueName == "" {
+			continue
+		}
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		projectIDs = append(projectIDs, ref.ProjectID)
+		queueNames = append(queueNames, ref.QueueName)
+		environmentIDs = append(environmentIDs, ref.EnvironmentID)
+	}
+	return projectIDs, queueNames, environmentIDs
+}
+
 func pgQueIntervalSetting(d time.Duration) string {
 	if d <= 0 {
 		d = pgQueDefaultRotationPeriod
@@ -1359,7 +1382,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		}
 		if len(runs) > 0 {
 			for i := range runs {
-				q.legacy.recordClaimMetrics(ctx, &runs[i])
+				q.runWriter.recordClaimMetrics(ctx, &runs[i])
 			}
 			return runs, nil
 		}

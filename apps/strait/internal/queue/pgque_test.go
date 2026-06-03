@@ -211,11 +211,23 @@ func (r *stringRows) Values() ([]any, error) { return nil, nil }
 func (r *stringRows) RawValues() [][]byte    { return nil }
 func (r *stringRows) Conn() *pgx.Conn        { return nil }
 
+type noRows struct{}
+
+func (r *noRows) Close()                                       {}
+func (r *noRows) Err() error                                   { return nil }
+func (r *noRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *noRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *noRows) Next() bool                                   { return false }
+func (r *noRows) Scan(...any) error                            { return pgx.ErrNoRows }
+func (r *noRows) Values() ([]any, error)                       { return nil, nil }
+func (r *noRows) RawValues() [][]byte                          { return nil }
+func (r *noRows) Conn() *pgx.Conn                              { return nil }
+
 func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			return &emptyRows{}, nil
+			return &noRows{}, nil
 		},
 	}
 	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})

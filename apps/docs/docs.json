@@ -169,10 +169,7 @@
               },
               {
                 "group": "Development",
-                "pages": [
-                  "development/queue-batchlog-rollout-benchmark",
-                  "development/performance-reliability-0-1-6"
-                ]
+                "pages": ["development/performance-reliability-0-1-6"]
               }
             ]
           },

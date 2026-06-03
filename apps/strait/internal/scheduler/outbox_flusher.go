@@ -26,6 +26,10 @@ const (
 	outboxEnqueueTerminal
 )
 
+type outboxEnqueuer interface {
+	EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error
+}
+
 // Outbox flusher.
 //
 // Promotes pending enqueue_outbox rows into job_runs. Each tick opens a
@@ -36,10 +40,9 @@ const (
 // OutboxFlusher promotes outbox entries into job_runs.
 type OutboxFlusher struct {
 	pool                  *pgxpool.Pool
-	queue                 queue.Queue
+	queue                 outboxEnqueuer
 	interval              time.Duration
 	batchSize             int
-	engine                string
 	leaseDuration         time.Duration
 	reclaimInterval       time.Duration
 	logger                *slog.Logger
@@ -54,20 +57,18 @@ type OutboxFlusher struct {
 type OutboxFlusherConfig struct {
 	Interval        time.Duration
 	BatchSize       int
-	Engine          string
 	LeaseDuration   time.Duration
 	ReclaimInterval time.Duration
 	Logger          *slog.Logger
 }
 
 // NewOutboxFlusher builds a flusher. Zero values fall back to defaults.
-func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig) *OutboxFlusher {
+func NewOutboxFlusher(pool *pgxpool.Pool, q outboxEnqueuer, cfg OutboxFlusherConfig) *OutboxFlusher {
 	f := &OutboxFlusher{
 		pool:            pool,
 		queue:           q,
 		interval:        cfg.Interval,
 		batchSize:       cfg.BatchSize,
-		engine:          cfg.Engine,
 		leaseDuration:   cfg.LeaseDuration,
 		reclaimInterval: cfg.ReclaimInterval,
 		logger:          cfg.Logger,
@@ -80,9 +81,6 @@ func NewOutboxFlusher(pool *pgxpool.Pool, q queue.Queue, cfg OutboxFlusherConfig
 	}
 	if f.logger == nil {
 		f.logger = slog.Default()
-	}
-	if f.engine == "" {
-		f.engine = "legacy"
 	}
 	if f.leaseDuration <= 0 {
 		f.leaseDuration = 30 * time.Second
@@ -138,12 +136,10 @@ func (f *OutboxFlusher) flushOnce(ctx context.Context) (err error) {
 		}
 	}()
 
-	if f.engine == queue.EngineBatchlog {
-		if err := f.flushOnceBatchlogFast(ctx); err == nil {
-			return nil
-		}
-		f.logger.Debug("outbox flusher fast path fell back to savepoint isolation", "error", err)
+	if err := f.flushOnceClaimFast(ctx); err == nil {
+		return nil
 	}
+	f.logger.Debug("outbox flusher fast path fell back to savepoint isolation", "error", err)
 
 	return f.flushOnceWithSavepoints(ctx)
 }
@@ -248,7 +244,7 @@ func (f *OutboxFlusher) flushOnceWithSavepoints(ctx context.Context) error {
 	return nil
 }
 
-func (f *OutboxFlusher) flushOnceBatchlogFast(ctx context.Context) error {
+func (f *OutboxFlusher) flushOnceClaimFast(ctx context.Context) error {
 	tx, err := f.pool.Begin(ctx)
 	if err != nil {
 		f.errors.Add(1)
@@ -309,33 +305,25 @@ func (f *OutboxFlusher) flushOnceBatchlogFast(ctx context.Context) error {
 }
 
 func (f *OutboxFlusher) claimRows(ctx context.Context, tx pgx.Tx) ([]store.OutboxRow, error) {
-	if f.engine == queue.EngineBatchlog {
-		if err := f.reclaimExpiredClaimsIfDue(ctx, tx); err != nil {
-			return nil, err
-		}
-		return store.ClaimOutboxBatchlogInTx(ctx, tx, f.batchSize, "outbox-flusher", f.leaseDuration)
+	if err := f.reclaimExpiredClaimsIfDue(ctx, tx); err != nil {
+		return nil, err
 	}
-	return store.ClaimUnconsumedOutboxInTx(ctx, tx, f.batchSize)
+	return store.ClaimOutboxInTx(ctx, tx, f.batchSize, "outbox-flusher", f.leaseDuration)
 }
 
 func (f *OutboxFlusher) releaseRetryableClaim(ctx context.Context, tx pgx.Tx, id string) {
-	if f.engine == queue.EngineBatchlog {
-		_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{id})
-	}
+	_ = store.MarkOutboxClaimsReadyInTx(ctx, tx, []string{id})
 }
 
 func (f *OutboxFlusher) ackClaim(ctx context.Context, tx pgx.Tx, id string) error {
-	if f.engine != queue.EngineBatchlog {
-		return nil
-	}
 	return store.MarkOutboxClaimsAckedInTx(ctx, tx, []string{id})
 }
 
 func (f *OutboxFlusher) markPromoted(ctx context.Context, tx pgx.Tx, ids []string) error {
-	if f.engine == queue.EngineBatchlog {
-		return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
+	if err := store.MarkOutboxConsumedInTx(ctx, tx, ids); err != nil {
+		return err
 	}
-	return store.MarkOutboxConsumedInTx(ctx, tx, ids)
+	return store.MarkOutboxClaimsAckedInTx(ctx, tx, ids)
 }
 
 func (f *OutboxFlusher) reclaimExpiredClaimsIfDue(ctx context.Context, tx pgx.Tx) error {
@@ -352,7 +340,7 @@ func (f *OutboxFlusher) reclaimExpiredClaimsIfDue(ctx context.Context, tx pgx.Tx
 		if !f.lastReclaimUnixNano.CompareAndSwap(last, nowNano) {
 			continue
 		}
-		reclaimed, err := store.ReclaimExpiredOutboxBatchlogClaimsInTx(ctx, tx)
+		reclaimed, err := store.ReclaimExpiredOutboxClaimsInTx(ctx, tx)
 		if err != nil {
 			return err
 		}

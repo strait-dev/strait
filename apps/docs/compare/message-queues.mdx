@@ -8,7 +8,7 @@ A message queue moves messages from producers to consumers. Strait coordinates w
 
 Both are useful. The question is how much of the job lifecycle you want the system to own.
 
-Strait's default internal queue engine is `pgque`, which uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) as its PostgreSQL ready-event log. PgQue supplies the bloat-resistant event-log primitive. Strait adds the job orchestration layer around it: run state, retries, workflows, workers, APIs, and observability.
+Strait's internal queue uses `pgque`, with a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) as its PostgreSQL ready-event log. PgQue supplies the bloat-resistant event-log primitive. Strait adds the job orchestration layer around it: run state, retries, workflows, workers, APIs, and observability.
 
 ## Use a Queue When
 

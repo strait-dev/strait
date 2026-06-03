@@ -13,7 +13,6 @@ import (
 
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/worker"
 )
@@ -99,7 +98,7 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-dispatch")
 
 	run := &domain.JobRun{
@@ -175,7 +174,7 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-requeue")
 
 	run := &domain.JobRun{
@@ -189,7 +188,7 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
-	pgQueue := queue.NewPostgresQueue(env.DB.Pool)
+	pgQueue := newWorkerQueue(t, env)
 	pool := worker.NewPool(1)
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                pool,
@@ -245,7 +244,7 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-timeout")
 	job.TimeoutSecs = 1
 	if err := st.UpdateJob(ctx, job); err != nil {

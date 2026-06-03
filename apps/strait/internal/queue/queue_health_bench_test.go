@@ -88,21 +88,15 @@ type healthRelationSnapshot struct {
 
 // benchConfig controls the benchmark parameters.
 type benchConfig struct {
-	QueueEngine     string
-	Duration        time.Duration
-	Workers         int
-	BatchSize       int
-	EnqueueRateHz   int // enqueue operations per second (each inserts BatchSize runs)
-	SnapshotEvery   time.Duration
-	UseDenormalized bool
-	UseCursor       bool
-	UseTwoPhase     bool
-	UseClaimTable   bool
+	Duration      time.Duration
+	Workers       int
+	BatchSize     int
+	EnqueueRateHz int // enqueue operations per second (each inserts BatchSize runs)
+	SnapshotEvery time.Duration
 }
 
 func defaultBenchConfig() benchConfig {
 	return benchConfig{
-		QueueEngine:   queue.EnginePgQue,
 		Duration:      2 * time.Minute,
 		Workers:       20,
 		BatchSize:     5,
@@ -113,9 +107,6 @@ func defaultBenchConfig() benchConfig {
 
 func benchConfigFromEnv() benchConfig {
 	cfg := defaultBenchConfig()
-	if s := os.Getenv("BENCH_QUEUE_ENGINE"); s != "" {
-		cfg.QueueEngine = s
-	}
 	if s := os.Getenv("BENCH_DURATION"); s != "" {
 		if d, err := time.ParseDuration(s); err == nil {
 			cfg.Duration = d
@@ -136,18 +127,6 @@ func benchConfigFromEnv() benchConfig {
 			cfg.EnqueueRateHz = n
 		}
 	}
-	if os.Getenv("BENCH_USE_DENORMALIZED") == "true" {
-		cfg.UseDenormalized = true
-	}
-	if os.Getenv("BENCH_USE_CURSOR") == "true" {
-		cfg.UseCursor = true
-	}
-	if os.Getenv("BENCH_USE_TWO_PHASE") == "true" {
-		cfg.UseTwoPhase = true
-	}
-	if os.Getenv("BENCH_USE_CLAIM_TABLE") == "true" {
-		cfg.UseClaimTable = true
-	}
 	return cfg
 }
 
@@ -164,47 +143,14 @@ func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	legacy := queue.NewPostgresQueue(testDB.Pool)
-	switch cfg.QueueEngine {
-	case "", queue.EngineLegacy:
-		dequeue := func(ctx context.Context, n int) ([]domain.JobRun, error) {
-			switch {
-			case cfg.UseClaimTable:
-				return legacy.DequeueNClaim(ctx, n)
-			case cfg.UseTwoPhase:
-				return legacy.DequeueNTwoPhase(ctx, n)
-			case cfg.UseDenormalized:
-				return legacy.DequeueNDenormalized(ctx, n)
-			case cfg.UseCursor:
-				return nil, fmt.Errorf("cursor dequeue requires per-worker cursor")
-			default:
-				return legacy.DequeueNClaim(ctx, n)
-			}
-		}
-		return healthBenchQueue{engine: queue.EngineLegacy, enqueue: legacy.Enqueue, dequeue: dequeue}
-	case queue.EngineBatchlog:
-		q := queue.NewBatchlogQueue(testDB.Pool, legacy, queue.BatchlogConfig{
-			TickInterval:  10 * time.Millisecond,
-			LeaseDuration: 30 * time.Second,
-			LeaseOwner:    "health-bench-" + newID(),
-		})
-		seal := func(ctx context.Context) error {
-			_, err := q.SealDueBatches(ctx)
-			return err
-		}
-		return healthBenchQueue{engine: queue.EngineBatchlog, enqueue: q.Enqueue, dequeue: q.DequeueN, afterEnqueue: seal, beforeDequeue: seal}
-	case queue.EnginePgQue:
-		q := queue.NewPgQueQueue(testDB.Pool, legacy, queue.PgQueConfig{
-			TickInterval:  50 * time.Millisecond,
-			ConsumerName:  "health-bench-" + newID(),
-			NackDelay:     10 * time.Millisecond,
-			ReceiveWindow: 100,
-		})
-		return healthBenchQueue{engine: queue.EnginePgQue, enqueue: q.Enqueue, dequeue: q.DequeueN}
-	default:
-		t.Fatalf("unknown BENCH_QUEUE_ENGINE %q", cfg.QueueEngine)
-		return healthBenchQueue{}
-	}
+	runWriter := queue.NewPostgresQueue(testDB.Pool)
+	q := queue.NewPgQueQueue(testDB.Pool, runWriter, queue.PgQueConfig{
+		TickInterval:  50 * time.Millisecond,
+		ConsumerName:  "health-bench-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 100,
+	})
+	return healthBenchQueue{engine: "pgque", enqueue: q.Enqueue, dequeue: q.DequeueN}
 }
 
 func completeHealthBenchRun(ctx context.Context, st *store.Queries, run domain.JobRun) error {
@@ -444,8 +390,8 @@ func TestQueueHealthBench(t *testing.T) {
 	}
 
 	t.Logf("=== Queue Health Benchmark ===")
-	t.Logf("Duration: %v | Engine: %s | Workers: %d | Batch: %d | Enqueue: %d runs/sec | Denorm: %v | Cursor: %v",
-		cfg.Duration, benchQ.engine, cfg.Workers, cfg.BatchSize, cfg.EnqueueRateHz*cfg.BatchSize, cfg.UseDenormalized, cfg.UseCursor)
+	t.Logf("Duration: %v | Engine: %s | Workers: %d | Batch: %d | Enqueue: %d runs/sec",
+		cfg.Duration, benchQ.engine, cfg.Workers, cfg.BatchSize, cfg.EnqueueRateHz*cfg.BatchSize)
 
 	var enqueued, dequeuedCount atomic.Int64
 	var rec latencyRecorder
@@ -485,15 +431,6 @@ func TestQueueHealthBench(t *testing.T) {
 	})
 
 	// Consumer workers.
-	var cursor *queue.ClaimCursor
-	var cursorQueue *queue.PostgresQueue
-	if cfg.UseCursor {
-		cursor = queue.NewClaimCursor(30 * time.Second)
-		if benchQ.engine == queue.EngineLegacy {
-			cursorQueue = queue.NewPostgresQueue(testDB.Pool)
-		}
-	}
-
 	var workerWg sync.WaitGroup
 	for w := range cfg.Workers {
 		workerWg.Add(1)
@@ -506,11 +443,7 @@ func TestQueueHealthBench(t *testing.T) {
 				if benchQ.beforeDequeue != nil {
 					_ = benchQ.beforeDequeue(ctx)
 				}
-				if cursorQueue != nil {
-					batch, err = cursorQueue.DequeueNWithCursor(ctx, cfg.BatchSize, cursor)
-				} else {
-					batch, err = benchQ.dequeue(ctx, cfg.BatchSize)
-				}
+				batch, err = benchQ.dequeue(ctx, cfg.BatchSize)
 				elapsed := time.Since(start).Microseconds()
 				if err != nil {
 					time.Sleep(10 * time.Millisecond)
@@ -958,11 +891,10 @@ func printReport(t *testing.T, cfg benchConfig, snapshots []healthSnapshot) {
 	sb.WriteString("              QUEUE HEALTH BENCHMARK RESULTS\n")
 	sb.WriteString("====================================================================\n")
 	fmt.Fprintf(&sb, "  Duration:          %v\n", cfg.Duration)
-	fmt.Fprintf(&sb, "  Queue engine:      %s\n", cfg.QueueEngine)
+	fmt.Fprintf(&sb, "  Queue engine:      %s\n", benchQ.engine)
 	fmt.Fprintf(&sb, "  Workers:           %d\n", cfg.Workers)
 	fmt.Fprintf(&sb, "  Batch size:        %d\n", cfg.BatchSize)
 	fmt.Fprintf(&sb, "  Target enqueue:    %d ops/sec (%d runs/sec)\n", cfg.EnqueueRateHz, cfg.EnqueueRateHz*cfg.BatchSize)
-	fmt.Fprintf(&sb, "  Denormalized:      %v\n", cfg.UseDenormalized)
 	fmt.Fprintf(&sb, "  Cursor:            %v\n", cfg.UseCursor)
 	sb.WriteString("\n")
 	sb.WriteString("---- Throughput ----\n")

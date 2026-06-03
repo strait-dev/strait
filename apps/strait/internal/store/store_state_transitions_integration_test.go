@@ -68,12 +68,16 @@ func stCreateStepWithJob(t *testing.T, ctx context.Context, q *store.Queries, wf
 	return testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, opts)
 }
 
-func stQueue(t *testing.T) *queue.PostgresQueue {
+func stQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	return queue.NewPostgresQueue(testDB.Pool)
+	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "store-" + stID(),
+		ReceiveWindow: 100,
+	})
 }
 
 func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {

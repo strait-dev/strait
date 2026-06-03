@@ -4,6 +4,7 @@ package queue_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -18,36 +19,16 @@ type queueEngineBehaviorCase struct {
 	afterEnqueue func(t *testing.T, ctx context.Context, q queue.Queue)
 }
 
+type duplicateClaimError struct {
+	runID string
+}
+
+func (e duplicateClaimError) Error() string {
+	return fmt.Sprintf("duplicate claim for run %s", e.runID)
+}
+
 func queueEngineBehaviorCases() []queueEngineBehaviorCase {
 	return []queueEngineBehaviorCase{
-		{
-			name: "legacy",
-			build: func(t *testing.T) queue.Queue {
-				t.Helper()
-				return queue.NewPostgresQueue(testDB.Pool)
-			},
-		},
-		{
-			name: "batchlog",
-			build: func(t *testing.T) queue.Queue {
-				t.Helper()
-				return queue.NewBatchlogQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.BatchlogConfig{
-					TickInterval:  10 * time.Millisecond,
-					LeaseDuration: time.Second,
-					LeaseOwner:    "behavior-" + newID(),
-				})
-			},
-			afterEnqueue: func(t *testing.T, ctx context.Context, q queue.Queue) {
-				t.Helper()
-				bq, ok := q.(*queue.BatchlogQueue)
-				if !ok {
-					t.Fatalf("queue = %T, want *BatchlogQueue", q)
-				}
-				if _, err := bq.SealDueBatches(ctx); err != nil {
-					t.Fatalf("SealDueBatches: %v", err)
-				}
-			},
-		},
 		{
 			name: "pgque",
 			build: func(t *testing.T) queue.Queue {
@@ -72,7 +53,7 @@ func queueEngineBehaviorCases() []queueEngineBehaviorCase {
 	}
 }
 
-func TestQueueEngineBehavior_PriorityAndProjectIsolation(t *testing.T) {
+func TestPgQueBehavior_PriorityAndProjectIsolation(t *testing.T) {
 	for _, tc := range queueEngineBehaviorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -131,7 +112,7 @@ func TestQueueEngineBehavior_PriorityAndProjectIsolation(t *testing.T) {
 	}
 }
 
-func TestQueueEngineBehavior_ConcurrentClaimsAreUnique(t *testing.T) {
+func TestPgQueBehavior_ConcurrentClaimsAreUnique(t *testing.T) {
 	for _, tc := range queueEngineBehaviorCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -164,7 +145,7 @@ func TestQueueEngineBehavior_ConcurrentClaimsAreUnique(t *testing.T) {
 					}
 					for _, run := range runs {
 						if _, loaded := seen.LoadOrStore(run.ID, true); loaded {
-							errCh <- errDuplicateClaim{runID: run.ID}
+							errCh <- duplicateClaimError{runID: run.ID}
 							return
 						}
 					}

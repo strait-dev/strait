@@ -2057,9 +2057,6 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 						return err
 					}
 				}
-				if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
-					return err
-				}
 				if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
 					return err
 				}
@@ -2091,9 +2088,6 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 					if err := txQ.incrementVisibleDLQCountForRun(ctx, id); err != nil {
 						return err
 					}
-				}
-				if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
-					return err
 				}
 				if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
 					return err
@@ -2192,9 +2186,6 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 		return false, nil
 	}
 
-	if err := q.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
-		return false, err
-	}
 	if err := q.bumpRunCacheVersion(ctx, id); err != nil {
 		return false, err
 	}
@@ -2299,9 +2290,6 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 				return nil
 			}
 			return fmt.Errorf("requeue active claim run state: %w", scanErr)
-		}
-		if err := txQ.syncLegacyQueueEntryStatus(ctx, id, to); err != nil {
-			return err
 		}
 		if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
 			return err
@@ -2752,57 +2740,6 @@ func (q *Queries) currentRunMutableState(ctx context.Context, id string) (domain
 		return "", 0, err
 	}
 	return status, attempt, nil
-}
-
-func (q *Queries) syncLegacyQueueEntryStatus(ctx context.Context, id string, status domain.RunStatus) error {
-	if legacyQueueStatusShouldAck(status) {
-		_, err := q.db.Exec(ctx, `
-			UPDATE queue_entries
-			SET status = 'acked',
-			    run_status = $2,
-			    acked_at = COALESCE(acked_at, NOW()),
-			    lease_owner = NULL,
-			    lease_expires_at = NULL,
-			    updated_at = NOW()
-			WHERE run_id = $1
-			  AND status IN ('ready', 'leased')`,
-			id, status,
-		)
-		if err != nil {
-			return fmt.Errorf("sync legacy queue entry ack status: %w", err)
-		}
-		return nil
-	}
-
-	_, err := q.db.Exec(ctx, `
-		UPDATE queue_entries
-		SET run_status = $2,
-		    updated_at = NOW()
-		WHERE run_id = $1
-		  AND run_status IS DISTINCT FROM $2`,
-		id, status,
-	)
-	if err != nil {
-		return fmt.Errorf("sync legacy queue entry run status: %w", err)
-	}
-	return nil
-}
-
-func legacyQueueStatusShouldAck(status domain.RunStatus) bool {
-	switch status {
-	case domain.StatusExecuting,
-		domain.StatusCompleted,
-		domain.StatusFailed,
-		domain.StatusTimedOut,
-		domain.StatusCrashed,
-		domain.StatusCanceled,
-		domain.StatusExpired,
-		domain.StatusDeadLetter,
-		domain.StatusSystemFailed:
-		return true
-	default:
-		return false
-	}
 }
 
 func (q *Queries) appendRunLifecycleEvent(ctx context.Context, id string, from, to domain.RunStatus, fields map[string]any, attempt *int) error {
@@ -3851,45 +3788,6 @@ func (q *Queries) RequeuePausedJobRuns(ctx context.Context, workflowRunID string
 			WHERE s.run_id = c.run_id
 			RETURNING s.run_id, c.attempt
 		),
-		claim_rows AS (
-			INSERT INTO job_run_queue (
-				run_id, job_id, project_id, priority, created_at,
-				scheduled_at, next_retry_at, concurrency_key,
-				job_max_concurrency, job_max_concurrency_per_key,
-				job_enabled, job_paused, execution_mode, queue_name
-			)
-			SELECT
-				jr.id,
-				jr.job_id,
-				jr.project_id,
-				s.priority,
-				jr.created_at,
-				s.scheduled_at,
-				s.next_retry_at,
-				NULLIF(s.concurrency_key, ''),
-				j.max_concurrency,
-				j.max_concurrency_per_key,
-				j.enabled,
-				j.paused,
-				COALESCE(NULLIF(s.execution_mode, ''), jr.execution_mode, j.execution_mode, 'http'),
-				COALESCE(NULLIF(s.queue_name, ''), jr.queue_name, j.queue_name, 'default')
-			FROM updated u
-			JOIN job_run_state s ON s.run_id = u.run_id
-			JOIN job_runs jr ON jr.id = u.run_id
-			JOIN jobs j ON j.id = jr.job_id
-			ON CONFLICT (run_id) DO UPDATE SET
-				priority = EXCLUDED.priority,
-				scheduled_at = EXCLUDED.scheduled_at,
-				next_retry_at = EXCLUDED.next_retry_at,
-				concurrency_key = EXCLUDED.concurrency_key,
-				job_max_concurrency = EXCLUDED.job_max_concurrency,
-				job_max_concurrency_per_key = EXCLUDED.job_max_concurrency_per_key,
-				job_enabled = EXCLUDED.job_enabled,
-				job_paused = EXCLUDED.job_paused,
-				execution_mode = EXCLUDED.execution_mode,
-				queue_name = EXCLUDED.queue_name
-			RETURNING 1
-		),
 		lifecycle_events AS (
 			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
 			SELECT run_id, 'paused', 'queued', attempt, '{}'::jsonb
@@ -4091,18 +3989,6 @@ func bulkCancelTerminalQuery(extraJoins, whereClause, orderLimit, selectClause s
 			  AND c.job_id = s.job_id
 			  AND c.concurrency_key = COALESCE(s.concurrency_key, '')
 			  AND c.count <> 0
-			RETURNING 1
-		),
-		legacy_queue_entries AS (
-			UPDATE queue_entries
-			SET status = 'acked',
-			    run_status = 'canceled',
-			    acked_at = COALESCE(acked_at, NOW()),
-			    lease_owner = NULL,
-			    lease_expires_at = NULL,
-			    updated_at = NOW()
-			WHERE run_id IN (SELECT run_id FROM inserted)
-			  AND status IN ('ready', 'leased')
 			RETURNING 1
 		),
 		lifecycle_events AS (

@@ -14,7 +14,7 @@ The same guide lives in both `AGENTS.md` and `CLAUDE.md`. Keep them in sync: any
 
 ## 1. What Strait is
 
-Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth. The default queue engine uses a vendored and modified SQL snapshot of PgQue as Strait's ready-event log, while Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs. Redis powers pub/sub and SSE. Strait does not run user code itself: job code lives on the customer's infrastructure and is reached either through an HTTP endpoint Strait POSTs to, or through a long-lived worker process that connects to the API over gRPC and streams runs back. The binary runs in `api`, `worker`, or `all` mode. The two editions (community and cloud) are selected at compile time through Go build tags.
+Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth. Strait's internal queue uses a vendored and modified SQL snapshot of PgQue as the ready-event log, while Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs. Redis powers pub/sub and SSE. Strait does not run user code itself: job code lives on the customer's infrastructure and is reached either through an HTTP endpoint Strait POSTs to, or through a long-lived worker process that connects to the API over gRPC and streams runs back. The binary runs in `api`, `worker`, or `all` mode. The two editions (community and cloud) are selected at compile time through Go build tags.
 
 Read first:
 - `README.md`

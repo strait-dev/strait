@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 )
 
@@ -32,7 +31,7 @@ func TestRetry_WritesSideTableNotJobRuns(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-retry-side-table", srv.URL)
 	job.MaxAttempts = 3
 	if err := st.UpdateJob(ctx, job); err != nil {
@@ -96,7 +95,7 @@ func TestRetry_DequeueRespectsSideTableSchedule(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-retry-dequeue-gate", srv.URL)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
@@ -144,7 +143,7 @@ func TestRetry_ClearOnTerminal(t *testing.T) {
 	defer srv.Close()
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateJob(t, ctx, st, "project-retry-clear-terminal", srv.URL)
 
 	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}

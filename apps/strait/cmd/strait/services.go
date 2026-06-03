@@ -982,15 +982,9 @@ func runWorkerScheduler(ctx context.Context, deps workerRuntimeDeps) error {
 }
 
 func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
-	cfg := deps.config
 	queries := deps.queries
 	dbPool := deps.dbPool
-	claimReconciler := scheduler.NewClaimReconciler(dbPool, 5*time.Minute)
-	if readyRunReconciler, ok := deps.queue.(scheduler.ReadyRunReconciler); ok {
-		claimReconciler = claimReconciler.WithReadyRunReconciler(readyRunReconciler, 1000)
-	}
-
-	return []scheduler.SchedulerOption{
+	opts := []scheduler.SchedulerOption{
 		scheduler.WithSchedulerMetrics(deps.metrics),
 		scheduler.WithChExporter(deps.clickHouseExporter),
 		scheduler.WithReaperAdvisoryLocker(queries),
@@ -1010,7 +1004,6 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 				Logger:   slog.Default(),
 			}).WithAdvisoryLocker(queries),
 		),
-		scheduler.WithClaimReconciler(claimReconciler),
 		scheduler.WithPartitionEnsurer(
 			scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
 				Interval:    24 * time.Hour,
@@ -1036,7 +1029,6 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 			scheduler.NewOutboxFlusher(dbPool, deps.queue, scheduler.OutboxFlusherConfig{
 				Interval:  time.Second,
 				BatchSize: 500,
-				Engine:    cfg.OutboxEngine,
 				Logger:    slog.Default(),
 			}),
 		),
@@ -1075,6 +1067,12 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 			),
 		),
 	}
+	if repairer, ok := deps.queue.(scheduler.ReadyRunRepairer); ok {
+		opts = append(opts, scheduler.WithReadyRunReconciler(
+			scheduler.NewReadyRunReconciler(repairer, 5*time.Minute, 1000),
+		))
+	}
+	return opts
 }
 
 func appendPartitionReclaimer(
@@ -1326,7 +1324,6 @@ func buildExecutorConfig(
 		Version:                  version,
 		EventChannelSize:         cfg.WorkerEventChannelSize,
 		SecretDecryptor:          deps.encryptor,
-		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, deps.workerPlane, cfg.JWTSigningKey)
 	return execCfg

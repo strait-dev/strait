@@ -18,13 +18,20 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PostgresQueue, *domain.Job) {
+func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PgQueQueue, *domain.Job) {
 	t.Helper()
 	ctx := context.Background()
 	tdb := getTestDB(t)
 	intTestClean(t, ctx)
 	st := store.New(tdb.Pool)
-	q := queue.NewPostgresQueue(tdb.Pool)
+	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresQueue(tdb.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "counter-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+	tickerCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go q.RunTicker(tickerCtx)
 
 	job := &domain.Job{
 		ID:             uuid.Must(uuid.NewV7()).String(),
@@ -97,10 +104,20 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 	if _, err := q.DequeueN(ctx, 5); err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
+	if _, err := tdb.Pool.Exec(ctx,
+		`UPDATE job_run_state SET job_max_concurrency = $2 WHERE job_id = $1`,
+		job.ID,
+		job.MaxConcurrency,
+	); err != nil {
+		t.Fatalf("enable active count truth: %v", err)
+	}
 
 	// Manually corrupt the counter to simulate drift.
 	_, err := tdb.Pool.Exec(ctx,
-		`UPDATE job_active_counts SET count = count + 10 WHERE job_id = $1`,
+		`INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		 VALUES ($1, '', 15, NOW())
+		 ON CONFLICT (job_id, concurrency_key)
+		 DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`,
 		job.ID,
 	)
 	if err != nil {
@@ -177,6 +194,13 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 	if _, err := q.DequeueN(ctx, 3); err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}
+	if _, err := tdb.Pool.Exec(ctx,
+		`UPDATE job_run_state SET job_max_concurrency = $2 WHERE job_id = $1`,
+		job.ID,
+		job.MaxConcurrency,
+	); err != nil {
+		t.Fatalf("enable active count truth: %v", err)
+	}
 	for range 2 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
@@ -187,7 +211,11 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 		}
 	}
 
-	if _, err := tdb.Pool.Exec(ctx, `UPDATE job_active_counts SET count = 99 WHERE job_id = $1`, job.ID); err != nil {
+	if _, err := tdb.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 99, NOW())
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`, job.ID); err != nil {
 		t.Fatalf("corrupt active count: %v", err)
 	}
 	if _, err := tdb.Pool.Exec(ctx, `UPDATE dlq_counts SET count = 42 WHERE job_id = $1`, job.ID); err != nil {
