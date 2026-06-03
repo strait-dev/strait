@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 )
 
@@ -26,7 +27,7 @@ type GetRegionsOutput struct {
 func toRegionResponse(region domain.RegionInfo) RegionResponse {
 	availability := make(map[string]bool, len(domain.AllPlanTiers()))
 	for _, tier := range domain.AllPlanTiers() {
-		availability[string(tier)] = domain.IsRegionAllowed(tier, region.Code)
+		availability[string(tier)] = isRegionAllowedByCatalog(tier, region.Code)
 	}
 
 	return RegionResponse{
@@ -48,4 +49,9 @@ func (s *Server) handleGetRegions(_ context.Context, _ *struct{}) (*GetRegionsOu
 		out.Body.Regions = append(out.Body.Regions, toRegionResponse(region))
 	}
 	return out, nil
+}
+
+func isRegionAllowedByCatalog(tier domain.PlanTier, region string) bool {
+	limits := billing.GetPlanLimits(tier)
+	return len(limits.AllowedRegions) == 0 || containsRegion(limits.AllowedRegions, region)
 }

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -45,6 +46,14 @@ func TestHandleGetRegions(t *testing.T) {
 		}
 		if len(region.Availability) != len(domain.AllPlanTiers()) {
 			t.Fatalf("expected availability for every plan tier, got %#v", region)
+		}
+		for _, tier := range domain.AllPlanTiers() {
+			limits := billing.GetPlanLimits(tier)
+			want := len(limits.AllowedRegions) == 0 || containsRegion(limits.AllowedRegions, region.Code)
+			if region.Availability[string(tier)] != want {
+				t.Fatalf("availability[%s][%s] = %v, want %v from generated billing catalog",
+					region.Code, tier, region.Availability[string(tier)], want)
+			}
 		}
 	}
 }
