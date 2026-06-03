@@ -142,6 +142,7 @@ func TestIntegration_RequeueOpenWorkerTasks_PgQueDelayedActiveClaimBumpsGenerati
 	}
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
 	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertPgQueWorkerRecoveryPreservedDelayedState(t, ctx, env, fixture.runID)
 	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
 }
 
@@ -189,6 +190,7 @@ func TestIntegration_RecoverStaleWorkerTasks_PgQueDelayedActiveClaimIsListedForR
 	}
 	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
 	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertPgQueWorkerRecoveryPreservedDelayedState(t, ctx, env, fixture.runID)
 	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
 }
 
@@ -567,6 +569,41 @@ func assertPgQueWorkerRecoveryBumpedGeneration(
 	}
 	if afterGeneration != beforeGeneration+1 {
 		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+}
+
+func assertPgQueWorkerRecoveryPreservedDelayedState(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+) {
+	t.Helper()
+
+	var stateStatus, readStatus domain.RunStatus
+	var readyEvents int
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT s.status, rs.status,
+		       (SELECT COUNT(*)
+		        FROM job_run_ready_events e
+		        WHERE e.run_id = s.run_id
+		          AND e.ready_generation = s.ready_generation
+		          AND e.reason = 'worker_recovered')
+		FROM job_run_state s
+		JOIN job_run_read_state rs ON rs.run_id = s.run_id
+		WHERE s.run_id = $1`,
+		runID,
+	).Scan(&stateStatus, &readStatus, &readyEvents); err != nil {
+		t.Fatalf("query worker recovery ready state: %v", err)
+	}
+	if stateStatus != domain.StatusDelayed {
+		t.Fatalf("job_run_state status = %q, want delayed hot state after worker recovery", stateStatus)
+	}
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %q, want queued worker recovery overlay", readStatus)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("worker_recovered ready events = %d, want 1", readyEvents)
 	}
 }
 

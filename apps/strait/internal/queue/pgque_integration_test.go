@@ -468,6 +468,72 @@ func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T
 	}
 }
 
+func TestPgQue_WorkerRecoveredReadyEventOverridesDelayedSchedule(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	q := mustPgQueQueue(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-worker-recovered")
+	future := time.Now().UTC().Add(time.Hour)
+	run := &domain.JobRun{
+		ID:          newID(),
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		Status:      domain.StatusDelayed,
+		Attempt:     1,
+		Priority:    4,
+		TriggeredBy: domain.TriggerManual,
+		ScheduledAt: &future,
+		NextRetryAt: &future,
+	}
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun delayed: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		SELECT run_id, ready_generation, attempt, 'worker_recovered'
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	); err != nil {
+		t.Fatalf("insert worker_recovered ready event: %v", err)
+	}
+
+	readyRun, err := st.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun worker recovered: %v", err)
+	}
+	if readyRun.Status != domain.StatusQueued {
+		t.Fatalf("read status = %q, want queued worker recovery overlay", readyRun.Status)
+	}
+	if err := q.EnqueueExisting(ctx, readyRun); err != nil {
+		t.Fatalf("EnqueueExisting worker recovered: %v", err)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN worker recovered: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("DequeueN worker recovered = %+v, want run %s", claimed, run.ID)
+	}
+	if claimed[0].Status != domain.StatusExecuting {
+		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
+	}
+
+	var stateStatus domain.RunStatus
+	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&stateStatus); err != nil {
+		t.Fatalf("query state status: %v", err)
+	}
+	if stateStatus != domain.StatusDelayed {
+		t.Fatalf("job_run_state status = %q, want delayed hot state", stateStatus)
+	}
+}
+
 func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -1518,6 +1518,7 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  AND (
 				      s.status = $4
 				      OR (s.status = 'delayed' AND ready.reason = 'delayed_due')
+				      OR (s.status = 'delayed' AND ready.reason = 'worker_recovered')
 				      OR (s.status = 'paused' AND ready.reason = 'paused_resume')
 				  )
 				  AND s.ready_generation = input.generation
@@ -1535,11 +1536,16 @@ func (q *PgQueQueue) claimRuns(ctx context.Context, ids []string, generations []
 				  )
 				  AND COALESCE(s.job_enabled, true) = true
 				  AND COALESCE(s.job_paused, false) = false
-				  AND (s.scheduled_at IS NULL OR s.scheduled_at <= NOW())
+				  AND (
+				      s.scheduled_at IS NULL
+				      OR s.scheduled_at <= NOW()
+				      OR ready.reason = 'worker_recovered'
+				  )
 				  AND (
 				      s.next_retry_at IS NULL
 				      OR s.next_retry_at <= NOW()
 				      OR ready.reason = 'retry_ready'
+				      OR ready.reason = 'worker_recovered'
 				  )
 				  AND NOT strait_run_retry_blocked(s.run_id)
 				  AND NOT EXISTS (

@@ -274,7 +274,7 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 			),
 			requeued_runs AS (
 				UPDATE job_run_state s
-				SET status = 'queued',
+				SET status = CASE WHEN c.uses_active_claim THEN s.status ELSE 'queued' END,
 				    started_at = NULL,
 				    finished_at = NULL,
 				    heartbeat_at = NULL,
@@ -285,7 +285,15 @@ func (q *Queries) RecoverStaleWorkerTasksExceptRefs(ctx context.Context, cutoff 
 				WHERE s.run_id = c.run_id
 				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.from_status,
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
-				          c.uses_active_claim
+				          c.uses_active_claim, s.ready_generation
+			),
+			ready_events AS (
+				INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+				SELECT run_id, ready_generation, attempt, 'worker_recovered'
+				FROM requeued_runs
+				WHERE uses_active_claim
+				ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+				RETURNING 1
 			),
 			released AS (
 				UPDATE job_active_counts c
@@ -857,7 +865,7 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 			),
 			requeued_runs AS (
 				UPDATE job_run_state s
-				SET status = 'queued',
+				SET status = CASE WHEN c.uses_active_claim THEN s.status ELSE 'queued' END,
 				    started_at = NULL,
 				    finished_at = NULL,
 				    heartbeat_at = NULL,
@@ -868,7 +876,15 @@ func (q *Queries) RequeueOpenWorkerTasks(ctx context.Context, workerID, projectI
 				WHERE s.run_id = c.run_id
 				RETURNING s.run_id, c.job_id, c.concurrency_key, c.attempt, c.from_status,
 				          c.job_max_concurrency, c.job_max_concurrency_per_key,
-				          c.uses_active_claim
+				          c.uses_active_claim, s.ready_generation
+			),
+			ready_events AS (
+				INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+				SELECT run_id, ready_generation, attempt, 'worker_recovered'
+				FROM requeued_runs
+				WHERE uses_active_claim
+				ON CONFLICT (run_id, ready_generation, reason) DO NOTHING
+				RETURNING 1
 			),
 			released AS (
 				UPDATE job_active_counts c
