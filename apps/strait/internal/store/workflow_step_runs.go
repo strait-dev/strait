@@ -301,6 +301,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	}
 
 	setClauses := []string{"status = $1"}
+	distinctClauses := []string{"wsr.status IS DISTINCT FROM $1"}
 	args := []any{status, id}
 	param := 3
 
@@ -326,6 +327,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 		}
 
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		distinctClauses = append(distinctClauses, fmt.Sprintf("wsr.%s IS DISTINCT FROM $%d", key, param))
 		args = append(args, value)
 		param++
 	}
@@ -333,17 +335,32 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	// CAS guard: prevent transitions away from terminal statuses while still
 	// allowing idempotent field updates on a step that is already in the target
 	// status (e.g. adding output to a completed step).
-	query := fmt.Sprintf(
-		"UPDATE workflow_step_runs SET %s WHERE id = $2 AND (status NOT IN ('completed', 'failed', 'skipped', 'canceled') OR status = $1)",
-		strings.Join(setClauses, ", "),
-	)
+	query := `
+		WITH target AS MATERIALIZED (
+			SELECT id
+			FROM workflow_step_runs
+			WHERE id = $2
+			  AND (status NOT IN ('completed', 'failed', 'skipped', 'canceled') OR status = $1)
+		),
+		updated AS (
+			UPDATE workflow_step_runs wsr
+			SET ` + strings.Join(setClauses, ", ") + `
+			FROM target
+			WHERE wsr.id = target.id
+			  AND (` + strings.Join(distinctClauses, " OR ") + `)
+			RETURNING 1
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`
 
-	tag, err := q.db.Exec(ctx, query, args...)
+	var found bool
+	var updated bool
+	err := q.db.QueryRow(ctx, query, args...).Scan(&found, &updated)
 	if err != nil {
 		return fmt.Errorf("update step run status: %w", err)
 	}
+	_ = updated
 
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return fmt.Errorf("%w: %s", ErrWorkflowStepRunNotFound, id)
 	}
 

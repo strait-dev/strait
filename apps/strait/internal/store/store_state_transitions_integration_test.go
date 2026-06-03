@@ -636,6 +636,72 @@ func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
 	}
 }
 
+func TestStepRunStatus_UpdateStepRunStatusSkipsNoOp(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+	stClean(t, ctx)
+
+	projectID := "proj-step-noop-" + stID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+		Name:      new("wf-step-noop"),
+		Slug:      new("wf-step-noop-" + stID()),
+	})
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
+	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+	})
+	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, nil)
+
+	startedAt := time.Now().UTC().Truncate(time.Microsecond)
+	fields := map[string]any{
+		"started_at": startedAt,
+		"attempt":    2,
+	}
+	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
+		t.Fatalf("initial UpdateStepRunStatus() error = %v", err)
+	}
+
+	var xminBefore string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		sr.ID,
+	).Scan(&xminBefore); err != nil {
+		t.Fatalf("query workflow_step_runs xmin before no-op: %v", err)
+	}
+
+	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
+		t.Fatalf("no-op UpdateStepRunStatus() error = %v", err)
+	}
+
+	var xminAfter string
+	var status domain.StepRunStatus
+	var attempt int
+	var gotStartedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, status, attempt, started_at
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		sr.ID,
+	).Scan(&xminAfter, &status, &attempt, &gotStartedAt); err != nil {
+		t.Fatalf("query workflow_step_runs after no-op: %v", err)
+	}
+	if xminAfter != xminBefore {
+		t.Fatalf("workflow_step_runs no-op update changed xmin from %s to %s", xminBefore, xminAfter)
+	}
+	if status != domain.StepRunning {
+		t.Fatalf("status = %q, want %q", status, domain.StepRunning)
+	}
+	if attempt != 2 {
+		t.Fatalf("attempt = %d, want 2", attempt)
+	}
+	if !gotStartedAt.Equal(startedAt) {
+		t.Fatalf("started_at = %v, want %v", gotStartedAt, startedAt)
+	}
+}
+
 func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 	ctx := context.Background()
 	q := stStore(t)
