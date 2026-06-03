@@ -24,6 +24,27 @@ func mustPgQueQueue(t *testing.T) *queue.PgQueQueue {
 	})
 }
 
+func assertCurrentGenerationActiveClaim(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+	var readyGeneration int64
+	var activeClaims int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT s.ready_generation, COUNT(c.run_id)
+		FROM job_run_state s
+		LEFT JOIN job_run_active_claims c
+		  ON c.run_id = s.run_id
+		 AND c.ready_generation = s.ready_generation
+		WHERE s.run_id = $1
+		GROUP BY s.ready_generation`,
+		runID,
+	).Scan(&readyGeneration, &activeClaims); err != nil {
+		t.Fatalf("query current-generation active claim: %v", err)
+	}
+	if activeClaims != 1 {
+		t.Fatalf("current ready_generation %d active claims = %d, want 1", readyGeneration, activeClaims)
+	}
+}
+
 func TestQueueEngine_PgQueSelectable(t *testing.T) {
 	q, err := queue.NewQueueEngine(testDB.Pool, queue.EnginePgQue, queue.BatchlogConfig{TickInterval: 10 * time.Millisecond})
 	if err != nil {
@@ -306,6 +327,7 @@ func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
 	if len(claimed) != 1 || claimed[0].ID != run.ID {
 		t.Fatalf("initial claimed = %+v, want run %s", claimed, run.ID)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	from := claimed[0].Status
 	if from != domain.StatusExecuting {
@@ -346,6 +368,7 @@ func TestPgQue_ReplayedDeadLetterRunBecomesClaimable(t *testing.T) {
 	if len(reclaimed) != 1 || reclaimed[0].ID != run.ID {
 		t.Fatalf("replayed claimed = %+v, want run %s", reclaimed, run.ID)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	duplicate, err := q.DequeueN(ctx, 1)
 	if err != nil {
@@ -455,6 +478,7 @@ func TestPgQue_ActivateDueRunsAppendsReadyEventWithoutMutatingState(t *testing.T
 	if claimed[0].Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
 		t.Fatalf("UpdateRunStatus delayed-ready claim to terminal: %v", err)
@@ -524,6 +548,7 @@ func TestPgQue_WorkerRecoveredReadyEventOverridesDelayedSchedule(t *testing.T) {
 	if claimed[0].Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 
 	var stateStatus domain.RunStatus
 	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_run_state WHERE run_id = $1`, run.ID).Scan(&stateStatus); err != nil {
@@ -688,6 +713,7 @@ func TestPgQue_RequeuePausedJobRunsAppendsReadyEventWithoutStatusFlip(t *testing
 	if claimed[0].Status != domain.StatusExecuting {
 		t.Fatalf("claimed status = %q, want executing", claimed[0].Status)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now().UTC()}); err != nil {
 		t.Fatalf("UpdateRunStatus paused-ready claim to terminal: %v", err)
 	}
@@ -817,6 +843,7 @@ func TestPgQue_ActivateDueRunsPromotesReadyRetries(t *testing.T) {
 	if claimed[0].Attempt != 2 {
 		t.Fatalf("claimed attempt = %d, want 2", claimed[0].Attempt)
 	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
 }
 
 func TestPgQue_ActivateDueRunsPromotesRetriesWithDelayedBacklog(t *testing.T) {
