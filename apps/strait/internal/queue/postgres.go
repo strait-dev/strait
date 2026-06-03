@@ -586,7 +586,7 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
-		WHERE status IN ('queued', 'delayed', 'paused')
+		WHERE status IN ('queued', 'delayed', 'paused', 'executing')
 		  AND id = (
 			SELECT jr.id
 			FROM job_runs jr
@@ -941,7 +941,7 @@ var claimUpdateFetchSQL = "/* action=dequeue */ " + fmt.Sprintf(`
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
 		WHERE id = ANY($1)
-		  AND status IN ('queued', 'delayed')
+		  AND status IN ('queued', 'delayed', 'executing')
 		RETURNING %s
 	)
 	SELECT %s FROM claimed_update ORDER BY created_at ASC`,

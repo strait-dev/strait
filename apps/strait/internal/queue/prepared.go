@@ -76,7 +76,7 @@ func PrepareDequeueStatements(ctx context.Context, pool *pgxpool.Pool, logger *s
 			), updated AS (
 				UPDATE job_runs SET status = '%s', started_at = NOW()
 				WHERE id IN (SELECT id FROM claimed)
-				  AND status IN ('queued', 'delayed', 'paused')
+				  AND status IN ('queued', 'delayed', 'paused', 'executing')
 				RETURNING %s
 			)
 			SELECT %s FROM updated ORDER BY created_at ASC`,

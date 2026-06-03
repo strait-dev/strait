@@ -72,7 +72,7 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 				UPDATE job_runs
 				SET status = '%s', started_at = NOW()
 				WHERE id IN (SELECT id FROM claimed)
-				  AND status IN ('queued', 'delayed', 'paused')
+				  AND status IN ('queued', 'delayed', 'paused', 'executing')
 				RETURNING %s
 			)
 			SELECT %s FROM updated ORDER BY created_at ASC`,
@@ -84,7 +84,7 @@ func executeDequeue(ctx context.Context, q *PostgresQueue, n int, spec dequeueSp
 				UPDATE job_runs
 				SET status = '%s', started_at = NOW()
 				WHERE id IN (SELECT id FROM claimed)
-				  AND status IN ('queued', 'delayed', 'paused')
+				  AND status IN ('queued', 'delayed', 'paused', 'executing')
 				RETURNING %s
 			)
 			SELECT %s FROM updated ORDER BY created_at ASC`,
@@ -156,7 +156,7 @@ func executeDequeueFair(ctx context.Context, q *PostgresQueue, n int, spec deque
 			UPDATE job_runs
 			SET status = '%s', started_at = NOW()
 			WHERE id IN (SELECT id FROM claimed)
-			  AND status IN ('queued', 'delayed', 'paused')
+			  AND status IN ('queued', 'delayed', 'paused', 'executing')
 			RETURNING %s
 		)
 		SELECT %s FROM updated ORDER BY created_at ASC`,
@@ -228,7 +228,7 @@ func executeDequeueTwoPhase(ctx context.Context, q *PostgresQueue, n int, spec d
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
 		WHERE id IN (SELECT id FROM claimed)
-		  AND status IN ('queued', 'delayed', 'paused')
+		  AND status IN ('queued', 'delayed', 'paused', 'executing')
 		RETURNING id`, spec.candidatesSQL, domain.StatusDequeued)
 
 	args := append([]any{n}, spec.extraArgs...)
