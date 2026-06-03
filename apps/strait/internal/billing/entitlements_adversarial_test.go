@@ -168,7 +168,6 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 		PlanTier: string(domain.PlanFree),
 		AddOns: SubscriptionAddOns{
 			RetentionPack:     999,
-			PrioritySlotPack:  999,
 			WorkerConnections: 999,
 		},
 		// Override fields that ComputeEntitlements MUST ignore — those
@@ -181,7 +180,7 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 	free := GetPlanLimits(domain.PlanFree)
 
 	// Free RetentionDays > 0, so RetentionPack adds. Legacy worker-connection
-	// and priority packs must not affect launch entitlements.
+	// packs must not affect launch entitlements.
 	if got.RetentionDays != free.RetentionDays+999*retentionPackDays {
 		t.Errorf("retention pack: got %d, want %d",
 			got.RetentionDays, free.RetentionDays+999*retentionPackDays)
@@ -190,11 +189,6 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 		t.Errorf("legacy worker pack changed WorkerConnections: got %d, want %d",
 			got.WorkerConnections, free.WorkerConnections)
 	}
-	if got.MaxDispatchPriority != free.MaxDispatchPriority {
-		t.Errorf("legacy priority pack changed MaxDispatchPriority: got %d, want %d",
-			got.MaxDispatchPriority, free.MaxDispatchPriority)
-	}
-
 	// Override fields must not bleed into the snapshot — those are loaded
 	// at read time inside Enforcer.GetOrgPlanLimits, not persisted.
 	if got.MaxRunsPerDay == 1_000_000 {
@@ -215,7 +209,6 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 		PlanTier: string(domain.PlanEnterprise),
 		AddOns: SubscriptionAddOns{
 			RetentionPack:     5,
-			PrioritySlotPack:  5,
 			WorkerConnections: 5,
 		},
 	}

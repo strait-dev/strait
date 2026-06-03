@@ -10,7 +10,6 @@ import (
 // The zero value means no add-ons purchased.
 type SubscriptionAddOns struct {
 	RetentionPack     int `json:"retention_pack"`
-	PrioritySlotPack  int `json:"priority_slot_pack"`
 	WorkerConnections int `json:"worker_connections"`
 }
 

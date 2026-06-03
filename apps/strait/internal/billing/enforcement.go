@@ -2184,8 +2184,8 @@ type SpendingLimitResponse struct {
 
 // ApplySubscriptionAddOns extends a base OrgPlanLimits using the subscription-level
 // add-ons stored in the legacy add_ons JSONB column. Only launch-active packs
-// may change runtime limits; retired worker-connection and priority packs are
-// intentionally ignored even if stale rows still contain those fields.
+// may change runtime limits; retired worker-connection packs are intentionally
+// ignored even if stale rows still contain those fields.
 func ApplySubscriptionAddOns(base OrgPlanLimits, addOns SubscriptionAddOns) OrgPlanLimits {
 	result := base
 
