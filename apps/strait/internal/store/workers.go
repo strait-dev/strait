@@ -475,13 +475,13 @@ func (q *Queries) UpdateWorkerTaskStatus(ctx context.Context, taskID string, sta
 	var query string
 	switch status {
 	case domain.WorkerTaskStatusAccepted:
-		query = `UPDATE worker_tasks SET status = $1, accepted_at = NOW() WHERE id = $2`
+		query = `UPDATE worker_tasks SET status = $1, accepted_at = NOW() WHERE id = $2 AND status IS DISTINCT FROM $1`
 	case domain.WorkerTaskStatusResultReceived:
-		query = `UPDATE worker_tasks SET status = $1 WHERE id = $2`
+		query = `UPDATE worker_tasks SET status = $1 WHERE id = $2 AND status IS DISTINCT FROM $1`
 	case domain.WorkerTaskStatusCompleted, domain.WorkerTaskStatusFailed:
-		query = `UPDATE worker_tasks SET status = $1, finished_at = NOW() WHERE id = $2`
+		query = `UPDATE worker_tasks SET status = $1, finished_at = NOW() WHERE id = $2 AND status IS DISTINCT FROM $1`
 	default:
-		query = `UPDATE worker_tasks SET status = $1 WHERE id = $2`
+		query = `UPDATE worker_tasks SET status = $1 WHERE id = $2 AND status IS DISTINCT FROM $1`
 	}
 
 	_, err := q.db.Exec(ctx, query, string(status), taskID)
