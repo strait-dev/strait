@@ -28,33 +28,36 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 	pA := createProject(t, ctx, q, orgA, "PA")
 	pB := createProject(t, ctx, q, orgB, "PB")
 
-	jobA := createJob(t, ctx, q, pA.ID)
-	jobB := createJob(t, ctx, q, pB.ID)
+	now := time.Now().UTC()
+	for _, rec := range []*billing.UsageRecord{
+		{
+			ID:               newID(),
+			OrgID:            orgA,
+			ProjectID:        pA.ID,
+			PeriodDate:       now,
+			RunsCount:        1,
+			ComputeCostMicro: 500_000,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+		{
+			ID:               newID(),
+			OrgID:            orgB,
+			ProjectID:        pB.ID,
+			PeriodDate:       now,
+			RunsCount:        1,
+			ComputeCostMicro: 1_000_000,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		},
+	} {
+		if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
+			t.Fatalf("seed usage record: %v", err)
+		}
+	}
 
-	runA := createRun(t, ctx, q, jobA, domain.StatusCompleted)
-	runB := createRun(t, ctx, q, jobB, domain.StatusCompleted)
-
-	usageA := &domain.RunUsage{
-		ID: newID(), RunID: runA.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-		CostMicrousd: 500_000,
-	}
-	usageB := &domain.RunUsage{
-		ID: newID(), RunID: runB.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300,
-		CostMicrousd: 1_000_000,
-	}
-	if err := q.CreateRunUsage(ctx, usageA); err != nil {
-		t.Fatalf("create usage A: %v", err)
-	}
-	if err := q.CreateRunUsage(ctx, usageB); err != nil {
-		t.Fatalf("create usage B: %v", err)
-	}
-
-	from := time.Now().UTC().Add(-1 * time.Hour)
-	to := time.Now().UTC().Add(1 * time.Hour)
+	from := now.Add(-1 * time.Hour)
+	to := now.Add(1 * time.Hour)
 
 	recsA, err := pgStore.GetOrgUsageForPeriod(ctx, orgA, from, to)
 	if err != nil {

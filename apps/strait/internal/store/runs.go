@@ -611,70 +611,6 @@ func (q *Queries) GetLatestCheckpoint(ctx context.Context, runID string) (*domai
 	return cp, nil
 }
 
-func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsage")
-	defer span.End()
-
-	if usage.ID == "" {
-		usage.ID = uuid.Must(uuid.NewV7()).String()
-	}
-
-	return nil
-}
-
-func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, _ int) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsageForActiveRun")
-	defer span.End()
-
-	if usage.ID == "" {
-		usage.ID = uuid.Must(uuid.NewV7()).String()
-	}
-
-	return nil
-}
-
-func (q *Queries) ListRunUsage(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
-	defer span.End()
-
-	return []domain.RunUsage{}, nil
-}
-
-func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCall")
-	defer span.End()
-
-	if call.ID == "" {
-		call.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if call.Status == "" {
-		call.Status = "completed"
-	}
-
-	return nil
-}
-
-func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, _ int) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCallForActiveRun")
-	defer span.End()
-
-	if call.ID == "" {
-		call.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if call.Status == "" {
-		call.Status = "completed"
-	}
-
-	return nil
-}
-
-func (q *Queries) ListRunToolCalls(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
-	defer span.End()
-
-	return []domain.RunToolCall{}, nil
-}
-
 func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertRunOutput")
 	defer span.End()
@@ -2879,22 +2815,6 @@ func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excl
 		return nil, fmt.Errorf("cancel active runs rows: %w", err)
 	}
 	return result, nil
-}
-
-// SumRunTotalTokens is launch-inactive; token accounting is not a product surface.
-func (q *Queries) SumRunTotalTokens(ctx context.Context, _ string) (int64, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunTotalTokens")
-	defer span.End()
-
-	return 0, nil
-}
-
-// CountRunToolCalls is launch-inactive; tool-call accounting is not a product surface.
-func (q *Queries) CountRunToolCalls(ctx context.Context, _ string) (int, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunToolCalls")
-	defer span.End()
-
-	return 0, nil
 }
 
 // CountRunIterations returns the number of iterations recorded for a run.

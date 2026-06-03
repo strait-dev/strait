@@ -235,14 +235,6 @@ func (m *racingTerminalSDKStore) DeleteRunStateForActiveRun(context.Context, str
 	return store.ErrRunConflict
 }
 
-func (m *racingTerminalSDKStore) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
-	return store.ErrRunConflict
-}
-
-func (m *racingTerminalSDKStore) CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error {
-	return store.ErrRunConflict
-}
-
 func (m *racingTerminalSDKStore) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
 	return store.ErrRunConflict
 }

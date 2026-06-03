@@ -151,7 +151,6 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 	}
 
 	for _, root := range scanRoots {
-		root := root
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -317,57 +316,33 @@ func TestLaunchPricingCostBudgetSumsDoNotReadLegacyAIUsage(t *testing.T) {
 	}
 }
 
-func TestLaunchPricingRunTelemetryCountersDoNotReadLegacyAIUsage(t *testing.T) {
+func TestLaunchPricingDoesNotDefineLegacyRunTelemetryCode(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		fn        string
-		forbidden []string
-	}{
-		{
-			fn:        "SumRunTotalTokens",
-			forbidden: []string{"run_usage", "total_tokens", "SUM("},
-		},
-		{
-			fn:        "CountRunToolCalls",
-			forbidden: []string{"run_tool_calls", "COUNT("},
-		},
-	} {
-		fnBody := storeRunsFunctionBody(t, tc.fn)
-		for _, token := range tc.forbidden {
-			if strings.Contains(fnBody, token) {
-				t.Fatalf("%s reads legacy AI telemetry token %q; launch run telemetry counters must stay inactive", tc.fn, token)
-			}
+	for _, path := range []string{"../store/runs.go", "../domain/types.go"} {
+		bodyBytes, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
 		}
-	}
-}
-
-func TestLaunchPricingRunTelemetryCompatibilityMethodsStayInactive(t *testing.T) {
-	t.Parallel()
-
-	for _, fn := range []string{
-		"CreateRunUsage",
-		"CreateRunUsageForActiveRun",
-		"ListRunUsage",
-		"CreateRunToolCall",
-		"CreateRunToolCallForActiveRun",
-		"ListRunToolCalls",
-	} {
-		fnBody := storeRunsFunctionBody(t, fn)
+		body := string(bodyBytes)
 		for _, token := range []string{
-			"INSERT INTO",
-			"SELECT ",
-			"Query(",
-			"QueryRow(",
-			"run_usage",
-			"run_tool_calls",
+			"RunUsage",
+			"RunToolCall",
+			"CreateRunUsage",
+			"CreateRunUsageForActiveRun",
+			"ListRunUsage",
+			"CreateRunToolCall",
+			"CreateRunToolCallForActiveRun",
+			"ListRunToolCalls",
+			"SumRunTotalTokens",
+			"CountRunToolCalls",
 			"pricing_catalog",
 			"prompt_tokens",
 			"completion_tokens",
 			"total_tokens",
 		} {
-			if strings.Contains(fnBody, token) {
-				t.Fatalf("%s wires legacy AI telemetry token %q; launch compatibility methods must stay inactive", fn, token)
+			if strings.Contains(body, token) {
+				t.Fatalf("%s defines legacy AI telemetry token %q; launch code must not expose retired AI telemetry", path, token)
 			}
 		}
 	}
@@ -421,25 +396,6 @@ func TestLaunchPricingDoesNotDefineLegacyAIUsageClickHouseExport(t *testing.T) {
 			}
 		}
 	}
-}
-
-func storeRunsFunctionBody(t *testing.T, fn string) string {
-	t.Helper()
-
-	bodyBytes, err := os.ReadFile("../store/runs.go")
-	if err != nil {
-		t.Fatalf("read store runs: %v", err)
-	}
-	body := string(bodyBytes)
-	start := strings.Index(body, "func (q *Queries) "+fn)
-	if start < 0 {
-		t.Fatalf("store runs missing %s", fn)
-	}
-	next := strings.Index(body[start+1:], "\nfunc ")
-	if next < 0 {
-		return body[start:]
-	}
-	return body[start : start+1+next]
 }
 
 func collectRepoTestNames(t *testing.T) map[string]bool {

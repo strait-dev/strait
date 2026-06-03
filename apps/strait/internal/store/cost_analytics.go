@@ -234,7 +234,7 @@ func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID strin
 // GetTopCosts returns top-cost entities. Launch billing does not expose
 // per-job cost attribution, so this returns an empty list until that is wired.
 func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]TopCostItem, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetTopCosts")
+	_, span := otel.Tracer("strait").Start(ctx, "store.GetTopCosts")
 	defer span.End()
 
 	return []TopCostItem{}, nil
@@ -252,13 +252,12 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 	nextHour := hour.Add(time.Hour)
 
 	query := `
-		INSERT INTO cost_stats_hourly (project_id, hour, usage_cost_microusd, compute_cost_microusd, total_tokens, run_count)
+		INSERT INTO cost_stats_hourly (project_id, hour, usage_cost_microusd, compute_cost_microusd, run_count)
 		SELECT
 			b.project_id,
 			$1 AS hour,
 			0 AS usage_cost_microusd,
 			COALESCE(SUM(b.compute_cost_microusd), 0) AS compute_cost_microusd,
-			0 AS total_tokens,
 			COUNT(*) AS run_count
 		FROM billing_cost_events b
 		WHERE b.created_at >= $1 AND b.created_at < $2
@@ -266,7 +265,6 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 		ON CONFLICT (project_id, hour) DO UPDATE SET
 			usage_cost_microusd = EXCLUDED.usage_cost_microusd,
 			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
-			total_tokens = EXCLUDED.total_tokens,
 			run_count = EXCLUDED.run_count`
 
 	_, err := q.db.Exec(ctx, query, hour, nextHour)
@@ -289,7 +287,7 @@ type CostOutlier struct {
 // GetCostOutliers finds runs whose total cost exceeds the per-job average by
 // more than threshold standard deviations within the given time range.
 func (q *Queries) GetCostOutliers(ctx context.Context, projectID string, from, to time.Time, threshold float64) ([]CostOutlier, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetCostOutliers")
+	_, span := otel.Tracer("strait").Start(ctx, "store.GetCostOutliers")
 	defer span.End()
 
 	return []CostOutlier{}, nil

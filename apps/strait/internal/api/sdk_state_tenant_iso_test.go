@@ -64,14 +64,6 @@ func (m *activeRunReadMock) DeleteRunStateForActiveRun(context.Context, string, 
 	return store.ErrRunConflict
 }
 
-func (m *activeRunReadMock) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
-	return store.ErrRunConflict
-}
-
-func (m *activeRunReadMock) CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error {
-	return store.ErrRunConflict
-}
-
 func (m *activeRunReadMock) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
 	return store.ErrRunConflict
 }

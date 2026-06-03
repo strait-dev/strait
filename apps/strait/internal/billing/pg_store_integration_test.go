@@ -3205,57 +3205,6 @@ func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	}
 	t.Fatal("org not found in stale subscriptions list")
 }
-func TestPgStore_UsageAggregation_IgnoresLegacyRunUsage(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-cte-usageonly-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	usage := &domain.RunUsage{
-		ID: newID(), RunID: run.ID,
-		Provider: "openai", Model: "gpt-4",
-		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-		CostMicrousd: 500000,
-	}
-	if err := q.CreateRunUsage(ctx, usage); err != nil {
-		t.Fatalf("CreateRunUsage: %v", err)
-	}
-
-	now := time.Now().UTC()
-	from := now.Add(-1 * time.Hour)
-	to := now.Add(1 * time.Hour)
-	recs, err := pgStore.GetOrgUsageForPeriod(ctx, orgID, from, to)
-	if err != nil {
-		t.Fatalf("GetOrgUsageForPeriod: %v", err)
-	}
-	if len(recs) == 0 {
-		t.Fatal("expected at least one usage record")
-	}
-
-	for _, r := range recs {
-		if r.ProjectID == p.ID {
-			if r.ComputeCostMicro != 0 {
-				t.Errorf("ComputeCostMicro = %d, want 0", r.ComputeCostMicro)
-			}
-			if r.RunsCount != 1 {
-				t.Errorf("RunsCount = %d, want 1", r.RunsCount)
-			}
-			if r.UsageTokensTotal != 0 {
-				t.Errorf("UsageTokensTotal = %d, want 0", r.UsageTokensTotal)
-			}
-			if r.UsageCostMicro != 0 {
-				t.Errorf("UsageCostMicro = %d, want 0", r.UsageCostMicro)
-			}
-			return
-		}
-	}
-	t.Fatal("project record not found in usage")
-}
 func TestPgStore_UpsertOrgSubscription_PreservesPendingPlanTier(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)

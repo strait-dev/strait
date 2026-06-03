@@ -1031,7 +1031,7 @@ func TestPruneSLOEvaluations(t *testing.T) {
 	}
 }
 
-// GetCostOutliers (requires run_usage + job_runs)
+// GetCostOutliers.
 
 func TestGetCostOutliers_EmptyResult(t *testing.T) {
 	ctx := context.Background()
