@@ -154,6 +154,11 @@ const basePlan = {
   roadmap_features: ["SSO/SAML", "SCIM", "IP allowlisting"],
 } satisfies APIPlan;
 
+const testPlan = (overrides: Partial<APIPlan>): APIPlan => ({
+  ...basePlan,
+  ...overrides,
+});
+
 describe("apiPlansToPricingPlans", () => {
   it("models business plans and monthly run caps", () => {
     const [pricingPlan] = apiPlansToPricingPlans([basePlan]);
@@ -176,6 +181,54 @@ describe("apiPlansToComparisonFeatures", () => {
     expect(rows[0]).toMatchObject({
       name: "Runs per month",
       business: "25,000,000",
+    });
+  });
+
+  it("renders launch-inactive enterprise security features as roadmap only", () => {
+    const rows = apiPlansToComparisonFeatures([
+      testPlan({
+        tier: "free",
+        display_name: "Free",
+        roadmap_features: [],
+      }),
+      testPlan({
+        tier: "business",
+        display_name: "Business",
+        roadmap_features: ["SSO/SAML", "SCIM", "IP allowlisting"],
+      }),
+      testPlan({
+        tier: "enterprise",
+        display_name: "Enterprise",
+        roadmap_features: [
+          "SSO/SAML",
+          "SCIM",
+          "IP allowlisting",
+          "single-tenant orchestration",
+          "BYO-cloud",
+        ],
+      }),
+    ]);
+    const byName = Object.fromEntries(rows.map((row) => [row.name, row]));
+
+    expect(byName["SSO/SAML"]).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName["IP allowlisting"]).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName.SCIM).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName["Single-tenant / BYO-cloud"]).toMatchObject({
+      free: "-",
+      business: "-",
+      enterprise: "Contact sales",
     });
   });
 });
