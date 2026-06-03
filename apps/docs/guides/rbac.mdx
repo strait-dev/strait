@@ -37,6 +37,8 @@ Run `POST /v1/seed-roles` to create all four built-in roles in your project.
 
 Add a user to a project with a specific role using the members endpoint.
 
+Cloud plans cap distinct team members per organization: Free includes one member, Starter includes three, Pro includes ten, Scale includes fifty, and Business is unlimited. Member add-ons are not sold at launch.
+
 ```bash
 curl -X POST https://your-strait-instance/v1/members \
   -H "Authorization: Bearer $API_KEY" \
