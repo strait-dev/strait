@@ -285,6 +285,66 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 	}
 }
 
+func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T) {
+	t.Parallel()
+
+	for _, root := range []string{
+		"../../../docs",
+		"../../../app/src/components",
+		"../../../app/src/hooks",
+		"../../../app/src/lib",
+		"../../../app/src/routes",
+	} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !isPublicCopyFile(path) || strings.Contains(path, "__tests__") {
+				return nil
+			}
+
+			bodyBytes, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			body := string(bodyBytes)
+			for _, phrase := range []string{
+				"SSO coming soon",
+				"includes SSO",
+				"SSO included",
+				"SAML included",
+				"SCIM included",
+				"IP allowlisting included",
+				"static IPs included",
+				"VPC peering included",
+				"data residency included",
+				"single-tenant included",
+				"BYO-cloud included",
+				"dedicated worker pool included",
+				"dedicated compute included",
+				"priority queue included",
+			} {
+				if strings.Contains(body, phrase) {
+					t.Fatalf("%s advertises launch-roadmap security/enterprise feature as included with phrase %q", path, phrase)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for roadmap feature copy: %v", root, err)
+		}
+	}
+}
+
+func isPublicCopyFile(path string) bool {
+	for _, ext := range []string{".mdx", ".ts", ".tsx"} {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *testing.T) {
 	t.Parallel()
 
