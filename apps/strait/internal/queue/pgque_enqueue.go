@@ -20,7 +20,6 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 			if err := q.sendReadyEvent(ctx, q.db, run); err != nil {
 				return err
 			}
-			_ = q.tickReadyRoute(ctx, run)
 		}
 		return nil
 	}
@@ -42,9 +41,6 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("pgque enqueue: commit: %w", err)
-	}
-	if ready {
-		_ = q.tickReadyRoute(ctx, run)
 	}
 	return nil
 }
@@ -80,7 +76,6 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 		if err := q.sendReadyEvents(ctx, q.db, runs); err != nil {
 			return 0, err
 		}
-		_ = q.tickReadyRoutes(ctx, runs)
 		return inserted, nil
 	}
 
@@ -104,7 +99,6 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("pgque enqueue batch: commit: %w", err)
 	}
-	_ = q.tickReadyRoutes(ctx, runs)
 	return inserted, nil
 }
 

@@ -203,7 +203,6 @@ func (q *PgQueQueue) ReconcileReadyRuns(ctx context.Context, limit int) (int64, 
 	if err := q.sendReadyEvents(ctx, q.db, runs); err != nil {
 		return 0, err
 	}
-	_ = q.tickReadyRoutes(ctx, runs)
 	return int64(len(runs)), nil
 }
 
@@ -260,7 +259,6 @@ func (q *PgQueQueue) ActivateDueRuns(ctx context.Context, limit int) (int64, err
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("pgque activate due runs: commit: %w", err)
 	}
-	_ = q.tickReadyRoutes(ctx, runs)
 	return int64(len(runs)), nil
 }
 
@@ -294,7 +292,6 @@ func (q *PgQueQueue) RequeuePausedJobRuns(ctx context.Context, workflowRunID str
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("pgque requeue paused job runs: commit: %w", err)
 	}
-	_ = q.tickReadyRoutes(ctx, runs)
 	return int64(len(runs)), nil
 }
 
