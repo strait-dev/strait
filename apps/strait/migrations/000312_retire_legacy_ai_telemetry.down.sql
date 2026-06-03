@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_pricing_catalog_provider_model_active
 
 CREATE TABLE IF NOT EXISTS run_usage (
     id                  TEXT        PRIMARY KEY,
-    run_id              TEXT        NOT NULL REFERENCES job_runs(id) ON DELETE CASCADE,
+    run_id              TEXT        NOT NULL,
     provider            TEXT        NOT NULL,
     model               TEXT        NOT NULL,
     prompt_tokens       INT         NOT NULL DEFAULT 0,
@@ -46,7 +46,7 @@ CREATE INDEX IF NOT EXISTS idx_run_usage_created_at
 
 CREATE TABLE IF NOT EXISTS run_tool_calls (
     id                TEXT        PRIMARY KEY,
-    run_id            TEXT        NOT NULL REFERENCES job_runs(id) ON DELETE CASCADE,
+    run_id            TEXT        NOT NULL,
     tool_name         TEXT        NOT NULL,
     input             JSONB,
     output            JSONB,

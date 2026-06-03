@@ -190,7 +190,7 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 	}
 	// The exec must be parameterized (no inline values) so pg can cache the
 	// plan. $1 $2 $3 should appear.
-	for _, p := range []string{"$1", "$2", "$3", "job_runs", "status = 'queued'", "WHERE id IN (SELECT id FROM candidates)\n  AND status = 'queued'", "LEAST(priority + 1"} {
+	for _, p := range []string{"$1", "$2", "$3", "job_runs", "status = 'queued'", "WHERE id IN (SELECT id FROM candidates)", "LEAST(priority + 1", "UPDATE job_run_queue q", "q.run_id = promoted.id"} {
 		if !contains(db.lastSQL, p) {
 			t.Errorf("SQL missing %q: %s", p, db.lastSQL)
 		}
