@@ -6763,6 +6763,26 @@ func TestUpdateRunDebugMode(t *testing.T) {
 	if !got.DebugMode {
 		t.Fatal("debug_mode = false after enable, want true")
 	}
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query debug_mode xmin before no-op: %v", err)
+	}
+	if err := q.UpdateRunDebugMode(ctx, run.ID, true); err != nil {
+		t.Fatalf("UpdateRunDebugMode(true no-op) error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query debug_mode xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("debug_mode no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
+	}
 
 	// Disable debug mode
 	if err := q.UpdateRunDebugMode(ctx, run.ID, false); err != nil {

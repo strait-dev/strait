@@ -3451,17 +3451,30 @@ func (q *Queries) UpdateRunDebugMode(ctx context.Context, runID string, debugMod
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateRunDebugMode")
 	defer span.End()
 
-	query := `UPDATE job_runs SET debug_mode = $1 WHERE id = $2`
-
-	tag, err := q.db.Exec(ctx, query, debugMode, runID)
-	if err != nil {
+	var found bool
+	var updated bool
+	if err := q.db.QueryRow(ctx, `
+		WITH target AS MATERIALIZED (
+			SELECT id
+			FROM job_runs
+			WHERE id = $2
+		),
+		updated AS (
+			UPDATE job_runs
+			SET debug_mode = $1
+			WHERE id = $2
+			  AND debug_mode IS DISTINCT FROM $1
+			RETURNING id
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`,
+		debugMode,
+		runID,
+	).Scan(&found, &updated); err != nil {
 		return fmt.Errorf("update run debug mode: %w", err)
 	}
-
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return fmt.Errorf("%w: %s", ErrRunNotFound, runID)
 	}
-
 	return nil
 }
 
