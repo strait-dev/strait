@@ -253,10 +253,9 @@ func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, s
 }
 
 // checkCronMinInterval rejects schedules that fire more frequently than the
-// plan's CronMinIntervalSec. Free=300s, Starter=60s, Pro=30s; Scale and above
-// use 0/1s minimums that the 5-field cron format cannot violate, so this gate
-// is effectively a Free/Starter/Pro guard. Empty cronExpr is a no-op so the
-// caller can hand off the user's input verbatim from create/update requests.
+// plan's CronMinIntervalSec. Launch tiers set Free=300s, Starter=60s,
+// Pro=30s, Scale=1s, and Business/Enterprise=0. Empty cronExpr is a no-op so
+// the caller can hand off the user's input verbatim from create/update requests.
 func (s *Server) checkCronMinInterval(ctx context.Context, projectID, cronExpr string) error {
 	if cronExpr == "" {
 		return nil
