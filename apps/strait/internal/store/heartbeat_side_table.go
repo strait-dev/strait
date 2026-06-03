@@ -55,7 +55,20 @@ func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) er
 	}
 	if _, err := q.db.Exec(ctx, `
 		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
-		SELECT DISTINCT unnest($1::text[]), NOW(), TRUE`, ids); err != nil {
+		SELECT DISTINCT input.run_id, NOW(), TRUE
+		FROM unnest($1::text[]) AS input(run_id)
+		WHERE EXISTS (
+		    SELECT 1
+		    FROM job_run_heartbeats h
+		    WHERE h.run_id = input.run_id
+		      AND h.cleared = FALSE
+		      AND NOT EXISTS (
+		          SELECT 1
+		          FROM job_run_heartbeats newer
+		          WHERE newer.run_id = h.run_id
+		            AND newer.id > h.id
+		      )
+		)`, ids); err != nil {
 		return fmt.Errorf("clear heartbeat side table: %w", err)
 	}
 	return nil

@@ -132,6 +132,49 @@ func TestHeartbeatSideTable_DeleteRemoves(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSideTable_DeleteSkipsAbsentAndAlreadyClearedRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	runID := "hb-clear-idempotent-" + newID()
+	missingID := "hb-clear-missing-" + newID()
+	if err := q.UpsertHeartbeatSideTable(ctx, runID); err != nil {
+		t.Fatalf("append heartbeat: %v", err)
+	}
+	if err := q.DeleteHeartbeatSideTable(ctx, []string{runID, missingID}); err != nil {
+		t.Fatalf("first clear heartbeat: %v", err)
+	}
+	if err := q.DeleteHeartbeatSideTable(ctx, []string{runID, missingID}); err != nil {
+		t.Fatalf("second clear heartbeat: %v", err)
+	}
+
+	var rawRows int
+	var latestCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_run_heartbeats
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestCleared); err != nil {
+		t.Fatalf("query cleared heartbeat rows: %v", err)
+	}
+	if rawRows != 2 {
+		t.Fatalf("raw heartbeat rows = %d, want live row plus one clear tombstone", rawRows)
+	}
+	if !latestCleared {
+		t.Fatal("latest heartbeat row must be a clear tombstone")
+	}
+
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_heartbeats
+		WHERE run_id = $1`, missingID).Scan(&rawRows); err != nil {
+		t.Fatalf("query missing heartbeat rows: %v", err)
+	}
+	if rawRows != 0 {
+		t.Fatalf("missing heartbeat rows = %d, want no clear tombstone", rawRows)
+	}
+}
+
 func TestHeartbeatSideTable_CompactSupersededKeepsLatestRows(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
