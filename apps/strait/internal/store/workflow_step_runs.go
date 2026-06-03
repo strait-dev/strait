@@ -381,6 +381,7 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 	}
 
 	setClauses := []string{"status = $1"}
+	distinctClauses := []string{"wsr.status IS DISTINCT FROM $1"}
 	args := []any{to, id, from}
 	param := 4
 
@@ -400,16 +401,36 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 			}
 		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		distinctClauses = append(distinctClauses, fmt.Sprintf("wsr.%s IS DISTINCT FROM $%d", key, param))
 		args = append(args, value)
 		param++
 	}
 
-	query := fmt.Sprintf("UPDATE workflow_step_runs SET %s WHERE id = $2 AND status = $3", strings.Join(setClauses, ", "))
-	tag, err := q.db.Exec(ctx, query, args...)
+	query := `
+		WITH target AS MATERIALIZED (
+			SELECT id
+			FROM workflow_step_runs
+			WHERE id = $2
+			  AND status = $3
+		),
+		updated AS (
+			UPDATE workflow_step_runs wsr
+			SET ` + strings.Join(setClauses, ", ") + `
+			FROM target
+			WHERE wsr.id = target.id
+			  AND (` + strings.Join(distinctClauses, " OR ") + `)
+			RETURNING 1
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`
+
+	var found bool
+	var updated bool
+	err := q.db.QueryRow(ctx, query, args...).Scan(&found, &updated)
 	if err != nil {
 		return fmt.Errorf("update step run status from: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	_ = updated
+	if !found {
 		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
 	}
 	return nil
