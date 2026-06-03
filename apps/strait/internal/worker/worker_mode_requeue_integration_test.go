@@ -289,10 +289,18 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	go exec.Run(execCtx)
 
 	deadline := time.After(8 * time.Second)
+	lastStatus := domain.RunStatus("")
+	lastAttempt := 0
+	lastError := ""
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for worker-mode timeout requeue")
+			t.Fatalf(
+				"timed out waiting for worker-mode timeout requeue; last status/attempt/error = %q/%d/%q",
+				lastStatus,
+				lastAttempt,
+				lastError,
+			)
 		default:
 		}
 
@@ -300,15 +308,19 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetRun() error = %v", err)
 		}
+		lastStatus = got.Status
+		lastAttempt = got.Attempt
+		lastError = got.Error
 		if got.Status == domain.StatusQueued && got.Attempt == 2 {
+			if got.Error != "execution timed out" {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
 			if dispatcher.calls.Load() == 0 {
 				t.Fatal("worker dispatcher was not called")
 			}
 			if dispatcher.cancellations.Load() == 0 {
 				t.Fatal("worker dispatch context was not cancelled by timeout")
-			}
-			if got.Error != "execution timed out" {
-				t.Fatalf("run error = %q, want execution timed out", got.Error)
 			}
 			// Retry schedule lives in the job_retries side table now;
 			// job_runs.next_retry_at is no longer written by the worker.
