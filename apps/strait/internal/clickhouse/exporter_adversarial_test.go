@@ -351,7 +351,6 @@ func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 	batch := []any{
 		RunEventRecord{EventID: "e1", RunID: "r1", ProjectID: "p1", CreatedAt: now},
 		RunAnalyticsRecord{RunID: "r1", ProjectID: "p1", CreatedAt: now},
-		RunUsageEventRecord{RunID: "r1", ProjectID: "p1", CreatedAt: now},
 		WorkflowApprovalEventRecord{ApprovalID: "a1", ProjectID: "p1", RequestedAt: now},
 		JobMetadataRecord{JobID: "j1", ProjectID: "p1", Slug: "slug"},
 		WebhookDeliveryEventRecord{DeliveryID: "d1", ProjectID: "p1", CreatedAt: now},
@@ -368,7 +367,7 @@ func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 	// Verify that errors from multiple tables are joined.
 	errMsg := err.Error()
 	expectedTables := []string{
-		"run_events", "run_analytics", "run_usage_events",
+		"run_events", "run_analytics",
 		"workflow_approval_events", "job_metadata", "webhook_delivery_events",
 		"workflow_run_analytics", "workflow_step_analytics", "event_trigger_events",
 	}
@@ -387,7 +386,6 @@ func TestExporter_InsertBatch_AllRecordTypes_NilDBClient(t *testing.T) {
 	now := time.Now()
 
 	batch := []any{
-		RunUsageEventRecord{RunID: "r1", JobID: "j1", ProjectID: "p1", Provider: "openai", Model: "gpt-4", CreatedAt: now},
 		WorkflowApprovalEventRecord{ApprovalID: "a1", WorkflowRunID: "wr1", StepRunID: "sr1", ProjectID: "p1", Status: "approved", RequestedAt: now},
 		JobMetadataRecord{JobID: "j1", ProjectID: "p1", Slug: "my-job"},
 		EventTriggerEventRecord{TriggerID: "t1", EventKey: "key", ProjectID: "p1", CreatedAt: now},
@@ -746,7 +744,7 @@ func TestExporter_InsertBatch_OnlyRunEvents_NoOtherTableErrors(t *testing.T) {
 		t.Error("expected error to mention run_events")
 	}
 	absentTables := []string{
-		"run_analytics", "compute_usage", "run_usage_events",
+		"run_analytics", "compute_usage",
 		"workflow_approval_events", "job_metadata", "webhook_delivery_events",
 		"workflow_run_analytics", "workflow_step_analytics", "event_trigger_events",
 		"billing_events",

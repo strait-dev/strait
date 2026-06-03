@@ -338,6 +338,29 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.
 	}
 }
 
+func TestLaunchPricingDoesNotDefineLegacyAIUsageClickHouseExport(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"../clickhouse/exporter.go", "../clickhouse/schema.go"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range []string{
+			"RunUsageEventRecord",
+			"run_usage_events",
+			"prompt_tokens",
+			"completion_tokens",
+			"total_tokens",
+			"insertRunUsageEvents",
+		} {
+			if strings.Contains(string(body), token) {
+				t.Fatalf("%s defines legacy AI usage export token %q; launch ClickHouse export must stay orchestration-only", path, token)
+			}
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 
