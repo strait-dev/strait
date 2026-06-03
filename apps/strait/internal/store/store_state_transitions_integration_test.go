@@ -797,62 +797,6 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	}
 }
 
-func TestDequeue_FairDistributesAcrossJobs(t *testing.T) {
-	ctx := context.Background()
-	q := stQueue(t)
-	st := stStore(t)
-	stClean(t, ctx)
-
-	projectID := "proj-dequeue-fair-" + stID()
-
-	// Create 3 jobs with different queue depths: 10, 5, 1 runs.
-	jobA := stCreateJob(t, ctx, st, projectID)
-	jobB := stCreateJob(t, ctx, st, projectID)
-	jobC := stCreateJob(t, ctx, st, projectID)
-
-	for range 10 {
-		run := &domain.JobRun{ID: stID(), JobID: jobA.ID, ProjectID: projectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(A) error = %v", err)
-		}
-	}
-	for range 5 {
-		run := &domain.JobRun{ID: stID(), JobID: jobB.ID, ProjectID: projectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(B) error = %v", err)
-		}
-	}
-	run := &domain.JobRun{ID: stID(), JobID: jobC.ID, ProjectID: projectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue(C) error = %v", err)
-	}
-
-	// Fair dequeue of 3 should pick at most one from each job.
-	dequeued, err := q.DequeueNFair(ctx, 3)
-	if err != nil {
-		t.Fatalf("DequeueNFair() error = %v", err)
-	}
-	if len(dequeued) != 3 {
-		t.Fatalf("DequeueNFair() len = %d, want 3", len(dequeued))
-	}
-
-	jobsSeen := make(map[string]int)
-	for i := range dequeued {
-		jobsSeen[dequeued[i].JobID]++
-	}
-
-	// Each job should appear at most once in a fair dequeue.
-	for jobID, count := range jobsSeen {
-		if count > 1 {
-			t.Fatalf("fair dequeue picked %d runs from job %s, want at most 1", count, jobID)
-		}
-	}
-	// All 3 jobs should be represented.
-	if len(jobsSeen) != 3 {
-		t.Fatalf("fair dequeue covered %d distinct jobs, want 3", len(jobsSeen))
-	}
-}
-
 func TestDequeue_ByProjectRespectsIsolation(t *testing.T) {
 	ctx := context.Background()
 	q := stQueue(t)

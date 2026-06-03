@@ -521,7 +521,8 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	_ = run0
 	_ = run5
 
-	dequeued, err := testQueue.Dequeue(context.Background())
+	q := newIsolatedQueue(t)
+	dequeued, err := q.Dequeue(context.Background())
 	if err != nil {
 		t.Fatalf("dequeue: %v", err)
 	}

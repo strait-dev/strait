@@ -371,10 +371,6 @@ func (m *mockExecQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 	return m.dequeueNFn(ctx, n)
 }
 
-func (m *mockExecQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return m.DequeueN(ctx, n)
-}
-
 func (m *mockExecQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	if m.dequeueNByProjectFn == nil {
 		return nil, nil

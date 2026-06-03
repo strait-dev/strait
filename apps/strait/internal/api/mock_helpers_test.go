@@ -77,10 +77,6 @@ func (m *mockQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (in
 	return int64(len(runs)), nil
 }
 
-func (m *mockQueue) DequeueNFair(_ context.Context, _ int) ([]domain.JobRun, error) {
-	return nil, nil
-}
-
 func (m *mockQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	if m.dequeueNByProjectFn != nil {
 		return m.dequeueNByProjectFn(ctx, n, projectID)

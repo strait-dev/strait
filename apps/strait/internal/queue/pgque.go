@@ -840,10 +840,6 @@ func (q *PgQueQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, erro
 	})
 }
 
-func (q *PgQueQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return q.DequeueN(ctx, n)
-}
-
 func (q *PgQueQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
 	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{
 		ProjectID:     projectID,

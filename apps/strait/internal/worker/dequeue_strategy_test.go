@@ -13,9 +13,8 @@ import (
 
 // mockStrategyQueue tracks which dequeue method was called.
 type mockStrategyQueue struct {
-	dequeueNCalled     atomic.Int32
-	dequeueNFairCalled atomic.Int32
-	dequeueNByProject  atomic.Int32
+	dequeueNCalled    atomic.Int32
+	dequeueNByProject atomic.Int32
 }
 
 var _ queue.Queue = (*mockStrategyQueue)(nil)
@@ -30,10 +29,6 @@ func (m *mockStrategyQueue) EnqueueBatch(context.Context, []*domain.JobRun) (int
 func (m *mockStrategyQueue) Dequeue(context.Context) (*domain.JobRun, error) { return nil, nil }
 func (m *mockStrategyQueue) DequeueN(_ context.Context, _ int) ([]domain.JobRun, error) {
 	m.dequeueNCalled.Add(1)
-	return nil, nil
-}
-func (m *mockStrategyQueue) DequeueNFair(_ context.Context, _ int) ([]domain.JobRun, error) {
-	m.dequeueNFairCalled.Add(1)
 	return nil, nil
 }
 func (m *mockStrategyQueue) DequeueNByProject(_ context.Context, _ int, _ string) ([]domain.JobRun, error) {
