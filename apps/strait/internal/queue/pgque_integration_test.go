@@ -1613,6 +1613,98 @@ func TestPgQue_DequeueNForWorkerQueuesFiltersByEnvironment(t *testing.T) {
 	}
 }
 
+func TestPgQue_ReconcileReadyRunsPreservesWorkerEnvironmentRoutes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	projectID := "project-pgque-worker-repair-env"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	q := mustPgQueQueue(t)
+
+	prodRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         prodJob.ID,
+		ProjectID:     projectID,
+		Status:        domain.StatusQueued,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+		Priority:      8,
+	}
+	if err := st.CreateRun(ctx, prodRun); err != nil {
+		t.Fatalf("CreateRun(prod): %v", err)
+	}
+	stagingRun := &domain.JobRun{
+		ID:            newID(),
+		JobID:         stagingJob.ID,
+		ProjectID:     projectID,
+		Status:        domain.StatusQueued,
+		ExecutionMode: domain.ExecutionModeWorker,
+		QueueName:     "priority",
+		Priority:      9,
+	}
+	if err := st.CreateRun(ctx, stagingRun); err != nil {
+		t.Fatalf("CreateRun(staging): %v", err)
+	}
+
+	beforeRepair, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
+		ProjectID:     projectID,
+		QueueName:     "priority",
+		EnvironmentID: stagingEnvID,
+	}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues before repair: %v", err)
+	}
+	if len(beforeRepair) != 0 {
+		t.Fatalf("claimed before repair = %+v, want no pgque event", beforeRepair)
+	}
+
+	repaired, err := q.ReconcileReadyRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ReconcileReadyRuns: %v", err)
+	}
+	if repaired != 2 {
+		t.Fatalf("ReconcileReadyRuns repaired = %d, want 2", repaired)
+	}
+	repairedAgain, err := q.ReconcileReadyRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ReconcileReadyRuns second pass: %v", err)
+	}
+	if repairedAgain != 0 {
+		t.Fatalf("second repair pass = %d, want 0 after emit markers", repairedAgain)
+	}
+
+	stagingBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
+		ProjectID:     projectID,
+		QueueName:     "priority",
+		EnvironmentID: stagingEnvID,
+	}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(staging): %v", err)
+	}
+	if len(stagingBatch) != 1 || stagingBatch[0].ID != stagingRun.ID {
+		t.Fatalf("staging batch = %+v, want staging run %s", stagingBatch, stagingRun.ID)
+	}
+	prodBatch, err := q.DequeueNForWorkerQueues(ctx, 1, []domain.WorkerQueueRef{{
+		ProjectID:     projectID,
+		QueueName:     "priority",
+		EnvironmentID: prodEnvID,
+	}})
+	if err != nil {
+		t.Fatalf("DequeueNForWorkerQueues(prod): %v", err)
+	}
+	if len(prodBatch) != 1 || prodBatch[0].ID != prodRun.ID {
+		t.Fatalf("prod batch = %+v, want prod run %s", prodBatch, prodRun.ID)
+	}
+	assertCurrentGenerationActiveClaim(t, ctx, stagingRun.ID)
+	assertCurrentGenerationActiveClaim(t, ctx, prodRun.ID)
+}
+
 func TestPgQue_WorkerEnvironmentClaimsAreUniqueAndComplete(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
