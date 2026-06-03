@@ -6650,6 +6650,7 @@ export type components = {
       has_canary_deployments: boolean;
       has_compensating_txns: boolean;
       has_job_chaining: boolean;
+      has_log_streaming: boolean;
       has_rbac: boolean;
       has_sla: boolean;
       has_sub_workflows: boolean;

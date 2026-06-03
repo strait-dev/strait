@@ -124,8 +124,11 @@ describe("tierAtLeast", () => {
 });
 
 describe("canUseFeature", () => {
+  const freeFeatures: PlanFeature[] = ["http_mode"];
+
+  const starterFeatures: PlanFeature[] = ["log_streaming"];
+
   const proFeatures: PlanFeature[] = [
-    "http_mode",
     "approval_gates",
     "sub_workflows",
     "job_chaining",
@@ -136,19 +139,36 @@ describe("canUseFeature", () => {
 
   const businessFeatures: PlanFeature[] = ["sla"];
 
-  const enterpriseOnlyFeatures: PlanFeature[] = [
+  const roadmapFeatures: PlanFeature[] = [
     "sso",
-    "dedicated_compute",
+    "dedicated_worker_pool",
     "static_ips",
     "vpc_peering",
     "scim",
     "data_residency",
-    "custom_rbac",
     "ip_allowlisting",
-    "session_management",
-    "secret_rotation",
-    "siem_export",
+    "single_tenant",
+    "byo_cloud",
+    "compliance_archive",
   ];
+
+  it("allows free launch features on all plans", () => {
+    for (const feature of freeFeatures) {
+      expect(canUseFeature("free", feature)).toBe(true);
+      expect(canUseFeature("starter", feature)).toBe(true);
+      expect(canUseFeature("pro", feature)).toBe(true);
+      expect(canUseFeature("enterprise", feature)).toBe(true);
+    }
+  });
+
+  it("allows starter features on starter and above", () => {
+    for (const feature of starterFeatures) {
+      expect(canUseFeature("free", feature)).toBe(false);
+      expect(canUseFeature("starter", feature)).toBe(true);
+      expect(canUseFeature("pro", feature)).toBe(true);
+      expect(canUseFeature("enterprise", feature)).toBe(true);
+    }
+  });
 
   it("blocks pro features on free and starter", () => {
     for (const feature of proFeatures) {
@@ -196,8 +216,8 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("blocks enterprise-only features below enterprise", () => {
-    for (const feature of enterpriseOnlyFeatures) {
+  it("blocks roadmap-only features below enterprise", () => {
+    for (const feature of roadmapFeatures) {
       expect(canUseFeature("free", feature)).toBe(false);
       expect(canUseFeature("starter", feature)).toBe(false);
       expect(canUseFeature("pro", feature)).toBe(false);
@@ -206,7 +226,7 @@ describe("canUseFeature", () => {
   });
 
   it("blocks roadmap-only features on enterprise", () => {
-    for (const feature of enterpriseOnlyFeatures) {
+    for (const feature of roadmapFeatures) {
       expect(canUseFeature("enterprise", feature)).toBe(false);
       expect(isRoadmapFeature(feature)).toBe(true);
     }
@@ -219,6 +239,8 @@ describe("canUseFeature", () => {
 
 describe("getFeatureMinimumPlanLabel", () => {
   it("returns the minimum launch tier label", () => {
+    expect(getFeatureMinimumPlanLabel("http_mode")).toBe("Free");
+    expect(getFeatureMinimumPlanLabel("log_streaming")).toBe("Starter");
     expect(getFeatureMinimumPlanLabel("audit_logs")).toBe("Scale");
   });
 

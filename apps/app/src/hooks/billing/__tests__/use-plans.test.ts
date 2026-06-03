@@ -140,6 +140,7 @@ const basePlan = {
   has_sub_workflows: true,
   has_job_chaining: true,
   has_compensating_txns: true,
+  has_log_streaming: true,
   has_sla: true,
   requires_credit_card: true,
   overage_per_k_runs_microusd: 30_000,
@@ -197,6 +198,26 @@ describe("apiPlansToComparisonFeatures", () => {
     );
     expect(rows.find((row) => row.name === "Webhook endpoints")).toMatchObject({
       business: "10",
+    });
+  });
+
+  it("renders log streaming as a launch-active entitlement", () => {
+    const rows = apiPlansToComparisonFeatures([
+      testPlan({
+        tier: "free",
+        display_name: "Free",
+        has_log_streaming: false,
+      }),
+      testPlan({
+        tier: "starter",
+        display_name: "Starter",
+        has_log_streaming: true,
+      }),
+    ]);
+
+    expect(rows.find((row) => row.name === "Log streaming")).toMatchObject({
+      free: "-",
+      starter: "Yes",
     });
   });
 

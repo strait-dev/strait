@@ -36,6 +36,7 @@ type PlanResponse struct {
 	RBACLevel                string   `json:"rbac_level,omitempty"`
 	HasAuditLogs             bool     `json:"has_audit_logs"`
 	HasSLA                   bool     `json:"has_sla"`
+	HasLogStreaming          bool     `json:"has_log_streaming"`
 	HasCanaryDeployments     bool     `json:"has_canary_deployments"`
 	HasApprovalGates         bool     `json:"has_approval_gates"`
 	HasSubWorkflows          bool     `json:"has_sub_workflows"`
@@ -93,6 +94,7 @@ func planResponseForTier(tier domain.PlanTier) PlanResponse {
 		RBACLevel:                limits.RBACLevel,
 		HasAuditLogs:             limits.HasAuditLogs,
 		HasSLA:                   limits.HasSLA,
+		HasLogStreaming:          limits.LogStreamingEnabled,
 		HasCanaryDeployments:     limits.HasCanaryDeployments,
 		HasApprovalGates:         limits.HasApprovalGates,
 		HasSubWorkflows:          limits.HasSubWorkflows,

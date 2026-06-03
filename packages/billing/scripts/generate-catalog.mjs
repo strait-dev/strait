@@ -184,6 +184,7 @@ function toPlanTs(plan) {
       overagePerThousandRuns: overageCents,
       executionModes: "HTTP + worker",
       workflowSteps: limits.workflowSteps === -1 ? null : limits.workflowSteps,
+      logStreaming: features.logStreaming,
       approvalGates: features.approvalGates,
       subWorkflows: features.subWorkflows,
       jobChaining: features.jobChaining,
@@ -234,6 +235,7 @@ function toApiPlan(plan) {
     rbac_level: features.rbacLevel === "none" ? "" : features.rbacLevel,
     has_audit_logs: features.auditLogs,
     has_sla: features.slaTarget,
+    has_log_streaming: features.logStreaming,
     has_canary_deployments: features.canaryDeployments,
     has_approval_gates: features.approvalGates,
     has_sub_workflows: features.subWorkflows,
@@ -308,6 +310,7 @@ export type Plan = {
     webhookEndpoints: number | null;
     apiRateLimit: number | null;
     workerConnections: number | null;
+    logStreaming: boolean;
   };
   governance: {
     rbac: "none" | "basic" | "full" | "advanced";
@@ -339,6 +342,7 @@ export type PlanApiResponse = {
   rbac_level: "" | "basic" | "full" | "advanced";
   has_audit_logs: boolean;
   has_sla: boolean;
+  has_log_streaming: boolean;
   has_canary_deployments: boolean;
   has_approval_gates: boolean;
   has_sub_workflows: boolean;

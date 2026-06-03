@@ -46,6 +46,7 @@ export type Plan = {
     webhookEndpoints: number | null;
     apiRateLimit: number | null;
     workerConnections: number | null;
+    logStreaming: boolean;
   };
   governance: {
     rbac: "none" | "basic" | "full" | "advanced";
@@ -77,6 +78,7 @@ export type PlanApiResponse = {
   rbac_level: "" | "basic" | "full" | "advanced";
   has_audit_logs: boolean;
   has_sla: boolean;
+  has_log_streaming: boolean;
   has_canary_deployments: boolean;
   has_approval_gates: boolean;
   has_sub_workflows: boolean;
@@ -145,6 +147,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 50,
       executionModes: "HTTP + worker",
       workflowSteps: 10,
+      logStreaming: false,
       approvalGates: false,
       subWorkflows: false,
       jobChaining: false,
@@ -198,6 +201,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 40,
       executionModes: "HTTP + worker",
       workflowSteps: 25,
+      logStreaming: true,
       approvalGates: false,
       subWorkflows: false,
       jobChaining: false,
@@ -250,6 +254,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 20,
       executionModes: "HTTP + worker",
       workflowSteps: 100,
+      logStreaming: true,
       approvalGates: true,
       subWorkflows: true,
       jobChaining: true,
@@ -303,6 +308,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 6,
       executionModes: "HTTP + worker",
       workflowSteps: 500,
+      logStreaming: true,
       approvalGates: true,
       subWorkflows: true,
       jobChaining: true,
@@ -362,6 +368,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 3,
       executionModes: "HTTP + worker",
       workflowSteps: null,
+      logStreaming: true,
       approvalGates: true,
       subWorkflows: true,
       jobChaining: true,
@@ -423,6 +430,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       overagePerThousandRuns: 3,
       executionModes: "HTTP + worker",
       workflowSteps: null,
+      logStreaming: true,
       approvalGates: true,
       subWorkflows: true,
       jobChaining: true,
@@ -469,6 +477,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "",
     has_audit_logs: false,
     has_sla: false,
+    has_log_streaming: false,
     has_canary_deployments: false,
     has_approval_gates: false,
     has_sub_workflows: false,
@@ -505,6 +514,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "basic",
     has_audit_logs: false,
     has_sla: false,
+    has_log_streaming: true,
     has_canary_deployments: false,
     has_approval_gates: false,
     has_sub_workflows: false,
@@ -541,6 +551,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "full",
     has_audit_logs: false,
     has_sla: false,
+    has_log_streaming: true,
     has_canary_deployments: false,
     has_approval_gates: true,
     has_sub_workflows: true,
@@ -577,6 +588,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "full",
     has_audit_logs: true,
     has_sla: false,
+    has_log_streaming: true,
     has_canary_deployments: true,
     has_approval_gates: true,
     has_sub_workflows: true,
@@ -613,6 +625,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "advanced",
     has_audit_logs: true,
     has_sla: true,
+    has_log_streaming: true,
     has_canary_deployments: true,
     has_approval_gates: true,
     has_sub_workflows: true,
@@ -656,6 +669,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     rbac_level: "full",
     has_audit_logs: true,
     has_sla: true,
+    has_log_streaming: true,
     has_canary_deployments: true,
     has_approval_gates: true,
     has_sub_workflows: true,

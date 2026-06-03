@@ -172,6 +172,9 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
           ? [{ name: `${formatRBAC(p.rbac_level)} RBAC`, included: true }]
           : []),
         ...(p.has_audit_logs ? [{ name: "Audit logs", included: true }] : []),
+        ...(p.has_log_streaming
+          ? [{ name: "Log streaming", included: true }]
+          : []),
         { name: formatSupportLevel(p.support_level), included: true }
       );
     }
@@ -261,6 +264,7 @@ export const apiPlansToComparisonFeatures = (
     row("RBAC", (p) => formatRBAC(p.rbac_level)),
     row("Audit logs", (p) => formatBoolean(p.has_audit_logs)),
     row("SLA target", (p) => formatBoolean(p.has_sla)),
+    row("Log streaming", (p) => formatBoolean(p.has_log_streaming)),
     row("Webhook endpoints", (p) => formatLimit(p.max_webhook_endpoints)),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
     row("SSO/SAML", (p) =>

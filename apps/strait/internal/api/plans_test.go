@@ -33,6 +33,15 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 		t.Fatalf("business roadmap features = %v, want generated catalog %v", business.RoadmapFeatures, want)
 	}
 
+	free := byTier["free"]
+	if free.HasLogStreaming {
+		t.Fatal("free plan should not advertise log streaming")
+	}
+	starter := byTier["starter"]
+	if !starter.HasLogStreaming {
+		t.Fatal("starter plan should advertise log streaming")
+	}
+
 	enterprise := byTier["enterprise"]
 	if enterprise.MaxRunsPerMonth != -1 {
 		t.Fatalf("enterprise max runs = %d, want unlimited", enterprise.MaxRunsPerMonth)
