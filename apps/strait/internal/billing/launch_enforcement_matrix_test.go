@@ -257,6 +257,32 @@ func TestLaunchDocsDoNotAdvertisePlanGatedRBACAsUniversal(t *testing.T) {
 	}
 }
 
+func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../../docs/faq.mdx",
+		"../../../docs/glossary.mdx",
+		"../../../docs/billing/faq.mdx",
+		"../../../docs/billing/pricing.mdx",
+	} {
+		bodyBytes, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		body := string(bodyBytes)
+		for _, phrase := range []string{
+			"multi-region",
+			"hosted multi-region orchestration",
+			"data residency is included",
+		} {
+			if strings.Contains(body, phrase) {
+				t.Fatalf("%s advertises region routing/residency as launch-active with phrase %q", path, phrase)
+			}
+		}
+	}
+}
+
 func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *testing.T) {
 	t.Parallel()
 

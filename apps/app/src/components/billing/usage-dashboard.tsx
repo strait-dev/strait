@@ -329,10 +329,6 @@ const UsageDashboard = () => {
                 ? "Unlimited"
                 : usage.usage.members.limit}
             </DescriptionDetails>
-            <DescriptionTerm>Regions</DescriptionTerm>
-            <DescriptionDetails className="text-right tabular-nums">
-              {usage.usage.regions_available}
-            </DescriptionDetails>
           </DescriptionList>
         </CardContent>
       </Card>
