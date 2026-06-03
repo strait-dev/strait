@@ -37,6 +37,60 @@ func TestCanaryDeploymentUpdate_FreeTierRejected(t *testing.T) {
 	}
 }
 
+func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Workflow", Slug: "workflow", Version: 1}, nil
+		},
+		UpdateCanaryDeploymentTrafficFunc: func(context.Context, string, int) error {
+			t.Fatal("UpdateCanaryDeploymentTraffic must not be called when canary rollback gate rejects")
+			return nil
+		},
+		CompleteCanaryDeploymentFunc: func(context.Context, string, string) error {
+			t.Fatal("CompleteCanaryDeployment must not be called when canary rollback gate rejects")
+			return nil
+		},
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-1/canary/rollback", "", "proj-1"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("free-tier canary rollback must be 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Canary deployments") {
+		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
+	}
+}
+
+func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
+			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Workflow", Slug: "workflow", Version: 1}, nil
+		},
+		GetActiveCanaryDeploymentFunc: func(context.Context, string) (*domain.CanaryDeployment, error) {
+			t.Fatal("GetActiveCanaryDeployment must not be called when canary status gate rejects")
+			return nil, nil
+		},
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)})
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-1/canary", "", "proj-1"))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("free-tier canary status must be 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Canary deployments") {
+		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
+	}
+}
+
 func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
 	t.Parallel()
 

@@ -155,6 +155,10 @@ func (s *Server) handleRollbackCanaryDeployment(ctx context.Context, input *Roll
 		return nil, huma.Error404NotFound("workflow not found")
 	}
 
+	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+		return nil, err
+	}
+
 	// First set traffic to 0.
 	if err := s.store.UpdateCanaryDeploymentTraffic(ctx, input.WorkflowID, 0); err != nil {
 		if errors.Is(err, store.ErrCanaryNotFound) {
@@ -195,6 +199,10 @@ func (s *Server) handleGetCanaryStatus(ctx context.Context, input *GetCanaryStat
 
 	if err := requireProjectMatch(ctx, wf.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("workflow not found")
+	}
+
+	if err := s.checkFeatureAllowed(ctx, wf.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+		return nil, err
 	}
 
 	canary, err := s.store.GetActiveCanaryDeployment(ctx, input.WorkflowID)
