@@ -119,12 +119,57 @@ func TestRetry_DequeueRespectsSideTableSchedule(t *testing.T) {
 
 	time.Sleep(3 * time.Second)
 
-	batch2, err := q.DequeueN(ctx, 1)
+	promoted, err := q.ActivateDueRuns(ctx, 1)
 	if err != nil {
-		t.Fatalf("DequeueN after wait: %v", err)
+		t.Fatalf("ActivateDueRuns after wait: %v", err)
+	}
+	if promoted != 1 {
+		t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
+	}
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick after retry promotion: %v", err)
+	}
+
+	var batch2 []domain.JobRun
+	deadline := time.Now().Add(5 * time.Second)
+	for len(batch2) == 0 && time.Now().Before(deadline) {
+		if err := q.ForceTick(ctx, "http"); err != nil {
+			t.Fatalf("ForceTick while waiting for promoted retry: %v", err)
+		}
+		var dequeueErr error
+		batch2, dequeueErr = q.DequeueN(ctx, 1)
+		if dequeueErr != nil {
+			t.Fatalf("DequeueN after wait: %v", dequeueErr)
+		}
+		if len(batch2) == 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 	if len(batch2) != 1 || batch2[0].ID != run.ID {
-		t.Fatalf("expected to claim %s after retry fires, got %v", run.ID, batch2)
+		var blocked bool
+		var readyEvents, readyEmits, activeClaims int
+		var latestRetryCleared bool
+		if stateErr := env.DB.Pool.QueryRow(ctx, `
+			SELECT
+				strait_run_retry_blocked($1),
+				(SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1 AND reason = 'retry_ready'),
+				(SELECT COUNT(*) FROM strait_pgque_ready_events WHERE run_id = $1),
+				(SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1),
+				COALESCE((SELECT cleared FROM job_retries WHERE run_id = $1 ORDER BY id DESC LIMIT 1), FALSE)`,
+			run.ID,
+		).Scan(&blocked, &readyEvents, &readyEmits, &activeClaims, &latestRetryCleared); stateErr != nil {
+			t.Fatalf("query retry claim state: %v", stateErr)
+		}
+		t.Fatalf(
+			"expected to claim %s after retry fires, got %v; blocked=%v ready_events=%d ready_emits=%d active_claims=%d latest_retry_cleared=%v",
+			run.ID,
+			batch2,
+			blocked,
+			readyEvents,
+			readyEmits,
+			activeClaims,
+			latestRetryCleared,
+		)
 	}
 }
 

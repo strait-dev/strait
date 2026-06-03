@@ -177,16 +177,20 @@ func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) int64 {
 }
 
 // reconcileActiveCounts replaces the job_active_counts table with the
-// ground-truth aggregate from job_run_state. Returns absolute drift (sum of |
-// old - new | across rows).
+// ground-truth aggregate from current PgQue active claims. Returns absolute
+// drift (sum of | old - new | across rows).
 func (r *CounterReconciler) reconcileActiveCounts(ctx context.Context) (int64, error) {
 	const q = `
 WITH truth AS (
-    SELECT job_id, COALESCE(concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
-    FROM job_run_state
-    WHERE status IN ('dequeued', 'executing')
-      AND (job_max_concurrency IS NOT NULL OR job_max_concurrency_per_key IS NOT NULL)
-    GROUP BY job_id, COALESCE(concurrency_key, '')
+    SELECT s.job_id, COALESCE(s.concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
+    FROM job_run_state s
+    JOIN job_run_active_claims claim
+      ON claim.run_id = s.run_id
+     AND claim.ready_generation = s.ready_generation
+    LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
+    WHERE terminal.run_id IS NULL
+      AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+    GROUP BY s.job_id, COALESCE(s.concurrency_key, '')
 ),
 current AS (
     SELECT job_id, concurrency_key, count FROM job_active_counts

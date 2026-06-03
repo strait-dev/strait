@@ -193,14 +193,14 @@ func TestIntegration_DelayedPoller_ConcurrentPollersShareBacklog(t *testing.T) {
 	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
-			WithMaxBatchesPerTick(2).
+			WithMaxBatchesPerTick(4).
 			Run(runCtx)
 		close(doneA)
 	})
 	concWG.Go(func() {
 		scheduler.NewDelayedPoller(st, slog.Default(), time.Hour).
 			WithBatchLimit(3).
-			WithMaxBatchesPerTick(2).
+			WithMaxBatchesPerTick(4).
 			Run(runCtx)
 		close(doneB)
 	})

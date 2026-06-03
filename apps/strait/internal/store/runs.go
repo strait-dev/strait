@@ -2147,6 +2147,9 @@ func (q *Queries) tryUpdateRunStateStatus(ctx context.Context, id string, from, 
 	if from == domain.StatusWaiting && to == domain.StatusQueued {
 		stateSet = append(stateSet, "ready_generation = ready_generation + 1")
 	}
+	if activeClaimRunStateShouldRequeue(from, to) {
+		stateSet = append(stateSet, "ready_generation = ready_generation + 1")
+	}
 	stateArgs := []any{to, id, from}
 	stateParam := 4
 	ledgerFields := make(map[string]any)
@@ -3044,7 +3047,7 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 		       r.triggered_by, s.scheduled_at, s.started_at, s.finished_at, COALESCE(hb.last_hb, s.heartbeat_at),
 		       s.next_retry_at, s.expires_at, r.parent_run_id, s.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, s.concurrency_key, s.execution_mode, r.is_rollback, r.replayed_run_id
 		FROM job_runs r
-		JOIN job_run_read_state s ON s.run_id = r.id
+		JOIN job_run_state s ON s.run_id = r.id
 		LEFT JOIN LATERAL (
 			SELECT heartbeat_at AS last_hb
 			FROM job_run_heartbeats h

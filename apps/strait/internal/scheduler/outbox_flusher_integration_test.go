@@ -943,8 +943,8 @@ func TestOutboxArchiver_PromotedClaimLogRowsArchivedHistoryVisible(t *testing.T)
 	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT consumed_at FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&consumedAt); err != nil {
 		t.Fatalf("consumed_at after flush: %v", err)
 	}
-	if consumedAt != nil {
-		t.Fatalf("consumed_at after claim-log flush = %v, want nil until archive", *consumedAt)
+	if consumedAt == nil {
+		t.Fatal("consumed_at after claim-log flush = nil, want promoted row consumed")
 	}
 	var claimStatus string
 	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {

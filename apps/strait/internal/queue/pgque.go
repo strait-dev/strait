@@ -141,12 +141,13 @@ func NewPgQueQueue(db store.DBTX, runWriter *PostgresQueue, cfg PgQueConfig) *Pg
 }
 
 func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
+	ready := normalizePgQueEnqueueStatus(run)
 	beginner, ok := q.db.(store.TxBeginner)
 	if !ok {
 		if err := q.runWriter.Enqueue(ctx, run); err != nil {
 			return err
 		}
-		if run.Status == domain.StatusQueued {
+		if ready {
 			if err := q.sendReadyEvent(ctx, q.db, run); err != nil {
 				return err
 			}
@@ -155,7 +156,7 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 		return nil
 	}
 
-	if run.Status == domain.StatusQueued {
+	if ready {
 		if err := q.ensureRunRouteCached(ctx, run); err != nil {
 			return err
 		}
@@ -173,20 +174,21 @@ func (q *PgQueQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("pgque enqueue: commit: %w", err)
 	}
-	if run.Status == domain.StatusQueued {
+	if ready {
 		_ = q.tickReadyRoute(ctx, run)
 	}
 	return nil
 }
 
 func (q *PgQueQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
+	ready := normalizePgQueEnqueueStatus(run)
 	if err := q.markPgQueStorage(ctx, tx); err != nil {
 		return err
 	}
 	if err := q.runWriter.EnqueueInTx(ctx, tx, run); err != nil {
 		return err
 	}
-	if run.Status != domain.StatusQueued {
+	if !ready {
 		return nil
 	}
 	return q.sendReadyEvent(ctx, tx, run)
@@ -196,6 +198,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	if len(runs) == 0 {
 		return 0, nil
 	}
+	normalizePgQueEnqueueStatuses(runs)
 	if err := q.ensureRunRoutesCached(ctx, runs); err != nil {
 		return 0, err
 	}
@@ -234,6 +237,27 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	}
 	_ = q.tickReadyRoutes(ctx, runs)
 	return inserted, nil
+}
+
+func normalizePgQueEnqueueStatus(run *domain.JobRun) bool {
+	if run == nil {
+		return false
+	}
+	if run.Status != "" && run.Status != domain.StatusQueued {
+		return false
+	}
+	if run.ScheduledAt != nil && run.ScheduledAt.After(time.Now()) {
+		run.Status = domain.StatusDelayed
+		return false
+	}
+	run.Status = domain.StatusQueued
+	return true
+}
+
+func normalizePgQueEnqueueStatuses(runs []*domain.JobRun) {
+	for _, run := range runs {
+		normalizePgQueEnqueueStatus(run)
+	}
 }
 
 func (q *PgQueQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) error {
