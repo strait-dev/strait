@@ -265,6 +265,30 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresCostAnalytics(t *testin
 	}
 }
 
+func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile("../clickhouse/analytics.go")
+	if err != nil {
+		t.Fatalf("read ClickHouse analytics: %v", err)
+	}
+	for _, token := range []string{
+		"run_usage_events",
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+		"ra.cost_microusd",
+		"sum(ru.cost_microusd)",
+		"sum(cost_microusd)",
+		"cost_microusd + compute_cost_microusd",
+		"sum(cost_microusd) AS daily_cost",
+	} {
+		if strings.Contains(string(body), token) {
+			t.Fatalf("ClickHouse analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 
