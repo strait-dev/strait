@@ -195,60 +195,6 @@ func (s *Server) handleCancelRun(ctx context.Context, input *CancelRunInput) (*C
 	return &CancelRunOutput{Body: updatedRun}, nil
 }
 
-// maxCancelDepth limits recursive child cancellation to prevent runaway traversal.
-const maxCancelDepth = 20
-
-// cancelChildRunsRecursive uses CancelChildRunsByParentIDs to bulk-cancel
-// children at each depth level, avoiding N+1 individual UpdateRunStatus calls.
-func (s *Server) cancelChildRunsRecursive(ctx context.Context, parentRunID string) int64 {
-	now := time.Now()
-	parentIDs := []string{parentRunID}
-	var total int64
-
-	for depth := range maxCancelDepth {
-		select {
-		case <-ctx.Done():
-			return total
-		default:
-		}
-
-		if len(parentIDs) == 0 {
-			break
-		}
-
-		canceled, err := s.store.CancelChildRunsByParentIDs(ctx, parentIDs, now, "parent run canceled")
-		if err != nil {
-			slog.Error("failed to bulk cancel child runs", "depth", depth, "parent_count", len(parentIDs), "error", err)
-			break
-		}
-		if canceled == 0 {
-			break
-		}
-		total += canceled
-
-		// Collect IDs of the just-canceled children to recurse into their children.
-		// We need to list them to get their IDs for the next depth level.
-		nextParentIDs := make([]string, 0)
-		for _, pid := range parentIDs {
-			var cursor *time.Time
-			for {
-				children, listErr := s.store.ListChildRuns(ctx, pid, 100, cursor)
-				if listErr != nil || len(children) == 0 {
-					break
-				}
-				for _, child := range children {
-					nextParentIDs = append(nextParentIDs, child.ID)
-				}
-				lastCreatedAt := children[len(children)-1].CreatedAt
-				cursor = &lastCreatedAt
-			}
-		}
-		parentIDs = nextParentIDs
-	}
-
-	return total
-}
-
 // GetRunDependencyStatusInput is the typed input for getting run dependency status.
 type GetRunDependencyStatusInput struct {
 	RunID string `path:"runID"`
