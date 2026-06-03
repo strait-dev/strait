@@ -99,12 +99,28 @@ describe("OrgUsageResponseSchema", () => {
   it("decodes active_addons when present", () => {
     const result = decode({
       ...validOrgUsage,
-      active_addons: [{ type: "members", quantity: 2 }],
+      active_addons: [{ type: "concurrency_100", quantity: 2 }],
     });
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       expect(result.right.active_addons).toHaveLength(1);
     }
+  });
+
+  it("rejects legacy addon types in active_addons", () => {
+    const result = decode({
+      ...validOrgUsage,
+      active_addons: [{ type: "members", quantity: 2 }],
+    });
+    expect(Either.isLeft(result)).toBe(true);
+  });
+
+  it("rejects roadmap-only addon types in active_addons", () => {
+    const result = decode({
+      ...validOrgUsage,
+      active_addons: [{ type: "compliance_archive", quantity: 1 }],
+    });
+    expect(Either.isLeft(result)).toBe(true);
   });
 });
 

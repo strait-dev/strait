@@ -10,6 +10,12 @@
 
 import { Schema } from "effect";
 
+const ActiveAddonTypeSchema = Schema.Literal(
+  "concurrency_100",
+  "history_30d",
+  "environments_5"
+);
+
 /**
  * Schema for a single usage quota dimension.
  *
@@ -40,7 +46,7 @@ export const UsageAlertSchema = Schema.Struct({
  * @see {@link import("./org-usage").AddonSummary}
  */
 export const AddonSummarySchema = Schema.Struct({
-  type: Schema.String,
+  type: ActiveAddonTypeSchema,
   quantity: Schema.Number,
 });
 

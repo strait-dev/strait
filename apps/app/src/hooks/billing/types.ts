@@ -25,6 +25,12 @@ export type AddonTypeSlug =
   | "compliance_archive"
   | "dedicated_workers";
 
+/** Addon type identifiers that are active and sellable at launch. */
+export type ActiveAddonTypeSlug =
+  | "concurrency_100"
+  | "history_30d"
+  | "environments_5";
+
 /** Anomaly severity levels returned by the anomaly detection endpoint. */
 export type AnomalySeverity = "warning" | "high" | "critical";
 
@@ -77,4 +83,11 @@ export const ALL_ADDON_TYPES: readonly AddonTypeSlug[] = [
   "environments_5",
   "compliance_archive",
   "dedicated_workers",
+] as const;
+
+/** Addon type slugs accepted in active subscription usage payloads. */
+export const ACTIVE_ADDON_TYPES: readonly ActiveAddonTypeSlug[] = [
+  "concurrency_100",
+  "history_30d",
+  "environments_5",
 ] as const;

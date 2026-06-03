@@ -7,12 +7,12 @@
 
 import { ACTIVE_ADDONS, formatPrice } from "@strait/billing/products";
 import type { AddonSummary } from "@/hooks/billing/org-usage";
-import type { AddonTypeSlug, PlanTierSlug } from "./types";
+import type { ActiveAddonTypeSlug, PlanTierSlug } from "./types";
 
 /** A single addon product in the catalog with pricing and checkout info. */
 export type AddonCatalogItem = {
   /** Addon type identifier matching the Go backend. */
-  type: AddonTypeSlug;
+  type: ActiveAddonTypeSlug;
   /** Human-readable addon name. */
   name: string;
   /** Short description of what the addon provides. */
@@ -51,7 +51,7 @@ const addonPackUnit = (type: string): string => {
 
 /** The complete addon product catalog with pricing and checkout slugs. */
 export const ADDON_CATALOG: AddonCatalogItem[] = ACTIVE_ADDONS.map((addon) => ({
-  type: addon.type as AddonTypeSlug,
+  type: addon.type as ActiveAddonTypeSlug,
   name: addon.displayName,
   description: addonDescription(addon.type),
   packSize: addon.packSize,

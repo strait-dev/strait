@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_ADDON_TYPES,
+  type ActiveAddonTypeSlug,
   type AddonTypeSlug,
   ALL_ADDON_TYPES,
   ALL_PLAN_TIERS,
@@ -37,13 +39,21 @@ describe("PlanTierSlug", () => {
 });
 
 describe("AddonTypeSlug", () => {
-  it("ALL_ADDON_TYPES contains all 5 addon types", () => {
+  it("ALL_ADDON_TYPES contains active and roadmap addon types", () => {
     expect(ALL_ADDON_TYPES).toEqual([
       "concurrency_100",
       "history_30d",
       "environments_5",
       "compliance_archive",
       "dedicated_workers",
+    ]);
+  });
+
+  it("ACTIVE_ADDON_TYPES contains only launch-active addon types", () => {
+    expect(ACTIVE_ADDON_TYPES).toEqual([
+      "concurrency_100",
+      "history_30d",
+      "environments_5",
     ]);
   });
 
@@ -56,6 +66,15 @@ describe("AddonTypeSlug", () => {
       "dedicated_workers",
     ];
     expect(types).toHaveLength(5);
+  });
+
+  it("active addon type excludes roadmap-only addons", () => {
+    const types: ActiveAddonTypeSlug[] = [
+      "concurrency_100",
+      "history_30d",
+      "environments_5",
+    ];
+    expect(types).toHaveLength(3);
   });
 });
 

@@ -8,6 +8,8 @@
 // PaymentStatus is imported as a type but the API returns plain strings,
 // so we keep `string` here for compatibility with Schema.decodeUnknown output.
 
+import type { ActiveAddonTypeSlug } from "./types";
+
 /** A single usage quota dimension with current value, limit, and percentage. */
 export type UsageDimension = {
   used: number;
@@ -47,7 +49,7 @@ export type OrgUsageDimensions = BaseUsageDimensions & {
 
 /** Summary of an active addon pack for display in the billing dashboard. */
 export type AddonSummary = {
-  type: string;
+  type: ActiveAddonTypeSlug;
   quantity: number;
 };
 

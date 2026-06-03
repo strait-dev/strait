@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AddonTypeSlug, ALL_ADDON_TYPES } from "../types";
+import { ACTIVE_ADDON_TYPES, type ActiveAddonTypeSlug } from "../types";
 import { ADDON_CATALOG, getActivePackCount } from "../use-addons";
 
 describe("getActivePackCount", () => {
@@ -62,13 +62,7 @@ describe("ADDON_CATALOG", () => {
 
   it("contains only launch-active addon types", () => {
     const catalogTypes = ADDON_CATALOG.map((item) => item.type);
-    for (const addonType of [
-      "concurrency_100",
-      "history_30d",
-      "environments_5",
-    ]) {
-      expect(catalogTypes).toContain(addonType);
-    }
+    expect(catalogTypes).toEqual(ACTIVE_ADDON_TYPES);
   });
 
   it("all items have non-empty required fields", () => {
@@ -83,7 +77,7 @@ describe("ADDON_CATALOG", () => {
   });
 
   it("types are valid AddonTypeSlug values", () => {
-    const validTypes: readonly AddonTypeSlug[] = ALL_ADDON_TYPES;
+    const validTypes: readonly ActiveAddonTypeSlug[] = ACTIVE_ADDON_TYPES;
     for (const item of ADDON_CATALOG) {
       expect(validTypes).toContain(item.type);
     }
