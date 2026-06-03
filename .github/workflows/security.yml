@@ -83,6 +83,7 @@ jobs:
     timeout-minutes: 10
     env:
       GOSEC_VERSION: v2.25.0
+      GOSEC_CACHE_VERSION: go1.26.4
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -95,7 +96,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/go/bin/gosec
-          key: gosec-${{ runner.os }}-${{ env.GOSEC_VERSION }}
+          key: gosec-${{ runner.os }}-${{ env.GOSEC_VERSION }}-${{ env.GOSEC_CACHE_VERSION }}
 
       - name: Install gosec
         if: steps.cache-gosec.outputs.cache-hit != 'true'
