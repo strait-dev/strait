@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"strait/internal/domain"
 
@@ -16,11 +17,35 @@ func (q *Queries) UpsertRunState(ctx context.Context, s *domain.RunState) error 
 	defer span.End()
 
 	query := `
-		INSERT INTO run_state (run_id, state_key, value)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (run_id, state_key)
-		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-		RETURNING updated_at`
+		WITH inserted AS (
+			INSERT INTO run_state (run_id, state_key, value)
+			VALUES ($1, $2, $3::jsonb)
+			ON CONFLICT (run_id, state_key) DO NOTHING
+			RETURNING updated_at
+		),
+		updated AS (
+			UPDATE run_state
+			SET value = $3::jsonb,
+			    updated_at = NOW()
+			WHERE run_id = $1
+			  AND state_key = $2
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND value IS DISTINCT FROM $3::jsonb
+			RETURNING updated_at
+		),
+		selected AS (
+			SELECT updated_at FROM inserted
+			UNION ALL
+			SELECT updated_at FROM updated
+			UNION ALL
+			SELECT updated_at
+			FROM run_state
+			WHERE run_id = $1
+			  AND state_key = $2
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT updated_at FROM selected LIMIT 1`
 
 	err := q.db.QueryRow(ctx, query, s.RunID, s.StateKey, s.Value).Scan(&s.UpdatedAt)
 	if err != nil {
@@ -34,27 +59,58 @@ func (q *Queries) UpsertRunStateForActiveRun(ctx context.Context, s *domain.RunS
 	defer span.End()
 
 	query := `
-		WITH active_run AS (
+		WITH active_run AS MATERIALIZED (
 			SELECT jr.id
 			FROM job_runs jr
 			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.id = $1
 			  AND COALESCE(s.attempt, jr.attempt) = $4
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		),
+		inserted AS (
+			INSERT INTO run_state (run_id, state_key, value)
+			SELECT id, $2, $3::jsonb
+			FROM active_run
+			ON CONFLICT (run_id, state_key) DO NOTHING
+			RETURNING updated_at
+		),
+		updated AS (
+			UPDATE run_state
+			SET value = $3::jsonb,
+			    updated_at = NOW()
+			WHERE run_id = $1
+			  AND state_key = $2
+			  AND EXISTS (SELECT 1 FROM active_run)
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND value IS DISTINCT FROM $3::jsonb
+			RETURNING updated_at
+		),
+		selected AS (
+			SELECT updated_at FROM inserted
+			UNION ALL
+			SELECT updated_at FROM updated
+			UNION ALL
+			SELECT updated_at
+			FROM run_state
+			WHERE run_id = $1
+			  AND state_key = $2
+			  AND EXISTS (SELECT 1 FROM active_run)
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND NOT EXISTS (SELECT 1 FROM updated)
 		)
-		INSERT INTO run_state (run_id, state_key, value)
-		SELECT id, $2, $3
-		FROM active_run
-		ON CONFLICT (run_id, state_key)
-		DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-		RETURNING updated_at`
+		SELECT EXISTS(SELECT 1 FROM active_run), (SELECT updated_at FROM selected LIMIT 1)`
 
-	err := q.db.QueryRow(ctx, query, s.RunID, s.StateKey, s.Value, attempt).Scan(&s.UpdatedAt)
+	var active bool
+	var updatedAt *time.Time
+	err := q.db.QueryRow(ctx, query, s.RunID, s.StateKey, s.Value, attempt).Scan(&active, &updatedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, s.RunID, attempt)
-		}
 		return fmt.Errorf("upsert active run state: %w", err)
+	}
+	if !active {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, s.RunID, attempt)
+	}
+	if updatedAt != nil {
+		s.UpdatedAt = *updatedAt
 	}
 	return nil
 }

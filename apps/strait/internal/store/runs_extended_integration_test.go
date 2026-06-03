@@ -2234,6 +2234,70 @@ func TestRunState_ListRunState_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRunState_UpsertSameValueDoesNotRewrite(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-noop")
+	run := mustCreateRun(t, ctx, q, job)
+
+	state := &domain.RunState{RunID: run.ID, StateKey: "cursor", Value: json.RawMessage(`{"page":1}`)}
+	if err := q.UpsertRunState(ctx, state); err != nil {
+		t.Fatalf("UpsertRunState(initial) error = %v", err)
+	}
+	initialUpdatedAt := state.UpdatedAt
+	var beforeXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		run.ID,
+		"cursor",
+	).Scan(&beforeXmin); err != nil {
+		t.Fatalf("query run_state xmin before no-op: %v", err)
+	}
+
+	sameState := &domain.RunState{RunID: run.ID, StateKey: "cursor", Value: json.RawMessage(`{"page":1}`)}
+	if err := q.UpsertRunState(ctx, sameState); err != nil {
+		t.Fatalf("UpsertRunState(no-op) error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		run.ID,
+		"cursor",
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query run_state xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeXmin {
+		t.Fatalf("run_state no-op changed xmin from %s to %s", beforeXmin, afterNoopXmin)
+	}
+	if !sameState.UpdatedAt.Equal(initialUpdatedAt) {
+		t.Fatalf("run_state no-op updated_at = %v, want %v", sameState.UpdatedAt, initialUpdatedAt)
+	}
+
+	changedState := &domain.RunState{RunID: run.ID, StateKey: "cursor", Value: json.RawMessage(`{"page":2}`)}
+	if err := q.UpsertRunState(ctx, changedState); err != nil {
+		t.Fatalf("UpsertRunState(changed) error = %v", err)
+	}
+	var afterChangedXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		run.ID,
+		"cursor",
+	).Scan(&afterChangedXmin); err != nil {
+		t.Fatalf("query run_state xmin after change: %v", err)
+	}
+	if afterChangedXmin == beforeXmin {
+		t.Fatalf("run_state changed value kept xmin %s, want a real update", afterChangedXmin)
+	}
+}
+
 func TestRunState_ListRunState_Empty(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -2103,6 +2103,37 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpsertRunStateForActiveRun(ctx, state, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertRunStateForActiveRun(active) error = %v", err)
 	}
+	initialStateUpdatedAt := state.UpdatedAt
+	var stateXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		activeRun.ID,
+		"cursor",
+	).Scan(&stateXminBeforeNoop); err != nil {
+		t.Fatalf("query active run_state xmin before no-op: %v", err)
+	}
+	sameState := &domain.RunState{RunID: activeRun.ID, StateKey: "cursor", Value: json.RawMessage(`{"step":1}`)}
+	if err := q.UpsertRunStateForActiveRun(ctx, sameState, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunStateForActiveRun(active no-op) error = %v", err)
+	}
+	var stateXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		activeRun.ID,
+		"cursor",
+	).Scan(&stateXminAfterNoop); err != nil {
+		t.Fatalf("query active run_state xmin after no-op: %v", err)
+	}
+	if stateXminAfterNoop != stateXminBeforeNoop {
+		t.Fatalf("active run_state no-op changed xmin from %s to %s", stateXminBeforeNoop, stateXminAfterNoop)
+	}
+	if !sameState.UpdatedAt.Equal(initialStateUpdatedAt) {
+		t.Fatalf("active run_state no-op updated_at = %v, want %v", sameState.UpdatedAt, initialStateUpdatedAt)
+	}
 	usage := &domain.RunUsage{RunID: activeRun.ID, Provider: "test", Model: "model", PromptTokens: 1, CompletionTokens: 2}
 	if err := q.CreateRunUsageForActiveRun(ctx, usage, activeRun.Attempt); err != nil {
 		t.Fatalf("CreateRunUsageForActiveRun(active) error = %v", err)
