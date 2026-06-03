@@ -413,7 +413,7 @@ func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, &mockPublisher{})
 
 	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"provider":"openai","model":"gpt-4","prompt_tokens":10,"completion_tokens":5}`)
+	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"usage_units":1}`)
 	srv.ServeHTTP(w, r)
 
 	if w.Code != http.StatusNotFound {
