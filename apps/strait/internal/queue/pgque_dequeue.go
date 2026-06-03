@@ -104,7 +104,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		}
 
 		for _, msg := range reservation.Invalid {
-			_ = q.pgque(q.db).nack(ctx, msg, q.cfg.NackDelay, "invalid ready event")
+			q.nackReservedMessage(ctx, msg, "invalid ready event")
 		}
 		if len(reservation.Candidates) == 0 {
 			if err := q.finishBatchReservation(ctx, state, reservation.Batch, nil); err != nil {
@@ -117,7 +117,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		returnCandidates := unclaimed
 		if nackUnclaimed {
 			for _, candidate := range unclaimed {
-				_ = q.pgque(q.db).nack(ctx, candidate.Message, q.cfg.NackDelay, "not claimable")
+				q.nackReservedMessage(ctx, candidate.Message, "not claimable")
 			}
 			returnCandidates = nil
 		}
@@ -138,6 +138,12 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 		}
 	}
 	return nil, nil
+}
+
+func (q *PgQueQueue) nackReservedMessage(ctx context.Context, msg pgQueMessage, reason string) {
+	if err := q.pgque(q.db).nack(ctx, msg, q.cfg.NackDelay, reason); err != nil {
+		q.logBackgroundError(ctx, "pgque nack failed", fmt.Errorf("%s: %w", reason, err))
+	}
 }
 
 func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRouteState, queueName string, limit int) (pgQueBatchReservation, error) {

@@ -256,6 +256,71 @@ func TestPgQueLogBackgroundErrorSkipsCanceledContext(t *testing.T) {
 	}
 }
 
+func TestPgQueNackReservedMessageLogsFailure(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	}))
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.nack") {
+				return pgconn.CommandTag{}, errors.New("nack failed")
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{Logger: logger})
+
+	q.nackReservedMessage(context.Background(), pgQueMessage{
+		ID:        12,
+		BatchID:   34,
+		Type:      pgQueReadyEventType,
+		Payload:   "{}",
+		CreatedAt: time.Now(),
+	}, "invalid ready event")
+
+	got := buf.String()
+	if !strings.Contains(got, "pgque nack failed") {
+		t.Fatalf("log output = %q, want nack failure message", got)
+	}
+	if !strings.Contains(got, "invalid ready event") {
+		t.Fatalf("log output = %q, want nack reason", got)
+	}
+	if !strings.Contains(got, "nack failed") {
+		t.Fatalf("log output = %q, want wrapped nack error", got)
+	}
+}
+
+func TestPgQueNackReservedMessageSkipsCanceledContext(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
+		Level: slog.LevelWarn,
+	}))
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "pgque.nack") {
+				return pgconn.CommandTag{}, errors.New("nack failed")
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{Logger: logger})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	q.nackReservedMessage(ctx, pgQueMessage{
+		ID:        12,
+		BatchID:   34,
+		Type:      pgQueReadyEventType,
+		Payload:   "{}",
+		CreatedAt: time.Now(),
+	}, "not claimable")
+
+	if got := buf.String(); got != "" {
+		t.Fatalf("log output = %q, want empty output", got)
+	}
+}
+
 type stringRows struct {
 	values []string
 	idx    int
