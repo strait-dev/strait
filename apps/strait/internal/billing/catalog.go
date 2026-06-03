@@ -22,6 +22,7 @@ type PlanCatalog struct {
 	Concurrency          int // -1 = unlimited
 	Environments         int // -1 = unlimited
 	LogDrainGB           int // -1 = unlimited
+	RoadmapFeatures      []string
 }
 
 // GetPlanCatalog returns the catalog entry for a tier; falls back to Free.

@@ -132,6 +132,13 @@ function goRegions(regions) {
   return `[]string{${regions.map(goString).join(", ")}}`;
 }
 
+function goStringSlice(values) {
+  if (!values || values.length === 0) {
+    return "[]string{}";
+  }
+  return `[]string{${values.map(goString).join(", ")}}`;
+}
+
 function displaySpendingCap(plan) {
   const cap = plan.overage.defaultSpendingCapMicrousd;
   if (cap < 0) {
@@ -576,6 +583,7 @@ function generateGoCatalog() {
 \t\tConcurrency:          Concurrent${planSuffix[plan.tier]},
 \t\tEnvironments:         ${goInt(plan.limits.environments)},
 \t\tLogDrainGB:           ${goInt(plan.limits.logDrainGB)},
+\t\tRoadmapFeatures:      ${goStringSlice(plan.roadmapFeatures)},
 \t},`
     )
     .join("\n");

@@ -21,6 +21,7 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentFree,
 		Environments:         1,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{},
 	},
 	domain.PlanStarter: {
 		Tier:                 domain.PlanStarter,
@@ -36,6 +37,7 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentStarter,
 		Environments:         1,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{},
 	},
 	domain.PlanPro: {
 		Tier:                 domain.PlanPro,
@@ -51,6 +53,7 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentPro,
 		Environments:         3,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{},
 	},
 	domain.PlanScale: {
 		Tier:                 domain.PlanScale,
@@ -66,6 +69,7 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentScale,
 		Environments:         10,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{},
 	},
 	domain.PlanBusiness: {
 		Tier:                 domain.PlanBusiness,
@@ -81,6 +85,7 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentBusiness,
 		Environments:         -1,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{"SSO/SAML", "SCIM", "IP allowlisting", "static IPs", "VPC peering", "data residency"},
 	},
 	domain.PlanEnterprise: {
 		Tier:                 domain.PlanEnterprise,
@@ -96,5 +101,6 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		Concurrency:          ConcurrentEnterprise,
 		Environments:         -1,
 		LogDrainGB:           0,
+		RoadmapFeatures:      []string{"SSO/SAML", "SCIM", "IP allowlisting", "static IPs", "VPC peering", "data residency", "single-tenant orchestration", "BYO-cloud"},
 	},
 }

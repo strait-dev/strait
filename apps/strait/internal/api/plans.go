@@ -71,29 +71,9 @@ var orderedPlanTiers = []domain.PlanTier{
 	domain.PlanEnterprise,
 }
 
-var roadmapFeaturesByTier = map[domain.PlanTier][]string{
-	domain.PlanBusiness: {
-		"SSO/SAML",
-		"SCIM",
-		"IP allowlisting",
-		"static IPs",
-		"VPC peering",
-		"data residency",
-	},
-	domain.PlanEnterprise: {
-		"SSO/SAML",
-		"SCIM",
-		"IP allowlisting",
-		"static IPs",
-		"VPC peering",
-		"data residency",
-		"single-tenant orchestration",
-		"BYO-cloud",
-	},
-}
-
 func planResponseForTier(tier domain.PlanTier) PlanResponse {
 	limits := billing.GetPlanLimits(tier)
+	catalog := billing.GetPlanCatalog(tier)
 	return PlanResponse{
 		Tier:                     string(limits.PlanTier),
 		DisplayName:              limits.DisplayName,
@@ -128,7 +108,7 @@ func planResponseForTier(tier domain.PlanTier) PlanResponse {
 		MaxWorkflowDAGSteps:      limits.MaxWorkflowDAGSteps,
 		APIRateLimit:             limits.APIRateLimit,
 		WorkerConnections:        limits.WorkerConnections,
-		RoadmapFeatures:          roadmapFeaturesByTier[tier],
+		RoadmapFeatures:          append([]string(nil), catalog.RoadmapFeatures...),
 	}
 }
 

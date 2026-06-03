@@ -3,7 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
+
+	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 func TestHandleGetPlansLaunchCatalog(t *testing.T) {
@@ -25,10 +29,16 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 	if len(business.RoadmapFeatures) == 0 {
 		t.Fatal("business roadmap features should be present for display only")
 	}
+	if want := billing.GetPlanCatalog(domain.PlanBusiness).RoadmapFeatures; !slices.Equal(business.RoadmapFeatures, want) {
+		t.Fatalf("business roadmap features = %v, want generated catalog %v", business.RoadmapFeatures, want)
+	}
 
 	enterprise := byTier["enterprise"]
 	if enterprise.MaxRunsPerMonth != -1 {
 		t.Fatalf("enterprise max runs = %d, want unlimited", enterprise.MaxRunsPerMonth)
+	}
+	if want := billing.GetPlanCatalog(domain.PlanEnterprise).RoadmapFeatures; !slices.Equal(enterprise.RoadmapFeatures, want) {
+		t.Fatalf("enterprise roadmap features = %v, want generated catalog %v", enterprise.RoadmapFeatures, want)
 	}
 
 	raw, err := json.Marshal(out.Body)
