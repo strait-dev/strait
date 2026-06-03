@@ -306,14 +306,7 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	}
 
 	// Auto-provision the Sequin consumer if it does not exist.
-	cdcTables := []string{
-		"public.api_keys", "public.project_roles", "public.project_member_roles",
-		"public.resource_policies", "public.tag_policies", "public.project_quotas",
-		"public.organization_subscriptions", "public.jobs", "public.job_dependencies",
-		"public.job_runs", "public.workflow_runs", "public.workflow_step_runs",
-		"public.event_triggers",
-	}
-	if err := cdcClient.EnsureConsumer(ctx, cdcTables); err != nil {
+	if err := cdcClient.EnsureConsumer(ctx, cdc.RequiredConsumerTables()); err != nil {
 		return nil, fmt.Errorf("ensure sequin consumer %q: %w", cfg.SequinConsumerName, err)
 	}
 
