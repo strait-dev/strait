@@ -437,6 +437,43 @@ func BenchmarkPgQueClaimFilterWorkerRefArgs(b *testing.B) {
 	}
 }
 
+func BenchmarkWorkerQueueRefArgsNormalized(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "staging"},
+		{ProjectID: "project-b", QueueName: "default"},
+		{ProjectID: "project-c", QueueName: "bulk", EnvironmentID: "production"},
+	}
+
+	for b.Loop() {
+		args := workerQueueRefArgsFromNormalized(refs)
+		pgQueWorkerRefArgsBenchmarkSink.projectIDs = args.ProjectIDs
+		pgQueWorkerRefArgsBenchmarkSink.queueNames = args.QueueNames
+		pgQueWorkerRefArgsBenchmarkSink.environmentIDs = args.EnvironmentIDs
+	}
+}
+
+func TestWorkerQueueRefArgsFromNormalized(t *testing.T) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+
+	args := workerQueueRefArgsFromNormalized(refs)
+
+	if !slices.Equal(args.ProjectIDs, []string{"project-a", "project-a", "project-b"}) {
+		t.Fatalf("projectIDs = %v", args.ProjectIDs)
+	}
+	if !slices.Equal(args.QueueNames, []string{"default", "critical", "bulk"}) {
+		t.Fatalf("queueNames = %v", args.QueueNames)
+	}
+	if !slices.Equal(args.EnvironmentIDs, []string{"", "production", "staging"}) {
+		t.Fatalf("environmentIDs = %v", args.EnvironmentIDs)
+	}
+}
+
 func TestPgQueClaimFilterWorkerArgsUsesPrecomputedArgs(t *testing.T) {
 	refs := []domain.WorkerQueueRef{
 		{ProjectID: "project-a", QueueName: "default"},

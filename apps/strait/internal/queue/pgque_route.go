@@ -122,6 +122,25 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 	}
 }
 
+func workerQueueRefArgsFromNormalized(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
+	if len(refs) == 0 {
+		return pgQueWorkerRefArgs{}
+	}
+	projectIDs := make([]string, len(refs))
+	queueNames := make([]string, len(refs))
+	environmentIDs := make([]string, len(refs))
+	for i, ref := range refs {
+		projectIDs[i] = ref.ProjectID
+		queueNames[i] = ref.QueueName
+		environmentIDs[i] = ref.EnvironmentID
+	}
+	return pgQueWorkerRefArgs{
+		ProjectIDs:     projectIDs,
+		QueueNames:     queueNames,
+		EnvironmentIDs: environmentIDs,
+	}
+}
+
 func (q *PgQueQueue) routeKeyForRun(ctx context.Context, db store.DBTX, run *domain.JobRun) (string, error) {
 	if run == nil || run.ExecutionMode != domain.ExecutionModeWorker {
 		return pgQueHTTPRouteKey, nil

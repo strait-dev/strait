@@ -62,7 +62,7 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 	filter := pgQueClaimFilter{
 		ExecutionMode: domain.ExecutionModeWorker,
 		WorkerRefs:    refs,
-		workerRefArgs: workerQueueRefArgs(refs),
+		workerRefArgs: workerQueueRefArgsFromNormalized(refs),
 	}
 	claimed := make([]domain.JobRun, 0, n)
 	start := q.nextWorkerRouteStart(len(routes))
