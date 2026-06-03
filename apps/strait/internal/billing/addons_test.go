@@ -22,6 +22,31 @@ func TestEffectiveLimits_NoAddons(t *testing.T) {
 	}
 }
 
+func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
+	t.Parallel()
+
+	active := []AddonType{
+		AddonConcurrency100,
+		AddonHistory30d,
+		AddonEnvironments5,
+	}
+	for _, addonType := range active {
+		if !IsLaunchActiveAddonType(addonType) {
+			t.Fatalf("%s should be launch-active", addonType)
+		}
+	}
+
+	roadmap := []AddonType{
+		AddonComplianceArchive,
+		AddonDedicatedWorkers,
+	}
+	for _, addonType := range roadmap {
+		if IsLaunchActiveAddonType(addonType) {
+			t.Fatalf("%s should remain roadmap-only at launch", addonType)
+		}
+	}
+}
+
 func TestEffectiveLimits_Concurrency100Pack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)

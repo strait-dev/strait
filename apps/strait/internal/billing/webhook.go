@@ -1838,6 +1838,12 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 // subscription is created. lookupKey is the Stripe lookup_key that resolved to
 // this addon (empty when resolution fell back to per-account price ID).
 func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType, lookupKey string) error {
+	if !IsLaunchActiveAddonType(addonType) {
+		h.logger.Warn("roadmap addon not sellable at launch, ignoring addon webhook",
+			"subscription_id", sub.ID, "addon_type", addonType, "lookup_key", lookupKey)
+		return nil
+	}
+
 	orgID, err := h.resolveBoundOrgID(ctx, sub)
 	if err != nil {
 		return err

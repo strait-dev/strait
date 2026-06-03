@@ -66,6 +66,31 @@ func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected addon to be allowed without enforcer, got: %v", err)
 	}
+	if store.lastAddonCreated == nil {
+		t.Fatal("expected launch-active addon to create active row without enforcer")
+	}
+}
+
+func TestAddonCap_EnforcerNil_RoadmapAddonDoesNotCreateActiveAddon(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{}
+	handler := NewWebhookHandler(store, NewStripeMappingFromOptions(), "", slog.Default(), nil, nil,
+		WithDevBypassSignatureCheck())
+
+	sub := testSubscriptionData{
+		ID:         "sub_roadmap_addon",
+		ProductID:  "addon-roadmap",
+		CustomerID: "cust_roadmap",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
+	}
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonComplianceArchive, "")
+	if err != nil {
+		t.Fatalf("expected roadmap addon webhook to be ignored without error, got: %v", err)
+	}
+	if store.lastAddonCreated != nil {
+		t.Fatalf("roadmap addon created active row without enforcer: %#v", store.lastAddonCreated)
+	}
 }
 
 func TestAddonCap_DisallowedAddonOnPlan_DoesNotCreateActiveAddon(t *testing.T) {

@@ -38,6 +38,16 @@ func IsValidAddonType(t AddonType) bool {
 	return false
 }
 
+func IsLaunchActiveAddonType(t AddonType) bool {
+	switch t {
+	case AddonConcurrency100, AddonHistory30d, AddonEnvironments5:
+		return true
+	case AddonComplianceArchive, AddonDedicatedWorkers:
+		return false
+	}
+	return false
+}
+
 // AddonPackDefinition describes the increment and pricing for an add-on pack.
 type AddonPackDefinition struct {
 	Type        AddonType
