@@ -176,9 +176,6 @@ type ProjectQuota struct {
 	RateLimitWindowSecs    int
 	DefaultRegion          string
 	PlanTier               string
-	MaxTokensPerRun        int64
-	MaxToolCallsPerRun     int
-	MaxIterationsPerRun    int
 	MaxMemoryPerKeyBytes   int
 	MaxMemoryPerJobBytes   int
 	MaxKeyLifetimeDays     int

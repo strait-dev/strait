@@ -421,6 +421,50 @@ func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	})
 }
 
+func TestMigrationRoundtrip_000313_DeprecateAgentGuardrailColumns(t *testing.T) {
+	runRoundtrip(t, 313, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, stale := range []string{
+			"jobs.max_tokens_per_run",
+			"jobs.max_tool_calls_per_run",
+			"jobs.max_iterations_per_run",
+			"jobs.allowed_tools",
+			"jobs.blocked_tools",
+			"job_versions.max_tokens_per_run",
+			"job_versions.max_tool_calls_per_run",
+			"job_versions.max_iterations_per_run",
+			"job_versions.allowed_tools",
+			"job_versions.blocked_tools",
+			"project_quotas.max_tokens_per_run",
+			"project_quotas.max_tool_calls_per_run",
+			"project_quotas.max_iterations_per_run",
+		} {
+			if postUp.columns[stale] {
+				t.Errorf("post-up: stale agent guardrail column %s should be renamed", stale)
+			}
+		}
+		for _, renamed := range []string{
+			"jobs.deprecated_agent_token_cap",
+			"jobs.deprecated_agent_tool_call_cap",
+			"jobs.deprecated_agent_iteration_cap",
+			"jobs.deprecated_agent_allowed_tool_names",
+			"jobs.deprecated_agent_blocked_tool_names",
+			"job_versions.deprecated_agent_token_cap",
+			"job_versions.deprecated_agent_tool_call_cap",
+			"job_versions.deprecated_agent_iteration_cap",
+			"job_versions.deprecated_agent_allowed_tool_names",
+			"job_versions.deprecated_agent_blocked_tool_names",
+			"project_quotas.deprecated_agent_token_cap",
+			"project_quotas.deprecated_agent_tool_call_cap",
+			"project_quotas.deprecated_agent_iteration_cap",
+		} {
+			if !postUp.columns[renamed] {
+				t.Errorf("post-up: deprecated replacement column %s should exist", renamed)
+			}
+		}
+	})
+}
+
 // TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.

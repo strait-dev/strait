@@ -228,11 +228,6 @@ func TestGetJobAtVersion_PreservesExecutionSnapshot(t *testing.T) {
 	job.OnFailureTriggerJob = "job-failure-pinned"
 	job.OnFailureTriggerWorkflow = "workflow-failure-pinned"
 	job.OnFailurePayloadMapping = json.RawMessage(`{"failure":"pinned"}`)
-	job.MaxTokensPerRun = 101
-	job.MaxToolCallsPerRun = 9
-	job.MaxIterationsPerRun = 5
-	job.AllowedTools = []string{"search", "http"}
-	job.BlockedTools = []string{"shell"}
 	job.EndpointSigningSecret = "signing-secret-pinned"
 	if err := q.UpdateJob(ctx, job); err != nil {
 		t.Fatalf("UpdateJob(pinned config) error = %v", err)
@@ -262,11 +257,6 @@ func TestGetJobAtVersion_PreservesExecutionSnapshot(t *testing.T) {
 	job.OnFailureTriggerJob = "job-failure-live"
 	job.OnFailureTriggerWorkflow = "workflow-failure-live"
 	job.OnFailurePayloadMapping = json.RawMessage(`{"failure":"live"}`)
-	job.MaxTokensPerRun = 202
-	job.MaxToolCallsPerRun = 19
-	job.MaxIterationsPerRun = 15
-	job.AllowedTools = []string{"db"}
-	job.BlockedTools = []string{"network"}
 	job.EndpointSigningSecret = "signing-secret-live"
 	if err := q.UpdateJob(ctx, job); err != nil {
 		t.Fatalf("UpdateJob(live config) error = %v", err)
@@ -308,15 +298,6 @@ func TestGetJobAtVersion_PreservesExecutionSnapshot(t *testing.T) {
 	}
 	if !jsonEqual(got.OnFailurePayloadMapping, json.RawMessage(`{"failure":"pinned"}`)) {
 		t.Fatalf("OnFailurePayloadMapping = %s, want pinned", string(got.OnFailurePayloadMapping))
-	}
-	if got.MaxTokensPerRun != 101 || got.MaxToolCallsPerRun != 9 || got.MaxIterationsPerRun != 5 {
-		t.Fatalf("guardrails = %d/%d/%d, want 101/9/5", got.MaxTokensPerRun, got.MaxToolCallsPerRun, got.MaxIterationsPerRun)
-	}
-	if !reflect.DeepEqual(got.AllowedTools, []string{"search", "http"}) {
-		t.Fatalf("AllowedTools = %#v, want pinned", got.AllowedTools)
-	}
-	if !reflect.DeepEqual(got.BlockedTools, []string{"shell"}) {
-		t.Fatalf("BlockedTools = %#v, want pinned", got.BlockedTools)
 	}
 	if !got.Paused || got.PauseReason != "versioned pause" || got.PausedAt == nil {
 		t.Fatalf("pause snapshot = paused:%v reason:%q paused_at:%v, want pinned pause", got.Paused, got.PauseReason, got.PausedAt)
