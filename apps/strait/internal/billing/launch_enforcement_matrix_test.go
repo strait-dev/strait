@@ -43,7 +43,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "member cap", status: launchPromiseRuntime, gate: "org-limited member assignment", test: "TestAssignMemberRoleWithOrgLimit_SerializesConcurrentNewMembers"},
 	{promise: "webhook endpoint cap", status: launchPromiseRuntime, gate: "webhook endpoint admission", test: "TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit"},
 	{promise: "environment cap", status: launchPromiseRuntime, gate: "environment admission", test: "TestCreateEnvironmentWithOrgLimit_SerializesConcurrentCreates"},
-	{promise: "history retention cap", status: launchPromiseRuntime, gate: "PlanRetentionResolver", test: "TestGetOrgRetentionDays_ProPlan"},
+	{promise: "history retention cap", status: launchPromiseRuntime, gate: "per-org retention reaper", test: "TestReaper_OrgRetention_PrunesRunsByOrg"},
 	{promise: "API rate limit", status: launchPromiseRuntime, gate: "ratelimit middleware", test: "TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault"},
 	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleCreateRole_StarterBasicRBACRejectsCustomRole"},
 	{promise: "workflow policies Advanced RBAC", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy"},
