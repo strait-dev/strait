@@ -22,6 +22,13 @@ type pgQueClaimFilter struct {
 	workerRefArgs pgQueWorkerRefArgs
 }
 
+type pgQueClaimSelection struct {
+	Candidates          []pgQueCandidate
+	RunIDs              []string
+	Generations         []int64
+	HasConcurrencyLimit bool
+}
+
 const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.attempt, u.payload, u.result, u.metadata, u.error, u.error_class,
 		          u.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
 		          u.next_retry_at, u.expires_at, u.parent_run_id, u.priority, u.idempotency_key, u.job_version, u.created_at, u.workflow_step_run_id, u.execution_trace, u.debug_mode, u.continuation_of, u.lineage_depth, u.tags, u.job_version_id, u.created_by, u.batch_id, u.concurrency_key, u.execution_mode, u.is_rollback, u.replayed_run_id`
@@ -30,32 +37,39 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	if len(candidates) == 0 {
 		return nil, nil, false, nil
 	}
-	selected := candidates[:min(len(candidates), limit)]
-	ids := make([]string, 0, len(selected))
-	generations := make([]int64, 0, len(selected))
-	for _, candidate := range selected {
-		ids = append(ids, candidate.Event.RunID)
-		generations = append(generations, candidate.Event.Generation)
-	}
+	selection := selectPgQueClaimCandidates(candidates, limit)
 
-	hasLimitedCandidates := false
-	for _, candidate := range selected {
-		if candidate.HasConcurrencyLimit {
-			hasLimitedCandidates = true
-			break
-		}
-	}
-
-	runs, err := q.claimRuns(ctx, ids, generations, limit, filter, hasLimitedCandidates)
+	runs, err := q.claimRuns(ctx, selection.RunIDs, selection.Generations, limit, filter, selection.HasConcurrencyLimit)
 	if err != nil {
 		return nil, nil, false, err
 	}
 	if len(runs) == 0 {
-		return nil, selected, true, nil
+		return nil, selection.Candidates, true, nil
 	}
 
 	unclaimed := unclaimedReservedCandidates(candidates, runs)
 	return runs, unclaimed, false, nil
+}
+
+func selectPgQueClaimCandidates(candidates []pgQueCandidate, limit int) pgQueClaimSelection {
+	selected := candidates[:min(len(candidates), limit)]
+	ids := make([]string, len(selected))
+	generations := make([]int64, len(selected))
+	hasConcurrencyLimit := false
+	for i, candidate := range selected {
+		ids[i] = candidate.Event.RunID
+		generations[i] = candidate.Event.Generation
+		if candidate.HasConcurrencyLimit {
+			hasConcurrencyLimit = true
+		}
+	}
+
+	return pgQueClaimSelection{
+		Candidates:          selected,
+		RunIDs:              ids,
+		Generations:         generations,
+		HasConcurrencyLimit: hasConcurrencyLimit,
+	}
 }
 
 func unclaimedReservedCandidates(candidates []pgQueCandidate, runs []domain.JobRun) []pgQueCandidate {

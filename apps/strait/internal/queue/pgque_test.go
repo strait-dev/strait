@@ -23,6 +23,7 @@ var pgQueWorkerRefArgsBenchmarkSink struct {
 	queueNames     []string
 	environmentIDs []string
 }
+var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -371,6 +372,46 @@ func BenchmarkUnclaimedReservedCandidatesAllClaimed(b *testing.B) {
 
 	for b.Loop() {
 		pgQueCandidateBenchmarkSink = unclaimedReservedCandidates(candidates, runs)
+	}
+}
+
+func TestSelectPgQueClaimCandidates(t *testing.T) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Generation: 10}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Generation: 20}, HasConcurrencyLimit: true},
+		{Event: pgQueReadyEvent{RunID: "run-3", Generation: 30}},
+	}
+
+	selection := selectPgQueClaimCandidates(candidates, 2)
+
+	if !slices.Equal(selection.RunIDs, []string{"run-1", "run-2"}) {
+		t.Fatalf("run IDs = %v, want run-1/run-2", selection.RunIDs)
+	}
+	if !slices.Equal(selection.Generations, []int64{10, 20}) {
+		t.Fatalf("generations = %v, want 10/20", selection.Generations)
+	}
+	if !selection.HasConcurrencyLimit {
+		t.Fatal("HasConcurrencyLimit = false, want true")
+	}
+	if len(selection.Candidates) != 2 {
+		t.Fatalf("selected candidates = %d, want 2", len(selection.Candidates))
+	}
+}
+
+func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Generation: 1}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Generation: 2}},
+		{Event: pgQueReadyEvent{RunID: "run-3", Generation: 3}},
+		{Event: pgQueReadyEvent{RunID: "run-4", Generation: 4}},
+		{Event: pgQueReadyEvent{RunID: "run-5", Generation: 5}},
+		{Event: pgQueReadyEvent{RunID: "run-6", Generation: 6}},
+		{Event: pgQueReadyEvent{RunID: "run-7", Generation: 7}, HasConcurrencyLimit: true},
+		{Event: pgQueReadyEvent{RunID: "run-8", Generation: 8}},
+	}
+
+	for b.Loop() {
+		pgQueClaimSelectionBenchmarkSink = selectPgQueClaimCandidates(candidates, len(candidates))
 	}
 }
 
