@@ -264,14 +264,11 @@ func TestAddonPacks_AllDefined(t *testing.T) {
 	}
 }
 
-func TestAddonPacks_PositiveValues(t *testing.T) {
+func TestAddonPacks_SellableMetadataMatchesLaunchStatus(t *testing.T) {
 	t.Parallel()
 	for at, pack := range AddonPacks {
 		if pack.PackSize <= 0 {
 			t.Errorf("AddonPacks[%q].PackSize = %d, want > 0", at, pack.PackSize)
-		}
-		if pack.PriceCents <= 0 {
-			t.Errorf("AddonPacks[%q].PriceCents = %d, want > 0", at, pack.PriceCents)
 		}
 		if pack.Type != at {
 			t.Errorf("AddonPacks[%q].Type = %q, want %q", at, pack.Type, at)
@@ -279,8 +276,20 @@ func TestAddonPacks_PositiveValues(t *testing.T) {
 		if pack.DisplayName == "" {
 			t.Errorf("AddonPacks[%q].DisplayName is empty", at)
 		}
-		if pack.LookupKey == "" {
-			t.Errorf("AddonPacks[%q].LookupKey is empty", at)
+		if IsLaunchActiveAddonType(at) {
+			if pack.PriceCents <= 0 {
+				t.Errorf("active AddonPacks[%q].PriceCents = %d, want > 0", at, pack.PriceCents)
+			}
+			if pack.LookupKey == "" {
+				t.Errorf("active AddonPacks[%q].LookupKey is empty", at)
+			}
+			continue
+		}
+		if pack.PriceCents != 0 {
+			t.Errorf("roadmap AddonPacks[%q].PriceCents = %d, want 0", at, pack.PriceCents)
+		}
+		if pack.LookupKey != "" {
+			t.Errorf("roadmap AddonPacks[%q].LookupKey = %q, want empty", at, pack.LookupKey)
 		}
 	}
 }

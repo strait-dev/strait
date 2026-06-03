@@ -52,9 +52,9 @@ func IsLaunchActiveAddonType(t AddonType) bool {
 type AddonPackDefinition struct {
 	Type        AddonType
 	DisplayName string
-	LookupKey   string // Stripe lookup_key for cross-account resolution
+	LookupKey   string // Stripe lookup_key for launch-active add-ons; empty for roadmap
 	PackSize    int    // units per pack (e.g. +50 concurrent runs)
-	PriceCents  int    // monthly price in cents
+	PriceCents  int    // monthly price in cents; zero for roadmap
 	MaxTotal    int    // maximum total after add-ons; -1 = no cap
 }
 
@@ -79,17 +79,17 @@ var AddonPacks = map[AddonType]AddonPackDefinition{
 	AddonComplianceArchive: {
 		Type:        AddonComplianceArchive,
 		DisplayName: "Compliance Archive",
-		LookupKey:   "strait_addon_compliance_archive",
+		LookupKey:   "",
 		PackSize:    1,
-		PriceCents:  5000, // $50/mo
+		PriceCents:  0,
 		MaxTotal:    1,
 	},
 	AddonDedicatedWorkers: {
 		Type:        AddonDedicatedWorkers,
 		DisplayName: "Dedicated Worker Pool",
-		LookupKey:   "strait_addon_dedicated_pool",
+		LookupKey:   "",
 		PackSize:    1,
-		PriceCents:  20000, // $200/mo
+		PriceCents:  0,
 		MaxTotal:    -1,
 	},
 	AddonEnvironments5: {

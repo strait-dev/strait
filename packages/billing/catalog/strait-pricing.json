@@ -421,22 +421,22 @@
     {
       "type": "compliance_archive",
       "displayName": "Compliance archive",
-      "lookupKey": "strait_addon_compliance_archive",
+      "lookupKey": "",
       "packSize": 1,
-      "priceCents": 5000,
+      "priceCents": 0,
       "maxTotal": 1,
       "status": "roadmap",
-      "availableOn": ["pro", "scale", "business"]
+      "availableOn": []
     },
     {
       "type": "dedicated_workers",
       "displayName": "Dedicated worker pool",
-      "lookupKey": "strait_addon_dedicated_pool",
+      "lookupKey": "",
       "packSize": 1,
-      "priceCents": 20000,
+      "priceCents": 0,
       "maxTotal": -1,
       "status": "roadmap",
-      "availableOn": ["scale", "business"]
+      "availableOn": []
     }
   ],
   "roadmapFeatures": [
