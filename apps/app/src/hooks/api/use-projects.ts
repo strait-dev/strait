@@ -23,33 +23,6 @@ export const projectsQueryOptions = (organizationId: string) =>
     enabled: !!organizationId,
   });
 
-export const useCreateProject = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationKey: ["projects", "create"],
-    mutationFn: (data: {
-      organizationId: string;
-      name: string;
-      description?: string;
-    }) => createProjectServerFn({ data }),
-    onSuccess: (data) => {
-      getPostHog()?.capture("project_created", { project_id: data?.id });
-    },
-    onError: (err) => {
-      getPostHog()?.capture("mutation_error", {
-        action: "project_created",
-        error_message: err instanceof Error ? err.message : "Unknown error",
-      });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.projects._def,
-      });
-    },
-  });
-};
-
 const invalidateProjectScopedQueries = (queryClient: QueryClient) => {
   queryClient.invalidateQueries({ queryKey: queryKeys.auth._def });
   queryClient.invalidateQueries({ queryKey: queryKeys.jobs._def });

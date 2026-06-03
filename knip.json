@@ -1,11 +1,15 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": ["@manypkg/cli", "@typescript/native-preview"],
-  "ignoreWorkspaces": ["apps/strait", "packages/*"],
-  "ignore": ["sdk/**"],
+  "ignoreDependencies": [
+    "@manypkg/cli",
+    "@typescript/native-preview",
+    "openapi-typescript"
+  ],
+  "ignoreWorkspaces": ["apps/strait", "apps/app", "packages/*"],
+  "ignoreBinaries": ["go"],
   "workspaces": {
     "apps/docs": {
-      "entry": ["source.config.ts"]
+      "entry": ["docs.json"]
     }
   },
   "rules": {

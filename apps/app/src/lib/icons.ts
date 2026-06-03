@@ -10,7 +10,6 @@ import {
   AlarmClockIcon as _AlarmClockIcon,
   AlertCircleIcon as _AlertCircleIcon,
   CreditCardIcon as _CreditCardIcon,
-  FilterIcon as _FilterIcon,
   HelpCircleIcon as _HelpCircleIcon,
   LinkSquare01Icon as _LinkSquare01Icon,
   MoreVerticalIcon as _MoreVerticalIcon,
@@ -34,7 +33,6 @@ import {
   CheckmarkCircle01Icon,
   CheckmarkCircle02Icon,
   Clock01Icon,
-  Copy01Icon,
   Delete02Icon,
   File01Icon,
   GitBranchIcon,
@@ -71,11 +69,9 @@ export const PlayActionIcon = PlayIcon;
 export const PauseActionIcon = PauseIcon;
 export const PlusIcon = Add01Icon;
 export const TrashIcon = Delete02Icon;
-export const FilterIcon = _FilterIcon;
 export const RefreshIcon = Refresh01Icon;
 export const SearchIcon = Search01Icon;
 export const PencilEditIcon = PencilEdit02Icon;
-export const CopyIcon = Copy01Icon;
 
 // Status / feedback
 export const AlertIcon = Alert02Icon;
