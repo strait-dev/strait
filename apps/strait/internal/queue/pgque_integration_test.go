@@ -1486,6 +1486,135 @@ func TestPgQue_DequeueNForWorkerQueuesFiltersByEnvironment(t *testing.T) {
 	}
 }
 
+func TestPgQue_WorkerEnvironmentClaimsAreUniqueAndComplete(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	projectID := "project-pgque-worker-env-invariants"
+	prodEnvID := mustCreateEnvironment(t, ctx, st, projectID, "production")
+	stagingEnvID := mustCreateEnvironment(t, ctx, st, projectID, "staging")
+	prodJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, prodJob, "priority", prodEnvID)
+	stagingJob := mustCreateJob(t, ctx, st, projectID)
+	markWorkerJobQueueEnvironment(t, ctx, stagingJob, "priority", stagingEnvID)
+	q := mustPgQueQueue(t)
+
+	const runsPerEnvironment = 12
+	prodWant := make(map[string]struct{}, runsPerEnvironment)
+	stagingWant := make(map[string]struct{}, runsPerEnvironment)
+	for i := range runsPerEnvironment {
+		prodRun := &domain.JobRun{ID: newID(), JobID: prodJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
+		if err := q.Enqueue(ctx, prodRun); err != nil {
+			t.Fatalf("enqueue prod %d: %v", i, err)
+		}
+		prodWant[prodRun.ID] = struct{}{}
+
+		stagingRun := &domain.JobRun{ID: newID(), JobID: stagingJob.ID, ProjectID: projectID, ExecutionMode: domain.ExecutionModeWorker, QueueName: "priority"}
+		if err := q.Enqueue(ctx, stagingRun); err != nil {
+			t.Fatalf("enqueue staging %d: %v", i, err)
+		}
+		stagingWant[stagingRun.ID] = struct{}{}
+	}
+
+	type claimResult struct {
+		name string
+		runs []domain.JobRun
+		err  error
+	}
+	results := make(chan claimResult, 2)
+	var wg sync.WaitGroup
+	claimWorkerRuns := func(name, envID string) {
+		defer wg.Done()
+		claimed := make([]domain.JobRun, 0, runsPerEnvironment)
+		for len(claimed) < runsPerEnvironment {
+			if err := ctx.Err(); err != nil {
+				results <- claimResult{name: name, runs: claimed, err: err}
+				return
+			}
+			batch, err := q.DequeueNForWorkerQueues(ctx, 3, []domain.WorkerQueueRef{{
+				ProjectID:     projectID,
+				QueueName:     "priority",
+				EnvironmentID: envID,
+			}})
+			if err != nil {
+				results <- claimResult{name: name, runs: claimed, err: err}
+				return
+			}
+			if len(batch) == 0 {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+			claimed = append(claimed, batch...)
+		}
+		results <- claimResult{name: name, runs: claimed}
+	}
+
+	wg.Add(2)
+	go claimWorkerRuns("production", prodEnvID)
+	go claimWorkerRuns("staging", stagingEnvID)
+	wg.Wait()
+	close(results)
+
+	claimedByRun := make(map[string]string, runsPerEnvironment*2)
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("%s worker claim error after %d runs: %v", result.name, len(result.runs), result.err)
+		}
+		if len(result.runs) != runsPerEnvironment {
+			t.Fatalf("%s worker claimed %d runs, want %d", result.name, len(result.runs), runsPerEnvironment)
+		}
+		for _, run := range result.runs {
+			if previous, ok := claimedByRun[run.ID]; ok {
+				t.Fatalf("run %s claimed by both %s and %s", run.ID, previous, result.name)
+			}
+			claimedByRun[run.ID] = result.name
+			switch result.name {
+			case "production":
+				if _, ok := prodWant[run.ID]; !ok {
+					t.Fatalf("production worker claimed run %s outside production environment", run.ID)
+				}
+			case "staging":
+				if _, ok := stagingWant[run.ID]; !ok {
+					t.Fatalf("staging worker claimed run %s outside staging environment", run.ID)
+				}
+			default:
+				t.Fatalf("unexpected worker result %q", result.name)
+			}
+		}
+	}
+	if len(claimedByRun) != runsPerEnvironment*2 {
+		t.Fatalf("claimed runs = %d, want %d", len(claimedByRun), runsPerEnvironment*2)
+	}
+
+	allRunIDs := make([]string, 0, runsPerEnvironment*2)
+	for runID := range prodWant {
+		if _, ok := claimedByRun[runID]; !ok {
+			t.Fatalf("production run %s was never claimed", runID)
+		}
+		allRunIDs = append(allRunIDs, runID)
+	}
+	for runID := range stagingWant {
+		if _, ok := claimedByRun[runID]; !ok {
+			t.Fatalf("staging run %s was never claimed", runID)
+		}
+		allRunIDs = append(allRunIDs, runID)
+	}
+
+	var claimRows, distinctClaimedRuns int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COUNT(DISTINCT run_id)
+		FROM job_run_active_claims
+		WHERE run_id = ANY($1::text[])`,
+		allRunIDs,
+	).Scan(&claimRows, &distinctClaimedRuns); err != nil {
+		t.Fatalf("query active claims: %v", err)
+	}
+	if claimRows != runsPerEnvironment*2 || distinctClaimedRuns != runsPerEnvironment*2 {
+		t.Fatalf("active claims = %d distinct %d, want %d/%d", claimRows, distinctClaimedRuns, runsPerEnvironment*2, runsPerEnvironment*2)
+	}
+}
+
 func TestPgQue_MaxConcurrencyEnforcedFromRunState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
