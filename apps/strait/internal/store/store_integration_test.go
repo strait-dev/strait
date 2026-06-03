@@ -2414,6 +2414,27 @@ func TestUpdateRunMetadata(t *testing.T) {
 	if stored.Metadata["env"] != "prod" || stored.Metadata["team"] != "infra" || stored.Metadata["region"] != "eu" {
 		t.Fatalf("metadata after second update = %+v", stored.Metadata)
 	}
+
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query metadata xmin before no-op: %v", err)
+	}
+	if err := q.UpdateRunMetadata(ctx, run.ID, map[string]string{"team": "infra", "region": "eu"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() no-op error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query metadata xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("metadata no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
+	}
 }
 
 func TestAreAllDescendantsTerminal(t *testing.T) {

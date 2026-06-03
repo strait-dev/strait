@@ -2883,20 +2883,31 @@ func (q *Queries) UpdateRunMetadata(ctx context.Context, id string, annotations 
 		return fmt.Errorf("marshal annotations: %w", err)
 	}
 
-	query := `
-		UPDATE job_runs
-		SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-		WHERE id = $2`
-
-	tag, err := q.db.Exec(ctx, query, encoded, id)
-	if err != nil {
+	var found bool
+	var updated bool
+	if err := q.db.QueryRow(ctx, `
+		WITH target AS MATERIALIZED (
+			SELECT id, COALESCE(metadata, '{}'::jsonb) AS current_metadata
+			FROM job_runs
+			WHERE id = $2
+		),
+		updated AS (
+			UPDATE job_runs jr
+			SET metadata = target.current_metadata || $1::jsonb
+			FROM target
+			WHERE jr.id = target.id
+			  AND target.current_metadata IS DISTINCT FROM target.current_metadata || $1::jsonb
+			RETURNING jr.id
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`,
+		encoded,
+		id,
+	).Scan(&found, &updated); err != nil {
 		return fmt.Errorf("update run metadata: %w", err)
 	}
-
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return fmt.Errorf("%w: %s", ErrRunNotFound, id)
 	}
-
 	return nil
 }
 
