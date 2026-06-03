@@ -143,12 +143,27 @@ func allowedAddonQuantity(base OrgPlanLimits, addon Addon, applied map[AddonType
 		}
 	}
 	if pack, ok := AddonPacks[addon.AddonType]; ok && pack.MaxTotal >= 0 {
-		remainingTotal := pack.MaxTotal - applied[addon.AddonType]
-		if remainingTotal <= 0 {
-			return 0
-		}
-		if quantity > remainingTotal {
-			quantity = remainingTotal
+		switch addon.AddonType {
+		case AddonHistory30d:
+			if base.RetentionDays <= 0 {
+				return quantity
+			}
+			remainingDays := pack.MaxTotal - base.RetentionDays - applied[addon.AddonType]*pack.PackSize
+			if remainingDays <= 0 {
+				return 0
+			}
+			maxQuantity := remainingDays / pack.PackSize
+			if quantity > maxQuantity {
+				quantity = maxQuantity
+			}
+		default:
+			remainingTotal := pack.MaxTotal - applied[addon.AddonType]
+			if remainingTotal <= 0 {
+				return 0
+			}
+			if quantity > remainingTotal {
+				quantity = remainingTotal
+			}
 		}
 	}
 	return quantity

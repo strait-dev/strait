@@ -142,6 +142,9 @@ func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
 	t.Parallel()
 
 	scale := GetPlanLimits(domain.PlanScale)
+	scale.MaxAddonPacks = map[AddonType]int{
+		AddonHistory30d: -1,
+	}
 	result := EffectiveLimits(scale, []Addon{
 		{AddonType: AddonHistory30d, Quantity: 1000, Active: true},
 	})
@@ -152,7 +155,7 @@ func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
 	if result.RetentionDays > maxTotal {
 		t.Fatalf("retention with excessive history packs = %d, want <= %d", result.RetentionDays, maxTotal)
 	}
-	want := scale.RetentionDays + scale.MaxAddonPacks[AddonHistory30d]*AddonPacks[AddonHistory30d].PackSize
+	want := scale.RetentionDays + ((maxTotal-scale.RetentionDays)/AddonPacks[AddonHistory30d].PackSize)*AddonPacks[AddonHistory30d].PackSize
 	if result.RetentionDays != want {
 		t.Fatalf("retention with excessive history packs = %d, want %d", result.RetentionDays, want)
 	}
