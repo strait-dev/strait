@@ -10,16 +10,19 @@ import (
 )
 
 type fakeGCStore struct {
-	deleted       int64
-	compacted     int64
-	deletedClaims int64
-	err           error
-	compactErr    error
-	claimErr      error
-	panicRun      bool
-	calls         int
-	compactCalls  int
-	claimCalls    int
+	deleted           int64
+	compacted         int64
+	compactedRetries  int64
+	deletedClaims     int64
+	err               error
+	compactErr        error
+	retryCompactErr   error
+	claimErr          error
+	panicRun          bool
+	calls             int
+	compactCalls      int
+	retryCompactCalls int
+	claimCalls        int
 }
 
 func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64, error) {
@@ -33,6 +36,11 @@ func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64,
 func (f *fakeGCStore) CompactSupersededHeartbeats(_ context.Context, _ int) (int64, error) {
 	f.compactCalls++
 	return f.compacted, f.compactErr
+}
+
+func (f *fakeGCStore) CompactSupersededRetries(_ context.Context, _ int) (int64, error) {
+	f.retryCompactCalls++
+	return f.compactedRetries, f.retryCompactErr
 }
 
 func (f *fakeGCStore) DeleteInactiveActiveClaims(_ context.Context, _ int) (int64, error) {
@@ -51,14 +59,14 @@ func TestHeartbeatGC_Defaults(t *testing.T) {
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
-	s := &fakeGCStore{deleted: 17, compacted: 23, deletedClaims: 5}
+	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 45 {
-		t.Errorf("total = %d, want 45", g.TotalDeleted())
+	if g.TotalDeleted() != 56 {
+		t.Errorf("total = %d, want 56", g.TotalDeleted())
 	}
-	if s.calls != 1 || s.compactCalls != 1 || s.claimCalls != 1 {
-		t.Errorf("calls = %d compactCalls = %d claimCalls = %d", s.calls, s.compactCalls, s.claimCalls)
+	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 {
+		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls)
 	}
 }
 
@@ -96,6 +104,14 @@ func TestHeartbeatGC_CompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	if err := g.runOnce(context.Background()); err == nil {
 		t.Error("expected compact error propagation")
+	}
+}
+
+func TestHeartbeatGC_RetryCompactError(t *testing.T) {
+	s := &fakeGCStore{retryCompactErr: errors.New("oops")}
+	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
+	if err := g.runOnce(context.Background()); err == nil {
+		t.Error("expected retry compact error propagation")
 	}
 }
 

@@ -320,6 +320,65 @@ func TestRetries_ClearNonexistentIsNoOp(t *testing.T) {
 	}
 }
 
+func TestRetries_CompactSupersededKeepsLatestRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	firstID := "retry-compact-a-" + newID()
+	secondID := "retry-compact-b-" + newID()
+	if err := q.ScheduleRetry(ctx, firstID, time.Now().UTC().Add(time.Hour), 1); err != nil {
+		t.Fatalf("schedule first initial retry: %v", err)
+	}
+	if err := q.ScheduleRetry(ctx, firstID, time.Now().UTC().Add(2*time.Hour), 2); err != nil {
+		t.Fatalf("schedule first replacement retry: %v", err)
+	}
+	if err := q.ClearRetry(ctx, firstID); err != nil {
+		t.Fatalf("clear first retry: %v", err)
+	}
+	if err := q.ScheduleRetry(ctx, secondID, time.Now().UTC().Add(time.Hour), 1); err != nil {
+		t.Fatalf("schedule second retry: %v", err)
+	}
+
+	compacted, err := q.CompactSupersededRetries(ctx, 1)
+	if err != nil {
+		t.Fatalf("compact first page: %v", err)
+	}
+	if compacted != 1 {
+		t.Fatalf("first compacted rows = %d, want 1", compacted)
+	}
+	compacted, err = q.CompactSupersededRetries(ctx, 100)
+	if err != nil {
+		t.Fatalf("compact remaining: %v", err)
+	}
+	if compacted != 1 {
+		t.Fatalf("remaining compacted rows = %d, want 1", compacted)
+	}
+
+	var firstRows int
+	var firstLatestCleared bool
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cleared ORDER BY id DESC))[1], FALSE)
+		FROM job_retries
+		WHERE run_id = $1`, firstID).Scan(&firstRows, &firstLatestCleared); err != nil {
+		t.Fatalf("query first retry rows: %v", err)
+	}
+	if firstRows != 1 {
+		t.Fatalf("first retry rows after compaction = %d, want latest row only", firstRows)
+	}
+	if !firstLatestCleared {
+		t.Fatal("first latest retry row must remain the clear tombstone")
+	}
+
+	var secondRows int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_retries WHERE run_id = $1`, secondID).Scan(&secondRows); err != nil {
+		t.Fatalf("query second retry rows: %v", err)
+	}
+	if secondRows != 1 {
+		t.Fatalf("second retry rows after compaction = %d, want untouched latest row", secondRows)
+	}
+}
+
 func TestRetries_RunRetryBlockedUsesLatestRow(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

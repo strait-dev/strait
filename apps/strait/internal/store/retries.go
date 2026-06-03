@@ -167,3 +167,36 @@ func (q *Queries) CountPendingRetries(ctx context.Context) (int, error) {
 	}
 	return count, nil
 }
+
+// CompactSupersededRetries physically removes retry history rows that are no
+// longer the latest row for their run. Retry writes stay append-only; this
+// bounded cold-path cleanup keeps the side table from growing without bound.
+func (q *Queries) CompactSupersededRetries(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededRetries")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const sql = `
+		WITH victims AS (
+			SELECT r.id
+			FROM job_retries r
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_retries newer
+				WHERE newer.run_id = r.run_id
+				  AND newer.id > r.id
+			)
+			ORDER BY r.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_retries r
+		USING victims
+		WHERE r.id = victims.id`
+	tag, err := q.db.Exec(ctx, sql, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded retries: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

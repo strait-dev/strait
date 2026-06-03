@@ -10,7 +10,7 @@ import (
 	"strait/internal/store"
 )
 
-// Orphan heartbeat GC.
+// Run side-table GC.
 //
 // The unlogged heartbeat side table `job_run_heartbeats` is
 // maintained by the worker -- inserts on claim and heartbeat tick, clear
@@ -20,8 +20,9 @@ import (
 // grows without bound.
 //
 // This GC runs hourly under an advisory lock, clears heartbeat rows whose
-// owning run is no longer active, and deletes superseded heartbeat history.
-// Both operations are bounded per tick so large cleanups spread across cycles.
+// owning run is no longer active, and deletes superseded heartbeat, retry, and
+// active-claim history. Cleanup is bounded per tick so large tables are spread
+// across cycles.
 
 const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 
@@ -29,6 +30,7 @@ const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 type HeartbeatGCStore interface {
 	DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error)
 	CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error)
+	CompactSupersededRetries(ctx context.Context, limit int) (int64, error)
 	DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error)
 }
 
@@ -130,15 +132,20 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("heartbeat GC compact failed", "error", err)
 		return err
 	}
+	compactedRetries, err := h.store.CompactSupersededRetries(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("retry GC compact failed", "error", err)
+		return err
+	}
 	deletedClaims, err := h.store.DeleteInactiveActiveClaims(ctx, h.batchLimit)
 	if err != nil {
 		h.logger.Warn("active claim GC failed", "error", err)
 		return err
 	}
-	total := deleted + compacted + deletedClaims
+	total := deleted + compacted + compactedRetries + deletedClaims
 	h.totalDeleted.Add(total)
 	if total > 0 {
-		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "deleted_active_claims", deletedClaims)
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims)
 	}
 	return nil
 }
