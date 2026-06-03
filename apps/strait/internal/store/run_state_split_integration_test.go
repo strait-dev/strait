@@ -377,6 +377,60 @@ func TestRunStateSplit_DeadLetterTransitionUsesColdTerminalState(t *testing.T) {
 	}
 }
 
+func TestRunStateSplit_NonTerminalRetryErrorFieldsReadFromLifecycleEvent(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-state-retry-error")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusExecuting
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		"attempt":     2,
+		"error":       "execution timed out",
+		"error_class": "transient",
+		"started_at":  nil,
+		"finished_at": nil,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus() error = %v", err)
+	}
+
+	var ledgerError *string
+	var ledgerErrorClass *string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT error, error_class
+		FROM job_runs
+		WHERE id = $1`,
+		run.ID,
+	).Scan(&ledgerError, &ledgerErrorClass); err != nil {
+		t.Fatalf("query job_runs error fields: %v", err)
+	}
+	if ledgerError != nil {
+		t.Fatalf("job_runs error = %q, want NULL to avoid fat-row churn", *ledgerError)
+	}
+	if ledgerErrorClass != nil {
+		t.Fatalf("job_runs error_class = %q, want NULL to avoid fat-row churn", *ledgerErrorClass)
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Status != domain.StatusQueued || got.Attempt != 2 {
+		t.Fatalf("GetRun status/attempt = %q/%d, want queued/2", got.Status, got.Attempt)
+	}
+	if got.Error != "execution timed out" {
+		t.Fatalf("GetRun error = %q, want execution timed out", got.Error)
+	}
+	if got.ErrorClass != "transient" {
+		t.Fatalf("GetRun error_class = %q, want transient", got.ErrorClass)
+	}
+}
+
 func TestRunStateSplit_ReplayDeadLetterReactivatesHotState(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
