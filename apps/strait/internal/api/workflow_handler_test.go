@@ -3846,6 +3846,25 @@ func TestHandleUpsertWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.
 	}
 }
 
+func TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetWorkflowPolicyByProjectFunc: func(context.Context, string) (*domain.WorkflowPolicy, error) {
+			t.Fatal("GetWorkflowPolicyByProject must not run below Advanced RBAC")
+			return nil, nil
+		},
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+
+	_, err := srv.handleGetWorkflowPolicy(ctx, &GetWorkflowPolicyInput{ProjectID: "proj-1"})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
 func TestHandleUpsertWorkflowPolicy_RBACManagerAllowed(t *testing.T) {
 	t.Parallel()
 

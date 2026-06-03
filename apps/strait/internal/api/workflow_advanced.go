@@ -70,6 +70,9 @@ func (s *Server) handleGetWorkflowPolicy(ctx context.Context, input *GetWorkflow
 	if err := requireProjectMatch(ctx, input.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("not found")
 	}
+	if err := s.checkRBACLevel(ctx, input.ProjectID, "advanced", "Workflow policies"); err != nil {
+		return nil, err
+	}
 	policy, err := s.store.GetWorkflowPolicyByProject(ctx, input.ProjectID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to get workflow policy")

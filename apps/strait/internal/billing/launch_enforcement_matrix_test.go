@@ -46,6 +46,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "history retention cap", status: launchPromiseRuntime, gate: "PlanRetentionResolver", test: "TestGetOrgRetentionDays_ProPlan"},
 	{promise: "API rate limit", status: launchPromiseRuntime, gate: "ratelimit middleware", test: "TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault"},
 	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleCreateRole_StarterBasicRBACRejectsCustomRole"},
+	{promise: "workflow policies Advanced RBAC", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy"},
 	{promise: "audit logs Scale+", status: launchPromiseRuntime, gate: "FeatureAuditLogs", test: "TestAuditLogs_FreeTierRejected"},
 	{promise: "canary deployments Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentUpdate_FreeTierRejected"},
 	{promise: "canary status and rollback Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentStatus_FreeTierRejected"},
