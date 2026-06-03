@@ -72,6 +72,9 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "custom RBAC roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureCustomRBAC},
 	{promise: "dedicated compute roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureDedicatedCompute},
 	{promise: "priority queue roadmap", status: launchPromiseRoadmap, roadmapGate: FeaturePriorityQueue},
+	{promise: "session management roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSessionManagement},
+	{promise: "secret rotation roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSecretRotation},
+	{promise: "SIEM export roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSIEMExport},
 }
 
 func TestLaunchEnforcementMatrixHasEvidenceForActivePromises(t *testing.T) {
@@ -120,6 +123,46 @@ func TestLaunchEnforcementMatrixRoadmapFeaturesStayInactive(t *testing.T) {
 			if registry.AllowsFeature(tier, row.roadmapGate) {
 				t.Fatalf("%s enables roadmap feature %q for %s", row.promise, row.roadmapGate, tier)
 			}
+		}
+	}
+}
+
+func TestLaunchEnforcementMatrixCoversEveryRoadmapFeature(t *testing.T) {
+	t.Parallel()
+
+	covered := map[Feature]bool{}
+	for _, row := range launchEnforcementMatrix {
+		if row.status == launchPromiseRoadmap {
+			covered[row.roadmapGate] = true
+		}
+	}
+	for _, feature := range []Feature{
+		FeatureHTTPMode,
+		FeatureApprovalGates,
+		FeatureSubWorkflows,
+		FeatureJobChaining,
+		FeatureCompensatingTxns,
+		FeatureCanaryDeployments,
+		FeatureAuditLogs,
+		FeatureSSO,
+		FeatureSLA,
+		FeatureRBAC,
+		FeatureAllCronOverlap,
+		FeatureDedicatedCompute,
+		FeatureStaticIPs,
+		FeatureVPCPeering,
+		FeatureSCIM,
+		FeatureDataResidency,
+		FeatureCustomRBAC,
+		FeaturePriorityQueue,
+		FeatureIPAllowlisting,
+		FeatureSessionManagement,
+		FeatureSecretRotation,
+		FeatureSIEMExport,
+		FeatureLogStreaming,
+	} {
+		if IsRoadmapFeature(feature) && !covered[feature] {
+			t.Fatalf("roadmap feature %q is missing launch matrix coverage", feature)
 		}
 	}
 }

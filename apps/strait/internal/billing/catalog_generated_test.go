@@ -22,7 +22,7 @@ func TestGeneratedCatalogHashMatchesSource(t *testing.T) {
 	}
 }
 
-func TestLaunchCatalogKeepsRoadmapSecurityFeaturesInactive(t *testing.T) {
+func TestLaunchCatalogKeepsRoadmapFeaturesInactive(t *testing.T) {
 	for _, tier := range []struct {
 		name   string
 		limits OrgPlanLimits
@@ -30,9 +30,19 @@ func TestLaunchCatalogKeepsRoadmapSecurityFeaturesInactive(t *testing.T) {
 		{"business", GetPlanLimits(domain.PlanBusiness)},
 		{"enterprise", GetPlanLimits(domain.PlanEnterprise)},
 	} {
-		if tier.limits.HasSSO || tier.limits.HasSCIM || tier.limits.HasIPAllowlisting ||
-			tier.limits.HasStaticIPs || tier.limits.HasVPCPeering || tier.limits.HasDataResidency {
-			t.Fatalf("%s exposes a roadmap security feature as an active entitlement: %+v", tier.name, tier.limits)
+		if tier.limits.HasSSO ||
+			tier.limits.HasSCIM ||
+			tier.limits.HasIPAllowlisting ||
+			tier.limits.HasStaticIPs ||
+			tier.limits.HasVPCPeering ||
+			tier.limits.HasDataResidency ||
+			tier.limits.HasCustomRBAC ||
+			tier.limits.HasDedicatedCompute ||
+			tier.limits.HasPriorityQueue ||
+			tier.limits.HasSessionManagement ||
+			tier.limits.HasSecretRotation ||
+			tier.limits.HasSIEMExport {
+			t.Fatalf("%s exposes a roadmap feature as an active entitlement: %+v", tier.name, tier.limits)
 		}
 	}
 }
