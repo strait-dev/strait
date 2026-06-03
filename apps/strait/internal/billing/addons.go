@@ -19,33 +19,18 @@ const (
 
 // AllAddonTypes returns all known add-on types.
 func AllAddonTypes() []AddonType {
-	return []AddonType{
-		AddonConcurrency100,
-		AddonHistory30d,
-		AddonComplianceArchive,
-		AddonDedicatedWorkers,
-		AddonEnvironments5,
-	}
+	return append([]AddonType(nil), AddonCatalogOrder...)
 }
 
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
-	switch t {
-	case AddonConcurrency100, AddonHistory30d,
-		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5:
-		return true
-	}
-	return false
+	_, ok := AddonCatalogs[t]
+	return ok
 }
 
 func IsLaunchActiveAddonType(t AddonType) bool {
-	switch t {
-	case AddonConcurrency100, AddonHistory30d, AddonEnvironments5:
-		return true
-	case AddonComplianceArchive, AddonDedicatedWorkers:
-		return false
-	}
-	return false
+	c, ok := AddonCatalogs[t]
+	return ok && c.Status == "active"
 }
 
 // AddonPackDefinition describes the increment and pricing for an add-on pack.
@@ -55,51 +40,26 @@ type AddonPackDefinition struct {
 	LookupKey   string // Stripe lookup_key for launch-active add-ons; empty for roadmap
 	PackSize    int    // units per pack (e.g. +50 concurrent runs)
 	PriceCents  int    // monthly price in cents; zero for roadmap
-	MaxTotal    int    // maximum total after add-ons; -1 = no cap
+	MaxTotal    int    // catalog maximum total; -1 = no cap
 }
 
 // AddonPacks defines the available add-on packs.
-var AddonPacks = map[AddonType]AddonPackDefinition{
-	AddonConcurrency100: {
-		Type:        AddonConcurrency100,
-		DisplayName: "+100 Concurrent Runs",
-		LookupKey:   "strait_addon_concurrency_100",
-		PackSize:    100,
-		PriceCents:  2000, // $20/mo
-		MaxTotal:    -1,
-	},
-	AddonHistory30d: {
-		Type:        AddonHistory30d,
-		DisplayName: "+30 Days History",
-		LookupKey:   "strait_addon_history_30d",
-		PackSize:    30,   // +30 days
-		PriceCents:  4000, // $40/mo
-		MaxTotal:    -1,
-	},
-	AddonComplianceArchive: {
-		Type:        AddonComplianceArchive,
-		DisplayName: "Compliance Archive",
-		LookupKey:   "",
-		PackSize:    1,
-		PriceCents:  0,
-		MaxTotal:    1,
-	},
-	AddonDedicatedWorkers: {
-		Type:        AddonDedicatedWorkers,
-		DisplayName: "Dedicated Worker Pool",
-		LookupKey:   "",
-		PackSize:    1,
-		PriceCents:  0,
-		MaxTotal:    -1,
-	},
-	AddonEnvironments5: {
-		Type:        AddonEnvironments5,
-		DisplayName: "+5 Environments",
-		LookupKey:   "strait_addon_environments_5",
-		PackSize:    5,
-		PriceCents:  3000, // $30/mo
-		MaxTotal:    -1,
-	},
+var AddonPacks = addonPacksFromCatalog()
+
+func addonPacksFromCatalog() map[AddonType]AddonPackDefinition {
+	packs := make(map[AddonType]AddonPackDefinition, len(AddonCatalogs))
+	for _, addonType := range AddonCatalogOrder {
+		c := AddonCatalogs[addonType]
+		packs[addonType] = AddonPackDefinition{
+			Type:        c.Type,
+			DisplayName: c.DisplayName,
+			LookupKey:   c.LookupKey,
+			PackSize:    c.PackSize,
+			PriceCents:  c.PriceCents,
+			MaxTotal:    c.MaxTotal,
+		}
+	}
+	return packs
 }
 
 // Addon represents an active add-on for an organization.

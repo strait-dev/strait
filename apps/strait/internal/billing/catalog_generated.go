@@ -104,3 +104,61 @@ var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 		RoadmapFeatures:      []string{"SSO/SAML", "SCIM", "IP allowlisting", "static IPs", "VPC peering", "data residency", "single-tenant orchestration", "BYO-cloud"},
 	},
 }
+
+// AddonCatalogOrder is the generated stable display and validation order for
+// add-on products.
+var AddonCatalogOrder = []AddonType{AddonConcurrency100, AddonHistory30d, AddonEnvironments5, AddonComplianceArchive, AddonDedicatedWorkers}
+
+// AddonCatalogs is the generated pricing catalog: one entry per add-on.
+var AddonCatalogs = map[AddonType]AddonCatalog{
+	AddonConcurrency100: {
+		Type:        AddonConcurrency100,
+		DisplayName: "+100 concurrent runs",
+		LookupKey:   "strait_addon_concurrency_100",
+		PackSize:    100,
+		PriceCents:  2000,
+		MaxTotal:    -1,
+		Status:      "active",
+		AvailableOn: []domain.PlanTier{domain.PlanPro, domain.PlanScale, domain.PlanBusiness},
+	},
+	AddonHistory30d: {
+		Type:        AddonHistory30d,
+		DisplayName: "+30 days run history",
+		LookupKey:   "strait_addon_history_30d",
+		PackSize:    30,
+		PriceCents:  4000,
+		MaxTotal:    365,
+		Status:      "active",
+		AvailableOn: []domain.PlanTier{domain.PlanScale, domain.PlanBusiness},
+	},
+	AddonEnvironments5: {
+		Type:        AddonEnvironments5,
+		DisplayName: "+5 active environments",
+		LookupKey:   "strait_addon_environments_5",
+		PackSize:    5,
+		PriceCents:  3000,
+		MaxTotal:    -1,
+		Status:      "active",
+		AvailableOn: []domain.PlanTier{domain.PlanPro, domain.PlanScale},
+	},
+	AddonComplianceArchive: {
+		Type:        AddonComplianceArchive,
+		DisplayName: "Compliance archive",
+		LookupKey:   "",
+		PackSize:    1,
+		PriceCents:  0,
+		MaxTotal:    1,
+		Status:      "roadmap",
+		AvailableOn: []domain.PlanTier{},
+	},
+	AddonDedicatedWorkers: {
+		Type:        AddonDedicatedWorkers,
+		DisplayName: "Dedicated worker pool",
+		LookupKey:   "",
+		PackSize:    1,
+		PriceCents:  0,
+		MaxTotal:    -1,
+		Status:      "roadmap",
+		AvailableOn: []domain.PlanTier{},
+	},
+}

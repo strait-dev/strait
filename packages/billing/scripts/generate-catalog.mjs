@@ -139,6 +139,13 @@ function goStringSlice(values) {
   return `[]string{${values.map(goString).join(", ")}}`;
 }
 
+function goPlanTierSlice(values) {
+  if (!values || values.length === 0) {
+    return "[]domain.PlanTier{}";
+  }
+  return `[]domain.PlanTier{${values.map((tier) => planConst[tier]).join(", ")}}`;
+}
+
 function displaySpendingCap(plan) {
   const cap = plan.overage.defaultSpendingCapMicrousd;
   if (cap < 0) {
@@ -591,6 +598,23 @@ function generateGoCatalog() {
 \t},`
     )
     .join("\n");
+  const addonOrder = catalog.addons
+    .map((addon) => addonConst[addon.type])
+    .join(", ");
+  const addonEntries = catalog.addons
+    .map(
+      (addon) => `\t${addonConst[addon.type]}: {
+\t\tType:        ${addonConst[addon.type]},
+\t\tDisplayName: ${goString(addon.displayName)},
+\t\tLookupKey:   ${goString(addon.lookupKey)},
+\t\tPackSize:    ${goInt(addon.packSize)},
+\t\tPriceCents:  ${goInt(addon.priceCents)},
+\t\tMaxTotal:    ${goInt(addon.maxTotal)},
+\t\tStatus:      ${goString(addon.status)},
+\t\tAvailableOn: ${goPlanTierSlice(addon.availableOn)},
+\t},`
+    )
+    .join("\n");
   return `${generatedHeader("//")}package billing
 
 import "strait/internal/domain"
@@ -598,6 +622,15 @@ import "strait/internal/domain"
 // PlanCatalogs is the generated pricing catalog: one entry per launch tier.
 var PlanCatalogs = map[domain.PlanTier]PlanCatalog{
 ${entries}
+}
+
+// AddonCatalogOrder is the generated stable display and validation order for
+// add-on products.
+var AddonCatalogOrder = []AddonType{${addonOrder}}
+
+// AddonCatalogs is the generated pricing catalog: one entry per add-on.
+var AddonCatalogs = map[AddonType]AddonCatalog{
+${addonEntries}
 }
 `;
 }

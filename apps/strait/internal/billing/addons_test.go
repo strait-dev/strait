@@ -47,6 +47,31 @@ func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
 	}
 }
 
+func TestAddonPacksDerivedFromGeneratedCatalog(t *testing.T) {
+	t.Parallel()
+
+	if len(AddonPacks) != len(AddonCatalogs) {
+		t.Fatalf("AddonPacks len = %d, want generated catalog len %d", len(AddonPacks), len(AddonCatalogs))
+	}
+	for _, addonType := range AddonCatalogOrder {
+		catalog, ok := AddonCatalogs[addonType]
+		if !ok {
+			t.Fatalf("generated catalog missing %s", addonType)
+		}
+		pack, ok := AddonPacks[addonType]
+		if !ok {
+			t.Fatalf("AddonPacks missing %s", addonType)
+		}
+		if pack.DisplayName != catalog.DisplayName ||
+			pack.LookupKey != catalog.LookupKey ||
+			pack.PackSize != catalog.PackSize ||
+			pack.PriceCents != catalog.PriceCents ||
+			pack.MaxTotal != catalog.MaxTotal {
+			t.Fatalf("AddonPacks[%s] = %+v, want generated catalog %+v", addonType, pack, catalog)
+		}
+	}
+}
+
 func TestEffectiveLimits_Concurrency100Pack(t *testing.T) {
 	t.Parallel()
 	base := GetPlanLimits(domain.PlanPro)
@@ -110,6 +135,26 @@ func TestEffectiveLimits_History30dPack(t *testing.T) {
 	want2Pack := business.RetentionDays + 60
 	if result.RetentionDays != want2Pack {
 		t.Errorf("Business + 2 history packs = %d, want %d", result.RetentionDays, want2Pack)
+	}
+}
+
+func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
+	t.Parallel()
+
+	scale := GetPlanLimits(domain.PlanScale)
+	result := EffectiveLimits(scale, []Addon{
+		{AddonType: AddonHistory30d, Quantity: 1000, Active: true},
+	})
+	maxTotal := AddonPacks[AddonHistory30d].MaxTotal
+	if maxTotal != 365 {
+		t.Fatalf("history add-on catalog MaxTotal = %d, want 365", maxTotal)
+	}
+	if result.RetentionDays > maxTotal {
+		t.Fatalf("retention with excessive history packs = %d, want <= %d", result.RetentionDays, maxTotal)
+	}
+	want := scale.RetentionDays + scale.MaxAddonPacks[AddonHistory30d]*AddonPacks[AddonHistory30d].PackSize
+	if result.RetentionDays != want {
+		t.Fatalf("retention with excessive history packs = %d, want %d", result.RetentionDays, want)
 	}
 }
 

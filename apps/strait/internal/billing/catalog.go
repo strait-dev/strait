@@ -25,10 +25,30 @@ type PlanCatalog struct {
 	RoadmapFeatures      []string
 }
 
+// AddonCatalog is the generated, customer-visible add-on product shape.
+// Launch-active add-ons have a Stripe lookup key; roadmap add-ons keep an empty
+// lookup key so checkout code cannot bind them accidentally.
+type AddonCatalog struct {
+	Type        AddonType
+	DisplayName string
+	LookupKey   string
+	PackSize    int
+	PriceCents  int
+	MaxTotal    int
+	Status      string
+	AvailableOn []domain.PlanTier
+}
+
 // GetPlanCatalog returns the catalog entry for a tier; falls back to Free.
 func GetPlanCatalog(tier domain.PlanTier) PlanCatalog {
 	if c, ok := PlanCatalogs[tier]; ok {
 		return c
 	}
 	return PlanCatalogs[domain.PlanFree]
+}
+
+// GetAddonCatalog returns the catalog entry for an add-on type.
+func GetAddonCatalog(t AddonType) (AddonCatalog, bool) {
+	c, ok := AddonCatalogs[t]
+	return c, ok
 }
