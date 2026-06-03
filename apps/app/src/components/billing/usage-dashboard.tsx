@@ -152,11 +152,11 @@ const UsageDashboard = () => {
 
   const planName = capitalize(usage.plan);
 
-  const totalCompute = (history ?? []).reduce(
+  const totalRunCost = (history ?? []).reduce(
     (sum, d) => sum + d.compute_cost_microusd,
     0
   );
-  const totalCost = totalCompute;
+  const totalCost = totalRunCost;
 
   // Top 5 projects by runs
   const topProjects = [...(projectCosts ?? [])]

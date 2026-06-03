@@ -76,7 +76,7 @@ const ProjectCostsTab = () => {
         />
         <MetricCard
           size="sm"
-          title="Compute Cost"
+          title="Run Cost"
           value={formatMicroUsd(totals.compute)}
         />
         <MetricCard
@@ -116,7 +116,7 @@ const ProjectCostsTab = () => {
               <TableRow>
                 <TableHead>Project</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
-                <TableHead className="text-right">Compute</TableHead>
+                <TableHead className="text-right">Run Cost</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>

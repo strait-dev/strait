@@ -166,28 +166,6 @@ export const AnomalyAlertSchema = Schema.Struct({
 });
 
 /**
- * Schema for the cost estimate response.
- *
- * @see {@link import("./use-cost-estimate").CostEstimate}
- */
-export const CostEstimateSchema = Schema.Struct({
-  preset: Schema.String,
-  timeout_secs: Schema.Number,
-  estimated_cost_microusd: Schema.Number,
-  alternatives: Schema.Array(
-    Schema.Struct({
-      preset: Schema.String,
-      cost: Schema.Number,
-      savings_pct: Schema.Number,
-    })
-  ),
-  credit_info: Schema.Struct({
-    remaining_credit: Schema.Number,
-    estimated_runs_remaining: Schema.Number,
-  }),
-});
-
-/**
  * Schema for the downgrade preview response.
  *
  * @see {@link import("./use-downgrade-preview").DowngradePreview}

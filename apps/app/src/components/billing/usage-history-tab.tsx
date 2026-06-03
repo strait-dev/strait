@@ -38,7 +38,7 @@ function triggerDownload(blob: Blob, filename: string) {
 
 const COST_CHART_CONFIG: ChartConfig = {
   compute_cost_microusd: {
-    label: "Compute",
+    label: "Run cost",
     color: "chart-3",
   },
 };
@@ -167,7 +167,7 @@ const UsageHistoryTab = () => {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Runs</TableHead>
-                  <TableHead className="text-right">Compute Cost</TableHead>
+                  <TableHead className="text-right">Run Cost</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

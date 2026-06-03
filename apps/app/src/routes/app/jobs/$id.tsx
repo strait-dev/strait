@@ -46,7 +46,6 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import CostEstimateCard from "@/components/billing/cost-estimate-card";
 import DetailPageSkeleton from "@/components/common/detail-page-skeleton";
 import EntityNotFound from "@/components/common/entity-not-found";
 import ErrorComponent from "@/components/common/error-component";
@@ -365,9 +364,6 @@ function JobDetailPage() {
               />
             </CardContent>
           </Card>
-
-          {/* Cost Estimate */}
-          <CostEstimateCard timeoutSecs={job.timeout_secs} />
 
           {/* Tags */}
           {job.tags && Object.keys(job.tags).length > 0 && (

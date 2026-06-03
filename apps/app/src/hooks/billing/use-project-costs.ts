@@ -21,7 +21,7 @@ export type ProjectCostEntry = {
   name: string;
   /** Total runs in the period. */
   runs: number;
-  /** Compute cost in micro-USD. */
+  /** Run overage cost in micro-USD. */
   compute_microusd: number;
   /** Total cost in micro-USD. */
   total_microusd: number;

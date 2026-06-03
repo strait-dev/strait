@@ -22,7 +22,7 @@ import { type PlanTierSlug, REFETCH_10M } from "./types";
 export type UsageForecastData = {
   /** Projected total runs for the month. */
   projected_monthly_runs: number;
-  /** Projected total compute cost in USD. */
+  /** Projected run overage cost in USD. */
   projected_monthly_compute_usd: number;
   /** Recommended plan based on projected usage. */
   recommended_plan: PlanTierSlug;

@@ -1,3 +1,4 @@
+import { PLANS, type PlanKey } from "@strait/billing";
 import { Badge } from "@strait/ui/components/badge";
 import {
   Card,
@@ -16,55 +17,48 @@ import {
 import { Separator } from "@strait/ui/components/separator";
 import { Slider } from "@strait/ui/components/slider";
 import { useState } from "react";
-import { PLAN_LIMITS, type PlanTier } from "@/lib/billing-constants";
 
-const PLAN_TIERS: PlanTier[] = ["free", "starter", "pro", "scale", "business"];
+type SelfServePlanTier = Exclude<PlanKey, "enterprise">;
 
-const PLAN_LABELS: Record<PlanTier, string> = {
-  free: "Free",
-  starter: "Starter",
-  pro: "Pro",
-  scale: "Scale",
-  business: "Business",
-  enterprise: "Enterprise",
-};
-
-const MEMBER_OVERAGE_PER_SEAT: Record<PlanTier, number> = {
-  free: 0,
-  starter: 5,
-  pro: 10,
-  scale: 10,
-  business: 0,
-  enterprise: 0,
-};
+const PLAN_TIERS = [
+  "free",
+  "starter",
+  "pro",
+  "scale",
+  "business",
+] as const satisfies readonly SelfServePlanTier[];
 
 const calculatePlanCost = (
-  tier: PlanTier,
+  tier: SelfServePlanTier,
   runsPerMonth: number,
   members: number
-): number => {
-  const limits = PLAN_LIMITS[tier];
+): number | null => {
+  const plan = PLANS[tier];
+  const monthlyPrice = plan.prices.monthly / 100;
+  const includedRuns = plan.limits.runsPerMonth;
+  const memberLimit = plan.limits.membersPerOrg;
+  const overagePerThousandRuns = plan.limits.overagePerThousandRuns ?? 0;
 
-  if (limits.priceMonthly < 0) {
-    return -1;
+  if (memberLimit !== null && members > memberLimit) {
+    return null;
   }
 
-  let cost = limits.priceMonthly;
+  let cost = monthlyPrice;
 
-  if (limits.runsPerMonth > 0 && runsPerMonth > limits.runsPerMonth) {
-    const overageRuns = runsPerMonth - limits.runsPerMonth;
-    cost += (overageRuns / 1000) * limits.overagePer1K;
-  }
-
-  if (limits.members > 0 && members > limits.members) {
-    cost += (members - limits.members) * MEMBER_OVERAGE_PER_SEAT[tier];
+  if (includedRuns !== null && runsPerMonth > includedRuns) {
+    const overageRuns = runsPerMonth - includedRuns;
+    cost += (overageRuns / 1000) * overagePerThousandRuns;
   }
 
   return cost;
 };
 
-const findRecommendedPlan = (costs: { tier: PlanTier; cost: number }[]) => {
-  const validCosts = costs.filter((c) => c.cost >= 0);
+const findRecommendedPlan = (
+  costs: { tier: SelfServePlanTier; cost: number | null }[]
+) => {
+  const validCosts = costs.filter(
+    (c): c is { tier: SelfServePlanTier; cost: number } => c.cost !== null
+  );
   if (validCosts.length === 0) {
     return null;
   }
@@ -147,7 +141,7 @@ const PricingCalculator = () => {
               <Item key={tier} size="xs" variant="ghost">
                 <ItemContent>
                   <ItemTitle>
-                    {PLAN_LABELS[tier]}
+                    {PLANS[tier].name}
                     {recommended === tier ? (
                       <Badge variant="success-light">Best value</Badge>
                     ) : null}
@@ -155,7 +149,9 @@ const PricingCalculator = () => {
                 </ItemContent>
                 <ItemActions>
                   <span className="font-mono text-sm tabular-nums">
-                    {cost < 0 ? "Custom" : `$${cost.toFixed(2)}/mo`}
+                    {cost === null
+                      ? "Limit exceeded"
+                      : `$${cost.toFixed(2)}/mo`}
                   </span>
                 </ItemActions>
               </Item>

@@ -8,15 +8,13 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { Progress } from "@strait/ui/components/progress";
-import { ENTERPRISE_TIERS, type EnterpriseTier } from "@/lib/billing-constants";
 import { CheckCircleIcon, CheckIcon } from "@/lib/icons";
 
 type EnterpriseOverviewProps = {
   enterpriseTier: string;
   contractEndDate: string;
-  computeDiscountPct: number;
+  overageDiscountPct: number;
   slaUptimePct: number;
-  includedCreditMicro: number;
   periodSpendMicro: number;
   creditUsedPercent: number;
 };
@@ -47,13 +45,17 @@ const ENTERPRISE_ROADMAP_FEATURES = [
 export const EnterpriseOverview = ({
   enterpriseTier,
   contractEndDate,
-  computeDiscountPct,
+  overageDiscountPct,
   slaUptimePct,
   periodSpendMicro,
   creditUsedPercent,
 }: EnterpriseOverviewProps) => {
-  const tierConfig = ENTERPRISE_TIERS[enterpriseTier as EnterpriseTier] ?? null;
-  const tierName = tierConfig?.name ?? "Enterprise";
+  const tierName =
+    enterpriseTier
+      ?.split("_")
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(" ") || "Enterprise";
 
   return (
     <div className="space-y-6">
@@ -89,8 +91,8 @@ export const EnterpriseOverview = ({
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Compute discount</CardDescription>
-            <CardTitle className="text-lg">{computeDiscountPct}% off</CardTitle>
+            <CardDescription>Overage discount</CardDescription>
+            <CardTitle className="text-lg">{overageDiscountPct}% off</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-xs">
