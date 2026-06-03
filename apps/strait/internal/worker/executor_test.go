@@ -2272,7 +2272,7 @@ func BenchmarkExecutorPoll(b *testing.B) {
 		HeartbeatInterval: time.Hour,
 		HTTPClient:        &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("skip") })},
 	})
-	exec.logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	exec.logger = slog.New(slog.DiscardHandler)
 	defer func() { _ = exec.pool.Shutdown(context.Background()) }()
 
 	b.ResetTimer()

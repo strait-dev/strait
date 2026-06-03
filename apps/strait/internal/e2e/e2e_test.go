@@ -87,6 +87,21 @@ func mustClean(t *testing.T) {
 	}
 }
 
+func newIsolatedQueue(t testing.TB) *queue.PgQueQueue {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	q := queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "e2e-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+	go q.RunTicker(ctx)
+	return q
+}
+
 func authedRequest(method, path, body string, projectID ...string) *http.Request {
 	var req *http.Request
 	if body == "" {

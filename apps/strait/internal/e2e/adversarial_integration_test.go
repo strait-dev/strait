@@ -65,8 +65,9 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 	mustClean(t)
 
 	ctx := context.Background()
+	q := newIsolatedQueue(t)
 	job := testutil.MustCreateJob(t, ctx, testStore, nil)
-	_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
+	_ = testutil.MustEnqueueRun(t, ctx, q, job, nil)
 
 	const goroutines = 10
 	var wg conc.WaitGroup
@@ -74,7 +75,7 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 
 	for range goroutines {
 		wg.Go(func() {
-			runs, err := testQueue.DequeueN(ctx, 1)
+			runs, err := q.DequeueN(ctx, 1)
 			if err != nil {
 				return
 			}

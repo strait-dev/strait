@@ -61,36 +61,6 @@ func (m *mockTxDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
 
 var _ store.TxBeginner = (*mockTxDBTX)(nil)
 
-// mockTx implements pgx.Tx for testing statement timeout in transactions.
-type mockTx struct {
-	mockDBTX
-	commitFn   func(ctx context.Context) error
-	rollbackFn func(ctx context.Context) error
-}
-
-func (m *mockTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, errors.New("nested") }
-func (m *mockTx) Commit(ctx context.Context) error {
-	if m.commitFn != nil {
-		return m.commitFn(ctx)
-	}
-	return nil
-}
-func (m *mockTx) Rollback(ctx context.Context) error {
-	if m.rollbackFn != nil {
-		return m.rollbackFn(ctx)
-	}
-	return nil
-}
-func (m *mockTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
-	return 0, nil
-}
-func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (m *mockTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
-func (m *mockTx) Prepare(_ context.Context, _ string, _ string) (*pgconn.StatementDescription, error) {
-	return nil, nil
-}
-func (m *mockTx) Conn() *pgx.Conn { return nil }
-
 // mockRow implements pgx.Row.
 type mockRow struct {
 	scanFn func(dest ...any) error

@@ -73,11 +73,16 @@ func stQueue(t *testing.T) *queue.PgQueQueue {
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "store-" + stID(),
 		ReceiveWindow: 100,
 	})
+	go q.RunTicker(ctx)
+	return q
 }
 
 func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {

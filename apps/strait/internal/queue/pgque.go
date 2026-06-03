@@ -1458,13 +1458,16 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
 	}
 	if len(candidates) > 0 {
+		if err := q.applyLatestCandidatePriorities(ctx, candidates); err != nil {
+			return pgQueBatchReservation{}, err
+		}
 		sort.SliceStable(candidates, func(i, j int) bool {
 			if candidates[i].Event.Priority != candidates[j].Event.Priority {
 				return candidates[i].Event.Priority > candidates[j].Event.Priority
 			}
 			return candidates[i].Order < candidates[j].Order
 		})
-		candidates = candidates[:min(len(candidates), max(limit, q.cfg.ReceiveWindow))]
+		candidates = candidates[:min(len(candidates), limit)]
 		for _, candidate := range candidates {
 			removeIDs[candidate.Message.ID] = struct{}{}
 		}
@@ -1481,6 +1484,58 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 		batch.Messages = remaining
 	}
 	return pgQueBatchReservation{Batch: batch, Candidates: candidates, Invalid: invalid}, nil
+}
+
+func (q *PgQueQueue) applyLatestCandidatePriorities(ctx context.Context, candidates []pgQueCandidate) error {
+	if len(candidates) <= 1 {
+		return nil
+	}
+	ids := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.Event.RunID)
+	}
+
+	rows, err := q.db.Query(ctx, `
+		WITH input AS (
+			SELECT *
+			FROM unnest($1::text[]) AS input(run_id)
+		)
+		SELECT input.run_id,
+		       COALESCE(priority.priority, s.priority) AS priority
+		FROM input
+		JOIN job_run_state s ON s.run_id = input.run_id
+		LEFT JOIN LATERAL (
+		    SELECT e.priority
+		    FROM job_run_priority_events e
+		    WHERE e.run_id = input.run_id
+		    ORDER BY e.id DESC
+		    LIMIT 1
+		) priority ON true`,
+		ids,
+	)
+	if err != nil {
+		return fmt.Errorf("pgque candidate priorities: %w", err)
+	}
+	defer rows.Close()
+
+	priorities := make(map[string]int, len(candidates))
+	for rows.Next() {
+		var runID string
+		var priority int
+		if err := rows.Scan(&runID, &priority); err != nil {
+			return fmt.Errorf("pgque candidate priority scan: %w", err)
+		}
+		priorities[runID] = priority
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("pgque candidate priority rows: %w", err)
+	}
+	for i := range candidates {
+		if priority, ok := priorities[candidates[i].Event.RunID]; ok {
+			candidates[i].Event.Priority = priority
+		}
+	}
+	return nil
 }
 
 func (q *PgQueQueue) finishBatchReservation(ctx context.Context, state *pgQueRouteState, batch *pgQueActiveBatch, returnCandidates []pgQueCandidate) error {
@@ -1557,7 +1612,7 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	if len(candidates) == 0 {
 		return nil, nil, false, nil
 	}
-	selected := candidates[:min(len(candidates), max(limit, q.cfg.ReceiveWindow))]
+	selected := candidates[:min(len(candidates), limit)]
 	ids := make([]string, 0, len(selected))
 	generations := make([]int64, 0, len(selected))
 	for _, candidate := range selected {
