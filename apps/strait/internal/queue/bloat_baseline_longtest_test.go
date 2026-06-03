@@ -176,6 +176,13 @@ func pgqueBloatGate(completed int64) loadtest.QueueBloatGate {
 				MaxTotalTableByteGain: 64 * 1024,
 				MaxTotalIndexByteGain: 64 * 1024,
 			},
+			{
+				Name:                  "strait_pgque_ready_events",
+				MaxDeadTupleDelta:     0,
+				MaxDeadTupleRatio:     0.0,
+				MaxTotalTableByteGain: maxInt64(128*1024, completed*128),
+				MaxTotalIndexByteGain: maxInt64(128*1024, completed*128),
+			},
 		},
 	}
 }
@@ -622,6 +629,7 @@ func sampleRelationBloat(tb baselineTB, ctx context.Context) []loadtest.Relation
 		   OR s.relname = 'job_run_active_claims'
 		   OR s.relname = 'job_run_lifecycle_events'
 		   OR s.relname = 'strait_pgque_routes'
+		   OR s.relname = 'strait_pgque_ready_events'
 		   OR s.relname LIKE 'event_%'
 		   OR s.relname LIKE 'enqueue_outbox_%'
 		   OR s.relname LIKE 'enqueue_outbox_history_%'

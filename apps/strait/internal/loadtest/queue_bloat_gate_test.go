@@ -130,6 +130,46 @@ func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
 	}
 }
 
+func TestEvaluateQueueBloatGate_FailsMissingRequiredRelation(t *testing.T) {
+	baseline := QueueBenchmarkReport{
+		Engine:         "legacy",
+		Counters:       QueueBenchmarkCounters{Completed: 1000, WALBytes: 10_000},
+		DequeueLatency: LatencySummary{P99: 10 * time.Millisecond},
+	}
+	candidate := QueueBenchmarkReport{
+		Engine:         "pgque",
+		Counters:       QueueBenchmarkCounters{Completed: 1000, WALBytes: 8_000},
+		DequeueLatency: LatencySummary{P99: 50 * time.Millisecond},
+		Relations: []RelationBloatSample{{
+			Name:       "queue_entries",
+			LiveTuples: 1000,
+		}},
+	}
+
+	result := EvaluateQueueBloatGate(CompareQueueBenchmarkReports("pgque", baseline, candidate), QueueBloatGate{
+		MaxP99Latency:         100 * time.Millisecond,
+		RequireWALImprovement: true,
+		RelationGates: []RelationBloatGate{{
+			Name:              "strait_pgque_ready_events",
+			MaxDeadTupleDelta: 0,
+			MaxDeadTupleRatio: 0.05,
+		}},
+	})
+
+	if result.Passed {
+		t.Fatal("gate passed, want missing relation failure")
+	}
+	found := false
+	for _, failure := range result.Failures {
+		if failure == "missing relation delta for strait_pgque_ready_events" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("failures = %v, want missing pgque ready-event relation failure", result.Failures)
+	}
+}
+
 func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
 	baseline := QueueBenchmarkReport{
 		Engine: "legacy",
