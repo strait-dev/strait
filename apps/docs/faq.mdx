@@ -38,7 +38,7 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
     Pull the new image and restart. Migrations run automatically on startup. See [Self-Hosting](/guides/self-hosting) for the self-host flow and [Deployment](/guides/deployment) for production.
   </Accordion>
   <Accordion title="Is there an SDK?">
-    Yes, for TypeScript, Python, Go, Ruby, and Rust, plus an MCP server. You can also call the REST API directly. See the [SDKs overview](/sdks/overview).
+    Yes, for TypeScript, Python, Go, Ruby, and Rust. You can also call the REST API directly. See the [SDKs overview](/sdks/overview).
   </Accordion>
   <Accordion title="What happens to a run if a worker dies mid-execution?">
     The run is reaped once the worker stops heartbeating and returned to the queue, then retried according to its retry policy. See [Troubleshooting](/guides/troubleshooting) and [Retry Strategies](/concepts/retry-strategies).

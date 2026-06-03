@@ -471,6 +471,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return false
 	}
+	e.recordTerminalRunBilling(ctx, job, run)
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventDeadLettered, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
@@ -586,6 +587,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
+	e.recordTerminalRunBilling(ctx, job, run)
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventTimedOut, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,

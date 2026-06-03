@@ -497,8 +497,9 @@ func validateAuthConfig(cfg *Config) error {
 
 func validateRedisConfig(cfg *Config) error {
 	if cfg.RedisURL != "" {
-		if _, err := url.Parse(cfg.RedisURL); err != nil {
-			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
+		u, err := url.Parse(cfg.RedisURL)
+		if err != nil || (u.Scheme != "redis" && u.Scheme != "rediss") {
+			return &domain.ConfigError{Field: "REDIS_URL", Message: "must be a valid redis:// or rediss:// URL"}
 		}
 	}
 	if cfg.RedisURL == "" && (cfg.RedisSentinelMaster == "" || len(cfg.RedisSentinelAddrs) == 0) {
@@ -538,6 +539,12 @@ func validateSequinConfig(cfg *Config) error {
 	}
 	if cfg.SequinAPIToken == "" {
 		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
+	}
+	if cfg.SequinBatchSize <= 0 {
+		return &domain.ConfigError{Field: "SEQUIN_BATCH_SIZE", Message: "must be > 0"}
+	}
+	if cfg.SequinWaitTimeMs <= 0 {
+		return &domain.ConfigError{Field: "SEQUIN_WAIT_TIME_MS", Message: "must be > 0"}
 	}
 	return nil
 }

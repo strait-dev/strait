@@ -124,9 +124,9 @@ func TestWithBillingTx_NilPool_Panics(t *testing.T) {
 
 func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 	t.Parallel()
-	// Empty secret key causes IngestComputeUsage to silently return nil.
+	// Empty secret key causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("", slog.Default())
-	err := reporter.IngestComputeUsage(context.Background(), "cust-1", "run-1", 1000)
+	err := reporter.IngestRunOverage(context.Background(), "cust-1", "run-1")
 	if err != nil {
 		t.Fatalf("expected nil for empty secret key, got: %v", err)
 	}
@@ -134,9 +134,9 @@ func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 
 func TestStripeUsageReporter_EmptyCustomerID_Noop(t *testing.T) {
 	t.Parallel()
-	// Empty customer ID causes IngestComputeUsage to silently return nil.
+	// Empty customer ID causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
-	err := reporter.IngestComputeUsage(context.Background(), "", "run-1", 1000)
+	err := reporter.IngestRunOverage(context.Background(), "", "run-1")
 	if err != nil {
 		t.Fatalf("expected nil for empty customer ID, got: %v", err)
 	}

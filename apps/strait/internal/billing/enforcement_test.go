@@ -1601,6 +1601,88 @@ func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
 	}
 }
 
+func TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-paid-overage-disabled"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {OrgID: orgID, PlanTier: "starter", Status: "active", OverageDisabled: true},
+	}
+
+	limits := GetPlanLimits(domain.PlanStarter)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-paid-disabled")
+	if err == nil {
+		t.Fatal("expected paid plan with overage disabled to hard-cap at monthly allowance")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("error = %T %v, want *LimitError", err, err)
+	}
+	if le.Code != "plan_cap_reached" {
+		t.Fatalf("limit code = %q, want plan_cap_reached", le.Code)
+	}
+	if store.pausedOrgID != orgID || store.pausedReason != "quota_exceeded" {
+		t.Fatalf("quota pause = org %q reason %q, want %q quota_exceeded", store.pausedOrgID, store.pausedReason, orgID)
+	}
+}
+
+func TestCheckMonthlyRunLimit_PaidOverageEnabledAllowsPastAllowance(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-paid-overage-enabled"
+	runID := "run-paid-enabled"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+	}
+
+	limits := GetPlanLimits(domain.PlanStarter)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	if err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, runID); err != nil {
+		t.Fatalf("paid plan with overage enabled should allow over allowance: %v", err)
+	}
+	if got := enforcer.IsRunOverage(ctx, runID); !got {
+		t.Fatal("over-allowance run should be marked for Stripe overage metering")
+	}
+}
+
+func TestCheckMonthlyRunLimit_FreeCardOverageOptInAllowsPastAllowance(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-free-card-overage"
+	customerID := "cus_free_card"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {
+			OrgID:            orgID,
+			PlanTier:         "free",
+			Status:           "active",
+			StripeCustomerID: &customerID,
+			OverageDisabled:  false,
+		},
+	}
+
+	limits := GetPlanLimits(domain.PlanFree)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	if err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-free-card"); err != nil {
+		t.Fatalf("free plan with card-backed overage enabled should allow over allowance: %v", err)
+	}
+}
+
 // TestDecrMonthlyRunCount_FloorsAtZero verifies that decrementing from 0 does
 // not produce a negative value.
 func TestDecrMonthlyRunCount_FloorsAtZero(t *testing.T) {

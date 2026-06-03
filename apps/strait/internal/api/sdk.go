@@ -28,9 +28,8 @@ const ctxSDKVersionKey contextKey = "sdk_version"
 const ctxSDKCapabilitiesKey contextKey = "sdk_capabilities"
 
 type SDKCapabilities struct {
-	Progress    bool
-	Checkpoint  bool
-	UsageReport bool
+	Progress   bool
+	Checkpoint bool
 }
 
 type runTokenClaims struct {
@@ -59,15 +58,12 @@ type activeRunMutationStore interface {
 	GetRunStateForActiveRun(context.Context, string, string, int) (*domain.RunState, error)
 	ListRunStateForActiveRun(context.Context, string, int) ([]domain.RunState, error)
 	DeleteRunStateForActiveRun(context.Context, string, string, int) error
-	CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error
-	CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error
 	UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error
 	UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error
 	GetJobMemoryForActiveRun(context.Context, string, string, string, int) (*domain.JobMemory, error)
 	ListJobMemoryForActiveRun(context.Context, string, string, int) ([]domain.JobMemory, error)
 	DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error
 	CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error
-	CreateRunIterationForActiveRun(context.Context, *domain.RunIteration, int) error
 	UpdateRunStatusForActiveRun(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any, int) error
 }
 
@@ -116,15 +112,12 @@ func sdkCapabilitiesFromContext(ctx context.Context) SDKCapabilities {
 }
 
 func sdkCapabilitiesHeader(c SDKCapabilities) string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 2)
 	if c.Progress {
 		parts = append(parts, "progress")
 	}
 	if c.Checkpoint {
 		parts = append(parts, "checkpoint")
-	}
-	if c.UsageReport {
-		parts = append(parts, "usage")
 	}
 	if len(parts) == 0 {
 		return "none"
@@ -145,7 +138,7 @@ func resolveSDKCapabilities(version string) SDKCapabilities {
 	if err != nil || major < 2 {
 		return SDKCapabilities{}
 	}
-	return SDKCapabilities{Progress: true, Checkpoint: true, UsageReport: true}
+	return SDKCapabilities{Progress: true, Checkpoint: true}
 }
 
 func applySDKResponseHeaders(ctx context.Context, w http.ResponseWriter) {

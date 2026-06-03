@@ -18,13 +18,13 @@ import {
 type PaidPlanWelcomeProps = {
   name: string;
   planName: string;
-  includedCredit: string;
+  monthlyRunAllowance: string;
 };
 
 const PaidPlanWelcome = ({
   name,
   planName,
-  includedCredit,
+  monthlyRunAllowance,
 }: PaidPlanWelcomeProps) => (
   <Html>
     <Preview>Welcome to Strait {planName}!</Preview>
@@ -79,9 +79,9 @@ const PaidPlanWelcome = ({
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             Your plan includes{" "}
-            <strong style={{ color: "#252525" }}>{includedCredit}</strong> in
-            monthly compute credits. To control costs beyond your included
-            credit, we recommend setting a spending limit:
+            <strong style={{ color: "#252525" }}>{monthlyRunAllowance}</strong>{" "}
+            orchestration runs per month. To control overage beyond your
+            included allowance, we recommend setting a spending cap:
           </Text>
 
           <br />
@@ -163,7 +163,7 @@ const PaidPlanWelcome = ({
 PaidPlanWelcome.PreviewProps = {
   name: "Leonardo Santos",
   planName: "Pro",
-  includedCredit: "$49.99",
+  monthlyRunAllowance: "1,000,000",
 };
 
 export default PaidPlanWelcome;

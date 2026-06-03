@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canUseFeature,
+  getFeatureMinimumPlanLabel,
   isDowngrade,
   isRoadmapFeature,
   type PlanFeature,
@@ -133,7 +134,7 @@ describe("canUseFeature", () => {
 
   const scaleFeatures: PlanFeature[] = ["canary_deployments", "audit_logs"];
 
-  const enterpriseFeatures: PlanFeature[] = ["sla"];
+  const businessFeatures: PlanFeature[] = ["sla"];
 
   const enterpriseOnlyFeatures: PlanFeature[] = [
     "sso",
@@ -179,8 +180,8 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("blocks enterprise features below enterprise", () => {
-    for (const feature of enterpriseFeatures) {
+  it("blocks business features below business", () => {
+    for (const feature of businessFeatures) {
       expect(canUseFeature("free", feature)).toBe(false);
       expect(canUseFeature("starter", feature)).toBe(false);
       expect(canUseFeature("pro", feature)).toBe(false);
@@ -188,8 +189,9 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("allows enterprise features on enterprise", () => {
-    for (const feature of enterpriseFeatures) {
+  it("allows business features on business and enterprise", () => {
+    for (const feature of businessFeatures) {
+      expect(canUseFeature("business", feature)).toBe(true);
       expect(canUseFeature("enterprise", feature)).toBe(true);
     }
   });
@@ -212,5 +214,15 @@ describe("canUseFeature", () => {
 
   it("returns false for undefined tier", () => {
     expect(canUseFeature(undefined, "http_mode")).toBe(false);
+  });
+});
+
+describe("getFeatureMinimumPlanLabel", () => {
+  it("returns the minimum launch tier label", () => {
+    expect(getFeatureMinimumPlanLabel("audit_logs")).toBe("Scale");
+  });
+
+  it("labels roadmap-only features explicitly", () => {
+    expect(getFeatureMinimumPlanLabel("sso")).toBe("Roadmap");
   });
 });

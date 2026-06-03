@@ -15,7 +15,7 @@ import (
 	"github.com/sourcegraph/conc"
 )
 
-func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxDuration time.Duration) *Server {
+func newChunkStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxDuration time.Duration) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		InternalSecret:        "test-secret-value",
@@ -41,11 +41,11 @@ func newLLMStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPub
 	return srv
 }
 
-// TestLLMStreamClosesAfterMaxDuration confirms the handler tears down
+// TestChunkStreamClosesAfterMaxDuration confirms the handler tears down
 // once SSEMaxConnDuration elapses, even with a still-open pubsub subscription.
 // Without the timeout the goroutine would block indefinitely on a healthy
 // subscription, holding the SSE conn slot.
-func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
+func TestChunkStreamClosesAfterMaxDuration(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	t.Parallel()
@@ -57,7 +57,7 @@ func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
 			return pubsub.NewSubscription(dataCh, subCancel), nil
 		},
 	}
-	srv := newLLMStreamServerWithDuration(t, executingRunStore(), pub, 100*time.Millisecond)
+	srv := newChunkStreamServerWithDuration(t, executingRunStore(), pub, 100*time.Millisecond)
 
 	w := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
@@ -85,11 +85,11 @@ func TestLLMStreamClosesAfterMaxDuration(t *testing.T) {
 	}
 }
 
-// TestLLMStreamFallsBackToDefaultDurationWhenZero pins the
+// TestChunkStreamFallsBackToDefaultDurationWhenZero pins the
 // "zero-config means 30 minutes" fallback. We capture the context that
 // reaches pubsub.Subscribe and assert its deadline is at least 25 minutes
 // out, which only happens when the handler applied the default.
-func TestLLMStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
+func TestChunkStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
 	t.Parallel()
 
 	var (
@@ -109,7 +109,7 @@ func TestLLMStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
 			return pubsub.NewSubscription(dataCh, subCancel), nil
 		},
 	}
-	srv := newLLMStreamServerWithDuration(t, executingRunStore(), pub, 0)
+	srv := newChunkStreamServerWithDuration(t, executingRunStore(), pub, 0)
 
 	close(dataCh) // unblock the handler immediately
 

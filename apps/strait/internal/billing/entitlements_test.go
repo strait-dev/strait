@@ -52,11 +52,11 @@ func TestComputeEntitlements_RoundTripMatchesPipeline(t *testing.T) {
 			domain.PlanPro,
 			nil,
 			SubscriptionAddOns{RetentionPack: 2}},
-		{"pro_subscription_priority_pack",
+		{"pro_legacy_priority_pack_ignored",
 			domain.PlanPro,
 			nil,
 			SubscriptionAddOns{PrioritySlotPack: 1}},
-		{"pro_subscription_worker_connections",
+		{"pro_legacy_worker_connections_ignored",
 			domain.PlanPro,
 			nil,
 			SubscriptionAddOns{WorkerConnections: 5}},
@@ -109,6 +109,31 @@ func TestComputeEntitlements_UnknownTierFallsBackToFree(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("unknown tier should fall back to Free\n got:  %+v\n want: %+v", got, want)
+	}
+}
+
+func TestApplySubscriptionAddOns_IgnoresLaunchInactiveLegacyPacks(t *testing.T) {
+	t.Parallel()
+
+	base := GetPlanLimits(domain.PlanPro)
+	got := ApplySubscriptionAddOns(base, SubscriptionAddOns{
+		PrioritySlotPack:  100,
+		WorkerConnections: 100,
+	})
+
+	if got.MaxDispatchPriority != base.MaxDispatchPriority {
+		t.Errorf("legacy priority pack changed MaxDispatchPriority: got %d, want %d",
+			got.MaxDispatchPriority, base.MaxDispatchPriority)
+	}
+	if got.WorkerConnections != base.WorkerConnections {
+		t.Errorf("legacy worker pack changed WorkerConnections: got %d, want %d",
+			got.WorkerConnections, base.WorkerConnections)
+	}
+
+	withRetention := ApplySubscriptionAddOns(base, SubscriptionAddOns{RetentionPack: 1})
+	if withRetention.RetentionDays != base.RetentionDays+retentionPackDays {
+		t.Errorf("retention pack did not apply: got %d, want %d",
+			withRetention.RetentionDays, base.RetentionDays+retentionPackDays)
 	}
 }
 

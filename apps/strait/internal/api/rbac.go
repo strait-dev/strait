@@ -384,6 +384,9 @@ func (s *Server) handleCreateRole(ctx context.Context, input *CreateRoleInput) (
 	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
 		return nil, err
 	}
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "full", "Custom roles"); err != nil {
+		return nil, err
+	}
 
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -488,6 +491,9 @@ func (s *Server) handleUpdateRole(ctx context.Context, input *UpdateRoleInput) (
 	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
 		return nil, err
 	}
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "full", "Custom roles"); err != nil {
+		return nil, err
+	}
 
 	req := input.Body
 	if err := s.validate.Struct(&req); err != nil {
@@ -546,6 +552,9 @@ type DeleteRoleInput struct {
 
 func (s *Server) handleDeleteRole(ctx context.Context, input *DeleteRoleInput) (*struct{}, error) {
 	if err := s.checkFeatureAllowed(ctx, projectIDFromContext(ctx), billing.FeatureRBAC, "Role management"); err != nil {
+		return nil, err
+	}
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "full", "Custom roles"); err != nil {
 		return nil, err
 	}
 
@@ -833,6 +842,9 @@ func (s *Server) handleCreateResourcePolicy(ctx context.Context, input *CreateRe
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := s.checkRBACLevel(ctx, req.ProjectID, "advanced", "Resource policies"); err != nil {
+		return nil, err
+	}
 	for _, action := range req.Actions {
 		if !domain.ValidScopes[action] {
 			return nil, huma.Error400BadRequest("invalid action: " + action)
@@ -859,6 +871,9 @@ type ListResourcePoliciesInput struct {
 type ListResourcePoliciesOutput struct{ Body PaginatedResponse }
 
 func (s *Server) handleListResourcePolicies(ctx context.Context, input *ListResourcePoliciesInput) (*ListResourcePoliciesOutput, error) {
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "advanced", "Resource policies"); err != nil {
+		return nil, err
+	}
 	if input.ResourceType == "" || input.ResourceID == "" {
 		return nil, huma.Error400BadRequest("resource_type and resource_id are required")
 	}
@@ -878,6 +893,9 @@ type DeleteResourcePolicyInput struct {
 }
 
 func (s *Server) handleDeleteResourcePolicy(ctx context.Context, input *DeleteResourcePolicyInput) (*struct{}, error) {
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "advanced", "Resource policies"); err != nil {
+		return nil, err
+	}
 	projectID, userID, err := s.store.DeleteResourcePolicy(ctx, projectIDFromContext(ctx), input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrResourcePolicyNotFound) {
@@ -912,6 +930,9 @@ func (s *Server) handleCreateTagPolicy(ctx context.Context, input *CreateTagPoli
 	if err := requireProjectMatch(ctx, req.ProjectID); err != nil {
 		return nil, huma.Error403Forbidden("project_id does not match authenticated project")
 	}
+	if err := s.checkRBACLevel(ctx, req.ProjectID, "advanced", "Tag policies"); err != nil {
+		return nil, err
+	}
 	if err := validateTags(map[string]string{req.TagKey: req.TagValue}); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
@@ -945,6 +966,9 @@ func (s *Server) handleListTagPolicies(ctx context.Context, input *ListTagPolici
 	if projectID == "" {
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
+	if err := s.checkRBACLevel(ctx, projectID, "advanced", "Tag policies"); err != nil {
+		return nil, err
+	}
 	limit, cursor, err := parsePaginationFromStrings(input.Limit, input.Cursor)
 	if err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
@@ -961,6 +985,9 @@ type DeleteTagPolicyInput struct {
 }
 
 func (s *Server) handleDeleteTagPolicy(ctx context.Context, input *DeleteTagPolicyInput) (*struct{}, error) {
+	if err := s.checkRBACLevel(ctx, projectIDFromContext(ctx), "advanced", "Tag policies"); err != nil {
+		return nil, err
+	}
 	projectID, userID, err := s.store.DeleteTagPolicy(ctx, projectIDFromContext(ctx), input.PolicyID)
 	if err != nil {
 		if errors.Is(err, store.ErrTagPolicyNotFound) {

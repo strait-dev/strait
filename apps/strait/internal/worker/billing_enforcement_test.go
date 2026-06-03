@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ type mockBillingEnforcerStore struct {
 	projectBudget      int64
 	projectAction      string
 	projectPeriodSpend int64
+	usageRecords       atomic.Int64
 }
 
 func (m *mockBillingEnforcerStore) UpdateEntitlements(context.Context, string, billing.OrgPlanLimits) error {
@@ -59,6 +61,9 @@ func (m *mockBillingEnforcerStore) UpdateOrgSubscriptionFull(_ context.Context, 
 	return nil
 }
 func (m *mockBillingEnforcerStore) UpdateSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+func (m *mockBillingEnforcerStore) UpdateOverageDisabled(_ context.Context, _ string, _ bool) error {
 	return nil
 }
 func (m *mockBillingEnforcerStore) SetPendingPlanTier(_ context.Context, _, _ string) error {
@@ -97,12 +102,14 @@ func (m *mockBillingEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ 
 func (m *mockBillingEnforcerStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
 	return make(map[string]int, len(orgIDs)), nil
 }
-func (m *mockBillingEnforcerStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
-	return 0, nil
-}
 func (m *mockBillingEnforcerStore) SetProjectOrgID(_ context.Context, _, _ string) error { return nil }
 func (m *mockBillingEnforcerStore) UpsertUsageRecord(_ context.Context, _ *billing.UsageRecord) error {
+	m.usageRecords.Add(1)
 	return nil
+}
+func (m *mockBillingEnforcerStore) RecordUsageCost(_ context.Context, _ *billing.UsageRecord, _, _ string) (bool, error) {
+	m.usageRecords.Add(1)
+	return true, nil
 }
 func (m *mockBillingEnforcerStore) GetOrgUsageForPeriod(_ context.Context, _ string, _, _ time.Time) ([]billing.UsageRecord, error) {
 	return nil, nil
@@ -213,99 +220,6 @@ func newWorkerTestEnforcer(t *testing.T, billingStore billing.Store) (*billing.E
 	return billing.NewEnforcer(billingStore, rdb, slog.Default()), mr
 }
 
-func TestBillingEnforcement_ConcurrentLimitFails_RollbackDailyCount(t *testing.T) {
-	t.Parallel()
-
-	// Set up a free-tier subscription with 1 concurrent run limit.
-	sub := &billing.OrgSubscription{
-		OrgID:    "org-test",
-		PlanTier: string(domain.PlanFree),
-	}
-	bStore := &mockBillingEnforcerStore{
-		projectOrgID: "org-test",
-		sub:          sub,
-	}
-
-	enforcer, mr := newWorkerTestEnforcer(t, bStore)
-
-	// Pre-fill the concurrent counter to simulate max concurrent runs reached.
-	// The free tier allows ConcurrentFree concurrent runs. Set the counter at
-	// the cap so the next increment exceeds the limit.
-	concurrentKey := "strait:org_concurrent:org-test"
-	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
-	mr.SetTTL(concurrentKey, 24*time.Hour)
-
-	// Set up an HTTP server that would handle the job.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	}))
-	defer srv.Close()
-
-	ms := &mockExecutorStore{
-		getJobFn: func(_ context.Context, _ string) (*domain.Job, error) {
-			return &domain.Job{
-				ID:          "job-1",
-				ProjectID:   "proj-1",
-				Version:     1,
-				EndpointURL: srv.URL,
-				MaxAttempts: 1,
-				TimeoutSecs: 30,
-			}, nil
-		},
-	}
-
-	exec := NewExecutor(ExecutorConfig{
-		Pool:            NewPool(4),
-		Store:           ms,
-		PollInterval:    time.Millisecond,
-		HTTPClient:      srv.Client(),
-		BillingEnforcer: enforcer,
-	})
-
-	run := &domain.JobRun{
-		ID:         "run-billing-test",
-		JobID:      "job-1",
-		JobVersion: 1,
-		Status:     domain.StatusDequeued,
-	}
-
-	ec := &ExecutionContext{Run: run, Start: time.Now()}
-	handler := exec.executeInner
-	handler(context.Background(), ec)
-
-	// The run should have been failed because concurrent limit was exceeded.
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-
-	// Verify that the run was transitioned to a terminal state.
-	var foundFailure bool
-	for _, call := range ms.statusCalls {
-		if call.to == domain.StatusSystemFailed {
-			foundFailure = true
-			break
-		}
-	}
-	if !foundFailure {
-		t.Error("expected run to be marked as system_failed when concurrent limit exceeded")
-	}
-
-	// Verify the daily run counter was rolled back (decremented).
-	dailyKey := "strait:org_runs:org-test:" + time.Now().UTC().Format("2006-01-02")
-	val, err := mr.Get(dailyKey)
-	if err == nil {
-		// If the key exists, it should have been decremented.
-		// After CheckDailyRunLimit increments (to 1) and DecrDailyRunCount decrements (back to 0),
-		// the counter should be 0.
-		if val != "0" {
-			t.Errorf("daily run counter should be rolled back to 0 after concurrent limit failure, got %s", val)
-		}
-	}
-	// If key doesn't exist, that's fine -- the decrement script floors at 0 and the key
-	// may not have been set if the daily limit check passed without incrementing.
-}
-
 // TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount verifies
 // that when the concurrent run limit is exceeded after CheckMonthlyRunLimit
 // increments the monthly counter, DecrMonthlyRunCount rolls it back so the
@@ -391,17 +305,18 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	}
 }
 
-// TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount verifies
-// that when the monthly run limit is exceeded, the daily counter that was
-// already incremented by CheckDailyRunLimit is rolled back via DecrDailyRunCount.
-func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T) {
+// TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount
+// verifies that a free-tier dispatch rejected at the monthly cap does not
+// consume an additional monthly run.
+func TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount(t *testing.T) {
 	t.Parallel()
 
-	// Free tier: MaxRunsPerDay=100, MaxRunsPerMonth=2000 (use a very low monthly limit).
-	// We pre-fill the monthly counter at the free cap so CheckMonthlyRunLimit rejects.
+	// Pre-fill the monthly counter at the free cap so CheckMonthlyRunLimit
+	// rejects without incrementing the stored value.
 	sub := &billing.OrgSubscription{
-		OrgID:    "org-monthly-cap",
-		PlanTier: string(domain.PlanFree),
+		OrgID:           "org-monthly-cap",
+		PlanTier:        string(domain.PlanFree),
+		OverageDisabled: true,
 	}
 	bStore := &mockBillingEnforcerStore{
 		projectOrgID: "org-monthly-cap",
@@ -410,10 +325,10 @@ func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T
 
 	enforcer, mr := newWorkerTestEnforcer(t, bStore)
 
-	// Pre-fill the monthly counter above the free-tier cap so
+	// Pre-fill the monthly counter at the free-tier cap so
 	// CheckMonthlyRunLimit hard-rejects on the next call.
 	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree+1))
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree))
 	mr.SetTTL(monthlyKey, 62*24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -467,11 +382,225 @@ func TestBillingEnforcement_MonthlyLimitExceeded_RollbackDailyCount(t *testing.T
 		t.Error("expected run to be marked as system_failed when monthly limit exceeded")
 	}
 
-	// Verify the daily run counter was rolled back after the monthly-limit abort.
-	dailyKey := "strait:org_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01-02")
-	val, err := mr.Get(dailyKey)
-	if err == nil && val != "0" {
-		t.Errorf("daily run counter should be 0 after monthly limit abort, got %s", val)
+	val, err := mr.Get(monthlyKey)
+	if err != nil {
+		t.Fatalf("expected monthly counter to remain present: %v", err)
+	}
+	if val != strconv.Itoa(billing.MaxRunsPerMonthFree) {
+		t.Errorf("monthly run counter = %s, want %d after monthly limit abort", val, billing.MaxRunsPerMonthFree)
+	}
+}
+
+func TestBillingEnforcement_AutomaticRetryDoesNotIncrementMonthlyRunCount(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-auto-retry"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:    orgID,
+			PlanTier: string(domain.PlanFree),
+		},
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           &mockExecutorStore{},
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+	})
+
+	run := &domain.JobRun{
+		ID:        "run-auto-retry",
+		JobID:     "job-auto-retry",
+		ProjectID: "proj-auto-retry",
+		Status:    domain.StatusDequeued,
+		Attempt:   2,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+	}
+
+	if !exec.checkDispatchBillingLimits(context.Background(), run, job, orgID) {
+		t.Fatal("retry dispatch should remain eligible for non-usage billing gates")
+	}
+
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	if val, err := mr.Get(monthlyKey); err == nil && val != "0" {
+		t.Fatalf("automatic retry must not increment monthly run counter, got %s", val)
+	}
+}
+
+func TestBillingEnforcement_FirstAttemptIncrementsMonthlyRunCount(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-first-attempt"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:    orgID,
+			PlanTier: string(domain.PlanFree),
+		},
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           &mockExecutorStore{},
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+	})
+
+	run := &domain.JobRun{
+		ID:        "run-first-attempt",
+		JobID:     "job-first-attempt",
+		ProjectID: "proj-first-attempt",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+	}
+
+	if !exec.checkDispatchBillingLimits(context.Background(), run, job, orgID) {
+		t.Fatal("first dispatch attempt should pass billing gates")
+	}
+
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	val, err := mr.Get(monthlyKey)
+	if err != nil {
+		t.Fatalf("expected first dispatch attempt to create monthly counter: %v", err)
+	}
+	if val != "1" {
+		t.Fatalf("first dispatch attempt monthly counter = %s, want 1", val)
+	}
+}
+
+func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-terminal-failure"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:    orgID,
+			PlanTier: string(domain.PlanPro),
+		},
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           &mockExecutorStore{},
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+		RunCostRecorder: billing.NewRunCostRecorder(bStore, nil, nil, slog.Default()),
+	})
+
+	run := &domain.JobRun{
+		ID:        "run-terminal-failure",
+		JobID:     "job-terminal-failure",
+		ProjectID: "proj-terminal-failure",
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+		Metadata:  map[string]string{},
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		EndpointURL:   "https://example.test/worker",
+		ExecutionMode: domain.ExecutionModeHTTP,
+		MaxAttempts:   1,
+		TimeoutSecs:   30,
+	}
+	if err := enforcer.CheckMonthlyRunLimitForRun(context.Background(), orgID, run.ID); err != nil {
+		t.Fatalf("mark monthly run overage: %v", err)
+	}
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1))
+
+	if !exec.handleFailure(context.Background(), run, job, executionPolicy{
+		maxAttempts:      1,
+		timeoutSecs:      30,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     60,
+	}, context.DeadlineExceeded, nil) {
+		t.Fatal("expected terminal failure transition to succeed")
+	}
+	exec.stripeUsageWG.Wait()
+
+	if got := bStore.usageRecords.Load(); got != 1 {
+		t.Fatalf("terminal failed run cost records = %d, want 1", got)
+	}
+}
+
+func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-terminal-timeout"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		sub: &billing.OrgSubscription{
+			OrgID:    orgID,
+			PlanTier: string(domain.PlanPro),
+		},
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           &mockExecutorStore{},
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+		RunCostRecorder: billing.NewRunCostRecorder(bStore, nil, nil, slog.Default()),
+	})
+
+	run := &domain.JobRun{
+		ID:        "run-terminal-timeout",
+		JobID:     "job-terminal-timeout",
+		ProjectID: "proj-terminal-timeout",
+		Status:    domain.StatusExecuting,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		EndpointURL:   "https://example.test/worker",
+		ExecutionMode: domain.ExecutionModeWorker,
+		MaxAttempts:   1,
+		TimeoutSecs:   30,
+	}
+	if err := enforcer.CheckMonthlyRunLimitForRun(context.Background(), orgID, run.ID); err != nil {
+		t.Fatalf("mark monthly run overage: %v", err)
+	}
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1))
+
+	exec.handleTimeout(context.Background(), run, job, executionPolicy{
+		maxAttempts:      1,
+		timeoutSecs:      30,
+		retryBackoff:     domain.RetryBackoffExponential,
+		retryInitialSecs: 1,
+		retryMaxSecs:     60,
+	}, nil)
+	exec.stripeUsageWG.Wait()
+
+	if got := bStore.usageRecords.Load(); got != 1 {
+		t.Fatalf("terminal timed-out run cost records = %d, want 1", got)
 	}
 }
 

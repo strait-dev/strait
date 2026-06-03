@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -3808,6 +3809,37 @@ func TestHandleUpsertWorkflowPolicy_WorkflowAuthorRejected(t *testing.T) {
 	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
 		ProjectID: "proj-1",
 		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 0, MaxDepth: 0},
+	})
+	if !isHumaStatusError(err, http.StatusForbidden) {
+		t.Fatalf("expected 403, got %v", err)
+	}
+}
+
+func TestHandleUpsertWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetUserPermissionsFunc: func(_ context.Context, projectID, actorID string) ([]string, error) {
+			if projectID != "proj-1" || actorID != "user-rbac-manager" {
+				t.Fatalf("permission lookup = %s %s", projectID, actorID)
+			}
+			return []string{domain.ScopeRBACManage}, nil
+		},
+		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
+			t.Fatal("UpsertWorkflowPolicy must not run below Advanced RBAC")
+			return nil
+		},
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
+	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
+	ctx = context.WithValue(ctx, ctxActorIDKey, "user-rbac-manager")
+	ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
+
+	_, err := srv.handleUpsertWorkflowPolicy(ctx, &UpsertWorkflowPolicyInput{
+		ProjectID: "proj-1",
+		Body:      upsertWorkflowPolicyRequest{MaxFanOut: 2, MaxDepth: 3},
 	})
 	if !isHumaStatusError(err, http.StatusForbidden) {
 		t.Fatalf("expected 403, got %v", err)

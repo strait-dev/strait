@@ -208,7 +208,7 @@ func TestBypass_EnterpriseHasLaunchActiveFeatures(t *testing.T) {
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
 		FeatureAuditLogs, FeatureSLA, FeatureRBAC,
-		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
+		FeatureAllCronOverlap,
 	}
 
 	for _, f := range allFeatures {

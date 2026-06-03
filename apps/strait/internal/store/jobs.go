@@ -152,6 +152,38 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
+// CreateJobWithCronScheduleLimit serializes org-wide cron schedule quota
+// enforcement with job creation.
+func (q *Queries) CreateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobWithCronScheduleLimit")
+	defer span.End()
+
+	if job.Cron == "" || orgID == "" || maxSchedules < 0 {
+		return q.CreateJob(ctx, job)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	})
+}
+
+func (q *Queries) createJobWithCronScheduleLimitLocked(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	if err := q.EnforceCronScheduleLimit(ctx, orgID, maxSchedules); err != nil {
+		return err
+	}
+	return q.CreateJob(ctx, job)
+}
+
 func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJob")
 	defer span.End()
@@ -432,6 +464,38 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	}
 
 	return nil
+}
+
+// UpdateJobWithCronScheduleLimit serializes org-wide cron schedule quota
+// enforcement with a job update that adds a cron expression.
+func (q *Queries) UpdateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobWithCronScheduleLimit")
+	defer span.End()
+
+	if job.Cron == "" || orgID == "" || maxSchedules < 0 {
+		return q.UpdateJob(ctx, job)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	})
+}
+
+func (q *Queries) updateJobWithCronScheduleLimitLocked(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	if err := q.EnforceCronScheduleLimit(ctx, orgID, maxSchedules); err != nil {
+		return err
+	}
+	return q.UpdateJob(ctx, job)
 }
 
 // ErrJobVersionConflict is returned when an UpdateJob call fails because the

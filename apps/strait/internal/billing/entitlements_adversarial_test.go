@@ -180,16 +180,19 @@ func TestComputeEntitlements_HandcraftedFieldsCannotLeak(t *testing.T) {
 	got := ComputeEntitlements(sub, nil)
 	free := GetPlanLimits(domain.PlanFree)
 
-	// Free RetentionDays > 0, so RetentionPack adds. Free WorkerConnections
-	// is finite, so the pack adds. PriorityPack only fires when
-	// MaxDispatchPriority != -1; Free is finite so it adds.
+	// Free RetentionDays > 0, so RetentionPack adds. Legacy worker-connection
+	// and priority packs must not affect launch entitlements.
 	if got.RetentionDays != free.RetentionDays+999*retentionPackDays {
 		t.Errorf("retention pack: got %d, want %d",
 			got.RetentionDays, free.RetentionDays+999*retentionPackDays)
 	}
-	if got.WorkerConnections != free.WorkerConnections+999 {
-		t.Errorf("worker pack: got %d, want %d",
-			got.WorkerConnections, free.WorkerConnections+999)
+	if got.WorkerConnections != free.WorkerConnections {
+		t.Errorf("legacy worker pack changed WorkerConnections: got %d, want %d",
+			got.WorkerConnections, free.WorkerConnections)
+	}
+	if got.MaxDispatchPriority != free.MaxDispatchPriority {
+		t.Errorf("legacy priority pack changed MaxDispatchPriority: got %d, want %d",
+			got.MaxDispatchPriority, free.MaxDispatchPriority)
 	}
 
 	// Override fields must not bleed into the snapshot — those are loaded

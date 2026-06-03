@@ -64,7 +64,7 @@ Required environment variables:
 | `BETTER_AUTH_URL` | Public dashboard origin, for example `https://dashboard.example.com`. |
 | `BETTER_AUTH_SECRET` | 32+ character random string. Generate with `openssl rand -hex 32`. |
 | `STRAIT_API_URL` | Public Strait API base URL. A Vercel-hosted dashboard cannot call `localhost`. |
-| `OIDC_ISSUER` / `OIDC_AUDIENCE` / `OIDC_PRIVATE_KEY_PEM` | Required for MCP token issuance. Must match the Go backend public key config. |
+| `OIDC_ISSUER` / `OIDC_AUDIENCE` / `OIDC_PRIVATE_KEY_PEM` | Required for dashboard-issued OIDC tokens. Must match the Go backend public key config. |
 
 Optional variables enable OAuth, billing, email, Sentry, and PostHog. OAuth callback URLs must use the deployed dashboard origin from `BETTER_AUTH_URL`.
 

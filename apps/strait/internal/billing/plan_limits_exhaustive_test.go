@@ -408,7 +408,7 @@ func TestFeatureAccess_Monotonic(t *testing.T) {
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
 		FeatureAuditLogs, FeatureSSO, FeatureSLA, FeatureRBAC,
-		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
+		FeatureAllCronOverlap,
 	}
 
 	for _, f := range features {

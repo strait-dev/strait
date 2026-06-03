@@ -3670,41 +3670,6 @@ func TestPgStore_DeleteOldWebhookMessages_NoRows(t *testing.T) {
 	}
 }
 
-// L5: CountAIModelCallsByOrg multiple rows per run
-
-func TestPgStore_CountAIModelCallsByOrg_MultipleRowsPerRun(t *testing.T) {
-	ctx := context.Background()
-	mustClean(t, ctx)
-	pgStore := billing.NewPgStore(testDB.Pool)
-	q := mustQueries(t)
-
-	orgID := "org-multi-ai-" + newID()
-	p := createProject(t, ctx, q, orgID, "P")
-	job := createJob(t, ctx, q, p.ID)
-	run := createRun(t, ctx, q, job, domain.StatusCompleted)
-
-	for i := range 3 {
-		ai := &domain.RunUsage{
-			ID: newID(), RunID: run.ID,
-			Provider: "openai", Model: fmt.Sprintf("gpt-4-%d", i),
-			PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
-			CostMicrousd: 100000,
-		}
-		if err := q.CreateRunUsage(ctx, ai); err != nil {
-			t.Fatalf("CreateRunUsage %d: %v", i, err)
-		}
-	}
-
-	now := time.Now().UTC()
-	count, err := pgStore.CountAIModelCallsByOrg(ctx, orgID, now.Add(-time.Hour), now.Add(time.Hour))
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("count = %d, want 3", count)
-	}
-}
-
 // L6: SuspendExcessProjects with maxProjects=0 suspends all
 
 func TestPgStore_SuspendExcessProjects_ZeroMax(t *testing.T) {

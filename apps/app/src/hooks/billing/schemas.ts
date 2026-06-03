@@ -44,11 +44,9 @@ export const AddonSummarySchema = Schema.Struct({
   quantity: Schema.Number,
 });
 
-/**
- * Schema for the raw usage dimensions from the API.
- * AI fields are optional for backward compatibility.
- */
+/** Schema for the raw usage dimensions from the API. */
 export const RawOrgUsageDimensionsSchema = Schema.Struct({
+  monthly_runs: Schema.optional(UsageDimensionSchema),
   runs_today: UsageDimensionSchema,
   concurrent_runs: UsageDimensionSchema,
   compute_credit: UsageDimensionSchema,
@@ -56,8 +54,6 @@ export const RawOrgUsageDimensionsSchema = Schema.Struct({
   members: UsageDimensionSchema,
   retention_days: Schema.Number,
   regions_available: Schema.Number,
-  ai_model_calls_today: Schema.optional(UsageDimensionSchema),
-  ai_assistant_messages_today: Schema.optional(UsageDimensionSchema),
 });
 
 /**
@@ -105,6 +101,7 @@ export const OrgUsageResponseSchema = Schema.mutable(
 export const SpendingLimitSchema = Schema.Struct({
   org_id: Schema.String,
   plan_tier: Schema.String,
+  overage_enabled: Schema.Boolean,
   spending_limit_usd: Schema.Number,
   limit_action: Schema.String,
   current_spend_usd: Schema.Number,
@@ -121,10 +118,110 @@ export const SpendingLimitSchema = Schema.Struct({
 export const UsageForecastSchema = Schema.Struct({
   projected_monthly_runs: Schema.Number,
   projected_monthly_compute_usd: Schema.Number,
-  projected_monthly_ai_cost_usd: Schema.Number,
   recommended_plan: Schema.String,
   days_until_limit: Schema.Number,
   projected_overage_microusd: Schema.Number,
   addon_spend_microusd: Schema.Number,
   scale_breakeven: Schema.Boolean,
+});
+
+/**
+ * Schema for a single usage history entry.
+ *
+ * @see {@link import("./use-usage-history").UsageHistoryEntry}
+ */
+export const UsageHistoryEntrySchema = Schema.Struct({
+  date: Schema.String,
+  runs_count: Schema.Number,
+  compute_cost_microusd: Schema.Number,
+});
+
+/**
+ * Schema for a project cost entry.
+ *
+ * @see {@link import("./use-project-costs").ProjectCostEntry}
+ */
+export const ProjectCostEntrySchema = Schema.Struct({
+  project_id: Schema.String,
+  name: Schema.String,
+  runs: Schema.Number,
+  compute_microusd: Schema.Number,
+  total_microusd: Schema.Number,
+  monthly_budget_microusd: Schema.optional(Schema.Number),
+  budget_action: Schema.optional(Schema.String),
+});
+
+/**
+ * Schema for an anomaly alert.
+ *
+ * @see {@link import("./use-anomaly-alerts").AnomalyAlert}
+ */
+export const AnomalyAlertSchema = Schema.Struct({
+  org_id: Schema.String,
+  today_spend: Schema.Number,
+  avg_7d_spend: Schema.Number,
+  spike_ratio: Schema.Number,
+  top_contributor: Schema.String,
+  severity: Schema.String,
+});
+
+/**
+ * Schema for the cost estimate response.
+ *
+ * @see {@link import("./use-cost-estimate").CostEstimate}
+ */
+export const CostEstimateSchema = Schema.Struct({
+  preset: Schema.String,
+  timeout_secs: Schema.Number,
+  estimated_cost_microusd: Schema.Number,
+  alternatives: Schema.Array(
+    Schema.Struct({
+      preset: Schema.String,
+      cost: Schema.Number,
+      savings_pct: Schema.Number,
+    })
+  ),
+  credit_info: Schema.Struct({
+    remaining_credit: Schema.Number,
+    estimated_runs_remaining: Schema.Number,
+  }),
+});
+
+/**
+ * Schema for the downgrade preview response.
+ *
+ * @see {@link import("./use-downgrade-preview").DowngradePreview}
+ */
+export const DowngradePreviewSchema = Schema.Struct({
+  current_plan: Schema.String,
+  target_plan: Schema.String,
+  impacts: Schema.Array(
+    Schema.Struct({
+      resource: Schema.String,
+      current: Schema.Number,
+      limit: Schema.Number,
+      action: Schema.String,
+    })
+  ),
+  effective_date: Schema.optional(Schema.String),
+  manual_actions: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        resource: Schema.String,
+        current: Schema.Number,
+        limit: Schema.Number,
+        action: Schema.String,
+      })
+    )
+  ),
+  auto_disabled: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        resource: Schema.String,
+        current: Schema.Number,
+        limit: Schema.Number,
+        action: Schema.String,
+      })
+    )
+  ),
 });

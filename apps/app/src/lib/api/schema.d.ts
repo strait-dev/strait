@@ -164,26 +164,6 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/sdk/v1/runs/{runID}/iteration": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Record an iteration
-     * @description Records an iteration in a loop-based execution pattern.
-     */
-    post: operations["sdk-iteration"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/sdk/v1/runs/{runID}/log": {
     parameters: {
       query?: never;
@@ -431,49 +411,9 @@ export type paths = {
     put?: never;
     /**
      * Send a stream chunk
-     * @description Sends a streaming chunk for real-time output from LLM-powered runs.
+     * @description Sends a streaming chunk for real-time output from runs.
      */
     post: operations["sdk-stream-chunk"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/sdk/v1/runs/{runID}/tool-call": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Record a tool call
-     * @description Records an LLM tool call for observability and debugging.
-     */
-    post: operations["sdk-tool-call"];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/sdk/v1/runs/{runID}/usage": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Report resource usage
-     * @description Reports resource usage (tokens, compute time, etc.) for billing.
-     */
-    post: operations["sdk-usage"];
     delete?: never;
     options?: never;
     head?: never;
@@ -3704,50 +3644,10 @@ export type paths = {
       cookie?: never;
     };
     /**
-     * Get LLM stream chunks
-     * @description Returns stored LLM streaming chunks for a run.
+     * Get run stream chunks
+     * @description Returns stored run streaming chunks for a run.
      */
-    get: operations["get-run-llm-stream"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/runs/{runID}/tool-calls": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * List run tool calls
-     * @description Returns all tool calls made during a run's execution.
-     */
-    get: operations["list-run-tool-calls"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  "/v1/runs/{runID}/usage": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * List run usage
-     * @description Returns resource usage records for a specific run.
-     */
-    get: operations["list-run-usage"];
+    get: operations["get-run-chunk-stream"];
     put?: never;
     post?: never;
     delete?: never;
@@ -6333,13 +6233,11 @@ export type components = {
        * @example https://api.strait.dev/schemas/Job.json
        */
       readonly $schema?: string;
-      allowed_tools?: string[] | null;
       backwards_compatible?: boolean;
       /** Format: int64 */
       batch_max_size?: number;
       /** Format: int64 */
       batch_window_secs?: number;
-      blocked_tools?: string[] | null;
       /** Format: date-time */
       created_at: string;
       created_by?: string;
@@ -6369,12 +6267,6 @@ export type components = {
       max_concurrency?: number;
       /** Format: int64 */
       max_concurrency_per_key?: number;
-      /** Format: int64 */
-      max_iterations_per_run?: number;
-      /** Format: int64 */
-      max_tokens_per_run?: number;
-      /** Format: int64 */
-      max_tool_calls_per_run?: number;
       name: string;
       on_complete_payload_mapping?: unknown;
       on_complete_trigger_job?: string;
@@ -6747,7 +6639,6 @@ export type components = {
       reason?: string;
     };
     PlanResponse: {
-      ai_assistant_byok: boolean;
       allowed_regions: string[] | null;
       /** Format: int64 */
       api_rate_limit: number;
@@ -6757,25 +6648,13 @@ export type components = {
       cron_min_interval_sec: number;
       display_name: string;
       has_audit_logs: boolean;
-      has_custom_rbac: boolean;
-      has_data_residency: boolean;
-      has_dedicated_compute: boolean;
-      has_ip_allowlisting: boolean;
-      has_priority_queue: boolean;
+      has_approval_gates: boolean;
+      has_canary_deployments: boolean;
+      has_compensating_txns: boolean;
+      has_job_chaining: boolean;
       has_rbac: boolean;
-      has_reserved_capacity: boolean;
-      has_scim: boolean;
-      has_secret_rotation: boolean;
-      has_session_management: boolean;
-      has_siem_export: boolean;
       has_sla: boolean;
-      has_sso: boolean;
-      has_static_ips: boolean;
-      has_vpc_peering: boolean;
-      /** Format: int64 */
-      max_ai_model_calls_per_day: number;
-      /** Format: int64 */
-      max_alert_rules_per_project: number;
+      has_sub_workflows: boolean;
       /** Format: int64 */
       max_concurrent_runs: number;
       /** Format: int64 */
@@ -6788,8 +6667,6 @@ export type components = {
       max_orgs_per_user: number;
       /** Format: int64 */
       max_projects_per_org: number;
-      /** Format: int64 */
-      max_runs_per_day: number;
       /** Format: int64 */
       max_runs_per_month: number;
       /** Format: int64 */
@@ -7035,21 +6912,6 @@ export type components = {
       run_id: string;
       type: string;
     };
-    RunIteration: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/RunIteration.json
-       */
-      readonly $schema?: string;
-      /** Format: date-time */
-      created_at: string;
-      description?: string;
-      id: string;
-      /** Format: int64 */
-      iteration: number;
-      run_id: string;
-    };
     RunOutput: {
       /**
        * Format: uri
@@ -7101,12 +6963,6 @@ export type components = {
       value: unknown;
     };
     RunToolCall: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/RunToolCall.json
-       */
-      readonly $schema?: string;
       /** Format: date-time */
       created_at: string;
       /** Format: int64 */
@@ -7119,12 +6975,6 @@ export type components = {
       tool_name: string;
     };
     RunUsage: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/RunUsage.json
-       */
-      readonly $schema?: string;
       /** Format: int64 */
       completion_tokens: number;
       /** Format: int64 */
@@ -7304,38 +7154,6 @@ export type components = {
       done?: boolean;
       stream_id?: string;
     };
-    SDKToolCallRequest: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/SDKToolCallRequest.json
-       */
-      readonly $schema?: string;
-      /** Format: int64 */
-      duration_ms?: number;
-      input?: unknown;
-      output?: unknown;
-      status?: string;
-      tool_name: string;
-    };
-    SDKUsageRequest: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/SDKUsageRequest.json
-       */
-      readonly $schema?: string;
-      /** Format: int64 */
-      completion_tokens: number;
-      /** Format: int64 */
-      cost_microusd?: number;
-      model: string;
-      /** Format: int64 */
-      prompt_tokens: number;
-      provider: string;
-      /** Format: int64 */
-      total_tokens?: number;
-    };
     SDKWaitForEventRequest: {
       /**
        * Format: uri
@@ -7347,17 +7165,6 @@ export type components = {
       notify_url?: string;
       /** Format: int64 */
       timeout_secs?: number;
-    };
-    SdkIterationRequest: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/SdkIterationRequest.json
-       */
-      readonly $schema?: string;
-      description?: string;
-      /** Format: int64 */
-      iteration: number;
     };
     SendEventRequest: {
       /**
@@ -7795,6 +7602,7 @@ export type components = {
       action: string;
       /** Format: int64 */
       limit_microusd: number;
+      overage_enabled?: boolean;
     };
     UpdateWorkflowRequest: {
       /**
@@ -16755,6 +16563,65 @@ export interface operations {
       };
     };
   };
+  "get-run-chunk-stream": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Run ID */
+        runID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Unauthorized */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+    };
+  };
   "get-run-dependency-status": {
     parameters: {
       query?: never;
@@ -16921,65 +16788,6 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "get-run-llm-stream": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Run ID */
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": unknown;
         };
       };
       /** @description Unauthorized */
@@ -21506,146 +21314,6 @@ export interface operations {
       };
     };
   };
-  "list-run-tool-calls": {
-    parameters: {
-      query?: {
-        limit?: string;
-        cursor?: string;
-      };
-      header?: never;
-      path: {
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["PaginatedResponse"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "list-run-usage": {
-    parameters: {
-      query?: {
-        limit?: string;
-        cursor?: string;
-      };
-      header?: never;
-      path: {
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["PaginatedResponse"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Not Found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "list-runs": {
     parameters: {
       query?: {
@@ -25809,68 +25477,6 @@ export interface operations {
       };
     };
   };
-  "sdk-iteration": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["SdkIterationRequest"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RunIteration"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
   "sdk-list-memory": {
     parameters: {
       query?: never;
@@ -26577,139 +26183,6 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "sdk-tool-call": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["SDKToolCallRequest"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RunToolCall"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "sdk-usage": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        runID: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["SDKUsageRequest"];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["RunUsage"];
-        };
-      };
-      /** @description Bad Request */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Unprocessable Entity */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Too Many Requests */
-      429: {
         headers: {
           [name: string]: unknown;
         };

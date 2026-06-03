@@ -26,12 +26,12 @@ func WithUsageReporterMetrics(_ *telemetry.Metrics) StripeUsageReporterOption {
 
 // NewStripeUsageReporter returns a no-op reporter. Community builds have no
 // Stripe linkage, so any caller that constructs one gets a stub whose
-// IngestComputeUsage always returns nil.
+// IngestRunOverage always returns nil.
 func NewStripeUsageReporter(_ string, _ *slog.Logger, _ ...StripeUsageReporterOption) *StripeUsageReporter {
 	return &StripeUsageReporter{}
 }
 
-// IngestComputeUsage is a no-op in community builds.
-func (r *StripeUsageReporter) IngestComputeUsage(_ context.Context, _, _ string, _ int64) error {
+// IngestRunOverage is a no-op in community builds.
+func (r *StripeUsageReporter) IngestRunOverage(_ context.Context, _, _ string) error {
 	return nil
 }

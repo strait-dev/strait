@@ -35,12 +35,12 @@ func TestWelcomeEmailHTML_EscapesHTMLInCredit(t *testing.T) {
 
 func TestWelcomeEmailHTML_NormalValues(t *testing.T) {
 	t.Parallel()
-	output := welcomeEmailHTML("Pro", "$49.99")
+	output := welcomeEmailHTML("Pro", "1000000")
 	if !strings.Contains(output, "Welcome to Strait Pro!") {
 		t.Fatal("expected plan name in output")
 	}
-	if !strings.Contains(output, "$49.99") {
-		t.Fatal("expected credit amount in output")
+	if !strings.Contains(output, "1000000") {
+		t.Fatal("expected run allowance in output")
 	}
 }
 
@@ -88,19 +88,22 @@ func TestEnterpriseWelcomeEmailHTML_ContainsOnboarding(t *testing.T) {
 	}
 }
 
-func TestEnterpriseWelcomeEmailHTML_ContainsSSO(t *testing.T) {
+func TestEnterpriseWelcomeEmailHTML_MarksSSOAsRoadmap(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "SSO") {
-		t.Fatal("enterprise welcome email should mention SSO")
+	if !strings.Contains(output, "Roadmap and contact-sales items such as SSO/SAML") {
+		t.Fatal("enterprise welcome email should mark SSO as roadmap/contact-sales")
+	}
+	if strings.Contains(output, "SSO/SAML + SCIM") {
+		t.Fatal("enterprise welcome email must not promise SSO/SCIM setup as an included launch entitlement")
 	}
 }
 
-func TestEnterpriseWelcomeEmailHTML_ContainsSCIM(t *testing.T) {
+func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseNetworkControls(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "SCIM") {
-		t.Fatal("enterprise welcome email should mention SCIM")
+	if strings.Contains(output, "Static IPs, VPC peering, data residency") {
+		t.Fatal("enterprise welcome email must not list network controls as included launch entitlements")
 	}
 }
 
@@ -112,27 +115,27 @@ func TestEnterpriseWelcomeEmailHTML_ContainsSLA(t *testing.T) {
 	}
 }
 
-func TestEnterpriseWelcomeEmailHTML_ContainsDedicatedCompute(t *testing.T) {
+func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseDedicatedCompute(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "Dedicated compute") {
-		t.Fatal("enterprise welcome email should mention dedicated compute")
+	if strings.Contains(output, "Dedicated compute") {
+		t.Fatal("enterprise welcome email must not promise dedicated compute as an included launch entitlement")
 	}
 }
 
-func TestCreditDisplayUSD_Enterprise(t *testing.T) {
+func TestRunAllowanceDisplay_Enterprise(t *testing.T) {
 	t.Parallel()
-	got := creditDisplayUSD("enterprise")
+	got := runAllowanceDisplay("enterprise")
 	if got != "Custom (per contract)" {
-		t.Errorf("creditDisplayUSD(enterprise) = %q, want %q", got, "Custom (per contract)")
+		t.Errorf("runAllowanceDisplay(enterprise) = %q, want %q", got, "Custom (per contract)")
 	}
 }
 
-func TestCreditDisplayUSD_StarterUnchanged(t *testing.T) {
+func TestRunAllowanceDisplay_Starter(t *testing.T) {
 	t.Parallel()
-	got := creditDisplayUSD("starter")
-	if got != "$19.99" {
-		t.Errorf("creditDisplayUSD(starter) = %q, want %q", got, "$19.99")
+	got := runAllowanceDisplay("starter")
+	if got != "50000" {
+		t.Errorf("runAllowanceDisplay(starter) = %q, want %q", got, "50000")
 	}
 }
 
@@ -161,25 +164,26 @@ func TestContractExpiryHTML_ContainsDate(t *testing.T) {
 	}
 }
 
-func TestCreditDisplayUSD_AllTiers(t *testing.T) {
+func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		tier string
 		want string
 	}{
-		{"free", "$0.00"},
-		{"starter", "$19.99"},
-		{"pro", "$49.99"},
-		{"scale", "$99.00"},
+		{"free", "5000"},
+		{"starter", "50000"},
+		{"pro", "1000000"},
+		{"scale", "5000000"},
+		{"business", "25000000"},
 		{"enterprise", "Custom (per contract)"},
-		{"unknown", "$0.00"},
+		{"unknown", "5000"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tier, func(t *testing.T) {
 			t.Parallel()
-			got := creditDisplayUSD(domain.PlanTier(tt.tier))
+			got := runAllowanceDisplay(domain.PlanTier(tt.tier))
 			if got != tt.want {
-				t.Errorf("creditDisplayUSD(%q) = %q, want %q", tt.tier, got, tt.want)
+				t.Errorf("runAllowanceDisplay(%q) = %q, want %q", tt.tier, got, tt.want)
 			}
 		})
 	}

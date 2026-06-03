@@ -2,8 +2,7 @@
  * Organization usage data types and normalization.
  *
  * Defines the shape of the `/v1/usage/current` API response and provides
- * normalization logic to handle optional fields and backward compatibility
- * with deprecated field names.
+ * normalization logic for enterprise-specific optional fields.
  */
 
 // PaymentStatus is imported as a type but the API returns plain strings,
@@ -36,16 +35,14 @@ type BaseUsageDimensions = {
   regions_available: number;
 };
 
-/** Raw usage dimensions as returned by the API (AI fields may be absent). */
+/** Raw usage dimensions as returned by the API. */
 export type RawOrgUsageDimensions = BaseUsageDimensions & {
-  ai_model_calls_today?: UsageDimension;
-  ai_assistant_messages_today?: UsageDimension;
+  monthly_runs?: UsageDimension;
 };
 
-/** Normalized usage dimensions with guaranteed AI fields. */
+/** Normalized usage dimensions. */
 export type OrgUsageDimensions = BaseUsageDimensions & {
-  ai_model_calls_today: UsageDimension;
-  ai_assistant_messages_today: UsageDimension;
+  monthly_runs: UsageDimension;
 };
 
 /** Summary of an active addon pack for display in the billing dashboard. */
@@ -83,17 +80,9 @@ export type RawOrgUsageData = {
   sla_uptime_pct?: number;
 };
 
-/** Normalized org usage data with guaranteed AI fields and enterprise fields carried through. */
+/** Normalized org usage data with enterprise fields carried through. */
 export type OrgUsageData = Omit<RawOrgUsageData, "usage"> & {
   usage: OrgUsageDimensions;
-};
-
-/** Default empty AI model calls dimension for free tier fallback. */
-const EMPTY_AI_MODEL_CALLS: UsageDimension = {
-  used: 0,
-  limit: 20,
-  percent: 0,
-  display: "0",
 };
 
 /** Default empty usage data returned when no organization is active. */
@@ -107,6 +96,7 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
   credit_used_percent: 0,
   credit_remaining_microusd: 0,
   usage: {
+    monthly_runs: { used: 0, limit: 5000, percent: 0, display: "0" },
     runs_today: { used: 0, limit: 5000, percent: 0, display: "0" },
     concurrent_runs: { used: 0, limit: 5, percent: 0, display: "0" },
     compute_credit: {
@@ -117,8 +107,6 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
     },
     projects: { used: 0, limit: 2, percent: 0, display: "0" },
     members: { used: 0, limit: 3, percent: 0, display: "0" },
-    ai_model_calls_today: EMPTY_AI_MODEL_CALLS,
-    ai_assistant_messages_today: EMPTY_AI_MODEL_CALLS,
     retention_days: 1,
     regions_available: 1,
   },
@@ -128,26 +116,15 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
 /**
  * Normalize raw API usage data into a consistent shape.
  *
- * Handles the `ai_model_calls_today` / `ai_assistant_messages_today` field
- * migration and ensures both fields are always present. Enterprise-specific
- * fields are passed through unchanged.
+ * Enterprise-specific fields are passed through unchanged.
  *
  * @param raw - The raw response from `/v1/usage/current`.
- * @returns Normalized usage data with guaranteed AI fields.
+ * @returns Normalized usage data.
  */
-export const normalizeOrgUsageData = (raw: RawOrgUsageData): OrgUsageData => {
-  const aiModelCalls =
-    raw.usage.ai_model_calls_today ??
-    raw.usage.ai_assistant_messages_today ??
-    EMPTY_ORG_USAGE.usage.ai_model_calls_today;
-
-  return {
-    ...raw,
-    usage: {
-      ...raw.usage,
-      ai_model_calls_today: aiModelCalls,
-      ai_assistant_messages_today:
-        raw.usage.ai_assistant_messages_today ?? aiModelCalls,
-    },
-  };
-};
+export const normalizeOrgUsageData = (raw: RawOrgUsageData): OrgUsageData => ({
+  ...raw,
+  usage: {
+    ...raw.usage,
+    monthly_runs: raw.usage.monthly_runs ?? raw.usage.runs_today,
+  },
+});

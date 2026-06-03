@@ -10,15 +10,15 @@ import (
 
 // CostAnalytics holds aggregated cost data for a project over a time range.
 type CostAnalytics struct {
-	TotalAICostMicrousd      int64         `json:"total_ai_cost_microusd"`
+	TotalAICostMicrousd      int64         `json:"total_usage_cost_microusd"`
 	TotalComputeCostMicrousd int64         `json:"total_compute_cost_microusd"`
-	TotalTokens              int64         `json:"total_tokens"`
+	TotalTokens              int64         `json:"-"`
 	RunCount                 int           `json:"run_count"`
-	ByModel                  []CostByModel `json:"by_model"`
+	ByModel                  []CostByModel `json:"-"`
 	ByJob                    []CostByJob   `json:"by_job"`
 }
 
-// CostByModel breaks down AI cost by model.
+// CostByModel breaks down legacy usage cost by source label.
 type CostByModel struct {
 	Model        string `json:"model"`
 	CostMicrousd int64  `json:"cost_microusd"`
@@ -37,9 +37,9 @@ type CostByJob struct {
 // CostTrendPoint is a single data point in a cost time-series.
 type CostTrendPoint struct {
 	Period              string `json:"period"`
-	AICostMicrousd      int64  `json:"ai_cost_microusd"`
+	AICostMicrousd      int64  `json:"usage_cost_microusd"`
 	ComputeCostMicrousd int64  `json:"compute_cost_microusd"`
-	TotalTokens         int64  `json:"total_tokens"`
+	TotalTokens         int64  `json:"-"`
 	RunCount            int    `json:"run_count"`
 }
 
@@ -75,7 +75,7 @@ func (q *Queries) GetCostAnalytics(ctx context.Context, projectID string, from, 
 }
 
 func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
-	// Totals from run_usage (AI cost).
+	// Totals from the legacy run_usage table.
 	aiQuery := `
 		SELECT COALESCE(SUM(u.cost_microusd), 0),
 		       COALESCE(SUM(u.total_tokens), 0),
@@ -300,7 +300,7 @@ func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID strin
 	return points, rows.Err()
 }
 
-// GetTopCosts returns the top N most expensive jobs by total AI cost.
+// GetTopCosts returns the top N most expensive jobs by legacy usage cost.
 func (q *Queries) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]TopCostItem, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetTopCosts")
 	defer span.End()

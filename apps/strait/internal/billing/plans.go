@@ -21,8 +21,6 @@ type OrgPlanLimits struct {
 	MaxWebhookSubsPerProj   int      // -1 = unlimited, 0 = none
 	MaxLogDrainsPerOrg      int      // -1 = unlimited
 	MaxNotificationChannels int      // max notification channels per project; -1 = unlimited, 0 = none
-	MaxAIModelCallsPerDay   int      // -1 = unlimited
-	AIAssistantBYOK         bool
 	HasRBAC                 bool
 	RBACLevel               string // "", "basic", "full", "advanced"
 	HasAuditLogs            bool
@@ -104,7 +102,6 @@ func IsDowngrade(oldTier, newTier domain.PlanTier) bool {
 		lessInt(oldLimits.MaxWebhookSubsPerProj, newLimits.MaxWebhookSubsPerProj) ||
 		lessInt(oldLimits.MaxLogDrainsPerOrg, newLimits.MaxLogDrainsPerOrg) ||
 		lessInt(oldLimits.MaxNotificationChannels, newLimits.MaxNotificationChannels) ||
-		lessInt(oldLimits.MaxAIModelCallsPerDay, newLimits.MaxAIModelCallsPerDay) ||
 		lessInt(oldLimits.MaxWorkflowDAGSteps, newLimits.MaxWorkflowDAGSteps) ||
 		lessInt(oldLimits.MaxScheduledJobs, newLimits.MaxScheduledJobs) ||
 		lessInt(oldLimits.MaxEnvironments, newLimits.MaxEnvironments) ||

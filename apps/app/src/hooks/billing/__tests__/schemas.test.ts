@@ -11,6 +11,7 @@ const validOrgUsage = {
   plan: "starter",
   period: { start: "2026-03-01", end: "2026-03-31" },
   usage: {
+    monthly_runs: { used: 10, limit: 50_000, percent: 0.02 },
     runs_today: { used: 10, limit: 100, percent: 10 },
     concurrent_runs: { used: 1, limit: 5, percent: 20 },
     compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
@@ -82,9 +83,9 @@ describe("OrgUsageResponseSchema", () => {
       alerts: [
         {
           type: "approaching_limit",
-          dimension: "runs_today",
+          dimension: "monthly_runs",
           threshold: 80,
-          message: "You've used 80% of daily runs",
+          message: "You've used 80% of monthly runs",
         },
       ],
     });
@@ -114,6 +115,7 @@ describe("SpendingLimitSchema", () => {
     const result = decode({
       org_id: "org-1",
       plan_tier: "pro",
+      overage_enabled: true,
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
@@ -128,6 +130,7 @@ describe("SpendingLimitSchema", () => {
     const result = decode({
       org_id: "org-1",
       plan_tier: "pro",
+      overage_enabled: true,
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
@@ -146,7 +149,6 @@ describe("UsageForecastSchema", () => {
     const result = decode({
       projected_monthly_runs: 50_000,
       projected_monthly_compute_usd: 25.5,
-      projected_monthly_ai_cost_usd: 0.5,
       recommended_plan: "pro",
       days_until_limit: 15,
       projected_overage_microusd: 5_000_000,

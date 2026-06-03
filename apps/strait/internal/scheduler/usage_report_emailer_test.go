@@ -103,6 +103,9 @@ func (m *mockReportStore) UpdateOrgSubscriptionFull(context.Context, string, str
 func (m *mockReportStore) UpdateSpendingLimit(context.Context, string, int64, string) error {
 	return nil
 }
+func (m *mockReportStore) UpdateOverageDisabled(context.Context, string, bool) error {
+	return nil
+}
 func (m *mockReportStore) SetPendingPlanTier(context.Context, string, string) error { return nil }
 func (m *mockReportStore) SetPendingDowngrade(context.Context, string, string, *time.Time, *time.Time) error {
 	return nil
@@ -127,9 +130,6 @@ func (m *mockReportStore) CountExecutingRunsByOrg(context.Context, string) (int,
 }
 func (m *mockReportStore) BulkCountExecutingRunsByOrg(context.Context, []string) (map[string]int, error) {
 	return nil, nil
-}
-func (m *mockReportStore) CountAIModelCallsByOrg(context.Context, string, time.Time, time.Time) (int64, error) {
-	return 0, nil
 }
 func (m *mockReportStore) SetProjectOrgID(context.Context, string, string) error { return nil }
 func (m *mockReportStore) UpsertUsageRecord(context.Context, *billing.UsageRecord) error {

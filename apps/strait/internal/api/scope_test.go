@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
@@ -374,6 +375,36 @@ func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{}
+	ms.GetUserPermissionsFunc = func(_ context.Context, _, _ string) ([]string, error) {
+		return []string{domain.ScopeJobsRead}, nil
+	}
+	ms.GetResourcePoliciesFunc = func(context.Context, string, string, string, string) ([]string, error) {
+		t.Fatal("resource policy lookup must not run below Advanced RBAC")
+		return []string{domain.ScopeJobsWrite}, nil
+	}
+	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
+	srv := newServerWithEnforcer(t, ms, nil, enforcer)
+	handler := srv.requirePermission(domain.ScopeJobsWrite)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := userCtx(httptest.NewRequest(http.MethodPatch, "/v1/jobs/job-1", nil), "proj-1", "user-1")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("jobID", "job-1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
 	}
 }
 

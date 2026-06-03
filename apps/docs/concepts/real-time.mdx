@@ -68,10 +68,10 @@ Each SSE message contains a JSON object with a `type` field. The table below cov
 {"type": "stream_chunk", "chunk": "partial output text", "stream_id": "abc", "done": false, "timestamp": "2026-06-01T12:00:03Z"}
 ```
 
-For LLM or other streamed response chunks specifically, use the dedicated stream endpoint:
+For streamed response chunks specifically, use the dedicated stream endpoint:
 
 ```http
-GET /v1/runs/{runID}/stream/llm
+GET /v1/runs/{runID}/stream/chunks
 ```
 
 ## Project Activity Feed

@@ -212,10 +212,8 @@ pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
             DependsOn:          []string{"charge"},
             ApprovalTimeoutSecs: 3600,
         }),
-        authoring.AIStep("summarize", &authoring.AIStepOpts{
+        authoring.JobStep("release-notes", "job_release_notes", &authoring.StepOpts{
             DependsOn: []string{"review"},
-            Model:     "gpt-4o",
-            Prompt:    "Summarize the order processing results.",
         }),
     },
 })
@@ -224,7 +222,8 @@ pipeline := authoring.DefineWorkflow(authoring.WorkflowConfig{
 **Step types:**
 - `JobStep`: runs an existing job definition
 - `ApprovalStep`: pauses for human or programmatic approval
-- `AIStep`: executes any step with cost tracking. Not limited to AI models; use it for any step where you need to track spend.
+- `WaitForEventStep`: pauses until a matching event arrives
+- `SleepStep`: pauses for a fixed duration
 
 ## Composition Helpers
 

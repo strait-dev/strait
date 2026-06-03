@@ -148,9 +148,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	if err := s.checkCronOverlapPolicy(ctx, req.ProjectID, req.CronOverlapPolicy); err != nil {
 		return nil, err
 	}
-	if err := s.checkScheduleLimit(ctx, req.ProjectID, req.Cron); err != nil {
-		return nil, err
-	}
 	if err := s.checkCronMinInterval(ctx, req.ProjectID, req.Cron); err != nil {
 		return nil, err
 	}
@@ -221,9 +218,13 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		job.VersionPolicy = domain.VersionPolicy(req.VersionPolicy)
 	}
 
-	if err := s.store.CreateJob(ctx, job); err != nil {
+	if err := s.createJobWithCronScheduleLimit(ctx, job); err != nil {
 		if errors.Is(err, store.ErrJobSlugConflict) {
 			return nil, huma.Error409Conflict(err.Error())
+		}
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
 		}
 		return nil, huma.Error500InternalServerError("failed to create job")
 	}
@@ -242,6 +243,29 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 	})
 
 	return &CreateJobOutput{Body: job}, nil
+}
+
+func (s *Server) createJobWithCronScheduleLimit(ctx context.Context, job *domain.Job) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, job.ProjectID, job.Cron)
+	if err != nil {
+		return err
+	}
+
+	if creator, ok := s.store.(jobCronScheduleLimitCreator); ok {
+		err = creator.CreateJobWithCronScheduleLimit(ctx, job, orgID, maxSchedules)
+	} else {
+		if err := s.checkScheduleLimit(ctx, job.ProjectID, job.Cron); err != nil {
+			return err
+		}
+		err = s.store.CreateJob(ctx, job)
+	}
+	if errors.Is(err, store.ErrCronScheduleLimitExceeded) {
+		s.dispatchWorkflowRegistrationRejected(ctx, job.ProjectID, "schedule_limit", maxSchedules, maxSchedules)
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs. Upgrade at /settings/billing", displayName, maxSchedules),
+		)
+	}
+	return err
 }
 
 func (s *Server) resolveCreateJobSigningSecret(req CreateJobRequest) (string, error) {
@@ -512,6 +536,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		return nil, err
 	}
 
+	addsCronSchedule := req.Cron != nil && *req.Cron != "" && job.Cron == ""
 	if err := s.applyJobBasicUpdate(ctx, job, req); err != nil {
 		return nil, err
 	}
@@ -531,7 +556,7 @@ func (s *Server) handleUpdateJob(ctx context.Context, input *UpdateJobInput) (*U
 		return nil, err
 	}
 
-	if err := s.persistUpdatedJob(ctx, job, req); err != nil {
+	if err := s.persistUpdatedJob(ctx, job, req, addsCronSchedule); err != nil {
 		return nil, err
 	}
 
@@ -552,12 +577,6 @@ func (s *Server) applyJobBasicUpdate(ctx context.Context, job *domain.Job, req U
 		job.Description = *req.Description
 	}
 	if req.Cron != nil {
-		// Schedule count is only consumed when a job gains a cron expression.
-		if *req.Cron != "" && job.Cron == "" {
-			if err := s.checkScheduleLimit(ctx, job.ProjectID, *req.Cron); err != nil {
-				return err
-			}
-		}
 		if *req.Cron != "" {
 			if err := s.checkCronMinInterval(ctx, job.ProjectID, *req.Cron); err != nil {
 				return err
@@ -865,12 +884,22 @@ func validateOptionalCron(expr *string, invalidMessage string) error {
 	return nil
 }
 
-func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req UpdateJobRequest) error {
+func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req UpdateJobRequest, addsCronSchedule bool) error {
 	job.UpdatedBy = actorFromContext(ctx)
 
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	var err error
+	if addsCronSchedule {
+		err = s.updateJobWithCronScheduleLimit(ctx, job)
+	} else {
+		err = s.store.UpdateJob(ctx, job)
+	}
+	if err != nil {
 		if errors.Is(err, store.ErrJobVersionConflict) {
 			return huma.Error409Conflict("job was modified concurrently -- retry with latest version")
+		}
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return err
 		}
 		return huma.Error500InternalServerError("failed to update job")
 	}
@@ -885,6 +914,29 @@ func (s *Server) persistUpdatedJob(ctx context.Context, job *domain.Job, req Upd
 	})
 
 	return nil
+}
+
+func (s *Server) updateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, job.ProjectID, job.Cron)
+	if err != nil {
+		return err
+	}
+
+	if updater, ok := s.store.(jobCronScheduleLimitUpdater); ok {
+		err = updater.UpdateJobWithCronScheduleLimit(ctx, job, orgID, maxSchedules)
+	} else {
+		if err := s.checkScheduleLimit(ctx, job.ProjectID, job.Cron); err != nil {
+			return err
+		}
+		err = s.store.UpdateJob(ctx, job)
+	}
+	if errors.Is(err, store.ErrCronScheduleLimitExceeded) {
+		s.dispatchWorkflowRegistrationRejected(ctx, job.ProjectID, "schedule_limit", maxSchedules, maxSchedules)
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs. Upgrade at /settings/billing", displayName, maxSchedules),
+		)
+	}
+	return err
 }
 
 // enqueueJobMetadata sends a job metadata record to the ClickHouse exporter
@@ -996,9 +1048,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 	if err := s.checkCronOverlapPolicy(ctx, source.ProjectID, string(source.CronOverlapPolicy)); err != nil {
 		return nil, err
 	}
-	if err := s.checkScheduleLimit(ctx, source.ProjectID, source.Cron); err != nil {
-		return nil, err
-	}
 	if err := s.checkCronMinInterval(ctx, source.ProjectID, source.Cron); err != nil {
 		return nil, err
 	}
@@ -1057,17 +1106,16 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		OnFailureTriggerJob:       source.OnFailureTriggerJob,
 		OnFailureTriggerWorkflow:  source.OnFailureTriggerWorkflow,
 		OnFailurePayloadMapping:   source.OnFailurePayloadMapping,
-		MaxTokensPerRun:           source.MaxTokensPerRun,
-		MaxToolCallsPerRun:        source.MaxToolCallsPerRun,
-		MaxIterationsPerRun:       source.MaxIterationsPerRun,
-		AllowedTools:              source.AllowedTools,
-		BlockedTools:              source.BlockedTools,
 		EndpointSigningSecret:     source.EndpointSigningSecret,
 		CreatedBy:                 actorFromContext(ctx),
 		UpdatedBy:                 actorFromContext(ctx),
 	}
 
-	if err := s.store.CreateJob(ctx, clone); err != nil {
+	if err := s.createJobWithCronScheduleLimit(ctx, clone); err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, err
+		}
 		return nil, huma.Error500InternalServerError("failed to clone job")
 	}
 
@@ -1238,10 +1286,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
-		if err := s.checkScheduleLimit(ctx, jobReq.ProjectID, jobReq.Cron); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
-			continue
-		}
 		if err := s.checkCronOverlapPolicy(ctx, jobReq.ProjectID, jobReq.CronOverlapPolicy); err != nil {
 			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
@@ -1299,8 +1343,8 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			UpdatedBy:             actorFromContext(ctx),
 		}
 
-		if err := s.store.CreateJob(ctx, job); err != nil {
-			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: "failed to create job"})
+		if err := s.createJobWithCronScheduleLimit(ctx, job); err != nil {
+			resp.Errors = append(resp.Errors, BatchError{Index: i, Message: batchJobErrorMessage(err)})
 			continue
 		}
 

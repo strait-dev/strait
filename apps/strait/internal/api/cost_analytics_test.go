@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,8 +18,13 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	ms := &AnalyticsStoreMock{
 		GetCostAnalyticsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
 			return &store.CostAnalytics{
-				ByModel: make([]store.CostByModel, 0),
-				ByJob:   make([]store.CostByJob, 0),
+				TotalAICostMicrousd:      123,
+				TotalComputeCostMicrousd: 456,
+				TotalTokens:              789,
+				ByModel: []store.CostByModel{
+					{Model: "legacy-source", CostMicrousd: 123, TotalTokens: 789, UsageCount: 1},
+				},
+				ByJob: make([]store.CostByJob, 0),
 			}, nil
 		},
 	}
@@ -30,6 +36,19 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/analytics/costs?from="+from+"&to="+to, "", "proj-1"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if body["total_usage_cost_microusd"] != float64(123) {
+		t.Fatalf("total_usage_cost_microusd = %v, want 123", body["total_usage_cost_microusd"])
+	}
+	for _, stale := range []string{"total_ai_cost_microusd", "total_tokens", "by_model"} {
+		if _, ok := body[stale]; ok {
+			t.Fatalf("launch response must not expose %q: %s", stale, w.Body.String())
+		}
 	}
 }
 

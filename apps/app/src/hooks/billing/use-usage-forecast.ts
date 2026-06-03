@@ -24,11 +24,9 @@ export type UsageForecastData = {
   projected_monthly_runs: number;
   /** Projected total compute cost in USD. */
   projected_monthly_compute_usd: number;
-  /** Projected total AI cost in USD. */
-  projected_monthly_ai_cost_usd: number;
   /** Recommended plan based on projected usage. */
   recommended_plan: PlanTierSlug;
-  /** Estimated days until the compute credit is exhausted. */
+  /** Estimated days until the current usage limit is exhausted. */
   days_until_limit: number;
   /** Projected overage amount in micro-USD. */
   projected_overage_microusd: number;

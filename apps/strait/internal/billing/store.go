@@ -27,6 +27,7 @@ type OrgSubscription struct {
 	CurrentPeriodEnd           *time.Time
 	SpendingLimitMicrousd      int64
 	LimitAction                string
+	OverageDisabled            bool
 	PendingPlanTier            *string
 	CanceledAt                 *time.Time
 	AnomalyThresholdWarning    float64
@@ -104,6 +105,7 @@ type Store interface {
 	UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	UpdateOverageDisabled(ctx context.Context, orgID string, disabled bool) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
 	SetPendingDowngrade(ctx context.Context, orgID, pendingTier string, periodStart, periodEnd *time.Time) error
 	ClearPendingPlanTier(ctx context.Context, orgID string) error
@@ -120,7 +122,6 @@ type Store interface {
 	CountOrgsByUser(ctx context.Context, userID string) (int, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 	BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error)
-	CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

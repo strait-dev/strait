@@ -5,7 +5,7 @@ icon: "rust"
 og:image: "/images/og.png"
 ---
 
-The Rust SDK (`strait`) provides a fully async client built on Tokio, a code-first authoring DSL for jobs, workflows, and AI agents, composition helpers for retries and orchestration, and typed error handling via `StraitError`.
+The Rust SDK (`strait`) provides a fully async client built on Tokio, a code-first authoring DSL for jobs and workflows, composition helpers for retries and orchestration, and typed error handling via `StraitError`.
 
 ## Installation
 
@@ -103,7 +103,7 @@ strait = { version = "0.1", features = ["rustls-tls", "tracing", "stream"] }
 
 ## Authoring DSL
 
-The authoring DSL lets you define jobs, workflows, and AI agents as Rust code, then register and trigger them through the client.
+The authoring DSL lets you define jobs and workflows as Rust code, then register and trigger them through the client.
 
 ### Defining jobs
 
@@ -178,30 +178,6 @@ let pipeline = define_workflow! {
 
 // Dependency graph is validated at definition time
 pipeline.register(&client).await?;
-```
-
-### Defining AI agents
-
-```rust
-use strait::authoring::*;
-
-let research_agent = define_agent! {
-    name: "Research Agent",
-    slug: "research-agent",
-    project_id: "proj_abc123",
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    cost_budget_usd: 0.50,
-
-    steps: [
-        ai_step("research", "Search for information on the topic")
-            .tool("web_search"),
-        ai_step("summarize", "Summarize the findings")
-            .depends_on(["research"]),
-    ],
-};
-
-research_agent.register(&client).await?;
 ```
 
 ### Test harness
@@ -458,13 +434,12 @@ impl Middleware for MetricsMiddleware {
 |---|---|
 | `strait::client` | `StraitClient` builder and configuration |
 | `strait::config` | Configuration loading from files and environment |
-| `strait::authoring` | `define_job!`, `define_workflow!`, `define_agent!` macros and `RunContext` |
+| `strait::authoring` | `define_job!`, `define_workflow!` macros and `RunContext` |
 | `strait::composition` | `with_retry`, `wait_for_run`, `CancellationToken`, cost budgets, stream pagination |
 | `strait::models` | Request/response types for all API resources |
 | `strait::operations` | 27 service clients with 260+ methods (jobs, runs, workflows, projects, events, and more) |
 | `strait::middleware` | Request/response middleware trait and built-in implementations |
 | `strait::errors` | `StraitError` enum and error types |
-| `strait::ai` | AI agent definitions and `ai_step` helpers |
 | `strait::validation` | Compile-time validation for schemas and workflow dependencies (requires `validation` feature) |
 | `strait::testing` | `TestHarness` for local testing without a server |
 | `strait::prelude` | Re-exports of the most commonly used types |

@@ -562,18 +562,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListRunCheckpoints)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "list-run-usage", Method: http.MethodGet, Path: "/v1/runs/{runID}/usage",
-		Summary: "List run usage", Description: "Returns resource usage records for a specific run.",
-		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleListRunUsage)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-run-tool-calls", Method: http.MethodGet, Path: "/v1/runs/{runID}/tool-calls",
-		Summary: "List run tool calls", Description: "Returns all tool calls made during a run's execution.",
-		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleListRunToolCalls)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "list-run-outputs", Method: http.MethodGet, Path: "/v1/runs/{runID}/outputs",
 		Summary: "List run outputs", Description: "Returns all structured outputs produced by a run.",
 		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -1731,18 +1719,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleSDKCheckpoint)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-usage", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/usage",
-		Summary: "Report resource usage", Description: "Reports resource usage (tokens, compute time, etc.) for billing.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 429, 500},
-	}, s.handleSDKUsage)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-tool-call", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/tool-call",
-		Summary: "Record a tool call", Description: "Records an LLM tool call for observability and debugging.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
-	}, s.handleSDKToolCall)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-output", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/output",
 		Summary: "Record an output", Description: "Records a structured output produced by the run.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
@@ -1804,7 +1780,7 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-stream-chunk", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/stream",
-		Summary: "Send a stream chunk", Description: "Sends a streaming chunk for real-time output from LLM-powered runs.",
+		Summary: "Send a stream chunk", Description: "Sends a streaming chunk for real-time output from runs.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleSDKStreamChunk)
 
@@ -1819,12 +1795,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Save a resource snapshot", Description: "Saves a point-in-time snapshot of resource utilization.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleSDKResourceSnapshot)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-iteration", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/iteration",
-		Summary: "Record an iteration", Description: "Records an iteration in a loop-based execution pattern.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
-	}, s.handleSDKIteration)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-set-memory", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/memory/{key}",

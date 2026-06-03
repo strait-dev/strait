@@ -2,7 +2,7 @@
  * Single source of truth for OAuth configuration across the app.
  *
  * Scopes must stay aligned with:
- * - MCP server: SUPPORTED_SCOPES in src/auth.ts
+ * - OAuth server: SUPPORTED_SCOPES in src/auth.ts
  * - Go API: domain.ValidScopes in internal/domain/scopes.go
  * - oauthProvider config in src/lib/auth.server.ts
  */

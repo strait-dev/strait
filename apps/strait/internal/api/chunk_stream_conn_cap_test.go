@@ -13,7 +13,7 @@ import (
 	"strait/internal/pubsub"
 )
 
-func newLLMStreamServer(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxPerProject int64) *Server {
+func newChunkStreamServer(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxPerProject int64) *Server {
 	t.Helper()
 	cfg := &config.Config{
 		InternalSecret:        "test-secret-value",
@@ -48,11 +48,11 @@ func executingRunStore() *APIStoreMock {
 	}
 }
 
-// TestLLMStreamRespectsPerProjectCap pins the new acquire-before-stream
+// TestChunkStreamRespectsPerProjectCap pins the new acquire-before-stream
 // guard. With the per-project cap saturated by an out-of-band acquire, a fresh
-// LLM stream request must be rejected with 503 instead of consuming pubsub
+// run chunk stream request must be rejected with 503 instead of consuming pubsub
 // resources.
-func TestLLMStreamRespectsPerProjectCap(t *testing.T) {
+func TestChunkStreamRespectsPerProjectCap(t *testing.T) {
 	t.Parallel()
 
 	pub := &mockPublisher{
@@ -61,7 +61,7 @@ func TestLLMStreamRespectsPerProjectCap(t *testing.T) {
 			return nil, nil
 		},
 	}
-	srv := newLLMStreamServer(t, executingRunStore(), pub, 1)
+	srv := newChunkStreamServer(t, executingRunStore(), pub, 1)
 
 	if !srv.acquireSSEConn("proj-1") {
 		t.Fatal("baseline acquire should succeed")
@@ -77,13 +77,13 @@ func TestLLMStreamRespectsPerProjectCap(t *testing.T) {
 	}
 }
 
-// TestLLMStreamReleasesOnHandlerReturn proves the handler defers the
+// TestChunkStreamReleasesOnHandlerReturn proves the handler defers the
 // release: a successful (pubsub-less) request must leave the project counter
 // back at zero so subsequent streams can connect.
-func TestLLMStreamReleasesOnHandlerReturn(t *testing.T) {
+func TestChunkStreamReleasesOnHandlerReturn(t *testing.T) {
 	t.Parallel()
 
-	srv := newLLMStreamServer(t, executingRunStore(), nil, 1)
+	srv := newChunkStreamServer(t, executingRunStore(), nil, 1)
 
 	w := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
@@ -105,9 +105,9 @@ func TestLLMStreamReleasesOnHandlerReturn(t *testing.T) {
 	}
 }
 
-// TestLLMStreamReleasesOnEarlyError ensures the slot is released when
+// TestChunkStreamReleasesOnEarlyError ensures the slot is released when
 // pubsub.Subscribe returns an error mid-handshake.
-func TestLLMStreamReleasesOnEarlyError(t *testing.T) {
+func TestChunkStreamReleasesOnEarlyError(t *testing.T) {
 	t.Parallel()
 
 	var subscribeCalls atomic.Int64
@@ -117,7 +117,7 @@ func TestLLMStreamReleasesOnEarlyError(t *testing.T) {
 			return nil, errors.New("subscribe failed")
 		},
 	}
-	srv := newLLMStreamServer(t, executingRunStore(), pub, 1)
+	srv := newChunkStreamServer(t, executingRunStore(), pub, 1)
 
 	w := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")

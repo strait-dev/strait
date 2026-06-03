@@ -369,11 +369,11 @@ type Job struct {
 	OnFailureTriggerJob       string            `json:"on_failure_trigger_job,omitempty"`
 	OnFailureTriggerWorkflow  string            `json:"on_failure_trigger_workflow,omitempty"`
 	OnFailurePayloadMapping   json.RawMessage   `json:"on_failure_payload_mapping,omitempty"`
-	MaxTokensPerRun           int64             `json:"max_tokens_per_run,omitempty"`
-	MaxToolCallsPerRun        int               `json:"max_tool_calls_per_run,omitempty"`
-	MaxIterationsPerRun       int               `json:"max_iterations_per_run,omitempty"`
-	AllowedTools              []string          `json:"allowed_tools,omitempty"`
-	BlockedTools              []string          `json:"blocked_tools,omitempty"`
+	MaxTokensPerRun           int64             `json:"-"`
+	MaxToolCallsPerRun        int               `json:"-"`
+	MaxIterationsPerRun       int               `json:"-"`
+	AllowedTools              []string          `json:"-"`
+	BlockedTools              []string          `json:"-"`
 	EndpointSigningSecret     string            `json:"-"`
 	CreatedBy                 string            `json:"created_by,omitempty"`
 	UpdatedBy                 string            `json:"updated_by,omitempty"`

@@ -39,9 +39,9 @@ SSO/SAML, SCIM, IP allowlisting, static IPs, VPC peering, data residency, single
 
 Free is hard-capped at 5,000 included orchestration runs unless a credit card is added. Adding a card enables overage at $0.50 per 1,000 runs and applies the default $50 spending cap.
 
-Starter, Pro, Scale, and Business include overage by default because a payment method is already attached to the subscription. Customers can disable overage from billing settings. With overage disabled, runs suspend at the included allowance and schedules pause until the next billing period.
+Starter, Pro, Scale, and Business include overage by default because a payment method is already attached to the subscription. Customers can disable overage from billing settings. With overage disabled, runs suspend at the included allowance and schedules pause until the next billing period or until overage is re-enabled.
 
-At 80 percent of the spending cap, Strait emits `billing.cap_warning`. At 100 percent, Strait emits `billing.cap_reached`, suspends new dispatch, and pauses schedules. In-flight runs can finish.
+At 80 percent of the spending cap, Strait emits `billing.cap_warning`. At 100 percent, Strait emits `billing.cap_reached`, suspends new dispatch, and pauses schedules. In-flight runs can finish. Suspension lifts when the cap is raised above current overage spend, the cap action is changed to notify-only, or the next billing period starts.
 
 ## Add-ons
 

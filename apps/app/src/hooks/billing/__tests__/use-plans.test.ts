@@ -86,6 +86,7 @@ describe("formatRBAC", () => {
   it("capitalizes the first letter", () => {
     expect(formatRBAC("basic")).toBe("Basic");
     expect(formatRBAC("full")).toBe("Full");
+    expect(formatRBAC("advanced")).toBe("Advanced");
   });
 });
 
@@ -124,17 +125,13 @@ const basePlan = {
   max_orgs_per_user: -1,
   max_projects_per_org: -1,
   max_members_per_org: -1,
-  max_runs_per_day: -1,
   max_runs_per_month: 25_000_000,
   max_concurrent_runs: 500,
   compute_credit_microusd: 499_000_000,
   retention_days: 90,
   allowed_regions: null,
-  max_alert_rules_per_project: -1,
   max_webhook_subs_per_project: -1,
   max_log_drains_per_org: -1,
-  max_ai_model_calls_per_day: -1,
-  ai_assistant_byok: true,
   has_rbac: true,
   rbac_level: "advanced",
   has_audit_logs: true,
@@ -143,23 +140,10 @@ const basePlan = {
   has_sub_workflows: true,
   has_job_chaining: true,
   has_compensating_txns: true,
-  has_sso: false,
   has_sla: true,
   requires_credit_card: true,
   overage_per_k_runs_microusd: 30_000,
   support_level: "priority_slack_8h",
-  has_dedicated_compute: false,
-  has_static_ips: false,
-  has_vpc_peering: false,
-  has_scim: false,
-  has_data_residency: false,
-  has_custom_rbac: false,
-  has_reserved_capacity: false,
-  has_priority_queue: false,
-  has_ip_allowlisting: false,
-  has_session_management: false,
-  has_secret_rotation: false,
-  has_siem_export: false,
   max_environments: -1,
   max_scheduled_jobs: -1,
   cron_min_interval_sec: 0,
@@ -179,7 +163,7 @@ describe("apiPlansToPricingPlans", () => {
     expect(pricingPlan.features.map((feature) => feature.name)).toContain(
       "25,000,000 orchestration runs/mo"
     );
-    expect(pricingPlan.features.map((feature) => feature.name)).toContain(
+    expect(pricingPlan.features.map((feature) => feature.name)).not.toContain(
       "All regions"
     );
   });

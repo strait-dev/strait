@@ -28,7 +28,7 @@ Each run moves through clear states: `queued`, `executing`, then `completed`, `f
 - **Background jobs**: imports, reports, cache warming, cleanup, and recurring maintenance.
 - **Webhook consumers**: process external events with retries and replay for failed work.
 - **Data pipelines**: run steps in order, pass results between steps, and retry only what failed.
-- **AI workflows**: enforce per-run and per-project cost limits, with approval gates when needed.
+- **Approval workflows**: route high-risk steps through explicit review before continuing.
 - **Scheduled work**: use cron expressions, time zones, and execution windows.
 
 ## Read next

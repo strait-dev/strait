@@ -41,10 +41,6 @@ const COST_CHART_CONFIG: ChartConfig = {
     label: "Compute",
     color: "chart-3",
   },
-  ai_cost_microusd: {
-    label: "AI Cost",
-    color: "chart-4",
-  },
 };
 
 const RUNS_CHART_CONFIG: ChartConfig = {
@@ -172,7 +168,6 @@ const UsageHistoryTab = () => {
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Runs</TableHead>
                   <TableHead className="text-right">Compute Cost</TableHead>
-                  <TableHead className="text-right">AI Cost</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -184,9 +179,6 @@ const UsageHistoryTab = () => {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMicroUsd(entry.compute_cost_microusd)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.ai_cost_microusd)}
                     </TableCell>
                   </TableRow>
                 ))}

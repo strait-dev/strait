@@ -6,6 +6,18 @@ icon: "users"
 
 RBAC controls what users can do in your Strait project. Assign built-in roles for common access patterns, create custom roles for specific needs, and use policies for fine-grained per-resource control.
 
+## Plan Availability
+
+RBAC is plan gated in cloud:
+
+| RBAC level | Included on | Capability |
+| --- | --- | --- |
+| Basic | Starter and above | Built-in roles, role assignment, and member management |
+| Full | Pro and Scale | Custom roles and role inheritance |
+| Advanced | Business | Resource policies, tag policies, and workflow policies |
+
+Enterprise contracts use negotiated RBAC terms.
+
 ## Built-in Roles
 
 Strait ships with four roles that cover the most common access patterns.
@@ -119,7 +131,7 @@ curl -X POST https://your-strait-instance/v1/resource-policies \
     "user_id": "user_def456",
     "resource_type": "job",
     "resource_id": "job_critical",
-    "permissions": ["jobs:trigger", "runs:read"]
+    "actions": ["jobs:trigger", "runs:read"]
   }'
 ```
 
@@ -130,7 +142,7 @@ curl -X POST https://your-strait-instance/v1/resource-policies \
   "user_id": "user_def456",
   "resource_type": "job",
   "resource_id": "job_critical",
-  "permissions": ["jobs:trigger", "runs:read"],
+  "actions": ["jobs:trigger", "runs:read"],
   "created_at": "2026-03-15T10:15:00Z"
 }
 ```
@@ -148,7 +160,7 @@ curl -X POST https://your-strait-instance/v1/tag-policies \
     "user_id": "user_def456",
     "tag_key": "team",
     "tag_value": "billing",
-    "permissions": ["jobs:read", "jobs:trigger", "runs:read"]
+    "actions": ["jobs:read", "jobs:trigger", "runs:read"]
   }'
 ```
 
@@ -159,7 +171,7 @@ curl -X POST https://your-strait-instance/v1/tag-policies \
   "user_id": "user_def456",
   "tag_key": "team",
   "tag_value": "billing",
-  "permissions": ["jobs:read", "jobs:trigger", "runs:read"],
+  "actions": ["jobs:read", "jobs:trigger", "runs:read"],
   "created_at": "2026-03-15T10:20:00Z"
 }
 ```

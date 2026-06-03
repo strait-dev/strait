@@ -122,7 +122,7 @@ func (d *AnomalyDetector) detectForOrg(ctx context.Context, orgID string, today 
 	var topContributorSpend int64
 
 	for _, r := range records {
-		spend := r.ComputeCostMicro + r.AICostMicro
+		spend := r.ComputeCostMicro
 		dateStr := r.PeriodDate.Format("2006-01-02")
 		todayStr := today.Format("2006-01-02")
 

@@ -62,15 +62,15 @@ func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int
 	return 0, nil
 }
 
+func (m *mockBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
 func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
 	return nil
 }
 
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
-
-func (m *mockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
-	return nil
-}
 
 func (m *mockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
 }
@@ -157,6 +157,10 @@ func (m *mockUsageService) GetSpendingLimit(_ context.Context, orgID string) (*b
 }
 
 func (m *mockUsageService) SetSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockUsageService) SetOverageEnabled(_ context.Context, _ string, _ bool) error {
 	return nil
 }
 

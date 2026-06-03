@@ -22,11 +22,9 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxWebhookEndpoints", e.MaxWebhookEndpoints},
 		{"MaxWorkflowDAGSteps", e.MaxWorkflowDAGSteps},
 		{"APIRateLimit", e.APIRateLimit},
-		{"MaxAlertRulesPerProj", e.MaxAlertRulesPerProj},
 		{"MaxWebhookSubsPerProj", e.MaxWebhookSubsPerProj},
 		{"MaxLogDrainsPerOrg", e.MaxLogDrainsPerOrg},
 		{"MaxNotificationChannels", e.MaxNotificationChannels},
-		{"MaxAIModelCallsPerDay", e.MaxAIModelCallsPerDay},
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}
 	for _, tt := range unlimited {

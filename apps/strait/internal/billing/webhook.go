@@ -1858,7 +1858,12 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 				return nil
 			}
 			maxPacks, hasCap := limits.MaxAddonPacks[addonType]
-			if hasCap && maxPacks >= 0 {
+			if !hasCap {
+				h.logger.Warn("addon not available on plan, ignoring addon webhook",
+					"org_id", orgID, "plan_tier", limits.PlanTier, "addon_type", addonType)
+				return nil
+			}
+			if maxPacks >= 0 {
 				existing, _ := h.store.CountActiveAddonsByType(ctx, orgID, addonType)
 				if existing >= maxPacks {
 					h.logger.Warn("addon cap exceeded, ignoring addon webhook",

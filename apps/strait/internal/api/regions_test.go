@@ -265,10 +265,10 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		}
 	})
 
-	t.Run("starter_plan_multi_region_blocked", func(t *testing.T) {
+	t.Run("starter_plan_preferred_regions_allowed_by_catalog", func(t *testing.T) {
 		t.Parallel()
-		// preferred_regions (multi-region) requires Pro or higher;
-		// starter plan is rejected when region gating is enabled.
+		// Region gating is now driven by the generated billing catalog. Starter
+		// has no allowed-region list there, so any valid region is allowed.
 		ms := &APIStoreMock{
 			GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 				return &store.ProjectQuota{
@@ -297,8 +297,8 @@ func TestHandleCreateJob_RegionGating(t *testing.T) {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
 
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 for starter plan with preferred_regions, got %d: %s", w.Code, w.Body.String())
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for starter plan with preferred_regions, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 

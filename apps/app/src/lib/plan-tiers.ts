@@ -69,7 +69,7 @@ const FEATURE_MIN_TIER: Partial<Record<PlanFeature, string>> = {
   compensating_txns: "pro",
   canary_deployments: "scale",
   audit_logs: "scale",
-  sla: "enterprise",
+  sla: "business",
 };
 
 const ROADMAP_FEATURES = new Set<PlanFeature>([
@@ -108,6 +108,12 @@ export function canUseFeature(
 
 /** Returns the human-readable minimum tier label for a gated feature. */
 export function getFeatureMinimumPlanLabel(feature: PlanFeature): string {
+  if (isRoadmapFeature(feature)) {
+    return "Roadmap";
+  }
   const minTier = FEATURE_MIN_TIER[feature];
+  if (!minTier) {
+    return "Free";
+  }
   return TIER_LABEL[minTier] ?? minTier;
 }

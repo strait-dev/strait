@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from "@strait/ui/components/card";
 import { CHART_COLORS, type ChartConfig } from "@strait/ui/components/chart";
-import { BarChart, DonutChart, LineChart } from "@strait/ui/components/charts";
+import { BarChart, LineChart } from "@strait/ui/components/charts";
 import {
   DescriptionDetails,
   DescriptionList,
@@ -37,11 +37,6 @@ const RUNS_CHART_CONFIG = {
     label: "Runs",
     color: "chart-3",
   },
-} satisfies ChartConfig;
-
-const COST_DONUT_CONFIG = {
-  Compute: { label: "Compute", color: "chart-3" },
-  "AI Cost": { label: "AI Cost", color: "chart-4" },
 } satisfies ChartConfig;
 
 const PROJECT_RUNS_CHART_CONFIG = {
@@ -157,20 +152,11 @@ const UsageDashboard = () => {
 
   const planName = capitalize(usage.plan);
 
-  // Aggregate costs from history for donut chart
   const totalCompute = (history ?? []).reduce(
     (sum, d) => sum + d.compute_cost_microusd,
     0
   );
-  const totalAi = (history ?? []).reduce(
-    (sum, d) => sum + d.ai_cost_microusd,
-    0
-  );
-  const totalCost = totalCompute + totalAi;
-  const donutData = [
-    { name: "Compute", value: totalCompute },
-    { name: "AI Cost", value: totalAi },
-  ];
+  const totalCost = totalCompute;
 
   // Top 5 projects by runs
   const topProjects = [...(projectCosts ?? [])]
@@ -215,13 +201,13 @@ const UsageDashboard = () => {
       </div>
 
       {/* Radial Gauges */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         {renderUsageGauge({
-          display: usage.usage.runs_today.display,
-          label: "Runs Today",
-          limit: usage.usage.runs_today.limit,
-          percent: usage.usage.runs_today.percent,
-          used: usage.usage.runs_today.used,
+          display: usage.usage.monthly_runs.display,
+          label: "Runs This Month",
+          limit: usage.usage.monthly_runs.limit,
+          percent: usage.usage.monthly_runs.percent,
+          used: usage.usage.monthly_runs.used,
         })}
         {renderUsageGauge({
           label: "Concurrent Runs",
@@ -231,16 +217,10 @@ const UsageDashboard = () => {
         })}
         {renderUsageGauge({
           display: usage.usage.compute_credit.display,
-          label: "Compute Credit",
+          label: "Period Spend",
           limit: usage.usage.compute_credit.limit,
           percent: usage.usage.compute_credit.percent,
           used: usage.usage.compute_credit.used,
-        })}
-        {renderUsageGauge({
-          label: "AI Model Calls",
-          limit: usage.usage.ai_model_calls_today.limit,
-          percent: usage.usage.ai_model_calls_today.percent,
-          used: usage.usage.ai_model_calls_today.used,
         })}
       </div>
 
@@ -279,12 +259,12 @@ const UsageDashboard = () => {
         </Card>
       )}
 
-      {/* Daily Runs Line Chart */}
+      {/* Runs by day line chart */}
       {history && history.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="font-medium text-sm">
-              Daily Runs (30 days)
+              Runs by Day (30 days)
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -304,31 +284,7 @@ const UsageDashboard = () => {
         </Card>
       )}
 
-      {/* Cost Donut + Top Projects side by side */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {/* Cost Breakdown Donut */}
-        {totalCost > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="font-medium text-sm">
-                Cost Breakdown
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DonutChart
-                config={COST_DONUT_CONFIG}
-                containerHeight={200}
-                data={donutData}
-                dataKey="value"
-                label={formatMicroUsd(totalCost)}
-                nameKey="name"
-                valueFormatter={formatMicroUsd}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Top Projects by Runs */}
+      <div className="grid grid-cols-1 gap-3">
         {topProjects.length > 0 && (
           <Card>
             <CardHeader>
@@ -394,9 +350,8 @@ const UsageDashboard = () => {
           title="You are in overage"
           variant="warning"
         >
-          ${(usage.overage_microusd / 1_000_000).toFixed(2)} over your included
-          ${(usage.included_credit_microusd / 1_000_000).toFixed(2)} credit. Set
-          a spending limit to control costs.
+          ${(usage.overage_microusd / 1_000_000).toFixed(2)} beyond your
+          included run allowance. Set a spending cap to control costs.
         </NoticeBanner>
       )}
 

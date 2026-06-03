@@ -48,8 +48,8 @@ func NewPgStore(pool *pgxpool.Pool) *PgStore {
 func (s *PgStore) EnsureOrgSubscription(ctx context.Context, orgID string) error {
 	return WithBillingTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status)
-			 VALUES (gen_random_uuid()::text, $1, 'free', 'active')
+			`INSERT INTO organization_subscriptions (id, org_id, plan_tier, status, overage_disabled)
+			 VALUES (gen_random_uuid()::text, $1, 'free', 'active', true)
 			 ON CONFLICT (org_id) DO NOTHING`,
 			orgID); err != nil {
 			return fmt.Errorf("ensure org subscription: %w", err)
@@ -83,7 +83,9 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where 
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			stripe_lookup_key,
 			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			spending_limit_microusd, limit_action,
+			COALESCE(overage_disabled, plan_tier = 'free'),
+			pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
@@ -100,7 +102,9 @@ func (s *PgStore) getOrgSubscriptionWhere(ctx context.Context, q querier, where 
 		&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 		&sub.StripeLookupKey,
 		&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
-		&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+		&sub.SpendingLimitMicrousd, &sub.LimitAction,
+		&sub.OverageDisabled,
+		&sub.PendingPlanTier, &sub.CanceledAt,
 		&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 		&sub.GracePeriodEnd, &sub.PaymentStatus,
 		&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
@@ -131,9 +135,9 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 				id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 				stripe_lookup_key,
 				status, current_period_start, current_period_end,
-				spending_limit_microusd, limit_action, canceled_at,
+				spending_limit_microusd, limit_action, overage_disabled, canceled_at,
 				created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 			ON CONFLICT (org_id) DO UPDATE SET
 				plan_tier = EXCLUDED.plan_tier,
 				stripe_subscription_id = EXCLUDED.stripe_subscription_id,
@@ -144,6 +148,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 				current_period_end = EXCLUDED.current_period_end,
 				spending_limit_microusd = organization_subscriptions.spending_limit_microusd,
 				limit_action = organization_subscriptions.limit_action,
+				overage_disabled = organization_subscriptions.overage_disabled,
 				pending_plan_tier = COALESCE(organization_subscriptions.pending_plan_tier, NULL),
 				canceled_at = EXCLUDED.canceled_at,
 				cap_warning_dispatched_at = CASE
@@ -167,7 +172,7 @@ func (s *PgStore) UpsertOrgSubscription(ctx context.Context, sub *OrgSubscriptio
 			sub.StripeSubscriptionID, sub.StripeCustomerID,
 			sub.StripeLookupKey,
 			sub.Status, sub.CurrentPeriodStart, sub.CurrentPeriodEnd,
-			sub.SpendingLimitMicrousd, sub.LimitAction, sub.CanceledAt,
+			sub.SpendingLimitMicrousd, sub.LimitAction, sub.PlanTier == string(domain.PlanFree), sub.CanceledAt,
 			sub.CreatedAt, sub.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("upserting org subscription: %w", err)
@@ -423,7 +428,9 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			spending_limit_microusd, limit_action,
+			COALESCE(overage_disabled, plan_tier = 'free'),
+			pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
@@ -449,7 +456,9 @@ func (s *PgStore) ListOrgsWithPendingDowngrade(ctx context.Context) ([]OrgSubscr
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
 			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
-			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.SpendingLimitMicrousd, &sub.LimitAction,
+			&sub.OverageDisabled,
+			&sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
@@ -472,6 +481,21 @@ func (s *PgStore) UpdateSpendingLimit(ctx context.Context, orgID string, limitMi
 	`, orgID, limitMicrousd, action)
 	if err != nil {
 		return fmt.Errorf("updating spending limit: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSubscriptionNotFound
+	}
+	return nil
+}
+
+func (s *PgStore) UpdateOverageDisabled(ctx context.Context, orgID string, disabled bool) error {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE organization_subscriptions
+		SET overage_disabled = $2, updated_at = NOW()
+		WHERE org_id = $1
+	`, orgID, disabled)
+	if err != nil {
+		return fmt.Errorf("updating overage disabled flag: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrSubscriptionNotFound
@@ -643,23 +667,6 @@ func (s *PgStore) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []stri
 		result[orgID] = count
 	}
 	return result, rows.Err()
-}
-
-func (s *PgStore) CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error) {
-	var count int64
-	err := s.pool.QueryRow(ctx, `
-		SELECT COUNT(*)::bigint
-		FROM run_usage ru
-		JOIN job_runs jr ON jr.id = ru.run_id
-		JOIN projects p ON p.id = jr.project_id
-		WHERE p.org_id = $1
-		  AND ru.created_at >= $2
-		  AND ru.created_at < $3
-	`, orgID, from, to).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("counting ai model calls by org: %w", err)
-	}
-	return count, nil
 }
 
 func (s *PgStore) SetProjectOrgID(ctx context.Context, projectID, orgID string) error {
@@ -1134,7 +1141,7 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 func (s *PgStore) SumOrgPeriodSpend(ctx context.Context, orgID string, from time.Time) (int64, error) {
 	var sum int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(compute_cost_microusd), 0) + COALESCE(SUM(ai_cost_microusd), 0)
+		SELECT COALESCE(SUM(compute_cost_microusd), 0)
 		FROM usage_records
 		WHERE org_id = $1 AND period_date >= $2
 	`, orgID, from).Scan(&sum)
@@ -1178,7 +1185,7 @@ func (s *PgStore) SetProjectBudget(ctx context.Context, projectID string, budget
 func (s *PgStore) GetProjectPeriodSpend(ctx context.Context, projectID string, from time.Time) (int64, error) {
 	var sum int64
 	err := s.pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(compute_cost_microusd), 0) + COALESCE(SUM(ai_cost_microusd), 0)
+		SELECT COALESCE(SUM(compute_cost_microusd), 0)
 		FROM usage_records
 		WHERE project_id = $1 AND period_date >= $2
 	`, projectID, from).Scan(&sum)
@@ -1316,7 +1323,9 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			spending_limit_microusd, limit_action,
+			COALESCE(overage_disabled, plan_tier = 'free'),
+			pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
@@ -1341,7 +1350,9 @@ func (s *PgStore) ListOrgsInGracePeriod(ctx context.Context) ([]OrgSubscription,
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
 			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
-			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.SpendingLimitMicrousd, &sub.LimitAction,
+			&sub.OverageDisabled,
+			&sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,
@@ -1363,7 +1374,9 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, plan_tier, stripe_subscription_id, stripe_customer_id,
 			status, current_period_start, current_period_end,
-			spending_limit_microusd, limit_action, pending_plan_tier, canceled_at,
+			spending_limit_microusd, limit_action,
+			COALESCE(overage_disabled, plan_tier = 'free'),
+			pending_plan_tier, canceled_at,
 			COALESCE(anomaly_threshold_warning, 3.0),
 			COALESCE(anomaly_threshold_critical, 10.0),
 			grace_period_end, COALESCE(payment_status, 'ok'),
@@ -1390,7 +1403,9 @@ func (s *PgStore) ListStaleSubscriptions(ctx context.Context) ([]OrgSubscription
 			&sub.ID, &sub.OrgID, &sub.PlanTier,
 			&sub.StripeSubscriptionID, &sub.StripeCustomerID,
 			&sub.Status, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd,
-			&sub.SpendingLimitMicrousd, &sub.LimitAction, &sub.PendingPlanTier, &sub.CanceledAt,
+			&sub.SpendingLimitMicrousd, &sub.LimitAction,
+			&sub.OverageDisabled,
+			&sub.PendingPlanTier, &sub.CanceledAt,
 			&sub.AnomalyThresholdWarning, &sub.AnomalyThresholdCritical,
 			&sub.GracePeriodEnd, &sub.PaymentStatus,
 			&sub.OverrideDailyRunLimit, &sub.OverrideConcurrentRunLimit,

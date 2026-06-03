@@ -26,9 +26,9 @@ export const formatLimit = (value: number): string => {
 };
 
 /**
- * Format a micro-USD compute credit amount for display.
+ * Format a micro-USD price amount for display.
  *
- * @param microusd - Credit amount in micro-USD (1,000,000 = $1.00).
+ * @param microusd - Price amount in micro-USD (1,000,000 = $1.00).
  * @returns Formatted string (e.g. "$19.99") or "-" for zero/negative.
  */
 export const formatComputeCredit = (microusd: number): string => {
@@ -67,7 +67,7 @@ export const formatRetention = (days: number): string => {
 /**
  * Format an RBAC level string for display.
  *
- * @param level - RBAC level ("", "basic", "full").
+ * @param level - RBAC level ("", "basic", "full", "advanced").
  * @returns Capitalized level or "-" for empty string.
  */
 export const formatRBAC = (level: string): string => {

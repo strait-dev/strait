@@ -2,10 +2,10 @@ package api
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 )
 
@@ -20,8 +20,12 @@ func (s *Server) checkRegionForPlan(ctx context.Context, projectID, region strin
 	if !s.config.EnforceRegionGating {
 		return nil
 	}
-	tier := s.getProjectPlanTierCtx(ctx, projectID)
-	if !domain.IsRegionAllowed(tier, region) {
+
+	limits := s.getRegionPlanLimits(ctx, projectID)
+	if limits == nil || len(limits.AllowedRegions) == 0 {
+		return nil
+	}
+	if !containsRegion(limits.AllowedRegions, region) {
 		return huma.Error403Forbidden("region " + region + " is not available on your plan")
 	}
 	return nil
@@ -44,19 +48,18 @@ func (s *Server) checkPreferredRegionsForPlan(ctx context.Context, projectID str
 		return nil
 	}
 
-	tier := s.getProjectPlanTierCtx(ctx, projectID)
-	cfg := domain.GetPlanConfig(tier)
-
-	if !cfg.MultiRegion {
-		return huma.Error403Forbidden("multi-region is not available on your plan")
+	limits := s.getRegionPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil
 	}
-	if len(regions) > cfg.MaxRegions {
-		return huma.Error400BadRequest(fmt.Sprintf("too many preferred regions (max %d for your plan)", cfg.MaxRegions))
+
+	if len(limits.AllowedRegions) == 0 {
+		return nil
 	}
 
 	// Validate each region is allowed on the plan.
 	for _, pr := range regions {
-		if !domain.IsRegionAllowed(tier, pr) {
+		if !containsRegion(limits.AllowedRegions, pr) {
 			return huma.Error403Forbidden("region " + pr + " is not available on your plan")
 		}
 	}
@@ -64,14 +67,31 @@ func (s *Server) checkPreferredRegionsForPlan(ctx context.Context, projectID str
 	return nil
 }
 
-// getProjectPlanTierCtx fetches the plan tier for a project, defaulting to free.
-func (s *Server) getProjectPlanTierCtx(ctx context.Context, projectID string) domain.PlanTier {
+func (s *Server) getRegionPlanLimits(ctx context.Context, projectID string) *billing.OrgPlanLimits {
+	if s.billingEnforcer != nil {
+		orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+		if err == nil && orgID != "" {
+			limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+			if limErr == nil {
+				return &limits
+			}
+		}
+	}
+
 	quota, err := s.store.GetProjectQuota(ctx, projectID)
-	if err != nil || quota == nil {
-		return domain.PlanFree
+	if err != nil || quota == nil || quota.PlanTier == "" {
+		limits := billing.GetPlanLimits(domain.PlanFree)
+		return &limits
 	}
-	if quota.PlanTier == "" {
-		return domain.PlanFree
+	limits := billing.GetPlanLimits(domain.PlanTier(quota.PlanTier))
+	return &limits
+}
+
+func containsRegion(regions []string, region string) bool {
+	for _, candidate := range regions {
+		if candidate == region {
+			return true
+		}
 	}
-	return domain.PlanTier(quota.PlanTier)
+	return false
 }

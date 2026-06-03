@@ -33,6 +33,10 @@ vi.mock("@/lib/resend.server", () => ({
   getResend: () => ({ emails: { send: vi.fn() } }),
 }));
 
+vi.mock("@/lib/stripe.server", () => ({
+  findOrCreateCustomerForOrg: vi.fn(),
+}));
+
 describe("getAuthConnectionString", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

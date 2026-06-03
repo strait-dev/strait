@@ -5,6 +5,7 @@ import {
   ALL_PLAN_TIERS,
   type LimitAction,
   type PlanTierSlug,
+  type RBACLevel,
   REFETCH_5M,
   REFETCH_10M,
   STALE_30S,
@@ -62,6 +63,13 @@ describe("LimitAction", () => {
   it("accepts 'reject' and 'notify'", () => {
     const actions: LimitAction[] = ["reject", "notify"];
     expect(actions).toHaveLength(2);
+  });
+});
+
+describe("RBACLevel", () => {
+  it("accepts every launch RBAC level", () => {
+    const levels: RBACLevel[] = ["none", "basic", "full", "advanced"];
+    expect(levels).toHaveLength(4);
   });
 });
 

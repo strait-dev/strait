@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
@@ -42,6 +43,61 @@ func reqWithAPIKey(apiKeyID string, apiKey *domain.APIKey) *http.Request {
 		ctx = context.WithValue(ctx, ctxAuthKeyObjKey, apiKey)
 	}
 	return req.WithContext(ctx)
+}
+
+type rateLimitPlanEnforcer struct {
+	orgID  string
+	limits billing.OrgPlanLimits
+	used   int64
+}
+
+func (e rateLimitPlanEnforcer) CheckProjectLimit(context.Context, string) error { return nil }
+func (e rateLimitPlanEnforcer) CheckMemberLimit(context.Context, string) error  { return nil }
+func (e rateLimitPlanEnforcer) CheckOrgCreationLimit(context.Context, string, domain.PlanTier) error {
+	return nil
+}
+func (e rateLimitPlanEnforcer) CheckMaxDispatchPriority(context.Context, string, int) error {
+	return nil
+}
+func (e rateLimitPlanEnforcer) GetProjectOrgID(context.Context, string) (string, error) {
+	return e.orgID, nil
+}
+func (e rateLimitPlanEnforcer) GetActiveProjectOrgID(context.Context, string) (string, error) {
+	return e.orgID, nil
+}
+func (e rateLimitPlanEnforcer) GetOrgPlanLimits(context.Context, string) (billing.OrgPlanLimits, error) {
+	return e.limits, nil
+}
+func (e rateLimitPlanEnforcer) GetDailyRunCount(context.Context, string) (int64, error) {
+	return 0, nil
+}
+func (e rateLimitPlanEnforcer) GetMonthlyRunCount(context.Context, string) (int64, error) {
+	return e.used, nil
+}
+func (e rateLimitPlanEnforcer) EnsureOrgSubscription(context.Context, string) error { return nil }
+func (e rateLimitPlanEnforcer) DispatchBilling(context.Context, string, domain.PlanTier, string, map[string]any) {
+}
+
+func TestSetUsageHeaders_UsesMonthlyRunAllowance(t *testing.T) {
+	t.Parallel()
+	limits := billing.GetPlanLimits(domain.PlanStarter)
+	srv := &Server{
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-1",
+			limits: limits,
+			used:   1234,
+		},
+	}
+	rr := httptest.NewRecorder()
+
+	srv.setUsageHeaders(context.Background(), rr, &limits, "proj-1")
+
+	if got := rr.Header().Get("X-Strait-Usage-Limit"); got != "50000" {
+		t.Fatalf("usage limit header = %q, want monthly allowance 50000", got)
+	}
+	if got := rr.Header().Get("X-Strait-Usage-Remaining"); got != "48766" {
+		t.Fatalf("usage remaining header = %q, want 48766", got)
+	}
 }
 
 func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
@@ -191,6 +247,83 @@ func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+			RateLimitRequests:           1000,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-free",
+			limits: billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.limit != billing.APIRateFree {
+		t.Fatalf("limit = %d, want free plan limit %d", rl.limit, billing.APIRateFree)
+	}
+	if rl.windowSecs != 60 {
+		t.Fatalf("windowSecs = %d, want 60", rl.windowSecs)
+	}
+	if rl.key != "rl:plan:org-free" {
+		t.Fatalf("key = %q, want rl:plan:org-free", rl.key)
+	}
+}
+
+func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+			RateLimitRequests:           1000,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-business",
+			limits: billing.GetPlanLimits(domain.PlanBusiness),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-business", "")
+	if rl.limit != 0 || rl.windowSecs != 0 || rl.key != "" {
+		t.Fatalf("unlimited plan resolved rate limit = %+v, want zero-value no limit", rl)
+	}
+}
+
+func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-free",
+			limits: billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+	req := reqWithAPIKey("key-1", &domain.APIKey{
+		RateLimitRequests:   1000,
+		RateLimitWindowSecs: 60,
+	})
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "key-1")
+	if rl.limit != billing.APIRateFree {
+		t.Fatalf("limit = %d, want key override capped to free plan limit %d", rl.limit, billing.APIRateFree)
+	}
+	if rl.key != "rl:apikey:key-1" {
+		t.Fatalf("key = %q, want rl:apikey:key-1", rl.key)
 	}
 }
 

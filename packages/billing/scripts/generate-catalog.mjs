@@ -179,9 +179,6 @@ function toPlanTs(plan) {
       rbac: features.rbacLevel,
       auditLogs: features.auditLogs,
       ssoSaml: false,
-      aiMessagesPerDay:
-        limits.aiCallsPerDay === -1 ? null : limits.aiCallsPerDay,
-      aiByok: features.aiByok,
     },
     cta: uiCTA(plan),
     highlighted: plan.highlighted,
@@ -200,7 +197,6 @@ function toApiPlan(plan) {
     max_orgs_per_user: limits.orgs,
     max_projects_per_org: limits.projects,
     max_members_per_org: limits.members,
-    max_runs_per_day: -1,
     max_runs_per_month: limits.runsPerMonth,
     compute_credit_microusd:
       plan.tier === "free"
@@ -210,33 +206,17 @@ function toApiPlan(plan) {
     max_concurrent_runs: limits.concurrentRuns,
     retention_days: limits.retentionDays,
     allowed_regions: limits.allowedRegions,
-    max_alert_rules_per_project: limits.alertRules,
     max_webhook_subs_per_project: limits.webhookSubscriptions,
     max_log_drains_per_org: limits.logDrains,
-    max_ai_model_calls_per_day: limits.aiCallsPerDay,
-    ai_assistant_byok: features.aiByok,
     has_rbac: features.rbac,
     rbac_level: features.rbacLevel === "none" ? "" : features.rbacLevel,
     has_audit_logs: features.auditLogs,
-    has_sso: false,
     has_sla: features.slaTarget,
     has_canary_deployments: features.canaryDeployments,
     has_approval_gates: features.approvalGates,
     has_sub_workflows: features.subWorkflows,
     has_job_chaining: features.jobChaining,
     has_compensating_txns: features.compensatingTransactions,
-    has_dedicated_compute: false,
-    has_static_ips: false,
-    has_vpc_peering: false,
-    has_scim: false,
-    has_data_residency: false,
-    has_custom_rbac: false,
-    has_reserved_capacity: false,
-    has_priority_queue: false,
-    has_ip_allowlisting: false,
-    has_session_management: false,
-    has_secret_rotation: false,
-    has_siem_export: false,
     requires_credit_card: plan.creditCardRequired,
     support_level: plan.supportLevel,
     max_environments: limits.environments,
@@ -311,8 +291,6 @@ export type Plan = {
     rbac: "none" | "basic" | "full" | "advanced";
     auditLogs: boolean;
     ssoSaml: boolean;
-    aiMessagesPerDay: number | null;
-    aiByok: boolean;
   };
   cta: { label: string; href: string };
   highlighted: boolean;
@@ -327,40 +305,23 @@ export type PlanApiResponse = {
   max_orgs_per_user: number;
   max_projects_per_org: number;
   max_members_per_org: number;
-  max_runs_per_day: number;
   max_runs_per_month: number;
   compute_credit_microusd: number;
   overage_per_k_runs_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
   allowed_regions: string[] | null;
-  max_alert_rules_per_project: number;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
-  max_ai_model_calls_per_day: number;
-  ai_assistant_byok: boolean;
   has_rbac: boolean;
-  rbac_level: string;
+  rbac_level: "" | "basic" | "full" | "advanced";
   has_audit_logs: boolean;
-  has_sso: boolean;
   has_sla: boolean;
   has_canary_deployments: boolean;
   has_approval_gates: boolean;
   has_sub_workflows: boolean;
   has_job_chaining: boolean;
   has_compensating_txns: boolean;
-  has_dedicated_compute: boolean;
-  has_static_ips: boolean;
-  has_vpc_peering: boolean;
-  has_scim: boolean;
-  has_data_residency: boolean;
-  has_custom_rbac: boolean;
-  has_reserved_capacity: boolean;
-  has_priority_queue: boolean;
-  has_ip_allowlisting: boolean;
-  has_session_management: boolean;
-  has_secret_rotation: boolean;
-  has_siem_export: boolean;
   requires_credit_card: boolean;
   support_level: string;
   max_environments: number;
@@ -507,8 +468,6 @@ function generateGoPlans() {
 \t\tMaxWebhookSubsPerProj:   ${goInt(l.webhookSubscriptions)},
 \t\tMaxLogDrainsPerOrg:      ${goInt(l.logDrains)},
 \t\tMaxNotificationChannels: ${goInt(l.notificationChannels)},
-\t\tMaxAIModelCallsPerDay:   ${goInt(l.aiCallsPerDay)},
-\t\tAIAssistantBYOK:         ${goBool(f.aiByok)},
 \t\tHasRBAC:                 ${goBool(f.rbac)},
 \t\tRBACLevel:               ${goString(f.rbacLevel === "none" ? "" : f.rbacLevel)},
 \t\tHasAuditLogs:            ${goBool(f.auditLogs)},

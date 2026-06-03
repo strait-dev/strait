@@ -32,7 +32,7 @@ type SpendingLimitStore interface {
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
-// RunLimitStore defines the store operations for daily run limit notifications.
+// RunLimitStore defines the store operations for monthly run allowance notifications.
 type RunLimitStore interface {
 	ListAllSubscribedOrgIDs(ctx context.Context) ([]string, error)
 	ListProjectsByOrg(ctx context.Context, orgID string) ([]string, error)
@@ -41,7 +41,7 @@ type RunLimitStore interface {
 	CreateNotificationDelivery(ctx context.Context, d *domain.NotificationDelivery) error
 }
 
-// BudgetMonitor periodically checks compute budget thresholds and fires alerts.
+// BudgetMonitor periodically checks spending and run-allowance thresholds and fires alerts.
 type BudgetMonitor struct {
 	store         BudgetMonitorStore
 	spendingStore SpendingLimitStore
@@ -51,8 +51,8 @@ type BudgetMonitor struct {
 	interval      time.Duration
 	logger        *slog.Logger
 
-	// alerted tracks which projects have already been alerted today.
-	// Key format: "projectID:YYYY-MM-DD" or "spending:orgID:80:YYYY-MM-DD"
+	// alerted tracks which thresholds have already been alerted for the active
+	// daily or monthly period.
 	alertedMu sync.Mutex
 	alerted   map[string]bool
 	// alertedDate records the UTC day represented by alerted. Cleanup is only
@@ -81,7 +81,7 @@ func (bm *BudgetMonitor) WithSpendingLimitStore(s SpendingLimitStore) *BudgetMon
 	return bm
 }
 
-// WithRunLimitNotifications enables proactive 80% daily run limit notifications.
+// WithRunLimitNotifications enables proactive 80% monthly run allowance notifications.
 func (bm *BudgetMonitor) WithRunLimitNotifications(s RunLimitStore, enforcer *billing.Enforcer) *BudgetMonitor {
 	bm.runLimitStore = s
 	bm.enforcer = enforcer
@@ -106,22 +106,24 @@ func (bm *BudgetMonitor) Run(ctx context.Context) {
 }
 
 func (bm *BudgetMonitor) check(ctx context.Context) {
-	today := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+	today := now.Format("2006-01-02")
+	currentMonth := now.Format("2006-01")
 
-	bm.pruneAlertedForDate(today)
+	bm.pruneAlertedForPeriods(today, currentMonth)
 
 	// Check org-level spending limits if the store is configured.
 	if bm.spendingStore != nil {
 		bm.checkSpendingLimits(ctx, today)
 	}
 
-	// Check 80% daily run limit and fire proactive notifications.
+	// Check 80% monthly run allowance and fire proactive notifications.
 	if bm.runLimitStore != nil && bm.enforcer != nil {
-		bm.checkRunLimitWarnings(ctx, today)
+		bm.checkRunLimitWarnings(ctx, currentMonth)
 	}
 }
 
-func (bm *BudgetMonitor) pruneAlertedForDate(today string) {
+func (bm *BudgetMonitor) pruneAlertedForPeriods(today, currentMonth string) {
 	bm.alertedMu.Lock()
 	defer bm.alertedMu.Unlock()
 
@@ -133,14 +135,18 @@ func (bm *BudgetMonitor) pruneAlertedForDate(today string) {
 		return
 	}
 
-	todayKeys := make(map[string]bool, len(bm.alerted))
+	currentPeriodKeys := make(map[string]bool, len(bm.alerted))
 	for k, alerted := range bm.alerted {
-		if len(k) >= len(today) && k[len(k)-len(today):] == today {
-			todayKeys[k] = alerted
+		if hasPeriodSuffix(k, today) || hasPeriodSuffix(k, currentMonth) {
+			currentPeriodKeys[k] = alerted
 		}
 	}
-	bm.alerted = todayKeys
+	bm.alerted = currentPeriodKeys
 	bm.alertedDate = today
+}
+
+func hasPeriodSuffix(key, period string) bool {
+	return len(key) >= len(period) && key[len(key)-len(period):] == period
 }
 
 // checkSpendingLimits checks org-level spending limits and fires notifications.
@@ -259,9 +265,9 @@ func (bm *BudgetMonitor) sendSpendingNotification(ctx context.Context, orgID str
 	return delivered
 }
 
-// checkRunLimitWarnings checks if any org has hit 80% of its daily run limit
+// checkRunLimitWarnings checks if any org has hit 80% of its monthly run allowance
 // and sends a proactive notification so users aren't surprised by a hard block.
-func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string) {
+func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, currentMonth string) {
 	orgIDs, err := bm.runLimitStore.ListAllSubscribedOrgIDs(ctx)
 	if err != nil {
 		bm.logger.Warn("budget monitor: failed to list orgs for run limit check", "error", err)
@@ -269,13 +275,13 @@ func (bm *BudgetMonitor) checkRunLimitWarnings(ctx context.Context, today string
 	}
 
 	for _, orgID := range orgIDs {
-		alertKey := fmt.Sprintf("runlimit:%s:80:%s", orgID, today)
+		alertKey := fmt.Sprintf("runlimit:%s:80:%s", orgID, currentMonth)
 
 		if bm.isAlerted(alertKey) {
 			continue
 		}
 
-		warning, warnErr := bm.enforcer.Check80PercentDailyRunWarning(ctx, orgID)
+		warning, warnErr := bm.enforcer.Check80PercentMonthlyWarning(ctx, orgID)
 		if warnErr != nil {
 			continue
 		}

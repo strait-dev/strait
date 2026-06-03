@@ -17,7 +17,6 @@ const (
 	FeatureSLA               Feature = "sla"
 	FeatureRBAC              Feature = "rbac"
 	FeatureAllCronOverlap    Feature = "all_cron_overlap_policies"
-	FeatureAIAssistantBYOK   Feature = "ai_assistant_byok"
 	FeatureDedicatedCompute  Feature = "dedicated_compute"
 	FeatureStaticIPs         Feature = "static_ips"
 	FeatureVPCPeering        Feature = "vpc_peering"
@@ -51,7 +50,6 @@ const (
 	LimitMaxWebhookSubs      LimitKey = "max_webhook_subs_per_proj"
 	LimitMaxLogDrains        LimitKey = "max_log_drains_per_org"
 	LimitMaxNotificationCh   LimitKey = "max_notification_channels"
-	LimitMaxAIModelCalls     LimitKey = "max_ai_model_calls_per_day"
 	LimitAPIRateLimit        LimitKey = "api_rate_limit"
 )
 
@@ -123,8 +121,6 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 		return limits.HasRBAC
 	case FeatureAllCronOverlap:
 		return limits.AllCronOverlapPolicies
-	case FeatureAIAssistantBYOK:
-		return limits.AIAssistantBYOK
 	case FeatureDedicatedCompute:
 		return limits.HasDedicatedCompute
 	case FeatureStaticIPs:
@@ -198,8 +194,6 @@ func (r *StaticRegistry) MaxForLimit(tier domain.PlanTier, limit LimitKey) int {
 		return limits.MaxLogDrainsPerOrg
 	case LimitMaxNotificationCh:
 		return limits.MaxNotificationChannels
-	case LimitMaxAIModelCalls:
-		return limits.MaxAIModelCallsPerDay
 	case LimitAPIRateLimit:
 		return limits.APIRateLimit
 	default:

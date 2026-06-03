@@ -13,7 +13,7 @@ import { authMiddleware } from "@/middlewares/auth";
 import { requireActiveOrgAccess } from "@/middlewares/require-access";
 import { REFETCH_10M } from "./types";
 
-/** A single day's usage entry with run counts, compute costs, and AI token usage. */
+/** A single day's usage entry with run counts and orchestration costs. */
 export type UsageHistoryEntry = {
   /** Date in "YYYY-MM-DD" format. */
   date: string;
@@ -21,10 +21,6 @@ export type UsageHistoryEntry = {
   runs_count: number;
   /** Compute cost for the day in micro-USD. */
   compute_cost_microusd: number;
-  /** Total AI tokens consumed on this day. */
-  ai_tokens: number;
-  /** AI cost for the day in micro-USD. */
-  ai_cost_microusd: number;
 };
 
 /** Server function to fetch daily usage history for the current period. */

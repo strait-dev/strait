@@ -7,6 +7,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	workerv1 "strait/internal/api/grpc/proto/workerv1"
+	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
 )
@@ -65,6 +69,69 @@ func (s *stubPlanLimitEnforcer) callsLen() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.checkCalls)
+}
+
+type releaseRecordingReservationEnforcer struct {
+	stubPlanLimitEnforcer
+	releaseCalls atomic.Int64
+}
+
+func (r *releaseRecordingReservationEnforcer) ReserveWorkerConnection(context.Context, string, string, time.Duration) (func(), error) {
+	return func() {
+		r.releaseCalls.Add(1)
+	}, nil
+}
+
+func (r *releaseRecordingReservationEnforcer) RenewWorkerConnection(context.Context, string, string, time.Duration) error {
+	return nil
+}
+
+func TestRegisterWorkerStream_ReleasesReservationWhenRegistryRejects(t *testing.T) {
+	t.Parallel()
+
+	registry := NewConnectionRegistry()
+	existing := makeWorker("worker-1", "proj-a", "key-old", []string{"default"}, 1)
+	existing.OrgID = "org-1"
+	if err := registry.Register(existing); err != nil {
+		t.Fatalf("seed existing worker: %v", err)
+	}
+
+	enforcer := &releaseRecordingReservationEnforcer{
+		stubPlanLimitEnforcer: stubPlanLimitEnforcer{
+			orgIDForProject: map[string]string{"proj-a": "org-1"},
+			limit:           -1,
+		},
+	}
+	svc := &workerService{
+		registry:        registry,
+		billingEnforcer: enforcer,
+	}
+
+	_, release, err := svc.registerWorkerStream(
+		context.Background(),
+		&domain.APIKey{ID: "key-new", ProjectID: "proj-a", EnvironmentID: "env-a"},
+		"proj-a",
+		&workerv1.WorkerRegistration{
+			WorkerId:       "worker-1",
+			Queues:         []string{"default"},
+			SlotsTotal:     1,
+			SlotsAvailable: 1,
+		},
+		"proj-a",
+		"key-new",
+	)
+	if err == nil {
+		t.Fatal("expected duplicate worker registration to fail")
+	}
+	if release != nil {
+		t.Fatal("failed registration must not return a live release callback")
+	}
+	if got := enforcer.releaseCalls.Load(); got != 1 {
+		t.Fatalf("reservation release calls = %d, want 1", got)
+	}
+	if got := registry.CountByOrg("org-1"); got != 1 {
+		t.Fatalf("registered workers for org-1 = %d, want existing worker only", got)
+	}
 }
 
 // TestRegistry_CountByOrg verifies that CountByOrg only counts entries whose

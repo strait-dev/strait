@@ -111,6 +111,9 @@ func (m *mockAnomalyMonitorStore) UpdateOrgSubscriptionFull(context.Context, str
 func (m *mockAnomalyMonitorStore) UpdateSpendingLimit(context.Context, string, int64, string) error {
 	return nil
 }
+func (m *mockAnomalyMonitorStore) UpdateOverageDisabled(context.Context, string, bool) error {
+	return nil
+}
 func (m *mockAnomalyMonitorStore) SetPendingPlanTier(context.Context, string, string) error {
 	return nil
 }
@@ -142,9 +145,6 @@ func (m *mockAnomalyMonitorStore) CountExecutingRunsByOrg(context.Context, strin
 }
 func (m *mockAnomalyMonitorStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
 	return make(map[string]int, len(orgIDs)), nil
-}
-func (m *mockAnomalyMonitorStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
-	return 0, nil
 }
 func (m *mockAnomalyMonitorStore) SetProjectOrgID(context.Context, string, string) error {
 	return nil

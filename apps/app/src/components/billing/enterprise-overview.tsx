@@ -49,7 +49,6 @@ export const EnterpriseOverview = ({
   contractEndDate,
   computeDiscountPct,
   slaUptimePct,
-  includedCreditMicro,
   periodSpendMicro,
   creditUsedPercent,
 }: EnterpriseOverviewProps) => {
@@ -73,10 +72,8 @@ export const EnterpriseOverview = ({
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Monthly credit</CardDescription>
-            <CardTitle className="text-lg">
-              {formatUsd(includedCreditMicro)}
-            </CardTitle>
+            <CardDescription>Run allowance</CardDescription>
+            <CardTitle className="text-lg">Contracted</CardTitle>
           </CardHeader>
           <CardContent>
             <Progress
@@ -97,7 +94,7 @@ export const EnterpriseOverview = ({
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-xs">
-              Applied to overage above included credit
+              Applied to metered overage
             </p>
           </CardContent>
         </Card>

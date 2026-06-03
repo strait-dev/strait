@@ -114,11 +114,26 @@ func (s *Server) handleCreateNotificationChannel(ctx context.Context, input *Cre
 	if err := validateNotificationChannelConfig(req.ChannelType, req.Config); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.checkNotificationChannelLimit(ctx, projectID); err != nil {
+	maxChannels, displayName, err := s.resolveNotificationChannelCreateLimit(ctx, projectID)
+	if err != nil {
 		return nil, err
 	}
 	ch := &domain.NotificationChannel{ProjectID: projectID, ChannelType: req.ChannelType, Name: req.Name, Config: req.Config, Enabled: enabled}
-	if err := s.store.CreateNotificationChannel(ctx, ch); err != nil {
+	var createErr error
+	if creator, ok := s.store.(notificationChannelProjectLimitCreator); ok {
+		createErr = creator.CreateNotificationChannelWithProjectLimit(ctx, ch, maxChannels)
+	} else {
+		if err := s.checkNotificationChannelLimit(ctx, projectID); err != nil {
+			return nil, err
+		}
+		createErr = s.store.CreateNotificationChannel(ctx, ch)
+	}
+	if createErr != nil {
+		if errors.Is(createErr, store.ErrNotificationChannelLimitExceeded) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("Your %s plan allows %d notification channels per project. Upgrade at /settings/billing", displayName, maxChannels),
+			)
+		}
 		return nil, huma.Error500InternalServerError("failed to create notification channel")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionNotificationChannelCreated, "notification_channel", ch.ID, map[string]any{

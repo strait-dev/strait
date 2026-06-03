@@ -269,8 +269,9 @@ func (s *Server) handleGetSpendingLimit(ctx context.Context, input *GetSpendingL
 }
 
 type updateSpendingLimitRequest struct {
-	LimitMicrousd int64  `json:"limit_microusd"`
-	Action        string `json:"action"`
+	LimitMicrousd  int64  `json:"limit_microusd"`
+	Action         string `json:"action"`
+	OverageEnabled *bool  `json:"overage_enabled,omitempty"`
 }
 type UpdateSpendingLimitInput struct {
 	OrgID string `query:"org_id"`
@@ -292,9 +293,15 @@ func (s *Server) handleUpdateSpendingLimit(ctx context.Context, input *UpdateSpe
 	if err := s.usageService.SetSpendingLimit(ctx, orgID, input.Body.LimitMicrousd, input.Body.Action); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
+	if input.Body.OverageEnabled != nil {
+		if err := s.usageService.SetOverageEnabled(ctx, orgID, *input.Body.OverageEnabled); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+	}
 	s.emitAuditEvent(ctx, domain.AuditActionSpendingLimitUpdated, "org", orgID, map[string]any{
-		"limit_microusd": input.Body.LimitMicrousd,
-		"action":         input.Body.Action,
+		"limit_microusd":  input.Body.LimitMicrousd,
+		"action":          input.Body.Action,
+		"overage_enabled": input.Body.OverageEnabled,
 	})
 	return &UpdateSpendingLimitOutput{Body: map[string]string{"status": "updated"}}, nil
 }

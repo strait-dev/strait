@@ -16,6 +16,7 @@ function baseUsage(): RawOrgUsageData {
     credit_used_percent: 0,
     credit_remaining_microusd: 19_990_000,
     usage: {
+      monthly_runs: { used: 10, limit: 50_000, percent: 0.02 },
       runs_today: { used: 10, limit: 100, percent: 10 },
       concurrent_runs: { used: 1, limit: 5, percent: 20 },
       compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
@@ -29,42 +30,18 @@ function baseUsage(): RawOrgUsageData {
 }
 
 describe("normalizeOrgUsageData", () => {
-  it("prefers ai_model_calls_today when present", () => {
-    const data = normalizeOrgUsageData({
-      ...baseUsage(),
-      usage: {
-        ...baseUsage().usage,
-        ai_model_calls_today: { used: 4, limit: 100, percent: 4 },
-        ai_assistant_messages_today: { used: 9, limit: 100, percent: 9 },
-      },
-    });
-
-    expect(data.usage.ai_model_calls_today.used).toBe(4);
-    expect(data.usage.ai_assistant_messages_today.used).toBe(9);
-  });
-
-  it("falls back to the deprecated ai_assistant_messages_today field", () => {
-    const data = normalizeOrgUsageData({
-      ...baseUsage(),
-      usage: {
-        ...baseUsage().usage,
-        ai_assistant_messages_today: { used: 7, limit: 100, percent: 7 },
-      },
-    });
-
-    expect(data.usage.ai_model_calls_today.used).toBe(7);
-    expect(data.usage.ai_assistant_messages_today.used).toBe(7);
-  });
-
-  it("falls back to the empty default when neither AI field is present", () => {
+  it("returns usage dimensions with monthly runs", () => {
     const data = normalizeOrgUsageData(baseUsage());
 
-    expect(data.usage.ai_model_calls_today).toEqual(
-      EMPTY_ORG_USAGE.usage.ai_model_calls_today
-    );
-    expect(data.usage.ai_assistant_messages_today).toEqual(
-      EMPTY_ORG_USAGE.usage.ai_assistant_messages_today
-    );
+    expect(data.usage).toEqual(baseUsage().usage);
+  });
+
+  it("uses runs_today as a legacy fallback when monthly_runs is absent", () => {
+    const raw = baseUsage();
+    const { monthly_runs: _, ...usage } = raw.usage;
+    const data = normalizeOrgUsageData({ ...raw, usage });
+
+    expect(data.usage.monthly_runs).toEqual(raw.usage.runs_today);
   });
 
   it("preserves enterprise fields when present", () => {

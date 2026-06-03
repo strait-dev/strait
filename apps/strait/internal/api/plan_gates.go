@@ -13,6 +13,7 @@ import (
 	"strait/internal/billing"
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+	"strait/internal/store"
 )
 
 // cronMinIntervalParser matches the standard 5-field parser used at validation
@@ -26,6 +27,30 @@ const cronMinIntervalSampleCount = 50
 
 // staticRegistry is a singleton PlanRegistry used by all plan gate checks.
 var staticRegistry = billing.NewStaticRegistry()
+
+type logDrainOrgLimitCreator interface {
+	CreateLogDrainWithOrgLimit(ctx context.Context, drain *domain.LogDrain, orgID string, maxDrains int) error
+}
+
+type notificationChannelProjectLimitCreator interface {
+	CreateNotificationChannelWithProjectLimit(ctx context.Context, ch *domain.NotificationChannel, maxChannels int) error
+}
+
+type environmentOrgLimitCreator interface {
+	CreateEnvironmentWithOrgLimit(ctx context.Context, env *domain.Environment, orgID string, maxEnvironments int) error
+}
+
+type jobCronScheduleLimitCreator interface {
+	CreateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error
+}
+
+type jobCronScheduleLimitUpdater interface {
+	UpdateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error
+}
+
+type cronScheduleLimitEnforcer interface {
+	EnforceCronScheduleLimit(ctx context.Context, orgID string, maxSchedules int) error
+}
 
 // recordBillingEvent enqueues a billing analytics event to ClickHouse.
 // No-op if the exporter is nil (self-hosted or analytics disabled).
@@ -123,6 +148,67 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 				"feature":       string(feature),
 				"current_plan":  string(limits.PlanTier),
 				"required_plan": string(requiredPlan),
+			},
+		},
+	)
+}
+
+func rbacLevelRank(level string) int {
+	switch level {
+	case "basic":
+		return 1
+	case "full":
+		return 2
+	case "advanced":
+		return 3
+	default:
+		return 0
+	}
+}
+
+func displayRBACLevel(level string) string {
+	if level == "" {
+		return "no"
+	}
+	return level
+}
+
+func (s *Server) isRBACLevelAllowed(ctx context.Context, projectID, minLevel string) bool {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return true
+	}
+	return rbacLevelRank(limits.RBACLevel) >= rbacLevelRank(minLevel)
+}
+
+// checkRBACLevel verifies that an RBAC mutation is available for the
+// customer's RBAC tier. Basic RBAC covers built-in roles and member assignment;
+// custom role mutation requires Full or higher; policy-based authorization
+// requires Advanced.
+func (s *Server) checkRBACLevel(ctx context.Context, projectID, minLevel, featureName string) error {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return nil
+	}
+	if rbacLevelRank(limits.RBACLevel) >= rbacLevelRank(minLevel) {
+		return nil
+	}
+
+	feature := "rbac_" + minLevel
+	s.recordBillingEvent(ctx, projectID, "gate_rejected", feature, string(limits.PlanTier))
+	billing.RecordFeatureGateRejected(ctx, feature, string(limits.PlanTier))
+
+	return huma.Error403Forbidden(
+		fmt.Sprintf("%s requires %s RBAC. Your %s plan includes %s RBAC. Upgrade at /settings/billing.",
+			featureName, minLevel, limits.DisplayName, displayRBACLevel(limits.RBACLevel)),
+		&huma.ErrorDetail{
+			Location: "billing",
+			Message:  "rbac_level_not_available",
+			Value: map[string]string{
+				"feature":        feature,
+				"current_plan":   string(limits.PlanTier),
+				"current_level":  displayRBACLevel(limits.RBACLevel),
+				"required_level": minLevel,
 			},
 		},
 	)
@@ -235,57 +321,56 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 // plan's MaxEnvironments. Counts environments across ALL projects in the org
 // to match the downgrade cleanup logic (DeactivateExcessEnvironments).
 func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
+	orgID, maxEnvironments, displayName, err := s.resolveEnvironmentCreateLimit(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if orgID == "" || maxEnvironments < 0 {
 		return nil
 	}
 
-	if limits.MaxEnvironments <= 0 {
-		return nil // Unlimited. or not enforced
-	}
-
-	// Count org-wide to match downgrade enforcement scope.
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block environment creation
-	}
 	count, err := s.store.CountEnvironmentsByOrg(ctx, orgID)
 	if err != nil {
 		return nil //nolint:nilerr // fail open: environment count failures must not block creation
 	}
 
-	if count >= limits.MaxEnvironments {
+	if count >= maxEnvironments {
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d environments (you have %d). Upgrade at /settings/billing",
-				limits.DisplayName, limits.MaxEnvironments, count),
+				displayName, maxEnvironments, count),
 		)
 	}
 
 	return nil
 }
 
-// checkScheduleLimit verifies that the org has not exceeded its plan's
-// MaxScheduledJobs when adding a new cron job.
-func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronExpr string) error {
-	if cronExpr == "" {
-		return nil // Not a scheduled job.
+func (s *Server) resolveEnvironmentCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return "", -1, "", nil
 	}
 
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
-		return nil
+	if limits.MaxEnvironments <= 0 {
+		return "", -1, limits.DisplayName, nil // Unlimited or not enforced.
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block schedule creation
+		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block environment creation
 	}
 
-	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-	if limErr != nil {
-		return nil //nolint:nilerr // fail open: plan lookup failures must not block schedule creation
+	return orgID, limits.MaxEnvironments, limits.DisplayName, nil
+}
+
+// checkScheduleLimit verifies that the org has not exceeded its plan's
+// MaxScheduledJobs when adding a new cron job.
+func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronExpr string) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, projectID, cronExpr)
+	if err != nil {
+		return err
 	}
-	if limits.MaxScheduledJobs == -1 {
-		return nil // Unlimited.
+	if orgID == "" || maxSchedules < 0 {
+		return nil
 	}
 
 	count, err := s.store.CountCronJobsByOrg(ctx, orgID)
@@ -293,15 +378,62 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 		return nil //nolint:nilerr // fail open: schedule count failures must not block creation
 	}
 
-	if count >= limits.MaxScheduledJobs {
-		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "schedule_limit", count, limits.MaxScheduledJobs)
+	if count >= maxSchedules {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "schedule_limit", count, maxSchedules)
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d scheduled jobs (you have %d). Upgrade at /settings/billing",
-				limits.DisplayName, limits.MaxScheduledJobs, count),
+				displayName, maxSchedules, count),
 		)
 	}
 
 	return nil
+}
+
+func (s *Server) resolveScheduleCreateLimit(ctx context.Context, projectID string, cronExpr string) (string, int, string, error) {
+	if cronExpr == "" {
+		return "", -1, "", nil
+	}
+	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+		return "", -1, "", nil
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return "", -1, "", nil //nolint:nilerr // fail open: org lookup failures must not block schedule creation
+	}
+
+	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
+	if limErr != nil {
+		return "", -1, "", nil //nolint:nilerr // fail open: plan lookup failures must not block schedule creation
+	}
+	if limits.MaxScheduledJobs == -1 {
+		return "", -1, limits.DisplayName, nil // Unlimited.
+	}
+
+	return orgID, limits.MaxScheduledJobs, limits.DisplayName, nil
+}
+
+func (s *Server) enforceCronScheduleLimitForStore(ctx context.Context, apiStore APIStore, projectID, cronExpr string) error {
+	orgID, maxSchedules, displayName, err := s.resolveScheduleCreateLimit(ctx, projectID, cronExpr)
+	if err != nil {
+		return err
+	}
+	if orgID == "" || maxSchedules < 0 {
+		return nil
+	}
+
+	if enforcer, ok := apiStore.(cronScheduleLimitEnforcer); ok {
+		err = enforcer.EnforceCronScheduleLimit(ctx, orgID, maxSchedules)
+	} else {
+		err = s.checkScheduleLimit(ctx, projectID, cronExpr)
+	}
+	if errors.Is(err, store.ErrCronScheduleLimitExceeded) {
+		s.dispatchWorkflowRegistrationRejected(ctx, projectID, "schedule_limit", maxSchedules, maxSchedules)
+		return huma.Error400BadRequest(
+			fmt.Sprintf("Your %s plan allows %d scheduled jobs. Upgrade at /settings/billing", displayName, maxSchedules),
+		)
+	}
+	return err
 }
 
 // checkWebhookEndpointLimit verifies that the org has not exceeded its
@@ -354,27 +486,44 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
 }
 
-// checkLogDrainLimit verifies that the org has not exceeded its plan's
-// MaxLogDrainsPerOrg. Counts across ALL projects to match downgrade cleanup.
-func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error {
+func (s *Server) resolveWebhookProjectCreateLimit(ctx context.Context, projectID string) (int, error) {
 	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
-		return nil
+	if limits == nil || limits.MaxWebhookSubsPerProj == -1 {
+		return -1, nil
 	}
 
-	if limits.MaxLogDrainsPerOrg == -1 {
-		return nil // Unlimited.
-	}
-
-	if limits.MaxLogDrainsPerOrg == 0 {
-		return huma.Error400BadRequest(
-			fmt.Sprintf("Log drains are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+	if limits.MaxWebhookSubsPerProj == 0 {
+		return 0, huma.Error400BadRequest(
+			fmt.Sprintf("Webhook subscriptions are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
 		)
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block log-drain creation
+	return limits.MaxWebhookSubsPerProj, nil
+}
+
+func (s *Server) checkWebhookProjectLimit(ctx context.Context, projectID string, maxSubscriptions int) error {
+	if maxSubscriptions < 0 {
+		return nil
+	}
+	count, err := s.store.CountWebhookSubscriptionsByProject(ctx, projectID)
+	if err != nil {
+		return nil //nolint:nilerr // fail open: webhook count failures must not block creation
+	}
+	if count >= maxSubscriptions {
+		return huma.Error400BadRequest("webhook subscription limit exceeded")
+	}
+	return nil
+}
+
+// checkLogDrainLimit verifies that the org has not exceeded its plan's
+// MaxLogDrainsPerOrg. Counts across ALL projects to match downgrade cleanup.
+func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error {
+	orgID, maxDrains, displayName, err := s.resolveLogDrainCreateLimit(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if orgID == "" || maxDrains < 0 {
+		return nil
 	}
 
 	count, err := s.store.CountLogDrainsByOrg(ctx, orgID)
@@ -382,33 +531,50 @@ func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error
 		return nil //nolint:nilerr // fail open: log-drain count failures must not block creation
 	}
 
-	if count >= limits.MaxLogDrainsPerOrg {
+	if count >= maxDrains {
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d log drains (you have %d). Upgrade at /settings/billing",
-				limits.DisplayName, limits.MaxLogDrainsPerOrg, count),
+				displayName, maxDrains, count),
 		)
 	}
 
 	return nil
 }
 
+func (s *Server) resolveLogDrainCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return "", -1, "", nil
+	}
+
+	if limits.MaxLogDrainsPerOrg == -1 {
+		return "", -1, limits.DisplayName, nil // Unlimited.
+	}
+
+	if limits.MaxLogDrainsPerOrg == 0 {
+		return "", 0, limits.DisplayName, huma.Error400BadRequest(
+			fmt.Sprintf("Log drains are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil || orgID == "" {
+		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block log-drain creation
+	}
+
+	return orgID, limits.MaxLogDrainsPerOrg, limits.DisplayName, nil
+}
+
 // checkNotificationChannelLimit verifies that the project has not exceeded
 // its plan's MaxNotificationChannels. Counted per-project to match the
 // channel's project-scoped storage model.
 func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
-	if limits == nil {
+	maxChannels, displayName, err := s.resolveNotificationChannelCreateLimit(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if maxChannels < 0 {
 		return nil
-	}
-
-	if limits.MaxNotificationChannels == -1 {
-		return nil // Unlimited.
-	}
-
-	if limits.MaxNotificationChannels == 0 {
-		return huma.Error400BadRequest(
-			fmt.Sprintf("Notification channels are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
-		)
 	}
 
 	count, err := s.store.CountNotificationChannelsByProject(ctx, projectID)
@@ -416,14 +582,33 @@ func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID st
 		return nil //nolint:nilerr // fail open: notification channel count failures must not block creation
 	}
 
-	if count >= limits.MaxNotificationChannels {
+	if count >= maxChannels {
 		return huma.Error400BadRequest(
 			fmt.Sprintf("Your %s plan allows %d notification channels per project (you have %d). Upgrade at /settings/billing",
-				limits.DisplayName, limits.MaxNotificationChannels, count),
+				displayName, maxChannels, count),
 		)
 	}
 
 	return nil
+}
+
+func (s *Server) resolveNotificationChannelCreateLimit(ctx context.Context, projectID string) (int, string, error) {
+	limits := s.getOrgPlanLimits(ctx, projectID)
+	if limits == nil {
+		return -1, "", nil
+	}
+
+	if limits.MaxNotificationChannels == -1 {
+		return -1, limits.DisplayName, nil // Unlimited.
+	}
+
+	if limits.MaxNotificationChannels == 0 {
+		return 0, limits.DisplayName, huma.Error400BadRequest(
+			fmt.Sprintf("Notification channels are not available on the %s plan. Upgrade at /settings/billing", limits.DisplayName),
+		)
+	}
+
+	return limits.MaxNotificationChannels, limits.DisplayName, nil
 }
 
 // checkAlertRuleLimit verifies that the project has not exceeded its plan's
@@ -455,36 +640,6 @@ func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, curr
 		)
 	}
 
-	return nil
-}
-
-// checkDailyAIModelCallLimit gates SDK AI usage reports against the org's
-// MaxAIModelCallsPerDay quota. The runID is resolved to a project, then to an
-// org, then the enforcer's Redis-backed atomic INCR check fires. Free-tier
-// orgs are hard-rejected with 429; paid plans allow overage (logged for
-// metering, never blocked).
-func (s *Server) checkDailyAIModelCallLimit(ctx context.Context, runID string) error {
-	if s.billingEnforcer == nil {
-		return nil // Fail open: community and self-hosted deployments may not configure billing.
-	}
-	if !s.edition.RequiresHTTPModeGating() {
-		return nil
-	}
-	run, err := s.store.GetRun(ctx, runID)
-	if err != nil || run == nil {
-		return nil //nolint:nilerr // fail open: run lookup failures must not drop usage telemetry
-	}
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, run.ProjectID)
-	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not drop usage telemetry
-	}
-	if err := s.billingEnforcer.CheckDailyAIModelCallLimit(ctx, orgID); err != nil {
-		var le *billing.LimitError
-		if errors.As(err, &le) {
-			return &typedAPIError{status: 429, apiError: APIError{Code: le.Code, Message: le.Message, Details: []string{fmt.Sprintf("limit=%d current=%d", le.Limit, le.CurrentUsage)}}}
-		}
-		return nil
-	}
 	return nil
 }
 

@@ -140,7 +140,8 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 	if err := validateAuthConfig(req.AuthType, req.AuthConfig); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := s.checkLogDrainLimit(ctx, req.ProjectID); err != nil {
+	orgID, maxDrains, displayName, err := s.resolveLogDrainCreateLimit(ctx, req.ProjectID)
+	if err != nil {
 		return nil, err
 	}
 	enabled := true
@@ -148,7 +149,21 @@ func (s *Server) handleCreateLogDrain(ctx context.Context, input *CreateLogDrain
 		enabled = *req.Enabled
 	}
 	drain := &domain.LogDrain{ID: uuid.Must(uuid.NewV7()).String(), ProjectID: req.ProjectID, Name: req.Name, DrainType: req.DrainType, EndpointURL: req.EndpointURL, AuthType: req.AuthType, AuthConfig: req.AuthConfig, LevelFilter: req.LevelFilter, Enabled: enabled}
-	if err := s.store.CreateLogDrain(ctx, drain); err != nil {
+	var createErr error
+	if creator, ok := s.store.(logDrainOrgLimitCreator); ok {
+		createErr = creator.CreateLogDrainWithOrgLimit(ctx, drain, orgID, maxDrains)
+	} else {
+		if err := s.checkLogDrainLimit(ctx, req.ProjectID); err != nil {
+			return nil, err
+		}
+		createErr = s.store.CreateLogDrain(ctx, drain)
+	}
+	if createErr != nil {
+		if errors.Is(createErr, store.ErrLogDrainLimitExceeded) {
+			return nil, huma.Error400BadRequest(
+				fmt.Sprintf("Your %s plan allows %d log drains. Upgrade at /settings/billing", displayName, maxDrains),
+			)
+		}
 		return nil, huma.Error500InternalServerError("failed to create log drain")
 	}
 	s.emitAuditEvent(ctx, domain.AuditActionLogDrainCreated, "log_drain", drain.ID, map[string]any{

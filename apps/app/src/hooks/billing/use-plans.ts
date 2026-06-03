@@ -16,7 +16,6 @@ export {
   formatComputeCredit,
   formatLimit,
   formatRBAC,
-  formatRegionCount,
   formatRetention,
   formatSupportLevel,
 } from "./plan-formatters";
@@ -26,7 +25,6 @@ import {
   formatComputeCredit,
   formatLimit,
   formatRBAC,
-  formatRegionCount,
   formatRetention,
   formatSupportLevel,
 } from "./plan-formatters";
@@ -170,17 +168,10 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
           name: `${formatRetention(p.retention_days)} retention`,
           included: true,
         },
-        {
-          name: `${formatRegionCount(p.allowed_regions)} region${p.allowed_regions?.length === 1 ? "" : "s"}`,
-          included: true,
-        },
         ...(p.has_rbac
           ? [{ name: `${formatRBAC(p.rbac_level)} RBAC`, included: true }]
           : []),
         ...(p.has_audit_logs ? [{ name: "Audit logs", included: true }] : []),
-        ...(p.ai_assistant_byok
-          ? [{ name: "AI Assistant BYOK", included: true }]
-          : []),
         { name: formatSupportLevel(p.support_level), included: true }
       );
     }
@@ -267,8 +258,6 @@ export const apiPlansToComparisonFeatures = (
     row("Projects", (p) => formatLimit(p.max_projects_per_org)),
     row("Team members", (p) => formatLimit(p.max_members_per_org)),
     row("Retention", (p) => formatRetention(p.retention_days)),
-    row("Regions", (p) => formatRegionCount(p.allowed_regions)),
-    row("AI model calls/day", (p) => formatLimit(p.max_ai_model_calls_per_day)),
     row("RBAC", (p) => formatRBAC(p.rbac_level)),
     row("Audit logs", (p) => formatBoolean(p.has_audit_logs)),
     row("SLA target", (p) => formatBoolean(p.has_sla)),
@@ -276,7 +265,6 @@ export const apiPlansToComparisonFeatures = (
       formatLimit(p.max_webhook_subs_per_project)
     ),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
-    row("Alert rules", (p) => formatLimit(p.max_alert_rules_per_project)),
     row("SSO/SAML", (p) =>
       p.roadmap_features.includes("SSO/SAML") ? "Roadmap" : formatBoolean(false)
     ),

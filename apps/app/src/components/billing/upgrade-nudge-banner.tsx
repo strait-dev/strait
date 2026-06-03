@@ -137,7 +137,7 @@ const UpgradeNudgeBanner = () => {
         <>
           Your projected overage this month is{" "}
           <strong>${projectedOverage}</strong>. Consider upgrading for more
-          included credit.
+          included orchestration runs.
         </>
       ),
     });

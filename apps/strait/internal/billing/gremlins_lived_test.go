@@ -36,19 +36,17 @@ func TestGetCurrentUsage_DailyRunErrorSilenced(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUsage_DayStartTruncation(t *testing.T) {
+func TestGetCurrentUsage_DoesNotQueryAIUsage(t *testing.T) {
 	t.Parallel()
-	store := &mockBillingStore{
-		aiModelCallCounts: map[string]int64{"org-1": 10},
-	}
+	store := &mockBillingStore{}
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Usage.AIModelCalls.Used != 10 {
-		t.Errorf("AIModelCalls.Used = %d, want 10", resp.Usage.AIModelCalls.Used)
+	if resp.Usage.RetentionDays != RetentionFree {
+		t.Errorf("RetentionDays = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
 	}
 }
 
@@ -216,8 +214,8 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 	now := time.Now().UTC()
 	store := &mockBillingStore{
 		usageRecords: []UsageRecord{
-			{PeriodDate: now.AddDate(0, 0, -2), RunsCount: 30, ComputeCostMicro: 3_000_000, AICostMicro: 1_000_000},
-			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 30, ComputeCostMicro: 3_000_000, AICostMicro: 1_000_000},
+			{PeriodDate: now.AddDate(0, 0, -2), RunsCount: 30, ComputeCostMicro: 3_000_000},
+			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 30, ComputeCostMicro: 3_000_000},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -231,10 +229,9 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 		t.Errorf("ProjectedMonthlyRuns = %d, want %d", forecast.ProjectedMonthlyRuns, 30*30)
 	}
 	assertFloatApprox(t, forecast.ProjectedMonthlyComputeUsd, 90.0)
-	assertFloatApprox(t, forecast.ProjectedMonthlyAICostUsd, 30.0)
 }
 
-func TestGetUsageForecast_DaysUntilLimit_UnlimitedRunsIsZero(t *testing.T) {
+func TestGetUsageForecast_DaysUntilLimit_UsesMonthlyRunAllowance(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	store := &mockBillingStore{
@@ -246,14 +243,17 @@ func TestGetUsageForecast_DaysUntilLimit_UnlimitedRunsIsZero(t *testing.T) {
 			{PeriodDate: now, RunsCount: 10, ComputeCostMicro: 100_000},
 		},
 	}
-	svc, _ := newUsageServiceTest(t, store)
+	svc, enforcer := newUsageServiceTest(t, store)
+	if err := enforcer.rdb.Set(context.Background(), monthlyRunKey("org-s", now), "49980", time.Hour).Err(); err != nil {
+		t.Fatal(err)
+	}
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forecast.DaysUntilLimit != 0 {
-		t.Errorf("DaysUntilLimit = %d, want 0 (all plans have unlimited daily runs)", forecast.DaysUntilLimit)
+	if forecast.DaysUntilLimit != 2 {
+		t.Errorf("DaysUntilLimit = %d, want 2 based on monthly run allowance", forecast.DaysUntilLimit)
 	}
 }
 
@@ -672,7 +672,7 @@ func TestStddev_SingleAndEmpty(t *testing.T) {
 func TestExportPDF_SubscriptionAffectsOutput(t *testing.T) {
 	t.Parallel()
 	records := []UsageRecord{
-		{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000, AITokensTotal: 2000, AICostMicro: 3_000_000},
+		{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000},
 	}
 	period := ExportPeriod{
 		From: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
@@ -706,8 +706,8 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 	t.Parallel()
 	store := &mockExportStore{
 		usageRecords: []UsageRecord{
-			{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000, AITokensTotal: 2000, AICostMicro: 3_000_000},
-			{ProjectID: "proj-b", PeriodDate: time.Date(2026, 2, 11, 0, 0, 0, 0, time.UTC), RunsCount: 30, ComputeCostMicro: 3_000_000, AITokensTotal: 500, AICostMicro: 1_000_000},
+			{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000},
+			{ProjectID: "proj-b", PeriodDate: time.Date(2026, 2, 11, 0, 0, 0, 0, time.UTC), RunsCount: 30, ComputeCostMicro: 3_000_000},
 		},
 	}
 	period := ExportPeriod{
@@ -720,11 +720,11 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "10.000000") {
-		t.Error("CSV should contain row total 10.000000 (compute 7 + AI 3)")
+	if !strings.Contains(content, "7.000000") {
+		t.Error("CSV should contain row total 7.000000")
 	}
-	if !strings.Contains(content, "4.000000") {
-		t.Error("CSV should contain row total 4.000000 (compute 3 + AI 1)")
+	if !strings.Contains(content, "3.000000") {
+		t.Error("CSV should contain row total 3.000000")
 	}
 }
 

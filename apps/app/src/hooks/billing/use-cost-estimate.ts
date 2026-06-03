@@ -41,11 +41,11 @@ type CostAlternative = {
   savings_pct: number;
 };
 
-/** Remaining credit information for the organization. */
+/** Remaining allowance information for the organization. */
 type CreditInfo = {
-  /** Remaining compute credit in micro-USD. */
+  /** Remaining allowance in micro-USD; kept for API compatibility. */
   remaining_credit: number;
-  /** Estimated number of runs remaining within the credit. */
+  /** Estimated number of runs remaining within the allowance. */
   estimated_runs_remaining: number;
 };
 

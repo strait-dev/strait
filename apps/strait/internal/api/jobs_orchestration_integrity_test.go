@@ -203,11 +203,6 @@ func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
 		OnFailureTriggerJob:       "job-fail",
 		OnFailureTriggerWorkflow:  "wf-fail",
 		OnFailurePayloadMapping:   json.RawMessage(`{"error":true}`),
-		MaxTokensPerRun:           1234,
-		MaxToolCallsPerRun:        8,
-		MaxIterationsPerRun:       5,
-		AllowedTools:              []string{"browser", "search"},
-		BlockedTools:              []string{"shell"},
 		EndpointSigningSecret:     "signing-secret",
 	}
 
@@ -255,12 +250,6 @@ func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
 	}
 	if captured.OnFailureTriggerWorkflow != sourceJob.OnFailureTriggerWorkflow || captured.OnFailureTriggerJob != sourceJob.OnFailureTriggerJob {
 		t.Fatalf("captured on_failure triggers = (%q,%q), want (%q,%q)", captured.OnFailureTriggerWorkflow, captured.OnFailureTriggerJob, sourceJob.OnFailureTriggerWorkflow, sourceJob.OnFailureTriggerJob)
-	}
-	if captured.MaxTokensPerRun != sourceJob.MaxTokensPerRun || captured.MaxToolCallsPerRun != sourceJob.MaxToolCallsPerRun || captured.MaxIterationsPerRun != sourceJob.MaxIterationsPerRun {
-		t.Fatalf("captured guardrails = (%d,%d,%d), want (%d,%d,%d)", captured.MaxTokensPerRun, captured.MaxToolCallsPerRun, captured.MaxIterationsPerRun, sourceJob.MaxTokensPerRun, sourceJob.MaxToolCallsPerRun, sourceJob.MaxIterationsPerRun)
-	}
-	if len(captured.AllowedTools) != len(sourceJob.AllowedTools) || len(captured.BlockedTools) != len(sourceJob.BlockedTools) {
-		t.Fatalf("captured tool lists = (%v,%v), want (%v,%v)", captured.AllowedTools, captured.BlockedTools, sourceJob.AllowedTools, sourceJob.BlockedTools)
 	}
 	if captured.EndpointSigningSecret != sourceJob.EndpointSigningSecret {
 		t.Fatalf("captured.EndpointSigningSecret = %q, want %q", captured.EndpointSigningSecret, sourceJob.EndpointSigningSecret)

@@ -45,10 +45,9 @@ const ProjectCostsTab = () => {
     (acc, c) => ({
       runs: acc.runs + c.runs,
       compute: acc.compute + c.compute_microusd,
-      ai: acc.ai + c.ai_microusd,
       total: acc.total + c.total_microusd,
     }),
-    { runs: 0, compute: 0, ai: 0, total: 0 }
+    { runs: 0, compute: 0, total: 0 }
   );
 
   const sortedCosts = useMemo(
@@ -69,7 +68,7 @@ const ProjectCostsTab = () => {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <MetricCard
           size="sm"
           title="Total Runs"
@@ -79,11 +78,6 @@ const ProjectCostsTab = () => {
           size="sm"
           title="Compute Cost"
           value={formatMicroUsd(totals.compute)}
-        />
-        <MetricCard
-          size="sm"
-          title="AI Cost"
-          value={formatMicroUsd(totals.ai)}
         />
         <MetricCard
           size="sm"
@@ -123,7 +117,6 @@ const ProjectCostsTab = () => {
                 <TableHead>Project</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
                 <TableHead className="text-right">Compute</TableHead>
-                <TableHead className="text-right">AI Cost</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>
@@ -145,9 +138,6 @@ const ProjectCostsTab = () => {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMicroUsd(entry.compute_microusd)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.ai_microusd)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMicroUsd(entry.total_microusd)}

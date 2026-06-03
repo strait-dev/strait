@@ -152,7 +152,7 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 		ByJob:   make([]store.CostByJob, 0),
 	}
 
-	// AI cost totals from run_usage_events.
+	// Totals from legacy run_usage_events.
 	aiQuery := `
 		SELECT coalesce(sum(cost_microusd), 0),
 			coalesce(sum(total_tokens), 0),
@@ -269,7 +269,7 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	return points, rows.Err()
 }
 
-// GetTopCosts returns the top N most expensive jobs by total AI cost from ClickHouse.
+// GetTopCosts returns the top N most expensive jobs by legacy usage cost from ClickHouse.
 func (s *AnalyticsStore) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error) {
 	query := `
 		SELECT ru.job_id,

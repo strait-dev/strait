@@ -2116,9 +2116,9 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 
 	store := &mockBillingStore{
 		usageRecords: []UsageRecord{
-			{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000, AICostMicro: 500},
-			{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 600, AICostMicro: 200},
-			{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 300, AICostMicro: 100},
+			{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000},
+			{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 600},
+			{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 300},
 		},
 	}
 	e := NewEnforcer(store, nil, slog.Default())
@@ -2144,8 +2144,8 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 		if a.Runs != 15 {
 			t.Errorf("proj-a runs: expected 15, got %d", a.Runs)
 		}
-		if a.TotalMicro != 2300 {
-			t.Errorf("proj-a total: expected 2300, got %d", a.TotalMicro)
+		if a.TotalMicro != 1600 {
+			t.Errorf("proj-a total: expected 1600, got %d", a.TotalMicro)
 		}
 	} else {
 		t.Fatal("proj-a not found in costs")

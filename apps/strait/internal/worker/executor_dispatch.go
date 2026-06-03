@@ -290,25 +290,33 @@ func (e *Executor) checkDispatchBillingLimits(
 		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 		return false
 	}
-	if err := e.billingEnforcer.CheckDailyRunLimit(ctx, orgID); err != nil {
-		e.logger.Warn("org daily run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
-		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-		return false
-	}
-	if err := e.billingEnforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
-		e.logger.Warn("org monthly run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
-		e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
-		return false
+	countedMonthlyRun := shouldCountMonthlyRun(run)
+	if countedMonthlyRun {
+		if err := e.billingEnforcer.CheckMonthlyRunLimitForRun(ctx, orgID, run.ID); err != nil {
+			e.logger.Warn("org monthly run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
+			e.handleSystemFailureWithJob(ctx, run, job, err.Error())
+			return false
+		}
 	}
 	if err := e.billingEnforcer.CheckConcurrentRunLimit(ctx, orgID); err != nil {
 		e.logger.Warn("org concurrent run limit exceeded", "run_id", run.ID, "org_id", orgID, "error", err)
-		e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-		e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+		if countedMonthlyRun {
+			e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+		}
 		e.handleSystemFailureWithJob(ctx, run, job, err.Error())
 		return false
 	}
-	return e.checkDispatchHTTPModeAllowed(ctx, run, job, orgID)
+	return e.checkDispatchHTTPModeAllowed(ctx, run, job, orgID, countedMonthlyRun)
+}
+
+func shouldCountMonthlyRun(run *domain.JobRun) bool {
+	if run == nil {
+		return false
+	}
+	// Manual replays create a fresh run with attempt 1 and remain billable.
+	// Automatic retries reuse the same run ID with attempt >1, so they must not
+	// consume another monthly run or create another Stripe overage marker.
+	return run.Attempt <= 1
 }
 
 func (e *Executor) checkDispatchHTTPModeAllowed(
@@ -316,6 +324,7 @@ func (e *Executor) checkDispatchHTTPModeAllowed(
 	run *domain.JobRun,
 	job *domain.Job,
 	orgID string,
+	countedMonthlyRun bool,
 ) bool {
 	if job.ExecutionMode != domain.ExecutionModeHTTP && job.ExecutionMode != "" {
 		return true
@@ -330,8 +339,9 @@ func (e *Executor) checkDispatchHTTPModeAllowed(
 	// installs the deferred DecrConcurrentRunCount, so balance it here to avoid
 	// leaking the counter on every HTTP-mode-gate rejection.
 	e.billingEnforcer.DecrConcurrentRunCount(ctx, orgID)
-	e.billingEnforcer.DecrDailyRunCount(ctx, orgID)
-	e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+	if countedMonthlyRun {
+		e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+	}
 	e.handleSystemFailureWithJob(ctx, run, job, "HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
 	return false
 }
@@ -746,25 +756,7 @@ func (e *Executor) recordHTTPRunCost(ctx context.Context, job *domain.Job, run *
 		return
 	}
 	billing.RecordHTTPModeRunCompleted(ctx)
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
-	if e.runCostRecorder == nil || e.billingEnforcer == nil {
-		return
-	}
-	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-	if err != nil || orgID == "" {
-		return
-	}
-	// Tracked on stripeUsageWG so graceful shutdown waits for the billing row.
-	costCtx := context.WithoutCancel(ctx)
-	e.stripeUsageWG.Go(func() {
-		if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
-			e.logger.Warn("failed to record HTTP run cost",
-				"run_id", run.ID,
-				"org_id", orgID,
-				"error", err,
-			)
-		}
-	})
+	e.recordTerminalRunBilling(ctx, job, run)
 }
 
 func defaultExecutionPolicy(job *domain.Job) executionPolicy {
@@ -1436,22 +1428,50 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	if e.runCostRecorder != nil && e.billingEnforcer != nil {
-		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-		if orgErr == nil && orgID != "" {
-			costCtx := context.WithoutCancel(ctx)
-			e.stripeUsageWG.Go(func() {
-				if err := e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
-					e.logger.Warn("failed to record worker run cost",
-						"run_id", run.ID,
-						"org_id", orgID,
-						"error", err,
-					)
-				}
-			})
+	e.recordTerminalRunBilling(ctx, job, run)
+}
+
+func (e *Executor) recordTerminalRunBilling(ctx context.Context, job *domain.Job, run *domain.JobRun) {
+	if job == nil || run == nil {
+		return
+	}
+	costMicroUSD := billing.HTTPCostPerRunMicrousd
+	recordCost := func(costCtx context.Context, orgID string) error {
+		if e.runCostRecorder == nil {
+			return nil
+		}
+		return e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID)
+	}
+	if job.ExecutionMode == domain.ExecutionModeWorker {
+		costMicroUSD = billing.WorkerCostPerRunMicrousd
+		recordCost = func(costCtx context.Context, orgID string) error {
+			if e.runCostRecorder == nil {
+				return nil
+			}
+			return e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID)
 		}
 	}
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
+
+	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, costMicroUSD)
+
+	if e.runCostRecorder == nil || e.billingEnforcer == nil {
+		return
+	}
+	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+	if err != nil || orgID == "" {
+		return
+	}
+	costCtx := context.WithoutCancel(ctx)
+	e.stripeUsageWG.Go(func() {
+		if err := recordCost(costCtx, orgID); err != nil {
+			e.logger.Warn("failed to record run cost",
+				"run_id", run.ID,
+				"org_id", orgID,
+				"execution_mode", job.ExecutionMode,
+				"error", err,
+			)
+		}
+	})
 }
 
 func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
@@ -1512,6 +1532,9 @@ func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID 
 	if e.stripeUsageReporter == nil || e.billingEnforcer == nil || costMicroUSD <= 0 {
 		return
 	}
+	if !e.billingEnforcer.IsRunOverage(ctx, runID) {
+		return
+	}
 
 	// Look up the org's Stripe customer ID via the billing enforcer's store.
 	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, projectID)
@@ -1531,10 +1554,9 @@ func (e *Executor) ingestStripeUsageEvent(ctx context.Context, projectID, runID 
 	e.stripeUsageWG.Go(func() {
 		ingestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := e.stripeUsageReporter.IngestComputeUsage(ingestCtx, stripeCustomerID, runID, costMicroUSD); err != nil {
+		if err := e.stripeUsageReporter.IngestRunOverage(ingestCtx, stripeCustomerID, runID); err != nil {
 			e.logger.Warn("failed to ingest stripe usage event",
 				"run_id", runID,
-				"cost_microusd", costMicroUSD,
 				"error", err,
 			)
 		}

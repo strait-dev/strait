@@ -194,6 +194,9 @@ func (m *mockEnforcerStore) UpdateOrgSubscriptionFull(_ context.Context, _, _, _
 func (m *mockEnforcerStore) UpdateSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
 	return nil
 }
+func (m *mockEnforcerStore) UpdateOverageDisabled(_ context.Context, _ string, _ bool) error {
+	return nil
+}
 func (m *mockEnforcerStore) SetPendingPlanTier(_ context.Context, _, _ string) error { return nil }
 func (m *mockEnforcerStore) SetPendingDowngrade(_ context.Context, _, _ string, _, _ *time.Time) error {
 	return nil
@@ -229,9 +232,6 @@ func (m *mockEnforcerStore) CountExecutingRunsByOrg(_ context.Context, _ string)
 }
 func (m *mockEnforcerStore) BulkCountExecutingRunsByOrg(_ context.Context, orgIDs []string) (map[string]int, error) {
 	return make(map[string]int, len(orgIDs)), nil
-}
-func (m *mockEnforcerStore) CountAIModelCallsByOrg(_ context.Context, _ string, _, _ time.Time) (int64, error) {
-	return 0, nil
 }
 func (m *mockEnforcerStore) SetProjectOrgID(_ context.Context, _, _ string) error { return nil }
 func (m *mockEnforcerStore) UpsertUsageRecord(_ context.Context, _ *billing.UsageRecord) error {

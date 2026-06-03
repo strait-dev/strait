@@ -34,7 +34,6 @@ var launchActiveFeatures = []Feature{
 	FeatureSLA,
 	FeatureRBAC,
 	FeatureAllCronOverlap,
-	FeatureAIAssistantBYOK,
 }
 
 func TestRegistry_EnterpriseAllowsLaunchActiveFeatures(t *testing.T) {

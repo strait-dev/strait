@@ -69,13 +69,6 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 		}
 	}
 
-	countA, err := pgStore.CountAIModelCallsByOrg(ctx, orgA, from, to)
-	if err != nil {
-		t.Fatalf("CountAIModelCallsByOrg A: %v", err)
-	}
-	if countA != 1 {
-		t.Errorf("CountAIModelCallsByOrg A = %d, want 1", countA)
-	}
 }
 
 // A2: Deleted projects ignored in suspension

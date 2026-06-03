@@ -49,10 +49,6 @@ const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
           <DescriptionDetails className="text-right tabular-nums">
             {formatMicroUsd(project.compute_microusd)}
           </DescriptionDetails>
-          <DescriptionTerm>AI Cost</DescriptionTerm>
-          <DescriptionDetails className="text-right tabular-nums">
-            {formatMicroUsd(project.ai_microusd)}
-          </DescriptionDetails>
           <DescriptionTerm>Total</DescriptionTerm>
           <DescriptionDetails className="text-right tabular-nums">
             {formatMicroUsd(project.total_microusd)}
