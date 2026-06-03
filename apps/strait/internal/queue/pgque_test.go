@@ -259,6 +259,7 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 	var queryCalls int
 	var queryRowCalls int
 	var sendBatchCalls int
+	var recordCalls int
 	var gotRunIDs []string
 	var sentPayloads []string
 
@@ -289,6 +290,27 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 			return &mockRow{}
 		},
 		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "strait_pgque_ready_events") {
+				recordCalls++
+				if len(args) != 2 {
+					t.Fatalf("ready emit marker args = %+v, want run ids and generations", args)
+				}
+				runIDs, ok := args[0].([]string)
+				if !ok {
+					t.Fatalf("ready emit marker run id arg type = %T, want []string", args[0])
+				}
+				generations, ok := args[1].([]int64)
+				if !ok {
+					t.Fatalf("ready emit marker generation arg type = %T, want []int64", args[1])
+				}
+				if !slices.Equal(runIDs, []string{"run-a", "run-b"}) {
+					t.Fatalf("ready emit marker run ids = %v, want queued runs", runIDs)
+				}
+				if !slices.Equal(generations, []int64{11, 12}) {
+					t.Fatalf("ready emit marker generations = %v, want queued generations", generations)
+				}
+				return pgconn.CommandTag{}, nil
+			}
 			if !strings.Contains(sql, "pgque.send_batch") {
 				t.Fatalf("unexpected Exec SQL = %q", sql)
 			}
@@ -324,6 +346,9 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 	}
 	if sendBatchCalls != 1 {
 		t.Fatalf("send_batch calls = %d, want 1", sendBatchCalls)
+	}
+	if recordCalls != 1 {
+		t.Fatalf("ready emit marker calls = %d, want 1", recordCalls)
 	}
 	if !slices.Equal(gotRunIDs, []string{"run-a", "run-b"}) {
 		t.Fatalf("ready generation run ids = %v, want queued runs only", gotRunIDs)
@@ -419,6 +444,21 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 					t.Fatalf("pgque.ticker queue arg type = %T, want string", args[0])
 				}
 				tickedQueue = queueName
+			case strings.Contains(sql, "strait_pgque_ready_events"):
+				if len(args) != 2 {
+					t.Fatalf("ready emit marker args = %+v, want run ids and generations", args)
+				}
+				runIDs, ok := args[0].([]string)
+				if !ok {
+					t.Fatalf("ready emit marker run id arg type = %T, want []string", args[0])
+				}
+				generations, ok := args[1].([]int64)
+				if !ok {
+					t.Fatalf("ready emit marker generation arg type = %T, want []int64", args[1])
+				}
+				if !slices.Equal(runIDs, []string{"run-queued"}) || !slices.Equal(generations, []int64{7}) {
+					t.Fatalf("ready emit marker = %v/%v, want run-queued generation 7", runIDs, generations)
+				}
 			default:
 				t.Fatalf("unexpected Exec SQL = %q", sql)
 			}

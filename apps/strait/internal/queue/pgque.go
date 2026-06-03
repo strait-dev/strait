@@ -239,6 +239,84 @@ func (q *PgQueQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) er
 	return q.tickReadyRoute(ctx, run)
 }
 
+// ReconcileReadyRuns re-emits PgQue ready events for currently claimable runs
+// whose ready generation is missing a PgQue emit marker. Active claims remain
+// the execution ownership guard, so re-emitted events cannot duplicate a run.
+func (q *PgQueQueue) ReconcileReadyRuns(ctx context.Context, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, nil
+	}
+	rows, err := q.db.Query(ctx, `
+		SELECT
+			rs.run_id,
+			rs.job_id,
+			rs.project_id,
+			rs.status,
+			rs.attempt,
+			rs.priority,
+			rs.execution_mode,
+			rs.queue_name
+		FROM job_run_read_state rs
+		JOIN job_run_state s ON s.run_id = rs.run_id
+		LEFT JOIN job_run_active_claims claim
+		  ON claim.run_id = rs.run_id
+		 AND claim.ready_generation = rs.ready_generation
+		LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = rs.run_id
+		LEFT JOIN strait_pgque_ready_events emit
+		  ON emit.run_id = rs.run_id
+		 AND emit.ready_generation = rs.ready_generation
+		WHERE rs.status = 'queued'
+		  AND claim.run_id IS NULL
+		  AND terminal.run_id IS NULL
+		  AND emit.run_id IS NULL
+		  AND COALESCE(rs.job_enabled, true) = true
+		  AND COALESCE(rs.job_paused, false) = false
+		  AND (
+		      rs.scheduled_at IS NULL
+		      OR rs.scheduled_at <= NOW()
+		  )
+		  AND (
+		      rs.next_retry_at IS NULL
+		      OR rs.next_retry_at <= NOW()
+		  )
+		  AND NOT strait_run_retry_blocked(rs.run_id)
+		ORDER BY rs.priority DESC, s.updated_at ASC, rs.run_id ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0, fmt.Errorf("pgque reconcile ready runs: query: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]*domain.JobRun, 0, limit)
+	for rows.Next() {
+		run := &domain.JobRun{}
+		if err := rows.Scan(
+			&run.ID,
+			&run.JobID,
+			&run.ProjectID,
+			&run.Status,
+			&run.Attempt,
+			&run.Priority,
+			&run.ExecutionMode,
+			&run.QueueName,
+		); err != nil {
+			return 0, fmt.Errorf("pgque reconcile ready runs: scan: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("pgque reconcile ready runs: rows: %w", err)
+	}
+	if len(runs) == 0 {
+		return 0, nil
+	}
+	if err := q.sendReadyEvents(ctx, q.db, runs); err != nil {
+		return 0, err
+	}
+	_ = q.tickReadyRoutes(ctx, runs)
+	return int64(len(runs)), nil
+}
+
 // ActivateDueRuns promotes due delayed runs and ready retries through the PgQue
 // storage path. Ready-event inserts and PgQue emits happen in one transaction
 // so a crash cannot leave a promoted run without a PgQue event.
@@ -940,6 +1018,9 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 	if _, err := db.Exec(ctx, `SELECT pgque.send($1, 'run.ready', $2::text)`, queueName, string(payload)); err != nil {
 		return fmt.Errorf("pgque send ready event: %w", err)
 	}
+	if err := q.recordReadyEmits(ctx, db, map[string]int64{run.ID: generation}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -993,12 +1074,38 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 			return fmt.Errorf("pgque send ready event batch: %w", err)
 		}
 	}
+	if err := q.recordReadyEmits(ctx, db, generations); err != nil {
+		return err
+	}
 	return nil
 }
 
 type pgQueReadyRun struct {
 	run      *domain.JobRun
 	routeKey string
+}
+
+func (q *PgQueQueue) recordReadyEmits(ctx context.Context, db store.DBTX, generations map[string]int64) error {
+	if len(generations) == 0 {
+		return nil
+	}
+	runIDs := make([]string, 0, len(generations))
+	for runID := range generations {
+		runIDs = append(runIDs, runID)
+	}
+	sort.Strings(runIDs)
+	readyGenerations := make([]int64, 0, len(generations))
+	for _, runID := range runIDs {
+		readyGenerations = append(readyGenerations, generations[runID])
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO strait_pgque_ready_events (run_id, ready_generation)
+		SELECT run_id, ready_generation
+		FROM unnest($1::text[], $2::bigint[]) AS input(run_id, ready_generation)
+		ON CONFLICT (run_id, ready_generation) DO NOTHING`, runIDs, readyGenerations); err != nil {
+		return fmt.Errorf("pgque record ready emits: %w", err)
+	}
+	return nil
 }
 
 func (q *PgQueQueue) ensureRoute(ctx context.Context, db store.DBTX, routeKey, queueName string) error {

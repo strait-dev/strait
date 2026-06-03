@@ -9,12 +9,20 @@ import (
 	"strait/internal/store"
 )
 
+// ReadyRunReconciler repairs ready-run delivery for queue backends whose
+// claimability is represented outside job_run_queue.
+type ReadyRunReconciler interface {
+	ReconcileReadyRuns(ctx context.Context, limit int) (int64, error)
+}
+
 // ClaimReconciler periodically repairs drift between job_run_queue and
 // job_runs (missing claims for queued runs, stale claims for terminal runs).
 type ClaimReconciler struct {
-	db       store.DBTX
-	interval time.Duration
-	logger   *slog.Logger
+	db                 store.DBTX
+	interval           time.Duration
+	logger             *slog.Logger
+	readyRunReconciler ReadyRunReconciler
+	readyRunLimit      int
 }
 
 // NewClaimReconciler creates a reconciler; zero interval defaults to 5m.
@@ -27,6 +35,16 @@ func NewClaimReconciler(db store.DBTX, interval time.Duration) *ClaimReconciler 
 		interval: interval,
 		logger:   slog.Default(),
 	}
+}
+
+// WithReadyRunReconciler enables backend-specific ready-run repair.
+func (r *ClaimReconciler) WithReadyRunReconciler(reconciler ReadyRunReconciler, limit int) *ClaimReconciler {
+	if limit <= 0 {
+		limit = 1000
+	}
+	r.readyRunReconciler = reconciler
+	r.readyRunLimit = limit
+	return r
 }
 
 func (r *ClaimReconciler) Run(ctx context.Context) {
@@ -88,6 +106,16 @@ func (r *ClaimReconciler) reconcileOnce(ctx context.Context) error {
 	}
 	if deleted := tag.RowsAffected(); deleted > 0 {
 		r.logger.Warn("claim reconciler: removed stale claim rows", "count", deleted)
+	}
+
+	if r.readyRunReconciler != nil {
+		repaired, err := r.readyRunReconciler.ReconcileReadyRuns(ctx, r.readyRunLimit)
+		if err != nil {
+			return fmt.Errorf("reconcile pgque ready runs: %w", err)
+		}
+		if repaired > 0 {
+			r.logger.Warn("claim reconciler: re-emitted pgque ready runs", "count", repaired)
+		}
 	}
 
 	return nil

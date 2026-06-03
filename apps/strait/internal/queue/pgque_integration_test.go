@@ -85,6 +85,106 @@ func TestPgQue_EnqueueInTxRollbackLeavesNoClaimableEvent(t *testing.T) {
 	}
 }
 
+func TestPgQue_EnqueueReadyRunRecordsEmitMarker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-ready-marker")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Status:    domain.StatusQueued,
+		Priority:  5,
+	}
+	if err := q.Enqueue(ctx, run); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+
+	var markers int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM strait_pgque_ready_events emit
+		JOIN job_run_state s
+		  ON s.run_id = emit.run_id
+		 AND s.ready_generation = emit.ready_generation
+		WHERE emit.run_id = $1`,
+		run.ID,
+	).Scan(&markers); err != nil {
+		t.Fatalf("query ready emit marker: %v", err)
+	}
+	if markers != 1 {
+		t.Fatalf("ready emit markers = %d, want 1", markers)
+	}
+
+	repaired, err := q.ReconcileReadyRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ReconcileReadyRuns: %v", err)
+	}
+	if repaired != 0 {
+		t.Fatalf("ReconcileReadyRuns repaired = %d, want 0 for already-emitted run", repaired)
+	}
+}
+
+func TestPgQue_ReconcileReadyRunsReemitsUnmarkedReadyRunOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-ready-repair")
+	q := mustPgQueQueue(t)
+
+	run := &domain.JobRun{
+		ID:        newID(),
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		Status:    domain.StatusQueued,
+		Priority:  11,
+	}
+	if err := st.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	claimed, err := q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN before repair: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("claimed before repair = %+v, want no pgque event", claimed)
+	}
+
+	repaired, err := q.ReconcileReadyRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ReconcileReadyRuns: %v", err)
+	}
+	if repaired != 1 {
+		t.Fatalf("ReconcileReadyRuns repaired = %d, want 1", repaired)
+	}
+
+	repairedAgain, err := q.ReconcileReadyRuns(ctx, 10)
+	if err != nil {
+		t.Fatalf("ReconcileReadyRuns second pass: %v", err)
+	}
+	if repairedAgain != 0 {
+		t.Fatalf("second repair pass = %d, want 0 after emit marker", repairedAgain)
+	}
+
+	if err := q.ForceTick(ctx, "http"); err != nil {
+		t.Fatalf("ForceTick: %v", err)
+	}
+	claimed, err = q.DequeueN(ctx, 1)
+	if err != nil {
+		t.Fatalf("DequeueN after repair: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != run.ID {
+		t.Fatalf("claimed after repair = %+v, want run %s", claimed, run.ID)
+	}
+	assertCurrentGenerationActiveClaim(t, ctx, run.ID)
+}
+
 func TestPgQue_CreatesRouteIdempotently(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

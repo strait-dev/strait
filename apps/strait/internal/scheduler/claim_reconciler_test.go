@@ -16,6 +16,21 @@ type mockReconcilerDB struct {
 	execFn func(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
+type mockReadyRunReconciler struct {
+	calls int
+	limit int
+	err   error
+}
+
+func (m *mockReadyRunReconciler) ReconcileReadyRuns(_ context.Context, limit int) (int64, error) {
+	m.calls++
+	m.limit = limit
+	if m.err != nil {
+		return 0, m.err
+	}
+	return 3, nil
+}
+
 func (m *mockReconcilerDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	if m.execFn != nil {
 		return m.execFn(ctx, sql, args...)
@@ -55,6 +70,47 @@ func TestNewClaimReconciler_PositiveInterval_Preserved(t *testing.T) {
 	r := NewClaimReconciler(nil, 30*time.Second)
 	if r.interval != 30*time.Second {
 		t.Errorf("interval = %v, want 30s", r.interval)
+	}
+}
+
+func TestReconcileOnce_ReadyRunReconcilerRunsWithDefaultLimit(t *testing.T) {
+	t.Parallel()
+	db := &mockReconcilerDB{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("INSERT 0"), nil
+		},
+	}
+	readyReconciler := &mockReadyRunReconciler{}
+	r := NewClaimReconciler(db, time.Minute).WithReadyRunReconciler(readyReconciler, 0)
+	if err := r.reconcileOnce(context.Background()); err != nil {
+		t.Fatalf("reconcileOnce() error = %v", err)
+	}
+	if readyReconciler.calls != 1 {
+		t.Fatalf("ready reconciler calls = %d, want 1", readyReconciler.calls)
+	}
+	if readyReconciler.limit != 1000 {
+		t.Fatalf("ready reconciler limit = %d, want default 1000", readyReconciler.limit)
+	}
+}
+
+func TestReconcileOnce_ReadyRunReconcilerErrorReturned(t *testing.T) {
+	t.Parallel()
+	db := &mockReconcilerDB{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("INSERT 0"), nil
+		},
+	}
+	readyReconciler := &mockReadyRunReconciler{err: errors.New("repair failed")}
+	r := NewClaimReconciler(db, time.Minute).WithReadyRunReconciler(readyReconciler, 25)
+	err := r.reconcileOnce(context.Background())
+	if err == nil {
+		t.Fatal("expected ready reconciler error")
+	}
+	if !strings.Contains(err.Error(), "reconcile pgque ready runs") {
+		t.Fatalf("error = %q, want pgque ready context", err.Error())
+	}
+	if readyReconciler.limit != 25 {
+		t.Fatalf("ready reconciler limit = %d, want 25", readyReconciler.limit)
 	}
 }
 

@@ -985,6 +985,10 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 	cfg := deps.config
 	queries := deps.queries
 	dbPool := deps.dbPool
+	claimReconciler := scheduler.NewClaimReconciler(dbPool, 5*time.Minute)
+	if readyRunReconciler, ok := deps.queue.(scheduler.ReadyRunReconciler); ok {
+		claimReconciler = claimReconciler.WithReadyRunReconciler(readyRunReconciler, 1000)
+	}
 
 	return []scheduler.SchedulerOption{
 		scheduler.WithSchedulerMetrics(deps.metrics),
@@ -1006,9 +1010,7 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 				Logger:   slog.Default(),
 			}).WithAdvisoryLocker(queries),
 		),
-		scheduler.WithClaimReconciler(
-			scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
-		),
+		scheduler.WithClaimReconciler(claimReconciler),
 		scheduler.WithPartitionEnsurer(
 			scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
 				Interval:    24 * time.Hour,
