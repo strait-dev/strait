@@ -859,7 +859,8 @@ func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, def
 	query := `
 		INSERT INTO project_quotas (project_id, default_region)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region`
+		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region
+		WHERE project_quotas.default_region IS DISTINCT FROM EXCLUDED.default_region`
 
 	_, err := q.db.Exec(ctx, query, projectID, defaultRegion)
 	if err != nil {
@@ -875,7 +876,8 @@ func (q *Queries) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID
 	query := `
 		INSERT INTO project_quotas (project_id, max_key_lifetime_days)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days`
+		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days
+		WHERE project_quotas.max_key_lifetime_days IS DISTINCT FROM EXCLUDED.max_key_lifetime_days`
 
 	_, err := q.db.Exec(ctx, query, projectID, days)
 	if err != nil {
