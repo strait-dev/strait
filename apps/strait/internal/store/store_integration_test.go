@@ -213,6 +213,39 @@ func TestUpsertJobMemoryWithQuota_ReplacingExistingKeyUsesNetDelta(t *testing.T)
 	if err := q.UpsertJobMemoryWithQuota(ctx, replacement, 1024, 10); err != nil {
 		t.Fatalf("UpsertJobMemoryWithQuota(replacement) error = %v", err)
 	}
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		job.ID,
+		"profile",
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query job_memory xmin before no-op: %v", err)
+	}
+	sameReplacement := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"1234567890"`),
+		SizeBytes: 10,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, sameReplacement, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(no-op replacement) error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		job.ID,
+		"profile",
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query job_memory xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("job_memory no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
+	}
 
 	got, err := q.GetJobMemory(ctx, job.ID, "profile")
 	if err != nil {
@@ -2157,6 +2190,33 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	memory := &domain.JobMemory{JobID: activeRun.JobID, ProjectID: activeRun.ProjectID, MemoryKey: "cursor", Value: json.RawMessage(`{"step":1}`), SizeBytes: len(`{"step":1}`)}
 	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, memory, 1024, 1024, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(active) error = %v", err)
+	}
+	var memoryXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		activeRun.JobID,
+		"cursor",
+	).Scan(&memoryXminBeforeNoop); err != nil {
+		t.Fatalf("query active job_memory xmin before no-op: %v", err)
+	}
+	sameMemory := &domain.JobMemory{JobID: activeRun.JobID, ProjectID: activeRun.ProjectID, MemoryKey: "cursor", Value: json.RawMessage(`{"step":1}`), SizeBytes: len(`{"step":1}`)}
+	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, sameMemory, 1024, 1024, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(active no-op) error = %v", err)
+	}
+	var memoryXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		activeRun.JobID,
+		"cursor",
+	).Scan(&memoryXminAfterNoop); err != nil {
+		t.Fatalf("query active job_memory xmin after no-op: %v", err)
+	}
+	if memoryXminAfterNoop != memoryXminBeforeNoop {
+		t.Fatalf("active job_memory no-op changed xmin from %s to %s", memoryXminBeforeNoop, memoryXminAfterNoop)
 	}
 	if err := q.DeleteRunStateForActiveRun(ctx, activeRun.ID, "cursor", activeRun.Attempt); err != nil {
 		t.Fatalf("DeleteRunStateForActiveRun(active) error = %v", err)
