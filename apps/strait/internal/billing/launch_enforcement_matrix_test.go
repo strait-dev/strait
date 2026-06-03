@@ -99,6 +99,9 @@ func TestLaunchEnforcementMatrixHasEvidenceForActivePromises(t *testing.T) {
 			if row.roadmapGate == "" {
 				t.Fatalf("%q is roadmap but has no roadmap feature gate", row.promise)
 			}
+			if !IsRoadmapFeature(row.roadmapGate) {
+				t.Fatalf("%q roadmap gate %q is not registered as roadmap", row.promise, row.roadmapGate)
+			}
 		default:
 			t.Fatalf("%q has unknown launch status %q", row.promise, row.status)
 		}

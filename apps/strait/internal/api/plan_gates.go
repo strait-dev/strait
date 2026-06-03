@@ -137,6 +137,21 @@ func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feat
 	billing.RecordFeatureGateRejected(ctx, string(feature), string(limits.PlanTier))
 
 	requiredPlan := staticRegistry.RequiredPlanForFeature(feature)
+	if requiredPlan == "" {
+		return huma.Error403Forbidden(
+			fmt.Sprintf("%s is roadmap/contact-sales only at launch and is not available on self-serve plans.",
+				featureName),
+			&huma.ErrorDetail{
+				Location: "billing",
+				Message:  "feature_roadmap",
+				Value: map[string]string{
+					"feature":      string(feature),
+					"current_plan": string(limits.PlanTier),
+					"status":       "roadmap_contact_sales",
+				},
+			},
+		)
+	}
 
 	return huma.Error403Forbidden(
 		fmt.Sprintf("%s is not available on the %s plan. Upgrade to %s or higher.",

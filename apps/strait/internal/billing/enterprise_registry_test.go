@@ -94,6 +94,9 @@ func TestRegistry_EnterpriseBlocksRoadmapFeatures(t *testing.T) {
 		if r.AllowsFeature(domain.PlanEnterprise, f) {
 			t.Errorf("Enterprise should block launch-roadmap feature %q", f)
 		}
+		if !IsRoadmapFeature(f) {
+			t.Errorf("feature %q should be marked roadmap", f)
+		}
 	}
 }
 

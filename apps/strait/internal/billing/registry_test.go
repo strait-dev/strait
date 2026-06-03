@@ -297,10 +297,10 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		{FeatureCanaryDeployments, domain.PlanScale},
 		// Business features.
 		{FeatureSLA, domain.PlanBusiness},
-		// Roadmap/contact-sales features default to Enterprise as the upgrade CTA.
-		{FeatureSSO, domain.PlanEnterprise},
-		{FeatureSCIM, domain.PlanEnterprise},
-		{FeatureDedicatedCompute, domain.PlanEnterprise},
+		// Roadmap/contact-sales features have no launch upgrade tier.
+		{FeatureSSO, ""},
+		{FeatureSCIM, ""},
+		{FeatureDedicatedCompute, ""},
 		// Unknown feature defaults to enterprise.
 		{Feature("nonexistent"), domain.PlanEnterprise},
 	}

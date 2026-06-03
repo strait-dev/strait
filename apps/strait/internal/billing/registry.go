@@ -70,7 +70,9 @@ type PlanRegistry interface {
 	// Returns 0 for unknown limit keys, -1 for unlimited.
 	MaxForLimit(tier domain.PlanTier, limit LimitKey) int
 
-	// RequiredPlanForFeature returns the minimum plan tier that includes a feature.
+	// RequiredPlanForFeature returns the minimum plan tier that includes a
+	// launch-active feature. Roadmap-only features return the empty tier because
+	// no launch plan includes them.
 	RequiredPlanForFeature(feature Feature) domain.PlanTier
 }
 
@@ -150,9 +152,35 @@ func (r *StaticRegistry) AllowsFeature(tier domain.PlanTier, feature Feature) bo
 	}
 }
 
+// IsRoadmapFeature returns true for features known to the catalog but inactive
+// for launch. Roadmap features must not produce self-serve upgrade CTAs.
+func IsRoadmapFeature(feature Feature) bool {
+	switch feature {
+	case FeatureSSO,
+		FeatureDedicatedCompute,
+		FeatureStaticIPs,
+		FeatureVPCPeering,
+		FeatureSCIM,
+		FeatureDataResidency,
+		FeatureCustomRBAC,
+		FeaturePriorityQueue,
+		FeatureIPAllowlisting,
+		FeatureSessionManagement,
+		FeatureSecretRotation,
+		FeatureSIEMExport:
+		return true
+	default:
+		return false
+	}
+}
+
 // RequiredPlanForFeature returns the minimum plan tier that includes the given feature.
-// Returns PlanEnterprise for unknown features as a safe default.
+// Returns the empty tier for launch-roadmap features and PlanEnterprise for
+// unknown features as a safe default.
 func (r *StaticRegistry) RequiredPlanForFeature(feature Feature) domain.PlanTier {
+	if IsRoadmapFeature(feature) {
+		return ""
+	}
 	for _, tier := range domain.AllPlanTiers() {
 		if r.AllowsFeature(tier, feature) {
 			return tier

@@ -162,6 +162,12 @@ func TestBypass_RequiredPlanNeverReturnsLowerTier(t *testing.T) {
 
 	for _, f := range features {
 		required := reg.RequiredPlanForFeature(f)
+		if IsRoadmapFeature(f) {
+			if required != "" {
+				t.Errorf("roadmap feature %q returned required tier %q, want empty", f, required)
+			}
+			continue
+		}
 		reqOrder, ok := tierOrder[required]
 		if !ok {
 			t.Errorf("RequiredPlanForFeature(%q) returned unknown tier %q", f, required)
