@@ -177,6 +177,30 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingDoesNotRequireLegacyAITelemetryInCoreInterfaces(t *testing.T) {
+	t.Parallel()
+
+	forbidden := []string{
+		"CreateRunUsage(",
+		"ListRunUsage(",
+		"CreateRunToolCall(",
+		"ListRunToolCalls(",
+		"SumRunTotalTokens(",
+		"CountRunToolCalls(",
+	}
+	for _, path := range []string{"../api/server.go", "../store/store.go"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, token := range forbidden {
+			if strings.Contains(string(body), token) {
+				t.Fatalf("%s requires legacy AI telemetry token %q; launch API/store contracts must stay orchestration-only", path, token)
+			}
+		}
+	}
+}
+
 func collectRepoTestNames(t *testing.T) map[string]bool {
 	t.Helper()
 

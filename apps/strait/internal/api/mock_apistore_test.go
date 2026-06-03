@@ -119,9 +119,6 @@ var _ APIStore = &APIStoreMock{}
 //			CountRunIterationsFunc: func(ctx context.Context, runID string) (int, error) {
 //				panic("mock out the CountRunIterations method")
 //			},
-//			CountRunToolCallsFunc: func(ctx context.Context, runID string) (int, error) {
-//				panic("mock out the CountRunToolCalls method")
-//			},
 //			CountRunningWorkflowRunsFunc: func(ctx context.Context, workflowID string) (int, error) {
 //				panic("mock out the CountRunningWorkflowRuns method")
 //			},
@@ -773,9 +770,6 @@ var _ APIStore = &APIStoreMock{}
 //			SumRunCostMicrousdFunc: func(ctx context.Context, runID string) (int64, error) {
 //				panic("mock out the SumRunCostMicrousd method")
 //			},
-//			SumRunTotalTokensFunc: func(ctx context.Context, runID string) (int64, error) {
-//				panic("mock out the SumRunTotalTokens method")
-//			},
 //			TouchAPIKeyLastUsedFunc: func(ctx context.Context, id string) error {
 //				panic("mock out the TouchAPIKeyLastUsed method")
 //			},
@@ -980,9 +974,6 @@ type APIStoreMock struct {
 
 	// CountRunIterationsFunc mocks the CountRunIterations method.
 	CountRunIterationsFunc func(ctx context.Context, runID string) (int, error)
-
-	// CountRunToolCallsFunc mocks the CountRunToolCalls method.
-	CountRunToolCallsFunc func(ctx context.Context, runID string) (int, error)
 
 	// CountRunningWorkflowRunsFunc mocks the CountRunningWorkflowRuns method.
 	CountRunningWorkflowRunsFunc func(ctx context.Context, workflowID string) (int, error)
@@ -1635,9 +1626,6 @@ type APIStoreMock struct {
 	// SumRunCostMicrousdFunc mocks the SumRunCostMicrousd method.
 	SumRunCostMicrousdFunc func(ctx context.Context, runID string) (int64, error)
 
-	// SumRunTotalTokensFunc mocks the SumRunTotalTokens method.
-	SumRunTotalTokensFunc func(ctx context.Context, runID string) (int64, error)
-
 	// TouchAPIKeyLastUsedFunc mocks the TouchAPIKeyLastUsed method.
 	TouchAPIKeyLastUsedFunc func(ctx context.Context, id string) error
 
@@ -2031,13 +2019,6 @@ type APIStoreMock struct {
 		}
 		// CountRunIterations holds details about calls to the CountRunIterations method.
 		CountRunIterations []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// RunID is the runID argument value.
-			RunID string
-		}
-		// CountRunToolCalls holds details about calls to the CountRunToolCalls method.
-		CountRunToolCalls []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// RunID is the runID argument value.
@@ -4036,13 +4017,6 @@ type APIStoreMock struct {
 			// RunID is the runID argument value.
 			RunID string
 		}
-		// SumRunTotalTokens holds details about calls to the SumRunTotalTokens method.
-		SumRunTotalTokens []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// RunID is the runID argument value.
-			RunID string
-		}
 		// TouchAPIKeyLastUsed holds details about calls to the TouchAPIKeyLastUsed method.
 		TouchAPIKeyLastUsed []struct {
 			// Ctx is the ctx argument value.
@@ -4390,7 +4364,6 @@ type APIStoreMock struct {
 	lockCountProjectActiveRuns                      sync.RWMutex
 	lockCountProjectQueuedRuns                      sync.RWMutex
 	lockCountRunIterations                          sync.RWMutex
-	lockCountRunToolCalls                           sync.RWMutex
 	lockCountRunningWorkflowRuns                    sync.RWMutex
 	lockCountRunsForJobSince                        sync.RWMutex
 	lockCountWebhookSubscriptionsByOrg              sync.RWMutex
@@ -4608,7 +4581,6 @@ type APIStoreMock struct {
 	lockSumJobMemorySizeBytes                       sync.RWMutex
 	lockSumProjectDailyCostMicrousd                 sync.RWMutex
 	lockSumRunCostMicrousd                          sync.RWMutex
-	lockSumRunTotalTokens                           sync.RWMutex
 	lockTouchAPIKeyLastUsed                         sync.RWMutex
 	lockTryAcquireIdempotencyKey                    sync.RWMutex
 	lockUnmaskDLQRun                                sync.RWMutex
@@ -6056,46 +6028,6 @@ func (mock *APIStoreMock) CountRunIterationsCalls() []struct {
 	mock.lockCountRunIterations.RLock()
 	calls = mock.calls.CountRunIterations
 	mock.lockCountRunIterations.RUnlock()
-	return calls
-}
-
-// CountRunToolCalls calls CountRunToolCallsFunc.
-func (mock *APIStoreMock) CountRunToolCalls(ctx context.Context, runID string) (int, error) {
-	callInfo := struct {
-		Ctx   context.Context
-		RunID string
-	}{
-		Ctx:   ctx,
-		RunID: runID,
-	}
-	mock.lockCountRunToolCalls.Lock()
-	mock.calls.CountRunToolCalls = append(mock.calls.CountRunToolCalls, callInfo)
-	mock.lockCountRunToolCalls.Unlock()
-	if mock.CountRunToolCallsFunc == nil {
-		var (
-			nOut   int
-			errOut error
-		)
-		return nOut, errOut
-	}
-	return mock.CountRunToolCallsFunc(ctx, runID)
-}
-
-// CountRunToolCallsCalls gets all the calls that were made to CountRunToolCalls.
-// Check the length with:
-//
-//	len(mockedAPIStore.CountRunToolCallsCalls())
-func (mock *APIStoreMock) CountRunToolCallsCalls() []struct {
-	Ctx   context.Context
-	RunID string
-} {
-	var calls []struct {
-		Ctx   context.Context
-		RunID string
-	}
-	mock.lockCountRunToolCalls.RLock()
-	calls = mock.calls.CountRunToolCalls
-	mock.lockCountRunToolCalls.RUnlock()
 	return calls
 }
 
@@ -15660,46 +15592,6 @@ func (mock *APIStoreMock) SumRunCostMicrousdCalls() []struct {
 	mock.lockSumRunCostMicrousd.RLock()
 	calls = mock.calls.SumRunCostMicrousd
 	mock.lockSumRunCostMicrousd.RUnlock()
-	return calls
-}
-
-// SumRunTotalTokens calls SumRunTotalTokensFunc.
-func (mock *APIStoreMock) SumRunTotalTokens(ctx context.Context, runID string) (int64, error) {
-	callInfo := struct {
-		Ctx   context.Context
-		RunID string
-	}{
-		Ctx:   ctx,
-		RunID: runID,
-	}
-	mock.lockSumRunTotalTokens.Lock()
-	mock.calls.SumRunTotalTokens = append(mock.calls.SumRunTotalTokens, callInfo)
-	mock.lockSumRunTotalTokens.Unlock()
-	if mock.SumRunTotalTokensFunc == nil {
-		var (
-			nOut   int64
-			errOut error
-		)
-		return nOut, errOut
-	}
-	return mock.SumRunTotalTokensFunc(ctx, runID)
-}
-
-// SumRunTotalTokensCalls gets all the calls that were made to SumRunTotalTokens.
-// Check the length with:
-//
-//	len(mockedAPIStore.SumRunTotalTokensCalls())
-func (mock *APIStoreMock) SumRunTotalTokensCalls() []struct {
-	Ctx   context.Context
-	RunID string
-} {
-	var calls []struct {
-		Ctx   context.Context
-		RunID string
-	}
-	mock.lockSumRunTotalTokens.RLock()
-	calls = mock.calls.SumRunTotalTokens
-	mock.lockSumRunTotalTokens.RUnlock()
 	return calls
 }
 

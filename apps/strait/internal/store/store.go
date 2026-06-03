@@ -137,10 +137,6 @@ type RunStore interface {
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
-	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
-	ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
-	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
-	ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
@@ -163,8 +159,6 @@ type RunStore interface {
 	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
-	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
-	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
