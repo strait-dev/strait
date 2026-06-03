@@ -223,8 +223,7 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 		}
 	}
 
-	roadmapFeatures := []Feature{FeatureSSO}
-	for _, f := range roadmapFeatures {
+	for _, f := range roadmapEnterpriseFeatures {
 		for _, tier := range domain.AllPlanTiers() {
 			if reg.AllowsFeature(tier, f) {
 				t.Errorf("%s should not have launch-roadmap feature %q", tier, f)

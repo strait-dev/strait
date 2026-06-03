@@ -9,6 +9,7 @@ import (
 // roadmapEnterpriseFeatures lists enterprise/security features that are known
 // to the registry but are not launch-active entitlements.
 var roadmapEnterpriseFeatures = []Feature{
+	FeatureSSO,
 	FeatureDedicatedCompute,
 	FeatureStaticIPs,
 	FeatureVPCPeering,
@@ -82,6 +83,16 @@ func TestRegistry_ScaleBlocksEnterpriseFeatures(t *testing.T) {
 	for _, f := range roadmapEnterpriseFeatures {
 		if r.AllowsFeature(domain.PlanScale, f) {
 			t.Errorf("Scale should block enterprise feature %q", f)
+		}
+	}
+}
+
+func TestRegistry_EnterpriseBlocksRoadmapFeatures(t *testing.T) {
+	t.Parallel()
+	r := NewStaticRegistry()
+	for _, f := range roadmapEnterpriseFeatures {
+		if r.AllowsFeature(domain.PlanEnterprise, f) {
+			t.Errorf("Enterprise should block launch-roadmap feature %q", f)
 		}
 	}
 }
