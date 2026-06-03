@@ -1497,32 +1497,31 @@ func TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed(t *testing.T) {
 	}
 }
 
-// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that a valid priority
-// within the plan cap returns nil.
+// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that the shared
+// launch priority range allows positive priorities on every plan.
 func TestCheckMaxDispatchPriority_WithinCap_Allows(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
 	store.subscriptions = map[string]*OrgSubscription{
-		"org-pro": {OrgID: "org-pro", PlanTier: "pro", Status: "active"},
+		"org-free": {OrgID: "org-free", PlanTier: "free", Status: "active"},
 	}
 	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
-		return "org-pro", nil
+		return "org-free", nil
 	}
 
-	// Pro plan: MaxDispatchPriority = 10. Priority 5 should be allowed.
-	limits := GetPlanLimits("pro")
+	limits := GetPlanLimits("free")
 	if limits.MaxDispatchPriority < 5 {
-		t.Skipf("pro plan MaxDispatchPriority=%d < 5, skipping", limits.MaxDispatchPriority)
+		t.Fatalf("free plan MaxDispatchPriority=%d, want at least 5", limits.MaxDispatchPriority)
 	}
 
-	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-pro", 5); err != nil {
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 5); err != nil {
 		t.Fatalf("expected nil for priority within cap, got %v", err)
 	}
 }
 
 // TestCheckMaxDispatchPriority_ExceedsCap_Blocks verifies that a priority
-// above the plan cap returns a *LimitError.
+// above the shared platform cap returns a *LimitError.
 func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -1534,10 +1533,9 @@ func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
 		return "org-free", nil
 	}
 
-	// Free plan: MaxDispatchPriority = 0. Any positive priority should be blocked.
-	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 1)
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 11)
 	if err == nil {
-		t.Fatal("expected LimitError for priority exceeding free-tier cap")
+		t.Fatal("expected LimitError for priority exceeding platform cap")
 	}
 	var le *LimitError
 	if !isLimitError(err, &le) {

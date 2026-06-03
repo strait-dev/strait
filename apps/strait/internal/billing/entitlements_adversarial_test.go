@@ -235,7 +235,7 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 	if got.WorkerConnections != -1 {
 		t.Errorf("enterprise worker connections should stay unlimited, got %d", got.WorkerConnections)
 	}
-	if got.MaxDispatchPriority != -1 {
-		t.Errorf("enterprise dispatch priority should stay unlimited, got %d", got.MaxDispatchPriority)
+	if got.MaxDispatchPriority != 10 {
+		t.Errorf("enterprise dispatch priority should use launch platform cap 10, got %d", got.MaxDispatchPriority)
 	}
 }

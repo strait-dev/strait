@@ -549,6 +549,26 @@ func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
 	}
 }
 
+func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
+	t.Parallel()
+	for _, tier := range []domain.PlanTier{
+		domain.PlanFree,
+		domain.PlanStarter,
+		domain.PlanPro,
+		domain.PlanScale,
+		domain.PlanBusiness,
+		domain.PlanEnterprise,
+	} {
+		limits := GetPlanLimits(tier)
+		if limits.HasPriorityQueue {
+			t.Fatalf("%s HasPriorityQueue = true, want false for launch roadmap item", tier)
+		}
+		if limits.MaxDispatchPriority != 10 {
+			t.Fatalf("%s MaxDispatchPriority = %d, want shared launch cap 10", tier, limits.MaxDispatchPriority)
+		}
+	}
+}
+
 func TestPlanLimits_NonEnterpriseNoEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter} {

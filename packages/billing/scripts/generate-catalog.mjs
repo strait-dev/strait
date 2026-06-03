@@ -55,6 +55,22 @@ function gofmt(source) {
   return result.stdout;
 }
 
+function biomeFormat(source, path) {
+  const result = spawnSync(
+    "bunx",
+    ["biome", "check", "--write", "--unsafe", "--stdin-file-path", path],
+    {
+      input: source,
+      encoding: "utf8",
+      cwd: repoRoot,
+    }
+  );
+  if (result.status !== 0) {
+    throw new Error(result.stderr || "biome format failed");
+  }
+  return result.stdout;
+}
+
 function goString(value) {
   return JSON.stringify(value ?? "");
 }
@@ -576,7 +592,10 @@ ${entries}
 }
 
 const outputs = new Map([
-  [join(repoRoot, "packages/billing/src/products.ts"), generateProductsTs()],
+  [
+    join(repoRoot, "packages/billing/src/products.ts"),
+    biomeFormat(generateProductsTs(), "packages/billing/src/products.ts"),
+  ],
   [
     join(repoRoot, "apps/strait/internal/billing/plans_generated.go"),
     gofmt(generateGoPlans()),

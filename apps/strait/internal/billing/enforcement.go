@@ -1173,17 +1173,17 @@ func (e *Enforcer) DecrConcurrentRunCount(ctx context.Context, orgID string) {
 	}
 }
 
-// CheckMaxDispatchPriority checks whether requestedPriority is within the cap
-// allowed by the org's current plan. Call this at enqueue time before writing
-// the run to the queue.
+// CheckMaxDispatchPriority checks whether requestedPriority is within the
+// launch platform cap resolved from the org's current plan. Priority is not a
+// paid launch entitlement; every active plan uses the same bounded range.
 //
 // MaxDispatchPriority semantics:
-//   - -1  unlimited (Enterprise)
-//   - 0   only the default priority (Free, Starter)
-//   - N>0 priorities 0..N are allowed (Pro: 10, Scale: 50)
+//   - -1  unlimited
+//   - 0   only the default priority
+//   - N>0 priorities 0..N are allowed
 //
 // projectID is used to resolve the org. Returns a *LimitError when the
-// requested priority exceeds the cap; nil on success or fail-open.
+// requested priority exceeds the cap; nil on success.
 func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID string, requestedPriority int) error {
 	if e == nil || projectID == "" || requestedPriority <= 0 {
 		return nil // priority 0 is always valid
@@ -1204,12 +1204,11 @@ func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID strin
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for dispatch priority check",
 			"org_id", orgID, "error", err)
-		// Fail closed with the most-restrictive default (Free tier: cap = 0).
-		// Any non-zero requestedPriority is rejected.
+		// Fail closed: a lookup failure must not grant elevated priority.
 		return &LimitError{
 			Code: "dispatch_priority_exceeded",
 			Message: fmt.Sprintf(
-				"could not verify plan limits: %v. Requested priority %d exceeds the default cap of 0.",
+				"could not verify plan limits: %v. Requested priority %d was rejected.",
 				err, requestedPriority,
 			),
 		}
@@ -1224,13 +1223,12 @@ func (e *Enforcer) CheckMaxDispatchPriority(ctx context.Context, projectID strin
 		return &LimitError{
 			Code: "dispatch_priority_exceeded",
 			Message: fmt.Sprintf(
-				"Your %s plan allows a maximum dispatch priority of %d. Requested: %d. Upgrade to use higher priority values.",
-				limits.DisplayName, limits.MaxDispatchPriority, requestedPriority,
+				"Dispatch priority must be at most %d. Requested: %d.",
+				limits.MaxDispatchPriority, requestedPriority,
 			),
 			CurrentUsage: int64(requestedPriority),
 			Limit:        int64(limits.MaxDispatchPriority),
 			Plan:         string(limits.PlanTier),
-			UpgradeURL:   "/upgrade",
 		}
 	}
 

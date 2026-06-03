@@ -37,7 +37,7 @@
         "alertRules": 0,
         "allowedRegions": ["iad"],
         "logDrainGB": 0,
-        "dispatchPriority": 0
+        "dispatchPriority": 10
       },
       "features": {
         "rbac": false,
@@ -99,7 +99,7 @@
         "alertRules": 0,
         "allowedRegions": null,
         "logDrainGB": 0,
-        "dispatchPriority": 0
+        "dispatchPriority": 10
       },
       "features": {
         "rbac": true,
@@ -223,7 +223,7 @@
         "alertRules": 0,
         "allowedRegions": null,
         "logDrainGB": 0,
-        "dispatchPriority": 50
+        "dispatchPriority": 10
       },
       "features": {
         "rbac": true,
@@ -285,7 +285,7 @@
         "alertRules": 0,
         "allowedRegions": null,
         "logDrainGB": 0,
-        "dispatchPriority": -1
+        "dispatchPriority": 10
       },
       "features": {
         "rbac": true,
@@ -350,7 +350,7 @@
         "alertRules": 0,
         "allowedRegions": null,
         "logDrainGB": 0,
-        "dispatchPriority": -1
+        "dispatchPriority": 10
       },
       "features": {
         "rbac": true,
