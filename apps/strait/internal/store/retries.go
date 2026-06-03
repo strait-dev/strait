@@ -21,14 +21,29 @@ import (
 //     before its retry fires.
 //   - DelayedPoller (future integration) walks this table to promote.
 
-// ScheduleRetry appends a retry record for the given run.
+// ScheduleRetry appends a retry record for the given run unless the latest
+// retry row already represents the same schedule.
 func (q *Queries) ScheduleRetry(ctx context.Context, runID string, at time.Time, attempt int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ScheduleRetry")
 	defer span.End()
 
 	const sql = `
 		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
-		VALUES ($1, $2, $3, NOW(), FALSE)`
+		SELECT $1, $2, $3, NOW(), FALSE
+		WHERE NOT EXISTS (
+		    SELECT 1
+		    FROM job_retries r
+		    WHERE r.run_id = $1
+		      AND r.cleared = FALSE
+		      AND r.next_retry_at IS NOT DISTINCT FROM $2
+		      AND r.attempt = $3
+		      AND NOT EXISTS (
+		          SELECT 1
+		          FROM job_retries newer
+		          WHERE newer.run_id = r.run_id
+		            AND newer.id > r.id
+		      )
+		)`
 	if _, err := q.db.Exec(ctx, sql, runID, at, attempt); err != nil {
 		return fmt.Errorf("schedule retry: %w", err)
 	}

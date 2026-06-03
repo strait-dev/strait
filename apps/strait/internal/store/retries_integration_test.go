@@ -116,6 +116,60 @@ func TestRetries_LatestScheduleWins(t *testing.T) {
 	}
 }
 
+func TestRetries_ScheduleRetrySkipsIdenticalLatest(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	runID := "retry-noop-" + newID()
+	retryAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	if err := q.ScheduleRetry(ctx, runID, retryAt, 2); err != nil {
+		t.Fatalf("schedule retry: %v", err)
+	}
+
+	var rawRows, latestID int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(MAX(id), 0)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rawRows, &latestID); err != nil {
+		t.Fatalf("query initial retry rows: %v", err)
+	}
+	if rawRows != 1 {
+		t.Fatalf("initial raw retry rows = %d, want 1", rawRows)
+	}
+
+	if err := q.ScheduleRetry(ctx, runID, retryAt, 2); err != nil {
+		t.Fatalf("schedule identical retry: %v", err)
+	}
+	var rowsAfterNoOp, latestIDAfterNoOp int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE(MAX(id), 0)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rowsAfterNoOp, &latestIDAfterNoOp); err != nil {
+		t.Fatalf("query retry rows after identical schedule: %v", err)
+	}
+	if rowsAfterNoOp != 1 {
+		t.Fatalf("raw retry rows after identical schedule = %d, want 1", rowsAfterNoOp)
+	}
+	if latestIDAfterNoOp != latestID {
+		t.Fatalf("latest retry id after identical schedule = %d, want %d", latestIDAfterNoOp, latestID)
+	}
+
+	if err := q.ScheduleRetry(ctx, runID, retryAt.Add(time.Second), 2); err != nil {
+		t.Fatalf("schedule changed retry: %v", err)
+	}
+	var rowsAfterChange int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_retries
+		WHERE run_id = $1`, runID).Scan(&rowsAfterChange); err != nil {
+		t.Fatalf("query retry rows after changed schedule: %v", err)
+	}
+	if rowsAfterChange != 2 {
+		t.Fatalf("raw retry rows after changed schedule = %d, want 2", rowsAfterChange)
+	}
+}
+
 func TestRetries_ClearRetriesAppendsTombstones(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
