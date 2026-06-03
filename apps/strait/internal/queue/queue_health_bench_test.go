@@ -75,6 +75,12 @@ type healthSnapshot struct {
 	WALBytes        int64
 	WALBytesPerRun  float64
 	SlotWalLagBytes int64
+	PoolMaxConns    int32
+	PoolAcquired    int32
+	PoolIdle        int32
+	PoolTotal       int32
+	PoolAcquire     int64
+	PoolEmpty       int64
 	Relations       []healthRelationSnapshot
 }
 
@@ -142,7 +148,7 @@ type healthBenchQueue struct {
 	beforeDequeue func(context.Context) error
 }
 
-func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
+func mustHealthBenchQueue(t *testing.T, ctx context.Context, cfg benchConfig) healthBenchQueue {
 	t.Helper()
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
@@ -154,6 +160,9 @@ func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
 		NackDelay:     10 * time.Millisecond,
 		ReceiveWindow: 100,
 	})
+	tickerCtx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	go q.RunTicker(tickerCtx)
 	return healthBenchQueue{engine: "pgque", enqueue: q.Enqueue, dequeue: q.DequeueN}
 }
 
@@ -379,6 +388,14 @@ func (c *snapshotCollector) collect() healthSnapshot {
 		  AND restart_lsn IS NOT NULL
 	`).Scan(&snap.SlotWalLagBytes)
 
+	stat := testDB.Pool.Stat()
+	snap.PoolMaxConns = stat.MaxConns()
+	snap.PoolAcquired = stat.AcquiredConns()
+	snap.PoolIdle = stat.IdleConns()
+	snap.PoolTotal = stat.TotalConns()
+	snap.PoolAcquire = stat.AcquireCount()
+	snap.PoolEmpty = stat.EmptyAcquireCount()
+
 	return snap
 }
 
@@ -396,7 +413,10 @@ func TestQueueHealthBench(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-bench")
-	benchQ := mustHealthBenchQueue(t, cfg)
+	benchQ := mustHealthBenchQueue(t, ctx, cfg)
+	if maxConns := testDB.Pool.Stat().MaxConns(); maxConns < int32(cfg.Workers+2) {
+		t.Logf("warning: DB pool max connections (%d) is lower than workers plus producer/sampler (%d); set STRAIT_TEST_DB_MAX_CONNS for capacity benchmarks", maxConns, cfg.Workers+2)
+	}
 
 	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
 		t.Fatalf("analyze: %v", err)
@@ -498,13 +518,14 @@ func TestQueueHealthBench(t *testing.T) {
 		case <-snapTicker.C:
 			snap := collector.collect()
 			snapshots = append(snapshots, snap)
-			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus complete_p99=%dus wal/run=%.0f oldest=%.1fs",
+			t.Logf("[%5.0fs] dead=%6d live=%6d ratio=%.4f hot=%.2f enq/s=%.0f deq/s=%.0f p50=%dus p95=%dus p99=%dus complete_p99=%dus wal/run=%.0f oldest=%.1fs pool=%d/%d empty=%d",
 				snap.ElapsedSec, snap.DeadTuples, snap.LiveTuples,
 				snap.DeadTupleRatio, snap.HotUpdateRatio,
 				snap.EnqueueRate, snap.DequeueRate,
 				snap.DequeueP50us, snap.DequeueP95us, snap.DequeueP99us,
 				snap.CompletionP99us,
-				snap.WALBytesPerRun, snap.OldestQueuedAge)
+				snap.WALBytesPerRun, snap.OldestQueuedAge,
+				snap.PoolAcquired, snap.PoolMaxConns, snap.PoolEmpty)
 		}
 	}
 
@@ -548,7 +569,7 @@ func TestQueueHealthBench_WithLongTxn(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-longtxn")
-	benchQ := mustHealthBenchQueue(t, cfg)
+	benchQ := mustHealthBenchQueue(t, ctx, cfg)
 
 	if _, err := testDB.Pool.Exec(ctx, "ANALYZE job_runs, job_run_state"); err != nil {
 		t.Fatalf("analyze: %v", err)
@@ -709,7 +730,7 @@ func TestQueueHealthBench_WithLogicalSlot(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-health-logical-slot")
-	benchQ := mustHealthBenchQueue(t, cfg)
+	benchQ := mustHealthBenchQueue(t, ctx, cfg)
 
 	var walLevel string
 	if err := testDB.Pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
@@ -986,6 +1007,14 @@ func printReport(t *testing.T, cfg benchConfig, engine string, snapshots []healt
 	fmt.Fprintf(&sb, "  Max oldest queued: %.1f sec\n", maxOldestAge)
 	fmt.Fprintf(&sb, "  Final oldest:      %.1f sec\n", final.OldestQueuedAge)
 	sb.WriteString("\n")
+	sb.WriteString("---- DB Pool ----\n")
+	fmt.Fprintf(&sb, "  Max connections:   %d\n", final.PoolMaxConns)
+	fmt.Fprintf(&sb, "  Final acquired:    %d\n", final.PoolAcquired)
+	fmt.Fprintf(&sb, "  Final idle:        %d\n", final.PoolIdle)
+	fmt.Fprintf(&sb, "  Final total:       %d\n", final.PoolTotal)
+	fmt.Fprintf(&sb, "  Acquire count:     %d\n", final.PoolAcquire)
+	fmt.Fprintf(&sb, "  Empty acquires:    %d\n", final.PoolEmpty)
+	sb.WriteString("\n")
 	sb.WriteString("---- Index Health ----\n")
 	if final.IndexDeadItems >= 0 {
 		fmt.Fprintf(&sb, "  Index dead items:  %d\n", final.IndexDeadItems)
@@ -1111,6 +1140,7 @@ func TestQueueHealthBench_Compare(t *testing.T) {
 	sb.WriteString(delta("Enqueue rate", b.EnqueueRate, a.EnqueueRate, "runs/s", false) + "\n")
 	sb.WriteString(delta("Dequeue rate", b.DequeueRate, a.DequeueRate, "runs/s", false) + "\n")
 	sb.WriteString(delta("Oldest queued", b.OldestQueuedAge, a.OldestQueuedAge, "s", true) + "\n")
+	sb.WriteString(delta("Pool empty acquires", float64(b.PoolEmpty), float64(a.PoolEmpty), "", true) + "\n")
 	sb.WriteString("====================================================================\n")
 
 	t.Log(sb.String())
