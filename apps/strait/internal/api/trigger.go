@@ -191,21 +191,12 @@ func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerReques
 	job := state.job
 	req := state.req
 	if job.DebounceWindowSecs > 0 {
-		fireAt := time.Now().Add(time.Duration(job.DebounceWindowSecs) * time.Second)
-		tagsJSON, _ := json.Marshal(req.Tags)
-		pending := &domain.DebouncePending{
-			JobID:          job.ID,
-			ProjectID:      job.ProjectID,
-			DebounceKey:    req.DebounceKey,
-			Payload:        state.payload,
-			Tags:           tagsJSON,
-			Priority:       req.Priority,
-			ConcurrencyKey: req.ConcurrencyKey,
-			TTLSecs:        req.TTLSecs,
-			TriggeredBy:    domain.TriggerDebounce,
-			CreatedBy:      actorFromContext(ctx),
-			FireAt:         fireAt,
-		}
+		pending := newDebouncePending(ctx, debouncePendingRequest{
+			job:     job,
+			req:     req,
+			payload: state.payload,
+			now:     time.Now(),
+		})
 		if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, _ store.DBTX) error {
 			return s.store.UpsertDebouncePending(guardCtx, pending)
 		}); err != nil {
@@ -213,7 +204,7 @@ func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerReques
 		}
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", job.ID, map[string]any{
 			"debounced":         true,
-			"fire_at":           fireAt,
+			"fire_at":           pending.FireAt,
 			"priority":          req.Priority,
 			"debounce_key_hash": hashIdempotencyKey(req.DebounceKey),
 			"tag_keys":          tagKeys(req.Tags),
@@ -221,7 +212,7 @@ func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerReques
 		})
 		return &TriggerJobOutput{Body: map[string]any{
 			"debounced": true,
-			"fire_at":   fireAt,
+			"fire_at":   pending.FireAt,
 		}}, true, nil
 	}
 	return nil, false, nil
@@ -231,17 +222,11 @@ func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput,
 	job := state.job
 	req := state.req
 	if job.BatchWindowSecs > 0 {
-		tagsJSON, _ := json.Marshal(req.Tags)
-		item := &domain.BatchBufferItem{
-			JobID:       job.ID,
-			ProjectID:   job.ProjectID,
-			BatchKey:    req.BatchKey,
-			Payload:     state.payload,
-			Tags:        tagsJSON,
-			Priority:    req.Priority,
-			TriggeredBy: domain.TriggerManual,
-			CreatedBy:   actorFromContext(ctx),
-		}
+		item := newBatchBufferItem(ctx, batchBufferItemRequest{
+			job:     job,
+			req:     req,
+			payload: state.payload,
+		})
 		var batchOutput *TriggerJobOutput
 		var batchRunID string
 		if err := s.withTriggerLimitGuard(ctx, job, state.projectQuota, func(guardCtx context.Context, tx store.DBTX) error {
