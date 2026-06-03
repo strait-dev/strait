@@ -243,6 +243,73 @@ func TestWorkflowProgressionEvents_ReleaseSkipsUnlockedEvents(t *testing.T) {
 	}
 }
 
+func TestWorkflowProgressionEvents_StaleSideClaimIsReclaimed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	q := mustStore(t)
+
+	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-stale", "step-run-stale", "step-a", "completed"); err != nil {
+		t.Fatalf("CreateWorkflowProgressionEvent() error = %v", err)
+	}
+	events, err := q.ClaimWorkflowProgressionEvents(ctx, 1)
+	if err != nil {
+		t.Fatalf("ClaimWorkflowProgressionEvents() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("initial claim len = %d, want 1", len(events))
+	}
+	var xminAfterClaim string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_progression_events
+		WHERE id = $1`,
+		events[0].ID,
+	).Scan(&xminAfterClaim); err != nil {
+		t.Fatalf("query event xmin after initial claim: %v", err)
+	}
+
+	staleLockedAt := time.Now().UTC().Add(-time.Minute)
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE workflow_progression_event_claims
+		SET locked_at = $1
+		WHERE event_id = $2`,
+		staleLockedAt,
+		events[0].ID,
+	); err != nil {
+		t.Fatalf("age progression claim: %v", err)
+	}
+
+	reclaimed, err := q.ClaimWorkflowProgressionEvents(ctx, 1)
+	if err != nil {
+		t.Fatalf("ClaimWorkflowProgressionEvents() stale reclaim error = %v", err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ID != events[0].ID {
+		t.Fatalf("reclaimed events = %+v, want event %d", reclaimed, events[0].ID)
+	}
+	var xminAfterReclaim string
+	var claimRows int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT wpe.xmin::text,
+		       (
+		           SELECT COUNT(*)
+		           FROM workflow_progression_event_claims claim
+		           WHERE claim.event_id = wpe.id
+		       )
+		FROM workflow_progression_events wpe
+		WHERE wpe.id = $1`,
+		events[0].ID,
+	).Scan(&xminAfterReclaim, &claimRows); err != nil {
+		t.Fatalf("query event after stale reclaim: %v", err)
+	}
+	if xminAfterReclaim != xminAfterClaim {
+		t.Fatalf("stale reclaim changed event xmin from %s to %s", xminAfterClaim, xminAfterReclaim)
+	}
+	if claimRows != 1 {
+		t.Fatalf("claim rows after stale reclaim = %d, want 1", claimRows)
+	}
+}
+
 func TestWorkflowProgressionEvents_DeleteProcessedUsesSideStateAndLegacyState(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

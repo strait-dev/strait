@@ -41,36 +41,59 @@ func (q *Queries) ClaimWorkflowProgressionEvents(ctx context.Context, limit int)
 		limit = 100
 	}
 	rows, err := q.db.Query(ctx, `
-		WITH deleted_stale_claims AS (
-			DELETE FROM workflow_progression_event_claims claim
-			USING workflow_progression_events wpe
-			WHERE claim.event_id = wpe.id
-			  AND claim.locked_at < NOW() - INTERVAL '30 seconds'
+		WITH stale_candidates AS (
+			SELECT claim.event_id
+			FROM workflow_progression_event_claims claim
+			JOIN workflow_progression_events wpe ON wpe.id = claim.event_id
+			WHERE claim.locked_at < NOW() - INTERVAL '30 seconds'
 			  AND wpe.processed_at IS NULL
 			  AND NOT EXISTS (
 			      SELECT 1
 			      FROM workflow_progression_event_processed processed
 			      WHERE processed.event_id = wpe.id
 			  )
+			ORDER BY claim.locked_at ASC, claim.event_id ASC
+			LIMIT $1
+			FOR UPDATE OF claim SKIP LOCKED
+		),
+		reclaimed AS (
+			UPDATE workflow_progression_event_claims claim
+			SET locked_at = NOW(),
+			    attempts = attempts + 1
+			FROM stale_candidates
+			WHERE claim.event_id = stale_candidates.event_id
+			RETURNING claim.event_id, claim.attempts
+		),
+		claim_budget AS (
+			SELECT GREATEST($1::int - COUNT(*), 0)::int AS remaining
+			FROM reclaimed
 		),
 		candidates AS (
 			SELECT wpe.id
 			FROM workflow_progression_events wpe
+			CROSS JOIN claim_budget
 			LEFT JOIN workflow_progression_event_claims claim ON claim.event_id = wpe.id
 			LEFT JOIN workflow_progression_event_processed processed ON processed.event_id = wpe.id
 			WHERE wpe.processed_at IS NULL
 			  AND processed.event_id IS NULL
 			  AND claim.event_id IS NULL
 			ORDER BY wpe.created_at ASC
-			LIMIT $1
+			LIMIT (SELECT remaining FROM claim_budget)
 			FOR UPDATE OF wpe SKIP LOCKED
 		),
-		claimed AS (
+		inserted AS (
 			INSERT INTO workflow_progression_event_claims (event_id, locked_at, attempts)
 			SELECT id, NOW(), 1
 			FROM candidates
 			ON CONFLICT (event_id) DO NOTHING
 			RETURNING event_id, attempts
+		),
+		claimed AS (
+			SELECT event_id, attempts
+			FROM reclaimed
+			UNION ALL
+			SELECT event_id, attempts
+			FROM inserted
 		)
 		SELECT wpe.id, wpe.workflow_run_id, wpe.step_run_id, wpe.step_ref, wpe.status, claimed.attempts, wpe.created_at
 		FROM claimed
