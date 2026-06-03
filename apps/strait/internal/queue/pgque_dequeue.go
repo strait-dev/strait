@@ -219,14 +219,16 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 		removeIDs[candidate.Message.ID] = struct{}{}
 	}
 
-	remaining := make([]pgQueMessage, 0, len(batch.Messages)-len(removeIDs))
+	write := 0
 	for _, msg := range batch.Messages {
 		if _, ok := removeIDs[msg.ID]; ok {
 			continue
 		}
-		remaining = append(remaining, msg)
+		batch.Messages[write] = msg
+		write++
 	}
-	batch.Messages = remaining
+	clear(batch.Messages[write:])
+	batch.Messages = batch.Messages[:write]
 }
 
 func removeReservedMessage(batch *pgQueActiveBatch, removeID int64) {

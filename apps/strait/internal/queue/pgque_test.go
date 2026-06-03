@@ -370,6 +370,26 @@ func BenchmarkRemoveReservedMessagesFullBatch(b *testing.B) {
 	}
 }
 
+func BenchmarkRemoveReservedMessagesPartialBatch(b *testing.B) {
+	candidates := []pgQueCandidate{
+		{Message: pgQueMessage{ID: 2}},
+		{Message: pgQueMessage{ID: 4}},
+	}
+	for b.Loop() {
+		batch := &pgQueActiveBatch{
+			Messages: []pgQueMessage{
+				{ID: 1},
+				{ID: 2},
+				{ID: 3},
+				{ID: 4},
+				{ID: 5},
+				{ID: 6},
+			},
+		}
+		removeReservedMessages(batch, nil, candidates)
+	}
+}
+
 func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	ctx := context.Background()
 	var rotationPeriod string
