@@ -14,6 +14,7 @@ import { createServerFn } from "@tanstack/react-start";
 export {
   formatBoolean,
   formatComputeCredit,
+  formatCronInterval,
   formatLimit,
   formatRBAC,
   formatRetention,
@@ -23,6 +24,7 @@ export {
 import {
   formatBoolean,
   formatComputeCredit,
+  formatCronInterval,
   formatLimit,
   formatRBAC,
   formatRetention,
@@ -258,9 +260,21 @@ export const apiPlansToComparisonFeatures = (
       formatComputeCredit(p.overage_per_k_runs_microusd)
     ),
     row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
+    row("Workflow steps", (p) => formatLimit(p.max_workflow_dag_steps)),
     row("Projects", (p) => formatLimit(p.max_projects_per_org)),
+    row("Active environments", (p) => formatLimit(p.max_environments)),
     row("Team members", (p) => formatLimit(p.max_members_per_org)),
+    row("Cron schedules", (p) => formatLimit(p.max_scheduled_jobs)),
+    row("Cron minimum interval", (p) =>
+      formatCronInterval(p.cron_min_interval_sec)
+    ),
     row("Retention", (p) => formatRetention(p.retention_days)),
+    row("Worker connections", (p) => formatLimit(p.worker_connections)),
+    row("API rate limit", (p) =>
+      p.api_rate_limit === -1
+        ? "Unlimited"
+        : `${formatLimit(p.api_rate_limit)}/min`
+    ),
     row("RBAC", (p) => formatRBAC(p.rbac_level)),
     row("Audit logs", (p) => formatBoolean(p.has_audit_logs)),
     row("SLA target", (p) => formatBoolean(p.has_sla)),

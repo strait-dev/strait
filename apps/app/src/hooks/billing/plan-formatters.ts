@@ -65,6 +65,23 @@ export const formatRetention = (days: number): string => {
 };
 
 /**
+ * Format a cron minimum interval in seconds.
+ *
+ * @param seconds - Minimum interval in seconds. `0` means sub-second.
+ * @returns Human-readable interval.
+ */
+export const formatCronInterval = (seconds: number): string => {
+  if (seconds === 0) {
+    return "sub-second";
+  }
+  if (seconds < 60) {
+    return `${seconds} sec`;
+  }
+  const minutes = seconds / 60;
+  return minutes === 1 ? "1 min" : `${minutes} min`;
+};
+
+/**
  * Format an RBAC level string for display.
  *
  * @param level - RBAC level ("", "basic", "full", "advanced").

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatBoolean,
   formatComputeCredit,
+  formatCronInterval,
   formatLimit,
   formatRBAC,
   formatRegionCount,
@@ -75,6 +76,21 @@ describe("formatRetention", () => {
     expect(formatRetention(7)).toBe("7 days");
     expect(formatRetention(30)).toBe("30 days");
     expect(formatRetention(90)).toBe("90 days");
+  });
+});
+
+describe("formatCronInterval", () => {
+  it("formats sub-second cron intervals", () => {
+    expect(formatCronInterval(0)).toBe("sub-second");
+  });
+
+  it("formats second cron intervals", () => {
+    expect(formatCronInterval(30)).toBe("30 sec");
+  });
+
+  it("formats minute cron intervals", () => {
+    expect(formatCronInterval(60)).toBe("1 min");
+    expect(formatCronInterval(300)).toBe("5 min");
   });
 });
 
@@ -198,6 +214,57 @@ describe("apiPlansToComparisonFeatures", () => {
     );
     expect(rows.find((row) => row.name === "Webhook endpoints")).toMatchObject({
       business: "10",
+    });
+  });
+
+  it("renders launch-active operational limits from plan API fields", () => {
+    const rows = apiPlansToComparisonFeatures([
+      testPlan({
+        tier: "free",
+        display_name: "Free",
+        max_workflow_dag_steps: 10,
+        max_environments: 1,
+        max_scheduled_jobs: 1,
+        cron_min_interval_sec: 300,
+        worker_connections: 1,
+        api_rate_limit: 60,
+      }),
+      testPlan({
+        tier: "business",
+        display_name: "Business",
+        max_workflow_dag_steps: -1,
+        max_environments: -1,
+        max_scheduled_jobs: -1,
+        cron_min_interval_sec: 0,
+        worker_connections: -1,
+        api_rate_limit: -1,
+      }),
+    ]);
+    const byName = Object.fromEntries(rows.map((row) => [row.name, row]));
+
+    expect(byName["Workflow steps"]).toMatchObject({
+      free: "10",
+      business: "Unlimited",
+    });
+    expect(byName["Active environments"]).toMatchObject({
+      free: "1",
+      business: "Unlimited",
+    });
+    expect(byName["Cron schedules"]).toMatchObject({
+      free: "1",
+      business: "Unlimited",
+    });
+    expect(byName["Cron minimum interval"]).toMatchObject({
+      free: "5 min",
+      business: "sub-second",
+    });
+    expect(byName["Worker connections"]).toMatchObject({
+      free: "1",
+      business: "Unlimited",
+    });
+    expect(byName["API rate limit"]).toMatchObject({
+      free: "60/min",
+      business: "Unlimited",
     });
   });
 
