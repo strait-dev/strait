@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"strait/internal/domain"
+	"strait/internal/queue"
 )
 
 // TestDelayedRun_PromotedAndDequeuable exercises the end-to-end path a
@@ -16,7 +17,7 @@ import (
 // delayed poller (via store.ActivateDueRuns), then dequeued normally.
 //
 // This was previously not covered by any integration test. The store-
-// level TestRuns_ActivateDueRuns_HappyPath proves the promotion UPDATE
+// level TestRuns_ActivateDueRuns_HappyPath proves the promotion overlay
 // works in isolation, but nothing verified that the queue's Dequeue
 // (a) correctly skips rows with status='delayed' before promotion, and
 // (b) picks them up after promotion. PR #92's perf work added
@@ -72,7 +73,7 @@ func TestDelayedRun_PromotedAndDequeuable(t *testing.T) {
 		t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
 	}
 
-	// Verify the row's status transitioned via a direct read.
+	// Verify the effective read state transitioned.
 	after, err := st.GetRun(ctx, run.ID)
 	if err != nil {
 		t.Fatalf("GetRun after ActivateDueRuns: %v", err)
@@ -97,6 +98,107 @@ func TestDelayedRun_PromotedAndDequeuable(t *testing.T) {
 	}
 	if dequeued.StartedAt == nil {
 		t.Fatal("Dequeue did not set started_at on the promoted run")
+	}
+}
+
+func TestDelayedRun_PromotedAndDequeuableByBatchVariants(t *testing.T) {
+	ctx := context.Background()
+
+	variants := []struct {
+		name    string
+		dequeue func(context.Context, *queue.PostgresQueue, *domain.Job) ([]domain.JobRun, error)
+	}{
+		{
+			name: "DequeueN",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, _ *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueN(ctx, 1)
+			},
+		},
+		{
+			name: "DequeueNTwoPhase",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, _ *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNTwoPhase(ctx, 1)
+			},
+		},
+		{
+			name: "DequeueNDenormalized",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, _ *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNDenormalized(ctx, 1)
+			},
+		},
+		{
+			name: "DequeueNFullyDenormalized",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, _ *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNFullyDenormalized(ctx, 1)
+			},
+		},
+		{
+			name: "DequeueNFair",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, _ *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNFair(ctx, 1)
+			},
+		},
+		{
+			name: "DequeueNPartitioned",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, job *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNPartitioned(ctx, 1, []string{job.ProjectID})
+			},
+		},
+		{
+			name: "DequeueNByProject",
+			dequeue: func(ctx context.Context, q *queue.PostgresQueue, job *domain.Job) ([]domain.JobRun, error) {
+				return q.DequeueNByProject(ctx, 1, job.ProjectID)
+			},
+		},
+	}
+
+	for _, tt := range variants {
+		t.Run(tt.name, func(t *testing.T) {
+			q := mustQueue(t)
+			st := mustStore(t)
+			mustClean(t, ctx)
+
+			job := mustCreateJob(t, ctx, st, "project-delayed-batch-"+tt.name)
+			past := time.Now().UTC().Add(-10 * time.Minute)
+			run := &domain.JobRun{
+				ID:          newID(),
+				JobID:       job.ID,
+				ProjectID:   job.ProjectID,
+				Status:      domain.StatusDelayed,
+				Attempt:     1,
+				Priority:    0,
+				TriggeredBy: domain.TriggerManual,
+				ScheduledAt: &past,
+			}
+			if err := st.CreateRun(ctx, run); err != nil {
+				t.Fatalf("CreateRun: %v", err)
+			}
+
+			promoted, err := st.ActivateDueRuns(ctx, 100)
+			if err != nil {
+				t.Fatalf("ActivateDueRuns: %v", err)
+			}
+			if promoted != 1 {
+				t.Fatalf("ActivateDueRuns promoted = %d, want 1", promoted)
+			}
+
+			dequeued, err := tt.dequeue(ctx, q, job)
+			if err != nil {
+				t.Fatalf("%s: %v", tt.name, err)
+			}
+			if len(dequeued) != 1 {
+				t.Fatalf("%s returned %d runs, want 1", tt.name, len(dequeued))
+			}
+			if dequeued[0].ID != run.ID {
+				t.Fatalf("%s returned run %q, want %q", tt.name, dequeued[0].ID, run.ID)
+			}
+			if dequeued[0].Status != domain.StatusDequeued {
+				t.Fatalf("%s status = %q, want %q", tt.name, dequeued[0].Status, domain.StatusDequeued)
+			}
+			if dequeued[0].StartedAt == nil {
+				t.Fatalf("%s did not set started_at", tt.name)
+			}
+		})
 	}
 }
 

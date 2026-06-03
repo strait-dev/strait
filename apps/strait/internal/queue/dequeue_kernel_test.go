@@ -253,7 +253,7 @@ func TestDequeuePartitionedProjectPathsExcludeWorkerModeRuns(t *testing.T) {
 				},
 			}
 			tc.run(NewPostgresQueue(db))
-			if !strings.Contains(captured, "COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'") {
+			if !strings.Contains(captured, "COALESCE(rs.execution_mode, jr.execution_mode, j.execution_mode, 'http') = 'http'") {
 				t.Fatalf("dequeue SQL does not exclude worker-mode runs:\n%s", captured)
 			}
 		})

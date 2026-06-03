@@ -586,7 +586,8 @@ func (q *PostgresQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 		WITH %s
 		UPDATE job_runs
 		SET status = '%s', started_at = NOW()
-		WHERE id = (
+		WHERE status IN ('queued', 'delayed', 'paused')
+		  AND id = (
 			SELECT jr.id
 			FROM job_runs jr
 			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
@@ -656,16 +657,17 @@ func (q *PostgresQueue) DequeueNFullyDenormalized(ctx context.Context, n int) ([
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id, jr.created_at
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			LEFT JOIN job_active_counts jac_job
 			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = jr.job_id
 			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
-			WHERE jr.status = '%s'
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			WHERE COALESCE(rs.status, jr.status) = '%s'
+			  AND COALESCE(rs.job_enabled, jr.job_enabled, true) = true
+			  AND COALESCE(rs.job_paused, jr.job_paused, false) = false
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
@@ -690,16 +692,17 @@ func (q *PostgresQueue) DequeueNTwoPhase(ctx context.Context, n int) ([]domain.J
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			LEFT JOIN job_active_counts jac_job
 			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = jr.job_id
 			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
-			WHERE jr.status = '%s'
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			WHERE COALESCE(rs.status, jr.status) = '%s'
+			  AND COALESCE(rs.job_enabled, jr.job_enabled, true) = true
+			  AND COALESCE(rs.job_paused, jr.job_paused, false) = false
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
@@ -727,17 +730,18 @@ func (q *PostgresQueue) DequeueNDenormalized(ctx context.Context, n int) ([]doma
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id, jr.created_at
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			LEFT JOIN job_active_counts jac_job
 			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = jr.job_id
 			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (j.max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < j.max_concurrency)
 			  AND (j.max_concurrency_per_key IS NULL
@@ -776,13 +780,14 @@ func (q *PostgresQueue) DequeueNWithCursor(ctx context.Context, n int, cursor *C
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			%s
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			  %s
@@ -817,13 +822,14 @@ func (q *PostgresQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRu
 		candidatesSQL: fmt.Sprintf(`
 			SELECT DISTINCT ON (jr.job_id) jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			%s
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY jr.job_id, %s`, concurrencyJoins, domain.StatusQueued, concurrencyWhere, orderBy),
@@ -846,15 +852,16 @@ func (q *PostgresQueue) DequeueNPartitioned(ctx context.Context, n int, projectI
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			%s
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND jr.project_id = ANY($2)
-			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND COALESCE(rs.execution_mode, jr.execution_mode, j.execution_mode, 'http') = 'http'
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s
@@ -872,15 +879,16 @@ func (q *PostgresQueue) DequeueNByProject(ctx context.Context, n int, projectID 
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			%s
-			WHERE jr.status = '%s'
+			WHERE COALESCE(rs.status, jr.status) = '%s'
 			  AND j.enabled = true
 			  AND NOT j.paused
 			  AND jr.project_id = $2
-			  AND COALESCE(jr.execution_mode, j.execution_mode, 'http') = 'http'
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			  AND COALESCE(rs.execution_mode, jr.execution_mode, j.execution_mode, 'http') = 'http'
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  %s
 			ORDER BY %s
@@ -1165,24 +1173,25 @@ func (q *PostgresQueue) dequeueNForWorkerFallback(ctx context.Context, n int, pr
 		candidatesSQL: fmt.Sprintf(`
 			SELECT jr.id, jr.created_at
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN jobs j ON j.id = jr.job_id
 			LEFT JOIN job_active_counts jac_job
 			  ON jac_job.job_id = jr.job_id AND jac_job.concurrency_key = ''
 			LEFT JOIN job_active_counts jac_key
 			  ON jac_key.job_id = jr.job_id
 			  AND jac_key.concurrency_key = COALESCE(jr.concurrency_key, '')
-			WHERE jr.status = '%s'
-			  AND COALESCE(jr.job_enabled, true) = true
-			  AND COALESCE(jr.job_paused, false) = false
-			  AND (jr.scheduled_at IS NULL OR jr.scheduled_at <= NOW())
-			  AND (jr.next_retry_at IS NULL OR jr.next_retry_at <= NOW())
+			WHERE COALESCE(rs.status, jr.status) = '%s'
+			  AND COALESCE(rs.job_enabled, jr.job_enabled, true) = true
+			  AND COALESCE(rs.job_paused, jr.job_paused, false) = false
+			  AND (COALESCE(rs.scheduled_at, jr.scheduled_at) IS NULL OR COALESCE(rs.scheduled_at, jr.scheduled_at) <= NOW())
+			  AND (COALESCE(rs.next_retry_at, jr.next_retry_at) IS NULL OR COALESCE(rs.next_retry_at, jr.next_retry_at) <= NOW())
 			  AND NOT strait_run_retry_blocked(jr.id)
 			  AND (jr.job_max_concurrency IS NULL OR COALESCE(jac_job.count, 0) < jr.job_max_concurrency)
 			  AND (jr.job_max_concurrency_per_key IS NULL
 			       OR jr.concurrency_key IS NULL
 			       OR jr.concurrency_key = ''
 			       OR COALESCE(jac_key.count, 0) < jr.job_max_concurrency_per_key)
-			  AND jr.execution_mode = 'worker'
+			  AND COALESCE(rs.execution_mode, jr.execution_mode) = 'worker'
 			  AND EXISTS (
 			      SELECT 1
 			      FROM unnest($2::text[], $3::text[], $4::text[]) AS wq(project_id, queue_name, environment_id)
