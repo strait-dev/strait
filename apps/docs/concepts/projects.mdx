@@ -74,11 +74,9 @@ Key quota fields:
 | `max_executing_runs` | Maximum runs executing concurrently. |
 | `max_jobs` | Maximum job definitions in the project. |
 | `max_workflows` | Maximum workflow definitions in the project. |
-| `max_cost_per_run_microusd` | Cost ceiling per individual run, in micro-USD. |
-| `max_daily_cost_microusd` | Total daily cost ceiling for the project, in micro-USD. |
 | `rate_limit_requests` | Maximum API requests per second. |
 
-Quotas are tied to your `plan_tier`. When a limit is reached, Strait rejects the operation with a clear error rather than silently dropping work. A trigger that would exceed the queued or executing-run quota returns `429` with the `enqueue_throttled` code:
+Cost ceiling fields are internal and not configurable in the launch product. Quotas are tied to your `plan_tier`. When a limit is reached, Strait rejects the operation with a clear error rather than silently dropping work. A trigger that would exceed the queued or executing-run quota returns `429` with the `enqueue_throttled` code:
 
 ```json
 {
