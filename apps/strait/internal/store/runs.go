@@ -3127,30 +3127,20 @@ func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excl
 	return result, nil
 }
 
-// SumRunTotalTokens returns the total tokens used by a single run.
-func (q *Queries) SumRunTotalTokens(ctx context.Context, runID string) (int64, error) {
+// SumRunTotalTokens is launch-inactive; token accounting is not a product surface.
+func (q *Queries) SumRunTotalTokens(ctx context.Context, _ string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunTotalTokens")
 	defer span.End()
 
-	query := `SELECT COALESCE(SUM(total_tokens), 0) FROM run_usage WHERE run_id = $1`
-	var total int64
-	if err := q.db.QueryRow(ctx, query, runID).Scan(&total); err != nil {
-		return 0, fmt.Errorf("sum run total tokens: %w", err)
-	}
-	return total, nil
+	return 0, nil
 }
 
-// CountRunToolCalls returns the number of tool calls recorded for a run.
-func (q *Queries) CountRunToolCalls(ctx context.Context, runID string) (int, error) {
+// CountRunToolCalls is launch-inactive; tool-call accounting is not a product surface.
+func (q *Queries) CountRunToolCalls(ctx context.Context, _ string) (int, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunToolCalls")
 	defer span.End()
 
-	query := `SELECT COUNT(*) FROM run_tool_calls WHERE run_id = $1`
-	var count int
-	if err := q.db.QueryRow(ctx, query, runID).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count run tool calls: %w", err)
-	}
-	return count, nil
+	return 0, nil
 }
 
 // CountRunIterations returns the number of iterations recorded for a run.

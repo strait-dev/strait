@@ -1483,7 +1483,7 @@ func TestRuns_CancelActiveRunsForJob_SkipsTerminal(t *testing.T) {
 
 // SumRunTotalTokens.
 
-func TestRuns_SumRunTotalTokens_HappyPath(t *testing.T) {
+func TestRuns_SumRunTotalTokens_IgnoresLegacyRunUsage(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -1504,8 +1504,8 @@ func TestRuns_SumRunTotalTokens_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SumRunTotalTokens() error = %v", err)
 	}
-	if total != 300 {
-		t.Fatalf("total = %d, want 300", total)
+	if total != 0 {
+		t.Fatalf("total = %d, want 0", total)
 	}
 }
 
@@ -1542,7 +1542,7 @@ func TestRuns_SumRunTotalTokens_NonexistentRun(t *testing.T) {
 
 // CountRunToolCalls.
 
-func TestRuns_CountRunToolCalls_HappyPath(t *testing.T) {
+func TestRuns_CountRunToolCalls_IgnoresLegacyToolCalls(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -1561,8 +1561,8 @@ func TestRuns_CountRunToolCalls_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountRunToolCalls() error = %v", err)
 	}
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
+	if count != 0 {
+		t.Fatalf("count = %d, want 0", count)
 	}
 }
 

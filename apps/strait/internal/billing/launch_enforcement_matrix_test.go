@@ -314,6 +314,31 @@ func TestLaunchPricingCostBudgetSumsDoNotReadLegacyAIUsage(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingRunTelemetryCountersDoNotReadLegacyAIUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		fn        string
+		forbidden []string
+	}{
+		{
+			fn:        "SumRunTotalTokens",
+			forbidden: []string{"run_usage", "total_tokens", "SUM("},
+		},
+		{
+			fn:        "CountRunToolCalls",
+			forbidden: []string{"run_tool_calls", "COUNT("},
+		},
+	} {
+		fnBody := storeRunsFunctionBody(t, tc.fn)
+		for _, token := range tc.forbidden {
+			if strings.Contains(fnBody, token) {
+				t.Fatalf("%s reads legacy AI telemetry token %q; launch run telemetry counters must stay inactive", tc.fn, token)
+			}
+		}
+	}
+}
+
 func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.T) {
 	t.Parallel()
 
@@ -359,6 +384,25 @@ func TestLaunchPricingDoesNotDefineLegacyAIUsageClickHouseExport(t *testing.T) {
 			}
 		}
 	}
+}
+
+func storeRunsFunctionBody(t *testing.T, fn string) string {
+	t.Helper()
+
+	bodyBytes, err := os.ReadFile("../store/runs.go")
+	if err != nil {
+		t.Fatalf("read store runs: %v", err)
+	}
+	body := string(bodyBytes)
+	start := strings.Index(body, "func (q *Queries) "+fn)
+	if start < 0 {
+		t.Fatalf("store runs missing %s", fn)
+	}
+	next := strings.Index(body[start+1:], "\nfunc ")
+	if next < 0 {
+		return body[start:]
+	}
+	return body[start : start+1+next]
 }
 
 func collectRepoTestNames(t *testing.T) map[string]bool {
