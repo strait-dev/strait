@@ -5,6 +5,8 @@ description: "Run the same job against different endpoints: staging vs productio
 
 Environments let you run the same job against different endpoints (staging vs production, US vs EU, or any variation your deployment needs). Instead of duplicating job definitions, you create environments with different configuration and point jobs at them.
 
+Cloud plans cap the number of active environments in an organization. Free and Starter include one active environment, Pro includes three, Scale includes ten, and Business is unlimited. The additional environments add-on is available on Pro and Scale.
+
 ## When to Use It
 
 You have an `order-processing` job that calls your API. In development, it should hit `staging.api.myapp.com`. In production, it should hit `api.myapp.com`. Without environments, you'd need two separate job definitions. With environments, you create one job and bind it to different environments.
@@ -15,7 +17,7 @@ An environment is a named set of key-value variables attached to a project. When
 
 ## Example: Staging vs Production
 
-Create two environments:
+On plans with room for more than one active environment, create two environments:
 
 ```bash
 # Create staging environment
@@ -73,15 +75,11 @@ Production-EU (child, parent_id = Production)
 
 Strait resolves variables by walking up the parent chain and flattening the result. Child values win on conflicts.
 
-## Standard Environments
+## Plan Limits
 
-Every project comes with three built-in environments:
+Environments are created explicitly through the API or dashboard. New projects do not auto-provision development, staging, or production environments at launch.
 
-- **Development** (`development`)
-- **Staging** (`staging`)
-- **Production** (`production`)
-
-Standard environments cannot be deleted or renamed. Create custom environments as children of standard ones for more granular configuration.
+When an organization reaches its plan's active environment cap, new environment creation is rejected with a structured billing error. Existing environments are not renamed or deleted during normal use. If a plan downgrade leaves the organization above its new cap, Strait keeps the newest environments and removes the oldest excess environments during downgrade cleanup.
 
 ## URL Validation
 

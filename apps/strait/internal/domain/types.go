@@ -451,7 +451,8 @@ type Environment struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
-// StandardEnvironmentSlugs defines the three standard environments created for every project.
+// StandardEnvironmentSlugs defines the legacy standard environment seed set.
+// Launch project creation does not auto-provision these environments.
 var StandardEnvironmentSlugs = []string{"development", "staging", "production"}
 
 // StandardEnvironmentNames maps slugs to display names.

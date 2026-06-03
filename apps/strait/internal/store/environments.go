@@ -230,8 +230,10 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateStandardEnvironments creates the three standard environments (development,
-// staging, production) for a project. This should be called when a project is created.
+// CreateStandardEnvironments creates the legacy standard environments
+// (development, staging, production) for callers that explicitly request them.
+// Launch project creation does not call this helper because active environments
+// are plan-capped and created on demand.
 func (q *Queries) CreateStandardEnvironments(ctx context.Context, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateStandardEnvironments")
 	defer span.End()
