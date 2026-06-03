@@ -1238,8 +1238,8 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		PeriodDate:       day,
 		RunsCount:        10,
 		ComputeCostMicro: 5_000_000,
-		AITokensTotal:    1000,
-		AICostMicro:      500_000,
+		UsageTokensTotal: 1000,
+		UsageCostMicro:   500_000,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -1255,8 +1255,8 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		PeriodDate:       day,
 		RunsCount:        5,
 		ComputeCostMicro: 1_000_000,
-		AITokensTotal:    200,
-		AICostMicro:      100_000,
+		UsageTokensTotal: 200,
+		UsageCostMicro:   100_000,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -1265,10 +1265,10 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 	}
 
 	// Read back via raw SQL.
-	var runs, compute, tokens, ai int64
+	var runs, compute, tokens, usageCost int64
 	err := testDB.Pool.QueryRow(ctx,
-		"SELECT runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
-		orgID, p.ID, day).Scan(&runs, &compute, &tokens, &ai)
+		"SELECT runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd FROM usage_records WHERE org_id = $1 AND project_id = $2 AND period_date = $3",
+		orgID, p.ID, day).Scan(&runs, &compute, &tokens, &usageCost)
 	if err != nil {
 		t.Fatalf("query usage_records: %v", err)
 	}
@@ -1279,10 +1279,10 @@ func TestPgStore_UpsertUsageRecord(t *testing.T) {
 		t.Errorf("compute_cost = %d, want 6000000", compute)
 	}
 	if tokens != 1200 {
-		t.Errorf("ai_tokens = %d, want 1200", tokens)
+		t.Errorf("usage_tokens = %d, want 1200", tokens)
 	}
-	if ai != 600_000 {
-		t.Errorf("ai_cost = %d, want 600000", ai)
+	if usageCost != 600_000 {
+		t.Errorf("usage_cost = %d, want 600000", usageCost)
 	}
 }
 
@@ -3205,24 +3205,24 @@ func TestPgStore_ListStaleSubscriptions_MonthlyUsageEmail(t *testing.T) {
 	}
 	t.Fatal("org not found in stale subscriptions list")
 }
-func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
+func TestPgStore_UsageCTE_UsageCostOnlyNoCompute(t *testing.T) {
 	ctx := context.Background()
 	mustClean(t, ctx)
 	pgStore := billing.NewPgStore(testDB.Pool)
 	q := mustQueries(t)
 
-	orgID := "org-cte-aionly-" + newID()
+	orgID := "org-cte-usageonly-" + newID()
 	p := createProject(t, ctx, q, orgID, "P")
 	job := createJob(t, ctx, q, p.ID)
 	run := createRun(t, ctx, q, job, domain.StatusCompleted)
 
-	ai := &domain.RunUsage{
+	usage := &domain.RunUsage{
 		ID: newID(), RunID: run.ID,
 		Provider: "openai", Model: "gpt-4",
 		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
 		CostMicrousd: 500000,
 	}
-	if err := q.CreateRunUsage(ctx, ai); err != nil {
+	if err := q.CreateRunUsage(ctx, usage); err != nil {
 		t.Fatalf("CreateRunUsage: %v", err)
 	}
 
@@ -3242,11 +3242,11 @@ func TestPgStore_UsageCTE_AIOnlyNoCompute(t *testing.T) {
 			if r.ComputeCostMicro != 0 {
 				t.Errorf("ComputeCostMicro = %d, want 0", r.ComputeCostMicro)
 			}
-			if r.AITokensTotal != 150 {
-				t.Errorf("AITokensTotal = %d, want 150", r.AITokensTotal)
+			if r.UsageTokensTotal != 150 {
+				t.Errorf("UsageTokensTotal = %d, want 150", r.UsageTokensTotal)
 			}
-			if r.AICostMicro != 500000 {
-				t.Errorf("AICostMicro = %d, want 500000", r.AICostMicro)
+			if r.UsageCostMicro != 500000 {
+				t.Errorf("UsageCostMicro = %d, want 500000", r.UsageCostMicro)
 			}
 			return
 		}

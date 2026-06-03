@@ -132,7 +132,7 @@ func TestUsageService_GetUsageHistory_IncludesRunAndCostUsage(t *testing.T) {
 	}
 	svc, _ := newUsageServiceTest(t, store)
 
-	history, err := svc.GetUsageHistory(context.Background(), "org-ai", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC))
+	history, err := svc.GetUsageHistory(context.Background(), "org-usage", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}

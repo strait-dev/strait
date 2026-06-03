@@ -34,23 +34,23 @@ func TestAdversarial_CrossOrgIsolation(t *testing.T) {
 	runA := createRun(t, ctx, q, jobA, domain.StatusCompleted)
 	runB := createRun(t, ctx, q, jobB, domain.StatusCompleted)
 
-	aiA := &domain.RunUsage{
+	usageA := &domain.RunUsage{
 		ID: newID(), RunID: runA.ID,
 		Provider: "openai", Model: "gpt-4",
 		PromptTokens: 100, CompletionTokens: 50, TotalTokens: 150,
 		CostMicrousd: 500_000,
 	}
-	aiB := &domain.RunUsage{
+	usageB := &domain.RunUsage{
 		ID: newID(), RunID: runB.ID,
 		Provider: "openai", Model: "gpt-4",
 		PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300,
 		CostMicrousd: 1_000_000,
 	}
-	if err := q.CreateRunUsage(ctx, aiA); err != nil {
-		t.Fatalf("create ai A: %v", err)
+	if err := q.CreateRunUsage(ctx, usageA); err != nil {
+		t.Fatalf("create usage A: %v", err)
 	}
-	if err := q.CreateRunUsage(ctx, aiB); err != nil {
-		t.Fatalf("create ai B: %v", err)
+	if err := q.CreateRunUsage(ctx, usageB); err != nil {
+		t.Fatalf("create usage B: %v", err)
 	}
 
 	from := time.Now().UTC().Add(-1 * time.Hour)

@@ -36,7 +36,7 @@ func TestGetCurrentUsage_DailyRunErrorSilenced(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUsage_DoesNotQueryAIUsage(t *testing.T) {
+func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	svc, _ := newUsageServiceTest(t, store)

@@ -223,12 +223,12 @@ const CostDailyTable = `
 CREATE TABLE IF NOT EXISTS cost_daily (
     project_id String,
     day Date,
-    ai_cost_microusd Int64,
+    usage_cost_microusd Int64,
     compute_cost_microusd Int64,
     total_tokens UInt64,
     run_count UInt64,
     inserted_at DateTime64(3) DEFAULT now64(3)
-) ENGINE = SummingMergeTree((ai_cost_microusd, compute_cost_microusd, total_tokens, run_count))
+) ENGINE = SummingMergeTree((usage_cost_microusd, compute_cost_microusd, total_tokens, run_count))
 PARTITION BY toYYYYMM(day)
 ORDER BY (project_id, day)
 TTL day + INTERVAL 365 DAY
@@ -241,7 +241,7 @@ TO cost_daily AS
 SELECT
     project_id,
     toDate(created_at) AS day,
-    sum(cost_microusd) AS ai_cost_microusd,
+    sum(cost_microusd) AS usage_cost_microusd,
     0 AS compute_cost_microusd,
     sum(total_tokens) AS total_tokens,
     count(DISTINCT run_id) AS run_count

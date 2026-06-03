@@ -2162,8 +2162,8 @@ func TestUsageService_ExportCSV(t *testing.T) {
 				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 				RunsCount:        100,
 				ComputeCostMicro: 50000,
-				AITokensTotal:    1000,
-				AICostMicro:      2000,
+				UsageTokensTotal: 1000,
+				UsageCostMicro:   2000,
 			},
 		},
 	}
@@ -2202,7 +2202,7 @@ func TestUsageService_ExportPDF(t *testing.T) {
 				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 				RunsCount:        50,
 				ComputeCostMicro: 25000,
-				AICostMicro:      1000,
+				UsageCostMicro:   1000,
 			},
 		},
 	}
@@ -2380,7 +2380,7 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 			ProjectID:        "proj-1",
 			PeriodDate:       today.AddDate(0, 0, -i),
 			ComputeCostMicro: 1000,
-			AICostMicro:      0,
+			UsageCostMicro:   0,
 		})
 	}
 	// Today's spend is 10x the average (spike).
@@ -2389,7 +2389,7 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 		ProjectID:        "proj-1",
 		PeriodDate:       today,
 		ComputeCostMicro: 10000,
-		AICostMicro:      0,
+		UsageCostMicro:   0,
 	})
 
 	store := &mockBillingStore{

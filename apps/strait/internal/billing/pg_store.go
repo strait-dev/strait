@@ -765,7 +765,7 @@ func (s *PgStore) reconcileCompletedRunCosts(ctx context.Context, orgID string, 
 		)
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd,
 			created_at, updated_at
 		)
 		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
@@ -824,7 +824,7 @@ func (s *PgStore) reconcileDeliveredWebhookCosts(ctx context.Context, orgID stri
 		)
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd,
 			created_at, updated_at
 		)
 		SELECT gen_random_uuid()::text, org_id, project_id, period_date,
@@ -845,17 +845,17 @@ func upsertUsageRecord(ctx context.Context, q querier, rec *UsageRecord) error {
 	_, err := q.Exec(ctx, `
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
 			runs_count = usage_records.runs_count + EXCLUDED.runs_count,
 			compute_cost_microusd = usage_records.compute_cost_microusd + EXCLUDED.compute_cost_microusd,
-			ai_tokens_total = usage_records.ai_tokens_total + EXCLUDED.ai_tokens_total,
-			ai_cost_microusd = usage_records.ai_cost_microusd + EXCLUDED.ai_cost_microusd,
+			usage_tokens_total = usage_records.usage_tokens_total + EXCLUDED.usage_tokens_total,
+			usage_cost_microusd = usage_records.usage_cost_microusd + EXCLUDED.usage_cost_microusd,
 			updated_at = NOW()
 	`, rec.ID, rec.OrgID, rec.ProjectID, rec.PeriodDate,
-		rec.RunsCount, rec.ComputeCostMicro, rec.AITokensTotal, rec.AICostMicro,
+		rec.RunsCount, rec.ComputeCostMicro, rec.UsageTokensTotal, rec.UsageCostMicro,
 		rec.CreatedAt, rec.UpdatedAt,
 	)
 	if err != nil {
@@ -868,17 +868,17 @@ func (s *PgStore) ReplaceUsageRecord(ctx context.Context, rec *UsageRecord) erro
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO usage_records (
 			id, org_id, project_id, period_date,
-			runs_count, compute_cost_microusd, ai_tokens_total, ai_cost_microusd,
+			runs_count, compute_cost_microusd, usage_tokens_total, usage_cost_microusd,
 			created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (org_id, project_id, period_date) DO UPDATE SET
 			runs_count = EXCLUDED.runs_count,
 			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
-			ai_tokens_total = EXCLUDED.ai_tokens_total,
-			ai_cost_microusd = EXCLUDED.ai_cost_microusd,
+			usage_tokens_total = EXCLUDED.usage_tokens_total,
+			usage_cost_microusd = EXCLUDED.usage_cost_microusd,
 			updated_at = NOW()
 	`, rec.ID, rec.OrgID, rec.ProjectID, rec.PeriodDate,
-		rec.RunsCount, rec.ComputeCostMicro, rec.AITokensTotal, rec.AICostMicro,
+		rec.RunsCount, rec.ComputeCostMicro, rec.UsageTokensTotal, rec.UsageCostMicro,
 		rec.CreatedAt, rec.UpdatedAt,
 	)
 	if err != nil {
@@ -907,8 +907,8 @@ func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 				DATE(jr.created_at) AS period_date,
 				COUNT(*)::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
+				0::bigint AS usage_tokens_total,
+				0::bigint AS usage_cost_microusd,
 				MIN(jr.created_at) AS created_at,
 				MAX(jr.created_at) AS updated_at
 			FROM job_runs jr
@@ -917,14 +917,14 @@ func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-			), ai_usage AS (
+			), usage_cost AS (
 				SELECT p.org_id,
 					jr.project_id,
 					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
-				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS usage_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS usage_cost_microusd,
 				MIN(ru.created_at) AS created_at,
 				MAX(ru.created_at) AS updated_at
 			FROM run_usage ru
@@ -940,8 +940,8 @@ func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 					period_date,
 					0::bigint AS runs_count,
 					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
-					0::bigint AS ai_tokens_total,
-					0::bigint AS ai_cost_microusd,
+					0::bigint AS usage_tokens_total,
+					0::bigint AS usage_cost_microusd,
 					MIN(created_at) AS created_at,
 					MAX(updated_at) AS updated_at
 				FROM usage_records
@@ -956,14 +956,14 @@ func (s *PgStore) getOrgUsageForPeriod(ctx context.Context, orgID string, from, 
 			period_date,
 			SUM(runs_count) AS runs_count,
 			SUM(compute_cost_microusd) AS compute_cost_microusd,
-			SUM(ai_tokens_total) AS ai_tokens_total,
-			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			SUM(usage_tokens_total) AS usage_tokens_total,
+			SUM(usage_cost_microusd) AS usage_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
 			FROM (
 				SELECT * FROM run_counts
 				UNION ALL
-				SELECT * FROM ai_usage
+				SELECT * FROM usage_cost
 				UNION ALL
 				SELECT * FROM recorded_compute
 			) usage
@@ -994,8 +994,8 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 				DATE(jr.created_at) AS period_date,
 				COUNT(*)::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
+				0::bigint AS usage_tokens_total,
+				0::bigint AS usage_cost_microusd,
 				MIN(jr.created_at) AS created_at,
 				MAX(jr.created_at) AS updated_at
 			FROM job_runs jr
@@ -1004,14 +1004,14 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			  AND jr.created_at >= $2
 			  AND jr.created_at < $3
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-			), ai_usage AS (
+			), usage_cost AS (
 				SELECT p.org_id,
 					jr.project_id,
 					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
-				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS usage_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS usage_cost_microusd,
 				MIN(ru.created_at) AS created_at,
 				MAX(ru.created_at) AS updated_at
 			FROM run_usage ru
@@ -1027,8 +1027,8 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 					period_date,
 					0::bigint AS runs_count,
 					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
-					0::bigint AS ai_tokens_total,
-					0::bigint AS ai_cost_microusd,
+					0::bigint AS usage_tokens_total,
+					0::bigint AS usage_cost_microusd,
 					MIN(created_at) AS created_at,
 					MAX(updated_at) AS updated_at
 				FROM usage_records
@@ -1043,14 +1043,14 @@ func (s *PgStore) GetProjectUsageForPeriod(ctx context.Context, projectID string
 			period_date,
 			SUM(runs_count) AS runs_count,
 			SUM(compute_cost_microusd) AS compute_cost_microusd,
-			SUM(ai_tokens_total) AS ai_tokens_total,
-			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			SUM(usage_tokens_total) AS usage_tokens_total,
+			SUM(usage_cost_microusd) AS usage_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
 			FROM (
 				SELECT * FROM run_counts
 				UNION ALL
-				SELECT * FROM ai_usage
+				SELECT * FROM usage_cost
 				UNION ALL
 				SELECT * FROM recorded_compute
 			) usage
@@ -1072,8 +1072,8 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 				DATE(jr.created_at) AS period_date,
 				COUNT(*)::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				0::bigint AS ai_tokens_total,
-				0::bigint AS ai_cost_microusd,
+				0::bigint AS usage_tokens_total,
+				0::bigint AS usage_cost_microusd,
 				MIN(jr.created_at) AS created_at,
 				MAX(jr.created_at) AS updated_at
 			FROM job_runs jr
@@ -1081,14 +1081,14 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			WHERE p.org_id = $1
 			  AND DATE(jr.created_at) = $2
 			GROUP BY p.org_id, jr.project_id, DATE(jr.created_at)
-			), ai_usage AS (
+			), usage_cost AS (
 				SELECT p.org_id,
 					jr.project_id,
 					DATE(ru.created_at) AS period_date,
 				0::bigint AS runs_count,
 				0::bigint AS compute_cost_microusd,
-				COALESCE(SUM(ru.total_tokens), 0)::bigint AS ai_tokens_total,
-				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS ai_cost_microusd,
+				COALESCE(SUM(ru.total_tokens), 0)::bigint AS usage_tokens_total,
+				COALESCE(SUM(ru.cost_microusd), 0)::bigint AS usage_cost_microusd,
 				MIN(ru.created_at) AS created_at,
 				MAX(ru.created_at) AS updated_at
 			FROM run_usage ru
@@ -1103,8 +1103,8 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 					period_date,
 					0::bigint AS runs_count,
 					COALESCE(SUM(compute_cost_microusd), 0)::bigint AS compute_cost_microusd,
-					0::bigint AS ai_tokens_total,
-					0::bigint AS ai_cost_microusd,
+					0::bigint AS usage_tokens_total,
+					0::bigint AS usage_cost_microusd,
 					MIN(created_at) AS created_at,
 					MAX(updated_at) AS updated_at
 				FROM usage_records
@@ -1118,14 +1118,14 @@ func (s *PgStore) GetOrgDailyUsage(ctx context.Context, orgID string, date time.
 			period_date,
 			SUM(runs_count) AS runs_count,
 			SUM(compute_cost_microusd) AS compute_cost_microusd,
-			SUM(ai_tokens_total) AS ai_tokens_total,
-			SUM(ai_cost_microusd) AS ai_cost_microusd,
+			SUM(usage_tokens_total) AS usage_tokens_total,
+			SUM(usage_cost_microusd) AS usage_cost_microusd,
 			MIN(created_at) AS created_at,
 			MAX(updated_at) AS updated_at
 			FROM (
 				SELECT * FROM run_counts
 				UNION ALL
-				SELECT * FROM ai_usage
+				SELECT * FROM usage_cost
 				UNION ALL
 				SELECT * FROM recorded_compute
 			) usage
@@ -1458,7 +1458,7 @@ func scanUsageRecords(rows pgx.Rows) ([]UsageRecord, error) {
 		var r UsageRecord
 		if err := rows.Scan(
 			&r.ID, &r.OrgID, &r.ProjectID, &r.PeriodDate,
-			&r.RunsCount, &r.ComputeCostMicro, &r.AITokensTotal, &r.AICostMicro,
+			&r.RunsCount, &r.ComputeCostMicro, &r.UsageTokensTotal, &r.UsageCostMicro,
 			&r.CreatedAt, &r.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning usage record: %w", err)

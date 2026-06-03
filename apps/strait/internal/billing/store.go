@@ -87,8 +87,8 @@ type UsageRecord struct {
 	PeriodDate       time.Time
 	RunsCount        int64
 	ComputeCostMicro int64
-	AITokensTotal    int64
-	AICostMicro      int64
+	UsageTokensTotal int64
+	UsageCostMicro   int64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

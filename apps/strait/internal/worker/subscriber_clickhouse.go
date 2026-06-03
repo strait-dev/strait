@@ -152,7 +152,7 @@ func NewClickHouseSubscriberHandle(exporter *clickhouse.Exporter, events EventLi
 			}
 		}
 
-		// Enqueue run usage records in background so AI cost data flows to ClickHouse.
+		// Enqueue run usage records in background so usage cost data flows to ClickHouse.
 		if usage != nil {
 			select {
 			case sem <- struct{}{}:

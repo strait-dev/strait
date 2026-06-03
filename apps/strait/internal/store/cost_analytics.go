@@ -153,7 +153,7 @@ func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, fr
 
 func (q *Queries) getCostAnalyticsMaterialized(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
 	totalsQuery := `
-		SELECT COALESCE(SUM(ai_cost_microusd), 0),
+		SELECT COALESCE(SUM(usage_cost_microusd), 0),
 		       COALESCE(SUM(compute_cost_microusd), 0),
 		       COALESCE(SUM(total_tokens), 0),
 		       COALESCE(SUM(run_count), 0)
@@ -272,7 +272,7 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID string, from, to time.Time) ([]CostTrendPoint, error) {
 	query := `
 		SELECT date_trunc('day', hour) AS period,
-		       COALESCE(SUM(ai_cost_microusd), 0),
+		       COALESCE(SUM(usage_cost_microusd), 0),
 		       COALESCE(SUM(compute_cost_microusd), 0),
 		       COALESCE(SUM(total_tokens), 0),
 		       COALESCE(SUM(run_count), 0)
@@ -348,7 +348,7 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 	nextHour := hour.Add(time.Hour)
 
 	query := `
-		INSERT INTO cost_stats_hourly (project_id, hour, ai_cost_microusd, compute_cost_microusd, total_tokens, run_count)
+		INSERT INTO cost_stats_hourly (project_id, hour, usage_cost_microusd, compute_cost_microusd, total_tokens, run_count)
 		SELECT
 			jr.project_id,
 			$1 AS hour,
@@ -362,7 +362,7 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
 		GROUP BY jr.project_id
 		ON CONFLICT (project_id, hour) DO UPDATE SET
-			ai_cost_microusd = EXCLUDED.ai_cost_microusd,
+			usage_cost_microusd = EXCLUDED.usage_cost_microusd,
 			compute_cost_microusd = EXCLUDED.compute_cost_microusd,
 			total_tokens = EXCLUDED.total_tokens,
 			run_count = EXCLUDED.run_count`

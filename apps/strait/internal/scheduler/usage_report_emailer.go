@@ -265,7 +265,7 @@ func (re *UsageReportEmailer) finalizeReportSent(ctx context.Context, orgID stri
 func sumUsageRecordSpend(records []billing.UsageRecord) int64 {
 	var total int64
 	for _, record := range records {
-		total += record.ComputeCostMicro + record.AICostMicro
+		total += record.ComputeCostMicro + record.UsageCostMicro
 	}
 	return total
 }
