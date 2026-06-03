@@ -334,6 +334,37 @@ func TestRemoveReservedMessagesKeepsUnreservedBatchMessages(t *testing.T) {
 	}
 }
 
+func TestRemoveReservedMessagesClearsCompactedTail(t *testing.T) {
+	messages := []pgQueMessage{
+		{ID: 1, Payload: "keep-1"},
+		{ID: 2, Payload: "remove-2"},
+		{ID: 3, Payload: "keep-3"},
+		{ID: 4, Payload: "remove-4"},
+		{ID: 5, Payload: "keep-5"},
+	}
+	batch := &pgQueActiveBatch{Messages: messages}
+	candidates := []pgQueCandidate{
+		{Message: pgQueMessage{ID: 2}},
+		{Message: pgQueMessage{ID: 4}},
+	}
+
+	removeReservedMessages(batch, nil, candidates)
+
+	gotIDs := make([]int64, 0, len(batch.Messages))
+	for _, msg := range batch.Messages {
+		gotIDs = append(gotIDs, msg.ID)
+	}
+	wantIDs := []int64{1, 3, 5}
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Fatalf("remaining message ids = %v, want %v", gotIDs, wantIDs)
+	}
+	for i, msg := range messages[len(batch.Messages):] {
+		if msg != (pgQueMessage{}) {
+			t.Fatalf("compacted tail message %d = %#v, want zero value", i, msg)
+		}
+	}
+}
+
 func BenchmarkRemoveReservedMessagesSingleCandidate(b *testing.B) {
 	for b.Loop() {
 		batch := &pgQueActiveBatch{

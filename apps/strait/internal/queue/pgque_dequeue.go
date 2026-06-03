@@ -27,6 +27,8 @@ type pgQueBatchReservation struct {
 	Invalid    []pgQueMessage
 }
 
+const pgQueSmallRemoveSetLimit = 8
+
 func (q *PgQueQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	runs, err := q.DequeueN(ctx, 1)
 	if err != nil || len(runs) == 0 {
@@ -211,6 +213,31 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 		removeReservedMessage(batch, removeID)
 		return
 	}
+	if removeCount <= pgQueSmallRemoveSetLimit {
+		var removeIDs [pgQueSmallRemoveSetLimit]int64
+		writeID := 0
+		for _, msg := range invalid {
+			removeIDs[writeID] = msg.ID
+			writeID++
+		}
+		for _, candidate := range candidates {
+			removeIDs[writeID] = candidate.Message.ID
+			writeID++
+		}
+
+		write := 0
+		for _, msg := range batch.Messages {
+			if pgQueMessageIDInSet(removeIDs[:writeID], msg.ID) {
+				continue
+			}
+			batch.Messages[write] = msg
+			write++
+		}
+		clear(batch.Messages[write:])
+		batch.Messages = batch.Messages[:write]
+		return
+	}
+
 	removeIDs := make(map[int64]struct{}, removeCount)
 	for _, msg := range invalid {
 		removeIDs[msg.ID] = struct{}{}
@@ -229,6 +256,15 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 	}
 	clear(batch.Messages[write:])
 	batch.Messages = batch.Messages[:write]
+}
+
+func pgQueMessageIDInSet(ids []int64, id int64) bool {
+	for _, candidate := range ids {
+		if candidate == id {
+			return true
+		}
+	}
+	return false
 }
 
 func removeReservedMessage(batch *pgQueActiveBatch, removeID int64) {
