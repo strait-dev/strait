@@ -1,6 +1,10 @@
 package billing
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -32,23 +36,24 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "spending cap raise resumes quota-paused jobs", status: launchPromiseRuntime, gate: "UsageService.SetSpendingLimit", test: "TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPausedJobs"},
 	{promise: "concurrent run cap", status: launchPromiseRuntime, gate: "Enforcer.CheckConcurrentRunLimit", test: "TestEnforcer_CheckConcurrentRunLimit"},
 	{promise: "worker connection cap", status: launchPromiseRuntime, gate: "Enforcer.ReserveWorkerConnection", test: "TestReserveWorkerConnection_EnforcesCapAcrossEnforcers"},
-	{promise: "workflow step cap", status: launchPromiseRuntime, gate: "registry workflow registration gate", test: "TestWorkflowStepCap_"},
-	{promise: "cron schedule count cap", status: launchPromiseRuntime, gate: "scheduler admission gate", test: "TestCronEnforcement"},
-	{promise: "cron minimum interval cap", status: launchPromiseRuntime, gate: "scheduler cron validator", test: "TestCronMinimumInterval"},
+	{promise: "workflow step cap", status: launchPromiseRuntime, gate: "registry workflow registration gate", test: "TestCheckWorkflowStepLimit_TierBoundaries"},
+	{promise: "cron schedule count cap", status: launchPromiseRuntime, gate: "scheduler admission gate", test: "TestEnforceCronScheduleLimit_SerializesJobsAndWorkflows"},
+	{promise: "cron minimum interval cap", status: launchPromiseRuntime, gate: "scheduler cron validator", test: "TestCheckCronMinInterval_FreeRejectsEveryMinute"},
 	{promise: "project cap", status: launchPromiseRuntime, gate: "Enforcer.CheckProjectLimit", test: "TestEnforcer_CheckProjectLimit"},
-	{promise: "member cap", status: launchPromiseRuntime, gate: "Enforcer.CheckMemberLimit", test: "TestEnforcer_CheckMemberLimit"},
-	{promise: "webhook endpoint cap", status: launchPromiseRuntime, gate: "webhook endpoint admission", test: "TestWebhookEndpointLimit"},
-	{promise: "environment cap", status: launchPromiseRuntime, gate: "environment admission", test: "TestEnvironmentLimit"},
+	{promise: "member cap", status: launchPromiseRuntime, gate: "Enforcer.CheckMemberLimit", test: "TestCheckMemberLimit_FreeAtLimit_Blocked"},
+	{promise: "webhook endpoint cap", status: launchPromiseRuntime, gate: "webhook endpoint admission", test: "TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit"},
+	{promise: "environment cap", status: launchPromiseRuntime, gate: "environment admission", test: "TestCreateEnvironmentWithOrgLimit_SerializesConcurrentCreates"},
 	{promise: "history retention cap", status: launchPromiseRuntime, gate: "PlanRetentionResolver", test: "TestGetOrgRetentionDays_ProPlan"},
-	{promise: "API rate limit", status: launchPromiseRuntime, gate: "ratelimit middleware", test: "TestAPIRateLimit"},
-	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestFeatureGating_RBAC"},
-	{promise: "audit logs Scale+", status: launchPromiseRuntime, gate: "FeatureAuditLogs", test: "TestLaunchCatalogKeepsRoadmapSecurityFeaturesInactive"},
-	{promise: "canary deployments Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestFeatureGating_CanaryDeployments"},
+	{promise: "API rate limit", status: launchPromiseRuntime, gate: "ratelimit middleware", test: "TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault"},
+	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleCreateRole_StarterBasicRBACRejectsCustomRole"},
+	{promise: "audit logs Scale+", status: launchPromiseRuntime, gate: "FeatureAuditLogs", test: "TestAuditLogs_FreeTierRejected"},
+	{promise: "canary deployments Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentUpdate_FreeTierRejected"},
 	{promise: "approval gates Pro+", status: launchPromiseRuntime, gate: "FeatureApprovalGates", test: "TestFeatureGating_ApprovalGates"},
 	{promise: "sub-workflows Pro+", status: launchPromiseRuntime, gate: "FeatureSubWorkflows", test: "TestFeatureGating_SubWorkflows"},
 	{promise: "job chaining Pro+", status: launchPromiseRuntime, gate: "FeatureJobChaining", test: "TestFeatureGating_JobChaining"},
 	{promise: "compensating transactions Pro+", status: launchPromiseRuntime, gate: "FeatureCompensatingTxns", test: "TestFeatureGating_CompensatingTxns"},
-	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestPlanLimits_EnterpriseUnlimitedFeatures"},
+	{promise: "log streaming Starter+", status: launchPromiseRuntime, gate: "FeatureLogStreaming", test: "TestRunLogStream_FreeTier_Rejected"},
+	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestNonEnterpriseTiers_NoSLA"},
 	{promise: "overage metering to Stripe", status: launchPromiseMetered, gate: "worker recordTerminalRunBilling", test: "TestBillingEnforcement_TerminalFailureRecordsBillableRunCost"},
 	{promise: "SSO roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSSO},
 	{promise: "SCIM roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSCIM},
@@ -106,4 +111,45 @@ func TestLaunchEnforcementMatrixRoadmapFeaturesStayInactive(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
+	t.Parallel()
+
+	testNames := collectRepoTestNames(t)
+	for _, row := range launchEnforcementMatrix {
+		if row.status == launchPromiseRoadmap {
+			continue
+		}
+		if !testNames[row.test] {
+			t.Fatalf("%q cites missing evidence test %q", row.promise, row.test)
+		}
+	}
+}
+
+func collectRepoTestNames(t *testing.T) map[string]bool {
+	t.Helper()
+
+	names := map[string]bool{}
+	testDecl := regexp.MustCompile(`func\s+(Test[A-Za-z0-9_]+)\s*\(`)
+	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		for _, match := range testDecl.FindAllSubmatch(body, -1) {
+			names[string(match[1])] = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("collect repo test names: %v", err)
+	}
+	return names
 }

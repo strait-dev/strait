@@ -119,7 +119,7 @@ const startCheckoutServerFn = createServerFn({ method: "POST" })
       success_url: `${baseUrl}/app?checkout_success=true`,
       cancel_url: `${baseUrl}/app/upgrade?canceled=true`,
       customer: customerId,
-      allow_promotion_codes: true,
+      allow_promotion_codes: false,
       automatic_tax: { enabled: true },
       subscription_data: {
         metadata: orgId ? { org_id: orgId } : {},

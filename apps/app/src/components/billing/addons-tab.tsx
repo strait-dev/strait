@@ -85,7 +85,7 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
       success_url: `${baseUrl}/app/billing?addon_success=true`,
       cancel_url: `${baseUrl}/app/billing`,
       customer: customerId,
-      allow_promotion_codes: true,
+      allow_promotion_codes: false,
       automatic_tax: { enabled: true },
       subscription_data: {
         metadata: { org_id: orgId },

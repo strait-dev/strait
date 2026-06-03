@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
 
@@ -68,6 +69,9 @@ func (s *Server) handleCreateDeploymentVersion(ctx context.Context, input *Creat
 		}
 	}
 	if strategy == domain.DeploymentStrategyCanary {
+		if err := s.checkFeatureAllowed(ctx, req.ProjectID, billing.FeatureCanaryDeployments, "Canary deployments"); err != nil {
+			return nil, err
+		}
 		if req.CanaryPercent == nil || *req.CanaryPercent < 1 || *req.CanaryPercent > 99 {
 			return nil, huma.Error400BadRequest("canary strategy requires canary_percent between 1 and 99")
 		}
