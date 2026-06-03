@@ -233,6 +233,30 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 	}
 }
 
+func TestLaunchDocsDoNotAdvertisePlanGatedRBACAsUniversal(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"../../../docs/guides/security.mdx",
+		"../../../docs/guides/authentication.mdx",
+	} {
+		bodyBytes, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		body := string(bodyBytes)
+		for _, phrase := range []string{
+			"you can create custom roles per-project",
+			"You can also create custom roles with any combination of scopes",
+			"RBAC also supports role inheritance and policy-based grants",
+		} {
+			if strings.Contains(body, phrase) {
+				t.Fatalf("%s advertises plan-gated RBAC as universal with phrase %q", path, phrase)
+			}
+		}
+	}
+}
+
 func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *testing.T) {
 	t.Parallel()
 

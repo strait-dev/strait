@@ -94,9 +94,9 @@ Keys with empty scopes (`[]`) retain full access for backward compatibility.
 
 ## Role-Based Access Control
 
-Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four built-in roles (admin, operator, viewer, triggerer) are available, and you can create custom roles per-project.
+Users accessing Strait through the app are authorized via project roles. Each role defines a set of permissions identical to API key scopes. Four built-in roles (admin, operator, viewer, triggerer) are available on Basic RBAC plans. Custom roles require Full RBAC.
 
-RBAC also supports role inheritance and policy-based grants (resource policies and tag policies) for finer-grained authorization without relying on broad static roles.
+RBAC also supports role inheritance on Full RBAC plans and policy-based grants (resource policies and tag policies) on Advanced RBAC plans for finer-grained authorization without relying on broad static roles.
 
 See [Authentication & Authorization](/guides/authentication#rbac) for details.
 
