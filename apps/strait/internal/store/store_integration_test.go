@@ -2179,6 +2179,41 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpsertRunOutputForActiveRun(ctx, output, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertRunOutputForActiveRun(active) error = %v", err)
 	}
+	initialOutputID := output.ID
+	initialOutputCreatedAt := output.CreatedAt
+	var outputXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		activeRun.ID,
+		"final",
+	).Scan(&outputXminBeforeNoop); err != nil {
+		t.Fatalf("query active run_outputs xmin before no-op: %v", err)
+	}
+	sameOutput := &domain.RunOutput{RunID: activeRun.ID, OutputKey: "final", Value: json.RawMessage(`{"ok":true}`)}
+	if err := q.UpsertRunOutputForActiveRun(ctx, sameOutput, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunOutputForActiveRun(active no-op) error = %v", err)
+	}
+	var outputXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		activeRun.ID,
+		"final",
+	).Scan(&outputXminAfterNoop); err != nil {
+		t.Fatalf("query active run_outputs xmin after no-op: %v", err)
+	}
+	if outputXminAfterNoop != outputXminBeforeNoop {
+		t.Fatalf("active run_outputs no-op changed xmin from %s to %s", outputXminBeforeNoop, outputXminAfterNoop)
+	}
+	if sameOutput.ID != initialOutputID {
+		t.Fatalf("active run_outputs no-op id = %q, want %q", sameOutput.ID, initialOutputID)
+	}
+	if !sameOutput.CreatedAt.Equal(initialOutputCreatedAt) {
+		t.Fatalf("active run_outputs no-op created_at = %v, want %v", sameOutput.CreatedAt, initialOutputCreatedAt)
+	}
 	resourceSnapshot := &domain.RunResourceSnapshot{RunID: activeRun.ID, CPUPercent: 10, MemoryMB: 128}
 	if err := q.CreateRunResourceSnapshotForActiveRun(ctx, resourceSnapshot, activeRun.Attempt); err != nil {
 		t.Fatalf("CreateRunResourceSnapshotForActiveRun(active) error = %v", err)
@@ -2504,6 +2539,41 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	out := &domain.RunOutput{RunID: run.ID, OutputKey: "final", Schema: json.RawMessage(`{"type":"object"}`), Value: json.RawMessage(`{"name":"leo"}`)}
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput() error = %v", err)
+	}
+	initialOutputID := out.ID
+	initialOutputCreatedAt := out.CreatedAt
+	var outputXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		run.ID,
+		"final",
+	).Scan(&outputXminBeforeNoop); err != nil {
+		t.Fatalf("query run_outputs xmin before no-op: %v", err)
+	}
+	sameOut := &domain.RunOutput{RunID: run.ID, OutputKey: "final", Schema: json.RawMessage(`{"type":"object"}`), Value: json.RawMessage(`{"name":"leo"}`)}
+	if err := q.UpsertRunOutput(ctx, sameOut); err != nil {
+		t.Fatalf("UpsertRunOutput() no-op error = %v", err)
+	}
+	var outputXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		run.ID,
+		"final",
+	).Scan(&outputXminAfterNoop); err != nil {
+		t.Fatalf("query run_outputs xmin after no-op: %v", err)
+	}
+	if outputXminAfterNoop != outputXminBeforeNoop {
+		t.Fatalf("run_outputs no-op changed xmin from %s to %s", outputXminBeforeNoop, outputXminAfterNoop)
+	}
+	if sameOut.ID != initialOutputID {
+		t.Fatalf("run_outputs no-op id = %q, want %q", sameOut.ID, initialOutputID)
+	}
+	if !sameOut.CreatedAt.Equal(initialOutputCreatedAt) {
+		t.Fatalf("run_outputs no-op created_at = %v, want %v", sameOut.CreatedAt, initialOutputCreatedAt)
 	}
 	out.Value = json.RawMessage(`{"name":"leo2"}`)
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
