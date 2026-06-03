@@ -184,6 +184,22 @@ describe("apiPlansToComparisonFeatures", () => {
     });
   });
 
+  it("uses the public org-wide webhook endpoint cap in comparison rows", () => {
+    const rows = apiPlansToComparisonFeatures([
+      testPlan({
+        max_webhook_subs_per_project: 3,
+        max_webhook_endpoints: 10,
+      }),
+    ]);
+
+    expect(rows.find((row) => row.name === "Webhook subscriptions")).toBe(
+      undefined
+    );
+    expect(rows.find((row) => row.name === "Webhook endpoints")).toMatchObject({
+      business: "10",
+    });
+  });
+
   it("renders launch-inactive enterprise security features as roadmap only", () => {
     const rows = apiPlansToComparisonFeatures([
       testPlan({

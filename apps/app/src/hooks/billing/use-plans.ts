@@ -261,9 +261,7 @@ export const apiPlansToComparisonFeatures = (
     row("RBAC", (p) => formatRBAC(p.rbac_level)),
     row("Audit logs", (p) => formatBoolean(p.has_audit_logs)),
     row("SLA target", (p) => formatBoolean(p.has_sla)),
-    row("Webhook subscriptions", (p) =>
-      formatLimit(p.max_webhook_subs_per_project)
-    ),
+    row("Webhook endpoints", (p) => formatLimit(p.max_webhook_endpoints)),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
     row("SSO/SAML", (p) =>
       p.roadmap_features.includes("SSO/SAML") ? "Roadmap" : formatBoolean(false)
