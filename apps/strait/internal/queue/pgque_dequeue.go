@@ -163,12 +163,10 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 
 	candidates := make([]pgQueCandidate, 0, len(batch.Messages))
 	invalid := make([]pgQueMessage, 0)
-	removeIDs := make(map[int64]struct{})
 	for i, msg := range batch.Messages {
 		var event pgQueReadyEvent
 		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil || event.RunID == "" {
 			invalid = append(invalid, msg)
-			removeIDs[msg.ID] = struct{}{}
 			continue
 		}
 		candidates = append(candidates, pgQueCandidate{Message: msg, Event: event, Order: i})
@@ -184,22 +182,36 @@ func (q *PgQueQueue) reserveFromActiveBatch(ctx context.Context, state *pgQueRou
 			return candidates[i].Order < candidates[j].Order
 		})
 		candidates = candidates[:min(len(candidates), limit)]
-		for _, candidate := range candidates {
-			removeIDs[candidate.Message.ID] = struct{}{}
-		}
 		batch.InFlight++
 	}
-	if len(removeIDs) > 0 {
-		remaining := make([]pgQueMessage, 0, len(batch.Messages)-len(removeIDs))
-		for _, msg := range batch.Messages {
-			if _, ok := removeIDs[msg.ID]; ok {
-				continue
-			}
-			remaining = append(remaining, msg)
-		}
-		batch.Messages = remaining
-	}
+	removeReservedMessages(batch, invalid, candidates)
 	return pgQueBatchReservation{Batch: batch, Candidates: candidates, Invalid: invalid}, nil
+}
+
+func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, candidates []pgQueCandidate) {
+	if batch == nil || len(batch.Messages) == 0 {
+		return
+	}
+	removeCount := len(invalid) + len(candidates)
+	if removeCount == 0 {
+		return
+	}
+	removeIDs := make(map[int64]struct{}, removeCount)
+	for _, msg := range invalid {
+		removeIDs[msg.ID] = struct{}{}
+	}
+	for _, candidate := range candidates {
+		removeIDs[candidate.Message.ID] = struct{}{}
+	}
+
+	remaining := make([]pgQueMessage, 0, len(batch.Messages)-len(removeIDs))
+	for _, msg := range batch.Messages {
+		if _, ok := removeIDs[msg.ID]; ok {
+			continue
+		}
+		remaining = append(remaining, msg)
+	}
+	batch.Messages = remaining
 }
 
 func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates []pgQueCandidate) error {

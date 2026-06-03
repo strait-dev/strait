@@ -308,6 +308,32 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 	}
 }
 
+func TestRemoveReservedMessagesKeepsUnreservedBatchMessages(t *testing.T) {
+	batch := &pgQueActiveBatch{
+		Messages: []pgQueMessage{
+			{ID: 1},
+			{ID: 2},
+			{ID: 3},
+			{ID: 4},
+		},
+	}
+	invalid := []pgQueMessage{{ID: 2}}
+	candidates := []pgQueCandidate{
+		{Message: pgQueMessage{ID: 4}},
+	}
+
+	removeReservedMessages(batch, invalid, candidates)
+
+	gotIDs := make([]int64, 0, len(batch.Messages))
+	for _, msg := range batch.Messages {
+		gotIDs = append(gotIDs, msg.ID)
+	}
+	wantIDs := []int64{1, 3}
+	if !slices.Equal(gotIDs, wantIDs) {
+		t.Fatalf("remaining message ids = %v, want %v", gotIDs, wantIDs)
+	}
+}
+
 func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 	ctx := context.Background()
 	var rotationPeriod string
