@@ -12,7 +12,7 @@ import {
   DescriptionTerm,
 } from "@strait/ui/components/description-list";
 import { Field, FieldLabel } from "@strait/ui/components/field";
-import { Input } from "@strait/ui/components/input";
+import { NumberInputWithChevrons } from "@strait/ui/components/number-input-with-chevrons";
 import { useCallback, useState } from "react";
 import { formatCurrency } from "@/lib/format";
 
@@ -132,37 +132,42 @@ const MigrationCalculator = () => {
         <CardContent className="space-y-4">
           <Field>
             <FieldLabel htmlFor="runs">Runs per month</FieldLabel>
-            <Input
+            <NumberInputWithChevrons
               id="runs"
-              onChange={(e) => setRunsPerMonth(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="runs"
+              onChange={setRunsPerMonth}
               value={runsPerMonth}
             />
           </Field>
           <Field>
             <FieldLabel htmlFor="compute">Compute hours/month</FieldLabel>
-            <Input
+            <NumberInputWithChevrons
               id="compute"
-              onChange={(e) => setComputeHours(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="compute"
+              onChange={setComputeHours}
               value={computeHours}
             />
           </Field>
           <Field>
             <FieldLabel htmlFor="members">Team members</FieldLabel>
-            <Input
+            <NumberInputWithChevrons
               id="members"
-              onChange={(e) => setTeamMembers(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="members"
+              onChange={setTeamMembers}
               value={teamMembers}
             />
           </Field>
           <Field>
             <FieldLabel htmlFor="cost">Current monthly cost ($)</FieldLabel>
-            <Input
+            <NumberInputWithChevrons
+              formatOptions={{ currency: "USD", style: "currency" }}
               id="cost"
-              onChange={(e) => setCurrentCost(Number(e.target.value))}
-              type="number"
+              min={0}
+              name="cost"
+              onChange={setCurrentCost}
               value={currentCost}
             />
           </Field>

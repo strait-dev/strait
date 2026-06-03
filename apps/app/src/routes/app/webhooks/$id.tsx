@@ -314,12 +314,14 @@ function WebhookDetailPage() {
                     addSuffix: true,
                   })}
                 />
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Status</span>
-                  <StatusBadge
-                    status={webhook.active ? "completed" : "pending"}
-                  />
-                </div>
+                <ConfigRow
+                  action={
+                    <StatusBadge
+                      status={webhook.active ? "completed" : "pending"}
+                    />
+                  }
+                  label="Status"
+                />
               </CardContent>
             </Card>
 

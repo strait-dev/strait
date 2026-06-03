@@ -21,7 +21,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@strait/ui/components/empty";
-import { Input } from "@strait/ui/components/input";
+import { InputWithStartIcon } from "@strait/ui/components/input-with-start-icon";
 import { Shell } from "@strait/ui/components/shell";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
@@ -248,30 +248,24 @@ function JobsPage() {
     <Shell>
       <h1 className="sr-only">Jobs</h1>
       <div className="flex items-center gap-3 pb-2.5">
-        <div className="relative w-full max-w-[500px]">
-          <HugeiconsIcon
-            className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-            icon={SearchIcon}
-            size={16}
-          />
-          <Input
-            aria-label="Search"
-            className="pl-9"
-            onChange={(e) => {
-              const nextQuery = e.target.value;
-              setQuery(nextQuery);
-              navigate({
-                search: (prev) => ({
-                  ...prev,
-                  query: nextQuery || undefined,
-                  cursor: undefined,
-                }),
-              });
-            }}
-            placeholder="Search jobs..."
-            value={query}
-          />
-        </div>
+        <InputWithStartIcon
+          aria-label="Search"
+          containerClassName="w-full max-w-[500px]"
+          icon={<HugeiconsIcon icon={SearchIcon} size={16} />}
+          onChange={(e) => {
+            const nextQuery = e.target.value;
+            setQuery(nextQuery);
+            navigate({
+              search: (prev) => ({
+                ...prev,
+                query: nextQuery || undefined,
+                cursor: undefined,
+              }),
+            });
+          }}
+          placeholder="Search jobs..."
+          value={query}
+        />
 
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="outline" />}>
