@@ -118,7 +118,9 @@ func (q *Queries) ReleaseWorkflowProgressionEvent(ctx context.Context, id int64)
 	_, err := q.db.Exec(ctx, `
 		UPDATE workflow_progression_events
 		SET locked_at = NULL, updated_at = NOW()
-		WHERE id = $1 AND processed_at IS NULL
+		WHERE id = $1
+		  AND processed_at IS NULL
+		  AND locked_at IS NOT NULL
 	`, id)
 	if err != nil {
 		return fmt.Errorf("release workflow progression event: %w", err)
@@ -133,7 +135,9 @@ func (q *Queries) ReleaseWorkflowProgressionEvents(ctx context.Context, ids []in
 	_, err := q.db.Exec(ctx, `
 		UPDATE workflow_progression_events
 		SET locked_at = NULL, updated_at = NOW()
-		WHERE id = ANY($1) AND processed_at IS NULL
+		WHERE id = ANY($1)
+		  AND processed_at IS NULL
+		  AND locked_at IS NOT NULL
 	`, ids)
 	if err != nil {
 		return fmt.Errorf("release workflow progression events: %w", err)
