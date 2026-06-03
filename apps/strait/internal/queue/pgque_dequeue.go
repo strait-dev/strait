@@ -196,6 +196,16 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 	if removeCount == 0 {
 		return
 	}
+	if removeCount == 1 {
+		var removeID int64
+		if len(invalid) == 1 {
+			removeID = invalid[0].ID
+		} else {
+			removeID = candidates[0].Message.ID
+		}
+		removeReservedMessage(batch, removeID)
+		return
+	}
 	removeIDs := make(map[int64]struct{}, removeCount)
 	for _, msg := range invalid {
 		removeIDs[msg.ID] = struct{}{}
@@ -212,6 +222,19 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 		remaining = append(remaining, msg)
 	}
 	batch.Messages = remaining
+}
+
+func removeReservedMessage(batch *pgQueActiveBatch, removeID int64) {
+	for i, msg := range batch.Messages {
+		if msg.ID != removeID {
+			continue
+		}
+		copy(batch.Messages[i:], batch.Messages[i+1:])
+		last := len(batch.Messages) - 1
+		batch.Messages[last] = pgQueMessage{}
+		batch.Messages = batch.Messages[:last]
+		return
+	}
 }
 
 func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates []pgQueCandidate) error {
