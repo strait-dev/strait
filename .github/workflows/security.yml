@@ -48,6 +48,7 @@ jobs:
     timeout-minutes: 10
     env:
       GO_LICENSES_VERSION: v2.0.1
+      GO_LICENSES_CACHE_VERSION: go1.26.4
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -60,7 +61,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/go/bin/go-licenses
-          key: go-licenses-${{ runner.os }}-${{ env.GO_LICENSES_VERSION }}
+          key: go-licenses-${{ runner.os }}-${{ env.GO_LICENSES_VERSION }}-${{ env.GO_LICENSES_CACHE_VERSION }}
 
       - name: Install go-licenses
         if: steps.cache-go-licenses.outputs.cache-hit != 'true'
