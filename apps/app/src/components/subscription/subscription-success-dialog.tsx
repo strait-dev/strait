@@ -71,10 +71,10 @@ const SubscriptionSuccessDialog = ({
           </CredenzaTitle>
           <CredenzaDescription className="mt-3 text-base text-muted-foreground">
             {isNewSubscription
-              ? "Your subscription is now active! You have access to all premium features to help grow your business."
+              ? "Your subscription is now active. Your selected plan limits have been applied."
               : null}
             {isUpgrade
-              ? "Your subscription has been updated successfully. Enjoy your enhanced features and capabilities!"
+              ? "Your subscription has been updated successfully. Your new plan limits are active."
               : null}
           </CredenzaDescription>
         </CredenzaHeader>
@@ -83,7 +83,7 @@ const SubscriptionSuccessDialog = ({
         <div className="px-6 pb-2">
           <div className="flex justify-center gap-3">
             <Badge iconLeft={SparklesIcon} size="lg" variant="success">
-              Premium Features
+              Plan Limits Active
             </Badge>
             <Badge iconLeft={CreditCardIcon} size="lg" variant="info-light">
               Manage Billing

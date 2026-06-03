@@ -18,15 +18,15 @@ const TrialUpgradeCard = () => {
     // Default for no trial days info
     if (trialDaysLeft === null || trialDaysLeft <= 0) {
       return {
-        title: "Premium Trial Active",
+        title: "Temporary Access Active",
         message:
-          "Enjoying unlimited Premium features during your trial period!",
+          "Choose a launch plan to keep your paid-plan limits after this period ends.",
         color: "green" as const,
       };
     }
 
     const daysText = trialDaysLeft === 1 ? "1 day" : `${trialDaysLeft} days`;
-    const trialMessage = `${daysText} remaining. Subscribe now to keep your access!`;
+    const trialMessage = `${daysText} remaining. Choose a launch plan to keep your paid-plan limits.`;
 
     // Critical: 1-2 days left (red/destructive)
     if (trialDaysLeft <= TRIAL_CRITICAL_DAYS) {
@@ -51,7 +51,7 @@ const TrialUpgradeCard = () => {
 
     // Normal: 6+ days left (green)
     return {
-      title: "Premium Trial Active",
+      title: "Temporary Access Active",
       message: trialMessage,
       color: "green" as const,
     };
@@ -61,7 +61,7 @@ const TrialUpgradeCard = () => {
     if (!subscription) {
       return {
         title: "You don't have an active subscription",
-        message: "Upgrade to access all Strait features.",
+        message: "Choose a paid plan when you need higher launch limits.",
         color: "blue" as const,
       };
     }
