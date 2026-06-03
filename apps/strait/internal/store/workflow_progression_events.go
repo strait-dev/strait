@@ -87,6 +87,7 @@ func (q *Queries) MarkWorkflowProgressionEventProcessed(ctx context.Context, id 
 		UPDATE workflow_progression_events
 		SET processed_at = NOW(), updated_at = NOW()
 		WHERE id = $1
+		  AND processed_at IS NULL
 	`, id)
 	if err != nil {
 		return fmt.Errorf("mark workflow progression event processed: %w", err)
@@ -105,6 +106,7 @@ func (q *Queries) MarkWorkflowProgressionEventsProcessed(ctx context.Context, id
 		UPDATE workflow_progression_events
 		SET processed_at = NOW(), updated_at = NOW()
 		WHERE id = ANY($1)
+		  AND processed_at IS NULL
 	`, ids)
 	if err != nil {
 		return fmt.Errorf("mark workflow progression events processed: %w", err)
