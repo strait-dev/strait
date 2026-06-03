@@ -618,131 +618,26 @@ func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) er
 	if usage.ID == "" {
 		usage.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	if usage.CostMicrousd == 0 {
-		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
-		if err != nil {
-			return err
-		}
-		if inputCost > 0 || outputCost > 0 {
-			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
-		}
-	}
-
-	query := `
-		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		usage.ID,
-		usage.RunID,
-		usage.Provider,
-		usage.Model,
-		usage.PromptTokens,
-		usage.CompletionTokens,
-		usage.TotalTokens,
-		usage.CostMicrousd,
-	).Scan(&usage.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create run usage: %w", err)
-	}
 
 	return nil
 }
 
-func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, attempt int) error {
+func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, _ int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsageForActiveRun")
 	defer span.End()
 
 	if usage.ID == "" {
 		usage.ID = uuid.Must(uuid.NewV7()).String()
 	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	if usage.CostMicrousd == 0 {
-		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
-		if err != nil {
-			return err
-		}
-		if inputCost > 0 || outputCost > 0 {
-			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
-		}
-	}
 
-	query := `
-		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $9
-			  AND status IN ('executing', 'waiting')
-		)
-		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
-		SELECT $1, id, $3, $4, $5, $6, $7, $8
-		FROM active_run
-		RETURNING created_at`
-
-	err := q.db.QueryRow(ctx, query, usage.ID, usage.RunID, usage.Provider, usage.Model, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CostMicrousd, attempt).Scan(&usage.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, usage.RunID, attempt)
-		}
-		return fmt.Errorf("create active run usage: %w", err)
-	}
 	return nil
 }
 
-func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
+func (q *Queries) ListRunUsage(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunUsage, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
 	defer span.End()
 
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at
-		FROM run_usage
-		WHERE run_id = $1`
-
-	args := []any{runID}
-	param := 2
-
-	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
-		args = append(args, *cursor)
-		param++
-	}
-
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
-	args = append(args, limit)
-
-	rows, err := q.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list run usage: %w", err)
-	}
-	defer rows.Close()
-
-	usages := make([]domain.RunUsage, 0)
-	for rows.Next() {
-		u, scanErr := scanRunUsage(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("list run usage scan: %w", scanErr)
-		}
-		usages = append(usages, *u)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list run usage rows: %w", err)
-	}
-
-	return usages, nil
+	return []domain.RunUsage{}, nil
 }
 
 func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error {
@@ -756,30 +651,10 @@ func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCal
 		call.Status = "completed"
 	}
 
-	query := `
-		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		call.ID,
-		call.RunID,
-		call.ToolName,
-		dbscan.NilIfEmptyRawMessage(call.Input),
-		dbscan.NilIfEmptyRawMessage(call.Output),
-		dbscan.NilIfZeroInt(call.DurationMs),
-		call.Status,
-	).Scan(&call.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create run tool call: %w", err)
-	}
-
 	return nil
 }
 
-func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, attempt int) error {
+func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, _ int) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCallForActiveRun")
 	defer span.End()
 
@@ -790,74 +665,14 @@ func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domai
 		call.Status = "completed"
 	}
 
-	query := `
-		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $8
-			  AND status IN ('executing', 'waiting')
-		)
-		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
-		SELECT $1, id, $3, $4, $5, $6, $7
-		FROM active_run
-		RETURNING created_at`
-
-	err := q.db.QueryRow(ctx, query, call.ID, call.RunID, call.ToolName, dbscan.NilIfEmptyRawMessage(call.Input), dbscan.NilIfEmptyRawMessage(call.Output), dbscan.NilIfZeroInt(call.DurationMs), call.Status, attempt).Scan(&call.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, call.RunID, attempt)
-		}
-		return fmt.Errorf("create active run tool call: %w", err)
-	}
 	return nil
 }
 
-func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
+func (q *Queries) ListRunToolCalls(ctx context.Context, _ string, _ int, _ *time.Time) ([]domain.RunToolCall, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
 	defer span.End()
 
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT id, run_id, tool_name, input, output, duration_ms, status, created_at
-		FROM run_tool_calls
-		WHERE run_id = $1`
-
-	args := []any{runID}
-	param := 2
-
-	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
-		args = append(args, *cursor)
-		param++
-	}
-
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
-	args = append(args, limit)
-
-	rows, err := q.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list run tool calls: %w", err)
-	}
-	defer rows.Close()
-
-	calls := make([]domain.RunToolCall, 0)
-	for rows.Next() {
-		c, scanErr := scanRunToolCall(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("list run tool calls scan: %w", scanErr)
-		}
-		calls = append(calls, *c)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list run tool calls rows: %w", err)
-	}
-
-	return calls, nil
+	return []domain.RunToolCall{}, nil
 }
 
 func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error {
@@ -994,27 +809,6 @@ func (q *Queries) AreAllDescendantsTerminal(ctx context.Context, parentRunID str
 	return nonTerminalCount == 0, nil
 }
 
-func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (int64, int64, error) {
-	query := `
-		SELECT input_cost_microusd, output_cost_microusd
-		FROM pricing_catalog
-		WHERE provider = $1 AND model = $2 AND active = TRUE
-		ORDER BY effective_from DESC
-		LIMIT 1`
-
-	var inputCost int64
-	var outputCost int64
-	err := q.db.QueryRow(ctx, query, provider, model).Scan(&inputCost, &outputCost)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, 0, nil
-		}
-		return 0, 0, fmt.Errorf("lookup pricing: %w", err)
-	}
-
-	return inputCost, outputCost, nil
-}
-
 // SumRunCostMicrousd returns the recorded launch compute cost for a single run.
 func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunCostMicrousd")
@@ -1066,46 +860,6 @@ func scanRunCheckpoint(scanner scanTarget) (*domain.RunCheckpoint, error) {
 		cp.State = json.RawMessage(state)
 	}
 	return &cp, nil
-}
-
-func scanRunUsage(scanner scanTarget) (*domain.RunUsage, error) {
-	var usage domain.RunUsage
-	err := scanner.Scan(
-		&usage.ID,
-		&usage.RunID,
-		&usage.Provider,
-		&usage.Model,
-		&usage.PromptTokens,
-		&usage.CompletionTokens,
-		&usage.TotalTokens,
-		&usage.CostMicrousd,
-		&usage.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &usage, nil
-}
-
-func scanRunToolCall(scanner scanTarget) (*domain.RunToolCall, error) {
-	var call domain.RunToolCall
-	var input []byte
-	var output []byte
-	var durationMs *int
-	err := scanner.Scan(&call.ID, &call.RunID, &call.ToolName, &input, &output, &durationMs, &call.Status, &call.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if input != nil {
-		call.Input = json.RawMessage(input)
-	}
-	if output != nil {
-		call.Output = json.RawMessage(output)
-	}
-	if durationMs != nil {
-		call.DurationMs = *durationMs
-	}
-	return &call, nil
 }
 
 func scanRunOutput(scanner scanTarget) (*domain.RunOutput, error) {

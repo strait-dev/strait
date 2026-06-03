@@ -339,6 +339,37 @@ func TestLaunchPricingRunTelemetryCountersDoNotReadLegacyAIUsage(t *testing.T) {
 	}
 }
 
+func TestLaunchPricingRunTelemetryCompatibilityMethodsStayInactive(t *testing.T) {
+	t.Parallel()
+
+	for _, fn := range []string{
+		"CreateRunUsage",
+		"CreateRunUsageForActiveRun",
+		"ListRunUsage",
+		"CreateRunToolCall",
+		"CreateRunToolCallForActiveRun",
+		"ListRunToolCalls",
+	} {
+		fnBody := storeRunsFunctionBody(t, fn)
+		for _, token := range []string{
+			"INSERT INTO",
+			"SELECT ",
+			"Query(",
+			"QueryRow(",
+			"run_usage",
+			"run_tool_calls",
+			"pricing_catalog",
+			"prompt_tokens",
+			"completion_tokens",
+			"total_tokens",
+		} {
+			if strings.Contains(fnBody, token) {
+				t.Fatalf("%s wires legacy AI telemetry token %q; launch compatibility methods must stay inactive", fn, token)
+			}
+		}
+	}
+}
+
 func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.T) {
 	t.Parallel()
 

@@ -1794,8 +1794,6 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 		"heartbeat":    q.UpdateHeartbeatForActiveRun(ctx, terminalRun.ID, terminalRun.Attempt),
 		"checkpoint":   q.CreateRunCheckpointForActiveRun(ctx, &domain.RunCheckpoint{RunID: terminalRun.ID, State: json.RawMessage(`{"late":true}`)}, terminalRun.Attempt),
 		"state":        q.UpsertRunStateForActiveRun(ctx, &domain.RunState{RunID: terminalRun.ID, StateKey: "late", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
-		"usage":        q.CreateRunUsageForActiveRun(ctx, &domain.RunUsage{RunID: terminalRun.ID, Provider: "test", Model: "model"}, terminalRun.Attempt),
-		"tool-call":    q.CreateRunToolCallForActiveRun(ctx, &domain.RunToolCall{RunID: terminalRun.ID, ToolName: "search"}, terminalRun.Attempt),
 		"output":       q.UpsertRunOutputForActiveRun(ctx, &domain.RunOutput{RunID: terminalRun.ID, OutputKey: "final", Value: json.RawMessage(`true`)}, terminalRun.Attempt),
 		"delete-state": q.DeleteRunStateForActiveRun(ctx, terminalRun.ID, "late", terminalRun.Attempt),
 		"memory": q.UpsertJobMemoryWithQuotaForActiveRun(ctx, terminalRun.ID, &domain.JobMemory{
@@ -1995,20 +1993,13 @@ func TestRunCheckpointsConcurrentSequenceAllocation(t *testing.T) {
 	}
 }
 
-func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
+func TestLegacyRunUsageAndToolCallsAreLaunchInactive(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, q, "project-run-usage")
 	run := mustCreateRun(t, ctx, q, job)
-
-	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO pricing_catalog (id, provider, model, input_cost_microusd, output_cost_microusd, active, effective_from)
-		VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
-	`, newID(), "openai", "gpt-4", int64(3), int64(7)); err != nil {
-		t.Fatalf("insert pricing error = %v", err)
-	}
 
 	usage := &domain.RunUsage{
 		RunID:            run.ID,
@@ -2020,29 +2011,44 @@ func TestRunUsagePricingAndToolCallsAndOutputs(t *testing.T) {
 	if err := q.CreateRunUsage(ctx, usage); err != nil {
 		t.Fatalf("CreateRunUsage() error = %v", err)
 	}
-	if usage.CostMicrousd != int64(65) {
-		t.Fatalf("CreateRunUsage() cost = %d, want 65", usage.CostMicrousd)
+	if usage.ID == "" {
+		t.Fatal("CreateRunUsage() did not assign compatibility ID")
+	}
+	if usage.CostMicrousd != 0 {
+		t.Fatalf("CreateRunUsage() cost = %d, want 0", usage.CostMicrousd)
 	}
 
 	usages, err := q.ListRunUsage(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunUsage() error = %v", err)
 	}
-	if len(usages) != 1 {
-		t.Fatalf("ListRunUsage() len = %d, want 1", len(usages))
+	if len(usages) != 0 {
+		t.Fatalf("ListRunUsage() len = %d, want 0", len(usages))
 	}
 
 	call := &domain.RunToolCall{RunID: run.ID, ToolName: "search", Input: json.RawMessage(`{"q":"x"}`), Output: json.RawMessage(`{"ok":true}`), DurationMs: 120}
 	if err := q.CreateRunToolCall(ctx, call); err != nil {
 		t.Fatalf("CreateRunToolCall() error = %v", err)
 	}
+	if call.ID == "" {
+		t.Fatal("CreateRunToolCall() did not assign compatibility ID")
+	}
 	calls, err := q.ListRunToolCalls(ctx, run.ID, 10, nil)
 	if err != nil {
 		t.Fatalf("ListRunToolCalls() error = %v", err)
 	}
-	if len(calls) != 1 {
-		t.Fatalf("ListRunToolCalls() len = %d, want 1", len(calls))
+	if len(calls) != 0 {
+		t.Fatalf("ListRunToolCalls() len = %d, want 0", len(calls))
 	}
+}
+
+func TestRunOutputsRemainActive(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-output")
+	run := mustCreateRun(t, ctx, q, job)
 
 	out := &domain.RunOutput{RunID: run.ID, OutputKey: "final", Schema: json.RawMessage(`{"type":"object"}`), Value: json.RawMessage(`{"name":"leo"}`)}
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
@@ -6565,8 +6571,11 @@ func TestCreateRunUsage_Dedicated(t *testing.T) {
 	if err := q.CreateRunUsage(ctx, u1); err != nil {
 		t.Fatalf("CreateRunUsage(1) error = %v", err)
 	}
-	if u1.CreatedAt.IsZero() {
-		t.Fatal("u1.CreatedAt is zero")
+	if u1.ID == "" {
+		t.Fatal("u1.ID is empty")
+	}
+	if !u1.CreatedAt.IsZero() {
+		t.Fatal("u1.CreatedAt is set, want zero for launch-inactive compatibility path")
 	}
 
 	u2 := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "anthropic", Model: "claude-3", PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, CostMicrousd: 2000}
@@ -6583,28 +6592,10 @@ func TestCreateRunUsage_Dedicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRunUsage() error = %v", err)
 	}
-	if len(usages) != 3 {
-		t.Fatalf("ListRunUsage() len = %d, want 3", len(usages))
+	if len(usages) != 0 {
+		t.Fatalf("ListRunUsage() len = %d, want 0", len(usages))
 	}
 
-	for i := 1; i < len(usages); i++ {
-		if usages[i].CreatedAt.After(usages[i-1].CreatedAt) {
-			t.Fatalf("usages not DESC at index %d", i)
-		}
-	}
-
-	// Verify field values (most recent first = u3)
-	if usages[0].Provider != "openai" || usages[0].Model != "gpt-3.5" {
-		t.Fatalf("usages[0] = %s/%s, want openai/gpt-3.5", usages[0].Provider, usages[0].Model)
-	}
-	if usages[0].PromptTokens != 50 || usages[0].CompletionTokens != 25 || usages[0].TotalTokens != 75 {
-		t.Fatalf("usages[0] tokens = %d/%d/%d, want 50/25/75", usages[0].PromptTokens, usages[0].CompletionTokens, usages[0].TotalTokens)
-	}
-	if usages[0].CostMicrousd != 500 {
-		t.Fatalf("usages[0] cost = %d, want 500", usages[0].CostMicrousd)
-	}
-
-	// Empty for unknown run
 	emptyUsages, err := q.ListRunUsage(ctx, newID(), 100, nil)
 	if err != nil {
 		t.Fatalf("ListRunUsage(unknown) error = %v", err)
@@ -6635,52 +6626,8 @@ func TestRunUsage_Pagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRunUsage(page1) error = %v", err)
 	}
-	if len(page1) != 2 {
-		t.Fatalf("page1 len = %d, want 2", len(page1))
-	}
-
-	// Second page using cursor
-	cursor := page1[len(page1)-1].CreatedAt
-	page2, err := q.ListRunUsage(ctx, run.ID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListRunUsage(page2) error = %v", err)
-	}
-	if len(page2) != 2 {
-		t.Fatalf("page2 len = %d, want 2", len(page2))
-	}
-
-	// Ensure no overlap
-	for _, p1 := range page1 {
-		for _, p2 := range page2 {
-			if p1.ID == p2.ID {
-				t.Fatalf("overlap between page1 and page2: %s", p1.ID)
-			}
-		}
-	}
-
-	// Third page
-	cursor2 := page2[len(page2)-1].CreatedAt
-	page3, err := q.ListRunUsage(ctx, run.ID, 2, &cursor2)
-	if err != nil {
-		t.Fatalf("ListRunUsage(page3) error = %v", err)
-	}
-	if len(page3) != 1 {
-		t.Fatalf("page3 len = %d, want 1", len(page3))
-	}
-
-	// Total unique IDs = 5
-	allIDs := make(map[string]bool)
-	for _, u := range page1 {
-		allIDs[u.ID] = true
-	}
-	for _, u := range page2 {
-		allIDs[u.ID] = true
-	}
-	for _, u := range page3 {
-		allIDs[u.ID] = true
-	}
-	if len(allIDs) != 5 {
-		t.Fatalf("total unique usage records = %d, want 5", len(allIDs))
+	if len(page1) != 0 {
+		t.Fatalf("page1 len = %d, want 0", len(page1))
 	}
 }
 
@@ -6705,8 +6652,11 @@ func TestCreateRunToolCall_Dedicated(t *testing.T) {
 	if err := q.CreateRunToolCall(ctx, tc1); err != nil {
 		t.Fatalf("CreateRunToolCall(full) error = %v", err)
 	}
-	if tc1.CreatedAt.IsZero() {
-		t.Fatal("tc1.CreatedAt is zero")
+	if tc1.ID == "" {
+		t.Fatal("tc1.ID is empty")
+	}
+	if !tc1.CreatedAt.IsZero() {
+		t.Fatal("tc1.CreatedAt is set, want zero for launch-inactive compatibility path")
 	}
 
 	// Tool call with minimal fields (no input/output, zero duration)
@@ -6736,17 +6686,10 @@ func TestCreateRunToolCall_Dedicated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRunToolCalls() error = %v", err)
 	}
-	if len(calls) != 3 {
-		t.Fatalf("ListRunToolCalls() len = %d, want 3", len(calls))
+	if len(calls) != 0 {
+		t.Fatalf("ListRunToolCalls() len = %d, want 0", len(calls))
 	}
 
-	for i := 1; i < len(calls); i++ {
-		if calls[i].CreatedAt.After(calls[i-1].CreatedAt) {
-			t.Fatalf("calls not DESC at index %d", i)
-		}
-	}
-
-	// Empty for unknown run
 	empty, err := q.ListRunToolCalls(ctx, newID(), 100, nil)
 	if err != nil {
 		t.Fatalf("ListRunToolCalls(unknown) error = %v", err)
@@ -6779,20 +6722,8 @@ func TestRunToolCalls_EmptyInputOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRunToolCalls() error = %v", err)
 	}
-	if len(calls) != 1 {
-		t.Fatalf("len = %d, want 1", len(calls))
-	}
-	if calls[0].ToolName != "empty-tool" {
-		t.Fatalf("ToolName = %q, want empty-tool", calls[0].ToolName)
-	}
-	if calls[0].Input != nil {
-		t.Fatalf("Input = %s, want nil", string(calls[0].Input))
-	}
-	if calls[0].Output != nil {
-		t.Fatalf("Output = %s, want nil", string(calls[0].Output))
-	}
-	if calls[0].DurationMs != 0 {
-		t.Fatalf("DurationMs = %d, want 0", calls[0].DurationMs)
+	if len(calls) != 0 {
+		t.Fatalf("len = %d, want 0", len(calls))
 	}
 }
 
