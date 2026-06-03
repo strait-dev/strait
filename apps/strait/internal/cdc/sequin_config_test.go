@@ -4,6 +4,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	straitcache "strait/internal/cache"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func TestRequiredConsumerTablesReturnsCopy(t *testing.T) {
@@ -51,6 +56,73 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 			t.Fatalf("postgres init missing replica identity for %s", table)
 		}
 	}
+}
+
+func TestRequiredConsumerTablesCoverRuntimeFanoutHandlers(t *testing.T) {
+	t.Parallel()
+
+	handlers := []Handler{
+		NewJobRunHandler(nil, nil),
+		NewWorkflowRunHandler(nil, nil),
+		NewWorkflowStepRunHandler(nil, nil),
+		NewEventTriggerHandler(nil, nil),
+		NewNotificationTriggerHandler(nil, nil),
+		NewSLOHandler(nil, nil),
+		NewAnalyticsHandler(nil, nil),
+	}
+	assertRequiredConsumerTablesIncludeHandlers(t, handlers)
+}
+
+func TestRequiredConsumerTablesCoverCacheReadModelHandlers(t *testing.T) {
+	t.Parallel()
+
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
+	assertRequiredConsumerTablesIncludeHandlers(t, []Handler{
+		handlers.JobRuns,
+		handlers.WorkflowRuns,
+		handlers.WorkflowStepRuns,
+	})
+}
+
+func TestRequiredConsumerTablesCoverStrongCachePolicyTables(t *testing.T) {
+	t.Parallel()
+
+	required := requiredConsumerTableSet(t)
+	for _, policy := range straitcache.StrongNamespacePolicies {
+		for _, table := range policy.CDCTables {
+			if _, ok := required[table]; !ok {
+				t.Fatalf("strong cache policy %s requires CDC table %s but Sequin consumer does not subscribe to it", policy.Namespace, table)
+			}
+		}
+	}
+}
+
+func assertRequiredConsumerTablesIncludeHandlers(t *testing.T, handlers []Handler) {
+	t.Helper()
+
+	required := requiredConsumerTableSet(t)
+	for _, handler := range handlers {
+		if handler == nil {
+			t.Fatal("runtime handler must not be nil")
+		}
+		table := handler.Table()
+		if _, ok := required[table]; !ok {
+			t.Fatalf("runtime handler for %s is registered without required Sequin subscription", table)
+		}
+	}
+}
+
+func requiredConsumerTableSet(t *testing.T) map[string]struct{} {
+	t.Helper()
+
+	required := make(map[string]struct{}, len(RequiredConsumerTables()))
+	for _, table := range RequiredConsumerTables() {
+		required[tableName(t, table)] = struct{}{}
+	}
+	return required
 }
 
 func tableName(t *testing.T, qualifiedTable string) string {
