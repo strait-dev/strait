@@ -63,115 +63,42 @@ func (s *Server) handleListRuns(ctx context.Context, input *ListRunsInput) (*Lis
 		return nil, huma.Error400BadRequest("project_id is required")
 	}
 
-	statuses, statusQuery, err := buildRunStatusFilter(input.Status, input.Statuses)
+	query, err := newListRunsQuery(input)
 	if err != nil {
 		return nil, err
-	}
-
-	tagKey := input.TagKey
-	tagValue := input.TagValue
-
-	if tagValue != "" && tagKey == "" {
-		return nil, huma.Error400BadRequest("tag_key is required when tag_value is provided")
-	}
-	if tagKey != "" {
-		if err := validateTags(map[string]string{tagKey: tagValue}); err != nil {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-	}
-
-	metadataKeyRaw := input.MetadataKey
-	metadataValueRaw := input.MetadataValue
-
-	if metadataValueRaw != "" && metadataKeyRaw == "" {
-		return nil, huma.Error400BadRequest("metadata_key is required when metadata_value is provided")
-	}
-
-	if tagKey != "" && metadataKeyRaw != "" {
-		return nil, huma.Error400BadRequest("tag_key and metadata_key filters are mutually exclusive")
-	}
-
-	var metadataKey *string
-	if metadataKeyRaw != "" {
-		metadataKey = &metadataKeyRaw
-	}
-
-	var metadataValue *string
-	if metadataValueRaw != "" {
-		metadataValue = &metadataValueRaw
-	}
-
-	var triggeredBy *string
-	if input.TriggeredBy != "" {
-		triggeredBy = &input.TriggeredBy
-	}
-
-	var batchID *string
-	if input.BatchID != "" {
-		batchID = &input.BatchID
-	}
-
-	var payloadContains json.RawMessage
-	if input.PayloadContains != "" {
-		if !json.Valid([]byte(input.PayloadContains)) {
-			return nil, huma.Error400BadRequest("payload_contains must be valid JSON")
-		}
-		payloadContains = json.RawMessage(input.PayloadContains)
-	}
-
-	var executionMode *domain.ExecutionMode
-	if input.ExecutionMode != "" {
-		parsed := domain.ExecutionMode(input.ExecutionMode)
-		if !parsed.IsValid() {
-			return nil, huma.Error400BadRequest("execution_mode is invalid")
-		}
-		executionMode = &parsed
-	}
-
-	var errorClass *string
-	if input.ErrorClass != "" {
-		if !domain.ValidErrorClasses[input.ErrorClass] {
-			return nil, huma.Error400BadRequest("error_class is invalid")
-		}
-		errorClass = &input.ErrorClass
-	}
-
-	limit, cursor, err := parsePaginationParamsTyped(input.Limit, input.Cursor)
-	if err != nil {
-		return nil, huma.Error400BadRequest(err.Error())
 	}
 
 	var (
 		runs    []domain.JobRun
 		listErr error
 	)
-	if environmentIDFromContext(ctx) != "" || tagKey != "" || len(statuses) > 1 {
+	if query.usesFilteredStorePath(environmentIDFromContext(ctx)) {
 		runs, listErr = s.listRunsWithFilters(
 			ctx,
 			projectID,
-			statusQuery,
-			statuses,
-			tagKey,
-			tagValue,
-			metadataKey,
-			metadataValue,
-			triggeredBy,
-			batchID,
-			payloadContains,
-			executionMode,
-			errorClass,
-			limit+1,
-			cursor,
+			query.statusQuery,
+			query.statuses,
+			query.tagKey,
+			query.tagValue,
+			query.metadataKey,
+			query.metadataValue,
+			query.triggeredBy,
+			query.batchID,
+			query.payloadContains,
+			query.executionMode,
+			query.errorClass,
+			query.limit+1,
+			query.cursor,
 		)
 	} else {
-		runs, listErr = s.store.ListRunsByProject(ctx, projectID, statusQuery, metadataKey, metadataValue, triggeredBy, batchID, payloadContains, executionMode, errorClass, limit+1, cursor)
+		runs, listErr = s.store.ListRunsByProject(ctx, projectID, query.statusQuery, query.metadataKey, query.metadataValue, query.triggeredBy, query.batchID, query.payloadContains, query.executionMode, query.errorClass, query.limit+1, query.cursor)
 	}
 	if listErr != nil {
 		return nil, huma.Error500InternalServerError("failed to list runs")
 	}
 
 	return &ListRunsOutput{
-		Body: paginatedResult(runs, limit, func(run domain.JobRun) string {
+		Body: paginatedResult(runs, query.limit, func(run domain.JobRun) string {
 			return run.CreatedAt.Format(time.RFC3339Nano)
 		}),
 	}, nil
