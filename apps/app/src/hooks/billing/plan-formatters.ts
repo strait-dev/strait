@@ -39,19 +39,6 @@ export const formatComputeCredit = (microusd: number): string => {
 };
 
 /**
- * Format a region list into a count string.
- *
- * @param regions - Array of allowed region codes. Empty means all regions.
- * @returns "All" for empty array, otherwise the count as a string.
- */
-export const formatRegionCount = (regions: string[] | null): string => {
-  if (!regions || regions.length === 0) {
-    return "All";
-  }
-  return String(regions.length);
-};
-
-/**
  * Format a retention days value for display.
  *
  * @param days - Number of retention days.

@@ -5,7 +5,6 @@ import {
   formatCronInterval,
   formatLimit,
   formatRBAC,
-  formatRegionCount,
   formatRetention,
   formatSupportLevel,
 } from "../plan-formatters";
@@ -49,21 +48,6 @@ describe("formatComputeCredit", () => {
     expect(formatComputeCredit(1_000_000)).toBe("$1.00");
     expect(formatComputeCredit(19_990_000)).toBe("$19.99");
     expect(formatComputeCredit(99_000_000)).toBe("$99.00");
-  });
-});
-
-describe("formatRegionCount", () => {
-  it("returns 'All' for null regions", () => {
-    expect(formatRegionCount(null)).toBe("All");
-  });
-
-  it("returns 'All' for empty array", () => {
-    expect(formatRegionCount([])).toBe("All");
-  });
-
-  it("returns count as string for non-empty array", () => {
-    expect(formatRegionCount(["iad"])).toBe("1");
-    expect(formatRegionCount(["iad", "lhr", "fra"])).toBe("3");
   });
 });
 

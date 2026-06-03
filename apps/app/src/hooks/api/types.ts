@@ -79,9 +79,6 @@ export type RunEvent = Schema["RunEvent"];
 /** Event trigger (durable wait). */
 export type EventTrigger = Schema["EventTrigger"];
 
-/** Region metadata from GET /v1/regions. */
-export type Region = Schema["RegionResponse"];
-
 /** API key (create response includes the key field). */
 export type APIKey = Schema["CreateAPIKeyResponse"];
 
@@ -144,9 +141,6 @@ export type JobHealthResponse = {
   p99_duration_secs: number;
   health_score: number;
 };
-
-/** Project settings from GET /v1/projects/:id/settings. */
-export type ProjectSettings = Schema["ProjectSettingsResponse"];
 
 /** Frontend-managed project entity (stored in the auth DB). */
 export type Project = {

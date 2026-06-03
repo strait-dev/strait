@@ -265,6 +265,7 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 		"../../../docs/glossary.mdx",
 		"../../../docs/billing/faq.mdx",
 		"../../../docs/billing/pricing.mdx",
+		"../../../docs/sdks/ruby.mdx",
 	} {
 		bodyBytes, err := os.ReadFile(path)
 		if err != nil {
@@ -275,6 +276,7 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 			"multi-region",
 			"hosted multi-region orchestration",
 			"data residency is included",
+			"client.regions",
 		} {
 			if strings.Contains(body, phrase) {
 				t.Fatalf("%s advertises region routing/residency as launch-active with phrase %q", path, phrase)
