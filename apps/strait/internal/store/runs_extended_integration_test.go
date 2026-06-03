@@ -1674,6 +1674,94 @@ func TestRuns_RescheduleRun_SameDelayedScheduleDoesNotRewriteState(t *testing.T)
 	}
 }
 
+func TestRuns_RescheduleRun_SamePayloadDoesNotRewriteLedger(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-reschedule-payload-noop")
+	scheduledAt := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Microsecond)
+	payload := json.RawMessage(`{"kind":"same","value":1}`)
+	r := baseRun(job, newID())
+	r.Status = domain.StatusDelayed
+	r.ScheduledAt = &scheduledAt
+	r.Payload = payload
+	if err := q.CreateRun(ctx, r); err != nil {
+		t.Fatalf("CreateRun error = %v", err)
+	}
+
+	var beforeLedgerXmin string
+	var beforeStateXmin string
+	var beforeCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			jr.xmin::text,
+			s.xmin::text,
+			(SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = jr.id)
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1
+	`, r.ID).Scan(&beforeLedgerXmin, &beforeStateXmin, &beforeCacheVersions); err != nil {
+		t.Fatalf("query reschedule rows before no-op: %v", err)
+	}
+
+	if err := q.RescheduleRun(ctx, r.ID, scheduledAt, payload); err != nil {
+		t.Fatalf("RescheduleRun(no-op payload) error = %v", err)
+	}
+
+	var afterLedgerXmin string
+	var afterStateXmin string
+	var afterCacheVersions int
+	var gotPayload json.RawMessage
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			jr.xmin::text,
+			s.xmin::text,
+			(SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = jr.id),
+			jr.payload
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1
+	`, r.ID).Scan(&afterLedgerXmin, &afterStateXmin, &afterCacheVersions, &gotPayload); err != nil {
+		t.Fatalf("query reschedule rows after no-op: %v", err)
+	}
+	if afterLedgerXmin != beforeLedgerXmin {
+		t.Fatalf("job_runs no-op reschedule changed xmin from %s to %s", beforeLedgerXmin, afterLedgerXmin)
+	}
+	if afterStateXmin != beforeStateXmin {
+		t.Fatalf("job_run_state no-op reschedule changed xmin from %s to %s", beforeStateXmin, afterStateXmin)
+	}
+	if afterCacheVersions != beforeCacheVersions {
+		t.Fatalf("cache versions = %d, want unchanged %d", afterCacheVersions, beforeCacheVersions)
+	}
+	if !jsonEqual(gotPayload, payload) {
+		t.Fatalf("payload = %s, want %s", string(gotPayload), string(payload))
+	}
+
+	changedPayload := json.RawMessage(`{"kind":"changed","value":2}`)
+	if err := q.RescheduleRun(ctx, r.ID, scheduledAt, changedPayload); err != nil {
+		t.Fatalf("RescheduleRun(changed payload) error = %v", err)
+	}
+
+	var changedLedgerXmin string
+	var changedCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT
+			jr.xmin::text,
+			(SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = jr.id)
+		FROM job_runs jr
+		WHERE jr.id = $1
+	`, r.ID).Scan(&changedLedgerXmin, &changedCacheVersions); err != nil {
+		t.Fatalf("query reschedule rows after changed payload: %v", err)
+	}
+	if changedLedgerXmin == afterLedgerXmin {
+		t.Fatalf("changed payload kept job_runs xmin %s, want a real update", changedLedgerXmin)
+	}
+	if changedCacheVersions != afterCacheVersions+1 {
+		t.Fatalf("cache versions after changed payload = %d, want %d", changedCacheVersions, afterCacheVersions+1)
+	}
+}
+
 func TestRuns_RescheduleRun_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

@@ -4448,6 +4448,7 @@ func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt t
 			FROM candidates c
 			WHERE jr.id = c.run_id
 			  AND c.payload IS NOT NULL
+			  AND jr.payload IS DISTINCT FROM c.payload
 			RETURNING jr.id AS run_id
 		),
 		mutated_runs AS (
