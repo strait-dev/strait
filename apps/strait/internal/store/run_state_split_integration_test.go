@@ -5,6 +5,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -830,13 +831,18 @@ func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesCold
 	if err := q.CreateRun(ctx, paused); err != nil {
 		t.Fatalf("CreateRun paused error = %v", err)
 	}
+	pausedResumed := baseRun(job, newID())
+	pausedResumed.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, pausedResumed); err != nil {
+		t.Fatalf("CreateRun paused resumed error = %v", err)
+	}
 	terminal := baseRun(job, newID())
 	terminal.Status = domain.StatusQueued
 	if err := q.CreateRun(ctx, terminal); err != nil {
 		t.Fatalf("CreateRun terminal error = %v", err)
 	}
 
-	for _, runID := range []string{current.ID, staleGeneration.ID, paused.ID, terminal.ID} {
+	for _, runID := range []string{current.ID, staleGeneration.ID, paused.ID, pausedResumed.ID, terminal.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `
 			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
 			SELECT run_id, ready_generation, attempt, NOW()
@@ -863,6 +869,23 @@ func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesCold
 	); err != nil {
 		t.Fatalf("mark paused state: %v", err)
 	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET status = 'paused'
+		WHERE run_id = $1`,
+		pausedResumed.ID,
+	); err != nil {
+		t.Fatalf("mark paused resumed state: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		SELECT run_id, ready_generation, attempt, 'paused_resume'
+		FROM job_run_state
+		WHERE run_id = $1`,
+		pausedResumed.ID,
+	); err != nil {
+		t.Fatalf("insert paused resume ready event: %v", err)
+	}
 	if err := q.UpdateRunStatus(ctx, terminal.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
 		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
 	}); err != nil {
@@ -880,14 +903,29 @@ func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesCold
 	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_active_claims`).Scan(&remaining); err != nil {
 		t.Fatalf("query remaining active claims: %v", err)
 	}
-	if remaining != 1 {
-		t.Fatalf("remaining active claims = %d, want 1 current claim", remaining)
+	if remaining != 2 {
+		t.Fatalf("remaining active claims = %d, want 2 current claims", remaining)
 	}
-	var remainingRunID string
-	if err := testDB.Pool.QueryRow(ctx, `SELECT run_id FROM job_run_active_claims`).Scan(&remainingRunID); err != nil {
-		t.Fatalf("query remaining active claim run: %v", err)
+	rows, err := testDB.Pool.Query(ctx, `SELECT run_id FROM job_run_active_claims ORDER BY run_id`)
+	if err != nil {
+		t.Fatalf("query remaining active claim runs: %v", err)
 	}
-	if remainingRunID != current.ID {
-		t.Fatalf("remaining active claim run = %s, want %s", remainingRunID, current.ID)
+	defer rows.Close()
+
+	remainingRunIDs := make([]string, 0, 2)
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			t.Fatalf("scan remaining active claim run: %v", err)
+		}
+		remainingRunIDs = append(remainingRunIDs, runID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("remaining active claim rows: %v", err)
+	}
+	wantRemaining := []string{current.ID, pausedResumed.ID}
+	slices.Sort(wantRemaining)
+	if !slices.Equal(remainingRunIDs, wantRemaining) {
+		t.Fatalf("remaining active claim runs = %v, want %v", remainingRunIDs, wantRemaining)
 	}
 }

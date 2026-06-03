@@ -27,7 +27,19 @@ func (q *Queries) DeleteInactiveActiveClaims(ctx context.Context, limit int) (in
 			WHERE t.run_id IS NOT NULL
 			   OR s.run_id IS NULL
 			   OR s.ready_generation <> c.ready_generation
-			   OR s.status NOT IN ('queued', 'delayed')
+			   OR NOT (
+			       s.status IN ('queued', 'delayed')
+			       OR (
+			           s.status = 'paused'
+			           AND EXISTS (
+			               SELECT 1
+			               FROM job_run_ready_events ready
+			               WHERE ready.run_id = s.run_id
+			                 AND ready.ready_generation = s.ready_generation
+			                 AND ready.reason = 'paused_resume'
+			           )
+			       )
+			   )
 			ORDER BY c.run_id ASC, c.ready_generation ASC
 			LIMIT $1
 		)
