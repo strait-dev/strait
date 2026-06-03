@@ -258,6 +258,9 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresCostAnalytics(t *testin
 		"u.model",
 		"usage_cost_microusd), 0)",
 		"SUM(total_tokens)",
+		"CostByModel",
+		"ByModel",
+		"TotalTokens",
 	} {
 		if strings.Contains(string(body), token) {
 			t.Fatalf("Postgres cost analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
@@ -387,6 +390,9 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.
 		"sum(cost_microusd)",
 		"cost_microusd + compute_cost_microusd",
 		"sum(cost_microusd) AS daily_cost",
+		"CostByModel",
+		"ByModel",
+		"TotalTokens",
 	} {
 		if strings.Contains(string(body), token) {
 			t.Fatalf("ClickHouse analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)

@@ -20,11 +20,7 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 			return &store.CostAnalytics{
 				TotalUsageCostMicrousd:   123,
 				TotalComputeCostMicrousd: 456,
-				TotalTokens:              789,
-				ByModel: []store.CostByModel{
-					{Model: "legacy-source", CostMicrousd: 123, TotalTokens: 789, UsageCount: 1},
-				},
-				ByJob: make([]store.CostByJob, 0),
+				ByJob:                    make([]store.CostByJob, 0),
 			}, nil
 		},
 	}
@@ -120,8 +116,7 @@ func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
 	ms := &AnalyticsStoreMock{
 		GetCostAnalyticsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
 			return &store.CostAnalytics{
-				ByModel: make([]store.CostByModel, 0),
-				ByJob:   make([]store.CostByJob, 0),
+				ByJob: make([]store.CostByJob, 0),
 			}, nil
 		},
 	}
