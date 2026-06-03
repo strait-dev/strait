@@ -64,13 +64,14 @@ func (c PgQueConfig) normalized() PgQueConfig {
 }
 
 type PgQueQueue struct {
-	db          store.DBTX
-	runWriter   *PostgresRunWriter
-	cfg         PgQueConfig
-	logger      *slog.Logger
-	routeMu     sync.Mutex
-	routeStates map[string]*pgQueRouteState
-	routeCache  map[string]pgQueRouteCacheEntry
+	db            store.DBTX
+	runWriter     *PostgresRunWriter
+	cfg           PgQueConfig
+	logger        *slog.Logger
+	routeMu       sync.Mutex
+	routeStates   map[string]*pgQueRouteState
+	routeCache    map[string]pgQueRouteCacheEntry
+	routeRefCache map[domain.WorkerQueueRef]pgQueRouteCacheEntry
 
 	workerRouteCursor atomic.Uint64
 }
@@ -118,12 +119,13 @@ func NewPgQueQueue(db store.DBTX, runWriter *PostgresRunWriter, cfg PgQueConfig)
 		logger = slog.Default()
 	}
 	return &PgQueQueue{
-		db:          db,
-		runWriter:   runWriter,
-		cfg:         cfg,
-		logger:      logger,
-		routeStates: make(map[string]*pgQueRouteState),
-		routeCache:  make(map[string]pgQueRouteCacheEntry),
+		db:            db,
+		runWriter:     runWriter,
+		cfg:           cfg,
+		logger:        logger,
+		routeStates:   make(map[string]*pgQueRouteState),
+		routeCache:    make(map[string]pgQueRouteCacheEntry),
+		routeRefCache: make(map[domain.WorkerQueueRef]pgQueRouteCacheEntry),
 	}
 }
 

@@ -163,9 +163,14 @@ func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
 		b.Fatalf("workerRouteKeys warmup error = %v", err)
 	}
 	q.routeMu.Lock()
-	entry := q.routeCache[prefix]
-	entry.expiresAt = time.Now().Add(time.Hour)
-	q.routeCache[prefix] = entry
+	refCacheKey := refs[0]
+	refCacheKey.QueueName = runQueueName(refCacheKey.QueueName)
+	routeEntry := q.routeCache[prefix]
+	routeEntry.expiresAt = time.Now().Add(time.Hour)
+	q.routeCache[prefix] = routeEntry
+	refEntry := q.routeRefCache[refCacheKey]
+	refEntry.expiresAt = time.Now().Add(time.Hour)
+	q.routeRefCache[refCacheKey] = refEntry
 	q.routeMu.Unlock()
 	allowQuery = false
 	b.ReportAllocs()
@@ -213,9 +218,14 @@ func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
 	}
 
 	q.routeMu.Lock()
-	entry := q.routeCache[prefix]
-	entry.expiresAt = time.Now().Add(-time.Second)
-	q.routeCache[prefix] = entry
+	refCacheKey := refs[0]
+	refCacheKey.QueueName = runQueueName(refCacheKey.QueueName)
+	routeEntry := q.routeCache[prefix]
+	routeEntry.expiresAt = time.Now().Add(-time.Second)
+	q.routeCache[prefix] = routeEntry
+	refEntry := q.routeRefCache[refCacheKey]
+	refEntry.expiresAt = time.Now().Add(-time.Second)
+	q.routeRefCache[refCacheKey] = refEntry
 	q.routeMu.Unlock()
 
 	second, err := q.workerRouteKeys(ctx, refs)

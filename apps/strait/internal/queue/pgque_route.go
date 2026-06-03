@@ -50,6 +50,18 @@ func pgQueWorkerRoutePrefix(routeKey string) string {
 	return routeKey[:lastColon+1]
 }
 
+func pgQueWorkerRouteRef(routeKey string) (domain.WorkerQueueRef, bool) {
+	parts := strings.Split(routeKey, ":")
+	if len(parts) != 4 || parts[0] != "worker" || parts[1] == "" || parts[2] == "" {
+		return domain.WorkerQueueRef{}, false
+	}
+	return domain.WorkerQueueRef{
+		ProjectID:     parts[1],
+		QueueName:     runQueueName(parts[2]),
+		EnvironmentID: parts[3],
+	}, true
+}
+
 func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.WorkerQueueRef {
 	if len(refs) == 0 {
 		return nil
@@ -180,11 +192,22 @@ func (q *PgQueQueue) workerRouteKeysForSingleRef(ctx context.Context, ref domain
 	if ref.ProjectID == "" || ref.QueueName == "" {
 		return nil, nil
 	}
-	queueName := runQueueName(ref.QueueName)
-	if ref.EnvironmentID != "" {
-		return []string{pgQueWorkerRouteKey(ref.ProjectID, queueName, ref.EnvironmentID)}, nil
+	ref.QueueName = runQueueName(ref.QueueName)
+	if cached := q.cachedWorkerRoutesForRef(ref); cached != nil {
+		return cached, nil
 	}
-	return q.workerRoutesForPrefix(ctx, pgQueWorkerRouteKey(ref.ProjectID, queueName, ""))
+	var routes []string
+	var err error
+	if ref.EnvironmentID != "" {
+		routes = []string{pgQueWorkerRouteKey(ref.ProjectID, ref.QueueName, ref.EnvironmentID)}
+	} else {
+		routes, err = q.workerRoutesForPrefix(ctx, pgQueWorkerRouteKey(ref.ProjectID, ref.QueueName, ""))
+		if err != nil {
+			return nil, err
+		}
+	}
+	q.cacheWorkerRoutesForRef(ref, routes)
+	return routes, nil
 }
 
 func (q *PgQueQueue) workerRoutesForPrefix(ctx context.Context, prefix string) ([]string, error) {
@@ -220,10 +243,34 @@ func (q *PgQueQueue) cachedWorkerRoutes(prefix string) []string {
 	return entry.routes
 }
 
+func (q *PgQueQueue) cachedWorkerRoutesForRef(ref domain.WorkerQueueRef) []string {
+	now := time.Now()
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	entry, ok := q.routeRefCache[ref]
+	if !ok {
+		return nil
+	}
+	if !now.Before(entry.expiresAt) {
+		delete(q.routeRefCache, ref)
+		return nil
+	}
+	return entry.routes
+}
+
 func (q *PgQueQueue) cacheWorkerRoutes(prefix string, routes []string) {
 	q.routeMu.Lock()
 	defer q.routeMu.Unlock()
 	q.routeCache[prefix] = pgQueRouteCacheEntry{
+		routes:    append([]string{}, routes...),
+		expiresAt: time.Now().Add(pgQueWorkerRouteCacheTTL),
+	}
+}
+
+func (q *PgQueQueue) cacheWorkerRoutesForRef(ref domain.WorkerQueueRef, routes []string) {
+	q.routeMu.Lock()
+	defer q.routeMu.Unlock()
+	q.routeRefCache[ref] = pgQueRouteCacheEntry{
 		routes:    append([]string{}, routes...),
 		expiresAt: time.Now().Add(pgQueWorkerRouteCacheTTL),
 	}
@@ -237,6 +284,11 @@ func (q *PgQueQueue) invalidateWorkerRouteCache(routeKey string) {
 	q.routeMu.Lock()
 	defer q.routeMu.Unlock()
 	delete(q.routeCache, prefix)
+	if ref, ok := pgQueWorkerRouteRef(routeKey); ok {
+		delete(q.routeRefCache, ref)
+		ref.EnvironmentID = ""
+		delete(q.routeRefCache, ref)
+	}
 }
 
 func (q *PgQueQueue) loadWorkerRoutesForPrefix(ctx context.Context, prefix string) ([]string, error) {
