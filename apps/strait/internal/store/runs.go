@@ -4308,9 +4308,16 @@ func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt t
 	defer span.End()
 
 	err := q.db.QueryRow(ctx, `
-		WITH candidates AS MATERIALIZED (
-			SELECT s.run_id, s.status AS previous_status
+		WITH params AS (
+			SELECT
+				$2::timestamptz AS scheduled_at,
+				$3::jsonb AS payload,
+				CASE WHEN $2 <= NOW() THEN 'queued' ELSE 'delayed' END AS target_status
+		),
+		candidates AS MATERIALIZED (
+			SELECT s.run_id, s.status AS previous_status, p.scheduled_at, p.payload, p.target_status
 			FROM job_run_state s
+			CROSS JOIN params p
 			WHERE s.run_id = $1
 			  AND s.status IN ('delayed', 'queued')
 			  AND s.started_at IS NULL
@@ -4319,32 +4326,38 @@ func (q *Queries) RescheduleRun(ctx context.Context, runID string, scheduledAt t
 		),
 		updated_state AS (
 			UPDATE job_run_state s
-			SET scheduled_at = $2,
-			    status = CASE WHEN $2 <= NOW() THEN 'queued' ELSE 'delayed' END,
+			SET scheduled_at = c.scheduled_at,
+			    status = c.target_status,
 			    ready_generation = CASE
-			        WHEN $2 <= NOW() AND s.status <> 'queued' THEN s.ready_generation + 1
+			        WHEN c.target_status = 'queued' AND s.status <> 'queued' THEN s.ready_generation + 1
 			        ELSE s.ready_generation
 			    END,
 			    updated_at = NOW()
 			FROM candidates c
 			WHERE s.run_id = c.run_id
+			  AND (s.scheduled_at IS DISTINCT FROM c.scheduled_at OR s.status IS DISTINCT FROM c.target_status)
 			RETURNING s.run_id
 		),
 		updated_ledger AS (
 			UPDATE job_runs jr
-			SET payload = $3::jsonb
-			FROM updated_state u
-			WHERE jr.id = u.run_id
-			  AND $3::jsonb IS NOT NULL
-			RETURNING jr.id
+			SET payload = c.payload
+			FROM candidates c
+			WHERE jr.id = c.run_id
+			  AND c.payload IS NOT NULL
+			RETURNING jr.id AS run_id
+		),
+		mutated_runs AS (
+			SELECT run_id FROM updated_state
+			UNION
+			SELECT run_id FROM updated_ledger
 		),
 		cache_versions AS (
 			INSERT INTO job_run_cache_versions (run_id, cache_version)
 			SELECT run_id, strait_next_run_cache_version(run_id)
-			FROM updated_state
+			FROM mutated_runs
 			RETURNING 1
 		)
-		SELECT run_id FROM updated_state
+		SELECT run_id FROM candidates
 	`, runID, scheduledAt, dbscan.NilIfEmptyRawMessage(payload)).Scan(&runID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

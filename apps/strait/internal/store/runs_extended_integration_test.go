@@ -1620,6 +1620,60 @@ func TestRuns_RescheduleRun_HappyPath(t *testing.T) {
 	}
 }
 
+func TestRuns_RescheduleRun_SameDelayedScheduleDoesNotRewriteState(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-reschedule-noop")
+	scheduledAt := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Microsecond)
+	r := baseRun(job, newID())
+	r.Status = domain.StatusDelayed
+	r.ScheduledAt = &scheduledAt
+	if err := q.CreateRun(ctx, r); err != nil {
+		t.Fatalf("CreateRun error = %v", err)
+	}
+
+	var beforeUpdatedAt time.Time
+	var beforeReadyGeneration int64
+	var beforeCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT s.updated_at, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1
+	`, r.ID).Scan(&beforeUpdatedAt, &beforeReadyGeneration, &beforeCacheVersions); err != nil {
+		t.Fatalf("query state before reschedule: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	if err := q.RescheduleRun(ctx, r.ID, scheduledAt, nil); err != nil {
+		t.Fatalf("RescheduleRun() error = %v", err)
+	}
+
+	var afterUpdatedAt time.Time
+	var afterReadyGeneration int64
+	var afterCacheVersions int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT s.updated_at, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1
+	`, r.ID).Scan(&afterUpdatedAt, &afterReadyGeneration, &afterCacheVersions); err != nil {
+		t.Fatalf("query state after reschedule: %v", err)
+	}
+
+	if !afterUpdatedAt.Equal(beforeUpdatedAt) {
+		t.Fatalf("updated_at = %v, want unchanged %v", afterUpdatedAt, beforeUpdatedAt)
+	}
+	if afterReadyGeneration != beforeReadyGeneration {
+		t.Fatalf("ready_generation = %d, want unchanged %d", afterReadyGeneration, beforeReadyGeneration)
+	}
+	if afterCacheVersions != beforeCacheVersions {
+		t.Fatalf("cache versions = %d, want unchanged %d", afterCacheVersions, beforeCacheVersions)
+	}
+}
+
 func TestRuns_RescheduleRun_NotFound(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
