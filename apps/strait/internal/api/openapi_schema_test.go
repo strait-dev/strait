@@ -202,6 +202,60 @@ func TestOpenAPISchema_TriggerJobIncludesTraceHeaders(t *testing.T) {
 	}
 }
 
+func TestOpenAPISchema_PlanGatedOperationsDeclareForbidden(t *testing.T) {
+	t.Parallel()
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
+	srv.ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]json.RawMessage `json:"responses"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
+		t.Fatalf("unmarshal openapi spec: %v", err)
+	}
+
+	want := []struct {
+		name   string
+		path   string
+		method string
+	}{
+		{name: "approval stats", path: "/v1/analytics/approvals", method: "get"},
+		{name: "create canary deployment", path: "/v1/canary-deployments", method: "post"},
+		{name: "get canary status", path: "/v1/workflows/{workflowID}/canary", method: "get"},
+		{name: "update canary deployment", path: "/v1/workflows/{workflowID}/canary", method: "patch"},
+		{name: "rollback canary deployment", path: "/v1/workflows/{workflowID}/canary/rollback", method: "post"},
+		{name: "get compensation plan", path: "/v1/workflow-runs/{workflowRunID}/compensation-plan", method: "get"},
+		{name: "compensate workflow run", path: "/v1/workflow-runs/{workflowRunID}/compensate", method: "post"},
+		{name: "get workflow policy", path: "/v1/workflow-policies/{projectID}", method: "get"},
+		{name: "upsert workflow policy", path: "/v1/workflow-policies/{projectID}", method: "put"},
+	}
+
+	for _, tt := range want {
+		t.Run(tt.name, func(t *testing.T) {
+			methods, ok := spec.Paths[tt.path]
+			if !ok {
+				t.Fatalf("openapi spec missing path %q", tt.path)
+			}
+			op, ok := methods[tt.method]
+			if !ok {
+				t.Fatalf("openapi spec path %q missing method %q", tt.path, tt.method)
+			}
+			if _, ok := op.Responses["403"]; !ok {
+				t.Fatalf("%s %s must declare 403 for its plan/RBAC gate", tt.method, tt.path)
+			}
+		})
+	}
+}
+
 // TestOpenAPISchema_ErrorEnvelope guards the error contract surfaced through
 // /reference/openapi.json:
 //   - the canonical APIError schema is present with the full code enum
