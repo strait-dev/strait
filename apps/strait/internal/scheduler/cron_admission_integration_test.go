@@ -18,7 +18,7 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaPreventsInsert(t *testing.T)
 	tdb := cleanSchedulerIntegrationDB(t, ctx)
 
 	st := store.New(tdb.Pool)
-	pq := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresQueue(tdb.Pool), queue.PgQueConfig{})
+	pq := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresRunWriter(tdb.Pool), queue.PgQueConfig{})
 	project := &domain.Project{
 		ID:    "cron-quota-" + uuid.Must(uuid.NewV7()).String(),
 		OrgID: "org-" + uuid.Must(uuid.NewV7()).String(),

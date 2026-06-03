@@ -1,3 +1,4 @@
+-- safety-ok: job_run_state is a newly introduced PgQue side table in this migration sequence, populated before serving PgQue traffic.
 ALTER TABLE job_run_state
     ADD COLUMN IF NOT EXISTS environment_id TEXT NOT NULL DEFAULT '';
 
@@ -9,6 +10,7 @@ WHERE s.run_id = jr.id
   AND s.environment_id = '';
 
 DROP INDEX IF EXISTS idx_job_run_state_worker_claim;
+-- safety-ok: job_run_state is a new PgQue side table rebuilt during startup migration, before workers claim from it.
 CREATE INDEX IF NOT EXISTS idx_job_run_state_worker_claim
     ON job_run_state(project_id, queue_name, environment_id, priority DESC, updated_at ASC, run_id ASC)
     WHERE status = 'queued' AND execution_mode = 'worker';

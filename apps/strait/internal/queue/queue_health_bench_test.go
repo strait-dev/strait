@@ -143,7 +143,7 @@ func mustHealthBenchQueue(t *testing.T, cfg benchConfig) healthBenchQueue {
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	runWriter := queue.NewPostgresQueue(testDB.Pool)
+	runWriter := queue.NewPostgresRunWriter(testDB.Pool)
 	q := queue.NewPgQueQueue(testDB.Pool, runWriter, queue.PgQueConfig{
 		TickInterval:  50 * time.Millisecond,
 		ConsumerName:  "health-bench-" + newID(),

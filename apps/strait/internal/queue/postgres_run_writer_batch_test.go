@@ -99,7 +99,7 @@ func (m *mockNoCopyDB) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
 
 func TestEnqueueBatch_EmptySlice(t *testing.T) {
 	t.Parallel()
-	q := NewPostgresQueue(&mockBatchDB{})
+	q := NewPostgresRunWriter(&mockBatchDB{})
 	n, err := q.EnqueueBatch(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,7 +112,7 @@ func TestEnqueueBatch_EmptySlice(t *testing.T) {
 func TestEnqueueBatch_SingleRun(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	n, err := q.EnqueueBatch(context.Background(), runs)
@@ -127,7 +127,7 @@ func TestEnqueueBatch_SingleRun(t *testing.T) {
 func TestEnqueueBatch_AssignsIDs(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{
 		{JobID: "job-1", ProjectID: "proj-1"},
@@ -150,7 +150,7 @@ func TestEnqueueBatch_AssignsIDs(t *testing.T) {
 func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{
 		{ID: "preset-id-1", JobID: "job-1", ProjectID: "proj-1"},
@@ -167,7 +167,7 @@ func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
 func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", Attempt: 0}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
@@ -182,7 +182,7 @@ func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
 func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
@@ -197,7 +197,7 @@ func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
 func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	future := time.Now().Add(time.Hour)
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", ScheduledAt: &future}}
@@ -213,7 +213,7 @@ func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
 func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	past := time.Now().Add(-time.Hour)
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", ScheduledAt: &past}}
@@ -231,7 +231,7 @@ func TestEnqueueBatch_CopyFromError(t *testing.T) {
 	db := &mockBatchDB{
 		copyFromErr: errors.New("copy protocol error"),
 	}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
@@ -245,7 +245,7 @@ func TestEnqueueBatch_CopyFromError(t *testing.T) {
 
 func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
 	t.Parallel()
-	q := NewPostgresQueue(&mockNoCopyDB{})
+	q := NewPostgresRunWriter(&mockNoCopyDB{})
 
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1"}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
@@ -260,7 +260,7 @@ func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
 func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{
 		{JobID: "job-1", ProjectID: "proj-1"},
@@ -294,7 +294,7 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 			return int64(len(capturedRows)), rowSrc.Err()
 		},
 	}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{{
 		JobID:     "job-1",
@@ -326,7 +326,7 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 func TestEnqueueBatch_LargeBatch_100Runs(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := make([]*domain.JobRun, 100)
 	for i := range runs {
@@ -365,7 +365,7 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 			return int64(len(capturedRows)), rowSrc.Err()
 		},
 	}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{
 		{JobID: "job-1", ProjectID: "proj-1", Tags: nil},
@@ -390,7 +390,7 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 func TestEnqueueBatch_MixedScheduledAt(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	future := time.Now().Add(time.Hour)
 	past := time.Now().Add(-time.Hour)
@@ -419,7 +419,7 @@ func TestEnqueueBatch_MixedScheduledAt(t *testing.T) {
 func TestEnqueueBatch_PreservesExistingAttempt(t *testing.T) {
 	t.Parallel()
 	db := &mockBatchDB{}
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 
 	runs := []*domain.JobRun{
 		{JobID: "job-1", ProjectID: "proj-1", Attempt: 5},

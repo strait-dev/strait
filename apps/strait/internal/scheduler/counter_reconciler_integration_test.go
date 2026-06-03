@@ -24,7 +24,7 @@ func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PgQ
 	tdb := getTestDB(t)
 	intTestClean(t, ctx)
 	st := store.New(tdb.Pool)
-	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresQueue(tdb.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresRunWriter(tdb.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "counter-" + uuid.Must(uuid.NewV7()).String(),
 		ReceiveWindow: 100,

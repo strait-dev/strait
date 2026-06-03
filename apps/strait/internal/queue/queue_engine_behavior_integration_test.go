@@ -33,7 +33,7 @@ func queueEngineBehaviorCases() []queueEngineBehaviorCase {
 			name: "pgque",
 			build: func(t *testing.T) queue.Queue {
 				t.Helper()
-				return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+				return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 					TickInterval:  10 * time.Millisecond,
 					ConsumerName:  "behavior-" + newID(),
 					ReceiveWindow: 100,

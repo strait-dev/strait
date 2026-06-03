@@ -993,7 +993,7 @@ func BenchmarkOutbox(b *testing.B) {
 		b.Fatalf("CleanTables() error = %v", err)
 	}
 	job := intCreateJobTB(b, ctx, st, "proj-outbox-bench")
-	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresQueue(tdb.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(tdb.Pool, queue.NewPostgresRunWriter(tdb.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "outbox-bench-" + intNewID(),
 		ReceiveWindow: 100,

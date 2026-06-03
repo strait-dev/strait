@@ -16,7 +16,7 @@ import (
 
 func mustPgQueQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
-	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "test-" + newID(),
 		NackDelay:     10 * time.Millisecond,
@@ -222,7 +222,7 @@ func TestPgQue_MaintainRotatesEventTables(t *testing.T) {
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-pgque-maintenance")
 	consumerName := "test-" + newID()
-	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:        10 * time.Millisecond,
 		MaintenanceInterval: 10 * time.Millisecond,
 		RotationPeriod:      time.Millisecond,
@@ -1055,7 +1055,7 @@ func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-pgque-window")
-	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "test-" + newID(),
 		NackDelay:     10 * time.Millisecond,
@@ -1102,7 +1102,7 @@ func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T)
 	mustClean(t, ctx)
 	st := mustStore(t)
 	job := mustCreateJob(t, ctx, st, "project-pgque-concurrent-batch")
-	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "test-" + newID(),
 		NackDelay:     10 * time.Millisecond,

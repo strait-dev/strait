@@ -80,7 +80,7 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 
 func newWorkerQueue(t *testing.T, env *testutil.TestEnv) *queue.PgQueQueue {
 	t.Helper()
-	q := queue.NewPgQueQueue(env.DB.Pool, queue.NewPostgresQueue(env.DB.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(env.DB.Pool, queue.NewPostgresRunWriter(env.DB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "worker-" + newID(),
 		ReceiveWindow: 100,

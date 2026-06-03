@@ -44,7 +44,7 @@ func mustQueue(t *testing.T) *queue.PgQueQueue {
 		t.Fatal("testDB is not initialized")
 	}
 
-	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "queue-" + newID(),
 		ReceiveWindow: 100,

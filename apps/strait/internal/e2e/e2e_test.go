@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 
 	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey(testEncryptionKey)
-	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresQueue(testEnv.DB.Pool), queue.PgQueConfig{
+	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "e2e-" + uuid.Must(uuid.NewV7()).String(),
 		ReceiveWindow: 100,

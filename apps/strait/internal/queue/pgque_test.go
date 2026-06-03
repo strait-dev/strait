@@ -31,7 +31,7 @@ func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 	state := &pgQueRouteState{
 		activeBatch: &pgQueActiveBatch{
 			BatchID:  42,
@@ -96,7 +96,7 @@ func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 	if err := q.Maintain(ctx); err != nil {
 		t.Fatalf("Maintain() error = %v", err)
@@ -170,7 +170,7 @@ func TestPgQueMaintainWrapsPhaseErrors(t *testing.T) {
 					return pgconn.CommandTag{}, tt.execFn(sql)
 				},
 			}
-			q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+			q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 			err := q.Maintain(ctx)
 			if !errors.Is(err, tt.wantErr) {
@@ -230,7 +230,7 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 			return &noRows{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 	batch, err := q.activeBatchLocked(ctx, &pgQueRouteState{}, "stq_empty")
 	if !errors.Is(err, errPgQueNoMessages) {
@@ -263,7 +263,7 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{RotationPeriod: 90 * time.Second})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{RotationPeriod: 90 * time.Second})
 
 	if err := q.ensureRoute(ctx, db, "http", "stq_test"); err != nil {
 		t.Fatalf("ensureRoute() error = %v", err)
@@ -349,7 +349,7 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
 
 	runs := []*domain.JobRun{
@@ -411,7 +411,7 @@ func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
 
 	err := q.sendReadyEvents(ctx, db, []*domain.JobRun{
@@ -492,7 +492,7 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
 
 	run := &domain.JobRun{
@@ -528,7 +528,7 @@ func TestPgQueEnqueueExistingIgnoresNonQueuedRun(t *testing.T) {
 			return pgconn.CommandTag{}, nil
 		},
 	}
-	q := NewPgQueQueue(db, NewPostgresQueue(db), PgQueConfig{})
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 	if err := q.EnqueueExisting(ctx, &domain.JobRun{ID: "run-done", Status: domain.StatusCompleted}); err != nil {
 		t.Fatalf("EnqueueExisting(non-queued) error = %v", err)

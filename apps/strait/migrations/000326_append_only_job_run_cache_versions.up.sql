@@ -7,6 +7,7 @@ ALTER TABLE job_run_cache_versions
 ALTER TABLE job_run_cache_versions
     ADD PRIMARY KEY (id);
 
+-- safety-ok: job_run_cache_versions is a narrow side table migrated during startup before the append-only cache-version path serves traffic.
 CREATE INDEX IF NOT EXISTS idx_job_run_cache_versions_latest
     ON job_run_cache_versions(run_id, id DESC);
 

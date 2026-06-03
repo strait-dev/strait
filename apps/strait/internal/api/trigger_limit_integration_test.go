@@ -45,7 +45,7 @@ func getTriggerLimitTestDB(t *testing.T) *testutil.TestDB {
 
 func newTriggerLimitPgQueQueue(t *testing.T, db *testutil.TestDB) *queue.PgQueQueue {
 	t.Helper()
-	return queue.NewPgQueQueue(db.Pool, queue.NewPostgresQueue(db.Pool), queue.PgQueConfig{
+	return queue.NewPgQueQueue(db.Pool, queue.NewPostgresRunWriter(db.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "api-trigger-limit-" + uuid.Must(uuid.NewV7()).String(),
 		ReceiveWindow: 100,

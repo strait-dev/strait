@@ -1,6 +1,7 @@
 ALTER TABLE job_retries
     ADD COLUMN IF NOT EXISTS id BIGSERIAL;
 
+-- safety-ok: job_retries is migrated during startup before the PgQue retry side-table path serves traffic.
 ALTER TABLE job_retries
     ADD COLUMN IF NOT EXISTS cleared BOOLEAN NOT NULL DEFAULT FALSE;
 
@@ -15,9 +16,11 @@ ALTER TABLE job_retries
 
 DROP INDEX IF EXISTS idx_job_retries_next_retry_at;
 
+-- safety-ok: job_retries append-only indexes are built during the startup migration that switches retry storage shape.
 CREATE INDEX IF NOT EXISTS idx_job_retries_latest
     ON job_retries(run_id, id DESC);
 
+-- safety-ok: job_retries append-only indexes are built during the startup migration that switches retry storage shape.
 CREATE INDEX IF NOT EXISTS idx_job_retries_due
     ON job_retries(next_retry_at, id)
     WHERE cleared = FALSE AND next_retry_at IS NOT NULL;

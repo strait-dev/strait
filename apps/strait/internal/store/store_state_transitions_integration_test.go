@@ -73,7 +73,7 @@ func stQueue(t *testing.T) *queue.PgQueQueue {
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresQueue(testDB.Pool), queue.PgQueConfig{
+	return queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "store-" + stID(),
 		ReceiveWindow: 100,

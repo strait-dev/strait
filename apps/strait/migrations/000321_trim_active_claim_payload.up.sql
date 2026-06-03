@@ -4,6 +4,7 @@ DROP VIEW IF EXISTS job_run_read_state;
 -- PgQue only needs run identity, generation, attempt, and started_at to
 -- project an active claim into the read model. Lease owner/expiry are unused
 -- on this path, and created_at duplicates started_at after migration 000320.
+-- safety-ok: job_run_active_claims is an ephemeral PgQue ownership side table introduced in this migration sequence.
 ALTER TABLE job_run_active_claims
     DROP COLUMN IF EXISTS lease_owner,
     DROP COLUMN IF EXISTS lease_expires_at,

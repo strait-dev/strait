@@ -56,7 +56,7 @@ func cleanAdminOutboxTables(t *testing.T, ctx context.Context) {
 func newAdminOutboxPgQueQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
 	db := getAdminOutboxTestDB(t).Pool
-	return queue.NewPgQueQueue(db, queue.NewPostgresQueue(db), queue.PgQueConfig{
+	return queue.NewPgQueQueue(db, queue.NewPostgresRunWriter(db), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "api-admin-outbox-" + time.Now().UTC().Format("150405.000000000"),
 		ReceiveWindow: 100,

@@ -292,7 +292,7 @@ func runServe(ctx context.Context, modeOverride string) error {
 		queries.SetAuditSigningKey(auditKey)
 	}
 	bp := queue.NewBackpressure(dbPool, queue.BackpressureConfig{}, true)
-	runWriter := queue.NewPostgresQueue(
+	runWriter := queue.NewPostgresRunWriter(
 		dbPool,
 		queue.WithBackpressureController(bp),
 	)
@@ -445,8 +445,8 @@ func runServe(ctx context.Context, modeOverride string) error {
 		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
 	}
 
-	// R4 hardening: startup safety checks. These are the "fail loud"
-	// mechanisms that prevent silent corruption.
+	// Startup safety checks prevent silent corruption when required queue
+	// triggers or migrations are missing.
 	if err := scheduler.EnsureQueueTriggersPresent(ctx, dbPool); err != nil {
 		return fmt.Errorf("queue trigger check: %w", err)
 	}

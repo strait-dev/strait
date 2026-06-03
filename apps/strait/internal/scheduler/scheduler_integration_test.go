@@ -52,7 +52,7 @@ func intTestStore(t *testing.T) *store.Queries {
 func intTestQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
 	db := getTestDB(t).Pool
-	q := queue.NewPgQueQueue(db, queue.NewPostgresQueue(db), queue.PgQueConfig{
+	q := queue.NewPgQueQueue(db, queue.NewPostgresRunWriter(db), queue.PgQueConfig{
 		TickInterval:  10 * time.Millisecond,
 		ConsumerName:  "scheduler-" + intNewID(),
 		ReceiveWindow: 100,

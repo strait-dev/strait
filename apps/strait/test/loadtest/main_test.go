@@ -95,7 +95,7 @@ func TestMain(m *testing.M) {
 
 	testStore = store.New(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
-	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresQueue(testEnv.DB.Pool), queue.PgQueConfig{})
+	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{})
 	tickerCtx, cancelTicker := context.WithCancel(ctx)
 	go testQueue.RunTicker(tickerCtx)
 

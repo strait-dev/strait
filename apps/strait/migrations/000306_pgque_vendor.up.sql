@@ -241,6 +241,7 @@ create table if not exists pgque.retry_queue (
     constraint rq_queue_id_fkey foreign key (ev_queue)
                              references pgque.queue (queue_id)
 );
+-- safety-ok: pgque.retry_queue is created in this migration before any Strait PgQue traffic can write it.
 alter table pgque.retry_queue alter column ev_owner set not null;
 alter table pgque.retry_queue alter column ev_txid drop not null;
 create index if not exists rq_retry_idx on pgque.retry_queue (ev_retry_after);
@@ -826,6 +827,7 @@ begin
 end;
 $$ language plpgsql security definer set search_path = pgque, pg_catalog;
 
+-- safety-ok: vendored PgQue function body uses an internal retry_queue lock during maintenance, not during migration.
 create or replace function pgque.maint_retry_events()
 returns integer as $$
 -- ----------------------------------------------------------------------
@@ -871,6 +873,7 @@ begin
 end;
 $$ language plpgsql; -- need admin access
 
+-- safety-ok: vendored PgQue rotation function contains internal maintenance locks for PgQue-owned event tables.
 create or replace function pgque.maint_rotate_tables_step1(i_queue_name text)
 returns integer as $$
 -- ----------------------------------------------------------------------
@@ -1422,6 +1425,7 @@ begin
 end;
 $$ language plpgsql strict immutable;
 
+-- safety-ok: vendored PgQue function body creates indexes on newly-created PgQue event tables.
 create or replace function pgque.create_queue(i_queue_name text)
 returns integer as $$
 -- ----------------------------------------------------------------------
@@ -3975,6 +3979,7 @@ insert into pgque.config (singleton) values (true)
 on conflict (singleton) do nothing;
 
 -- Add tick_period_ms on upgrade from a pre-tick-period install.
+-- safety-ok: pgque.config is a singleton PgQue metadata table, not a hot Strait data table.
 do $$
 begin
     if not exists (
@@ -5482,6 +5487,7 @@ grant execute on function pgque.nack(bigint, pgque.message, interval, text)   to
 -- New cooperative APIs are clean-room; no code copied from pgq-coop.
 
 -- Cooperative consumer state marker. Existing rows remain normal on upgrade.
+-- safety-ok: PgQue subscriptions are metadata rows created during queue setup, not a high-cardinality hot table.
 alter table pgque.subscription
   add column if not exists sub_role text not null default 'normal';
 
@@ -7043,5 +7049,3 @@ revoke execute on function pgque.insert_event_bulk(text, text, text[])
 -- functions created here would otherwise inherit PostgreSQL's default
 -- PUBLIC EXECUTE. This second pass covers everything.
 revoke execute on all functions in schema pgque from public;
-
-

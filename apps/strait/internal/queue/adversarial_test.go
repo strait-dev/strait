@@ -53,7 +53,7 @@ func TestEnqueue_AdversarialIdempotencyKey(t *testing.T) {
 	// Null bytes in idempotency key should be passed through to the DB layer
 	// since validation happens at the API layer, not the queue layer.
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -76,7 +76,7 @@ func TestEnqueue_LongIdempotencyKey(t *testing.T) {
 	// Length validation is the API layer's responsibility.
 	longKey := strings.Repeat("a", 10*1024)
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -102,7 +102,7 @@ func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -123,7 +123,7 @@ func TestPriority_IntMin(t *testing.T) {
 
 	var capturedArgs []any
 	db := capturingMockDB(&capturedArgs)
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -150,7 +150,7 @@ func TestPriority_IntMax(t *testing.T) {
 
 	var capturedArgs []any
 	db := capturingMockDB(&capturedArgs)
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -179,7 +179,7 @@ func TestConcurrencyKey_SpecialChars(t *testing.T) {
 
 	for _, key := range specialKeys {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:          "job-1",
 			ProjectID:      "proj-1",
@@ -198,7 +198,7 @@ func TestConcurrencyKey_ExtremelyLong(t *testing.T) {
 
 	longKey := strings.Repeat("x", 10*1024)
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -215,7 +215,7 @@ func TestConcurrencyKey_EmptyString(t *testing.T) {
 	t.Parallel()
 
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -239,7 +239,7 @@ func FuzzEnqueuePriority(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, priority int) {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:     "job-1",
 			ProjectID: "proj-1",
@@ -268,7 +268,7 @@ func FuzzConcurrencyKey(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key string) {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:          "job-1",
 			ProjectID:      "proj-1",
@@ -290,7 +290,7 @@ func TestEnqueue_TagsMarshalError(t *testing.T) {
 	// json.Marshal cannot fail on map[string]string, but we verify the code
 	// path handles the marshal step without panicking.
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",

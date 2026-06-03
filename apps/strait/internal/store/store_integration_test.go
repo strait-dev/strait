@@ -9824,7 +9824,7 @@ func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "proj-runtag-" + newID()
 	job := &domain.Job{
@@ -10855,7 +10855,7 @@ func TestGetPerformanceAnalytics(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "project-analytics-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Slug: new("analytics-job-" + newID())})
@@ -10915,7 +10915,7 @@ func TestGetJobHealthStats_RecentWindow(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "project-health-window-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})

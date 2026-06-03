@@ -71,7 +71,7 @@ func (c PgQueConfig) normalized() PgQueConfig {
 
 type PgQueQueue struct {
 	db          store.DBTX
-	runWriter   *PostgresQueue
+	runWriter   *PostgresRunWriter
 	cfg         PgQueConfig
 	routeMu     sync.Mutex
 	routeStates map[string]*pgQueRouteState
@@ -128,9 +128,9 @@ const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.
 		          u.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
 		          u.next_retry_at, u.expires_at, u.parent_run_id, u.priority, u.idempotency_key, u.job_version, u.created_at, u.workflow_step_run_id, u.execution_trace, u.debug_mode, u.continuation_of, u.lineage_depth, u.tags, u.job_version_id, u.created_by, u.batch_id, u.concurrency_key, u.execution_mode, u.is_rollback, u.replayed_run_id`
 
-func NewPgQueQueue(db store.DBTX, runWriter *PostgresQueue, cfg PgQueConfig) *PgQueQueue {
+func NewPgQueQueue(db store.DBTX, runWriter *PostgresRunWriter, cfg PgQueConfig) *PgQueQueue {
 	if runWriter == nil {
-		runWriter = NewPostgresQueue(db)
+		runWriter = NewPostgresRunWriter(db)
 	}
 	return &PgQueQueue{
 		db:          db,
@@ -221,7 +221,7 @@ func (q *PgQueQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (i
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	txRunWriter := NewPostgresQueue(tx)
+	txRunWriter := NewPostgresRunWriter(tx)
 	if err := q.markPgQueStorage(ctx, tx); err != nil {
 		return 0, err
 	}

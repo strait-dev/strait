@@ -17,33 +17,33 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type PostgresQueue struct {
+type PostgresRunWriter struct {
 	db               store.DBTX
 	statementTimeout time.Duration
 	metrics          *QueueMetrics
 	backpressure     *Backpressure
 }
 
-type PostgresQueueOption func(*PostgresQueue)
+type PostgresRunWriterOption func(*PostgresRunWriter)
 
-func WithStatementTimeout(d time.Duration) PostgresQueueOption {
-	return func(q *PostgresQueue) {
+func WithStatementTimeout(d time.Duration) PostgresRunWriterOption {
+	return func(q *PostgresRunWriter) {
 		q.statementTimeout = d
 	}
 }
 
 // WithBackpressureController attaches a backpressure controller so
 // EnqueueBatch consults the token bucket before inserting rows.
-func WithBackpressureController(bp *Backpressure) PostgresQueueOption {
-	return func(q *PostgresQueue) {
+func WithBackpressureController(bp *Backpressure) PostgresRunWriterOption {
+	return func(q *PostgresRunWriter) {
 		q.backpressure = bp
 	}
 }
 
-// NewPostgresQueue creates the Postgres run writer used by PgQue.
-func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue {
+// NewPostgresRunWriter creates the Postgres run writer used by PgQue.
+func NewPostgresRunWriter(db store.DBTX, opts ...PostgresRunWriterOption) *PostgresRunWriter {
 	m, _ := Metrics()
-	q := &PostgresQueue{db: db, metrics: m}
+	q := &PostgresRunWriter{db: db, metrics: m}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(q)
@@ -52,7 +52,7 @@ func NewPostgresQueue(db store.DBTX, opts ...PostgresQueueOption) *PostgresQueue
 	return q
 }
 
-func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
+func (q *PostgresRunWriter) Enqueue(ctx context.Context, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.Enqueue")
 	defer span.End()
 
@@ -78,7 +78,7 @@ func (q *PostgresQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 // idempotency key is present, it acquires the same transaction-scoped
 // advisory lock used by Enqueue so concurrent transactional callers
 // serialize on (job_id, idempotency_key) too.
-func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
+func (q *PostgresRunWriter) EnqueueInTx(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueInTx")
 	defer span.End()
 
@@ -101,7 +101,7 @@ func (q *PostgresQueue) EnqueueInTx(ctx context.Context, tx store.DBTX, run *dom
 
 // prepareEnqueue normalizes run fields and returns the INSERT query with
 // bind args. Shared by Enqueue and EnqueueInTx.
-func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error) {
+func (q *PostgresRunWriter) prepareEnqueue(run *domain.JobRun) (string, []any, error) {
 	if run.ID == "" {
 		run.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -212,7 +212,7 @@ func (q *PostgresQueue) prepareEnqueue(run *domain.JobRun) (string, []any, error
 // enqueueInManagedTx runs the enqueue inside a transaction when either
 // idempotency locking or backpressure accounting must commit atomically with the
 // row insert.
-func (q *PostgresQueue) enqueueInManagedTx(
+func (q *PostgresRunWriter) enqueueInManagedTx(
 	ctx context.Context,
 	beginner store.TxBeginner,
 	run *domain.JobRun,
@@ -245,7 +245,7 @@ func (q *PostgresQueue) enqueueInManagedTx(
 	return nil
 }
 
-func (q *PostgresQueue) consumeBackpressure(ctx context.Context, db store.DBTX, run *domain.JobRun, op string) error {
+func (q *PostgresRunWriter) consumeBackpressure(ctx context.Context, db store.DBTX, run *domain.JobRun, op string) error {
 	if q.backpressure == nil {
 		return nil
 	}
@@ -258,7 +258,7 @@ func (q *PostgresQueue) consumeBackpressure(ctx context.Context, db store.DBTX, 
 	return nil
 }
 
-func (q *PostgresQueue) acquireIdempotencyXactLock(ctx context.Context, db store.DBTX, jobID, idempotencyKey, op string) error {
+func (q *PostgresRunWriter) acquireIdempotencyXactLock(ctx context.Context, db store.DBTX, jobID, idempotencyKey, op string) error {
 	// hashtext returns int4 in Postgres; pg_advisory_xact_lock(int, int)
 	// takes two int4 keys, which is the portable form we want (no int64
 	// concatenation that could differ between little-/big-endian
@@ -274,7 +274,7 @@ func (q *PostgresQueue) acquireIdempotencyXactLock(ctx context.Context, db store
 	return nil
 }
 
-func (q *PostgresQueue) insertPreparedRun(
+func (q *PostgresRunWriter) insertPreparedRun(
 	ctx context.Context,
 	db store.DBTX,
 	run *domain.JobRun,
@@ -295,9 +295,8 @@ func (q *PostgresQueue) insertPreparedRun(
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Claim rows for the dequeue hot path are created by the
-	// trg_job_runs_claim_queue_sync trigger (migration 000224), which fires
-	// on the job_runs INSERT above. No application-level dual-write needed.
+	// This writer only persists job_runs. PgQue owns ready-event emission and
+	// claim ownership around this insert.
 
 	return nil
 }
@@ -354,8 +353,8 @@ var emptyJSONB = []byte("{}")
 
 // EnqueueBatch inserts multiple runs using pgx.CopyFrom (COPY protocol) for
 // high throughput. Requires the underlying db to implement CopyFromer (e.g.
-// pgxpool.Pool). Queue wake notifications are emitted by database triggers.
-func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
+// pgxpool.Pool). PgQue emits ready events after this writer persists rows.
+func (q *PostgresRunWriter) EnqueueBatch(ctx context.Context, runs []*domain.JobRun) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.EnqueueBatch")
 	defer span.End()
 
@@ -363,7 +362,6 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, nil
 	}
 
-	// R4 hardening: consult backpressure before inserting.
 	if q.backpressure != nil && len(runs) > 0 {
 		projectID := runs[0].ProjectID
 		if err := q.backpressure.TryConsumeN(ctx, projectID, len(runs)); err != nil {
@@ -401,9 +399,8 @@ func (q *PostgresQueue) EnqueueBatch(ctx context.Context, runs []*domain.JobRun)
 		return 0, fmt.Errorf("enqueue batch: copy from: %w", err)
 	}
 
-	// Claim rows for the dequeue hot path are created by the
-	// trg_job_runs_claim_queue_sync trigger, which fires on the COPY INSERT
-	// above. Queue wake notifications are emitted by statement-level triggers.
+	// This writer only persists job_runs. PgQue owns ready-event emission and
+	// claim ownership around this insert.
 
 	return n, nil
 }
@@ -497,7 +494,7 @@ func runQueueName(queueName string) string {
 
 // recordClaimMetrics samples the observed queue lag and retry schedule lag
 // for the claimed run. Called from every successful dequeue variant.
-func (q *PostgresQueue) recordClaimMetrics(ctx context.Context, run *domain.JobRun) {
+func (q *PostgresRunWriter) recordClaimMetrics(ctx context.Context, run *domain.JobRun) {
 	if q.metrics == nil || run == nil {
 		return
 	}

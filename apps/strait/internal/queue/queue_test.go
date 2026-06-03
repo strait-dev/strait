@@ -103,11 +103,11 @@ func (m *mockRow) Scan(dest ...any) error {
 	return nil
 }
 
-func TestNewPostgresQueue(t *testing.T) {
+func TestNewPostgresRunWriter(t *testing.T) {
 	t.Parallel()
-	q := NewPostgresQueue(nil)
+	q := NewPostgresRunWriter(nil)
 	if q == nil {
-		t.Fatal("NewPostgresQueue(nil) returned nil")
+		t.Fatal("NewPostgresRunWriter(nil) returned nil")
 	}
 }
 
@@ -195,7 +195,7 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -237,7 +237,7 @@ func TestEnqueue_PreservesExistingValues(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		ID:          "custom-id",
 		JobID:       "job-1",
@@ -276,7 +276,7 @@ func TestEnqueue_DelayedStatus(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	future := time.Now().Add(time.Hour)
 	run := &domain.JobRun{
 		JobID:       "job-1",
@@ -308,7 +308,7 @@ func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	past := time.Now().Add(-time.Hour)
 	run := &domain.JobRun{
 		JobID:       "job-1",
@@ -335,7 +335,7 @@ func TestEnqueue_DBError(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -349,7 +349,7 @@ func TestEnqueue_DBError(t *testing.T) {
 
 func TestLoad_DefaultStatementTimeout(t *testing.T) {
 	// This is tested via config_test.go - just verify the option works
-	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(30*time.Second))
+	q := NewPostgresRunWriter(&mockDBTX{}, WithStatementTimeout(30*time.Second))
 	if q.statementTimeout != 30*time.Second {
 		t.Fatalf("expected 30s, got %v", q.statementTimeout)
 	}
@@ -379,7 +379,7 @@ func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -419,7 +419,7 @@ func TestEnqueue_TagsJSON_Empty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -455,7 +455,7 @@ func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -495,7 +495,7 @@ func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -531,7 +531,7 @@ func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -567,7 +567,7 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:         "job-1",
 		ProjectID:     "proj-1",
