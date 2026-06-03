@@ -260,39 +260,13 @@ func (s *Server) handleBatchTrigger(ctx context.Context, input *TriggerJobInput,
 			if drainErr != nil || len(items) == 0 {
 				return drainErr
 			}
-			payloads := make([]json.RawMessage, len(items))
-			for i, it := range items {
-				payloads[i] = it.Payload
-			}
-			batchPayload, _ := json.Marshal(map[string]any{"items": payloads})
-			batchNow := time.Now()
-			batchExpiresAt := batchNow.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-			batchMetadata := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
-			batchMetadata = applyRunTraceHeaderMetadata(
-				batchMetadata,
-				input.Traceparent,
-				input.Tracestate,
-				input.SentryTrace,
-				input.Baggage,
-			)
-			batchRun := &domain.JobRun{
-				ID:            uuid.Must(uuid.NewV7()).String(),
-				JobID:         job.ID,
-				ProjectID:     job.ProjectID,
-				Status:        domain.StatusQueued,
-				Attempt:       1,
-				Payload:       batchPayload,
-				TriggeredBy:   "batch",
-				Priority:      req.Priority,
-				JobVersion:    job.Version,
-				JobVersionID:  job.VersionID,
-				ExpiresAt:     &batchExpiresAt,
-				CreatedBy:     actorFromContext(ctx),
-				ExecutionMode: job.ExecutionMode,
-				QueueName:     job.Queue,
-				IsRollback:    false,
-				Metadata:      batchMetadata,
-			}
+			batchRun := newBatchFlushRun(ctx, batchFlushRunRequest{
+				input: input,
+				job:   job,
+				req:   req,
+				items: items,
+				now:   time.Now(),
+			})
 			if enqErr := s.enqueueTriggerRun(guardCtx, tx, batchRun); enqErr != nil {
 				slog.Error("batch immediate flush enqueue failed", "job_id", job.ID, "error", enqErr)
 				return enqErr
@@ -379,7 +353,7 @@ func (s *Server) newImmediateTriggerRun(
 ) *domain.JobRun {
 	job := state.job
 	req := state.req
-	metadata := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", nil)
+	metadata := sentryRunMetadata(ctx, triggerJobRoute, nil)
 	if dependencyKey := extractDependencyKey(state.payload); dependencyKey != "" {
 		metadata["dependency_key"] = dependencyKey
 	}
