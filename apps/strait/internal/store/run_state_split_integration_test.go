@@ -1072,3 +1072,139 @@ func TestRunStateSplit_DeleteInactiveReadyEventsKeepsCurrentGenerationAndDeletes
 		t.Fatalf("current run read status = %q, want queued from ready overlay", run.Status)
 	}
 }
+
+func TestRunStateSplit_CompactSupersededRunEventsKeepsLatestRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-run-event-compaction")
+	priorityRun := baseRun(job, newID())
+	priorityRun.Priority = 1
+	priorityRun.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, priorityRun); err != nil {
+		t.Fatalf("CreateRun priority error = %v", err)
+	}
+	visibilityRun := baseRun(job, newID())
+	visibilityRun.Status = domain.StatusDeadLetter
+	finishedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	visibilityRun.FinishedAt = &finishedAt
+	if err := q.CreateRun(ctx, visibilityRun); err != nil {
+		t.Fatalf("CreateRun visibility error = %v", err)
+	}
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_priority_events (run_id, priority)
+		VALUES ($1, 10), ($1, 20), ($1, 30)`,
+		priorityRun.ID,
+	); err != nil {
+		t.Fatalf("insert priority events: %v", err)
+	}
+	maskedAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_visibility_events (run_id, visible_until)
+		VALUES ($1, NULL), ($1, $2), ($1, NULL)`,
+		visibilityRun.ID, maskedAt,
+	); err != nil {
+		t.Fatalf("insert visibility events: %v", err)
+	}
+
+	compactedPriority, err := q.CompactSupersededPriorityEvents(ctx, 1)
+	if err != nil {
+		t.Fatalf("CompactSupersededPriorityEvents(limit=1) error = %v", err)
+	}
+	if compactedPriority != 1 {
+		t.Fatalf("priority compacted first batch = %d, want 1", compactedPriority)
+	}
+	compactedPriority, err = q.CompactSupersededPriorityEvents(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededPriorityEvents(limit=100) error = %v", err)
+	}
+	if compactedPriority != 1 {
+		t.Fatalf("priority compacted second batch = %d, want 1", compactedPriority)
+	}
+	compactedPriority, err = q.CompactSupersededPriorityEvents(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededPriorityEvents(empty) error = %v", err)
+	}
+	if compactedPriority != 0 {
+		t.Fatalf("priority compacted empty batch = %d, want 0", compactedPriority)
+	}
+
+	compactedVisibility, err := q.CompactSupersededVisibilityEvents(ctx, 1)
+	if err != nil {
+		t.Fatalf("CompactSupersededVisibilityEvents(limit=1) error = %v", err)
+	}
+	if compactedVisibility != 1 {
+		t.Fatalf("visibility compacted first batch = %d, want 1", compactedVisibility)
+	}
+	compactedVisibility, err = q.CompactSupersededVisibilityEvents(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededVisibilityEvents(limit=100) error = %v", err)
+	}
+	if compactedVisibility != 1 {
+		t.Fatalf("visibility compacted second batch = %d, want 1", compactedVisibility)
+	}
+	compactedVisibility, err = q.CompactSupersededVisibilityEvents(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededVisibilityEvents(empty) error = %v", err)
+	}
+	if compactedVisibility != 0 {
+		t.Fatalf("visibility compacted empty batch = %d, want 0", compactedVisibility)
+	}
+
+	var priorityRows, latestPriority int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), MAX(priority)
+		FROM job_run_priority_events
+		WHERE run_id = $1`,
+		priorityRun.ID,
+	).Scan(&priorityRows, &latestPriority); err != nil {
+		t.Fatalf("query priority events after compaction: %v", err)
+	}
+	if priorityRows != 1 {
+		t.Fatalf("priority event rows = %d, want 1", priorityRows)
+	}
+	if latestPriority != 30 {
+		t.Fatalf("latest priority event = %d, want 30", latestPriority)
+	}
+	gotPriorityRun, err := q.GetRun(ctx, priorityRun.ID)
+	if err != nil {
+		t.Fatalf("GetRun priority: %v", err)
+	}
+	if gotPriorityRun.Priority != 30 {
+		t.Fatalf("GetRun priority = %d, want latest event priority 30", gotPriorityRun.Priority)
+	}
+
+	var visibilityRows int
+	var latestVisibleUntil *time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), MAX(visible_until)
+		FROM job_run_visibility_events
+		WHERE run_id = $1`,
+		visibilityRun.ID,
+	).Scan(&visibilityRows, &latestVisibleUntil); err != nil {
+		t.Fatalf("query visibility events after compaction: %v", err)
+	}
+	if visibilityRows != 1 {
+		t.Fatalf("visibility event rows = %d, want 1", visibilityRows)
+	}
+	if latestVisibleUntil != nil {
+		t.Fatalf("latest visible_until = %v, want nil unmasked event", latestVisibleUntil)
+	}
+
+	maskedRuns, err := q.ListDeadLetterRunsFiltered(ctx, visibilityRun.ProjectID, nil, ptr(true), 10, nil)
+	if err != nil {
+		t.Fatalf("ListDeadLetterRuns(masked=true) error = %v", err)
+	}
+	if len(maskedRuns) != 0 {
+		t.Fatalf("masked dead-letter runs len = %d, want 0 after latest unmask event", len(maskedRuns))
+	}
+	unmaskedRuns, err := q.ListDeadLetterRunsFiltered(ctx, visibilityRun.ProjectID, nil, ptr(false), 10, nil)
+	if err != nil {
+		t.Fatalf("ListDeadLetterRuns(masked=false) error = %v", err)
+	}
+	if len(unmaskedRuns) != 1 || unmaskedRuns[0].ID != visibilityRun.ID {
+		t.Fatalf("unmasked dead-letter runs = %+v, want run %s", unmaskedRuns, visibilityRun.ID)
+	}
+}

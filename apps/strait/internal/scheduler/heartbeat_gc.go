@@ -33,6 +33,8 @@ type HeartbeatGCStore interface {
 	CompactSupersededRetries(ctx context.Context, limit int) (int64, error)
 	DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error)
 	DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededPriorityEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededVisibilityEvents(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -148,10 +150,20 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("ready event GC failed", "error", err)
 		return err
 	}
-	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents
+	compactedPriorityEvents, err := h.store.CompactSupersededPriorityEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("priority event GC compact failed", "error", err)
+		return err
+	}
+	compactedVisibilityEvents, err := h.store.CompactSupersededVisibilityEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("visibility event GC compact failed", "error", err)
+		return err
+	}
+	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents + compactedPriorityEvents + compactedVisibilityEvents
 	h.totalDeleted.Add(total)
 	if total > 0 {
-		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents)
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents, "compacted_priority_events", compactedPriorityEvents, "compacted_visibility_events", compactedVisibilityEvents)
 	}
 	return nil
 }

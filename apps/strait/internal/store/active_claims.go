@@ -86,3 +86,71 @@ func (q *Queries) DeleteInactiveReadyEvents(ctx context.Context, limit int) (int
 	}
 	return tag.RowsAffected(), nil
 }
+
+// CompactSupersededPriorityEvents physically removes priority event history
+// that is no longer the latest row for its run. The append-only writer remains
+// dead-tuple resistant on the hot path while this bounded cleanup keeps the
+// side table from growing without bound.
+func (q *Queries) CompactSupersededPriorityEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededPriorityEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_priority_events e
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_priority_events newer
+				WHERE newer.run_id = e.run_id
+				  AND newer.id > e.id
+			)
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_priority_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded priority events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CompactSupersededVisibilityEvents physically removes visibility event
+// history that is no longer the latest row for its run. Visibility changes stay
+// append-only on the hot path; this cold-path cleanup preserves the current
+// masking state by retaining the newest event.
+func (q *Queries) CompactSupersededVisibilityEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededVisibilityEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_visibility_events e
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_visibility_events newer
+				WHERE newer.run_id = e.run_id
+				  AND newer.id > e.id
+			)
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_visibility_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded visibility events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
