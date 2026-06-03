@@ -27,6 +27,55 @@ type pgQueBatchReservation struct {
 	Invalid    []pgQueMessage
 }
 
+func (q *PgQueQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
+	runs, err := q.DequeueN(ctx, 1)
+	if err != nil || len(runs) == 0 {
+		return nil, err
+	}
+	return &runs[0], nil
+}
+
+func (q *PgQueQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, error) {
+	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{
+		ExecutionMode: domain.ExecutionModeHTTP,
+	})
+}
+
+func (q *PgQueQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
+	return q.dequeueFromRoute(ctx, n, pgQueHTTPRouteKey, pgQueClaimFilter{
+		ProjectID:     projectID,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	})
+}
+
+func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error) {
+	refs := normalizePgQueWorkerQueueRefs(queues)
+	if n <= 0 || len(refs) == 0 {
+		return nil, nil
+	}
+	routes, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	claimed := make([]domain.JobRun, 0, n)
+	start := q.nextWorkerRouteStart(len(routes))
+	for i := range routes {
+		if len(claimed) >= n {
+			break
+		}
+		routeKey := routes[(start+i)%len(routes)]
+		batch, err := q.dequeueFromRoute(ctx, n-len(claimed), routeKey, pgQueClaimFilter{
+			ExecutionMode: domain.ExecutionModeWorker,
+			WorkerRefs:    refs,
+		})
+		if err != nil {
+			return claimed, err
+		}
+		claimed = append(claimed, batch...)
+	}
+	return claimed, nil
+}
+
 func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey string, filter pgQueClaimFilter) ([]domain.JobRun, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "queue.PgQueDequeue")
 	defer span.End()
