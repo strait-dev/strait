@@ -2042,6 +2042,53 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active-v2", "phase": "two"}, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateRunMetadataForActiveRun(active overwrite) error = %v", err)
 	}
+	var metadataEventsBeforeNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND fields ? 'metadata'`,
+		activeRun.ID,
+	).Scan(&metadataEventsBeforeNoop); err != nil {
+		t.Fatalf("query active metadata events before no-op: %v", err)
+	}
+	var cacheVersionsBeforeNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`,
+		activeRun.ID,
+	).Scan(&cacheVersionsBeforeNoop); err != nil {
+		t.Fatalf("query cache versions before active metadata no-op: %v", err)
+	}
+	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active-v2", "phase": "two"}, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateRunMetadataForActiveRun(active no-op) error = %v", err)
+	}
+	var metadataEventsAfterNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND fields ? 'metadata'`,
+		activeRun.ID,
+	).Scan(&metadataEventsAfterNoop); err != nil {
+		t.Fatalf("query active metadata events after no-op: %v", err)
+	}
+	if metadataEventsAfterNoop != metadataEventsBeforeNoop {
+		t.Fatalf("active metadata no-op events = %d, want %d", metadataEventsAfterNoop, metadataEventsBeforeNoop)
+	}
+	var cacheVersionsAfterNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`,
+		activeRun.ID,
+	).Scan(&cacheVersionsAfterNoop); err != nil {
+		t.Fatalf("query cache versions after active metadata no-op: %v", err)
+	}
+	if cacheVersionsAfterNoop != cacheVersionsBeforeNoop {
+		t.Fatalf("active metadata no-op cache versions = %d, want %d", cacheVersionsAfterNoop, cacheVersionsBeforeNoop)
+	}
 	if err := q.UpdateHeartbeatForActiveRun(ctx, activeRun.ID, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateHeartbeatForActiveRun(active) error = %v", err)
 	}

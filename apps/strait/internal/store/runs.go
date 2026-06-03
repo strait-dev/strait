@@ -2925,9 +2925,17 @@ func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, 
 			SELECT
 				COALESCE(s.status, jr.status) AS from_status,
 				COALESCE(s.status, jr.status) AS to_status,
-				COALESCE(s.attempt, jr.attempt) AS current_attempt
+				COALESCE(s.attempt, jr.attempt) AS current_attempt,
+				COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb) AS current_metadata
 			FROM job_runs jr
 			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			LEFT JOIN LATERAL (
+				SELECT jsonb_object_agg(entry.key, entry.value ORDER BY e.created_at, e.id) AS metadata
+				FROM job_run_lifecycle_events e
+				CROSS JOIN LATERAL jsonb_each(COALESCE(e.fields->'metadata', '{}'::jsonb)) AS entry(key, value)
+				WHERE e.run_id = jr.id
+				  AND e.fields ? 'metadata'
+			) metadata_delta ON true
 			WHERE jr.id = $2
 			  AND COALESCE(s.attempt, jr.attempt) = $3
 			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
@@ -2936,6 +2944,7 @@ func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, 
 			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
 			SELECT $2, from_status, to_status, current_attempt, jsonb_build_object('metadata', $1::jsonb)
 			FROM gate
+			WHERE current_metadata IS DISTINCT FROM current_metadata || $1::jsonb
 			RETURNING run_id
 		),
 		cache_versions AS (
@@ -2944,15 +2953,16 @@ func (q *Queries) UpdateRunMetadataForActiveRun(ctx context.Context, id string, 
 			FROM lifecycle_event
 			RETURNING 1
 		)
-		SELECT run_id FROM lifecycle_event`
+		SELECT EXISTS(SELECT 1 FROM gate), EXISTS(SELECT 1 FROM lifecycle_event)`
 
-	var updatedID string
-	err = q.db.QueryRow(ctx, query, encoded, id, attempt).Scan(&updatedID)
+	var active bool
+	var updated bool
+	err = q.db.QueryRow(ctx, query, encoded, id, attempt).Scan(&active, &updated)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
-		}
 		return fmt.Errorf("update active run metadata: %w", err)
+	}
+	if !active {
+		return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, id, attempt)
 	}
 
 	return nil
