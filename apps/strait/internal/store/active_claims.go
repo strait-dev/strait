@@ -154,3 +154,37 @@ func (q *Queries) CompactSupersededVisibilityEvents(ctx context.Context, limit i
 	}
 	return tag.RowsAffected(), nil
 }
+
+// CompactSupersededRunCacheVersions physically removes cache-version history
+// that is no longer the latest row for its run. Run cache readers use the
+// newest version row as the read model, so older rows can be removed on this
+// bounded cold path without changing cache invalidation semantics.
+func (q *Queries) CompactSupersededRunCacheVersions(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededRunCacheVersions")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT v.id
+			FROM job_run_cache_versions v
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_cache_versions newer
+				WHERE newer.run_id = v.run_id
+				  AND newer.id > v.id
+			)
+			ORDER BY v.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_cache_versions v
+		USING victims
+		WHERE v.id = victims.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded run cache versions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

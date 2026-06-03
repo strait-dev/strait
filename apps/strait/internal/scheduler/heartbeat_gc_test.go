@@ -17,6 +17,7 @@ type fakeGCStore struct {
 	deletedReady      int64
 	compactedPriority int64
 	compactedVisible  int64
+	compactedCache    int64
 	err               error
 	compactErr        error
 	retryCompactErr   error
@@ -24,6 +25,7 @@ type fakeGCStore struct {
 	readyErr          error
 	priorityErr       error
 	visibilityErr     error
+	cacheErr          error
 	panicRun          bool
 	calls             int
 	compactCalls      int
@@ -32,6 +34,7 @@ type fakeGCStore struct {
 	readyCalls        int
 	priorityCalls     int
 	visibilityCalls   int
+	cacheCalls        int
 }
 
 func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64, error) {
@@ -72,6 +75,11 @@ func (f *fakeGCStore) CompactSupersededVisibilityEvents(_ context.Context, _ int
 	return f.compactedVisible, f.visibilityErr
 }
 
+func (f *fakeGCStore) CompactSupersededRunCacheVersions(_ context.Context, _ int) (int64, error) {
+	f.cacheCalls++
+	return f.compactedCache, f.cacheErr
+}
+
 func TestHeartbeatGC_Defaults(t *testing.T) {
 	g := NewHeartbeatGC(&fakeGCStore{}, HeartbeatGCConfig{})
 	if g.interval != time.Hour {
@@ -83,14 +91,14 @@ func TestHeartbeatGC_Defaults(t *testing.T) {
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
-	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5, deletedReady: 7, compactedPriority: 13, compactedVisible: 17}
+	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5, deletedReady: 7, compactedPriority: 13, compactedVisible: 17, compactedCache: 19}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 93 {
-		t.Errorf("total = %d, want 93", g.TotalDeleted())
+	if g.TotalDeleted() != 112 {
+		t.Errorf("total = %d, want 112", g.TotalDeleted())
 	}
-	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 || s.readyCalls != 1 || s.priorityCalls != 1 || s.visibilityCalls != 1 {
-		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d readyCalls = %d priorityCalls = %d visibilityCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls, s.readyCalls, s.priorityCalls, s.visibilityCalls)
+	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 || s.readyCalls != 1 || s.priorityCalls != 1 || s.visibilityCalls != 1 || s.cacheCalls != 1 {
+		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d readyCalls = %d priorityCalls = %d visibilityCalls = %d cacheCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls, s.readyCalls, s.priorityCalls, s.visibilityCalls, s.cacheCalls)
 	}
 }
 
@@ -168,6 +176,14 @@ func TestHeartbeatGC_VisibilityEventCompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	if err := g.runOnce(context.Background()); err == nil {
 		t.Error("expected visibility event compact error propagation")
+	}
+}
+
+func TestHeartbeatGC_RunCacheVersionCompactError(t *testing.T) {
+	s := &fakeGCStore{cacheErr: errors.New("oops")}
+	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
+	if err := g.runOnce(context.Background()); err == nil {
+		t.Error("expected run cache version compact error propagation")
 	}
 }
 

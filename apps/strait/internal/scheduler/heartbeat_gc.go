@@ -21,8 +21,8 @@ import (
 //
 // This GC runs hourly under an advisory lock, clears heartbeat rows whose
 // owning run is no longer active, and deletes superseded heartbeat, retry, and
-// active-claim history. Cleanup is bounded per tick so large tables are spread
-// across cycles.
+// run side-table history. Cleanup is bounded per tick so large tables are
+// spread across cycles.
 
 const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 
@@ -35,6 +35,7 @@ type HeartbeatGCStore interface {
 	DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error)
 	CompactSupersededPriorityEvents(ctx context.Context, limit int) (int64, error)
 	CompactSupersededVisibilityEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededRunCacheVersions(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -160,10 +161,15 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("visibility event GC compact failed", "error", err)
 		return err
 	}
-	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents + compactedPriorityEvents + compactedVisibilityEvents
+	compactedRunCacheVersions, err := h.store.CompactSupersededRunCacheVersions(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("run cache version GC compact failed", "error", err)
+		return err
+	}
+	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents + compactedPriorityEvents + compactedVisibilityEvents + compactedRunCacheVersions
 	h.totalDeleted.Add(total)
 	if total > 0 {
-		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents, "compacted_priority_events", compactedPriorityEvents, "compacted_visibility_events", compactedVisibilityEvents)
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents, "compacted_priority_events", compactedPriorityEvents, "compacted_visibility_events", compactedVisibilityEvents, "compacted_run_cache_versions", compactedRunCacheVersions)
 	}
 	return nil
 }

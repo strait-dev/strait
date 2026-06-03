@@ -1092,6 +1092,10 @@ func TestRunStateSplit_CompactSupersededRunEventsKeepsLatestRows(t *testing.T) {
 	if err := q.CreateRun(ctx, visibilityRun); err != nil {
 		t.Fatalf("CreateRun visibility error = %v", err)
 	}
+	cacheRun := baseRun(job, newID())
+	if err := q.CreateRun(ctx, cacheRun); err != nil {
+		t.Fatalf("CreateRun cache version error = %v", err)
+	}
 
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO job_run_priority_events (run_id, priority)
@@ -1107,6 +1111,13 @@ func TestRunStateSplit_CompactSupersededRunEventsKeepsLatestRows(t *testing.T) {
 		visibilityRun.ID, maskedAt,
 	); err != nil {
 		t.Fatalf("insert visibility events: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_cache_versions (run_id, cache_version)
+		VALUES ($1, 41), ($1, 42), ($1, 43)`,
+		cacheRun.ID,
+	); err != nil {
+		t.Fatalf("insert cache versions: %v", err)
 	}
 
 	compactedPriority, err := q.CompactSupersededPriorityEvents(ctx, 1)
@@ -1151,6 +1162,28 @@ func TestRunStateSplit_CompactSupersededRunEventsKeepsLatestRows(t *testing.T) {
 	}
 	if compactedVisibility != 0 {
 		t.Fatalf("visibility compacted empty batch = %d, want 0", compactedVisibility)
+	}
+
+	compactedCacheVersions, err := q.CompactSupersededRunCacheVersions(ctx, 1)
+	if err != nil {
+		t.Fatalf("CompactSupersededRunCacheVersions(limit=1) error = %v", err)
+	}
+	if compactedCacheVersions != 1 {
+		t.Fatalf("cache versions compacted first batch = %d, want 1", compactedCacheVersions)
+	}
+	compactedCacheVersions, err = q.CompactSupersededRunCacheVersions(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededRunCacheVersions(limit=100) error = %v", err)
+	}
+	if compactedCacheVersions != 1 {
+		t.Fatalf("cache versions compacted second batch = %d, want 1", compactedCacheVersions)
+	}
+	compactedCacheVersions, err = q.CompactSupersededRunCacheVersions(ctx, 100)
+	if err != nil {
+		t.Fatalf("CompactSupersededRunCacheVersions(empty) error = %v", err)
+	}
+	if compactedCacheVersions != 0 {
+		t.Fatalf("cache versions compacted empty batch = %d, want 0", compactedCacheVersions)
 	}
 
 	var priorityRows, latestPriority int
@@ -1206,5 +1239,29 @@ func TestRunStateSplit_CompactSupersededRunEventsKeepsLatestRows(t *testing.T) {
 	}
 	if len(unmaskedRuns) != 1 || unmaskedRuns[0].ID != visibilityRun.ID {
 		t.Fatalf("unmasked dead-letter runs = %+v, want run %s", unmaskedRuns, visibilityRun.ID)
+	}
+
+	var cacheVersionRows int
+	var latestCacheVersion int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cache_version ORDER BY id DESC))[1], 0)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`,
+		cacheRun.ID,
+	).Scan(&cacheVersionRows, &latestCacheVersion); err != nil {
+		t.Fatalf("query cache version events after compaction: %v", err)
+	}
+	if cacheVersionRows != 1 {
+		t.Fatalf("cache version rows = %d, want 1", cacheVersionRows)
+	}
+	if latestCacheVersion != 43 {
+		t.Fatalf("latest cache version = %d, want 43", latestCacheVersion)
+	}
+	gotCacheRun, version, err := q.GetRunWithCacheVersion(ctx, cacheRun.ID)
+	if err != nil {
+		t.Fatalf("GetRunWithCacheVersion cache run: %v", err)
+	}
+	if gotCacheRun.CacheVersion != 43 || version != 43 {
+		t.Fatalf("GetRunWithCacheVersion cache version = %d/%d, want 43/43", gotCacheRun.CacheVersion, version)
 	}
 }
