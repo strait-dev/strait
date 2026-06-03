@@ -240,7 +240,14 @@ func (b *bulkTriggerState) processItem(item BulkTriggerItem) error {
 	if err != nil {
 		return err
 	}
-	run := newBulkTriggerRun(b.ctx, b.job, item, payload, b.batchID, b.now, scheduledAt)
+	run := newBulkTriggerRun(b.ctx, bulkTriggerRunRequest{
+		job:         b.job,
+		item:        item,
+		payload:     payload,
+		batchID:     b.batchID,
+		now:         b.now,
+		scheduledAt: scheduledAt,
+	})
 	handled, err := b.enqueueOrBufferRun(run, item, itemIdx)
 	if err != nil || handled {
 		return err
@@ -485,56 +492,6 @@ func bulkHasIdempotencyKey(items []BulkTriggerItem) bool {
 		}
 	}
 	return false
-}
-
-func newBulkTriggerRun(
-	ctx context.Context,
-	job *domain.Job,
-	item BulkTriggerItem,
-	payload json.RawMessage,
-	batchID string,
-	now time.Time,
-	scheduledAt *time.Time,
-) *domain.JobRun {
-	status := domain.StatusQueued
-	if scheduledAt != nil && scheduledAt.After(now) {
-		status = domain.StatusDelayed
-	}
-
-	expiresAt := bulkTriggerExpiresAt(job, item, now)
-	run := &domain.JobRun{
-		ID:             uuid.Must(uuid.NewV7()).String(),
-		JobID:          job.ID,
-		ProjectID:      job.ProjectID,
-		Tags:           mergedRunTags(job.Tags, item.Tags),
-		Status:         status,
-		Attempt:        1,
-		Payload:        payload,
-		TriggeredBy:    domain.TriggerManual,
-		ScheduledAt:    scheduledAt,
-		Priority:       item.Priority,
-		IdempotencyKey: item.IdempotencyKey,
-		JobVersion:     job.Version,
-		JobVersionID:   job.VersionID,
-		CreatedBy:      actorFromContext(ctx),
-		BatchID:        batchID,
-		ExpiresAt:      &expiresAt,
-		ExecutionMode:  job.ExecutionMode,
-		QueueName:      job.Queue,
-		ConcurrencyKey: item.ConcurrencyKey,
-	}
-	run.Metadata = mergeRunMetadata(run.Metadata, job.DefaultRunMetadata)
-	return run
-}
-
-func bulkTriggerExpiresAt(job *domain.Job, item BulkTriggerItem, now time.Time) time.Time {
-	if item.TTLSecs != nil && *item.TTLSecs > 0 {
-		return now.Add(time.Duration(*item.TTLSecs) * time.Second)
-	}
-	if job.RunTTLSecs > 0 {
-		return now.Add(time.Duration(job.RunTTLSecs) * time.Second)
-	}
-	return now.Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
 }
 
 type BulkCancelRunsInput struct {
