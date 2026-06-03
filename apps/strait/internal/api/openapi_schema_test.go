@@ -78,6 +78,10 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 	}
 
 	raw := w.Body.String()
+	retiredCostFields := []string{
+		strings.Join([]string{"total", "ai", "cost", "microusd"}, "_"),
+		strings.Join([]string{"ai", "cost", "microusd"}, "_"),
+	}
 	for _, stale := range []string{
 		"/v1/jobs/{jobID}/deployments",
 		"/v1/runs/{runID}/usage",
@@ -98,8 +102,6 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"max_iterations_per_run",
 		"allowed_tools",
 		"blocked_tools",
-		"total_ai_cost_microusd",
-		"ai_cost_microusd",
 		"by_model",
 		"max_runs_per_day",
 		"has_sso",
@@ -117,6 +119,11 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"stream-deployment-logs",
 		"machine_id",
 	} {
+		if strings.Contains(raw, stale) {
+			t.Fatalf("openapi spec contains removed code-deployment surface %q", stale)
+		}
+	}
+	for _, stale := range retiredCostFields {
 		if strings.Contains(raw, stale) {
 			t.Fatalf("openapi spec contains removed code-deployment surface %q", stale)
 		}

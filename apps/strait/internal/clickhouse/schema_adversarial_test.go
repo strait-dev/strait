@@ -98,7 +98,7 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	}
 }
 
-func TestSchemaDDL_DoesNotCreateLegacyAIUsageEvents(t *testing.T) {
+func TestSchemaDDL_DoesNotCreateRetiredModelUsageEvents(t *testing.T) {
 	t.Parallel()
 
 	for _, token := range []string{
@@ -110,7 +110,7 @@ func TestSchemaDDL_DoesNotCreateLegacyAIUsageEvents(t *testing.T) {
 		"sum(cost_microusd) AS usage_cost_microusd",
 	} {
 		if strings.Contains(CostDailyTable, token) || strings.Contains(CostDailyMV, token) {
-			t.Fatalf("cost daily schema contains legacy AI usage token %q", token)
+			t.Fatalf("cost daily schema contains retired model usage token %q", token)
 		}
 	}
 	if !strings.Contains(CostDailyMV, "FROM run_analytics") {

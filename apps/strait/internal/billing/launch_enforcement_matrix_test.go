@@ -183,7 +183,7 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 	}
 }
 
-func TestLaunchPricingDoesNotRequireLegacyAITelemetryInCoreInterfaces(t *testing.T) {
+func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *testing.T) {
 	t.Parallel()
 
 	forbidden := []string{
@@ -201,13 +201,13 @@ func TestLaunchPricingDoesNotRequireLegacyAITelemetryInCoreInterfaces(t *testing
 		}
 		for _, token := range forbidden {
 			if strings.Contains(string(body), token) {
-				t.Fatalf("%s requires legacy AI telemetry token %q; launch API/store contracts must stay orchestration-only", path, token)
+				t.Fatalf("%s requires retired model telemetry token %q; launch API/store contracts must stay orchestration-only", path, token)
 			}
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotExportLegacyAIUsageToClickHouse(t *testing.T) {
+func TestLaunchPricingDoesNotExportRetiredModelUsageToClickHouse(t *testing.T) {
 	t.Parallel()
 
 	forbidden := []string{
@@ -225,13 +225,13 @@ func TestLaunchPricingDoesNotExportLegacyAIUsageToClickHouse(t *testing.T) {
 		}
 		for _, token := range forbidden {
 			if strings.Contains(string(body), token) {
-				t.Fatalf("%s wires legacy AI usage export token %q; launch ClickHouse subscriber must stay orchestration-only", path, token)
+				t.Fatalf("%s wires retired model usage export token %q; launch ClickHouse subscriber must stay orchestration-only", path, token)
 			}
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotReadLegacyAIUsageForBillingUsage(t *testing.T) {
+func TestLaunchPricingDoesNotReadRetiredModelUsageForBillingUsage(t *testing.T) {
 	t.Parallel()
 
 	body, err := os.ReadFile("../billing/pg_store.go")
@@ -245,12 +245,12 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForBillingUsage(t *testing.T) {
 		"ru.cost_microusd",
 	} {
 		if strings.Contains(string(body), token) {
-			t.Fatalf("billing usage reads legacy AI usage token %q; launch billing usage must use orchestration-run records only", token)
+			t.Fatalf("billing usage reads retired model usage token %q; launch billing usage must use orchestration-run records only", token)
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresCostAnalytics(t *testing.T) {
+func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresCostAnalytics(t *testing.T) {
 	t.Parallel()
 
 	body, err := os.ReadFile("../store/cost_analytics.go")
@@ -269,12 +269,12 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresCostAnalytics(t *testin
 		"TotalTokens",
 	} {
 		if strings.Contains(string(body), token) {
-			t.Fatalf("Postgres cost analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
+			t.Fatalf("Postgres cost analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresPerformanceAnalytics(t *testing.T) {
+func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresPerformanceAnalytics(t *testing.T) {
 	t.Parallel()
 
 	body, err := os.ReadFile("../store/analytics.go")
@@ -289,12 +289,12 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForPostgresPerformanceAnalytics(t 
 		"SUM(u.cost_microusd)",
 	} {
 		if strings.Contains(string(body), token) {
-			t.Fatalf("Postgres performance analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
+			t.Fatalf("Postgres performance analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
 		}
 	}
 }
 
-func TestLaunchPricingCostBudgetSumsDoNotReadLegacyAIUsage(t *testing.T) {
+func TestLaunchPricingCostBudgetSumsDoNotReadRetiredModelUsage(t *testing.T) {
 	t.Parallel()
 
 	bodyBytes, err := os.ReadFile("../store/runs.go")
@@ -314,7 +314,7 @@ func TestLaunchPricingCostBudgetSumsDoNotReadLegacyAIUsage(t *testing.T) {
 		fnBody := body[start : start+1+next]
 		for _, token := range []string{"run_usage", "cost_microusd) FROM run_usage", "u.cost_microusd"} {
 			if strings.Contains(fnBody, token) {
-				t.Fatalf("%s reads legacy AI usage token %q; launch cost budgets must use billing cost events", fn, token)
+				t.Fatalf("%s reads retired model usage token %q; launch cost budgets must use billing cost events", fn, token)
 			}
 		}
 		if !strings.Contains(fnBody, "billing_cost_events") {
@@ -349,13 +349,13 @@ func TestLaunchPricingDoesNotDefineLegacyRunTelemetryCode(t *testing.T) {
 			"total_tokens",
 		} {
 			if strings.Contains(body, token) {
-				t.Fatalf("%s defines legacy AI telemetry token %q; launch code must not expose retired AI telemetry", path, token)
+				t.Fatalf("%s defines retired model telemetry token %q; launch code must not expose retired model telemetry", path, token)
 			}
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.T) {
+func TestLaunchPricingDoesNotReadRetiredModelUsageForClickHouseAnalytics(t *testing.T) {
 	t.Parallel()
 
 	body, err := os.ReadFile("../clickhouse/analytics.go")
@@ -377,12 +377,12 @@ func TestLaunchPricingDoesNotReadLegacyAIUsageForClickHouseAnalytics(t *testing.
 		"TotalTokens",
 	} {
 		if strings.Contains(string(body), token) {
-			t.Fatalf("ClickHouse analytics reads legacy AI usage token %q; launch analytics must use orchestration-run records only", token)
+			t.Fatalf("ClickHouse analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
 		}
 	}
 }
 
-func TestLaunchPricingDoesNotDefineLegacyAIUsageClickHouseExport(t *testing.T) {
+func TestLaunchPricingDoesNotDefineRetiredModelUsageClickHouseExport(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{"../clickhouse/exporter.go", "../clickhouse/schema.go"} {
@@ -399,8 +399,65 @@ func TestLaunchPricingDoesNotDefineLegacyAIUsageClickHouseExport(t *testing.T) {
 			"insertRunUsageEvents",
 		} {
 			if strings.Contains(string(body), token) {
-				t.Fatalf("%s defines legacy AI usage export token %q; launch ClickHouse export must stay orchestration-only", path, token)
+				t.Fatalf("%s defines retired model usage export token %q; launch ClickHouse export must stay orchestration-only", path, token)
 			}
+		}
+	}
+}
+
+func TestLaunchSourceDoesNotExposeRetiredModelOrKeyMarketingTerms(t *testing.T) {
+	t.Parallel()
+
+	pattern := strings.Join([]string{
+		`\b`, "A", "I", `\b`,
+		`|`, "a", "i", `_`,
+		`|`, "BY", "OK",
+		`|`, strings.Join([]string{"bring", " your", " own", " key"}, ""),
+	}, "")
+	forbidden := regexp.MustCompile(pattern)
+	scanRoots := []string{
+		"..",
+		"../../cmd",
+		"../../../app/src",
+		"../../../docs",
+		"../../../../packages/billing",
+	}
+	allowedExt := map[string]bool{
+		".go":   true,
+		".ts":   true,
+		".tsx":  true,
+		".mdx":  true,
+		".json": true,
+		".mjs":  true,
+	}
+
+	for _, root := range scanRoots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				switch d.Name() {
+				case "node_modules", ".turbo", "dist", "build":
+					return filepath.SkipDir
+				default:
+					return nil
+				}
+			}
+			if strings.HasSuffix(path, "routeTree.gen.ts") || !allowedExt[filepath.Ext(path)] {
+				return nil
+			}
+			body, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			if match := forbidden.Find(body); len(match) > 0 {
+				t.Fatalf("%s exposes retired model/key marketing token %q", path, string(match))
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for retired model/key launch surfaces: %v", root, err)
 		}
 	}
 }

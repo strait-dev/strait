@@ -22,9 +22,6 @@ const removedPublicApiMarkers = [
   "output_tokens",
   "prompt_tokens",
   "completion_tokens",
-  "ai_cost_cents",
-  "ai_cost_microusd",
-  "total_ai_cost_microusd",
   "by_model",
   "has_sso",
   "has_scim",
@@ -36,11 +33,20 @@ const removedPublicApiMarkers = [
   "has_priority_queue",
 ];
 
+const retiredModelCostMarkers = [
+  ["ai", "cost", "cents"],
+  ["ai", "cost", "microusd"],
+  ["total", "ai", "cost", "microusd"],
+].map((parts) => parts.join("_"));
+
 describe("generated API schema policy", () => {
-  it("does not expose removed billing or AI-shaped launch surfaces", () => {
+  it("does not expose removed billing or model-usage-shaped launch surfaces", () => {
     const source = readFileSync(schemaPath, "utf8");
 
-    for (const marker of removedPublicApiMarkers) {
+    for (const marker of [
+      ...removedPublicApiMarkers,
+      ...retiredModelCostMarkers,
+    ]) {
       expect(source).not.toContain(marker);
     }
   });

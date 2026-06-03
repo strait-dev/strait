@@ -41,7 +41,8 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	if body["total_usage_cost_microusd"] != float64(123) {
 		t.Fatalf("total_usage_cost_microusd = %v, want 123", body["total_usage_cost_microusd"])
 	}
-	for _, stale := range []string{"total_ai_cost_microusd", "total_tokens", "by_model"} {
+	retiredCostField := strings.Join([]string{"total", "ai", "cost", "microusd"}, "_")
+	for _, stale := range []string{retiredCostField, "total_tokens", "by_model"} {
 		if _, ok := body[stale]; ok {
 			t.Fatalf("launch response must not expose %q: %s", stale, w.Body.String())
 		}

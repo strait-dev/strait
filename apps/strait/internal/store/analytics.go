@@ -48,7 +48,7 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 	hour = hour.Truncate(time.Hour)
 	nextHour := hour.Add(time.Hour)
 
-	// Launch performance analytics do not read legacy AI usage cost. Runtime
+	// Launch performance analytics do not read retired model usage cost. Runtime
 	// billing totals come from billing cost events, and per-job compute-cost
 	// attribution can be wired here when that source includes job IDs.
 	query := `
