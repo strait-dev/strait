@@ -111,6 +111,13 @@ func NewTier[K comparable, V any](cfg TierConfig[K, V]) *Tier[K, V] {
 	return t
 }
 
+func (t *Tier[K, V]) Close() {
+	if t == nil || t.l1 == nil {
+		return
+	}
+	t.l1.StopAllGoroutines()
+}
+
 func (t *Tier[K, V]) Get(ctx context.Context, key K, loader LoadFunc[K, V]) (V, error) {
 	if t == nil {
 		var zero V

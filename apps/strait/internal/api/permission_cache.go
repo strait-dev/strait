@@ -93,7 +93,12 @@ func newPermissionCache(ttl time.Duration, deps ...apiCacheDeps) *permissionCach
 	return c
 }
 
-func (c *permissionCache) Stop() {}
+func (c *permissionCache) Stop() {
+	if c == nil || c.inner == nil {
+		return
+	}
+	c.inner.Close()
+}
 
 func (c *permissionCache) key(projectID, userID string) string {
 	return projectID + "\x00" + userID

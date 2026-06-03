@@ -82,6 +82,28 @@ func (f *fakeL2[K, V]) Delete(_ context.Context, key K) error {
 	return nil
 }
 
+func TestTier_CloseIsNilSafeAndIdempotent(t *testing.T) {
+	t.Parallel()
+
+	var nilTier *Tier[string, string]
+	nilTier.Close()
+
+	disabledL1 := NewTier[string, string](TierConfig[string, string]{
+		Name:      "test_close_disabled_l1",
+		DisableL1: true,
+	})
+	disabledL1.Close()
+	disabledL1.Close()
+
+	tier := NewTier[string, string](TierConfig[string, string]{
+		Name:        "test_close",
+		MaximumSize: 10,
+		TTL:         time.Minute,
+	})
+	tier.Close()
+	tier.Close()
+}
+
 func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 	t.Parallel()
 

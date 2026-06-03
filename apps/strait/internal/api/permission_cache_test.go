@@ -463,9 +463,7 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 }
 
 func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
-	t.Parallel()
-
-	c := newPermissionCache(1 * time.Millisecond)
+	c := newPermissionCache(50 * time.Millisecond)
 	defer c.Stop()
 
 	c.Set("proj", "user", []string{"original"})

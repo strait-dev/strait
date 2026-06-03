@@ -21,8 +21,6 @@ import (
 // and a handler that never waited at all would leak these goroutines past its
 // own return and tear down the subscriptions while they were still in use.
 func TestProjectActivityStream_FanoutDrains(t *testing.T) {
-	t.Parallel()
-
 	baseline := goleak.IgnoreCurrent()
 
 	subscribed := make(chan struct{}, 8)
@@ -71,5 +69,6 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	}
 
 	// All fanout goroutines must be gone now that the handler has returned.
+	srv.Close()
 	goleak.VerifyNone(t, baseline)
 }

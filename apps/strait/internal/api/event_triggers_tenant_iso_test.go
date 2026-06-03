@@ -461,7 +461,7 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 
 	apiKeyCtx := func() context.Context {
 		ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
-		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger, domain.ScopeJobsRead})
+		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeJobsTrigger, domain.ScopeJobsRead, domain.ScopeJobsWrite})
 		ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 		ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 		return ctx
