@@ -10,7 +10,7 @@ import (
 
 // CostAnalytics holds aggregated cost data for a project over a time range.
 type CostAnalytics struct {
-	TotalAICostMicrousd      int64         `json:"total_usage_cost_microusd"`
+	TotalUsageCostMicrousd   int64         `json:"total_usage_cost_microusd"`
 	TotalComputeCostMicrousd int64         `json:"total_compute_cost_microusd"`
 	TotalTokens              int64         `json:"-"`
 	RunCount                 int           `json:"run_count"`
@@ -37,7 +37,7 @@ type CostByJob struct {
 // CostTrendPoint is a single data point in a cost time-series.
 type CostTrendPoint struct {
 	Period              string `json:"period"`
-	AICostMicrousd      int64  `json:"usage_cost_microusd"`
+	UsageCostMicrousd   int64  `json:"usage_cost_microusd"`
 	ComputeCostMicrousd int64  `json:"compute_cost_microusd"`
 	TotalTokens         int64  `json:"-"`
 	RunCount            int    `json:"run_count"`
@@ -76,17 +76,17 @@ func (q *Queries) GetCostAnalytics(ctx context.Context, projectID string, from, 
 
 func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
 	// Totals from the legacy run_usage table.
-	aiQuery := `
+	usageQuery := `
 		SELECT COALESCE(SUM(u.cost_microusd), 0),
 		       COALESCE(SUM(u.total_tokens), 0),
 		       COUNT(DISTINCT jr.id)
 		FROM run_usage u
 		JOIN job_runs jr ON jr.id = u.run_id
 		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3`
-	if err := q.db.QueryRow(ctx, aiQuery, projectID, from, to).Scan(
-		&result.TotalAICostMicrousd, &result.TotalTokens, &result.RunCount,
+	if err := q.db.QueryRow(ctx, usageQuery, projectID, from, to).Scan(
+		&result.TotalUsageCostMicrousd, &result.TotalTokens, &result.RunCount,
 	); err != nil {
-		return nil, fmt.Errorf("cost analytics ai totals: %w", err)
+		return nil, fmt.Errorf("cost analytics usage totals: %w", err)
 	}
 
 	// run_compute_usage was dropped in 000227; compute cost is now 0 until
@@ -160,7 +160,7 @@ func (q *Queries) getCostAnalyticsMaterialized(ctx context.Context, projectID st
 		FROM cost_stats_hourly
 		WHERE project_id = $1 AND hour >= $2 AND hour < $3`
 	if err := q.db.QueryRow(ctx, totalsQuery, projectID, from, to).Scan(
-		&result.TotalAICostMicrousd, &result.TotalComputeCostMicrousd,
+		&result.TotalUsageCostMicrousd, &result.TotalComputeCostMicrousd,
 		&result.TotalTokens, &result.RunCount,
 	); err != nil {
 		return nil, fmt.Errorf("materialized cost analytics totals: %w", err)
@@ -260,7 +260,7 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 	for rows.Next() {
 		var p CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.AICostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("cost trends live scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)
@@ -291,7 +291,7 @@ func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID strin
 	for rows.Next() {
 		var p CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.AICostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("cost trends materialized scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)
@@ -352,7 +352,7 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 		SELECT
 			jr.project_id,
 			$1 AS hour,
-			COALESCE(SUM(u.cost_microusd), 0) AS ai_cost_microusd,
+			COALESCE(SUM(u.cost_microusd), 0) AS usage_cost_microusd,
 			0 AS compute_cost_microusd,
 			COALESCE(SUM(u.total_tokens), 0) AS total_tokens,
 			COUNT(DISTINCT jr.id) AS run_count

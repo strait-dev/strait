@@ -153,20 +153,20 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 	}
 
 	// Totals from legacy run_usage_events.
-	aiQuery := `
+	usageQuery := `
 		SELECT coalesce(sum(cost_microusd), 0),
 			coalesce(sum(total_tokens), 0),
 			count(DISTINCT run_id)
 		FROM run_usage_events
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
-	aiRow, err := s.client.QueryRow(ctx, aiQuery, projectID, from, to)
+	usageRow, err := s.client.QueryRow(ctx, usageQuery, projectID, from, to)
 	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
+		return nil, fmt.Errorf("clickhouse cost analytics usage totals: %w", err)
 	}
-	if err := aiRow.Scan(
-		&result.TotalAICostMicrousd, &result.TotalTokens, &result.RunCount,
+	if err := usageRow.Scan(
+		&result.TotalUsageCostMicrousd, &result.TotalTokens, &result.RunCount,
 	); err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
+		return nil, fmt.Errorf("clickhouse cost analytics usage totals: %w", err)
 	}
 
 	// By model breakdown.
@@ -241,7 +241,7 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 
 	query := fmt.Sprintf(`
 		SELECT %s(ru.created_at) AS period,
-			coalesce(sum(ru.cost_microusd), 0) AS ai_cost,
+			coalesce(sum(ru.cost_microusd), 0) AS usage_cost,
 			0 AS compute_cost,
 			coalesce(sum(ru.total_tokens), 0),
 			count(DISTINCT ru.run_id)
@@ -260,7 +260,7 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	for rows.Next() {
 		var p store.CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.AICostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("clickhouse cost trends scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)

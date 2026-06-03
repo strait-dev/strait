@@ -18,7 +18,7 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	ms := &AnalyticsStoreMock{
 		GetCostAnalyticsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.CostAnalytics, error) {
 			return &store.CostAnalytics{
-				TotalAICostMicrousd:      123,
+				TotalUsageCostMicrousd:   123,
 				TotalComputeCostMicrousd: 456,
 				TotalTokens:              789,
 				ByModel: []store.CostByModel{
