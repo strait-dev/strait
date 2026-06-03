@@ -14,15 +14,18 @@ type fakeGCStore struct {
 	compacted         int64
 	compactedRetries  int64
 	deletedClaims     int64
+	deletedReady      int64
 	err               error
 	compactErr        error
 	retryCompactErr   error
 	claimErr          error
+	readyErr          error
 	panicRun          bool
 	calls             int
 	compactCalls      int
 	retryCompactCalls int
 	claimCalls        int
+	readyCalls        int
 }
 
 func (f *fakeGCStore) DeleteOrphanedHeartbeats(_ context.Context, _ int) (int64, error) {
@@ -48,6 +51,11 @@ func (f *fakeGCStore) DeleteInactiveActiveClaims(_ context.Context, _ int) (int6
 	return f.deletedClaims, f.claimErr
 }
 
+func (f *fakeGCStore) DeleteInactiveReadyEvents(_ context.Context, _ int) (int64, error) {
+	f.readyCalls++
+	return f.deletedReady, f.readyErr
+}
+
 func TestHeartbeatGC_Defaults(t *testing.T) {
 	g := NewHeartbeatGC(&fakeGCStore{}, HeartbeatGCConfig{})
 	if g.interval != time.Hour {
@@ -59,14 +67,14 @@ func TestHeartbeatGC_Defaults(t *testing.T) {
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
-	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5}
+	s := &fakeGCStore{deleted: 17, compacted: 23, compactedRetries: 11, deletedClaims: 5, deletedReady: 7}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 56 {
-		t.Errorf("total = %d, want 56", g.TotalDeleted())
+	if g.TotalDeleted() != 63 {
+		t.Errorf("total = %d, want 63", g.TotalDeleted())
 	}
-	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 {
-		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls)
+	if s.calls != 1 || s.compactCalls != 1 || s.retryCompactCalls != 1 || s.claimCalls != 1 || s.readyCalls != 1 {
+		t.Errorf("calls = %d compactCalls = %d retryCompactCalls = %d claimCalls = %d readyCalls = %d", s.calls, s.compactCalls, s.retryCompactCalls, s.claimCalls, s.readyCalls)
 	}
 }
 
@@ -120,6 +128,14 @@ func TestHeartbeatGC_ActiveClaimError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	if err := g.runOnce(context.Background()); err == nil {
 		t.Error("expected active claim error propagation")
+	}
+}
+
+func TestHeartbeatGC_ReadyEventError(t *testing.T) {
+	s := &fakeGCStore{readyErr: errors.New("oops")}
+	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
+	if err := g.runOnce(context.Background()); err == nil {
+		t.Error("expected ready event error propagation")
 	}
 }
 

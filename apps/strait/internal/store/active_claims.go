@@ -53,3 +53,36 @@ func (q *Queries) DeleteInactiveActiveClaims(ctx context.Context, limit int) (in
 	}
 	return tag.RowsAffected(), nil
 }
+
+// DeleteInactiveReadyEvents physically removes ready-event history that no
+// longer contributes to the run read model. Current-generation ready events are
+// retained because job_run_read_state uses them to overlay delayed, retry, and
+// paused-resume readiness without mutating job_run_state.
+func (q *Queries) DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteInactiveReadyEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_ready_events e
+			LEFT JOIN job_run_state s ON s.run_id = e.run_id
+			LEFT JOIN job_run_terminal_state t ON t.run_id = e.run_id
+			WHERE t.run_id IS NOT NULL
+			   OR s.run_id IS NULL
+			   OR s.ready_generation <> e.ready_generation
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_ready_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete inactive ready events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

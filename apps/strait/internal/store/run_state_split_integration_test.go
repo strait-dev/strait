@@ -983,3 +983,92 @@ func TestRunStateSplit_DeleteInactiveActiveClaimsKeepsCurrentClaimAndDeletesCold
 		t.Fatalf("remaining active claim runs = %v, want %v", remainingRunIDs, wantRemaining)
 	}
 }
+
+func TestRunStateSplit_DeleteInactiveReadyEventsKeepsCurrentGenerationAndDeletesColdRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-ready-event-cleanup")
+	current := baseRun(job, newID())
+	current.Status = domain.StatusDelayed
+	if err := q.CreateRun(ctx, current); err != nil {
+		t.Fatalf("CreateRun current error = %v", err)
+	}
+	staleGeneration := baseRun(job, newID())
+	staleGeneration.Status = domain.StatusDelayed
+	if err := q.CreateRun(ctx, staleGeneration); err != nil {
+		t.Fatalf("CreateRun stale generation error = %v", err)
+	}
+	terminal := baseRun(job, newID())
+	terminal.Status = domain.StatusQueued
+	if err := q.CreateRun(ctx, terminal); err != nil {
+		t.Fatalf("CreateRun terminal error = %v", err)
+	}
+	orphanID := newID()
+
+	for _, runID := range []string{current.ID, staleGeneration.ID, terminal.ID} {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			SELECT run_id, ready_generation, attempt, 'delayed_due'
+			FROM job_run_state
+			WHERE run_id = $1`,
+			runID,
+		); err != nil {
+			t.Fatalf("insert current ready event for %s: %v", runID, err)
+		}
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		VALUES ($1, 1, 1, 'delayed_due')`,
+		orphanID,
+	); err != nil {
+		t.Fatalf("insert orphan ready event: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET ready_generation = ready_generation + 1
+		WHERE run_id = $1`,
+		staleGeneration.ID,
+	); err != nil {
+		t.Fatalf("mark stale ready generation: %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, terminal.ID, domain.StatusQueued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus terminal executing error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, terminal.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus terminal completed error = %v", err)
+	}
+
+	deleted, err := q.DeleteInactiveReadyEvents(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveReadyEvents() error = %v", err)
+	}
+	if deleted != 3 {
+		t.Fatalf("deleted inactive ready events = %d, want 3", deleted)
+	}
+	var remaining int
+	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_ready_events`).Scan(&remaining); err != nil {
+		t.Fatalf("query remaining ready events: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("remaining ready events = %d, want 1 current-generation event", remaining)
+	}
+	var remainingRunID string
+	if err := testDB.Pool.QueryRow(ctx, `SELECT run_id FROM job_run_ready_events`).Scan(&remainingRunID); err != nil {
+		t.Fatalf("query remaining ready event run: %v", err)
+	}
+	if remainingRunID != current.ID {
+		t.Fatalf("remaining ready event run = %s, want %s", remainingRunID, current.ID)
+	}
+
+	run, err := q.GetRun(ctx, current.ID)
+	if err != nil {
+		t.Fatalf("GetRun current: %v", err)
+	}
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("current run read status = %q, want queued from ready overlay", run.Status)
+	}
+}

@@ -32,6 +32,7 @@ type HeartbeatGCStore interface {
 	CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error)
 	CompactSupersededRetries(ctx context.Context, limit int) (int64, error)
 	DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error)
+	DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -142,10 +143,15 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("active claim GC failed", "error", err)
 		return err
 	}
-	total := deleted + compacted + compactedRetries + deletedClaims
+	deletedReadyEvents, err := h.store.DeleteInactiveReadyEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("ready event GC failed", "error", err)
+		return err
+	}
+	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents
 	h.totalDeleted.Add(total)
 	if total > 0 {
-		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims)
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents)
 	}
 	return nil
 }
