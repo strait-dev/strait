@@ -134,6 +134,46 @@ func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
 	}
 }
 
+func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
+	ctx := context.Background()
+	routeKey := pgQueWorkerRouteKey("project-a", "priority", "production")
+	db := &mockDBTX{}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	refs := []domain.WorkerQueueRef{{
+		ProjectID:     "project-a",
+		QueueName:     "priority",
+		EnvironmentID: "production",
+	}}
+
+	first, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		t.Fatalf("workerRouteKeys first error = %v", err)
+	}
+	if !slices.Equal(first, []string{routeKey}) {
+		t.Fatalf("first worker routes = %v, want %v", first, []string{routeKey})
+	}
+
+	refCacheKey := refs[0]
+	refCacheKey.QueueName = runQueueName(refCacheKey.QueueName)
+	q.routeMu.Lock()
+	if _, ok := q.routeRefCache[refCacheKey]; !ok {
+		q.routeMu.Unlock()
+		t.Fatal("worker ref cache was not populated")
+	}
+	q.routeMu.Unlock()
+
+	if err := q.ensureRoute(ctx, db, routeKey, pgQueQueueName(routeKey)); err != nil {
+		t.Fatalf("ensureRoute error = %v", err)
+	}
+
+	q.routeMu.Lock()
+	_, ok := q.routeRefCache[refCacheKey]
+	q.routeMu.Unlock()
+	if ok {
+		t.Fatal("worker ref cache was not invalidated")
+	}
+}
+
 func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
 	ctx := context.Background()
 	prefix := pgQueWorkerRouteKey("project-a", "priority", "")
