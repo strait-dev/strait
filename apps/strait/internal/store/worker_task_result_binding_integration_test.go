@@ -155,6 +155,52 @@ func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHan
 	}
 }
 
+func TestIntegration_MarkWorkerTaskResultReceived_SkipsDuplicateHandoffWrites(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+
+	q := store.New(env.DB.Pool)
+	_, _, _, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
+	marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
+	if err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
+	}
+	if !marked {
+		t.Fatal("MarkWorkerTaskResultReceived marked = false, want true")
+	}
+
+	var receivedXmin string
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&receivedXmin); err != nil {
+		t.Fatalf("query result_received worker task version: %v", err)
+	}
+
+	markedAgain, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
+	if err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceived duplicate: %v", err)
+	}
+	if !markedAgain {
+		t.Fatal("duplicate MarkWorkerTaskResultReceived marked = false, want true")
+	}
+
+	var duplicateReceivedXmin string
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&duplicateReceivedXmin); err != nil {
+		t.Fatalf("query duplicate result_received worker task version: %v", err)
+	}
+	if duplicateReceivedXmin != receivedXmin {
+		t.Fatalf("duplicate result_received handoff changed xmin from %s to %s", receivedXmin, duplicateReceivedXmin)
+	}
+}
+
 func TestIntegration_UpdateWorkerTaskStatus_SkipsDuplicateStatusWrites(t *testing.T) {
 	ctx := context.Background()
 	env := mustEnv(t, ctx)

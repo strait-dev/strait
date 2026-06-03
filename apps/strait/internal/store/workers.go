@@ -498,17 +498,29 @@ func (q *Queries) MarkWorkerTaskResultReceived(ctx context.Context, taskID strin
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.MarkWorkerTaskResultReceived")
 	defer span.End()
 
-	tag, err := q.db.Exec(ctx,
-		`UPDATE worker_tasks
-		 SET status = $1
-		 WHERE id = $2
-		   AND status IN ('assigned', 'accepted', 'result_received')`,
+	var marked bool
+	err := q.db.QueryRow(ctx,
+		`WITH updated AS (
+			UPDATE worker_tasks
+			SET status = $1
+			WHERE id = $2
+			  AND status IN ('assigned', 'accepted')
+			RETURNING 1
+		),
+		existing AS (
+			SELECT 1
+			FROM worker_tasks
+			WHERE id = $2
+			  AND status = $1
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT EXISTS (SELECT 1 FROM updated UNION ALL SELECT 1 FROM existing)`,
 		string(domain.WorkerTaskStatusResultReceived), taskID,
-	)
+	).Scan(&marked)
 	if err != nil {
 		return false, fmt.Errorf("mark worker task result received: %w", err)
 	}
-	return tag.RowsAffected() == 1, nil
+	return marked, nil
 }
 
 // MarkWorkerTaskResultReceivedByAssignment durably records a worker result for
