@@ -80,8 +80,7 @@ const MESSAGING: Record<
 > = {
   new_user: {
     title: "Choose your plan",
-    description:
-      "All features included on every plan. Start free, upgrade when you need more.",
+    description: "Start free, then upgrade when you need higher launch limits.",
     buttonText: "Get started",
   },
   checkout_recovery: {

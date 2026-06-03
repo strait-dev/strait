@@ -82,7 +82,7 @@ With a `reject` or `block` action, once month-to-date spend reaches the budget, 
 
 The top-level `code` is always `quota_exceeded`, so clients can branch on a single string; `kind` carries the specific reason (`project_budget_reached`). Other plan limits use the same envelope with a different `kind`. A `notify` budget never returns this error: it only records that the limit was crossed.
 
-## Per-Run and Daily Limits
+## Internal Cost Ceilings
 
 Strait also has internal fields for a per-run cost ceiling (`max_cost_per_run_microusd`) and a per-day cost ceiling (`max_daily_cost_microusd`). These are not configurable in the launch product.
 
