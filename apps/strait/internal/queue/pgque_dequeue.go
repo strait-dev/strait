@@ -196,6 +196,11 @@ func removeReservedMessages(batch *pgQueActiveBatch, invalid []pgQueMessage, can
 	if removeCount == 0 {
 		return
 	}
+	if removeCount == len(batch.Messages) {
+		clear(batch.Messages)
+		batch.Messages = batch.Messages[:0]
+		return
+	}
 	if removeCount == 1 {
 		var removeID int64
 		if len(invalid) == 1 {
