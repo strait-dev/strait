@@ -180,7 +180,7 @@ Every error response follows the same shape:
 
 ### Bulk Operations
 
-- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to the configured `MAX_BULK_TRIGGER_ITEMS` limit in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 5 requests per minute.
+- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to the configured `MAX_BULK_TRIGGER_ITEMS` limit in a single request. Supports per-item payload, dispatch priority within the shared platform range, idempotency keys, and tags. This `priority` field is not the roadmap paid priority-queue entitlement. Returns structured results with per-item status. Rate limited to 5 requests per minute.
 - `POST /v1/runs/bulk-cancel`: Cancel up to 100 runs in a single request. Returns per-run cancel status with error details for runs that could not be canceled.
 
 ### Version Analysis
