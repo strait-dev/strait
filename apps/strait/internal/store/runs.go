@@ -2309,11 +2309,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		return nil, fmt.Errorf("get debug bundle checkpoints: %w", err)
 	}
 
-	usage, err := q.ListRunUsage(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle usage: %w", err)
-	}
-
 	toolCalls, err := q.ListRunToolCalls(ctx, runID, 1000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle tool calls: %w", err)
@@ -2333,7 +2328,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		Run:               run,
 		Events:            events,
 		Checkpoints:       checkpoints,
-		Usage:             usage,
 		ToolCalls:         toolCalls,
 		Outputs:           outputs,
 		ResourceSnapshots: resourceSnapshots,

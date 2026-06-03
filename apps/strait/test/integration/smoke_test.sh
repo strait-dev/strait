@@ -60,7 +60,7 @@ if [ "$JOB_ID" != "skip" ]; then
 
   if [ "$RUN_ID" != "skip" ]; then
     check "GET run" "$(api_code "$BASE/v1/runs/$RUN_ID")" "200"
-    check "GET run usage" "$(api_code "$BASE/v1/runs/$RUN_ID/usage")" "200"
+    check "GET run usage removed" "$(api_code "$BASE/v1/runs/$RUN_ID/usage")" "404"
     check "GET run tool-calls" "$(api_code "$BASE/v1/runs/$RUN_ID/tool-calls")" "200"
     check "GET run outputs" "$(api_code "$BASE/v1/runs/$RUN_ID/outputs")" "200"
     check "GET run events" "$(api_code "$BASE/v1/runs/$RUN_ID/events")" "200"

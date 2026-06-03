@@ -154,9 +154,10 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 				result.RetentionDays += increment
 			}
 		case AddonComplianceArchive:
-			result.HasSIEMExport = true
+			// Compliance archive remains roadmap at launch until the export
+			// pipeline is wired end to end.
 		case AddonDedicatedWorkers:
-			result.HasDedicatedCompute = true
+			// Dedicated worker pools remain roadmap at launch.
 		case AddonEnvironments5:
 			if result.MaxEnvironments != -1 {
 				result.MaxEnvironments += increment

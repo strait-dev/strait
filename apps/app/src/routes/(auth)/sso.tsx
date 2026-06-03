@@ -21,7 +21,7 @@ function SsoPage() {
   const { redirect: redirectTo } = Route.useSearch();
 
   return (
-    <AuthLayout title="Enterprise SSO">
+    <AuthLayout title="SSO roadmap">
       <SsoForm redirectTo={redirectTo} />
       <p className="text-center text-muted-foreground text-sm">
         <Link

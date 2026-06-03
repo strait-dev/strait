@@ -6244,12 +6244,6 @@ func TestGetDebugBundle(t *testing.T) {
 		t.Fatalf("CreateRunCheckpoint() error = %v", err)
 	}
 
-	// Insert a usage record
-	usage := &domain.RunUsage{ID: newID(), RunID: run.ID, Provider: "openai", Model: "gpt-4", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, CostMicrousd: 100}
-	if err := q.CreateRunUsage(ctx, usage); err != nil {
-		t.Fatalf("CreateRunUsage() error = %v", err)
-	}
-
 	// Insert a tool call
 	tc := &domain.RunToolCall{ID: newID(), RunID: run.ID, ToolName: "search", Input: json.RawMessage(`{"q":"test"}`), Output: json.RawMessage(`{"r":"ok"}`), DurationMs: 42, Status: "completed"}
 	if err := q.CreateRunToolCall(ctx, tc); err != nil {
@@ -6277,9 +6271,6 @@ func TestGetDebugBundle(t *testing.T) {
 	}
 	if len(bundle.Checkpoints) != 1 {
 		t.Fatalf("bundle.Checkpoints len = %d, want 1", len(bundle.Checkpoints))
-	}
-	if len(bundle.Usage) != 1 {
-		t.Fatalf("bundle.Usage len = %d, want 1", len(bundle.Usage))
 	}
 	if len(bundle.ToolCalls) != 1 {
 		t.Fatalf("bundle.ToolCalls len = %d, want 1", len(bundle.ToolCalls))
@@ -6321,12 +6312,6 @@ func TestGetDebugBundle_EmptyCollections(t *testing.T) {
 	}
 	if len(bundle.Checkpoints) != 0 {
 		t.Fatalf("bundle.Checkpoints len = %d, want 0", len(bundle.Checkpoints))
-	}
-	if bundle.Usage == nil {
-		t.Fatal("bundle.Usage is nil, want empty slice")
-	}
-	if len(bundle.Usage) != 0 {
-		t.Fatalf("bundle.Usage len = %d, want 0", len(bundle.Usage))
 	}
 	if bundle.ToolCalls == nil {
 		t.Fatal("bundle.ToolCalls is nil, want empty slice")

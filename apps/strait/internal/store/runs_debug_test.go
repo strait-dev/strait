@@ -121,21 +121,6 @@ func TestGetDebugBundle(t *testing.T) {
 					return nil
 				},
 			}}, nil
-		case strings.Contains(sql, "FROM run_usage"):
-			return &mockRows{scanFns: []func(dest ...any) error{
-				func(dest ...any) error {
-					*dest[0].(*string) = "usage-1"
-					*dest[1].(*string) = "run-1"
-					*dest[2].(*string) = "openai"
-					*dest[3].(*string) = "gpt"
-					*dest[4].(*int) = 10
-					*dest[5].(*int) = 20
-					*dest[6].(*int) = 30
-					*dest[7].(*int64) = 100
-					*dest[8].(*time.Time) = now
-					return nil
-				},
-			}}, nil
 		case strings.Contains(sql, "FROM run_tool_calls"):
 			return &mockRows{scanFns: []func(dest ...any) error{
 				func(dest ...any) error {
@@ -182,9 +167,9 @@ func TestGetDebugBundle(t *testing.T) {
 	if !bundle.Run.DebugMode {
 		t.Fatal("expected debug mode to be true")
 	}
-	if len(bundle.Events) != 1 || len(bundle.Checkpoints) != 1 || len(bundle.Usage) != 1 || len(bundle.ToolCalls) != 1 || len(bundle.Outputs) != 1 {
-		t.Fatalf("unexpected bundle lengths: events=%d checkpoints=%d usage=%d tool_calls=%d outputs=%d",
-			len(bundle.Events), len(bundle.Checkpoints), len(bundle.Usage), len(bundle.ToolCalls), len(bundle.Outputs))
+	if len(bundle.Events) != 1 || len(bundle.Checkpoints) != 1 || len(bundle.ToolCalls) != 1 || len(bundle.Outputs) != 1 {
+		t.Fatalf("unexpected bundle lengths: events=%d checkpoints=%d tool_calls=%d outputs=%d",
+			len(bundle.Events), len(bundle.Checkpoints), len(bundle.ToolCalls), len(bundle.Outputs))
 	}
 }
 

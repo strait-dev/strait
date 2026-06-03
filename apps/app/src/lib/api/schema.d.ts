@@ -5898,7 +5898,6 @@ export type components = {
       resource_snapshots: components["schemas"]["RunResourceSnapshot"][] | null;
       run: components["schemas"]["JobRun"];
       tool_calls: components["schemas"]["RunToolCall"][] | null;
-      usage: components["schemas"]["RunUsage"][] | null;
     };
     DebugStep: {
       /** Format: int64 */
@@ -6647,8 +6646,8 @@ export type components = {
       /** Format: int64 */
       cron_min_interval_sec: number;
       display_name: string;
-      has_audit_logs: boolean;
       has_approval_gates: boolean;
+      has_audit_logs: boolean;
       has_canary_deployments: boolean;
       has_compensating_txns: boolean;
       has_job_chaining: boolean;
@@ -6973,22 +6972,6 @@ export type components = {
       run_id: string;
       status: string;
       tool_name: string;
-    };
-    RunUsage: {
-      /** Format: int64 */
-      completion_tokens: number;
-      /** Format: int64 */
-      cost_microusd: number;
-      /** Format: date-time */
-      created_at: string;
-      id: string;
-      model: string;
-      /** Format: int64 */
-      prompt_tokens: number;
-      provider: string;
-      run_id: string;
-      /** Format: int64 */
-      total_tokens: number;
     };
     SDKAnnotateRequest: {
       /**

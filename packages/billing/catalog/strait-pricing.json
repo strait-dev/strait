@@ -322,7 +322,7 @@
     {
       "tier": "enterprise",
       "displayName": "Enterprise",
-      "description": "For single-tenant deployments, custom contracts, and BYO-cloud.",
+      "description": "For custom contracts and roadmap isolation options.",
       "prices": { "monthlyCents": -1, "annualCents": -1 },
       "lookupKeys": { "monthly": "", "annual": "", "overage": "" },
       "overage": {
