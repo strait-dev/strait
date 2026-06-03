@@ -116,6 +116,9 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"has_session_management",
 		"has_secret_rotation",
 		"has_siem_export",
+		"preferred_regions",
+		"default_region",
+		"RegionResponse",
 		"stream-deployment-logs",
 		"machine_id",
 	} {
@@ -130,7 +133,7 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 	}
 }
 
-func TestOpenAPISchema_IncludesRegionsEndpoint(t *testing.T) {
+func TestOpenAPISchema_DoesNotExposeLaunchInactiveRegionSurface(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
@@ -148,8 +151,8 @@ func TestOpenAPISchema_IncludesRegionsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
 		t.Fatalf("unmarshal openapi spec: %v", err)
 	}
-	if _, ok := spec.Paths["/v1/regions"]["get"]; !ok {
-		t.Fatal("openapi spec is missing GET /v1/regions")
+	if _, ok := spec.Paths["/v1/regions"]; ok {
+		t.Fatal("openapi spec exposes launch-inactive /v1/regions endpoint")
 	}
 }
 

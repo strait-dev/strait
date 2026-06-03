@@ -67,13 +67,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleDeleteSecret)
 
-	// -- Regions --
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-regions", Method: http.MethodGet, Path: "/v1/regions",
-		Summary: "List available regions", Description: "Returns all supported execution regions with display metadata.",
-		Tags: []string{"Regions"}, Security: bearerSecurity, Errors: []int{401, 500},
-	}, s.handleGetRegions)
-
 	// -- Billing --
 	RegisterTypedOp(api, OpMeta{
 		ID: "list-plans", Method: http.MethodGet, Path: "/v1/plans",

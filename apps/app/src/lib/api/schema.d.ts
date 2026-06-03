@@ -3016,26 +3016,6 @@ export type paths = {
     patch?: never;
     trace?: never;
   };
-  "/v1/regions": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /**
-     * List available regions
-     * @description Returns all supported execution regions with display metadata.
-     */
-    get: operations["list-regions"];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   "/v1/resource-policies": {
     parameters: {
       query?: never;
@@ -5688,7 +5668,6 @@ export type components = {
        * @description Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables.
        */
       poison_pill_threshold?: number;
-      preferred_regions?: string[] | null;
       project_id: string;
       queue_name?: string;
       /** Format: int64 */
@@ -6197,15 +6176,6 @@ export type components = {
       readonly $schema?: string;
       plans: components["schemas"]["PlanResponse"][] | null;
     };
-    GetRegionsOutputBody: {
-      /**
-       * Format: uri
-       * @description A URL to the JSON Schema for this object.
-       * @example https://api.strait.dev/schemas/GetRegionsOutputBody.json
-       */
-      readonly $schema?: string;
-      regions: components["schemas"]["RegionResponse"][] | null;
-    };
     HealthCheckOutputBody: {
       /**
        * Format: uri
@@ -6279,7 +6249,6 @@ export type components = {
       payload_schema?: unknown;
       /** Format: int64 */
       poison_pill_threshold?: number;
-      preferred_regions?: string[] | null;
       project_id: string;
       queue?: string;
       /** Format: int64 */
@@ -6748,7 +6717,6 @@ export type components = {
        * @example https://api.strait.dev/schemas/ProjectSettingsResponse.json
        */
       readonly $schema?: string;
-      default_region: string;
       /** Format: int64 */
       max_key_lifetime_days: number;
       plan_tier: string;
@@ -6771,16 +6739,6 @@ export type components = {
       name: string;
       /** Format: int64 */
       window_secs: number;
-    };
-    RegionResponse: {
-      availability?: {
-        [key: string]: boolean;
-      };
-      city: string;
-      code: string;
-      continent: string;
-      country: string;
-      label: string;
     };
     ReplayDeadletterResponse: {
       /**
@@ -7476,7 +7434,6 @@ export type components = {
        * @description Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables.
        */
       poison_pill_threshold?: number;
-      preferred_regions?: string[];
       queue_name?: string;
       /** Format: int64 */
       rate_limit_max?: number;
@@ -7547,7 +7504,6 @@ export type components = {
        * @example https://api.strait.dev/schemas/UpdateProjectSettingsRequest.json
        */
       readonly $schema?: string;
-      default_region?: string;
       /** Format: int64 */
       max_key_lifetime_days?: number;
     };
@@ -20725,44 +20681,6 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-      /** @description Internal Server Error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["ErrorResponse"];
-        };
-      };
-    };
-  };
-  "list-regions": {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          "application/json": components["schemas"]["GetRegionsOutputBody"];
-        };
-      };
-      /** @description Unauthorized */
-      401: {
         headers: {
           [name: string]: unknown;
         };

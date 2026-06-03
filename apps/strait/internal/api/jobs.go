@@ -58,7 +58,6 @@ type CreateJobRequest struct {
 	ExecutionMode             string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	Enabled                   *bool             `json:"enabled,omitempty"`
 	QueueName                 string            `json:"queue_name,omitempty"`
-	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int              `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
@@ -107,7 +106,6 @@ type UpdateJobRequest struct {
 	BatchMaxSize              *int               `json:"batch_max_size,omitempty" validate:"omitempty,min=0"`
 	ExecutionMode             *string            `json:"execution_mode,omitempty" validate:"omitempty,oneof=http worker"`
 	QueueName                 *string            `json:"queue_name,omitempty"`
-	PreferredRegions          *[]string          `json:"preferred_regions,omitempty"`
 	PoisonPillThreshold       *int               `json:"poison_pill_threshold,omitempty" validate:"omitempty,min=1" doc:"Consecutive identical errors before auto-quarantine to DLQ. NULL or 0 disables."`
 	OnCompleteTriggerWorkflow *string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      *string            `json:"on_complete_trigger_job,omitempty"`
@@ -197,7 +195,6 @@ func (s *Server) handleCreateJob(ctx context.Context, input *CreateJobInput) (*C
 		BatchMaxSize:              req.BatchMaxSize,
 		ExecutionMode:             execMode,
 		Queue:                     normalizeJobQueueName(req.QueueName),
-		PreferredRegions:          req.PreferredRegions,
 		PoisonPillThreshold:       req.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: req.OnCompleteTriggerWorkflow,
 		OnCompleteTriggerJob:      req.OnCompleteTriggerJob,
@@ -359,9 +356,6 @@ func (s *Server) validateCreateJobFields(ctx context.Context, req *CreateJobRequ
 	}
 	if err := s.validateWindowsAgainstRetention(req.RateLimitWindowSecs, req.DedupWindowSecs); err != nil {
 		return huma.Error400BadRequest(err.Error())
-	}
-	if err := s.checkPreferredRegionsForPlan(ctx, req.ProjectID, req.PreferredRegions); err != nil {
-		return err
 	}
 	if err := validateQueueName(req.QueueName); err != nil {
 		return huma.Error400BadRequest(err.Error())
@@ -741,12 +735,6 @@ func (s *Server) applyJobMetadataUpdate(ctx context.Context, job *domain.Job, re
 		}
 		job.Queue = normalizeJobQueueName(*req.QueueName)
 	}
-	if req.PreferredRegions != nil {
-		if err := s.checkPreferredRegionsForPlan(ctx, job.ProjectID, *req.PreferredRegions); err != nil {
-			return err
-		}
-		job.PreferredRegions = *req.PreferredRegions
-	}
 	if req.PoisonPillThreshold != nil {
 		job.PoisonPillThreshold = req.PoisonPillThreshold
 	}
@@ -1098,7 +1086,6 @@ func (s *Server) handleCloneJob(ctx context.Context, input *CloneJobInput) (*Clo
 		CronOverlapPolicy:         source.CronOverlapPolicy,
 		ExecutionMode:             source.ExecutionMode,
 		Queue:                     normalizeJobQueueName(source.Queue),
-		PreferredRegions:          source.PreferredRegions,
 		PoisonPillThreshold:       source.PoisonPillThreshold,
 		OnCompleteTriggerWorkflow: source.OnCompleteTriggerWorkflow,
 		OnCompleteTriggerJob:      source.OnCompleteTriggerJob,
@@ -1333,7 +1320,6 @@ func (s *Server) handleBatchCreateJobs(ctx context.Context, input *BatchCreateJo
 			RetryDelaysSecs:       jobReq.RetryDelaysSecs,
 			RetryPriorityBoost:    jobReq.RetryPriorityBoost,
 			EnvironmentID:         jobReq.EnvironmentID,
-			PreferredRegions:      jobReq.PreferredRegions,
 			Enabled:               true,
 			ExecutionMode:         execMode,
 			Queue:                 normalizeJobQueueName(jobReq.QueueName),

@@ -260,9 +260,6 @@ type Config struct {
 	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
 	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
 
-	// Region gating
-	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
-
 	// ClickHouse (optional analytics)
 	ClickHouseEnabled       bool          `env:"CLICKHOUSE_ENABLED" default:"false"`
 	ClickHouseURL           string        `env:"CLICKHOUSE_URL"`

@@ -362,7 +362,7 @@ type Job struct {
 	BatchMaxSize              int               `json:"batch_max_size,omitempty"`
 	ExecutionMode             ExecutionMode     `json:"execution_mode,omitempty"`
 	Queue                     string            `json:"queue,omitempty"`
-	PreferredRegions          []string          `json:"preferred_regions,omitempty"`
+	PreferredRegions          []string          `json:"-"`
 	OnCompleteTriggerWorkflow string            `json:"on_complete_trigger_workflow,omitempty"`
 	OnCompleteTriggerJob      string            `json:"on_complete_trigger_job,omitempty"`
 	OnCompletePayloadMapping  json.RawMessage   `json:"on_complete_payload_mapping,omitempty"`
