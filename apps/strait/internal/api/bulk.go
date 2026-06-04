@@ -41,23 +41,6 @@ type BulkTriggerResponse struct {
 	Created int                 `json:"created"`
 }
 
-type BulkCancelRequest struct {
-	RunIDs []string `json:"run_ids" validate:"required,min=1"`
-}
-
-type BulkCancelResult struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
-}
-
-type BulkCancelResponse struct {
-	Results  []BulkCancelResult `json:"results"`
-	Total    int                `json:"total"`
-	Canceled int                `json:"canceled"`
-	Failed   int                `json:"failed"`
-}
-
 type BulkTriggerJobInput struct {
 	JobID string `path:"jobID"`
 	Body  BulkTriggerRequest
@@ -130,66 +113,6 @@ func (s *Server) handleBulkTriggerJob(ctx context.Context, input *BulkTriggerJob
 			Results: state.results,
 			Total:   len(req.Items),
 			Created: state.created,
-		},
-	}, nil
-}
-
-type BulkCancelRunsInput struct {
-	Body BulkCancelRequest
-}
-
-type BulkCancelRunsOutput struct {
-	Body BulkCancelResponse
-}
-
-func (s *Server) handleBulkCancelRuns(ctx context.Context, input *BulkCancelRunsInput) (*BulkCancelRunsOutput, error) {
-	req := input.Body
-	if err := s.validate.Struct(&req); err != nil {
-		return nil, newValidationError(err)
-	}
-
-	if len(req.RunIDs) > 100 {
-		return nil, huma.Error400BadRequest("maximum 100 run IDs per bulk cancel request")
-	}
-
-	// Fetch once, then partition locally so the response preserves the
-	// caller's requested run IDs and reports per-run failures.
-	runsMap, err := s.store.GetRunsByIDs(ctx, req.RunIDs)
-	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to fetch runs")
-	}
-
-	canceled := 0
-	selection := s.selectBulkCancelableRuns(ctx, req.RunIDs, runsMap)
-
-	if len(selection.cancelableIDs) > 0 {
-		now := time.Now()
-		cancelResults, cancelErr := s.store.BulkCancelRuns(ctx, selection.cancelableIDs, now, "canceled by user (bulk)")
-		if cancelErr != nil {
-			return nil, huma.Error500InternalServerError("failed to cancel runs")
-		}
-
-		canceled = selection.appendStoreResults(runsMap, cancelResults)
-
-		// Child cancellation is best-effort: parent cancellation has already
-		// succeeded, and retrying the whole request would duplicate results.
-		if _, err := s.store.CancelChildRunsByParentIDs(ctx, selection.cancelableIDs, now, "parent run canceled (bulk)"); err != nil {
-			slog.Error("failed to cancel child runs in bulk", "error", err)
-		}
-	}
-
-	s.emitAuditEvent(ctx, domain.AuditActionRunBulkCancelled, "run", "", map[string]any{
-		"total":    len(req.RunIDs),
-		"canceled": canceled,
-		"failed":   selection.failed,
-	})
-
-	return &BulkCancelRunsOutput{
-		Body: BulkCancelResponse{
-			Results:  selection.results,
-			Total:    len(req.RunIDs),
-			Canceled: canceled,
-			Failed:   selection.failed,
 		},
 	}, nil
 }

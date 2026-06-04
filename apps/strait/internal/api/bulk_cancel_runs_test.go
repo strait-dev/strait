@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -66,6 +67,54 @@ func TestSelectBulkCancelableRuns_HidesEnvironmentMismatch(t *testing.T) {
 	wantResults := []BulkCancelResult{{ID: "run-env-b", Status: "failed", Error: "run not found"}}
 	if !reflect.DeepEqual(selection.results, wantResults) {
 		t.Fatalf("results = %#v, want %#v", selection.results, wantResults)
+	}
+}
+
+func TestHandleBulkCancelRunsSkipsStoreCancelWhenNoRunsCancelable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "project-1")
+	ms := &APIStoreMock{
+		GetRunsByIDsFunc: func(_ context.Context, ids []string) (map[string]*domain.JobRun, error) {
+			if !reflect.DeepEqual(ids, []string{"run-terminal", "run-missing"}) {
+				t.Fatalf("ids = %#v, want requested run order", ids)
+			}
+			return map[string]*domain.JobRun{
+				"run-terminal": {
+					ID:        "run-terminal",
+					ProjectID: "project-1",
+					Status:    domain.StatusCompleted,
+				},
+			}, nil
+		},
+		BulkCancelRunsFunc: func(context.Context, []string, time.Time, string) ([]store.BulkCancelResult, error) {
+			t.Fatal("BulkCancelRuns must not be called when no runs are cancelable")
+			return nil, nil
+		},
+		CancelChildRunsByParentIDsFunc: func(context.Context, []string, time.Time, string) (int64, error) {
+			t.Fatal("CancelChildRunsByParentIDs must not be called when no parent runs were canceled")
+			return 0, nil
+		},
+	}
+	srv := newTestServer(t, ms, &mockQueue{}, nil)
+
+	output, err := srv.handleBulkCancelRuns(ctx, &BulkCancelRunsInput{
+		Body: BulkCancelRequest{RunIDs: []string{"run-terminal", "run-missing"}},
+	})
+	if err != nil {
+		t.Fatalf("handleBulkCancelRuns() error = %v", err)
+	}
+
+	if output.Body.Canceled != 0 || output.Body.Failed != 2 || output.Body.Total != 2 {
+		t.Fatalf("response counters = canceled:%d failed:%d total:%d, want 0/2/2",
+			output.Body.Canceled, output.Body.Failed, output.Body.Total)
+	}
+	wantResults := []BulkCancelResult{
+		{ID: "run-terminal", Status: string(domain.StatusCompleted), Error: "run already in terminal state"},
+		{ID: "run-missing", Status: "failed", Error: "run not found"},
+	}
+	if !reflect.DeepEqual(output.Body.Results, wantResults) {
+		t.Fatalf("results = %#v, want %#v", output.Body.Results, wantResults)
 	}
 }
 
