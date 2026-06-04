@@ -153,6 +153,14 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `ENDPOINT_REQUIRE_TLS` | `false` | Require HTTPS for job endpoint and fallback endpoint URLs. Job dispatch injects decrypted secrets and the run-token JWT, so enable this to reject plaintext HTTP endpoints. |
 | `ALLOW_PRIVATE_ENDPOINTS` | `false` | Allow private endpoint URLs. Not recommended unless the network is trusted. |
 
+## Billing
+
+| Variable | Default | Description |
+|---|---|---|
+| `BILLING_ENFORCEMENT_ENABLED` | `false` | Enables cloud plan gates, run-limit enforcement, spending-cap enforcement, and worker billing hooks. Required for cloud builds outside development and test environments. |
+| `STRIPE_SECRET_KEY` | - | Stripe API key used for metered usage reporting and billing operations. |
+| `STRIPE_WEBHOOK_SECRET` | - | Stripe webhook signing secret. Required for cloud builds outside development and test environments. |
+
 ## CDC / Sequin
 
 | Variable | Default | Description |

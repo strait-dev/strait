@@ -44,6 +44,22 @@ func main() {
 	os.Exit(code)
 }
 
+func validateCloudBillingConfig(edition domain.Edition, cfg *config.Config) error {
+	if cfg == nil || edition != domain.EditionCloud {
+		return nil
+	}
+	if cfg.SentryEnvironment == "development" || cfg.SentryEnvironment == "test" {
+		return nil
+	}
+	if !cfg.BillingEnforcementEnabled {
+		return fmt.Errorf("cloud billing enforcement requires BILLING_ENFORCEMENT_ENABLED=true in non-development environments")
+	}
+	if cfg.StripeWebhookSecret == "" {
+		return fmt.Errorf("cloud billing enforcement requires STRIPE_WEBHOOK_SECRET in non-development environments")
+	}
+	return nil
+}
+
 func run(ctx context.Context) int {
 	if err := newRootCommand().ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -426,6 +442,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		} else {
 			apiEncryptor = enc
 		}
+	}
+
+	if err := validateCloudBillingConfig(domain.ParseEdition(cfg.Edition), cfg); err != nil {
+		return err
 	}
 
 	// Create a shared billing enforcer (used by both API webhook handler and worker executor).
