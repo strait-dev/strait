@@ -1186,22 +1186,10 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		return
 	}
 
-	// Transition to executing if not already (claim-table dequeue may have
-	// set it already).
-	if run.Status != domain.StatusExecuting {
-		if err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-			"started_at": time.Now(),
-		}); err != nil {
-			e.logger.Error("executeWorkerMode: transition to executing failed",
-				"run_id", run.ID,
-				"error", err,
-			)
-			dispatchOutcome = "error"
-			return
-		}
-		run.Status = domain.StatusExecuting
+	if !e.transitionRunToExecuting(ctx, run) {
+		dispatchOutcome = "error"
+		return
 	}
-	e.publishEvent(ctx, run, map[string]any{"from": "dequeued", "to": "executing"})
 	e.heartbeat.Register(run.ID)
 	defer e.heartbeat.Deregister(run.ID)
 
