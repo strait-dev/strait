@@ -19,46 +19,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-type executionTraceMode string
-
-const (
-	executionTraceOff    executionTraceMode = "off"
-	executionTraceErrors executionTraceMode = "errors"
-	executionTraceFull   executionTraceMode = "full"
-)
-
 const executionTimedOutError = "execution timed out"
-
-func normalizeExecutionTraceMode(mode string) executionTraceMode {
-	switch executionTraceMode(strings.ToLower(strings.TrimSpace(mode))) {
-	case executionTraceErrors:
-		return executionTraceErrors
-	case executionTraceFull:
-		return executionTraceFull
-	default:
-		return executionTraceOff
-	}
-}
-
-func (e *Executor) shouldPersistExecutionTrace(status domain.RunStatus, execTrace *domain.ExecutionTrace) bool {
-	if execTrace == nil {
-		return false
-	}
-	switch e.executionTraceMode {
-	case executionTraceFull:
-		return true
-	case executionTraceErrors:
-		return status != domain.StatusCompleted
-	default:
-		return false
-	}
-}
-
-func (e *Executor) addExecutionTraceField(fields map[string]any, status domain.RunStatus, execTrace *domain.ExecutionTrace) {
-	if e.shouldPersistExecutionTrace(status, execTrace) {
-		fields["execution_trace"] = execTrace
-	}
-}
 
 // recordRetryAttempt samples the attempt number each time a run is
 // re-enqueued for retry. No-op if queue metrics were never initialised.
