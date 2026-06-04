@@ -33,6 +33,8 @@ const (
 	executionTraceFull   executionTraceMode = "full"
 )
 
+const executionTimedOutError = "execution timed out"
+
 func normalizeExecutionTraceMode(mode string) executionTraceMode {
 	switch executionTraceMode(strings.ToLower(strings.TrimSpace(mode))) {
 	case executionTraceErrors:
@@ -323,6 +325,14 @@ func retryStatusFields(run *domain.JobRun, job *domain.Job, errMsg, errClass str
 	return fields
 }
 
+func terminalStatusFields(finishedAt time.Time, errMsg, errClass string) map[string]any {
+	return map[string]any{
+		"finished_at": finishedAt,
+		"error":       errMsg,
+		"error_class": errClass,
+	}
+}
+
 type retryRequeueLogMessages struct {
 	scheduleFailure string
 	updateFailure   string
@@ -464,11 +474,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	now := time.Now()
-	fields := map[string]any{
-		"finished_at": now,
-		"error":       errMsg,
-		"error_class": errClass,
-	}
+	fields := terminalStatusFields(now, errMsg, errClass)
 	run.FinishedAt = &now
 	if metadataModified {
 		fields["metadata"] = run.Metadata
@@ -549,7 +555,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 
 	if run.Attempt < policy.maxAttempts {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		fields := retryStatusFields(run, job, "execution timed out", domain.ErrorClassTransient)
+		fields := retryStatusFields(run, job, executionTimedOutError, domain.ErrorClassTransient)
 		e.requeueRunForRetry(ctx, run, job, retryAt, fields, execTrace, retryRequeueLogMessages{
 			scheduleFailure: "failed to schedule timeout retry",
 			updateFailure:   "failed to re-enqueue timed out run",
@@ -558,11 +564,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	}
 
 	now := time.Now()
-	fields := map[string]any{
-		"finished_at": now,
-		"error":       "execution timed out",
-		"error_class": "transient",
-	}
+	fields := terminalStatusFields(now, executionTimedOutError, domain.ErrorClassTransient)
 	run.FinishedAt = &now
 	run.Status = domain.StatusTimedOut
 	e.addExecutionTraceField(fields, domain.StatusTimedOut, execTrace)
@@ -598,7 +600,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 
 	// Trigger on_failure job/workflow if configured.
 	if e.onCompleteTrigger != nil {
-		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, "execution timed out")
+		e.onCompleteTrigger.MaybeTriggerOnFailure(ctx, run, job, executionTimedOutError)
 	}
 }
 
