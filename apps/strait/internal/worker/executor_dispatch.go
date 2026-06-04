@@ -46,6 +46,7 @@ type dispatchPrefetch struct {
 }
 
 const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
+const workerResultStatusSuccess = "success"
 
 func (e *redactedHTTPDispatchError) Error() string {
 	return e.message
@@ -1236,15 +1237,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// policies kick in. This avoids silently recording worker failures as
 	// successes and bypassing the executor's retry path.
 	status := e.workerDispatcher.ResultStatus(result)
-	if status != "success" {
-		errMsg := e.workerDispatcher.ResultError(result)
-		if errMsg == "" {
-			if status == "" {
-				errMsg = "worker returned malformed or empty result"
-			} else {
-				errMsg = fmt.Sprintf("worker reported terminal status %q without error message", status)
-			}
-		}
+	if status != workerResultStatusSuccess {
+		errMsg := workerResultFailureMessage(status, e.workerDispatcher.ResultError(result))
 		if e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil) {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
@@ -1276,14 +1270,8 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 	}
 
 	policy := defaultExecutionPolicy(job)
-	if status != "success" {
-		if errorMessage == "" {
-			if status == "" {
-				errorMessage = "worker returned malformed or empty result"
-			} else {
-				errorMessage = fmt.Sprintf("worker reported terminal status %q without error message", status)
-			}
-		}
+	if status != workerResultStatusSuccess {
+		errorMessage = workerResultFailureMessage(status, errorMessage)
 		if !e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil) {
 			return "", fmt.Errorf("worker failure finalization did not transition run")
 		}
@@ -1295,6 +1283,16 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 		return "", fmt.Errorf("worker success finalization did not transition run")
 	}
 	return domain.WorkerTaskStatusCompleted, nil
+}
+
+func workerResultFailureMessage(status, errorMessage string) string {
+	if errorMessage != "" {
+		return errorMessage
+	}
+	if status == "" {
+		return "worker returned malformed or empty result"
+	}
+	return fmt.Sprintf("worker reported terminal status %q without error message", status)
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
