@@ -707,20 +707,23 @@ func (s *Server) handleBulkAssignMembers(ctx context.Context, input *BulkAssignM
 
 func (s *Server) assignMemberRoleWithBillingLimit(ctx context.Context, m *domain.ProjectMemberRole) error {
 	if s.billingEnforcer == nil {
+		if s.edition.RequiresHTTPModeGating() {
+			return planGateUnavailable("member_limit_enforcer", errors.New("billing enforcer not configured"))
+		}
 		return s.store.AssignMemberRole(ctx, m)
 	}
 
 	orgID, err := s.billingEnforcer.GetActiveProjectOrgID(ctx, m.ProjectID)
-	if err != nil || orgID == "" {
-		return s.store.AssignMemberRole(ctx, m)
+	if err != nil {
+		return planGateUnavailable("member_limit_org_lookup", err)
+	}
+	if orgID == "" {
+		return planGateUnavailable("member_limit_org_lookup", errors.New("project organization not found"))
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		if checkErr := s.billingEnforcer.CheckMemberLimit(ctx, orgID); checkErr != nil {
-			return checkErr
-		}
-		return s.store.AssignMemberRole(ctx, m)
+		return planGateUnavailable("member_limit_plan_lookup", err)
 	}
 	if limits.MaxMembersPerOrg == -1 {
 		return s.store.AssignMemberRole(ctx, m)
