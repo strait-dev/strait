@@ -1222,27 +1222,34 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		return
 	}
 
-	// Inspect the worker's reported terminal status. Only "success" routes
-	// to the success handler; everything else (including "failed", "" from
-	// a nil/malformed result, or any unexpected sentinel) is routed to
-	// handleFailure with the worker-supplied error message so retry / DLQ
-	// policies kick in. This avoids silently recording worker failures as
-	// successes and bypassing the executor's retry path.
+	dispatchOutcome = e.handleWorkerDispatchResult(ctx, run, job, policy, result)
+}
+
+func (e *Executor) handleWorkerDispatchResult(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	policy executionPolicy,
+	result any,
+) string {
+	// Only "success" routes to the success handler; everything else (including
+	// "failed", "" from a nil/malformed result, or any unexpected sentinel) is
+	// routed to handleFailure so retry and DLQ policy stay in one path.
 	status := e.workerDispatcher.ResultStatus(result)
 	if status != workerResultStatusSuccess {
 		_, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, e.workerDispatcher.ResultError(result), nil)
 		if transitioned {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
-		dispatchOutcome = workerDispatchOutcomeError
 		recordWorkerRetry(ctx, workerRetryReasonWorkerFailure)
-		return
+		return workerDispatchOutcomeError
 	}
 
 	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, "", e.workerDispatcher.ResultOutput(result))
 	if transitioned {
 		e.completeWorkerTask(ctx, result, taskStatus)
 	}
+	return workerDispatchOutcomeSuccess
 }
 
 func (e *Executor) handleWorkerDispatchError(
