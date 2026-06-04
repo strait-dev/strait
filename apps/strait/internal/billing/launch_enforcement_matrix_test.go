@@ -66,6 +66,8 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "compensation plan Pro+", status: launchPromiseRuntime, gate: "FeatureCompensatingTxns", test: "TestCompensationPlan_FreeTierRejected"},
 	{promise: "log streaming Starter+", status: launchPromiseRuntime, gate: "FeatureLogStreaming", test: "TestRunLogStream_FreeTier_Rejected", feature: FeatureLogStreaming},
 	{promise: "log drain count cap", status: launchPromiseRuntime, gate: "log drain admission gate", test: "TestCreateLogDrain_FreeTier_RejectsZeroCap"},
+	{promise: "notification channel count cap", status: launchPromiseRuntime, gate: "notification channel admission gate", test: "TestCreateNotificationChannel_FreeTier_RejectsZeroCap"},
+	{promise: "anomaly alert notification delivery", status: launchPromiseRuntime, gate: "scheduler.AnomalyMonitor", test: "TestAnomalyMonitor_NotificationDeliveryCreated"},
 	{promise: "Redis required runtime dependency", status: launchPromiseRuntime, gate: "critical Redis health checker", test: "TestNewRedisChecker"},
 	{promise: "Redis strong API cache runtime wiring", status: launchPromiseRuntime, gate: "cache registry namespaces", test: "TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces"},
 	{promise: "Redis strong worker cache runtime wiring", status: launchPromiseRuntime, gate: "worker job cache registry namespace", test: "TestWorkerStrongCacheConstructorRegistersRuntimeNamespace"},
