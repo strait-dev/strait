@@ -416,6 +416,129 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T)
 	}
 }
 
+func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsActive(t *testing.T) {
+	t.Parallel()
+
+	for _, root := range []string{
+		"../../../docs",
+		"../../../app/src/components",
+		"../../../app/src/hooks",
+		"../../../app/src/lib",
+		"../../../app/src/routes",
+	} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !isPublicCopyFile(path) || strings.Contains(path, "__tests__") {
+				return nil
+			}
+
+			bodyBytes, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			body := string(bodyBytes)
+			for _, phrase := range []string{
+				"SSO is available",
+				"SSO available",
+				"SSO enabled",
+				"SSO supported",
+				"SAML available",
+				"SAML enabled",
+				"SAML supported",
+				"SCIM available",
+				"SCIM enabled",
+				"SCIM supported",
+				"IP allowlisting available",
+				"IP allowlisting enabled",
+				"IP allowlisting supported",
+				"static IPs available",
+				"static IPs enabled",
+				"static IPs supported",
+				"VPC peering available",
+				"VPC peering enabled",
+				"VPC peering supported",
+				"data residency available",
+				"data residency enabled",
+				"data residency supported",
+				"single-tenant orchestration available",
+				"single-tenant orchestration enabled",
+				"single-tenant orchestration supported",
+				"BYO-cloud available",
+				"BYO-cloud enabled",
+				"BYO-cloud supported",
+				"dedicated worker pool available",
+				"dedicated worker pool enabled",
+				"dedicated worker pool supported",
+				"dedicated compute available",
+				"dedicated compute enabled",
+				"dedicated compute supported",
+				"priority queue available",
+				"priority queue enabled",
+				"priority queue supported",
+			} {
+				if strings.Contains(body, phrase) {
+					t.Fatalf("%s advertises launch-roadmap security/enterprise feature as active with phrase %q", path, phrase)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for active roadmap feature copy: %v", root, err)
+		}
+	}
+}
+
+func TestLaunchPublicCopyDoesNotAdvertiseRetiredModelOrKeyFeatures(t *testing.T) {
+	t.Parallel()
+
+	for _, root := range []string{
+		"../../../docs",
+		"../../../app/src/components",
+		"../../../app/src/hooks",
+		"../../../app/src/lib",
+		"../../../app/src/routes",
+	} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !isPublicCopyFile(path) || strings.Contains(path, "__tests__") {
+				return nil
+			}
+
+			bodyBytes, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			body := string(bodyBytes)
+			for _, phrase := range []string{
+				strings.Join([]string{"BY", "OK"}, ""),
+				strings.Join([]string{"bring", " your", " own", " key"}, ""),
+				"OpenAI",
+				"Anthropic",
+				"LLM provider",
+				"model provider",
+				"model usage",
+				"token usage",
+				"prompt tokens",
+				"completion tokens",
+				strings.Join([]string{"A", "I", " usage"}, ""),
+				strings.Join([]string{"A", "I", " cost"}, ""),
+			} {
+				if strings.Contains(body, phrase) {
+					t.Fatalf("%s advertises retired model/key launch feature with phrase %q", path, phrase)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for retired model/key copy: %v", root, err)
+		}
+	}
+}
+
 func isPublicCopyFile(path string) bool {
 	for _, ext := range []string{".go", ".mdx", ".ts", ".tsx"} {
 		if strings.HasSuffix(path, ext) {
