@@ -776,6 +776,7 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	err := exec.dispatch(context.Background(), job, run)
 	if err == nil {
 		t.Fatal("dispatch error = nil, want EndpointError")
+		return
 	}
 
 	var endpointErr *domain.EndpointError
@@ -1805,6 +1806,7 @@ func TestExecutor_NilMetrics(t *testing.T) {
 
 	if err := exec.dispatch(context.Background(), job, run); err == nil {
 		t.Fatal("dispatch error = nil, want non-nil")
+		return
 	}
 }
 
@@ -3389,6 +3391,7 @@ func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3431,6 +3434,7 @@ func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3470,6 +3474,7 @@ func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
@@ -3508,6 +3513,7 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 1 {
@@ -3547,6 +3553,7 @@ func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3586,6 +3593,7 @@ func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3625,6 +3633,7 @@ func TestHandleFailure_LargeBoostValue(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3664,6 +3673,7 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition on high attempt")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 3 {
@@ -3731,6 +3741,7 @@ func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition when poison pill doesn't trigger")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3850,6 +3861,7 @@ func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3885,6 +3897,7 @@ func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3917,6 +3930,7 @@ func TestHandleTimeout_ZeroBoostNoChange(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
@@ -3948,6 +3962,7 @@ func TestHandleTimeout_BoostFromMaxPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -4024,6 +4039,7 @@ func TestHandleFailure_CumulativeBoostAcrossRetries(t *testing.T) {
 		}
 		if retryCall == nil {
 			t.Fatalf("attempt %d: expected retry transition", i+1)
+			return
 		}
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
@@ -4067,6 +4083,7 @@ func TestHandleFailure_CumulativeBoostWithBoostOne(t *testing.T) {
 		}
 		if retryCall == nil {
 			t.Fatalf("attempt %d: expected retry transition", i+1)
+			return
 		}
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
@@ -4110,6 +4127,7 @@ func TestHandleTimeout_CumulativeBoostAcrossRetries(t *testing.T) {
 		}
 		if retryCall == nil {
 			t.Fatalf("attempt %d: expected retry transition", i+1)
+			return
 		}
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
@@ -4147,6 +4165,7 @@ func TestHandleFailure_BoostWithMaxIntPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -4282,6 +4301,7 @@ func TestHandleFailure_NegativePriorityWithBoost(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	// -5 + 3 = -2, which is < 10 so min returns -2.
@@ -4770,6 +4790,7 @@ func TestResolveJob_CacheHit(t *testing.T) {
 	}
 	if job1 == nil {
 		t.Fatal("expected job, got nil")
+		return
 	}
 
 	// Second call — cache hit, should not hit store again
@@ -4779,6 +4800,7 @@ func TestResolveJob_CacheHit(t *testing.T) {
 	}
 	if job2 == nil {
 		t.Fatal("expected job, got nil")
+		return
 	}
 
 	if getJobCalls.Load() != 1 {
@@ -5064,6 +5086,7 @@ func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("expected SSRF-safe executor client to reject private DNS answer")
+		return
 	}
 	if !strings.Contains(err.Error(), "blocked private") && !strings.Contains(err.Error(), "resolves to private") {
 		t.Fatalf("expected private-address rejection, got %v", err)

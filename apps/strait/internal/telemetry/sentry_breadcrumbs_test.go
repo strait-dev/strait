@@ -155,6 +155,7 @@ func sentryBreadcrumbsFromHub(t *testing.T, hub *sentry.Hub) []*sentry.Breadcrum
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return nil
 	}
 	return event.Breadcrumbs
 }

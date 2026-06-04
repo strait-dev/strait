@@ -323,6 +323,7 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 	}
 	if timeoutUpdate == nil {
 		t.Fatalf("expected timeout requeue update, got: %+v", updates)
+		return
 	}
 	if timeoutUpdate.fields["attempt"] != 2 {
 		t.Fatalf("attempt field = %v, want 2", timeoutUpdate.fields["attempt"])
@@ -386,6 +387,7 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 	}
 	if requeueUpdate == nil {
 		t.Fatalf("expected cancellation requeue, got updates: %+v", ms.statusUpdates())
+		return
 	}
 	if _, ok := requeueUpdate.fields["attempt"]; ok {
 		t.Fatalf("cancellation requeue should not increment attempt: %+v", requeueUpdate.fields)
@@ -841,6 +843,7 @@ func assertQueuedResetFields(t *testing.T, fields map[string]any) {
 
 	if fields == nil {
 		t.Fatal("expected queued reset fields, got nil")
+		return
 	}
 
 	wantNil := []string{

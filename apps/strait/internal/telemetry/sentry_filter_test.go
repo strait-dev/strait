@@ -45,6 +45,7 @@ func TestBeforeSend_KeepsBackgroundCancellation(t *testing.T) {
 
 	if got := BeforeSend(event, hint); got == nil {
 		t.Fatal("expected background cancellation to be kept")
+		return
 	}
 }
 
@@ -67,6 +68,7 @@ func TestBeforeSend_KeepsGenuine5xx(t *testing.T) {
 
 	if got := BeforeSend(event, hint); got == nil {
 		t.Fatal("expected 5xx status error to be kept")
+		return
 	}
 }
 
@@ -78,6 +80,7 @@ func TestBeforeSend_DoesNotDropPlainPgxNoRows(t *testing.T) {
 
 	if got := BeforeSend(event, hint); got == nil {
 		t.Fatal("plain pgx.ErrNoRows should be kept unless marked expected")
+		return
 	}
 }
 
@@ -160,6 +163,7 @@ func TestBeforeSend_SanitizesEvent(t *testing.T) {
 	got := BeforeSend(event, &sentry.EventHint{OriginalException: errors.New("boom")})
 	if got == nil {
 		t.Fatal("expected event to be kept")
+		return
 	}
 	if got.Request.Headers != nil || got.Request.Cookies != "" || got.Request.Data != "" {
 		t.Fatal("expected request headers, cookies, and data to be stripped")
@@ -262,6 +266,7 @@ func TestInitSentry_NoDSNNoop(t *testing.T) {
 	}
 	if shutdown == nil {
 		t.Fatal("expected no-op shutdown function")
+		return
 	}
 	shutdown()
 }
