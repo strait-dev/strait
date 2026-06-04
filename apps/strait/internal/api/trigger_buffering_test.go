@@ -110,6 +110,71 @@ func TestNewBatchBufferItem_BuildsBufferedTrigger(t *testing.T) {
 	}
 }
 
+func TestHandleDebounceTriggerSkipsWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{store: &APIStoreMock{
+		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
+			t.Fatal("UpsertDebouncePending must not run when debounce is disabled")
+			return nil
+		},
+	}}
+	out, handled, err := srv.handleDebounceTrigger(context.Background(), &triggerRequestState{
+		job: &domain.Job{ID: "job-1", ProjectID: "project-1"},
+	})
+	if err != nil {
+		t.Fatalf("handleDebounceTrigger() error = %v", err)
+	}
+	if handled || out != nil {
+		t.Fatalf("handleDebounceTrigger() = (%v, %v), want nil output and handled=false", out, handled)
+	}
+}
+
+func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
+	t.Parallel()
+
+	inserted := false
+	srv := &Server{store: &APIStoreMock{
+		InsertBatchBufferItemFunc: func(_ context.Context, item *domain.BatchBufferItem) error {
+			inserted = true
+			if item.JobID != "job-batch" || item.BatchKey != "customer-1" {
+				t.Fatalf("buffer item = %+v, want job-batch/customer-1", item)
+			}
+			return nil
+		},
+	}}
+	ctx := context.WithValue(context.Background(), ctxActorIDKey, "apikey:batch")
+	out, handled, err := srv.handleBatchTrigger(ctx, &TriggerJobInput{}, &triggerRequestState{
+		job: &domain.Job{
+			ID:              "job-batch",
+			ProjectID:       "project-1",
+			BatchWindowSecs: 60,
+		},
+		req: TriggerRequest{
+			BatchKey: "customer-1",
+			Priority: 3,
+			Tags:     map[string]string{"kind": "daily"},
+		},
+		payload: json.RawMessage(`{"n":1}`),
+	})
+	if err != nil {
+		t.Fatalf("handleBatchTrigger() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("handleBatchTrigger() handled = false, want true")
+	}
+	if !inserted {
+		t.Fatal("batch buffer item was not inserted")
+	}
+	body, ok := out.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("output body = %T, want map[string]any", out.Body)
+	}
+	if body["buffered"] != true {
+		t.Fatalf("buffered = %v, want true", body["buffered"])
+	}
+}
+
 func jsonEqual(left, right json.RawMessage) bool {
 	var leftValue any
 	if err := json.Unmarshal(left, &leftValue); err != nil {
