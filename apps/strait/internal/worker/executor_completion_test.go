@@ -251,6 +251,38 @@ func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
 	}
 }
 
+func TestSystemFailureTransition_PreservesSourceStatus(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	run := &domain.JobRun{
+		ID:     "run-1",
+		JobID:  "job-1",
+		Status: domain.StatusQueued,
+	}
+
+	transition := newSystemFailureTransition(run, "pool unavailable", finishedAt)
+
+	if transition.from != domain.StatusQueued {
+		t.Fatalf("from = %s, want %s", transition.from, domain.StatusQueued)
+	}
+	if transition.to != domain.StatusSystemFailed {
+		t.Fatalf("to = %s, want %s", transition.to, domain.StatusSystemFailed)
+	}
+	if !transition.finished.Equal(finishedAt) {
+		t.Fatalf("finished = %s, want %s", transition.finished, finishedAt)
+	}
+	if transition.fields["finished_at"] != finishedAt {
+		t.Fatalf("finished_at field = %v, want %s", transition.fields["finished_at"], finishedAt)
+	}
+	if transition.fields["error"] != "pool unavailable" {
+		t.Fatalf("error field = %v, want pool unavailable", transition.fields["error"])
+	}
+	if transition.fields["error_class"] != domain.ErrorClassServer {
+		t.Fatalf("error_class field = %v, want %s", transition.fields["error_class"], domain.ErrorClassServer)
+	}
+}
+
 // Handler integration tests.
 
 func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {

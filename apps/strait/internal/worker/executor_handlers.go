@@ -756,6 +756,22 @@ func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields m
 	return &webhookRun
 }
 
+type systemFailureTransition struct {
+	from     domain.RunStatus
+	to       domain.RunStatus
+	fields   map[string]any
+	finished time.Time
+}
+
+func newSystemFailureTransition(run *domain.JobRun, reason string, finished time.Time) systemFailureTransition {
+	return systemFailureTransition{
+		from:     run.Status,
+		to:       domain.StatusSystemFailed,
+		fields:   terminalStatusFields(finished, reason, domain.ErrorClassServer),
+		finished: finished,
+	}
+}
+
 func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, reason string) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
@@ -770,11 +786,9 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
 	})
 
-	fromStatus := run.Status
-	now := time.Now()
-	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed,
-		terminalStatusFields(now, reason, domain.ErrorClassServer))
-	run.FinishedAt = &now
+	transition := newSystemFailureTransition(run, reason, time.Now())
+	err := e.store.UpdateRunStatus(ctx, run.ID, transition.from, transition.to, transition.fields)
+	run.FinishedAt = &transition.finished
 	if err != nil {
 		e.logger.Error(
 			"failed to mark system failure",
@@ -784,10 +798,10 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		)
 		return
 	}
-	run.Status = domain.StatusSystemFailed
+	run.Status = transition.to
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventSystemFailed, Run: run,
-		FromStatus: fromStatus, ToStatus: domain.StatusSystemFailed,
+		FromStatus: transition.from, ToStatus: transition.to,
 		Attempt:   run.Attempt,
 		QueueWait: queueWait(run),
 	})
