@@ -115,12 +115,7 @@ func (e *Executor) handleSuccessWithStats(
 		"job_id", run.JobID,
 		"attempt", run.Attempt,
 	)
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventCompleted, Run: run, Job: job,
-		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
-		ExecTrace: execTrace, ExecDur: transition.execDur, Attempt: run.Attempt,
-		QueueWait: queueWait(run),
-	})
+	e.emit(ctx, newCompletedRunEvent(run, job, execTrace, transition))
 	e.notifyWorkflowCallback(ctx, run)
 
 	// Trigger on_complete workflow if configured.
@@ -167,6 +162,25 @@ func (e *Executor) newSuccessfulRunTransition(
 		finished: finished,
 		execDur:  execDur,
 		started:  started,
+	}
+}
+
+func newCompletedRunEvent(
+	run *domain.JobRun,
+	job *domain.Job,
+	execTrace *domain.ExecutionTrace,
+	transition successfulRunTransition,
+) RunLifecycleEvent {
+	return RunLifecycleEvent{
+		Type:       EventCompleted,
+		Run:        run,
+		Job:        job,
+		FromStatus: domain.StatusExecuting,
+		ToStatus:   transition.to,
+		ExecTrace:  execTrace,
+		ExecDur:    transition.execDur,
+		Attempt:    run.Attempt,
+		QueueWait:  queueWait(run),
 	}
 }
 
