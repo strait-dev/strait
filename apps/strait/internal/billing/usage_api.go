@@ -12,24 +12,21 @@ import (
 
 // CurrentUsageResponse is the response for GET /v1/usage/current.
 type CurrentUsageResponse struct {
-	OrgID                string          `json:"org_id"`
-	Plan                 string          `json:"plan"`
-	Period               PeriodInfo      `json:"period"`
-	Usage                UsageDimensions `json:"usage"`
-	IncludedCreditMicro  int64           `json:"included_credit_microusd"`
-	PeriodSpendMicro     int64           `json:"period_spend_microusd"`
-	OverageMicro         int64           `json:"overage_microusd"`
-	CreditUsedPercent    float64         `json:"credit_used_percent"`
-	CreditRemainingMicro int64           `json:"credit_remaining_microusd"`
-	Alerts               []UsageAlert    `json:"alerts,omitempty"`
-	PaymentStatus        string          `json:"payment_status,omitempty"`
-	GracePeriodEnd       *string         `json:"grace_period_end,omitempty"`
-	ActiveAddons         []AddonSummary  `json:"active_addons,omitempty"`
+	OrgID            string          `json:"org_id"`
+	Plan             string          `json:"plan"`
+	Period           PeriodInfo      `json:"period"`
+	Usage            UsageDimensions `json:"usage"`
+	PeriodSpendMicro int64           `json:"period_spend_microusd"`
+	OverageMicro     int64           `json:"overage_microusd"`
+	Alerts           []UsageAlert    `json:"alerts,omitempty"`
+	PaymentStatus    string          `json:"payment_status,omitempty"`
+	GracePeriodEnd   *string         `json:"grace_period_end,omitempty"`
+	ActiveAddons     []AddonSummary  `json:"active_addons,omitempty"`
 
 	// Enterprise-specific fields (only populated for enterprise plans).
 	EnterpriseTier     string  `json:"enterprise_tier,omitempty"`
 	ContractEndDate    string  `json:"contract_end_date,omitempty"`
-	ComputeDiscountPct int     `json:"compute_discount_pct,omitempty"`
+	OverageDiscountPct int     `json:"overage_discount_pct,omitempty"`
 	SLAUptimePct       float64 `json:"sla_uptime_pct,omitempty"`
 }
 
@@ -58,7 +55,6 @@ type UsageDimensions struct {
 	MonthlyRuns      UsageDimension `json:"monthly_runs"`
 	RunsToday        UsageDimension `json:"runs_today"` // Legacy alias for monthly_runs.
 	ConcurrentRuns   UsageDimension `json:"concurrent_runs"`
-	ComputeCredit    UsageDimension `json:"compute_credit"`
 	Projects         UsageDimension `json:"projects"`
 	Members          UsageDimension `json:"members"`
 	RetentionDays    int            `json:"retention_days"`
@@ -76,23 +72,23 @@ type UsageAlert struct {
 
 // UsageHistoryEntry is a single day's usage data.
 type UsageHistoryEntry struct {
-	Date             string `json:"date"`
-	RunsCount        int64  `json:"runs_count"`
-	ComputeCostMicro int64  `json:"compute_cost_microusd"`
+	Date       string `json:"date"`
+	RunsCount  int64  `json:"runs_count"`
+	SpendMicro int64  `json:"spend_microusd"`
 }
 
 // UsageForecastResponse is the response for GET /v1/usage/forecast.
 type UsageForecastResponse struct {
-	ProjectedMonthlyRuns           int64   `json:"projected_monthly_runs"`
-	ProjectedMonthlyComputeUsd     float64 `json:"projected_monthly_compute_usd"`
-	ProjectedMonthlyComputeLowUsd  float64 `json:"projected_monthly_compute_low_usd"`
-	ProjectedMonthlyComputeHighUsd float64 `json:"projected_monthly_compute_high_usd"`
-	ConfidencePct                  int     `json:"confidence_pct"`
-	RecommendedPlan                string  `json:"recommended_plan"`
-	DaysUntilLimit                 int     `json:"days_until_limit"`
-	ProjectedOverageMicro          int64   `json:"projected_overage_microusd"`
-	AddonSpendMicro                int64   `json:"addon_spend_microusd"`
-	ScaleBreakeven                 bool    `json:"scale_breakeven"`
+	ProjectedMonthlyRuns         int64   `json:"projected_monthly_runs"`
+	ProjectedMonthlySpendUsd     float64 `json:"projected_monthly_spend_usd"`
+	ProjectedMonthlySpendLowUsd  float64 `json:"projected_monthly_spend_low_usd"`
+	ProjectedMonthlySpendHighUsd float64 `json:"projected_monthly_spend_high_usd"`
+	ConfidencePct                int     `json:"confidence_pct"`
+	RecommendedPlan              string  `json:"recommended_plan"`
+	DaysUntilLimit               int     `json:"days_until_limit"`
+	ProjectedOverageMicro        int64   `json:"projected_overage_microusd"`
+	AddonSpendMicro              int64   `json:"addon_spend_microusd"`
+	ScaleBreakeven               bool    `json:"scale_breakeven"`
 }
 
 // UsageService provides usage data aggregation.
@@ -147,19 +143,13 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		return nil, fmt.Errorf("summing org period spend: %w", err)
 	}
 
-	computeUsed := periodSpend
-	// Included spend allowance is zero in orchestration-only mode; all spend is overage.
-	var computeLimit int64
-
-	// For enterprise plans, load contract for allowance and discount.
+	// For enterprise plans, load contract metadata for display and negotiated
+	// overage discounts. Launch billing uses run allowances, not spend credits.
 	var enterpriseContract *EnterpriseContract
 	if limits.PlanTier == domain.PlanEnterprise && orgID != "" {
 		contract, contractErr := s.store.GetEnterpriseContract(ctx, orgID)
 		if contractErr == nil && contract != nil {
 			enterpriseContract = contract
-			if contract.IncludedCreditMicrousd > 0 {
-				computeLimit = contract.IncludedCreditMicrousd
-			}
 		}
 	}
 
@@ -192,12 +182,6 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 				Limit:   int64(limits.MaxConcurrentRuns),
 				Percent: safePercent(int64(concurrentRuns), int64(limits.MaxConcurrentRuns)),
 			},
-			ComputeCredit: UsageDimension{
-				Used:    computeUsed,
-				Limit:   computeLimit,
-				Percent: safePercent(computeUsed, computeLimit),
-				Display: fmt.Sprintf("$%.2f / $%.2f", float64(computeUsed)/1000000, float64(computeLimit)/1000000),
-			},
 			Projects: UsageDimension{
 				Used:    int64(projectCount),
 				Limit:   int64(limits.MaxProjectsPerOrg),
@@ -213,16 +197,8 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		},
 	}
 
-	// Compute overage breakdown.
-	resp.IncludedCreditMicro = computeLimit
 	resp.PeriodSpendMicro = periodSpend
-	resp.OverageMicro = computeOverageSpend(periodSpend, computeLimit)
-	if computeLimit > 0 {
-		resp.CreditUsedPercent = float64(periodSpend) / float64(computeLimit) * 100
-	}
-	if periodSpend < computeLimit {
-		resp.CreditRemainingMicro = computeLimit - periodSpend
-	}
+	resp.OverageMicro = computeOverageSpend(periodSpend, 0)
 
 	// Load active add-ons.
 	if orgID != "" {
@@ -262,11 +238,11 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	if enterpriseContract != nil {
 		resp.EnterpriseTier = string(enterpriseContract.EnterpriseTier)
 		resp.ContractEndDate = enterpriseContract.ContractEndDate.Format("2006-01-02")
-		resp.ComputeDiscountPct = enterpriseContract.ComputeDiscountPct
+		resp.OverageDiscountPct = enterpriseContract.ComputeDiscountPct
 		cfg := GetEnterpriseConfig(enterpriseContract.EnterpriseTier)
 		resp.SLAUptimePct = cfg.UptimeSLAPct
 
-		// Apply compute discount to overage.
+		// Apply negotiated enterprise discount to overage spend.
 		if enterpriseContract.ComputeDiscountPct > 0 && resp.OverageMicro > 0 {
 			resp.OverageMicro = ApplyComputeDiscount(resp.OverageMicro, enterpriseContract.ComputeDiscountPct)
 		}
@@ -287,12 +263,12 @@ func (s *UsageService) GetUsageHistory(ctx context.Context, orgID string, from, 
 		dateStr := r.PeriodDate.Format("2006-01-02")
 		if entry, ok := dayMap[dateStr]; ok {
 			entry.RunsCount += r.RunsCount
-			entry.ComputeCostMicro += r.ComputeCostMicro
+			entry.SpendMicro += r.ComputeCostMicro
 		} else {
 			dayMap[dateStr] = &UsageHistoryEntry{
-				Date:             dateStr,
-				RunsCount:        r.RunsCount,
-				ComputeCostMicro: r.ComputeCostMicro,
+				Date:       dateStr,
+				RunsCount:  r.RunsCount,
+				SpendMicro: r.ComputeCostMicro,
 			}
 		}
 	}
@@ -396,16 +372,16 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	highDailyCompute := avgDailyComputeF + 1.5*computeStddev
 
 	return &UsageForecastResponse{
-		ProjectedMonthlyRuns:           projectedRuns,
-		ProjectedMonthlyComputeUsd:     projectedCompute,
-		ProjectedMonthlyComputeLowUsd:  lowDailyCompute * float64(daysInMonth) / 1_000_000,
-		ProjectedMonthlyComputeHighUsd: highDailyCompute * float64(daysInMonth) / 1_000_000,
-		ConfidencePct:                  87,
-		RecommendedPlan:                recommended,
-		DaysUntilLimit:                 daysUntilLimit,
-		ProjectedOverageMicro:          projectedOverage,
-		AddonSpendMicro:                addonSpendMicro,
-		ScaleBreakeven:                 scaleBreakeven,
+		ProjectedMonthlyRuns:         projectedRuns,
+		ProjectedMonthlySpendUsd:     projectedCompute,
+		ProjectedMonthlySpendLowUsd:  lowDailyCompute * float64(daysInMonth) / 1_000_000,
+		ProjectedMonthlySpendHighUsd: highDailyCompute * float64(daysInMonth) / 1_000_000,
+		ConfidencePct:                87,
+		RecommendedPlan:              recommended,
+		DaysUntilLimit:               daysUntilLimit,
+		ProjectedOverageMicro:        projectedOverage,
+		AddonSpendMicro:              addonSpendMicro,
+		ScaleBreakeven:               scaleBreakeven,
 	}, nil
 }
 
@@ -600,7 +576,7 @@ func (s *UsageService) DetectAnomalies(ctx context.Context, orgID string) ([]Ano
 	if sub != nil && sub.SpendingLimitMicrousd > 0 {
 		forecast, forecastErr := s.GetUsageForecast(ctx, orgID)
 		if forecastErr == nil && forecast != nil {
-			projectedSpendMicro := int64(forecast.ProjectedMonthlyComputeUsd * 1_000_000)
+			projectedSpendMicro := int64(forecast.ProjectedMonthlySpendUsd * 1_000_000)
 			if projectedSpendMicro > sub.SpendingLimitMicrousd {
 				alerts = append(alerts, AnomalyAlert{
 					OrgID:    orgID,
@@ -730,7 +706,6 @@ func (s *UsageService) buildAlerts(usage UsageDimensions) []UsageAlert {
 		label   string
 	}{
 		{"monthly_runs", usage.MonthlyRuns.Percent, "monthly runs"},
-		{"compute_credit", usage.ComputeCredit.Percent, "period spend"},
 		{"projects", usage.Projects.Percent, "project slots"},
 	}
 

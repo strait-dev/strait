@@ -153,7 +153,7 @@ const UsageDashboard = () => {
   const planName = capitalize(usage.plan);
 
   const totalRunCost = (history ?? []).reduce(
-    (sum, d) => sum + d.compute_cost_microusd,
+    (sum, d) => sum + d.spend_microusd,
     0
   );
   const totalCost = totalRunCost;
@@ -215,13 +215,17 @@ const UsageDashboard = () => {
           percent: usage.usage.concurrent_runs.percent,
           used: usage.usage.concurrent_runs.used,
         })}
-        {renderUsageGauge({
-          display: usage.usage.compute_credit.display,
-          label: "Period Spend",
-          limit: usage.usage.compute_credit.limit,
-          percent: usage.usage.compute_credit.percent,
-          used: usage.usage.compute_credit.used,
-        })}
+        <Card>
+          <CardContent className="flex h-full min-h-[152px] flex-col justify-center p-4">
+            <p className="text-muted-foreground text-xs">Period Spend</p>
+            <p className="mt-3 font-medium text-2xl tabular-nums">
+              {formatMicroUsd(usage.period_spend_microusd)}
+            </p>
+            <p className="mt-1 text-muted-foreground text-xs">
+              Current billing period
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Transitional message when in-flight runs exceed new plan limit */}

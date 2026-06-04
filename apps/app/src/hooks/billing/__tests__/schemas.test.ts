@@ -14,17 +14,13 @@ const validOrgUsage = {
     monthly_runs: { used: 10, limit: 50_000, percent: 0.02 },
     runs_today: { used: 10, limit: 100, percent: 10 },
     concurrent_runs: { used: 1, limit: 5, percent: 20 },
-    compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
     projects: { used: 1, limit: 5, percent: 20 },
     members: { used: 2, limit: 10, percent: 20 },
     retention_days: 7,
     regions_available: 6,
   },
-  included_credit_microusd: 19_990_000,
   period_spend_microusd: 0,
   overage_microusd: 0,
-  credit_used_percent: 0,
-  credit_remaining_microusd: 19_990_000,
   alerts: [],
 };
 
@@ -59,13 +55,13 @@ describe("OrgUsageResponseSchema", () => {
       ...validOrgUsage,
       enterprise_tier: "enterprise_starter",
       contract_end_date: "2027-03-31",
-      compute_discount_pct: 10,
+      overage_discount_pct: 10,
       sla_uptime_pct: 99.9,
     });
     expect(Either.isRight(result)).toBe(true);
     if (Either.isRight(result)) {
       expect(result.right.enterprise_tier).toBe("enterprise_starter");
-      expect(result.right.compute_discount_pct).toBe(10);
+      expect(result.right.overage_discount_pct).toBe(10);
     }
   });
 
@@ -135,7 +131,6 @@ describe("SpendingLimitSchema", () => {
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
-      included_credit_usd: 49.99,
       overage_spend_usd: 50.01,
       is_hard_capped: false,
     });
@@ -150,7 +145,6 @@ describe("SpendingLimitSchema", () => {
       spending_limit_usd: 500,
       limit_action: "reject",
       current_spend_usd: 100,
-      included_credit_usd: 49.99,
       overage_spend_usd: 50.01,
       is_hard_capped: "yes",
     });
@@ -164,7 +158,7 @@ describe("UsageForecastSchema", () => {
   it("decodes a valid payload", () => {
     const result = decode({
       projected_monthly_runs: 50_000,
-      projected_monthly_compute_usd: 25.5,
+      projected_monthly_spend_usd: 25.5,
       recommended_plan: "pro",
       days_until_limit: 15,
       projected_overage_microusd: 5_000_000,

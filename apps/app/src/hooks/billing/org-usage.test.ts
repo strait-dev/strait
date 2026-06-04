@@ -10,16 +10,12 @@ function baseUsage(): RawOrgUsageData {
     org_id: "org-1",
     plan: "starter",
     period: { start: "2026-03-01", end: "2026-03-31" },
-    included_credit_microusd: 19_990_000,
     period_spend_microusd: 0,
     overage_microusd: 0,
-    credit_used_percent: 0,
-    credit_remaining_microusd: 19_990_000,
     usage: {
       monthly_runs: { used: 10, limit: 50_000, percent: 0.02 },
       runs_today: { used: 10, limit: 100, percent: 10 },
       concurrent_runs: { used: 1, limit: 5, percent: 20 },
-      compute_credit: { used: 0, limit: 1_000_000, percent: 0 },
       projects: { used: 1, limit: 5, percent: 20 },
       members: { used: 2, limit: 10, percent: 20 },
       retention_days: 7,
@@ -50,13 +46,13 @@ describe("normalizeOrgUsageData", () => {
       plan: "enterprise",
       enterprise_tier: "enterprise_starter",
       contract_end_date: "2027-03-31",
-      compute_discount_pct: 10,
+      overage_discount_pct: 10,
       sla_uptime_pct: 99.9,
     });
 
     expect(data.enterprise_tier).toBe("enterprise_starter");
     expect(data.contract_end_date).toBe("2027-03-31");
-    expect(data.compute_discount_pct).toBe(10);
+    expect(data.overage_discount_pct).toBe(10);
     expect(data.sla_uptime_pct).toBe(99.9);
   });
 
@@ -65,7 +61,7 @@ describe("normalizeOrgUsageData", () => {
 
     expect(data.enterprise_tier).toBeUndefined();
     expect(data.contract_end_date).toBeUndefined();
-    expect(data.compute_discount_pct).toBeUndefined();
+    expect(data.overage_discount_pct).toBeUndefined();
     expect(data.sla_uptime_pct).toBeUndefined();
   });
 });
@@ -91,11 +87,8 @@ describe("EMPTY_ORG_USAGE", () => {
     expect(EMPTY_ORG_USAGE.alerts).toEqual([]);
   });
 
-  it("has zero credit values", () => {
-    expect(EMPTY_ORG_USAGE.included_credit_microusd).toBe(0);
+  it("has zero spend values", () => {
     expect(EMPTY_ORG_USAGE.period_spend_microusd).toBe(0);
     expect(EMPTY_ORG_USAGE.overage_microusd).toBe(0);
-    expect(EMPTY_ORG_USAGE.credit_used_percent).toBe(0);
-    expect(EMPTY_ORG_USAGE.credit_remaining_microusd).toBe(0);
   });
 });

@@ -43,17 +43,16 @@ func TestGetCurrentUsage_EnterpriseWithContract(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Credit pool should come from the contract.
-	if resp.IncludedCreditMicro != EnterpriseStarterCreditMicrousd {
-		t.Errorf("IncludedCreditMicro = %d, want %d", resp.IncludedCreditMicro, EnterpriseStarterCreditMicrousd)
+	if resp.PeriodSpendMicro != 500_000_000 {
+		t.Errorf("PeriodSpendMicro = %d, want 500000000", resp.PeriodSpendMicro)
 	}
 
 	if resp.EnterpriseTier != string(EnterpriseTierStarter) {
 		t.Errorf("EnterpriseTier = %q, want %q", resp.EnterpriseTier, EnterpriseTierStarter)
 	}
 
-	if resp.ComputeDiscountPct != 10 {
-		t.Errorf("ComputeDiscountPct = %d, want 10", resp.ComputeDiscountPct)
+	if resp.OverageDiscountPct != 10 {
+		t.Errorf("OverageDiscountPct = %d, want 10", resp.OverageDiscountPct)
 	}
 
 	if resp.SLAUptimePct != 99.9 {
@@ -86,8 +85,8 @@ func TestGetCurrentUsage_EnterpriseNoContract(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if resp.IncludedCreditMicro != 0 {
-		t.Errorf("IncludedCreditMicro = %d, want 0 (no contract)", resp.IncludedCreditMicro)
+	if resp.OverageMicro != 0 {
+		t.Errorf("OverageMicro = %d, want 0 (no spend)", resp.OverageMicro)
 	}
 
 	if resp.EnterpriseTier != "" {
@@ -132,11 +131,11 @@ func TestGetCurrentUsage_EnterpriseOverage_DiscountApplied(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Raw overage: $1,500 - $1,000 = $500 = 500_000_000 micro-USD.
-	// After 10% discount: $500 * 0.9 = $450 = 450_000_000 micro-USD.
-	expectedOverage := int64(450_000_000)
+	// Launch billing has no spend-credit pool: the negotiated discount applies
+	// to total overage spend.
+	expectedOverage := int64(1_350_000_000)
 	if resp.OverageMicro != expectedOverage {
-		t.Errorf("OverageMicro = %d, want %d (10%% discount on $500 overage)", resp.OverageMicro, expectedOverage)
+		t.Errorf("OverageMicro = %d, want %d (10%% discount on total overage spend)", resp.OverageMicro, expectedOverage)
 	}
 }
 
@@ -168,8 +167,8 @@ func TestGetCurrentUsage_NonEnterprise_NoEnterpriseFields(t *testing.T) {
 	if resp.EnterpriseTier != "" {
 		t.Errorf("EnterpriseTier = %q, want empty for non-enterprise", resp.EnterpriseTier)
 	}
-	if resp.ComputeDiscountPct != 0 {
-		t.Errorf("ComputeDiscountPct = %d, want 0", resp.ComputeDiscountPct)
+	if resp.OverageDiscountPct != 0 {
+		t.Errorf("OverageDiscountPct = %d, want 0", resp.OverageDiscountPct)
 	}
 	if resp.SLAUptimePct != 0 {
 		t.Errorf("SLAUptimePct = %.2f, want 0", resp.SLAUptimePct)
@@ -258,10 +257,10 @@ func TestGetCurrentUsage_EnterpriseGrowthDiscount15Pct(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Raw overage: $3,500 - $2,500 = $1,000 = 1_000_000_000.
-	// After 15% discount: $1,000 * 0.85 = $850 = 850_000_000.
-	expectedOverage := int64(850_000_000)
+	// Launch billing has no spend-credit pool: the negotiated discount applies
+	// to total overage spend.
+	expectedOverage := int64(2_975_000_000)
 	if resp.OverageMicro != expectedOverage {
-		t.Errorf("OverageMicro = %d, want %d (15%% discount on $1000 overage)", resp.OverageMicro, expectedOverage)
+		t.Errorf("OverageMicro = %d, want %d (15%% discount on total overage spend)", resp.OverageMicro, expectedOverage)
 	}
 }

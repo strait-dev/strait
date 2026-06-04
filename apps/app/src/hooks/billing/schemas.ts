@@ -55,7 +55,6 @@ export const RawOrgUsageDimensionsSchema = Schema.Struct({
   monthly_runs: Schema.optional(UsageDimensionSchema),
   runs_today: UsageDimensionSchema,
   concurrent_runs: UsageDimensionSchema,
-  compute_credit: UsageDimensionSchema,
   projects: UsageDimensionSchema,
   members: UsageDimensionSchema,
   retention_days: Schema.Number,
@@ -81,11 +80,8 @@ export const OrgUsageResponseSchema = Schema.mutable(
       })
     ),
     usage: Schema.mutable(RawOrgUsageDimensionsSchema),
-    included_credit_microusd: Schema.Number,
     period_spend_microusd: Schema.Number,
     overage_microusd: Schema.Number,
-    credit_used_percent: Schema.Number,
-    credit_remaining_microusd: Schema.Number,
     alerts: Schema.mutable(Schema.Array(Schema.mutable(UsageAlertSchema))),
     payment_status: Schema.optional(Schema.String),
     grace_period_end: Schema.optional(Schema.String),
@@ -94,7 +90,7 @@ export const OrgUsageResponseSchema = Schema.mutable(
     ),
     enterprise_tier: Schema.optional(Schema.String),
     contract_end_date: Schema.optional(Schema.String),
-    compute_discount_pct: Schema.optional(Schema.Number),
+    overage_discount_pct: Schema.optional(Schema.Number),
     sla_uptime_pct: Schema.optional(Schema.Number),
   })
 );
@@ -111,7 +107,6 @@ export const SpendingLimitSchema = Schema.Struct({
   spending_limit_usd: Schema.Number,
   limit_action: Schema.String,
   current_spend_usd: Schema.Number,
-  included_credit_usd: Schema.Number,
   overage_spend_usd: Schema.Number,
   is_hard_capped: Schema.Boolean,
 });
@@ -123,7 +118,7 @@ export const SpendingLimitSchema = Schema.Struct({
  */
 export const UsageForecastSchema = Schema.Struct({
   projected_monthly_runs: Schema.Number,
-  projected_monthly_compute_usd: Schema.Number,
+  projected_monthly_spend_usd: Schema.Number,
   recommended_plan: Schema.String,
   days_until_limit: Schema.Number,
   projected_overage_microusd: Schema.Number,
@@ -139,7 +134,7 @@ export const UsageForecastSchema = Schema.Struct({
 export const UsageHistoryEntrySchema = Schema.Struct({
   date: Schema.String,
   runs_count: Schema.Number,
-  compute_cost_microusd: Schema.Number,
+  spend_microusd: Schema.Number,
 });
 
 /**
@@ -151,7 +146,7 @@ export const ProjectCostEntrySchema = Schema.Struct({
   project_id: Schema.String,
   name: Schema.String,
   runs: Schema.Number,
-  compute_microusd: Schema.Number,
+  spend_microusd: Schema.Number,
   total_microusd: Schema.Number,
   monthly_budget_microusd: Schema.optional(Schema.Number),
   budget_action: Schema.optional(Schema.String),

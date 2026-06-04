@@ -30,7 +30,6 @@ export type UsageAlert = {
 type BaseUsageDimensions = {
   runs_today: UsageDimension;
   concurrent_runs: UsageDimension;
-  compute_credit: UsageDimension;
   projects: UsageDimension;
   members: UsageDimension;
   retention_days: number;
@@ -62,11 +61,8 @@ export type RawOrgUsageData = {
     end: string;
   };
   usage: RawOrgUsageDimensions;
-  included_credit_microusd: number;
   period_spend_microusd: number;
   overage_microusd: number;
-  credit_used_percent: number;
-  credit_remaining_microusd: number;
   alerts: UsageAlert[];
   payment_status?: string;
   grace_period_end?: string;
@@ -76,8 +72,8 @@ export type RawOrgUsageData = {
   enterprise_tier?: string;
   /** Enterprise contract end date in "YYYY-MM-DD" format. */
   contract_end_date?: string;
-  /** Compute overage discount percentage from the enterprise contract. */
-  compute_discount_pct?: number;
+  /** Overage discount percentage from the enterprise contract. */
+  overage_discount_pct?: number;
   /** SLA uptime percentage from the enterprise contract tier. */
   sla_uptime_pct?: number;
 };
@@ -92,21 +88,12 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
   org_id: "",
   plan: "free",
   period: { start: "", end: "" },
-  included_credit_microusd: 0,
   period_spend_microusd: 0,
   overage_microusd: 0,
-  credit_used_percent: 0,
-  credit_remaining_microusd: 0,
   usage: {
     monthly_runs: { used: 0, limit: 5000, percent: 0, display: "0" },
     runs_today: { used: 0, limit: 5000, percent: 0, display: "0" },
     concurrent_runs: { used: 0, limit: 5, percent: 0, display: "0" },
-    compute_credit: {
-      used: 0,
-      limit: 0,
-      percent: 0,
-      display: "$0.00 / $0.00",
-    },
     projects: { used: 0, limit: 2, percent: 0, display: "0" },
     members: { used: 0, limit: 3, percent: 0, display: "0" },
     retention_days: 1,

@@ -440,10 +440,9 @@ func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
 
 	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{
 		spendingLimit: &billing.SpendingLimitResponse{
-			PlanTier:          "free",
-			LimitAction:       "reject",
-			IsHardCapped:      true,
-			IncludedCreditUsd: 0,
+			PlanTier:     "free",
+			LimitAction:  "reject",
+			IsHardCapped: true,
 		},
 	})
 	req := authedRequest(http.MethodGet, "/v1/spending-limit?org_id=org-free", "")

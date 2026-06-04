@@ -37,8 +37,8 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 const COST_CHART_CONFIG: ChartConfig = {
-  compute_cost_microusd: {
-    label: "Run cost",
+  spend_microusd: {
+    label: "Run spend",
     color: "chart-3",
   },
 };
@@ -167,7 +167,7 @@ const UsageHistoryTab = () => {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">Runs</TableHead>
-                  <TableHead className="text-right">Run Cost</TableHead>
+                  <TableHead className="text-right">Run Spend</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -178,7 +178,7 @@ const UsageHistoryTab = () => {
                       {entry.runs_count.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.compute_cost_microusd)}
+                      {formatMicroUsd(entry.spend_microusd)}
                     </TableCell>
                   </TableRow>
                 ))}

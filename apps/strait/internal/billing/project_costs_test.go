@@ -57,8 +57,8 @@ func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	if projA.Runs != 15 {
 		t.Errorf("proj-a runs: expected 15, got %d", projA.Runs)
 	}
-	if projA.ComputeMicro != 3000 {
-		t.Errorf("proj-a compute: expected 3000, got %d", projA.ComputeMicro)
+	if projA.SpendMicro != 3000 {
+		t.Errorf("proj-a spend: expected 3000, got %d", projA.SpendMicro)
 	}
 	if projA.TotalMicro != 3000 {
 		t.Errorf("proj-a total: expected 3000, got %d", projA.TotalMicro)

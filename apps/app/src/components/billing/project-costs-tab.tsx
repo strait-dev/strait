@@ -44,10 +44,10 @@ const ProjectCostsTab = () => {
   const totals = (costs ?? []).reduce(
     (acc, c) => ({
       runs: acc.runs + c.runs,
-      compute: acc.compute + c.compute_microusd,
+      spend: acc.spend + c.spend_microusd,
       total: acc.total + c.total_microusd,
     }),
-    { runs: 0, compute: 0, total: 0 }
+    { runs: 0, spend: 0, total: 0 }
   );
 
   const sortedCosts = useMemo(
@@ -76,8 +76,8 @@ const ProjectCostsTab = () => {
         />
         <MetricCard
           size="sm"
-          title="Run Cost"
-          value={formatMicroUsd(totals.compute)}
+          title="Run Spend"
+          value={formatMicroUsd(totals.spend)}
         />
         <MetricCard
           size="sm"
@@ -116,7 +116,7 @@ const ProjectCostsTab = () => {
               <TableRow>
                 <TableHead>Project</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
-                <TableHead className="text-right">Run Cost</TableHead>
+                <TableHead className="text-right">Run Spend</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Budget</TableHead>
               </TableRow>
@@ -137,7 +137,7 @@ const ProjectCostsTab = () => {
                       {entry.runs.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatMicroUsd(entry.compute_microusd)}
+                      {formatMicroUsd(entry.spend_microusd)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMicroUsd(entry.total_microusd)}

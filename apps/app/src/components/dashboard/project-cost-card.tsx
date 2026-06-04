@@ -45,9 +45,9 @@ const ProjectCostCard = ({ activeProjectId }: { activeProjectId: string }) => {
       </CardHeader>
       <CardContent>
         <DescriptionList divided orientation="horizontal" size="sm">
-          <DescriptionTerm>Run Cost</DescriptionTerm>
+          <DescriptionTerm>Run Spend</DescriptionTerm>
           <DescriptionDetails className="text-right tabular-nums">
-            {formatMicroUsd(project.compute_microusd)}
+            {formatMicroUsd(project.spend_microusd)}
           </DescriptionDetails>
           <DescriptionTerm>Total</DescriptionTerm>
           <DescriptionDetails className="text-right tabular-nums">

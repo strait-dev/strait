@@ -143,12 +143,12 @@ func TestUsageService_GetUsageHistory_IncludesRunAndCostUsage(t *testing.T) {
 	if history[0].RunsCount != 4 {
 		t.Fatalf("day 1 runs = %d, want 4", history[0].RunsCount)
 	}
-	if history[0].ComputeCostMicro != 2_500_000 {
-		t.Fatalf("day 1 compute cost = %d, want 2500000", history[0].ComputeCostMicro)
+	if history[0].SpendMicro != 2_500_000 {
+		t.Fatalf("day 1 spend = %d, want 2500000", history[0].SpendMicro)
 	}
 }
 
-func TestUsageService_GetUsageForecast_UsesComputeCost(t *testing.T) {
+func TestUsageService_GetUsageForecast_UsesSpend(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
@@ -173,7 +173,7 @@ func TestUsageService_GetUsageForecast_UsesComputeCost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertFloatApprox(t, forecast.ProjectedMonthlyComputeUsd, 90)
+	assertFloatApprox(t, forecast.ProjectedMonthlySpendUsd, 90)
 }
 
 func TestUsageService_GetSpendingLimit_FreeTierWithoutSubscription(t *testing.T) {
@@ -200,10 +200,8 @@ func TestUsageService_GetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 	if !resp.IsHardCapped {
 		t.Fatal("expected free tier response to be hard capped")
 	}
-	// Orchestration-only: no included credit; all spend is overage.
 	assertFloatApprox(t, resp.CurrentSpendUsd, 2.5)
 	assertFloatApprox(t, resp.OverageSpendUsd, 2.5)
-	assertFloatApprox(t, resp.IncludedCreditUsd, 0)
 }
 
 func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
@@ -233,10 +231,8 @@ func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
 	if !resp.IsHardCapped {
 		t.Fatal("expected free tier response to be hard capped")
 	}
-	// Orchestration-only: no included credit; all spend is overage.
 	assertFloatApprox(t, resp.CurrentSpendUsd, 1.25)
 	assertFloatApprox(t, resp.OverageSpendUsd, 1.25)
-	assertFloatApprox(t, resp.IncludedCreditUsd, 0)
 }
 
 func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T) {
@@ -622,11 +618,9 @@ func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
 	}
 }
 
-func TestUsageService_GetCurrentUsage_FreeTierNoIncludedCredit(t *testing.T) {
+func TestUsageService_GetCurrentUsage_FreeTierSpendIsOverage(t *testing.T) {
 	t.Parallel()
 
-	// Orchestration-only: free tier has no included compute credit.
-	// All spend is overage, and IncludedCreditMicro is always 0.
 	store := &mockBillingStore{
 		periodSpendByOrg: map[string]int64{
 			"org_free": CreditFreeMicrousd,
@@ -642,13 +636,9 @@ func TestUsageService_GetCurrentUsage_FreeTierNoIncludedCredit(t *testing.T) {
 	if resp.Plan != "free" {
 		t.Fatalf("plan = %q, want free", resp.Plan)
 	}
-	if resp.IncludedCreditMicro != 0 {
-		t.Fatalf("included credit = %d, want 0 (no compute credit in orchestration-only mode)", resp.IncludedCreditMicro)
-	}
 	if resp.PeriodSpendMicro != CreditFreeMicrousd {
 		t.Fatalf("period spend = %d, want %d", resp.PeriodSpendMicro, CreditFreeMicrousd)
 	}
-	// All spend is overage when there is no included credit.
 	if resp.OverageMicro != CreditFreeMicrousd {
 		t.Fatalf("overage = %d, want %d", resp.OverageMicro, CreditFreeMicrousd)
 	}
@@ -973,14 +963,8 @@ func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Orchestration-only: all spend is overage (no included compute credit).
 	if resp.OverageMicro != CreditStarterMicrousd {
 		t.Errorf("overage should equal total spend in orchestration-only mode, got %d want %d", resp.OverageMicro, CreditStarterMicrousd)
-	}
-	// No included credit means CreditUsedPercent = 0.
-	assertFloatApprox(t, resp.CreditUsedPercent, 0)
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("remaining credit should always be 0 in orchestration-only mode, got %d", resp.CreditRemainingMicro)
 	}
 }
 
@@ -994,8 +978,8 @@ func TestUsageService_GetUsageForecast_ZeroHistory(t *testing.T) {
 	if forecast.ProjectedMonthlyRuns != 0 {
 		t.Errorf("ProjectedMonthlyRuns = %d, want 0", forecast.ProjectedMonthlyRuns)
 	}
-	if forecast.ProjectedMonthlyComputeUsd != 0 {
-		t.Errorf("ProjectedMonthlyComputeUsd = %f, want 0", forecast.ProjectedMonthlyComputeUsd)
+	if forecast.ProjectedMonthlySpendUsd != 0 {
+		t.Errorf("ProjectedMonthlySpendUsd = %f, want 0", forecast.ProjectedMonthlySpendUsd)
 	}
 }
 

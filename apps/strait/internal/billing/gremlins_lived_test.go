@@ -50,7 +50,7 @@ func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
+func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -74,18 +74,19 @@ func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Usage.ComputeCredit.Limit != 500_000_000 {
-		t.Errorf("ComputeCredit.Limit = %d, want 500000000 (from contract)", resp.Usage.ComputeCredit.Limit)
+	if resp.EnterpriseTier != string(EnterpriseTierStarter) {
+		t.Errorf("EnterpriseTier = %q, want %q", resp.EnterpriseTier, EnterpriseTierStarter)
 	}
-	if resp.IncludedCreditMicro != 500_000_000 {
-		t.Errorf("IncludedCreditMicro = %d, want 500000000", resp.IncludedCreditMicro)
+	if resp.PeriodSpendMicro != 100_000_000 {
+		t.Errorf("PeriodSpendMicro = %d, want 100000000", resp.PeriodSpendMicro)
+	}
+	if resp.OverageMicro != 100_000_000 {
+		t.Errorf("OverageMicro = %d, want 100000000", resp.OverageMicro)
 	}
 }
 
-func TestGetCurrentUsage_CreditRemainingZero_NoIncludedCredit(t *testing.T) {
+func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
 	t.Parallel()
-	// Orchestration-only: non-enterprise plans have no included compute credit.
-	// CreditRemainingMicro and CreditUsedPercent are always 0.
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org-s": {OrgID: "org-s", PlanTier: "starter", Status: "active"},
@@ -100,15 +101,13 @@ func TestGetCurrentUsage_CreditRemainingZero_NoIncludedCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 (no included credit in orchestration-only mode)", resp.CreditRemainingMicro)
-	}
-	if resp.CreditUsedPercent != 0 {
-		t.Errorf("CreditUsedPercent = %f, want 0 (no included credit in orchestration-only mode)", resp.CreditUsedPercent)
+	want := CreditStarterMicrousd - 1_000_000
+	if resp.OverageMicro != want {
+		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, want)
 	}
 }
 
-func TestGetCurrentUsage_SpendEqualsCreditRemainZero(t *testing.T) {
+func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -124,12 +123,12 @@ func TestGetCurrentUsage_SpendEqualsCreditRemainZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 when spend == credit", resp.CreditRemainingMicro)
+	if resp.OverageMicro != CreditStarterMicrousd {
+		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, CreditStarterMicrousd)
 	}
 }
 
-func TestGetCurrentUsage_SpendAboveCreditRemainZero(t *testing.T) {
+func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -145,10 +144,6 @@ func TestGetCurrentUsage_SpendAboveCreditRemainZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 when spend > credit", resp.CreditRemainingMicro)
-	}
-	// Orchestration-only: all spend is overage (no included compute credit).
 	if resp.OverageMicro != CreditStarterMicrousd+1 {
 		t.Errorf("OverageMicro = %d, want %d (all spend is overage)", resp.OverageMicro, CreditStarterMicrousd+1)
 	}
@@ -228,7 +223,7 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 	if forecast.ProjectedMonthlyRuns != 30*30 {
 		t.Errorf("ProjectedMonthlyRuns = %d, want %d", forecast.ProjectedMonthlyRuns, 30*30)
 	}
-	assertFloatApprox(t, forecast.ProjectedMonthlyComputeUsd, 90.0)
+	assertFloatApprox(t, forecast.ProjectedMonthlySpendUsd, 90.0)
 }
 
 func TestGetUsageForecast_DaysUntilLimit_UsesMonthlyRunAllowance(t *testing.T) {
@@ -401,16 +396,16 @@ func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if forecast.ProjectedMonthlyComputeLowUsd >= forecast.ProjectedMonthlyComputeUsd {
+	if forecast.ProjectedMonthlySpendLowUsd >= forecast.ProjectedMonthlySpendUsd {
 		t.Errorf("Low = %f should be < Projected = %f",
-			forecast.ProjectedMonthlyComputeLowUsd, forecast.ProjectedMonthlyComputeUsd)
+			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendUsd)
 	}
-	if forecast.ProjectedMonthlyComputeHighUsd <= forecast.ProjectedMonthlyComputeUsd {
+	if forecast.ProjectedMonthlySpendHighUsd <= forecast.ProjectedMonthlySpendUsd {
 		t.Errorf("High = %f should be > Projected = %f",
-			forecast.ProjectedMonthlyComputeHighUsd, forecast.ProjectedMonthlyComputeUsd)
+			forecast.ProjectedMonthlySpendHighUsd, forecast.ProjectedMonthlySpendUsd)
 	}
-	if forecast.ProjectedMonthlyComputeLowUsd < 0 {
-		t.Errorf("Low = %f should be >= 0", forecast.ProjectedMonthlyComputeLowUsd)
+	if forecast.ProjectedMonthlySpendLowUsd < 0 {
+		t.Errorf("Low = %f should be >= 0", forecast.ProjectedMonthlySpendLowUsd)
 	}
 	if forecast.ConfidencePct != 87 {
 		t.Errorf("ConfidencePct = %d, want 87", forecast.ConfidencePct)
@@ -432,9 +427,9 @@ func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forecast.ProjectedMonthlyComputeLowUsd != forecast.ProjectedMonthlyComputeHighUsd {
-		t.Errorf("Low (%f) != High (%f) for identical daily compute",
-			forecast.ProjectedMonthlyComputeLowUsd, forecast.ProjectedMonthlyComputeHighUsd)
+	if forecast.ProjectedMonthlySpendLowUsd != forecast.ProjectedMonthlySpendHighUsd {
+		t.Errorf("Low (%f) != High (%f) for identical daily spend",
+			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendHighUsd)
 	}
 }
 

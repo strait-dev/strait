@@ -31,7 +31,7 @@ export const formatLimit = (value: number): string => {
  * @param microusd - Price amount in micro-USD (1,000,000 = $1.00).
  * @returns Formatted string (e.g. "$19.99") or "-" for zero/negative.
  */
-export const formatComputeCredit = (microusd: number): string => {
+export const formatMicroUsdPrice = (microusd: number): string => {
   if (microusd <= 0) {
     return "-";
   }

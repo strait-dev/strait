@@ -13,9 +13,9 @@ import { createServerFn } from "@tanstack/react-start";
 
 export {
   formatBoolean,
-  formatComputeCredit,
   formatCronInterval,
   formatLimit,
+  formatMicroUsdPrice,
   formatRBAC,
   formatRetention,
   formatSupportLevel,
@@ -23,9 +23,9 @@ export {
 
 import {
   formatBoolean,
-  formatComputeCredit,
   formatCronInterval,
   formatLimit,
+  formatMicroUsdPrice,
   formatRBAC,
   formatRetention,
   formatSupportLevel,
@@ -141,7 +141,7 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
         ...(p.overage_per_k_runs_microusd > 0
           ? [
               {
-                name: `${formatComputeCredit(p.overage_per_k_runs_microusd)}/1K orchestration runs overage`,
+                name: `${formatMicroUsdPrice(p.overage_per_k_runs_microusd)}/1K orchestration runs overage`,
                 included: true,
               },
             ]
@@ -257,7 +257,7 @@ export const apiPlansToComparisonFeatures = (
   return [
     row("Runs per month", (p) => formatLimit(p.max_runs_per_month)),
     row("Overage per 1K runs", (p) =>
-      formatComputeCredit(p.overage_per_k_runs_microusd)
+      formatMicroUsdPrice(p.overage_per_k_runs_microusd)
     ),
     row("Concurrent runs", (p) => formatLimit(p.max_concurrent_runs)),
     row("Workflow steps", (p) => formatLimit(p.max_workflow_dag_steps)),

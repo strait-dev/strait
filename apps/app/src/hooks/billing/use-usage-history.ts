@@ -19,8 +19,8 @@ export type UsageHistoryEntry = {
   date: string;
   /** Total runs executed on this day. */
   runs_count: number;
-  /** Run overage cost for the day in micro-USD. */
-  compute_cost_microusd: number;
+  /** Run spend for the day in micro-USD. */
+  spend_microusd: number;
 };
 
 /** Server function to fetch daily usage history for the current period. */

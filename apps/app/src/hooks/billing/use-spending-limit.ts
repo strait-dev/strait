@@ -42,8 +42,6 @@ export type SpendingLimitData = {
   limit_action: LimitAction;
   /** Current period spend in USD. */
   current_spend_usd: number;
-  /** Included allowance value in USD; kept for API compatibility. */
-  included_credit_usd: number;
   /** Overage spend beyond the included allowance in USD. */
   overage_spend_usd: number;
   /** Whether the org is hard-capped (no overage allowed). */

@@ -7,7 +7,6 @@ const renderEnterpriseOverview = () =>
   render(
     <EnterpriseOverview
       contractEndDate="2026-12-31"
-      creditUsedPercent={42.5}
       enterpriseTier="enterprise"
       overageDiscountPct={15}
       periodSpendMicro={123_456_789}

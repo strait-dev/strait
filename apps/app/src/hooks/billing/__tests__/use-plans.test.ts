@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   formatBoolean,
-  formatComputeCredit,
   formatCronInterval,
   formatLimit,
+  formatMicroUsdPrice,
   formatRBAC,
   formatRetention,
   formatSupportLevel,
@@ -35,19 +35,19 @@ describe("formatLimit", () => {
   });
 });
 
-describe("formatComputeCredit", () => {
+describe("formatMicroUsdPrice", () => {
   it("returns '-' for 0", () => {
-    expect(formatComputeCredit(0)).toBe("-");
+    expect(formatMicroUsdPrice(0)).toBe("-");
   });
 
   it("returns '-' for negative values", () => {
-    expect(formatComputeCredit(-1)).toBe("-");
+    expect(formatMicroUsdPrice(-1)).toBe("-");
   });
 
   it("formats micro-USD to dollars with 2 decimals", () => {
-    expect(formatComputeCredit(1_000_000)).toBe("$1.00");
-    expect(formatComputeCredit(19_990_000)).toBe("$19.99");
-    expect(formatComputeCredit(99_000_000)).toBe("$99.00");
+    expect(formatMicroUsdPrice(1_000_000)).toBe("$1.00");
+    expect(formatMicroUsdPrice(19_990_000)).toBe("$19.99");
+    expect(formatMicroUsdPrice(99_000_000)).toBe("$99.00");
   });
 });
 

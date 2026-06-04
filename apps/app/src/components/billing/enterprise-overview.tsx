@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@strait/ui/components/card";
-import { Progress } from "@strait/ui/components/progress";
 import { CheckCircleIcon, CheckIcon } from "@/lib/icons";
 
 type EnterpriseOverviewProps = {
@@ -17,7 +16,6 @@ type EnterpriseOverviewProps = {
   overageDiscountPct: number;
   slaUptimePct: number;
   periodSpendMicro: number;
-  creditUsedPercent: number;
 };
 
 const formatUsd = (microUsd: number): string =>
@@ -40,7 +38,6 @@ export const EnterpriseOverview = ({
   overageDiscountPct,
   slaUptimePct,
   periodSpendMicro,
-  creditUsedPercent,
 }: EnterpriseOverviewProps) => {
   const tierName =
     enterpriseTier
@@ -70,13 +67,8 @@ export const EnterpriseOverview = ({
             <CardTitle className="text-lg">Contracted</CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress
-              className="h-2"
-              value={Math.min(creditUsedPercent, 100)}
-            />
             <p className="mt-1 text-muted-foreground text-xs">
-              {formatUsd(periodSpendMicro)} used ({creditUsedPercent.toFixed(1)}
-              %)
+              {formatUsd(periodSpendMicro)} period spend
             </p>
           </CardContent>
         </Card>

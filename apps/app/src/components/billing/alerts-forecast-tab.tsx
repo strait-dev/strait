@@ -118,8 +118,8 @@ const AlertsForecastTab = () => {
                 />
                 <MetricCard
                   size="sm"
-                  title="Projected Compute"
-                  value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
+                  title="Projected Spend"
+                  value={`$${(forecast.projected_monthly_spend_usd ?? 0).toFixed(2)}`}
                 />
                 <MetricCard
                   size="sm"

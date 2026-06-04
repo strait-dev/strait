@@ -2107,15 +2107,14 @@ func MaxSpendingLimit(tier domain.PlanTier) int64 {
 
 // SpendingLimitResponse is the API response for spending limit queries.
 type SpendingLimitResponse struct {
-	OrgID             string  `json:"org_id"`
-	PlanTier          string  `json:"plan_tier"`
-	OverageEnabled    bool    `json:"overage_enabled"`
-	SpendingLimitUsd  float64 `json:"spending_limit_usd"`
-	LimitAction       string  `json:"limit_action"`
-	CurrentSpendUsd   float64 `json:"current_spend_usd"`
-	IncludedCreditUsd float64 `json:"included_credit_usd"`
-	OverageSpendUsd   float64 `json:"overage_spend_usd"`
-	IsHardCapped      bool    `json:"is_hard_capped"`
+	OrgID            string  `json:"org_id"`
+	PlanTier         string  `json:"plan_tier"`
+	OverageEnabled   bool    `json:"overage_enabled"`
+	SpendingLimitUsd float64 `json:"spending_limit_usd"`
+	LimitAction      string  `json:"limit_action"`
+	CurrentSpendUsd  float64 `json:"current_spend_usd"`
+	OverageSpendUsd  float64 `json:"overage_spend_usd"`
+	IsHardCapped     bool    `json:"is_hard_capped"`
 }
 
 // ApplySubscriptionAddOns is kept as an inert compatibility step for legacy
