@@ -76,6 +76,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestNonEnterpriseTiers_NoSLA", feature: FeatureSLA},
 	{promise: "overage metering to Stripe", status: launchPromiseMetered, gate: "worker recordTerminalRunBilling", test: "TestBillingEnforcement_TerminalFailureRecordsBillableRunCost"},
 	{promise: "roadmap add-ons are not sellable", status: launchPromiseRuntime, gate: "CatalogResolver launch-active add-on filter", test: "TestCatalogResolver_RoadmapAddonLookupKeysUnmapped"},
+	{promise: "retired model/key names absent from final schema", status: launchPromiseRuntime, gate: "migration final-schema policy", test: "TestFinalSchemaDoesNotRetainRetiredModelOrKeyNames"},
 	{promise: "SSO roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSSO},
 	{promise: "SCIM roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSCIM},
 	{promise: "IP allowlisting roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureIPAllowlisting},
