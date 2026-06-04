@@ -632,9 +632,10 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	// Apply per-org overrides from support. These run on top of the
 	// snapshot too — overrides are a runtime knob, not part of the
 	// resolved plan, and they must not be persisted into the snapshot.
-	if sub.OverrideDailyRunLimit != nil {
-		limits.MaxRunsPerDay = int64(*sub.OverrideDailyRunLimit)
-	}
+	// The legacy daily run override is intentionally ignored for launch:
+	// billing is monthly orchestration runs, and all launch plans keep
+	// MaxRunsPerDay at -1 so stale support metadata cannot reactivate a
+	// public daily quota.
 	if sub.OverrideConcurrentRunLimit != nil {
 		limits.MaxConcurrentRuns = *sub.OverrideConcurrentRunLimit
 	}

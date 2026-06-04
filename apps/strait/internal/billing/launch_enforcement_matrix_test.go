@@ -32,6 +32,7 @@ type launchPromiseEvidence struct {
 var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "HTTP execution mode", status: launchPromiseRuntime, gate: "checkHTTPModeAllowed", test: "TestCheckHTTPModeAllowed_FreePlanAllowed", feature: FeatureHTTPMode},
 	{promise: "monthly run allowance", status: launchPromiseRuntime, gate: "Enforcer.CheckMonthlyRunLimit", test: "TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps"},
+	{promise: "legacy daily run override remains inert", status: launchPromiseRuntime, gate: "Enforcer.GetOrgPlanLimits", test: "TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch"},
 	{promise: "Free overage requires payment method", status: launchPromiseRuntime, gate: "UsageService.SetOverageEnabled", test: "TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod"},
 	{promise: "paid overage can be disabled", status: launchPromiseRuntime, gate: "Enforcer.CheckMonthlyRunLimit", test: "TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps"},
 	{promise: "spending cap blocks and pauses schedules", status: launchPromiseRuntime, gate: "Enforcer.CheckSpendingLimit", test: "TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled"},
