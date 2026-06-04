@@ -957,6 +957,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 		}
 	}
 	defer resp.Body.Close()
+	return readDispatchResponse(ctx, resp)
+}
+
+func readDispatchResponse(ctx context.Context, resp *http.Response) (json.RawMessage, error) {
 	recordDispatchResponseStatus(ctx, dispatchModeHTTP, resp.StatusCode)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)-2))
@@ -970,11 +974,10 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 	recordDispatchAttempt(ctx, dispatchModeHTTP, dispatchOutcomeSuccess)
 
-	if len(respBody) > 0 {
-		return normalizeDispatchResult(respBody), nil
+	if len(respBody) == 0 {
+		return nil, nil
 	}
-
-	return nil, nil
+	return normalizeDispatchResult(respBody), nil
 }
 
 func newDispatchRequest(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (*http.Request, error) {

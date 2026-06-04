@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -160,6 +161,78 @@ func TestHTTPDispatchTraceRecorderExecutionTrace(t *testing.T) {
 	}
 	if trace.DispatchMs != 40 {
 		t.Fatalf("DispatchMs = %d, want 40", trace.DispatchMs)
+	}
+}
+
+func TestReadDispatchResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		want       string
+		wantErr    bool
+	}{
+		{
+			name:       "JSON success",
+			statusCode: http.StatusOK,
+			body:       `{"ok":true}`,
+			want:       `{"ok":true}`,
+		},
+		{
+			name:       "text success normalizes to JSON string",
+			statusCode: http.StatusOK,
+			body:       "ok",
+			want:       `"ok"`,
+		},
+		{
+			name:       "empty success returns nil result",
+			statusCode: http.StatusNoContent,
+		},
+		{
+			name:       "endpoint error preserves response body",
+			statusCode: http.StatusServiceUnavailable,
+			body:       "service down",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp := &http.Response{
+				StatusCode: tt.statusCode,
+				Body:       io.NopCloser(strings.NewReader(tt.body)),
+			}
+			got, err := readDispatchResponse(context.Background(), resp)
+			if tt.wantErr {
+				var endpointErr *domain.EndpointError
+				if !errors.As(err, &endpointErr) {
+					t.Fatalf("error = %T %v, want EndpointError", err, err)
+				}
+				if endpointErr.StatusCode != tt.statusCode {
+					t.Fatalf("status = %d, want %d", endpointErr.StatusCode, tt.statusCode)
+				}
+				if endpointErr.Body != tt.body {
+					t.Fatalf("body = %q, want %q", endpointErr.Body, tt.body)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("readDispatchResponse() error = %v", err)
+			}
+			if tt.want == "" {
+				if got != nil {
+					t.Fatalf("result = %s, want nil", got)
+				}
+				return
+			}
+			if string(got) != tt.want {
+				t.Fatalf("result = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }
 
