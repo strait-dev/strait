@@ -149,12 +149,13 @@ func (s *BillingEmailSender) SendContractExpired(ctx context.Context, to []strin
 	s.send(ctx, to, "Your enterprise contract has expired", billingEmailWrapper("Enterprise contract expired", body))
 }
 
-// SendTrialEndingSoon notifies org admins that their trial period is ending.
+// SendTrialEndingSoon handles Stripe's trial-ending webhook for legacy or
+// contract-specific temporary access without advertising self-serve trials.
 func (s *BillingEmailSender) SendTrialEndingSoon(ctx context.Context, to []string, trialEndDate string, daysRemaining int) {
 	if s == nil || len(to) == 0 {
 		return
 	}
-	subject := fmt.Sprintf("Your trial ends in %d days", daysRemaining)
+	subject := fmt.Sprintf("Temporary access ends in %d days", daysRemaining)
 	body := trialEndingHTML(trialEndDate, daysRemaining)
 	s.send(ctx, to, subject, body)
 }
@@ -226,7 +227,7 @@ func trialEndingHTML(endDate string, daysRemaining int) string {
 	safeDate := html.EscapeString(endDate)
 	body := fmt.Sprintf(`<tr>
       <td style="font-size:14px;color:#8D8D8D;line-height:1.6;">
-        Your Strait trial ends on <strong style="color:#252525;">%s</strong> (%d days from now). Add a payment method to continue using paid features after your trial.
+        Your temporary Strait access ends on <strong style="color:#252525;">%s</strong> (%d days from now). Choose a launch plan or update billing to keep paid-plan limits.
       </td>
     </tr>
     <tr><td style="height:16px;"></td></tr>
@@ -237,7 +238,7 @@ func trialEndingHTML(endDate string, daysRemaining int) string {
         </a>
       </td>
     </tr>`, safeDate, daysRemaining)
-	return billingEmailWrapper("Trial ending soon", body)
+	return billingEmailWrapper("Temporary access ending soon", body)
 }
 
 func disputeAlertHTML(amount string) string {

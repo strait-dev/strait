@@ -541,6 +541,26 @@ func TestLaunchPublicCopyDoesNotAdvertiseRetiredModelOrKeyFeatures(t *testing.T)
 	}
 }
 
+func TestLaunchBillingEmailsDoNotAdvertiseSelfServeTrials(t *testing.T) {
+	t.Parallel()
+
+	bodyBytes, err := os.ReadFile("billing_emails.go")
+	if err != nil {
+		t.Fatalf("read billing email copy: %v", err)
+	}
+	body := string(bodyBytes)
+	for _, phrase := range []string{
+		"Your trial",
+		"Strait trial",
+		"after your trial",
+		"Trial ending soon",
+	} {
+		if strings.Contains(body, phrase) {
+			t.Fatalf("billing email copy advertises self-serve trials with phrase %q", phrase)
+		}
+	}
+}
+
 func isPublicCopyFile(path string) bool {
 	for _, ext := range []string{".go", ".mdx", ".ts", ".tsx"} {
 		if strings.HasSuffix(path, ext) {
