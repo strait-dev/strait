@@ -164,20 +164,6 @@ func migrateToVersion(t *testing.T, connStr string, version uint) {
 	}
 }
 
-// migrateAllUp re-applies all remaining migrations.
-func migrateAllUp(t *testing.T, connStr string) {
-	t.Helper()
-	m, err := migrate.New(sourceURL(), connStr)
-	if err != nil {
-		t.Fatalf("create migrator for up: %v", err)
-	}
-	defer func() { _, _ = m.Close() }()
-
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		t.Fatalf("migrate all up: %v", err)
-	}
-}
-
 // runRoundtrip exercises a single migration's roundtrip:
 //
 //  1. Start with an empty public schema.
