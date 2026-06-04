@@ -476,6 +476,53 @@ func TestTerminalRunEvent_DeadLettered(t *testing.T) {
 	}
 }
 
+func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	startedAt := createdAt.Add(400 * time.Millisecond)
+	trace := &domain.ExecutionTrace{DispatchMs: 12}
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		Status:    domain.StatusExecuting,
+		Attempt:   2,
+		CreatedAt: createdAt,
+		StartedAt: &startedAt,
+	}
+	job := &domain.Job{ID: "job-1"}
+
+	event := newRetriedRunEvent(run, job, trace)
+
+	if event.Type != EventRetried {
+		t.Fatalf("type = %s, want %s", event.Type, EventRetried)
+	}
+	if event.Run != run {
+		t.Fatal("event run did not preserve run pointer")
+	}
+	if event.Job != job {
+		t.Fatal("event job did not preserve job pointer")
+	}
+	if event.FromStatus != domain.StatusExecuting {
+		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusExecuting)
+	}
+	if event.ToStatus != domain.StatusQueued {
+		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusQueued)
+	}
+	if event.ExecTrace != trace {
+		t.Fatal("event trace did not preserve trace pointer")
+	}
+	if event.Attempt != 3 {
+		t.Fatalf("attempt = %d, want 3", event.Attempt)
+	}
+	if event.QueueWait != 400*time.Millisecond {
+		t.Fatalf("queueWait = %s, want 400ms", event.QueueWait)
+	}
+	if event.ExecDur != 0 {
+		t.Fatalf("execDur = %s, want 0", event.ExecDur)
+	}
+}
+
 func TestSuccessfulDispatchSignals_WithEndpoint(t *testing.T) {
 	t.Parallel()
 

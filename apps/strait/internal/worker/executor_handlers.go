@@ -203,6 +203,19 @@ func newTerminalRunEvent(
 	}
 }
 
+func newRetriedRunEvent(run *domain.JobRun, job *domain.Job, execTrace *domain.ExecutionTrace) RunLifecycleEvent {
+	return RunLifecycleEvent{
+		Type:       EventRetried,
+		Run:        run,
+		Job:        job,
+		FromStatus: domain.StatusExecuting,
+		ToStatus:   domain.StatusQueued,
+		ExecTrace:  execTrace,
+		Attempt:    run.Attempt + 1,
+		QueueWait:  queueWait(run),
+	}
+}
+
 type successfulDispatchSignals struct {
 	endpointKey          string
 	endpointURL          string
@@ -637,12 +650,7 @@ func (e *Executor) requeueRunForRetry(
 		)
 	}
 	recordRetryAttempt(ctx, run.Attempt+1)
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventRetried, Run: run, Job: job,
-		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-		ExecTrace: execTrace, Attempt: run.Attempt + 1,
-		QueueWait: queueWait(run),
-	})
+	e.emit(ctx, newRetriedRunEvent(run, job, execTrace))
 	return true
 }
 
