@@ -107,6 +107,7 @@ func assertIdempotencyResponse(t *testing.T, err *rawStatusError, runID string, 
 
 	if err == nil {
 		t.Fatal("expected idempotency response, got nil")
+		return
 	}
 	if err.status != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", err.status)

@@ -80,6 +80,7 @@ func TestNewServeCommand(t *testing.T) {
 	f := cmd.Flags().Lookup("mode")
 	if f == nil {
 		t.Fatal("expected --mode flag to be registered on serve command")
+		return
 	}
 	if f.DefValue != "" {
 		t.Fatalf("--mode default = %q, want empty string", f.DefValue)
@@ -128,6 +129,7 @@ func TestNewVersionCommand(t *testing.T) {
 	f := cmd.Flags().Lookup("short")
 	if f == nil {
 		t.Fatal("expected --short flag to be registered on version command")
+		return
 	}
 	if f.DefValue != "false" {
 		t.Fatalf("--short default = %q, want %q", f.DefValue, "false")
@@ -388,6 +390,7 @@ func TestNewMigrateDownCommand_YesFlag(t *testing.T) {
 	f := down.Flags().Lookup("yes")
 	if f == nil {
 		t.Fatal("expected --yes flag on migrate down command")
+		return
 	}
 	if f.DefValue != "false" {
 		t.Fatalf("--yes default = %q, want %q", f.DefValue, "false")
@@ -424,6 +427,7 @@ func TestNewServerStartCommand_ModeFlag(t *testing.T) {
 	f := cmd.Flags().Lookup("mode")
 	if f == nil {
 		t.Fatal("expected --mode flag on server start command")
+		return
 	}
 	if f.DefValue != "" {
 		t.Fatalf("--mode default = %q, want empty string", f.DefValue)

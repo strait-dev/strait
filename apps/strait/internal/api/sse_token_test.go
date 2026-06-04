@@ -57,6 +57,7 @@ func TestHandleCreateSSEToken_Success(t *testing.T) {
 	claims := srv.parseSSEToken(resp.Token)
 	if claims == nil {
 		t.Fatal("created token did not parse")
+		return
 	}
 	if claims.ProjectID != "proj-1" {
 		t.Fatalf("project_id = %q, want proj-1", claims.ProjectID)
@@ -95,6 +96,7 @@ func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
 	claims := srv.parseSSEToken(resp.Token)
 	if claims == nil {
 		t.Fatal("created token did not parse")
+		return
 	}
 	if claims.EnvironmentID != "env-prod" {
 		t.Fatalf("environment_id = %q, want env-prod", claims.EnvironmentID)
@@ -140,6 +142,7 @@ func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
 	claims := srv.parseSSEToken(resp.Token)
 	if claims == nil {
 		t.Fatal("created token did not parse")
+		return
 	}
 	if !domain.HasScopeStrict(claims.Scopes, domain.ScopeRunsRead) {
 		t.Fatalf("minted token scopes %v do not include %s", claims.Scopes, domain.ScopeRunsRead)
@@ -197,6 +200,7 @@ func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing
 	claims := srv.parseSSEToken(resp.Token)
 	if claims == nil {
 		t.Fatal("created token did not parse")
+		return
 	}
 	if len(claims.Scopes) != 1 || claims.Scopes[0] != domain.ScopeRunsRead {
 		t.Fatalf("scopes = %v, want only [%s]", claims.Scopes, domain.ScopeRunsRead)
@@ -236,6 +240,7 @@ func TestParseSSEToken_Valid(t *testing.T) {
 	parsed := srv.parseSSEToken(signed)
 	if parsed == nil {
 		t.Fatal("expected valid claims, got nil")
+		return
 	}
 	if parsed.ProjectID != "proj-1" {
 		t.Errorf("project_id = %q, want %q", parsed.ProjectID, "proj-1")

@@ -621,6 +621,7 @@ func TestValidateTriggerRequest_Valid(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.Job.ID != "job-1" {
 		t.Fatalf("expected job ID job-1, got %q", result.Job.ID)

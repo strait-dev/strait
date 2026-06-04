@@ -81,6 +81,7 @@ func TestTriggerDedupOutputReturnsExistingRunShape(t *testing.T) {
 	}
 	if out == nil {
 		t.Fatal("triggerDedupOutput() = nil, want existing run output")
+		return
 	}
 	body, ok := out.Body.(map[string]any)
 	if !ok {

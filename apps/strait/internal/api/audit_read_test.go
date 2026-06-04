@@ -83,6 +83,7 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatalf("no audit.single_read event emitted; got %d events", len(emitted))
+		return
 	}
 
 	if found.ProjectID != projectID {
@@ -201,6 +202,7 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatalf("no secret.read event emitted; got %d events", len(emitted))
+		return
 	}
 
 	if found.ResourceType != "secret" {
@@ -276,6 +278,7 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("secret.read audit not emitted")
+		return
 	}
 
 	var details map[string]any
