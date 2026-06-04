@@ -342,7 +342,7 @@ func (e *Executor) checkDispatchHTTPModeAllowed(
 	if countedMonthlyRun {
 		e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
 	}
-	e.handleSystemFailureWithJob(ctx, run, job, "HTTP execution mode requires the Pro plan. Upgrade at /settings/billing")
+	e.handleSystemFailureWithJob(ctx, run, job, "HTTP execution mode is unavailable for this organization. Contact support if this persists.")
 	return false
 }
 

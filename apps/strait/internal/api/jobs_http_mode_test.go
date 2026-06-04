@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -144,5 +145,34 @@ func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	if err != nil {
 		t.Fatalf("expected no error for enterprise plan, got: %v", err)
+	}
+}
+
+func TestCheckHTTPModeAllowed_UnavailablePlanDoesNotAdvertiseUpgrade(t *testing.T) {
+	t.Parallel()
+
+	limits := billing.GetPlanLimits(domain.PlanFree)
+	limits.AllowsHTTPMode = false
+	enforcer := &mockHTTPModeEnforcer{
+		mockBillingEnforcer: mockBillingEnforcer{
+			projectOrgMap: map[string]string{"proj-1": "org-1"},
+		},
+		planLimits: limits,
+	}
+
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: enforcer,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	if err == nil {
+		t.Fatal("expected error for corrupted plan limits that disable HTTP mode")
+	}
+	msg := err.Error()
+	for _, forbidden := range []string{"Pro plan", "$49.99", "Upgrade"} {
+		if strings.Contains(msg, forbidden) {
+			t.Fatalf("HTTP mode fallback error advertises stale upgrade copy %q in %q", forbidden, msg)
+		}
 	}
 }

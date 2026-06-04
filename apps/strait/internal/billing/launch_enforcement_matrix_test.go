@@ -25,10 +25,12 @@ type launchPromiseEvidence struct {
 	status      launchPromiseStatus
 	gate        string
 	test        string
+	feature     Feature
 	roadmapGate Feature
 }
 
 var launchEnforcementMatrix = []launchPromiseEvidence{
+	{promise: "HTTP execution mode", status: launchPromiseRuntime, gate: "checkHTTPModeAllowed", test: "TestCheckHTTPModeAllowed_FreePlanAllowed", feature: FeatureHTTPMode},
 	{promise: "monthly run allowance", status: launchPromiseRuntime, gate: "Enforcer.CheckMonthlyRunLimit", test: "TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps"},
 	{promise: "Free overage requires payment method", status: launchPromiseRuntime, gate: "UsageService.SetOverageEnabled", test: "TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod"},
 	{promise: "paid overage can be disabled", status: launchPromiseRuntime, gate: "Enforcer.CheckMonthlyRunLimit", test: "TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps"},
@@ -41,6 +43,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "workflow step cap", status: launchPromiseRuntime, gate: "registry workflow registration gate", test: "TestCheckWorkflowStepLimit_TierBoundaries"},
 	{promise: "cron schedule count cap", status: launchPromiseRuntime, gate: "scheduler admission gate", test: "TestEnforceCronScheduleLimit_SerializesJobsAndWorkflows"},
 	{promise: "cron minimum interval cap", status: launchPromiseRuntime, gate: "scheduler cron validator", test: "TestCheckCronMinInterval_FreeRejectsEveryMinute"},
+	{promise: "cron overlap policies Starter+", status: launchPromiseRuntime, gate: "checkCronOverlapPolicy", test: "TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy", feature: FeatureAllCronOverlap},
 	{promise: "project cap", status: launchPromiseRuntime, gate: "project creation billing admission", test: "TestHandleCreateProject_ProjectLimitExceeded_Adversarial"},
 	{promise: "member cap", status: launchPromiseRuntime, gate: "org-limited member assignment", test: "TestAssignMemberRoleWithOrgLimit_SerializesConcurrentNewMembers"},
 	{promise: "webhook endpoint cap", status: launchPromiseRuntime, gate: "webhook endpoint admission", test: "TestCreateWebhookSubscriptionWithOrgLimit_ConcurrentCreatesCannotExceedLimit"},
@@ -50,18 +53,18 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "concurrency add-on +100", status: launchPromiseRuntime, gate: "EffectiveLimits AddonConcurrency100", test: "TestEffectiveLimits_Concurrency100Pack"},
 	{promise: "extended history add-on +30d with 365-day cap", status: launchPromiseRuntime, gate: "EffectiveLimits AddonHistory30d", test: "TestEffectiveLimits_History30dClampedToCatalogMaxTotal"},
 	{promise: "additional environments add-on +5", status: launchPromiseRuntime, gate: "EffectiveLimits AddonEnvironments5", test: "TestEffectiveLimits_Environments5Pack"},
-	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleCreateRole_StarterBasicRBACRejectsCustomRole"},
+	{promise: "RBAC level", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleCreateRole_StarterBasicRBACRejectsCustomRole", feature: FeatureRBAC},
 	{promise: "workflow policies Advanced RBAC", status: launchPromiseRuntime, gate: "RBACLevel plan limit", test: "TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy"},
-	{promise: "audit logs Scale+", status: launchPromiseRuntime, gate: "FeatureAuditLogs", test: "TestAuditLogs_FreeTierRejected"},
-	{promise: "canary deployments Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentUpdate_FreeTierRejected"},
+	{promise: "audit logs Scale+", status: launchPromiseRuntime, gate: "FeatureAuditLogs", test: "TestAuditLogs_FreeTierRejected", feature: FeatureAuditLogs},
+	{promise: "canary deployments Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentUpdate_FreeTierRejected", feature: FeatureCanaryDeployments},
 	{promise: "canary status and rollback Scale+", status: launchPromiseRuntime, gate: "FeatureCanaryDeployments", test: "TestCanaryDeploymentStatus_FreeTierRejected"},
-	{promise: "approval gates Pro+", status: launchPromiseRuntime, gate: "FeatureApprovalGates", test: "TestFeatureGating_ApprovalGates"},
+	{promise: "approval gates Pro+", status: launchPromiseRuntime, gate: "FeatureApprovalGates", test: "TestFeatureGating_ApprovalGates", feature: FeatureApprovalGates},
 	{promise: "approval analytics Pro+", status: launchPromiseRuntime, gate: "FeatureApprovalGates", test: "TestHandleGetApprovalStats_FreeTierRejected"},
-	{promise: "sub-workflows Pro+", status: launchPromiseRuntime, gate: "FeatureSubWorkflows", test: "TestFeatureGating_SubWorkflows"},
-	{promise: "job chaining Pro+", status: launchPromiseRuntime, gate: "FeatureJobChaining", test: "TestFeatureGating_JobChaining"},
-	{promise: "compensating transactions Pro+", status: launchPromiseRuntime, gate: "FeatureCompensatingTxns", test: "TestFeatureGating_CompensatingTxns"},
+	{promise: "sub-workflows Pro+", status: launchPromiseRuntime, gate: "FeatureSubWorkflows", test: "TestFeatureGating_SubWorkflows", feature: FeatureSubWorkflows},
+	{promise: "job chaining Pro+", status: launchPromiseRuntime, gate: "FeatureJobChaining", test: "TestFeatureGating_JobChaining", feature: FeatureJobChaining},
+	{promise: "compensating transactions Pro+", status: launchPromiseRuntime, gate: "FeatureCompensatingTxns", test: "TestFeatureGating_CompensatingTxns", feature: FeatureCompensatingTxns},
 	{promise: "compensation plan Pro+", status: launchPromiseRuntime, gate: "FeatureCompensatingTxns", test: "TestCompensationPlan_FreeTierRejected"},
-	{promise: "log streaming Starter+", status: launchPromiseRuntime, gate: "FeatureLogStreaming", test: "TestRunLogStream_FreeTier_Rejected"},
+	{promise: "log streaming Starter+", status: launchPromiseRuntime, gate: "FeatureLogStreaming", test: "TestRunLogStream_FreeTier_Rejected", feature: FeatureLogStreaming},
 	{promise: "log drain count cap", status: launchPromiseRuntime, gate: "log drain admission gate", test: "TestCreateLogDrain_FreeTier_RejectsZeroCap"},
 	{promise: "Redis required runtime dependency", status: launchPromiseRuntime, gate: "critical Redis health checker", test: "TestNewRedisChecker"},
 	{promise: "Redis strong API cache runtime wiring", status: launchPromiseRuntime, gate: "cache registry namespaces", test: "TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces"},
@@ -70,7 +73,7 @@ var launchEnforcementMatrix = []launchPromiseEvidence{
 	{promise: "Sequin required runtime dependency", status: launchPromiseRuntime, gate: "critical Sequin health checker", test: "TestNewSequinChecker"},
 	{promise: "Sequin CDC consumer table coverage", status: launchPromiseRuntime, gate: "cdc.RequiredConsumerTables", test: "TestSequinConfigCoversRequiredConsumerTables"},
 	{promise: "Postgres CDC replica identity coverage", status: launchPromiseRuntime, gate: "postgres-init CDC replica identity", test: "TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables"},
-	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestNonEnterpriseTiers_NoSLA"},
+	{promise: "SLA target flag", status: launchPromiseDisplay, gate: "FeatureSLA", test: "TestNonEnterpriseTiers_NoSLA", feature: FeatureSLA},
 	{promise: "overage metering to Stripe", status: launchPromiseMetered, gate: "worker recordTerminalRunBilling", test: "TestBillingEnforcement_TerminalFailureRecordsBillableRunCost"},
 	{promise: "roadmap add-ons are not sellable", status: launchPromiseRuntime, gate: "CatalogResolver launch-active add-on filter", test: "TestCatalogResolver_RoadmapAddonLookupKeysUnmapped"},
 	{promise: "SSO roadmap", status: launchPromiseRoadmap, roadmapGate: FeatureSSO},
@@ -146,7 +149,57 @@ func TestLaunchEnforcementMatrixCoversEveryRoadmapFeature(t *testing.T) {
 			covered[row.roadmapGate] = true
 		}
 	}
-	for _, feature := range []Feature{
+	for _, feature := range allRegistryFeatures() {
+		if IsRoadmapFeature(feature) && !covered[feature] {
+			t.Fatalf("roadmap feature %q is missing launch matrix coverage", feature)
+		}
+	}
+}
+
+func TestLaunchEnforcementMatrixCoversEveryLaunchActiveFeature(t *testing.T) {
+	t.Parallel()
+
+	registry := NewStaticRegistry()
+	covered := map[Feature]bool{}
+	for _, row := range launchEnforcementMatrix {
+		if row.feature != "" {
+			covered[row.feature] = true
+		}
+	}
+
+	for _, feature := range allRegistryFeatures() {
+		if IsRoadmapFeature(feature) {
+			continue
+		}
+		active := false
+		for _, tier := range domain.AllPlanTiers() {
+			if registry.AllowsFeature(tier, feature) {
+				active = true
+				break
+			}
+		}
+		if active && !covered[feature] {
+			t.Fatalf("launch-active feature %q is missing launch matrix evidence", feature)
+		}
+	}
+}
+
+func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
+	t.Parallel()
+
+	testNames := collectRepoTestNames(t)
+	for _, row := range launchEnforcementMatrix {
+		if row.status == launchPromiseRoadmap {
+			continue
+		}
+		if !testNames[row.test] {
+			t.Fatalf("%q cites missing evidence test %q", row.promise, row.test)
+		}
+	}
+}
+
+func allRegistryFeatures() []Feature {
+	return []Feature{
 		FeatureHTTPMode,
 		FeatureApprovalGates,
 		FeatureSubWorkflows,
@@ -170,24 +223,6 @@ func TestLaunchEnforcementMatrixCoversEveryRoadmapFeature(t *testing.T) {
 		FeatureSecretRotation,
 		FeatureSIEMExport,
 		FeatureLogStreaming,
-	} {
-		if IsRoadmapFeature(feature) && !covered[feature] {
-			t.Fatalf("roadmap feature %q is missing launch matrix coverage", feature)
-		}
-	}
-}
-
-func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
-	t.Parallel()
-
-	testNames := collectRepoTestNames(t)
-	for _, row := range launchEnforcementMatrix {
-		if row.status == launchPromiseRoadmap {
-			continue
-		}
-		if !testNames[row.test] {
-			t.Fatalf("%q cites missing evidence test %q", row.promise, row.test)
-		}
 	}
 }
 
@@ -288,6 +323,45 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 	}
 }
 
+func TestLaunchCopyDoesNotAdvertiseHTTPModeAsPaidUpgrade(t *testing.T) {
+	t.Parallel()
+
+	for _, root := range []string{
+		"../api",
+		"../worker",
+		"../../../docs",
+		"../../../app/src",
+	} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !isPublicCopyFile(path) || strings.Contains(path, "__tests__") {
+				return nil
+			}
+
+			bodyBytes, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			body := string(bodyBytes)
+			for _, phrase := range []string{
+				"HTTP execution mode requires the Pro plan",
+				"HTTP mode requires the Pro plan",
+				"HTTP mode requires Pro",
+			} {
+				if strings.Contains(body, phrase) {
+					t.Fatalf("%s advertises HTTP mode as a paid upgrade with phrase %q", path, phrase)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("scan %s for HTTP mode paid-upgrade copy: %v", root, err)
+		}
+	}
+}
+
 func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T) {
 	t.Parallel()
 
@@ -340,7 +414,7 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T)
 }
 
 func isPublicCopyFile(path string) bool {
-	for _, ext := range []string{".mdx", ".ts", ".tsx"} {
+	for _, ext := range []string{".go", ".mdx", ".ts", ".tsx"} {
 		if strings.HasSuffix(path, ext) {
 			return true
 		}

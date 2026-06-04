@@ -1715,7 +1715,7 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 
 	if !limits.AllowsHTTPMode {
 		billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "job_create")
-		return huma.Error400BadRequest("HTTP execution mode requires the Pro plan ($49.99/mo). Upgrade at /settings/billing")
+		return huma.Error400BadRequest("HTTP execution mode is unavailable for this organization. Contact support if this persists.")
 	}
 	return nil
 }
