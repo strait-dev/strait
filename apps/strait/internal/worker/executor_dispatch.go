@@ -260,7 +260,9 @@ func (e *Executor) enforceDispatchBilling(
 
 	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
 	if err != nil {
-		e.logger.Warn("failed to resolve org for billing check", "run_id", run.ID, "error", err, "fail_open", true)
+		e.logger.Warn("failed to resolve org for billing check", "run_id", run.ID, "error", err)
+		e.handleSystemFailureWithJob(ctx, run, job, "billing enforcement unavailable")
+		return nil, false
 	}
 	if orgID == "" {
 		return nil, true
@@ -330,7 +332,15 @@ func (e *Executor) checkDispatchHTTPModeAllowed(
 		return true
 	}
 	limits, err := e.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-	if err != nil || limits.AllowsHTTPMode {
+	if err != nil {
+		if countedMonthlyRun {
+			e.billingEnforcer.DecrMonthlyRunCount(ctx, orgID)
+		}
+		e.billingEnforcer.DecrConcurrentRunCount(ctx, orgID)
+		e.handleSystemFailureWithJob(ctx, run, job, "billing enforcement unavailable")
+		return false
+	}
+	if limits.AllowsHTTPMode {
 		return true
 	}
 	billing.RecordHTTPModeGateRejected(ctx, string(limits.PlanTier), "dispatch")

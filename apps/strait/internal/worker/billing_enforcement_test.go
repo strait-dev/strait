@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,9 @@ import (
 // Returns a free-tier subscription with low limits to trigger enforcement.
 type mockBillingEnforcerStore struct {
 	projectOrgID       string
+	projectOrgErr      error
 	sub                *billing.OrgSubscription
+	subErr             error
 	periodSpend        int64
 	projectBudget      int64
 	projectAction      string
@@ -37,6 +40,9 @@ func (m *mockBillingEnforcerStore) EnsureOrgSubscription(_ context.Context, _ st
 	return nil
 }
 func (m *mockBillingEnforcerStore) GetOrgSubscription(_ context.Context, _ string) (*billing.OrgSubscription, error) {
+	if m.subErr != nil {
+		return nil, m.subErr
+	}
 	if m.sub != nil {
 		return m.sub, nil
 	}
@@ -82,9 +88,15 @@ func (m *mockBillingEnforcerStore) ListOrgsWithPendingDowngrade(_ context.Contex
 	return nil, nil
 }
 func (m *mockBillingEnforcerStore) GetProjectOrgID(_ context.Context, _ string) (string, error) {
+	if m.projectOrgErr != nil {
+		return "", m.projectOrgErr
+	}
 	return m.projectOrgID, nil
 }
 func (m *mockBillingEnforcerStore) GetActiveProjectOrgID(_ context.Context, _ string) (string, error) {
+	if m.projectOrgErr != nil {
+		return "", m.projectOrgErr
+	}
 	return m.projectOrgID, nil
 }
 func (m *mockBillingEnforcerStore) ListProjectsByOrg(_ context.Context, _ string) ([]string, error) {
@@ -218,6 +230,57 @@ func newWorkerTestEnforcer(t *testing.T, billingStore billing.Store) (*billing.E
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { rdb.Close() })
 	return billing.NewEnforcer(billingStore, rdb, slog.Default()), mr
+}
+
+func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	bStore := &mockBillingEnforcerStore{
+		projectOrgErr: errors.New("project org lookup unavailable"),
+		sub: &billing.OrgSubscription{
+			OrgID:    "org-lookup-error",
+			PlanTier: string(domain.PlanFree),
+		},
+	}
+	enforcer, _ := newWorkerTestEnforcer(t, bStore)
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           execStore,
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+	})
+	run := &domain.JobRun{
+		ID:        "run-org-lookup-error",
+		JobID:     "job-org-lookup-error",
+		ProjectID: "proj-org-lookup-error",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+	}
+
+	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
+	if ok {
+		t.Fatal("expected billing org lookup error to block dispatch")
+	}
+	if release != nil {
+		t.Fatal("blocked dispatch must not return a billing release callback")
+	}
+	execStore.mu.Lock()
+	defer execStore.mu.Unlock()
+	if len(execStore.statusCalls) != 1 {
+		t.Fatalf("status calls = %d, want 1", len(execStore.statusCalls))
+	}
+	if got := execStore.statusCalls[0].to; got != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
+	}
 }
 
 // TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount verifies
@@ -706,5 +769,62 @@ func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
 	}
 	if val != "0" {
 		t.Errorf("concurrent counter must be balanced after HTTP-mode gate rejection, got %s (leak indicates the DecrConcurrentRunCount defer was not registered before the gate)", val)
+	}
+}
+
+func TestBillingEnforcement_HTTPModePlanLookupErrorFailsClosedAndRollsBackCounters(t *testing.T) {
+	t.Parallel()
+
+	orgID := "org-http-plan-error"
+	bStore := &mockBillingEnforcerStore{
+		projectOrgID: orgID,
+		subErr:       errors.New("subscription lookup unavailable"),
+	}
+	enforcer, mr := newWorkerTestEnforcer(t, bStore)
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:            pool,
+		Store:           execStore,
+		PollInterval:    time.Millisecond,
+		BillingEnforcer: enforcer,
+	})
+	run := &domain.JobRun{
+		ID:        "run-http-plan-error",
+		JobID:     "job-http-plan-error",
+		ProjectID: "proj-http-plan-error",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeHTTP,
+	}
+	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
+	concurrentKey := "strait:org_concurrent:" + orgID
+	mr.Set(monthlyKey, "1")
+	mr.Set(concurrentKey, "1")
+
+	if exec.checkDispatchHTTPModeAllowed(context.Background(), run, job, orgID, true) {
+		t.Fatal("expected HTTP-mode plan lookup error to block dispatch")
+	}
+
+	execStore.mu.Lock()
+	statusCalls := append([]statusUpdateCall(nil), execStore.statusCalls...)
+	execStore.mu.Unlock()
+	if len(statusCalls) != 1 {
+		t.Fatalf("status calls = %d, want 1", len(statusCalls))
+	}
+	if got := statusCalls[0].to; got != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
+	}
+	if val, err := mr.Get(monthlyKey); err == nil && val != "0" {
+		t.Fatalf("monthly counter after rollback = %s, want 0 or missing", val)
+	}
+	if val, err := mr.Get(concurrentKey); err == nil && val != "0" {
+		t.Fatalf("concurrent counter after rollback = %s, want 0 or missing", val)
 	}
 }
