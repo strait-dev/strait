@@ -57,15 +57,6 @@ func boostPriority(current, boost int) int {
 	return min(boosted, 10)
 }
 
-func shouldRetryForClass(errClass string) bool {
-	switch errClass {
-	case domain.ErrorClassClient, domain.ErrorClassAuth, domain.ErrorClassBudget, domain.ErrorClassOOM:
-		return false
-	default:
-		return true
-	}
-}
-
 func retryStatusFields(run *domain.JobRun, job *domain.Job, errMsg, errClass string) map[string]any {
 	fields := map[string]any{
 		"attempt":     run.Attempt + 1,
