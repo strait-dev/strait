@@ -569,6 +569,7 @@ type Executor struct {
 	defaultRegion            string
 	mode                     string
 	version                  string
+	edition                  domain.Edition
 	billingEnforcer          *billing.Enforcer
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
@@ -650,6 +651,7 @@ type ExecutorConfig struct {
 	DefaultRegion              string
 	Mode                       string
 	Version                    string
+	Edition                    domain.Edition
 	WorkflowLookup             WorkflowLookup
 	WorkflowTriggerer          WorkflowTriggerer
 	JobLookup                  JobLookup
@@ -786,6 +788,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		defaultRegion:            cfg.DefaultRegion,
 		mode:                     cfg.Mode,
 		version:                  cfg.Version,
+		edition:                  cfg.Edition,
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,

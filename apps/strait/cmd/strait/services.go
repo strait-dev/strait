@@ -1312,6 +1312,7 @@ func buildExecutorConfig(
 		DefaultRegion:            cfg.DefaultRegion,
 		Mode:                     cfg.Mode,
 		Version:                  version,
+		Edition:                  domain.ParseEdition(cfg.Edition),
 		EventChannelSize:         cfg.WorkerEventChannelSize,
 		SecretDecryptor:          deps.encryptor,
 		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,

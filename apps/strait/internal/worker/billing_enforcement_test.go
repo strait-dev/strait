@@ -232,6 +232,87 @@ func newWorkerTestEnforcer(t *testing.T, billingStore billing.Store) (*billing.E
 	return billing.NewEnforcer(billingStore, rdb, slog.Default()), mr
 }
 
+func TestBillingEnforcement_CloudNilEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Store:        execStore,
+		PollInterval: time.Millisecond,
+		Edition:      domain.EditionCloud,
+	})
+	run := &domain.JobRun{
+		ID:        "run-cloud-nil-billing",
+		JobID:     "job-cloud-nil-billing",
+		ProjectID: "proj-cloud-nil-billing",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+	}
+
+	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
+	if ok {
+		t.Fatal("expected missing cloud billing enforcer to block dispatch")
+	}
+	if release != nil {
+		t.Fatal("blocked dispatch must not return a billing release callback")
+	}
+	execStore.mu.Lock()
+	defer execStore.mu.Unlock()
+	if len(execStore.statusCalls) != 1 {
+		t.Fatalf("status calls = %d, want 1", len(execStore.statusCalls))
+	}
+	if got := execStore.statusCalls[0].to; got != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
+	}
+}
+
+func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
+	t.Parallel()
+
+	execStore := &mockExecutorStore{}
+	pool := NewPool(1)
+	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         pool,
+		Store:        execStore,
+		PollInterval: time.Millisecond,
+		Edition:      domain.EditionCommunity,
+	})
+	run := &domain.JobRun{
+		ID:        "run-community-nil-billing",
+		JobID:     "job-community-nil-billing",
+		ProjectID: "proj-community-nil-billing",
+		Status:    domain.StatusDequeued,
+		Attempt:   1,
+	}
+	job := &domain.Job{
+		ID:            run.JobID,
+		ProjectID:     run.ProjectID,
+		ExecutionMode: domain.ExecutionModeWorker,
+	}
+
+	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
+	if !ok {
+		t.Fatal("expected community nil billing enforcer to allow dispatch")
+	}
+	if release != nil {
+		t.Fatal("community nil enforcer should not return a billing release callback")
+	}
+	execStore.mu.Lock()
+	defer execStore.mu.Unlock()
+	if len(execStore.statusCalls) != 0 {
+		t.Fatalf("status calls = %d, want 0", len(execStore.statusCalls))
+	}
+}
+
 func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 

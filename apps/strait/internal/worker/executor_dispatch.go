@@ -250,6 +250,11 @@ func (e *Executor) enforceDispatchBilling(
 	job *domain.Job,
 ) (func(), bool) {
 	if e.billingEnforcer == nil {
+		if e.edition.RequiresHTTPModeGating() {
+			e.logger.Warn("billing enforcer unavailable for gated dispatch", "run_id", run.ID, "project_id", job.ProjectID)
+			e.handleSystemFailureWithJob(ctx, run, job, "billing enforcement unavailable")
+			return nil, false
+		}
 		return nil, true
 	}
 	if err := e.billingEnforcer.CheckProjectSuspended(ctx, job.ProjectID); err != nil {
