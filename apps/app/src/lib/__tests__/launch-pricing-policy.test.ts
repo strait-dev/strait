@@ -63,6 +63,8 @@ describe("launch pricing app policy", () => {
       "trial-upgrade-card",
       "getTrialContent",
       "trialMessage",
+      "custom resources",
+      "Roadmap security features via sales",
     ]) {
       expect(source).not.toContain(stale);
     }

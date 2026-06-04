@@ -573,7 +573,7 @@ const FAQ_ITEMS = [
   {
     question: "Do you offer enterprise pricing?",
     answer:
-      "Yes. Enterprise plans include custom pricing, custom resources, SLA targets, and dedicated support. SSO and advanced network controls are roadmap/contact-sales items for launch.",
+      "Yes. Enterprise plans include custom pricing, custom launch limits, non-contractual SLA targets, and dedicated support. SSO and advanced network controls are roadmap/contact-sales items for launch, not included launch entitlements.",
   },
 ];
 

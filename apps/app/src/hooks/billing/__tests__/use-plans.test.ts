@@ -176,6 +176,41 @@ describe("apiPlansToPricingPlans", () => {
       )
     ).toBe(false);
   });
+
+  it("marks Enterprise roadmap security as excluded from launch entitlements", () => {
+    const [pricingPlan] = apiPlansToPricingPlans([
+      testPlan({
+        tier: "enterprise",
+        display_name: "Enterprise",
+        roadmap_features: [
+          "SSO/SAML",
+          "SCIM",
+          "IP allowlisting",
+          "static IPs",
+          "VPC peering",
+          "data residency",
+          "single-tenant orchestration",
+          "BYO-cloud",
+        ],
+      }),
+    ]);
+
+    expect(pricingPlan.features).toContainEqual({
+      name: "99.99% SLA target (non-contractual)",
+      included: true,
+    });
+    expect(pricingPlan.features).toContainEqual({
+      name: "Roadmap security features are not launch entitlements",
+      included: false,
+    });
+    expect(
+      pricingPlan.features.some((feature) =>
+        feature.name.includes(
+          ["Roadmap security features", "via sales"].join(" ")
+        )
+      )
+    ).toBe(false);
+  });
 });
 
 describe("apiPlansToComparisonFeatures", () => {

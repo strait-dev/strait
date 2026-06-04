@@ -124,13 +124,16 @@ export const apiPlansToPricingPlans = (plans: APIPlan[]): PricingPlan[] => {
         { name: "50M+ orchestration runs/mo", included: true },
         { name: "Custom concurrency and retention", included: true },
         { name: "Multi-org consolidated invoicing", included: true },
-        { name: "99.99% SLA target", included: true },
+        { name: "99.99% SLA target (non-contractual)", included: true },
         {
           name: `${formatRetention(p.retention_days)} retention`,
           included: true,
         },
         { name: formatSupportLevel(p.support_level), included: true },
-        { name: "Roadmap security features via sales", included: false }
+        {
+          name: "Roadmap security features are not launch entitlements",
+          included: false,
+        }
       );
     } else {
       features.push(
