@@ -76,11 +76,3 @@ func TestTriggerExpiresAtPriority(t *testing.T) {
 		t.Fatalf("timeout fallback expires_at = %s, want %s", got, want)
 	}
 }
-
-func TestDryRunJobInfoNilSafe(t *testing.T) {
-	t.Parallel()
-
-	if got := dryRunJobInfo(nil); got != nil {
-		t.Fatalf("dryRunJobInfo(nil) = %#v, want nil", got)
-	}
-}

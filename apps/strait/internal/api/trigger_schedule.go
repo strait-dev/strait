@@ -98,20 +98,3 @@ func triggerExpiryBase(now time.Time, scheduledAt *time.Time) time.Time {
 	}
 	return now
 }
-
-func dryRunJobInfo(job *domain.Job) *DryRunJobInfo {
-	if job == nil {
-		return nil
-	}
-	return &DryRunJobInfo{
-		ID:            job.ID,
-		Name:          job.Name,
-		Slug:          job.Slug,
-		ExecutionMode: job.ExecutionMode,
-		Queue:         job.Queue,
-		TimeoutSecs:   job.TimeoutSecs,
-		MaxAttempts:   job.MaxAttempts,
-		Version:       job.Version,
-		VersionID:     job.VersionID,
-	}
-}
