@@ -25,6 +25,7 @@ var pgQueWorkerRefArgsBenchmarkSink struct {
 }
 var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
 var pgQueCandidateRunIDsBenchmarkSink []string
+var pgQueReadyEmitBatchErrBenchmarkSink error
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -893,6 +894,45 @@ func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing run run-b") {
 		t.Fatalf("sendReadyEvents() error = %v, want missing run-b", err)
+	}
+}
+
+func TestPgQueRecordReadyEmitBatchRejectsMismatchedInputs(t *testing.T) {
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	err := q.recordReadyEmitBatch(context.Background(), db, []string{"run-a"}, nil)
+	if err == nil {
+		t.Fatal("recordReadyEmitBatch() error = nil, want mismatch error")
+	}
+	if !strings.Contains(err.Error(), "mismatched id/generation counts") {
+		t.Fatalf("recordReadyEmitBatch() error = %v, want mismatch", err)
+	}
+}
+
+func BenchmarkPgQueRecordReadyEmitBatch(b *testing.B) {
+	db := &mockDBTX{}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	runIDs := []string{
+		"run-1",
+		"run-2",
+		"run-3",
+		"run-4",
+		"run-5",
+		"run-6",
+		"run-7",
+		"run-8",
+	}
+	readyGenerations := []int64{1, 2, 3, 4, 5, 6, 7, 8}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueReadyEmitBatchErrBenchmarkSink = q.recordReadyEmitBatch(context.Background(), db, runIDs, readyGenerations)
 	}
 }
 

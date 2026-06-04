@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -37,7 +36,7 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 	if err := q.pgque(db).sendText(ctx, queueName, pgQueReadyEventType, string(payload)); err != nil {
 		return fmt.Errorf("pgque send ready event: %w", err)
 	}
-	if err := q.recordReadyEmits(ctx, db, map[string]int64{run.ID: generation}); err != nil {
+	if err := q.recordReadyEmitBatch(ctx, db, []string{run.ID}, []int64{generation}); err != nil {
 		return err
 	}
 	return nil
@@ -65,12 +64,14 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 		return err
 	}
 
-	byRoute := make(map[string][]string, len(runs))
+	byRoute := make(map[string][]string, len(readyRuns))
+	readyGenerations := make([]int64, 0, len(readyRuns))
 	for _, readyRun := range readyRuns {
 		generation, ok := generations[readyRun.run.ID]
 		if !ok {
 			return fmt.Errorf("pgque ready generation: missing run %s", readyRun.run.ID)
 		}
+		readyGenerations = append(readyGenerations, generation)
 		payload, err := json.Marshal(pgQueReadyEvent{
 			RunID:      readyRun.run.ID,
 			RouteKey:   readyRun.routeKey,
@@ -93,7 +94,7 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 			return fmt.Errorf("pgque send ready event batch: %w", err)
 		}
 	}
-	if err := q.recordReadyEmits(ctx, db, generations); err != nil {
+	if err := q.recordReadyEmitBatch(ctx, db, runIDs, readyGenerations); err != nil {
 		return err
 	}
 	return nil
@@ -104,18 +105,12 @@ type pgQueReadyRun struct {
 	routeKey string
 }
 
-func (q *PgQueQueue) recordReadyEmits(ctx context.Context, db store.DBTX, generations map[string]int64) error {
-	if len(generations) == 0 {
+func (q *PgQueQueue) recordReadyEmitBatch(ctx context.Context, db store.DBTX, runIDs []string, readyGenerations []int64) error {
+	if len(runIDs) == 0 {
 		return nil
 	}
-	runIDs := make([]string, 0, len(generations))
-	for runID := range generations {
-		runIDs = append(runIDs, runID)
-	}
-	sort.Strings(runIDs)
-	readyGenerations := make([]int64, 0, len(generations))
-	for _, runID := range runIDs {
-		readyGenerations = append(readyGenerations, generations[runID])
+	if len(runIDs) != len(readyGenerations) {
+		return fmt.Errorf("pgque record ready emits: mismatched id/generation counts")
 	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO strait_pgque_ready_events (run_id, ready_generation)
