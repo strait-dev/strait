@@ -145,6 +145,74 @@ func workerModeJob(maxAttempts int) *domain.Job {
 	}
 }
 
+func TestWorkerRunResultFromDispatch(t *testing.T) {
+	t.Parallel()
+
+	opaque := struct{ id string }{id: "result-1"}
+	wantOutput := json.RawMessage(`{"ok":true}`)
+	dispatcher := &fakeWorkerDispatcher{
+		statusOf: map[any]string{opaque: "success"},
+		errorOf:  map[any]string{opaque: "ignored warning"},
+		outputOf: map[any]json.RawMessage{opaque: wantOutput},
+	}
+	exec, _, _ := newWorkerModeExecutor(t, &mockExecutorStore{}, dispatcher)
+
+	result := exec.workerRunResultFromDispatch(opaque)
+	if result.status != "success" {
+		t.Fatalf("status = %q, want success", result.status)
+	}
+	if result.errorMessage != "ignored warning" {
+		t.Fatalf("errorMessage = %q, want ignored warning", result.errorMessage)
+	}
+	if string(result.output) != string(wantOutput) {
+		t.Fatalf("output = %s, want %s", result.output, wantOutput)
+	}
+	if !result.succeeded() {
+		t.Fatal("success status should be marked succeeded")
+	}
+}
+
+func TestWorkerRunResultFailureMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   workerRunResult
+		want string
+	}{
+		{
+			name: "explicit error wins",
+			in: workerRunResult{
+				status:       "failed",
+				errorMessage: "boom",
+			},
+			want: "boom",
+		},
+		{
+			name: "empty status means malformed result",
+			in:   workerRunResult{},
+			want: "worker returned malformed or empty result",
+		},
+		{
+			name: "terminal status without error is named",
+			in: workerRunResult{
+				status: "cancelled",
+			},
+			want: `worker reported terminal status "cancelled" without error message`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.in.failureMessage(); got != tt.want {
+				t.Fatalf("failureMessage() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T) {
 	t.Parallel()
 	startedAt := time.Now().Add(-time.Second)

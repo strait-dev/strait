@@ -1239,9 +1239,9 @@ func (e *Executor) handleWorkerDispatchResult(
 	// Only "success" routes to the success handler; everything else (including
 	// "failed", "" from a nil/malformed result, or any unexpected sentinel) is
 	// routed to handleFailure so retry and DLQ policy stay in one path.
-	status := e.workerDispatcher.ResultStatus(result)
-	if status != workerResultStatusSuccess {
-		_, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, e.workerDispatcher.ResultError(result), nil)
+	runResult := e.workerRunResultFromDispatch(result)
+	if !runResult.succeeded() {
+		_, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, runResult)
 		if transitioned {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
@@ -1249,7 +1249,7 @@ func (e *Executor) handleWorkerDispatchResult(
 		return workerDispatchOutcomeError
 	}
 
-	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, "", e.workerDispatcher.ResultOutput(result))
+	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, runResult)
 	if transitioned {
 		e.completeWorkerTask(ctx, result, taskStatus)
 	}
@@ -1307,9 +1307,14 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 	}
 
 	policy := defaultExecutionPolicy(job)
-	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, errorMessage, output)
+	runResult := workerRunResult{
+		status:       status,
+		errorMessage: errorMessage,
+		output:       output,
+	}
+	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, runResult)
 	if !transitioned {
-		if status != workerResultStatusSuccess {
+		if !runResult.succeeded() {
 			return "", fmt.Errorf("worker failure finalization did not transition run")
 		}
 		return "", fmt.Errorf("worker success finalization did not transition run")
@@ -1323,27 +1328,43 @@ func (e *Executor) applyWorkerRunResult(
 	run *domain.JobRun,
 	job *domain.Job,
 	policy executionPolicy,
-	status string,
-	errorMessage string,
-	output json.RawMessage,
+	result workerRunResult,
 ) (domain.WorkerTaskStatus, bool) {
-	if status != workerResultStatusSuccess {
-		errorMessage = workerResultFailureMessage(status, errorMessage)
+	if !result.succeeded() {
+		errorMessage := result.failureMessage()
 		return domain.WorkerTaskStatusFailed, e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil)
 	}
 
 	e.recordWorkerModeCost(ctx, run, job)
-	return domain.WorkerTaskStatusCompleted, e.handleSuccess(ctx, run, job, output)
+	return domain.WorkerTaskStatusCompleted, e.handleSuccess(ctx, run, job, result.output)
 }
 
-func workerResultFailureMessage(status, errorMessage string) string {
-	if errorMessage != "" {
-		return errorMessage
+type workerRunResult struct {
+	status       string
+	errorMessage string
+	output       json.RawMessage
+}
+
+func (e *Executor) workerRunResultFromDispatch(result any) workerRunResult {
+	return workerRunResult{
+		status:       e.workerDispatcher.ResultStatus(result),
+		errorMessage: e.workerDispatcher.ResultError(result),
+		output:       e.workerDispatcher.ResultOutput(result),
 	}
-	if status == "" {
+}
+
+func (r workerRunResult) succeeded() bool {
+	return r.status == workerResultStatusSuccess
+}
+
+func (r workerRunResult) failureMessage() string {
+	if r.errorMessage != "" {
+		return r.errorMessage
+	}
+	if r.status == "" {
 		return "worker returned malformed or empty result"
 	}
-	return fmt.Sprintf("worker reported terminal status %q without error message", status)
+	return fmt.Sprintf("worker reported terminal status %q without error message", r.status)
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
