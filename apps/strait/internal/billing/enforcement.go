@@ -2002,7 +2002,7 @@ func (e *Enforcer) CheckProjectSuspended(ctx context.Context, projectID string) 
 	if err != nil {
 		e.logger.Warn("failed to check project suspended status",
 			"project_id", projectID, "error", err)
-		return e.boundedFailOpen(ctx, projectID, "project_suspended", "db_error")
+		return serviceDegradedLimitError()
 	}
 
 	// Cache the result.

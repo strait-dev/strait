@@ -87,6 +87,7 @@ type mockBillingStore struct {
 	unpausedOrgID              string
 	unpausedReason             string
 	unpausedCount              int64
+	isProjectSuspendedErr      error
 	getProjectBudgetFn         func(ctx context.Context, projectID string) (int64, string, error)
 	getProjectPeriodSpendFn    func(ctx context.Context, projectID string, periodStart time.Time) (int64, error)
 }
@@ -456,6 +457,9 @@ func (m *mockBillingStore) ListStaleSubscriptions(_ context.Context) ([]OrgSubsc
 }
 
 func (m *mockBillingStore) IsProjectSuspended(_ context.Context, _ string) (bool, error) {
+	if m.isProjectSuspendedErr != nil {
+		return false, m.isProjectSuspendedErr
+	}
 	return false, nil
 }
 

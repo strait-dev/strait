@@ -940,6 +940,28 @@ func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		isProjectSuspendedErr: errors.New("project suspension status unavailable"),
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckProjectSuspended(context.Background(), "proj-read-error")
+	if err == nil {
+		t.Fatal("expected project suspension check to fail closed when status cannot be loaded")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
