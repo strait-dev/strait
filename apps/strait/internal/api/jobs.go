@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1517,32 +1516,6 @@ func (s *Server) handleGetJobHealth(ctx context.Context, input *GetJobHealthInpu
 		Since:          since,
 		JobHealthStats: stats,
 	}}, nil
-}
-
-// parsePaginationFromStrings parses limit and cursor from string query params.
-func parsePaginationFromStrings(limitStr, cursorStr string) (int, *time.Time, error) {
-	limit := defaultPageLimit
-	if limitStr != "" {
-		parsed, err := strconv.Atoi(limitStr)
-		if err != nil || parsed <= 0 {
-			return 0, nil, &paginationError{msg: "limit must be a positive integer"}
-		}
-		if parsed > maxPageLimit {
-			parsed = maxPageLimit
-		}
-		limit = parsed
-	}
-
-	var cursor *time.Time
-	if cursorStr != "" {
-		t, err := time.Parse(time.RFC3339Nano, cursorStr)
-		if err != nil {
-			return 0, nil, &paginationError{msg: "invalid cursor format"}
-		}
-		cursor = &t
-	}
-
-	return limit, cursor, nil
 }
 
 const maxPauseReasonLen = 500
