@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -139,9 +140,33 @@ func TestBulkTrigger_PriorityRejectsSmuggled(t *testing.T) {
 	}
 }
 
-// TestBulkTrigger_NilBillingEnforcer_FailsOpen verifies that a server with no
-// billing enforcer (community edition) does not block any priority.
-func TestBulkTrigger_NilBillingEnforcer_FailsOpen(t *testing.T) {
+func TestBulkTrigger_CloudNilBillingEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
+			return testEnabledJob(id), nil
+		},
+	}
+	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
+	srv := newTestServer(t, ms, mq, nil)
+	srv.edition = domain.EditionCloud
+
+	body := `{"items":[{"priority":99},{"priority":100}]}`
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 with cloud nil enforcer, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "service_unavailable") {
+		t.Fatalf("response body = %s, want service_unavailable code", w.Body.String())
+	}
+}
+
+// TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen verifies that the
+// community edition does not block any priority without a billing enforcer.
+func TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -151,6 +176,7 @@ func TestBulkTrigger_NilBillingEnforcer_FailsOpen(t *testing.T) {
 	}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error { return nil }}
 	srv := newTestServer(t, ms, mq, nil) // no billing enforcer
+	srv.edition = domain.EditionCommunity
 
 	body := `{"items":[{"priority":99},{"priority":100}]}`
 	w := httptest.NewRecorder()

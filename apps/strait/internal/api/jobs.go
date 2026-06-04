@@ -1698,8 +1698,11 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 	if mode != domain.ExecutionModeHTTP {
 		return nil
 	}
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+	if !s.edition.RequiresHTTPModeGating() {
 		return nil
+	}
+	if s.billingEnforcer == nil {
+		return planGateUnavailable("http_mode_enforcer", errors.New("billing enforcer not configured"))
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)

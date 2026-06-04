@@ -66,8 +66,8 @@ func TestRunLogStream_StarterTier_Allowed(t *testing.T) {
 	}
 }
 
-// TestRunLogStream_NilEnforcer_FailsOpen confirms community / unconfigured
-// builds do not block log streaming.
+// TestRunLogStream_NilEnforcer_FailsOpen confirms community builds do not
+// block log streaming.
 func TestRunLogStream_NilEnforcer_FailsOpen(t *testing.T) {
 	t.Parallel()
 
@@ -80,6 +80,7 @@ func TestRunLogStream_NilEnforcer_FailsOpen(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream/logs", "", "proj-1"))

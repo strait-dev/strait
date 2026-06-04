@@ -27,7 +27,7 @@ func newTestServerWithEncryption(t *testing.T, s APIStore, q *mockQueue) *Server
 		Store:   s,
 		Queue:   q,
 		PubSub:  p,
-		Edition: domain.EditionCloud,
+		Edition: domain.EditionCommunity,
 	})
 	t.Cleanup(srv.Close)
 	return srv

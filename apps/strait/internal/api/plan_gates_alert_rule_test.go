@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"strait/internal/domain"
 )
 
 // The alert-rule HTTP handler does not exist yet (rules currently live in the
@@ -65,6 +67,7 @@ func TestCheckAlertRuleLimit_NilEnforcer_FailsOpen(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 	if err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 9999); err != nil {
 		t.Fatalf("nil enforcer must fail open; got %v", err)
 	}

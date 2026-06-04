@@ -125,18 +125,31 @@ func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
 	}
 }
 
-func TestCheckHTTPModeAllowed_NoBillingEnforcerAllowed(t *testing.T) {
+func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	// No billing enforcer (e.g., dev mode) should not block.
 	s := &Server{
 		edition:         domain.EditionCloud,
 		billingEnforcer: nil,
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got %v", err)
+	}
+}
+
+func TestCheckHTTPModeAllowed_CommunityNilEnforcerAllowed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition:         domain.EditionCommunity,
+		billingEnforcer: nil,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	if err != nil {
-		t.Fatalf("expected no error with nil enforcer, got: %v", err)
+		t.Fatalf("expected no error with community nil enforcer, got: %v", err)
 	}
 }
 

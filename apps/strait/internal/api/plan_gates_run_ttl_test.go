@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 // TestCheckRunTTLLimit_ZeroTTL_NoCap proves the gate ignores zero (the
@@ -69,14 +70,25 @@ func TestCheckRunTTLLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 	}
 }
 
-// TestCheckRunTTLLimit_NilEnforcer_FailsOpen confirms self-hosted builds
-// (no enforcer) accept any ttl.
-func TestCheckRunTTLLimit_NilEnforcer_FailsOpen(t *testing.T) {
+func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
+
+	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999_999)
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got %v", err)
+	}
+}
+
+// TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen confirms self-hosted
+// builds (no enforcer) accept any ttl.
+func TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+	srv := &Server{edition: domain.EditionCommunity}
 
 	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999_999); err != nil {
-		t.Fatalf("nil enforcer must fail open; got %v", err)
+		t.Fatalf("community nil enforcer must fail open; got %v", err)
 	}
 }
 

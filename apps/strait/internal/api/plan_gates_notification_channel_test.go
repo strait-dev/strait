@@ -145,6 +145,7 @@ func TestCreateNotificationChannel_NilEnforcer_FailsOpen(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))

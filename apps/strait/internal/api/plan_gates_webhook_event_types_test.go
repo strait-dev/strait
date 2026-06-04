@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 // TestCheckWebhookEventTypes_NoneTier_RejectsAll verifies that a plan with
@@ -99,14 +100,25 @@ func TestCheckWebhookEventTypes_AllCustomTier_Accepts(t *testing.T) {
 	}
 }
 
-// TestCheckWebhookEventTypes_NilEnforcer_FailsOpen confirms self-hosted
-// builds (no enforcer wired) accept every event type.
-func TestCheckWebhookEventTypes_NilEnforcer_FailsOpen(t *testing.T) {
+func TestCheckWebhookEventTypes_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
+	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"})
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got %v", err)
+	}
+}
+
+// TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen confirms self-hosted
+// builds (no enforcer wired) accept every event type.
+func TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	srv := &Server{edition: domain.EditionCommunity}
 	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"}); err != nil {
-		t.Fatalf("nil enforcer must fail open; got %v", err)
+		t.Fatalf("community nil enforcer must fail open; got %v", err)
 	}
 }
 

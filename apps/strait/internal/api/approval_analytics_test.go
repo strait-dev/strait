@@ -69,6 +69,7 @@ func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
 		},
 	}
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
+	srv.edition = domain.EditionCloud
 	srv.billingEnforcer = &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)}
 
 	from := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)

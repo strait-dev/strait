@@ -103,12 +103,15 @@ func (s *Server) dispatchWorkflowRegistrationRejected(ctx context.Context, proje
 }
 
 // getOrgPlanLimits resolves the org's plan limits from a project ID. A nil
-// limits result with nil error means cloud billing enforcement is not
-// configured for this edition/server. A non-nil error means the enforcement
-// dependency is unavailable and the caller should reject the gated operation.
+// limits result with nil error means this edition/server is ungated. A non-nil
+// error means the enforcement dependency is unavailable and the caller should
+// reject the gated operation.
 func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billing.OrgPlanLimits, error) {
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+	if !s.edition.RequiresHTTPModeGating() {
 		return nil, nil
+	}
+	if s.billingEnforcer == nil {
+		return nil, planGateUnavailable("plan_gate_enforcer", errors.New("billing enforcer not configured"))
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
@@ -128,9 +131,9 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billi
 }
 
 // checkFeatureAllowed checks whether a plan-gated feature is available for
-// the given project's org. Returns nil if allowed or if billing is not
-// configured for this edition/server. Returns 503 if cloud enforcement is
-// unavailable, or 403 with structured metadata if blocked.
+// the given project's org. Returns nil if allowed or if the edition is
+// ungated. Returns 503 if cloud enforcement is unavailable, or 403 with
+// structured metadata if blocked.
 func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feature billing.Feature, featureName string) error {
 	limits, err := s.getOrgPlanLimits(ctx, projectID)
 	if err != nil {
@@ -440,24 +443,23 @@ func (s *Server) resolveScheduleCreateLimit(ctx context.Context, projectID strin
 	if cronExpr == "" {
 		return "", -1, "", nil
 	}
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return "", -1, "", err
+	}
+	if limits == nil {
 		return "", -1, "", nil
+	}
+	if limits.MaxScheduledJobs == -1 {
+		return "", -1, limits.DisplayName, nil // Unlimited.
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
 		if err != nil {
-			return "", -1, "", planGateUnavailable("schedule_org_lookup", err)
+			return "", -1, limits.DisplayName, planGateUnavailable("schedule_org_lookup", err)
 		}
-		return "", -1, "", nil
-	}
-
-	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-	if limErr != nil {
-		return "", -1, "", planGateUnavailable("schedule_plan_lookup", limErr)
-	}
-	if limits.MaxScheduledJobs == -1 {
-		return "", -1, limits.DisplayName, nil // Unlimited.
+		return "", -1, limits.DisplayName, nil
 	}
 
 	return orgID, limits.MaxScheduledJobs, limits.DisplayName, nil
@@ -725,19 +727,12 @@ func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs
 	if ttlSecs <= 0 {
 		return nil
 	}
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
-		return nil
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
 	}
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return planGateUnavailable("run_ttl_org_lookup", err)
-		}
+	if limits == nil {
 		return nil
-	}
-	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-	if limErr != nil {
-		return planGateUnavailable("run_ttl_plan_lookup", limErr)
 	}
 	if limits.RetentionDays <= 0 {
 		return nil // Unlimited. or unset
@@ -764,19 +759,12 @@ func (s *Server) checkPerJobConcurrencyLimit(ctx context.Context, projectID stri
 	if maxConcurrency <= 0 && maxConcurrencyPerKey <= 0 {
 		return nil
 	}
-	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
-		return nil
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
 	}
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return planGateUnavailable("per_job_concurrency_org_lookup", err)
-		}
+	if limits == nil {
 		return nil
-	}
-	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-	if limErr != nil {
-		return planGateUnavailable("per_job_concurrency_plan_lookup", limErr)
 	}
 	if limits.MaxConcurrentRuns < 0 {
 		return nil

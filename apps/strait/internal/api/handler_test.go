@@ -53,7 +53,7 @@ func newTestServer(t *testing.T, s APIStore, q *mockQueue, pub *mockPublisher) *
 		Store:   s,
 		Queue:   q,
 		PubSub:  p,
-		Edition: domain.EditionCloud,
+		Edition: domain.EditionCommunity,
 	})
 	t.Cleanup(srv.Close)
 	return srv

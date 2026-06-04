@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+	"strait/internal/domain"
 )
 
 // TestCheckPerJobConcurrencyLimit_ZeroValues_NoOp pins the platform-default
@@ -90,14 +91,25 @@ func TestCheckPerJobConcurrencyLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 	}
 }
 
-// TestCheckPerJobConcurrencyLimit_NilEnforcer_FailsOpen confirms self-hosted
-// builds (no enforcer wired) accept any concurrency setting.
-func TestCheckPerJobConcurrencyLimit_NilEnforcer_FailsOpen(t *testing.T) {
+func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
+
+	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999_999, 999_999)
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got %v", err)
+	}
+}
+
+// TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen confirms
+// self-hosted builds (no enforcer wired) accept any concurrency setting.
+func TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+	srv := &Server{edition: domain.EditionCommunity}
 
 	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999_999, 999_999); err != nil {
-		t.Fatalf("nil enforcer must fail open; got %v", err)
+		t.Fatalf("community nil enforcer must fail open; got %v", err)
 	}
 }
 

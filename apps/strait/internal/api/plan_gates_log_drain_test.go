@@ -195,6 +195,7 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
