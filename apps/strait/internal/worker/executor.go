@@ -70,6 +70,10 @@ type ExecutorStore interface {
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 }
 
+type existingRunEnqueuer interface {
+	EnqueueExisting(ctx context.Context, run *domain.JobRun) error
+}
+
 type executionPolicy struct {
 	maxAttempts      int
 	timeoutSecs      int
@@ -584,7 +588,6 @@ type Executor struct {
 	runStarted               atomic.Bool
 	degradedPollInterval     time.Duration
 	degraded                 queue.DegradedNotifier
-	useDenormalizedDequeue   bool
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
@@ -675,9 +678,6 @@ type ExecutorConfig struct {
 	// obtain the fresh channel, avoiding stale-channel re-arm. Nil means no
 	// degraded-mode support.
 	Degraded queue.DegradedNotifier
-	// UseDenormalizedDequeue opts into the fully denormalized legacy dequeue
-	// path backed by job_runs fan-out columns and job_active_counts.
-	UseDenormalizedDequeue bool
 	// DBCircuitConfig configures the circuit breaker for the
 	// dequeue hot path. Zero values fall back to defaults.
 	DBCircuitConfig queue.DBCircuitConfig
@@ -796,15 +796,14 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 			cfg.JobEnqueuer,
 			slog.Default(),
 		),
-		stop:                   make(chan struct{}),
-		done:                   make(chan struct{}),
-		degradedPollInterval:   resolveDegradedPollInterval(cfg.DegradedPollInterval),
-		degraded:               cfg.Degraded,
-		useDenormalizedDequeue: cfg.UseDenormalizedDequeue,
-		dbCircuit:              queue.NewDBCircuit(cfg.DBCircuitConfig),
-		queueSnapshotter:       cfg.QueueSnapshotter,
-		workerDispatcher:       cfg.WorkerDispatcher,
-		queueMetrics:           resolveQueueMetrics(),
+		stop:                 make(chan struct{}),
+		done:                 make(chan struct{}),
+		degradedPollInterval: resolveDegradedPollInterval(cfg.DegradedPollInterval),
+		degraded:             cfg.Degraded,
+		dbCircuit:            queue.NewDBCircuit(cfg.DBCircuitConfig),
+		queueSnapshotter:     cfg.QueueSnapshotter,
+		workerDispatcher:     cfg.WorkerDispatcher,
+		queueMetrics:         resolveQueueMetrics(),
 	}
 }
 

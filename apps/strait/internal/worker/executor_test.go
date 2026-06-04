@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"math"
 	"net"
@@ -328,6 +329,7 @@ func (m *mockDegradedNotifier) Degraded() <-chan struct{} { return m.ch }
 
 type mockExecQueue struct {
 	enqueueFn           func(ctx context.Context, run *domain.JobRun) error
+	enqueueExistingFn   func(ctx context.Context, run *domain.JobRun) error
 	dequeueFn           func(ctx context.Context) (*domain.JobRun, error)
 	dequeueNFn          func(ctx context.Context, n int) ([]domain.JobRun, error)
 	dequeueNByProjectFn func(ctx context.Context, n int, projectID string) ([]domain.JobRun, error)
@@ -342,6 +344,13 @@ func (m *mockExecQueue) Enqueue(ctx context.Context, run *domain.JobRun) error {
 
 func (m *mockExecQueue) EnqueueInTx(ctx context.Context, _ orcstore.DBTX, run *domain.JobRun) error {
 	return m.Enqueue(ctx, run)
+}
+
+func (m *mockExecQueue) EnqueueExisting(ctx context.Context, run *domain.JobRun) error {
+	if m.enqueueExistingFn == nil {
+		return nil
+	}
+	return m.enqueueExistingFn(ctx, run)
 }
 
 func (m *mockExecQueue) EnqueueBatch(_ context.Context, runs []*domain.JobRun) (int64, error) {
@@ -360,10 +369,6 @@ func (m *mockExecQueue) DequeueN(ctx context.Context, n int) ([]domain.JobRun, e
 		return nil, nil
 	}
 	return m.dequeueNFn(ctx, n)
-}
-
-func (m *mockExecQueue) DequeueNFair(ctx context.Context, n int) ([]domain.JobRun, error) {
-	return m.DequeueN(ctx, n)
 }
 
 func (m *mockExecQueue) DequeueNByProject(ctx context.Context, n int, projectID string) ([]domain.JobRun, error) {
@@ -2263,6 +2268,7 @@ func BenchmarkExecutorPoll(b *testing.B) {
 		HeartbeatInterval: time.Hour,
 		HTTPClient:        &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("skip") })},
 	})
+	exec.logger = slog.New(slog.DiscardHandler)
 	defer func() { _ = exec.pool.Shutdown(context.Background()) }()
 
 	b.ResetTimer()

@@ -48,6 +48,34 @@ func TestSentinelErrors(t *testing.T) {
 	}
 }
 
+func TestDeleteInactiveActiveClaims_UsesPrimaryKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	var capturedSQL string
+	var capturedArgs []any
+	db := &mockDBTX{
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			capturedSQL = sql
+			capturedArgs = append(capturedArgs, args...)
+			return pgconn.NewCommandTag("DELETE 0"), nil
+		},
+	}
+
+	_, err := New(db).DeleteInactiveActiveClaims(context.Background(), 250)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
+	}
+	if !strings.Contains(capturedSQL, "ORDER BY c.run_id ASC, c.ready_generation ASC") {
+		t.Fatalf("cleanup SQL must use primary-key order, got:\n%s", capturedSQL)
+	}
+	if strings.Contains(capturedSQL, "ORDER BY c.started_at") {
+		t.Fatalf("cleanup SQL must not sort on unindexed started_at, got:\n%s", capturedSQL)
+	}
+	if len(capturedArgs) != 1 || capturedArgs[0] != 250 {
+		t.Fatalf("cleanup args = %#v, want [250]", capturedArgs)
+	}
+}
+
 func TestSentinelErrors_Wrapping(t *testing.T) {
 	t.Parallel()
 	sentinels := []error{ErrJobNotFound, ErrRunNotFound, ErrRunConflict, ErrOutboxRowConflict}
@@ -414,19 +442,11 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 
 	calls := 0
 	db := &mockDBTX{
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		},
 		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
 			calls++
-			if calls == 1 {
-				// First call is the CAS UPDATE RETURNING * — simulate no row
-				// matched (status wasn't dead_letter) by returning ErrNoRows.
-				return &mockRow{
-					scanFn: func(_ ...any) error {
-						return pgx.ErrNoRows
-					},
-				}
-			}
-			// Follow-up SELECT status disambiguation — row exists in a
-			// non-dead_letter state, so we expect ErrRunConflict.
 			return &mockRow{
 				scanFn: func(dest ...any) error {
 					if p, ok := dest[0].(*domain.RunStatus); ok {
@@ -446,8 +466,8 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 	if !errors.Is(err, ErrRunConflict) {
 		t.Fatalf("expected ErrRunConflict, got %v", err)
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 query calls (CAS + disambiguation), got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected 1 query call (status precheck), got %d", calls)
 	}
 }
 

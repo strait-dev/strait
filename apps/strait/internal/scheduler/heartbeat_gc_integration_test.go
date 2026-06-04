@@ -92,18 +92,36 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 	if err := gc.RunOnceForTest(ctx); err != nil {
 		t.Fatalf("runOnce: %v", err)
 	}
-	if gc.TotalDeleted() != 1 {
-		t.Errorf("deleted = %d, want 1", gc.TotalDeleted())
+	if gc.TotalDeleted() != 2 {
+		t.Errorf("deleted = %d, want 2", gc.TotalDeleted())
 	}
 
 	// live row still present.
 	var count int
-	_ = tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, liveID).Scan(&count)
+	_ = tdb.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, liveID).Scan(&count)
 	if count != 1 {
 		t.Errorf("live heartbeat count = %d, want 1", count)
 	}
-	// orphan gone.
-	_ = tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`, orphanID).Scan(&count)
+	// orphan is logically cleared.
+	_ = tdb.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM (
+			SELECT cleared
+			FROM job_run_heartbeats
+			WHERE run_id = $1
+			ORDER BY id DESC
+			LIMIT 1
+		) latest
+		WHERE cleared = FALSE`, orphanID).Scan(&count)
 	if count != 0 {
 		t.Errorf("orphan heartbeat count = %d, want 0", count)
 	}
@@ -134,12 +152,12 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 
 	gc := scheduler.NewHeartbeatGC(st, scheduler.HeartbeatGCConfig{BatchLimit: 5})
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 5 {
-		t.Errorf("first tick deleted = %d, want 5", gc.TotalDeleted())
+	if gc.TotalDeleted() != 10 {
+		t.Errorf("first tick deleted = %d, want 10", gc.TotalDeleted())
 	}
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 10 {
-		t.Errorf("second tick total = %d, want 10", gc.TotalDeleted())
+	if gc.TotalDeleted() != 20 {
+		t.Errorf("second tick total = %d, want 20", gc.TotalDeleted())
 	}
 }
 
@@ -167,52 +185,13 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
 	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
-	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_runs DISABLE TRIGGER job_runs_active_counts_trg`)
+	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
 	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "job_runs_active_counts_trg") {
+	if err == nil || !strings.Contains(err.Error(), "job_run_state_active_counts_trg") {
 		t.Errorf("expected disabled-trigger error, got %v", err)
-	}
-}
-
-func TestEnsureQueueTriggersPresent_MissingClaimQueueTriggerFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGCIsolated(t)
-	ctx := context.Background()
-	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_claim_queue_sync_update ON job_runs`)
-	if err != nil {
-		t.Fatalf("drop claim queue trigger: %v", err)
-	}
-	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_claim_queue_sync_update") {
-		t.Errorf("expected missing claim-queue trigger error, got %v", err)
-	}
-}
-
-func TestEnsureQueueTriggersPresent_MissingQueueEntriesWakeTriggerFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGCIsolated(t)
-	ctx := context.Background()
-	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_queue_entries_claimable_wake_update_notify ON queue_entries`)
-	if err != nil {
-		t.Fatalf("drop queue entries wake trigger: %v", err)
-	}
-	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "trg_queue_entries_claimable_wake_update_notify") {
-		t.Errorf("expected missing queue entries wake trigger error, got %v", err)
-	}
-}
-
-func TestEnsureQueueTriggersPresent_MissingJobFanoutTriggerFailsLoud(t *testing.T) {
-	tdb, _ := setupHeartbeatGCIsolated(t)
-	ctx := context.Background()
-	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_jobs_fanout_queue ON jobs`)
-	if err != nil {
-		t.Fatalf("drop jobs fanout trigger: %v", err)
-	}
-	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "trg_jobs_fanout_queue") {
-		t.Errorf("expected missing jobs fanout trigger error, got %v", err)
 	}
 }
 

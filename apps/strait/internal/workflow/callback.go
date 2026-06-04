@@ -17,14 +17,13 @@ import (
 )
 
 type StepCallback struct {
-	store             CallbackStore
-	engine            *WorkflowEngine
-	logger            *slog.Logger
-	metrics           *telemetry.Metrics
-	chExporter        *clickhouse.Exporter
-	statusHook        WorkflowRunStatusHook
-	progressionEngine string
-	stepsCache        *workflowStepsVersionCache
+	store      CallbackStore
+	engine     *WorkflowEngine
+	logger     *slog.Logger
+	metrics    *telemetry.Metrics
+	chExporter *clickhouse.Exporter
+	statusHook WorkflowRunStatusHook
+	stepsCache *workflowStepsVersionCache
 }
 
 // WorkflowRunStatusHook observes workflow run transitions completed by the
@@ -76,6 +75,10 @@ type compensationCallbackStore interface {
 	CountIncompleteCompensationRuns(ctx context.Context, workflowRunID string) (int, error)
 }
 
+type pausedRunQueueRequeuer interface {
+	RequeuePausedJobRuns(ctx context.Context, workflowRunID string) (int64, error)
+}
+
 type progressionEventCreator interface {
 	CreateWorkflowProgressionEvent(ctx context.Context, workflowRunID, stepRunID, stepRef, status string) error
 }
@@ -87,10 +90,9 @@ func NewStepCallback(store CallbackStore, engine *WorkflowEngine, logger *slog.L
 	}
 
 	return &StepCallback{
-		store:             store,
-		engine:            engine,
-		logger:            logger,
-		progressionEngine: "legacy",
+		store:  store,
+		engine: engine,
+		logger: logger,
 	}
 }
 
@@ -189,14 +191,6 @@ func (s *StepCallback) WithChExporter(e *clickhouse.Exporter) *StepCallback {
 // produced by callback-driven progression.
 func (s *StepCallback) WithStatusHook(hook WorkflowRunStatusHook) *StepCallback {
 	s.statusHook = hook
-	return s
-}
-
-func (s *StepCallback) WithProgressionEngine(engine string) *StepCallback {
-	if engine == "" {
-		engine = "legacy"
-	}
-	s.progressionEngine = engine
 	return s
 }
 
@@ -371,22 +365,14 @@ func (s *StepCallback) OnJobRunTerminal(ctx context.Context, run *domain.JobRun)
 		// Auto-emit event if step has event_emit_key configured.
 		s.tryEmitEvent(ctx, stepRun, wc)
 
-		if s.progressionEngine == "batchlog" {
-			creator, ok := s.store.(progressionEventCreator)
-			if !ok {
-				return fmt.Errorf("workflow progression batchlog store not available")
-			}
-			if err := creator.CreateWorkflowProgressionEvent(ctx, stepRun.WorkflowRunID, stepRun.ID, stepRun.StepRef, string(stepStatus)); err != nil {
-				return fmt.Errorf("create workflow progression event: %w", err)
-			}
-			return nil
+		creator, ok := s.store.(progressionEventCreator)
+		if !ok {
+			return fmt.Errorf("workflow progression event store not available")
 		}
-
-		if err := s.fanInAndStartReadyChildren(ctx, stepRun, wc); err != nil {
-			s.logger.Error("failed to process completed step", "step_ref", stepRun.StepRef, "error", err)
-			return fmt.Errorf("process completed step %s: %w", stepRun.StepRef, err)
+		if err := creator.CreateWorkflowProgressionEvent(ctx, stepRun.WorkflowRunID, stepRun.ID, stepRun.StepRef, string(stepStatus)); err != nil {
+			return fmt.Errorf("create workflow progression event: %w", err)
 		}
-		return s.checkWorkflowCompletion(ctx, stepRun.WorkflowRunID, wc)
+		return nil
 	case domain.StepFailed:
 		if err := s.handleFailedStep(ctx, stepRun, wc); err != nil {
 			s.logger.Error("failed to process failed step", "step_ref", stepRun.StepRef, "error", err)

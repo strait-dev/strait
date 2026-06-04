@@ -24,6 +24,8 @@ type dispatchHarness struct {
 }
 
 func newDispatchHarness(t *testing.T, sub *billing.OrgSubscription, periodSpend int64) *dispatchHarness {
+	t.Helper()
+
 	return newDispatchHarnessWithBudget(t, sub, periodSpend, -1, "", 0)
 }
 

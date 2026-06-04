@@ -68,12 +68,21 @@ func stCreateStepWithJob(t *testing.T, ctx context.Context, q *store.Queries, wf
 	return testutil.MustCreateWorkflowStep(t, ctx, q, wf.ID, opts)
 }
 
-func stQueue(t *testing.T) *queue.PostgresQueue {
+func stQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
 	if testDB == nil || testDB.Pool == nil {
 		t.Fatal("testDB is not initialized")
 	}
-	return queue.NewPostgresQueue(testDB.Pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "store-" + stID(),
+		ReceiveWindow: 100,
+	})
+	go q.RunTicker(ctx)
+	return q
 }
 
 func stCreateJob(t *testing.T, ctx context.Context, q *store.Queries, projectID string) *domain.Job {
@@ -636,6 +645,72 @@ func TestStepRunStatus_UpdateStepRunStatus_SetsFields(t *testing.T) {
 	}
 }
 
+func TestStepRunStatus_UpdateStepRunStatusSkipsNoOp(t *testing.T) {
+	ctx := context.Background()
+	q := stStore(t)
+	stClean(t, ctx)
+
+	projectID := "proj-step-noop-" + stID()
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+		Name:      new("wf-step-noop"),
+		Slug:      new("wf-step-noop-" + stID()),
+	})
+	step := stCreateStepWithJob(t, ctx, q, wf, projectID, nil)
+	run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+	})
+	sr := testutil.MustCreateWorkflowStepRun(t, ctx, q, run.ID, step.ID, nil)
+
+	startedAt := time.Now().UTC().Truncate(time.Microsecond)
+	fields := map[string]any{
+		"started_at": startedAt,
+		"attempt":    2,
+	}
+	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
+		t.Fatalf("initial UpdateStepRunStatus() error = %v", err)
+	}
+
+	var xminBefore string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		sr.ID,
+	).Scan(&xminBefore); err != nil {
+		t.Fatalf("query workflow_step_runs xmin before no-op: %v", err)
+	}
+
+	if err := q.UpdateStepRunStatus(ctx, sr.ID, domain.StepRunning, fields); err != nil {
+		t.Fatalf("no-op UpdateStepRunStatus() error = %v", err)
+	}
+
+	var xminAfter string
+	var status domain.StepRunStatus
+	var attempt int
+	var gotStartedAt time.Time
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, status, attempt, started_at
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		sr.ID,
+	).Scan(&xminAfter, &status, &attempt, &gotStartedAt); err != nil {
+		t.Fatalf("query workflow_step_runs after no-op: %v", err)
+	}
+	if xminAfter != xminBefore {
+		t.Fatalf("workflow_step_runs no-op update changed xmin from %s to %s", xminBefore, xminAfter)
+	}
+	if status != domain.StepRunning {
+		t.Fatalf("status = %q, want %q", status, domain.StepRunning)
+	}
+	if attempt != 2 {
+		t.Fatalf("attempt = %d, want 2", attempt)
+	}
+	if !gotStartedAt.Equal(startedAt) {
+		t.Fatalf("started_at = %v, want %v", gotStartedAt, startedAt)
+	}
+}
+
 func TestStepRunStatus_RejectsDisallowedField(t *testing.T) {
 	ctx := context.Background()
 	q := stStore(t)
@@ -719,62 +794,6 @@ func TestDequeue_ConcurrentDequeuesNoDuplicates(t *testing.T) {
 	}
 	if len(seen) != 20 {
 		t.Fatalf("total unique dequeued = %d, want 20", len(seen))
-	}
-}
-
-func TestDequeue_FairDistributesAcrossJobs(t *testing.T) {
-	ctx := context.Background()
-	q := stQueue(t)
-	st := stStore(t)
-	stClean(t, ctx)
-
-	projectID := "proj-dequeue-fair-" + stID()
-
-	// Create 3 jobs with different queue depths: 10, 5, 1 runs.
-	jobA := stCreateJob(t, ctx, st, projectID)
-	jobB := stCreateJob(t, ctx, st, projectID)
-	jobC := stCreateJob(t, ctx, st, projectID)
-
-	for range 10 {
-		run := &domain.JobRun{ID: stID(), JobID: jobA.ID, ProjectID: projectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(A) error = %v", err)
-		}
-	}
-	for range 5 {
-		run := &domain.JobRun{ID: stID(), JobID: jobB.ID, ProjectID: projectID}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue(B) error = %v", err)
-		}
-	}
-	run := &domain.JobRun{ID: stID(), JobID: jobC.ID, ProjectID: projectID}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue(C) error = %v", err)
-	}
-
-	// Fair dequeue of 3 should pick at most one from each job.
-	dequeued, err := q.DequeueNFair(ctx, 3)
-	if err != nil {
-		t.Fatalf("DequeueNFair() error = %v", err)
-	}
-	if len(dequeued) != 3 {
-		t.Fatalf("DequeueNFair() len = %d, want 3", len(dequeued))
-	}
-
-	jobsSeen := make(map[string]int)
-	for i := range dequeued {
-		jobsSeen[dequeued[i].JobID]++
-	}
-
-	// Each job should appear at most once in a fair dequeue.
-	for jobID, count := range jobsSeen {
-		if count > 1 {
-			t.Fatalf("fair dequeue picked %d runs from job %s, want at most 1", count, jobID)
-		}
-	}
-	// All 3 jobs should be represented.
-	if len(jobsSeen) != 3 {
-		t.Fatalf("fair dequeue covered %d distinct jobs, want 3", len(jobsSeen))
 	}
 }
 

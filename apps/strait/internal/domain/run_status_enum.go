@@ -50,7 +50,7 @@ func (s RunStatus) Value() (driver.Value, error) {
 }
 
 // IsActive returns true when the run is consuming a concurrency slot.
-// Symmetric with the job_active_counts trigger predicate in migration 186.
+// Symmetric with the job_active_counts trigger predicate.
 func (s RunStatus) IsActive() bool {
 	switch s {
 	case StatusDequeued, StatusExecuting:

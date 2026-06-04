@@ -21,6 +21,7 @@ func runSweep(
 	heartbeatTimeout time.Duration,
 	interval time.Duration,
 	finalizer func() WorkerRunResultFinalizer,
+	readyRunQueue ReadyRunEnqueuer,
 ) {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -39,6 +40,10 @@ func runSweep(
 			cutoff := time.Now().Add(-heartbeatTimeout)
 			recoverDurableResultHandoffs(ctx, q, finalizer, cutoff)
 			connectedWorkers := connectedWorkerRefs(registry)
+			recoveredRunIDs, listErr := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, cutoff, connectedWorkers)
+			if listErr != nil {
+				slog.Warn("grpc sweep: list recoverable stale worker task runs failed", "error", listErr)
+			}
 			recovered, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, cutoff, "worker heartbeat expired before reporting result", connectedWorkers)
 			if err != nil {
 				slog.Warn("grpc sweep: recover stale worker tasks failed", "error", err)
@@ -46,6 +51,7 @@ func runSweep(
 			}
 			if recovered > 0 {
 				slog.Info("grpc sweep: recovered stale worker tasks", "count", recovered)
+				enqueueRecoveredWorkerRuns(ctx, q, readyRunQueue, recoveredRunIDs, "grpc sweep")
 			}
 			n, err := q.EvictStaleWorkersExceptRefs(ctx, cutoff, connectedWorkers)
 			if err != nil {

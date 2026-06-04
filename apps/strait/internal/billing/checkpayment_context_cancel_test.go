@@ -25,7 +25,9 @@ func TestCheckSpendingLimit_RespectsContextCancellation(t *testing.T) {
 
 	// Hold the lock so the retry path always fires.
 	const orgID = "org-cancel"
-	mr.Set("strait:spend_check:"+orgID, "1")
+	if err := mr.Set("strait:spend_check:"+orgID, "1"); err != nil {
+		t.Fatalf("seed spending lock: %v", err)
+	}
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{

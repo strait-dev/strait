@@ -86,6 +86,13 @@ func newQuotaCache(
 	return c
 }
 
+func (c *quotaCache) Stop() {
+	if c == nil || c.inner == nil {
+		return
+	}
+	c.inner.Stop()
+}
+
 func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQuota, error) {
 	if c == nil {
 		return nil, nil

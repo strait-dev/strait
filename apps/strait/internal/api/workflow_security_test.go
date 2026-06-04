@@ -419,11 +419,11 @@ func FuzzWorkflowTrigger(f *testing.F) {
 }
 
 // mustJSON marshals a value to JSON for embedding in test request bodies.
-func mustJSON(t testing.TB, v any) string {
-	t.Helper()
+func mustJSON(tb testing.TB, v any) string {
+	tb.Helper()
 	b, err := json.Marshal(v)
 	if err != nil {
-		t.Fatalf("mustJSON: %v", err)
+		tb.Fatalf("mustJSON: %v", err)
 	}
 	return string(b)
 }

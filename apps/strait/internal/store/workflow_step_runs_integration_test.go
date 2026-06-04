@@ -161,6 +161,62 @@ func TestUpdateStepRunStatusFrom(t *testing.T) {
 	if got.Status != domain.StepRunning {
 		t.Fatalf("status = %q, want %q", got.Status, domain.StepRunning)
 	}
+	if got.StartedAt == nil {
+		t.Fatal("started_at = nil, want timestamp from running transition")
+	}
+
+	var xminBeforeNoOp string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		stepRun.ID,
+	).Scan(&xminBeforeNoOp); err != nil {
+		t.Fatalf("query workflow_step_runs xmin before no-op: %v", err)
+	}
+	if err := q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepRunning, domain.StepRunning, map[string]any{
+		"started_at": *got.StartedAt,
+	}); err != nil {
+		t.Fatalf("UpdateStepRunStatusFrom(no-op) error = %v", err)
+	}
+	var xminAfterNoOp string
+	var statusAfterNoOp domain.StepRunStatus
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, status
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		stepRun.ID,
+	).Scan(&xminAfterNoOp, &statusAfterNoOp); err != nil {
+		t.Fatalf("query workflow_step_runs xmin after no-op: %v", err)
+	}
+	if xminAfterNoOp != xminBeforeNoOp {
+		t.Fatalf("workflow_step_runs no-op CAS update changed xmin from %s to %s", xminBeforeNoOp, xminAfterNoOp)
+	}
+	if statusAfterNoOp != domain.StepRunning {
+		t.Fatalf("status after no-op = %q, want %q", statusAfterNoOp, domain.StepRunning)
+	}
+
+	if err := q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepRunning, domain.StepRunning, map[string]any{
+		"attempt": 2,
+	}); err != nil {
+		t.Fatalf("UpdateStepRunStatusFrom(changed field) error = %v", err)
+	}
+	var xminAfterChange string
+	var attemptAfterChange int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, attempt
+		FROM workflow_step_runs
+		WHERE id = $1`,
+		stepRun.ID,
+	).Scan(&xminAfterChange, &attemptAfterChange); err != nil {
+		t.Fatalf("query workflow_step_runs after changed field: %v", err)
+	}
+	if xminAfterChange == xminAfterNoOp {
+		t.Fatalf("workflow_step_runs changed-field CAS update kept xmin %s, want a real update", xminAfterChange)
+	}
+	if attemptAfterChange != 2 {
+		t.Fatalf("attempt after changed field = %d, want 2", attemptAfterChange)
+	}
 
 	// Conflict: try from pending again (already running).
 	err = q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepPending, domain.StepCompleted, nil)

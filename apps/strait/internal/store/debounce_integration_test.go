@@ -44,6 +44,7 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, q, "project-debounce-replace")
+	fireAt := time.Date(2026, 6, 3, 12, 0, 0, 123456000, time.UTC)
 
 	d1 := &domain.DebouncePending{
 		JobID:       job.ID,
@@ -52,10 +53,54 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 		Payload:     json.RawMessage(`{"v":1}`),
 		Priority:    1,
 		TriggeredBy: "api",
-		FireAt:      time.Now().UTC().Add(30 * time.Second),
+		FireAt:      fireAt,
 	}
 	if err := q.UpsertDebouncePending(ctx, d1); err != nil {
 		t.Fatalf("UpsertDebouncePending(1) error = %v", err)
+	}
+	initialID := d1.ID
+	initialCreatedAt := d1.CreatedAt
+	var xminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM debounce_pending
+		WHERE job_id = $1 AND debounce_key = $2`,
+		job.ID,
+		"replace-key",
+	).Scan(&xminBeforeNoop); err != nil {
+		t.Fatalf("query debounce_pending xmin before no-op: %v", err)
+	}
+
+	same := &domain.DebouncePending{
+		JobID:       job.ID,
+		ProjectID:   job.ProjectID,
+		DebounceKey: "replace-key",
+		Payload:     json.RawMessage(`{"v":1}`),
+		Priority:    1,
+		TriggeredBy: "api",
+		FireAt:      fireAt,
+	}
+	if err := q.UpsertDebouncePending(ctx, same); err != nil {
+		t.Fatalf("UpsertDebouncePending(no-op) error = %v", err)
+	}
+	var xminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM debounce_pending
+		WHERE job_id = $1 AND debounce_key = $2`,
+		job.ID,
+		"replace-key",
+	).Scan(&xminAfterNoop); err != nil {
+		t.Fatalf("query debounce_pending xmin after no-op: %v", err)
+	}
+	if xminAfterNoop != xminBeforeNoop {
+		t.Fatalf("debounce_pending no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
+	}
+	if same.ID != initialID {
+		t.Fatalf("debounce_pending no-op id = %q, want %q", same.ID, initialID)
+	}
+	if !same.CreatedAt.Equal(initialCreatedAt) {
+		t.Fatalf("debounce_pending no-op created_at = %v, want %v", same.CreatedAt, initialCreatedAt)
 	}
 
 	d2 := &domain.DebouncePending{
@@ -70,8 +115,41 @@ func TestUpsertDebouncePending_UpsertReplaces(t *testing.T) {
 	if err := q.UpsertDebouncePending(ctx, d2); err != nil {
 		t.Fatalf("UpsertDebouncePending(2) error = %v", err)
 	}
+	if d2.ID != initialID {
+		t.Fatalf("debounce_pending update id = %q, want %q", d2.ID, initialID)
+	}
 
 	// Should have only one row (replaced).
+	var rowCount int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM debounce_pending
+		WHERE job_id = $1 AND debounce_key = $2`,
+		job.ID,
+		"replace-key",
+	).Scan(&rowCount); err != nil {
+		t.Fatalf("query replaced debounce_pending: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("debounce_pending row count = %d, want 1", rowCount)
+	}
+	var payload json.RawMessage
+	var priority int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT payload, priority
+		FROM debounce_pending
+		WHERE job_id = $1 AND debounce_key = $2`,
+		job.ID,
+		"replace-key",
+	).Scan(&payload, &priority); err != nil {
+		t.Fatalf("query replaced debounce_pending fields: %v", err)
+	}
+	if !jsonEqual(payload, json.RawMessage(`{"v":2}`)) {
+		t.Fatalf("debounce_pending payload = %s, want {\"v\":2}", string(payload))
+	}
+	if priority != 10 {
+		t.Fatalf("debounce_pending priority = %d, want 10", priority)
+	}
 }
 
 func TestListDueDebouncePending(t *testing.T) {

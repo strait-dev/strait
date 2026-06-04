@@ -53,6 +53,16 @@ func cleanAdminOutboxTables(t *testing.T, ctx context.Context) {
 	}
 }
 
+func newAdminOutboxPgQueQueue(t *testing.T) *queue.PgQueQueue {
+	t.Helper()
+	db := getAdminOutboxTestDB(t).Pool
+	return queue.NewPgQueQueue(db, queue.NewPostgresRunWriter(db), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "api-admin-outbox-" + time.Now().UTC().Format("150405.000000000"),
+		ReceiveWindow: 100,
+	})
+}
+
 func createAdminOutboxJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string) *domain.Job {
 	t.Helper()
 	job := &domain.Job{
@@ -114,7 +124,7 @@ func TestAdminOutboxGet_ReturnsQuarantinedRowFromRealFlusherState(t *testing.T) 
 		t.Fatalf("delete job: %v", err)
 	}
 
-	flusher := scheduler.NewOutboxFlusher(getAdminOutboxTestDB(t).Pool, queue.NewPostgresQueue(getAdminOutboxTestDB(t).Pool), scheduler.OutboxFlusherConfig{
+	flusher := scheduler.NewOutboxFlusher(getAdminOutboxTestDB(t).Pool, newAdminOutboxPgQueQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
 	if err := flusher.FlushOnceForTest(ctx); err != nil {

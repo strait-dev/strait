@@ -76,6 +76,71 @@ func TestCreateWorkflowRunLabels_Upsert(t *testing.T) {
 	}
 }
 
+func TestCreateWorkflowRunLabels_SameValueNoOpDoesNotRewrite(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-wf-run-labels-no-op"
+	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
+		ProjectID: new(projectID),
+	})
+	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
+		ProjectID: new(projectID),
+	})
+
+	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "production"}); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels() error = %v", err)
+	}
+
+	var xminBefore string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_run_labels
+		WHERE workflow_run_id = $1 AND label_key = $2`,
+		wfRun.ID, "env",
+	).Scan(&xminBefore); err != nil {
+		t.Fatalf("query workflow run label xmin before no-op: %v", err)
+	}
+
+	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "production"}); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels(no-op) error = %v", err)
+	}
+
+	var xminAfterNoOp string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_run_labels
+		WHERE workflow_run_id = $1 AND label_key = $2`,
+		wfRun.ID, "env",
+	).Scan(&xminAfterNoOp); err != nil {
+		t.Fatalf("query workflow run label xmin after no-op: %v", err)
+	}
+	if xminAfterNoOp != xminBefore {
+		t.Fatalf("same-value upsert changed xmin from %s to %s", xminBefore, xminAfterNoOp)
+	}
+
+	if err := q.CreateWorkflowRunLabels(ctx, wfRun.ID, map[string]string{"env": "staging"}); err != nil {
+		t.Fatalf("CreateWorkflowRunLabels(update) error = %v", err)
+	}
+
+	var xminAfterUpdate, labelValue string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, label_value
+		FROM workflow_run_labels
+		WHERE workflow_run_id = $1 AND label_key = $2`,
+		wfRun.ID, "env",
+	).Scan(&xminAfterUpdate, &labelValue); err != nil {
+		t.Fatalf("query workflow run label after update: %v", err)
+	}
+	if labelValue != "staging" {
+		t.Fatalf("label value = %q, want %q", labelValue, "staging")
+	}
+	if xminAfterUpdate == xminBefore {
+		t.Fatalf("changed-value upsert preserved xmin %s", xminAfterUpdate)
+	}
+}
+
 func TestCreateWorkflowRunLabels_EmptyLabels(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)

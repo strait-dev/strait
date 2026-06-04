@@ -65,6 +65,44 @@ func TestUpsertWorkflowPolicy_Update(t *testing.T) {
 	if err := q.UpsertWorkflowPolicy(ctx, policy); err != nil {
 		t.Fatalf("UpsertWorkflowPolicy() error = %v", err)
 	}
+	initialID := policy.ID
+	initialUpdatedAt := policy.UpdatedAt
+	var xminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_policies
+		WHERE project_id = $1`,
+		"project-workflow-policy-update",
+	).Scan(&xminBeforeNoop); err != nil {
+		t.Fatalf("query workflow_policies xmin before no-op: %v", err)
+	}
+
+	same := &domain.WorkflowPolicy{
+		ProjectID: "project-workflow-policy-update",
+		MaxFanOut: 5,
+		MaxDepth:  3,
+	}
+	if err := q.UpsertWorkflowPolicy(ctx, same); err != nil {
+		t.Fatalf("UpsertWorkflowPolicy(no-op) error = %v", err)
+	}
+	var xminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM workflow_policies
+		WHERE project_id = $1`,
+		"project-workflow-policy-update",
+	).Scan(&xminAfterNoop); err != nil {
+		t.Fatalf("query workflow_policies xmin after no-op: %v", err)
+	}
+	if xminAfterNoop != xminBeforeNoop {
+		t.Fatalf("workflow_policies no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
+	}
+	if same.ID != initialID {
+		t.Fatalf("workflow_policies no-op id = %q, want %q", same.ID, initialID)
+	}
+	if !same.UpdatedAt.Equal(initialUpdatedAt) {
+		t.Fatalf("workflow_policies no-op updated_at = %v, want %v", same.UpdatedAt, initialUpdatedAt)
+	}
 
 	// Update.
 	updated := &domain.WorkflowPolicy{

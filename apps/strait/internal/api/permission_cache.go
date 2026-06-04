@@ -97,7 +97,7 @@ func (c *permissionCache) Stop() {
 	if c == nil || c.inner == nil {
 		return
 	}
-	c.inner.Close()
+	c.inner.Stop()
 }
 
 func (c *permissionCache) key(projectID, userID string) string {

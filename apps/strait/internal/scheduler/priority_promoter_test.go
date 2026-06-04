@@ -98,7 +98,7 @@ func TestPriorityPromoter_Defaults(t *testing.T) {
 	}
 }
 
-func TestPriorityPromoter_RunOnce_IssuesUpdate(t *testing.T) {
+func TestPriorityPromoter_RunOnce_AppendsPriorityEvents(t *testing.T) {
 	db := &fakeDB{rows: 3}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{
 		Interval:     time.Second,
@@ -166,7 +166,7 @@ func TestPriorityPromoter_RunOnce_LockError(t *testing.T) {
 	}
 }
 
-func TestPriorityPromoter_RunOnce_UpdateError(t *testing.T) {
+func TestPriorityPromoter_RunOnce_InsertError(t *testing.T) {
 	db := &fakeDB{err: errors.New("deadlock")}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{})
 	if err := p.runOnce(context.Background()); err == nil {
@@ -190,7 +190,7 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 	}
 	// The exec must be parameterized (no inline values) so pg can cache the
 	// plan. $1 $2 $3 should appear.
-	for _, p := range []string{"$1", "$2", "$3", "job_runs", "status = 'queued'", "WHERE id IN (SELECT id FROM candidates)\n  AND status = 'queued'", "LEAST(priority + 1"} {
+	for _, p := range []string{"$1", "$2", "$3", "job_run_state", "job_run_priority_events", "s.status = 'queued'", "FOR UPDATE OF s SKIP LOCKED", "INSERT INTO job_run_priority_events", "LEAST(COALESCE(priority.priority, s.priority) + 1"} {
 		if !contains(db.lastSQL, p) {
 			t.Errorf("SQL missing %q: %s", p, db.lastSQL)
 		}

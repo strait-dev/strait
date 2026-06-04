@@ -108,6 +108,13 @@ func SetupFreshTestDB(ctx context.Context, migrationsPath string) (*TestDB, erro
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		testcontainers.WithCmd(
+			"postgres",
+			"-c", "fsync=off",
+			"-c", "wal_level=logical",
+			"-c", "max_replication_slots=10",
+			"-c", "max_wal_senders=10",
+		),
 		testcontainers.WithWaitStrategy(
 			wait.ForMappedPort("5432/tcp").
 				WithStartupTimeout(180*time.Second),
@@ -185,6 +192,13 @@ func getSharedPostgres(ctx context.Context) (*sharedPostgres, error) {
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		testcontainers.WithCmd(
+			"postgres",
+			"-c", "fsync=off",
+			"-c", "wal_level=logical",
+			"-c", "max_replication_slots=10",
+			"-c", "max_wal_senders=10",
+		),
 		testcontainers.WithReuseByName(sharedContainerName("postgres")),
 		testcontainers.WithWaitStrategy(
 			wait.ForMappedPort("5432/tcp").
@@ -539,14 +553,58 @@ func (tdb *TestDB) CleanTables(ctx context.Context) error {
 		enterprise_contracts,
 		queue_entries, queue_batch_ticks, queue_batches, queue_batch_seal_state,
 		job_active_counts, dlq_counts, job_run_heartbeats, job_run_queue,
+		job_run_active_claims, job_run_lifecycle_events, job_run_ready_events,
+		job_run_priority_events, job_run_visibility_events, job_run_cache_versions,
+		job_run_terminal_state, job_run_state,
 		job_retries, outbox_claims, outbox_batches, enqueue_outbox,
 		enqueue_outbox_history, project_rate_limits,
+		strait_pgque_routes,
 		query_plan_baselines
 		CASCADE`)
 	if err != nil {
 		return fmt.Errorf("clean tables: %w", err)
 	}
 
+	if err := tdb.cleanPgQueTables(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (tdb *TestDB) cleanPgQueTables(ctx context.Context) error {
+	rows, err := tdb.Pool.Query(ctx, `
+		SELECT tablename
+		FROM pg_tables
+		WHERE schemaname = 'pgque'
+		  AND (
+		      tablename IN ('retry_queue', 'dead_letter')
+		      OR (tablename LIKE 'event\_%' AND tablename <> 'event_template')
+		  )
+		ORDER BY tablename`)
+	if err != nil {
+		return fmt.Errorf("list pgque tables: %w", err)
+	}
+	defer rows.Close()
+
+	tables := make([]string, 0)
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return fmt.Errorf("scan pgque table: %w", err)
+		}
+		tables = append(tables, pgx.Identifier{"pgque", tableName}.Sanitize())
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list pgque table rows: %w", err)
+	}
+	if len(tables) == 0 {
+		return nil
+	}
+
+	if _, err := tdb.Pool.Exec(ctx, `TRUNCATE TABLE `+strings.Join(tables, ", ")+` CASCADE`); err != nil {
+		return fmt.Errorf("clean pgque tables: %w", err)
+	}
 	return nil
 }
 

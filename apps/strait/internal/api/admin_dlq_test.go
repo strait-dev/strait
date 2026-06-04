@@ -85,7 +85,13 @@ func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1", Status: domain.StatusQueued}, nil
 		},
 	}
-	srv := newTestServer(t, mock, &mockQueue{}, nil)
+	var enqueuedExisting string
+	srv := newTestServer(t, mock, &mockQueue{
+		enqueueExistingFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedExisting = run.ID
+			return nil
+		},
+	}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/replay", ""))
 	if w.Code != http.StatusOK {
@@ -105,6 +111,9 @@ func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 	}
 	if seenAudit.ResourceID != "run-1" {
 		t.Errorf("unexpected resource id: %s", seenAudit.ResourceID)
+	}
+	if enqueuedExisting != "run-1" {
+		t.Errorf("EnqueueExisting run = %q, want run-1", enqueuedExisting)
 	}
 }
 

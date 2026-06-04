@@ -52,6 +52,7 @@ export SECRET_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 | `WORKER_QUEUE_SIZE` | `0` | Local queue size per worker. `0` means unbounded. |
 | `EXECUTOR_HTTP_TIMEOUT` | `5m` | Max time for HTTP job execution. |
 | `EXECUTION_TRACE_MODE` | `off` | Persist per-run execution trace JSON. Use `off`, `errors`, or `full`. |
+| `MAX_DEQUEUE_BATCH_SIZE` | `50` | Max runs one worker polls from PgQue at once. |
 | `DEFAULT_JOB_TIMEOUT_SECS` | `300` | Default timeout for jobs without an explicit timeout. |
 | `DEFAULT_JOB_MAX_ATTEMPTS` | `3` | Default retry attempts for jobs without an explicit value. |
 
@@ -72,15 +73,14 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `PERMISSION_CACHE_TTL` | `5m` | RBAC permission cache TTL. |
 | `PROJECT_QUOTA_CACHE_TTL` | `60s` | Project quota cache TTL. |
 
-## Queue and Workflow Engines
+## Queue
+
+Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) as its PostgreSQL ready-event log. Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs.
 
 | Variable | Default | Description |
 |---|---|---|
-| `QUEUE_ENGINE` | `batchlog` | Queue storage engine. `batchlog` claims from narrow queue log entries and keeps `job_runs` as the ledger. |
-| `QUEUE_BATCH_TICK_INTERVAL` | `100ms` | Batch seal interval for the batchlog queue. Higher values reduce queue table churn at the cost of dispatch latency. |
-| `QUEUE_USE_DENORMALIZED_DEQUEUE` | `true` | Use the fully denormalized dequeue path when the selected queue engine supports it. |
-| `OUTBOX_ENGINE` | `batchlog` | Outbox promotion engine. `batchlog` promotes through narrow claim rows and archives successful rows asynchronously. |
-| `WORKFLOW_PROGRESSION_ENGINE` | `batchlog` | Workflow progression engine. `batchlog` records progression events and drains workflow batches. |
+| `QUEUE_PGQUE_MAINTENANCE_INTERVAL` | `30s` | PgQue maintenance interval. Strait runs PgQue maintenance from its ticker so ready-event tables rotate without operator-managed cron. |
+| `QUEUE_PGQUE_ROTATION_PERIOD` | `5m` | PgQue event-table rotation period for Strait queue routes. Shorter periods reclaim acknowledged ready-event rows sooner. |
 
 ## API Limits
 

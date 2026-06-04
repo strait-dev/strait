@@ -39,6 +39,7 @@ type Server struct {
 	apiKeyResolver  apiKeyResolver
 	secretDecryptor SecretDecryptor
 	billingEnforcer planLimitEnforcer
+	readyRunQueue   ReadyRunEnqueuer
 	gs              *grpc.Server
 	version         string
 }
@@ -56,6 +57,12 @@ type planLimitEnforcer interface {
 type workerConnectionReservationEnforcer interface {
 	ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error)
 	RenewWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) error
+}
+
+// ReadyRunEnqueuer is implemented by queue backends that can emit a ready
+// event for an existing run after store-owned recovery moves it back to queued.
+type ReadyRunEnqueuer interface {
+	EnqueueExisting(ctx context.Context, run *domain.JobRun) error
 }
 
 type ServerOption func(*Server)
@@ -90,6 +97,12 @@ func WithSecretDecryptor(dec SecretDecryptor) ServerOption {
 func WithBillingEnforcer(enforcer planLimitEnforcer) ServerOption {
 	return func(s *Server) {
 		s.billingEnforcer = enforcer
+	}
+}
+
+func WithReadyRunEnqueuer(enqueuer ReadyRunEnqueuer) ServerOption {
+	return func(s *Server) {
+		s.readyRunQueue = enqueuer
 	}
 }
 
@@ -205,6 +218,7 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		authLimiter:     s.authLimiter,
 		apiKeyResolver:  s.apiKeyResolver,
 		billingEnforcer: s.billingEnforcer,
+		readyRunQueue:   s.readyRunQueue,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)
 
@@ -252,7 +266,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	var bgWG conc.WaitGroup
 	bgWG.Go(func() { runDBSync(ctx, s.registry, s.queries, s.cfg.WorkerDBSyncInterval) })
 	bgWG.Go(func() {
-		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval, s.runResultFinalizer)
+		runSweep(ctx, s.registry, s.queries, s.cfg.WorkerHeartbeatTimeout, s.cfg.WorkerDisconnectSweepInterval, s.runResultFinalizer, s.readyRunQueue)
 	})
 
 	var shutdownWG conc.WaitGroup

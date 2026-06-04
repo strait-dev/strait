@@ -61,6 +61,13 @@ func newAPIKeyCache(ttl time.Duration, deps ...apiCacheDeps) *apiKeyCache {
 	return c
 }
 
+func (c *apiKeyCache) Stop() {
+	if c == nil || c.tier == nil {
+		return
+	}
+	c.tier.Stop()
+}
+
 func (c *apiKeyCache) Get(
 	ctx context.Context,
 	keyHash string,

@@ -139,10 +139,10 @@ func (s *Scheduler) components() []schedulerComponent {
 			run:  s.counterReconciler.Run,
 		})
 	}
-	if s.claimReconciler != nil {
+	if s.readyRunReconciler != nil {
 		components = append(components, schedulerComponent{
-			name: "claim_reconciler",
-			run:  s.claimReconciler.Run,
+			name: "ready_run_reconciler",
+			run:  s.readyRunReconciler.Run,
 		})
 	}
 	if s.partitionEnsurer != nil {

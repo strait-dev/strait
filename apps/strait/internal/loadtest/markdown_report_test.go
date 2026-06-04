@@ -95,7 +95,6 @@ func TestNewScenarioRegistry(t *testing.T) {
 		"backpressure_ceiling",
 		"circuit_breaker_chaos",
 		"outbox_burst",
-		"denormalized_dequeue_delta",
 		"partition_cycle_matrix",
 	} {
 		if !names[want] {

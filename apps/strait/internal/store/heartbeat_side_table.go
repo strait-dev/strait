@@ -8,28 +8,25 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// Side-table heartbeat API. These methods operate on the unlogged
-// job_run_heartbeats table so the hot heartbeat path does not churn
-// job_runs and defeat HOT-update wins.
+// Side-table heartbeat API. These methods operate on the unlogged,
+// append-only job_run_heartbeats table so the hot heartbeat path does not
+// churn job_runs or create update dead tuples in the heartbeat table.
 
-// UpsertHeartbeatSideTable writes a single heartbeat into the side table.
-// The PK conflict path keeps latency constant regardless of whether the row
-// already exists.
+// UpsertHeartbeatSideTable appends a single heartbeat into the side table.
 func (q *Queries) UpsertHeartbeatSideTable(ctx context.Context, runID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpsertHeartbeatSideTable")
 	defer span.End()
 
 	const sql = `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		VALUES ($1, NOW())
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, NOW(), FALSE)`
 	if _, err := q.db.Exec(ctx, sql, runID); err != nil {
-		return fmt.Errorf("upsert heartbeat side table: %w", err)
+		return fmt.Errorf("append heartbeat side table: %w", err)
 	}
 	return nil
 }
 
-// BatchUpsertHeartbeatSideTable writes N heartbeats in a single statement.
+// BatchUpsertHeartbeatSideTable appends N heartbeats in a single statement.
 func (q *Queries) BatchUpsertHeartbeatSideTable(ctx context.Context, ids []string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.BatchUpsertHeartbeatSideTable")
 	defer span.End()
@@ -38,17 +35,17 @@ func (q *Queries) BatchUpsertHeartbeatSideTable(ctx context.Context, ids []strin
 		return nil
 	}
 	const sql = `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
-		SELECT unnest($1::text[]), NOW()
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT DISTINCT unnest($1::text[]), NOW(), FALSE`
 	if _, err := q.db.Exec(ctx, sql, ids); err != nil {
-		return fmt.Errorf("batch upsert heartbeat side table: %w", err)
+		return fmt.Errorf("batch append heartbeat side table: %w", err)
 	}
 	return nil
 }
 
-// DeleteHeartbeatSideTable removes heartbeat entries for terminal runs.
-// Called on terminal transitions so the side table does not grow unbounded.
+// DeleteHeartbeatSideTable appends clear tombstones for terminal runs.
+// Called on terminal transitions so latest-row reads stop seeing stale
+// heartbeats without physically deleting hot-path history.
 func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteHeartbeatSideTable")
 	defer span.End()
@@ -56,14 +53,29 @@ func (q *Queries) DeleteHeartbeatSideTable(ctx context.Context, ids []string) er
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := q.db.Exec(ctx, `DELETE FROM job_run_heartbeats WHERE run_id = ANY($1)`, ids); err != nil {
-		return fmt.Errorf("delete heartbeat side table: %w", err)
+	if _, err := q.db.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT DISTINCT input.run_id, NOW(), TRUE
+		FROM unnest($1::text[]) AS input(run_id)
+		WHERE EXISTS (
+		    SELECT 1
+		    FROM job_run_heartbeats h
+		    WHERE h.run_id = input.run_id
+		      AND h.cleared = FALSE
+		      AND NOT EXISTS (
+		          SELECT 1
+		          FROM job_run_heartbeats newer
+		          WHERE newer.run_id = h.run_id
+		            AND newer.id > h.id
+		      )
+		)`, ids); err != nil {
+		return fmt.Errorf("clear heartbeat side table: %w", err)
 	}
 	return nil
 }
 
 // DeleteOrphanedHeartbeats removes side-table rows whose owning run is
-// no longer in status 'executing'. Used by the heartbeat GC
+// no longer in a heartbeat-capable active status. Used by the heartbeat GC
 // to bound the unlogged table size when a terminal transition skipped
 // the explicit delete.
 func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error) {
@@ -74,17 +86,63 @@ func (q *Queries) DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int6
 		limit = 10000
 	}
 	const sql = `
-		WITH victims AS (
-			SELECT h.run_id FROM job_run_heartbeats h
+		WITH victims AS MATERIALIZED (
+			SELECT h.run_id
+			FROM job_run_heartbeats h
 			LEFT JOIN job_runs r ON r.id = h.run_id
-			WHERE r.id IS NULL OR r.status <> 'executing'
+			LEFT JOIN job_run_read_state s ON s.run_id = h.run_id
+			WHERE h.cleared = FALSE
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM job_run_heartbeats newer
+			      WHERE newer.run_id = h.run_id
+			        AND newer.id > h.id
+			  )
+			  AND (
+			      r.id IS NULL
+			      OR COALESCE(s.status, r.status) NOT IN ('executing', 'waiting')
+			  )
 			LIMIT $1
 		)
-		DELETE FROM job_run_heartbeats
-		WHERE run_id IN (SELECT run_id FROM victims)`
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		SELECT run_id, NOW(), TRUE
+		FROM victims`
 	tag, err := q.db.Exec(ctx, sql, limit)
 	if err != nil {
-		return 0, fmt.Errorf("delete orphaned heartbeats: %w", err)
+		return 0, fmt.Errorf("clear orphaned heartbeats: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CompactSupersededHeartbeats physically removes heartbeat history rows that
+// are no longer the latest row for their run. This is intentionally a bounded
+// cold-path cleanup; heartbeat writes themselves remain append-only.
+func (q *Queries) CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededHeartbeats")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const sql = `
+		WITH victims AS (
+			SELECT h.id
+			FROM job_run_heartbeats h
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_heartbeats newer
+				WHERE newer.run_id = h.run_id
+				  AND newer.id > h.id
+			)
+			ORDER BY h.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_heartbeats h
+		USING victims
+		WHERE h.id = victims.id`
+	tag, err := q.db.Exec(ctx, sql, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded heartbeats: %w", err)
 	}
 	return tag.RowsAffected(), nil
 }
@@ -101,9 +159,17 @@ func (q *Queries) StaleHeartbeatSideTable(ctx context.Context, threshold time.Du
 	}
 	cutoff := time.Now().Add(-threshold)
 	rows, err := q.db.Query(ctx, `
-		SELECT run_id FROM job_run_heartbeats
-		WHERE heartbeat_at < $1
-		ORDER BY heartbeat_at ASC
+		SELECT h.run_id
+		FROM job_run_heartbeats h
+		WHERE h.cleared = FALSE
+		  AND h.heartbeat_at < $1
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM job_run_heartbeats newer
+		      WHERE newer.run_id = h.run_id
+		        AND newer.id > h.id
+		  )
+		ORDER BY h.heartbeat_at ASC
 		LIMIT $2
 	`, cutoff, limit)
 	if err != nil {

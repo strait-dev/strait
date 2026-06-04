@@ -46,8 +46,6 @@ type QueueMetrics struct {
 	EventChannelSaturationRatio   metric.Float64Gauge
 	SchedulerShutdownTimeouts     metric.Int64Counter
 	IndexDeadItems                metric.Int64Gauge
-	ClaimTableDeadTuples          metric.Int64Gauge
-	ClaimTableLiveTuples          metric.Int64Gauge
 	ClaimDuration                 metric.Float64Histogram
 	LockSkipped                   metric.Int64Counter
 	VisibilityTimeoutExpirations  metric.Int64Counter
@@ -57,6 +55,7 @@ type QueueMetrics struct {
 	OutboxExpiredLeases           metric.Int64Gauge
 	OutboxClaimTableDeadTuples    metric.Int64Gauge
 	OutboxClaimTableLiveTuples    metric.Int64Gauge
+	PgQueBackgroundErrors         metric.Int64Counter
 }
 
 var (
@@ -180,7 +179,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 
 	partitionDequeueLag, err := meter.Float64Histogram(
 		"strait_queue_partition_dequeue_lag_seconds",
-		metric.WithDescription("Wall-clock duration of a DequeueNPartitioned call per partition"),
+		metric.WithDescription("Wall-clock duration of a per-project dequeue call"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5),
 	)
@@ -270,6 +269,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("event channel saturation gauge: %w", err)
 	}
+	pgqueBackgroundErrors, err := meter.Int64Counter(
+		"strait_queue_pgque_background_errors_total",
+		metric.WithDescription("PgQue background operation failures grouped by bounded operation name"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque background errors counter: %w", err)
+	}
 	m := &QueueMetrics{
 		OldestQueuedAge:             oldestAge,
 		DequeueScanRows:             scanRows,
@@ -294,6 +301,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		DLQOldestUnmaskedAge:        dlqOldestAge,
 		EventChannelSaturationRatio: eventChannelSaturation,
 		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
+		PgQueBackgroundErrors:       pgqueBackgroundErrors,
 	}
 	if err := initArchiveMetrics(meter, m); err != nil {
 		return nil, err
@@ -357,20 +365,6 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	if err != nil {
 		return fmt.Errorf("index dead items gauge: %w", err)
 	}
-	m.ClaimTableDeadTuples, err = meter.Int64Gauge(
-		"strait_queue_claim_table_dead_tuples",
-		metric.WithDescription("Dead tuple count in job_run_queue claim table"),
-	)
-	if err != nil {
-		return fmt.Errorf("claim table dead tuples gauge: %w", err)
-	}
-	m.ClaimTableLiveTuples, err = meter.Int64Gauge(
-		"strait_queue_claim_table_live_tuples",
-		metric.WithDescription("Live tuple count in job_run_queue claim table"),
-	)
-	if err != nil {
-		return fmt.Errorf("claim table live tuples gauge: %w", err)
-	}
 	m.ClaimDuration, err = meter.Float64Histogram(
 		"strait_queue_claim_duration_seconds",
 		metric.WithDescription("Duration of queue claim attempts by queue and result"),
@@ -406,7 +400,7 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	}
 	m.OutboxClaimDepth, err = meter.Int64Gauge(
 		"strait_outbox_claim_depth",
-		metric.WithDescription("Outbox batchlog claim depth grouped by claim status"),
+		metric.WithDescription("Outbox claim-log depth grouped by claim status"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
@@ -414,7 +408,7 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	}
 	m.OutboxOldestReadyAge, err = meter.Float64Gauge(
 		"strait_outbox_oldest_ready_age_seconds",
-		metric.WithDescription("Age in seconds of the oldest ready outbox batchlog claim"),
+		metric.WithDescription("Age in seconds of the oldest ready outbox claim-log row"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
@@ -422,7 +416,7 @@ func initArchiveMetrics(meter metric.Meter, m *QueueMetrics) error {
 	}
 	m.OutboxExpiredLeases, err = meter.Int64Gauge(
 		"strait_outbox_expired_leases",
-		metric.WithDescription("Outbox batchlog leases past lease_expires_at"),
+		metric.WithDescription("Outbox claim-log leases past lease_expires_at"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
@@ -451,8 +445,6 @@ func partitionMetricLabel(partition string) string {
 	switch {
 	case partition == "job_runs":
 		return "job_runs"
-	case partition == "job_run_queue":
-		return "job_run_queue"
 	case jobRunsPartitionMetricRE.MatchString(partition):
 		return "job_runs_partition"
 	case partition == "":

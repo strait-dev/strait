@@ -11,7 +11,7 @@
 -- The CREATE UNIQUE INDEX CONCURRENTLY half is split into 000305 because
 -- golang-migrate runs a multi-statement file inside a transaction, and
 -- CONCURRENTLY cannot execute inside one. Keeping the backfill alone in
--- 000302 lets the transactional wrap stay safe for the UPDATE while the
+-- 000304 lets the transactional wrap stay safe for the UPDATE while the
 -- index ships non-transactionally in 000305.
 
 UPDATE webhook_subscriptions

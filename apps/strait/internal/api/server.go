@@ -1057,16 +1057,16 @@ func (s *Server) Close() {
 		s.permCache.Stop()
 	}
 	if s.quotaCache != nil {
-		s.quotaCache.Close()
+		s.quotaCache.Stop()
 	}
 	if s.apiKeyCache != nil {
-		s.apiKeyCache.Close()
+		s.apiKeyCache.Stop()
 	}
 	if s.jobDependencyCache != nil {
-		s.jobDependencyCache.Close()
+		s.jobDependencyCache.Stop()
 	}
 	if s.workerJobBarrier != nil {
-		s.workerJobBarrier.Close()
+		s.workerJobBarrier.Stop()
 	}
 	if s.poolBackpressure != nil {
 		s.poolBackpressure.Stop()

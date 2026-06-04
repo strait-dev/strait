@@ -75,6 +75,39 @@ func TestDelayedPoller_ActivateError(t *testing.T) {
 	}
 }
 
+func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
+	t.Parallel()
+	var storeCalls atomic.Int32
+	var promoterCalls atomic.Int32
+	ms := &mockPollerStore{
+		activateDueRunsFn: func(_ context.Context, _ int) (int64, error) {
+			storeCalls.Add(1)
+			return 0, nil
+		},
+	}
+	promoter := &mockPollerStore{
+		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
+			if limit != 4 {
+				t.Errorf("limit = %d, want 4", limit)
+			}
+			promoterCalls.Add(1)
+			return 0, nil
+		},
+	}
+
+	NewDelayedPoller(ms, slog.Default(), time.Hour).
+		WithPromoter(promoter).
+		WithBatchLimit(4).
+		poll(context.Background())
+
+	if promoterCalls.Load() != 1 {
+		t.Fatalf("promoter calls = %d, want 1", promoterCalls.Load())
+	}
+	if storeCalls.Load() != 0 {
+		t.Fatalf("store calls = %d, want 0 when promoter is configured", storeCalls.Load())
+	}
+}
+
 func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32

@@ -10,7 +10,7 @@ import (
 	"strait/internal/domain"
 )
 
-// Integration tests for soft-delete retention via visible_until.
+// Integration tests for soft-delete retention via append-only visibility events.
 // These tests complement the existing TestDeleteRunsByOrgOlderThan which
 // already asserts RowsAffected — they additionally verify that the rows
 // physically remain in the table (masked, not deleted).
@@ -58,14 +58,28 @@ func TestMaskRunsByOrgOlderThan_RowsPhysicallyRemain(t *testing.T) {
 		t.Errorf("row physically missing after mask: count = %d", count)
 	}
 
-	// visible_until is set.
-	var visibleUntil *time.Time
-	err = testDB.Pool.QueryRow(ctx, "SELECT visible_until FROM job_runs WHERE id = $1", run.ID).Scan(&visibleUntil)
+	var ledgerVisibleUntil *time.Time
+	err = testDB.Pool.QueryRow(ctx, "SELECT visible_until FROM job_runs WHERE id = $1", run.ID).Scan(&ledgerVisibleUntil)
 	if err != nil {
-		t.Fatalf("query visible_until: %v", err)
+		t.Fatalf("query ledger visible_until: %v", err)
 	}
-	if visibleUntil == nil {
-		t.Error("visible_until should be set after mask")
+	if ledgerVisibleUntil != nil {
+		t.Fatalf("ledger visible_until = %v, want nil", *ledgerVisibleUntil)
+	}
+
+	var eventVisibleUntil *time.Time
+	err = testDB.Pool.QueryRow(ctx, `
+		SELECT visible_until
+		FROM job_run_visibility_events
+		WHERE run_id = $1
+		ORDER BY id DESC
+		LIMIT 1
+	`, run.ID).Scan(&eventVisibleUntil)
+	if err != nil {
+		t.Fatalf("query visibility event: %v", err)
+	}
+	if eventVisibleUntil == nil {
+		t.Error("visibility event should mask the run")
 	}
 }
 
@@ -99,7 +113,7 @@ func TestMaskRunsByOrgOlderThan_IdempotentWithinSameCutoff(t *testing.T) {
 	if first != 1 {
 		t.Errorf("first = %d, want 1", first)
 	}
-	// Second call should see visible_until IS NOT NULL and skip the row.
+	// Second call should see the visibility event and skip the row.
 	second, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("second mask: %v", err)
@@ -109,7 +123,7 @@ func TestMaskRunsByOrgOlderThan_IdempotentWithinSameCutoff(t *testing.T) {
 	}
 }
 
-func TestMaskRunsByOrgOlderThan_HOTUpdateEligible(t *testing.T) {
+func TestMaskRunsByOrgOlderThan_DoesNotUpdateLedger(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
@@ -135,31 +149,35 @@ func TestMaskRunsByOrgOlderThan_HOTUpdateEligible(t *testing.T) {
 	_, _ = testDB.Pool.Exec(ctx,
 		"UPDATE job_runs SET status='completed', finished_at=$1 WHERE project_id=$2", past, projectID)
 
-	// Reset stats before the mask operation.
-	_, _ = testDB.Pool.Exec(ctx, "SELECT pg_stat_clear_snapshot()")
-
 	_, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("mask: %v", err)
 	}
 
-	// visible_until is intentionally not indexed, so the UPDATE should be
-	// HOT-eligible. Query pg_stat_user_tables for the ratio.
-	var upd, hot int64
+	var ledgerMasks int
 	err = testDB.Pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(n_tup_upd), 0), COALESCE(SUM(n_tup_hot_upd), 0)
-		FROM pg_stat_user_tables
-		WHERE relname = 'job_runs' OR relname LIKE 'job_runs_%'
-	`).Scan(&upd, &hot)
+		SELECT COUNT(*)
+		FROM job_runs
+		WHERE project_id = $1
+		  AND visible_until IS NOT NULL
+	`, projectID).Scan(&ledgerMasks)
 	if err != nil {
-		t.Fatalf("stats: %v", err)
+		t.Fatalf("query ledger masks: %v", err)
 	}
-	if upd == 0 {
-		t.Skip("pg_stat reported zero updates (timing)")
+	if ledgerMasks != 0 {
+		t.Fatalf("ledger masks = %d, want 0", ledgerMasks)
 	}
-	t.Logf("upd=%d hot=%d", upd, hot)
-	// HOT ratio should be high on the masking path specifically. We don't
-	// assert a strict threshold because the test fixture does many non-
-	// mask updates. This test is primarily a smoke check that the UPDATE
-	// runs without error and reports in pg_stat.
+
+	var events int
+	err = testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_visibility_events
+		WHERE run_id IN (SELECT id FROM job_runs WHERE project_id = $1)
+	`, projectID).Scan(&events)
+	if err != nil {
+		t.Fatalf("query visibility events: %v", err)
+	}
+	if events != 50 {
+		t.Fatalf("visibility events = %d, want 50", events)
+	}
 }

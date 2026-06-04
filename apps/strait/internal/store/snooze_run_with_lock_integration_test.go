@@ -105,7 +105,7 @@ func TestSnoozeRunWithLock_LockedRowReturnsErrRunLocked(t *testing.T) {
 
 	var locked string
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM job_runs WHERE id = $1 FOR UPDATE`, run.ID).Scan(&locked); err != nil {
+		`SELECT run_id FROM job_run_state WHERE run_id = $1 FOR UPDATE`, run.ID).Scan(&locked); err != nil {
 		t.Fatalf("competing FOR UPDATE error = %v", err)
 	}
 

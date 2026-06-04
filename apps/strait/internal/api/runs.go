@@ -387,6 +387,21 @@ type ReplayDeadLetterRunOutput struct {
 	Body *domain.JobRun
 }
 
+type existingRunEnqueuer interface {
+	EnqueueExisting(context.Context, *domain.JobRun) error
+}
+
+func (s *Server) enqueueExistingRunIfSupported(ctx context.Context, run *domain.JobRun) error {
+	if run == nil || run.Status != domain.StatusQueued {
+		return nil
+	}
+	enqueuer, ok := s.queue.(existingRunEnqueuer)
+	if !ok {
+		return nil
+	}
+	return enqueuer.EnqueueExisting(ctx, run)
+}
+
 func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDeadLetterRunInput) (*ReplayDeadLetterRunOutput, error) {
 	if err := s.requireRunAccess(ctx, input.RunID); err != nil {
 		return nil, err
@@ -402,6 +417,12 @@ func (s *Server) handleReplayDeadLetterRun(ctx context.Context, input *ReplayDea
 		default:
 			return nil, huma.Error500InternalServerError("failed to replay dead letter run")
 		}
+	}
+	if err := s.enqueueExistingRunIfSupported(ctx, run); err != nil {
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, huma.Error500InternalServerError("failed to enqueue replayed run")
 	}
 
 	s.emitAuditEvent(ctx, domain.AuditActionRunReplayedDeadletter, "run", run.ID, map[string]any{
@@ -509,6 +530,14 @@ func (s *Server) handleBulkReplayDeadLetterRuns(ctx context.Context, input *Bulk
 			}
 		default:
 			return nil, huma.Error500InternalServerError("failed to bulk replay dead letter runs")
+		}
+	}
+	for i := range runs {
+		if err := s.enqueueExistingRunIfSupported(ctx, &runs[i]); err != nil {
+			if apiErr := enqueueAPIError(err); apiErr != nil {
+				return nil, apiErr
+			}
+			return nil, huma.Error500InternalServerError("failed to enqueue replayed run")
 		}
 	}
 

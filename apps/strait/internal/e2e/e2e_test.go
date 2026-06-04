@@ -27,10 +27,11 @@ import (
 )
 
 var (
-	testEnv    *testutil.TestEnv
-	testStore  *store.Queries
-	testQueue  *queue.PostgresQueue
-	testServer *api.Server
+	testEnv         *testutil.TestEnv
+	testStore       *store.Queries
+	testQueue       *queue.PgQueQueue
+	testServer      *api.Server
+	cancelTestQueue context.CancelFunc
 )
 
 const testEncryptionKey = "0123456789abcdef0123456789abcdef"
@@ -46,10 +47,35 @@ func TestMain(m *testing.M) {
 
 	testStore = store.NewWithContextRouting(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey(testEncryptionKey)
-	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	if err := resetE2EHarness(ctx); err != nil {
+		log.Fatalf("setup e2e harness: %v", err)
+	}
+
+	code := m.Run()
+	if cancelTestQueue != nil {
+		cancelTestQueue()
+	}
+	testEnv.Cleanup(ctx)
+	os.Exit(code)
+}
+
+func resetE2EHarness(ctx context.Context) error {
+	if cancelTestQueue != nil {
+		cancelTestQueue()
+	}
+
+	queueCtx, cancel := context.WithCancel(ctx)
+	cancelTestQueue = cancel
+	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "e2e-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+	go testQueue.RunTicker(queueCtx)
+
 	testEncryptor, err := crypto.NewKeyRotatorFromStrings(testEncryptionKey)
 	if err != nil {
-		log.Fatalf("setup test encryptor: %v", err)
+		return fmt.Errorf("setup test encryptor: %w", err)
 	}
 	testServer = api.NewServer(api.ServerDeps{
 		Config: &config.Config{
@@ -69,10 +95,7 @@ func TestMain(m *testing.M) {
 		Queue:     testQueue,
 		Encryptor: testEncryptor,
 	})
-
-	code := m.Run()
-	testEnv.Cleanup(ctx)
-	os.Exit(code)
+	return nil
 }
 
 func mustClean(t *testing.T) {
@@ -80,6 +103,118 @@ func mustClean(t *testing.T) {
 	if err := testEnv.DB.CleanTables(context.Background()); err != nil {
 		t.Fatalf("clean tables: %v", err)
 	}
+	if err := resetE2EHarness(context.Background()); err != nil {
+		t.Fatalf("reset e2e harness: %v", err)
+	}
+}
+
+func newIsolatedQueue(t testing.TB) *queue.PgQueQueue {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	q := queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "e2e-" + uuid.Must(uuid.NewV7()).String(),
+		ReceiveWindow: 100,
+	})
+	go q.RunTicker(ctx)
+	return q
+}
+
+func primeHTTPQueue(t testing.TB, q *queue.PgQueQueue) {
+	t.Helper()
+
+	run, err := q.Dequeue(context.Background())
+	if err != nil {
+		t.Fatalf("prime pgque http queue: %v", err)
+	}
+	if run != nil {
+		t.Fatalf("prime pgque http queue claimed unexpected run %s", run.ID)
+	}
+}
+
+func primeWorkerQueue(t testing.TB, q *queue.PgQueQueue, refs []domain.WorkerQueueRef) {
+	t.Helper()
+
+	claimed, err := q.DequeueNForWorkerQueues(context.Background(), 1, refs)
+	if err != nil {
+		t.Fatalf("prime pgque worker queue: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("prime pgque worker queue claimed %d unexpected runs", len(claimed))
+	}
+}
+
+func dequeueRunEventually(t testing.TB, q *queue.PgQueQueue) *domain.JobRun {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		run, err := q.Dequeue(context.Background())
+		if err != nil {
+			t.Fatalf("dequeue: %v", err)
+		}
+		if run != nil {
+			return run
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected dequeued run")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func dequeueRunsEventually(t testing.TB, q *queue.PgQueQueue, want int) []domain.JobRun {
+	t.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	runs := make([]domain.JobRun, 0, want)
+	for len(runs) < want {
+		batch, err := q.DequeueN(context.Background(), want-len(runs))
+		if err != nil {
+			t.Fatalf("dequeue runs: %v", err)
+		}
+		if len(batch) > 0 {
+			runs = append(runs, batch...)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return runs
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return runs
+}
+
+func dequeueWorkerRunsEventually(t testing.TB, q *queue.PgQueQueue, want int, refs []domain.WorkerQueueRef) []domain.JobRun {
+	t.Helper()
+
+	deadline := time.Now().Add(3 * time.Second)
+	seen := make(map[string]domain.JobRun, want)
+	for len(seen) < want {
+		claimed, err := q.DequeueNForWorkerQueues(context.Background(), want-len(seen), refs)
+		if err != nil {
+			t.Fatalf("DequeueNForWorkerQueues: %v", err)
+		}
+		for _, run := range claimed {
+			seen[run.ID] = run
+		}
+		if len(seen) >= want {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("DequeueNForWorkerQueues returned %d unique runs, want %d", len(seen), want)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	runs := make([]domain.JobRun, 0, len(seen))
+	for _, run := range seen {
+		runs = append(runs, run)
+	}
+	return runs
 }
 
 func authedRequest(method, path, body string, projectID ...string) *http.Request {
@@ -493,6 +628,8 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	projectID := "proj-priority-" + newID()
 	job := createJob(t, projectID, "Priority", "priority-"+newID())
 	jobID := asString(t, job, "id")
+	q := newIsolatedQueue(t)
+	primeHTTPQueue(t, q)
 
 	run0 := triggerJob(t, jobID, `{"payload":{},"priority":0}`, "")
 	run10 := triggerJob(t, jobID, `{"payload":{},"priority":10}`, "")
@@ -501,13 +638,7 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	_ = run0
 	_ = run5
 
-	dequeued, err := testQueue.Dequeue(context.Background())
-	if err != nil {
-		t.Fatalf("dequeue: %v", err)
-	}
-	if dequeued == nil {
-		t.Fatal("expected dequeued run")
-	}
+	dequeued := dequeueRunEventually(t, q)
 	if dequeued.Priority != 10 {
 		t.Fatalf("expected priority 10 first, got %d", dequeued.Priority)
 	}
@@ -1317,17 +1448,13 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 	keyResp := mustDecodeObject(t, keyW)
 	apiKey := asString(t, keyResp, "key")
 	job := createJob(t, projectID, "Analytics Metrics", "analytics-metrics-"+newID())
+	q := newIsolatedQueue(t)
+	primeHTTPQueue(t, q)
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"kind":"analytics"}}`, "")
 	runID := asString(t, triggered, "id")
 
 	ctx := context.Background()
-	dequeued, err := testQueue.Dequeue(ctx)
-	if err != nil {
-		t.Fatalf("dequeue: %v", err)
-	}
-	if dequeued == nil {
-		t.Fatal("expected dequeued run")
-	}
+	dequeued := dequeueRunEventually(t, q)
 	if dequeued.ID != runID {
 		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
 	}
@@ -1444,6 +1571,8 @@ func TestBulkCancel_WithChildRuns(t *testing.T) {
 	parentJob := createJob(t, projectID, "Parent Bulk Cancel", "parent-bulk-cancel-"+newID())
 	childSlug := "child-bulk-cancel-" + newID()
 	createJob(t, projectID, "Child Bulk Cancel", childSlug)
+	q := newIsolatedQueue(t)
+	primeHTTPQueue(t, q)
 
 	parentRunIDs := make([]string, 0, 3)
 	parentTokens := make([]string, 0, 3)
@@ -1456,13 +1585,7 @@ func TestBulkCancel_WithChildRuns(t *testing.T) {
 
 	ctx := context.Background()
 	for range 3 {
-		dequeued, err := testQueue.Dequeue(ctx)
-		if err != nil {
-			t.Fatalf("dequeue: %v", err)
-		}
-		if dequeued == nil {
-			t.Fatal("expected dequeued run")
-		}
+		dequeued := dequeueRunEventually(t, q)
 		if err := testStore.UpdateRunStatus(ctx, dequeued.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 			"started_at": time.Now().UTC(),
 		}); err != nil {
@@ -1585,6 +1708,8 @@ func TestDebugMode_CapturesTrace(t *testing.T) {
 
 	projectID := "proj-debug-mode-" + newID()
 	job := createJob(t, projectID, "Debug Mode", "debug-mode-"+newID())
+	q := newIsolatedQueue(t)
+	primeHTTPQueue(t, q)
 	triggered := triggerJob(t, asString(t, job, "id"), `{"payload":{"debug":true}}`, "")
 	runID := asString(t, triggered, "id")
 
@@ -1594,13 +1719,7 @@ func TestDebugMode_CapturesTrace(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	dequeued, err := testQueue.Dequeue(ctx)
-	if err != nil {
-		t.Fatalf("dequeue: %v", err)
-	}
-	if dequeued == nil {
-		t.Fatal("expected dequeued run")
-	}
+	dequeued := dequeueRunEventually(t, q)
 	if dequeued.ID != runID {
 		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
 	}
