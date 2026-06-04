@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"time"
 
 	"strait/internal/domain"
@@ -133,18 +132,6 @@ func (s *Server) validateTriggerJobInput(input *TriggerJobInput, req *TriggerReq
 		return huma.Error400BadRequest(err.Error())
 	}
 	return nil
-}
-
-func (s *Server) handleTriggerDryRun(ctx context.Context, jobID string, req TriggerRequest) (*TriggerJobOutput, error) {
-	result, err := s.validateTriggerRequest(ctx, jobID, req)
-	if err != nil {
-		var statusErr huma.StatusError
-		if errors.As(err, &statusErr) {
-			return nil, statusErr
-		}
-		return nil, huma.Error400BadRequest(err.Error())
-	}
-	return nil, &rawStatusError{status: http.StatusOK, body: result}
 }
 
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {

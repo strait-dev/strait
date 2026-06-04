@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/danielgtaylor/huma/v2"
 )
 
 // DryRunValidationResult contains the result of trigger validation for dry-run mode.
@@ -31,6 +34,18 @@ type DryRunJobInfo struct {
 	MaxAttempts   int                  `json:"max_attempts"`
 	Version       int                  `json:"version"`
 	VersionID     string               `json:"version_id,omitempty"`
+}
+
+func (s *Server) handleTriggerDryRun(ctx context.Context, jobID string, req TriggerRequest) (*TriggerJobOutput, error) {
+	result, err := s.validateTriggerRequest(ctx, jobID, req)
+	if err != nil {
+		var statusErr huma.StatusError
+		if errors.As(err, &statusErr) {
+			return nil, statusErr
+		}
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	return nil, &rawStatusError{status: http.StatusOK, body: result}
 }
 
 func (s *Server) validateTriggerRequest(ctx context.Context, jobID string, req TriggerRequest) (*DryRunValidationResult, error) {
