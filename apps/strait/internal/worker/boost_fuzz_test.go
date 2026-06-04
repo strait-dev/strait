@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"math"
+	"math/rand/v2"
 	"testing"
 
 	"strait/internal/domain"
@@ -122,6 +123,25 @@ func FuzzBoostPriorityOverflow(f *testing.F) {
 			t.Errorf("boostPriority(%d, %d) = %d, exceeds max priority 10", current, boost, result)
 		}
 	})
+}
+
+// TestProperty_Priority_HigherFirst verifies that boostPriority always returns
+// a value >= the original priority and never exceeds the cap of 10.
+func TestProperty_Priority_HigherFirst(t *testing.T) {
+	t.Parallel()
+
+	for range 2000 {
+		current := rand.IntN(11) // 0-10.
+		boost := rand.IntN(20)   // 0-19.
+
+		result := boostPriority(current, boost)
+		if result < current {
+			t.Fatalf("boostPriority(%d, %d) = %d, lower than current", current, boost, result)
+		}
+		if result > 10 {
+			t.Fatalf("boostPriority(%d, %d) = %d, exceeds cap of 10", current, boost, result)
+		}
+	}
 }
 
 func FuzzHandleFailureRetryPriority(f *testing.F) {
