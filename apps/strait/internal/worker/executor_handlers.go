@@ -94,18 +94,10 @@ func (e *Executor) handleSuccessWithStats(
 		"to_status": string(domain.StatusCompleted),
 	})
 
-	now := time.Now()
-	fields := map[string]any{
-		"finished_at": now,
-	}
-	run.FinishedAt = &now
-	if len(result) > 0 {
-		fields["result"] = result
-	}
-	e.addExecutionTraceField(fields, domain.StatusCompleted, execTrace)
-
-	run.Status = domain.StatusCompleted
-	err := e.completeRunWithWebhook(ctx, run, job, domain.StatusCompleted, fields)
+	transition := e.newSuccessfulRunTransition(run, result, execTrace, time.Now())
+	run.FinishedAt = &transition.finished
+	run.Status = transition.to
+	err := e.completeRunWithWebhook(ctx, run, job, transition.to, transition.fields)
 	if err != nil {
 		e.logger.Error(
 			"failed to mark run completed",
@@ -121,16 +113,11 @@ func (e *Executor) handleSuccessWithStats(
 		}
 	}
 
-	var execDur time.Duration
-	if run.StartedAt != nil {
-		execDur = now.Sub(*run.StartedAt)
-	}
-
 	// Record health score for successful dispatch.
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
 		EndpointURL:  endpointStateKey(job.ProjectID, job.EndpointURL),
 		Success:      true,
-		LatencyMs:    float64(execDur.Milliseconds()),
+		LatencyMs:    float64(transition.execDur.Milliseconds()),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
 		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
@@ -145,7 +132,7 @@ func (e *Executor) handleSuccessWithStats(
 	e.emit(ctx, RunLifecycleEvent{
 		Type: EventCompleted, Run: run, Job: job,
 		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusCompleted,
-		ExecTrace: execTrace, ExecDur: execDur, Attempt: run.Attempt,
+		ExecTrace: execTrace, ExecDur: transition.execDur, Attempt: run.Attempt,
 		QueueWait: queueWait(run),
 	})
 	e.notifyWorkflowCallback(ctx, run)
@@ -157,7 +144,6 @@ func (e *Executor) handleSuccessWithStats(
 
 	// Latency anomaly detection: compare duration to job's P95.
 	if run.StartedAt != nil {
-		duration := now.Sub(*run.StartedAt)
 		if stats == nil {
 			var statsErr error
 			stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
@@ -167,10 +153,10 @@ func (e *Executor) handleSuccessWithStats(
 		}
 		if stats != nil && stats.P95DurationSecs > 0 {
 			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
-			if duration > 2*p95 {
+			if transition.execDur > 2*p95 {
 				e.logger.Warn("latency anomaly detected",
 					"run_id", run.ID, "job_id", run.JobID,
-					"duration_ms", duration.Milliseconds(), "p95_ms", p95.Milliseconds())
+					"duration_ms", transition.execDur.Milliseconds(), "p95_ms", p95.Milliseconds())
 				if e.metrics != nil {
 					e.metrics.LatencyAnomalies.Add(ctx, 1,
 						metric.WithAttributes(attribute.String("job_id", run.JobID)))
@@ -179,6 +165,40 @@ func (e *Executor) handleSuccessWithStats(
 		}
 	}
 	return true
+}
+
+type successfulRunTransition struct {
+	to       domain.RunStatus
+	fields   map[string]any
+	finished time.Time
+	execDur  time.Duration
+}
+
+func (e *Executor) newSuccessfulRunTransition(
+	run *domain.JobRun,
+	result json.RawMessage,
+	execTrace *domain.ExecutionTrace,
+	finished time.Time,
+) successfulRunTransition {
+	fields := map[string]any{
+		"finished_at": finished,
+	}
+	if len(result) > 0 {
+		fields["result"] = result
+	}
+	e.addExecutionTraceField(fields, domain.StatusCompleted, execTrace)
+
+	var execDur time.Duration
+	if run.StartedAt != nil {
+		execDur = finished.Sub(*run.StartedAt)
+	}
+
+	return successfulRunTransition{
+		to:       domain.StatusCompleted,
+		fields:   fields,
+		finished: finished,
+		execDur:  execDur,
+	}
 }
 
 func classifyError(err error) string {

@@ -283,6 +283,68 @@ func TestSystemFailureTransition_PreservesSourceStatus(t *testing.T) {
 	}
 }
 
+func TestSuccessfulRunTransition_WithResultTraceAndDuration(t *testing.T) {
+	t.Parallel()
+
+	startedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	finishedAt := startedAt.Add(1500 * time.Millisecond)
+	result := json.RawMessage(`{"ok":true}`)
+	trace := &domain.ExecutionTrace{DispatchMs: 42}
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		Status:    domain.StatusExecuting,
+		StartedAt: &startedAt,
+	}
+	exec := &Executor{executionTraceMode: executionTraceFull}
+
+	transition := exec.newSuccessfulRunTransition(run, result, trace, finishedAt)
+
+	if transition.to != domain.StatusCompleted {
+		t.Fatalf("to = %s, want %s", transition.to, domain.StatusCompleted)
+	}
+	if !transition.finished.Equal(finishedAt) {
+		t.Fatalf("finished = %s, want %s", transition.finished, finishedAt)
+	}
+	if transition.execDur != 1500*time.Millisecond {
+		t.Fatalf("execDur = %s, want 1.5s", transition.execDur)
+	}
+	if transition.fields["finished_at"] != finishedAt {
+		t.Fatalf("finished_at field = %v, want %s", transition.fields["finished_at"], finishedAt)
+	}
+	if string(transition.fields["result"].(json.RawMessage)) != string(result) {
+		t.Fatalf("result field = %v, want %s", transition.fields["result"], result)
+	}
+	if transition.fields["execution_trace"] != trace {
+		t.Fatalf("execution_trace field = %v, want trace pointer", transition.fields["execution_trace"])
+	}
+}
+
+func TestSuccessfulRunTransition_EmptyResultSkipsOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	trace := &domain.ExecutionTrace{DispatchMs: 42}
+	run := &domain.JobRun{
+		ID:     "run-1",
+		JobID:  "job-1",
+		Status: domain.StatusExecuting,
+	}
+	exec := &Executor{executionTraceMode: executionTraceOff}
+
+	transition := exec.newSuccessfulRunTransition(run, nil, trace, finishedAt)
+
+	if transition.execDur != 0 {
+		t.Fatalf("execDur = %s, want 0", transition.execDur)
+	}
+	if _, ok := transition.fields["result"]; ok {
+		t.Fatal("empty result should not be persisted")
+	}
+	if _, ok := transition.fields["execution_trace"]; ok {
+		t.Fatal("trace mode off should not persist execution_trace")
+	}
+}
+
 // Handler integration tests.
 
 func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
