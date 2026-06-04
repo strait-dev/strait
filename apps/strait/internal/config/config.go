@@ -85,16 +85,8 @@ type Config struct {
 	DBWatchdogInterval         time.Duration `env:"DB_WATCHDOG_INTERVAL" default:"15s"`
 	DBWatchdogEnabled          bool          `env:"DB_WATCHDOG_ENABLED" default:"true"`
 
-	// Toggle the fully denormalized dequeue path (uses job_runs fan-out
-	// columns plus job_active_counts instead of joining jobs and scanning
-	// active rows).
-	QueueUseDenormalizedDequeue bool `env:"QUEUE_USE_DENORMALIZED_DEQUEUE" default:"true"`
-	// QueueEngine selects the queue storage engine. batchlog claims from
-	// narrow queue_entries while preserving job_runs as the ledger.
-	QueueEngine               string        `env:"QUEUE_ENGINE" default:"batchlog"`
-	QueueBatchTickInterval    time.Duration `env:"QUEUE_BATCH_TICK_INTERVAL" default:"100ms"`
-	OutboxEngine              string        `env:"OUTBOX_ENGINE" default:"batchlog"`
-	WorkflowProgressionEngine string        `env:"WORKFLOW_PROGRESSION_ENGINE" default:"batchlog"`
+	QueuePgQueMaintenanceInterval time.Duration `env:"QUEUE_PGQUE_MAINTENANCE_INTERVAL" default:"30s"`
+	QueuePgQueRotationPeriod      time.Duration `env:"QUEUE_PGQUE_ROTATION_PERIOD" default:"5m"`
 
 	// DLQ caps and overflow policy.
 	DLQMaxPerProject  int    `env:"DLQ_MAX_PER_PROJECT" default:"10000"`

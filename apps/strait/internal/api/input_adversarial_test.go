@@ -308,7 +308,7 @@ func TestPayloadSchema_OneOverLimit(t *testing.T) {
 
 func TestPayloadSchema_LargeArray(t *testing.T) {
 	t.Parallel()
-	var items []int
+	items := make([]int, 0, 10000)
 	for i := range 10000 {
 		items = append(items, i)
 	}

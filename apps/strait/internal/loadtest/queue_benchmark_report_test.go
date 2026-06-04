@@ -80,20 +80,32 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 
 func TestCompareQueueBenchmarkReports(t *testing.T) {
 	baseline := QueueBenchmarkReport{
-		Name:      "legacy",
-		Engine:    "legacy",
-		Duration:  2 * time.Second,
-		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 10, WALBytes: 1000},
+		Name:     "previous",
+		Engine:   "previous",
+		Duration: 2 * time.Second,
+		Counters: QueueBenchmarkCounters{
+			Dequeued:            100,
+			Completed:           100,
+			NotifyCount:         10,
+			WALBytes:            1000,
+			LogicalSlotWALBytes: 900,
+		},
 		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 20, TotalIndexSize: 1000, TotalTableSize: 2000}},
 		DequeueLatency: LatencySummary{
 			P99: 10 * time.Millisecond,
 		},
 	}
 	candidate := QueueBenchmarkReport{
-		Name:      "batchlog",
-		Engine:    "batchlog",
-		Duration:  4 * time.Second,
-		Counters:  QueueBenchmarkCounters{Dequeued: 100, Completed: 100, NotifyCount: 5, WALBytes: 1200},
+		Name:     "pgque",
+		Engine:   "pgque",
+		Duration: 4 * time.Second,
+		Counters: QueueBenchmarkCounters{
+			Dequeued:            100,
+			Completed:           100,
+			NotifyCount:         5,
+			WALBytes:            1200,
+			LogicalSlotWALBytes: 700,
+		},
 		Relations: []RelationBloatSample{{Name: "job_runs", LiveTuples: 100, DeadTuples: 5, TotalIndexSize: 700, TotalTableSize: 1500}},
 		DequeueLatency: LatencySummary{
 			P99: 25 * time.Millisecond,
@@ -101,11 +113,14 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 	}
 
 	comparison := CompareQueueBenchmarkReports("comparison", baseline, candidate)
-	if comparison.BaselineEngine != "legacy" || comparison.CandidateEngine != "batchlog" {
-		t.Fatalf("engines = %s/%s, want legacy/batchlog", comparison.BaselineEngine, comparison.CandidateEngine)
+	if comparison.BaselineEngine != "previous" || comparison.CandidateEngine != "pgque" {
+		t.Fatalf("engines = %s/%s, want previous/pgque", comparison.BaselineEngine, comparison.CandidateEngine)
 	}
 	if comparison.CounterDelta.NotifyCount != -5 {
 		t.Fatalf("NotifyCount delta = %d, want -5", comparison.CounterDelta.NotifyCount)
+	}
+	if comparison.CounterDelta.LogicalSlotWALBytes != -200 {
+		t.Fatalf("LogicalSlotWALBytes delta = %d, want -200", comparison.CounterDelta.LogicalSlotWALBytes)
 	}
 	if comparison.P99LatencyDelta != 15*time.Millisecond {
 		t.Fatalf("P99LatencyDelta = %s, want 15ms", comparison.P99LatencyDelta)
@@ -130,27 +145,27 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 
 func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
 	comparison := CompareQueueBenchmarkReports("comparison", QueueBenchmarkReport{
-		Engine:   "legacy",
+		Engine:   "previous",
 		Duration: time.Second,
 		Counters: QueueBenchmarkCounters{Dequeued: 10, Completed: 10},
 		Relations: []RelationBloatSample{{
 			Name: "job_runs",
 		}},
 	}, QueueBenchmarkReport{
-		Engine:   "batchlog",
+		Engine:   "pgque",
 		Duration: 2 * time.Second,
 		Counters: QueueBenchmarkCounters{Dequeued: 10, Completed: 10},
 		Relations: []RelationBloatSample{{
 			Name: "queue_entries",
 		}},
 		Plans: []SQLPlanSample{{
-			Name:  "batchlog candidate selection",
+			Name:  "pgque candidate selection",
 			Lines: []string{"Nested Loop"},
 		}},
 	})
 
 	md := comparison.Markdown()
-	for _, want := range []string{"# comparison", "Baseline: `legacy`", "Candidate: `batchlog`", "Relation Deltas", "SQL Plans", "Nested Loop"} {
+	for _, want := range []string{"# comparison", "Baseline: `previous`", "Candidate: `pgque`", "Relation Deltas", "SQL Plans", "Nested Loop"} {
 		if !strings.Contains(md, want) {
 			t.Fatalf("Markdown missing %q:\n%s", want, md)
 		}

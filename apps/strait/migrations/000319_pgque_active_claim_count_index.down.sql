@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_job_run_state_pgque_active_claim_counts;

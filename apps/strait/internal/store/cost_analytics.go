@@ -357,9 +357,10 @@ func (q *Queries) AggregateCostStatsHourly(ctx context.Context, hour time.Time) 
 			COALESCE(SUM(u.total_tokens), 0) AS total_tokens,
 			COUNT(DISTINCT jr.id) AS run_count
 		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		LEFT JOIN run_usage u ON u.run_id = jr.id
 		WHERE jr.created_at >= $1 AND jr.created_at < $2
-		  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
+		  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'canceled')
 		GROUP BY jr.project_id
 		ON CONFLICT (project_id, hour) DO UPDATE SET
 			ai_cost_microusd = EXCLUDED.ai_cost_microusd,

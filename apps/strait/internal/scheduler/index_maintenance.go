@@ -19,9 +19,6 @@ const indexMaintainerAdvisoryLockID int64 = 0x5374726169744978
 // defaultReindexTargets are the partial indexes on job_runs that accumulate
 // bloat fastest because they churn on every queue state transition. They
 // benefit most from periodic REINDEX CONCURRENTLY.
-//
-// Note: idx_job_runs_active_by_job and idx_job_runs_concurrency_key_active
-// were dropped in migration 000221 (denormalized dequeue is now default).
 var defaultReindexTargets = []string{
 	"idx_runs_queue_covering",
 	"idx_webhook_deliveries_pending",
@@ -29,7 +26,6 @@ var defaultReindexTargets = []string{
 	"idx_job_runs_inflight_started",
 	"idx_job_runs_queue_priority",
 	"idx_job_runs_job_id_created",
-	"idx_job_run_queue_dequeue",
 }
 
 type IndexMaintenanceStore interface {

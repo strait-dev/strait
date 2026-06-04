@@ -10,7 +10,7 @@ Strait connects to PostgreSQL, Redis, Sequin, and optional monitoring tools.
 
 <CardGroup cols={2}>
   <Card title="PostgreSQL" icon="database">
-    Required. Strait stores all state in Postgres and uses `SELECT ... FOR UPDATE SKIP LOCKED` plus `LISTEN`/`NOTIFY` for queue semantics and worker wake-ups.
+    Required. Strait stores all state in Postgres and uses a PgQue-backed ready-event log plus `LISTEN`/`NOTIFY` for queue semantics and worker wake-ups.
   </Card>
   <Card title="Redis" icon="bolt">
     Required. Powers rate limiting, pub/sub, SSE streaming for the dashboard, live run updates, and gRPC worker-plane signalling.

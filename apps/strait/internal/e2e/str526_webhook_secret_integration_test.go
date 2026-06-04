@@ -194,7 +194,7 @@ func TestSTR526HTTPExecutorSignsDispatchCreatedWithWebhookSecret(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Shutdown(context.Background()) })
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                  pool,
-		Queue:                 queue.NewPostgresQueue(testEnv.DB.Pool),
+		Queue:                 queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{}),
 		Wake:                  make(chan struct{}, 1),
 		Store:                 store.New(testEnv.DB.Pool),
 		TxPool:                testEnv.DB.Pool,

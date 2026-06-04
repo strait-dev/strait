@@ -162,6 +162,37 @@ func TestSnoozeRun_SetsRetryAt(t *testing.T) {
 	}
 }
 
+func TestSnoozeRun_EmitsReadyEventOnlyForImmediateRequeue(t *testing.T) {
+	t.Parallel()
+	store := &mockExecutorStore{}
+	exec := newSnoozeTestExecutor(t, store, 0)
+	var readyEvents int
+	exec.queue = &mockExecQueue{
+		enqueueExistingFn: func(_ context.Context, run *domain.JobRun) error {
+			if run.Status != domain.StatusQueued {
+				t.Fatalf("ready event status = %q, want queued", run.Status)
+			}
+			readyEvents++
+			return nil
+		},
+	}
+
+	immediate := testRun(1)
+	immediate.Status = domain.StatusDequeued
+	exec.snoozeRun(context.Background(), immediate, "circuit breaker open", nil)
+	if readyEvents != 1 {
+		t.Fatalf("ready events after immediate snooze = %d, want 1", readyEvents)
+	}
+
+	scheduled := testRun(2)
+	scheduled.Status = domain.StatusDequeued
+	retryAt := time.Now().Add(time.Minute)
+	exec.snoozeRun(context.Background(), scheduled, "health score low", &retryAt)
+	if readyEvents != 1 {
+		t.Fatalf("ready events after scheduled retry = %d, want still 1", readyEvents)
+	}
+}
+
 func TestSnoozeRun_FieldsMap(t *testing.T) {
 	t.Parallel()
 	store := &mockExecutorStore{}

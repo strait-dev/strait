@@ -13,8 +13,8 @@ import (
 
 // Counter drift reconciler.
 //
-// The job_active_counts and dlq_counts tables are maintained by BEFORE/AFTER
-// triggers on job_runs. Triggers can drift from ground truth if:
+// The job_active_counts and dlq_counts tables are maintained by triggers on
+// run state. Triggers can drift from ground truth if:
 //   - A migration inadvertently disables them.
 //   - A replica writes with session_replication_role = replica.
 //   - An operator issues COPY or bulk INSERT bypassing triggers.
@@ -177,15 +177,20 @@ func (r *CounterReconciler) reconcileLockedNoTx(ctx context.Context) int64 {
 }
 
 // reconcileActiveCounts replaces the job_active_counts table with the
-// ground-truth aggregate from job_runs. Returns absolute drift (sum of |
-// old - new | across rows).
+// ground-truth aggregate from current PgQue active claims. Returns absolute
+// drift (sum of | old - new | across rows).
 func (r *CounterReconciler) reconcileActiveCounts(ctx context.Context) (int64, error) {
 	const q = `
 WITH truth AS (
-    SELECT job_id, COALESCE(concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
-    FROM job_runs
-    WHERE status IN ('dequeued', 'executing')
-    GROUP BY job_id, COALESCE(concurrency_key, '')
+    SELECT s.job_id, COALESCE(s.concurrency_key, '') AS concurrency_key, COUNT(*)::int AS count
+    FROM job_run_state s
+    JOIN job_run_active_claims claim
+      ON claim.run_id = s.run_id
+     AND claim.ready_generation = s.ready_generation
+    LEFT JOIN job_run_terminal_state terminal ON terminal.run_id = s.run_id
+    WHERE terminal.run_id IS NULL
+      AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
+    GROUP BY s.job_id, COALESCE(s.concurrency_key, '')
 ),
 current AS (
     SELECT job_id, concurrency_key, count FROM job_active_counts
@@ -200,6 +205,7 @@ corrections AS (
     FULL OUTER JOIN current c
       ON c.job_id = t.job_id AND c.concurrency_key = t.concurrency_key
     WHERE COALESCE(t.count, 0) <> COALESCE(c.count, 0)
+       OR (t.job_id IS NULL AND c.job_id IS NOT NULL AND c.count = 0)
 ),
 drift_total AS (
     SELECT COALESCE(SUM(ABS(truth_count - current_count)), 0)::bigint AS delta FROM corrections
@@ -209,6 +215,17 @@ update_existing AS (
     SET count = c.truth_count, updated_at = NOW()
     FROM corrections c
     WHERE c.has_current
+      AND c.truth_count > 0
+      AND ac.job_id = c.job_id
+      AND ac.concurrency_key = c.concurrency_key
+      AND ac.count = c.current_count
+    RETURNING 1
+),
+delete_stale AS (
+    DELETE FROM job_active_counts ac
+    USING corrections c
+    WHERE c.has_current
+      AND c.truth_count = 0
       AND ac.job_id = c.job_id
       AND ac.concurrency_key = c.concurrency_key
       AND ac.count = c.current_count
@@ -234,11 +251,12 @@ SELECT delta FROM drift_total
 func (r *CounterReconciler) reconcileDLQCounts(ctx context.Context) (int64, error) {
 	const q = `
 WITH truth AS (
-    SELECT project_id, job_id, COUNT(*)::int AS count
-    FROM job_runs
-    WHERE status = 'dead_letter'
-      AND (visible_until IS NULL OR visible_until > NOW())
-    GROUP BY project_id, job_id
+    SELECT jr.project_id, jr.job_id, COUNT(*)::int AS count
+    FROM job_runs jr
+    LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+    WHERE COALESCE(s.status, jr.status) = 'dead_letter'
+      AND (jr.visible_until IS NULL OR jr.visible_until > NOW())
+    GROUP BY jr.project_id, jr.job_id
 ),
 current AS (
     SELECT project_id, job_id, count FROM dlq_counts
@@ -253,6 +271,7 @@ corrections AS (
     FULL OUTER JOIN current c
       ON c.project_id = t.project_id AND c.job_id = t.job_id
     WHERE COALESCE(t.count, 0) <> COALESCE(c.count, 0)
+       OR (t.project_id IS NULL AND c.project_id IS NOT NULL AND c.count = 0)
 ),
 drift_total AS (
     SELECT COALESCE(SUM(ABS(truth_count - current_count)), 0)::bigint AS delta FROM corrections
@@ -262,6 +281,17 @@ update_existing AS (
     SET count = c.truth_count, updated_at = NOW()
     FROM corrections c
     WHERE c.has_current
+      AND c.truth_count > 0
+      AND dc.project_id = c.project_id
+      AND dc.job_id = c.job_id
+      AND dc.count = c.current_count
+    RETURNING 1
+),
+delete_stale AS (
+    DELETE FROM dlq_counts dc
+    USING corrections c
+    WHERE c.has_current
+      AND c.truth_count = 0
       AND dc.project_id = c.project_id
       AND dc.job_id = c.job_id
       AND dc.count = c.current_count

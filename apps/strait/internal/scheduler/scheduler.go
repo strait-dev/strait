@@ -53,7 +53,7 @@ type Scheduler struct {
 	dunner                   DunnerRunner
 	slaCalculator            SLACalculatorRunner
 	counterReconciler        *CounterReconciler
-	claimReconciler          *ClaimReconciler
+	readyRunReconciler       *ReadyRunReconciler
 	partitionEnsurer         *PartitionEnsurer
 	partitionTuner           *PartitionTuner
 	partitionReclaimer       *PartitionReclaimer
@@ -77,7 +77,7 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		cron: NewCronScheduler(ctx, s, q, wfTrigger).
 			WithDefaultRunTTLSecs(cfg.DefaultRunTTLSecs).
 			WithWorkflowCallback(wfCallback),
-		poller: NewDelayedPoller(s, slog.Default(), cfg.PollerInterval),
+		poller: delayedPollerForQueue(s, q, cfg.PollerInterval),
 		reaper: NewReaper(s, cfg.ReaperInterval, cfg.StaleThreshold, cfg.RunRetentionShort, cfg.RunRetentionLong, true, wfCallback).
 			WithWorkflowRetention(cfg.WorkflowRetention).
 			WithEventTriggerRetention(cfg.EventTriggerRetention).
@@ -109,6 +109,14 @@ func New(ctx context.Context, cfg *config.Config, s SchedulerStore, q queue.Queu
 		opt(sched)
 	}
 	return sched
+}
+
+func delayedPollerForQueue(s SchedulerStore, q queue.Queue, interval time.Duration) *DelayedPoller {
+	poller := NewDelayedPoller(s, slog.Default(), interval)
+	if promoter, ok := q.(PollerStore); ok {
+		poller.WithPromoter(promoter)
+	}
+	return poller
 }
 
 // SchedulerOption configures a Scheduler.
@@ -202,10 +210,10 @@ func WithCounterReconciler(r *CounterReconciler) SchedulerOption {
 	}
 }
 
-// WithClaimReconciler enables periodic claim table drift reconciliation.
-func WithClaimReconciler(r *ClaimReconciler) SchedulerOption {
+// WithReadyRunReconciler enables periodic ready-event repair.
+func WithReadyRunReconciler(r *ReadyRunReconciler) SchedulerOption {
 	return func(s *Scheduler) {
-		s.claimReconciler = r
+		s.readyRunReconciler = r
 	}
 }
 
@@ -471,8 +479,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if s.counterReconciler != nil {
 		s.tracker.track(ctx, &s.wg, "counter_reconciler", func(componentCtx context.Context) { s.counterReconciler.Run(componentCtx) })
 	}
-	if s.claimReconciler != nil {
-		s.tracker.track(ctx, &s.wg, "claim_reconciler", func(componentCtx context.Context) { s.claimReconciler.Run(componentCtx) })
+	if s.readyRunReconciler != nil {
+		s.tracker.track(ctx, &s.wg, "ready_run_reconciler", func(componentCtx context.Context) {
+			s.readyRunReconciler.Run(componentCtx)
+		})
 	}
 	if s.partitionEnsurer != nil {
 		s.tracker.track(ctx, &s.wg, "partition_ensurer", func(componentCtx context.Context) { s.partitionEnsurer.Run(componentCtx) })

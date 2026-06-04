@@ -156,6 +156,7 @@ func TestCreateAPIKey_RotationWebhookURL_RedactedInAudit(t *testing.T) {
 		Edition:   domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	rawURL := "https://localhost/rotate/super-secret-path?token=opaque-shared-secret"
 	body := `{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":30,"rotation_webhook_url":"` + rawURL + `"}`

@@ -1,0 +1,190 @@
+package store
+
+import (
+	"context"
+	"fmt"
+
+	"go.opentelemetry.io/otel"
+)
+
+// DeleteInactiveActiveClaims physically removes active-claim history that no
+// longer contributes to the run read model. Claim, pause, requeue, and terminal
+// paths intentionally avoid deleting from job_run_active_claims on the hot path;
+// this bounded cold-path cleanup keeps the table size under control.
+func (q *Queries) DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteInactiveActiveClaims")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT c.run_id, c.ready_generation
+			FROM job_run_active_claims c
+			LEFT JOIN job_run_state s ON s.run_id = c.run_id
+			LEFT JOIN job_run_terminal_state t ON t.run_id = c.run_id
+			WHERE t.run_id IS NOT NULL
+			   OR s.run_id IS NULL
+			   OR s.ready_generation <> c.ready_generation
+			   OR NOT (
+			       s.status IN ('queued', 'delayed')
+			       OR (
+			           s.status = 'paused'
+			           AND EXISTS (
+			               SELECT 1
+			               FROM job_run_ready_events ready
+			               WHERE ready.run_id = s.run_id
+			                 AND ready.ready_generation = s.ready_generation
+			                 AND ready.reason = 'paused_resume'
+			           )
+			       )
+			   )
+			ORDER BY c.run_id ASC, c.ready_generation ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_active_claims c
+		USING victims v
+		WHERE c.run_id = v.run_id
+		  AND c.ready_generation = v.ready_generation`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete inactive active claims: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteInactiveReadyEvents physically removes ready-event history that no
+// longer contributes to the run read model. Current-generation ready events are
+// retained because job_run_read_state uses them to overlay delayed, retry, and
+// paused-resume readiness without mutating job_run_state.
+func (q *Queries) DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteInactiveReadyEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_ready_events e
+			LEFT JOIN job_run_state s ON s.run_id = e.run_id
+			LEFT JOIN job_run_terminal_state t ON t.run_id = e.run_id
+			WHERE t.run_id IS NOT NULL
+			   OR s.run_id IS NULL
+			   OR s.ready_generation <> e.ready_generation
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_ready_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete inactive ready events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CompactSupersededPriorityEvents physically removes priority event history
+// that is no longer the latest row for its run. The append-only writer remains
+// dead-tuple resistant on the hot path while this bounded cleanup keeps the
+// side table from growing without bound.
+func (q *Queries) CompactSupersededPriorityEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededPriorityEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_priority_events e
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_priority_events newer
+				WHERE newer.run_id = e.run_id
+				  AND newer.id > e.id
+			)
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_priority_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded priority events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CompactSupersededVisibilityEvents physically removes visibility event
+// history that is no longer the latest row for its run. Visibility changes stay
+// append-only on the hot path; this cold-path cleanup preserves the current
+// masking state by retaining the newest event.
+func (q *Queries) CompactSupersededVisibilityEvents(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededVisibilityEvents")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT e.id
+			FROM job_run_visibility_events e
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_visibility_events newer
+				WHERE newer.run_id = e.run_id
+				  AND newer.id > e.id
+			)
+			ORDER BY e.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_visibility_events e
+		USING victims v
+		WHERE e.id = v.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded visibility events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CompactSupersededRunCacheVersions physically removes cache-version history
+// that is no longer the latest row for its run. Run cache readers use the
+// newest version row as the read model, so older rows can be removed on this
+// bounded cold path without changing cache invalidation semantics.
+func (q *Queries) CompactSupersededRunCacheVersions(ctx context.Context, limit int) (int64, error) {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CompactSupersededRunCacheVersions")
+	defer span.End()
+
+	if limit <= 0 {
+		limit = 10000
+	}
+	const query = `
+		WITH victims AS (
+			SELECT v.id
+			FROM job_run_cache_versions v
+			WHERE EXISTS (
+				SELECT 1
+				FROM job_run_cache_versions newer
+				WHERE newer.run_id = v.run_id
+				  AND newer.id > v.id
+			)
+			ORDER BY v.id ASC
+			LIMIT $1
+		)
+		DELETE FROM job_run_cache_versions v
+		USING victims
+		WHERE v.id = victims.id`
+	tag, err := q.db.Exec(ctx, query, limit)
+	if err != nil {
+		return 0, fmt.Errorf("compact superseded run cache versions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

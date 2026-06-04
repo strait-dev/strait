@@ -63,7 +63,7 @@ func TestCompleteRunWithWebhook_NoTxPool_WithWebhook(t *testing.T) {
 func TestCompleteRunWithWebhook_WithTxPool_NoWebhookUsesTransaction(t *testing.T) {
 	t.Parallel()
 	store := &mockExecutorStore{}
-	txPool := &mockTxBeginner{}
+	txPool := &mockTxBeginner{tx: &mockPgxTx{scanAttempt: 1}}
 	exec := newCompletionTestExecutor(t, store, txPool)
 
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
@@ -318,10 +318,12 @@ func (m *mockTxBeginner) Begin(_ context.Context) (pgx.Tx, error) {
 }
 
 // mockPgxTx is a minimal pgx.Tx implementation for testing the transaction path.
-type mockPgxTx struct{}
+type mockPgxTx struct {
+	scanAttempt int
+}
 
 func (m *mockPgxTx) Begin(_ context.Context) (pgx.Tx, error) {
-	return &mockPgxTx{}, nil
+	return &mockPgxTx{scanAttempt: m.scanAttempt}, nil
 }
 func (m *mockPgxTx) Commit(_ context.Context) error { return nil }
 
@@ -345,15 +347,23 @@ func (m *mockPgxTx) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, erro
 	return nil, errors.New("mock tx: query not implemented")
 }
 func (m *mockPgxTx) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
-	return &mockRow{}
+	return &mockRow{attempt: m.scanAttempt}
 }
 func (m *mockPgxTx) Conn() *pgx.Conn {
 	return nil
 }
 
 // mockRow satisfies pgx.Row for QueryRow in the mock tx.
-type mockRow struct{}
+type mockRow struct {
+	attempt int
+}
 
-func (m *mockRow) Scan(_ ...any) error {
+func (m *mockRow) Scan(dest ...any) error {
+	if m.attempt > 0 && len(dest) > 0 {
+		if p, ok := dest[0].(*int); ok {
+			*p = m.attempt
+			return nil
+		}
+	}
 	return errors.New("mock row: not implemented")
 }

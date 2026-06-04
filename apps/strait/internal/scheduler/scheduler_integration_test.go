@@ -49,9 +49,18 @@ func intTestStore(t *testing.T) *store.Queries {
 	return store.New(getTestDB(t).Pool)
 }
 
-func intTestQueue(t *testing.T) *queue.PostgresQueue {
+func intTestQueue(t *testing.T) *queue.PgQueQueue {
 	t.Helper()
-	return queue.NewPostgresQueue(getTestDB(t).Pool)
+	db := getTestDB(t).Pool
+	q := queue.NewPgQueQueue(db, queue.NewPostgresRunWriter(db), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "scheduler-" + intNewID(),
+		ReceiveWindow: 100,
+	})
+	tickerCtx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go q.RunTicker(tickerCtx)
+	return q
 }
 
 func intTestClean(t *testing.T, ctx context.Context) {
@@ -84,6 +93,29 @@ func intCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectI
 		t.Fatalf("CreateJob() error = %v", err)
 	}
 	return job
+}
+
+func intClaimRuns(t *testing.T, ctx context.Context, q *queue.PgQueQueue, want int) []domain.JobRun {
+	t.Helper()
+	claimed := make([]domain.JobRun, 0, want)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(claimed) < want && time.Now().Before(deadline) {
+		if err := q.ForceTick(ctx, "http"); err != nil {
+			t.Fatalf("ForceTick() error = %v", err)
+		}
+		runs, err := q.DequeueN(ctx, want-len(claimed))
+		if err != nil {
+			t.Fatalf("DequeueN() error = %v", err)
+		}
+		claimed = append(claimed, runs...)
+		if len(claimed) < want {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if len(claimed) != want {
+		t.Fatalf("claimed runs = %d, want %d", len(claimed), want)
+	}
+	return claimed
 }
 
 // 1. Cron job scheduling with real Postgres: create a cron job, verify
@@ -288,18 +320,23 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 	}
 
 	// Dequeue to move to dequeued status.
-	dequeued, err := q.DequeueN(ctx, 1)
-	if err != nil || len(dequeued) == 0 {
-		t.Fatalf("DequeueN() error = %v, count = %d", err, len(dequeued))
-	}
+	_ = intClaimRuns(t, ctx, q, 1)
 
 	// Transition to executing with an old heartbeat (simulating stale).
 	staleHeartbeat := time.Now().Add(-10 * time.Minute)
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at":   time.Now().Add(-15 * time.Minute),
-		"heartbeat_at": staleHeartbeat,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus() to executing error = %v", err)
+	startedAt := time.Now().Add(-15 * time.Minute)
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET status = $2, started_at = $3, heartbeat_at = $4, finished_at = NULL, updated_at = NOW()
+		WHERE run_id = $1
+	`, run.ID, domain.StatusExecuting, startedAt, staleHeartbeat); err != nil {
+		t.Fatalf("seed stale executing state: %v", err)
+	}
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)
+	`, run.ID, staleHeartbeat); err != nil {
+		t.Fatalf("age heartbeat row: %v", err)
 	}
 
 	// Create a reaper with a 5-minute stale threshold.
@@ -326,7 +363,9 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 	if err := getTestDB(t).Pool.QueryRow(ctx, `
 		SELECT attempt, next_retry_at
 		FROM job_retries
-		WHERE run_id = $1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
+		WHERE run_id = $1 AND cleared = FALSE
+		ORDER BY id DESC
+		LIMIT 1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
 		t.Fatalf("query scheduled retry: %v", err)
 	}
 	if retryAttempt != 2 {
@@ -357,17 +396,22 @@ func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *tes
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
-	dequeued, err := q.DequeueN(ctx, 1)
-	if err != nil || len(dequeued) == 0 {
-		t.Fatalf("DequeueN() error = %v, count = %d", err, len(dequeued))
-	}
+	_ = intClaimRuns(t, ctx, q, 1)
 
 	staleHeartbeat := time.Now().Add(-10 * time.Minute)
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at":   time.Now().Add(-15 * time.Minute),
-		"heartbeat_at": staleHeartbeat,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus() to executing error = %v", err)
+	startedAt := time.Now().Add(-15 * time.Minute)
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		UPDATE job_run_state
+		SET status = $2, started_at = $3, heartbeat_at = $4, finished_at = NULL, updated_at = NOW()
+		WHERE run_id = $1
+	`, run.ID, domain.StatusExecuting, startedAt, staleHeartbeat); err != nil {
+		t.Fatalf("seed stale executing state: %v", err)
+	}
+	if _, err := getTestDB(t).Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)
+	`, run.ID, staleHeartbeat); err != nil {
+		t.Fatalf("age heartbeat row: %v", err)
 	}
 
 	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
@@ -452,7 +496,6 @@ func TestIntegration_SLOEvaluation(t *testing.T) {
 	ctx := context.Background()
 	st := intTestStore(t)
 	intTestClean(t, ctx)
-	q := intTestQueue(t)
 
 	job := intCreateJob(t, ctx, st, "proj-slo-eval")
 
@@ -464,37 +507,24 @@ func TestIntegration_SLOEvaluation(t *testing.T) {
 			ProjectID: job.ProjectID,
 			Priority:  1,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() error = %v", err)
-		}
-		dequeued, dErr := q.DequeueN(ctx, 1)
-		if dErr != nil || len(dequeued) == 0 {
-			t.Fatalf("DequeueN() error = %v", dErr)
-		}
 
 		startedAt := time.Now().Add(-time.Duration(i+1) * time.Minute)
 		finishedAt := startedAt.Add(time.Duration(i+1) * time.Second)
-
-		if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-			"started_at":   startedAt,
-			"heartbeat_at": startedAt,
-		}); err != nil {
-			t.Fatalf("UpdateRunStatus() to executing: %v", err)
-		}
 
 		// Make 8 out of 10 complete, 2 fail.
 		targetStatus := domain.StatusCompleted
 		if i >= 8 {
 			targetStatus = domain.StatusFailed
 		}
-		fields := map[string]any{
-			"finished_at": finishedAt,
-		}
+		run.Status = targetStatus
+		run.StartedAt = &startedAt
+		run.HeartbeatAt = &startedAt
+		run.FinishedAt = &finishedAt
 		if targetStatus == domain.StatusFailed {
-			fields["error"] = "simulated failure"
+			run.Error = "simulated failure"
 		}
-		if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, targetStatus, fields); err != nil {
-			t.Fatalf("UpdateRunStatus() to %s: %v", targetStatus, err)
+		if err := st.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun() error = %v", err)
 		}
 	}
 

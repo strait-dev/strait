@@ -48,11 +48,41 @@ func (q *Queries) UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) er
 	defer span.End()
 
 	query := `
-		INSERT INTO job_memory (job_id, project_id, memory_key, value, size_bytes, ttl_expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (job_id, memory_key)
-		DO UPDATE SET value = EXCLUDED.value, size_bytes = EXCLUDED.size_bytes, ttl_expires_at = EXCLUDED.ttl_expires_at, updated_at = NOW()
-		RETURNING id, created_at, updated_at`
+		WITH inserted AS (
+			INSERT INTO job_memory (job_id, project_id, memory_key, value, size_bytes, ttl_expires_at)
+			VALUES ($1, $2, $3, $4::jsonb, $5::int, $6::timestamptz)
+			ON CONFLICT (job_id, memory_key) DO NOTHING
+			RETURNING id, created_at, updated_at
+		),
+		updated AS (
+			UPDATE job_memory
+			SET value = $4::jsonb,
+			    size_bytes = $5::int,
+			    ttl_expires_at = $6::timestamptz,
+			    updated_at = NOW()
+			WHERE job_id = $1
+			  AND memory_key = $3
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND (
+			      value IS DISTINCT FROM $4::jsonb
+			      OR size_bytes IS DISTINCT FROM $5::int
+			      OR ttl_expires_at IS DISTINCT FROM $6::timestamptz
+			  )
+			RETURNING id, created_at, updated_at
+		),
+		selected AS (
+			SELECT id, created_at, updated_at FROM inserted
+			UNION ALL
+			SELECT id, created_at, updated_at FROM updated
+			UNION ALL
+			SELECT id, created_at, updated_at
+			FROM job_memory
+			WHERE job_id = $1
+			  AND memory_key = $3
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT id, created_at, updated_at FROM selected LIMIT 1`
 
 	err := q.db.QueryRow(ctx, query,
 		mem.JobID, mem.ProjectID, mem.MemoryKey, mem.Value, mem.SizeBytes, mem.TTLExpiresAt,
@@ -123,12 +153,13 @@ func (q *Queries) UpsertJobMemoryWithQuotaForActiveRun(ctx context.Context, runI
 		var active bool
 		if err := txQ.db.QueryRow(ctx, `
 			SELECT TRUE
-			FROM job_runs
-			WHERE id = $1
-			  AND job_id = $2
-			  AND attempt = $3
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE`, runID, mem.JobID, attempt).Scan(&active); err != nil {
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND jr.job_id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr`, runID, mem.JobID, attempt).Scan(&active); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, runID, attempt)
 			}
@@ -196,7 +227,16 @@ func (q *Queries) GetJobMemoryForActiveRun(ctx context.Context, runID, jobID, ke
 	defer span.End()
 
 	var active bool
-	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND jr.job_id = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		)`, runID, attempt, jobID).Scan(&active); err != nil {
 		return nil, fmt.Errorf("check run active for attempt: %w", err)
 	}
 	if !active {
@@ -212,7 +252,16 @@ func (q *Queries) ListJobMemoryForActiveRun(ctx context.Context, runID, jobID st
 	defer span.End()
 
 	var active bool
-	if err := q.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM job_runs WHERE id = $1 AND attempt = $2 AND job_id = $3 AND status IN ('executing', 'waiting'))`, runID, attempt, jobID).Scan(&active); err != nil {
+	if err := q.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND jr.job_id = $3
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+		)`, runID, attempt, jobID).Scan(&active); err != nil {
 		return nil, fmt.Errorf("check run active for attempt: %w", err)
 	}
 	if !active {
@@ -271,13 +320,14 @@ func (q *Queries) DeleteJobMemoryForActiveRun(ctx context.Context, runID, jobID,
 	var active bool
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $1
-			  AND job_id = $2
-			  AND attempt = $4
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND jr.job_id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $4
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		),
 		deleted AS (
 			DELETE FROM job_memory

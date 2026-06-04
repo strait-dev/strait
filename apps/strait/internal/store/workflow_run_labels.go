@@ -28,7 +28,8 @@ func (q *Queries) CreateWorkflowRunLabels(ctx context.Context, workflowRunID str
 		args = append(args, workflowRunID, k, v)
 		i++
 	}
-	sb.WriteString(` ON CONFLICT (workflow_run_id, label_key) DO UPDATE SET label_value = EXCLUDED.label_value`)
+	sb.WriteString(` ON CONFLICT (workflow_run_id, label_key) DO UPDATE SET label_value = EXCLUDED.label_value
+		WHERE workflow_run_labels.label_value IS DISTINCT FROM EXCLUDED.label_value`)
 
 	if _, err := q.db.Exec(ctx, sb.String(), args...); err != nil {
 		return fmt.Errorf("batch insert workflow run labels: %w", err)

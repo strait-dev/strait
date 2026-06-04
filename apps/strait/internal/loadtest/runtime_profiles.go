@@ -77,7 +77,7 @@ func captureRuntimeProfileKind(ctx context.Context, capture RuntimeProfileCaptur
 	if err != nil {
 		return ProfileArtifact{}, fmt.Errorf("create %s profile: %w", kind, err)
 	}
-	defer file.Close() //nolint:errcheck // close errors do not add signal after profile writes.
+	defer file.Close()
 
 	switch kind {
 	case RuntimeProfileCPU:

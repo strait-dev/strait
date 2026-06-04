@@ -63,11 +63,11 @@ func (q *Queries) CountEnvironmentsByProject(ctx context.Context, projectID stri
 	return count, nil
 }
 
-// DeleteRunsByOrgOlderThan is the soft-delete replacement for the
-// previous physical DELETE. Instead of creating dead tuples scattered across
-// every partition, it sets visible_until = NOW() which is HOT-update
-// eligible (the column is intentionally not indexed). pg_partman remains
-// the authoritative physical reaper via partition drop.
+// DeleteRunsByOrgOlderThan is the soft-delete replacement for the previous
+// physical DELETE. Instead of creating dead tuples scattered across every
+// partition, it appends visibility events and lets readers apply the latest
+// event. pg_partman remains the authoritative physical reaper via partition
+// drop.
 //
 // Returns the number of rows marked invisible. The method name is kept for
 // API stability; the external contract (rows disappear from user-facing
@@ -78,25 +78,41 @@ func (q *Queries) DeleteRunsByOrgOlderThan(ctx context.Context, orgID string, re
 	defer span.End()
 
 	cutoff := time.Now().Add(-retention)
-	result, err := q.db.Exec(ctx, `
+	var masked int64
+	err := q.db.QueryRow(ctx, `
 		WITH to_mask AS (
 			SELECT jr.id FROM job_runs jr
 			JOIN jobs j ON jr.job_id = j.id
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			LEFT JOIN LATERAL (
+				SELECT e.visible_until, TRUE AS has_event
+				FROM job_run_visibility_events e
+				WHERE e.run_id = jr.id
+				ORDER BY e.id DESC
+				LIMIT 1
+			) visibility ON TRUE
 			WHERE j.project_id IN (SELECT id FROM projects WHERE org_id = $1 AND deleted_at IS NULL)
-			  AND jr.status IN ('completed', 'failed', 'canceled', 'timed_out')
-			  AND jr.finished_at IS NOT NULL
-			  AND jr.finished_at < $2
-			  AND jr.visible_until IS NULL
+			  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'canceled', 'timed_out')
+			  AND COALESCE(s.finished_at, jr.finished_at) IS NOT NULL
+			  AND COALESCE(s.finished_at, jr.finished_at) < $2
+			  AND CASE WHEN COALESCE(visibility.has_event, FALSE)
+			           THEN visibility.visible_until IS NULL
+			           ELSE jr.visible_until IS NULL
+			      END
 			LIMIT 1000
 		)
-		UPDATE job_runs
-		SET visible_until = NOW()
-		WHERE id IN (SELECT id FROM to_mask)
-	`, orgID, cutoff)
+		, inserted AS (
+			INSERT INTO job_run_visibility_events (run_id, visible_until)
+			SELECT id, NOW()
+			FROM to_mask
+			RETURNING run_id
+		)
+		SELECT COUNT(*) FROM inserted
+	`, orgID, cutoff).Scan(&masked)
 	if err != nil {
 		return 0, fmt.Errorf("mask runs by org older than %v: %w", retention, err)
 	}
-	return result.RowsAffected(), nil
+	return masked, nil
 }
 
 // VisibleRunsClause is the shared SQL fragment that readers append to their

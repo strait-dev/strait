@@ -54,14 +54,51 @@ func (q *Queries) RepairOrphanedHistoryRuns(ctx context.Context, limit int) (int
 	defer span.End()
 
 	query := `
-		DELETE FROM job_runs
-		WHERE id IN (
+		WITH victims AS MATERIALIZED (
 			SELECT jr.id FROM job_runs jr
 			INNER JOIN job_runs_history jrh ON jr.id = jrh.id
 			WHERE jr.finished_at IS NOT NULL
 			  AND jr.status IN ('completed', 'failed', 'canceled', 'expired', 'timed_out', 'crashed', 'system_failed')
 			LIMIT $1
-		)`
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM victims)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM victims)
+		)
+		DELETE FROM job_runs
+		WHERE id IN (SELECT id FROM victims)`
 
 	tag, err := q.db.Exec(ctx, query, limit)
 	if err != nil {
@@ -91,6 +128,42 @@ func (q *Queries) BackfillTerminalRunsToHistory(ctx context.Context, finishedBef
 			WHERE id IN (SELECT id FROM to_archive)
 			ON CONFLICT (id) DO NOTHING
 			RETURNING id
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM archived)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM archived)
 		)
 		DELETE FROM job_runs WHERE id IN (SELECT id FROM archived)`
 

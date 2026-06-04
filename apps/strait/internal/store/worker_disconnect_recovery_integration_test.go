@@ -83,6 +83,22 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 	if gotRun.StartedAt != nil || gotRun.FinishedAt != nil || gotRun.HeartbeatAt != nil {
 		t.Fatalf("run timestamps not cleared after requeue: started=%v finished=%v heartbeat=%v", gotRun.StartedAt, gotRun.FinishedAt, gotRun.HeartbeatAt)
 	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus); err != nil {
+		t.Fatalf("query split worker requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
 
 	gotTask, err := q.GetWorkerTask(ctx, "task-disconnect-recovery")
 	if err != nil {
@@ -94,6 +110,88 @@ func TestIntegration_RequeueOpenWorkerTasks_RequeuesExecutingRuns(t *testing.T) 
 	if gotTask.FinishedAt == nil {
 		t.Fatal("worker task finished_at = nil, want timestamp")
 	}
+}
+
+func TestIntegration_RequeueOpenWorkerTasks_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "disconnect")
+
+	count, err := fixture.q.RequeueOpenWorkerTasks(ctx, fixture.workerID, fixture.projectID, "worker disconnected before reporting result")
+	if err != nil {
+		t.Fatalf("RequeueOpenWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RequeueOpenWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+}
+
+func TestIntegration_RequeueOpenWorkerTasks_PgQueDelayedActiveClaimBumpsGeneration(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "disconnect-delayed")
+	beforeGeneration := markPgQueClaimedWorkerRunDelayed(t, ctx, env, fixture.runID)
+
+	count, err := fixture.q.RequeueOpenWorkerTasks(ctx, fixture.workerID, fixture.projectID, "worker disconnected before reporting result")
+	if err != nil {
+		t.Fatalf("RequeueOpenWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RequeueOpenWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertPgQueWorkerRecoveryPreservedDelayedState(t, ctx, env, fixture.runID)
+	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
+}
+
+func TestIntegration_RecoverStaleWorkerTasks_PgQueActiveClaimDoesNotTouchActiveCounter(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "stale")
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, fixture.workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+
+	count, err := fixture.q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+}
+
+func TestIntegration_RecoverStaleWorkerTasks_PgQueDelayedActiveClaimIsListedForReadyEvent(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+	fixture := seedPgQueClaimedWorkerTask(t, ctx, env, "stale-delayed")
+	beforeGeneration := markPgQueClaimedWorkerRunDelayed(t, ctx, env, fixture.runID)
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE workers SET last_seen_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, fixture.workerID); err != nil {
+		t.Fatalf("age worker: %v", err)
+	}
+
+	recoverableRunIDs, err := fixture.q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), nil)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 1 || recoverableRunIDs[0] != fixture.runID {
+		t.Fatalf("recoverable run IDs = %v, want [%s]", recoverableRunIDs, fixture.runID)
+	}
+
+	count, err := fixture.q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
+	if err != nil {
+		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("RecoverStaleWorkerTasks count = %d, want 1", count)
+	}
+	assertPgQueWorkerRecoveryReleasedClaimOnly(t, ctx, env, fixture)
+	assertPgQueWorkerRecoveryBumpedGeneration(t, ctx, env, fixture.runID, beforeGeneration)
+	assertPgQueWorkerRecoveryPreservedDelayedState(t, ctx, env, fixture.runID)
+	assertLatestWorkerRecoveryLifecycleEvent(t, ctx, env, fixture.runID, domain.StatusDelayed, domain.StatusQueued)
 }
 
 func TestIntegration_RequeueOpenWorkerTasks_SkipsResultReceivedRuns(t *testing.T) {
@@ -226,6 +324,14 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 		t.Fatalf("CreateWorkerTask: %v", err)
 	}
 
+	recoverableRunIDs, err := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), nil)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 1 || recoverableRunIDs[0] != run.ID {
+		t.Fatalf("recoverable run IDs = %v, want [%s]", recoverableRunIDs, run.ID)
+	}
+
 	count, err := q.RecoverStaleWorkerTasks(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat")
 	if err != nil {
 		t.Fatalf("RecoverStaleWorkerTasks: %v", err)
@@ -240,12 +346,290 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasks_RequeuesExecutingRuns(t *tes
 	if gotRun.Status != domain.StatusQueued {
 		t.Fatalf("run status = %q, want queued", gotRun.Status)
 	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus); err != nil {
+		t.Fatalf("query split stale worker requeue state: %v", err)
+	}
+	if ledgerStatus != domain.StatusExecuting {
+		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
 	gotTask, err := q.GetWorkerTask(ctx, "task-stale-recovery")
 	if err != nil {
 		t.Fatalf("GetWorkerTask: %v", err)
 	}
 	if gotTask.Status != domain.WorkerTaskStatusFailed {
 		t.Fatalf("worker task status = %q, want failed", gotTask.Status)
+	}
+}
+
+type pgQueClaimedWorkerFixture struct {
+	q                *store.Queries
+	projectID        string
+	workerID         string
+	jobID            string
+	runID            string
+	taskID           string
+	counterUpdatedAt time.Time
+}
+
+func seedPgQueClaimedWorkerTask(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	suffix string,
+) pgQueClaimedWorkerFixture {
+	t.Helper()
+
+	q := store.New(env.DB.Pool)
+	projectID := "proj-pgque-worker-recovery-" + suffix
+	workerID := "worker-pgque-recovery-" + suffix
+	taskID := "task-pgque-recovery-" + suffix
+	runID := "run-pgque-recovery-" + suffix
+
+	if err := q.CreateProject(ctx, &domain.Project{
+		ID:    projectID,
+		OrgID: "org-1",
+		Name:  "pgque-worker-recovery-" + suffix,
+	}); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: &projectID})
+	if err := q.RegisterWorker(ctx, &domain.Worker{
+		ID:        workerID,
+		ProjectID: projectID,
+		QueueName: "default",
+		Hostname:  "host",
+		Version:   "1.0",
+		Status:    domain.WorkerStatusActive,
+	}); err != nil {
+		t.Fatalf("RegisterWorker: %v", err)
+	}
+
+	queued := domain.StatusQueued
+	run := testutil.BuildRun(job, &testutil.RunOpts{
+		ID:     &runID,
+		Status: &queued,
+	})
+	run.ExecutionMode = domain.ExecutionModeWorker
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `UPDATE job_run_state SET job_max_concurrency = 1 WHERE run_id = $1`, runID); err != nil {
+		t.Fatalf("mark limited worker run: %v", err)
+	}
+	if _, err := env.DB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		SELECT run_id, ready_generation, attempt, NOW()
+		FROM job_run_state
+		WHERE run_id = $1`,
+		runID,
+	); err != nil {
+		t.Fatalf("insert active claim: %v", err)
+	}
+	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
+		ID:        taskID,
+		WorkerID:  workerID,
+		RunID:     runID,
+		ProjectID: projectID,
+		Status:    domain.WorkerTaskStatusAssigned,
+	}); err != nil {
+		t.Fatalf("CreateWorkerTask: %v", err)
+	}
+
+	counterUpdatedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := env.DB.Pool.Exec(ctx, `
+		INSERT INTO job_active_counts (job_id, concurrency_key, count, updated_at)
+		VALUES ($1, '', 0, $2)
+		ON CONFLICT (job_id, concurrency_key)
+		DO UPDATE SET count = 0, updated_at = EXCLUDED.updated_at`,
+		job.ID, counterUpdatedAt,
+	); err != nil {
+		t.Fatalf("seed active count row: %v", err)
+	}
+
+	return pgQueClaimedWorkerFixture{
+		q:                q,
+		projectID:        projectID,
+		workerID:         workerID,
+		jobID:            job.ID,
+		runID:            runID,
+		taskID:           taskID,
+		counterUpdatedAt: counterUpdatedAt,
+	}
+}
+
+func markPgQueClaimedWorkerRunDelayed(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+) int64 {
+	t.Helper()
+
+	var readyGeneration int64
+	if err := env.DB.Pool.QueryRow(ctx, `
+		UPDATE job_run_state
+		SET status = 'delayed',
+		    scheduled_at = NOW() + INTERVAL '5 minutes',
+		    next_retry_at = NOW() + INTERVAL '5 minutes'
+		WHERE run_id = $1
+		RETURNING ready_generation`,
+		runID,
+	).Scan(&readyGeneration); err != nil {
+		t.Fatalf("mark claimed worker run delayed: %v", err)
+	}
+	return readyGeneration
+}
+
+func assertPgQueWorkerRecoveryReleasedClaimOnly(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	fixture pgQueClaimedWorkerFixture,
+) {
+	t.Helper()
+
+	run, err := fixture.q.GetRun(ctx, fixture.runID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Status != domain.StatusQueued {
+		t.Fatalf("run status = %q, want queued", run.Status)
+	}
+	var activeClaims int
+	var counterUpdatedAt time.Time
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1),
+			(SELECT updated_at FROM job_active_counts WHERE job_id = $2 AND concurrency_key = '')`,
+		fixture.runID, fixture.jobID,
+	).Scan(&activeClaims, &counterUpdatedAt); err != nil {
+		t.Fatalf("query active claim/counter state: %v", err)
+	}
+	if activeClaims != 1 {
+		t.Fatalf("active claims = %d, want retained inactive claim", activeClaims)
+	}
+	if !counterUpdatedAt.Equal(fixture.counterUpdatedAt) {
+		t.Fatalf("active count updated_at changed on PgQue worker recovery: got %s want %s", counterUpdatedAt, fixture.counterUpdatedAt)
+	}
+	deleted, err := fixture.q.DeleteInactiveActiveClaims(ctx, 100)
+	if err != nil {
+		t.Fatalf("DeleteInactiveActiveClaims: %v", err)
+	}
+	if deleted < 1 {
+		t.Fatalf("deleted inactive active claims = %d, want at least target claim", deleted)
+	}
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_active_claims
+		WHERE run_id = $1`,
+		fixture.runID,
+	).Scan(&activeClaims); err != nil {
+		t.Fatalf("query active claims after cleanup: %v", err)
+	}
+	if activeClaims != 0 {
+		t.Fatalf("active claims after cleanup = %d, want 0", activeClaims)
+	}
+
+	task, err := fixture.q.GetWorkerTask(ctx, fixture.taskID)
+	if err != nil {
+		t.Fatalf("GetWorkerTask: %v", err)
+	}
+	if task.Status != domain.WorkerTaskStatusFailed {
+		t.Fatalf("worker task status = %q, want failed", task.Status)
+	}
+}
+
+func assertPgQueWorkerRecoveryBumpedGeneration(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+	beforeGeneration int64,
+) {
+	t.Helper()
+
+	var afterGeneration int64
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		runID,
+	).Scan(&afterGeneration); err != nil {
+		t.Fatalf("query ready_generation after worker recovery: %v", err)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
+	}
+}
+
+func assertPgQueWorkerRecoveryPreservedDelayedState(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+) {
+	t.Helper()
+
+	var stateStatus, readStatus domain.RunStatus
+	var readyEvents int
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT s.status, rs.status,
+		       (SELECT COUNT(*)
+		        FROM job_run_ready_events e
+		        WHERE e.run_id = s.run_id
+		          AND e.ready_generation = s.ready_generation
+		          AND e.reason = 'worker_recovered')
+		FROM job_run_state s
+		JOIN job_run_read_state rs ON rs.run_id = s.run_id
+		WHERE s.run_id = $1`,
+		runID,
+	).Scan(&stateStatus, &readStatus, &readyEvents); err != nil {
+		t.Fatalf("query worker recovery ready state: %v", err)
+	}
+	if stateStatus != domain.StatusDelayed {
+		t.Fatalf("job_run_state status = %q, want delayed hot state after worker recovery", stateStatus)
+	}
+	if readStatus != domain.StatusQueued {
+		t.Fatalf("job_run_read_state status = %q, want queued worker recovery overlay", readStatus)
+	}
+	if readyEvents != 1 {
+		t.Fatalf("worker_recovered ready events = %d, want 1", readyEvents)
+	}
+}
+
+func assertLatestWorkerRecoveryLifecycleEvent(
+	t *testing.T,
+	ctx context.Context,
+	env *testutil.TestEnv,
+	runID string,
+	wantFrom domain.RunStatus,
+	wantTo domain.RunStatus,
+) {
+	t.Helper()
+
+	var fromStatus, toStatus domain.RunStatus
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT from_status, to_status
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1`,
+		runID,
+	).Scan(&fromStatus, &toStatus); err != nil {
+		t.Fatalf("query latest worker recovery lifecycle event: %v", err)
+	}
+	if fromStatus != wantFrom || toStatus != wantTo {
+		t.Fatalf("latest lifecycle event = %q -> %q, want %q -> %q", fromStatus, toStatus, wantFrom, wantTo)
 	}
 }
 
@@ -291,6 +675,14 @@ func TestIntegration_DeepSecRecoverStaleWorkerTasksExcept_SkipsConnectedWorker(t
 	}
 
 	activeWorkers := []store.ActiveWorkerRef{{WorkerID: workerID, ProjectID: projectID}}
+	recoverableRunIDs, err := q.ListRecoverableStaleWorkerTaskRunIDs(ctx, time.Now().Add(-5*time.Minute), activeWorkers)
+	if err != nil {
+		t.Fatalf("ListRecoverableStaleWorkerTaskRunIDs: %v", err)
+	}
+	if len(recoverableRunIDs) != 0 {
+		t.Fatalf("recoverable run IDs = %v, want none for connected worker", recoverableRunIDs)
+	}
+
 	count, err := q.RecoverStaleWorkerTasksExceptRefs(ctx, time.Now().Add(-5*time.Minute), "stale worker heartbeat", activeWorkers)
 	if err != nil {
 		t.Fatalf("RecoverStaleWorkerTasksExcept: %v", err)

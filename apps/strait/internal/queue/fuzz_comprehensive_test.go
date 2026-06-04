@@ -74,31 +74,6 @@ func FuzzCircuitBreakerStateAlwaysValid(f *testing.F) {
 	})
 }
 
-// Claim cursor monotonicity.
-
-func FuzzClaimCursorMonotonicity(f *testing.F) {
-	f.Add(int64(0), "a", int64(1000), "b")
-	f.Add(int64(-1), "", int64(0), "")
-	f.Fuzz(func(t *testing.T, ns1 int64, id1 string, ns2 int64, id2 string) {
-		if len(id1) > 64 || len(id2) > 64 {
-			return
-		}
-		c := NewClaimCursor(time.Hour)
-		base := time.Now()
-		c.Advance(base.Add(time.Duration(ns1)), id1)
-		snap1ts, snap1id, _ := c.Snapshot()
-		c.Advance(base.Add(time.Duration(ns2)), id2)
-		snap2ts, snap2id, _ := c.Snapshot()
-		// Snapshot must be monotonically non-decreasing.
-		if snap2ts.Before(snap1ts) {
-			t.Errorf("cursor went backwards: %v -> %v", snap1ts, snap2ts)
-		}
-		if snap2ts.Equal(snap1ts) && snap2id < snap1id {
-			t.Errorf("cursor ID regressed at same ts: %q -> %q", snap1id, snap2id)
-		}
-	})
-}
-
 // Priority promoter bounds.
 
 func FuzzPriorityPromoterBounds(f *testing.F) {

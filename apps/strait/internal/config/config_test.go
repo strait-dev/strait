@@ -199,6 +199,8 @@ func TestLoad_RequiredFields(t *testing.T) {
 		{
 			name: "missing database url",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("INTERNAL_SECRET", "test-secret-value")
 				t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 			},
@@ -207,6 +209,8 @@ func TestLoad_RequiredFields(t *testing.T) {
 		{
 			name: "missing internal secret",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("DATABASE_URL", "postgres://localhost/test")
 				t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 			},
@@ -215,6 +219,8 @@ func TestLoad_RequiredFields(t *testing.T) {
 		{
 			name: "jwt signing key too short",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("DATABASE_URL", "postgres://localhost/test")
 				t.Setenv("INTERNAL_SECRET", "test-secret-value")
 				t.Setenv("JWT_SIGNING_KEY", "too-short")
@@ -783,6 +789,8 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		{
 			name: "OIDC enabled missing issuer",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("OIDC_ENABLED", "true")
 				t.Setenv("OIDC_AUDIENCE", "my-audience")
 				t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key")
@@ -792,6 +800,8 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		{
 			name: "OIDC enabled missing audience",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("OIDC_ENABLED", "true")
 				t.Setenv("OIDC_ISSUER", "https://issuer.example.com")
 				t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key")
@@ -801,6 +811,8 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		{
 			name: "OIDC enabled missing public key",
 			setEnv: func(t *testing.T) {
+				t.Helper()
+
 				t.Setenv("OIDC_ENABLED", "true")
 				t.Setenv("OIDC_ISSUER", "https://issuer.example.com")
 				t.Setenv("OIDC_AUDIENCE", "my-audience")

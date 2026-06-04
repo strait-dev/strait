@@ -10,23 +10,32 @@ import (
 	"strait/internal/store"
 )
 
-// Orphan heartbeat GC.
+// Run side-table GC.
 //
 // The unlogged heartbeat side table `job_run_heartbeats` is
-// maintained by the worker -- inserts on claim, updates on heartbeat
-// tick, deletes on terminal transition. If a terminal transition skips
-// the delete (historic bug, operator intervention, replica that misses
-// a trigger) the row leaks and the table grows without bound.
+// maintained by the worker -- inserts on claim and heartbeat tick, clear
+// tombstones on terminal transition, and bounded physical compaction in
+// this GC. If a terminal transition skips the clear (historic bug, operator
+// intervention, replica that misses a trigger) the row leaks and the table
+// grows without bound.
 //
-// This GC runs hourly under an advisory lock and deletes heartbeat rows
-// whose owning run is no longer executing. It is bounded per tick so a
-// large mass deletion is spread across multiple cycles.
+// This GC runs hourly under an advisory lock, clears heartbeat rows whose
+// owning run is no longer active, and deletes superseded heartbeat, retry, and
+// run side-table history. Cleanup is bounded per tick so large tables are
+// spread across cycles.
 
 const heartbeatGCAdvisoryLockID int64 = 0x53744842474300 // "StHbGC"
 
 // HeartbeatGCStore is the minimal store interface the GC needs.
 type HeartbeatGCStore interface {
 	DeleteOrphanedHeartbeats(ctx context.Context, limit int) (int64, error)
+	CompactSupersededHeartbeats(ctx context.Context, limit int) (int64, error)
+	CompactSupersededRetries(ctx context.Context, limit int) (int64, error)
+	DeleteInactiveActiveClaims(ctx context.Context, limit int) (int64, error)
+	DeleteInactiveReadyEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededPriorityEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededVisibilityEvents(ctx context.Context, limit int) (int64, error)
+	CompactSupersededRunCacheVersions(ctx context.Context, limit int) (int64, error)
 }
 
 // HeartbeatGC periodically deletes leaked rows from job_run_heartbeats.
@@ -122,9 +131,45 @@ func (h *HeartbeatGC) runLocked(ctx context.Context) error {
 		h.logger.Warn("heartbeat GC delete failed", "error", err)
 		return err
 	}
-	h.totalDeleted.Add(deleted)
-	if deleted > 0 {
-		h.logger.Info("heartbeat GC deleted orphaned rows", "deleted", deleted)
+	compacted, err := h.store.CompactSupersededHeartbeats(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("heartbeat GC compact failed", "error", err)
+		return err
+	}
+	compactedRetries, err := h.store.CompactSupersededRetries(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("retry GC compact failed", "error", err)
+		return err
+	}
+	deletedClaims, err := h.store.DeleteInactiveActiveClaims(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("active claim GC failed", "error", err)
+		return err
+	}
+	deletedReadyEvents, err := h.store.DeleteInactiveReadyEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("ready event GC failed", "error", err)
+		return err
+	}
+	compactedPriorityEvents, err := h.store.CompactSupersededPriorityEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("priority event GC compact failed", "error", err)
+		return err
+	}
+	compactedVisibilityEvents, err := h.store.CompactSupersededVisibilityEvents(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("visibility event GC compact failed", "error", err)
+		return err
+	}
+	compactedRunCacheVersions, err := h.store.CompactSupersededRunCacheVersions(ctx, h.batchLimit)
+	if err != nil {
+		h.logger.Warn("run cache version GC compact failed", "error", err)
+		return err
+	}
+	total := deleted + compacted + compactedRetries + deletedClaims + deletedReadyEvents + compactedPriorityEvents + compactedVisibilityEvents + compactedRunCacheVersions
+	h.totalDeleted.Add(total)
+	if total > 0 {
+		h.logger.Info("heartbeat GC cleaned rows", "cleared_heartbeats", deleted, "compacted_heartbeats", compacted, "compacted_retries", compactedRetries, "deleted_active_claims", deletedClaims, "deleted_ready_events", deletedReadyEvents, "compacted_priority_events", compactedPriorityEvents, "compacted_visibility_events", compactedVisibilityEvents, "compacted_run_cache_versions", compactedRunCacheVersions)
 	}
 	return nil
 }
@@ -141,14 +186,9 @@ func EnsureQueueTriggersPresent(ctx context.Context, db store.DBTX) error {
 	}{
 		{name: "trg_job_runs_queue_wake_insert_notify", relation: "job_runs", function: "notify_queue_wake_insert_stmt"},
 		{name: "trg_job_runs_queue_wake_update_notify", relation: "job_runs", function: "notify_queue_wake_update_stmt"},
-		{name: "trg_queue_entries_claimable_wake_insert_notify", relation: "queue_entries", function: "notify_queue_entries_claimable_insert_stmt"},
-		{name: "trg_queue_entries_claimable_wake_update_notify", relation: "queue_entries", function: "notify_queue_entries_claimable_update_stmt"},
-		{name: "job_runs_active_counts_trg", relation: "job_runs", function: "job_active_counts_apply"},
+		{name: "job_run_state_active_counts_trg", relation: "job_run_state", function: "job_active_counts_apply"},
 		{name: "job_runs_dlq_counts_trg", relation: "job_runs", function: "dlq_counts_apply"},
 		{name: "job_runs_seed_job_config_trg", relation: "job_runs", function: "seed_job_config_on_insert"},
-		{name: "trg_job_runs_claim_queue_sync", relation: "job_runs", function: "trg_job_runs_sync_claim_queue"},
-		{name: "trg_job_runs_claim_queue_sync_update", relation: "job_runs", function: "trg_job_runs_sync_claim_queue"},
-		{name: "trg_jobs_fanout_queue", relation: "jobs", function: "trg_jobs_fanout_to_queue"},
 	}
 	for _, trigger := range required {
 		var present bool

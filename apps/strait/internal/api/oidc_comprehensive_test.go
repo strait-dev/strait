@@ -788,8 +788,8 @@ func FuzzOIDCVerify_ClaimsJSON(f *testing.F) {
 		if err != nil {
 			return // skip if signing fails
 		}
-		// Must not panic
-		v.verify(signed)
+		// Must not panic.
+		_, _ = v.verify(signed)
 	})
 }
 

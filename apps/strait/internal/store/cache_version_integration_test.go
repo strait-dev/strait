@@ -27,12 +27,14 @@ func TestCacheVersion_SchemaCoversStrongAndStatusTables(t *testing.T) {
 		"jobs",
 		"job_dependencies",
 		"job_runs",
+		"job_run_cache_versions",
 		"job_runs_history",
 		"workflow_runs",
 		"workflow_step_runs",
 	}
 	triggerTables := map[string]bool{
-		"job_runs_history": false,
+		"job_run_cache_versions": false,
+		"job_runs_history":       false,
 	}
 	for _, table := range tables {
 		var nullable, columnDefault string
@@ -91,12 +93,12 @@ func TestCacheVersion_DefaultsBumpsAndRollback(t *testing.T) {
 	if err := q.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun() error = %v", err)
 	}
-	assertCacheVersion(t, ctx, "job_runs", run.ID, 1)
+	assertRunCacheVersion(t, ctx, run.ID, 1)
 
 	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{}); err != nil {
 		t.Fatalf("UpdateRunStatus() error = %v", err)
 	}
-	assertCacheVersion(t, ctx, "job_runs", run.ID, 2)
+	assertRunCacheVersion(t, ctx, run.ID, 2)
 
 	if _, err := testDB.Pool.Exec(
 		ctx,
@@ -377,4 +379,69 @@ func assertCacheVersion(t *testing.T, ctx context.Context, table, id string, wan
 	if got != want {
 		t.Fatalf("%s cache_version = %d, want %d", table, got, want)
 	}
+}
+
+func assertRunCacheVersion(t *testing.T, ctx context.Context, runID string, want int64) {
+	t.Helper()
+	var got int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COALESCE(v.cache_version, jr.cache_version)
+		FROM job_runs jr
+		LEFT JOIN LATERAL (
+			SELECT cache_version
+			FROM job_run_cache_versions v
+			WHERE v.run_id = jr.id
+			ORDER BY v.id DESC
+			LIMIT 1
+		) v ON true
+		WHERE jr.id = $1`,
+		runID,
+	).Scan(&got); err != nil {
+		t.Fatalf("select run cache_version: %v", err)
+	}
+	if got != want {
+		t.Fatalf("run cache_version = %d, want %d", got, want)
+	}
+}
+
+func TestCacheVersion_RunSideTableAppendsVersions(t *testing.T) {
+	ctx := t.Context()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-cache-version-append")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	for i := range 3 {
+		from := domain.StatusQueued
+		to := domain.StatusExecuting
+		if i%2 == 1 {
+			from, to = domain.StatusExecuting, domain.StatusQueued
+		}
+		err := q.UpdateRunStatus(ctx, run.ID, from, to, map[string]any{
+			"started_at": nil,
+		})
+		if err != nil {
+			t.Fatalf("UpdateRunStatus(%d) error = %v", i, err)
+		}
+	}
+
+	var rawRows int
+	var latestVersion int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*), COALESCE((ARRAY_AGG(cache_version ORDER BY id DESC))[1], 0)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`, run.ID).Scan(&rawRows, &latestVersion); err != nil {
+		t.Fatalf("query cache version history: %v", err)
+	}
+	if rawRows != 3 {
+		t.Fatalf("cache version rows = %d, want append-only history", rawRows)
+	}
+	if latestVersion != 4 {
+		t.Fatalf("latest cache version = %d, want 4", latestVersion)
+	}
+	assertRunCacheVersion(t, ctx, run.ID, latestVersion)
 }

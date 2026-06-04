@@ -14,7 +14,7 @@ The same guide lives in both `AGENTS.md` and `CLAUDE.md`. Keep them in sync: any
 
 ## 1. What Strait is
 
-Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth and the queue (`SELECT ... FOR UPDATE SKIP LOCKED`); Redis powers pub/sub and SSE. Strait does not run user code itself: job code lives on the customer's infrastructure and is reached either through an HTTP endpoint Strait POSTs to, or through a long-lived worker process that connects to the API over gRPC and streams runs back. The binary runs in `api`, `worker`, or `all` mode. The two editions (community and cloud) are selected at compile time through Go build tags.
+Strait is a job orchestration and workflow platform shipped as a single Go binary. PostgreSQL is the source of truth. Strait's internal queue uses a vendored and modified SQL snapshot of PgQue as the ready-event log, while Strait owns run state, execution ownership, retries, workflows, workers, observability, and APIs. Redis powers pub/sub and SSE. Strait does not run user code itself: job code lives on the customer's infrastructure and is reached either through an HTTP endpoint Strait POSTs to, or through a long-lived worker process that connects to the API over gRPC and streams runs back. The binary runs in `api`, `worker`, or `all` mode. The two editions (community and cloud) are selected at compile time through Go build tags.
 
 Read first:
 - `README.md`
@@ -27,7 +27,7 @@ Read first:
 
 ## 2. Tech stack
 
-- **Language**: Go 1.26.3, module `strait`, in a Bun + Turbo monorepo
+- **Language**: Go 1.26.4, module `strait`, in a Bun + Turbo monorepo
 - **HTTP**: `go-chi/chi/v5` with `danielgtaylor/huma/v2` (OpenAPI generation)
 - **Database**: PostgreSQL through `jackc/pgx/v5`, no ORM. Migrations are embedded SQL.
 - **Cache and pub-sub**: `redis/go-redis/v9`, `eko/gocache`, `maypok86/otter`
@@ -297,13 +297,14 @@ Once the plan is approved, execute each phase in order. For every phase:
 2. **Structured concurrency.** Use `sourcegraph/conc` and `alitto/pond/v2`. No casual goroutine fan-out.
 3. **Errors.** Wrap with `%w` and contextual messages. Use `samber/oops` for stack traces in critical paths.
 4. **Helpers.** Prefer `samber/lo` where it improves readability.
-5. **Tests.** Use `apps/strait/internal/testutil` helpers. Write meaningful assertions, not just "no error".
-6. **Worker and pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
-7. **No emojis.** Not in code, comments, logs, docs, commits, or PR text. Anywhere.
-8. **Comments.** Explain invariants, security or operational boundaries, and non-obvious tradeoffs. Do not leave phase/wave/project-plan history, AI/tool attribution, or comments that restate the next line. Test comments should name the regression contract, not implementation chronology.
-9. **Monitoring is load-bearing.** Preserve traces, metrics, and logs in critical paths (worker, queue, workflow, scheduler).
-10. **Auth boundaries.** Don't weaken SSRF guards, the internal management secret flow, or the SDK JWT run-token flow.
-11. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
+5. **Go style baseline.** Follow the Uber Go Style Guide for new and touched Go code unless it conflicts with this guide or established local patterns. In practice: copy slices/maps at ownership boundaries, avoid pointers to interfaces, verify interface compliance for important adapters, keep contexts first, handle errors once, handle type assertion failures, avoid hidden goroutines, prefer explicit returns, use field names in struct literals, keep zero-value mutexes as values, and justify every `nolint`.
+6. **Tests.** Use `apps/strait/internal/testutil` helpers. Write meaningful assertions, not just "no error".
+7. **Worker and pool consistency.** Reuse existing patterns in `internal/worker`. Don't fork dispatch logic.
+8. **No emojis.** Not in code, comments, logs, docs, commits, or PR text. Anywhere.
+9. **Comments.** Explain invariants, security or operational boundaries, and non-obvious tradeoffs. Do not leave phase/wave/project-plan history, AI/tool attribution, or comments that restate the next line. Test comments should name the regression contract, not implementation chronology.
+10. **Monitoring is load-bearing.** Preserve traces, metrics, and logs in critical paths (worker, queue, workflow, scheduler).
+11. **Auth boundaries.** Don't weaken SSRF guards, the internal management secret flow, or the SDK JWT run-token flow.
+12. **Graceful shutdown.** Don't alter shutdown behavior in ways that risk in-flight job loss.
 
 ---
 

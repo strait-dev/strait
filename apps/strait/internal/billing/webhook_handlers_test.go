@@ -151,7 +151,8 @@ func fireWebhookWithID(t *testing.T, handler http.Handler, eventID, eventType st
 
 // newTestHandler creates a WebhookHandler with dev bypass and optional audit store.
 func newTestHandler(store *mockBillingStore, mapping *StripeMapping, audit AuditStore, opts ...WebhookOption) *WebhookHandler {
-	allOpts := []WebhookOption{WithDevBypassSignatureCheck()}
+	allOpts := make([]WebhookOption, 0, 1+len(opts))
+	allOpts = append(allOpts, WithDevBypassSignatureCheck())
 	allOpts = append(allOpts, opts...)
 	return NewWebhookHandler(store, mapping, "", slog.Default(), nil, audit, allOpts...)
 }
