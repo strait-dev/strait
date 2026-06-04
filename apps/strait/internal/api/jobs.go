@@ -252,28 +252,6 @@ func (s *Server) resolveCreateJobSigningSecret(req CreateJobRequest) (string, er
 	return s.encryptEndpointSigningSecret(signingSecret)
 }
 
-func sanitizedJobUpdateAuditChanges(req UpdateJobRequest) map[string]any {
-	secretChanged := req.EndpointSigningSecret != nil || req.WebhookSecret != nil
-	req.EndpointSigningSecret = nil
-	req.WebhookSecret = nil
-
-	raw, err := json.Marshal(req)
-	if err != nil {
-		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
-	}
-	var changes map[string]any
-	if err := json.Unmarshal(raw, &changes); err != nil {
-		return map[string]any{"marshal_error": true, "signing_credential_changed": secretChanged}
-	}
-	if changes == nil {
-		changes = map[string]any{}
-	}
-	if secretChanged {
-		changes["signing_credential_changed"] = true
-	}
-	return changes
-}
-
 // validateCreateJobFields validates the scalar and cron fields on a CreateJobRequest,
 // applies defaults, and checks plan gates that do not depend on execution mode.
 // It mutates req to apply defaults (MaxAttempts, TimeoutSecs, RetryPriorityBoost).
