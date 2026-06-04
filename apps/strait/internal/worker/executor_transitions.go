@@ -185,41 +185,6 @@ func newFailureRunTransition(
 	}
 }
 
-type terminalRunCompletion struct {
-	from                  domain.RunStatus
-	to                    domain.RunStatus
-	fields                map[string]any
-	webhookRun            *domain.JobRun
-	recordEndpointSuccess bool
-	enqueueWebhook        bool
-}
-
-func newTerminalRunCompletion(run *domain.JobRun, job *domain.Job, to domain.RunStatus, fields map[string]any) terminalRunCompletion {
-	return terminalRunCompletion{
-		from:                  domain.StatusExecuting,
-		to:                    to,
-		fields:                fields,
-		webhookRun:            runForTerminalWebhook(run, to, fields),
-		recordEndpointSuccess: to == domain.StatusCompleted && job.EndpointURL != "",
-		enqueueWebhook:        job.WebhookURL != "",
-	}
-}
-
-func runForTerminalWebhook(run *domain.JobRun, status domain.RunStatus, fields map[string]any) *domain.JobRun {
-	webhookRun := *run
-	webhookRun.Status = status
-	if result, ok := fields["result"].(json.RawMessage); ok {
-		webhookRun.Result = result
-	}
-	if errMsg, ok := fields["error"].(string); ok {
-		webhookRun.Error = errMsg
-	}
-	if finishedAt, ok := fields["finished_at"].(time.Time); ok {
-		webhookRun.FinishedAt = &finishedAt
-	}
-	return &webhookRun
-}
-
 type systemFailureTransition struct {
 	from     domain.RunStatus
 	to       domain.RunStatus
