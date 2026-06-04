@@ -573,6 +573,7 @@ type Executor struct {
 	stripeUsageReporter      *billing.StripeUsageReporter
 	stripeUsageWG            conc.WaitGroup // tracks in-flight Stripe usage event goroutines
 	runCostRecorder          *billing.RunCostRecorder
+	dlqCapEnforcer           *DLQCapEnforcer
 	secretDecryptor          SecretDecryptor
 	stop                     chan struct{}
 	done                     chan struct{}
@@ -656,6 +657,7 @@ type ExecutorConfig struct {
 	BillingEnforcer            *billing.Enforcer            // Optional: org-level billing enforcement (cloud only).
 	StripeUsageReporter        *billing.StripeUsageReporter // Optional: Stripe usage event reporting (cloud only).
 	RunCostRecorder            *billing.RunCostRecorder     // Optional: flat per-run cost recording (cloud only).
+	DLQCapEnforcer             *DLQCapEnforcer              // Optional: enforces DLQ caps before terminal dead-letter transitions.
 	SecretDecryptor            SecretDecryptor              // Optional: decrypts encrypted endpoint signing secrets.
 	// QueueSnapshotter provides the set of queue names with active workers on
 	// this replica. When set, the poll loop performs a second dequeue pass
@@ -787,6 +789,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		billingEnforcer:          cfg.BillingEnforcer,
 		stripeUsageReporter:      cfg.StripeUsageReporter,
 		runCostRecorder:          cfg.RunCostRecorder,
+		dlqCapEnforcer:           cfg.DLQCapEnforcer,
 		secretDecryptor:          cfg.SecretDecryptor,
 		healthScorer:             NewHealthScorer(cfg.Store),
 		onCompleteTrigger: NewOnCompleteTrigger(

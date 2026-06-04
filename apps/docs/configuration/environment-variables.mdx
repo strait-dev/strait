@@ -135,6 +135,14 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `STRAIT_PROFILING_ALLOWED_CIDRS` | - | Optional comma-separated CIDR/IP allowlist for pprof callers. |
 | `PYROSCOPE_ENDPOINT` | - | Pyroscope endpoint for profiling. |
 
+## Worker DLQ
+
+| Variable | Default | Description |
+|---|---|---|
+| `DLQ_MAX_PER_PROJECT` | `10000` | Maximum visible dead-letter runs per project. Set `0` to disable the project cap. |
+| `DLQ_MAX_PER_JOB` | `1000` | Maximum visible dead-letter runs per job. Set `0` to disable the job cap. |
+| `DLQ_OVERFLOW_POLICY` | `drop_oldest` | `drop_oldest` masks the oldest visible DLQ row before adding a new one. `reject` marks the new terminal failure `system_failed` with `error_class=dlq_overflow`. |
+
 ## Notifications
 
 | Variable | Default | Description |

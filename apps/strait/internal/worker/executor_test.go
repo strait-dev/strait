@@ -798,6 +798,77 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	}
 }
 
+func TestExecutor_HandleFailure_DLQCapDropOldest(t *testing.T) {
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, http.DefaultClient)
+	dlqStore := newFakeDLQStore()
+	dlqStore.perJob["proj-1:job-1"] = 1
+	dlqStore.perProject["proj-1"] = 1
+	exec.dlqCapEnforcer = NewDLQCapEnforcer(dlqStore, DLQCapConfig{
+		MaxPerJob: 1,
+		Policy:    DLQOverflowDropOldest,
+	}, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("https://example.com", 1, 5)
+	policy := executionPolicy{maxAttempts: 1}
+
+	if ok := exec.handleFailure(context.Background(), run, job, policy, errors.New("terminal failure"), nil); !ok {
+		t.Fatal("handleFailure returned false")
+	}
+	if len(dlqStore.masked) != 1 {
+		t.Fatalf("masked rows = %d, want 1", len(dlqStore.masked))
+	}
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusDeadLetter {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusDeadLetter)
+	}
+}
+
+func TestExecutor_HandleFailure_DLQCapRejectBecomesSystemFailed(t *testing.T) {
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, http.DefaultClient)
+	dlqStore := newFakeDLQStore()
+	dlqStore.perJob["proj-1:job-1"] = 1
+	exec.dlqCapEnforcer = NewDLQCapEnforcer(dlqStore, DLQCapConfig{
+		MaxPerJob: 1,
+		Policy:    DLQOverflowReject,
+	}, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("https://example.com", 1, 5)
+	policy := executionPolicy{maxAttempts: 1}
+
+	if ok := exec.handleFailure(context.Background(), run, job, policy, errors.New("terminal failure"), nil); !ok {
+		t.Fatal("handleFailure returned false")
+	}
+	if len(dlqStore.masked) != 0 {
+		t.Fatalf("masked rows = %d, want 0", len(dlqStore.masked))
+	}
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+	if got := calls[0].fields["error_class"]; got != "dlq_overflow" {
+		t.Fatalf("error_class = %v, want dlq_overflow", got)
+	}
+	errMsg, _ := calls[0].fields["error"].(string)
+	if !strings.Contains(errMsg, "dlq overflow: cap reached") || !strings.Contains(errMsg, "terminal failure") {
+		t.Fatalf("error = %q, want dlq overflow with original error", errMsg)
+	}
+	if run.Status != domain.StatusSystemFailed {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusSystemFailed)
+	}
+}
+
 func TestExecutor_Dispatch_Timeout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

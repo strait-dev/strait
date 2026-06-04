@@ -1315,6 +1315,11 @@ func buildExecutorConfig(
 		EventChannelSize:         cfg.WorkerEventChannelSize,
 		SecretDecryptor:          deps.encryptor,
 		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
+		DLQCapEnforcer: worker.NewDLQCapEnforcer(deps.queries, worker.DLQCapConfig{
+			MaxPerJob:     cfg.DLQMaxPerJob,
+			MaxPerProject: cfg.DLQMaxPerProject,
+			Policy:        worker.DLQOverflowPolicy(cfg.DLQOverflowPolicy),
+		}, slog.Default()),
 	}
 	applyWorkerPlaneToExecutorConfig(&execCfg, deps.workerPlane, cfg.JWTSigningKey)
 	return execCfg

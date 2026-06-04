@@ -17,8 +17,8 @@ import (
 //     same (project, job) via MaskOldestDLQRow, then let the new failure
 //     enter the DLQ normally.
 //   - reject: the caller should not transition to dead_letter; the
-//     enforcer reports a Rejected error and the caller moves the run to
-//     the "dlq_overflow" status instead.
+//     enforcer reports ErrDLQOverflow and the executor moves the run to
+//     system_failed with error_class="dlq_overflow".
 
 // DLQOverflowPolicy selects the behavior when a DLQ cap is reached.
 type DLQOverflowPolicy string
@@ -81,7 +81,7 @@ func (e *DLQCapEnforcer) DroppedCount() int64 { return e.droppedCount.Load() }
 //   - proceed=true, err=nil: the caller should transition the run to
 //     dead_letter as planned.
 //   - proceed=false, err=ErrDLQOverflow: the caller should transition the
-//     run to a new terminal status (e.g. "dlq_overflow") instead.
+//     run to a supported non-DLQ terminal status instead.
 //   - err=<other>: unexpected store failure; the caller should fail open
 //     (transition anyway) and log.
 func (e *DLQCapEnforcer) EnforceBeforeTransition(ctx context.Context, projectID, jobID string) (bool, error) {
