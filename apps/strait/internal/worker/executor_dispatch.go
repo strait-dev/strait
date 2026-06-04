@@ -1022,13 +1022,13 @@ func (e *Executor) snoozeRunFromStatus(ctx context.Context, run *domain.JobRun, 
 	}
 	if err := e.store.SnoozeRunWithLock(ctx, run.ID, cfg.from, domain.StatusQueued, fields); err != nil {
 		if errors.Is(err, store.ErrRunLocked) {
-			recordSnoozeSkipped(ctx, string(cfg.from), "locked")
+			recordSnoozeSkipped(ctx, string(cfg.from), snoozeSkippedReasonLocked)
 			e.logger.Warn("snooze skipped: run row locked by another transaction",
 				"run_id", run.ID, "job_id", run.JobID, "from", cfg.from)
 			return
 		}
 		if errors.Is(err, store.ErrRunConflict) {
-			recordSnoozeSkipped(ctx, string(cfg.from), "conflict")
+			recordSnoozeSkipped(ctx, string(cfg.from), snoozeSkippedReasonConflict)
 			e.logger.Warn("snooze skipped: run no longer in expected state",
 				"run_id", run.ID, "job_id", run.JobID, "from", cfg.from)
 			return

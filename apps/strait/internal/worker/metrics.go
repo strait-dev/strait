@@ -15,6 +15,7 @@ type workerDispatchOutcome string
 type workerRetryReason string
 type dispatchMode string
 type dispatchOutcome string
+type snoozeSkippedReason string
 
 const (
 	workerDispatchModeGRPC       workerDispatchMode    = "grpc"
@@ -32,6 +33,9 @@ const (
 	dispatchModeHTTP       dispatchMode    = "http"
 	dispatchOutcomeSuccess dispatchOutcome = "success"
 	dispatchOutcomeError   dispatchOutcome = "error"
+
+	snoozeSkippedReasonLocked   snoozeSkippedReason = "locked"
+	snoozeSkippedReasonConflict snoozeSkippedReason = "conflict"
 )
 
 // workerMetrics holds the package-level metric instruments. It is an atomic
@@ -126,10 +130,10 @@ func newWorkerMetrics() workerRuntimeMetrics {
 // caused by row-lock contention (reason="locked") or by the run having
 // already moved past the expected from-status (reason="conflict"). The
 // from label is the status the snooze was attempting to transition out of.
-func recordSnoozeSkipped(ctx context.Context, from, reason string) {
+func recordSnoozeSkipped(ctx context.Context, from string, reason snoozeSkippedReason) {
 	workerMetrics.Load().snoozeSkipped.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("from", from),
-		attribute.String("reason", reason),
+		attribute.String("reason", string(reason)),
 	))
 }
 
