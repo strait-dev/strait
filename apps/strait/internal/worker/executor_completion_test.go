@@ -402,6 +402,80 @@ func TestCompletedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 	}
 }
 
+func TestTerminalRunEvent_UsesTerminalStatusAndRunState(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	startedAt := createdAt.Add(300 * time.Millisecond)
+	trace := &domain.ExecutionTrace{DispatchMs: 24}
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		Status:    domain.StatusTimedOut,
+		Attempt:   3,
+		CreatedAt: createdAt,
+		StartedAt: &startedAt,
+	}
+	job := &domain.Job{ID: "job-1"}
+
+	event := newTerminalRunEvent(EventTimedOut, run, job, domain.StatusTimedOut, trace)
+
+	if event.Type != EventTimedOut {
+		t.Fatalf("type = %s, want %s", event.Type, EventTimedOut)
+	}
+	if event.Run != run {
+		t.Fatal("event run did not preserve run pointer")
+	}
+	if event.Job != job {
+		t.Fatal("event job did not preserve job pointer")
+	}
+	if event.FromStatus != domain.StatusExecuting {
+		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusExecuting)
+	}
+	if event.ToStatus != domain.StatusTimedOut {
+		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusTimedOut)
+	}
+	if event.ExecTrace != trace {
+		t.Fatal("event trace did not preserve trace pointer")
+	}
+	if event.ExecDur != 0 {
+		t.Fatalf("execDur = %s, want 0", event.ExecDur)
+	}
+	if event.Attempt != 3 {
+		t.Fatalf("attempt = %d, want 3", event.Attempt)
+	}
+	if event.QueueWait != 300*time.Millisecond {
+		t.Fatalf("queueWait = %s, want 300ms", event.QueueWait)
+	}
+}
+
+func TestTerminalRunEvent_DeadLettered(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{
+		ID:      "run-1",
+		JobID:   "job-1",
+		Status:  domain.StatusDeadLetter,
+		Attempt: 4,
+	}
+	job := &domain.Job{ID: "job-1"}
+
+	event := newTerminalRunEvent(EventDeadLettered, run, job, domain.StatusDeadLetter, nil)
+
+	if event.Type != EventDeadLettered {
+		t.Fatalf("type = %s, want %s", event.Type, EventDeadLettered)
+	}
+	if event.ToStatus != domain.StatusDeadLetter {
+		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusDeadLetter)
+	}
+	if event.Attempt != 4 {
+		t.Fatalf("attempt = %d, want 4", event.Attempt)
+	}
+	if event.QueueWait != 0 {
+		t.Fatalf("queueWait = %s, want 0", event.QueueWait)
+	}
+}
+
 func TestSuccessfulDispatchSignals_WithEndpoint(t *testing.T) {
 	t.Parallel()
 

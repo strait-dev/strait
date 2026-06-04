@@ -184,6 +184,25 @@ func newCompletedRunEvent(
 	}
 }
 
+func newTerminalRunEvent(
+	eventType RunEventType,
+	run *domain.JobRun,
+	job *domain.Job,
+	to domain.RunStatus,
+	execTrace *domain.ExecutionTrace,
+) RunLifecycleEvent {
+	return RunLifecycleEvent{
+		Type:       eventType,
+		Run:        run,
+		Job:        job,
+		FromStatus: domain.StatusExecuting,
+		ToStatus:   to,
+		ExecTrace:  execTrace,
+		Attempt:    run.Attempt,
+		QueueWait:  queueWait(run),
+	}
+}
+
 type successfulDispatchSignals struct {
 	endpointKey          string
 	endpointURL          string
@@ -712,12 +731,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return false
 	}
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventDeadLettered, Run: run, Job: job,
-		FromStatus: domain.StatusExecuting, ToStatus: targetStatus,
-		ExecTrace: execTrace, Attempt: run.Attempt,
-		QueueWait: queueWait(run),
-	})
+	e.emit(ctx, newTerminalRunEvent(EventDeadLettered, run, job, targetStatus, execTrace))
 	e.notifyWorkflowCallback(ctx, run)
 
 	// Trigger on_failure job/workflow if configured.
@@ -780,12 +794,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		)
 		return
 	}
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventTimedOut, Run: run, Job: job,
-		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusTimedOut,
-		ExecTrace: execTrace, Attempt: run.Attempt,
-		QueueWait: queueWait(run),
-	})
+	e.emit(ctx, newTerminalRunEvent(EventTimedOut, run, job, domain.StatusTimedOut, execTrace))
 	e.notifyWorkflowCallback(ctx, run)
 
 	// Trigger on_failure job/workflow if configured.
