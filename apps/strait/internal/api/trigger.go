@@ -1,16 +1,13 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strconv"
 	"time"
@@ -463,27 +460,6 @@ func triggerRunOutput(run *domain.JobRun, payloadHash string, idempotencyHit boo
 	}}
 }
 
-func mergedRunTags(base, overlay map[string]string) map[string]string {
-	runTags := make(map[string]string, len(base)+len(overlay))
-	maps.Copy(runTags, base)
-	maps.Copy(runTags, overlay)
-	return runTags
-}
-
-func mergeRunMetadata(metadata, defaults map[string]string) map[string]string {
-	merged := make(map[string]string, len(defaults)+len(metadata))
-	maps.Copy(merged, metadata)
-	for key, value := range defaults {
-		if _, exists := merged[key]; !exists {
-			merged[key] = value
-		}
-	}
-	if len(merged) == 0 {
-		return nil
-	}
-	return merged
-}
-
 func (s *Server) loadTriggerJob(ctx context.Context, jobID string) (*domain.Job, error) {
 	job, err := s.loadRunCreationJob(ctx, jobID, "trigger_job.project_match", "handleTriggerJob")
 	if err != nil {
@@ -516,16 +492,6 @@ func (s *Server) loadRunCreationJob(ctx context.Context, jobID, auditAction, han
 	}
 	s.emitInternalSecretBypassAuditIfProjectless(ctx, auditAction, handlerName, "job", job.ID)
 	return job, nil
-}
-
-func ensureJobTriggerable(job *domain.Job) error {
-	if !job.Enabled {
-		return huma.Error400BadRequest("job is disabled")
-	}
-	if job.Paused {
-		return huma.Error409Conflict("job is paused -- resume it before triggering new runs")
-	}
-	return nil
 }
 
 func (s *Server) validateTriggerJobInput(input *TriggerJobInput, req *TriggerRequest) error {
@@ -666,33 +632,6 @@ func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID stri
 	}
 	if dailyCost >= projectQuota.MaxDailyCostMicrousd {
 		return huma.Error429TooManyRequests("project daily cost budget exceeded")
-	}
-	return nil
-}
-
-func validateTriggerScheduledAt(scheduledAt *time.Time) error {
-	if scheduledAt == nil {
-		return nil
-	}
-	delay := time.Until(*scheduledAt)
-	if delay < 0 {
-		return errors.New("scheduled_at must not be in the past")
-	}
-	if delay > 30*24*time.Hour {
-		return errors.New("scheduled_at cannot exceed 30 days from now")
-	}
-	return nil
-}
-
-func validateTriggerTTLSecs(ttlSecs *int) error {
-	if ttlSecs == nil {
-		return nil
-	}
-	if *ttlSecs < 0 {
-		return errors.New("ttl_secs must be greater than or equal to 0")
-	}
-	if *ttlSecs > maxTriggerTTLSecs {
-		return errors.New("ttl_secs cannot exceed 30 days")
 	}
 	return nil
 }
@@ -981,31 +920,6 @@ func tagKeys(tags map[string]string) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-func canonicalizePayload(payload json.RawMessage) (json.RawMessage, string, error) {
-	if len(payload) == 0 {
-		payload = json.RawMessage(`{}`)
-	}
-
-	var v any
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err := decoder.Decode(&v); err != nil {
-		return nil, "", err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, "", errors.New("payload must contain a single JSON value")
-	}
-
-	canonical, err := json.Marshal(v)
-	if err != nil {
-		return nil, "", err
-	}
-
-	hash := sha256.Sum256(canonical)
-	return canonical, hex.EncodeToString(hash[:]), nil
 }
 
 func extractDependencyKey(payload json.RawMessage) string {
