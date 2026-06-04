@@ -579,10 +579,11 @@ func (e *Executor) prepareHTTPDispatch(
 		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
 		return httpDispatchReadiness{}
 	}
+	bulkheadLimit := effectiveConcurrency
 	return httpDispatchReadiness{
 		prefetch: prefetch,
 		releaseBulkhead: func() {
-			e.releaseBulkheadSlot(job.ID, job.MaxConcurrency)
+			e.releaseBulkheadSlot(job.ID, bulkheadLimit)
 		},
 		ok: true,
 	}
