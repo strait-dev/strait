@@ -859,66 +859,14 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
-	extraHeaders := make(map[string]string)
 	secrets, err := e.dispatchSecrets(ctx, job)
 	if err != nil {
 		return err
 	}
-	for _, secret := range secrets {
-		extraHeaders[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
-	}
-
-	// Generate a JWT run token so the endpoint's SDK can call back to Strait.
-	if e.jwtSigningKey != "" {
-		expiresAt := time.Now().Add(time.Duration(job.TimeoutSecs)*time.Second + 60*time.Second)
-		if run.ExpiresAt != nil {
-			expiresAt = *run.ExpiresAt
-		}
-		claims := struct {
-			Attempt int `json:"attempt,omitempty"`
-			jwt.RegisteredClaims
-		}{
-			Attempt: run.Attempt,
-			RegisteredClaims: jwt.RegisteredClaims{
-				Issuer:    domain.RunTokenIssuer,
-				Subject:   run.ID,
-				ExpiresAt: jwt.NewNumericDate(expiresAt),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-			},
-		}
-		tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		if signed, signErr := tok.SignedString([]byte(e.jwtSigningKey)); signErr == nil {
-			extraHeaders["X-Run-Token"] = signed
-		}
-	}
-
-	if run.Attempt > 1 {
-		checkpointCacheKey := "checkpoint:" + run.ID
-		var cp *domain.RunCheckpoint
-		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
-			cp = cached
-		} else {
-			cp, _ = e.store.GetLatestCheckpoint(ctx, run.ID)
-			dispatchCacheSet(ctx, checkpointCacheKey, cp)
-		}
-		if cp != nil {
-			data, _ := json.Marshal(cp.State)
-			if len(data) <= 65536 {
-				extraHeaders["X-Last-Checkpoint"] = string(data)
-				extraHeaders["X-Checkpoint-At"] = cp.CreatedAt.Format(time.RFC3339)
-			}
-		}
-		if run.Error != "" {
-			extraHeaders["X-Previous-Error"] = run.Error
-		}
-	}
-
-	// Add HMAC body+timestamp signing so the endpoint can verify request authenticity.
-	signingSecret, err := e.endpointSigningSecret(job)
+	extraHeaders, err := e.buildDispatchHeaders(job, run, secrets, e.dispatchCheckpoint(ctx, run))
 	if err != nil {
 		return err
 	}
-	addHMACHeaders(extraHeaders, signingSecret, run.Payload)
 
 	_, dispatchErr := e.dispatchToEndpoint(ctx, job.EndpointURL, run, extraHeaders)
 	return dispatchErr
