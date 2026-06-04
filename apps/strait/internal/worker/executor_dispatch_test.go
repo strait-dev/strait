@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 
@@ -135,6 +136,30 @@ func TestDispatchHeaderInputsRetryUsesCache(t *testing.T) {
 	}
 	if second.checkpoint == nil || second.checkpoint.ID != "cp-1" {
 		t.Fatalf("second checkpoint = %+v, want cp-1", second.checkpoint)
+	}
+}
+
+func TestHTTPDispatchTraceRecorderExecutionTrace(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	recorder := newHTTPDispatchTraceRecorder(start)
+	recorder.recordConnectStart(start.Add(10 * time.Millisecond))
+	recorder.recordConnectDone(start.Add(20 * time.Millisecond))
+	recorder.recordFirstByte(start.Add(35 * time.Millisecond))
+
+	trace := recorder.executionTrace(start.Add(50 * time.Millisecond))
+	if trace.ConnectMs != 10 {
+		t.Fatalf("ConnectMs = %d, want 10", trace.ConnectMs)
+	}
+	if trace.TtfbMs != 15 {
+		t.Fatalf("TtfbMs = %d, want 15", trace.TtfbMs)
+	}
+	if trace.TransferMs != 15 {
+		t.Fatalf("TransferMs = %d, want 15", trace.TransferMs)
+	}
+	if trace.DispatchMs != 40 {
+		t.Fatalf("DispatchMs = %d, want 40", trace.DispatchMs)
 	}
 }
 

@@ -795,41 +795,77 @@ func defaultExecutionPolicy(job *domain.Job) executionPolicy {
 	}
 }
 
-func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
-	dispatchStart := time.Now()
+type httpDispatchTraceRecorder struct {
+	mu            sync.Mutex
+	dispatchStart time.Time
+	connectStart  time.Time
+	connectDone   time.Time
+	gotFirstByte  time.Time
+}
 
-	// httptrace callbacks fire from net/http transport goroutines that have
-	// no formal happens-before with the post-dispatch reader below, so a
-	// short-lived mutex guards the three timestamps to keep -race clean.
-	var (
-		traceMu      sync.Mutex
-		connectStart time.Time
-		connectDone  time.Time
-		gotFirstByte time.Time
-	)
+func newHTTPDispatchTraceRecorder(dispatchStart time.Time) *httpDispatchTraceRecorder {
+	return &httpDispatchTraceRecorder{dispatchStart: dispatchStart}
+}
 
-	trace := &httptrace.ClientTrace{
+func (r *httpDispatchTraceRecorder) clientTrace() *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
 		ConnectStart: func(string, string) {
-			now := time.Now()
-			traceMu.Lock()
-			connectStart = now
-			traceMu.Unlock()
+			r.recordConnectStart(time.Now())
 		},
 		ConnectDone: func(string, string, error) {
-			now := time.Now()
-			traceMu.Lock()
-			connectDone = now
-			traceMu.Unlock()
+			r.recordConnectDone(time.Now())
 		},
 		GotFirstResponseByte: func() {
-			now := time.Now()
-			traceMu.Lock()
-			gotFirstByte = now
-			traceMu.Unlock()
+			r.recordFirstByte(time.Now())
 		},
 	}
+}
 
-	tracedCtx := httptrace.WithClientTrace(ctx, trace)
+func (r *httpDispatchTraceRecorder) recordConnectStart(at time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.connectStart = at
+}
+
+func (r *httpDispatchTraceRecorder) recordConnectDone(at time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.connectDone = at
+}
+
+func (r *httpDispatchTraceRecorder) recordFirstByte(at time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gotFirstByte = at
+}
+
+func (r *httpDispatchTraceRecorder) executionTrace(gotLastByte time.Time) *domain.ExecutionTrace {
+	r.mu.Lock()
+	connectStart := r.connectStart
+	connectDone := r.connectDone
+	gotFirstByte := r.gotFirstByte
+	r.mu.Unlock()
+
+	execTrace := &domain.ExecutionTrace{}
+	if !connectStart.IsZero() && !connectDone.IsZero() {
+		execTrace.ConnectMs = durationMillisecondsAtLeastOne(connectDone.Sub(connectStart))
+	}
+	if !gotFirstByte.IsZero() {
+		base := r.dispatchStart
+		if !connectDone.IsZero() {
+			base = connectDone
+		}
+		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gotFirstByte.Sub(base))
+		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gotFirstByte))
+	}
+	execTrace.DispatchMs = execTrace.ConnectMs + execTrace.TtfbMs + execTrace.TransferMs
+	return execTrace
+}
+
+func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) (json.RawMessage, *domain.ExecutionTrace, error) {
+	traceRecorder := newHTTPDispatchTraceRecorder(time.Now())
+
+	tracedCtx := httptrace.WithClientTrace(ctx, traceRecorder.clientTrace())
 
 	// Fetch secrets and checkpoint (with dispatch cache).
 	//
@@ -880,27 +916,7 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	result, err := e.dispatchToEndpoint(tracedCtx, job.EndpointURL, run, extraHeaders)
 	gotLastByte := time.Now()
 
-	traceMu.Lock()
-	cs, cd, gfb := connectStart, connectDone, gotFirstByte
-	traceMu.Unlock()
-
-	execTrace := &domain.ExecutionTrace{}
-	if !cs.IsZero() && !cd.IsZero() {
-		execTrace.ConnectMs = durationMillisecondsAtLeastOne(cd.Sub(cs))
-	}
-	if !gfb.IsZero() {
-		base := dispatchStart
-		if !cd.IsZero() {
-			base = cd
-		}
-		execTrace.TtfbMs = durationMillisecondsAtLeastOne(gfb.Sub(base))
-	}
-	if !gfb.IsZero() {
-		execTrace.TransferMs = durationMillisecondsAtLeastOne(gotLastByte.Sub(gfb))
-	}
-	execTrace.DispatchMs = execTrace.ConnectMs + execTrace.TtfbMs + execTrace.TransferMs
-
-	return result, execTrace, err
+	return result, traceRecorder.executionTrace(gotLastByte), err
 }
 
 func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.JobRun) error {
