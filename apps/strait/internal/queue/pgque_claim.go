@@ -6,6 +6,8 @@ import (
 
 	"strait/internal/dbscan"
 	"strait/internal/domain"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type pgQueCandidate struct {
@@ -29,6 +31,14 @@ type pgQueClaimSelection struct {
 	HasConcurrencyLimit bool
 }
 
+type pgQueClaimRunRequest struct {
+	RunIDs              []string
+	Generations         []int64
+	Limit               int
+	Filter              pgQueClaimFilter
+	HasConcurrencyLimit bool
+}
+
 const pgQueClaimDequeueColumns = `u.run_id, u.job_id, u.project_id, u.status, u.attempt, u.payload, u.result, u.metadata, u.error, u.error_class,
 		          u.triggered_by, u.scheduled_at, u.started_at, u.finished_at, u.heartbeat_at,
 		          u.next_retry_at, u.expires_at, u.parent_run_id, u.priority, u.idempotency_key, u.job_version, u.created_at, u.workflow_step_run_id, u.execution_trace, u.debug_mode, u.continuation_of, u.lineage_depth, u.tags, u.job_version_id, u.created_by, u.batch_id, u.concurrency_key, u.execution_mode, u.is_rollback, u.replayed_run_id`
@@ -39,7 +49,13 @@ func (q *PgQueQueue) claimReservedCandidates(ctx context.Context, candidates []p
 	}
 	selection := selectPgQueClaimCandidates(candidates, limit)
 
-	runs, err := q.claimRuns(ctx, selection.RunIDs, selection.Generations, limit, filter, selection.HasConcurrencyLimit)
+	runs, err := q.claimRuns(ctx, pgQueClaimRunRequest{
+		RunIDs:              selection.RunIDs,
+		Generations:         selection.Generations,
+		Limit:               limit,
+		Filter:              filter,
+		HasConcurrencyLimit: selection.HasConcurrencyLimit,
+	})
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -120,29 +136,22 @@ func pgQueRunClaimedLinear(runs []domain.JobRun, runID string) bool {
 	return false
 }
 
-func (q *PgQueQueue) claimRuns(
-	ctx context.Context,
-	ids []string,
-	generations []int64,
-	limit int,
-	filter pgQueClaimFilter,
-	hasLimitedCandidates bool,
-) ([]domain.JobRun, error) {
-	if len(ids) == 0 {
+func (q *PgQueQueue) claimRuns(ctx context.Context, req pgQueClaimRunRequest) ([]domain.JobRun, error) {
+	if len(req.RunIDs) == 0 {
 		return nil, nil
 	}
-	if len(ids) != len(generations) {
+	if len(req.RunIDs) != len(req.Generations) {
 		return nil, fmt.Errorf("pgque claim runs: mismatched id/generation counts")
 	}
 
-	if hasLimitedCandidates {
-		return q.claimRunsWithConcurrency(ctx, ids, generations, limit, filter)
+	if req.HasConcurrencyLimit {
+		return q.claimRunsWithConcurrency(ctx, req)
 	}
-	return q.claimRunsUnconstrained(ctx, ids, generations, limit, filter)
+	return q.claimRunsUnconstrained(ctx, req)
 }
 
-func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
-	workerArgs := filter.workerArgs()
+func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, req pgQueClaimRunRequest) ([]domain.JobRun, error) {
+	workerArgs := req.Filter.workerArgs()
 	rows, err := q.db.Query(ctx, fmt.Sprintf(`
 		WITH input AS (
 			SELECT *
@@ -328,28 +337,26 @@ func (q *PgQueQueue) claimRunsUnconstrained(ctx context.Context, ids []string, g
 		FROM claimed_state u
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
-	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, workerArgs.ProjectIDs, workerArgs.QueueNames, workerArgs.EnvironmentIDs)
+	),
+		req.RunIDs,
+		req.Generations,
+		req.Limit,
+		domain.StatusQueued,
+		domain.StatusExecuting,
+		req.Filter.ExecutionMode,
+		req.Filter.ProjectID,
+		workerArgs.ProjectIDs,
+		workerArgs.QueueNames,
+		workerArgs.EnvironmentIDs,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim unconstrained runs: %w", err)
 	}
-	defer rows.Close()
-
-	runs := make([]domain.JobRun, 0, limit)
-	for rows.Next() {
-		run, err := dbscan.ScanRun(rows)
-		if err != nil {
-			return nil, fmt.Errorf("pgque claim unconstrained scan: %w", err)
-		}
-		runs = append(runs, *run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque claim unconstrained rows: %w", err)
-	}
-	return runs, nil
+	return scanPgQueClaimedRuns(rows, req.Limit, "pgque claim unconstrained")
 }
 
-func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, ids []string, generations []int64, limit int, filter pgQueClaimFilter) ([]domain.JobRun, error) {
-	workerArgs := filter.workerArgs()
+func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, req pgQueClaimRunRequest) ([]domain.JobRun, error) {
+	workerArgs := req.Filter.workerArgs()
 	rows, err := q.db.Query(ctx, fmt.Sprintf(`
 		WITH input AS (
 			SELECT *
@@ -601,22 +608,37 @@ func (q *PgQueQueue) claimRunsWithConcurrency(ctx context.Context, ids []string,
 		FROM claimed_state u
 		ORDER BY u.claim_priority DESC, u.claim_created_at ASC, u.ord`,
 		pgQueClaimDequeueColumns,
-	), ids, generations, limit, domain.StatusQueued, domain.StatusExecuting, filter.ExecutionMode, filter.ProjectID, workerArgs.ProjectIDs, workerArgs.QueueNames, workerArgs.EnvironmentIDs)
+	),
+		req.RunIDs,
+		req.Generations,
+		req.Limit,
+		domain.StatusQueued,
+		domain.StatusExecuting,
+		req.Filter.ExecutionMode,
+		req.Filter.ProjectID,
+		workerArgs.ProjectIDs,
+		workerArgs.QueueNames,
+		workerArgs.EnvironmentIDs,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("pgque claim runs: %w", err)
 	}
+	return scanPgQueClaimedRuns(rows, req.Limit, "pgque claim")
+}
+
+func scanPgQueClaimedRuns(rows pgx.Rows, limit int, label string) ([]domain.JobRun, error) {
 	defer rows.Close()
 
 	runs := make([]domain.JobRun, 0, limit)
 	for rows.Next() {
 		run, err := dbscan.ScanRun(rows)
 		if err != nil {
-			return nil, fmt.Errorf("pgque claim scan: %w", err)
+			return nil, fmt.Errorf("%s scan: %w", label, err)
 		}
 		runs = append(runs, *run)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque claim rows: %w", err)
+		return nil, fmt.Errorf("%s rows: %w", label, err)
 	}
 	return runs, nil
 }
