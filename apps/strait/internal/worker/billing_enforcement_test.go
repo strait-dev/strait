@@ -676,7 +676,9 @@ func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) 
 		t.Fatalf("mark monthly run overage: %v", err)
 	}
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1))
+	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1)); err != nil {
+		t.Fatalf("seed monthly run count: %v", err)
+	}
 
 	if !exec.handleFailure(context.Background(), run, job, executionPolicy{
 		maxAttempts:      1,
@@ -736,7 +738,9 @@ func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) 
 		t.Fatalf("mark monthly run overage: %v", err)
 	}
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1))
+	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1)); err != nil {
+		t.Fatalf("seed monthly run count: %v", err)
+	}
 
 	exec.handleTimeout(context.Background(), run, job, executionPolicy{
 		maxAttempts:      1,
@@ -890,8 +894,12 @@ func TestBillingEnforcement_HTTPModePlanLookupErrorFailsClosedAndRollsBackCounte
 	}
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
 	concurrentKey := "strait:org_concurrent:" + orgID
-	mr.Set(monthlyKey, "1")
-	mr.Set(concurrentKey, "1")
+	if err := mr.Set(monthlyKey, "1"); err != nil {
+		t.Fatalf("seed monthly run count: %v", err)
+	}
+	if err := mr.Set(concurrentKey, "1"); err != nil {
+		t.Fatalf("seed concurrent run count: %v", err)
+	}
 
 	if exec.checkDispatchHTTPModeAllowed(context.Background(), run, job, orgID, true) {
 		t.Fatal("expected HTTP-mode plan lookup error to block dispatch")

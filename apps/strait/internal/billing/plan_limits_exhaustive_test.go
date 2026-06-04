@@ -409,11 +409,12 @@ func TestFeatureAccess_Monotonic(t *testing.T) {
 	reg := NewStaticRegistry()
 	tiers := domain.AllPlanTiers()
 
-	features := []Feature{
+	features := make([]Feature, 0, 10+len(roadmapEnterpriseFeatures))
+	features = append(features,
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
 		FeatureAuditLogs, FeatureSLA, FeatureRBAC, FeatureAllCronOverlap,
-	}
+	)
 	features = append(features, roadmapEnterpriseFeatures...)
 
 	for _, f := range features {

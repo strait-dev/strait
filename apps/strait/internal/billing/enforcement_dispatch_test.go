@@ -116,7 +116,9 @@ func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
 	e := NewEnforcer(store, rdb, nil, WithBillingDispatcher(d))
 
 	key := monthlyRunKey(orgID, time.Now())
-	mr.Set(key, "5000")
+	if err := mr.Set(key, "5000"); err != nil {
+		t.Fatalf("seed monthly run count: %v", err)
+	}
 	mr.SetTTL(key, time.Hour)
 
 	err := e.CheckMonthlyRunLimitForRun(context.Background(), orgID, "run-free-cap")

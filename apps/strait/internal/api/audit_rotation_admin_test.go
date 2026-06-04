@@ -69,6 +69,7 @@ func TestRotateAuditSigningKey_ReturnsEpochs(t *testing.T) {
 	}
 	if out == nil {
 		t.Fatal("nil output")
+		return
 	}
 	if out.Body.NewEpoch != 1 {
 		t.Errorf("new_epoch = %d, want 1", out.Body.NewEpoch)

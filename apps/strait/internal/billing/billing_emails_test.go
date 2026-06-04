@@ -106,6 +106,7 @@ func TestBillingEmailSender_EmptyRecipients(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	// Empty to slice should not panic or send.
 	s.SendSpendingLimitWarning(context.Background(), []string{}, "Pro", "$50", "$100", "80%")
@@ -121,6 +122,7 @@ func TestNewBillingEmailSender_DefaultFromEmail(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	if s.fromEmail != "billing@strait.dev" {
 		t.Errorf("fromEmail = %q, want billing@strait.dev", s.fromEmail)
