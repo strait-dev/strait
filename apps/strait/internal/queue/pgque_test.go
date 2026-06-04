@@ -24,7 +24,7 @@ var pgQueWorkerRefArgsBenchmarkSink struct {
 	environmentIDs []string
 }
 var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
-var pgQueCandidateRunIDsBenchmarkSink []string
+var pgQueCandidateRunIDBenchmarkSink string
 var pgQueReadyEmitBatchErrBenchmarkSink error
 var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
 var pgQueSendReadyEventsErrBenchmarkSink error
@@ -475,10 +475,58 @@ func TestPgQueCandidateRunIDsPreservesOrder(t *testing.T) {
 		{Event: pgQueReadyEvent{RunID: "run-3"}},
 	}
 
-	runIDs := pgQueCandidateRunIDs(candidates)
+	var buffer pgQueCandidateRunIDBuffer
+	runIDs := buffer.collect(candidates)
 
 	if !slices.Equal(runIDs, []string{"run-1", "run-2", "run-3"}) {
 		t.Fatalf("run IDs = %v", runIDs)
+	}
+}
+
+func TestPgQueRefreshCandidateClaimStateUpdatesSmallBatch(t *testing.T) {
+	ctx := context.Background()
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1", Priority: 1}},
+		{Event: pgQueReadyEvent{RunID: "run-2", Priority: 2}},
+		{Event: pgQueReadyEvent{RunID: "run-1", Priority: 3}},
+	}
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "job_run_state") {
+				t.Fatalf("unexpected candidate state SQL = %q", sql)
+			}
+			if len(args) != 1 {
+				t.Fatalf("candidate state args = %d, want run id array", len(args))
+			}
+			runIDs, ok := args[0].([]string)
+			if !ok {
+				t.Fatalf("candidate state arg type = %T, want []string", args[0])
+			}
+			if !slices.Equal(runIDs, []string{"run-1", "run-2", "run-1"}) {
+				t.Fatalf("candidate run ids = %v", runIDs)
+			}
+			return &pgQueCandidateClaimStateRows{
+				values: []pgQueCandidateClaimState{
+					{runID: "run-1", priority: 9, hasConcurrencyLimit: true},
+					{runID: "run-2", priority: 7, hasConcurrencyLimit: false},
+				},
+			}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	if err := q.refreshCandidateClaimState(ctx, candidates); err != nil {
+		t.Fatalf("refreshCandidateClaimState() error = %v", err)
+	}
+
+	if candidates[0].Event.Priority != 9 || !candidates[0].HasConcurrencyLimit {
+		t.Fatalf("first run-1 candidate = %+v, want priority 9 with concurrency limit", candidates[0])
+	}
+	if candidates[1].Event.Priority != 7 || candidates[1].HasConcurrencyLimit {
+		t.Fatalf("run-2 candidate = %+v, want priority 7 without concurrency limit", candidates[1])
+	}
+	if candidates[2].Event.Priority != 9 || !candidates[2].HasConcurrencyLimit {
+		t.Fatalf("second run-1 candidate = %+v, want priority 9 with concurrency limit", candidates[2])
 	}
 }
 
@@ -510,9 +558,11 @@ func BenchmarkPgQueCandidateRunIDs(b *testing.B) {
 		{Event: pgQueReadyEvent{RunID: "run-7"}},
 		{Event: pgQueReadyEvent{RunID: "run-8"}},
 	}
+	var buffer pgQueCandidateRunIDBuffer
 
 	for b.Loop() {
-		pgQueCandidateRunIDsBenchmarkSink = pgQueCandidateRunIDs(candidates)
+		runIDs := buffer.collect(candidates)
+		pgQueCandidateRunIDBenchmarkSink = runIDs[len(runIDs)-1]
 	}
 }
 
@@ -1562,6 +1612,48 @@ func (r *pgQueWorkerJobRouteRows) Scan(dest ...any) error {
 func (r *pgQueWorkerJobRouteRows) Values() ([]any, error) { return nil, nil }
 func (r *pgQueWorkerJobRouteRows) RawValues() [][]byte    { return nil }
 func (r *pgQueWorkerJobRouteRows) Conn() *pgx.Conn        { return nil }
+
+type pgQueCandidateClaimStateRows struct {
+	values []pgQueCandidateClaimState
+	idx    int
+}
+
+func (r *pgQueCandidateClaimStateRows) Close()                                       {}
+func (r *pgQueCandidateClaimStateRows) Err() error                                   { return nil }
+func (r *pgQueCandidateClaimStateRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueCandidateClaimStateRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueCandidateClaimStateRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueCandidateClaimStateRows) Scan(dest ...any) error {
+	if len(dest) != 3 {
+		return errors.New("pgQueCandidateClaimStateRows: expected three destinations")
+	}
+	runID, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("pgQueCandidateClaimStateRows: run id destination is not *string")
+	}
+	priority, ok := dest[1].(*int)
+	if !ok {
+		return errors.New("pgQueCandidateClaimStateRows: priority destination is not *int")
+	}
+	hasConcurrencyLimit, ok := dest[2].(*bool)
+	if !ok {
+		return errors.New("pgQueCandidateClaimStateRows: concurrency destination is not *bool")
+	}
+	row := r.values[r.idx-1]
+	*runID = row.runID
+	*priority = row.priority
+	*hasConcurrencyLimit = row.hasConcurrencyLimit
+	return nil
+}
+func (r *pgQueCandidateClaimStateRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueCandidateClaimStateRows) RawValues() [][]byte    { return nil }
+func (r *pgQueCandidateClaimStateRows) Conn() *pgx.Conn        { return nil }
 
 type pgQueGenerationRows struct {
 	values []pgQueGenerationRow

@@ -27,7 +27,10 @@ type pgQueBatchReservation struct {
 	Invalid    []pgQueMessage
 }
 
-const pgQueSmallRemoveSetLimit = 8
+const (
+	pgQueSmallCandidateSetLimit = 8
+	pgQueSmallRemoveSetLimit    = 8
+)
 
 func (q *PgQueQueue) Dequeue(ctx context.Context) (*domain.JobRun, error) {
 	runs, err := q.DequeueN(ctx, 1)
@@ -292,7 +295,8 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 	if len(candidates) == 0 {
 		return nil
 	}
-	ids := pgQueCandidateRunIDs(candidates)
+	var runIDBuffer pgQueCandidateRunIDBuffer
+	runIDs := runIDBuffer.collect(candidates)
 
 	rows, err := q.db.Query(ctx, `
 		WITH input AS (
@@ -312,12 +316,30 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 		    ORDER BY e.id DESC
 		    LIMIT 1
 		) priority ON true`,
-		ids,
+		runIDs,
 	)
 	if err != nil {
 		return fmt.Errorf("pgque candidate priorities: %w", err)
 	}
 	defer rows.Close()
+
+	if len(candidates) <= pgQueSmallCandidateSetLimit {
+		for rows.Next() {
+			var state pgQueCandidateClaimState
+			if err := rows.Scan(
+				&state.runID,
+				&state.priority,
+				&state.hasConcurrencyLimit,
+			); err != nil {
+				return fmt.Errorf("pgque candidate claim state scan: %w", err)
+			}
+			applyPgQueCandidateClaimState(candidates, state)
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("pgque candidate claim state rows: %w", err)
+		}
+		return nil
+	}
 
 	stateByRunID := make(map[string]pgQueCandidateClaimState, len(candidates))
 	for rows.Next() {
@@ -345,12 +367,31 @@ func (q *PgQueQueue) refreshCandidateClaimState(ctx context.Context, candidates 
 	return nil
 }
 
-func pgQueCandidateRunIDs(candidates []pgQueCandidate) []string {
-	ids := make([]string, len(candidates))
-	for i, candidate := range candidates {
-		ids[i] = candidate.Event.RunID
+type pgQueCandidateRunIDBuffer struct {
+	small  [pgQueSmallCandidateSetLimit]string
+	values []string
+}
+
+func (b *pgQueCandidateRunIDBuffer) collect(candidates []pgQueCandidate) []string {
+	if len(candidates) <= len(b.small) {
+		b.values = b.small[:len(candidates)]
+	} else {
+		b.values = make([]string, len(candidates))
 	}
-	return ids
+	for i, candidate := range candidates {
+		b.values[i] = candidate.Event.RunID
+	}
+	return b.values
+}
+
+func applyPgQueCandidateClaimState(candidates []pgQueCandidate, state pgQueCandidateClaimState) {
+	for i := range candidates {
+		if candidates[i].Event.RunID != state.runID {
+			continue
+		}
+		candidates[i].Event.Priority = state.priority
+		candidates[i].HasConcurrencyLimit = state.hasConcurrencyLimit
+	}
 }
 
 type pgQueCandidateClaimState struct {
