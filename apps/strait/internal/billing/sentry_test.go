@@ -26,6 +26,7 @@ func TestBillingSentryBreadcrumbUsesContextHub(t *testing.T) {
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return
 	}
 	if got := event.Tags[string(telemetry.TagSubsystem)]; got != telemetry.SubsystemBilling {
 		t.Fatalf("subsystem tag = %q, want %q", got, telemetry.SubsystemBilling)

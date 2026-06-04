@@ -206,6 +206,7 @@ func TestPreviewDowngrade_UsesActualPeriodRunsForMonthlyImpact(t *testing.T) {
 	}
 	if runsImpact == nil {
 		t.Fatal("expected runs_per_month impact")
+		return
 	}
 	if runsImpact.Current != 7_000 {
 		t.Fatalf("runs_per_month current = %d, want actual period usage 7000", runsImpact.Current)

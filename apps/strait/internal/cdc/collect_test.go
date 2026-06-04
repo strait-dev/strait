@@ -25,6 +25,7 @@ func TestJobRunHandler_Collect(t *testing.T) {
 	}
 	if pubMsg == nil {
 		t.Fatal("Collect() returned nil message")
+		return
 	}
 	if pubMsg.Channel != "cdc:project:proj-1:job_runs" {
 		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project:proj-1:job_runs")

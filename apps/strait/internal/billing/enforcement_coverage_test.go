@@ -350,6 +350,7 @@ func TestNewEnforcer_NilRedis_CreatesEnforcer(t *testing.T) {
 
 	if enforcer == nil {
 		t.Fatal("expected non-nil enforcer")
+		return
 	}
 	if enforcer.rdb != nil {
 		t.Fatal("expected nil rdb")

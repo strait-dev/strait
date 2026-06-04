@@ -62,6 +62,7 @@ func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
 	}, nil)
 	if breadcrumb == nil {
 		t.Fatal("expected breadcrumb")
+		return
 	}
 	if strings.Contains(breadcrumb.Message, "user:pass") {
 		t.Fatalf("message leaked credentials: %q", breadcrumb.Message)

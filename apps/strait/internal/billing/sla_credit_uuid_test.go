@@ -32,6 +32,7 @@ func TestSLACredit_IDUsesUUIDV7(t *testing.T) {
 	}
 	if row == nil {
 		t.Fatal("expected an SLA credit row to be inserted")
+		return
 	}
 
 	parsed, err := uuid.Parse(row.ID)
