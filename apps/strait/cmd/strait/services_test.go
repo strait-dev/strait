@@ -13,6 +13,7 @@ import (
 	grpcserver "strait/internal/api/grpc"
 	straitcache "strait/internal/cache"
 	"strait/internal/cdc"
+	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/pubsub"
 	"strait/internal/scheduler"
@@ -121,7 +122,7 @@ func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 	cacheBus := straitcache.NewBus(noopServicePub{}, straitcache.BusConfig{Origin: "test"})
 	registrar := &recordingCDCRegistrar{}
 
-	registerCDCDeliveryHandlers(registrar, noopServicePub{}, nil, nil, cacheHandlers, cacheBus, nil)
+	registerCDCDeliveryHandlers(registrar, noopServicePub{}, nil, &clickhouse.Exporter{}, cacheHandlers, cacheBus, nil)
 
 	primary := tableCounts(registrar.primary)
 	requireTableCount(t, primary, "job_runs", 1)
@@ -132,7 +133,7 @@ func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 	}
 
 	additional := tableCounts(registrar.additional)
-	requireTableCount(t, additional, "job_runs", 3)
+	requireTableCount(t, additional, "job_runs", 4)
 	requireTableCount(t, additional, "workflow_runs", 1)
 	requireTableCount(t, additional, "workflow_step_runs", 1)
 	for _, table := range []string{
@@ -147,6 +148,12 @@ func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 		"job_dependencies",
 	} {
 		requireTableCount(t, additional, table, 1)
+	}
+
+	total := tableCounts(append(append([]string{}, registrar.primary...), registrar.additional...))
+	for _, table := range cdc.RequiredConsumerTables() {
+		table = strings.TrimPrefix(table, "public.")
+		requireTableCount(t, total, table, 1)
 	}
 }
 
