@@ -27,6 +27,8 @@ type pgQueBatchReservation struct {
 	Invalid    []pgQueMessage
 }
 
+type pgQueWorkerRouteScanner func(routeKey string, remaining int) ([]domain.JobRun, error)
+
 const (
 	pgQueSmallCandidateSetLimit = 8
 	pgQueSmallRemoveSetLimit    = 8
@@ -67,6 +69,19 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 		WorkerRefs:    refs,
 		workerRefArgs: workerQueueRefArgsFromNormalized(refs),
 	}
+	return q.scanWorkerRoutes(routes, n, func(routeKey string, remaining int) ([]domain.JobRun, error) {
+		return q.dequeueFromRoute(ctx, remaining, routeKey, filter)
+	})
+}
+
+func (q *PgQueQueue) scanWorkerRoutes(
+	routes []string,
+	n int,
+	scan pgQueWorkerRouteScanner,
+) ([]domain.JobRun, error) {
+	if n <= 0 || len(routes) == 0 {
+		return nil, nil
+	}
 	claimed := make([]domain.JobRun, 0, n)
 	start := q.nextWorkerRouteStart(len(routes))
 	for i := range routes {
@@ -74,7 +89,7 @@ func (q *PgQueQueue) DequeueNForWorkerQueues(ctx context.Context, n int, queues 
 			break
 		}
 		routeKey := routes[(start+i)%len(routes)]
-		batch, err := q.dequeueFromRoute(ctx, n-len(claimed), routeKey, filter)
+		batch, err := scan(routeKey, n-len(claimed))
 		if err != nil {
 			return claimed, err
 		}

@@ -226,6 +226,58 @@ func TestPgQueNextWorkerRouteStartHandlesSmallRouteCounts(t *testing.T) {
 	}
 }
 
+func TestPgQueScanWorkerRoutesRotatesAcrossManyRoutes(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	routes := []string{"route-a", "route-b", "route-c", "route-d"}
+	var firstScan, secondScan []string
+
+	if _, err := q.scanWorkerRoutes(routes, 1, func(routeKey string, _ int) ([]domain.JobRun, error) {
+		firstScan = append(firstScan, routeKey)
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("first scanWorkerRoutes error = %v", err)
+	}
+	if _, err := q.scanWorkerRoutes(routes, 1, func(routeKey string, _ int) ([]domain.JobRun, error) {
+		secondScan = append(secondScan, routeKey)
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("second scanWorkerRoutes error = %v", err)
+	}
+
+	if want := []string{"route-a", "route-b", "route-c", "route-d"}; !slices.Equal(firstScan, want) {
+		t.Fatalf("first route scan = %v, want %v", firstScan, want)
+	}
+	if want := []string{"route-b", "route-c", "route-d", "route-a"}; !slices.Equal(secondScan, want) {
+		t.Fatalf("second route scan = %v, want %v", secondScan, want)
+	}
+}
+
+func TestPgQueScanWorkerRoutesStopsAtCapacity(t *testing.T) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	routes := []string{"route-a", "route-b", "route-c"}
+	var scanned []string
+
+	claimed, err := q.scanWorkerRoutes(routes, 2, func(routeKey string, remaining int) ([]domain.JobRun, error) {
+		scanned = append(scanned, routeKey)
+		if remaining != 2 {
+			t.Fatalf("remaining capacity = %d, want 2 before first claim", remaining)
+		}
+		return []domain.JobRun{
+			{ID: "run-a"},
+			{ID: "run-b"},
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("scanWorkerRoutes error = %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("claimed runs = %d, want 2", len(claimed))
+	}
+	if want := []string{"route-a"}; !slices.Equal(scanned, want) {
+		t.Fatalf("scanned routes = %v, want %v", scanned, want)
+	}
+}
+
 func TestPgQueLogBackgroundErrorWritesWarning(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{
