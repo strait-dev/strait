@@ -1431,6 +1431,7 @@ type resolvedRateLimit struct {
 	limit      int
 	windowSecs int
 	key        string
+	err        error
 }
 
 // resolveRateLimit determines the applicable rate limit by cascading through:
@@ -1442,13 +1443,17 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	planKey := ""
 	if projectID != "" && s.billingEnforcer != nil {
 		orgID, orgErr := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-		if orgErr == nil && orgID != "" {
+		if orgErr != nil {
+			return resolvedRateLimit{err: fmt.Errorf("resolve project organization for rate limit: %w", orgErr)}
+		}
+		if orgID != "" {
 			limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
-			if limErr == nil {
-				planLimit = limits.APIRateLimit
-				planResolved = true
-				planKey = "rl:plan:" + orgID
+			if limErr != nil {
+				return resolvedRateLimit{err: fmt.Errorf("resolve plan limit for rate limit: %w", limErr)}
 			}
+			planLimit = limits.APIRateLimit
+			planResolved = true
+			planKey = "rl:plan:" + orgID
 		}
 	}
 
@@ -1456,7 +1461,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 	if apiKeyID != "" {
 		if apiKey, ok := ctx.Value(ctxAuthKeyObjKey).(*domain.APIKey); ok && apiKey != nil && apiKey.RateLimitRequests > 0 && apiKey.RateLimitWindowSecs > 0 {
 			return capResolvedRateLimit(
-				resolvedRateLimit{apiKey.RateLimitRequests, apiKey.RateLimitWindowSecs, "rl:apikey:" + apiKeyID},
+				resolvedRateLimit{limit: apiKey.RateLimitRequests, windowSecs: apiKey.RateLimitWindowSecs, key: "rl:apikey:" + apiKeyID},
 				planLimit,
 			)
 		}
@@ -1467,7 +1472,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 		quota, err := s.quotaCache.Get(ctx, projectID)
 		if err == nil && quota != nil && quota.RateLimitRequests > 0 && quota.RateLimitWindowSecs > 0 {
 			return capResolvedRateLimit(
-				resolvedRateLimit{quota.RateLimitRequests, quota.RateLimitWindowSecs, "rl:project:" + projectID},
+				resolvedRateLimit{limit: quota.RateLimitRequests, windowSecs: quota.RateLimitWindowSecs, key: "rl:project:" + projectID},
 				planLimit,
 			)
 		}
@@ -1475,7 +1480,7 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 3. Fall back to plan-based rate limit.
 	if projectID != "" && planLimit > 0 {
-		return resolvedRateLimit{planLimit, 60, planKey}
+		return resolvedRateLimit{limit: planLimit, windowSecs: 60, key: planKey}
 	}
 	if projectID != "" && planResolved && planLimit < 0 {
 		return resolvedRateLimit{}
@@ -1483,18 +1488,18 @@ func (s *Server) resolveRateLimit(ctx context.Context, r *http.Request, projectI
 
 	// 4. Fall back to global default rate limit per API key.
 	if apiKeyID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:apikey:" + apiKeyID}
+		return resolvedRateLimit{limit: s.config.DefaultAPIKeyRateLimit, windowSecs: s.config.DefaultAPIKeyRateWindowSecs, key: "rl:apikey:" + apiKeyID}
 	}
 
 	// 5. Fall back to global default rate limit per project.
 	if projectID != "" && s.config.DefaultAPIKeyRateLimit > 0 {
-		return resolvedRateLimit{s.config.DefaultAPIKeyRateLimit, s.config.DefaultAPIKeyRateWindowSecs, "rl:project:" + projectID}
+		return resolvedRateLimit{limit: s.config.DefaultAPIKeyRateLimit, windowSecs: s.config.DefaultAPIKeyRateWindowSecs, key: "rl:project:" + projectID}
 	}
 
 	// 6. Fall back to per-IP rate limit when no key/project limits matched.
 	if s.config.RateLimitRequests > 0 {
 		ip := realIP(r, s.trustedProxies)
-		return resolvedRateLimit{s.config.RateLimitRequests, int(time.Minute.Seconds()), "rl:ip:" + ip}
+		return resolvedRateLimit{limit: s.config.RateLimitRequests, windowSecs: int(time.Minute.Seconds()), key: "rl:ip:" + ip}
 	}
 
 	return resolvedRateLimit{}
@@ -1580,6 +1585,11 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		rl := s.resolveRateLimit(ctx, r, projectIDFromContext(ctx), apiKeyIDFromContext(ctx))
+		if rl.err != nil {
+			slog.Error("rate limit plan lookup failed, failing closed", "error", rl.err)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit plan unavailable")
+			return
+		}
 		if rl.limit == 0 {
 			next.ServeHTTP(w, r)
 			return

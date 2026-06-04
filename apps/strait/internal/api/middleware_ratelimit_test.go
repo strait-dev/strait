@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,9 +47,11 @@ func reqWithAPIKey(apiKeyID string, apiKey *domain.APIKey) *http.Request {
 }
 
 type rateLimitPlanEnforcer struct {
-	orgID  string
-	limits billing.OrgPlanLimits
-	used   int64
+	orgID     string
+	orgErr    error
+	limits    billing.OrgPlanLimits
+	limitsErr error
+	used      int64
 }
 
 func (e rateLimitPlanEnforcer) CheckProjectLimit(context.Context, string) error { return nil }
@@ -60,12 +63,18 @@ func (e rateLimitPlanEnforcer) CheckMaxDispatchPriority(context.Context, string,
 	return nil
 }
 func (e rateLimitPlanEnforcer) GetProjectOrgID(context.Context, string) (string, error) {
+	if e.orgErr != nil {
+		return "", e.orgErr
+	}
 	return e.orgID, nil
 }
 func (e rateLimitPlanEnforcer) GetActiveProjectOrgID(context.Context, string) (string, error) {
 	return e.orgID, nil
 }
 func (e rateLimitPlanEnforcer) GetOrgPlanLimits(context.Context, string) (billing.OrgPlanLimits, error) {
+	if e.limitsErr != nil {
+		return billing.OrgPlanLimits{}, e.limitsErr
+	}
 	return e.limits, nil
 }
 func (e rateLimitPlanEnforcer) GetMonthlyRunCount(context.Context, string) (int64, error) {
@@ -321,6 +330,82 @@ func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
 	}
 	if rl.key != "rl:apikey:key-1" {
 		t.Fatalf("key = %q, want rl:apikey:key-1", rl.key)
+	}
+}
+
+func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgErr: errors.New("database unavailable"),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.err == nil {
+		t.Fatal("expected project org lookup error to fail closed")
+	}
+	if rl.limit != 0 || rl.key != "" {
+		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
+	}
+}
+
+func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:     "org-free",
+			limitsErr: errors.New("catalog unavailable"),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.err == nil {
+		t.Fatal("expected plan limit lookup error to fail closed")
+	}
+	if rl.limit != 0 || rl.key != "" {
+		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
+	}
+}
+
+func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		rateLimiter: ratelimit.NewRedisRateLimiter(nil, false),
+		billingEnforcer: rateLimitPlanEnforcer{
+			limitsErr: errors.New("catalog unavailable"),
+			orgID:     "org-free",
+		},
+	}
+	handler := s.projectRateLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-free")
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
 }
 
