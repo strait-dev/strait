@@ -10,6 +10,24 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+type workerDispatchMode string
+type workerDispatchOutcome string
+type workerRetryReason string
+
+const (
+	workerDispatchModeGRPC       workerDispatchMode    = "grpc"
+	workerDispatchOutcomeSuccess workerDispatchOutcome = "success"
+	workerDispatchOutcomeError   workerDispatchOutcome = "error"
+	workerDispatchOutcomeTimeout workerDispatchOutcome = "timeout"
+
+	workerRetryReasonDispatcherUnconfigured workerRetryReason = "dispatcher_unconfigured"
+	workerRetryReasonTimeout                workerRetryReason = "timeout"
+	workerRetryReasonCancelled              workerRetryReason = "cancelled"
+	workerRetryReasonNoWorker               workerRetryReason = "no_worker"
+	workerRetryReasonDispatchError          workerRetryReason = "dispatch_error"
+	workerRetryReasonWorkerFailure          workerRetryReason = "worker_failure"
+)
+
 // workerMetrics holds the package-level metric instruments. It is an atomic
 // pointer so tests can swap in a meter backed by a ManualReader without
 // racing against in-flight Add/Record calls from concurrent tests.
@@ -109,20 +127,20 @@ func recordSnoozeSkipped(ctx context.Context, from, reason string) {
 	))
 }
 
-func recordWorkerDispatch(ctx context.Context, mode, outcome string, started time.Time) {
+func recordWorkerDispatch(ctx context.Context, mode workerDispatchMode, outcome workerDispatchOutcome, started time.Time) {
 	if started.IsZero() {
 		return
 	}
 	workerMetrics.Load().dispatchDuration.Record(ctx, time.Since(started).Seconds(), metric.WithAttributes(
-		attribute.String("mode", mode),
-		attribute.String("outcome", outcome),
+		attribute.String("mode", string(mode)),
+		attribute.String("outcome", string(outcome)),
 	))
 }
 
-func recordWorkerRetry(ctx context.Context, reason string) {
+func recordWorkerRetry(ctx context.Context, reason workerRetryReason) {
 	workerMetrics.Load().retries.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", "grpc"),
-		attribute.String("reason", reason),
+		attribute.String("mode", string(workerDispatchModeGRPC)),
+		attribute.String("reason", string(reason)),
 	))
 }
 

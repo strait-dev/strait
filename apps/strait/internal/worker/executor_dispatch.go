@@ -48,18 +48,6 @@ type dispatchPrefetch struct {
 const (
 	workflowStepVisibilityRetryDelay = 250 * time.Millisecond
 
-	workerDispatchModeGRPC       = "grpc"
-	workerDispatchOutcomeSuccess = "success"
-	workerDispatchOutcomeError   = "error"
-	workerDispatchOutcomeTimeout = "timeout"
-
-	workerRetryReasonDispatcherUnconfigured = "dispatcher_unconfigured"
-	workerRetryReasonTimeout                = "timeout"
-	workerRetryReasonCancelled              = "cancelled"
-	workerRetryReasonNoWorker               = "no_worker"
-	workerRetryReasonDispatchError          = "dispatch_error"
-	workerRetryReasonWorkerFailure          = "worker_failure"
-
 	workerRequeueReasonDispatcherUnconfigured = "worker dispatcher not configured"
 	workerRequeueReasonDispatchCancelled      = "worker dispatch cancelled"
 	workerRequeueReasonNoWorker               = "no worker available"
@@ -1231,7 +1219,7 @@ func (e *Executor) handleWorkerDispatchResult(
 	job *domain.Job,
 	policy executionPolicy,
 	result any,
-) string {
+) workerDispatchOutcome {
 	// Only "success" routes to the success handler; everything else (including
 	// "failed", "" from a nil/malformed result, or any unexpected sentinel) is
 	// routed to handleFailure so retry and DLQ policy stay in one path.
@@ -1258,7 +1246,7 @@ func (e *Executor) handleWorkerDispatchError(
 	job *domain.Job,
 	policy executionPolicy,
 	err error,
-) string {
+) workerDispatchOutcome {
 	if errors.Is(err, context.DeadlineExceeded) {
 		// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
 		recordWorkerRetry(ctx, workerRetryReasonTimeout)
