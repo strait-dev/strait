@@ -16,6 +16,7 @@ const (
 	pgQueHTTPRouteKey        = "http"
 	pgQueQueuePrefix         = "stq_"
 	pgQueSmallRouteSetLimit  = 8
+	pgQueSmallWorkerRefLimit = 8
 	pgQueWorkerRouteCacheTTL = time.Second
 )
 
@@ -67,20 +68,52 @@ func normalizePgQueWorkerQueueRefs(refs []domain.WorkerQueueRef) []domain.Worker
 	if len(refs) == 0 {
 		return nil
 	}
+	if len(refs) == 1 {
+		ref := refs[0]
+		if ref.ProjectID == "" || ref.QueueName == "" {
+			return nil
+		}
+		ref.QueueName = runQueueName(ref.QueueName)
+		return []domain.WorkerQueueRef{ref}
+	}
 	normalized := make([]domain.WorkerQueueRef, 0, len(refs))
-	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
+	var seen map[domain.WorkerQueueRef]struct{}
 	for _, ref := range refs {
 		if ref.ProjectID == "" || ref.QueueName == "" {
 			continue
 		}
 		ref.QueueName = runQueueName(ref.QueueName)
-		if _, ok := seen[ref]; ok {
-			continue
-		}
-		seen[ref] = struct{}{}
-		normalized = append(normalized, ref)
+		normalized, seen = appendUniqueWorkerQueueRef(normalized, seen, ref)
 	}
 	return normalized
+}
+
+func appendUniqueWorkerQueueRef(
+	refs []domain.WorkerQueueRef,
+	seen map[domain.WorkerQueueRef]struct{},
+	ref domain.WorkerQueueRef,
+) ([]domain.WorkerQueueRef, map[domain.WorkerQueueRef]struct{}) {
+	if seen != nil {
+		if _, ok := seen[ref]; ok {
+			return refs, seen
+		}
+		seen[ref] = struct{}{}
+		return append(refs, ref), seen
+	}
+
+	for _, existing := range refs {
+		if existing == ref {
+			return refs, nil
+		}
+	}
+	refs = append(refs, ref)
+	if len(refs) > pgQueSmallWorkerRefLimit {
+		seen = make(map[domain.WorkerQueueRef]struct{}, len(refs))
+		for _, existing := range refs {
+			seen[existing] = struct{}{}
+		}
+	}
+	return refs, seen
 }
 
 type pgQueWorkerRefArgs struct {

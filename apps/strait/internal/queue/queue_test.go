@@ -150,6 +150,29 @@ func TestWorkerQueueRefArgs(t *testing.T) {
 	}
 }
 
+func TestNormalizePgQueWorkerQueueRefs(t *testing.T) {
+	t.Parallel()
+
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: ""},
+		{ProjectID: "", QueueName: "ignored"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "prod"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+
+	got := normalizePgQueWorkerQueueRefs(refs)
+	want := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "prod"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("normalized refs = %+v, want %+v", got, want)
+	}
+}
+
 func TestEnqueue_SetsDefaults(t *testing.T) {
 	t.Parallel()
 	db := &mockDBTX{

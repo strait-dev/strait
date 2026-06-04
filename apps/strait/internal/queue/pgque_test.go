@@ -27,6 +27,7 @@ var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
 var pgQueCandidateRunIDsBenchmarkSink []string
 var pgQueReadyEmitBatchErrBenchmarkSink error
 var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
+var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -550,6 +551,31 @@ func BenchmarkWorkerQueueRefArgsNormalized(b *testing.B) {
 		pgQueWorkerRefArgsBenchmarkSink.projectIDs = args.ProjectIDs
 		pgQueWorkerRefArgsBenchmarkSink.queueNames = args.QueueNames
 		pgQueWorkerRefArgsBenchmarkSink.environmentIDs = args.EnvironmentIDs
+	}
+}
+
+func BenchmarkNormalizePgQueWorkerQueueRefsSingle(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueWorkerRefsBenchmarkSink = normalizePgQueWorkerQueueRefs(refs)
+	}
+}
+
+func BenchmarkNormalizePgQueWorkerQueueRefsSmall(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueWorkerRefsBenchmarkSink = normalizePgQueWorkerQueueRefs(refs)
 	}
 }
 
