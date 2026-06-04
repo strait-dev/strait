@@ -654,11 +654,11 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleSystemFailure")
 	defer span.End()
 	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run system failure", run, nil, map[string]any{
-		"error_class": "server",
+		"error_class": domain.ErrorClassServer,
 	})
 
 	sentry.WithScope(func(scope *sentry.Scope) {
-		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": "server"})
+		e.applyWorkerSentryScope(scope, run, map[string]any{"error_class": domain.ErrorClassServer})
 		scope.SetLevel(sentry.LevelError)
 		scope.SetFingerprint([]string{"system_failure", reason})
 		sentry.CaptureMessage(fmt.Sprintf("system failure: %s", reason))
@@ -666,11 +666,8 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 
 	fromStatus := run.Status
 	now := time.Now()
-	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed, map[string]any{
-		"finished_at": now,
-		"error":       reason,
-		"error_class": "server",
-	})
+	err := e.store.UpdateRunStatus(ctx, run.ID, run.Status, domain.StatusSystemFailed,
+		terminalStatusFields(now, reason, domain.ErrorClassServer))
 	run.FinishedAt = &now
 	if err != nil {
 		e.logger.Error(
