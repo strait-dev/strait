@@ -15,6 +15,7 @@ func TestExportBundle_EmptyJobs(t *testing.T) {
 
 	if b == nil {
 		t.Fatal("expected non-nil bundle")
+		return
 	}
 	if len(b.Resources.Jobs) != 0 {
 		t.Errorf("expected 0 jobs, got %d", len(b.Resources.Jobs))
@@ -94,6 +95,7 @@ func TestExportBundle_NilMaps(t *testing.T) {
 
 	if b == nil {
 		t.Fatal("expected non-nil bundle")
+		return
 	}
 	if len(b.Resources.Jobs) != 1 {
 		t.Errorf("expected 1 job, got %d", len(b.Resources.Jobs))
@@ -187,6 +189,7 @@ func FuzzExportBundle(f *testing.F) {
 		b := ExportBundle("proj", jobs, workflows, nil, nil, nil, nil)
 		if b == nil {
 			t.Fatal("expected non-nil bundle")
+			return
 		}
 		if len(b.Resources.Jobs) != numJobs {
 			t.Errorf("job count = %d, want %d", len(b.Resources.Jobs), numJobs)

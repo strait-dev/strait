@@ -134,6 +134,7 @@ func TestNewBillingEmailSender_CustomFromEmail(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "custom@example.com", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	if s.fromEmail != "custom@example.com" {
 		t.Errorf("fromEmail = %q, want custom@example.com", s.fromEmail)

@@ -61,6 +61,7 @@ func TestNew_NilLogger(t *testing.T) {
 	}
 	if c == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if c.logger == nil {
 		t.Error("expected default logger when nil is passed")

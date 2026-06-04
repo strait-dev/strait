@@ -20,6 +20,7 @@ func TestNewAnalyticsStore_NilBoth(t *testing.T) {
 	s := NewAnalyticsStore(nil, nil)
 	if s == nil {
 		t.Fatal("expected non-nil store")
+		return
 	}
 	if s.client != nil {
 		t.Error("expected nil client")
@@ -35,6 +36,7 @@ func TestNewPgHealthAdapter(t *testing.T) {
 	a := NewPgHealthAdapter(nil)
 	if a == nil {
 		t.Fatal("expected non-nil adapter")
+		return
 	}
 	if a.pool != nil {
 		t.Error("expected nil pool")

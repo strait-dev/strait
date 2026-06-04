@@ -22,6 +22,7 @@ func TestNewExporter_ZeroBatchSize(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: 0}, nil)
 	if e == nil {
 		t.Fatal("expected non-nil exporter")
+		return
 	}
 	if e.config.BatchSize != 1000 {
 		t.Errorf("expected default batch size 1000, got %d", e.config.BatchSize)
@@ -34,6 +35,7 @@ func TestNewExporter_NegativeBatchSize(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, BatchSize: -5}, nil)
 	if e == nil {
 		t.Fatal("expected non-nil exporter")
+		return
 	}
 	if e.config.BatchSize != 1000 {
 		t.Errorf("expected default batch size 1000, got %d", e.config.BatchSize)
@@ -46,6 +48,7 @@ func TestNewExporter_ZeroFlushInterval(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, FlushInterval: 0}, nil)
 	if e == nil {
 		t.Fatal("expected non-nil exporter")
+		return
 	}
 	if e.config.FlushInterval != 5*time.Second {
 		t.Errorf("expected default flush interval 5s, got %v", e.config.FlushInterval)
@@ -58,6 +61,7 @@ func TestNewExporter_NegativeFlushInterval(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true, FlushInterval: -1}, nil)
 	if e == nil {
 		t.Fatal("expected non-nil exporter")
+		return
 	}
 	if e.config.FlushInterval != 5*time.Second {
 		t.Errorf("expected default flush interval 5s, got %v", e.config.FlushInterval)
@@ -70,6 +74,7 @@ func TestNewExporter_NilLogger(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true}, nil)
 	if e == nil {
 		t.Fatal("expected non-nil exporter")
+		return
 	}
 	if e.logger == nil {
 		t.Error("expected default logger when nil is passed")
