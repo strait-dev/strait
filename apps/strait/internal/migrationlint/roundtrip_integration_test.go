@@ -482,6 +482,17 @@ func TestMigrationRoundtrip_000314_EnterpriseContractOverageTerms(t *testing.T) 
 	})
 }
 
+func TestMigrationRoundtrip_000315_DropRetiredUsageColumns(t *testing.T) {
+	runRoundtrip(t, 315, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, retired := range retiredUsageColumnNames() {
+			if postUp.columns[retired] {
+				t.Errorf("post-up: retired launch column %s should not exist", retired)
+			}
+		}
+	})
+}
+
 // TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.
@@ -519,6 +530,11 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
 		if postAll.tables[tbl] {
 			t.Errorf("post-all: dropped table %s still present", tbl)
+		}
+	}
+	for _, col := range retiredUsageColumnNames() {
+		if postAll.columns[col] {
+			t.Errorf("post-all: retired launch column %s still present", col)
 		}
 	}
 
@@ -567,5 +583,24 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 			continue
 		}
 		t.Error(d)
+	}
+}
+
+func retiredUsageColumnNames() []string {
+	return []string{
+		"cost_stats_hourly.deprecated_token_count",
+		"jobs.deprecated_agent_token_cap",
+		"jobs.deprecated_agent_tool_call_cap",
+		"jobs.deprecated_agent_iteration_cap",
+		"jobs.deprecated_agent_allowed_tool_names",
+		"jobs.deprecated_agent_blocked_tool_names",
+		"job_versions.deprecated_agent_token_cap",
+		"job_versions.deprecated_agent_tool_call_cap",
+		"job_versions.deprecated_agent_iteration_cap",
+		"job_versions.deprecated_agent_allowed_tool_names",
+		"job_versions.deprecated_agent_blocked_tool_names",
+		"project_quotas.deprecated_agent_token_cap",
+		"project_quotas.deprecated_agent_tool_call_cap",
+		"project_quotas.deprecated_agent_iteration_cap",
 	}
 }
