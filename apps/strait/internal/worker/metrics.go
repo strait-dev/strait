@@ -13,6 +13,8 @@ import (
 type workerDispatchMode string
 type workerDispatchOutcome string
 type workerRetryReason string
+type dispatchMode string
+type dispatchOutcome string
 
 const (
 	workerDispatchModeGRPC       workerDispatchMode    = "grpc"
@@ -26,6 +28,10 @@ const (
 	workerRetryReasonNoWorker               workerRetryReason = "no_worker"
 	workerRetryReasonDispatchError          workerRetryReason = "dispatch_error"
 	workerRetryReasonWorkerFailure          workerRetryReason = "worker_failure"
+
+	dispatchModeHTTP       dispatchMode    = "http"
+	dispatchOutcomeSuccess dispatchOutcome = "success"
+	dispatchOutcomeError   dispatchOutcome = "error"
 )
 
 // workerMetrics holds the package-level metric instruments. It is an atomic
@@ -158,20 +164,20 @@ func recordHeartbeatLag(ctx context.Context, lag time.Duration) {
 	workerMetrics.Load().heartbeatLag.Record(ctx, lag.Seconds())
 }
 
-func recordDispatchAttempt(ctx context.Context, mode, outcome string) {
+func recordDispatchAttempt(ctx context.Context, mode dispatchMode, outcome dispatchOutcome) {
 	workerMetrics.Load().dispatchAttempts.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", mode),
-		attribute.String("outcome", outcome),
+		attribute.String("mode", string(mode)),
+		attribute.String("outcome", string(outcome)),
 	))
 }
 
-func recordDispatchPayloadBytes(ctx context.Context, mode string, size int) {
-	workerMetrics.Load().payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", mode)))
+func recordDispatchPayloadBytes(ctx context.Context, mode dispatchMode, size int) {
+	workerMetrics.Load().payloadBytes.Record(ctx, int64(size), metric.WithAttributes(attribute.String("mode", string(mode))))
 }
 
-func recordDispatchResponseStatus(ctx context.Context, mode string, statusCode int) {
+func recordDispatchResponseStatus(ctx context.Context, mode dispatchMode, statusCode int) {
 	workerMetrics.Load().responseStatus.Add(ctx, 1, metric.WithAttributes(
-		attribute.String("mode", mode),
+		attribute.String("mode", string(mode)),
 		attribute.String("status_class", statusClass(statusCode)),
 	))
 }
