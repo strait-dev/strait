@@ -687,6 +687,59 @@ func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org-plan-error", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
+func TestReserveWorkerConnection_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org_workers", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 

@@ -1572,7 +1572,7 @@ func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservati
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for worker connection reservation",
 			"org_id", orgID, "error", err)
-		return releaseNoop, nil
+		return releaseNoop, e.failClosedPlanLimitLookup(ctx, orgID, "worker_connections", err)
 	}
 	if limits.WorkerConnections == -1 {
 		return releaseNoop, nil
@@ -1590,13 +1590,13 @@ func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservati
 	).Result()
 	if err != nil {
 		e.logger.Warn("failed to reserve worker connection", "org_id", orgID, "error", err)
-		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+		return releaseNoop, serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected worker connection reservation result", "org_id", orgID)
-		return releaseNoop, e.boundedFailOpen(ctx, orgID, "worker_connections", "redis_error")
+		return releaseNoop, serviceDegradedLimitError()
 	}
 	allowed, _ := vals[0].(int64)
 	current, _ := vals[1].(int64)
