@@ -9,6 +9,10 @@ const policyTestPath = join(
   process.cwd(),
   "src/lib/__tests__/launch-pricing-policy.test.ts"
 );
+const apiSchemaPolicyTestPath = join(
+  process.cwd(),
+  "src/lib/__tests__/api-schema-policy.test.ts"
+);
 
 function readSourceFiles(dir: string): string {
   let source = "";
@@ -22,6 +26,7 @@ function readSourceFiles(dir: string): string {
     if (
       sourceFileRegex.test(entry) &&
       path !== policyTestPath &&
+      path !== apiSchemaPolicyTestPath &&
       !path.endsWith("schema.d.ts")
     ) {
       source += `\n${readFileSync(path, "utf8")}`;
@@ -65,6 +70,8 @@ describe("launch pricing app policy", () => {
       "trialMessage",
       "custom resources",
       "Roadmap security features via sales",
+      "/v1/analytics/compute",
+      "compute usage",
     ]) {
       expect(source).not.toContain(stale);
     }

@@ -10,10 +10,9 @@ import (
 
 // CostAnalytics holds aggregated cost data for a project over a time range.
 type CostAnalytics struct {
-	TotalUsageCostMicrousd   int64       `json:"total_usage_cost_microusd"`
-	TotalComputeCostMicrousd int64       `json:"total_compute_cost_microusd"`
-	RunCount                 int         `json:"run_count"`
-	ByJob                    []CostByJob `json:"by_job"`
+	TotalSpendMicrousd int64       `json:"total_spend_microusd"`
+	RunCount           int         `json:"run_count"`
+	ByJob              []CostByJob `json:"by_job"`
 }
 
 // CostByJob breaks down cost by job.
@@ -26,10 +25,9 @@ type CostByJob struct {
 
 // CostTrendPoint is a single data point in a cost time-series.
 type CostTrendPoint struct {
-	Period              string `json:"period"`
-	UsageCostMicrousd   int64  `json:"usage_cost_microusd"`
-	ComputeCostMicrousd int64  `json:"compute_cost_microusd"`
-	RunCount            int    `json:"run_count"`
+	Period        string `json:"period"`
+	SpendMicrousd int64  `json:"spend_microusd"`
+	RunCount      int    `json:"run_count"`
 }
 
 // TopCostItem represents a top-cost entity (job, etc).
@@ -69,7 +67,7 @@ func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, fr
 		FROM cost_stats_hourly
 		WHERE project_id = $1 AND hour >= $2 AND hour < $3`
 	if err := q.db.QueryRow(ctx, totalsQuery, projectID, from, to).Scan(
-		&result.TotalComputeCostMicrousd, &result.RunCount,
+		&result.TotalSpendMicrousd, &result.RunCount,
 	); err != nil {
 		return nil, fmt.Errorf("cost analytics launch totals: %w", err)
 	}
@@ -117,14 +115,12 @@ func (q *Queries) getCostAnalyticsLive(ctx context.Context, projectID string, fr
 
 func (q *Queries) getCostAnalyticsMaterialized(ctx context.Context, projectID string, from, to time.Time, result *CostAnalytics) (*CostAnalytics, error) {
 	totalsQuery := `
-		SELECT 0::bigint,
-		       COALESCE(SUM(compute_cost_microusd), 0),
+		SELECT COALESCE(SUM(compute_cost_microusd), 0),
 		       COALESCE(SUM(run_count), 0)
 		FROM cost_stats_hourly
 		WHERE project_id = $1 AND hour >= $2 AND hour < $3`
 	if err := q.db.QueryRow(ctx, totalsQuery, projectID, from, to).Scan(
-		&result.TotalUsageCostMicrousd, &result.TotalComputeCostMicrousd,
-		&result.RunCount,
+		&result.TotalSpendMicrousd, &result.RunCount,
 	); err != nil {
 		return nil, fmt.Errorf("materialized cost analytics totals: %w", err)
 	}
@@ -175,7 +171,6 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 	query := `
 		SELECT date_trunc('hour', jr.created_at) AS period,
 		       0::BIGINT,
-		       0::BIGINT,
 		       COUNT(DISTINCT jr.id)
 		FROM job_runs jr
 		WHERE jr.project_id = $1 AND jr.created_at >= $2 AND jr.created_at < $3
@@ -192,7 +187,7 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 	for rows.Next() {
 		var p CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.SpendMicrousd, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("cost trends live scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)
@@ -204,7 +199,6 @@ func (q *Queries) getCostTrendsLive(ctx context.Context, projectID string, from,
 func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID string, from, to time.Time) ([]CostTrendPoint, error) {
 	query := `
 		SELECT date_trunc('day', hour) AS period,
-		       0::BIGINT,
 		       COALESCE(SUM(compute_cost_microusd), 0),
 		       COALESCE(SUM(run_count), 0)
 		FROM cost_stats_hourly
@@ -222,7 +216,7 @@ func (q *Queries) getCostTrendsMaterialized(ctx context.Context, projectID strin
 	for rows.Next() {
 		var p CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.SpendMicrousd, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("cost trends materialized scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)

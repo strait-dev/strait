@@ -152,8 +152,7 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 	}
 
 	usageQuery := `
-		SELECT 0,
-			coalesce(sum(compute_cost_microusd), 0),
+		SELECT coalesce(sum(compute_cost_microusd), 0),
 			count()
 		FROM run_analytics
 		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
@@ -162,8 +161,7 @@ func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string,
 		return nil, fmt.Errorf("clickhouse cost analytics launch totals: %w", err)
 	}
 	if err := usageRow.Scan(
-		&result.TotalUsageCostMicrousd,
-		&result.TotalComputeCostMicrousd,
+		&result.TotalSpendMicrousd,
 		&result.RunCount,
 	); err != nil {
 		return nil, fmt.Errorf("clickhouse cost analytics launch totals: %w", err)
@@ -215,7 +213,6 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 
 	query := fmt.Sprintf(`
 		SELECT %s(ra.created_at) AS period,
-			0 AS usage_cost,
 			coalesce(sum(ra.compute_cost_microusd), 0) AS compute_cost,
 			count()
 		FROM run_analytics ra
@@ -233,7 +230,7 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	for rows.Next() {
 		var p store.CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.UsageCostMicrousd, &p.ComputeCostMicrousd, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.SpendMicrousd, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("clickhouse cost trends scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)
