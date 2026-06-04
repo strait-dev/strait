@@ -259,6 +259,22 @@ func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckSpendingLimit_FreeTierSpendReadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.sumSpendErr = errors.New("spend aggregation unavailable")
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckSpendingLimit_FreeTierAnySpend_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

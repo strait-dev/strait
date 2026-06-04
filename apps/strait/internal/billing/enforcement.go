@@ -136,6 +136,13 @@ func (e *Enforcer) failClosedPlanLimitLookup(ctx context.Context, orgID, checkTy
 	}
 }
 
+func serviceDegradedLimitError() *LimitError {
+	return &LimitError{
+		Code:    "service_degraded",
+		Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+	}
+}
+
 // resetFailOpen clears the fail-open tracker for a successful check.
 func (e *Enforcer) resetFailOpen(orgID, checkType string) {
 	e.failOpenTracker.Delete(orgID + ":" + checkType)
@@ -1285,7 +1292,8 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 		if errors.Is(err, ErrSubscriptionNotFound) {
 			return e.checkFreeTierIncludedCredit(ctx, orgID, nil)
 		}
-		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_error")
+		e.logger.Warn("failed to get org subscription for spending check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 
 	limits := GetPlanLimits(domain.PlanTier(sub.PlanTier))
@@ -1310,7 +1318,7 @@ func (e *Enforcer) CheckSpendingLimit(ctx context.Context, orgID string) error {
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum org period spend", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "spending_limit", "db_spend_error")
+		return serviceDegradedLimitError()
 	}
 
 	overageSpend := computeOverageSpend(periodSpend, 0)
@@ -1412,7 +1420,7 @@ func (e *Enforcer) checkFreeTierIncludedCredit(ctx context.Context, orgID string
 	periodSpend, err := e.store.SumOrgPeriodSpend(ctx, orgID, periodStart)
 	if err != nil {
 		e.logger.Warn("failed to sum free-tier period spend", "org_id", orgID, "error", err)
-		return nil
+		return serviceDegradedLimitError()
 	}
 
 	// Free tier has no included compute credit; any spend is overage.
@@ -1447,10 +1455,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to read project budget", "project_id", projectID, "error", err)
-		return &LimitError{
-			Code:    "service_degraded",
-			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
-		}
+		return serviceDegradedLimitError()
 	}
 
 	// budget_action="notify" or unset means the budget is informational only.
@@ -1467,10 +1472,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to resolve org for project budget check",
 			"project_id", projectID, "error", err)
-		return &LimitError{
-			Code:    "service_degraded",
-			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
-		}
+		return serviceDegradedLimitError()
 	}
 
 	var sub *OrgSubscription
@@ -1487,10 +1489,7 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to read project period spend",
 			"project_id", projectID, "error", err)
-		return &LimitError{
-			Code:    "service_degraded",
-			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
-		}
+		return serviceDegradedLimitError()
 	}
 
 	if !isOverageLimitReached(budget, spend) {

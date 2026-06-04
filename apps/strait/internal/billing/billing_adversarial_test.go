@@ -1342,7 +1342,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FailOpen(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	store := &errStore{
@@ -1350,10 +1350,13 @@ func TestEnforcer_CheckSpendingLimit_FailOpen(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	// Should fail open (return nil) when DB is unreachable.
 	err := e.CheckSpendingLimit(context.Background(), "org-fail-open")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil error), got %v", err)
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
