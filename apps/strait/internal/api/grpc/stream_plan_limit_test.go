@@ -324,9 +324,9 @@ func TestRegistry_CountByOrg_Concurrent(t *testing.T) {
 // real call site changes, this test will rot; that's acceptable — the
 // adversarial integration tests in stream_*_integration_test.go cover the
 // wired path.
-func gatingResult(ctx context.Context, enforcer planLimitEnforcer, registry *ConnectionRegistry, projectID string) (orgID string, blocked bool) {
+func gatingResult(ctx context.Context, edition domain.Edition, enforcer planLimitEnforcer, registry *ConnectionRegistry, projectID string) (orgID string, blocked bool) {
 	if enforcer == nil {
-		return "", false
+		return "", edition.RequiresHTTPModeGating()
 	}
 	orgID, err := enforcer.GetActiveProjectOrgID(ctx, projectID)
 	if err != nil {
@@ -342,14 +342,64 @@ func gatingResult(ctx context.Context, enforcer planLimitEnforcer, registry *Con
 	return orgID, false
 }
 
-// TestStreamGating_NilEnforcer_FailsOpen verifies that a server with no
-// billing enforcer (community edition) never blocks a connection.
-func TestStreamGating_NilEnforcer_FailsOpen(t *testing.T) {
+func TestStreamGating_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 
 	r := NewConnectionRegistry()
-	if _, blocked := gatingResult(context.Background(), nil, r, "proj-a"); blocked {
-		t.Fatal("expected fail-open with nil enforcer, got blocked")
+	if _, blocked := gatingResult(context.Background(), domain.EditionCommunity, nil, r, "proj-a"); blocked {
+		t.Fatal("expected community nil enforcer to fail open, got blocked")
+	}
+}
+
+func TestStreamGating_CloudNilEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	r := NewConnectionRegistry()
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, nil, r, "proj-a"); !blocked {
+		t.Fatal("expected cloud nil enforcer to fail closed, got allowed")
+	}
+}
+
+func TestCheckPlanConnectionLimit_CloudNilEnforcerUnavailable(t *testing.T) {
+	t.Parallel()
+
+	svc := &workerService{
+		registry: NewConnectionRegistry(),
+		edition:  domain.EditionCloud,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err == nil {
+		t.Fatal("expected cloud nil enforcer to reject connection")
+	}
+	if code := status.Code(err); code != codes.Unavailable {
+		t.Fatalf("status code = %s, want %s", code, codes.Unavailable)
+	}
+	if orgID != "" {
+		t.Fatalf("orgID = %q, want empty", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
+	}
+}
+
+func TestCheckPlanConnectionLimit_CommunityNilEnforcerAllows(t *testing.T) {
+	t.Parallel()
+
+	svc := &workerService{
+		registry: NewConnectionRegistry(),
+		edition:  domain.EditionCommunity,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err != nil {
+		t.Fatalf("expected community nil enforcer to allow connection, got %v", err)
+	}
+	if orgID != "" {
+		t.Fatalf("orgID = %q, want empty", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
 	}
 }
 
@@ -364,7 +414,7 @@ func TestStreamGating_OrgLookupError_FailsClosed(t *testing.T) {
 		limit:        0, // would block everything if we reached this
 	}
 	r := NewConnectionRegistry()
-	orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-a")
+	orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a")
 	if !blocked {
 		t.Fatal("expected fail-closed on org lookup error, got allowed")
 	}
@@ -416,7 +466,7 @@ func TestStreamGating_UnresolvedOrg_FailsOpen(t *testing.T) {
 		limit:           0,
 	}
 	r := NewConnectionRegistry()
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
 		t.Fatal("expected fail-open with unresolved org, got blocked")
 	}
 	if got := enforcer.callsLen(); got != 0 {
@@ -442,7 +492,7 @@ func TestStreamGating_BelowLimit_Allows(t *testing.T) {
 		}
 	}
 
-	orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-a")
+	orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a")
 	if blocked {
 		t.Fatal("expected allow at 2/5, got blocked")
 	}
@@ -473,7 +523,7 @@ func TestStreamGating_AtLimit_Blocks(t *testing.T) {
 		}
 	}
 
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		t.Fatal("expected block at 3/3, got allow")
 	}
 }
@@ -496,7 +546,7 @@ func TestStreamGating_OverLimit_Blocks(t *testing.T) {
 			t.Fatalf("register survivor %d: %v", i, err)
 		}
 	}
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		t.Fatal("expected block at 5/1, got allow")
 	}
 }
@@ -518,7 +568,7 @@ func TestStreamGating_UnlimitedTier_NeverBlocks(t *testing.T) {
 			t.Fatalf("register %d: %v", i, err)
 		}
 	}
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
 		t.Fatal("expected allow at 50/unlimited, got blocked")
 	}
 }
@@ -543,12 +593,12 @@ func TestStreamGating_PerOrgIsolation(t *testing.T) {
 	}
 
 	// org-1 is at cap, must be blocked.
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		t.Fatal("expected block for org-1 (saturated)")
 	}
 
 	// org-2 is empty, must be allowed.
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-b"); blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-b"); blocked {
 		t.Fatal("expected allow for org-2 (empty)")
 	}
 }

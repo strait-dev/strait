@@ -127,6 +127,7 @@ type workerService struct {
 	authLimiter     grpcAuthLimiter
 	apiKeyResolver  apiKeyResolver
 	billingEnforcer planLimitEnforcer
+	edition         domain.Edition
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -732,12 +733,16 @@ func streamDisconnectReason(err error) string {
 // checkPlanConnectionLimit resolves the org for the supplied project and
 // rejects the registration with codes.ResourceExhausted if the org is at
 // or above its plan-tier worker connection cap. Returns the resolved orgID
-// (which may be empty if no enforcer is wired or the project has no org) so
+// (which may be empty if the edition is ungated or the project has no org) so
 // the caller can attach it to the ConnectedWorker entry. Existing connections
 // are never evicted; this is a connect-time gate only.
 func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID, reservationID string) (string, func(), error) {
 	releaseNoop := func() {}
 	if s.billingEnforcer == nil {
+		if s.edition.RequiresHTTPModeGating() {
+			slog.Error("grpc registration: billing enforcer missing in gated edition", "project_id", projectID)
+			return "", releaseNoop, status.Error(codes.Unavailable, "worker connection plan lookup unavailable")
+		}
 		return "", releaseNoop, nil
 	}
 	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
