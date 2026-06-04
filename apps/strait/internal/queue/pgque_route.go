@@ -56,14 +56,29 @@ func pgQueWorkerRoutePrefix(routeKey string) string {
 }
 
 func pgQueWorkerRouteRef(routeKey string) (domain.WorkerQueueRef, bool) {
-	parts := strings.Split(routeKey, ":")
-	if len(parts) != 4 || parts[0] != "worker" || parts[1] == "" || parts[2] == "" {
+	if !strings.HasPrefix(routeKey, "worker:") {
+		return domain.WorkerQueueRef{}, false
+	}
+	rest := routeKey[len("worker:"):]
+	projectEnd := strings.IndexByte(rest, ':')
+	if projectEnd <= 0 {
+		return domain.WorkerQueueRef{}, false
+	}
+	projectID := rest[:projectEnd]
+	rest = rest[projectEnd+1:]
+	queueEnd := strings.IndexByte(rest, ':')
+	if queueEnd <= 0 {
+		return domain.WorkerQueueRef{}, false
+	}
+	queueName := rest[:queueEnd]
+	environmentID := rest[queueEnd+1:]
+	if strings.Contains(environmentID, ":") {
 		return domain.WorkerQueueRef{}, false
 	}
 	return domain.WorkerQueueRef{
-		ProjectID:     parts[1],
-		QueueName:     runQueueName(parts[2]),
-		EnvironmentID: parts[3],
+		ProjectID:     projectID,
+		QueueName:     runQueueName(queueName),
+		EnvironmentID: environmentID,
 	}, true
 }
 

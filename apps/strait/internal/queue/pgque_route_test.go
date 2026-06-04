@@ -13,6 +13,8 @@ import (
 )
 
 var pgQueQueueNameBenchmarkSink string
+var pgQueWorkerRouteRefBenchmarkSink domain.WorkerQueueRef
+var pgQueWorkerRouteRefOKBenchmarkSink bool
 var pgQueRouteBenchmarkSink []string
 
 func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
@@ -52,6 +54,19 @@ func BenchmarkPgQueQueueName(b *testing.B) {
 	}
 }
 
+func BenchmarkPgQueWorkerRouteRef(b *testing.B) {
+	routeKey := pgQueWorkerRouteKey(
+		strings.Repeat("project", 20),
+		strings.Repeat("queue", 20),
+		strings.Repeat("env", 20),
+	)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueWorkerRouteRefBenchmarkSink, pgQueWorkerRouteRefOKBenchmarkSink = pgQueWorkerRouteRef(routeKey)
+	}
+}
+
 func TestPgQueRouteKeyForRun(t *testing.T) {
 	httpRun := &domain.JobRun{ProjectID: "project-a", ExecutionMode: domain.ExecutionModeHTTP}
 	if got := pgQueRouteKeyForRun(httpRun); got != pgQueHTTPRouteKey {
@@ -61,6 +76,67 @@ func TestPgQueRouteKeyForRun(t *testing.T) {
 	workerRun := &domain.JobRun{ProjectID: "project-a", ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"}
 	if got := pgQueRouteKeyForRun(workerRun); got != "worker:project-a:critical:" {
 		t.Fatalf("worker route = %q", got)
+	}
+}
+
+func TestPgQueWorkerRouteRef(t *testing.T) {
+	tests := []struct {
+		name     string
+		routeKey string
+		want     domain.WorkerQueueRef
+		wantOK   bool
+	}{
+		{
+			name:     "environment route",
+			routeKey: "worker:project-a:critical:prod",
+			want: domain.WorkerQueueRef{
+				ProjectID:     "project-a",
+				QueueName:     "critical",
+				EnvironmentID: "prod",
+			},
+			wantOK: true,
+		},
+		{
+			name:     "empty environment route",
+			routeKey: "worker:project-a:critical:",
+			want: domain.WorkerQueueRef{
+				ProjectID: "project-a",
+				QueueName: "critical",
+			},
+			wantOK: true,
+		},
+		{
+			name:     "missing queue",
+			routeKey: "worker:project-a::prod",
+			wantOK:   false,
+		},
+		{
+			name:     "missing project",
+			routeKey: "worker::critical:prod",
+			wantOK:   false,
+		},
+		{
+			name:     "non worker route",
+			routeKey: pgQueHTTPRouteKey,
+			wantOK:   false,
+		},
+		{
+			name:     "extra colon",
+			routeKey: "worker:project-a:critical:prod:blue",
+			wantOK:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := pgQueWorkerRouteRef(tt.routeKey)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if got != tt.want {
+				t.Fatalf("ref = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }
 
