@@ -2,8 +2,6 @@ package billing
 
 import "strait/internal/domain"
 
-const defaultLaunchRegionCount = 1
-
 // OrgPlanLimits defines the complete set of limits and features for a plan tier.
 type OrgPlanLimits struct {
 	PlanTier                domain.PlanTier

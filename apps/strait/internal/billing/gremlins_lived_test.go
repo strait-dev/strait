@@ -1202,7 +1202,7 @@ func TestEnforcer_RecordFailOpen_NilMetrics(t *testing.T) {
 	enforcer.recordFailOpen(context.Background(), "test", "db_error")
 }
 
-func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
+func TestPreviewDowngrade_NoRegionImpactInRegressionSuite(t *testing.T) {
 	store := &mockDowngradeStore{
 		mockBillingStore: mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
@@ -1215,24 +1215,9 @@ func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	freeLimits := GetPlanLimits(domain.PlanFree)
-	expectedTarget := len(freeLimits.AllowedRegions)
-	if expectedTarget == 0 {
-		expectedTarget = defaultLaunchRegionCount
-	}
-	proLimits := GetPlanLimits(domain.PlanPro)
-	expectedCurrent := len(proLimits.AllowedRegions)
-	if expectedCurrent == 0 {
-		expectedCurrent = defaultLaunchRegionCount
-	}
 	for _, imp := range impact.Impacts {
 		if imp.Resource == "regions" {
-			if imp.Current != int64(expectedCurrent) {
-				t.Errorf("regions.Current = %d, want %d", imp.Current, expectedCurrent)
-			}
-			if imp.Limit != int64(expectedTarget) {
-				t.Errorf("regions.Limit = %d, want %d", imp.Limit, expectedTarget)
-			}
+			t.Fatalf("downgrade preview exposed launch-inactive regions impact: %#v", imp)
 		}
 	}
 }

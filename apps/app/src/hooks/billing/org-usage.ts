@@ -33,7 +33,6 @@ type BaseUsageDimensions = {
   projects: UsageDimension;
   members: UsageDimension;
   retention_days: number;
-  regions_available: number;
 };
 
 /** Raw usage dimensions as returned by the API. */
@@ -97,7 +96,6 @@ export const EMPTY_ORG_USAGE: OrgUsageData = {
     projects: { used: 0, limit: 2, percent: 0, display: "0" },
     members: { used: 0, limit: 3, percent: 0, display: "0" },
     retention_days: 1,
-    regions_available: 1,
   },
   alerts: [],
 };

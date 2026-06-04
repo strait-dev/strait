@@ -17,7 +17,6 @@ const validOrgUsage = {
     projects: { used: 1, limit: 5, percent: 20 },
     members: { used: 2, limit: 10, percent: 20 },
     retention_days: 7,
-    regions_available: 6,
   },
   period_spend_microusd: 0,
   overage_microusd: 0,

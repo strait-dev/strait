@@ -52,13 +52,12 @@ type UsageDimension struct {
 
 // UsageDimensions groups all quota dimensions.
 type UsageDimensions struct {
-	MonthlyRuns      UsageDimension `json:"monthly_runs"`
-	RunsToday        UsageDimension `json:"runs_today"` // Legacy alias for monthly_runs.
-	ConcurrentRuns   UsageDimension `json:"concurrent_runs"`
-	Projects         UsageDimension `json:"projects"`
-	Members          UsageDimension `json:"members"`
-	RetentionDays    int            `json:"retention_days"`
-	RegionsAvailable int            `json:"regions_available"`
+	MonthlyRuns    UsageDimension `json:"monthly_runs"`
+	RunsToday      UsageDimension `json:"runs_today"` // Legacy alias for monthly_runs.
+	ConcurrentRuns UsageDimension `json:"concurrent_runs"`
+	Projects       UsageDimension `json:"projects"`
+	Members        UsageDimension `json:"members"`
+	RetentionDays  int            `json:"retention_days"`
 }
 
 // UsageAlert represents a quota approaching/exceeded alert.
@@ -153,12 +152,6 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		}
 	}
 
-	// Region count
-	regionCount := len(limits.AllowedRegions)
-	if regionCount == 0 {
-		regionCount = defaultLaunchRegionCount
-	}
-
 	resp := &CurrentUsageResponse{
 		OrgID: orgID,
 		Plan:  string(limits.PlanTier),
@@ -192,8 +185,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 				Limit:   int64(limits.MaxMembersPerOrg),
 				Percent: safePercent(int64(memberCount), int64(limits.MaxMembersPerOrg)),
 			},
-			RetentionDays:    limits.RetentionDays,
-			RegionsAvailable: regionCount,
+			RetentionDays: limits.RetentionDays,
 		},
 	}
 

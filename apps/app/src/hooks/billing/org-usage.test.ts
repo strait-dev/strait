@@ -19,7 +19,6 @@ function baseUsage(): RawOrgUsageData {
       projects: { used: 1, limit: 5, percent: 20 },
       members: { used: 2, limit: 10, percent: 20 },
       retention_days: 7,
-      regions_available: 6,
     },
     alerts: [],
   };
@@ -79,8 +78,8 @@ describe("EMPTY_ORG_USAGE", () => {
     expect(EMPTY_ORG_USAGE.usage.retention_days).toBe(1);
   });
 
-  it("has 1 available region", () => {
-    expect(EMPTY_ORG_USAGE.usage.regions_available).toBe(1);
+  it("does not expose launch-inactive region dimensions", () => {
+    expect("regions_available" in EMPTY_ORG_USAGE.usage).toBe(false);
   });
 
   it("has empty alerts array", () => {

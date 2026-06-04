@@ -58,7 +58,6 @@ export const RawOrgUsageDimensionsSchema = Schema.Struct({
   projects: UsageDimensionSchema,
   members: UsageDimensionSchema,
   retention_days: Schema.Number,
-  regions_available: Schema.Number,
 });
 
 /**

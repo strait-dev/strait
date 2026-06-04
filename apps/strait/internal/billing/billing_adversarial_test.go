@@ -1855,7 +1855,7 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	impacts := []ResourceImpact{
 		{Resource: "projects", Action: ResourceActionReduce, Current: 10, Limit: 5},
 		{Resource: "members_per_org", Action: ResourceActionReduce, Current: 25, Limit: 10},
-		{Resource: "regions", Action: ResourceActionReduce, Current: 25, Limit: 6},
+		{Resource: "log_drains", Action: ResourceActionReduce, Current: 5, Limit: 1},
 		{Resource: "retention_days", Action: ResourceActionOK, Current: 30, Limit: 30},
 	}
 
@@ -1867,8 +1867,8 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	if len(auto) != 1 {
 		t.Fatalf("expected 1 auto-disabled, got %d", len(auto))
 	}
-	if auto[0].Resource != "regions" {
-		t.Errorf("expected regions as auto-disabled, got %s", auto[0].Resource)
+	if auto[0].Resource != "log_drains" {
+		t.Errorf("expected log drains as auto-disabled, got %s", auto[0].Resource)
 	}
 }
 
