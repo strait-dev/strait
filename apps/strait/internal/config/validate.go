@@ -61,6 +61,9 @@ func (c *Config) Validate() error {
 	if c.SequinWaitTimeMs <= 0 {
 		errs = append(errs, fmt.Errorf("SEQUIN_WAIT_TIME_MS must be > 0, got %d", c.SequinWaitTimeMs))
 	}
+	if c.SequinWebhookSecret == "" && c.SentryEnvironment != "development" && c.SentryEnvironment != "test" {
+		errs = append(errs, fmt.Errorf("SEQUIN_WEBHOOK_SECRET is required in non-development environments"))
+	}
 
 	// Positive-required durations.
 	requirePositive := map[string]time.Duration{

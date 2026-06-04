@@ -537,6 +537,9 @@ func validateSequinConfig(cfg *Config) error {
 	if cfg.SequinWaitTimeMs <= 0 {
 		return &domain.ConfigError{Field: "SEQUIN_WAIT_TIME_MS", Message: "must be > 0"}
 	}
+	if cfg.SequinWebhookSecret == "" && cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+		return &domain.ConfigError{Field: "SEQUIN_WEBHOOK_SECRET", Message: "is required in non-development environments"}
+	}
 	return nil
 }
 

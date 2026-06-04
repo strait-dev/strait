@@ -37,6 +37,7 @@ func validConfig() *Config {
 		SequinWaitTimeMs:              5000,
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
+		SentryEnvironment:             "development",
 		ExecutionTraceMode:            "off",
 		DLQMaxPerJob:                  1000,
 		DLQMaxPerProject:              10000,
@@ -47,6 +48,23 @@ func validConfig() *Config {
 func TestValidate_Happy(t *testing.T) {
 	if err := validConfig().Validate(); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig()
+	c.SentryEnvironment = "production"
+	c.SequinWebhookSecret = ""
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "SEQUIN_WEBHOOK_SECRET") {
+		t.Fatalf("Validate() error = %v, want SEQUIN_WEBHOOK_SECRET error", err)
+	}
+
+	c.SequinWebhookSecret = "sequin-webhook-secret"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected production Sequin webhook secret: %v", err)
 	}
 }
 

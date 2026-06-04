@@ -28,6 +28,7 @@ export REDIS_URL="redis://localhost:16379"
 export SEQUIN_BASE_URL="http://localhost:7376"
 export SEQUIN_CONSUMER_NAME="strait-cdc"
 export SEQUIN_API_TOKEN="$(openssl rand -hex 32)"
+export SEQUIN_WEBHOOK_SECRET="$(openssl rand -hex 32)"
 export INTERNAL_SECRET="$(openssl rand -base64 32)"
 export JWT_SIGNING_KEY="$(openssl rand -base64 32)"
 export ENCRYPTION_KEY="$(openssl rand -base64 32)"
@@ -152,7 +153,7 @@ Redis is still required at startup. Cache operations fail open to in-process cac
 | `SEQUIN_CONSUMER_NAME` | - | Required Sequin HTTP pull consumer name. |
 | `SEQUIN_DATABASE_NAME` | `strait-db` | Sequin database name from the mounted Sequin config. |
 | `SEQUIN_API_TOKEN` | - | Bearer token used for Sequin API calls. |
-| `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Set this when using `/internal/cdc/webhook`. |
+| `SEQUIN_WEBHOOK_SECRET` | - | HMAC-SHA256 secret used to verify Sequin push webhook request bodies. Required outside development and test environments. |
 | `SEQUIN_BATCH_SIZE` | `200` | Max CDC messages fetched per pull request. `CDC_BATCH_SIZE` is accepted as an alias. |
 | `SEQUIN_WAIT_TIME_MS` | `5000` | Sequin long-poll wait time in milliseconds. `CDC_WAIT_TIME_MS` is accepted as an alias. |
 
