@@ -1888,7 +1888,8 @@ func (e *Enforcer) CheckMemberLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountMembersByOrg(ctx, orgID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, orgID, "member_limit", "db_error")
+		e.logger.Warn("failed to count org members for member limit check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(orgID, "member_limit")
 
@@ -1921,7 +1922,8 @@ func (e *Enforcer) CheckOrgCreationLimit(ctx context.Context, userID string, pla
 
 	count, err := e.store.CountOrgsByUser(ctx, userID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, userID, "org_creation_limit", "db_error")
+		e.logger.Warn("failed to count user organizations for org creation limit check", "user_id", userID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(userID, "org_creation_limit")
 

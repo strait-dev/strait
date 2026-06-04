@@ -814,6 +814,25 @@ func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestCheckMemberLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countMembersErr: errors.New("member count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org-count-error")
+	if err == nil {
+		t.Fatal("expected member limit check to fail closed when member count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestCheckMemberLimit_StarterUnderLimit_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -896,6 +915,25 @@ func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
 	}
 	if le.Limit != 1 {
 		t.Errorf("limit = %d, want 1", le.Limit)
+	}
+}
+
+func TestCheckOrgCreationLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countOrgsByUserErr: errors.New("org count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckOrgCreationLimit(context.Background(), "user-count-error", domain.PlanFree)
+	if err == nil {
+		t.Fatal("expected org creation limit check to fail closed when org count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
