@@ -1120,7 +1120,7 @@ func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) er
 	).Int64()
 	if err != nil {
 		e.logger.Warn("failed to run concurrent check script", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "concurrent_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	if result == -1 {

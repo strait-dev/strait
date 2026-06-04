@@ -203,6 +203,28 @@ func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *tes
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	enforcer := NewEnforcer(&mockBillingStore{}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-redis-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
