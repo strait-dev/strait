@@ -55,6 +55,9 @@ describe("launch pricing app policy", () => {
       "member overage",
       "includedCreditMonthly",
       "computeDiscountPct",
+      "Trial ends tomorrow!",
+      "Trial ending very soon!",
+      "Trial ending soon!",
     ]) {
       expect(source).not.toContain(stale);
     }

@@ -15,7 +15,7 @@ const TrialUpgradeCard = () => {
   const { subscription, shouldShowUpgrade, isTrialing, trialDaysLeft } = data;
 
   const getTrialContent = useMemo(() => {
-    // Default for no trial days info
+    // Default for no temporary-access days info.
     if (trialDaysLeft === null || trialDaysLeft <= 0) {
       return {
         title: "Temporary Access Active",
@@ -33,8 +33,8 @@ const TrialUpgradeCard = () => {
       return {
         title:
           trialDaysLeft === 1
-            ? "Trial ends tomorrow!"
-            : "Trial ending very soon!",
+            ? "Temporary access ends tomorrow"
+            : "Temporary access ending very soon",
         message: trialMessage,
         color: "red" as const,
       };
@@ -43,7 +43,7 @@ const TrialUpgradeCard = () => {
     // Warning: 3-5 days left (orange)
     if (trialDaysLeft <= TRIAL_WARNING_DAYS) {
       return {
-        title: "Trial ending soon!",
+        title: "Temporary access ending soon",
         message: trialMessage,
         color: "orange" as const,
       };
