@@ -384,30 +384,40 @@ func (e *Executor) requeueRunForRetry(
 	return true
 }
 
+func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, timedOut bool) {
+	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	failureKind := "failure"
+	latencyMs := 0.0
+	if timedOut {
+		failureKind = "timeout"
+		latencyMs = float64(job.TimeoutSecs * 1000)
+	}
+
+	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
+		e.logger.Warn("failed to record circuit breaker "+failureKind, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
+	}
+	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
+		EndpointURL:  stateKey,
+		Success:      false,
+		TimedOut:     timedOut,
+		LatencyMs:    latencyMs,
+		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+	}); hsErr != nil {
+		e.logger.Warn("failed to record health score "+failureKind, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
+	}
+}
+
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
 
 	errMsg := err.Error()
 	errClass := classifyError(err)
-	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
 	addWorkerRunBreadcrumb(ctx, "worker.dispatch", "run failed", run, job, map[string]any{
 		"error_class":  errClass,
 		"max_attempts": policy.maxAttempts,
 	})
-	if recordErr := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); recordErr != nil {
-		e.logger.Warn("failed to record circuit breaker failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", recordErr)
-	}
-
-	// Record health score for failed dispatch.
-	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  stateKey,
-		Success:      false,
-		LatencyMs:    0,
-		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
-	}); hsErr != nil {
-		e.logger.Warn("failed to record health score failure", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
-	}
+	e.recordFailedDispatchSignals(ctx, job, false)
 
 	e.logger.Warn(
 		"run failed",
@@ -528,22 +538,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"timeout_secs": policy.timeoutSecs,
 		"max_attempts": policy.maxAttempts,
 	})
-	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
-
-	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
-	}
-
-	// Record health score for timeout (counts as failure with timeout flag).
-	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  stateKey,
-		Success:      false,
-		TimedOut:     true,
-		LatencyMs:    float64(job.TimeoutSecs * 1000),
-		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
-	}); hsErr != nil {
-		e.logger.Warn("failed to record health score timeout", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
-	}
+	e.recordFailedDispatchSignals(ctx, job, true)
 
 	e.logger.Warn(
 		"run timed out",
