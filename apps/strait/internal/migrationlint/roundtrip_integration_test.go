@@ -465,6 +465,23 @@ func TestMigrationRoundtrip_000313_DeprecateAgentGuardrailColumns(t *testing.T) 
 	})
 }
 
+func TestMigrationRoundtrip_000314_EnterpriseContractOverageTerms(t *testing.T) {
+	runRoundtrip(t, 314, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, stale := range []string{
+			"enterprise_contracts.included_credit_microusd",
+			"enterprise_contracts.compute_discount_pct",
+		} {
+			if postUp.columns[stale] {
+				t.Errorf("post-up: retired enterprise contract column %s should not exist", stale)
+			}
+		}
+		if !postUp.columns["enterprise_contracts.overage_discount_pct"] {
+			t.Error("post-up: enterprise_contracts.overage_discount_pct should exist")
+		}
+	})
+}
+
 // TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.
