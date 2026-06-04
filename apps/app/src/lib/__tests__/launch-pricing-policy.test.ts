@@ -75,4 +75,27 @@ describe("launch pricing app policy", () => {
       expect(Object.hasOwn(plan, "trial")).toBe(false);
     }
   });
+
+  it("keeps the webhook event picker aligned with launch billing events", () => {
+    const source = readFileSync(
+      join(appSrc, "routes/app/webhooks/new.tsx"),
+      "utf8"
+    );
+
+    for (const eventType of [
+      "billing.cap_warning",
+      "billing.cap_reached",
+      "billing.cap_disabled",
+      "billing.overage_disabled",
+      "billing.suspended",
+      "billing.delinquent",
+      "billing.payment_succeeded",
+      "schedule.suspended",
+      "workflow.registration_rejected",
+      "sla.credit_issued",
+    ]) {
+      expect(source).toContain(`value: "${eventType}"`);
+    }
+    expect(source).not.toContain("compute_budget_warning");
+  });
 });
