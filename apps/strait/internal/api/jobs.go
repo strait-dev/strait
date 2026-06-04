@@ -1694,7 +1694,6 @@ func (s *Server) handleResumeJob(ctx context.Context, input *ResumeJobInput) (*R
 
 // checkHTTPModeAllowed verifies that HTTP execution mode is allowed for the org's plan.
 // Returns nil if allowed, or a 400 error if the plan doesn't support HTTP mode.
-// Fails open on errors (returns nil) to avoid blocking jobs when billing is unavailable.
 func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.ExecutionMode, projectID string) error {
 	if mode != domain.ExecutionModeHTTP {
 		return nil
@@ -1705,12 +1704,15 @@ func (s *Server) checkHTTPModeAllowed(ctx context.Context, mode domain.Execution
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block job creation
+		if err != nil {
+			return planGateUnavailable("http_mode_org_lookup", err)
+		}
+		return nil
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: plan lookup failures must not block job creation
+		return planGateUnavailable("http_mode_plan_lookup", err)
 	}
 
 	if !limits.AllowsHTTPMode {

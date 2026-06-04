@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -13,9 +14,21 @@ import (
 type mockHTTPModeEnforcer struct {
 	mockBillingEnforcer
 	planLimits billing.OrgPlanLimits
+	orgErr     error
+	limitsErr  error
+}
+
+func (m *mockHTTPModeEnforcer) GetProjectOrgID(ctx context.Context, projectID string) (string, error) {
+	if m.orgErr != nil {
+		return "", m.orgErr
+	}
+	return m.mockBillingEnforcer.GetProjectOrgID(ctx, projectID)
 }
 
 func (m *mockHTTPModeEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
+	if m.limitsErr != nil {
+		return billing.OrgPlanLimits{}, m.limitsErr
+	}
 	return m.planLimits, nil
 }
 
@@ -124,6 +137,52 @@ func TestCheckHTTPModeAllowed_NoBillingEnforcerAllowed(t *testing.T) {
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	if err != nil {
 		t.Fatalf("expected no error with nil enforcer, got: %v", err)
+	}
+}
+
+func TestCheckHTTPModeAllowed_OrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockHTTPModeEnforcer{
+		mockBillingEnforcer: mockBillingEnforcer{
+			projectOrgMap: map[string]string{"proj-1": "org-1"},
+		},
+		orgErr: errors.New("org lookup unavailable"),
+	}
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: enforcer,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	if err == nil {
+		t.Fatal("expected org lookup error to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
+	}
+}
+
+func TestCheckHTTPModeAllowed_PlanLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &mockHTTPModeEnforcer{
+		mockBillingEnforcer: mockBillingEnforcer{
+			projectOrgMap: map[string]string{"proj-1": "org-1"},
+		},
+		limitsErr: errors.New("plan lookup unavailable"),
+	}
+	s := &Server{
+		edition:         domain.EditionCloud,
+		billingEnforcer: enforcer,
+	}
+
+	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
+	if err == nil {
+		t.Fatal("expected plan lookup error to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
 	}
 }
 
