@@ -482,6 +482,10 @@ func runServe(ctx context.Context, modeOverride string) error {
 		eventNotifier.SetRunCostRecorder(webhookCostRecorder)
 	}
 
+	if err := validateBillingEnforcerDependency(cfg, billingEnforcer); err != nil {
+		return err
+	}
+
 	if (cfg.BillingEnforcementEnabled || cfg.StripeWebhookSecret != "") && cfg.StripeWebhookSecret == "" {
 		slog.Warn("STRIPE_WEBHOOK_SECRET is empty -- Stripe webhook signature verification is DISABLED")
 	}
@@ -571,6 +575,13 @@ func runServe(ctx context.Context, modeOverride string) error {
 func validateBillingRedisDependency(cfg *config.Config, rdb *redis.Client) error {
 	if cfg != nil && cfg.BillingEnforcementEnabled && rdb == nil {
 		return fmt.Errorf("billing enforcement requires Redis; configure REDIS_URL or Redis Sentinel")
+	}
+	return nil
+}
+
+func validateBillingEnforcerDependency(cfg *config.Config, enforcer *billing.Enforcer) error {
+	if cfg != nil && cfg.BillingEnforcementEnabled && enforcer == nil {
+		return fmt.Errorf("billing enforcement requires billing enforcer")
 	}
 	return nil
 }
