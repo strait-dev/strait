@@ -112,6 +112,15 @@ func TestTriggerAdmissionContentionMapsToRetryable429(t *testing.T) {
 	}
 }
 
+func TestClassifyTriggerAdmissionLockError_DeadlockIsContention(t *testing.T) {
+	t.Parallel()
+
+	err := classifyTriggerAdmissionLockError(&pgconn.PgError{Code: "40P01"})
+	if !errors.Is(err, errTriggerAdmissionContended) {
+		t.Fatalf("classifyTriggerAdmissionLockError() = %v, want errTriggerAdmissionContended", err)
+	}
+}
+
 func BenchmarkTriggerAdmissionRowLocks(b *testing.B) {
 	job := &domain.Job{
 		ID:                  "job-1",
