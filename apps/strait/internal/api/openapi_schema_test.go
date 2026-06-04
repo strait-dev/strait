@@ -65,7 +65,7 @@ func TestOpenAPISchema_IncludesAuditAdminEndpoints(t *testing.T) {
 	}
 }
 
-func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T) {
+func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
@@ -97,6 +97,11 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"sdk-tool-call",
 		"sdk-iteration",
 		"tool_calls",
+		"input_tokens",
+		"output_tokens",
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
 		"max_tokens_per_run",
 		"max_tool_calls_per_run",
 		"max_iterations_per_run",
@@ -112,6 +117,12 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"compute_cost_microusd",
 		"compute_microusd",
 		"by_model",
+		"BYOK",
+		"OpenAI",
+		"Anthropic",
+		"LLM",
+		"model_usage",
+		"model usage",
 		"max_runs_per_day",
 		"has_sso",
 		"has_scim",
@@ -132,12 +143,12 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"machine_id",
 	} {
 		if strings.Contains(raw, stale) {
-			t.Fatalf("openapi spec contains removed code-deployment surface %q", stale)
+			t.Fatalf("openapi spec contains removed launch surface %q", stale)
 		}
 	}
 	for _, stale := range retiredCostFields {
 		if strings.Contains(raw, stale) {
-			t.Fatalf("openapi spec contains removed code-deployment surface %q", stale)
+			t.Fatalf("openapi spec contains removed launch surface %q", stale)
 		}
 	}
 }
