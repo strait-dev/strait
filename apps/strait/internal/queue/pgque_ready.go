@@ -133,25 +133,3 @@ func (q *PgQueQueue) tickReadyRoute(ctx context.Context, run *domain.JobRun) err
 	}
 	return nil
 }
-
-func (q *PgQueQueue) tickReadyRoutes(ctx context.Context, runs []*domain.JobRun) error {
-	seen := make(map[string]struct{}, len(runs))
-	for _, run := range runs {
-		if run == nil || run.Status != domain.StatusQueued {
-			continue
-		}
-		routeKey, err := q.routeKeyForRun(ctx, q.db, run)
-		if err != nil {
-			return err
-		}
-		if _, ok := seen[routeKey]; ok {
-			continue
-		}
-		seen[routeKey] = struct{}{}
-		queueName := pgQueQueueName(routeKey)
-		if err := q.pgque(q.db).ticker(ctx, queueName); err != nil {
-			return fmt.Errorf("pgque tick ready route %s: %w", routeKey, err)
-		}
-	}
-	return nil
-}
