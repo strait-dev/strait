@@ -339,6 +339,33 @@ type retryRequeueLogMessages struct {
 	success         string
 }
 
+type failedDispatchSignalKind int
+
+const (
+	failedDispatchSignalFailure failedDispatchSignalKind = iota
+	failedDispatchSignalTimeout
+)
+
+func (k failedDispatchSignalKind) logName() string {
+	switch k {
+	case failedDispatchSignalTimeout:
+		return "timeout"
+	default:
+		return "failure"
+	}
+}
+
+func (k failedDispatchSignalKind) timedOut() bool {
+	return k == failedDispatchSignalTimeout
+}
+
+func (k failedDispatchSignalKind) latencyMs(job *domain.Job) float64 {
+	if k.timedOut() {
+		return float64(job.TimeoutSecs * 1000)
+	}
+	return 0
+}
+
 func (e *Executor) requeueRunForRetry(
 	ctx context.Context,
 	run *domain.JobRun,
@@ -384,26 +411,21 @@ func (e *Executor) requeueRunForRetry(
 	return true
 }
 
-func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, timedOut bool) {
+func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, kind failedDispatchSignalKind) {
 	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
-	failureKind := "failure"
-	latencyMs := 0.0
-	if timedOut {
-		failureKind = "timeout"
-		latencyMs = float64(job.TimeoutSecs * 1000)
-	}
+	logName := kind.logName()
 
 	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker "+failureKind, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
+		e.logger.Warn("failed to record circuit breaker "+logName, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
 	}
 	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
 		EndpointURL:  stateKey,
 		Success:      false,
-		TimedOut:     timedOut,
-		LatencyMs:    latencyMs,
+		TimedOut:     kind.timedOut(),
+		LatencyMs:    kind.latencyMs(job),
 		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
 	}); hsErr != nil {
-		e.logger.Warn("failed to record health score "+failureKind, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
+		e.logger.Warn("failed to record health score "+logName, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
 	}
 }
 
@@ -417,7 +439,7 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		"error_class":  errClass,
 		"max_attempts": policy.maxAttempts,
 	})
-	e.recordFailedDispatchSignals(ctx, job, false)
+	e.recordFailedDispatchSignals(ctx, job, failedDispatchSignalFailure)
 
 	e.logger.Warn(
 		"run failed",
@@ -538,7 +560,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"timeout_secs": policy.timeoutSecs,
 		"max_attempts": policy.maxAttempts,
 	})
-	e.recordFailedDispatchSignals(ctx, job, true)
+	e.recordFailedDispatchSignals(ctx, job, failedDispatchSignalTimeout)
 
 	e.logger.Warn(
 		"run timed out",
