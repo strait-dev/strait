@@ -345,6 +345,61 @@ func TestSuccessfulRunTransition_EmptyResultSkipsOptionalFields(t *testing.T) {
 	}
 }
 
+func TestSuccessfulDispatchSignals_WithEndpoint(t *testing.T) {
+	t.Parallel()
+
+	job := &domain.Job{
+		ID:          "job-1",
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+		TimeoutSecs: 30,
+	}
+	transition := successfulRunTransition{execDur: 1500 * time.Millisecond}
+
+	signals := newSuccessfulDispatchSignals(job, transition, true)
+
+	if signals.endpointKey != endpointStateKey(job.ProjectID, job.EndpointURL) {
+		t.Fatalf("endpointKey = %q, want %q", signals.endpointKey, endpointStateKey(job.ProjectID, job.EndpointURL))
+	}
+	if signals.endpointURL != job.EndpointURL {
+		t.Fatalf("endpointURL = %q, want %q", signals.endpointURL, job.EndpointURL)
+	}
+	if !signals.recordCircuitSuccess {
+		t.Fatal("expected endpoint success to be recorded")
+	}
+	if signals.result.EndpointURL != signals.endpointKey {
+		t.Fatalf("result endpoint = %q, want %q", signals.result.EndpointURL, signals.endpointKey)
+	}
+	if !signals.result.Success {
+		t.Fatal("result success = false, want true")
+	}
+	if signals.result.LatencyMs != 1500 {
+		t.Fatalf("latency = %v, want 1500", signals.result.LatencyMs)
+	}
+	if signals.result.JobTimeoutMs != 30000 {
+		t.Fatalf("timeout = %v, want 30000", signals.result.JobTimeoutMs)
+	}
+}
+
+func TestSuccessfulDispatchSignals_SkipsCircuitSuccessWithoutEndpointOrFallback(t *testing.T) {
+	t.Parallel()
+
+	transition := successfulRunTransition{execDur: time.Second}
+
+	withoutEndpoint := newSuccessfulDispatchSignals(&domain.Job{ProjectID: "project-1"}, transition, true)
+	if withoutEndpoint.recordCircuitSuccess {
+		t.Fatal("empty endpoint should not record circuit success")
+	}
+
+	withTx := newSuccessfulDispatchSignals(&domain.Job{
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+	}, transition, false)
+	if withTx.recordCircuitSuccess {
+		t.Fatal("transactional completion should not record fallback circuit success")
+	}
+}
+
 // Handler integration tests.
 
 func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {

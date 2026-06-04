@@ -107,21 +107,7 @@ func (e *Executor) handleSuccessWithStats(
 		)
 		return false
 	}
-	if e.txPool == nil && job.EndpointURL != "" {
-		if err := e.store.RecordEndpointCircuitSuccess(ctx, endpointStateKey(job.ProjectID, job.EndpointURL)); err != nil {
-			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
-		}
-	}
-
-	// Record health score for successful dispatch.
-	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  endpointStateKey(job.ProjectID, job.EndpointURL),
-		Success:      true,
-		LatencyMs:    float64(transition.execDur.Milliseconds()),
-		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
-	}); hsErr != nil {
-		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
-	}
+	e.recordSuccessfulDispatchSignals(ctx, job, transition)
 
 	e.logger.Info(
 		"run completed",
@@ -198,6 +184,40 @@ func (e *Executor) newSuccessfulRunTransition(
 		fields:   fields,
 		finished: finished,
 		execDur:  execDur,
+	}
+}
+
+type successfulDispatchSignals struct {
+	endpointKey          string
+	endpointURL          string
+	recordCircuitSuccess bool
+	result               DispatchResult
+}
+
+func newSuccessfulDispatchSignals(job *domain.Job, transition successfulRunTransition, recordCircuitSuccess bool) successfulDispatchSignals {
+	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	return successfulDispatchSignals{
+		endpointKey:          endpointKey,
+		endpointURL:          job.EndpointURL,
+		recordCircuitSuccess: recordCircuitSuccess && job.EndpointURL != "",
+		result: DispatchResult{
+			EndpointURL:  endpointKey,
+			Success:      true,
+			LatencyMs:    float64(transition.execDur.Milliseconds()),
+			JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+		},
+	}
+}
+
+func (e *Executor) recordSuccessfulDispatchSignals(ctx context.Context, job *domain.Job, transition successfulRunTransition) {
+	signals := newSuccessfulDispatchSignals(job, transition, e.txPool == nil)
+	if signals.recordCircuitSuccess {
+		if err := e.store.RecordEndpointCircuitSuccess(ctx, signals.endpointKey); err != nil {
+			e.logger.Warn("failed to record circuit breaker success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
+		}
+	}
+	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
+		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
 	}
 }
 
