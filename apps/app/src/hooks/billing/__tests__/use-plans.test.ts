@@ -127,7 +127,6 @@ const basePlan = {
   max_members_per_org: -1,
   max_runs_per_month: 25_000_000,
   max_concurrent_runs: 500,
-  compute_credit_microusd: 499_000_000,
   retention_days: 90,
   allowed_regions: null,
   max_webhook_subs_per_project: -1,

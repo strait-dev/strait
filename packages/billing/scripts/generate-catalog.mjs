@@ -173,7 +173,7 @@ function toPlanTs(plan) {
     prices: { monthly: plan.prices.monthlyCents, yearly: annual },
     trial: false,
     creditCardRequired: plan.creditCardRequired,
-    computeCredit:
+    includedRuns:
       limits.runsPerMonth === -1
         ? "Custom"
         : `${limits.runsPerMonth.toLocaleString("en-US")} orchestration runs/mo`,
@@ -232,10 +232,6 @@ function toApiPlan(plan) {
     max_projects_per_org: limits.projects,
     max_members_per_org: limits.members,
     max_runs_per_month: limits.runsPerMonth,
-    compute_credit_microusd:
-      plan.tier === "free"
-        ? 1_000_000
-        : Math.max(plan.prices.monthlyCents, 0) * 10_000,
     overage_per_k_runs_microusd: plan.overage.microusdPer1K,
     max_concurrent_runs: limits.concurrentRuns,
     retention_days: limits.retentionDays,
@@ -308,7 +304,7 @@ export type Plan = {
   prices: { monthly: number; yearly: number };
   trial: boolean;
   creditCardRequired: boolean;
-  computeCredit: string;
+  includedRuns: string;
   features: string[];
   roadmapFeatures: string[];
   limits: {
@@ -354,7 +350,6 @@ export type PlanApiResponse = {
   max_projects_per_org: number;
   max_members_per_org: number;
   max_runs_per_month: number;
-  compute_credit_microusd: number;
   overage_per_k_runs_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;

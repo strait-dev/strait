@@ -102,6 +102,7 @@ func TestOpenAPISchema_DoesNotExposeRemovedCodeDeploymentEndpoints(t *testing.T)
 		"max_iterations_per_run",
 		"allowed_tools",
 		"blocked_tools",
+		"compute_credit_microusd",
 		"by_model",
 		"max_runs_per_day",
 		"has_sso",

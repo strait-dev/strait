@@ -6610,8 +6610,6 @@ export type components = {
       /** Format: int64 */
       api_rate_limit: number;
       /** Format: int64 */
-      compute_credit_microusd: number;
-      /** Format: int64 */
       cron_min_interval_sec: number;
       display_name: string;
       has_approval_gates: boolean;

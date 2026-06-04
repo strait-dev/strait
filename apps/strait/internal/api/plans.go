@@ -27,7 +27,6 @@ type PlanResponse struct {
 	MaxMembersPerOrg         int      `json:"max_members_per_org"`
 	MaxRunsPerMonth          int      `json:"max_runs_per_month"`
 	MaxConcurrentRuns        int      `json:"max_concurrent_runs"`
-	ComputeCreditMicrousd    int64    `json:"compute_credit_microusd"`
 	RetentionDays            int      `json:"retention_days"`
 	AllowedRegions           []string `json:"allowed_regions"`
 	MaxWebhookSubsPerProject int      `json:"max_webhook_subs_per_project"`
@@ -85,7 +84,6 @@ func planResponseForTier(tier domain.PlanTier) PlanResponse {
 		MaxMembersPerOrg:         limits.MaxMembersPerOrg,
 		MaxRunsPerMonth:          limits.MaxRunsPerMonth,
 		MaxConcurrentRuns:        limits.MaxConcurrentRuns,
-		ComputeCreditMicrousd:    computeCreditForPlan(tier),
 		RetentionDays:            limits.RetentionDays,
 		AllowedRegions:           limits.AllowedRegions,
 		MaxWebhookSubsPerProject: limits.MaxWebhookSubsPerProj,
@@ -111,22 +109,5 @@ func planResponseForTier(tier domain.PlanTier) PlanResponse {
 		APIRateLimit:             limits.APIRateLimit,
 		WorkerConnections:        limits.WorkerConnections,
 		RoadmapFeatures:          append([]string(nil), catalog.RoadmapFeatures...),
-	}
-}
-
-func computeCreditForPlan(tier domain.PlanTier) int64 {
-	switch tier {
-	case domain.PlanFree:
-		return billing.CreditFreeMicrousd
-	case domain.PlanStarter:
-		return billing.CreditStarterMicrousd
-	case domain.PlanPro:
-		return billing.CreditProMicrousd
-	case domain.PlanScale:
-		return billing.CreditScaleMicrousd
-	case domain.PlanBusiness:
-		return billing.CreditBusinessMicrousd
-	default:
-		return 0
 	}
 }

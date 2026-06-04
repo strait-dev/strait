@@ -22,6 +22,7 @@ const removedPublicApiMarkers = [
   "output_tokens",
   "prompt_tokens",
   "completion_tokens",
+  "compute_credit_microusd",
   "by_model",
   "has_sso",
   "has_scim",

@@ -35,7 +35,7 @@ export type Plan = {
   prices: { monthly: number; yearly: number };
   trial: boolean;
   creditCardRequired: boolean;
-  computeCredit: string;
+  includedRuns: string;
   features: string[];
   roadmapFeatures: string[];
   limits: {
@@ -81,7 +81,6 @@ export type PlanApiResponse = {
   max_projects_per_org: number;
   max_members_per_org: number;
   max_runs_per_month: number;
-  compute_credit_microusd: number;
   overage_per_k_runs_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
@@ -169,7 +168,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: false,
-    computeCredit: "5,000 orchestration runs/mo",
+    includedRuns: "5,000 orchestration runs/mo",
     features: [
       "5,000 orchestration runs/mo",
       "3 concurrent runs",
@@ -223,7 +222,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: true,
-    computeCredit: "50,000 orchestration runs/mo",
+    includedRuns: "50,000 orchestration runs/mo",
     features: [
       "50,000 orchestration runs/mo",
       "15 concurrent runs",
@@ -276,7 +275,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: true,
-    computeCredit: "1,000,000 orchestration runs/mo",
+    includedRuns: "1,000,000 orchestration runs/mo",
     features: [
       "1,000,000 orchestration runs/mo",
       "100 concurrent runs",
@@ -330,7 +329,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: true,
-    computeCredit: "5,000,000 orchestration runs/mo",
+    includedRuns: "5,000,000 orchestration runs/mo",
     features: [
       "5,000,000 orchestration runs/mo",
       "300 concurrent runs",
@@ -383,7 +382,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: true,
-    computeCredit: "25,000,000 orchestration runs/mo",
+    includedRuns: "25,000,000 orchestration runs/mo",
     features: [
       "25,000,000 orchestration runs/mo",
       "500 concurrent runs",
@@ -443,7 +442,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     },
     trial: false,
     creditCardRequired: false,
-    computeCredit: "Custom",
+    includedRuns: "Custom",
     features: [
       "50M+ orchestration runs/mo",
       "Custom concurrency, step caps, and history",
@@ -509,7 +508,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: 1,
     max_members_per_org: 1,
     max_runs_per_month: 5000,
-    compute_credit_microusd: 1_000_000,
     overage_per_k_runs_microusd: 500_000,
     max_concurrent_runs: 3,
     retention_days: 7,
@@ -546,7 +544,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: 3,
     max_members_per_org: 3,
     max_runs_per_month: 50_000,
-    compute_credit_microusd: 19_000_000,
     overage_per_k_runs_microusd: 400_000,
     max_concurrent_runs: 15,
     retention_days: 14,
@@ -583,7 +580,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: 10,
     max_members_per_org: 10,
     max_runs_per_month: 1_000_000,
-    compute_credit_microusd: 99_000_000,
     overage_per_k_runs_microusd: 200_000,
     max_concurrent_runs: 100,
     retention_days: 30,
@@ -620,7 +616,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: 50,
     max_members_per_org: 50,
     max_runs_per_month: 5_000_000,
-    compute_credit_microusd: 299_000_000,
     overage_per_k_runs_microusd: 60_000,
     max_concurrent_runs: 300,
     retention_days: 60,
@@ -657,7 +652,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: -1,
     max_members_per_org: -1,
     max_runs_per_month: 25_000_000,
-    compute_credit_microusd: 499_000_000,
     overage_per_k_runs_microusd: 30_000,
     max_concurrent_runs: 500,
     retention_days: 90,
@@ -701,7 +695,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_projects_per_org: -1,
     max_members_per_org: -1,
     max_runs_per_month: -1,
-    compute_credit_microusd: 0,
     overage_per_k_runs_microusd: 30_000,
     max_concurrent_runs: -1,
     retention_days: -1,
