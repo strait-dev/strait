@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+var pgQueQueueNameBenchmarkSink string
 var pgQueRouteBenchmarkSink []string
 
 func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
@@ -27,6 +28,27 @@ func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
 	}
 	if !strings.HasPrefix(first, pgQueQueuePrefix) {
 		t.Fatalf("queue name = %q, want prefix %q", first, pgQueQueuePrefix)
+	}
+
+	if got := pgQueQueueName(pgQueHTTPRouteKey); got != "stq_e0603c499aae47eb89343ad0ef3178e0" {
+		t.Fatalf("http queue name = %q", got)
+	}
+	workerRoute := pgQueWorkerRouteKey("project-a", "critical", "prod")
+	if got := pgQueQueueName(workerRoute); got != "stq_27d44f587337af384a66c080216b17d5" {
+		t.Fatalf("worker queue name = %q", got)
+	}
+}
+
+func BenchmarkPgQueQueueName(b *testing.B) {
+	routeKey := pgQueWorkerRouteKey(
+		strings.Repeat("project", 20),
+		strings.Repeat("queue", 20),
+		strings.Repeat("env", 20),
+	)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueQueueNameBenchmarkSink = pgQueQueueName(routeKey)
 	}
 }
 

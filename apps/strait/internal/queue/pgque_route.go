@@ -22,7 +22,10 @@ const (
 
 func pgQueQueueName(routeKey string) string {
 	sum := sha256.Sum256([]byte(routeKey))
-	return pgQueQueuePrefix + hex.EncodeToString(sum[:])[:32]
+	var queueName [len(pgQueQueuePrefix) + 32]byte
+	copy(queueName[:], pgQueQueuePrefix)
+	hex.Encode(queueName[len(pgQueQueuePrefix):], sum[:16])
+	return string(queueName[:])
 }
 
 func pgQueRouteKeyForRun(run *domain.JobRun) string {
