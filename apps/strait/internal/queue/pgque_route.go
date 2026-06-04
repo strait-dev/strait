@@ -156,6 +156,41 @@ func (q *PgQueQueue) routeKeyForRun(ctx context.Context, db store.DBTX, run *dom
 	return pgQueWorkerRouteKey(run.ProjectID, queueName, environmentID), nil
 }
 
+type pgQueWorkerJobRoute struct {
+	queueName     string
+	environmentID string
+}
+
+func (q *PgQueQueue) workerJobRoutes(ctx context.Context, db store.DBTX, jobIDs []string) (map[string]pgQueWorkerJobRoute, error) {
+	routes := make(map[string]pgQueWorkerJobRoute, len(jobIDs))
+	if len(jobIDs) == 0 {
+		return routes, nil
+	}
+	rows, err := db.Query(ctx, `
+		SELECT id,
+		       COALESCE(NULLIF(queue_name, ''), 'default'),
+		       COALESCE(environment_id, '')
+		FROM jobs
+		WHERE id = ANY($1::text[])`, jobIDs)
+	if err != nil {
+		return nil, fmt.Errorf("pgque worker route lookup: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var jobID string
+		var route pgQueWorkerJobRoute
+		if err := rows.Scan(&jobID, &route.queueName, &route.environmentID); err != nil {
+			return nil, fmt.Errorf("pgque worker route scan: %w", err)
+		}
+		routes[jobID] = route
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("pgque worker route rows: %w", err)
+	}
+	return routes, nil
+}
+
 func (q *PgQueQueue) readyGeneration(ctx context.Context, db store.DBTX, runID string) (int64, error) {
 	var generation int64
 	if err := db.QueryRow(ctx, `SELECT ready_generation FROM job_run_state WHERE run_id = $1`, runID).Scan(&generation); err != nil {

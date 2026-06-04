@@ -43,21 +43,9 @@ func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *dom
 }
 
 func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) error {
-	readyRuns := make([]pgQueReadyRun, 0, len(runs))
-	runIDs := make([]string, 0, len(runs))
-	for _, run := range runs {
-		if run == nil || run.Status != domain.StatusQueued {
-			continue
-		}
-		routeKey, err := q.routeKeyForRun(ctx, db, run)
-		if err != nil {
-			return err
-		}
-		readyRuns = append(readyRuns, pgQueReadyRun{
-			run:      run,
-			routeKey: routeKey,
-		})
-		runIDs = append(runIDs, run.ID)
+	readyRuns, runIDs, err := q.readyRunsForEvents(ctx, db, runs)
+	if err != nil {
+		return err
 	}
 	generations, err := q.readyGenerations(ctx, db, runIDs)
 	if err != nil {
@@ -98,6 +86,61 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 		return err
 	}
 	return nil
+}
+
+func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) ([]pgQueReadyRun, []string, error) {
+	readyRuns := make([]pgQueReadyRun, 0, len(runs))
+	runIDs := make([]string, 0, len(runs))
+	workerJobIDs := make([]string, 0)
+	var seenWorkerJobs map[string]struct{}
+	for _, run := range runs {
+		if run == nil || run.Status != domain.StatusQueued {
+			continue
+		}
+		readyRuns = append(readyRuns, pgQueReadyRun{run: run})
+		runIDs = append(runIDs, run.ID)
+		if run.ExecutionMode != domain.ExecutionModeWorker {
+			continue
+		}
+		if run.JobID == "" {
+			return nil, nil, fmt.Errorf("pgque worker route lookup: missing job id for run %s", run.ID)
+		}
+		if seenWorkerJobs == nil {
+			seenWorkerJobs = make(map[string]struct{}, len(runs))
+		}
+		if _, ok := seenWorkerJobs[run.JobID]; ok {
+			continue
+		}
+		seenWorkerJobs[run.JobID] = struct{}{}
+		workerJobIDs = append(workerJobIDs, run.JobID)
+	}
+	if len(workerJobIDs) == 0 {
+		for i := range readyRuns {
+			readyRuns[i].routeKey = pgQueHTTPRouteKey
+		}
+		return readyRuns, runIDs, nil
+	}
+	workerRoutes, err := q.workerJobRoutes(ctx, db, workerJobIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range readyRuns {
+		run := readyRuns[i].run
+		if run.ExecutionMode != domain.ExecutionModeWorker {
+			readyRuns[i].routeKey = pgQueHTTPRouteKey
+			continue
+		}
+		route, ok := workerRoutes[run.JobID]
+		if !ok {
+			return nil, nil, fmt.Errorf("pgque worker route lookup: missing job %s", run.JobID)
+		}
+		queueName := runQueueName(run.QueueName)
+		if run.QueueName == "" {
+			queueName = route.queueName
+		}
+		readyRuns[i].routeKey = pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+	}
+	return readyRuns, runIDs, nil
 }
 
 type pgQueReadyRun struct {

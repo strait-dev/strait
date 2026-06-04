@@ -864,6 +864,147 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 	})
 }
 
+func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
+	ctx := context.Background()
+	var jobRouteQueries int
+	var generationQueries int
+	var queryRowCalls int
+	var recordCalls int
+	gotJobIDs := []string{}
+	sentEvents := map[string]pgQueReadyEvent{}
+
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+			switch {
+			case strings.Contains(sql, "FROM jobs"):
+				jobRouteQueries++
+				if len(args) != 1 {
+					t.Fatalf("worker route args = %+v, want job ids", args)
+				}
+				jobIDs, ok := args[0].([]string)
+				if !ok {
+					t.Fatalf("worker route arg type = %T, want []string", args[0])
+				}
+				gotJobIDs = append([]string(nil), jobIDs...)
+				return &pgQueWorkerJobRouteRows{
+					values: []pgQueWorkerJobRouteRow{
+						{jobID: "job-a", queueName: "default", environmentID: "prod"},
+						{jobID: "job-b", queueName: "bulk"},
+					},
+				}, nil
+			case strings.Contains(sql, "FROM job_run_state"):
+				generationQueries++
+				return &pgQueGenerationRows{
+					values: []pgQueGenerationRow{
+						{runID: "run-a", generation: 11},
+						{runID: "run-b", generation: 12},
+						{runID: "run-c", generation: 13},
+					},
+				}, nil
+			default:
+				t.Fatalf("unexpected Query SQL = %q", sql)
+				return nil, nil
+			}
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queryRowCalls++
+			t.Fatalf("unexpected per-run QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+			if strings.Contains(sql, "strait_pgque_ready_events") {
+				recordCalls++
+				return pgconn.CommandTag{}, nil
+			}
+			if !strings.Contains(sql, "pgque.send_batch") {
+				t.Fatalf("unexpected Exec SQL = %q", sql)
+			}
+			payloads, ok := args[2].([]string)
+			if !ok {
+				t.Fatalf("pgque.send_batch payload arg type = %T, want []string", args[2])
+			}
+			for _, payload := range payloads {
+				var event pgQueReadyEvent
+				if err := json.Unmarshal([]byte(payload), &event); err != nil {
+					t.Fatalf("ready payload is not JSON: %v", err)
+				}
+				sentEvents[event.RunID] = event
+			}
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	q.routeState(pgQueWorkerRouteKey("project-a", "default", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-a", "critical", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-b", "bulk", "")).configured.Store(true)
+
+	runs := []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, Priority: 9, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, Priority: 8, ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"},
+		{ID: "run-c", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, Priority: 7, ExecutionMode: domain.ExecutionModeWorker},
+	}
+	if err := q.sendReadyEvents(ctx, db, runs); err != nil {
+		t.Fatalf("sendReadyEvents() error = %v", err)
+	}
+
+	if jobRouteQueries != 1 {
+		t.Fatalf("worker route queries = %d, want 1", jobRouteQueries)
+	}
+	if !slices.Equal(gotJobIDs, []string{"job-a", "job-b"}) {
+		t.Fatalf("worker route job ids = %v, want deduped job-a/job-b", gotJobIDs)
+	}
+	if generationQueries != 1 {
+		t.Fatalf("ready generation queries = %d, want 1", generationQueries)
+	}
+	if queryRowCalls != 0 {
+		t.Fatalf("per-run QueryRow calls = %d, want 0", queryRowCalls)
+	}
+	if recordCalls != 1 {
+		t.Fatalf("ready emit marker calls = %d, want 1", recordCalls)
+	}
+	if len(sentEvents) != 3 {
+		t.Fatalf("sent events = %d, want 3", len(sentEvents))
+	}
+	wantEvents := map[string]pgQueReadyEvent{
+		"run-a": {RunID: "run-a", RouteKey: pgQueWorkerRouteKey("project-a", "default", "prod"), Generation: 11, Priority: 9},
+		"run-b": {RunID: "run-b", RouteKey: pgQueWorkerRouteKey("project-a", "critical", "prod"), Generation: 12, Priority: 8},
+		"run-c": {RunID: "run-c", RouteKey: pgQueWorkerRouteKey("project-b", "bulk", ""), Generation: 13, Priority: 7},
+	}
+	for runID, want := range wantEvents {
+		if got := sentEvents[runID]; got != want {
+			t.Fatalf("ready event for %s = %+v, want %+v", runID, got, want)
+		}
+	}
+}
+
+func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "FROM jobs") {
+				t.Fatalf("unexpected Query SQL = %q", sql)
+			}
+			return &pgQueWorkerJobRouteRows{
+				values: []pgQueWorkerJobRouteRow{
+					{jobID: "job-a", queueName: "default"},
+				},
+			}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	_, _, err := q.readyRunsForEvents(ctx, db, []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+	})
+	if err == nil {
+		t.Fatal("readyRunsForEvents() error = nil, want missing job error")
+	}
+	if !strings.Contains(err.Error(), "missing job job-b") {
+		t.Fatalf("readyRunsForEvents() error = %v, want missing job-b", err)
+	}
+}
+
 func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
@@ -1049,6 +1190,54 @@ type pgQueGenerationRow struct {
 	runID      string
 	generation int64
 }
+
+type pgQueWorkerJobRouteRow struct {
+	jobID         string
+	queueName     string
+	environmentID string
+}
+
+type pgQueWorkerJobRouteRows struct {
+	values []pgQueWorkerJobRouteRow
+	idx    int
+}
+
+func (r *pgQueWorkerJobRouteRows) Close()                                       {}
+func (r *pgQueWorkerJobRouteRows) Err() error                                   { return nil }
+func (r *pgQueWorkerJobRouteRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (r *pgQueWorkerJobRouteRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (r *pgQueWorkerJobRouteRows) Next() bool {
+	if r.idx >= len(r.values) {
+		return false
+	}
+	r.idx++
+	return true
+}
+func (r *pgQueWorkerJobRouteRows) Scan(dest ...any) error {
+	if len(dest) != 3 {
+		return errors.New("pgQueWorkerJobRouteRows: expected three destinations")
+	}
+	jobID, ok := dest[0].(*string)
+	if !ok {
+		return errors.New("pgQueWorkerJobRouteRows: job id destination is not *string")
+	}
+	queueName, ok := dest[1].(*string)
+	if !ok {
+		return errors.New("pgQueWorkerJobRouteRows: queue destination is not *string")
+	}
+	environmentID, ok := dest[2].(*string)
+	if !ok {
+		return errors.New("pgQueWorkerJobRouteRows: environment destination is not *string")
+	}
+	row := r.values[r.idx-1]
+	*jobID = row.jobID
+	*queueName = row.queueName
+	*environmentID = row.environmentID
+	return nil
+}
+func (r *pgQueWorkerJobRouteRows) Values() ([]any, error) { return nil, nil }
+func (r *pgQueWorkerJobRouteRows) RawValues() [][]byte    { return nil }
+func (r *pgQueWorkerJobRouteRows) Conn() *pgx.Conn        { return nil }
 
 type pgQueGenerationRows struct {
 	values []pgQueGenerationRow
