@@ -41,27 +41,64 @@ func (q *Queries) ClaimWorkflowProgressionEvents(ctx context.Context, limit int)
 		limit = 100
 	}
 	rows, err := q.db.Query(ctx, `
-		WITH claimed AS (
-			SELECT id
-			FROM workflow_progression_events
-			WHERE processed_at IS NULL
-			  AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '30 seconds')
-			ORDER BY created_at ASC
+		WITH stale_candidates AS (
+			SELECT claim.event_id
+			FROM workflow_progression_event_claims claim
+			JOIN workflow_progression_events wpe ON wpe.id = claim.event_id
+			WHERE claim.locked_at < NOW() - INTERVAL '30 seconds'
+			  AND wpe.processed_at IS NULL
+			  AND NOT EXISTS (
+			      SELECT 1
+			      FROM workflow_progression_event_processed processed
+			      WHERE processed.event_id = wpe.id
+			  )
+			ORDER BY claim.locked_at ASC, claim.event_id ASC
 			LIMIT $1
-			FOR UPDATE SKIP LOCKED
+			FOR UPDATE OF claim SKIP LOCKED
 		),
-		updated AS (
-			UPDATE workflow_progression_events wpe
+		reclaimed AS (
+			UPDATE workflow_progression_event_claims claim
 			SET locked_at = NOW(),
-			    attempts = attempts + 1,
-			    updated_at = NOW()
-			FROM claimed
-			WHERE wpe.id = claimed.id
-			RETURNING wpe.id, wpe.workflow_run_id, wpe.step_run_id, wpe.step_ref, wpe.status, wpe.attempts, wpe.created_at
+			    attempts = attempts + 1
+			FROM stale_candidates
+			WHERE claim.event_id = stale_candidates.event_id
+			RETURNING claim.event_id, claim.attempts
+		),
+		claim_budget AS (
+			SELECT GREATEST($1::int - COUNT(*), 0)::int AS remaining
+			FROM reclaimed
+		),
+		candidates AS (
+			SELECT wpe.id
+			FROM workflow_progression_events wpe
+			CROSS JOIN claim_budget
+			LEFT JOIN workflow_progression_event_claims claim ON claim.event_id = wpe.id
+			LEFT JOIN workflow_progression_event_processed processed ON processed.event_id = wpe.id
+			WHERE wpe.processed_at IS NULL
+			  AND processed.event_id IS NULL
+			  AND claim.event_id IS NULL
+			ORDER BY wpe.created_at ASC
+			LIMIT (SELECT remaining FROM claim_budget)
+			FOR UPDATE OF wpe SKIP LOCKED
+		),
+		inserted AS (
+			INSERT INTO workflow_progression_event_claims (event_id, locked_at, attempts)
+			SELECT id, NOW(), 1
+			FROM candidates
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_id, attempts
+		),
+		claimed AS (
+			SELECT event_id, attempts
+			FROM reclaimed
+			UNION ALL
+			SELECT event_id, attempts
+			FROM inserted
 		)
-		SELECT id, workflow_run_id, step_run_id, step_ref, status, attempts, created_at
-		FROM updated
-		ORDER BY created_at ASC
+		SELECT wpe.id, wpe.workflow_run_id, wpe.step_run_id, wpe.step_ref, wpe.status, claimed.attempts, wpe.created_at
+		FROM claimed
+		JOIN workflow_progression_events wpe ON wpe.id = claimed.event_id
+		ORDER BY wpe.created_at ASC
 	`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("claim workflow progression events: %w", err)
@@ -84,9 +121,18 @@ func (q *Queries) MarkWorkflowProgressionEventProcessed(ctx context.Context, id 
 	defer span.End()
 
 	_, err := q.db.Exec(ctx, `
-		UPDATE workflow_progression_events
-		SET processed_at = NOW(), updated_at = NOW()
-		WHERE id = $1
+		WITH inserted AS (
+			INSERT INTO workflow_progression_event_processed (event_id, processed_at)
+			SELECT id, NOW()
+			FROM workflow_progression_events
+			WHERE id = $1
+			  AND processed_at IS NULL
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_id
+		)
+		DELETE FROM workflow_progression_event_claims claim
+		USING inserted
+		WHERE claim.event_id = inserted.event_id
 	`, id)
 	if err != nil {
 		return fmt.Errorf("mark workflow progression event processed: %w", err)
@@ -102,9 +148,18 @@ func (q *Queries) MarkWorkflowProgressionEventsProcessed(ctx context.Context, id
 		return nil
 	}
 	_, err := q.db.Exec(ctx, `
-		UPDATE workflow_progression_events
-		SET processed_at = NOW(), updated_at = NOW()
-		WHERE id = ANY($1)
+		WITH inserted AS (
+			INSERT INTO workflow_progression_event_processed (event_id, processed_at)
+			SELECT id, NOW()
+			FROM workflow_progression_events
+			WHERE id = ANY($1)
+			  AND processed_at IS NULL
+			ON CONFLICT (event_id) DO NOTHING
+			RETURNING event_id
+		)
+		DELETE FROM workflow_progression_event_claims claim
+		USING inserted
+		WHERE claim.event_id = inserted.event_id
 	`, ids)
 	if err != nil {
 		return fmt.Errorf("mark workflow progression events processed: %w", err)
@@ -114,9 +169,16 @@ func (q *Queries) MarkWorkflowProgressionEventsProcessed(ctx context.Context, id
 
 func (q *Queries) ReleaseWorkflowProgressionEvent(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, `
-		UPDATE workflow_progression_events
-		SET locked_at = NULL, updated_at = NOW()
-		WHERE id = $1 AND processed_at IS NULL
+		DELETE FROM workflow_progression_event_claims claim
+		USING workflow_progression_events wpe
+		WHERE claim.event_id = wpe.id
+		  AND claim.event_id = $1
+		  AND wpe.processed_at IS NULL
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM workflow_progression_event_processed processed
+		      WHERE processed.event_id = claim.event_id
+		  )
 	`, id)
 	if err != nil {
 		return fmt.Errorf("release workflow progression event: %w", err)
@@ -129,9 +191,16 @@ func (q *Queries) ReleaseWorkflowProgressionEvents(ctx context.Context, ids []in
 		return nil
 	}
 	_, err := q.db.Exec(ctx, `
-		UPDATE workflow_progression_events
-		SET locked_at = NULL, updated_at = NOW()
-		WHERE id = ANY($1) AND processed_at IS NULL
+		DELETE FROM workflow_progression_event_claims claim
+		USING workflow_progression_events wpe
+		WHERE claim.event_id = wpe.id
+		  AND claim.event_id = ANY($1)
+		  AND wpe.processed_at IS NULL
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM workflow_progression_event_processed processed
+		      WHERE processed.event_id = claim.event_id
+		  )
 	`, ids)
 	if err != nil {
 		return fmt.Errorf("release workflow progression events: %w", err)
@@ -148,11 +217,26 @@ func (q *Queries) DeleteProcessedWorkflowProgressionEvents(ctx context.Context, 
 	}
 	tag, err := q.db.Exec(ctx, `
 		WITH doomed AS (
-			SELECT id
-			FROM workflow_progression_events
-			WHERE processed_at IS NOT NULL
-			  AND processed_at <= NOW() - $1::interval
-			ORDER BY processed_at ASC, id ASC
+			SELECT wpe.id
+			FROM workflow_progression_events wpe
+			WHERE (
+			      wpe.processed_at IS NOT NULL
+			      AND wpe.processed_at <= NOW() - $1::interval
+			  )
+			   OR EXISTS (
+			      SELECT 1
+			      FROM workflow_progression_event_processed processed
+			      WHERE processed.event_id = wpe.id
+			        AND processed.processed_at <= NOW() - $1::interval
+			  )
+			ORDER BY COALESCE(
+			    (
+			        SELECT processed.processed_at
+			        FROM workflow_progression_event_processed processed
+			        WHERE processed.event_id = wpe.id
+			    ),
+			    wpe.processed_at
+			) ASC, wpe.id ASC
 			LIMIT $2
 			FOR UPDATE SKIP LOCKED
 		)

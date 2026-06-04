@@ -301,6 +301,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	}
 
 	setClauses := []string{"status = $1"}
+	distinctClauses := []string{"wsr.status IS DISTINCT FROM $1"}
 	args := []any{status, id}
 	param := 3
 
@@ -326,6 +327,7 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 		}
 
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		distinctClauses = append(distinctClauses, fmt.Sprintf("wsr.%s IS DISTINCT FROM $%d", key, param))
 		args = append(args, value)
 		param++
 	}
@@ -333,17 +335,32 @@ func (q *Queries) UpdateStepRunStatus(ctx context.Context, id string, status dom
 	// CAS guard: prevent transitions away from terminal statuses while still
 	// allowing idempotent field updates on a step that is already in the target
 	// status (e.g. adding output to a completed step).
-	query := fmt.Sprintf(
-		"UPDATE workflow_step_runs SET %s WHERE id = $2 AND (status NOT IN ('completed', 'failed', 'skipped', 'canceled') OR status = $1)",
-		strings.Join(setClauses, ", "),
-	)
+	query := `
+		WITH target AS MATERIALIZED (
+			SELECT id
+			FROM workflow_step_runs
+			WHERE id = $2
+			  AND (status NOT IN ('completed', 'failed', 'skipped', 'canceled') OR status = $1)
+		),
+		updated AS (
+			UPDATE workflow_step_runs wsr
+			SET ` + strings.Join(setClauses, ", ") + `
+			FROM target
+			WHERE wsr.id = target.id
+			  AND (` + strings.Join(distinctClauses, " OR ") + `)
+			RETURNING 1
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`
 
-	tag, err := q.db.Exec(ctx, query, args...)
+	var found bool
+	var updated bool
+	err := q.db.QueryRow(ctx, query, args...).Scan(&found, &updated)
 	if err != nil {
 		return fmt.Errorf("update step run status: %w", err)
 	}
+	_ = updated
 
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return fmt.Errorf("%w: %s", ErrWorkflowStepRunNotFound, id)
 	}
 
@@ -364,6 +381,7 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 	}
 
 	setClauses := []string{"status = $1"}
+	distinctClauses := []string{"wsr.status IS DISTINCT FROM $1"}
 	args := []any{to, id, from}
 	param := 4
 
@@ -383,16 +401,39 @@ func (q *Queries) UpdateStepRunStatusFrom(ctx context.Context, id string, from, 
 			}
 		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", key, param))
+		distinctClauses = append(distinctClauses, fmt.Sprintf("wsr.%s IS DISTINCT FROM $%d", key, param))
 		args = append(args, value)
 		param++
 	}
 
-	query := fmt.Sprintf("UPDATE workflow_step_runs SET %s WHERE id = $2 AND status = $3", strings.Join(setClauses, ", "))
-	tag, err := q.db.Exec(ctx, query, args...)
+	query := `
+		WITH target AS MATERIALIZED (
+			SELECT id
+			FROM workflow_step_runs
+			WHERE id = $2
+			  AND status = $3
+		),
+		updated AS (
+			UPDATE workflow_step_runs wsr
+			SET ` + strings.Join(setClauses, ", ") + `
+			FROM target
+			WHERE wsr.id = target.id
+			  AND wsr.status = $3
+			  AND (` + strings.Join(distinctClauses, " OR ") + `)
+			RETURNING 1
+		)
+		SELECT EXISTS(SELECT 1 FROM target), EXISTS(SELECT 1 FROM updated)`
+
+	var found bool
+	var updated bool
+	err := q.db.QueryRow(ctx, query, args...).Scan(&found, &updated)
 	if err != nil {
 		return fmt.Errorf("update step run status from: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
+		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
+	}
+	if !updated && from != to {
 		return fmt.Errorf("update step run status conflict: id %s from %s", id, from)
 	}
 	return nil
@@ -819,12 +860,13 @@ func (q *Queries) ListOrphanedStepRuns(ctx context.Context) ([]OrphanedStepRun, 
 	defer span.End()
 
 	query := `
-		SELECT wsr.id, wsr.step_ref, wsr.workflow_run_id, jr.id AS job_run_id, jr.status AS job_status
+		SELECT wsr.id, wsr.step_ref, wsr.workflow_run_id, jr.id AS job_run_id, rs.status AS job_status
 		FROM workflow_step_runs wsr
 		JOIN job_runs jr ON jr.workflow_step_run_id = wsr.id
+		JOIN job_run_read_state rs ON rs.run_id = jr.id
 		WHERE wsr.status = 'running'
-		  AND jr.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','dead_letter')
-		  AND jr.finished_at < NOW() - interval '30 seconds'
+		  AND rs.status IN ('completed','failed','timed_out','crashed','system_failed','canceled','dead_letter')
+		  AND rs.finished_at < NOW() - interval '30 seconds'
 		LIMIT 100`
 
 	rows, err := q.db.Query(ctx, query)

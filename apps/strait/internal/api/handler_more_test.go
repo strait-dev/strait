@@ -666,42 +666,42 @@ func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing
 
 func TestValidateURL_ValidHTTPS(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("https://example.com"); err != nil {
+	if err := validateURLWithAllowPrivate("https://example.com", false); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
 func TestValidateURL_ValidHTTP(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("http://example.com"); err != nil {
+	if err := validateURLWithAllowPrivate("http://example.com", false); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
 func TestValidateURL_InvalidScheme(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("ftp://example.com"); err == nil {
+	if err := validateURLWithAllowPrivate("ftp://example.com", false); err == nil {
 		t.Fatal("expected error for invalid scheme")
 	}
 }
 
 func TestValidateURL_NoHost(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("http://"); err == nil {
+	if err := validateURLWithAllowPrivate("http://", false); err == nil {
 		t.Fatal("expected error for missing host")
 	}
 }
 
 func TestValidateURL_LoopbackIP(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("http://127.0.0.1"); err == nil {
+	if err := validateURLWithAllowPrivate("http://127.0.0.1", false); err == nil {
 		t.Fatal("expected error for loopback IP")
 	}
 }
 
 func TestValidateURL_PrivateIP(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("http://192.168.1.1"); err == nil {
+	if err := validateURLWithAllowPrivate("http://192.168.1.1", false); err == nil {
 		t.Fatal("expected error for private IP")
 	}
 }
@@ -729,14 +729,14 @@ func TestValidateURLWithTLS_AllowPrivateEndpointsRespectsTLS(t *testing.T) {
 
 func TestValidateURL_InvalidURL(t *testing.T) {
 	t.Parallel()
-	if err := validateURL("://bad"); err == nil {
+	if err := validateURLWithAllowPrivate("://bad", false); err == nil {
 		t.Fatal("expected error for invalid URL")
 	}
 }
 
 func TestValidateURL_ErrorCasing(t *testing.T) {
 	t.Parallel()
-	err := validateURL("ftp://example.com")
+	err := validateURLWithAllowPrivate("ftp://example.com", false)
 	if err == nil {
 		t.Fatal("expected error for ftp scheme")
 	}

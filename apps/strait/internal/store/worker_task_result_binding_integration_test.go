@@ -155,6 +155,134 @@ func TestIntegration_ClaimRecoverableWorkerTaskResults_ClaimsOnlyOldExecutingHan
 	}
 }
 
+func TestIntegration_MarkWorkerTaskResultReceived_SkipsDuplicateHandoffWrites(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+
+	q := store.New(env.DB.Pool)
+	_, _, _, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
+	marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
+	if err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
+	}
+	if !marked {
+		t.Fatal("MarkWorkerTaskResultReceived marked = false, want true")
+	}
+
+	var receivedXmin string
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&receivedXmin); err != nil {
+		t.Fatalf("query result_received worker task version: %v", err)
+	}
+
+	markedAgain, err := q.MarkWorkerTaskResultReceived(ctx, taskID)
+	if err != nil {
+		t.Fatalf("MarkWorkerTaskResultReceived duplicate: %v", err)
+	}
+	if !markedAgain {
+		t.Fatal("duplicate MarkWorkerTaskResultReceived marked = false, want true")
+	}
+
+	var duplicateReceivedXmin string
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&duplicateReceivedXmin); err != nil {
+		t.Fatalf("query duplicate result_received worker task version: %v", err)
+	}
+	if duplicateReceivedXmin != receivedXmin {
+		t.Fatalf("duplicate result_received handoff changed xmin from %s to %s", receivedXmin, duplicateReceivedXmin)
+	}
+}
+
+func TestIntegration_UpdateWorkerTaskStatus_SkipsDuplicateStatusWrites(t *testing.T) {
+	ctx := context.Background()
+	env := mustEnv(t, ctx)
+
+	q := store.New(env.DB.Pool)
+	_, _, _, taskID := seedWorkerTaskForBinding(t, ctx, q, 1)
+	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusAccepted); err != nil {
+		t.Fatalf("UpdateWorkerTaskStatus accepted: %v", err)
+	}
+
+	var acceptedXmin string
+	var acceptedAt time.Time
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, accepted_at
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&acceptedXmin, &acceptedAt); err != nil {
+		t.Fatalf("query accepted worker task version: %v", err)
+	}
+
+	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusAccepted); err != nil {
+		t.Fatalf("UpdateWorkerTaskStatus duplicate accepted: %v", err)
+	}
+
+	var duplicateAcceptedXmin string
+	var duplicateAcceptedAt time.Time
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, accepted_at
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&duplicateAcceptedXmin, &duplicateAcceptedAt); err != nil {
+		t.Fatalf("query duplicate accepted worker task version: %v", err)
+	}
+	if duplicateAcceptedXmin != acceptedXmin {
+		t.Fatalf("duplicate accepted update changed xmin from %s to %s", acceptedXmin, duplicateAcceptedXmin)
+	}
+	if !duplicateAcceptedAt.Equal(acceptedAt) {
+		t.Fatalf("duplicate accepted update changed accepted_at from %s to %s", acceptedAt, duplicateAcceptedAt)
+	}
+
+	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusCompleted); err != nil {
+		t.Fatalf("UpdateWorkerTaskStatus completed: %v", err)
+	}
+
+	var completedXmin string
+	var finishedAt time.Time
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, finished_at
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&completedXmin, &finishedAt); err != nil {
+		t.Fatalf("query completed worker task version: %v", err)
+	}
+	if completedXmin == duplicateAcceptedXmin {
+		t.Fatalf("completed transition kept xmin %s, want a real update", completedXmin)
+	}
+
+	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusCompleted); err != nil {
+		t.Fatalf("UpdateWorkerTaskStatus duplicate completed: %v", err)
+	}
+
+	var duplicateCompletedXmin string
+	var duplicateFinishedAt time.Time
+	if err := env.DB.Pool.QueryRow(ctx, `
+		SELECT xmin::text, finished_at
+		FROM worker_tasks
+		WHERE id = $1`,
+		taskID,
+	).Scan(&duplicateCompletedXmin, &duplicateFinishedAt); err != nil {
+		t.Fatalf("query duplicate completed worker task version: %v", err)
+	}
+	if duplicateCompletedXmin != completedXmin {
+		t.Fatalf("duplicate completed update changed xmin from %s to %s", completedXmin, duplicateCompletedXmin)
+	}
+	if !duplicateFinishedAt.Equal(finishedAt) {
+		t.Fatalf("duplicate completed update changed finished_at from %s to %s", finishedAt, duplicateFinishedAt)
+	}
+}
+
 func seedWorkerTaskForBinding(t *testing.T, ctx context.Context, q *store.Queries, attempt int) (projectID, workerID, runID, taskID string) {
 	t.Helper()
 

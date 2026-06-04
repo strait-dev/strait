@@ -38,7 +38,14 @@ func (w *CacheWarmer) Warm(ctx context.Context) error {
 	}
 
 	queries := []warmQuery{
-		{name: "queued_job_runs", sql: "SELECT COUNT(*) FROM job_runs WHERE status = 'queued'"},
+		{
+			name: "queued_job_runs",
+			sql: `
+				SELECT COUNT(*)
+				FROM job_runs jr
+				LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+				WHERE COALESCE(s.status, jr.status) = 'queued'`,
+		},
 		{name: "pending_webhook_deliveries", sql: "SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'pending'"},
 		{name: "jobs_table_pages", sql: "SELECT 1 FROM jobs LIMIT 1"},
 		{name: "workflows_table_pages", sql: "SELECT 1 FROM workflows LIMIT 1"},

@@ -68,6 +68,7 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler did not return after client disconnect: fanout barrier missing or deadlocked")
 	}
+	srv.Close()
 
 	srv.Close()
 

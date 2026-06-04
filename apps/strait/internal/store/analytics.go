@@ -53,10 +53,17 @@ func (q *Queries) AggregateHourlyStats(ctx context.Context, hour time.Time) erro
 	// attribution can be wired here when that source includes job IDs.
 	query := `
 		WITH target_runs AS (
-			SELECT jr.id, jr.job_id, jr.project_id, jr.status, jr.started_at, jr.finished_at
+			SELECT
+				jr.id,
+				jr.job_id,
+				jr.project_id,
+				COALESCE(s.status, jr.status) AS status,
+				COALESCE(s.started_at, jr.started_at) AS started_at,
+				COALESCE(s.finished_at, jr.finished_at) AS finished_at
 			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 			WHERE jr.created_at >= $1 AND jr.created_at < $2
-			  AND jr.status IN ('completed', 'failed', 'timed_out', 'canceled')
+			  AND COALESCE(s.status, jr.status) IN ('completed', 'failed', 'timed_out', 'canceled')
 		)
 		INSERT INTO job_stats_hourly (job_id, project_id, hour, total, completed, failed, timed_out, canceled, avg_duration_ms, p95_duration_ms, total_cost_microusd)
 		SELECT
@@ -106,17 +113,27 @@ func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string,
 	}
 
 	slowestQuery := `
+		WITH runs AS (
+			SELECT
+				r.job_id,
+				r.created_at,
+				COALESCE(s.status, r.status) AS status,
+				COALESCE(s.started_at, r.started_at) AS started_at,
+				COALESCE(s.finished_at, r.finished_at) AS finished_at
+			FROM job_runs r
+			LEFT JOIN job_run_read_state s ON s.run_id = r.id
+			WHERE r.project_id = $1
+			  AND r.created_at >= $2
+		)
 		SELECT j.id, j.slug,
 			COALESCE(AVG(EXTRACT(EPOCH FROM (r.finished_at - r.started_at))), 0) as avg_duration,
 			COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (r.finished_at - r.started_at))), 0) as p95_duration,
 			COUNT(*) as total_runs,
 			COUNT(*) FILTER (WHERE r.status = 'failed') as failed_runs
-		FROM job_runs r
+		FROM runs r
 		JOIN jobs j ON j.id = r.job_id
-		WHERE j.project_id = $1
-			AND r.finished_at IS NOT NULL
+		WHERE r.finished_at IS NOT NULL
 			AND r.started_at IS NOT NULL
-			AND r.created_at >= $2
 		GROUP BY j.id, j.slug
 		HAVING COUNT(*) >= 5
 		ORDER BY avg_duration DESC
@@ -140,13 +157,18 @@ func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string,
 	}
 
 	throughputQuery := `
+		WITH runs AS (
+			SELECT COALESCE(s.status, r.status) AS status
+			FROM job_runs r
+			LEFT JOIN job_run_read_state s ON s.run_id = r.id
+			WHERE r.project_id = $1 AND r.created_at >= $2
+		)
 		SELECT
 			COUNT(*) FILTER (WHERE status = 'completed') as completed,
 			COUNT(*) FILTER (WHERE status = 'failed') as failed,
 			COUNT(*) FILTER (WHERE status = 'timed_out') as timed_out,
 			COUNT(*) FILTER (WHERE status = 'canceled') as canceled
-		FROM job_runs
-		WHERE project_id = $1 AND created_at >= $2`
+		FROM runs`
 
 	err = q.db.QueryRow(ctx, throughputQuery, projectID, since).Scan(
 		&result.Throughput.Completed,
@@ -159,6 +181,15 @@ func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string,
 	}
 
 	healthQuery := `
+		WITH runs AS (
+			SELECT
+				COALESCE(s.status, r.status) AS status,
+				COALESCE(s.started_at, r.started_at) AS started_at,
+				COALESCE(s.finished_at, r.finished_at) AS finished_at
+			FROM job_runs r
+			LEFT JOIN job_run_read_state s ON s.run_id = r.id
+			WHERE r.project_id = $1 AND r.created_at >= $2
+		)
 		SELECT
 			(SELECT COUNT(*) FROM jobs WHERE project_id = $1) as total_jobs,
 			(SELECT COUNT(*) FROM jobs WHERE project_id = $1 AND enabled = true) as active_jobs,
@@ -167,9 +198,8 @@ func (q *Queries) GetPerformanceAnalytics(ctx context.Context, projectID string,
 				ELSE 0
 			END as success_rate,
 			COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at))) FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL), 0) as avg_duration,
-			(SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND status = 'queued') as queue_depth
-		FROM job_runs
-		WHERE project_id = $1 AND created_at >= $2`
+			(SELECT COUNT(*) FROM job_run_read_state WHERE project_id = $1 AND status = 'queued') as queue_depth
+		FROM runs`
 
 	err = q.db.QueryRow(ctx, healthQuery, projectID, since).Scan(
 		&result.HealthSummary.TotalJobs,
@@ -256,7 +286,7 @@ func (q *Queries) getPerformanceAnalyticsMaterialized(ctx context.Context, proje
 				ELSE 0
 			END as success_rate,
 			COALESCE(AVG(s.avg_duration_ms) / 1000.0, 0) as avg_duration,
-			(SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND status = 'queued') as queue_depth
+			(SELECT COUNT(*) FROM job_run_read_state WHERE project_id = $1 AND status = 'queued') as queue_depth
 		FROM job_stats_hourly s
 		WHERE s.project_id = $1 AND s.hour >= $2`
 

@@ -356,7 +356,7 @@ func (a *PgHealthAdapter) CountJobs(ctx context.Context, projectID string) (tota
 func (a *PgHealthAdapter) QueueDepth(ctx context.Context, projectID string) (int, error) {
 	var depth int
 	err := a.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE project_id = $1 AND status = 'queued'`,
+		`SELECT COUNT(*) FROM job_run_read_state WHERE project_id = $1 AND status = 'queued'`,
 		projectID,
 	).Scan(&depth)
 	if err != nil {

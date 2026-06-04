@@ -214,7 +214,14 @@ func (q *Queries) PauseJobsByGroup(ctx context.Context, groupID string) error {
 		return err
 	}
 
-	query := `UPDATE jobs SET paused = TRUE, paused_at = NOW(), pause_reason = 'group pause', updated_at = NOW() WHERE group_id = $1`
+	query := `
+		UPDATE jobs
+		SET paused = TRUE,
+		    paused_at = NOW(),
+		    pause_reason = 'group pause',
+		    updated_at = NOW()
+		WHERE group_id = $1
+		  AND (paused IS DISTINCT FROM TRUE OR pause_reason IS DISTINCT FROM 'group pause')`
 	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
 		return fmt.Errorf("pause jobs by group: %w", err)
 	}
@@ -230,7 +237,14 @@ func (q *Queries) ResumeJobsByGroup(ctx context.Context, groupID string) error {
 		return err
 	}
 
-	query := `UPDATE jobs SET paused = FALSE, paused_at = NULL, pause_reason = NULL, updated_at = NOW() WHERE group_id = $1`
+	query := `
+		UPDATE jobs
+		SET paused = FALSE,
+		    paused_at = NULL,
+		    pause_reason = NULL,
+		    updated_at = NOW()
+		WHERE group_id = $1
+		  AND (paused IS DISTINCT FROM FALSE OR paused_at IS NOT NULL OR pause_reason IS NOT NULL)`
 	if _, err := q.db.Exec(ctx, query, groupID); err != nil {
 		return fmt.Errorf("resume jobs by group: %w", err)
 	}
@@ -247,11 +261,12 @@ func (q *Queries) GetJobGroupStats(ctx context.Context, groupID string) (*JobGro
 	}
 
 	query := `
-		SELECT jr.status, COUNT(*)
+		SELECT COALESCE(s.status, jr.status), COUNT(*)
 		FROM job_runs jr
 		JOIN jobs j ON j.id = jr.job_id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE j.group_id = $1
-		GROUP BY jr.status`
+		GROUP BY COALESCE(s.status, jr.status)`
 
 	rows, err := q.db.Query(ctx, query, groupID)
 	if err != nil {

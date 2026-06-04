@@ -22,18 +22,18 @@ import (
 )
 
 // decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
-func decodePaginatedList(t testing.TB, body []byte, out any) {
-	t.Helper()
+func decodePaginatedList(tb testing.TB, body []byte, out any) {
+	tb.Helper()
 	var envelope struct {
 		Data       json.RawMessage `json:"data"`
 		HasMore    bool            `json:"has_more"`
 		NextCursor *string         `json:"next_cursor,omitempty"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		t.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
+		tb.Fatalf("invalid paginated JSON: %v\nbody: %s", err, string(body))
 	}
 	if err := json.Unmarshal(envelope.Data, out); err != nil {
-		t.Fatalf("invalid data array JSON: %v", err)
+		tb.Fatalf("invalid data array JSON: %v", err)
 	}
 }
 
@@ -1631,8 +1631,14 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 			return &domain.JobRun{ID: runID, Status: domain.StatusQueued, Attempt: 1}, nil
 		},
 	}
+	var enqueuedExisting []string
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueExistingFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedExisting = append(enqueuedExisting, run.ID)
+			return nil
+		},
+	}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
@@ -1647,6 +1653,9 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 	}
 	if run.Status != domain.StatusQueued {
 		t.Fatalf("expected queued status, got %s", run.Status)
+	}
+	if !slices.Equal(enqueuedExisting, []string{"run-123"}) {
+		t.Fatalf("EnqueueExisting calls = %+v, want replayed run", enqueuedExisting)
 	}
 }
 
@@ -1693,8 +1702,14 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 			}, nil
 		},
 	}
+	var enqueuedExisting []string
 
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv := newTestServer(t, ms, &mockQueue{
+		enqueueExistingFn: func(_ context.Context, run *domain.JobRun) error {
+			enqueuedExisting = append(enqueuedExisting, run.ID)
+			return nil
+		},
+	}, nil)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1","run-2"]}`))
@@ -1715,6 +1730,9 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	}
 	if len(resp.Replayed) != 2 {
 		t.Fatalf("expected 2 replayed runs, got %d", len(resp.Replayed))
+	}
+	if !slices.Equal(enqueuedExisting, []string{"run-1", "run-2"}) {
+		t.Fatalf("EnqueueExisting calls = %+v, want both replayed runs", enqueuedExisting)
 	}
 }
 

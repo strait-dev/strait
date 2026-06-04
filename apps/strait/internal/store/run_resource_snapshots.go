@@ -53,12 +53,13 @@ func (q *Queries) CreateRunResourceSnapshotForActiveRun(ctx context.Context, sna
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $8
-			  AND status IN ('executing', 'waiting')
-			FOR UPDATE
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $8
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr
 		)
 		INSERT INTO run_resource_snapshots (id, run_id, cpu_percent, memory_mb, memory_limit_mb, network_rx_bytes, network_tx_bytes)
 		SELECT $1, id, $3, $4, $5, $6, $7

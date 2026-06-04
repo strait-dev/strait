@@ -46,6 +46,13 @@ func newJobDependencyCache(ttl time.Duration, deps ...apiCacheDeps) *jobDependen
 	return c
 }
 
+func (c *jobDependencyCache) Stop() {
+	if c == nil || c.tier == nil {
+		return
+	}
+	c.tier.Stop()
+}
+
 func newJobDependencyCacheL2(dep apiCacheDeps) straitcache.L2[jobDepsCacheKey, []domain.JobDependency] {
 	if dep.Redis == nil {
 		return nil

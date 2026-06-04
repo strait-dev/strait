@@ -13,6 +13,17 @@ import (
 	"strait/internal/store"
 )
 
+type recordingReadyRunQueue struct {
+	runIDs []string
+}
+
+func (q *recordingReadyRunQueue) EnqueueExisting(_ context.Context, run *domain.JobRun) error {
+	if run != nil {
+		q.runIDs = append(q.runIDs, run.ID)
+	}
+	return nil
+}
+
 // TestIntegration_FinalizeDisconnect_MarksOfflineAndAudits pins the disconnect
 // cleanup contract: the worker row must move to `offline` and emit a
 // worker.disconnected audit event, even after the stream context is cancelled.
@@ -86,12 +97,14 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	readyQueue := &recordingReadyRunQueue{}
 
 	svc := &workerService{
 		queries:        q,
 		pub:            &noopPublisher{},
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
+		readyRunQueue:  readyQueue,
 	}
 
 	svc.finalizeDisconnect(projectID, workerID)
@@ -126,6 +139,9 @@ func TestIntegration_FinalizeDisconnect_RequeuesOpenWorkerRuns(t *testing.T) {
 	if task.FinishedAt == nil || task.FinishedAt.Before(time.Now().Add(-time.Minute)) {
 		t.Fatalf("worker task FinishedAt = %v, want recent timestamp", task.FinishedAt)
 	}
+	if len(readyQueue.runIDs) != 1 || readyQueue.runIDs[0] != runID {
+		t.Fatalf("ready events = %v, want [%s]", readyQueue.runIDs, runID)
+	}
 }
 
 // TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns verifies
@@ -137,6 +153,7 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
+	readyQueue := &recordingReadyRunQueue{}
 	if marked, err := q.MarkWorkerTaskResultReceived(ctx, taskID); err != nil {
 		t.Fatalf("MarkWorkerTaskResultReceived: %v", err)
 	} else if !marked {
@@ -148,6 +165,7 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 		pub:            &noopPublisher{},
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
+		readyRunQueue:  readyQueue,
 	}
 
 	svc.finalizeDisconnect(projectID, workerID)
@@ -172,6 +190,9 @@ func TestIntegration_FinalizeDisconnect_SkipsResultReceivedWorkerRuns(t *testing
 	}
 	if task.FinishedAt != nil {
 		t.Fatalf("worker task FinishedAt = %v, want nil before finalization", task.FinishedAt)
+	}
+	if len(readyQueue.runIDs) != 0 {
+		t.Fatalf("ready events = %v, want none", readyQueue.runIDs)
 	}
 }
 

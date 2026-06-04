@@ -213,6 +213,39 @@ func TestUpsertJobMemoryWithQuota_ReplacingExistingKeyUsesNetDelta(t *testing.T)
 	if err := q.UpsertJobMemoryWithQuota(ctx, replacement, 1024, 10); err != nil {
 		t.Fatalf("UpsertJobMemoryWithQuota(replacement) error = %v", err)
 	}
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		job.ID,
+		"profile",
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query job_memory xmin before no-op: %v", err)
+	}
+	sameReplacement := &domain.JobMemory{
+		JobID:     job.ID,
+		ProjectID: job.ProjectID,
+		MemoryKey: "profile",
+		Value:     json.RawMessage(`"1234567890"`),
+		SizeBytes: 10,
+	}
+	if err := q.UpsertJobMemoryWithQuota(ctx, sameReplacement, 1024, 10); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuota(no-op replacement) error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		job.ID,
+		"profile",
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query job_memory xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("job_memory no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
+	}
 
 	got, err := q.GetJobMemory(ctx, job.ID, "profile")
 	if err != nil {
@@ -1390,6 +1423,54 @@ func TestUpdateRunStatus(t *testing.T) {
 	}
 }
 
+func TestUpdateRunStatusMetadataIsAppendOnly(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-update-run-status-metadata")
+	run := baseRun(job, newID())
+	if err := q.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	fields := map[string]any{
+		"metadata": map[string]string{
+			"snooze_count": "1",
+			"phase":        "retry",
+		},
+	}
+	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, fields); err != nil {
+		t.Fatalf("UpdateRunStatus() error = %v", err)
+	}
+
+	var ledgerHasSnooze bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT metadata ? 'snooze_count' FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerHasSnooze); err != nil {
+		t.Fatalf("query ledger metadata: %v", err)
+	}
+	if ledgerHasSnooze {
+		t.Fatal("job_runs metadata contains transition metadata, want append-only lifecycle event")
+	}
+
+	got, err := q.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if got.Metadata["snooze_count"] != "1" || got.Metadata["phase"] != "retry" {
+		t.Fatalf("metadata = %+v, want lifecycle metadata overlay", got.Metadata)
+	}
+
+	key := "snooze_count"
+	value := "1"
+	listed, err := q.ListRunsByProject(ctx, run.ProjectID, nil, &key, &value, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject() error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != run.ID {
+		t.Fatalf("ListRunsByProject() = %+v, want run %s", listed, run.ID)
+	}
+}
+
 func TestUpdateRunStatusReturningOld(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -1580,11 +1661,15 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	oldCompleted := baseRun(job, newID())
-	oldCompleted.Status = domain.StatusCompleted
+	oldCompleted.Status = domain.StatusExecuting
 	finishedOldCompleted := now.Add(-31 * 24 * time.Hour)
-	oldCompleted.FinishedAt = &finishedOldCompleted
 	if err := q.CreateRun(ctx, oldCompleted); err != nil {
 		t.Fatalf("CreateRun() oldCompleted error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, oldCompleted.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": finishedOldCompleted,
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus() oldCompleted error = %v", err)
 	}
 	// Backdate created_at so the run is in a cold partition (the reaper's
 	// hot-partition filter skips the current month).
@@ -1617,6 +1702,8 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 		t.Fatalf("CreateRun() queued error = %v", err)
 	}
 
+	seedRetentionSideRows(t, ctx, oldCompleted.ID, oldTimedOut.ID, recentCompleted.ID, queued.ID)
+
 	deleted, err := q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
 	if err != nil {
 		t.Fatalf("DeleteTerminalRunsPastRetention() error = %v", err)
@@ -1637,6 +1724,286 @@ func TestDeleteTerminalRunsPastRetention(t *testing.T) {
 	if _, err := q.GetRun(ctx, queued.ID); err != nil {
 		t.Fatalf("GetRun(queued) error = %v", err)
 	}
+
+	for _, runID := range []string{oldCompleted.ID, oldTimedOut.ID} {
+		assertNoRunRetentionSideRows(t, ctx, runID)
+	}
+	for _, runID := range []string{recentCompleted.ID, queued.ID} {
+		assertRunRetentionSideRowsRemain(t, ctx, runID)
+	}
+}
+
+func TestDeleteTerminalRunsPastRetention_BatchCleansSideRows(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-delete-retention-batch")
+	const prefix = "retention-batch-run-"
+	const runCount = 5101
+	finishedAt := time.Now().UTC().Add(-45 * 24 * time.Hour)
+
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
+		SELECT $1 || gs::TEXT, $2, $3, 'completed', 1, 'manual', $4, $4
+		FROM generate_series(1, $5) AS gs`, prefix, job.ID, job.ProjectID, finishedAt, runCount); err != nil {
+		t.Fatalf("seed batch job_runs: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt)
+		SELECT run_id, ready_generation, attempt
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch active claims: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+		SELECT run_id, 'queued', 'completed', attempt, '{"source":"retention-batch"}'::jsonb
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch lifecycle events: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+		SELECT run_id, ready_generation, attempt, 'retention_batch'
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'
+		ON CONFLICT DO NOTHING`, prefix); err != nil {
+		t.Fatalf("seed batch ready events: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+		SELECT run_id, NOW() + INTERVAL '1 minute', attempt + 1, NOW(), FALSE
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch retries: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_priority_events (run_id, priority)
+		SELECT run_id, priority + 1
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch priority events: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_visibility_events (run_id, visible_until)
+		SELECT run_id, NOW() + INTERVAL '1 hour'
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch visibility events: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_cache_versions (run_id, cache_version)
+		SELECT run_id, 2
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'`, prefix); err != nil {
+		t.Fatalf("seed batch cache versions: %v", err)
+	}
+	if _, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+		SELECT run_id, NOW()
+		FROM job_run_state
+		WHERE run_id LIKE $1 || '%'
+		ON CONFLICT DO NOTHING`, prefix); err != nil {
+		t.Fatalf("seed batch heartbeats: %v", err)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount {
+			t.Fatalf("%s seeded rows = %d, want %d", table, count, runCount)
+		}
+	}
+
+	deleted, err := q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteTerminalRunsPastRetention(first) error = %v", err)
+	}
+	if deleted != 5000 {
+		t.Fatalf("first deleted = %d, want 5000", deleted)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != runCount-deleted {
+			t.Fatalf("%s rows after first batch = %d, want %d", table, count, runCount-deleted)
+		}
+	}
+
+	deleted, err = q.DeleteTerminalRunsPastRetention(ctx, 30*24*time.Hour, 90*24*time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteTerminalRunsPastRetention(second) error = %v", err)
+	}
+	if deleted != runCount-5000 {
+		t.Fatalf("second deleted = %d, want %d", deleted, runCount-5000)
+	}
+
+	for _, table := range []string{"job_runs", "job_run_state", "job_run_active_claims", "job_run_lifecycle_events", "job_run_ready_events", "job_retries", "job_run_priority_events", "job_run_visibility_events", "job_run_cache_versions", "job_run_heartbeats"} {
+		if count := countRunRowsByPrefix(t, ctx, table, prefix); count != 0 {
+			t.Fatalf("%s rows after second batch = %d, want 0", table, count)
+		}
+	}
+}
+
+func seedRetentionSideRows(t *testing.T, ctx context.Context, runIDs ...string) {
+	t.Helper()
+
+	for _, runID := range runIDs {
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt)
+			VALUES ($1, 0, 1)
+			ON CONFLICT DO NOTHING`, runID); err != nil {
+			t.Fatalf("seed active claim for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_lifecycle_events (run_id, from_status, to_status, attempt, fields)
+			VALUES ($1, 'queued', 'executing', 1, '{"source":"retention-test"}'::jsonb)`, runID); err != nil {
+			t.Fatalf("seed lifecycle event for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_ready_events (run_id, ready_generation, attempt, reason)
+			VALUES ($1, 0, 1, 'retention_test')
+			ON CONFLICT DO NOTHING`, runID); err != nil {
+			t.Fatalf("seed ready event for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_retries (run_id, next_retry_at, attempt, scheduled_at, cleared)
+			VALUES ($1, NOW() + INTERVAL '1 minute', 2, NOW(), FALSE)`, runID); err != nil {
+			t.Fatalf("seed retry for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_priority_events (run_id, priority)
+			VALUES ($1, 10)`, runID); err != nil {
+			t.Fatalf("seed priority event for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_visibility_events (run_id, visible_until)
+			VALUES ($1, NOW() + INTERVAL '1 hour')`, runID); err != nil {
+			t.Fatalf("seed visibility event for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_cache_versions (run_id, cache_version)
+			VALUES ($1, 2)`, runID); err != nil {
+			t.Fatalf("seed cache version for %s: %v", runID, err)
+		}
+		if _, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_heartbeats (run_id, heartbeat_at)
+			VALUES ($1, NOW())
+			ON CONFLICT DO NOTHING`, runID); err != nil {
+			t.Fatalf("seed heartbeat for %s: %v", runID, err)
+		}
+	}
+}
+
+func assertNoRunRetentionSideRows(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+
+	for _, table := range []string{
+		"job_run_state",
+		"job_run_terminal_state",
+		"job_run_active_claims",
+		"job_run_lifecycle_events",
+		"job_run_ready_events",
+		"job_retries",
+		"job_run_priority_events",
+		"job_run_visibility_events",
+		"job_run_cache_versions",
+		"job_run_heartbeats",
+	} {
+		if count := countRunSideTableRows(t, ctx, table, runID); count != 0 {
+			t.Fatalf("%s rows for deleted run %s = %d, want 0", table, runID, count)
+		}
+	}
+}
+
+func assertRunRetentionSideRowsRemain(t *testing.T, ctx context.Context, runID string) {
+	t.Helper()
+
+	for _, table := range []string{
+		"job_run_state",
+		"job_run_active_claims",
+		"job_run_lifecycle_events",
+		"job_run_ready_events",
+		"job_retries",
+		"job_run_priority_events",
+		"job_run_visibility_events",
+		"job_run_cache_versions",
+		"job_run_heartbeats",
+	} {
+		if count := countRunSideTableRows(t, ctx, table, runID); count == 0 {
+			t.Fatalf("%s rows for retained run %s = 0, want at least 1", table, runID)
+		}
+	}
+}
+
+func countRunSideTableRows(t *testing.T, ctx context.Context, table, runID string) int64 {
+	t.Helper()
+
+	var query string
+	switch table {
+	case "job_run_state":
+		query = `SELECT COUNT(*) FROM job_run_state WHERE run_id = $1`
+	case "job_run_terminal_state":
+		query = `SELECT COUNT(*) FROM job_run_terminal_state WHERE run_id = $1`
+	case "job_run_active_claims":
+		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = $1`
+	case "job_run_lifecycle_events":
+		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id = $1`
+	case "job_run_ready_events":
+		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id = $1`
+	case "job_retries":
+		query = `SELECT COUNT(*) FROM job_retries WHERE run_id = $1`
+	case "job_run_priority_events":
+		query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id = $1`
+	case "job_run_visibility_events":
+		query = `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`
+	case "job_run_cache_versions":
+		query = `SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id = $1`
+	case "job_run_heartbeats":
+		query = `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id = $1`
+	default:
+		t.Fatalf("unknown side table %q", table)
+	}
+
+	var count int64
+	if err := testDB.Pool.QueryRow(ctx, query, runID).Scan(&count); err != nil {
+		t.Fatalf("count %s rows for %s: %v", table, runID, err)
+	}
+	return count
+}
+
+func countRunRowsByPrefix(t *testing.T, ctx context.Context, table, prefix string) int64 {
+	t.Helper()
+
+	var query string
+	switch table {
+	case "job_runs":
+		query = `SELECT COUNT(*) FROM job_runs WHERE id LIKE $1 || '%'`
+	case "job_run_state":
+		query = `SELECT COUNT(*) FROM job_run_state WHERE run_id LIKE $1 || '%'`
+	case "job_run_active_claims":
+		query = `SELECT COUNT(*) FROM job_run_active_claims WHERE run_id LIKE $1 || '%'`
+	case "job_run_lifecycle_events":
+		query = `SELECT COUNT(*) FROM job_run_lifecycle_events WHERE run_id LIKE $1 || '%'`
+	case "job_run_ready_events":
+		query = `SELECT COUNT(*) FROM job_run_ready_events WHERE run_id LIKE $1 || '%'`
+	case "job_retries":
+		query = `SELECT COUNT(*) FROM job_retries WHERE run_id LIKE $1 || '%'`
+	case "job_run_priority_events":
+		query = `SELECT COUNT(*) FROM job_run_priority_events WHERE run_id LIKE $1 || '%'`
+	case "job_run_visibility_events":
+		query = `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id LIKE $1 || '%'`
+	case "job_run_cache_versions":
+		query = `SELECT COUNT(*) FROM job_run_cache_versions WHERE run_id LIKE $1 || '%'`
+	case "job_run_heartbeats":
+		query = `SELECT COUNT(*) FROM job_run_heartbeats WHERE run_id LIKE $1 || '%'`
+	default:
+		t.Fatalf("unknown run table %q", table)
+	}
+
+	var count int64
+	if err := testDB.Pool.QueryRow(ctx, query, prefix).Scan(&count); err != nil {
+		t.Fatalf("count %s rows with prefix %s: %v", table, prefix, err)
+	}
+	return count
 }
 
 func TestInsertEvent(t *testing.T) {
@@ -1705,6 +2072,56 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active"}, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateRunMetadataForActiveRun(active) error = %v", err)
 	}
+	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active-v2", "phase": "two"}, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateRunMetadataForActiveRun(active overwrite) error = %v", err)
+	}
+	var metadataEventsBeforeNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND fields ? 'metadata'`,
+		activeRun.ID,
+	).Scan(&metadataEventsBeforeNoop); err != nil {
+		t.Fatalf("query active metadata events before no-op: %v", err)
+	}
+	var cacheVersionsBeforeNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`,
+		activeRun.ID,
+	).Scan(&cacheVersionsBeforeNoop); err != nil {
+		t.Fatalf("query cache versions before active metadata no-op: %v", err)
+	}
+	if err := q.UpdateRunMetadataForActiveRun(ctx, activeRun.ID, map[string]string{"sdk": "active-v2", "phase": "two"}, activeRun.Attempt); err != nil {
+		t.Fatalf("UpdateRunMetadataForActiveRun(active no-op) error = %v", err)
+	}
+	var metadataEventsAfterNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_lifecycle_events
+		WHERE run_id = $1
+		  AND fields ? 'metadata'`,
+		activeRun.ID,
+	).Scan(&metadataEventsAfterNoop); err != nil {
+		t.Fatalf("query active metadata events after no-op: %v", err)
+	}
+	if metadataEventsAfterNoop != metadataEventsBeforeNoop {
+		t.Fatalf("active metadata no-op events = %d, want %d", metadataEventsAfterNoop, metadataEventsBeforeNoop)
+	}
+	var cacheVersionsAfterNoop int
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM job_run_cache_versions
+		WHERE run_id = $1`,
+		activeRun.ID,
+	).Scan(&cacheVersionsAfterNoop); err != nil {
+		t.Fatalf("query cache versions after active metadata no-op: %v", err)
+	}
+	if cacheVersionsAfterNoop != cacheVersionsBeforeNoop {
+		t.Fatalf("active metadata no-op cache versions = %d, want %d", cacheVersionsAfterNoop, cacheVersionsBeforeNoop)
+	}
 	if err := q.UpdateHeartbeatForActiveRun(ctx, activeRun.ID, activeRun.Attempt); err != nil {
 		t.Fatalf("UpdateHeartbeatForActiveRun(active) error = %v", err)
 	}
@@ -1719,9 +2136,75 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpsertRunStateForActiveRun(ctx, state, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertRunStateForActiveRun(active) error = %v", err)
 	}
+	initialStateUpdatedAt := state.UpdatedAt
+	var stateXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		activeRun.ID,
+		"cursor",
+	).Scan(&stateXminBeforeNoop); err != nil {
+		t.Fatalf("query active run_state xmin before no-op: %v", err)
+	}
+	sameState := &domain.RunState{RunID: activeRun.ID, StateKey: "cursor", Value: json.RawMessage(`{"step":1}`)}
+	if err := q.UpsertRunStateForActiveRun(ctx, sameState, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunStateForActiveRun(active no-op) error = %v", err)
+	}
+	var stateXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_state
+		WHERE run_id = $1 AND state_key = $2`,
+		activeRun.ID,
+		"cursor",
+	).Scan(&stateXminAfterNoop); err != nil {
+		t.Fatalf("query active run_state xmin after no-op: %v", err)
+	}
+	if stateXminAfterNoop != stateXminBeforeNoop {
+		t.Fatalf("active run_state no-op changed xmin from %s to %s", stateXminBeforeNoop, stateXminAfterNoop)
+	}
+	if !sameState.UpdatedAt.Equal(initialStateUpdatedAt) {
+		t.Fatalf("active run_state no-op updated_at = %v, want %v", sameState.UpdatedAt, initialStateUpdatedAt)
+	}
 	output := &domain.RunOutput{RunID: activeRun.ID, OutputKey: "final", Value: json.RawMessage(`{"ok":true}`)}
 	if err := q.UpsertRunOutputForActiveRun(ctx, output, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertRunOutputForActiveRun(active) error = %v", err)
+	}
+	initialOutputID := output.ID
+	initialOutputCreatedAt := output.CreatedAt
+	var outputXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		activeRun.ID,
+		"final",
+	).Scan(&outputXminBeforeNoop); err != nil {
+		t.Fatalf("query active run_outputs xmin before no-op: %v", err)
+	}
+	sameOutput := &domain.RunOutput{RunID: activeRun.ID, OutputKey: "final", Value: json.RawMessage(`{"ok":true}`)}
+	if err := q.UpsertRunOutputForActiveRun(ctx, sameOutput, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertRunOutputForActiveRun(active no-op) error = %v", err)
+	}
+	var outputXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		activeRun.ID,
+		"final",
+	).Scan(&outputXminAfterNoop); err != nil {
+		t.Fatalf("query active run_outputs xmin after no-op: %v", err)
+	}
+	if outputXminAfterNoop != outputXminBeforeNoop {
+		t.Fatalf("active run_outputs no-op changed xmin from %s to %s", outputXminBeforeNoop, outputXminAfterNoop)
+	}
+	if sameOutput.ID != initialOutputID {
+		t.Fatalf("active run_outputs no-op id = %q, want %q", sameOutput.ID, initialOutputID)
+	}
+	if !sameOutput.CreatedAt.Equal(initialOutputCreatedAt) {
+		t.Fatalf("active run_outputs no-op created_at = %v, want %v", sameOutput.CreatedAt, initialOutputCreatedAt)
 	}
 	resourceSnapshot := &domain.RunResourceSnapshot{RunID: activeRun.ID, CPUPercent: 10, MemoryMB: 128}
 	if err := q.CreateRunResourceSnapshotForActiveRun(ctx, resourceSnapshot, activeRun.Attempt); err != nil {
@@ -1735,6 +2218,33 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, memory, 1024, 1024, activeRun.Attempt); err != nil {
 		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(active) error = %v", err)
 	}
+	var memoryXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		activeRun.JobID,
+		"cursor",
+	).Scan(&memoryXminBeforeNoop); err != nil {
+		t.Fatalf("query active job_memory xmin before no-op: %v", err)
+	}
+	sameMemory := &domain.JobMemory{JobID: activeRun.JobID, ProjectID: activeRun.ProjectID, MemoryKey: "cursor", Value: json.RawMessage(`{"step":1}`), SizeBytes: len(`{"step":1}`)}
+	if err := q.UpsertJobMemoryWithQuotaForActiveRun(ctx, activeRun.ID, sameMemory, 1024, 1024, activeRun.Attempt); err != nil {
+		t.Fatalf("UpsertJobMemoryWithQuotaForActiveRun(active no-op) error = %v", err)
+	}
+	var memoryXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM job_memory
+		WHERE job_id = $1 AND memory_key = $2`,
+		activeRun.JobID,
+		"cursor",
+	).Scan(&memoryXminAfterNoop); err != nil {
+		t.Fatalf("query active job_memory xmin after no-op: %v", err)
+	}
+	if memoryXminAfterNoop != memoryXminBeforeNoop {
+		t.Fatalf("active job_memory no-op changed xmin from %s to %s", memoryXminBeforeNoop, memoryXminAfterNoop)
+	}
 	if err := q.DeleteRunStateForActiveRun(ctx, activeRun.ID, "cursor", activeRun.Attempt); err != nil {
 		t.Fatalf("DeleteRunStateForActiveRun(active) error = %v", err)
 	}
@@ -1742,12 +2252,50 @@ func TestSDKActiveRunMutationsRequireActiveAttempt(t *testing.T) {
 		t.Fatalf("DeleteJobMemoryForActiveRun(active) error = %v", err)
 	}
 
+	var ledgerHasSDK bool
+	if err := testDB.Pool.QueryRow(ctx, `SELECT metadata ? 'sdk' FROM job_runs WHERE id = $1`, activeRun.ID).Scan(&ledgerHasSDK); err != nil {
+		t.Fatalf("query ledger metadata: %v", err)
+	}
+	if ledgerHasSDK {
+		t.Fatal("job_runs metadata contains sdk key, want active metadata stored append-only")
+	}
+
 	stored, err := q.GetRun(ctx, activeRun.ID)
 	if err != nil {
 		t.Fatalf("GetRun(active) error = %v", err)
 	}
-	if stored.Metadata["sdk"] != "active" {
-		t.Fatalf("metadata = %+v, want sdk=active", stored.Metadata)
+	if stored.Metadata["sdk"] != "active-v2" || stored.Metadata["phase"] != "two" {
+		t.Fatalf("metadata = %+v, want append-only active metadata overlay", stored.Metadata)
+	}
+	cachedRun, _, err := q.GetRunWithCacheVersion(ctx, activeRun.ID)
+	if err != nil {
+		t.Fatalf("GetRunWithCacheVersion(active) error = %v", err)
+	}
+	if cachedRun.Metadata["sdk"] != "active-v2" || cachedRun.Metadata["phase"] != "two" {
+		t.Fatalf("cached metadata = %+v, want append-only active metadata overlay", cachedRun.Metadata)
+	}
+	byIDs, err := q.GetRunsByIDs(ctx, []string{activeRun.ID})
+	if err != nil {
+		t.Fatalf("GetRunsByIDs(active) error = %v", err)
+	}
+	if byIDs[activeRun.ID].Metadata["sdk"] != "active-v2" || byIDs[activeRun.ID].Metadata["phase"] != "two" {
+		t.Fatalf("GetRunsByIDs metadata = %+v, want append-only active metadata overlay", byIDs[activeRun.ID].Metadata)
+	}
+	metadataKey := "sdk"
+	metadataValue := "active-v2"
+	listed, err := q.ListRunsByProject(ctx, activeRun.ProjectID, nil, &metadataKey, &metadataValue, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProject(active metadata filter) error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != activeRun.ID {
+		t.Fatalf("ListRunsByProject(active metadata filter) = %+v, want active run %s", listed, activeRun.ID)
+	}
+	filtered, err := q.ListRunsByProjectFiltered(ctx, activeRun.ProjectID, nil, nil, "", "", nil, &metadataKey, &metadataValue, nil, nil, nil, nil, nil, 10, nil)
+	if err != nil {
+		t.Fatalf("ListRunsByProjectFiltered(active metadata filter) error = %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != activeRun.ID {
+		t.Fatalf("ListRunsByProjectFiltered(active metadata filter) = %+v, want active run %s", filtered, activeRun.ID)
 	}
 	if stored.HeartbeatAt == nil {
 		t.Fatal("heartbeat_at was not updated")
@@ -1997,6 +2545,41 @@ func TestRunOutputsRemainActive(t *testing.T) {
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput() error = %v", err)
 	}
+	initialOutputID := out.ID
+	initialOutputCreatedAt := out.CreatedAt
+	var outputXminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		run.ID,
+		"final",
+	).Scan(&outputXminBeforeNoop); err != nil {
+		t.Fatalf("query run_outputs xmin before no-op: %v", err)
+	}
+	sameOut := &domain.RunOutput{RunID: run.ID, OutputKey: "final", Schema: json.RawMessage(`{"type":"object"}`), Value: json.RawMessage(`{"name":"leo"}`)}
+	if err := q.UpsertRunOutput(ctx, sameOut); err != nil {
+		t.Fatalf("UpsertRunOutput() no-op error = %v", err)
+	}
+	var outputXminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM run_outputs
+		WHERE run_id = $1 AND output_key = $2`,
+		run.ID,
+		"final",
+	).Scan(&outputXminAfterNoop); err != nil {
+		t.Fatalf("query run_outputs xmin after no-op: %v", err)
+	}
+	if outputXminAfterNoop != outputXminBeforeNoop {
+		t.Fatalf("run_outputs no-op changed xmin from %s to %s", outputXminBeforeNoop, outputXminAfterNoop)
+	}
+	if sameOut.ID != initialOutputID {
+		t.Fatalf("run_outputs no-op id = %q, want %q", sameOut.ID, initialOutputID)
+	}
+	if !sameOut.CreatedAt.Equal(initialOutputCreatedAt) {
+		t.Fatalf("run_outputs no-op created_at = %v, want %v", sameOut.CreatedAt, initialOutputCreatedAt)
+	}
 	out.Value = json.RawMessage(`{"name":"leo2"}`)
 	if err := q.UpsertRunOutput(ctx, out); err != nil {
 		t.Fatalf("UpsertRunOutput() second error = %v", err)
@@ -2043,6 +2626,27 @@ func TestUpdateRunMetadata(t *testing.T) {
 	}
 	if stored.Metadata["env"] != "prod" || stored.Metadata["team"] != "infra" || stored.Metadata["region"] != "eu" {
 		t.Fatalf("metadata after second update = %+v", stored.Metadata)
+	}
+
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query metadata xmin before no-op: %v", err)
+	}
+	if err := q.UpdateRunMetadata(ctx, run.ID, map[string]string{"team": "infra", "region": "eu"}); err != nil {
+		t.Fatalf("UpdateRunMetadata() no-op error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query metadata xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("metadata no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
 	}
 }
 
@@ -5012,15 +5616,15 @@ func TestRunMgmt_ListStaleRuns(t *testing.T) {
 	// Heartbeat liveness is read from the job_run_heartbeats side table.
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)`,
 		stale.ID, oldHeartbeat); err != nil {
 		t.Fatalf("insert stale heartbeat error = %v", err)
 	}
 	recentHeartbeat := time.Now().UTC().Add(-1 * time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
-		INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-		ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+		VALUES ($1, $2, FALSE)`,
 		fresh.ID, recentHeartbeat); err != nil {
 		t.Fatalf("insert fresh heartbeat error = %v", err)
 	}
@@ -5064,8 +5668,8 @@ func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
 	oldHeartbeat := time.Now().UTC().Add(-10 * time.Minute)
 	for _, id := range []string{httpRun.ID, workerRun.ID} {
 		if _, err := testDB.Pool.Exec(ctx, `
-			INSERT INTO job_run_heartbeats (run_id, heartbeat_at) VALUES ($1, $2)
-			ON CONFLICT (run_id) DO UPDATE SET heartbeat_at = EXCLUDED.heartbeat_at`,
+			INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
+			VALUES ($1, $2, FALSE)`,
 			id, oldHeartbeat); err != nil {
 			t.Fatalf("insert heartbeat error = %v", err)
 		}
@@ -6209,6 +6813,18 @@ func TestListRunLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set continuation_of run3 error = %v", err)
 	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 dequeued) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 executing) error = %v", err)
+	}
+	if err := q.UpdateRunStatus(ctx, run3.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
+		"finished_at": time.Now().UTC().Truncate(time.Microsecond),
+		"result":      json.RawMessage(`{"lineage":true}`),
+	}); err != nil {
+		t.Fatalf("UpdateRunStatus(run3 completed) error = %v", err)
+	}
 
 	// Query lineage from run3 (should walk back to run1 and return all 3)
 	lineage, err := q.ListRunLineage(ctx, run3.ID, 100, nil)
@@ -6224,6 +6840,12 @@ func TestListRunLineage(t *testing.T) {
 	}
 	if lineage[2].ID != run3.ID {
 		t.Fatalf("lineage[2].ID = %q, want %q (leaf)", lineage[2].ID, run3.ID)
+	}
+	if lineage[2].Status != domain.StatusCompleted {
+		t.Fatalf("lineage[2].Status = %q, want completed", lineage[2].Status)
+	}
+	if !jsonEqual(lineage[2].Result, []byte(`{"lineage":true}`)) {
+		t.Fatalf("lineage[2].Result = %s, want terminal result", string(lineage[2].Result))
 	}
 }
 
@@ -6345,6 +6967,26 @@ func TestUpdateRunDebugMode(t *testing.T) {
 	}
 	if !got.DebugMode {
 		t.Fatal("debug_mode = false after enable, want true")
+	}
+	var beforeNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&beforeNoopXmin); err != nil {
+		t.Fatalf("query debug_mode xmin before no-op: %v", err)
+	}
+	if err := q.UpdateRunDebugMode(ctx, run.ID, true); err != nil {
+		t.Fatalf("UpdateRunDebugMode(true no-op) error = %v", err)
+	}
+	var afterNoopXmin string
+	if err := testDB.Pool.QueryRow(ctx,
+		`SELECT xmin::text FROM job_runs WHERE id = $1`,
+		run.ID,
+	).Scan(&afterNoopXmin); err != nil {
+		t.Fatalf("query debug_mode xmin after no-op: %v", err)
+	}
+	if afterNoopXmin != beforeNoopXmin {
+		t.Fatalf("debug_mode no-op changed xmin from %s to %s", beforeNoopXmin, afterNoopXmin)
 	}
 
 	// Disable debug mode
@@ -8614,11 +9256,13 @@ func TestDeleteJob_CompletedRunsAllowed(t *testing.T) {
 	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, nil); err != nil {
 		t.Fatalf("UpdateRunStatus(completed) error = %v", err)
 	}
+	seedRetentionSideRows(t, ctx, run.ID)
 
 	// Delete should succeed now (only completed runs).
 	if err := q.DeleteJob(ctx, job.ID); err != nil {
 		t.Fatalf("DeleteJob(completed runs) error = %v (should succeed)", err)
 	}
+	assertNoRunRetentionSideRows(t, ctx, run.ID)
 }
 
 func TestListJobs_IncludesNewFields(t *testing.T) {
@@ -8913,7 +9557,7 @@ func TestListRunsByTag(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "proj-runtag-" + newID()
 	job := &domain.Job{
@@ -9944,7 +10588,7 @@ func TestGetPerformanceAnalytics(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "project-analytics-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID), Slug: new("analytics-job-" + newID())})
@@ -10004,7 +10648,7 @@ func TestGetJobHealthStats_RecentWindow(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
-	pq := queue.NewPostgresQueue(testDB.Pool)
+	pq := queue.NewPostgresRunWriter(testDB.Pool)
 
 	projectID := "project-health-window-" + newID()
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{ProjectID: new(projectID)})
@@ -11061,6 +11705,16 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 	run := testutil.MustCreateRun(t, ctx, q, job, &testutil.RunOpts{Status: new(runStatus)})
 	trigger := mustCreateJobRunEventTrigger(t, ctx, q, projectID, run.ID, domain.EventTriggerStatusWaiting, "evt-requeue-"+newID(), time.Now().UTC().Add(-time.Minute), nil, nil)
 
+	var beforeGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration); err != nil {
+		t.Fatalf("query ready_generation before receive: %v", err)
+	}
+
 	payload := json.RawMessage(`{"checkpoint":"resume"}`)
 	receivedAt := time.Now().UTC()
 	if err := q.ReceiveEventAndRequeueRun(ctx, trigger.ID, payload, receivedAt, run.ID); err != nil {
@@ -11073,6 +11727,26 @@ func TestReceiveEventAndRequeueRun(t *testing.T) {
 	}
 	if updatedRun.Status != domain.StatusQueued {
 		t.Fatalf("run status = %q, want %q", updatedRun.Status, domain.StatusQueued)
+	}
+	var ledgerStatus, stateStatus domain.RunStatus
+	var afterGeneration int64
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT jr.status, s.status, s.ready_generation
+		FROM job_runs jr
+		JOIN job_run_state s ON s.run_id = jr.id
+		WHERE jr.id = $1`,
+		run.ID,
+	).Scan(&ledgerStatus, &stateStatus, &afterGeneration); err != nil {
+		t.Fatalf("query split run state after receive: %v", err)
+	}
+	if ledgerStatus != domain.StatusWaiting {
+		t.Fatalf("job_runs status = %q, want immutable waiting ledger status", ledgerStatus)
+	}
+	if stateStatus != domain.StatusQueued {
+		t.Fatalf("job_run_state status = %q, want queued", stateStatus)
+	}
+	if afterGeneration != beforeGeneration+1 {
+		t.Fatalf("ready_generation = %d, want %d", afterGeneration, beforeGeneration+1)
 	}
 	checkpoint, err := q.GetLatestCheckpoint(ctx, run.ID)
 	if err != nil {

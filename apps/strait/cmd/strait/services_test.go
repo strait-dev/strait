@@ -185,7 +185,7 @@ func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
 		GRPCEnabled: true,
 	}
 
-	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, "test", nil)
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
 	if err == nil {
 		t.Fatal("expected error when GRPC is enabled without pubsub")
 	}
@@ -238,7 +238,7 @@ func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
 		GRPCEnabled: false,
 	}
 
-	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, "test", nil)
+	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
 	if err != nil {
 		t.Fatalf("startGRPCServer() error = %v", err)
 	}

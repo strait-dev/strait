@@ -343,7 +343,7 @@ func FuzzOIDCVerify_MalformedTokens(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, token string) {
 		// Must not panic regardless of input.
-		v.verify(token)
+		_, _ = v.verify(token)
 	})
 }
 

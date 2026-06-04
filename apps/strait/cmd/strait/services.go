@@ -723,7 +723,7 @@ func profilingManagementAddr(cfg *config.Config) string {
 // It is symmetric to startAPIServer: the server shuts down before the HTTP
 // server on SIGTERM so that connected workers can reconnect to other replicas
 // before the HTTP surface disappears.
-func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
+func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Queries, pub pubsub.Publisher, rdb *redis.Client, q queue.Queue, billingEnforcer *billing.Enforcer, version string, decryptor grpcserver.SecretDecryptor) (*grpcserver.Server, error) {
 	if cfg.Mode != "api" && cfg.Mode != "all" {
 		return nil, nil
 	}
@@ -751,6 +751,9 @@ func startGRPCServer(g *pool.ContextPool, cfg *config.Config, queries *store.Que
 	}
 	if billingEnforcer != nil {
 		opts = append(opts, grpcserver.WithBillingEnforcer(billingEnforcer))
+	}
+	if readyRunQueue, ok := q.(grpcserver.ReadyRunEnqueuer); ok {
+		opts = append(opts, grpcserver.WithReadyRunEnqueuer(readyRunQueue))
 	}
 	srv, err := grpcserver.NewServer(cfg, queries, pub, opts...)
 	if err != nil {
@@ -965,11 +968,9 @@ func runWorkerScheduler(ctx context.Context, deps workerRuntimeDeps) error {
 }
 
 func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
-	cfg := deps.config
 	queries := deps.queries
 	dbPool := deps.dbPool
-
-	return []scheduler.SchedulerOption{
+	opts := []scheduler.SchedulerOption{
 		scheduler.WithSchedulerMetrics(deps.metrics),
 		scheduler.WithChExporter(deps.clickHouseExporter),
 		scheduler.WithReaperAdvisoryLocker(queries),
@@ -988,9 +989,6 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 				Interval: time.Hour,
 				Logger:   slog.Default(),
 			}).WithAdvisoryLocker(queries),
-		),
-		scheduler.WithClaimReconciler(
-			scheduler.NewClaimReconciler(dbPool, 5*time.Minute),
 		),
 		scheduler.WithPartitionEnsurer(
 			scheduler.NewPartitionEnsurer(queries, scheduler.PartitionEnsurerConfig{
@@ -1017,7 +1015,6 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 			scheduler.NewOutboxFlusher(dbPool, deps.queue, scheduler.OutboxFlusherConfig{
 				Interval:  time.Second,
 				BatchSize: 500,
-				Engine:    cfg.OutboxEngine,
 				Logger:    slog.Default(),
 			}),
 		),
@@ -1056,6 +1053,12 @@ func baseSchedulerOptions(deps workerRuntimeDeps) []scheduler.SchedulerOption {
 			),
 		),
 	}
+	if repairer, ok := deps.queue.(scheduler.ReadyRunRepairer); ok {
+		opts = append(opts, scheduler.WithReadyRunReconciler(
+			scheduler.NewReadyRunReconciler(repairer, 5*time.Minute, 1000),
+		))
+	}
+	return opts
 }
 
 func appendPartitionReclaimer(
@@ -1308,7 +1311,6 @@ func buildExecutorConfig(
 		Edition:                  domain.ParseEdition(cfg.Edition),
 		EventChannelSize:         cfg.WorkerEventChannelSize,
 		SecretDecryptor:          deps.encryptor,
-		UseDenormalizedDequeue:   cfg.QueueUseDenormalizedDequeue,
 		DLQCapEnforcer: worker.NewDLQCapEnforcer(deps.queries, worker.DLQCapConfig{
 			MaxPerJob:     cfg.DLQMaxPerJob,
 			MaxPerProject: cfg.DLQMaxPerProject,

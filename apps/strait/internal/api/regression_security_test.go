@@ -130,9 +130,6 @@ func TestRegression_CronExpressionLength(t *testing.T) {
 func TestRegression_EndpointURLSSRF(t *testing.T) {
 	t.Parallel()
 
-	// Ensure the global flag is false so private endpoints are blocked.
-	globalAllowPrivateEndpoints.Store(false)
-
 	blockedURLs := []struct {
 		name string
 		url  string
@@ -148,7 +145,7 @@ func TestRegression_EndpointURLSSRF(t *testing.T) {
 	for _, tc := range blockedURLs {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := validateURL(tc.url)
+			err := validateURLWithAllowPrivate(tc.url, false)
 			if err == nil {
 				t.Fatalf("validateURL(%q) = nil, want error (SSRF blocked)", tc.url)
 			}

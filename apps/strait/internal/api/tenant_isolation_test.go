@@ -169,8 +169,8 @@ func requestForProject(method, path, body, projectID string) *http.Request {
 }
 
 // decodeDataCount decodes a paginated response and returns the number of data items.
-func decodeDataCount(t testing.TB, body []byte) int {
-	t.Helper()
+func decodeDataCount(tb testing.TB, body []byte) int {
+	tb.Helper()
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -180,11 +180,11 @@ func decodeDataCount(t testing.TB, body []byte) int {
 		if err2 := json.Unmarshal(body, &arr); err2 == nil {
 			return len(arr)
 		}
-		t.Fatalf("failed to decode response: %v\nbody: %s", err, string(body))
+		tb.Fatalf("failed to decode response: %v\nbody: %s", err, string(body))
 	}
 	var arr []json.RawMessage
 	if err := json.Unmarshal(envelope.Data, &arr); err != nil {
-		t.Fatalf("failed to decode data array: %v", err)
+		tb.Fatalf("failed to decode data array: %v", err)
 	}
 	return len(arr)
 }

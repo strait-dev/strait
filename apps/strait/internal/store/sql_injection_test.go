@@ -77,7 +77,7 @@ func TestUpdateLogDrain_AcceptsAllValidColumns(t *testing.T) {
 		t.Run(col, func(t *testing.T) {
 			t.Parallel()
 			func() {
-				defer func() { recover() }()
+				defer func() { _ = recover() }()
 				q := &Queries{}
 				err := q.UpdateLogDrain(t.Context(), "drain-1", "proj-1", map[string]any{col: "val"})
 				if err == nil {
@@ -149,7 +149,7 @@ func TestUpdateEventSource_AcceptsAllValidColumns(t *testing.T) {
 		t.Run(col, func(t *testing.T) {
 			t.Parallel()
 			func() {
-				defer func() { recover() }()
+				defer func() { _ = recover() }()
 				q := &Queries{}
 				err := q.UpdateEventSource(t.Context(), "src-1", "proj-1", map[string]any{col: "val"})
 				if err == nil {
@@ -204,7 +204,7 @@ func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
 			// With nil db, the function will panic after passing the allowlist.
 			// A panic means the column was accepted (good). A FieldError means rejected (bad).
 			func() {
-				defer func() { recover() }()
+				defer func() { _ = recover() }()
 				q := &Queries{}
 				err := q.UpdateRunStatus(t.Context(), "run-1", domain.StatusQueued, domain.StatusDequeued, map[string]any{
 					col: "val",
@@ -274,7 +274,7 @@ func FuzzUpdateLogDrainColumnName(f *testing.F) {
 		var resultErr error
 		panicked := true
 		func() {
-			defer func() { recover() }()
+			defer func() { _ = recover() }()
 			q := &Queries{}
 			resultErr = q.UpdateLogDrain(t.Context(), "drain-1", "proj-1", map[string]any{colName: "val"})
 			panicked = false
@@ -322,7 +322,7 @@ func FuzzUpdateEventSourceColumnName(f *testing.F) {
 		var resultErr error
 		panicked := true
 		func() {
-			defer func() { recover() }()
+			defer func() { _ = recover() }()
 			q := &Queries{}
 			resultErr = q.UpdateEventSource(t.Context(), "src-1", "proj-1", map[string]any{colName: "val"})
 			panicked = false

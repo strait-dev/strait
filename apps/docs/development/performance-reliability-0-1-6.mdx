@@ -35,7 +35,7 @@ These samples are package-level guards from this pass, not a replacement for the
 | Adaptive cold-idle observe path | not separately measured | 19.66 ns/op, 0 B/op, 0 allocs/op | zero-allocation guard added |
 | CDC additional handler path | not separately measured | 27.42 ns/op, 0 B/op, 0 allocs/op | zero-allocation guard added |
 
-Queue batchlog measurements are tracked in [Queue Batchlog Rollout Benchmark](/development/queue-batchlog-rollout-benchmark).
+PgQue queue measurements should be tracked through the queue health benchmark and the integration guardrails below.
 
 ## Validation commands
 
@@ -78,4 +78,4 @@ Acceptance gates:
 - `GetJobHealthStats` does not scan all job history on request hot paths.
 - `execution_trace` update cost is near zero unless trace persistence is explicitly enabled.
 - CDC fan-out failures do not redeliver durable side effects.
-- batchlog queue and outbox bloat stay flat or improve against the baseline report.
+- PgQue queue and outbox claim-log bloat stay flat or improve against the baseline report.

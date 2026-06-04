@@ -22,19 +22,55 @@ func (q *Queries) UpsertDebouncePending(ctx context.Context, d *domain.DebounceP
 	}
 
 	query := `
-		INSERT INTO debounce_pending (id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (job_id, debounce_key)
-		DO UPDATE SET payload = EXCLUDED.payload, tags = EXCLUDED.tags, priority = EXCLUDED.priority,
-		              concurrency_key = EXCLUDED.concurrency_key, ttl_secs = EXCLUDED.ttl_secs,
-		              triggered_by = EXCLUDED.triggered_by, created_by = EXCLUDED.created_by,
-		              fire_at = EXCLUDED.fire_at
-		RETURNING created_at`
+		WITH inserted AS (
+			INSERT INTO debounce_pending (id, job_id, project_id, debounce_key, payload, tags, priority, concurrency_key, ttl_secs, triggered_by, created_by, fire_at)
+			VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
+			ON CONFLICT (job_id, debounce_key) DO NOTHING
+			RETURNING id, created_at
+		),
+		updated AS (
+			UPDATE debounce_pending
+			SET payload = $5::jsonb,
+			    tags = $6::jsonb,
+			    priority = $7,
+			    concurrency_key = $8,
+			    ttl_secs = $9,
+			    triggered_by = $10,
+			    created_by = $11,
+			    fire_at = $12
+			WHERE job_id = $2
+			  AND debounce_key = $4
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND (
+			      payload IS DISTINCT FROM $5::jsonb
+			      OR tags IS DISTINCT FROM $6::jsonb
+			      OR priority IS DISTINCT FROM $7
+			      OR concurrency_key IS DISTINCT FROM $8
+			      OR ttl_secs IS DISTINCT FROM $9
+			      OR triggered_by IS DISTINCT FROM $10
+			      OR created_by IS DISTINCT FROM $11
+			      OR fire_at IS DISTINCT FROM $12
+			  )
+			RETURNING id, created_at
+		),
+		selected AS (
+			SELECT id, created_at FROM inserted
+			UNION ALL
+			SELECT id, created_at FROM updated
+			UNION ALL
+			SELECT id, created_at
+			FROM debounce_pending
+			WHERE job_id = $2
+			  AND debounce_key = $4
+			  AND NOT EXISTS (SELECT 1 FROM inserted)
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT id, created_at FROM selected LIMIT 1`
 
 	err := q.db.QueryRow(ctx, query,
 		d.ID, d.JobID, d.ProjectID, d.DebounceKey, d.Payload, d.Tags,
 		d.Priority, nilIfEmpty(d.ConcurrencyKey), d.TTLSecs, d.TriggeredBy, nilIfEmpty(d.CreatedBy), d.FireAt,
-	).Scan(&d.CreatedAt)
+	).Scan(&d.ID, &d.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert debounce pending: %w", err)
 	}

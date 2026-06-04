@@ -626,10 +626,10 @@ func (s *PgStore) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	var count int
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*)
-		FROM job_runs jr
-		JOIN projects p ON p.id = jr.project_id
+		FROM job_run_read_state rs
+		JOIN projects p ON p.id = rs.project_id
 		WHERE p.org_id = $1
-		  AND jr.status = 'executing'
+		  AND rs.status = 'executing'
 	`, orgID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("counting executing runs by org: %w", err)
@@ -645,11 +645,11 @@ func (s *PgStore) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []stri
 		return map[string]int{}, nil
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT p.org_id, COUNT(jr.id)::int
-		FROM job_runs jr
-		JOIN projects p ON p.id = jr.project_id
+		SELECT p.org_id, COUNT(rs.run_id)::int
+		FROM job_run_read_state rs
+		JOIN projects p ON p.id = rs.project_id
 		WHERE p.org_id = ANY($1)
-		  AND jr.status = 'executing'
+		  AND rs.status = 'executing'
 		GROUP BY p.org_id
 	`, orgIDs)
 	if err != nil {
@@ -727,19 +727,20 @@ func (s *PgStore) reconcileCompletedRunCosts(ctx context.Context, orgID string, 
 				'strait:cost_recorded:' || jr.id AS idempotency_key,
 				p.org_id,
 				jr.project_id,
-				DATE(COALESCE(jr.finished_at, jr.created_at)) AS period_date,
-				COALESCE(NULLIF(jr.execution_mode, ''), 'http') AS execution_mode,
+				DATE(COALESCE(rs.finished_at, jr.created_at)) AS period_date,
+				COALESCE(NULLIF(rs.execution_mode, ''), 'http') AS execution_mode,
 				CASE
-					WHEN COALESCE(NULLIF(jr.execution_mode, ''), 'http') = 'worker' THEN $3::bigint
+					WHEN COALESCE(NULLIF(rs.execution_mode, ''), 'http') = 'worker' THEN $3::bigint
 					ELSE $4::bigint
 				END AS compute_cost_microusd,
-				COALESCE(jr.finished_at, jr.created_at) AS created_at
+				COALESCE(rs.finished_at, jr.created_at) AS created_at
 			FROM job_runs jr
+			JOIN job_run_read_state rs ON rs.run_id = jr.id
 			JOIN projects p ON p.id = jr.project_id
 			LEFT JOIN billing_cost_events b ON b.idempotency_key = 'strait:cost_recorded:' || jr.id
 			WHERE p.org_id = $1
-			  AND jr.status = $5
-			  AND DATE(COALESCE(jr.finished_at, jr.created_at)) = $2
+			  AND rs.status = $5
+			  AND DATE(COALESCE(rs.finished_at, jr.created_at)) = $2
 			  AND b.idempotency_key IS NULL
 		), inserted AS (
 			INSERT INTO billing_cost_events (

@@ -118,8 +118,9 @@ type jobEndpoint struct {
 }
 
 func startJobEndpoint(t *testing.T) *jobEndpoint {
-	var concWG conc.WaitGroup
 	t.Helper()
+
+	var concWG conc.WaitGroup
 	ep := &jobEndpoint{}
 	mux := http.NewServeMux()
 	// Use a unique path to avoid dispatch interference between tests.

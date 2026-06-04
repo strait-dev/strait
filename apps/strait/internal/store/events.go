@@ -55,11 +55,12 @@ func (q *Queries) InsertEventForActiveRun(ctx context.Context, event *domain.Run
 
 	query := `
 		WITH active_run AS (
-			SELECT id
-			FROM job_runs
-			WHERE id = $2
-			  AND attempt = $7
-			  AND status IN ('executing', 'waiting')
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $2
+			  AND COALESCE(s.attempt, jr.attempt) = $7
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
 		)
 		INSERT INTO run_events (id, run_id, type, level, message, data)
 		SELECT $1, id, $3, $4, $5, $6

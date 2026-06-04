@@ -34,7 +34,7 @@ import (
 var (
 	testEnv   *testutil.TestEnv
 	testStore *store.Queries
-	testQueue *queue.PostgresQueue
+	testQueue *queue.PgQueQueue
 	ts        *httptest.Server
 	baseURL   string
 	cfg       loadCfg
@@ -96,7 +96,9 @@ func TestMain(m *testing.M) {
 
 	testStore = store.New(testEnv.DB.Pool)
 	testStore.SetSecretEncryptionKey("test-encryption-key-32bytes!!!!")
-	testQueue = queue.NewPostgresQueue(testEnv.DB.Pool)
+	testQueue = queue.NewPgQueQueue(testEnv.DB.Pool, queue.NewPostgresRunWriter(testEnv.DB.Pool), queue.PgQueConfig{})
+	tickerCtx, cancelTicker := context.WithCancel(ctx)
+	go testQueue.RunTicker(tickerCtx)
 
 	srv := api.NewServer(api.ServerDeps{
 		Config: &config.Config{
@@ -119,6 +121,7 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	cancelTicker()
 	ts.Close()
 	testEnv.Cleanup(ctx)
 	os.Exit(code)

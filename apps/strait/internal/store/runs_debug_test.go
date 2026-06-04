@@ -162,8 +162,8 @@ func TestUpdateRunDebugMode(t *testing.T) {
 	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		t.Parallel()
-		db := &mockDBTX{execFn: func(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-			if !strings.Contains(sql, "UPDATE job_runs SET debug_mode") {
+		db := &mockDBTX{queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
+			if !strings.Contains(sql, "UPDATE job_runs") || !strings.Contains(sql, "debug_mode IS DISTINCT FROM") {
 				t.Fatalf("unexpected SQL: %s", sql)
 			}
 			if len(args) != 2 {
@@ -172,7 +172,11 @@ func TestUpdateRunDebugMode(t *testing.T) {
 			if args[0] != true || args[1] != "run-1" {
 				t.Fatalf("unexpected args: %#v", args)
 			}
-			return pgconn.NewCommandTag("UPDATE 1"), nil
+			return &mockRow{scanFn: func(dest ...any) error {
+				*dest[0].(*bool) = true
+				*dest[1].(*bool) = true
+				return nil
+			}}
 		}}
 
 		q := New(db)
@@ -183,14 +187,34 @@ func TestUpdateRunDebugMode(t *testing.T) {
 
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
-		db := &mockDBTX{execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			return pgconn.NewCommandTag("UPDATE 0"), nil
+		db := &mockDBTX{queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				*dest[0].(*bool) = false
+				*dest[1].(*bool) = false
+				return nil
+			}}
 		}}
 
 		q := New(db)
 		err := q.UpdateRunDebugMode(context.Background(), "missing-run", false)
 		if !errors.Is(err, ErrRunNotFound) {
 			t.Fatalf("expected ErrRunNotFound, got %v", err)
+		}
+	})
+
+	t.Run("no-op existing run", func(t *testing.T) {
+		t.Parallel()
+		db := &mockDBTX{queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
+			return &mockRow{scanFn: func(dest ...any) error {
+				*dest[0].(*bool) = true
+				*dest[1].(*bool) = false
+				return nil
+			}}
+		}}
+
+		q := New(db)
+		if err := q.UpdateRunDebugMode(context.Background(), "run-1", true); err != nil {
+			t.Fatalf("UpdateRunDebugMode() error = %v", err)
 		}
 	})
 }

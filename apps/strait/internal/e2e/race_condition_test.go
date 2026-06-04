@@ -27,15 +27,16 @@ func TestRace_DoubleDequeue(t *testing.T) {
 	mustClean(t)
 
 	ctx := context.Background()
+	q := newIsolatedQueue(t)
 	job := testutil.MustCreateJob(t, ctx, testStore, nil)
-	_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
+	_ = testutil.MustEnqueueRun(t, ctx, q, job, nil)
 
 	var wg conc.WaitGroup
 	var gotRun atomic.Int32
 
 	for range 2 {
 		wg.Go(func() {
-			runs, err := testQueue.DequeueN(ctx, 1)
+			runs, err := q.DequeueN(ctx, 1)
 			if err != nil {
 				return
 			}
@@ -57,6 +58,7 @@ func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
 	mustClean(t)
 
 	ctx := context.Background()
+	q := newIsolatedQueue(t)
 	job := testutil.MustCreateJob(t, ctx, testStore, nil)
 
 	const half = 10
@@ -66,14 +68,14 @@ func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
 	// Start enqueue goroutines.
 	for range half {
 		wg.Go(func() {
-			_ = testutil.MustEnqueueRun(t, ctx, testQueue, job, nil)
+			_ = testutil.MustEnqueueRun(t, ctx, q, job, nil)
 		})
 	}
 
 	// Start dequeue goroutines.
 	for range half {
 		wg.Go(func() {
-			runs, err := testQueue.DequeueN(ctx, 1)
+			runs, err := q.DequeueN(ctx, 1)
 			if err == nil && len(runs) > 0 {
 				dequeuedTotal.Add(int32(len(runs)))
 			}

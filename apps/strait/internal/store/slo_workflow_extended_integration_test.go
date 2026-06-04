@@ -366,6 +366,58 @@ func TestHealth_UpsertEndpointHealthScore_Update(t *testing.T) {
 	if err := q.UpsertEndpointHealthScore(ctx, initial); err != nil {
 		t.Fatalf("insert error = %v", err)
 	}
+	gotInitial, err := q.GetEndpointHealthScore(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointHealthScore(initial) error = %v", err)
+	}
+	if gotInitial == nil {
+		t.Fatal("GetEndpointHealthScore(initial) returned nil")
+	}
+	initialUpdatedAt := gotInitial.UpdatedAt
+	var xminBeforeNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM endpoint_health_scores
+		WHERE endpoint_url = $1`,
+		endpoint,
+	).Scan(&xminBeforeNoop); err != nil {
+		t.Fatalf("query endpoint_health_scores xmin before no-op: %v", err)
+	}
+
+	same := &domain.EndpointHealthScore{
+		EndpointURL:   endpoint,
+		HealthScore:   50.0,
+		SuccessRate:   0.5,
+		TimeoutRate:   0.1,
+		LatencyScore:  0.5,
+		TotalRequests: 10,
+		LastLatencyMs: 200.0,
+	}
+	if err := q.UpsertEndpointHealthScore(ctx, same); err != nil {
+		t.Fatalf("no-op error = %v", err)
+	}
+	var xminAfterNoop string
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT xmin::text
+		FROM endpoint_health_scores
+		WHERE endpoint_url = $1`,
+		endpoint,
+	).Scan(&xminAfterNoop); err != nil {
+		t.Fatalf("query endpoint_health_scores xmin after no-op: %v", err)
+	}
+	if xminAfterNoop != xminBeforeNoop {
+		t.Fatalf("endpoint_health_scores no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
+	}
+	gotSame, err := q.GetEndpointHealthScore(ctx, endpoint)
+	if err != nil {
+		t.Fatalf("GetEndpointHealthScore(no-op) error = %v", err)
+	}
+	if gotSame == nil {
+		t.Fatal("GetEndpointHealthScore(no-op) returned nil")
+	}
+	if !gotSame.UpdatedAt.Equal(initialUpdatedAt) {
+		t.Fatalf("endpoint_health_scores no-op updated_at = %v, want %v", gotSame.UpdatedAt, initialUpdatedAt)
+	}
 
 	updated := &domain.EndpointHealthScore{
 		EndpointURL:   endpoint,

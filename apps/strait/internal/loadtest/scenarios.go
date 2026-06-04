@@ -222,18 +222,6 @@ func OutboxBurst() Scenario {
 	}
 }
 
-// DenormalizedDequeueDelta runs ThroughputCeiling twice — with
-// QUEUE_USE_DENORMALIZED_DEQUEUE true and false — and emits a delta
-// report so the fully denormalized path's lift is measurable.
-func DenormalizedDequeueDelta() Scenario {
-	return Scenario{
-		Name:        "denormalized_dequeue_delta",
-		Description: "ThroughputCeiling with fully denormalized dequeue enabled vs disabled; emit delta report.",
-		Tier:        1,
-		Duration:    4 * time.Hour,
-	}
-}
-
 // PartitionCycleMatrix varies the partitionCycle length (1, 4, 12) at a
 // fixed enqueue rate and captures per-partition P99 dequeue latency via
 // the partition_dequeue_lag_seconds histogram.
@@ -299,7 +287,6 @@ func AllScenarios() []Scenario {
 		BackpressureCeiling(),
 		CircuitBreakerChaos(),
 		OutboxBurst(),
-		DenormalizedDequeueDelta(),
 		PartitionCycleMatrix(),
 		ArchiveStress(),
 	}

@@ -53,7 +53,7 @@ func TestEnqueue_AdversarialIdempotencyKey(t *testing.T) {
 	// Null bytes in idempotency key should be passed through to the DB layer
 	// since validation happens at the API layer, not the queue layer.
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -76,7 +76,7 @@ func TestEnqueue_LongIdempotencyKey(t *testing.T) {
 	// Length validation is the API layer's responsibility.
 	longKey := strings.Repeat("a", 10*1024)
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -102,7 +102,7 @@ func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -123,7 +123,7 @@ func TestPriority_IntMin(t *testing.T) {
 
 	var capturedArgs []any
 	db := capturingMockDB(&capturedArgs)
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -150,7 +150,7 @@ func TestPriority_IntMax(t *testing.T) {
 
 	var capturedArgs []any
 	db := capturingMockDB(&capturedArgs)
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -163,29 +163,6 @@ func TestPriority_IntMax(t *testing.T) {
 	}
 	if run.Priority != math.MaxInt32 {
 		t.Errorf("Priority = %d, want %d", run.Priority, math.MaxInt32)
-	}
-}
-
-func TestPriority_EqualPriorities(t *testing.T) {
-	t.Parallel()
-
-	// The dequeue ORDER BY clause uses "priority DESC, created_at ASC"
-	// which ensures FIFO within the same priority level.
-	q := NewPostgresQueue(&mockDBTX{})
-	clause := q.dequeueOrderByClause()
-
-	if !strings.Contains(clause, "jr.priority DESC") {
-		t.Fatalf("order by clause missing priority DESC: %s", clause)
-	}
-	if !strings.Contains(clause, "jr.created_at ASC") {
-		t.Fatalf("order by clause missing created_at ASC for FIFO: %s", clause)
-	}
-
-	// Verify priority comes before created_at in the clause.
-	priIdx := strings.Index(clause, "jr.priority")
-	catIdx := strings.Index(clause, "jr.created_at")
-	if priIdx >= catIdx {
-		t.Fatalf("priority must sort before created_at; clause = %s", clause)
 	}
 }
 
@@ -202,7 +179,7 @@ func TestConcurrencyKey_SpecialChars(t *testing.T) {
 
 	for _, key := range specialKeys {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:          "job-1",
 			ProjectID:      "proj-1",
@@ -221,7 +198,7 @@ func TestConcurrencyKey_ExtremelyLong(t *testing.T) {
 
 	longKey := strings.Repeat("x", 10*1024)
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -237,18 +214,8 @@ func TestConcurrencyKey_ExtremelyLong(t *testing.T) {
 func TestConcurrencyKey_EmptyString(t *testing.T) {
 	t.Parallel()
 
-	// Empty concurrency key should bypass per-key concurrency checks.
-	// The SQL includes: "OR jr.concurrency_key IS NULL OR jr.concurrency_key = ''"
-	// which confirms empty keys are excluded from concurrency enforcement.
-	if !strings.Contains(concurrencyWhere, "jr.concurrency_key = ''") {
-		t.Fatalf("concurrencyWhere should handle empty concurrency key; got: %s", concurrencyWhere)
-	}
-	if !strings.Contains(concurrencyWhere, "jr.concurrency_key IS NULL") {
-		t.Fatalf("concurrencyWhere should handle NULL concurrency key; got: %s", concurrencyWhere)
-	}
-
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:          "job-1",
 		ProjectID:      "proj-1",
@@ -272,7 +239,7 @@ func FuzzEnqueuePriority(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, priority int) {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:     "job-1",
 			ProjectID: "proj-1",
@@ -301,7 +268,7 @@ func FuzzConcurrencyKey(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key string) {
 		db := successMockDB()
-		q := NewPostgresQueue(db)
+		q := NewPostgresRunWriter(db)
 		run := &domain.JobRun{
 			JobID:          "job-1",
 			ProjectID:      "proj-1",
@@ -316,37 +283,6 @@ func FuzzConcurrencyKey(f *testing.F) {
 	})
 }
 
-func TestFairDequeue_SkewedDistribution(t *testing.T) {
-	t.Parallel()
-
-	// Verify that DequeueNFair uses DISTINCT ON (jr.job_id) to prevent
-	// a single high-volume job from starving others.
-	var capturedQuery string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			capturedQuery = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	_, _ = q.DequeueNFair(context.Background(), 10)
-
-	if !strings.Contains(capturedQuery, "DISTINCT ON (jr.job_id)") {
-		t.Fatalf("DequeueNFair() query missing DISTINCT ON (jr.job_id): %s", capturedQuery)
-	}
-
-	// Verify SKIP LOCKED is present to prevent contention.
-	if !strings.Contains(capturedQuery, "SKIP LOCKED") {
-		t.Fatalf("DequeueNFair() query missing SKIP LOCKED: %s", capturedQuery)
-	}
-
-	// Verify concurrency CTEs are included.
-	if !strings.Contains(capturedQuery, "active_by_job") {
-		t.Fatalf("DequeueNFair() query missing concurrency CTE active_by_job: %s", capturedQuery)
-	}
-}
-
 func TestEnqueue_TagsMarshalError(t *testing.T) {
 	t.Parallel()
 
@@ -354,7 +290,7 @@ func TestEnqueue_TagsMarshalError(t *testing.T) {
 	// json.Marshal cannot fail on map[string]string, but we verify the code
 	// path handles the marshal step without panicking.
 	db := successMockDB()
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",

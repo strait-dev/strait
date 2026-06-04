@@ -386,7 +386,9 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	// Free tier allows ConcurrentFree concurrent runs; set at the cap so the
 	// next increment exceeds it and the check rejects.
 	concurrentKey := "strait:org_concurrent:org-monthly-concurrent"
-	mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree))
+	if err := mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree)); err != nil {
+		t.Fatalf("seed concurrent count: %v", err)
+	}
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -472,7 +474,9 @@ func TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount(t 
 	// Pre-fill the monthly counter at the free-tier cap so
 	// CheckMonthlyRunLimit hard-rejects on the next call.
 	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
-	mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree))
+	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree)); err != nil {
+		t.Fatalf("seed monthly count: %v", err)
+	}
 	mr.SetTTL(monthlyKey, 62*24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -87,7 +87,8 @@ func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
 }
 
 func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
-	t.Parallel()
+	globalAllowPrivateEndpoints.Store(false)
+	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 
 	tests := []struct {
 		name      string
@@ -118,8 +119,6 @@ func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			steps := []workflowStepRequest{{
 				StepRef:        "wait",
 				StepType:       domain.WorkflowStepTypeWaitForEvent,

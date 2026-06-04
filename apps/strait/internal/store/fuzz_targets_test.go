@@ -107,8 +107,8 @@ func argsContain(args []any, s string) bool {
 // always passed as SQL parameters, never concatenated into the query
 // string. Tested branches:
 //
-//   - metadataKey != nil and metadataValue == nil → `metadata ? $N`
-//   - metadataKey != nil and metadataValue != nil → `metadata ->> $N = $N+1`
+//   - metadataKey != nil and metadataValue == nil → merged metadata `? $N`
+//   - metadataKey != nil and metadataValue != nil → merged metadata `->> $N = $N+1`
 //
 // The fuzz asserts (a) no panic on any input, (b) the constructed SQL
 // never contains the user key/value as a literal substring when the
@@ -139,10 +139,12 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			if !errors.Is(err, cap1.sentinel) {
 				t.Fatalf("error chain does not include sentinel: %v", err)
 			}
-			// The SQL must contain the `metadata ? $N` template. The key
-			// must NOT appear as a literal in the query string.
-			if !strings.Contains(cap1.sql, "metadata ? $") {
-				t.Fatalf("SQL missing `metadata ? $` template: %q", cap1.sql)
+			// The SQL must query the merged ledger + append-only metadata
+			// overlay. The key must NOT appear as a literal in the query
+			// string.
+			if !strings.Contains(cap1.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
+				!strings.Contains(cap1.sql, "? $") {
+				t.Fatalf("SQL missing merged metadata `? $` template: %q", cap1.sql)
 			}
 			// Strip all placeholders ($1, $2, …) then assert the key
 			// does not appear as a literal. Short keys are still
@@ -170,8 +172,9 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			if err == nil {
 				t.Fatal("expected sentinel error from mock")
 			}
-			if !strings.Contains(cap2.sql, "metadata ->> $") {
-				t.Fatalf("SQL missing `metadata ->> $` template: %q", cap2.sql)
+			if !strings.Contains(cap2.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
+				!strings.Contains(cap2.sql, "->> $") {
+				t.Fatalf("SQL missing merged metadata `->> $` template: %q", cap2.sql)
 			}
 			stripped := stripPlaceholders(cap2.sql)
 			if len(key) >= 8 && strings.Contains(stripped, key) {

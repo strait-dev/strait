@@ -2585,9 +2585,9 @@ func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
 
 // Helper.
 
-func mustUnmarshal(t testing.TB, data []byte, v any) {
-	t.Helper()
+func mustUnmarshal(tb testing.TB, data []byte, v any) {
+	tb.Helper()
 	if err := json.Unmarshal(data, v); err != nil {
-		t.Fatalf("invalid JSON: %v\nbody: %s", err, string(data))
+		tb.Fatalf("invalid JSON: %v\nbody: %s", err, string(data))
 	}
 }

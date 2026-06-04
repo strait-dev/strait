@@ -11,10 +11,10 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
     No. Your code runs on your own infrastructure. Strait orchestrates the work and reaches your code in one of two ways: it POSTs to an HTTP endpoint you expose, or it streams runs to a long-lived worker process that connects over gRPC. See [Execution Modes](/concepts/execution-modes).
   </Accordion>
   <Accordion title="What infrastructure does Strait require?">
-    Strait requires PostgreSQL, Redis, and Sequin. PostgreSQL is the source of truth and queue, Redis powers rate limiting and the worker transport plane, and Sequin streams database changes through CDC. Startup fails if any of the three is missing or unreachable. See [Self-Hosting](/guides/self-hosting).
+    Strait requires PostgreSQL, Redis, and Sequin. PostgreSQL is the source of truth and hosts Strait's PgQue-backed ready-event log, Redis powers rate limiting and the worker transport plane, and Sequin streams database changes through CDC. Startup fails if any of the three is missing or unreachable. See [Self-Hosting](/guides/self-hosting).
   </Accordion>
   <Accordion title="Do I need a message broker like RabbitMQ, Kafka, or SQS?">
-    No. PostgreSQL is the queue, using `SELECT ... FOR UPDATE SKIP LOCKED` to claim work without a separate broker. See [Architecture](/architecture).
+    No. Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) in PostgreSQL as its ready-event log, so no separate broker is needed. See [Architecture](/architecture).
   </Accordion>
   <Accordion title="HTTP mode or worker mode?">
     Use HTTP mode when your code can expose an endpoint Strait can reach. Use worker mode when your code runs somewhere Strait cannot call directly, such as a private network, or when you want workers to pull work over a single outbound gRPC connection. See [Execution Modes](/concepts/execution-modes) and [Run Private Workers](/guides/private-workers).

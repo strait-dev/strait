@@ -515,7 +515,9 @@ func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
 		return nil
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
-	poller.pollLocked(context.Background())
+	if err := poller.pollLocked(context.Background()); err != nil {
+		t.Fatalf("pollLocked: %v", err)
+	}
 
 	if enqueued != 0 {
 		t.Fatalf("enqueued = %d, want 0 for pending row extended into the future", enqueued)

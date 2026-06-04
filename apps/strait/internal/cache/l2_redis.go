@@ -168,6 +168,7 @@ func redisClientReady(client redis.Cmdable) bool {
 	}
 }
 
+//nolint:dupword // Lua control flow naturally closes nested blocks with adjacent end tokens.
 var redisCASScript = redis.NewScript(`
 local existing = redis.call("GET", KEYS[1])
 if existing then

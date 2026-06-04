@@ -1050,6 +1050,18 @@ func (s *Server) Close() {
 	if s.permCache != nil {
 		s.permCache.Stop()
 	}
+	if s.quotaCache != nil {
+		s.quotaCache.Stop()
+	}
+	if s.apiKeyCache != nil {
+		s.apiKeyCache.Stop()
+	}
+	if s.jobDependencyCache != nil {
+		s.jobDependencyCache.Stop()
+	}
+	if s.workerJobBarrier != nil {
+		s.workerJobBarrier.Stop()
+	}
 	if s.poolBackpressure != nil {
 		s.poolBackpressure.Stop()
 	}

@@ -516,7 +516,11 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	// Now check for active runs under the job-row lock.
 	var activeCount int
 	err = q.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND status IN ('queued','delayed','dequeued','executing','waiting')`,
+		`SELECT COUNT(*)
+		 FROM job_runs jr
+		 LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		 WHERE jr.job_id = $1
+		   AND COALESCE(s.status, jr.status) IN ('queued','delayed','dequeued','executing','waiting')`,
 		id,
 	).Scan(&activeCount)
 	if err != nil {
@@ -527,6 +531,51 @@ func (q *Queries) deleteJobTx(ctx context.Context, id string) error {
 	}
 
 	// Delete related data before removing the job (FK constraints).
+	if _, err := q.db.Exec(ctx, `
+		WITH target_runs AS MATERIALIZED (
+			SELECT id
+			FROM job_runs
+			WHERE job_id = $1
+		),
+		deleted_active_claims AS (
+			DELETE FROM job_run_active_claims
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_lifecycle_events AS (
+			DELETE FROM job_run_lifecycle_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_ready_events AS (
+			DELETE FROM job_run_ready_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_retries AS (
+			DELETE FROM job_retries
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_priority_events AS (
+			DELETE FROM job_run_priority_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_visibility_events AS (
+			DELETE FROM job_run_visibility_events
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_cache_versions AS (
+			DELETE FROM job_run_cache_versions
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_heartbeats AS (
+			DELETE FROM job_run_heartbeats
+			WHERE run_id IN (SELECT id FROM target_runs)
+		),
+		deleted_terminal_state AS (
+			DELETE FROM job_run_terminal_state
+			WHERE run_id IN (SELECT id FROM target_runs)
+		)
+		SELECT 1`, id); err != nil {
+		return fmt.Errorf("delete job run side rows: %w", err)
+	}
 	if _, err := q.db.Exec(ctx, `DELETE FROM job_runs WHERE job_id = $1`, id); err != nil {
 		return fmt.Errorf("delete job runs: %w", err)
 	}
@@ -712,8 +761,10 @@ func (q *Queries) CountProjectQueuedRuns(ctx context.Context, projectID string) 
 
 	query := `
 		SELECT COUNT(*)
-		FROM job_runs
-		WHERE project_id = $1 AND status IN ('queued', 'delayed')`
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.project_id = $1
+		  AND COALESCE(s.status, jr.status) IN ('queued', 'delayed')`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
@@ -729,8 +780,10 @@ func (q *Queries) CountProjectActiveRuns(ctx context.Context, projectID string) 
 
 	query := `
 		SELECT COUNT(*)
-		FROM job_runs
-		WHERE project_id = $1 AND status IN ('dequeued', 'executing')`
+		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE jr.project_id = $1
+		  AND COALESCE(s.status, jr.status) IN ('dequeued', 'executing')`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, projectID).Scan(&count); err != nil {
@@ -748,8 +801,9 @@ func (q *Queries) CountExecutingRunsByOrg(ctx context.Context, orgID string) (in
 	query := `
 		SELECT COUNT(*)
 		FROM job_runs jr
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE jr.project_id IN (SELECT id FROM projects WHERE org_id = $1)
-		  AND jr.status = 'executing'`
+		  AND COALESCE(s.status, jr.status) = 'executing'`
 
 	var count int
 	if err := q.db.QueryRow(ctx, query, orgID).Scan(&count); err != nil {
@@ -773,8 +827,9 @@ func (q *Queries) BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []stri
 		SELECT p.org_id, COUNT(jr.id)::int
 		FROM job_runs jr
 		JOIN projects p ON p.id = jr.project_id
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE p.org_id = ANY($1)
-		  AND jr.status = 'executing'
+		  AND COALESCE(s.status, jr.status) = 'executing'
 		GROUP BY p.org_id
 	`, orgIDs)
 	if err != nil {
@@ -803,7 +858,8 @@ func (q *Queries) ListOrgsWithExecutingRuns(ctx context.Context) ([]string, erro
 		SELECT DISTINCT p.org_id
 		FROM job_runs jr
 		JOIN projects p ON p.id = jr.project_id
-		WHERE jr.status = 'executing'
+		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+		WHERE COALESCE(s.status, jr.status) = 'executing'
 		  AND p.org_id IS NOT NULL`
 
 	rows, err := q.db.Query(ctx, query)
@@ -832,7 +888,8 @@ func (q *Queries) UpdateProjectDefaultRegion(ctx context.Context, projectID, def
 	query := `
 		INSERT INTO project_quotas (project_id, default_region)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region`
+		ON CONFLICT (project_id) DO UPDATE SET default_region = EXCLUDED.default_region
+		WHERE project_quotas.default_region IS DISTINCT FROM EXCLUDED.default_region`
 
 	_, err := q.db.Exec(ctx, query, projectID, defaultRegion)
 	if err != nil {
@@ -848,7 +905,8 @@ func (q *Queries) UpdateProjectMaxKeyLifetimeDays(ctx context.Context, projectID
 	query := `
 		INSERT INTO project_quotas (project_id, max_key_lifetime_days)
 		VALUES ($1, $2)
-		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days`
+		ON CONFLICT (project_id) DO UPDATE SET max_key_lifetime_days = EXCLUDED.max_key_lifetime_days
+		WHERE project_quotas.max_key_lifetime_days IS DISTINCT FROM EXCLUDED.max_key_lifetime_days`
 
 	_, err := q.db.Exec(ctx, query, projectID, days)
 	if err != nil {
@@ -1291,12 +1349,30 @@ func (q *Queries) PauseJob(ctx context.Context, id, reason string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.PauseJob")
 	defer span.End()
 
-	query := `UPDATE jobs SET paused = TRUE, paused_at = NOW(), pause_reason = $2, updated_at = NOW() WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id, reason)
+	query := `
+		WITH updated AS (
+			UPDATE jobs
+			SET paused = TRUE,
+			    paused_at = NOW(),
+			    pause_reason = $2,
+			    updated_at = NOW()
+			WHERE id = $1
+			  AND (paused IS DISTINCT FROM TRUE OR pause_reason IS DISTINCT FROM $2)
+			RETURNING 1
+		),
+		existing AS (
+			SELECT 1
+			FROM jobs
+			WHERE id = $1
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT EXISTS (SELECT 1 FROM updated UNION ALL SELECT 1 FROM existing)`
+	var found bool
+	err := q.db.QueryRow(ctx, query, id, reason).Scan(&found)
 	if err != nil {
 		return fmt.Errorf("pause job: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return ErrJobNotFound
 	}
 	return nil
@@ -1306,12 +1382,30 @@ func (q *Queries) ResumeJob(ctx context.Context, id string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.ResumeJob")
 	defer span.End()
 
-	query := `UPDATE jobs SET paused = FALSE, paused_at = NULL, pause_reason = NULL, updated_at = NOW() WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id)
+	query := `
+		WITH updated AS (
+			UPDATE jobs
+			SET paused = FALSE,
+			    paused_at = NULL,
+			    pause_reason = NULL,
+			    updated_at = NOW()
+			WHERE id = $1
+			  AND (paused IS DISTINCT FROM FALSE OR paused_at IS NOT NULL OR pause_reason IS NOT NULL)
+			RETURNING 1
+		),
+		existing AS (
+			SELECT 1
+			FROM jobs
+			WHERE id = $1
+			  AND NOT EXISTS (SELECT 1 FROM updated)
+		)
+		SELECT EXISTS (SELECT 1 FROM updated UNION ALL SELECT 1 FROM existing)`
+	var found bool
+	err := q.db.QueryRow(ctx, query, id).Scan(&found)
 	if err != nil {
 		return fmt.Errorf("resume job: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if !found {
 		return ErrJobNotFound
 	}
 	return nil

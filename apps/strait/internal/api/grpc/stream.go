@@ -128,6 +128,7 @@ type workerService struct {
 	apiKeyResolver  apiKeyResolver
 	billingEnforcer planLimitEnforcer
 	edition         domain.Edition
+	readyRunQueue   ReadyRunEnqueuer
 }
 
 // StreamTasks is the bidirectional streaming RPC between the server and a worker SDK.
@@ -1539,6 +1540,7 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	reason := "worker disconnected before reporting result"
+	openRunIDs := s.openWorkerTaskRunIDs(ctx, workerID, projectID)
 	if count, err := s.queries.RequeueOpenWorkerTasks(ctx, workerID, projectID, reason); err != nil {
 		slog.Warn("grpc worker disconnect: failed to requeue open tasks",
 			"worker_id", workerID,
@@ -1551,6 +1553,7 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 			"project_id", projectID,
 			"task_count", count,
 		)
+		s.enqueueRecoveredWorkerRuns(ctx, openRunIDs)
 	}
 	if err := s.queries.SetWorkerStatus(ctx, workerID, projectID, domain.WorkerStatusOffline); err != nil {
 		slog.Warn("grpc worker disconnect: failed to mark offline",
@@ -1568,6 +1571,72 @@ func (s *workerService) finalizeDisconnect(projectID, workerID string) {
 		"worker_id": workerID,
 	})
 	slog.Info("grpc worker disconnected", "worker_id", workerID, "project_id", projectID)
+}
+
+func (s *workerService) openWorkerTaskRunIDs(ctx context.Context, workerID, projectID string) []string {
+	if s == nil || s.queries == nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, 8)
+	runIDs := make([]string, 0, 8)
+	for _, taskStatus := range []domain.WorkerTaskStatus{domain.WorkerTaskStatusAssigned, domain.WorkerTaskStatusAccepted} {
+		tasks, err := s.queries.ListWorkerTasksByWorker(ctx, workerID, projectID, taskStatus, 10000, 0)
+		if err != nil {
+			slog.Warn("grpc worker disconnect: failed to list open tasks",
+				"worker_id", workerID,
+				"project_id", projectID,
+				"status", taskStatus,
+				"error", err,
+			)
+			continue
+		}
+		for _, task := range tasks {
+			if task.RunID == "" {
+				continue
+			}
+			if _, ok := seen[task.RunID]; ok {
+				continue
+			}
+			seen[task.RunID] = struct{}{}
+			runIDs = append(runIDs, task.RunID)
+		}
+	}
+	return runIDs
+}
+
+func (s *workerService) enqueueRecoveredWorkerRuns(ctx context.Context, runIDs []string) {
+	if s == nil {
+		return
+	}
+	enqueueRecoveredWorkerRuns(ctx, s.queries, s.readyRunQueue, runIDs, "grpc worker disconnect")
+}
+
+func enqueueRecoveredWorkerRuns(ctx context.Context, q *store.Queries, readyRunQueue ReadyRunEnqueuer, runIDs []string, logPrefix string) {
+	if q == nil || readyRunQueue == nil || len(runIDs) == 0 {
+		return
+	}
+	runs, err := q.GetRunsByIDs(ctx, runIDs)
+	if err != nil {
+		slog.Warn(logPrefix+": failed to load recovered runs",
+			"run_count", len(runIDs),
+			"error", err,
+		)
+		return
+	}
+	for _, runID := range runIDs {
+		run := runs[runID]
+		if run == nil || run.Status != domain.StatusQueued {
+			continue
+		}
+		if err := readyRunQueue.EnqueueExisting(ctx, run); err != nil {
+			slog.Warn(logPrefix+": failed to enqueue recovered run",
+				"run_id", runID,
+				"project_id", run.ProjectID,
+				"error", err,
+			)
+		}
+	}
 }
 
 // emitWorkerAudit writes an audit event for a worker lifecycle transition.

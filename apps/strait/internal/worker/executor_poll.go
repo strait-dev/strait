@@ -16,29 +16,9 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-// twoPhaseDequeuer claims IDs first, then fetches full rows by PK.
-type twoPhaseDequeuer interface {
-	DequeueNTwoPhase(ctx context.Context, n int) ([]domain.JobRun, error)
-}
-
-// fullyDenormalizedDequeuer is the optional interface for the legacy
-// job_runs-only dequeue path.
-type fullyDenormalizedDequeuer interface {
-	DequeueNFullyDenormalized(ctx context.Context, n int) ([]domain.JobRun, error)
-}
-
-// claimTableDequeuer deletes from job_run_queue, then fetches from job_runs.
-type claimTableDequeuer interface {
-	DequeueNClaim(ctx context.Context, n int) ([]domain.JobRun, error)
-}
-
 // workerQueueDequeuer claims worker-mode runs for specific queues.
 type workerQueueDequeuer interface {
 	DequeueNForWorkerQueues(ctx context.Context, n int, queues []domain.WorkerQueueRef) ([]domain.JobRun, error)
-}
-
-type partitionedDequeuer interface {
-	DequeueNPartitioned(ctx context.Context, n int, projectIDs []string) ([]domain.JobRun, error)
 }
 
 // QueueSnapshotter returns the environment-qualified queues that have active
@@ -187,23 +167,7 @@ func (e *Executor) dequeueRuns(ctx context.Context, capacity int) ([]domain.JobR
 	}
 
 	// Pass 1: HTTP-eligible runs (any replica can dispatch these).
-	// Prefer fully-denormalized legacy dequeue when explicitly requested,
-	// otherwise claim_table > two_phase > DequeueN.
-	var runs []domain.JobRun
-	var err error
-	if e.useDenormalizedDequeue {
-		if dq, ok := e.queue.(fullyDenormalizedDequeuer); ok {
-			runs, err = dq.DequeueNFullyDenormalized(ctx, capacity)
-		} else {
-			runs, err = e.queue.DequeueN(ctx, capacity)
-		}
-	} else if cq, ok := e.queue.(claimTableDequeuer); ok {
-		runs, err = cq.DequeueNClaim(ctx, capacity)
-	} else if tp, ok := e.queue.(twoPhaseDequeuer); ok {
-		runs, err = tp.DequeueNTwoPhase(ctx, capacity)
-	} else {
-		runs, err = e.queue.DequeueN(ctx, capacity)
-	}
+	runs, err := e.queue.DequeueN(ctx, capacity)
 	if err != nil {
 		return nil, err
 	}
@@ -245,16 +209,6 @@ func (e *Executor) dequeueAcrossPartitions(ctx context.Context, capacity int) ([
 	out := make([]domain.JobRun, 0, capacity)
 	if capacity <= 0 || len(e.partitionCycle) == 0 {
 		return out, nil
-	}
-
-	if dq, ok := e.queue.(partitionedDequeuer); ok {
-		qm, _ := queue.Metrics()
-		partStart := time.Now()
-		runs, err := dq.DequeueNPartitioned(ctx, capacity, e.partitionCycle)
-		if qm != nil {
-			qm.PartitionDequeueLag.Record(ctx, time.Since(partStart).Seconds())
-		}
-		return runs, err
 	}
 
 	remaining := capacity

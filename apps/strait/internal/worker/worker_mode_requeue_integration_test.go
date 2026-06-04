@@ -13,7 +13,6 @@ import (
 
 	workergrpc "strait/internal/api/grpc"
 	"strait/internal/domain"
-	"strait/internal/queue"
 	"strait/internal/store"
 	"strait/internal/worker"
 )
@@ -99,7 +98,7 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-dispatch")
 
 	run := &domain.JobRun{
@@ -175,7 +174,7 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-requeue")
 
 	run := &domain.JobRun{
@@ -189,7 +188,7 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 		t.Fatalf("Enqueue() error = %v", err)
 	}
 
-	pgQueue := queue.NewPostgresQueue(env.DB.Pool)
+	pgQueue := newWorkerQueue(t, env)
 	pool := worker.NewPool(1)
 	exec := worker.NewExecutor(worker.ExecutorConfig{
 		Pool:                pool,
@@ -245,7 +244,7 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	mustCleanEnv(t, ctx)
 
 	st := store.New(env.DB.Pool)
-	q := queue.NewPostgresQueue(env.DB.Pool)
+	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-timeout")
 	job.TimeoutSecs = 1
 	if err := st.UpdateJob(ctx, job); err != nil {
@@ -289,10 +288,18 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	go exec.Run(execCtx)
 
 	deadline := time.After(8 * time.Second)
+	lastStatus := domain.RunStatus("")
+	lastAttempt := 0
+	lastError := ""
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for worker-mode timeout requeue")
+			t.Fatalf(
+				"timed out waiting for worker-mode timeout requeue; last status/attempt/error = %q/%d/%q",
+				lastStatus,
+				lastAttempt,
+				lastError,
+			)
 		default:
 		}
 
@@ -300,21 +307,29 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetRun() error = %v", err)
 		}
+		lastStatus = got.Status
+		lastAttempt = got.Attempt
+		lastError = got.Error
 		if got.Status == domain.StatusQueued && got.Attempt == 2 {
+			if got.Error != "execution timed out" {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
 			if dispatcher.calls.Load() == 0 {
 				t.Fatal("worker dispatcher was not called")
 			}
 			if dispatcher.cancellations.Load() == 0 {
 				t.Fatal("worker dispatch context was not cancelled by timeout")
 			}
-			if got.Error != "execution timed out" {
-				t.Fatalf("run error = %q, want execution timed out", got.Error)
-			}
 			// Retry schedule lives in the job_retries side table now;
 			// job_runs.next_retry_at is no longer written by the worker.
 			var nextRetryAt *time.Time
 			if err := env.DB.Pool.QueryRow(ctx,
-				`SELECT next_retry_at FROM job_retries WHERE run_id = $1`, run.ID,
+				`SELECT next_retry_at
+				 FROM job_retries
+				 WHERE run_id = $1 AND cleared = FALSE
+				 ORDER BY id DESC
+				 LIMIT 1`, run.ID,
 			).Scan(&nextRetryAt); err != nil {
 				t.Fatalf("timed-out worker run missing job_retries row: %v", err)
 			}

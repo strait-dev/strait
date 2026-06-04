@@ -278,6 +278,13 @@ func (s *Server) handleAdminReplayDLQ(ctx context.Context, input *AdminDLQRunInp
 	}
 	span.SetAttributes(attribute.String("project.id", run.ProjectID))
 
+	if err := s.enqueueExistingRunIfSupported(ctx, run); err != nil {
+		if apiErr := enqueueAPIError(err); apiErr != nil {
+			return nil, apiErr
+		}
+		return nil, huma.Error500InternalServerError("failed to enqueue replayed run")
+	}
+
 	slog.Info("dlq replay",
 		"action", "dlq.replay",
 		"run_id", input.RunID,

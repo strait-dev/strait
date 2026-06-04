@@ -16,53 +16,54 @@ func DefaultWatchedQueries() []WatchedQuery {
 	return []WatchedQuery{
 		{
 			Name: "DequeueN",
-			SQL: `SELECT id FROM job_runs jr
+			SQL: `SELECT jr.id FROM job_run_state s
+				JOIN job_runs jr ON jr.id = s.run_id
 				JOIN jobs j ON j.id = jr.job_id
-				WHERE jr.status = '` + string(domain.StatusQueued) + `'
+				WHERE s.status = '` + string(domain.StatusQueued) + `'
 				  AND j.enabled = true AND NOT j.paused
-				ORDER BY jr.priority DESC, jr.created_at ASC
+				ORDER BY s.priority DESC, jr.created_at ASC
 				LIMIT 10`,
 		},
 		{
-			Name: "DequeueNDenormalized",
-			SQL: `SELECT id FROM job_runs jr
-				LEFT JOIN job_active_counts jac ON jac.job_id = jr.job_id AND jac.concurrency_key = ''
-				WHERE jr.status = '` + string(domain.StatusQueued) + `'
-				ORDER BY jr.priority DESC, jr.created_at ASC
-				LIMIT 10`,
-		},
-		{
-			Name: "DequeueNFullyDenormalized",
-			SQL: `SELECT id FROM job_runs jr
-				LEFT JOIN job_active_counts jac ON jac.job_id = jr.job_id AND jac.concurrency_key = ''
-				WHERE jr.status = '` + string(domain.StatusQueued) + `'
-				  AND COALESCE(jr.job_enabled, true) = true
-				  AND COALESCE(jr.job_paused, false) = false
-				ORDER BY jr.priority DESC, jr.created_at ASC
+			Name: "PgQueClaimCandidates",
+			SQL: `SELECT jr.id FROM job_run_state s
+				JOIN job_runs jr ON jr.id = s.run_id
+				LEFT JOIN job_active_counts jac ON jac.job_id = s.job_id AND jac.concurrency_key = ''
+				WHERE s.status = '` + string(domain.StatusQueued) + `'
+				  AND s.job_enabled = true
+				  AND s.job_paused = false
+				ORDER BY COALESCE(s.promoted_priority, s.priority) DESC, jr.created_at ASC
 				LIMIT 10`,
 		},
 		{
 			Name: "HeartbeatGC",
 			SQL: `SELECT h.run_id FROM job_run_heartbeats h
-				LEFT JOIN job_runs r ON r.id = h.run_id
-				WHERE r.id IS NULL OR r.status <> 'executing'
+				LEFT JOIN job_run_read_state s ON s.run_id = h.run_id
+				WHERE h.cleared = FALSE
+				  AND NOT EXISTS (
+				    SELECT 1 FROM job_run_heartbeats newer
+				    WHERE newer.run_id = h.run_id AND newer.id > h.id
+				  )
+				  AND (s.run_id IS NULL OR s.status <> 'executing')
 				LIMIT 500`,
 		},
 		{
 			Name: "DLQAgeOutMask",
-			SQL: `SELECT id FROM job_runs
-				WHERE status = 'dead_letter'
-				  AND visible_until IS NULL
-				  AND finished_at IS NOT NULL
-				  AND finished_at < NOW() - INTERVAL '30 days'
-				ORDER BY finished_at ASC
+			SQL: `SELECT s.run_id FROM job_run_read_state s
+				JOIN job_runs jr ON jr.id = s.run_id
+				WHERE s.status = 'dead_letter'
+				  AND jr.visible_until IS NULL
+				  AND s.finished_at IS NOT NULL
+				  AND s.finished_at < NOW() - INTERVAL '30 days'
+				ORDER BY s.finished_at ASC
 				LIMIT 100`,
 		},
 		{
 			Name: "OldestQueuedAge",
 			SQL: `SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
-				FROM job_runs
-				WHERE status = 'queued'`,
+				FROM job_runs jr
+				JOIN job_run_read_state s ON s.run_id = jr.id
+				WHERE s.status = 'queued'`,
 		},
 	}
 }

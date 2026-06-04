@@ -177,8 +177,29 @@ func (s *Server) receiveJobRunEventTrigger(
 	if err := s.store.ReceiveEventAndRequeueRun(ctx, trigger.ID, payload, now, trigger.JobRunID); err != nil {
 		return receiveEventAPIError(err, "failed to receive event")
 	}
+	if err := s.enqueueExistingReadyRun(ctx, trigger.JobRunID); err != nil {
+		return receiveEventAPIError(err, "failed to enqueue resumed run")
+	}
 	markEventTriggerReceived(trigger, payload, now)
 	return nil
+}
+
+func (s *Server) enqueueExistingReadyRun(ctx context.Context, runID string) error {
+	if runID == "" || s.queue == nil {
+		return nil
+	}
+	_, ok := s.queue.(existingRunEnqueuer)
+	if !ok {
+		return nil
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("load resumed run: %w", err)
+	}
+	if run == nil {
+		return nil
+	}
+	return s.enqueueExistingRunIfSupported(ctx, run)
 }
 
 func (s *Server) receiveWorkflowStepEventTrigger(

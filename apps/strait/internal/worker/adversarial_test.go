@@ -461,7 +461,7 @@ func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
 	done := make(chan struct{})
 	concWG.Go(func() {
 		defer func() {
-			recover() // catch the panic from runEventLoop
+			_ = recover() // catch the panic from runEventLoop
 			close(done)
 		}()
 		exec.runEventLoop()

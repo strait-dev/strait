@@ -19,6 +19,8 @@ func envScopedRunCtx() context.Context {
 }
 
 func newEnvScopedRunServer(t *testing.T) *Server {
+	t.Helper()
+
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, runID string) (*domain.JobRun, error) {
 			return &domain.JobRun{

@@ -28,7 +28,7 @@ Short definitions for the terms used throughout these docs. Each links to the pa
 
 **Project.** The tenancy and ownership boundary that groups jobs, workflows, runs, and API keys. See [Projects](/concepts/projects).
 
-**Queue.** The pending work waiting to execute. Strait uses PostgreSQL as the queue with `SELECT ... FOR UPDATE SKIP LOCKED`, so no separate message broker is needed. See [Runs](/concepts/runs).
+**Queue.** The pending work waiting to execute. Strait uses a vendored and modified SQL snapshot of [PgQue](https://github.com/NikolayS/pgque) in PostgreSQL as its ready-event log, so no separate message broker is needed. See [Runs](/concepts/runs).
 
 **Retry policy.** The rules that govern how a failed run is retried: strategy, attempt count, delay, and bounds. See [Retry Strategies](/concepts/retry-strategies).
 

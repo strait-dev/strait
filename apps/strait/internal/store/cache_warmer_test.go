@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -32,7 +33,15 @@ type fakeQueryRower struct {
 
 func (f *fakeQueryRower) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
 	f.queries = append(f.queries, sql)
-	return fakeRow{err: f.errs[sql]}
+	if err, ok := f.errs[sql]; ok {
+		return fakeRow{err: err}
+	}
+	for fragment, err := range f.errs {
+		if strings.Contains(sql, fragment) {
+			return fakeRow{err: err}
+		}
+	}
+	return fakeRow{}
 }
 
 func TestCacheWarmer_WarmExecutesQueries(t *testing.T) {
@@ -65,7 +74,7 @@ func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
 func TestCacheWarmer_WarmReturnsError(t *testing.T) {
 	t.Parallel()
 
-	query := "SELECT COUNT(*) FROM job_runs WHERE status = 'queued'"
+	query := "COALESCE(s.status, jr.status) = 'queued'"
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: errors.New("boom")}}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 

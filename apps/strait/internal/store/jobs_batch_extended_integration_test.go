@@ -336,6 +336,97 @@ func TestJobs_UpdateProjectMaxKeyLifetimeDays_Upsert(t *testing.T) {
 	}
 }
 
+func TestJobs_UpdateProjectQuotaSettings_SameValueNoOpDoesNotRewrite(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	projectID := "project-quota-settings-no-op-" + newID()
+	project := &domain.Project{ID: projectID, Name: "test"}
+	if err := q.CreateProject(ctx, project); err != nil {
+		t.Fatalf("CreateProject() error = %v", err)
+	}
+
+	quotaState := func() (string, int64, string, int) {
+		t.Helper()
+		var xmin string
+		var cacheVersion int64
+		var defaultRegion string
+		var maxKeyLifetimeDays int
+		if err := testDB.Pool.QueryRow(ctx, `
+			SELECT xmin::text, cache_version, COALESCE(default_region, ''), max_key_lifetime_days
+			FROM project_quotas
+			WHERE project_id = $1`,
+			projectID,
+		).Scan(&xmin, &cacheVersion, &defaultRegion, &maxKeyLifetimeDays); err != nil {
+			t.Fatalf("query project quota state: %v", err)
+		}
+		return xmin, cacheVersion, defaultRegion, maxKeyLifetimeDays
+	}
+
+	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
+		t.Fatalf("UpdateProjectDefaultRegion(first) error = %v", err)
+	}
+	regionXminBefore, regionVersionBefore, _, _ := quotaState()
+	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
+		t.Fatalf("UpdateProjectDefaultRegion(no-op) error = %v", err)
+	}
+	regionXminAfterNoOp, regionVersionAfterNoOp, regionAfterNoOp, _ := quotaState()
+	if regionAfterNoOp != "us-east-1" {
+		t.Fatalf("default_region after no-op = %q, want us-east-1", regionAfterNoOp)
+	}
+	if regionXminAfterNoOp != regionXminBefore {
+		t.Fatalf("same default_region update changed xmin from %s to %s", regionXminBefore, regionXminAfterNoOp)
+	}
+	if regionVersionAfterNoOp != regionVersionBefore {
+		t.Fatalf("same default_region update changed cache_version from %d to %d", regionVersionBefore, regionVersionAfterNoOp)
+	}
+	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "eu-west-1"); err != nil {
+		t.Fatalf("UpdateProjectDefaultRegion(update) error = %v", err)
+	}
+	regionXminAfterUpdate, regionVersionAfterUpdate, regionAfterUpdate, _ := quotaState()
+	if regionAfterUpdate != "eu-west-1" {
+		t.Fatalf("default_region after update = %q, want eu-west-1", regionAfterUpdate)
+	}
+	if regionXminAfterUpdate == regionXminBefore {
+		t.Fatalf("changed default_region update preserved xmin %s", regionXminAfterUpdate)
+	}
+	if regionVersionAfterUpdate <= regionVersionBefore {
+		t.Fatalf("changed default_region update cache_version = %d, want > %d", regionVersionAfterUpdate, regionVersionBefore)
+	}
+
+	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 90); err != nil {
+		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(first) error = %v", err)
+	}
+	lifetimeXminBefore, lifetimeVersionBefore, _, _ := quotaState()
+	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 90); err != nil {
+		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(no-op) error = %v", err)
+	}
+	lifetimeXminAfterNoOp, lifetimeVersionAfterNoOp, _, lifetimeAfterNoOp := quotaState()
+	if lifetimeAfterNoOp != 90 {
+		t.Fatalf("max_key_lifetime_days after no-op = %d, want 90", lifetimeAfterNoOp)
+	}
+	if lifetimeXminAfterNoOp != lifetimeXminBefore {
+		t.Fatalf("same max_key_lifetime_days update changed xmin from %s to %s", lifetimeXminBefore, lifetimeXminAfterNoOp)
+	}
+	if lifetimeVersionAfterNoOp != lifetimeVersionBefore {
+		t.Fatalf("same max_key_lifetime_days update changed cache_version from %d to %d", lifetimeVersionBefore, lifetimeVersionAfterNoOp)
+	}
+	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 60); err != nil {
+		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(update) error = %v", err)
+	}
+	lifetimeXminAfterUpdate, lifetimeVersionAfterUpdate, _, lifetimeAfterUpdate := quotaState()
+	if lifetimeAfterUpdate != 60 {
+		t.Fatalf("max_key_lifetime_days after update = %d, want 60", lifetimeAfterUpdate)
+	}
+	if lifetimeXminAfterUpdate == lifetimeXminBefore {
+		t.Fatalf("changed max_key_lifetime_days update preserved xmin %s", lifetimeXminAfterUpdate)
+	}
+	if lifetimeVersionAfterUpdate <= lifetimeVersionBefore {
+		t.Fatalf("changed max_key_lifetime_days update cache_version = %d, want > %d", lifetimeVersionAfterUpdate, lifetimeVersionBefore)
+	}
+}
+
 // InsertBatchBufferItem.
 
 func TestBatch_InsertBatchBufferItem_HappyPath(t *testing.T) {

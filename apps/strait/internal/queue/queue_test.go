@@ -61,36 +61,6 @@ func (m *mockTxDBTX) Begin(ctx context.Context) (pgx.Tx, error) {
 
 var _ store.TxBeginner = (*mockTxDBTX)(nil)
 
-// mockTx implements pgx.Tx for testing statement timeout in transactions.
-type mockTx struct {
-	mockDBTX
-	commitFn   func(ctx context.Context) error
-	rollbackFn func(ctx context.Context) error
-}
-
-func (m *mockTx) Begin(_ context.Context) (pgx.Tx, error) { return nil, errors.New("nested") }
-func (m *mockTx) Commit(ctx context.Context) error {
-	if m.commitFn != nil {
-		return m.commitFn(ctx)
-	}
-	return nil
-}
-func (m *mockTx) Rollback(ctx context.Context) error {
-	if m.rollbackFn != nil {
-		return m.rollbackFn(ctx)
-	}
-	return nil
-}
-func (m *mockTx) CopyFrom(_ context.Context, _ pgx.Identifier, _ []string, _ pgx.CopyFromSource) (int64, error) {
-	return 0, nil
-}
-func (m *mockTx) SendBatch(_ context.Context, _ *pgx.Batch) pgx.BatchResults { return nil }
-func (m *mockTx) LargeObjects() pgx.LargeObjects                             { return pgx.LargeObjects{} }
-func (m *mockTx) Prepare(_ context.Context, _ string, _ string) (*pgconn.StatementDescription, error) {
-	return nil, nil
-}
-func (m *mockTx) Conn() *pgx.Conn { return nil }
-
 // mockRow implements pgx.Row.
 type mockRow struct {
 	scanFn func(dest ...any) error
@@ -103,11 +73,11 @@ func (m *mockRow) Scan(dest ...any) error {
 	return nil
 }
 
-func TestNewPostgresQueue(t *testing.T) {
+func TestNewPostgresRunWriter(t *testing.T) {
 	t.Parallel()
-	q := NewPostgresQueue(nil)
+	q := NewPostgresRunWriter(nil)
 	if q == nil {
-		t.Fatal("NewPostgresQueue(nil) returned nil")
+		t.Fatal("NewPostgresRunWriter(nil) returned nil")
 	}
 }
 
@@ -166,17 +136,40 @@ func TestWorkerQueueRefArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			projectIDs, queueNames, environmentIDs := workerQueueRefArgs(tt.refs)
-			if !slices.Equal(projectIDs, tt.wantProjectIDs) {
-				t.Fatalf("projectIDs = %v, want %v", projectIDs, tt.wantProjectIDs)
+			args := workerQueueRefArgs(tt.refs)
+			if !slices.Equal(args.ProjectIDs, tt.wantProjectIDs) {
+				t.Fatalf("projectIDs = %v, want %v", args.ProjectIDs, tt.wantProjectIDs)
 			}
-			if !slices.Equal(queueNames, tt.wantQueueNames) {
-				t.Fatalf("queueNames = %v, want %v", queueNames, tt.wantQueueNames)
+			if !slices.Equal(args.QueueNames, tt.wantQueueNames) {
+				t.Fatalf("queueNames = %v, want %v", args.QueueNames, tt.wantQueueNames)
 			}
-			if !slices.Equal(environmentIDs, tt.wantEnvironment) {
-				t.Fatalf("environmentIDs = %v, want %v", environmentIDs, tt.wantEnvironment)
+			if !slices.Equal(args.EnvironmentIDs, tt.wantEnvironment) {
+				t.Fatalf("environmentIDs = %v, want %v", args.EnvironmentIDs, tt.wantEnvironment)
 			}
 		})
+	}
+}
+
+func TestNormalizePgQueWorkerQueueRefs(t *testing.T) {
+	t.Parallel()
+
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: ""},
+		{ProjectID: "", QueueName: "ignored"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "prod"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+
+	got := normalizePgQueWorkerQueueRefs(refs)
+	want := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "prod"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("normalized refs = %+v, want %+v", got, want)
 	}
 }
 
@@ -195,7 +188,7 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -237,7 +230,7 @@ func TestEnqueue_PreservesExistingValues(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		ID:          "custom-id",
 		JobID:       "job-1",
@@ -276,7 +269,7 @@ func TestEnqueue_DelayedStatus(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	future := time.Now().Add(time.Hour)
 	run := &domain.JobRun{
 		JobID:       "job-1",
@@ -308,7 +301,7 @@ func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	past := time.Now().Add(-time.Hour)
 	run := &domain.JobRun{
 		JobID:       "job-1",
@@ -335,7 +328,7 @@ func TestEnqueue_DBError(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -347,265 +340,9 @@ func TestEnqueue_DBError(t *testing.T) {
 	}
 }
 
-func TestDequeue_NoRows(t *testing.T) {
-	t.Parallel()
-	db := &mockDBTX{
-		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
-			return &mockRow{
-				scanFn: func(_ ...any) error { return pgx.ErrNoRows },
-			}
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	run, err := q.Dequeue(context.Background())
-	if err != nil {
-		t.Fatalf("Dequeue() error = %v, want nil for empty queue", err)
-	}
-	if run != nil {
-		t.Errorf("Dequeue() run = %v, want nil for empty queue", run)
-	}
-}
-
-func TestDequeue_DBError(t *testing.T) {
-	t.Parallel()
-	db := &mockDBTX{
-		queryRowFn: func(_ context.Context, _ string, _ ...any) pgx.Row {
-			return &mockRow{
-				scanFn: func(_ ...any) error { return errors.New("deadlock detected") },
-			}
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	run, err := q.Dequeue(context.Background())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if run != nil {
-		t.Errorf("run = %v, want nil on error", run)
-	}
-}
-
-func TestDequeueN_DBError(t *testing.T) {
-	t.Parallel()
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			return nil, errors.New("connection timeout")
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	runs, err := q.DequeueN(context.Background(), 5)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if runs != nil {
-		t.Errorf("runs = %v, want nil on error", runs)
-	}
-}
-
-func TestDequeueN_QueryUsesPriorityAgingWhenEnabled(t *testing.T) {
-	t.Parallel()
-
-	var query string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			query = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db, WithPriorityAging(true))
-	_, _ = q.DequeueN(context.Background(), 10)
-
-	// Priority aging is now handled by the scheduler promoter, not
-	// a mutable ORDER BY. WithPriorityAging is a no-op kept for compat.
-	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueN() query unexpectedly contains aging formula: %s", query)
-	}
-	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
-		t.Fatalf("DequeueN() query missing static priority ordering: %s", query)
-	}
-}
-
-func TestDequeueNByProject_QueryUsesStaticPriorityOrdering(t *testing.T) {
-	t.Parallel()
-
-	var query string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			query = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db, WithPriorityAging(true))
-	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
-
-	if strings.Contains(query, "jr.priority + EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueNByProject() query unexpectedly contains aging formula: %s", query)
-	}
-	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
-		t.Fatalf("DequeueNByProject() query missing static priority ordering: %s", query)
-	}
-}
-
-func TestDequeueN_QueryUsesStaticPriorityWhenAgingDisabled(t *testing.T) {
-	t.Parallel()
-
-	var query string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			query = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db, WithPriorityAging(false))
-	_, _ = q.DequeueN(context.Background(), 10)
-
-	if !strings.Contains(query, "ORDER BY jr.priority DESC, jr.created_at ASC") {
-		t.Fatalf("DequeueN() query missing static priority ordering: %s", query)
-	}
-	if strings.Contains(query, "EXTRACT(EPOCH FROM (NOW() - jr.created_at)) / 3600") {
-		t.Fatalf("DequeueN() query unexpectedly contains priority aging formula: %s", query)
-	}
-}
-
-func TestWithStatementTimeout_Default(t *testing.T) {
-	t.Parallel()
-
-	db := &mockDBTX{}
-	q := NewPostgresQueue(db)
-	if q.statementTimeout != 0 {
-		t.Fatalf("expected zero timeout by default, got %v", q.statementTimeout)
-	}
-}
-
-func TestWithStatementTimeout_Custom(t *testing.T) {
-	t.Parallel()
-
-	db := &mockDBTX{}
-	q := NewPostgresQueue(db, WithStatementTimeout(15*time.Second))
-	if q.statementTimeout != 15*time.Second {
-		t.Fatalf("expected 15s timeout, got %v", q.statementTimeout)
-	}
-}
-
-func TestDequeueN_SetsStatementTimeout(t *testing.T) {
-	t.Parallel()
-
-	var execSQL string
-	tx := &mockTx{
-		mockDBTX: mockDBTX{
-			execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
-				execSQL = sql
-				return pgconn.CommandTag{}, nil
-			},
-			queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-				return nil, errors.New("no rows")
-			},
-		},
-	}
-	db := &mockTxDBTX{
-		beginFn: func(_ context.Context) (pgx.Tx, error) {
-			return tx, nil
-		},
-	}
-
-	q := NewPostgresQueue(db, WithStatementTimeout(30*time.Second))
-	_, _ = q.DequeueN(context.Background(), 5)
-
-	if !strings.Contains(execSQL, "SET LOCAL statement_timeout = 30000") {
-		t.Fatalf("expected SET LOCAL statement_timeout = 30000, got %q", execSQL)
-	}
-}
-
-func TestDequeueN_NoTimeoutWhenZero(t *testing.T) {
-	t.Parallel()
-
-	var execCalled bool
-	db := &mockDBTX{
-		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			execCalled = true
-			return pgconn.CommandTag{}, nil
-		},
-		queryFn: func(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
-			return nil, errors.New("no rows")
-		},
-	}
-
-	q := NewPostgresQueue(db) // no timeout set
-	_, _ = q.DequeueN(context.Background(), 5)
-
-	if execCalled {
-		t.Fatal("expected no Exec call when statement timeout is zero")
-	}
-}
-
-func TestDequeueN_SkipsDisabledJobs(t *testing.T) {
-	t.Parallel()
-
-	var capturedQuery string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			capturedQuery = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	_, _ = q.DequeueN(context.Background(), 10)
-
-	if !strings.Contains(capturedQuery, "j.enabled = true") {
-		t.Fatalf("DequeueN() query missing j.enabled = true filter: %s", capturedQuery)
-	}
-}
-
-func TestDequeue_SkipsDisabledJobs(t *testing.T) {
-	t.Parallel()
-
-	var capturedQuery string
-	db := &mockDBTX{
-		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
-			capturedQuery = sql
-			return &mockRow{
-				scanFn: func(_ ...any) error { return pgx.ErrNoRows },
-			}
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	_, _ = q.Dequeue(context.Background())
-
-	if !strings.Contains(capturedQuery, "j.enabled = true") {
-		t.Fatalf("Dequeue() query missing j.enabled = true filter: %s", capturedQuery)
-	}
-}
-
-func TestDequeueNByProject_SkipsDisabledJobs(t *testing.T) {
-	t.Parallel()
-
-	var capturedQuery string
-	db := &mockDBTX{
-		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			capturedQuery = sql
-			return nil, errors.New("forced query error")
-		},
-	}
-
-	q := NewPostgresQueue(db)
-	_, _ = q.DequeueNByProject(context.Background(), 10, "proj-1")
-
-	if !strings.Contains(capturedQuery, "j.enabled = true") {
-		t.Fatalf("DequeueNByProject() query missing j.enabled = true filter: %s", capturedQuery)
-	}
-}
-
 func TestLoad_DefaultStatementTimeout(t *testing.T) {
 	// This is tested via config_test.go - just verify the option works
-	q := NewPostgresQueue(&mockDBTX{}, WithStatementTimeout(30*time.Second))
+	q := NewPostgresRunWriter(&mockDBTX{}, WithStatementTimeout(30*time.Second))
 	if q.statementTimeout != 30*time.Second {
 		t.Fatalf("expected 30s, got %v", q.statementTimeout)
 	}
@@ -635,7 +372,7 @@ func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -675,7 +412,7 @@ func TestEnqueue_TagsJSON_Empty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -711,7 +448,7 @@ func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -751,7 +488,7 @@ func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -787,7 +524,7 @@ func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:     "job-1",
 		ProjectID: "proj-1",
@@ -823,7 +560,7 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 		},
 	}
 
-	q := NewPostgresQueue(db)
+	q := NewPostgresRunWriter(db)
 	run := &domain.JobRun{
 		JobID:         "job-1",
 		ProjectID:     "proj-1",
