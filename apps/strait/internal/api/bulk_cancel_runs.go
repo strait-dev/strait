@@ -122,6 +122,20 @@ func (s *Server) selectBulkCancelableRuns(ctx context.Context, runIDs []string, 
 	return selection
 }
 
+func (s *Server) requireRunEnvironmentMatch(ctx context.Context, run *domain.JobRun) error {
+	if environmentIDFromContext(ctx) == "" || run == nil {
+		return nil
+	}
+	job, err := s.store.GetJob(ctx, run.JobID)
+	if err != nil {
+		return err
+	}
+	if err := requireProjectMatch(ctx, job.ProjectID); err != nil {
+		return err
+	}
+	return requireEnvironmentMatch(ctx, job.EnvironmentID)
+}
+
 func (s *bulkCancelSelection) appendFailure(id, status, errMsg string) {
 	s.results = append(s.results, BulkCancelResult{ID: id, Status: status, Error: errMsg})
 	s.failed++

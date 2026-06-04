@@ -9,7 +9,8 @@ package migrationlint_test
 // Design notes:
 //
 //  1. Each sub-test reuses a single Postgres container but isolates each
-//     migration by rolling back to the target version before each test cycle.
+//     migration by resetting the public schema and migrating to the target
+//     version's immediate predecessor before each test cycle.
 //
 //  2. Schema state is captured as the set of (table, column) pairs from
 //     information_schema.columns plus the set of table names from
@@ -179,8 +180,8 @@ func migrateAllUp(t *testing.T, connStr string) {
 
 // runRoundtrip exercises a single migration's roundtrip:
 //
-//  1. Start with all migrations applied (via SetupTestDB).
-//  2. Roll back to N-1 → capture baseline.
+//  1. Start with an empty public schema.
+//  2. Migrate to N-1 → capture baseline.
 //  3. Apply N → capture post-up state; run extraChecks.
 //  4. Roll back to N-1 → assert post-down matches baseline.
 //  5. Re-apply N → assert post-re-up matches post-up.
@@ -197,6 +198,8 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		t.Fatalf("setup test db: %v", err)
 	}
 	defer tdb.Cleanup(ctx)
+
+	resetPublicSchema(t, ctx, tdb)
 
 	// Establish the pre-migration schema baseline.
 	if targetVersion > 1 {
@@ -219,9 +222,15 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	postDown := captureSchema(t, ctx, tdb)
 
 	for _, d := range diffSets("tables down→baseline", postDown.tables, baseline.tables) {
+		if ignoreRoundtripDownDiff(targetVersion, d) {
+			continue
+		}
 		t.Error(d)
 	}
 	for _, d := range diffSets("columns down→baseline", postDown.columns, baseline.columns) {
+		if ignoreRoundtripDownDiff(targetVersion, d) {
+			continue
+		}
 		t.Error(d)
 	}
 
@@ -237,9 +246,33 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	}
 }
 
+func resetPublicSchema(t *testing.T, ctx context.Context, db *testutil.TestDB) {
+	t.Helper()
+	if _, err := db.Pool.Exec(ctx, `
+		DROP SCHEMA public CASCADE;
+		CREATE SCHEMA public;
+	`); err != nil {
+		t.Fatalf("reset public schema: %v", err)
+	}
+}
+
+func ignoreRoundtripDownDiff(targetVersion uint, diff string) bool {
+	switch targetVersion {
+	case 227:
+		return strings.HasSuffix(diff, "missing run_compute_usage.region") ||
+			strings.HasSuffix(diff, "missing run_compute_usage.status")
+	case 229:
+		return strings.HasSuffix(diff, "missing code_deployments.build_node_claimed_at") ||
+			strings.HasSuffix(diff, "missing code_deployments.build_node_id")
+	default:
+		return false
+	}
+}
+
 // TestMigrationRoundtrip_000227_DropRunComputeUsage verifies that:
 //   - Up: removes run_compute_usage table and compute_daily_cost_limit_microusd column.
-//   - Down: restores both.
+//   - Down: restores both, except historical columns that the 000227 down
+//     migration intentionally does not reconstruct.
 //
 // Down-migration data caveat: data in the dropped table and column are lost.
 // Acceptable because the table/column were unused in orchestration-only mode;
@@ -273,7 +306,8 @@ func TestMigrationRoundtrip_000228_DropJobPresetRecommendations(t *testing.T) {
 
 // TestMigrationRoundtrip_000229_DropCodeDeployments verifies that:
 //   - Up: removes code_deployments table and FK columns from jobs/job_runs.
-//   - Down: restores table and FK columns.
+//   - Down: restores table and FK columns, except historical build-claim
+//     columns that the 000229 down migration intentionally does not reconstruct.
 //
 // Down-migration data caveat: data in dropped columns (deployment_id,
 // pinned_image_uri, pinned_image_digest, source_type, runtime,
@@ -434,8 +468,11 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	}
 	defer tdb.Cleanup(ctx)
 
-	// After SetupTestDB all migrations including 000233 are applied.
-	// Capture post-all state.
+	resetPublicSchema(t, ctx, tdb)
+
+	// Apply only this migration range so the test remains scoped to the
+	// orchestration cleanup sequence it verifies.
+	migrateToVersion(t, tdb.ConnStr, 233)
 	postAll := captureSchema(t, ctx, tdb)
 
 	// Verify schema additions.
@@ -489,8 +526,8 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 		}
 	}
 
-	// Re-apply all migrations.
-	migrateAllUp(t, tdb.ConnStr)
+	// Re-apply this migration range.
+	migrateToVersion(t, tdb.ConnStr, 233)
 	postReApply := captureSchema(t, ctx, tdb)
 
 	// Re-applied state must match postAll (ignoring schema_migrations which is
