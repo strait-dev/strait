@@ -1250,8 +1250,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	// successes and bypassing the executor's retry path.
 	status := e.workerDispatcher.ResultStatus(result)
 	if status != workerResultStatusSuccess {
-		errMsg := workerResultFailureMessage(status, e.workerDispatcher.ResultError(result))
-		if e.handleFailure(ctx, run, job, policy, errors.New(errMsg), nil) {
+		_, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, e.workerDispatcher.ResultError(result), nil)
+		if transitioned {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
 		dispatchOutcome = "error"
@@ -1259,12 +1259,9 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		return
 	}
 
-	// Successful result — record cost and complete the run.
-	e.recordWorkerModeCost(ctx, run, job)
-
-	runResult := e.workerDispatcher.ResultOutput(result)
-	if e.handleSuccess(ctx, run, job, runResult) {
-		e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted)
+	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, "", e.workerDispatcher.ResultOutput(result))
+	if transitioned {
+		e.completeWorkerTask(ctx, result, taskStatus)
 	}
 }
 
@@ -1282,19 +1279,33 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 	}
 
 	policy := defaultExecutionPolicy(job)
-	if status != workerResultStatusSuccess {
-		errorMessage = workerResultFailureMessage(status, errorMessage)
-		if !e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil) {
+	taskStatus, transitioned := e.applyWorkerRunResult(ctx, run, job, policy, status, errorMessage, output)
+	if !transitioned {
+		if status != workerResultStatusSuccess {
 			return "", fmt.Errorf("worker failure finalization did not transition run")
 		}
-		return domain.WorkerTaskStatusFailed, nil
+		return "", fmt.Errorf("worker success finalization did not transition run")
+	}
+
+	return taskStatus, nil
+}
+
+func (e *Executor) applyWorkerRunResult(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	policy executionPolicy,
+	status string,
+	errorMessage string,
+	output json.RawMessage,
+) (domain.WorkerTaskStatus, bool) {
+	if status != workerResultStatusSuccess {
+		errorMessage = workerResultFailureMessage(status, errorMessage)
+		return domain.WorkerTaskStatusFailed, e.handleFailure(ctx, run, job, policy, errors.New(errorMessage), nil)
 	}
 
 	e.recordWorkerModeCost(ctx, run, job)
-	if !e.handleSuccess(ctx, run, job, output) {
-		return "", fmt.Errorf("worker success finalization did not transition run")
-	}
-	return domain.WorkerTaskStatusCompleted, nil
+	return domain.WorkerTaskStatusCompleted, e.handleSuccess(ctx, run, job, output)
 }
 
 func workerResultFailureMessage(status, errorMessage string) string {
