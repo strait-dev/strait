@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { PLANS } from "@strait/billing";
 import { describe, expect, it } from "vitest";
 
 const appSrc = join(process.cwd(), "src");
@@ -64,6 +65,12 @@ describe("launch pricing app policy", () => {
       "trialMessage",
     ]) {
       expect(source).not.toContain(stale);
+    }
+  });
+
+  it("does not expose self-serve trial metadata in the shared plan catalog", () => {
+    for (const plan of Object.values(PLANS)) {
+      expect(Object.hasOwn(plan, "trial")).toBe(false);
     }
   });
 });

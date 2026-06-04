@@ -33,7 +33,6 @@ export type Plan = {
   name: string;
   description: string;
   prices: { monthly: number; yearly: number };
-  trial: boolean;
   creditCardRequired: boolean;
   includedRuns: string;
   features: string[];
@@ -168,7 +167,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: 0,
       yearly: 0,
     },
-    trial: false,
     creditCardRequired: false,
     includedRuns: "5,000 orchestration runs/mo",
     features: [
@@ -222,7 +220,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: 1900,
       yearly: 18_000,
     },
-    trial: false,
     creditCardRequired: true,
     includedRuns: "50,000 orchestration runs/mo",
     features: [
@@ -275,7 +272,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: 9900,
       yearly: 94_800,
     },
-    trial: false,
     creditCardRequired: true,
     includedRuns: "1,000,000 orchestration runs/mo",
     features: [
@@ -329,7 +325,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: 29_900,
       yearly: 286_800,
     },
-    trial: false,
     creditCardRequired: true,
     includedRuns: "5,000,000 orchestration runs/mo",
     features: [
@@ -382,7 +377,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: 49_900,
       yearly: 478_800,
     },
-    trial: false,
     creditCardRequired: true,
     includedRuns: "25,000,000 orchestration runs/mo",
     features: [
@@ -442,7 +436,6 @@ export const PLANS: Record<PlanKey, Plan> = {
       monthly: -1,
       yearly: -1,
     },
-    trial: false,
     creditCardRequired: false,
     includedRuns: "Custom",
     features: [

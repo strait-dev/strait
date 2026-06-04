@@ -171,7 +171,6 @@ function toPlanTs(plan) {
     name: plan.displayName,
     description: plan.description,
     prices: { monthly: plan.prices.monthlyCents, yearly: annual },
-    trial: false,
     creditCardRequired: plan.creditCardRequired,
     includedRuns:
       limits.runsPerMonth === -1
@@ -304,7 +303,6 @@ export type Plan = {
   name: string;
   description: string;
   prices: { monthly: number; yearly: number };
-  trial: boolean;
   creditCardRequired: boolean;
   includedRuns: string;
   features: string[];
