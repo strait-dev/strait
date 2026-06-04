@@ -338,8 +338,10 @@ function expectText(file, text, snippet, label) {
 function checkBillingCatalogDocs() {
   const pricingFile = "billing/pricing.mdx";
   const faqFile = "billing/faq.mdx";
+  const webhookFile = "concepts/webhook-subscriptions.mdx";
   const pricingText = readFileSync(join(DOCS, pricingFile), "utf8");
   const faqText = readFileSync(join(DOCS, faqFile), "utf8");
+  const webhookText = readFileSync(join(DOCS, webhookFile), "utf8");
   const rows = parseTableRows(pricingText);
   const plans = PRICING_CATALOG.plans;
   const selfServe = plans.filter((plan) => plan.tier !== "enterprise");
@@ -510,6 +512,25 @@ function checkBillingCatalogDocs() {
       text,
       "orchestration run",
       "orchestration-run billing unit"
+    );
+  }
+
+  for (const event of [
+    "billing.cap_warning",
+    "billing.cap_reached",
+    "billing.cap_disabled",
+    "billing.overage_disabled",
+    "billing.suspended",
+    "billing.delinquent",
+    "schedule.suspended",
+    "workflow.registration_rejected",
+    "sla.credit_issued",
+  ]) {
+    expectText(
+      webhookFile,
+      webhookText,
+      `\`${event}\``,
+      "launch billing webhook event"
     );
   }
 }

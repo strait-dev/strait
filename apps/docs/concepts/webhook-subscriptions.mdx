@@ -62,6 +62,9 @@ A `secret` field in the request body is now ignored. Server-side generation guar
 | `billing.overage_disabled` | An organization disables paid-plan overage. |
 | `billing.suspended` | An organization is suspended after failed-payment dunning. |
 | `billing.delinquent` | A suspended organization moves to delinquent state. |
+| `schedule.suspended` | A schedule is paused because a billing cap or plan change blocks new dispatch. |
+| `workflow.registration_rejected` | A workflow registration is rejected by a launch plan gate. |
+| `sla.credit_issued` | An SLA service credit is recorded for an eligible organization. |
 
 ## Circuit Breaker
 
