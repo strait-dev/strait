@@ -150,8 +150,8 @@ func recordWorkerRetry(ctx context.Context, reason workerRetryReason) {
 	))
 }
 
-func recordWorkerPool(ctx context.Context, mode string, active, idle int64) {
-	attrs := metric.WithAttributes(attribute.String("mode", mode))
+func recordWorkerPool(ctx context.Context, mode dispatchMode, active, idle int64) {
+	attrs := metric.WithAttributes(attribute.String("mode", string(mode)))
 	m := workerMetrics.Load()
 	m.poolActive.Record(ctx, active, attrs)
 	m.poolIdle.Record(ctx, idle, attrs)

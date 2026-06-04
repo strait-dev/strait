@@ -71,7 +71,7 @@ func (p *Pool) Submit(ctx context.Context, fn func()) {
 // ActiveCount returns the number of currently running workers.
 func (p *Pool) ActiveCount() int {
 	active := int(p.inner.RunningWorkers())
-	recordWorkerPool(context.Background(), "http", int64(active), int64(p.Available()))
+	recordWorkerPool(context.Background(), dispatchModeHTTP, int64(active), int64(p.Available()))
 	return active
 }
 
@@ -79,11 +79,11 @@ func (p *Pool) ActiveCount() int {
 func (p *Pool) Available() int {
 	running := int(p.inner.RunningWorkers())
 	if running >= p.concurrency {
-		recordWorkerPool(context.Background(), "http", int64(running), 0)
+		recordWorkerPool(context.Background(), dispatchModeHTTP, int64(running), 0)
 		return 0
 	}
 	idle := p.concurrency - running
-	recordWorkerPool(context.Background(), "http", int64(running), int64(idle))
+	recordWorkerPool(context.Background(), dispatchModeHTTP, int64(running), int64(idle))
 	return idle
 }
 
