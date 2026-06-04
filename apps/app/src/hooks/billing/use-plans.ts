@@ -254,6 +254,11 @@ export const apiPlansToComparisonFeatures = (
     enterprise: val("enterprise", fn),
   });
 
+  const roadmapRow = (name: string, feature: string): ComparisonFeature =>
+    row(name, (p) =>
+      p.roadmap_features.includes(feature) ? "Roadmap" : formatBoolean(false)
+    );
+
   return [
     row("Runs per month", (p) => formatLimit(p.max_runs_per_month)),
     row("Overage per 1K runs", (p) =>
@@ -281,17 +286,12 @@ export const apiPlansToComparisonFeatures = (
     row("Log streaming", (p) => formatBoolean(p.has_log_streaming)),
     row("Webhook endpoints", (p) => formatLimit(p.max_webhook_endpoints)),
     row("Log drains", (p) => formatLimit(p.max_log_drains_per_org)),
-    row("SSO/SAML", (p) =>
-      p.roadmap_features.includes("SSO/SAML") ? "Roadmap" : formatBoolean(false)
-    ),
-    row("IP allowlisting", (p) =>
-      p.roadmap_features.includes("IP allowlisting")
-        ? "Roadmap"
-        : formatBoolean(false)
-    ),
-    row("SCIM", (p) =>
-      p.roadmap_features.includes("SCIM") ? "Roadmap" : formatBoolean(false)
-    ),
+    roadmapRow("SSO/SAML", "SSO/SAML"),
+    roadmapRow("SCIM", "SCIM"),
+    roadmapRow("IP allowlisting", "IP allowlisting"),
+    roadmapRow("Static IPs", "static IPs"),
+    roadmapRow("VPC peering", "VPC peering"),
+    roadmapRow("Data residency", "data residency"),
     row("Single-tenant / BYO-cloud", (p) =>
       p.roadmap_features.some((feature) =>
         ["single-tenant orchestration", "BYO-cloud"].includes(feature)

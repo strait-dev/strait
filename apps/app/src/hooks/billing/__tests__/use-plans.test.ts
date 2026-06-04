@@ -291,7 +291,14 @@ describe("apiPlansToComparisonFeatures", () => {
       testPlan({
         tier: "business",
         display_name: "Business",
-        roadmap_features: ["SSO/SAML", "SCIM", "IP allowlisting"],
+        roadmap_features: [
+          "SSO/SAML",
+          "SCIM",
+          "IP allowlisting",
+          "static IPs",
+          "VPC peering",
+          "data residency",
+        ],
       }),
       testPlan({
         tier: "enterprise",
@@ -300,6 +307,9 @@ describe("apiPlansToComparisonFeatures", () => {
           "SSO/SAML",
           "SCIM",
           "IP allowlisting",
+          "static IPs",
+          "VPC peering",
+          "data residency",
           "single-tenant orchestration",
           "BYO-cloud",
         ],
@@ -318,6 +328,21 @@ describe("apiPlansToComparisonFeatures", () => {
       enterprise: "Roadmap",
     });
     expect(byName.SCIM).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName["Static IPs"]).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName["VPC peering"]).toMatchObject({
+      free: "-",
+      business: "Roadmap",
+      enterprise: "Roadmap",
+    });
+    expect(byName["Data residency"]).toMatchObject({
       free: "-",
       business: "Roadmap",
       enterprise: "Roadmap",
