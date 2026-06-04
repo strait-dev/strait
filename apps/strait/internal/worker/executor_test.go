@@ -321,6 +321,19 @@ func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 	return calls
 }
 
+func requireRetryTransition(t *testing.T, calls []statusUpdateCall) statusUpdateCall {
+	t.Helper()
+
+	for _, call := range calls {
+		if call.from == domain.StatusExecuting && call.to == domain.StatusQueued {
+			return call
+		}
+	}
+
+	t.Fatalf("expected retry transition %s -> %s; got %+v", domain.StatusExecuting, domain.StatusQueued, calls)
+	return statusUpdateCall{}
+}
+
 type mockDegradedNotifier struct {
 	ch <-chan struct{}
 }
@@ -3380,19 +3393,7 @@ func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	// Find the retry transition (executing -> queued)
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition (executing -> queued)")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
 		t.Fatalf("expected priority field in retry, got %v", retryCall.fields["priority"])
@@ -3424,18 +3425,7 @@ func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
@@ -3464,18 +3454,7 @@ func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
 	}
@@ -3503,18 +3482,7 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 1 {
 		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
@@ -3543,18 +3511,7 @@ func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition (executing -> queued)")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
@@ -3583,18 +3540,7 @@ func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority=10 (8+2 exactly at max), got %d", gotPriority)
@@ -3623,18 +3569,7 @@ func TestHandleFailure_LargeBoostValue(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority=10 (0+10 capped at max), got %d", gotPriority)
@@ -3663,18 +3598,7 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 
 	exec.execute(context.Background(), run)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition on high attempt")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 3 {
 		t.Fatalf("expected priority=3 (2+1), got %d", gotPriority)
@@ -3731,18 +3655,7 @@ func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition when poison pill doesn't trigger")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
 		t.Fatal("expected priority field in retry")
@@ -3851,18 +3764,7 @@ func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
 
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition (executing -> queued)")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
 		t.Fatalf("expected priority field in timeout retry, got %v", retryCall.fields["priority"])
@@ -3887,18 +3789,7 @@ func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
 
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
@@ -3920,18 +3811,7 @@ func TestHandleTimeout_ZeroBoostNoChange(t *testing.T) {
 
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
 	}
@@ -3952,18 +3832,7 @@ func TestHandleTimeout_BoostFromMaxPriority(t *testing.T) {
 
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
@@ -4029,18 +3898,7 @@ func TestHandleFailure_CumulativeBoostAcrossRetries(t *testing.T) {
 		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority}
 		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-		calls := store.statusUpdates()
-		var retryCall *statusUpdateCall
-		for j, c := range calls {
-			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-				retryCall = &calls[j]
-				break
-			}
-		}
-		if retryCall == nil {
-			t.Fatalf("attempt %d: expected retry transition", i+1)
-			return
-		}
+		retryCall := requireRetryTransition(t, store.statusUpdates())
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
 			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
@@ -4073,18 +3931,7 @@ func TestHandleFailure_CumulativeBoostWithBoostOne(t *testing.T) {
 		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority}
 		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-		calls := store.statusUpdates()
-		var retryCall *statusUpdateCall
-		for j, c := range calls {
-			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-				retryCall = &calls[j]
-				break
-			}
-		}
-		if retryCall == nil {
-			t.Fatalf("attempt %d: expected retry transition", i+1)
-			return
-		}
+		retryCall := requireRetryTransition(t, store.statusUpdates())
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
 			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
@@ -4117,18 +3964,7 @@ func TestHandleTimeout_CumulativeBoostAcrossRetries(t *testing.T) {
 		run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: i + 1, Priority: priority, Status: domain.StatusExecuting}
 		exec.handleTimeout(context.Background(), run, job, policy, nil)
 
-		calls := store.statusUpdates()
-		var retryCall *statusUpdateCall
-		for j, c := range calls {
-			if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-				retryCall = &calls[j]
-				break
-			}
-		}
-		if retryCall == nil {
-			t.Fatalf("attempt %d: expected retry transition", i+1)
-			return
-		}
+		retryCall := requireRetryTransition(t, store.statusUpdates())
 		gotPriority := retryCall.fields["priority"].(int)
 		if gotPriority != expected {
 			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
@@ -4155,18 +3991,7 @@ func TestHandleFailure_BoostWithMaxIntPriority(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
 		t.Fatalf("expected priority capped at 10 even with MaxInt input, got %d", gotPriority)
@@ -4291,18 +4116,7 @@ func TestHandleFailure_NegativePriorityWithBoost(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-	calls := store.statusUpdates()
-	var retryCall *statusUpdateCall
-	for i, c := range calls {
-		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
-			retryCall = &calls[i]
-			break
-		}
-	}
-	if retryCall == nil {
-		t.Fatal("expected retry transition")
-		return
-	}
+	retryCall := requireRetryTransition(t, store.statusUpdates())
 	gotPriority := retryCall.fields["priority"].(int)
 	// -5 + 3 = -2, which is < 10 so min returns -2.
 	if gotPriority != -2 {
