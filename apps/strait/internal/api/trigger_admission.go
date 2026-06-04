@@ -47,6 +47,38 @@ func (s *Server) withTriggerLimitGuard(ctx context.Context, job *domain.Job, quo
 	return fn(ctx, nil)
 }
 
+func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
+	if s.billingEnforcer == nil || priority <= 0 {
+		return nil
+	}
+	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
+		var rse *rawStatusError
+		if converted := limitErrorTo402(err, ""); converted != nil && errors.As(converted, &rse) {
+			return converted
+		}
+		return huma.Error402PaymentRequired(err.Error())
+	}
+	return nil
+}
+
+func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID string, projectQuota *store.ProjectQuota) error {
+	if projectQuota == nil || projectQuota.MaxDailyCostMicrousd <= 0 {
+		return nil
+	}
+	tz := projectQuota.Timezone
+	if tz == "" {
+		tz = "UTC"
+	}
+	dailyCost, err := s.store.SumProjectDailyCostMicrousd(ctx, projectID, tz)
+	if err != nil {
+		return huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
+	}
+	if dailyCost >= projectQuota.MaxDailyCostMicrousd {
+		return huma.Error429TooManyRequests("project daily cost budget exceeded")
+	}
+	return nil
+}
+
 func acquireTriggerAdmissionLocks(ctx context.Context, tx store.DBTX, job *domain.Job, quota *store.ProjectQuota) error {
 	if tx == nil || job == nil {
 		return nil

@@ -506,44 +506,12 @@ func (s *Server) handleTriggerDryRun(ctx context.Context, jobID string, req Trig
 	return nil, &rawStatusError{status: http.StatusOK, body: result}
 }
 
-func (s *Server) checkTriggerDispatchPriority(ctx context.Context, projectID string, priority int) error {
-	if s.billingEnforcer == nil || priority <= 0 {
-		return nil
-	}
-	if err := s.billingEnforcer.CheckMaxDispatchPriority(ctx, projectID, priority); err != nil {
-		var rse *rawStatusError
-		if converted := limitErrorTo402(err, ""); converted != nil && errors.As(converted, &rse) {
-			return converted
-		}
-		return huma.Error402PaymentRequired(err.Error())
-	}
-	return nil
-}
-
 func (s *Server) findRecentDeduplicatedRun(ctx context.Context, job *domain.Job, payload json.RawMessage) (*domain.JobRun, error) {
 	if job == nil || job.DedupWindowSecs <= 0 {
 		return nil, nil
 	}
 	since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
 	return s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
-}
-
-func (s *Server) checkTriggerDailyCostBudget(ctx context.Context, projectID string, projectQuota *store.ProjectQuota) error {
-	if projectQuota == nil || projectQuota.MaxDailyCostMicrousd <= 0 {
-		return nil
-	}
-	tz := projectQuota.Timezone
-	if tz == "" {
-		tz = "UTC"
-	}
-	dailyCost, err := s.store.SumProjectDailyCostMicrousd(ctx, projectID, tz)
-	if err != nil {
-		return huma.Error500InternalServerError(fmt.Sprintf("failed to evaluate daily cost budget (timezone: %s)", tz))
-	}
-	if dailyCost >= projectQuota.MaxDailyCostMicrousd {
-		return huma.Error429TooManyRequests("project daily cost budget exceeded")
-	}
-	return nil
 }
 
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
