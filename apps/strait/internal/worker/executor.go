@@ -591,7 +591,7 @@ type Executor struct {
 	dbCircuit                *queue.DBCircuit
 	eventChannelSize         int
 	saturationWarnMu         sync.Mutex
-	saturationLastWarn       map[string]time.Time
+	saturationLastWarn       map[eventChannelKind]time.Time
 	// queueSnapshotter returns the set of queue names with active workers on
 	// this replica. When non-nil, poll performs a second dequeue pass for
 	// worker-mode runs filtered to those queues. Injected from the gRPC
@@ -695,10 +695,10 @@ const (
 	eventChannelSaturationRatio    = 0.8
 	eventChannelWarnInterval       = 30 * time.Second
 	defaultDegradedPollInterval    = time.Second
-	eventChannelDropKindClosed     = eventChannelDropKind("closed")
+	eventChannelKindClosed         = eventChannelKind("closed")
 )
 
-type eventChannelDropKind string
+type eventChannelKind string
 
 func resolveDegradedPollInterval(d time.Duration) time.Duration {
 	if d <= 0 {
@@ -772,7 +772,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 		executionTraceMode:       normalizeExecutionTraceMode(cfg.ExecutionTraceMode),
 		eventCh:                  make(chan runEventEnvelope, resolveEventChannelSize(cfg.EventChannelSize)),
 		eventChannelSize:         resolveEventChannelSize(cfg.EventChannelSize),
-		saturationLastWarn:       make(map[string]time.Time),
+		saturationLastWarn:       make(map[eventChannelKind]time.Time),
 		maxDequeueBatchSize:      cfg.MaxDequeueBatchSize,
 		defaultJobMaxConcurrency: cfg.DefaultJobMaxConcurrency,
 		jobCache:                 jobCache,
@@ -859,21 +859,22 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
-			e.recordEventChannelDrop(ctx, eventChannelDropKindClosed)
+			e.recordEventChannelDrop(ctx, eventChannelKindClosed)
 		}
 	}()
 
 	select {
 	case e.eventCh <- runEventEnvelope{ctx: ctx, event: event}:
-		e.sampleEventChannelSaturation(ctx, string(event.Type))
+		e.sampleEventChannelSaturation(ctx, eventChannelKind(event.Type))
 	default:
-		if e.shouldLogSaturation(string(event.Type)) {
+		kind := eventChannelKind(event.Type)
+		if e.shouldLogSaturation(kind) {
 			e.logger.Warn("event channel full, dropping event",
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
 		}
-		e.recordEventChannelDrop(ctx, eventChannelDropKind(event.Type))
+		e.recordEventChannelDrop(ctx, kind)
 	}
 }
 
@@ -892,7 +893,7 @@ func resolveEventChannelSize(configured int) int {
 // sampleEventChannelSaturation records the current channel fill ratio and emits
 // a rate-limited warning log plus the saturation gauge whenever it exceeds the
 // threshold. Per-kind throttling prevents log floods under sustained pressure.
-func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string) {
+func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind eventChannelKind) {
 	if e.eventChannelSize <= 0 {
 		return
 	}
@@ -903,7 +904,7 @@ func (e *Executor) sampleEventChannelSaturation(ctx context.Context, kind string
 	}
 	if ratio > eventChannelSaturationRatio && e.shouldLogSaturation(kind) {
 		e.logger.Warn("event channel saturated",
-			"kind", kind,
+			"kind", string(kind),
 			"ratio", ratio,
 			"depth", len(e.eventCh),
 			"capacity", e.eventChannelSize,
@@ -931,11 +932,11 @@ func (e *Executor) resolveInstanceID() string {
 // shouldLogSaturation returns true at most once per eventChannelWarnInterval
 // per event kind, so the warn log survives sustained backpressure without
 // spamming.
-func (e *Executor) shouldLogSaturation(kind string) bool {
+func (e *Executor) shouldLogSaturation(kind eventChannelKind) bool {
 	e.saturationWarnMu.Lock()
 	defer e.saturationWarnMu.Unlock()
 	if e.saturationLastWarn == nil {
-		e.saturationLastWarn = make(map[string]time.Time)
+		e.saturationLastWarn = make(map[eventChannelKind]time.Time)
 	}
 	now := time.Now()
 	if last, ok := e.saturationLastWarn[kind]; ok && now.Sub(last) < eventChannelWarnInterval {
@@ -949,7 +950,7 @@ func (e *Executor) shouldLogSaturation(kind string) bool {
 // No-op when queue metrics have not been initialised. Uses the cached
 // Executor queueMetrics handle to avoid a sync.Once + error-check
 // lookup on every drop in the lifecycle hot path.
-func (e *Executor) recordEventChannelDrop(ctx context.Context, kind eventChannelDropKind) {
+func (e *Executor) recordEventChannelDrop(ctx context.Context, kind eventChannelKind) {
 	qm := e.queueMetrics
 	if qm == nil || qm.EventChannelDropped == nil {
 		return
