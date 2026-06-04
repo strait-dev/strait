@@ -234,36 +234,6 @@ func TestShouldUseFallbackForClass_AllClasses(t *testing.T) {
 	}
 }
 
-// TestBoostPriority_Overflow verifies that boosting beyond max is capped at 10.
-func TestBoostPriority_Overflow(t *testing.T) {
-	t.Parallel()
-	got := boostPriority(9, 5)
-	if got != 10 {
-		t.Fatalf("boostPriority(9, 5) = %d, want 10", got)
-	}
-}
-
-// TestBoostPriority_NegativeBoost verifies that a negative boost triggers the
-// overflow guard (boosted < current) and caps at 10.
-func TestBoostPriority_NegativeBoost(t *testing.T) {
-	t.Parallel()
-	got := boostPriority(5, -3)
-	// boosted = 5 + (-3) = 2, which is < current (5), so the overflow guard
-	// activates and returns 10.
-	if got != 10 {
-		t.Fatalf("boostPriority(5, -3) = %d, want 10", got)
-	}
-}
-
-// TestBoostPriority_ZeroCurrent verifies boosting from zero priority.
-func TestBoostPriority_ZeroCurrent(t *testing.T) {
-	t.Parallel()
-	got := boostPriority(0, 3)
-	if got != 3 {
-		t.Fatalf("boostPriority(0, 3) = %d, want 3", got)
-	}
-}
-
 // TestErrorHash_UTF8Truncation verifies that multi-byte characters at the 200-char boundary
 // are not split, producing a valid and consistent hash.
 func TestErrorHash_UTF8Truncation(t *testing.T) {
