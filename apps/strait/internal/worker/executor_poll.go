@@ -144,10 +144,10 @@ func (e *Executor) checkMemoryPressure() bool {
 // computeAvailable returns the number of runs that can be dequeued this cycle,
 // bounded by pool availability, the adaptive concurrency limit, and the max batch size.
 func (e *Executor) computeAvailable() int {
-	available := e.pool.Available()
+	active, available := e.pool.observedSnapshot()
 	if e.concurrencyLimit != nil {
 		target := max(e.concurrencyLimit.CurrentLimit(), 1)
-		adaptiveAvailable := target - e.pool.ActiveCount()
+		adaptiveAvailable := target - active
 		if adaptiveAvailable < available {
 			available = adaptiveAvailable
 		}

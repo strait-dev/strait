@@ -70,16 +70,20 @@ func (p *Pool) Submit(ctx context.Context, fn func()) {
 
 // ActiveCount returns the number of currently running workers.
 func (p *Pool) ActiveCount() int {
-	running, idle := p.snapshot()
-	recordWorkerPool(context.Background(), dispatchModeHTTP, int64(running), int64(idle))
+	running, _ := p.observedSnapshot()
 	return running
 }
 
 // Available returns the number of idle worker slots.
 func (p *Pool) Available() int {
-	running, idle := p.snapshot()
-	recordWorkerPool(context.Background(), dispatchModeHTTP, int64(running), int64(idle))
+	_, idle := p.observedSnapshot()
 	return idle
+}
+
+func (p *Pool) observedSnapshot() (running int, idle int) {
+	running, idle = p.snapshot()
+	recordWorkerPool(context.Background(), dispatchModeHTTP, int64(running), int64(idle))
+	return running, idle
 }
 
 func (p *Pool) snapshot() (running int, idle int) {
