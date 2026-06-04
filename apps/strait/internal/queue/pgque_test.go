@@ -1133,6 +1133,34 @@ func TestPgQueEnsureRunRoutesCachedFetchesWorkerRoutesSetBased(t *testing.T) {
 	}
 }
 
+func TestPgQueEnsureRunRoutesCachedFailsWhenWorkerJobMissing(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "FROM jobs") {
+				t.Fatalf("unexpected Query SQL = %q", sql)
+			}
+			return &pgQueWorkerJobRouteRows{
+				values: []pgQueWorkerJobRouteRow{
+					{jobID: "job-a", queueName: "default"},
+				},
+			}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	err := q.ensureRunRoutesCached(ctx, []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-b", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+	})
+	if err == nil {
+		t.Fatal("ensureRunRoutesCached() error = nil, want missing job")
+	}
+	if !strings.Contains(err.Error(), "missing job job-b") {
+		t.Fatalf("ensureRunRoutesCached() error = %v, want missing job-b", err)
+	}
+}
+
 func TestPgQueSendReadyEventsSkipsNoQueuedRuns(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
@@ -1185,6 +1213,22 @@ func TestPgQueEnsureRunRoutesCachedSkipsNoQueuedRuns(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("ensureRunRoutesCached() error = %v", err)
+	}
+}
+
+func BenchmarkPgQueEnsureRunRoutesCachedHTTPBatch(b *testing.B) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+	runs := []*domain.JobRun{
+		{ID: "run-a", Status: domain.StatusQueued},
+		{ID: "run-b", Status: domain.StatusQueued},
+		{ID: "run-c", Status: domain.StatusQueued},
+		{ID: "run-d", Status: domain.StatusQueued},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueReadyEmitBatchErrBenchmarkSink = q.ensureRunRoutesCached(context.Background(), runs)
 	}
 }
 

@@ -58,25 +58,86 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 }
 
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
-	readyRuns, _, err := q.readyRunsForEvents(ctx, q.db, runs)
+	routeSet := pgQueRouteEnsureSet{}
+
+	var workerRuns []*domain.JobRun
+	var workerJobIDs []string
+	var seenWorkerJobs map[string]struct{}
+	for _, run := range runs {
+		if run == nil || run.Status != domain.StatusQueued {
+			continue
+		}
+		if run.ExecutionMode != domain.ExecutionModeWorker {
+			if err := q.ensureCachedRouteKeyOnce(ctx, &routeSet, pgQueHTTPRouteKey); err != nil {
+				return err
+			}
+			continue
+		}
+		if run.JobID == "" {
+			return fmt.Errorf("pgque worker route lookup: missing job id for run %s", run.ID)
+		}
+		if workerRuns == nil {
+			workerRuns = make([]*domain.JobRun, 0, len(runs))
+		}
+		workerRuns = append(workerRuns, run)
+		workerJobIDs, seenWorkerJobs = appendUniqueReadyWorkerJobID(workerJobIDs, seenWorkerJobs, run.JobID)
+	}
+	if len(workerRuns) == 0 {
+		return nil
+	}
+	workerRoutes, err := q.workerJobRoutes(ctx, q.db, workerJobIDs)
 	if err != nil {
 		return err
 	}
-	if len(readyRuns) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(runs))
-	for _, readyRun := range readyRuns {
-		routeKey := readyRun.routeKey
-		if _, ok := seen[routeKey]; ok {
-			continue
+	for _, run := range workerRuns {
+		route, ok := workerRoutes[run.JobID]
+		if !ok {
+			return fmt.Errorf("pgque worker route lookup: missing job %s", run.JobID)
 		}
-		seen[routeKey] = struct{}{}
-		queueName := pgQueQueueName(routeKey)
-		state := q.routeState(routeKey)
-		if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
+		queueName := runQueueName(run.QueueName)
+		if run.QueueName == "" {
+			queueName = route.queueName
+		}
+		routeKey := pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
+		if err := q.ensureCachedRouteKeyOnce(ctx, &routeSet, routeKey); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+type pgQueRouteEnsureSet struct {
+	smallRoutes [pgQueSmallRouteSetLimit]string
+	routeCount  int
+	seen        map[string]struct{}
+}
+
+func (q *PgQueQueue) ensureCachedRouteKeyOnce(
+	ctx context.Context,
+	routeSet *pgQueRouteEnsureSet,
+	routeKey string,
+) error {
+	if routeSet.seen != nil {
+		if _, ok := routeSet.seen[routeKey]; ok {
+			return nil
+		}
+		routeSet.seen[routeKey] = struct{}{}
+	} else if containsRoute(routeSet.smallRoutes[:routeSet.routeCount], routeKey) {
+		return nil
+	} else if routeSet.routeCount < len(routeSet.smallRoutes) {
+		routeSet.smallRoutes[routeSet.routeCount] = routeKey
+		routeSet.routeCount++
+	} else {
+		routeSet.seen = make(map[string]struct{}, routeSet.routeCount+1)
+		for _, existing := range routeSet.smallRoutes {
+			routeSet.seen[existing] = struct{}{}
+		}
+		routeSet.seen[routeKey] = struct{}{}
+	}
+	queueName := pgQueQueueName(routeKey)
+	state := q.routeState(routeKey)
+	if err := q.ensureRouteCached(ctx, state, routeKey, queueName); err != nil {
+		return err
 	}
 	return nil
 }
