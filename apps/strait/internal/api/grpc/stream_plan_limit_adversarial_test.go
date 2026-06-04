@@ -170,8 +170,8 @@ func TestStreamGating_OrgScopingCannotBeSpoofedViaProjectID(t *testing.T) {
 // does NOT count workers with empty OrgID toward any org's quota. A
 // misbehaving worker that somehow registered with an empty OrgID cannot pad
 // another org's count, but it also cannot be evicted by another org's
-// connect storm. The gate skips entirely when the resolved org is empty —
-// fail-open is intentional (we cannot enforce a per-org cap without an org).
+// connect storm. Cloud registration fails closed before registration when org
+// resolution returns empty; this test covers already-registered empty-org rows.
 func TestStreamGating_EmptyOrgIDCannotBeUsedToBypass(t *testing.T) {
 	t.Parallel()
 

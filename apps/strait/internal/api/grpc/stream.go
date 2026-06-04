@@ -733,9 +733,9 @@ func streamDisconnectReason(err error) string {
 // checkPlanConnectionLimit resolves the org for the supplied project and
 // rejects the registration with codes.ResourceExhausted if the org is at
 // or above its plan-tier worker connection cap. Returns the resolved orgID
-// (which may be empty if the edition is ungated or the project has no org) so
-// the caller can attach it to the ConnectedWorker entry. Existing connections
-// are never evicted; this is a connect-time gate only.
+// (which may be empty only when the edition is ungated) so the caller can
+// attach it to the ConnectedWorker entry. Existing connections are never
+// evicted; this is a connect-time gate only.
 func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID, reservationID string) (string, func(), error) {
 	releaseNoop := func() {}
 	if s.edition == domain.EditionCommunity {
@@ -752,7 +752,9 @@ func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID,
 		return "", releaseNoop, status.Error(codes.Unavailable, "worker connection plan lookup unavailable")
 	}
 	if orgID == "" {
-		return "", releaseNoop, nil
+		slog.Error("grpc registration: project org lookup returned empty org, failing closed",
+			"project_id", projectID)
+		return "", releaseNoop, status.Error(codes.Unavailable, "worker connection plan lookup unavailable")
 	}
 	if reserver, ok := s.billingEnforcer.(workerConnectionReservationEnforcer); ok {
 		release, err := reserver.ReserveWorkerConnection(ctx, orgID, reservationID, s.workerConnectionLease())

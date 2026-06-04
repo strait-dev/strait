@@ -333,7 +333,7 @@ func gatingResult(ctx context.Context, edition domain.Edition, enforcer planLimi
 		return "", true
 	}
 	if orgID == "" {
-		return "", false
+		return "", true
 	}
 	currentActive := registry.CountByOrg(orgID)
 	if err := enforcer.CheckWorkerConnectionLimit(ctx, orgID, currentActive); err != nil {
@@ -489,9 +489,10 @@ func TestCheckPlanConnectionLimit_OrgLookupErrorIsUnavailable(t *testing.T) {
 	}
 }
 
-// TestStreamGating_UnresolvedOrg_FailsOpen verifies that an empty OrgID
-// (project not bound to an org) does not block the connection.
-func TestStreamGating_UnresolvedOrg_FailsOpen(t *testing.T) {
+// TestStreamGating_UnresolvedOrg_FailsClosed verifies that an empty OrgID
+// (project not bound to an org) blocks cloud connections rather than bypassing
+// the worker connection plan cap.
+func TestStreamGating_UnresolvedOrg_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	enforcer := &stubPlanLimitEnforcer{
@@ -499,8 +500,39 @@ func TestStreamGating_UnresolvedOrg_FailsOpen(t *testing.T) {
 		limit:           0,
 	}
 	r := NewConnectionRegistry()
-	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
-		t.Fatal("expected fail-open with unresolved org, got blocked")
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
+		t.Fatal("expected fail-closed with unresolved org, got allowed")
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when org unresolved", got)
+	}
+}
+
+func TestCheckPlanConnectionLimit_UnresolvedOrgIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgIDForProject: map[string]string{},
+		limit:           -1,
+	}
+	svc := &workerService{
+		registry:        NewConnectionRegistry(),
+		billingEnforcer: enforcer,
+		edition:         domain.EditionCloud,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err == nil {
+		t.Fatal("expected unresolved org to reject connection")
+	}
+	if code := status.Code(err); code != codes.Unavailable {
+		t.Fatalf("status code = %s, want %s", code, codes.Unavailable)
+	}
+	if orgID != "" {
+		t.Fatalf("orgID = %q, want empty", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
 	}
 	if got := enforcer.callsLen(); got != 0 {
 		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when org unresolved", got)
