@@ -61,16 +61,23 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 func TestRequiredConsumerTablesCoverRuntimeFanoutHandlers(t *testing.T) {
 	t.Parallel()
 
-	handlers := []Handler{
-		NewJobRunHandler(nil, nil),
-		NewWorkflowRunHandler(nil, nil),
-		NewWorkflowStepRunHandler(nil, nil),
-		NewEventTriggerHandler(nil, nil),
+	handlers := NewRuntimeFanoutHandlers(nil, nil)
+	handlers = append(handlers,
 		NewNotificationTriggerHandler(nil, nil),
 		NewSLOHandler(nil, nil),
 		NewAnalyticsHandler(nil, nil),
-	}
+	)
 	assertRequiredConsumerTablesIncludeHandlers(t, handlers)
+}
+
+func TestRuntimeFanoutHandlersExcludeWorkflowStepRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, handler := range NewRuntimeFanoutHandlers(nil, nil) {
+		if handler.Table() == "workflow_step_runs" {
+			t.Fatal("workflow_step_runs fanout channel is launch-inactive; keep it covered by cache read-model handlers only")
+		}
+	}
 }
 
 func TestRequiredConsumerTablesCoverCacheReadModelHandlers(t *testing.T) {

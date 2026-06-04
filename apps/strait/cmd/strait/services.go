@@ -319,9 +319,9 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	}, slog.Default())
 	sharedDedupe := cdc.NewSharedDedupeStore(rdb, cfg.SharedDedupeTTL)
 
-	cdcConsumer.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	cdcConsumer.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
+	for _, handler := range cdc.NewRuntimeFanoutHandlers(pub, slog.Default()) {
+		cdcConsumer.RegisterHandler(handler)
+	}
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewNotificationTriggerHandler(queries, slog.Default()))
 	cdcConsumer.RegisterAdditionalHandler(cdc.NewSLOHandler(queries, slog.Default()).WithSharedDedupe(sharedDedupe))
 	if chExporter != nil {
@@ -363,9 +363,9 @@ func startCDCConsumer(ctx context.Context, g *pool.ContextPool, cfg *config.Conf
 	}
 	receiverOpts = append(receiverOpts, cdc.WithWebhookSharedDedupe(sharedDedupe))
 	webhookReceiver := cdc.NewWebhookReceiver(pub, slog.Default(), receiverOpts...)
-	webhookReceiver.RegisterHandler(cdc.NewJobRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewWorkflowRunHandler(pub, slog.Default()))
-	webhookReceiver.RegisterHandler(cdc.NewEventTriggerHandler(pub, slog.Default()))
+	for _, handler := range cdc.NewRuntimeFanoutHandlers(pub, slog.Default()) {
+		webhookReceiver.RegisterHandler(handler)
+	}
 
 	// CDC-driven observers: execution-critical side effects are written through
 	// transactional stores, not CDC redelivery.
