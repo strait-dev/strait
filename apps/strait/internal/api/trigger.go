@@ -146,25 +146,6 @@ func (s *Server) prepareTriggerRequest(
 	}, idempotencyHit, nil
 }
 
-func (s *Server) triggerDedupOutput(ctx context.Context, state *triggerRequestState) (*TriggerJobOutput, error) {
-	job := state.job
-	if job.DedupWindowSecs > 0 {
-		existingRun, err := s.findRecentDeduplicatedRun(ctx, job, state.payload)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to evaluate payload deduplication")
-		}
-		if existingRun != nil {
-			return &TriggerJobOutput{Body: map[string]any{
-				"id":              existingRun.ID,
-				"status":          existingRun.Status,
-				"payload_hash":    state.payloadHash,
-				"idempotency_hit": false,
-			}}, nil
-		}
-	}
-	return nil, nil
-}
-
 func (s *Server) handleDebounceTrigger(ctx context.Context, state *triggerRequestState) (*TriggerJobOutput, bool, error) {
 	job := state.job
 	req := state.req
@@ -504,14 +485,6 @@ func (s *Server) handleTriggerDryRun(ctx context.Context, jobID string, req Trig
 		return nil, huma.Error400BadRequest(err.Error())
 	}
 	return nil, &rawStatusError{status: http.StatusOK, body: result}
-}
-
-func (s *Server) findRecentDeduplicatedRun(ctx context.Context, job *domain.Job, payload json.RawMessage) (*domain.JobRun, error) {
-	if job == nil || job.DedupWindowSecs <= 0 {
-		return nil, nil
-	}
-	since := time.Now().Add(-time.Duration(job.DedupWindowSecs) * time.Second)
-	return s.store.FindRecentRunByPayload(ctx, job.ID, payload, since)
 }
 
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
