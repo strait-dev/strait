@@ -1447,10 +1447,10 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	budget, action, err := e.store.GetProjectBudget(ctx, projectID)
 	if err != nil {
 		e.logger.Warn("failed to read project budget", "project_id", projectID, "error", err)
-		// Fail-open here matches the spending-check posture: a transient DB
-		// error must not block the entire dispatch path. The org-level
-		// CheckSpendingLimit (which is fail-closed) still gates abuse.
-		return nil
+		return &LimitError{
+			Code:    "service_degraded",
+			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		}
 	}
 
 	// budget_action="notify" or unset means the budget is informational only.
@@ -1467,7 +1467,10 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to resolve org for project budget check",
 			"project_id", projectID, "error", err)
-		return nil
+		return &LimitError{
+			Code:    "service_degraded",
+			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		}
 	}
 
 	var sub *OrgSubscription
@@ -1484,7 +1487,10 @@ func (e *Enforcer) CheckProjectBudgetLimit(ctx context.Context, projectID string
 	if err != nil {
 		e.logger.Warn("failed to read project period spend",
 			"project_id", projectID, "error", err)
-		return nil
+		return &LimitError{
+			Code:    "service_degraded",
+			Message: "Billing enforcement is temporarily unavailable. Please retry shortly.",
+		}
 	}
 
 	if !isOverageLimitReached(budget, spend) {
