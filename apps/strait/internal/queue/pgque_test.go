@@ -977,6 +977,68 @@ func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 	}
 }
 
+func TestPgQueEnsureRunRoutesCachedFetchesWorkerRoutesSetBased(t *testing.T) {
+	ctx := context.Background()
+	var jobRouteQueries int
+	var queryRowCalls int
+	gotJobIDs := []string{}
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "FROM jobs") {
+				t.Fatalf("unexpected Query SQL = %q", sql)
+			}
+			jobRouteQueries++
+			if len(args) != 1 {
+				t.Fatalf("worker route args = %+v, want job ids", args)
+			}
+			jobIDs, ok := args[0].([]string)
+			if !ok {
+				t.Fatalf("worker route arg type = %T, want []string", args[0])
+			}
+			gotJobIDs = append([]string(nil), jobIDs...)
+			return &pgQueWorkerJobRouteRows{
+				values: []pgQueWorkerJobRouteRow{
+					{jobID: "job-a", queueName: "default", environmentID: "prod"},
+					{jobID: "job-b", queueName: "bulk"},
+				},
+			}, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			queryRowCalls++
+			t.Fatalf("unexpected per-run QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected route setup Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+	q.routeState(pgQueWorkerRouteKey("project-a", "default", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-a", "critical", "prod")).configured.Store(true)
+	q.routeState(pgQueWorkerRouteKey("project-b", "bulk", "")).configured.Store(true)
+
+	runs := []*domain.JobRun{
+		{ID: "run-a", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-delayed", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusDelayed, ExecutionMode: domain.ExecutionModeWorker},
+		{ID: "run-b", JobID: "job-a", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"},
+		{ID: "run-c", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
+	}
+	if err := q.ensureRunRoutesCached(ctx, runs); err != nil {
+		t.Fatalf("ensureRunRoutesCached() error = %v", err)
+	}
+
+	if jobRouteQueries != 1 {
+		t.Fatalf("worker route queries = %d, want 1", jobRouteQueries)
+	}
+	if !slices.Equal(gotJobIDs, []string{"job-a", "job-b"}) {
+		t.Fatalf("worker route job ids = %v, want deduped queued worker jobs", gotJobIDs)
+	}
+	if queryRowCalls != 0 {
+		t.Fatalf("per-run QueryRow calls = %d, want 0", queryRowCalls)
+	}
+}
+
 func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{

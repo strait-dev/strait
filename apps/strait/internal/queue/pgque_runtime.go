@@ -58,15 +58,13 @@ func (q *PgQueQueue) ensureRunRouteCached(ctx context.Context, run *domain.JobRu
 }
 
 func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.JobRun) error {
+	readyRuns, _, err := q.readyRunsForEvents(ctx, q.db, runs)
+	if err != nil {
+		return err
+	}
 	seen := make(map[string]struct{}, len(runs))
-	for _, run := range runs {
-		if run == nil || run.Status != domain.StatusQueued {
-			continue
-		}
-		routeKey, err := q.routeKeyForRun(ctx, q.db, run)
-		if err != nil {
-			return err
-		}
+	for _, readyRun := range readyRuns {
+		routeKey := readyRun.routeKey
 		if _, ok := seen[routeKey]; ok {
 			continue
 		}
