@@ -309,6 +309,20 @@ func shouldUseFallbackForClass(errClass string) bool {
 	}
 }
 
+func retryStatusFields(run *domain.JobRun, job *domain.Job, errMsg, errClass string) map[string]any {
+	fields := map[string]any{
+		"attempt":     run.Attempt + 1,
+		"error":       errMsg,
+		"error_class": errClass,
+		"started_at":  nil,
+		"finished_at": nil,
+	}
+	if job.RetryPriorityBoost > 0 {
+		fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
+	}
+	return fields
+}
+
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
@@ -387,18 +401,9 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 			"next_retry_at": retryAt.Format(time.RFC3339),
 			"error_class":   errClass,
 		})
-		fields := map[string]any{
-			"attempt":     run.Attempt + 1,
-			"error":       errMsg,
-			"error_class": errClass,
-			"started_at":  nil,
-			"finished_at": nil,
-		}
+		fields := retryStatusFields(run, job, errMsg, errClass)
 		if metadataModified {
 			fields["metadata"] = run.Metadata
-		}
-		if job.RetryPriorityBoost > 0 {
-			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
 		}
 		// Side-table schedule write keeps the indexed job_runs.next_retry_at
 		// column untouched so the requeue UPDATE stays HOT-eligible.
@@ -520,16 +525,7 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 
 	if run.Attempt < policy.maxAttempts {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		fields := map[string]any{
-			"attempt":     run.Attempt + 1,
-			"error":       "execution timed out",
-			"error_class": "transient",
-			"started_at":  nil,
-			"finished_at": nil,
-		}
-		if job.RetryPriorityBoost > 0 {
-			fields["priority"] = boostPriority(run.Priority, job.RetryPriorityBoost)
-		}
+		fields := retryStatusFields(run, job, "execution timed out", domain.ErrorClassTransient)
 		if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
 			e.logger.Error("failed to schedule timeout retry",
 				"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
