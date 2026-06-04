@@ -102,34 +102,40 @@ func (s *Server) dispatchWorkflowRegistrationRejected(ctx context.Context, proje
 	s.billingEnforcer.DispatchBilling(ctx, orgID, limits.PlanTier, domain.WebhookEventWorkflowRegistrationRejected, detail)
 }
 
-// getOrgPlanLimits resolves the org's plan limits from a project ID.
-// Returns nil limits (and no error) when billing is unavailable or not
-// configured -- callers should treat nil as "no enforcement" (fail open).
-func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) *billing.OrgPlanLimits {
+// getOrgPlanLimits resolves the org's plan limits from a project ID. A nil
+// limits result with nil error means cloud billing enforcement is not
+// configured for this edition/server. A non-nil error means the enforcement
+// dependency is unavailable and the caller should reject the gated operation.
+func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billing.OrgPlanLimits, error) {
 	if !s.edition.RequiresHTTPModeGating() || s.billingEnforcer == nil {
-		return nil
+		return nil, nil
 	}
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		slog.Warn("plan gate: failed to resolve org for project", "project_id", projectID, "error", err)
-		return nil
+		if err != nil {
+			return nil, planGateUnavailable("plan_gate_org_lookup", err)
+		}
+		return nil, nil
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		slog.Warn("plan gate: failed to get org plan limits", "org_id", orgID, "error", err)
-		return nil
+		return nil, planGateUnavailable("plan_gate_plan_lookup", err)
 	}
 
-	return &limits
+	return &limits, nil
 }
 
 // checkFeatureAllowed checks whether a plan-gated feature is available for
-// the given project's org. Returns nil if allowed or if billing is unavailable
-// (fail open). Returns a 403 error with structured metadata if blocked.
+// the given project's org. Returns nil if allowed or if billing is not
+// configured for this edition/server. Returns 503 if cloud enforcement is
+// unavailable, or 403 with structured metadata if blocked.
 func (s *Server) checkFeatureAllowed(ctx context.Context, projectID string, feature billing.Feature, featureName string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -194,7 +200,11 @@ func displayRBACLevel(level string) string {
 }
 
 func (s *Server) isRBACLevelAllowed(ctx context.Context, projectID, minLevel string) bool {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		slog.Warn("rbac policy gate: plan lookup failed", "project_id", projectID, "error", err)
+		return false
+	}
 	if limits == nil {
 		return true
 	}
@@ -206,7 +216,10 @@ func (s *Server) isRBACLevelAllowed(ctx context.Context, projectID, minLevel str
 // custom role mutation requires Full or higher; policy-based authorization
 // requires Advanced.
 func (s *Server) checkRBACLevel(ctx context.Context, projectID, minLevel, featureName string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -237,7 +250,10 @@ func (s *Server) checkRBACLevel(ctx context.Context, projectID, minLevel, featur
 // checkWorkflowStepLimit verifies that the number of steps does not exceed
 // the plan's MaxWorkflowDAGSteps. Returns nil if within limits.
 func (s *Server) checkWorkflowStepLimit(ctx context.Context, projectID string, stepCount int) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -266,7 +282,10 @@ func (s *Server) checkCronMinInterval(ctx context.Context, projectID, cronExpr s
 		return nil
 	}
 
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -321,7 +340,10 @@ func (s *Server) checkCronOverlapPolicy(ctx context.Context, projectID, policy s
 		return nil // "allow" is available on all plans
 	}
 
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -364,7 +386,10 @@ func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) er
 }
 
 func (s *Server) resolveEnvironmentCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return "", -1, "", err
+	}
 	if limits == nil {
 		return "", -1, "", nil
 	}
@@ -488,7 +513,10 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 }
 
 func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return "", -1, "", err
+	}
 	if limits == nil {
 		return "", -1, "", nil
 	}
@@ -515,7 +543,10 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 }
 
 func (s *Server) resolveWebhookProjectCreateLimit(ctx context.Context, projectID string) (int, error) {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return -1, err
+	}
 	if limits == nil || limits.MaxWebhookSubsPerProj == -1 {
 		return -1, nil
 	}
@@ -570,7 +601,10 @@ func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error
 }
 
 func (s *Server) resolveLogDrainCreateLimit(ctx context.Context, projectID string) (string, int, string, error) {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return "", -1, "", err
+	}
 	if limits == nil {
 		return "", -1, "", nil
 	}
@@ -624,7 +658,10 @@ func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID st
 }
 
 func (s *Server) resolveNotificationChannelCreateLimit(ctx context.Context, projectID string) (int, string, error) {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return -1, "", err
+	}
 	if limits == nil {
 		return -1, "", nil
 	}
@@ -649,7 +686,10 @@ func (s *Server) resolveNotificationChannelCreateLimit(ctx context.Context, proj
 //
 //nolint:unparam // projectID is always "proj-1" in tests until the handler lands; this is wired in advance.
 func (s *Server) checkAlertRuleLimit(ctx context.Context, projectID string, currentCount int) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -767,7 +807,10 @@ var basicWebhookEvents = map[string]bool{
 // checkWebhookEventTypes verifies that the requested event types are allowed
 // on the project's plan WebhookEventLevel.
 func (s *Server) checkWebhookEventTypes(ctx context.Context, projectID string, eventTypes []string) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}
@@ -806,7 +849,10 @@ func (s *Server) checkJobChainingAllowed(ctx context.Context, projectID string, 
 // allowed on the project's plan (approval gates require Pro+, sub-workflows
 // require Pro+).
 func (s *Server) checkWorkflowStepFeatures(ctx context.Context, projectID string, steps []workflowStepRequest) error {
-	limits := s.getOrgPlanLimits(ctx, projectID)
+	limits, err := s.getOrgPlanLimits(ctx, projectID)
+	if err != nil {
+		return err
+	}
 	if limits == nil {
 		return nil
 	}

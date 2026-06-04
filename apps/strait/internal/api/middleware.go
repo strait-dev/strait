@@ -1392,8 +1392,8 @@ func (s *Server) planUsageHeaders(next http.Handler) http.Handler {
 			return
 		}
 
-		limits := s.getOrgPlanLimits(ctx, projectID)
-		if limits != nil {
+		limits, err := s.getOrgPlanLimits(ctx, projectID)
+		if err == nil && limits != nil {
 			w.Header().Set("X-Strait-Plan", string(limits.PlanTier))
 			s.setUsageHeaders(ctx, w, limits, projectID)
 		}

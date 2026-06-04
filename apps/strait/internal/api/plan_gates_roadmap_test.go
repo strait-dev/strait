@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -46,5 +47,40 @@ func TestPlanGate_RoadmapFeaturesDoNotReturnUpgradeCTA(t *testing.T) {
 				t.Fatalf("roadmap rejection must not return an upgrade CTA, got: %s", msg)
 			}
 		})
+	}
+}
+
+func TestPlanGate_FeatureOrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &tunableLimitsEnforcer{
+		limits: freeLimits(),
+		orgErr: errors.New("org lookup unavailable"),
+	}
+	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+
+	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
+	if err == nil {
+		t.Fatal("expected feature gate to fail closed when org lookup fails")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
+	}
+}
+
+func TestPlanGate_FeaturePlanLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &tunableLimitsEnforcer{
+		limitsErr: errors.New("plan lookup unavailable"),
+	}
+	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+
+	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
+	if err == nil {
+		t.Fatal("expected feature gate to fail closed when plan lookup fails")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
 	}
 }
