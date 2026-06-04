@@ -283,6 +283,96 @@ func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestTimeoutRunTransition_Retry(t *testing.T) {
+	t.Parallel()
+
+	run := &domain.JobRun{
+		ID:       "run-1",
+		JobID:    "job-1",
+		Attempt:  1,
+		Priority: 4,
+	}
+	job := &domain.Job{
+		ID:                 "job-1",
+		RetryPriorityBoost: 2,
+	}
+	policy := executionPolicy{
+		maxAttempts:      3,
+		retryBackoff:     domain.RetryBackoffFixed,
+		retryInitialSecs: 1,
+		retryMaxSecs:     30,
+	}
+
+	before := time.Now()
+	transition := newTimeoutRunTransition(run, job, policy, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+
+	if !transition.retry {
+		t.Fatal("expected timeout transition to retry")
+	}
+	if transition.retryAt.Before(before) {
+		t.Fatalf("retryAt = %s, want after %s", transition.retryAt, before)
+	}
+	if transition.fields["attempt"] != 2 {
+		t.Fatalf("attempt field = %v, want 2", transition.fields["attempt"])
+	}
+	if transition.fields["error"] != executionTimedOutError {
+		t.Fatalf("error field = %v, want %q", transition.fields["error"], executionTimedOutError)
+	}
+	if transition.fields["error_class"] != domain.ErrorClassTransient {
+		t.Fatalf("error_class field = %v, want %q", transition.fields["error_class"], domain.ErrorClassTransient)
+	}
+	if transition.fields["priority"] != 6 {
+		t.Fatalf("priority field = %v, want 6", transition.fields["priority"])
+	}
+	if transition.fields["started_at"] != nil {
+		t.Fatalf("started_at field = %v, want nil", transition.fields["started_at"])
+	}
+	if transition.fields["finished_at"] != nil {
+		t.Fatalf("finished_at field = %v, want nil", transition.fields["finished_at"])
+	}
+}
+
+func TestTimeoutRunTransition_Terminal(t *testing.T) {
+	t.Parallel()
+
+	finishedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	run := &domain.JobRun{
+		ID:       "run-1",
+		JobID:    "job-1",
+		Attempt:  3,
+		Priority: 4,
+	}
+	job := &domain.Job{
+		ID:                 "job-1",
+		RetryPriorityBoost: 2,
+	}
+	policy := executionPolicy{maxAttempts: 3}
+
+	transition := newTimeoutRunTransition(run, job, policy, finishedAt)
+
+	if transition.retry {
+		t.Fatal("expected terminal timeout transition")
+	}
+	if !transition.retryAt.IsZero() {
+		t.Fatalf("retryAt = %s, want zero time", transition.retryAt)
+	}
+	if transition.fields["finished_at"] != finishedAt {
+		t.Fatalf("finished_at field = %v, want %s", transition.fields["finished_at"], finishedAt)
+	}
+	if transition.fields["error"] != executionTimedOutError {
+		t.Fatalf("error field = %v, want %q", transition.fields["error"], executionTimedOutError)
+	}
+	if transition.fields["error_class"] != domain.ErrorClassTransient {
+		t.Fatalf("error_class field = %v, want %q", transition.fields["error_class"], domain.ErrorClassTransient)
+	}
+	if _, ok := transition.fields["priority"]; ok {
+		t.Fatal("terminal timeout transition should not set retry priority")
+	}
+	if _, ok := transition.fields["attempt"]; ok {
+		t.Fatal("terminal timeout transition should not advance attempt")
+	}
+}
+
 // Test helpers.
 
 func newCompletionTestExecutor(t *testing.T, s *mockExecutorStore, txPool *mockTxBeginner) *Executor {

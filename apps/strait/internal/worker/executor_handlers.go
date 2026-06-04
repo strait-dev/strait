@@ -339,6 +339,25 @@ type retryRequeueLogMessages struct {
 	success         string
 }
 
+type timeoutRunTransition struct {
+	retry   bool
+	retryAt time.Time
+	fields  map[string]any
+}
+
+func newTimeoutRunTransition(run *domain.JobRun, job *domain.Job, policy executionPolicy, finishedAt time.Time) timeoutRunTransition {
+	if run.Attempt < policy.maxAttempts {
+		return timeoutRunTransition{
+			retry:   true,
+			retryAt: NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs),
+			fields:  retryStatusFields(run, job, executionTimedOutError, domain.ErrorClassTransient),
+		}
+	}
+	return timeoutRunTransition{
+		fields: terminalStatusFields(finishedAt, executionTimedOutError, domain.ErrorClassTransient),
+	}
+}
+
 type failedDispatchSignalKind int
 
 const (
@@ -570,18 +589,17 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 		"timeout_secs", policy.timeoutSecs,
 	)
 
-	if run.Attempt < policy.maxAttempts {
-		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
-		fields := retryStatusFields(run, job, executionTimedOutError, domain.ErrorClassTransient)
-		e.requeueRunForRetry(ctx, run, job, retryAt, fields, execTrace, retryRequeueLogMessages{
+	now := time.Now()
+	transition := newTimeoutRunTransition(run, job, policy, now)
+	if transition.retry {
+		e.requeueRunForRetry(ctx, run, job, transition.retryAt, transition.fields, execTrace, retryRequeueLogMessages{
 			scheduleFailure: "failed to schedule timeout retry",
 			updateFailure:   "failed to re-enqueue timed out run",
 		})
 		return
 	}
 
-	now := time.Now()
-	fields := terminalStatusFields(now, executionTimedOutError, domain.ErrorClassTransient)
+	fields := transition.fields
 	run.FinishedAt = &now
 	run.Status = domain.StatusTimedOut
 	e.addExecutionTraceField(fields, domain.StatusTimedOut, execTrace)
