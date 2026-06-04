@@ -940,37 +940,9 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 
 func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (json.RawMessage, error) {
 	recordDispatchPayloadBytes(ctx, dispatchModeHTTP, len(run.Payload))
-	var body io.Reader
-	if len(run.Payload) > 0 {
-		body = bytes.NewReader(run.Payload)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, body)
+	req, err := newDispatchRequest(ctx, endpointURL, run, extraHeaders)
 	if err != nil {
-		return nil, fmt.Errorf("build request: invalid endpoint URL")
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Run-ID", run.ID)
-	req.Header.Set("X-Job-ID", run.JobID)
-	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
-
-	// Inject W3C trace context headers from run metadata.
-	if tp, ok := run.Metadata[domain.RunMetadataTraceParent]; ok && tp != "" {
-		req.Header.Set("Traceparent", tp)
-		if ts, ok := run.Metadata[domain.RunMetadataTraceState]; ok && ts != "" {
-			req.Header.Set("Tracestate", ts)
-		}
-	}
-	if traceparent, ok := run.Metadata[domain.RunMetadataSentryTrace]; ok && traceparent != "" {
-		req.Header.Set(sentry.SentryTraceHeader, traceparent)
-		if baggage, ok := run.Metadata[domain.RunMetadataSentryBaggage]; ok && baggage != "" {
-			req.Header.Set(sentry.SentryBaggageHeader, baggage)
-		}
-	}
-
-	for key, value := range extraHeaders {
-		req.Header.Set(key, value)
+		return nil, err
 	}
 
 	resp, err := e.httpClient.Do(req)
@@ -1003,6 +975,44 @@ func (e *Executor) dispatchToEndpoint(ctx context.Context, endpointURL string, r
 	}
 
 	return nil, nil
+}
+
+func newDispatchRequest(ctx context.Context, endpointURL string, run *domain.JobRun, extraHeaders map[string]string) (*http.Request, error) {
+	var body io.Reader
+	if len(run.Payload) > 0 {
+		body = bytes.NewReader(run.Payload)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: invalid endpoint URL")
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Run-ID", run.ID)
+	req.Header.Set("X-Job-ID", run.JobID)
+	req.Header.Set("X-Attempt", fmt.Sprintf("%d", run.Attempt))
+	addRunTraceHeaders(req.Header, run.Metadata)
+
+	for key, value := range extraHeaders {
+		req.Header.Set(key, value)
+	}
+	return req, nil
+}
+
+func addRunTraceHeaders(headers http.Header, metadata map[string]string) {
+	if tp, ok := metadata[domain.RunMetadataTraceParent]; ok && tp != "" {
+		headers.Set("Traceparent", tp)
+		if ts, ok := metadata[domain.RunMetadataTraceState]; ok && ts != "" {
+			headers.Set("Tracestate", ts)
+		}
+	}
+	if traceparent, ok := metadata[domain.RunMetadataSentryTrace]; ok && traceparent != "" {
+		headers.Set(sentry.SentryTraceHeader, traceparent)
+		if baggage, ok := metadata[domain.RunMetadataSentryBaggage]; ok && baggage != "" {
+			headers.Set(sentry.SentryBaggageHeader, baggage)
+		}
+	}
 }
 
 func normalizeDispatchResult(body []byte) json.RawMessage {
