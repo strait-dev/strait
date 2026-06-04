@@ -34,7 +34,7 @@ type ExportPeriod struct {
 }
 
 // ExportCSV generates a CSV export of usage data for an org over the given period.
-// The CSV columns are: date, project, runs, compute_cost_usd, total_usd.
+// The CSV columns are: date, project, runs, orchestration_cost_usd, total_usd.
 func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
 	if err := validateExportPeriod(period); err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 	w := csv.NewWriter(&buf)
 
 	// Write header.
-	header := []string{"date", "project", "runs", "compute_cost_usd", "total_usd"}
+	header := []string{"date", "project", "runs", "orchestration_cost_usd", "total_usd"}
 	if err := w.Write(header); err != nil {
 		return nil, fmt.Errorf("writing CSV header: %w", err)
 	}
@@ -121,7 +121,7 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	pdf.CellFormat(0, 8, "Summary", "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 10)
 	pdf.CellFormat(0, 6, fmt.Sprintf("Total Runs: %d", totalRuns), "", 1, "L", false, 0, "")
-	pdf.CellFormat(0, 6, fmt.Sprintf("Compute Cost: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 6, fmt.Sprintf("Orchestration Cost: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 10)
 	pdf.CellFormat(0, 6, fmt.Sprintf("Total: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
 
@@ -132,7 +132,7 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 
 	// Table header.
 	colWidths := []float64{28, 48, 22, 38, 38}
-	headers := []string{"Date", "Project", "Runs", "Compute ($)", "Total ($)"}
+	headers := []string{"Date", "Project", "Runs", "Orchestration ($)", "Total ($)"}
 	pdf.SetFont("Helvetica", "B", 9)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 7, h, "1", 0, "C", false, 0, "")

@@ -105,7 +105,7 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(records))
 	}
 
-	expectedHeader := []string{"date", "project", "runs", "compute_cost_usd", "total_usd"}
+	expectedHeader := []string{"date", "project", "runs", "orchestration_cost_usd", "total_usd"}
 	for i, col := range expectedHeader {
 		if records[0][i] != col {
 			t.Errorf("header[%d]: expected %s, got %s", i, col, records[0][i])
@@ -122,7 +122,7 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		t.Errorf("expected runs 42, got %s", records[1][2])
 	}
 	if records[1][3] != "5.000000" {
-		t.Errorf("expected compute_cost_usd 5.000000, got %s", records[1][3])
+		t.Errorf("expected orchestration_cost_usd 5.000000, got %s", records[1][3])
 	}
 	if records[1][4] != "5.000000" {
 		t.Errorf("expected total_usd 5.000000, got %s", records[1][4])
