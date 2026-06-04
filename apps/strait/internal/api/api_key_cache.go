@@ -88,13 +88,6 @@ func (c *apiKeyCache) Get(
 	return got.Value, nil
 }
 
-func (c *apiKeyCache) Close() {
-	if c == nil || c.tier == nil {
-		return
-	}
-	c.tier.Close()
-}
-
 func (c *apiKeyCache) Set(ctx context.Context, key *domain.APIKey) {
 	if c == nil || c.tier == nil || key == nil || key.KeyHash == "" {
 		return

@@ -110,13 +110,6 @@ func (c *jobDependencyCache) List(
 	return loaded.Value, nil
 }
 
-func (c *jobDependencyCache) Close() {
-	if c == nil || c.tier == nil {
-		return
-	}
-	c.tier.Close()
-}
-
 func (c *jobDependencyCache) InvalidateJob(ctx context.Context, jobID string) {
 	c.InvalidateJobWithVersion(ctx, jobID, time.Now().UnixNano())
 }

@@ -9,11 +9,12 @@ import (
 
 // fakePoolStatter lets tests drive the sampler with deterministic counters.
 type fakePoolStatter struct {
-	mu        sync.Mutex
-	acquired  int32
-	maxConns  int32
-	count     int64
-	waitTotal time.Duration
+	mu              sync.Mutex
+	acquired        int32
+	maxConns        int32
+	count           int64
+	waitTotal       time.Duration
+	emptyCountReads chan struct{}
 }
 
 func (f *fakePoolStatter) AcquiredConns() int32 {
@@ -31,6 +32,12 @@ func (f *fakePoolStatter) MaxConns() int32 {
 func (f *fakePoolStatter) EmptyAcquireCount() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.emptyCountReads != nil {
+		select {
+		case f.emptyCountReads <- struct{}{}:
+		default:
+		}
+	}
 	return f.count
 }
 
@@ -130,12 +137,24 @@ func TestPoolBackpressureSampler_ConcurrentReadsAreConsistent(t *testing.T) {
 
 // Stop must release the goroutine and not block on a second call.
 func TestPoolBackpressureSampler_StopIsIdempotent(t *testing.T) {
-	ps := &fakePoolStatter{}
+	ps := &fakePoolStatter{emptyCountReads: make(chan struct{}, 2)}
 	s := newPoolBackpressureSampler(ps, 10*time.Millisecond, dbBackpressureAcquireWaitThreshold)
 	s.Start()
-	time.Sleep(25 * time.Millisecond) // let it tick at least once
+	waitForEmptyAcquireCountReads(t, ps.emptyCountReads, 2)
 	s.Stop()
 	s.Stop() // second call must not block or panic
+}
+
+func waitForEmptyAcquireCountReads(t *testing.T, ch <-chan struct{}, want int) {
+	t.Helper()
+	timeout := time.After(time.Second)
+	for got := 0; got < want; got++ {
+		select {
+		case <-ch:
+		case <-timeout:
+			t.Fatalf("timed out waiting for %d EmptyAcquireCount reads, got %d", want, got)
+		}
+	}
 }
 
 // Verifies that shouldApplyDBBackpressure reaches the same verdict regardless

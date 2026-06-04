@@ -124,13 +124,6 @@ func (c *quotaCache) Get(ctx context.Context, projectID string) (*store.ProjectQ
 	return got.Value, nil
 }
 
-func (c *quotaCache) Close() {
-	if c == nil || c.inner == nil {
-		return
-	}
-	c.inner.Close()
-}
-
 func (c *quotaCache) Invalidate(projectID string) {
 	c.InvalidateContext(cacheMetricsContext, projectID)
 }
