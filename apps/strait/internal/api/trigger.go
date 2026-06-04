@@ -7,8 +7,6 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
-
-	"github.com/danielgtaylor/huma/v2"
 )
 
 // maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
@@ -78,25 +76,6 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	return s.handleImmediateTrigger(ctx, input, state)
-}
-
-func (s *Server) validateTriggerJobInput(input *TriggerJobInput, req *TriggerRequest) error {
-	if err := s.validate.Struct(req); err != nil {
-		return newValidationError(err)
-	}
-	if err := validateTriggerTraceHeaders(input); err != nil {
-		return huma.Error400BadRequest(err.Error())
-	}
-	if err := validatePayloadSize(req.Payload); err != nil {
-		return huma.Error400BadRequest(err.Error())
-	}
-	if err := validateTags(req.Tags); err != nil {
-		return huma.Error400BadRequest(err.Error())
-	}
-	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
-		return huma.Error400BadRequest(err.Error())
-	}
-	return nil
 }
 
 func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {

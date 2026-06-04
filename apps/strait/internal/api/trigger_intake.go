@@ -46,6 +46,25 @@ func ensureJobTriggerable(job *domain.Job) error {
 	return nil
 }
 
+func (s *Server) validateTriggerJobInput(input *TriggerJobInput, req *TriggerRequest) error {
+	if err := s.validate.Struct(req); err != nil {
+		return newValidationError(err)
+	}
+	if err := validateTriggerTraceHeaders(input); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validatePayloadSize(req.Payload); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateTags(req.Tags); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	if err := validateTriggerScheduledAt(req.ScheduledAt); err != nil {
+		return huma.Error400BadRequest(err.Error())
+	}
+	return nil
+}
+
 func validateTriggerScheduledAt(scheduledAt *time.Time) error {
 	if scheduledAt == nil {
 		return nil

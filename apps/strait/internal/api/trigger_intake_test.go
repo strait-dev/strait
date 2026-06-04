@@ -1,11 +1,51 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"strait/internal/domain"
 )
+
+func TestValidateTriggerJobInputAcceptsValidInput(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	scheduledAt := time.Now().Add(time.Minute)
+	req := TriggerRequest{
+		Payload:        json.RawMessage(`{"ok":true}`),
+		Tags:           map[string]string{"team": "platform"},
+		ScheduledAt:    &scheduledAt,
+		Priority:       10,
+		ConcurrencyKey: strings.Repeat("c", 256),
+		DebounceKey:    strings.Repeat("d", 256),
+		BatchKey:       strings.Repeat("b", 256),
+	}
+	input := &TriggerJobInput{
+		Traceparent: strings.Repeat("t", maxTraceparentLen),
+		Tracestate:  strings.Repeat("s", maxTraceHeaderLen),
+		SentryTrace: strings.Repeat("r", maxTraceHeaderLen),
+		Baggage:     strings.Repeat("g", maxTraceHeaderLen),
+	}
+
+	if err := srv.validateTriggerJobInput(input, &req); err != nil {
+		t.Fatalf("validateTriggerJobInput() error = %v", err)
+	}
+}
+
+func TestValidateTriggerJobInputRejectsOversizeTraceHeader(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	req := TriggerRequest{}
+	input := &TriggerJobInput{Traceparent: strings.Repeat("t", maxTraceparentLen+1)}
+
+	err := srv.validateTriggerJobInput(input, &req)
+	assertStatusError(t, err, http.StatusBadRequest, "traceparent")
+}
 
 func TestMergedRunTagsOverlayWins(t *testing.T) {
 	t.Parallel()
