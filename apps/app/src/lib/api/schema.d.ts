@@ -6611,6 +6611,8 @@ export type components = {
       api_rate_limit: number;
       /** Format: int64 */
       cron_min_interval_sec: number;
+      /** Format: int64 */
+      default_spending_cap_microusd: number;
       display_name: string;
       has_approval_gates: boolean;
       has_audit_logs: boolean;
@@ -6630,6 +6632,8 @@ export type components = {
       /** Format: int64 */
       max_members_per_org: number;
       /** Format: int64 */
+      max_notification_channels: number;
+      /** Format: int64 */
       max_orgs_per_user: number;
       /** Format: int64 */
       max_projects_per_org: number;
@@ -6643,6 +6647,7 @@ export type components = {
       max_webhook_subs_per_project: number;
       /** Format: int64 */
       max_workflow_dag_steps: number;
+      overage_default_enabled: boolean;
       /** Format: int64 */
       overage_per_k_runs_microusd: number;
       /** Format: int64 */

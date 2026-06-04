@@ -82,11 +82,14 @@ export type PlanApiResponse = {
   max_members_per_org: number;
   max_runs_per_month: number;
   overage_per_k_runs_microusd: number;
+  overage_default_enabled: boolean;
+  default_spending_cap_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
   allowed_regions: string[] | null;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
+  max_notification_channels: number;
   has_rbac: boolean;
   rbac_level: "" | "basic" | "full" | "advanced";
   has_audit_logs: boolean;
@@ -509,11 +512,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: 1,
     max_runs_per_month: 5000,
     overage_per_k_runs_microusd: 500_000,
+    overage_default_enabled: false,
+    default_spending_cap_microusd: 50_000_000,
     max_concurrent_runs: 3,
     retention_days: 7,
     allowed_regions: ["iad"],
     max_webhook_subs_per_project: 0,
     max_log_drains_per_org: 0,
+    max_notification_channels: 0,
     has_rbac: false,
     rbac_level: "",
     has_audit_logs: false,
@@ -545,11 +551,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: 3,
     max_runs_per_month: 50_000,
     overage_per_k_runs_microusd: 400_000,
+    overage_default_enabled: true,
+    default_spending_cap_microusd: 100_000_000,
     max_concurrent_runs: 15,
     retention_days: 14,
     allowed_regions: null,
     max_webhook_subs_per_project: 3,
     max_log_drains_per_org: 1,
+    max_notification_channels: 1,
     has_rbac: true,
     rbac_level: "basic",
     has_audit_logs: false,
@@ -581,11 +590,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: 10,
     max_runs_per_month: 1_000_000,
     overage_per_k_runs_microusd: 200_000,
+    overage_default_enabled: true,
+    default_spending_cap_microusd: 200_000_000,
     max_concurrent_runs: 100,
     retention_days: 30,
     allowed_regions: null,
     max_webhook_subs_per_project: 10,
     max_log_drains_per_org: 5,
+    max_notification_channels: 5,
     has_rbac: true,
     rbac_level: "full",
     has_audit_logs: false,
@@ -617,11 +629,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: 50,
     max_runs_per_month: 5_000_000,
     overage_per_k_runs_microusd: 60_000,
+    overage_default_enabled: true,
+    default_spending_cap_microusd: 500_000_000,
     max_concurrent_runs: 300,
     retention_days: 60,
     allowed_regions: null,
     max_webhook_subs_per_project: 25,
     max_log_drains_per_org: 10,
+    max_notification_channels: 10,
     has_rbac: true,
     rbac_level: "full",
     has_audit_logs: true,
@@ -653,11 +668,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: -1,
     max_runs_per_month: 25_000_000,
     overage_per_k_runs_microusd: 30_000,
+    overage_default_enabled: true,
+    default_spending_cap_microusd: 1_500_000_000,
     max_concurrent_runs: 500,
     retention_days: 90,
     allowed_regions: null,
     max_webhook_subs_per_project: -1,
     max_log_drains_per_org: -1,
+    max_notification_channels: -1,
     has_rbac: true,
     rbac_level: "advanced",
     has_audit_logs: true,
@@ -696,11 +714,14 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     max_members_per_org: -1,
     max_runs_per_month: -1,
     overage_per_k_runs_microusd: 30_000,
+    overage_default_enabled: false,
+    default_spending_cap_microusd: -1,
     max_concurrent_runs: -1,
     retention_days: -1,
     allowed_regions: null,
     max_webhook_subs_per_project: -1,
     max_log_drains_per_org: -1,
+    max_notification_channels: -1,
     has_rbac: true,
     rbac_level: "full",
     has_audit_logs: true,

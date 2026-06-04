@@ -233,11 +233,14 @@ function toApiPlan(plan) {
     max_members_per_org: limits.members,
     max_runs_per_month: limits.runsPerMonth,
     overage_per_k_runs_microusd: plan.overage.microusdPer1K,
+    overage_default_enabled: plan.overage.defaultEnabled,
+    default_spending_cap_microusd: plan.overage.defaultSpendingCapMicrousd,
     max_concurrent_runs: limits.concurrentRuns,
     retention_days: limits.retentionDays,
     allowed_regions: limits.allowedRegions,
     max_webhook_subs_per_project: limits.webhookSubscriptions,
     max_log_drains_per_org: limits.logDrains,
+    max_notification_channels: limits.notificationChannels,
     has_rbac: features.rbac,
     rbac_level: features.rbacLevel === "none" ? "" : features.rbacLevel,
     has_audit_logs: features.auditLogs,
@@ -351,11 +354,14 @@ export type PlanApiResponse = {
   max_members_per_org: number;
   max_runs_per_month: number;
   overage_per_k_runs_microusd: number;
+  overage_default_enabled: boolean;
+  default_spending_cap_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
   allowed_regions: string[] | null;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
+  max_notification_channels: number;
   has_rbac: boolean;
   rbac_level: "" | "basic" | "full" | "advanced";
   has_audit_logs: boolean;
@@ -616,6 +622,8 @@ function generateGoCatalog() {
 \t\tLookupKeyAnnual:      ${goString(plan.lookupKeys.annual)},
 \t\tLookupKeyOverage:     ${goString(plan.lookupKeys.overage)},
 \t\tOverageMicrousdPer1K: ${planSuffix[plan.tier]}OveragePerKMicrousd,
+\t\tOverageDefaultEnabled: ${goBool(plan.overage.defaultEnabled)},
+\t\tDefaultSpendingCapMicrousd: MaxSpending${planSuffix[plan.tier]},
 \t\tIncludedRunsPerMonth: MaxRunsPerMonth${planSuffix[plan.tier]},
 \t\tRetentionDays:        Retention${planSuffix[plan.tier]},
 \t\tConcurrency:          Concurrent${planSuffix[plan.tier]},

@@ -41,10 +41,33 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 	if !starter.HasLogStreaming {
 		t.Fatal("starter plan should advertise log streaming")
 	}
+	if free.OverageDefaultEnabled {
+		t.Fatal("free plan should not expose overage as enabled by default")
+	}
+	if free.DefaultSpendingCapMicrousd != billing.MaxSpendingFree {
+		t.Fatalf("free default spending cap = %d, want %d", free.DefaultSpendingCapMicrousd, billing.MaxSpendingFree)
+	}
+	if !starter.OverageDefaultEnabled {
+		t.Fatal("starter plan should expose overage as enabled by default")
+	}
+	if starter.DefaultSpendingCapMicrousd != billing.MaxSpendingStarter {
+		t.Fatalf("starter default spending cap = %d, want %d", starter.DefaultSpendingCapMicrousd, billing.MaxSpendingStarter)
+	}
+
+	pro := byTier["pro"]
+	if pro.MaxNotificationChannels != billing.GetPlanLimits(domain.PlanPro).MaxNotificationChannels {
+		t.Fatalf("pro notification channel cap = %d, want generated plan limit", pro.MaxNotificationChannels)
+	}
 
 	enterprise := byTier["enterprise"]
 	if enterprise.MaxRunsPerMonth != -1 {
 		t.Fatalf("enterprise max runs = %d, want unlimited", enterprise.MaxRunsPerMonth)
+	}
+	if enterprise.DefaultSpendingCapMicrousd != billing.MaxSpendingEnterprise {
+		t.Fatalf("enterprise default spending cap = %d, want %d", enterprise.DefaultSpendingCapMicrousd, billing.MaxSpendingEnterprise)
+	}
+	if enterprise.MaxNotificationChannels != -1 {
+		t.Fatalf("enterprise notification channel cap = %d, want unlimited", enterprise.MaxNotificationChannels)
 	}
 	if want := billing.GetPlanCatalog(domain.PlanEnterprise).RoadmapFeatures; !slices.Equal(enterprise.RoadmapFeatures, want) {
 		t.Fatalf("enterprise roadmap features = %v, want generated catalog %v", enterprise.RoadmapFeatures, want)

@@ -127,10 +127,13 @@ const basePlan = {
   max_members_per_org: -1,
   max_runs_per_month: 25_000_000,
   max_concurrent_runs: 500,
+  overage_default_enabled: true,
+  default_spending_cap_microusd: 1_500_000_000,
   retention_days: 90,
   allowed_regions: null,
   max_webhook_subs_per_project: -1,
   max_log_drains_per_org: -1,
+  max_notification_channels: -1,
   has_rbac: true,
   rbac_level: "advanced",
   has_audit_logs: true,
@@ -198,6 +201,12 @@ describe("apiPlansToComparisonFeatures", () => {
     expect(rows.find((row) => row.name === "Webhook endpoints")).toMatchObject({
       business: "10",
     });
+  });
+
+  it("keeps generated launch billing metadata on plan responses", () => {
+    expect(basePlan.overage_default_enabled).toBe(true);
+    expect(basePlan.default_spending_cap_microusd).toBe(1_500_000_000);
+    expect(basePlan.max_notification_channels).toBe(-1);
   });
 
   it("renders launch-active operational limits from plan API fields", () => {

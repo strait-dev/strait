@@ -46,6 +46,7 @@ type sourceLookupKeys struct {
 
 type sourceOverage struct {
 	MicrousdPer1K              int64 `json:"microusdPer1K"`
+	DefaultEnabled             bool  `json:"defaultEnabled"`
 	DefaultSpendingCapMicrousd int64 `json:"defaultSpendingCapMicrousd"`
 }
 
@@ -175,6 +176,8 @@ func TestGeneratedPlanLimitsMatchCatalogSource(t *testing.T) {
 			assertEqual(t, "PlanCatalog.LookupKeyAnnual", catalog.LookupKeyAnnual, sourcePlan.LookupKeys.Annual)
 			assertEqual(t, "PlanCatalog.LookupKeyOverage", catalog.LookupKeyOverage, sourcePlan.LookupKeys.Overage)
 			assertEqual(t, "PlanCatalog.OverageMicrousdPer1K", catalog.OverageMicrousdPer1K, sourcePlan.Overage.MicrousdPer1K)
+			assertEqual(t, "PlanCatalog.OverageDefaultEnabled", catalog.OverageDefaultEnabled, sourcePlan.Overage.DefaultEnabled)
+			assertEqual(t, "PlanCatalog.DefaultSpendingCapMicrousd", catalog.DefaultSpendingCapMicrousd, sourcePlan.Overage.DefaultSpendingCapMicrousd)
 			assertEqual(t, "PlanCatalog.IncludedRunsPerMonth", catalog.IncludedRunsPerMonth, sourcePlan.Limits.RunsPerMonth)
 			assertEqual(t, "PlanCatalog.RetentionDays", catalog.RetentionDays, sourcePlan.Limits.RetentionDays)
 			assertEqual(t, "PlanCatalog.Concurrency", catalog.Concurrency, sourcePlan.Limits.ConcurrentRuns)
