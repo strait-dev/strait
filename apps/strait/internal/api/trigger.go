@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // maxIdempotencyKeyLength is the maximum allowed length for idempotency keys.
@@ -76,11 +73,4 @@ func (s *Server) handleTriggerJob(ctx context.Context, input *TriggerJobInput) (
 	}
 
 	return s.handleImmediateTrigger(ctx, input, state)
-}
-
-func (s *Server) enqueueTriggerRun(ctx context.Context, tx store.DBTX, run *domain.JobRun) error {
-	if tx != nil {
-		return s.queue.EnqueueInTx(ctx, tx, run)
-	}
-	return s.queue.Enqueue(ctx, run)
 }
