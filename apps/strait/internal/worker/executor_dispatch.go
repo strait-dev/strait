@@ -1223,13 +1223,6 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			e.requeueWorkerModeRun(ctx, run, "no worker available")
 			return
 		}
-		policy := executionPolicy{
-			maxAttempts:      job.MaxAttempts,
-			timeoutSecs:      job.TimeoutSecs,
-			retryBackoff:     domain.RetryBackoffExponential,
-			retryInitialSecs: 1,
-			retryMaxSecs:     3600,
-		}
 		dispatchOutcome = "error"
 		recordWorkerRetry(ctx, "dispatch_error")
 		e.handleFailure(ctx, run, job, policy, err, nil)
@@ -1282,13 +1275,7 @@ func (e *Executor) FinalizeWorkerRunResult(ctx context.Context, runID, status, e
 		return "", fmt.Errorf("load job for worker finalization: %w", err)
 	}
 
-	policy := executionPolicy{
-		maxAttempts:      job.MaxAttempts,
-		timeoutSecs:      job.TimeoutSecs,
-		retryBackoff:     domain.RetryBackoffExponential,
-		retryInitialSecs: 1,
-		retryMaxSecs:     3600,
-	}
+	policy := defaultExecutionPolicy(job)
 	if status != "success" {
 		if errorMessage == "" {
 			if status == "" {
