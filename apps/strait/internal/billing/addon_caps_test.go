@@ -2,7 +2,9 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -42,6 +44,112 @@ func TestAddonCap_UnderLimit_Allows(t *testing.T) {
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
 	if err != nil {
 		t.Fatalf("expected addon to be allowed, got: %v", err)
+	}
+}
+
+func TestAddonCap_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	orgID := "550e8400-e29b-41d4-a716-446655440030"
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	handler := NewWebhookHandler(store, NewStripeMappingFromOptions(), "", slog.Default(), enforcer, nil,
+		WithDevBypassSignatureCheck(), WithEdition("community"))
+
+	sub := testSubscriptionData{
+		ID:         "sub_addon_limit_lookup_failure",
+		ProductID:  "addon-conc",
+		CustomerID: "cust_limit_lookup_failure",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": orgID},
+	}
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
+	if err == nil || !strings.Contains(err.Error(), "get org plan limits for addon subscription") {
+		t.Fatalf("error = %v, want plan limit lookup failure", err)
+	}
+	if store.lastAddonCreated != nil {
+		t.Fatalf("addon created after plan limit lookup failure: %#v", store.lastAddonCreated)
+	}
+}
+
+func TestAddonCap_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	orgID := "550e8400-e29b-41d4-a716-446655440031"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: string(domain.PlanScale), Status: "active"},
+		},
+		countActiveAddonsErr: errors.New("addon count unavailable"),
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	handler := NewWebhookHandler(store, NewStripeMappingFromOptions(), "", slog.Default(), enforcer, nil,
+		WithDevBypassSignatureCheck(), WithEdition("community"))
+
+	sub := testSubscriptionData{
+		ID:         "sub_addon_count_failure",
+		ProductID:  "addon-history",
+		CustomerID: "cust_count_failure",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": orgID},
+	}
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonHistory30d, "")
+	if err == nil || !strings.Contains(err.Error(), "count active addons for addon subscription") {
+		t.Fatalf("error = %v, want active addon count failure", err)
+	}
+	if store.lastAddonCreated != nil {
+		t.Fatalf("addon created after active addon count failure: %#v", store.lastAddonCreated)
+	}
+}
+
+func TestAddonCap_CapExceededDoesNotCreateActiveAddon(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	orgID := "550e8400-e29b-41d4-a716-446655440032"
+	cap := GetPlanLimits(domain.PlanScale).MaxAddonPacks[AddonHistory30d]
+	activeAddons := make([]Addon, 0, cap)
+	for i := range cap {
+		activeAddons = append(activeAddons, Addon{
+			ID:        "addon-history-existing-" + string(rune('a'+i)),
+			OrgID:     orgID,
+			AddonType: AddonHistory30d,
+			Active:    true,
+			Quantity:  1,
+		})
+	}
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: string(domain.PlanScale), Status: "active"},
+		},
+		activeAddons: activeAddons,
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+	handler := NewWebhookHandler(store, NewStripeMappingFromOptions(), "", slog.Default(), enforcer, nil,
+		WithDevBypassSignatureCheck(), WithEdition("community"))
+
+	sub := testSubscriptionData{
+		ID:         "sub_addon_cap_exceeded",
+		ProductID:  "addon-history",
+		CustomerID: "cust_cap_exceeded",
+		Status:     "active",
+		Metadata:   map[string]string{"org_id": orgID},
+	}
+	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonHistory30d, "")
+	if err != nil {
+		t.Fatalf("expected cap exceeded addon webhook to be ignored without retry, got: %v", err)
+	}
+	if store.lastAddonCreated != nil {
+		t.Fatalf("addon created after cap exceeded: %#v", store.lastAddonCreated)
 	}
 }
 

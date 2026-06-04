@@ -78,6 +78,7 @@ type mockBillingStore struct {
 	upsertEnterpriseContractFn func(ctx context.Context, c *EnterpriseContract) error
 	activeAddons               []Addon
 	listActiveAddonsErr        error
+	countActiveAddonsErr       error
 	lastAddonCreated           *Addon
 	deactivatedAddonIDs        []string
 	httpJobCount               int
@@ -508,8 +509,17 @@ func (m *mockBillingStore) DeactivateAddon(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, _ string, _ AddonType) (int, error) {
-	return 0, nil
+func (m *mockBillingStore) CountActiveAddonsByType(_ context.Context, orgID string, addonType AddonType) (int, error) {
+	if m.countActiveAddonsErr != nil {
+		return 0, m.countActiveAddonsErr
+	}
+	count := 0
+	for _, addon := range m.activeAddons {
+		if addon.Active && addon.OrgID == orgID && addon.AddonType == addonType {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (m *mockBillingStore) RecordProcessedWebhook(_ context.Context, msgID string) error {
