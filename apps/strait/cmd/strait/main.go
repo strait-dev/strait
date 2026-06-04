@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/api"
 	"strait/internal/billing"
+	"strait/internal/cdc"
 	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/crypto"
@@ -407,7 +408,12 @@ func runServe(ctx context.Context, modeOverride string) error {
 		return err
 	}))
 	healthReg.Register(health.NewRedisChecker(redisPingerAdapter{rdb}))
-	healthReg.Register(health.NewSequinChecker(cfg.SequinBaseURL))
+	healthReg.Register(health.NewSequinChecker(cdc.NewClient(
+		cfg.SequinBaseURL,
+		cfg.SequinConsumerName,
+		cfg.SequinAPIToken,
+		cdc.WithDatabaseName(cfg.SequinDatabaseName),
+	)))
 	healthReg.Register(health.NewAuditProbe(queries))
 	healthReg.Register(health.NewAuditDMLGuardProbe(queries))
 	logAuditDMLGuardStartup(ctx, queries, metrics)
