@@ -123,8 +123,6 @@ func (hs *HealthScorer) CheckHealth(ctx context.Context, endpointURL string) (*d
 }
 
 // ThrottledConcurrency returns the effective max concurrency for a given
-// endpoint based on its health score.
-// ThrottledConcurrency returns the effective max concurrency for a given
 // endpoint based on its health score. A maxConcurrency of 0 means "no limit"
 // and is returned unchanged.
 func ThrottledConcurrency(score *domain.EndpointHealthScore, maxConcurrency int) int {

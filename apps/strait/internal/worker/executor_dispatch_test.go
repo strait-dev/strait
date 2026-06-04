@@ -64,6 +64,60 @@ func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
 	}
 }
 
+func TestHTTPDispatchConcurrencyLimit(t *testing.T) {
+	t.Parallel()
+
+	degradedScore := &domain.EndpointHealthScore{HealthScore: 45}
+
+	tests := []struct {
+		name     string
+		job      *domain.Job
+		prefetch dispatchPrefetch
+		want     int
+	}{
+		{
+			name: "job limit without health score",
+			job:  &domain.Job{MaxConcurrency: 8},
+			want: 8,
+		},
+		{
+			name: "healthy score preserves job limit",
+			job:  &domain.Job{MaxConcurrency: 8},
+			prefetch: dispatchPrefetch{
+				healthScore: &domain.EndpointHealthScore{HealthScore: 90},
+			},
+			want: 8,
+		},
+		{
+			name: "degraded score throttles job limit",
+			job:  &domain.Job{MaxConcurrency: 8},
+			prefetch: dispatchPrefetch{
+				healthScore: degradedScore,
+			},
+			want: ThrottledConcurrency(degradedScore, 8),
+		},
+		{
+			name: "unlimited job remains unlimited",
+			job:  &domain.Job{MaxConcurrency: 0},
+			prefetch: dispatchPrefetch{
+				healthScore: degradedScore,
+			},
+			want: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := httpDispatchConcurrencyLimit(tt.job, tt.prefetch)
+			if got != tt.want {
+				t.Fatalf("httpDispatchConcurrencyLimit() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 	t.Parallel()
 

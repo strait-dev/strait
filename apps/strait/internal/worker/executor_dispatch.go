@@ -577,23 +577,39 @@ func (e *Executor) prepareHTTPDispatch(
 		return httpDispatchReadiness{}
 	}
 
-	effectiveConcurrency := job.MaxConcurrency
-	if prefetch.healthScore != nil {
-		effectiveConcurrency = ThrottledConcurrency(prefetch.healthScore, job.MaxConcurrency)
-	}
-	if !e.tryAcquireBulkheadSlot(job.ID, effectiveConcurrency) {
-		bulkheadRetryAt := NextRetryAt(run.Attempt)
-		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
+	releaseBulkhead, ok := e.acquireHTTPDispatchSlot(ctx, run, job, prefetch)
+	if !ok {
 		return httpDispatchReadiness{}
 	}
-	bulkheadLimit := effectiveConcurrency
 	return httpDispatchReadiness{
-		prefetch: prefetch,
-		releaseBulkhead: func() {
-			e.releaseBulkheadSlot(job.ID, bulkheadLimit)
-		},
-		ok: true,
+		prefetch:        prefetch,
+		releaseBulkhead: releaseBulkhead,
+		ok:              true,
 	}
+}
+
+func (e *Executor) acquireHTTPDispatchSlot(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	prefetch dispatchPrefetch,
+) (func(), bool) {
+	bulkheadLimit := httpDispatchConcurrencyLimit(job, prefetch)
+	if !e.tryAcquireBulkheadSlot(job.ID, bulkheadLimit) {
+		bulkheadRetryAt := NextRetryAt(run.Attempt)
+		e.snoozeRun(ctx, run, "job bulkhead at capacity", &bulkheadRetryAt)
+		return nil, false
+	}
+	return func() {
+		e.releaseBulkheadSlot(job.ID, bulkheadLimit)
+	}, true
+}
+
+func httpDispatchConcurrencyLimit(job *domain.Job, prefetch dispatchPrefetch) int {
+	if prefetch.healthScore == nil {
+		return job.MaxConcurrency
+	}
+	return ThrottledConcurrency(prefetch.healthScore, job.MaxConcurrency)
 }
 
 func (e *Executor) checkEndpointGuards(
