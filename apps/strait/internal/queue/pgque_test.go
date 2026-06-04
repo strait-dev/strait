@@ -27,6 +27,7 @@ var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
 var pgQueCandidateRunIDsBenchmarkSink []string
 var pgQueReadyEmitBatchErrBenchmarkSink error
 var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
+var pgQueSendReadyEventsErrBenchmarkSink error
 var pgQueWorkerRefsBenchmarkSink []domain.WorkerQueueRef
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
@@ -1032,6 +1033,41 @@ func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 		if got := sentEvents[runID]; got != want {
 			t.Fatalf("ready event for %s = %+v, want %+v", runID, got, want)
 		}
+	}
+}
+
+func BenchmarkPgQueSendReadyEventsHTTPBatch(b *testing.B) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "FROM job_run_state") {
+				b.Fatalf("unexpected Query SQL = %q", sql)
+			}
+			return &pgQueGenerationRows{
+				values: []pgQueGenerationRow{
+					{runID: "run-a", generation: 11},
+					{runID: "run-b", generation: 12},
+					{runID: "run-c", generation: 13},
+					{runID: "run-d", generation: 14},
+				},
+			}, nil
+		},
+		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	q.routeState(pgQueHTTPRouteKey).configured.Store(true)
+	runs := []*domain.JobRun{
+		{ID: "run-a", Status: domain.StatusQueued, Priority: 9},
+		{ID: "run-b", Status: domain.StatusQueued, Priority: 8},
+		{ID: "run-c", Status: domain.StatusQueued, Priority: 7},
+		{ID: "run-d", Status: domain.StatusQueued, Priority: 6},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		pgQueSendReadyEventsErrBenchmarkSink = q.sendReadyEvents(ctx, db, runs)
 	}
 }
 

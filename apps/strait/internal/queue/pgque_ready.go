@@ -57,7 +57,9 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 		return err
 	}
 
-	byRoute := make(map[string][]string, len(readyRuns))
+	routeKey := readyRuns[0].routeKey
+	payloads := make([]string, 0, len(readyRuns))
+	var byRoute map[string][]string
 	readyGenerations := make([]int64, 0, len(readyRuns))
 	for _, readyRun := range readyRuns {
 		generation, ok := generations[readyRun.run.ID]
@@ -74,21 +76,45 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 		if err != nil {
 			return fmt.Errorf("pgque ready event: marshal: %w", err)
 		}
-		byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], string(payload))
+		payloadText := string(payload)
+		if byRoute != nil {
+			byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], payloadText)
+			continue
+		}
+		if readyRun.routeKey == routeKey {
+			payloads = append(payloads, payloadText)
+			continue
+		}
+		byRoute = make(map[string][]string, len(readyRuns))
+		byRoute[routeKey] = payloads
+		byRoute[readyRun.routeKey] = append(byRoute[readyRun.routeKey], payloadText)
 	}
-	for routeKey, payloads := range byRoute {
-		queueName := pgQueQueueName(routeKey)
-		if !q.routeConfigured(routeKey) {
-			if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+	if byRoute == nil {
+		if err := q.sendReadyPayloadBatch(ctx, db, routeKey, payloads); err != nil {
+			return err
+		}
+	} else {
+		for routeKey, payloads := range byRoute {
+			if err := q.sendReadyPayloadBatch(ctx, db, routeKey, payloads); err != nil {
 				return err
 			}
-		}
-		if err := q.pgque(db).sendTextBatch(ctx, queueName, pgQueReadyEventType, payloads); err != nil {
-			return fmt.Errorf("pgque send ready event batch: %w", err)
 		}
 	}
 	if err := q.recordReadyEmitBatch(ctx, db, runIDs, readyGenerations); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (q *PgQueQueue) sendReadyPayloadBatch(ctx context.Context, db store.DBTX, routeKey string, payloads []string) error {
+	queueName := pgQueQueueName(routeKey)
+	if !q.routeConfigured(routeKey) {
+		if err := q.ensureRoute(ctx, db, routeKey, queueName); err != nil {
+			return err
+		}
+	}
+	if err := q.pgque(db).sendTextBatch(ctx, queueName, pgQueReadyEventType, payloads); err != nil {
+		return fmt.Errorf("pgque send ready event batch: %w", err)
 	}
 	return nil
 }
