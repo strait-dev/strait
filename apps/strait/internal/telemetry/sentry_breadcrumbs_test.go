@@ -62,6 +62,7 @@ func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
 	}, nil)
 	if breadcrumb == nil {
 		t.Fatal("expected breadcrumb")
+		return
 	}
 	if strings.Contains(breadcrumb.Message, "user:pass") {
 		t.Fatalf("message leaked credentials: %q", breadcrumb.Message)
@@ -154,6 +155,7 @@ func sentryBreadcrumbsFromHub(t *testing.T, hub *sentry.Hub) []*sentry.Breadcrum
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return nil
 	}
 	return event.Breadcrumbs
 }

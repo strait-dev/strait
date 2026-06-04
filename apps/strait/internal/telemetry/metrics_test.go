@@ -24,6 +24,7 @@ func TestInitMetrics(t *testing.T) {
 
 	if metrics == nil {
 		t.Fatal("metrics is nil")
+		return
 	}
 	if handler == nil {
 		t.Fatal("handler is nil")

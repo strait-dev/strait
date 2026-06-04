@@ -3460,6 +3460,7 @@ func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3502,6 +3503,7 @@ func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3541,6 +3543,7 @@ func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
@@ -3579,6 +3582,7 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 1 {
@@ -3618,6 +3622,7 @@ func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3657,6 +3662,7 @@ func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3696,6 +3702,7 @@ func TestHandleFailure_LargeBoostValue(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3735,6 +3742,7 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition on high attempt")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 3 {
@@ -3802,6 +3810,7 @@ func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition when poison pill doesn't trigger")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3921,6 +3930,7 @@ func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3956,6 +3966,7 @@ func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {

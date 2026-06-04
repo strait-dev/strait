@@ -634,6 +634,7 @@ func TestNewTestExporter(t *testing.T) {
 	e := NewTestExporter()
 	if e == nil {
 		t.Fatal("expected non-nil test exporter")
+		return
 	}
 	if e.config.BatchSize != 1000 {
 		t.Errorf("batch size = %d, want 1000", e.config.BatchSize)
