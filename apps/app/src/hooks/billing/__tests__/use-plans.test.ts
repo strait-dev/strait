@@ -130,7 +130,6 @@ const basePlan = {
   overage_default_enabled: true,
   default_spending_cap_microusd: 1_500_000_000,
   retention_days: 90,
-  allowed_regions: ["iad"],
   max_webhook_subs_per_project: -1,
   max_log_drains_per_org: -1,
   max_notification_channels: -1,

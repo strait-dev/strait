@@ -6606,7 +6606,6 @@ export type components = {
       reason?: string;
     };
     PlanResponse: {
-      allowed_regions: string[] | null;
       /** Format: int64 */
       api_rate_limit: number;
       /** Format: int64 */

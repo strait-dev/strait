@@ -86,7 +86,6 @@ export type PlanApiResponse = {
   default_spending_cap_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
-  allowed_regions: string[] | null;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
   max_notification_channels: number;
@@ -516,7 +515,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: 50_000_000,
     max_concurrent_runs: 3,
     retention_days: 7,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: 0,
     max_log_drains_per_org: 0,
     max_notification_channels: 0,
@@ -555,7 +553,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: 100_000_000,
     max_concurrent_runs: 15,
     retention_days: 14,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: 3,
     max_log_drains_per_org: 1,
     max_notification_channels: 1,
@@ -594,7 +591,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: 200_000_000,
     max_concurrent_runs: 100,
     retention_days: 30,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: 10,
     max_log_drains_per_org: 5,
     max_notification_channels: 5,
@@ -633,7 +629,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: 500_000_000,
     max_concurrent_runs: 300,
     retention_days: 60,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: 25,
     max_log_drains_per_org: 10,
     max_notification_channels: 10,
@@ -672,7 +667,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: 1_500_000_000,
     max_concurrent_runs: 500,
     retention_days: 90,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: -1,
     max_log_drains_per_org: -1,
     max_notification_channels: -1,
@@ -718,7 +712,6 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
     default_spending_cap_microusd: -1,
     max_concurrent_runs: -1,
     retention_days: -1,
-    allowed_regions: ["iad"],
     max_webhook_subs_per_project: -1,
     max_log_drains_per_org: -1,
     max_notification_channels: -1,

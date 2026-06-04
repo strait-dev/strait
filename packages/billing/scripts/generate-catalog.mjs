@@ -237,7 +237,6 @@ function toApiPlan(plan) {
     default_spending_cap_microusd: plan.overage.defaultSpendingCapMicrousd,
     max_concurrent_runs: limits.concurrentRuns,
     retention_days: limits.retentionDays,
-    allowed_regions: limits.allowedRegions,
     max_webhook_subs_per_project: limits.webhookSubscriptions,
     max_log_drains_per_org: limits.logDrains,
     max_notification_channels: limits.notificationChannels,
@@ -358,7 +357,6 @@ export type PlanApiResponse = {
   default_spending_cap_microusd: number;
   max_concurrent_runs: number;
   retention_days: number;
-  allowed_regions: string[] | null;
   max_webhook_subs_per_project: number;
   max_log_drains_per_org: number;
   max_notification_channels: number;

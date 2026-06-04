@@ -21,6 +21,7 @@
       "!**/.deepsec",
       "!**/_generated",
       "!**/routeTree.gen.ts",
+      "!apps/app/src/lib/api/schema.d.ts",
       "!**/.agents/skills"
     ]
   },

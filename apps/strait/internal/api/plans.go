@@ -28,7 +28,6 @@ type PlanResponse struct {
 	MaxRunsPerMonth            int      `json:"max_runs_per_month"`
 	MaxConcurrentRuns          int      `json:"max_concurrent_runs"`
 	RetentionDays              int      `json:"retention_days"`
-	AllowedRegions             []string `json:"allowed_regions"`
 	MaxWebhookSubsPerProject   int      `json:"max_webhook_subs_per_project"`
 	MaxLogDrainsPerOrg         int      `json:"max_log_drains_per_org"`
 	MaxNotificationChannels    int      `json:"max_notification_channels"`
@@ -88,7 +87,6 @@ func planResponseForTier(tier domain.PlanTier) PlanResponse {
 		MaxRunsPerMonth:            limits.MaxRunsPerMonth,
 		MaxConcurrentRuns:          limits.MaxConcurrentRuns,
 		RetentionDays:              limits.RetentionDays,
-		AllowedRegions:             limits.AllowedRegions,
 		MaxWebhookSubsPerProject:   limits.MaxWebhookSubsPerProj,
 		MaxLogDrainsPerOrg:         limits.MaxLogDrainsPerOrg,
 		MaxNotificationChannels:    limits.MaxNotificationChannels,

@@ -138,6 +138,7 @@ func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 		"has_siem_export",
 		"preferred_regions",
 		"default_region",
+		"allowed_regions",
 		"RegionResponse",
 		"stream-deployment-logs",
 		"machine_id",
