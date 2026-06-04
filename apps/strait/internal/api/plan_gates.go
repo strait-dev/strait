@@ -33,6 +33,17 @@ func planGateUnavailable(resource string, err error) error {
 	return huma.Error503ServiceUnavailable("billing enforcement unavailable, please retry")
 }
 
+func (s *Server) getProjectOrgIDForPlanGate(ctx context.Context, projectID, resource string) (string, error) {
+	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
+	if err != nil {
+		return "", planGateUnavailable(resource, err)
+	}
+	if orgID == "" {
+		return "", planGateUnavailable(resource, errors.New("project org id is empty"))
+	}
+	return orgID, nil
+}
+
 type logDrainOrgLimitCreator interface {
 	CreateLogDrainWithOrgLimit(ctx context.Context, drain *domain.LogDrain, orgID string, maxDrains int) error
 }
@@ -114,12 +125,9 @@ func (s *Server) getOrgPlanLimits(ctx context.Context, projectID string) (*billi
 		return nil, planGateUnavailable("plan_gate_enforcer", errors.New("billing enforcer not configured"))
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return nil, planGateUnavailable("plan_gate_org_lookup", err)
-		}
-		return nil, nil
+	orgID, err := s.getProjectOrgIDForPlanGate(ctx, projectID, "plan_gate_org_lookup")
+	if err != nil {
+		return nil, err
 	}
 
 	limits, err := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
@@ -401,12 +409,9 @@ func (s *Server) resolveEnvironmentCreateLimit(ctx context.Context, projectID st
 		return "", -1, limits.DisplayName, nil // Unlimited or not enforced.
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return "", -1, limits.DisplayName, planGateUnavailable("environment_org_lookup", err)
-		}
-		return "", -1, limits.DisplayName, nil
+	orgID, err := s.getProjectOrgIDForPlanGate(ctx, projectID, "environment_org_lookup")
+	if err != nil {
+		return "", -1, limits.DisplayName, err
 	}
 
 	return orgID, limits.MaxEnvironments, limits.DisplayName, nil
@@ -454,12 +459,9 @@ func (s *Server) resolveScheduleCreateLimit(ctx context.Context, projectID strin
 		return "", -1, limits.DisplayName, nil // Unlimited.
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return "", -1, limits.DisplayName, planGateUnavailable("schedule_org_lookup", err)
-		}
-		return "", -1, limits.DisplayName, nil
+	orgID, err := s.getProjectOrgIDForPlanGate(ctx, projectID, "schedule_org_lookup")
+	if err != nil {
+		return "", -1, limits.DisplayName, err
 	}
 
 	return orgID, limits.MaxScheduledJobs, limits.DisplayName, nil
@@ -533,12 +535,9 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 		)
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return "", -1, limits.DisplayName, planGateUnavailable("webhook_endpoint_org_lookup", err)
-		}
-		return "", -1, limits.DisplayName, nil
+	orgID, err := s.getProjectOrgIDForPlanGate(ctx, projectID, "webhook_endpoint_org_lookup")
+	if err != nil {
+		return "", -1, limits.DisplayName, err
 	}
 
 	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
@@ -621,12 +620,9 @@ func (s *Server) resolveLogDrainCreateLimit(ctx context.Context, projectID strin
 		)
 	}
 
-	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
-	if err != nil || orgID == "" {
-		if err != nil {
-			return "", -1, limits.DisplayName, planGateUnavailable("log_drain_org_lookup", err)
-		}
-		return "", -1, limits.DisplayName, nil
+	orgID, err := s.getProjectOrgIDForPlanGate(ctx, projectID, "log_drain_org_lookup")
+	if err != nil {
+		return "", -1, limits.DisplayName, err
 	}
 
 	return orgID, limits.MaxLogDrainsPerOrg, limits.DisplayName, nil

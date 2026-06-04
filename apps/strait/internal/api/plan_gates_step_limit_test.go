@@ -119,6 +119,26 @@ func TestCheckWorkflowStepLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Fatal("expected cloud nil enforcer to fail closed")
 }
 
+func TestCheckWorkflowStepLimit_CloudEmptyOrgFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition: domain.EditionCloud,
+		billingEnforcer: &mockHTTPModeEnforcer{
+			mockBillingEnforcer: mockBillingEnforcer{},
+			planLimits:          billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+
+	err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000)
+	if err == nil {
+		t.Fatal("expected cloud empty org lookup to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
+	}
+}
+
 func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 

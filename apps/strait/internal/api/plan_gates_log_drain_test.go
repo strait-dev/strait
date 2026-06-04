@@ -23,12 +23,16 @@ type tunableLimitsEnforcer struct {
 	limitsErr error
 	orgID     string
 	orgErr    error
+	emptyOrg  bool
 	getCall   atomic.Int64
 }
 
 func (t *tunableLimitsEnforcer) GetProjectOrgID(_ context.Context, _ string) (string, error) {
 	if t.orgErr != nil {
 		return "", t.orgErr
+	}
+	if t.emptyOrg {
+		return "", nil
 	}
 	if t.orgID == "" {
 		return "org-1", nil
@@ -202,6 +206,33 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("nil enforcer must fail open; got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CountLogDrainsByOrgFunc: func(_ context.Context, _ string) (int, error) {
+			t.Fatal("empty org lookup must fail before the count query")
+			return 0, nil
+		},
+		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
+			t.Fatal("empty org lookup must fail before create")
+			return nil
+		},
+	}
+	enforcer := &tunableLimitsEnforcer{
+		limits:   proLimits(),
+		emptyOrg: true,
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("empty org lookup must fail closed; got %d: %s", w.Code, w.Body.String())
 	}
 }
 
