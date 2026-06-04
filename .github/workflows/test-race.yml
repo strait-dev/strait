@@ -29,6 +29,23 @@ jobs:
   unit-race:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GOMAXPROCS: "2"
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: cmd
+            packages: ./cmd/...
+          - name: api
+            packages: ./internal/api/...
+          - name: orchestration
+            packages: ./internal/queue/... ./internal/scheduler/... ./internal/store/... ./internal/workflow/...
+          - name: platform
+            packages: ./internal/billing/... ./internal/bundle/... ./internal/cache/... ./internal/clickhouse/... ./internal/config/... ./internal/crypto/... ./internal/dbscan/... ./internal/debug/... ./internal/domain/... ./internal/errors/... ./internal/eventfilter/... ./internal/health/... ./internal/httputil/... ./internal/migrationlint/... ./internal/telemetry/...
+          - name: services
+            packages: ./internal/apikeycache/... ./internal/cdc/... ./internal/loadtest/... ./internal/logdrain/... ./internal/notification/... ./internal/pubsub/... ./internal/ratelimit/... ./internal/testutil/... ./internal/webhook/... ./internal/worker/...
+    name: unit-race (${{ matrix.shard.name }})
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -38,7 +55,7 @@ jobs:
 
       - name: Run unit tests with race detector
         working-directory: apps/strait
-        run: go test -race -shuffle=on -timeout=20m ./...
+        run: go test -race -shuffle=on -timeout=20m ${{ matrix.shard.packages }}
 
   integration-race:
     runs-on: ubuntu-latest
