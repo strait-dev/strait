@@ -1,3 +1,7 @@
+import {
+  ACTIVE_ADDON_KEYS,
+  ROADMAP_ADDON_KEYS,
+} from "@strait/billing/products";
 import { Either, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -91,14 +95,17 @@ describe("OrgUsageResponseSchema", () => {
     }
   });
 
-  it("decodes active_addons when present", () => {
-    const result = decode({
-      ...validOrgUsage,
-      active_addons: [{ type: "concurrency_100", quantity: 2 }],
-    });
-    expect(Either.isRight(result)).toBe(true);
-    if (Either.isRight(result)) {
-      expect(result.right.active_addons).toHaveLength(1);
+  it("decodes every launch-active addon type when present", () => {
+    for (const addonType of ACTIVE_ADDON_KEYS) {
+      const result = decode({
+        ...validOrgUsage,
+        active_addons: [{ type: addonType, quantity: 2 }],
+      });
+      expect(Either.isRight(result)).toBe(true);
+      if (Either.isRight(result)) {
+        expect(result.right.active_addons).toHaveLength(1);
+        expect(result.right.active_addons?.[0]?.type).toBe(addonType);
+      }
     }
   });
 
@@ -110,12 +117,14 @@ describe("OrgUsageResponseSchema", () => {
     expect(Either.isLeft(result)).toBe(true);
   });
 
-  it("rejects roadmap-only addon types in active_addons", () => {
-    const result = decode({
-      ...validOrgUsage,
-      active_addons: [{ type: "compliance_archive", quantity: 1 }],
-    });
-    expect(Either.isLeft(result)).toBe(true);
+  it("rejects every roadmap-only addon type in active_addons", () => {
+    for (const addonType of ROADMAP_ADDON_KEYS) {
+      const result = decode({
+        ...validOrgUsage,
+        active_addons: [{ type: addonType, quantity: 1 }],
+      });
+      expect(Either.isLeft(result)).toBe(true);
+    }
   });
 });
 

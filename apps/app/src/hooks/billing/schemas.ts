@@ -8,13 +8,10 @@
  * @see https://effect.website/docs/schema/introduction
  */
 
+import { ACTIVE_ADDON_KEYS } from "@strait/billing/products";
 import { Schema } from "effect";
 
-const ActiveAddonTypeSchema = Schema.Literal(
-  "concurrency_100",
-  "history_30d",
-  "environments_5"
-);
+const ActiveAddonTypeSchema = Schema.Literal(...ACTIVE_ADDON_KEYS);
 
 /**
  * Schema for a single usage quota dimension.
