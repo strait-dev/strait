@@ -537,6 +537,37 @@ func BenchmarkPgQueClaimFilterWorkerRefArgs(b *testing.B) {
 	}
 }
 
+func BenchmarkWorkerQueueRefArgsSingle(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		args := workerQueueRefArgs(refs)
+		pgQueWorkerRefArgsBenchmarkSink.projectIDs = args.ProjectIDs
+		pgQueWorkerRefArgsBenchmarkSink.queueNames = args.QueueNames
+		pgQueWorkerRefArgsBenchmarkSink.environmentIDs = args.EnvironmentIDs
+	}
+}
+
+func BenchmarkWorkerQueueRefArgsSmall(b *testing.B) {
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "default"},
+		{ProjectID: "project-a", QueueName: "critical", EnvironmentID: "production"},
+		{ProjectID: "project-b", QueueName: "bulk", EnvironmentID: "staging"},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		args := workerQueueRefArgs(refs)
+		pgQueWorkerRefArgsBenchmarkSink.projectIDs = args.ProjectIDs
+		pgQueWorkerRefArgsBenchmarkSink.queueNames = args.QueueNames
+		pgQueWorkerRefArgsBenchmarkSink.environmentIDs = args.EnvironmentIDs
+	}
+}
+
 func BenchmarkWorkerQueueRefArgsNormalized(b *testing.B) {
 	refs := []domain.WorkerQueueRef{
 		{ProjectID: "project-a", QueueName: "default"},

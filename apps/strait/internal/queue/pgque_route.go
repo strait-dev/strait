@@ -133,18 +133,42 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 	if len(refs) == 0 {
 		return pgQueWorkerRefArgs{}
 	}
+	if len(refs) == 1 {
+		ref := refs[0]
+		if ref.ProjectID == "" || ref.QueueName == "" {
+			return pgQueWorkerRefArgs{}
+		}
+		return pgQueWorkerRefArgs{
+			ProjectIDs:     []string{ref.ProjectID},
+			QueueNames:     []string{ref.QueueName},
+			EnvironmentIDs: []string{ref.EnvironmentID},
+		}
+	}
 	projectIDs := make([]string, 0, len(refs))
 	queueNames := make([]string, 0, len(refs))
 	environmentIDs := make([]string, 0, len(refs))
-	seen := make(map[domain.WorkerQueueRef]struct{}, len(refs))
+	var smallRefs [pgQueSmallWorkerRefLimit]domain.WorkerQueueRef
+	smallRefCount := 0
+	var seen map[domain.WorkerQueueRef]struct{}
 	for _, ref := range refs {
 		if ref.ProjectID == "" || ref.QueueName == "" {
 			continue
 		}
-		if _, ok := seen[ref]; ok {
+		if workerQueueRefSeen(ref, smallRefs[:smallRefCount], seen) {
 			continue
 		}
-		seen[ref] = struct{}{}
+		if seen != nil {
+			seen[ref] = struct{}{}
+		} else if smallRefCount < len(smallRefs) {
+			smallRefs[smallRefCount] = ref
+			smallRefCount++
+		} else {
+			seen = make(map[domain.WorkerQueueRef]struct{}, len(refs))
+			for _, existing := range smallRefs {
+				seen[existing] = struct{}{}
+			}
+			seen[ref] = struct{}{}
+		}
 		projectIDs = append(projectIDs, ref.ProjectID)
 		queueNames = append(queueNames, ref.QueueName)
 		environmentIDs = append(environmentIDs, ref.EnvironmentID)
@@ -154,6 +178,23 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 		QueueNames:     queueNames,
 		EnvironmentIDs: environmentIDs,
 	}
+}
+
+func workerQueueRefSeen(
+	ref domain.WorkerQueueRef,
+	smallRefs []domain.WorkerQueueRef,
+	seen map[domain.WorkerQueueRef]struct{},
+) bool {
+	if seen != nil {
+		_, ok := seen[ref]
+		return ok
+	}
+	for _, existing := range smallRefs {
+		if existing == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func workerQueueRefArgsFromNormalized(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
