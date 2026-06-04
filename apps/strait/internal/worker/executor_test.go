@@ -354,6 +354,44 @@ func requireRetryWithoutPriority(t *testing.T, calls []statusUpdateCall) {
 	}
 }
 
+func requireStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
+	for _, call := range calls {
+		if call.to == to {
+			return call
+		}
+	}
+
+	t.Fatalf("expected status update to %s; got %+v", to, calls)
+	return statusUpdateCall{}
+}
+
+func requireNoStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.RunStatus) {
+	t.Helper()
+
+	for _, call := range calls {
+		if call.to == to {
+			t.Fatalf("expected no status update to %s; got %+v", to, calls)
+		}
+	}
+}
+
+func requireLastStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
+	if len(calls) == 0 {
+		t.Fatal("expected at least one status update")
+		return statusUpdateCall{}
+	}
+
+	last := calls[len(calls)-1]
+	if last.to != to {
+		t.Fatalf("last status update = %s, want %s; calls=%+v", last.to, to, calls)
+	}
+	return last
+}
+
 type mockDegradedNotifier struct {
 	ch <-chan struct{}
 }
@@ -3633,14 +3671,7 @@ func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 
-	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
-	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected dead_letter due to poison pill, got %s", last.to)
-	}
+	last := requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusDeadLetter)
 	if _, ok := last.fields["priority"]; ok {
 		t.Error("expected no priority field when poison pill triggers")
 	}
@@ -3691,22 +3722,8 @@ func TestHandleFailure_BoostNotAppliedOnLastAttempt(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	// Should go to dead_letter, not queued
-	for _, c := range calls {
-		if c.to == domain.StatusQueued {
-			t.Fatal("should not retry on last attempt")
-		}
-	}
-	foundDL := false
-	for _, c := range calls {
-		if c.to == domain.StatusDeadLetter {
-			foundDL = true
-			break
-		}
-	}
-	if !foundDL {
-		t.Fatal("expected dead_letter on last attempt")
-	}
+	requireNoStatusUpdateTo(t, calls, domain.StatusQueued)
+	requireStatusUpdateTo(t, calls, domain.StatusDeadLetter)
 }
 
 func TestHandleFailure_BoostWithNonRetryableError(t *testing.T) {
@@ -3733,21 +3750,8 @@ func TestHandleFailure_BoostWithNonRetryableError(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	for _, c := range calls {
-		if c.to == domain.StatusQueued {
-			t.Fatal("should not retry on non-retryable client error")
-		}
-	}
-	foundDL := false
-	for _, c := range calls {
-		if c.to == domain.StatusDeadLetter {
-			foundDL = true
-			break
-		}
-	}
-	if !foundDL {
-		t.Fatal("expected dead_letter for non-retryable error")
-	}
+	requireNoStatusUpdateTo(t, calls, domain.StatusQueued)
+	requireStatusUpdateTo(t, calls, domain.StatusDeadLetter)
 }
 
 // handleTimeout boost tests.
@@ -3849,21 +3853,8 @@ func TestHandleTimeout_BoostNotAppliedOnLastAttempt(t *testing.T) {
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 	calls := store.statusUpdates()
-	for _, c := range calls {
-		if c.to == domain.StatusQueued {
-			t.Fatal("should not retry on last attempt")
-		}
-	}
-	foundTimeout := false
-	for _, c := range calls {
-		if c.to == domain.StatusTimedOut {
-			foundTimeout = true
-			break
-		}
-	}
-	if !foundTimeout {
-		t.Fatal("expected timed_out status on last attempt")
-	}
+	requireNoStatusUpdateTo(t, calls, domain.StatusQueued)
+	requireStatusUpdateTo(t, calls, domain.StatusTimedOut)
 }
 
 // Cumulative boost simulation tests.
@@ -4497,14 +4488,7 @@ func TestHandleFailure_PoisonPillDetected(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 
-	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
-	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected dead_letter, got %s", last.to)
-	}
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusDeadLetter)
 }
 
 func TestHandleFailure_PoisonPillNotTriggeredOnDifferentError(t *testing.T) {
@@ -4525,14 +4509,7 @@ func TestHandleFailure_PoisonPillNotTriggeredOnDifferentError(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
-	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
-	last := calls[len(calls)-1]
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (retry), got %s", last.to)
-	}
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusQueued)
 }
 
 func TestHandleFailure_PoisonPillNotTriggeredWhenDisabled(t *testing.T) {
@@ -4554,14 +4531,7 @@ func TestHandleFailure_PoisonPillNotTriggeredWhenDisabled(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 5, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errMsg}, nil)
 
-	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
-	last := calls[len(calls)-1]
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (retry), got %s", last.to)
-	}
+	requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusQueued)
 }
 
 func TestResolveJob_CacheHit(t *testing.T) {
