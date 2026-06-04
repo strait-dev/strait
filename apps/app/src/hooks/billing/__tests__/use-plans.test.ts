@@ -130,7 +130,7 @@ const basePlan = {
   overage_default_enabled: true,
   default_spending_cap_microusd: 1_500_000_000,
   retention_days: 90,
-  allowed_regions: null,
+  allowed_regions: ["iad"],
   max_webhook_subs_per_project: -1,
   max_log_drains_per_org: -1,
   max_notification_channels: -1,
@@ -171,9 +171,11 @@ describe("apiPlansToPricingPlans", () => {
     expect(pricingPlan.features.map((feature) => feature.name)).toContain(
       "25,000,000 orchestration runs/mo"
     );
-    expect(pricingPlan.features.map((feature) => feature.name)).not.toContain(
-      "All regions"
-    );
+    expect(
+      pricingPlan.features.some((feature) =>
+        feature.name.toLowerCase().includes("region")
+      )
+    ).toBe(false);
   });
 });
 

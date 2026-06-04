@@ -97,7 +97,7 @@
         "apiRateLimit": 300,
         "workerConnections": 5,
         "alertRules": 0,
-        "allowedRegions": null,
+        "allowedRegions": ["iad"],
         "logDrainGB": 0,
         "dispatchPriority": 10
       },
@@ -159,7 +159,7 @@
         "apiRateLimit": 1000,
         "workerConnections": 25,
         "alertRules": 0,
-        "allowedRegions": null,
+        "allowedRegions": ["iad"],
         "logDrainGB": 0,
         "dispatchPriority": 10
       },
@@ -221,7 +221,7 @@
         "apiRateLimit": 3000,
         "workerConnections": 100,
         "alertRules": 0,
-        "allowedRegions": null,
+        "allowedRegions": ["iad"],
         "logDrainGB": 0,
         "dispatchPriority": 10
       },
@@ -283,7 +283,7 @@
         "apiRateLimit": -1,
         "workerConnections": -1,
         "alertRules": 0,
-        "allowedRegions": null,
+        "allowedRegions": ["iad"],
         "logDrainGB": 0,
         "dispatchPriority": 10
       },
@@ -348,7 +348,7 @@
         "apiRateLimit": -1,
         "workerConnections": -1,
         "alertRules": 0,
-        "allowedRegions": null,
+        "allowedRegions": ["iad"],
         "logDrainGB": 0,
         "dispatchPriority": 10
       },

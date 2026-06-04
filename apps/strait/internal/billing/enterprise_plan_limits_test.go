@@ -1,6 +1,7 @@
 package billing
 
 import (
+	"reflect"
 	"testing"
 
 	"strait/internal/domain"
@@ -128,11 +129,11 @@ func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
 	}
 }
 
-func TestEnterpriseLimits_AllRegions(t *testing.T) {
+func TestEnterpriseLimits_LaunchDefaultRegion(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.AllowedRegions != nil {
-		t.Error("Enterprise.AllowedRegions should be nil (all regions)")
+	if !reflect.DeepEqual(e.AllowedRegions, []string{"iad"}) {
+		t.Errorf("Enterprise.AllowedRegions = %#v, want launch default region", e.AllowedRegions)
 	}
 }
 

@@ -156,7 +156,7 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	// Region count
 	regionCount := len(limits.AllowedRegions)
 	if regionCount == 0 {
-		regionCount = TotalRegions
+		regionCount = defaultLaunchRegionCount
 	}
 
 	resp := &CurrentUsageResponse{

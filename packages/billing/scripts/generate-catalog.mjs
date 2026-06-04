@@ -597,7 +597,6 @@ const WorkerCostPerRunMicrousd int64 = 20
 const WebhookDeliveryCostPerRunMicrousd int64 = 20
 
 const DefaultOveragePerKMicrousd int64 = 500_000
-const TotalRegions = 25
 
 const (
 ${constants}

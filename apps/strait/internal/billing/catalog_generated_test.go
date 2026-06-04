@@ -282,6 +282,22 @@ func TestLaunchCatalogKeepsRoadmapFeaturesInactive(t *testing.T) {
 	}
 }
 
+func TestLaunchCatalogKeepsRegionsAtLaunchDefault(t *testing.T) {
+	t.Parallel()
+
+	source := loadSourcePricingCatalog(t)
+	for _, sourcePlan := range source.Plans {
+		tier := sourcePlanTier(t, sourcePlan.Tier)
+		t.Run(sourcePlan.Tier, func(t *testing.T) {
+			t.Parallel()
+
+			wantRegions := []string{"iad"}
+			assertDeepEqual(t, "sourcePlan.Limits.AllowedRegions", sourcePlan.Limits.AllowedRegions, wantRegions)
+			assertDeepEqual(t, "GetPlanLimits.AllowedRegions", GetPlanLimits(tier).AllowedRegions, wantRegions)
+		})
+	}
+}
+
 func pricingCatalogSourcePath() string {
 	return filepath.Join("..", "..", "..", "..", "packages", "billing", "catalog", "strait-pricing.json")
 }

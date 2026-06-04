@@ -84,6 +84,14 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 		t.Fatalf("unmarshal plans: %v", err)
 	}
 	for _, plan := range decoded.Plans {
+		regions, ok := plan["allowed_regions"].([]any)
+		if !ok {
+			t.Fatalf("plan %q allowed_regions has type %T, want array", plan["tier"], plan["allowed_regions"])
+		}
+		if len(regions) != 1 || regions[0] != "iad" {
+			t.Fatalf("plan %q allowed_regions = %#v, want launch default region", plan["tier"], regions)
+		}
+
 		for _, inactive := range []string{
 			"has_sso",
 			"has_scim",

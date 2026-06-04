@@ -121,11 +121,11 @@ func PreviewDowngrade(ctx context.Context, store Store, orgID string, targetTier
 	// Regions
 	currentRegions := len(currentLimits.AllowedRegions)
 	if currentRegions == 0 {
-		currentRegions = TotalRegions // nil means all
+		currentRegions = defaultLaunchRegionCount
 	}
 	targetRegions := len(targetLimits.AllowedRegions)
 	if targetRegions == 0 {
-		targetRegions = TotalRegions
+		targetRegions = defaultLaunchRegionCount
 	}
 	impact.Impacts = append(impact.Impacts, buildImpact(
 		"regions",

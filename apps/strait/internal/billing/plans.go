@@ -2,6 +2,8 @@ package billing
 
 import "strait/internal/domain"
 
+const defaultLaunchRegionCount = 1
+
 // OrgPlanLimits defines the complete set of limits and features for a plan tier.
 type OrgPlanLimits struct {
 	PlanTier                domain.PlanTier
@@ -16,7 +18,7 @@ type OrgPlanLimits struct {
 	OveragePerKMicrousd     int64 // per-1K-run overage in micro-USD
 	MaxConcurrentRuns       int   // -1 = unlimited
 	RetentionDays           int
-	AllowedRegions          []string // nil = all
+	AllowedRegions          []string // launch-active regions; nil falls back to the default region
 	MaxAlertRulesPerProj    int      // -1 = unlimited, 0 = none
 	MaxWebhookSubsPerProj   int      // -1 = unlimited, 0 = none
 	MaxLogDrainsPerOrg      int      // -1 = unlimited

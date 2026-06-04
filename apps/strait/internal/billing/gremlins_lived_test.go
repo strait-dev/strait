@@ -1218,12 +1218,12 @@ func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
 	freeLimits := GetPlanLimits(domain.PlanFree)
 	expectedTarget := len(freeLimits.AllowedRegions)
 	if expectedTarget == 0 {
-		expectedTarget = TotalRegions
+		expectedTarget = defaultLaunchRegionCount
 	}
 	proLimits := GetPlanLimits(domain.PlanPro)
 	expectedCurrent := len(proLimits.AllowedRegions)
 	if expectedCurrent == 0 {
-		expectedCurrent = TotalRegions
+		expectedCurrent = defaultLaunchRegionCount
 	}
 	for _, imp := range impact.Impacts {
 		if imp.Resource == "regions" {
