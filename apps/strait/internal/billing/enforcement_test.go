@@ -249,6 +249,23 @@ func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{}, nil, slog.Default(), WithRequireRedis())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-nil-redis")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when required Redis is not configured")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -1872,6 +1889,23 @@ func TestCheckMonthlyRunLimit_RedisErrorFailsClosed(t *testing.T) {
 	err := enforcer.CheckMonthlyRunLimit(context.Background(), orgID)
 	if err == nil {
 		t.Fatal("expected monthly run check to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckMonthlyRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{}, nil, slog.Default(), WithRequireRedis())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-monthly-nil-redis")
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when required Redis is not configured")
 	}
 	var le *LimitError
 	if !isLimitError(err, &le) {

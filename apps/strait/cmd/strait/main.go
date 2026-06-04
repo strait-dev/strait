@@ -462,6 +462,9 @@ func runServe(ctx context.Context, modeOverride string) error {
 		billingDispatcher = webhook.NewBillingDispatcher(eventNotifier, billingStore, queries, slog.Default())
 
 		var enforcerOpts []billing.EnforcerOption
+		if cfg.BillingEnforcementEnabled {
+			enforcerOpts = append(enforcerOpts, billing.WithRequireRedis())
+		}
 		billingEmailSender := billing.NewBillingEmailSender(cfg.ResendAPIKey, "billing@strait.dev", slog.Default())
 		if billingEmailSender != nil {
 			enforcerOpts = append(enforcerOpts, billing.WithEnforcerBillingEmails(billingEmailSender))

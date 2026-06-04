@@ -70,6 +70,7 @@ type Enforcer struct {
 	sentryMode      string
 	sentryRegion    string
 	sentryVersion   string
+	requireRedis    bool
 	bgWG            conc.WaitGroup
 	// entitlementsAuthoritative controls whether GetOrgPlanLimits reads the
 	// persisted snapshot directly when present. When false, it always recomputes
@@ -300,6 +301,16 @@ func WithClickHouse(exporter billingEventEnqueuer) EnforcerOption {
 // WithEnforcerBillingEmails attaches a billing email sender for spending alerts.
 func WithEnforcerBillingEmails(sender *BillingEmailSender) EnforcerOption {
 	return func(e *Enforcer) { e.billingEmails = sender }
+}
+
+// WithRequireRedis makes Redis-backed limit gates fail closed when the
+// enforcer has no Redis client. Use this when cloud billing enforcement is
+// enabled; community and webhook-only paths can keep the default no-op
+// behavior for Redis-backed counters.
+func WithRequireRedis() EnforcerOption {
+	return func(e *Enforcer) {
+		e.requireRedis = true
+	}
 }
 
 // WithEntitlementsAuthoritative toggles whether the Enforcer reads the
@@ -835,7 +846,14 @@ func (e *Enforcer) CheckMonthlyRunLimitForRun(ctx context.Context, orgID, runID 
 }
 
 func (e *Enforcer) checkMonthlyRunLimit(ctx context.Context, orgID, runID string) error {
-	if orgID == "" || e.rdb == nil {
+	if orgID == "" {
+		return nil
+	}
+	if e.rdb == nil {
+		if e.requireRedis {
+			e.logger.Warn("monthly run limit unavailable: Redis client not configured", "org_id", orgID)
+			return serviceDegradedLimitError()
+		}
 		return nil
 	}
 
@@ -1097,7 +1115,14 @@ return count
 // CheckConcurrentRunLimit checks if the org has exceeded its concurrent run limit.
 // Uses a Lua script for atomic increment+check. Call DecrConcurrentRunCount when the run finishes.
 func (e *Enforcer) CheckConcurrentRunLimit(ctx context.Context, orgID string) error {
-	if orgID == "" || e.rdb == nil {
+	if orgID == "" {
+		return nil
+	}
+	if e.rdb == nil {
+		if e.requireRedis {
+			e.logger.Warn("concurrent run limit unavailable: Redis client not configured", "org_id", orgID)
+			return serviceDegradedLimitError()
+		}
 		return nil
 	}
 
