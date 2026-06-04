@@ -533,6 +533,24 @@ function checkBillingCatalogDocs() {
       "launch billing webhook event"
     );
   }
+
+  for (const suffix of [
+    "cap_warning",
+    "cap_reached",
+    "cap_disabled",
+    "overage_disabled",
+    "suspended",
+    "delinquent",
+  ]) {
+    const staleEvent = ["subscription", suffix].join(".");
+    if (webhookText.includes(staleEvent)) {
+      err(
+        webhookFile,
+        1,
+        `webhook docs must use billing.* event names, found '${staleEvent}'`
+      );
+    }
+  }
 }
 
 checkBillingCatalogDocs();
