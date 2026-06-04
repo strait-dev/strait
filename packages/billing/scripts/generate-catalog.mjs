@@ -211,7 +211,6 @@ function toPlanTs(plan) {
     governance: {
       rbac: features.rbacLevel,
       auditLogs: features.auditLogs,
-      ssoSaml: false,
     },
     cta: uiCTA(plan),
     highlighted: plan.highlighted,
@@ -334,7 +333,6 @@ export type Plan = {
   governance: {
     rbac: "none" | "basic" | "full" | "advanced";
     auditLogs: boolean;
-    ssoSaml: boolean;
   };
   cta: { label: string; href: string };
   highlighted: boolean;

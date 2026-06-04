@@ -64,7 +64,6 @@ export type Plan = {
   governance: {
     rbac: "none" | "basic" | "full" | "advanced";
     auditLogs: boolean;
-    ssoSaml: boolean;
   };
   cta: { label: string; href: string };
   highlighted: boolean;
@@ -204,7 +203,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "none",
       auditLogs: false,
-      ssoSaml: false,
     },
     cta: {
       label: "Get started free",
@@ -257,7 +255,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "basic",
       auditLogs: false,
-      ssoSaml: false,
     },
     cta: {
       label: "Upgrade to Starter",
@@ -309,7 +306,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "full",
       auditLogs: false,
-      ssoSaml: false,
     },
     cta: {
       label: "Upgrade to Pro",
@@ -362,7 +358,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "full",
       auditLogs: true,
-      ssoSaml: false,
     },
     cta: {
       label: "Upgrade to Scale",
@@ -421,7 +416,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "advanced",
       auditLogs: true,
-      ssoSaml: false,
     },
     cta: {
       label: "Upgrade to Business",
@@ -482,7 +476,6 @@ export const PLANS: Record<PlanKey, Plan> = {
     governance: {
       rbac: "full",
       auditLogs: true,
-      ssoSaml: false,
     },
     cta: {
       label: "Contact sales",
