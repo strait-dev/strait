@@ -1034,6 +1034,44 @@ type snoozeTransitionConfig struct {
 	enqueueReason string
 }
 
+type snoozeTransitionState struct {
+	reason string
+	count  int
+}
+
+func newSnoozeTransitionState(run *domain.JobRun, reason string) snoozeTransitionState {
+	return snoozeTransitionState{
+		reason: reason,
+		count:  nextSnoozeCount(run.Metadata),
+	}
+}
+
+func nextSnoozeCount(metadata map[string]string) int {
+	snoozeCount := 0
+	if metadata != nil {
+		if raw, ok := metadata["snooze_count"]; ok {
+			if parsed, err := strconv.Atoi(raw); err == nil {
+				snoozeCount = parsed
+			}
+		}
+	}
+	return snoozeCount + 1
+}
+
+func (s snoozeTransitionState) exceeds(maxSnoozeCount int) bool {
+	return maxSnoozeCount > 0 && s.count > maxSnoozeCount
+}
+
+func (s snoozeTransitionState) fields() map[string]any {
+	return map[string]any{
+		"error":       s.reason,
+		"error_class": domain.ErrorClassTransient,
+		"started_at":  nil,
+		"finished_at": nil,
+		"metadata":    map[string]string{"snooze_count": strconv.Itoa(s.count)},
+	}
+}
+
 func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time) {
 	from := domain.StatusDequeued
 	if run.Status == domain.StatusExecuting {
@@ -1046,30 +1084,16 @@ func (e *Executor) snoozeRun(ctx context.Context, run *domain.JobRun, reason str
 }
 
 func (e *Executor) snoozeRunFromStatus(ctx context.Context, run *domain.JobRun, reason string, retryAt *time.Time, cfg snoozeTransitionConfig) {
-	snoozeCount := 0
-	if run.Metadata != nil {
-		if raw, ok := run.Metadata["snooze_count"]; ok {
-			if parsed, err := strconv.Atoi(raw); err == nil {
-				snoozeCount = parsed
-			}
-		}
-	}
-	snoozeCount++
+	state := newSnoozeTransitionState(run, reason)
 
-	if e.maxSnoozeCount > 0 && snoozeCount > e.maxSnoozeCount {
+	if state.exceeds(e.maxSnoozeCount) {
 		e.logger.Warn("max snooze count exceeded, marking system_failed",
-			"run_id", run.ID, "job_id", run.JobID, "snooze_count", snoozeCount)
+			"run_id", run.ID, "job_id", run.JobID, "snooze_count", state.count)
 		e.handleSystemFailure(ctx, run, fmt.Sprintf("max snooze count (%d) exceeded: %s", e.maxSnoozeCount, reason))
 		return
 	}
 
-	fields := map[string]any{
-		"error":       reason,
-		"error_class": domain.ErrorClassTransient,
-		"started_at":  nil,
-		"finished_at": nil,
-		"metadata":    map[string]string{"snooze_count": strconv.Itoa(snoozeCount)},
-	}
+	fields := state.fields()
 	if retryAt != nil {
 		if err := e.store.ScheduleRetry(ctx, run.ID, *retryAt, run.Attempt); err != nil {
 			e.logger.Error("failed to schedule snooze retry", "run_id", run.ID, "job_id", run.JobID, "from", cfg.from, "error", err)
