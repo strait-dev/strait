@@ -591,10 +591,12 @@ func (e *Enforcer) GetOrgPlanLimits(ctx context.Context, orgID string) (limits O
 	if !usedSnapshot {
 		limits = GetPlanLimits(tier)
 
-		// Apply add-on increments (fail open if add-ons can't be loaded).
+		// Add-ons are part of the runtime entitlement set. If they cannot
+		// be read, callers must fail closed instead of enforcing stale base
+		// plan limits.
 		addons, addonErr := e.store.ListActiveAddons(ctx, orgID)
 		if addonErr != nil {
-			e.logger.Warn("failed to load add-ons, using base plan limits", "org_id", orgID, "error", addonErr)
+			return OrgPlanLimits{}, fmt.Errorf("listing active add-ons: %w", addonErr)
 		} else if len(addons) > 0 {
 			limits = EffectiveLimits(limits, addons)
 		}

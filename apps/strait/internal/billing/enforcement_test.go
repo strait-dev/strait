@@ -203,6 +203,30 @@ func TestEnforcer_CheckConcurrentRunLimit_PaymentLookupErrorFailsClosed(t *testi
 	}
 }
 
+func TestEnforcer_CheckConcurrentRunLimit_AddonLoadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(&mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-addon-error": {OrgID: "org-addon-error", PlanTier: "pro", Status: "active"},
+		},
+		listActiveAddonsErr: errors.New("addon store unavailable"),
+	}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-addon-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when active add-ons cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
 func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
@@ -1569,6 +1593,24 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 	wantConcurrent := baseLimits.MaxConcurrentRuns + 200 // 2 packs x 100
 	if limits.MaxConcurrentRuns != wantConcurrent {
 		t.Errorf("MaxConcurrentRuns = %d, want %d (base %d + 200)", limits.MaxConcurrentRuns, wantConcurrent, baseLimits.MaxConcurrentRuns)
+	}
+}
+
+func TestEnforcer_GetOrgPlanLimits_AddonLoadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-addon-error": {OrgID: "org-addon-error", PlanTier: "pro", Status: "active"},
+	}
+	store.listActiveAddonsErr = errors.New("addon store unavailable")
+
+	_, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon-error")
+	if err == nil {
+		t.Fatal("expected add-on lookup error")
+	}
+	if !strings.Contains(err.Error(), "listing active add-ons") {
+		t.Fatalf("error = %v, want active add-on lookup context", err)
 	}
 }
 
