@@ -180,7 +180,7 @@ func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap
 	}
 }
 
-func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+func TestEnforcer_CheckConcurrentRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -192,14 +192,14 @@ func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *tes
 
 	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-plan-error")
 	if err == nil {
-		t.Fatal("expected concurrent limit check to fail closed when plan limits cannot be loaded")
+		t.Fatal("expected concurrent limit check to fail closed when payment status cannot be loaded")
 	}
 	var le *LimitError
 	if !isLimitError(err, &le) {
 		t.Fatalf("expected *LimitError, got %T: %v", err, err)
 	}
-	if le.Code != "billing_plan_unavailable" {
-		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -1763,6 +1763,58 @@ func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
 	after, _ := rdb.Get(ctx, key).Int64()
 	if after != 0 {
 		t.Errorf("expected counter=0 after decr, got %d", after)
+	}
+}
+
+func TestCheckMonthlyRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-payment-error")
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when payment status cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckMonthlyRunLimit_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	orgID := "org-monthly-redis-error"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), orgID)
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 

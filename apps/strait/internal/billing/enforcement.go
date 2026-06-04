@@ -674,7 +674,7 @@ func (e *Enforcer) checkPaymentStatus(ctx context.Context, orgID string) error {
 			return nil // free tier, no payment status
 		}
 		e.logger.Warn("failed to get org subscription for payment check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "payment_status", "db_error")
+		return serviceDegradedLimitError()
 	}
 
 	switch sub.PaymentStatus {
@@ -719,7 +719,7 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "db_error")
+		return e.failClosedPlanLimitLookup(ctx, orgID, "daily_run", err)
 	}
 	e.resetFailOpen(orgID, "daily_run")
 
@@ -737,13 +737,13 @@ func (e *Enforcer) CheckDailyRunLimit(ctx context.Context, orgID string) error {
 		limits.MaxRunsPerDay, int(48*time.Hour/time.Second)).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic daily run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic daily run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "daily_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	allowed, _ := vals[0].(int64)
@@ -844,7 +844,7 @@ func (e *Enforcer) checkMonthlyRunLimit(ctx context.Context, orgID, runID string
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
 		e.logger.Warn("failed to get org plan limits for monthly run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "db_error")
+		return e.failClosedPlanLimitLookup(ctx, orgID, "monthly_run", err)
 	}
 	e.resetFailOpen(orgID, "monthly_run")
 
@@ -862,13 +862,13 @@ func (e *Enforcer) checkMonthlyRunLimit(ctx context.Context, orgID, runID string
 		int64(limits.MaxRunsPerMonth), int64(monthlyRunCounterTTLSecs)).Result()
 	if err != nil {
 		e.logger.Warn("failed to run atomic monthly run check", "org_id", orgID, "error", err)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	vals, ok := result.([]any)
 	if !ok || len(vals) < 2 {
 		e.logger.Warn("unexpected result from atomic monthly run check", "org_id", orgID)
-		return e.boundedFailOpen(ctx, orgID, "monthly_run", "redis_error")
+		return serviceDegradedLimitError()
 	}
 
 	allowed, _ := vals[0].(int64)

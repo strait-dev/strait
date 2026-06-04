@@ -67,10 +67,10 @@ func TestCheckDailyRunLimit_UnlimitedFreeTier(t *testing.T) {
 	}
 }
 
-// TestCheckDailyRunLimit_DBError_FailsOpen verifies that when the billing
-// store returns an error for GetOrgSubscription, the daily limit check fails
-// open so that runs are not blocked by transient DB issues.
-func TestCheckDailyRunLimit_DBError_FailsOpen(t *testing.T) {
+// TestCheckDailyRunLimit_DBError_FailsClosed verifies that when the billing
+// store returns an error for GetOrgSubscription, the daily limit check returns
+// a degraded enforcement error instead of bypassing payment and quota gates.
+func TestCheckDailyRunLimit_DBError_FailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -84,8 +84,15 @@ func TestCheckDailyRunLimit_DBError_FailsOpen(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-db-err")
-	if err != nil {
-		t.Fatalf("expected fail-open on DB error, got %v", err)
+	if err == nil {
+		t.Fatal("expected fail-closed error on DB error, got nil")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
