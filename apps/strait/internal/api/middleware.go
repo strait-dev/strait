@@ -1596,9 +1596,11 @@ func (s *Server) projectRateLimit(next http.Handler) http.Handler {
 		}
 
 		window := time.Duration(rl.windowSecs) * time.Second
-		result, rlErr := s.rateLimiter.Allow(ctx, rl.key, rl.limit, window)
+		result, rlErr := s.rateLimiter.AllowStrict(ctx, rl.key, rl.limit, window)
 		if rlErr != nil {
-			slog.Warn("rate limiter error, failing open", "key", rl.key, "error", rlErr)
+			slog.Error("rate limiter error, failing closed", "key", rl.key, "error", rlErr)
+			respondError(w, r, http.StatusServiceUnavailable, "rate limit service unavailable")
+			return
 		}
 		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rl.limit))
 		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(result.Remaining))

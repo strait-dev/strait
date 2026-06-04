@@ -11,6 +11,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 // mockRateLimiter wraps a real RedisRateLimiter or provides deterministic behavior.
@@ -204,6 +207,29 @@ func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
 	// Disabled limiter -> fail open -> 200.
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	addr := mr.Addr()
+	mr.Close()
+	client := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { _ = client.Close() })
+
+	cfg := &config.Config{
+		DefaultAPIKeyRateLimit:      100,
+		DefaultAPIKeyRateWindowSecs: 60,
+	}
+	ts := newRLTestServer(cfg, ratelimit.NewRedisRateLimiter(client, true))
+
+	rr := httptest.NewRecorder()
+	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-redis-down", &domain.APIKey{}))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
 }
 
