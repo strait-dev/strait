@@ -1,4 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
+import { PLANS } from "@strait/billing/products";
 import { Badge } from "@strait/ui/components/badge";
 import {
   Card,
@@ -31,16 +32,7 @@ const ENTERPRISE_ACTIVE_FEATURES = [
   "Named on-call",
 ] as const;
 
-const ENTERPRISE_ROADMAP_FEATURES = [
-  "SSO/SAML",
-  "SCIM directory sync",
-  "IP allowlisting",
-  "Static egress IPs",
-  "VPC peering",
-  "Data residency",
-  "Single-tenant orchestration",
-  "BYO-cloud",
-] as const;
+const ENTERPRISE_ROADMAP_FEATURES = PLANS.enterprise.roadmapFeatures;
 
 export const EnterpriseOverview = ({
   enterpriseTier,
