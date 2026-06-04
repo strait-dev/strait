@@ -1424,8 +1424,8 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 	return nil
 }
 
-// handleTrialWillEnd fires 3 days before a subscription trial expires.
-// Sends a reminder email so the org can add a payment method.
+// handleTrialWillEnd handles Stripe's trial-ending lifecycle event for legacy
+// or contract-specific temporary access.
 func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMessage) error {
 	var sub stripe.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -1465,7 +1465,7 @@ func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMe
 		})
 	}
 
-	h.logger.Info("trial ending soon", "org_id", orgID, "days_remaining", daysRemaining)
+	h.logger.Info("temporary access ending soon", "org_id", orgID, "days_remaining", daysRemaining)
 	return nil
 }
 

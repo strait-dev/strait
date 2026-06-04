@@ -58,6 +58,10 @@ describe("launch pricing app policy", () => {
       "Trial ends tomorrow!",
       "Trial ending very soon!",
       "Trial ending soon!",
+      "TrialUpgradeCard",
+      "trial-upgrade-card",
+      "getTrialContent",
+      "trialMessage",
     ]) {
       expect(source).not.toContain(stale);
     }

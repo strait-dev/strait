@@ -7,15 +7,14 @@ import { useMemo } from "react";
 import { subscriptionStateQueryOptions } from "@/hooks/subscription/use-subscription";
 import { AlarmClockIcon, SparklesIcon } from "@/lib/icons";
 
-const TRIAL_CRITICAL_DAYS = 2; // 1-2 days left = critical (destructive/red)
-const TRIAL_WARNING_DAYS = 5; // 3-5 days left = warning (orange)
+const TEMPORARY_ACCESS_CRITICAL_DAYS = 2;
+const TEMPORARY_ACCESS_WARNING_DAYS = 5;
 
-const TrialUpgradeCard = () => {
+const TemporaryAccessUpgradeCard = () => {
   const { data } = useSuspenseQuery(subscriptionStateQueryOptions());
   const { subscription, shouldShowUpgrade, isTrialing, trialDaysLeft } = data;
 
-  const getTrialContent = useMemo(() => {
-    // Default for no temporary-access days info.
+  const temporaryAccessContent = useMemo(() => {
     if (trialDaysLeft === null || trialDaysLeft <= 0) {
       return {
         title: "Temporary Access Active",
@@ -26,38 +25,35 @@ const TrialUpgradeCard = () => {
     }
 
     const daysText = trialDaysLeft === 1 ? "1 day" : `${trialDaysLeft} days`;
-    const trialMessage = `${daysText} remaining. Choose a launch plan to keep your paid-plan limits.`;
+    const accessMessage = `${daysText} remaining. Choose a launch plan to keep your paid-plan limits.`;
 
-    // Critical: 1-2 days left (red/destructive)
-    if (trialDaysLeft <= TRIAL_CRITICAL_DAYS) {
+    if (trialDaysLeft <= TEMPORARY_ACCESS_CRITICAL_DAYS) {
       return {
         title:
           trialDaysLeft === 1
             ? "Temporary access ends tomorrow"
             : "Temporary access ending very soon",
-        message: trialMessage,
+        message: accessMessage,
         color: "red" as const,
       };
     }
 
-    // Warning: 3-5 days left (orange)
-    if (trialDaysLeft <= TRIAL_WARNING_DAYS) {
+    if (trialDaysLeft <= TEMPORARY_ACCESS_WARNING_DAYS) {
       return {
         title: "Temporary access ending soon",
-        message: trialMessage,
+        message: accessMessage,
         color: "orange" as const,
       };
     }
 
-    // Normal: 6+ days left (green)
     return {
       title: "Temporary Access Active",
-      message: trialMessage,
+      message: accessMessage,
       color: "green" as const,
     };
   }, [trialDaysLeft]);
 
-  const getSubscriptionContent = useMemo(() => {
+  const subscriptionContent = useMemo(() => {
     if (!subscription) {
       return {
         title: "You don't have an active subscription",
@@ -99,13 +95,12 @@ const TrialUpgradeCard = () => {
     }
   }, [subscription]);
 
-  // Determine card type and content - memoized to prevent complex conditional logic on every render
   const cardContent = useMemo(() => {
     if (isTrialing || subscription?.status === "trialing") {
-      return getTrialContent;
+      return temporaryAccessContent;
     }
-    return getSubscriptionContent;
-  }, [subscription, isTrialing, getTrialContent, getSubscriptionContent]);
+    return subscriptionContent;
+  }, [subscription, isTrialing, temporaryAccessContent, subscriptionContent]);
 
   const bannerConfig = useMemo(
     () => ({
@@ -136,7 +131,6 @@ const TrialUpgradeCard = () => {
   const { title, message, color } = cardContent;
   const config = bannerConfig[color];
 
-  // Don't render anything if we shouldn't show the card (use hook value)
   if (!shouldShowUpgrade) {
     return null;
   }
@@ -160,4 +154,4 @@ const TrialUpgradeCard = () => {
   );
 };
 
-export default TrialUpgradeCard;
+export default TemporaryAccessUpgradeCard;
