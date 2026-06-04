@@ -1199,35 +1199,7 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 
 	result, err := e.workerDispatcher.WorkerDispatch(execCtx, run, job)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
-			dispatchOutcome = "timeout"
-			recordWorkerRetry(ctx, "timeout")
-			e.handleTimeout(ctx, run, job, policy, nil)
-			return
-		}
-		if errors.Is(err, context.Canceled) {
-			dispatchOutcome = "error"
-			recordWorkerRetry(ctx, "cancelled")
-			e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
-			return
-		}
-		// ErrNoWorkerAvailable: leave queued, next tick retries.
-		// Any other error: treat as a dispatch failure.
-		e.logger.Warn("worker dispatch failed",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"error", err,
-		)
-		if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
-			dispatchOutcome = "error"
-			recordWorkerRetry(ctx, "no_worker")
-			e.requeueWorkerModeRun(ctx, run, "no worker available")
-			return
-		}
-		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "dispatch_error")
-		e.handleFailure(ctx, run, job, policy, err, nil)
+		dispatchOutcome = e.handleWorkerDispatchError(ctx, run, job, policy, err)
 		return
 	}
 
@@ -1252,6 +1224,43 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 	if transitioned {
 		e.completeWorkerTask(ctx, result, taskStatus)
 	}
+}
+
+func (e *Executor) handleWorkerDispatchError(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	policy executionPolicy,
+	err error,
+) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
+		recordWorkerRetry(ctx, "timeout")
+		e.handleTimeout(ctx, run, job, policy, nil)
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		recordWorkerRetry(ctx, "cancelled")
+		e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
+		return "error"
+	}
+
+	// ErrNoWorkerAvailable leaves the run queued for the next poll tick; any
+	// other error is a dispatch failure that follows normal retry policy.
+	e.logger.Warn("worker dispatch failed",
+		"run_id", run.ID,
+		"job_id", run.JobID,
+		"error", err,
+	)
+	if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
+		recordWorkerRetry(ctx, "no_worker")
+		e.requeueWorkerModeRun(ctx, run, "no worker available")
+		return "error"
+	}
+
+	recordWorkerRetry(ctx, "dispatch_error")
+	e.handleFailure(ctx, run, job, policy, err, nil)
+	return "error"
 }
 
 // FinalizeWorkerRunResult applies worker-mode completion semantics for a result
