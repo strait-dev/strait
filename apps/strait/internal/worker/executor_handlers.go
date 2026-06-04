@@ -323,6 +323,57 @@ func retryStatusFields(run *domain.JobRun, job *domain.Job, errMsg, errClass str
 	return fields
 }
 
+type retryRequeueLogMessages struct {
+	scheduleFailure string
+	updateFailure   string
+	success         string
+}
+
+func (e *Executor) requeueRunForRetry(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	retryAt time.Time,
+	fields map[string]any,
+	execTrace *domain.ExecutionTrace,
+	logs retryRequeueLogMessages,
+) bool {
+	// Side-table schedule write keeps the indexed job_runs.next_retry_at
+	// column untouched so the requeue UPDATE stays HOT-eligible.
+	if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
+		e.logger.Error(logs.scheduleFailure,
+			"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
+		return false
+	}
+	err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
+	if err != nil {
+		e.logger.Error(
+			logs.updateFailure,
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"error", err,
+		)
+		return false
+	}
+	if logs.success != "" {
+		e.logger.Info(
+			logs.success,
+			"run_id", run.ID,
+			"job_id", run.JobID,
+			"attempt", run.Attempt+1,
+			"next_retry_at", retryAt,
+		)
+	}
+	recordRetryAttempt(ctx, run.Attempt+1)
+	e.emit(ctx, RunLifecycleEvent{
+		Type: EventRetried, Run: run, Job: job,
+		FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
+		ExecTrace: execTrace, Attempt: run.Attempt + 1,
+		QueueWait: queueWait(run),
+	})
+	return true
+}
+
 func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *domain.Job, policy executionPolicy, err error, execTrace *domain.ExecutionTrace) bool {
 	ctx, span := otel.Tracer("strait").Start(ctx, "executor.HandleFailure")
 	defer span.End()
@@ -405,38 +456,11 @@ func (e *Executor) handleFailure(ctx context.Context, run *domain.JobRun, job *d
 		if metadataModified {
 			fields["metadata"] = run.Metadata
 		}
-		// Side-table schedule write keeps the indexed job_runs.next_retry_at
-		// column untouched so the requeue UPDATE stays HOT-eligible.
-		if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
-			e.logger.Error("failed to schedule retry",
-				"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
-			return false
-		}
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
-		if err != nil {
-			e.logger.Error(
-				"failed to re-enqueue run",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-			return false
-		}
-		e.logger.Info(
-			"run re-enqueued for retry",
-			"run_id", run.ID,
-			"job_id", run.JobID,
-			"attempt", run.Attempt+1,
-			"next_retry_at", retryAt,
-		)
-		recordRetryAttempt(ctx, run.Attempt+1)
-		e.emit(ctx, RunLifecycleEvent{
-			Type: EventRetried, Run: run, Job: job,
-			FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-			ExecTrace: execTrace, Attempt: run.Attempt + 1,
-			QueueWait: queueWait(run),
+		return e.requeueRunForRetry(ctx, run, job, retryAt, fields, execTrace, retryRequeueLogMessages{
+			scheduleFailure: "failed to schedule retry",
+			updateFailure:   "failed to re-enqueue run",
+			success:         "run re-enqueued for retry",
 		})
-		return true
 	}
 
 	now := time.Now()
@@ -526,28 +550,10 @@ func (e *Executor) handleTimeout(ctx context.Context, run *domain.JobRun, job *d
 	if run.Attempt < policy.maxAttempts {
 		retryAt := NextRetryAtWithPolicy(run.Attempt, policy.retryBackoff, policy.retryInitialSecs, policy.retryMaxSecs)
 		fields := retryStatusFields(run, job, "execution timed out", domain.ErrorClassTransient)
-		if scheduleErr := e.store.ScheduleRetry(ctx, run.ID, retryAt, run.Attempt+1); scheduleErr != nil {
-			e.logger.Error("failed to schedule timeout retry",
-				"run_id", run.ID, "job_id", run.JobID, "error", scheduleErr)
-			return
-		}
-		err := e.store.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, fields)
-		if err != nil {
-			e.logger.Error(
-				"failed to re-enqueue timed out run",
-				"run_id", run.ID,
-				"job_id", run.JobID,
-				"error", err,
-			)
-		} else {
-			recordRetryAttempt(ctx, run.Attempt+1)
-			e.emit(ctx, RunLifecycleEvent{
-				Type: EventRetried, Run: run, Job: job,
-				FromStatus: domain.StatusExecuting, ToStatus: domain.StatusQueued,
-				ExecTrace: execTrace, Attempt: run.Attempt + 1,
-				QueueWait: queueWait(run),
-			})
-		}
+		e.requeueRunForRetry(ctx, run, job, retryAt, fields, execTrace, retryRequeueLogMessages{
+			scheduleFailure: "failed to schedule timeout retry",
+			updateFailure:   "failed to re-enqueue timed out run",
+		})
 		return
 	}
 
