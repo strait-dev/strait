@@ -45,8 +45,27 @@ type dispatchPrefetch struct {
 	adaptiveStats  *store.JobHealthStats
 }
 
-const workflowStepVisibilityRetryDelay = 250 * time.Millisecond
-const workerResultStatusSuccess = "success"
+const (
+	workflowStepVisibilityRetryDelay = 250 * time.Millisecond
+
+	workerDispatchModeGRPC       = "grpc"
+	workerDispatchOutcomeSuccess = "success"
+	workerDispatchOutcomeError   = "error"
+	workerDispatchOutcomeTimeout = "timeout"
+
+	workerRetryReasonDispatcherUnconfigured = "dispatcher_unconfigured"
+	workerRetryReasonTimeout                = "timeout"
+	workerRetryReasonCancelled              = "cancelled"
+	workerRetryReasonNoWorker               = "no_worker"
+	workerRetryReasonDispatchError          = "dispatch_error"
+	workerRetryReasonWorkerFailure          = "worker_failure"
+
+	workerRequeueReasonDispatcherUnconfigured = "worker dispatcher not configured"
+	workerRequeueReasonDispatchCancelled      = "worker dispatch cancelled"
+	workerRequeueReasonNoWorker               = "no worker available"
+
+	workerResultStatusSuccess = "success"
+)
 
 func (e *redactedHTTPDispatchError) Error() string {
 	return e.message
@@ -1165,9 +1184,9 @@ func (e *Executor) getJobHealthStats(ctx context.Context, jobID string, now time
 // On a successful result, cost is recorded via RecordWorkerRunCost.
 func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, job *domain.Job, policies ...executionPolicy) {
 	dispatchStarted := time.Now()
-	dispatchOutcome := "success"
+	dispatchOutcome := workerDispatchOutcomeSuccess
 	defer func() {
-		recordWorkerDispatch(context.Background(), "grpc", dispatchOutcome, dispatchStarted)
+		recordWorkerDispatch(context.Background(), workerDispatchModeGRPC, dispatchOutcome, dispatchStarted)
 	}()
 
 	policy := defaultExecutionPolicy(job)
@@ -1180,14 +1199,14 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 			"run_id", run.ID,
 			"job_id", run.JobID,
 		)
-		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "dispatcher_unconfigured")
-		e.requeueWorkerModeRun(ctx, run, "worker dispatcher not configured")
+		dispatchOutcome = workerDispatchOutcomeError
+		recordWorkerRetry(ctx, workerRetryReasonDispatcherUnconfigured)
+		e.requeueWorkerModeRun(ctx, run, workerRequeueReasonDispatcherUnconfigured)
 		return
 	}
 
 	if !e.transitionRunToExecuting(ctx, run) {
-		dispatchOutcome = "error"
+		dispatchOutcome = workerDispatchOutcomeError
 		return
 	}
 	e.heartbeat.Register(run.ID)
@@ -1215,8 +1234,8 @@ func (e *Executor) executeWorkerMode(ctx context.Context, run *domain.JobRun, jo
 		if transitioned {
 			e.completeWorkerTask(ctx, result, domain.WorkerTaskStatusFailed)
 		}
-		dispatchOutcome = "error"
-		recordWorkerRetry(ctx, "worker_failure")
+		dispatchOutcome = workerDispatchOutcomeError
+		recordWorkerRetry(ctx, workerRetryReasonWorkerFailure)
 		return
 	}
 
@@ -1235,14 +1254,14 @@ func (e *Executor) handleWorkerDispatchError(
 ) string {
 	if errors.Is(err, context.DeadlineExceeded) {
 		// Worker-mode dispatch uses the same execution timeout policy as HTTP mode.
-		recordWorkerRetry(ctx, "timeout")
+		recordWorkerRetry(ctx, workerRetryReasonTimeout)
 		e.handleTimeout(ctx, run, job, policy, nil)
-		return "timeout"
+		return workerDispatchOutcomeTimeout
 	}
 	if errors.Is(err, context.Canceled) {
-		recordWorkerRetry(ctx, "cancelled")
-		e.requeueWorkerModeRun(ctx, run, "worker dispatch cancelled")
-		return "error"
+		recordWorkerRetry(ctx, workerRetryReasonCancelled)
+		e.requeueWorkerModeRun(ctx, run, workerRequeueReasonDispatchCancelled)
+		return workerDispatchOutcomeError
 	}
 
 	// ErrNoWorkerAvailable leaves the run queued for the next poll tick; any
@@ -1253,14 +1272,14 @@ func (e *Executor) handleWorkerDispatchError(
 		"error", err,
 	)
 	if errors.Is(err, workergrpc.ErrNoWorkerAvailable) {
-		recordWorkerRetry(ctx, "no_worker")
-		e.requeueWorkerModeRun(ctx, run, "no worker available")
-		return "error"
+		recordWorkerRetry(ctx, workerRetryReasonNoWorker)
+		e.requeueWorkerModeRun(ctx, run, workerRequeueReasonNoWorker)
+		return workerDispatchOutcomeError
 	}
 
-	recordWorkerRetry(ctx, "dispatch_error")
+	recordWorkerRetry(ctx, workerRetryReasonDispatchError)
 	e.handleFailure(ctx, run, job, policy, err, nil)
-	return "error"
+	return workerDispatchOutcomeError
 }
 
 // FinalizeWorkerRunResult applies worker-mode completion semantics for a result
