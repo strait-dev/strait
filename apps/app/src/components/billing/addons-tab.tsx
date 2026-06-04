@@ -12,8 +12,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import type { PlanTierSlug } from "@/hooks/billing/types";
-import { ADDON_CATALOG, getActivePackCount } from "@/hooks/billing/use-addons";
+import {
+  getActivePackCount,
+  getAddonCatalogItem,
+  getAvailableAddonCatalog,
+  isAddonAvailableOnPlan,
+} from "@/hooks/billing/use-addons";
 import { orgUsageQueryOptions } from "@/hooks/billing/use-org-usage";
 import { apiRequest } from "@/lib/api-client.server";
 import { assertCloudEdition } from "@/lib/edition";
@@ -31,9 +35,6 @@ const getAddonPriceMap = (): Record<string, string | undefined> => ({
   environments_5: process.env.STRIPE_ADDON_ENVIRONMENTS_5_PRICE_ID,
 });
 
-/** Plans that can purchase add-ons. Enterprise has custom terms. */
-const ADDON_ELIGIBLE_PLANS = new Set(["pro", "scale", "business"]);
-
 const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
   .inputValidator((data: { checkoutSlug: string }) => data)
   .middleware([authMiddleware])
@@ -44,16 +45,20 @@ const startAddonCheckoutServerFn = createServerFn({ method: "POST" })
     const stripe = getStripeClient();
     const orgId = await requireActiveOrgAdmin(context);
 
-    const priceId = getAddonPriceMap()[data.checkoutSlug];
-    if (!priceId) {
+    const addon = getAddonCatalogItem(data.checkoutSlug);
+    if (!addon) {
       throw new Error(`Invalid addon: ${data.checkoutSlug}`);
+    }
+    const priceId = getAddonPriceMap()[addon.type];
+    if (!priceId) {
+      throw new Error(`Missing Stripe price for addon: ${addon.type}`);
     }
 
     const usage = await apiRequest<{ plan?: string }>("/v1/usage/current", {
       params: { org_id: orgId },
     });
-    if (!ADDON_ELIGIBLE_PLANS.has(usage.plan ?? "free")) {
-      throw new Error("Add-ons are not available for the current plan");
+    if (!isAddonAvailableOnPlan(addon.type, usage.plan)) {
+      throw new Error(`${addon.name} is not available for the current plan`);
     }
 
     const baseUrl =
@@ -104,7 +109,8 @@ const AddonsTab = () => {
   const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
 
   const plan = usage?.plan ?? "free";
-  const isEligible = ADDON_ELIGIBLE_PLANS.has(plan);
+  const availableAddons = getAvailableAddonCatalog(plan);
+  const isEligible = availableAddons.length > 0;
   const activeAddons = usage?.active_addons;
 
   if (!isEligible) {
@@ -146,9 +152,7 @@ const AddonsTab = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {ADDON_CATALOG.filter((addon) =>
-          addon.availableOn.includes(plan as PlanTierSlug)
-        ).map((addon) => {
+        {availableAddons.map((addon) => {
           const activePacks = getActivePackCount(activeAddons, addon.type);
 
           return (

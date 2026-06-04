@@ -60,6 +60,26 @@ export const ADDON_CATALOG: AddonCatalogItem[] = ACTIVE_ADDONS.map((addon) => ({
   availableOn: addon.availableOn,
 }));
 
+export const getAddonCatalogItem = (
+  addonType: string
+): AddonCatalogItem | undefined =>
+  ADDON_CATALOG.find((addon) => addon.type === addonType);
+
+export const isAddonAvailableOnPlan = (
+  addonType: string,
+  plan: string | undefined
+): boolean => {
+  const addon = getAddonCatalogItem(addonType);
+  return addon?.availableOn.includes((plan ?? "free") as PlanTierSlug) ?? false;
+};
+
+export const getAvailableAddonCatalog = (
+  plan: string | undefined
+): AddonCatalogItem[] =>
+  ADDON_CATALOG.filter((addon) =>
+    addon.availableOn.includes((plan ?? "free") as PlanTierSlug)
+  );
+
 /**
  * Returns the total active pack count for a specific addon type.
  *

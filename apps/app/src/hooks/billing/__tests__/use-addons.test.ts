@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ACTIVE_ADDON_TYPES, type ActiveAddonTypeSlug } from "../types";
-import { ADDON_CATALOG, getActivePackCount } from "../use-addons";
+import {
+  ADDON_CATALOG,
+  getActivePackCount,
+  getAddonCatalogItem,
+  getAvailableAddonCatalog,
+  isAddonAvailableOnPlan,
+} from "../use-addons";
 
 describe("getActivePackCount", () => {
   it("returns 0 for undefined addons", () => {
@@ -81,5 +87,30 @@ describe("ADDON_CATALOG", () => {
     for (const item of ADDON_CATALOG) {
       expect(validTypes).toContain(item.type);
     }
+  });
+
+  it("does not resolve roadmap-only add-ons as checkout catalog items", () => {
+    expect(getAddonCatalogItem("compliance_archive")).toBeUndefined();
+    expect(getAddonCatalogItem("dedicated_workers")).toBeUndefined();
+  });
+
+  it("enforces per-plan add-on availability", () => {
+    expect(isAddonAvailableOnPlan("concurrency_100", "pro")).toBe(true);
+    expect(isAddonAvailableOnPlan("history_30d", "pro")).toBe(false);
+    expect(isAddonAvailableOnPlan("history_30d", "scale")).toBe(true);
+    expect(isAddonAvailableOnPlan("environments_5", "business")).toBe(false);
+    expect(isAddonAvailableOnPlan("environments_5", "scale")).toBe(true);
+    expect(isAddonAvailableOnPlan("concurrency_100", "starter")).toBe(false);
+  });
+
+  it("returns only add-ons available on the current plan", () => {
+    expect(getAvailableAddonCatalog("pro").map((addon) => addon.type)).toEqual([
+      "concurrency_100",
+      "environments_5",
+    ]);
+    expect(
+      getAvailableAddonCatalog("business").map((addon) => addon.type)
+    ).toEqual(["concurrency_100", "history_30d"]);
+    expect(getAvailableAddonCatalog("enterprise")).toEqual([]);
   });
 });
