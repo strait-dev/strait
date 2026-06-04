@@ -152,7 +152,7 @@ check "Performance analytics" "$(api_code "$BASE/v1/analytics/performance?period
 check "Cost analytics" "$(api_code "$BASE/v1/analytics/costs?from=$HOUR_AGO&to=$NOW")" "200"
 check "Cost trends" "$(api_code "$BASE/v1/analytics/costs/trends?from=$HOUR_AGO&to=$NOW&granularity=hourly")" "200"
 check "Cost top" "$(api_code "$BASE/v1/analytics/costs/top?from=$HOUR_AGO&to=$NOW&limit=10")" "200"
-check "Compute analytics" "$(api_code "$BASE/v1/analytics/compute?from=$HOUR_AGO&to=$NOW")" "200"
+check "Cost insights" "$(api_code "$BASE/v1/analytics/cost-insights?from=$HOUR_AGO&to=$NOW")" "200"
 
 # 9. Stats & other endpoints
 echo "[9] Stats & misc"
