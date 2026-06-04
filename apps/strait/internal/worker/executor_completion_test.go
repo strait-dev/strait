@@ -309,6 +309,9 @@ func TestSuccessfulRunTransition_WithResultTraceAndDuration(t *testing.T) {
 	if transition.execDur != 1500*time.Millisecond {
 		t.Fatalf("execDur = %s, want 1.5s", transition.execDur)
 	}
+	if !transition.started {
+		t.Fatal("started = false, want true")
+	}
 	if transition.fields["finished_at"] != finishedAt {
 		t.Fatalf("finished_at field = %v, want %s", transition.fields["finished_at"], finishedAt)
 	}
@@ -336,6 +339,9 @@ func TestSuccessfulRunTransition_EmptyResultSkipsOptionalFields(t *testing.T) {
 
 	if transition.execDur != 0 {
 		t.Fatalf("execDur = %s, want 0", transition.execDur)
+	}
+	if transition.started {
+		t.Fatal("started = true, want false")
 	}
 	if _, ok := transition.fields["result"]; ok {
 		t.Fatal("empty result should not be persisted")
@@ -397,6 +403,71 @@ func TestSuccessfulDispatchSignals_SkipsCircuitSuccessWithoutEndpointOrFallback(
 	}, transition, false)
 	if withTx.recordCircuitSuccess {
 		t.Fatal("transactional completion should not record fallback circuit success")
+	}
+}
+
+func TestSuccessfulLatencyAnomaly_RecordsAboveDoubleP95(t *testing.T) {
+	t.Parallel()
+
+	transition := successfulRunTransition{
+		started: true,
+		execDur: 4500 * time.Millisecond,
+	}
+	stats := &orcstore.JobHealthStats{P95DurationSecs: 2}
+
+	anomaly := newSuccessfulLatencyAnomaly(transition, stats)
+
+	if !anomaly.record {
+		t.Fatal("record = false, want true")
+	}
+	if anomaly.duration != 4500*time.Millisecond {
+		t.Fatalf("duration = %s, want 4.5s", anomaly.duration)
+	}
+	if anomaly.p95 != 2*time.Second {
+		t.Fatalf("p95 = %s, want 2s", anomaly.p95)
+	}
+}
+
+func TestSuccessfulLatencyAnomaly_SkipsWithoutStartedStatsOrThreshold(t *testing.T) {
+	t.Parallel()
+
+	stats := &orcstore.JobHealthStats{P95DurationSecs: 2}
+	tests := []struct {
+		name       string
+		transition successfulRunTransition
+		stats      *orcstore.JobHealthStats
+	}{
+		{
+			name:       "not started",
+			transition: successfulRunTransition{started: false, execDur: 5 * time.Second},
+			stats:      stats,
+		},
+		{
+			name:       "no stats",
+			transition: successfulRunTransition{started: true, execDur: 5 * time.Second},
+			stats:      nil,
+		},
+		{
+			name:       "zero p95",
+			transition: successfulRunTransition{started: true, execDur: 5 * time.Second},
+			stats:      &orcstore.JobHealthStats{},
+		},
+		{
+			name:       "exactly double p95",
+			transition: successfulRunTransition{started: true, execDur: 4 * time.Second},
+			stats:      stats,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			anomaly := newSuccessfulLatencyAnomaly(tt.transition, tt.stats)
+			if anomaly.record {
+				t.Fatal("record = true, want false")
+			}
+		})
 	}
 }
 

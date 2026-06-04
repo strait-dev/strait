@@ -128,28 +128,7 @@ func (e *Executor) handleSuccessWithStats(
 		e.onCompleteTrigger.MaybeTrigger(ctx, run, job, result)
 	}
 
-	// Latency anomaly detection: compare duration to job's P95.
-	if run.StartedAt != nil {
-		if stats == nil {
-			var statsErr error
-			stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
-			if statsErr != nil {
-				stats = nil
-			}
-		}
-		if stats != nil && stats.P95DurationSecs > 0 {
-			p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
-			if transition.execDur > 2*p95 {
-				e.logger.Warn("latency anomaly detected",
-					"run_id", run.ID, "job_id", run.JobID,
-					"duration_ms", transition.execDur.Milliseconds(), "p95_ms", p95.Milliseconds())
-				if e.metrics != nil {
-					e.metrics.LatencyAnomalies.Add(ctx, 1,
-						metric.WithAttributes(attribute.String("job_id", run.JobID)))
-				}
-			}
-		}
-	}
+	e.recordSuccessfulLatencyAnomaly(ctx, run, job, transition, stats)
 	return true
 }
 
@@ -158,6 +137,7 @@ type successfulRunTransition struct {
 	fields   map[string]any
 	finished time.Time
 	execDur  time.Duration
+	started  bool
 }
 
 func (e *Executor) newSuccessfulRunTransition(
@@ -175,7 +155,9 @@ func (e *Executor) newSuccessfulRunTransition(
 	e.addExecutionTraceField(fields, domain.StatusCompleted, execTrace)
 
 	var execDur time.Duration
+	var started bool
 	if run.StartedAt != nil {
+		started = true
 		execDur = finished.Sub(*run.StartedAt)
 	}
 
@@ -184,6 +166,7 @@ func (e *Executor) newSuccessfulRunTransition(
 		fields:   fields,
 		finished: finished,
 		execDur:  execDur,
+		started:  started,
 	}
 }
 
@@ -218,6 +201,54 @@ func (e *Executor) recordSuccessfulDispatchSignals(ctx context.Context, job *dom
 	}
 	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
 		e.logger.Warn("failed to record health score success", "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
+	}
+}
+
+type successfulLatencyAnomaly struct {
+	record   bool
+	duration time.Duration
+	p95      time.Duration
+}
+
+func newSuccessfulLatencyAnomaly(transition successfulRunTransition, stats *store.JobHealthStats) successfulLatencyAnomaly {
+	if !transition.started || stats == nil || stats.P95DurationSecs <= 0 {
+		return successfulLatencyAnomaly{}
+	}
+	p95 := time.Duration(stats.P95DurationSecs * float64(time.Second))
+	return successfulLatencyAnomaly{
+		record:   transition.execDur > 2*p95,
+		duration: transition.execDur,
+		p95:      p95,
+	}
+}
+
+func (e *Executor) recordSuccessfulLatencyAnomaly(
+	ctx context.Context,
+	run *domain.JobRun,
+	job *domain.Job,
+	transition successfulRunTransition,
+	stats *store.JobHealthStats,
+) {
+	if !transition.started {
+		return
+	}
+	if stats == nil {
+		var statsErr error
+		stats, statsErr = e.getJobHealthStats(ctx, job.ID, time.Now())
+		if statsErr != nil {
+			stats = nil
+		}
+	}
+	anomaly := newSuccessfulLatencyAnomaly(transition, stats)
+	if !anomaly.record {
+		return
+	}
+	e.logger.Warn("latency anomaly detected",
+		"run_id", run.ID, "job_id", run.JobID,
+		"duration_ms", anomaly.duration.Milliseconds(), "p95_ms", anomaly.p95.Milliseconds())
+	if e.metrics != nil {
+		e.metrics.LatencyAnomalies.Add(ctx, 1,
+			metric.WithAttributes(attribute.String("job_id", run.JobID)))
 	}
 }
 
