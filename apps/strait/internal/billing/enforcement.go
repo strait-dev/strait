@@ -1566,8 +1566,12 @@ func normalizeWorkerConnectionLease(lease time.Duration) time.Duration {
 // expiry so long-lived streams remain counted across API replicas.
 func (e *Enforcer) ReserveWorkerConnection(ctx context.Context, orgID, reservationID string, lease time.Duration) (func(), error) {
 	releaseNoop := func() {}
-	if e == nil || orgID == "" || reservationID == "" || e.rdb == nil {
+	if e == nil || orgID == "" || reservationID == "" {
 		return releaseNoop, nil
+	}
+	if e.rdb == nil {
+		e.logger.Warn("worker connection reservation unavailable: Redis client not configured", "org_id", orgID)
+		return releaseNoop, serviceDegradedLimitError()
 	}
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)

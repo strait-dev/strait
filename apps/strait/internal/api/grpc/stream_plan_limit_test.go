@@ -403,6 +403,39 @@ func TestCheckPlanConnectionLimit_CommunityNilEnforcerAllows(t *testing.T) {
 	}
 }
 
+func TestCheckPlanConnectionLimit_CommunityConfiguredEnforcerBypassesPlanGate(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &releaseRecordingReservationEnforcer{
+		stubPlanLimitEnforcer: stubPlanLimitEnforcer{
+			orgLookupErr: errors.New("billing store should not be called"),
+			limit:        0,
+		},
+	}
+	svc := &workerService{
+		registry:        NewConnectionRegistry(),
+		billingEnforcer: enforcer,
+		edition:         domain.EditionCommunity,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err != nil {
+		t.Fatalf("expected community edition to bypass plan gate, got %v", err)
+	}
+	if orgID != "" {
+		t.Fatalf("orgID = %q, want empty", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
+	}
+	if enforcer.orgLookupHits != 0 {
+		t.Fatalf("org lookup hits = %d, want 0", enforcer.orgLookupHits)
+	}
+	if enforcer.reserveCalls != 0 {
+		t.Fatalf("reserve calls = %d, want 0", enforcer.reserveCalls)
+	}
+}
+
 // TestStreamGating_OrgLookupError_FailsClosed verifies that an explicit DB
 // error during org resolution blocks the connection rather than bypassing the
 // worker connection plan cap.

@@ -738,12 +738,12 @@ func streamDisconnectReason(err error) string {
 // are never evicted; this is a connect-time gate only.
 func (s *workerService) checkPlanConnectionLimit(ctx context.Context, projectID, reservationID string) (string, func(), error) {
 	releaseNoop := func() {}
-	if s.billingEnforcer == nil {
-		if s.edition.RequiresHTTPModeGating() {
-			slog.Error("grpc registration: billing enforcer missing in gated edition", "project_id", projectID)
-			return "", releaseNoop, status.Error(codes.Unavailable, "worker connection plan lookup unavailable")
-		}
+	if s.edition == domain.EditionCommunity {
 		return "", releaseNoop, nil
+	}
+	if s.billingEnforcer == nil {
+		slog.Error("grpc registration: billing enforcer missing in gated edition", "project_id", projectID)
+		return "", releaseNoop, status.Error(codes.Unavailable, "worker connection plan lookup unavailable")
 	}
 	orgID, orgErr := s.billingEnforcer.GetActiveProjectOrgID(ctx, projectID)
 	if orgErr != nil {

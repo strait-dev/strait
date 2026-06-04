@@ -786,6 +786,28 @@ func TestReserveWorkerConnection_RedisErrorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_NilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org_workers", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when Redis is not configured")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 
