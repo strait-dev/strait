@@ -471,6 +471,73 @@ func TestSuccessfulLatencyAnomaly_SkipsWithoutStartedStatsOrThreshold(t *testing
 	}
 }
 
+func TestFailedDispatchSignalPayload_Failure(t *testing.T) {
+	t.Parallel()
+
+	failedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	job := &domain.Job{
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+		TimeoutSecs: 30,
+	}
+
+	payload := newFailedDispatchSignalPayload(job, failedDispatchSignalFailure, failedAt)
+
+	if payload.endpointKey != endpointStateKey(job.ProjectID, job.EndpointURL) {
+		t.Fatalf("endpointKey = %q, want %q", payload.endpointKey, endpointStateKey(job.ProjectID, job.EndpointURL))
+	}
+	if payload.endpointURL != job.EndpointURL {
+		t.Fatalf("endpointURL = %q, want %q", payload.endpointURL, job.EndpointURL)
+	}
+	if payload.logName != "failure" {
+		t.Fatalf("logName = %q, want failure", payload.logName)
+	}
+	if !payload.circuitFailedAt.Equal(failedAt) {
+		t.Fatalf("circuitFailedAt = %s, want %s", payload.circuitFailedAt, failedAt)
+	}
+	if payload.result.EndpointURL != payload.endpointKey {
+		t.Fatalf("result endpoint = %q, want %q", payload.result.EndpointURL, payload.endpointKey)
+	}
+	if payload.result.Success {
+		t.Fatal("result success = true, want false")
+	}
+	if payload.result.TimedOut {
+		t.Fatal("result timedOut = true, want false")
+	}
+	if payload.result.LatencyMs != 0 {
+		t.Fatalf("latency = %v, want 0", payload.result.LatencyMs)
+	}
+	if payload.result.JobTimeoutMs != 30000 {
+		t.Fatalf("timeout = %v, want 30000", payload.result.JobTimeoutMs)
+	}
+}
+
+func TestFailedDispatchSignalPayload_Timeout(t *testing.T) {
+	t.Parallel()
+
+	failedAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	job := &domain.Job{
+		ProjectID:   "project-1",
+		EndpointURL: "https://example.com/run",
+		TimeoutSecs: 45,
+	}
+
+	payload := newFailedDispatchSignalPayload(job, failedDispatchSignalTimeout, failedAt)
+
+	if payload.logName != "timeout" {
+		t.Fatalf("logName = %q, want timeout", payload.logName)
+	}
+	if !payload.result.TimedOut {
+		t.Fatal("result timedOut = false, want true")
+	}
+	if payload.result.LatencyMs != 45000 {
+		t.Fatalf("latency = %v, want 45000", payload.result.LatencyMs)
+	}
+	if payload.result.JobTimeoutMs != 45000 {
+		t.Fatalf("timeout = %v, want 45000", payload.result.JobTimeoutMs)
+	}
+}
+
 // Handler integration tests.
 
 func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {

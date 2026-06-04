@@ -543,6 +543,31 @@ func (k failedDispatchSignalKind) latencyMs(job *domain.Job) float64 {
 	return 0
 }
 
+type failedDispatchSignalPayload struct {
+	endpointKey     string
+	endpointURL     string
+	logName         string
+	circuitFailedAt time.Time
+	result          DispatchResult
+}
+
+func newFailedDispatchSignalPayload(job *domain.Job, kind failedDispatchSignalKind, circuitFailedAt time.Time) failedDispatchSignalPayload {
+	endpointKey := endpointStateKey(job.ProjectID, job.EndpointURL)
+	return failedDispatchSignalPayload{
+		endpointKey:     endpointKey,
+		endpointURL:     job.EndpointURL,
+		logName:         kind.logName(),
+		circuitFailedAt: circuitFailedAt,
+		result: DispatchResult{
+			EndpointURL:  endpointKey,
+			Success:      false,
+			TimedOut:     kind.timedOut(),
+			LatencyMs:    kind.latencyMs(job),
+			JobTimeoutMs: float64(job.TimeoutSecs * 1000),
+		},
+	}
+}
+
 func (e *Executor) requeueRunForRetry(
 	ctx context.Context,
 	run *domain.JobRun,
@@ -589,20 +614,13 @@ func (e *Executor) requeueRunForRetry(
 }
 
 func (e *Executor) recordFailedDispatchSignals(ctx context.Context, job *domain.Job, kind failedDispatchSignalKind) {
-	stateKey := endpointStateKey(job.ProjectID, job.EndpointURL)
-	logName := kind.logName()
+	signals := newFailedDispatchSignalPayload(job, kind, time.Now().UTC())
 
-	if err := e.store.RecordEndpointCircuitFailure(ctx, stateKey, time.Now().UTC(), e.circuitThreshold, e.circuitOpenFor); err != nil {
-		e.logger.Warn("failed to record circuit breaker "+logName, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", err)
+	if err := e.store.RecordEndpointCircuitFailure(ctx, signals.endpointKey, signals.circuitFailedAt, e.circuitThreshold, e.circuitOpenFor); err != nil {
+		e.logger.Warn("failed to record circuit breaker "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", err)
 	}
-	if _, hsErr := e.healthScorer.RecordResult(ctx, DispatchResult{
-		EndpointURL:  stateKey,
-		Success:      false,
-		TimedOut:     kind.timedOut(),
-		LatencyMs:    kind.latencyMs(job),
-		JobTimeoutMs: float64(job.TimeoutSecs * 1000),
-	}); hsErr != nil {
-		e.logger.Warn("failed to record health score "+logName, "endpoint", httputil.RedactURLForLog(job.EndpointURL), "error", hsErr)
+	if _, hsErr := e.healthScorer.RecordResult(ctx, signals.result); hsErr != nil {
+		e.logger.Warn("failed to record health score "+signals.logName, "endpoint", httputil.RedactURLForLog(signals.endpointURL), "error", hsErr)
 	}
 }
 
