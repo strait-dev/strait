@@ -80,7 +80,7 @@ const FEATURE_ACCESSORS: Partial<
   sla: (plan) => plan.has_sla,
 };
 
-const ROADMAP_FEATURE_LABELS: Partial<Record<PlanFeature, string>> = {
+export const ROADMAP_FEATURE_LABELS: Partial<Record<PlanFeature, string>> = {
   sso: "SSO/SAML",
   dedicated_worker_pool: "dedicated worker pool",
   static_ips: "static IPs",

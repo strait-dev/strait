@@ -1,3 +1,4 @@
+import { ROADMAP_FEATURES } from "@strait/billing";
 import { describe, expect, it } from "vitest";
 import {
   canUseFeature,
@@ -5,6 +6,7 @@ import {
   isDowngrade,
   isRoadmapFeature,
   type PlanFeature,
+  ROADMAP_FEATURE_LABELS,
   tierAtLeast,
 } from "../plan-tiers";
 
@@ -229,6 +231,16 @@ describe("canUseFeature", () => {
     for (const feature of roadmapFeatures) {
       expect(canUseFeature("enterprise", feature)).toBe(false);
       expect(isRoadmapFeature(feature)).toBe(true);
+    }
+  });
+
+  it("keeps roadmap feature labels in sync with the shared catalog", () => {
+    const appLabels = Object.values(ROADMAP_FEATURE_LABELS).sort();
+    expect(appLabels).toEqual([...ROADMAP_FEATURES].sort());
+
+    for (const [feature, label] of Object.entries(ROADMAP_FEATURE_LABELS)) {
+      expect(ROADMAP_FEATURES).toContain(label);
+      expect(canUseFeature("enterprise", feature as PlanFeature)).toBe(false);
     }
   });
 
