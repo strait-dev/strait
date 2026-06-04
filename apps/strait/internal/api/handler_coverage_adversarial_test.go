@@ -988,7 +988,7 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 
 func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
 	t.Parallel()
-	// Without billing enforcer, should return allowed.
+	// Community edition has no cloud billing limits.
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -996,6 +996,20 @@ func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerCheckOrgLimit_CloudNoBillingEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

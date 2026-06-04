@@ -624,6 +624,9 @@ func (s *Server) handleCheckOrgLimit(ctx context.Context, input *CheckOrgLimitIn
 		return nil, huma.Error403Forbidden("org limit check requires internal secret")
 	}
 	if s.billingEnforcer == nil {
+		if s.edition.RequiresHTTPModeGating() {
+			return nil, planGateUnavailable("org_limit_enforcer", errors.New("billing enforcer not configured"))
+		}
 		return &CheckOrgLimitOutput{Body: map[string]string{"status": "allowed"}}, nil
 	}
 	if input.UserID == "" {
