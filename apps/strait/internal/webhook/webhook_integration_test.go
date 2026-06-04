@@ -427,7 +427,7 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 	}
 
 	// Run the worker repeatedly, resetting next_retry_at each time.
-	for range maxAttempts + 1 {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		worker := webhook.NewDeliveryWorker(st, slog.Default(),
 			webhook.WithConcurrency(1),
 			webhook.WithRetryPolicy(domain.WebhookRetryPolicyFixed),
@@ -435,16 +435,12 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 
 		workerCtx, cancel := context.WithCancel(ctx)
 		concWG.Go(func() {
-			_ = worker.RunWorker(workerCtx, 100*time.Millisecond)
+			_ = worker.RunWorker(workerCtx, 10*time.Millisecond)
 		})
-		time.Sleep(300 * time.Millisecond)
+
+		got := waitForWebhookAttempt(t, ctx, st, d.ID, attempt)
 		cancel()
 		_ = worker.Shutdown(context.Background())
-
-		got, err := st.GetWebhookDelivery(ctx, d.ID)
-		if err != nil {
-			t.Fatalf("GetWebhookDelivery() error = %v", err)
-		}
 		if got.Status == domain.WebhookStatusDead {
 			break
 		}
@@ -470,6 +466,30 @@ func TestDeadLetterAfterMaxRetries(t *testing.T) {
 	}
 	if got.LastError == "" {
 		t.Fatal("expected last_error to contain the failure reason")
+	}
+}
+
+func waitForWebhookAttempt(t *testing.T, ctx context.Context, st *store.Queries, deliveryID string, attempts int) *domain.WebhookDelivery {
+	t.Helper()
+
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		got, err := st.GetWebhookDelivery(ctx, deliveryID)
+		if err != nil {
+			t.Fatalf("GetWebhookDelivery() error = %v", err)
+		}
+		if got.Attempts >= attempts || got.Status == domain.WebhookStatusDead {
+			return got
+		}
+
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for delivery %s to reach attempt %d, status = %q attempts = %d last_error = %q", deliveryID, attempts, got.Status, got.Attempts, got.LastError)
+		case <-ticker.C:
+		}
 	}
 }
 
