@@ -442,16 +442,7 @@ func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusCompleted {
-				return true
-			}
-		}
-		return false
-	}, "completed transition")
-
-	completed := requireStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
+	completed := waitForStatusUpdate(t, ms, domain.StatusCompleted)
 	got, ok := completed.fields["result"].(json.RawMessage)
 	if !ok {
 		t.Fatalf("completed fields missing json result: %+v", completed.fields)
@@ -585,16 +576,7 @@ func TestExecuteWorkerMode_FailedWithEmptyErrorUsesDefault(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
-
-	deadLetter := requireStatusUpdateTo(t, ms.statusUpdates(), domain.StatusDeadLetter)
+	deadLetter := waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 	msg, _ := deadLetter.fields["error"].(string)
 	if msg == "" {
 		t.Fatalf("expected default error message, got empty")
@@ -620,14 +602,7 @@ func TestExecuteWorkerMode_NilResultTreatedAsFailure(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
+	waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 
 	requireNoStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
 }
@@ -654,14 +629,7 @@ func TestExecuteWorkerMode_UnknownStatusTreatedAsFailure(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(1))
 
-	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusDeadLetter {
-				return true
-			}
-		}
-		return false
-	}, "dead_letter transition")
+	waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 
 	requireNoStatusUpdateTo(t, ms.statusUpdates(), domain.StatusCompleted)
 }
@@ -789,14 +757,22 @@ func TestExecuteWorkerMode_TrustsExplicitFailureOverErrorField(t *testing.T) {
 	run := testRun(1)
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
+	waitForStatusUpdate(t, ms, domain.StatusCompleted)
+}
+
+func waitForStatusUpdate(t *testing.T, store *mockExecutorStore, status domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
 	waitForCondition(t, 2*time.Second, func() bool {
-		for _, u := range ms.statusUpdates() {
-			if u.to == domain.StatusCompleted {
+		for _, update := range store.statusUpdates() {
+			if update.to == status {
 				return true
 			}
 		}
 		return false
-	}, "completed transition")
+	}, string(status)+" transition")
+
+	return requireStatusUpdateTo(t, store.statusUpdates(), status)
 }
 
 func assertQueuedResetFields(t *testing.T, fields map[string]any) {
