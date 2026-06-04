@@ -2586,20 +2586,19 @@ func TestPgStore_CountMembersAndExecutingRunsByOrg(t *testing.T) {
 func makeContract(orgID string, tier billing.EnterpriseTier, endDate time.Time) *billing.EnterpriseContract {
 	subID := "sub_" + orgID
 	return &billing.EnterpriseContract{
-		ID:                     "contract_" + orgID,
-		OrgID:                  orgID,
-		EnterpriseTier:         tier,
-		AnnualCommitmentCents:  1800000,
-		IncludedCreditMicrousd: 1000000000,
-		ComputeDiscountPct:     10,
-		ContractStartDate:      time.Now().Add(-180 * 24 * time.Hour),
-		ContractEndDate:        endDate,
-		AutoRenew:              true,
-		BillingCadence:         "annual",
-		StripeSubscriptionID:   &subID,
-		Notes:                  "test contract",
-		CreatedAt:              time.Now(),
-		UpdatedAt:              time.Now(),
+		ID:                    "contract_" + orgID,
+		OrgID:                 orgID,
+		EnterpriseTier:        tier,
+		AnnualCommitmentCents: 1800000,
+		OverageDiscountPct:    10,
+		ContractStartDate:     time.Now().Add(-180 * 24 * time.Hour),
+		ContractEndDate:       endDate,
+		AutoRenew:             true,
+		BillingCadence:        "annual",
+		StripeSubscriptionID:  &subID,
+		Notes:                 "test contract",
+		CreatedAt:             time.Now(),
+		UpdatedAt:             time.Now(),
 	}
 }
 
@@ -2629,11 +2628,8 @@ func TestPgStore_UpsertAndGetEnterpriseContract(t *testing.T) {
 	if got.AnnualCommitmentCents != 1800000 {
 		t.Errorf("AnnualCommitmentCents = %d, want 1800000", got.AnnualCommitmentCents)
 	}
-	if got.IncludedCreditMicrousd != 1000000000 {
-		t.Errorf("IncludedCreditMicrousd = %d, want 1000000000", got.IncludedCreditMicrousd)
-	}
-	if got.ComputeDiscountPct != 10 {
-		t.Errorf("ComputeDiscountPct = %d, want 10", got.ComputeDiscountPct)
+	if got.OverageDiscountPct != 10 {
+		t.Errorf("OverageDiscountPct = %d, want 10", got.OverageDiscountPct)
 	}
 	if !got.AutoRenew {
 		t.Error("AutoRenew = false, want true")
@@ -2674,7 +2670,7 @@ func TestPgStore_UpsertEnterpriseContract_UpdatesExisting(t *testing.T) {
 
 	// Upsert again with different tier and discount.
 	c2 := makeContract(orgID, billing.EnterpriseTierGrowth, time.Now().Add(365*24*time.Hour))
-	c2.ComputeDiscountPct = 15
+	c2.OverageDiscountPct = 15
 	c2.AnnualCommitmentCents = 4800000
 	c2.Notes = "upgraded"
 
@@ -2689,8 +2685,8 @@ func TestPgStore_UpsertEnterpriseContract_UpdatesExisting(t *testing.T) {
 	if got.EnterpriseTier != billing.EnterpriseTierGrowth {
 		t.Errorf("EnterpriseTier = %q, want %q", got.EnterpriseTier, billing.EnterpriseTierGrowth)
 	}
-	if got.ComputeDiscountPct != 15 {
-		t.Errorf("ComputeDiscountPct = %d, want 15", got.ComputeDiscountPct)
+	if got.OverageDiscountPct != 15 {
+		t.Errorf("OverageDiscountPct = %d, want 15", got.OverageDiscountPct)
 	}
 	if got.AnnualCommitmentCents != 4800000 {
 		t.Errorf("AnnualCommitmentCents = %d, want 4800000", got.AnnualCommitmentCents)

@@ -26,6 +26,8 @@ func TestFinalSchemaDoesNotRetainRetiredModelOrKeyNames(t *testing.T) {
 	retiredModelSuffix := strings.Join([]string{"_", "a", "i", "($|_)"}, "")
 	retiredKeyAcronym := strings.Join([]string{"b", "y", "o", "k"}, "")
 	retiredKeyPhrase := strings.Join([]string{"bring_?your_?own_?key"}, "")
+	retiredEnterpriseCredit := "included_credit_microusd"
+	retiredEnterpriseDiscount := "compute_discount_pct"
 
 	rows, err := tdb.Pool.Query(ctx, `
 		WITH names AS (
@@ -48,8 +50,10 @@ func TestFinalSchemaDoesNotRetainRetiredModelOrKeyNames(t *testing.T) {
 		   OR name ~* $3
 		   OR name ~* $4
 		   OR name ~* $5
+		   OR name LIKE '%.' || $6
+		   OR name LIKE '%.' || $7
 		ORDER BY kind, name
-	`, retiredModelPrefix, retiredModelNamedPrefix, retiredModelSuffix, retiredKeyAcronym, retiredKeyPhrase)
+	`, retiredModelPrefix, retiredModelNamedPrefix, retiredModelSuffix, retiredKeyAcronym, retiredKeyPhrase, retiredEnterpriseCredit, retiredEnterpriseDiscount)
 	if err != nil {
 		t.Fatalf("query final schema names: %v", err)
 	}

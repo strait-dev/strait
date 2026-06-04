@@ -26,29 +26,13 @@ func TestEnterpriseContract_NegativeCommitment(t *testing.T) {
 	}
 }
 
-func TestEnterpriseContract_NegativeCredit(t *testing.T) {
-	t.Parallel()
-	c := &EnterpriseContract{
-		OrgID:                  "org-1",
-		EnterpriseTier:         EnterpriseTierStarter,
-		AnnualCommitmentCents:  1_800_000,
-		IncludedCreditMicrousd: -1,
-		ContractStartDate:      time.Now(),
-		ContractEndDate:        time.Now().AddDate(1, 0, 0),
-		BillingCadence:         "annual",
-	}
-	if err := ValidateEnterpriseContract(c); err == nil {
-		t.Fatal("expected error for negative credit")
-	}
-}
-
 func TestEnterpriseContract_NegativeDiscount(t *testing.T) {
 	t.Parallel()
 	c := &EnterpriseContract{
 		OrgID:                 "org-1",
 		EnterpriseTier:        EnterpriseTierStarter,
 		AnnualCommitmentCents: 1_800_000,
-		ComputeDiscountPct:    -5,
+		OverageDiscountPct:    -5,
 		ContractStartDate:     time.Now(),
 		ContractEndDate:       time.Now().AddDate(1, 0, 0),
 		BillingCadence:        "annual",
@@ -64,7 +48,7 @@ func TestEnterpriseContract_DiscountOver100(t *testing.T) {
 		OrgID:                 "org-1",
 		EnterpriseTier:        EnterpriseTierStarter,
 		AnnualCommitmentCents: 1_800_000,
-		ComputeDiscountPct:    150,
+		OverageDiscountPct:    150,
 		ContractStartDate:     time.Now(),
 		ContractEndDate:       time.Now().AddDate(1, 0, 0),
 		BillingCadence:        "annual",
@@ -108,24 +92,24 @@ func TestEnterpriseContract_InvalidBillingCadences(t *testing.T) {
 	}
 }
 
-// ApplyComputeDiscount adversarial tests.
+// ApplyOverageDiscount adversarial tests.
 
-func TestApplyComputeDiscount_NegativeCost(t *testing.T) {
+func TestApplyOverageDiscount_NegativeCost(t *testing.T) {
 	t.Parallel()
-	got := ApplyComputeDiscount(-1_000_000, 10)
+	got := ApplyOverageDiscount(-1_000_000, 10)
 	if got != 0 {
-		t.Errorf("ApplyComputeDiscount(-1000000, 10) = %d, want 0", got)
+		t.Errorf("ApplyOverageDiscount(-1000000, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_OverflowCost(t *testing.T) {
+func TestApplyOverageDiscount_OverflowCost(t *testing.T) {
 	t.Parallel()
 	// Should not panic with very large values.
-	got := ApplyComputeDiscount(math.MaxInt64, 10)
+	got := ApplyOverageDiscount(math.MaxInt64, 10)
 	// The exact value depends on overflow behavior, but it should not be negative
 	// or panic. With int64 arithmetic: MaxInt64 * 90 / 100 is within bounds.
 	if got < 0 {
-		t.Errorf("ApplyComputeDiscount(MaxInt64, 10) = %d, should be non-negative", got)
+		t.Errorf("ApplyOverageDiscount(MaxInt64, 10) = %d, should be non-negative", got)
 	}
 }
 

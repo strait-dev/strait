@@ -1882,7 +1882,7 @@ func (s *PgStore) GetEnterpriseContract(ctx context.Context, orgID string) (*Ent
 	var c EnterpriseContract
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
@@ -1890,7 +1890,7 @@ func (s *PgStore) GetEnterpriseContract(ctx context.Context, orgID string) (*Ent
 		WHERE org_id = $1
 	`, orgID).Scan(
 		&c.ID, &c.OrgID, &c.EnterpriseTier,
-		&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+		&c.AnnualCommitmentCents, &c.OverageDiscountPct,
 		&c.ContractStartDate, &c.ContractEndDate,
 		&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
 		&c.Notes, &c.CreatedAt, &c.UpdatedAt,
@@ -1909,16 +1909,15 @@ func (s *PgStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseCon
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO enterprise_contracts (
 			id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (org_id) DO UPDATE SET
 			enterprise_tier = EXCLUDED.enterprise_tier,
 			annual_commitment_cents = EXCLUDED.annual_commitment_cents,
-			included_credit_microusd = EXCLUDED.included_credit_microusd,
-			compute_discount_pct = EXCLUDED.compute_discount_pct,
+			overage_discount_pct = EXCLUDED.overage_discount_pct,
 			contract_start_date = EXCLUDED.contract_start_date,
 			contract_end_date = EXCLUDED.contract_end_date,
 			auto_renew = EXCLUDED.auto_renew,
@@ -1927,7 +1926,7 @@ func (s *PgStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseCon
 			notes = EXCLUDED.notes,
 			updated_at = NOW()
 	`, c.ID, c.OrgID, c.EnterpriseTier,
-		c.AnnualCommitmentCents, c.IncludedCreditMicrousd, c.ComputeDiscountPct,
+		c.AnnualCommitmentCents, c.OverageDiscountPct,
 		c.ContractStartDate, c.ContractEndDate,
 		c.AutoRenew, c.BillingCadence, c.StripeSubscriptionID,
 		c.Notes, c.CreatedAt, c.UpdatedAt,
@@ -1942,7 +1941,7 @@ func (s *PgStore) UpsertEnterpriseContract(ctx context.Context, c *EnterpriseCon
 func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]EnterpriseContract, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
@@ -1961,7 +1960,7 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 		var c EnterpriseContract
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.EnterpriseTier,
-			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.AnnualCommitmentCents, &c.OverageDiscountPct,
 			&c.ContractStartDate, &c.ContractEndDate,
 			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
 			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
@@ -1976,7 +1975,7 @@ func (s *PgStore) ListExpiringContracts(ctx context.Context, withinDays int) ([]
 func (s *PgStore) ListExpiredContracts(ctx context.Context) ([]EnterpriseContract, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
@@ -1994,7 +1993,7 @@ func (s *PgStore) ListExpiredContracts(ctx context.Context) ([]EnterpriseContrac
 		var c EnterpriseContract
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.EnterpriseTier,
-			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.AnnualCommitmentCents, &c.OverageDiscountPct,
 			&c.ContractStartDate, &c.ContractEndDate,
 			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
 			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
@@ -2013,7 +2012,7 @@ func (s *PgStore) ListExpiredContracts(ctx context.Context) ([]EnterpriseContrac
 func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.Time) ([]EnterpriseContract, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
@@ -2032,7 +2031,7 @@ func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.T
 		var c EnterpriseContract
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.EnterpriseTier,
-			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.AnnualCommitmentCents, &c.OverageDiscountPct,
 			&c.ContractStartDate, &c.ContractEndDate,
 			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
 			&c.Notes, &c.CreatedAt, &c.UpdatedAt,
@@ -2051,7 +2050,7 @@ func (s *PgStore) ListEnterpriseContractsActiveAt(ctx context.Context, at time.T
 func (s *PgStore) ListEnterpriseContractsOverlappingPeriod(ctx context.Context, periodStart, periodEnd time.Time) ([]EnterpriseContract, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id,
 			notes, created_at, updated_at
@@ -2070,7 +2069,7 @@ func (s *PgStore) ListEnterpriseContractsOverlappingPeriod(ctx context.Context, 
 		var c EnterpriseContract
 		if err := rows.Scan(
 			&c.ID, &c.OrgID, &c.EnterpriseTier,
-			&c.AnnualCommitmentCents, &c.IncludedCreditMicrousd, &c.ComputeDiscountPct,
+			&c.AnnualCommitmentCents, &c.OverageDiscountPct,
 			&c.ContractStartDate, &c.ContractEndDate,
 			&c.AutoRenew, &c.BillingCadence, &c.StripeSubscriptionID,
 			&c.Notes, &c.CreatedAt, &c.UpdatedAt,

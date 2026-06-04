@@ -238,13 +238,13 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 	if enterpriseContract != nil {
 		resp.EnterpriseTier = string(enterpriseContract.EnterpriseTier)
 		resp.ContractEndDate = enterpriseContract.ContractEndDate.Format("2006-01-02")
-		resp.OverageDiscountPct = enterpriseContract.ComputeDiscountPct
+		resp.OverageDiscountPct = enterpriseContract.OverageDiscountPct
 		cfg := GetEnterpriseConfig(enterpriseContract.EnterpriseTier)
 		resp.SLAUptimePct = cfg.UptimeSLAPct
 
 		// Apply negotiated enterprise discount to overage spend.
-		if enterpriseContract.ComputeDiscountPct > 0 && resp.OverageMicro > 0 {
-			resp.OverageMicro = ApplyComputeDiscount(resp.OverageMicro, enterpriseContract.ComputeDiscountPct)
+		if enterpriseContract.OverageDiscountPct > 0 && resp.OverageMicro > 0 {
+			resp.OverageMicro = ApplyOverageDiscount(resp.OverageMicro, enterpriseContract.OverageDiscountPct)
 		}
 	}
 

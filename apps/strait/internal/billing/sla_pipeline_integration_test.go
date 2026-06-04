@@ -153,12 +153,12 @@ func TestSLAPipeline_EndToEnd_IssuesCreditAndPersists(t *testing.T) {
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO enterprise_contracts (
 			id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id
 		) VALUES (
 			$1, $2, 'enterprise_starter', $3,
-			0, 0,
+			0,
 			$4, $5,
 			true, 'annual', $6
 		)
@@ -253,12 +253,12 @@ func TestSLAPipeline_StripeFailure_DoesNotPersistRow(t *testing.T) {
 	if _, err := testDB.Pool.Exec(ctx, `
 		INSERT INTO enterprise_contracts (
 			id, org_id, enterprise_tier, annual_commitment_cents,
-			included_credit_microusd, compute_discount_pct,
+			overage_discount_pct,
 			contract_start_date, contract_end_date,
 			auto_renew, billing_cadence, stripe_subscription_id
 		) VALUES (
 			$1, $2, 'enterprise_starter', $3,
-			0, 0,
+			0,
 			$4, $5,
 			true, 'annual', $6
 		)

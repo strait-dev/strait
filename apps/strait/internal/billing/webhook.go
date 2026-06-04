@@ -665,19 +665,18 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 			cfg := GetEnterpriseConfig(entTier)
 			now := time.Now()
 			contract := &EnterpriseContract{
-				ID:                     sub.ID + "-contract",
-				OrgID:                  orgID,
-				EnterpriseTier:         entTier,
-				AnnualCommitmentCents:  cfg.AnnualCommitmentCents,
-				IncludedCreditMicrousd: cfg.IncludedCreditMicrousd,
-				ComputeDiscountPct:     cfg.ComputeDiscountPct,
-				ContractStartDate:      now,
-				ContractEndDate:        now.AddDate(1, 0, 0),
-				AutoRenew:              true,
-				BillingCadence:         "annual",
-				StripeSubscriptionID:   &sub.ID,
-				CreatedAt:              now,
-				UpdatedAt:              now,
+				ID:                    sub.ID + "-contract",
+				OrgID:                 orgID,
+				EnterpriseTier:        entTier,
+				AnnualCommitmentCents: cfg.AnnualCommitmentCents,
+				OverageDiscountPct:    cfg.OverageDiscountPct,
+				ContractStartDate:     now,
+				ContractEndDate:       now.AddDate(1, 0, 0),
+				AutoRenew:             true,
+				BillingCadence:        "annual",
+				StripeSubscriptionID:  &sub.ID,
+				CreatedAt:             now,
+				UpdatedAt:             now,
 			}
 			if err := h.store.UpsertEnterpriseContract(ctx, contract); err != nil {
 				return fmt.Errorf("creating enterprise contract: %w", err)

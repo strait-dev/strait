@@ -25,11 +25,10 @@ func TestGetCurrentUsage_EnterpriseWithContract(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-ent": {
-				OrgID:                  "org-ent",
-				EnterpriseTier:         EnterpriseTierStarter,
-				IncludedCreditMicrousd: EnterpriseStarterCreditMicrousd,
-				ComputeDiscountPct:     EnterpriseStarterDiscountPct,
-				ContractEndDate:        now.AddDate(1, 0, 0),
+				OrgID:              "org-ent",
+				EnterpriseTier:     EnterpriseTierStarter,
+				OverageDiscountPct: EnterpriseStarterOverageDiscountPct,
+				ContractEndDate:    now.AddDate(1, 0, 0),
 			},
 		},
 		periodSpendByOrg: map[string]int64{
@@ -113,11 +112,10 @@ func TestGetCurrentUsage_EnterpriseOverage_DiscountApplied(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-ent": {
-				OrgID:                  "org-ent",
-				EnterpriseTier:         EnterpriseTierStarter,
-				IncludedCreditMicrousd: 1_000_000_000, // $1,000
-				ComputeDiscountPct:     10,
-				ContractEndDate:        now.AddDate(1, 0, 0),
+				OrgID:              "org-ent",
+				EnterpriseTier:     EnterpriseTierStarter,
+				OverageDiscountPct: 10,
+				ContractEndDate:    now.AddDate(1, 0, 0),
 			},
 		},
 		periodSpendByOrg: map[string]int64{
@@ -195,11 +193,10 @@ func TestGetCurrentUsage_EnterpriseContractEndDate(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-ent": {
-				OrgID:                  "org-ent",
-				EnterpriseTier:         EnterpriseTierGrowth,
-				IncludedCreditMicrousd: EnterpriseGrowthCreditMicrousd,
-				ComputeDiscountPct:     15,
-				ContractEndDate:        contractEnd,
+				OrgID:              "org-ent",
+				EnterpriseTier:     EnterpriseTierGrowth,
+				OverageDiscountPct: 15,
+				ContractEndDate:    contractEnd,
 			},
 		},
 	}
@@ -239,11 +236,10 @@ func TestGetCurrentUsage_EnterpriseGrowthDiscount15Pct(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-ent": {
-				OrgID:                  "org-ent",
-				EnterpriseTier:         EnterpriseTierGrowth,
-				IncludedCreditMicrousd: 2_500_000_000, // $2,500
-				ComputeDiscountPct:     15,
-				ContractEndDate:        now.AddDate(1, 0, 0),
+				OrgID:              "org-ent",
+				EnterpriseTier:     EnterpriseTierGrowth,
+				OverageDiscountPct: 15,
+				ContractEndDate:    now.AddDate(1, 0, 0),
 			},
 		},
 		periodSpendByOrg: map[string]int64{

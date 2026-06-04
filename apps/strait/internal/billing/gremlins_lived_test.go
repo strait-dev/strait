@@ -58,10 +58,10 @@ func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-e": {
-				OrgID:                  "org-e",
-				EnterpriseTier:         EnterpriseTierStarter,
-				IncludedCreditMicrousd: 500_000_000,
-				ContractEndDate:        time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+				OrgID:              "org-e",
+				EnterpriseTier:     EnterpriseTierStarter,
+				OverageDiscountPct: 10,
+				ContractEndDate:    time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 		},
 		periodSpendByOrg: map[string]int64{
@@ -80,8 +80,11 @@ func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 	if resp.PeriodSpendMicro != 100_000_000 {
 		t.Errorf("PeriodSpendMicro = %d, want 100000000", resp.PeriodSpendMicro)
 	}
-	if resp.OverageMicro != 100_000_000 {
-		t.Errorf("OverageMicro = %d, want 100000000", resp.OverageMicro)
+	if resp.OverageDiscountPct != 10 {
+		t.Errorf("OverageDiscountPct = %d, want 10", resp.OverageDiscountPct)
+	}
+	if resp.OverageMicro != 90_000_000 {
+		t.Errorf("OverageMicro = %d, want 90000000", resp.OverageMicro)
 	}
 }
 
@@ -789,20 +792,20 @@ func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 
 // Enterprise LIVED mutant.
 
-func TestApplyComputeDiscount_ZeroDiscountReturnsCost(t *testing.T) {
+func TestApplyOverageDiscount_ZeroDiscountReturnsCost(t *testing.T) {
 	t.Parallel()
-	cost := ApplyComputeDiscount(1_000_000, 0)
+	cost := ApplyOverageDiscount(1_000_000, 0)
 	if cost != 1_000_000 {
-		t.Errorf("ApplyComputeDiscount(1000000, 0) = %d, want 1000000", cost)
+		t.Errorf("ApplyOverageDiscount(1000000, 0) = %d, want 1000000", cost)
 	}
 }
 
-func TestApplyComputeDiscount_OnePercentDiscount(t *testing.T) {
+func TestApplyOverageDiscount_OnePercentDiscount(t *testing.T) {
 	t.Parallel()
-	cost := ApplyComputeDiscount(1_000_000, 1)
+	cost := ApplyOverageDiscount(1_000_000, 1)
 	expected := int64(1_000_000 * 99 / 100)
 	if cost != expected {
-		t.Errorf("ApplyComputeDiscount(1000000, 1) = %d, want %d", cost, expected)
+		t.Errorf("ApplyOverageDiscount(1000000, 1) = %d, want %d", cost, expected)
 	}
 }
 
@@ -957,39 +960,39 @@ func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 
 // Enterprise boundary LIVED mutants.
 
-func TestApplyComputeDiscount_NegativeCost_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_NegativeCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(-100, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(-100, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(-100, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(-100, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(0, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(0, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(0, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(0, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1_000_000, 100); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000000, 100) = %d, want 0", got)
+	if got := ApplyOverageDiscount(1_000_000, 100); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000000, 100) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1_000_000, 150); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000000, 150) = %d, want 0", got)
+	if got := ApplyOverageDiscount(1_000_000, 150); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000000, 150) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_OneCost_OnePct(t *testing.T) {
+func TestApplyOverageDiscount_OneCost_OnePct(t *testing.T) {
 	t.Parallel()
-	got := ApplyComputeDiscount(1, 1)
+	got := ApplyOverageDiscount(1, 1)
 	if got < 0 || got > 1 {
-		t.Errorf("ApplyComputeDiscount(1, 1) = %d, want 0 or 1", got)
+		t.Errorf("ApplyOverageDiscount(1, 1) = %d, want 0 or 1", got)
 	}
 }
 
