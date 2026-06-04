@@ -9,6 +9,8 @@ import (
 	"strait/internal/store"
 )
 
+const pgQueSmallReadyWorkerJobSetLimit = 8
+
 func (q *PgQueQueue) sendReadyEvent(ctx context.Context, db store.DBTX, run *domain.JobRun) error {
 	routeKey, err := q.routeKeyForRun(ctx, db, run)
 	if err != nil {
@@ -112,14 +114,7 @@ func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs
 		if run.JobID == "" {
 			return nil, nil, fmt.Errorf("pgque worker route lookup: missing job id for run %s", run.ID)
 		}
-		if seenWorkerJobs == nil {
-			seenWorkerJobs = make(map[string]struct{}, len(runs))
-		}
-		if _, ok := seenWorkerJobs[run.JobID]; ok {
-			continue
-		}
-		seenWorkerJobs[run.JobID] = struct{}{}
-		workerJobIDs = append(workerJobIDs, run.JobID)
+		workerJobIDs, seenWorkerJobs = appendUniqueReadyWorkerJobID(workerJobIDs, seenWorkerJobs, run.JobID)
 	}
 	if len(workerJobIDs) == 0 {
 		for i := range readyRuns {
@@ -148,6 +143,30 @@ func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs
 		readyRuns[i].routeKey = pgQueWorkerRouteKey(run.ProjectID, queueName, route.environmentID)
 	}
 	return readyRuns, runIDs, nil
+}
+
+func appendUniqueReadyWorkerJobID(workerJobIDs []string, seen map[string]struct{}, jobID string) ([]string, map[string]struct{}) {
+	if seen != nil {
+		if _, ok := seen[jobID]; ok {
+			return workerJobIDs, seen
+		}
+		seen[jobID] = struct{}{}
+		return append(workerJobIDs, jobID), seen
+	}
+
+	for _, workerJobID := range workerJobIDs {
+		if workerJobID == jobID {
+			return workerJobIDs, nil
+		}
+	}
+	workerJobIDs = append(workerJobIDs, jobID)
+	if len(workerJobIDs) > pgQueSmallReadyWorkerJobSetLimit {
+		seen = make(map[string]struct{}, len(workerJobIDs))
+		for _, workerJobID := range workerJobIDs {
+			seen[workerJobID] = struct{}{}
+		}
+	}
+	return workerJobIDs, seen
 }
 
 type pgQueReadyRun struct {

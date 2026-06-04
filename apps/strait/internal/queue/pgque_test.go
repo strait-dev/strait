@@ -1115,6 +1115,55 @@ func BenchmarkPgQueReadyRunsForEventsNoQueuedRuns(b *testing.B) {
 	}
 }
 
+func BenchmarkPgQueReadyRunsForEventsSingleWorkerJob(b *testing.B) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if !strings.Contains(sql, "FROM jobs") {
+				b.Fatalf("unexpected Query SQL = %q", sql)
+			}
+			return &pgQueWorkerJobRouteRows{
+				values: []pgQueWorkerJobRouteRow{
+					{jobID: "job-a", queueName: "default", environmentID: "prod"},
+				},
+			}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	runs := []*domain.JobRun{
+		{
+			ID:            "run-a",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			Status:        domain.StatusQueued,
+			ExecutionMode: domain.ExecutionModeWorker,
+		},
+		{
+			ID:            "run-b",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			Status:        domain.StatusQueued,
+			ExecutionMode: domain.ExecutionModeWorker,
+		},
+		{
+			ID:            "run-c",
+			JobID:         "job-a",
+			ProjectID:     "project-a",
+			Status:        domain.StatusQueued,
+			ExecutionMode: domain.ExecutionModeWorker,
+		},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		readyRuns, _, err := q.readyRunsForEvents(ctx, db, runs)
+		if err != nil {
+			b.Fatal(err)
+		}
+		pgQueReadyRunsBenchmarkSink = readyRuns
+	}
+}
+
 func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
