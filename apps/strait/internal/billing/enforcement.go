@@ -1660,11 +1660,9 @@ func (e *Enforcer) CheckWorkerConnectionLimit(ctx context.Context, orgID string,
 
 	limits, err := e.GetOrgPlanLimits(ctx, orgID)
 	if err != nil {
-		e.logger.Warn("failed to get org plan limits for worker connection check",
+		e.logger.Error("failed to get org plan limits for worker connection check",
 			"org_id", orgID, "error", err)
-		// Fail-open on plan-limit lookup error: a transient DB hiccup must
-		// not lock customers out of their worker plane.
-		return nil
+		return fmt.Errorf("resolve worker connection plan limit: %w", err)
 	}
 
 	if limits.WorkerConnections == -1 {

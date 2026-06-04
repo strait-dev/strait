@@ -330,8 +330,7 @@ func gatingResult(ctx context.Context, enforcer planLimitEnforcer, registry *Con
 	}
 	orgID, err := enforcer.GetActiveProjectOrgID(ctx, projectID)
 	if err != nil {
-		// Fail-open mirrors stream.go.
-		orgID = ""
+		return "", true
 	}
 	if orgID == "" {
 		return "", false
@@ -354,9 +353,10 @@ func TestStreamGating_NilEnforcer_FailsOpen(t *testing.T) {
 	}
 }
 
-// TestStreamGating_OrgLookupError_FailsOpen verifies that a transient DB
-// error during org resolution does not block the connection.
-func TestStreamGating_OrgLookupError_FailsOpen(t *testing.T) {
+// TestStreamGating_OrgLookupError_FailsClosed verifies that an explicit DB
+// error during org resolution blocks the connection rather than bypassing the
+// worker connection plan cap.
+func TestStreamGating_OrgLookupError_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	enforcer := &stubPlanLimitEnforcer{
@@ -365,14 +365,44 @@ func TestStreamGating_OrgLookupError_FailsOpen(t *testing.T) {
 	}
 	r := NewConnectionRegistry()
 	orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-a")
-	if blocked {
-		t.Fatal("expected fail-open on org lookup error, got blocked")
+	if !blocked {
+		t.Fatal("expected fail-closed on org lookup error, got allowed")
 	}
 	if orgID != "" {
 		t.Errorf("orgID = %q, want empty (lookup failed)", orgID)
 	}
 	if got := enforcer.callsLen(); got != 0 {
 		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when lookup fails", got)
+	}
+}
+
+func TestCheckPlanConnectionLimit_OrgLookupErrorIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	enforcer := &stubPlanLimitEnforcer{
+		orgLookupErr: errors.New("db down"),
+		limit:        -1,
+	}
+	svc := &workerService{
+		registry:        NewConnectionRegistry(),
+		billingEnforcer: enforcer,
+	}
+
+	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
+	if err == nil {
+		t.Fatal("expected org lookup error to reject connection")
+	}
+	if code := status.Code(err); code != codes.Unavailable {
+		t.Fatalf("status code = %s, want %s", code, codes.Unavailable)
+	}
+	if orgID != "" {
+		t.Fatalf("orgID = %q, want empty", orgID)
+	}
+	if release == nil {
+		t.Fatal("release callback is nil")
+	}
+	if got := enforcer.callsLen(); got != 0 {
+		t.Errorf("CheckWorkerConnectionLimit calls = %d, want 0 when org lookup fails", got)
 	}
 }
 

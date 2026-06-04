@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -648,6 +649,24 @@ func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
 	release()
 	if _, err := enforcerB.ReserveWorkerConnection(ctx, "org_workers", "replica-b-worker", time.Minute); err != nil {
 		t.Fatalf("reservation after release should pass: %v", err)
+	}
+}
+
+func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckWorkerConnectionLimit(context.Background(), "org-plan-error", 0)
+	if err == nil {
+		t.Fatal("expected worker connection check to fail closed when plan limits cannot be loaded")
+	}
+	if !strings.Contains(err.Error(), "resolve worker connection plan limit") {
+		t.Fatalf("error = %v, want worker connection plan-limit context", err)
 	}
 }
 
