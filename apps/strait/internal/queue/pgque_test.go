@@ -26,6 +26,7 @@ var pgQueWorkerRefArgsBenchmarkSink struct {
 var pgQueClaimSelectionBenchmarkSink pgQueClaimSelection
 var pgQueCandidateRunIDsBenchmarkSink []string
 var pgQueReadyEmitBatchErrBenchmarkSink error
+var pgQueReadyRunsBenchmarkSink []pgQueReadyRun
 
 func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	ctx := context.Background()
@@ -1036,6 +1037,81 @@ func TestPgQueEnsureRunRoutesCachedFetchesWorkerRoutesSetBased(t *testing.T) {
 	}
 	if queryRowCalls != 0 {
 		t.Fatalf("per-run QueryRow calls = %d, want 0", queryRowCalls)
+	}
+}
+
+func TestPgQueSendReadyEventsSkipsNoQueuedRuns(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			t.Fatalf("unexpected Query SQL = %q", sql)
+			return nil, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			t.Fatalf("unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	err := q.sendReadyEvents(ctx, db, []*domain.JobRun{
+		nil,
+		{ID: "run-delayed", Status: domain.StatusDelayed, ExecutionMode: domain.ExecutionModeWorker, JobID: "job-a"},
+		{ID: "run-complete", Status: domain.StatusCompleted},
+	})
+	if err != nil {
+		t.Fatalf("sendReadyEvents() error = %v", err)
+	}
+}
+
+func TestPgQueEnsureRunRoutesCachedSkipsNoQueuedRuns(t *testing.T) {
+	ctx := context.Background()
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			t.Fatalf("unexpected Query SQL = %q", sql)
+			return nil, nil
+		},
+		queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
+			t.Fatalf("unexpected QueryRow SQL = %q", sql)
+			return &mockRow{}
+		},
+		execFn: func(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+			t.Fatalf("unexpected Exec SQL = %q", sql)
+			return pgconn.CommandTag{}, nil
+		},
+	}
+	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
+
+	err := q.ensureRunRoutesCached(ctx, []*domain.JobRun{
+		{ID: "run-delayed", Status: domain.StatusDelayed, ExecutionMode: domain.ExecutionModeWorker, JobID: "job-a"},
+		{ID: "run-complete", Status: domain.StatusCompleted},
+	})
+	if err != nil {
+		t.Fatalf("ensureRunRoutesCached() error = %v", err)
+	}
+}
+
+func BenchmarkPgQueReadyRunsForEventsNoQueuedRuns(b *testing.B) {
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	runs := []*domain.JobRun{
+		nil,
+		{ID: "run-delayed-a", Status: domain.StatusDelayed, ExecutionMode: domain.ExecutionModeWorker, JobID: "job-a"},
+		{ID: "run-completed-a", Status: domain.StatusCompleted, ExecutionMode: domain.ExecutionModeHTTP},
+		{ID: "run-delayed-b", Status: domain.StatusDelayed, ExecutionMode: domain.ExecutionModeWorker, JobID: "job-b"},
+		{ID: "run-failed-a", Status: domain.StatusFailed, ExecutionMode: domain.ExecutionModeHTTP},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		readyRuns, _, err := q.readyRunsForEvents(context.Background(), q.db, runs)
+		if err != nil {
+			b.Fatal(err)
+		}
+		pgQueReadyRunsBenchmarkSink = readyRuns
 	}
 }
 

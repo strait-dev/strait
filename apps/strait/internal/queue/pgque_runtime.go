@@ -62,6 +62,9 @@ func (q *PgQueQueue) ensureRunRoutesCached(ctx context.Context, runs []*domain.J
 	if err != nil {
 		return err
 	}
+	if len(readyRuns) == 0 {
+		return nil
+	}
 	seen := make(map[string]struct{}, len(runs))
 	for _, readyRun := range readyRuns {
 		routeKey := readyRun.routeKey

@@ -47,6 +47,9 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 	if err != nil {
 		return err
 	}
+	if len(readyRuns) == 0 {
+		return nil
+	}
 	generations, err := q.readyGenerations(ctx, db, runIDs)
 	if err != nil {
 		return err
@@ -89,13 +92,17 @@ func (q *PgQueQueue) sendReadyEvents(ctx context.Context, db store.DBTX, runs []
 }
 
 func (q *PgQueQueue) readyRunsForEvents(ctx context.Context, db store.DBTX, runs []*domain.JobRun) ([]pgQueReadyRun, []string, error) {
-	readyRuns := make([]pgQueReadyRun, 0, len(runs))
-	runIDs := make([]string, 0, len(runs))
-	workerJobIDs := make([]string, 0)
+	var readyRuns []pgQueReadyRun
+	var runIDs []string
+	var workerJobIDs []string
 	var seenWorkerJobs map[string]struct{}
 	for _, run := range runs {
 		if run == nil || run.Status != domain.StatusQueued {
 			continue
+		}
+		if readyRuns == nil {
+			readyRuns = make([]pgQueReadyRun, 0, len(runs))
+			runIDs = make([]string, 0, len(runs))
 		}
 		readyRuns = append(readyRuns, pgQueReadyRun{run: run})
 		runIDs = append(runIDs, run.ID)
