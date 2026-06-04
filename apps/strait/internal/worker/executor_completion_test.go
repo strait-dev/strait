@@ -523,6 +523,55 @@ func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
 	}
 }
 
+func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	startedAt := createdAt.Add(500 * time.Millisecond)
+	run := &domain.JobRun{
+		ID:        "run-1",
+		JobID:     "job-1",
+		Status:    domain.StatusSystemFailed,
+		Attempt:   5,
+		CreatedAt: createdAt,
+		StartedAt: &startedAt,
+	}
+	transition := systemFailureTransition{
+		from: domain.StatusQueued,
+		to:   domain.StatusSystemFailed,
+	}
+
+	event := newSystemFailedRunEvent(run, transition)
+
+	if event.Type != EventSystemFailed {
+		t.Fatalf("type = %s, want %s", event.Type, EventSystemFailed)
+	}
+	if event.Run != run {
+		t.Fatal("event run did not preserve run pointer")
+	}
+	if event.Job != nil {
+		t.Fatalf("event job = %#v, want nil", event.Job)
+	}
+	if event.FromStatus != domain.StatusQueued {
+		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusQueued)
+	}
+	if event.ToStatus != domain.StatusSystemFailed {
+		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusSystemFailed)
+	}
+	if event.Attempt != 5 {
+		t.Fatalf("attempt = %d, want 5", event.Attempt)
+	}
+	if event.QueueWait != 500*time.Millisecond {
+		t.Fatalf("queueWait = %s, want 500ms", event.QueueWait)
+	}
+	if event.ExecTrace != nil {
+		t.Fatalf("execTrace = %#v, want nil", event.ExecTrace)
+	}
+	if event.ExecDur != 0 {
+		t.Fatalf("execDur = %s, want 0", event.ExecDur)
+	}
+}
+
 func TestSuccessfulDispatchSignals_WithEndpoint(t *testing.T) {
 	t.Parallel()
 

@@ -216,6 +216,17 @@ func newRetriedRunEvent(run *domain.JobRun, job *domain.Job, execTrace *domain.E
 	}
 }
 
+func newSystemFailedRunEvent(run *domain.JobRun, transition systemFailureTransition) RunLifecycleEvent {
+	return RunLifecycleEvent{
+		Type:       EventSystemFailed,
+		Run:        run,
+		FromStatus: transition.from,
+		ToStatus:   transition.to,
+		Attempt:    run.Attempt,
+		QueueWait:  queueWait(run),
+	}
+}
+
 type successfulDispatchSignals struct {
 	endpointKey          string
 	endpointURL          string
@@ -919,12 +930,7 @@ func (e *Executor) handleSystemFailure(ctx context.Context, run *domain.JobRun, 
 		return
 	}
 	run.Status = transition.to
-	e.emit(ctx, RunLifecycleEvent{
-		Type: EventSystemFailed, Run: run,
-		FromStatus: transition.from, ToStatus: transition.to,
-		Attempt:   run.Attempt,
-		QueueWait: queueWait(run),
-	})
+	e.emit(ctx, newSystemFailedRunEvent(run, transition))
 	e.notifyWorkflowCallback(ctx, run)
 	// No webhook for system failures — job may not be available
 }
