@@ -145,7 +145,7 @@ func (q *PgQueQueue) dequeueFromRoute(ctx context.Context, n int, routeKey strin
 
 func (q *PgQueQueue) nackReservedMessage(ctx context.Context, msg pgQueMessage, reason string) {
 	if err := q.pgque(q.db).nack(ctx, msg, q.cfg.NackDelay, reason); err != nil {
-		q.logBackgroundError(ctx, "pgque nack failed", fmt.Errorf("%s: %w", reason, err))
+		q.logBackgroundError(ctx, "nack", "pgque nack failed", fmt.Errorf("%s: %w", reason, err))
 	}
 }
 

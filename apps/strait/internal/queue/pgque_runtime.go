@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func (q *PgQueQueue) nextWorkerRouteStart(routeCount int) int {
@@ -200,25 +203,40 @@ func (q *PgQueQueue) RunTicker(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if err := q.pgque(q.db).tickerAll(ctx); err != nil {
-				q.logBackgroundError(ctx, "pgque ticker failed", err)
+				q.logBackgroundError(ctx, "ticker", "pgque ticker failed", err)
 			}
 		case <-maintenance.C:
 			if err := q.Maintain(ctx); err != nil {
-				q.logBackgroundError(ctx, "pgque maintenance failed", err)
+				q.logBackgroundError(ctx, "maintenance", "pgque maintenance failed", err)
 			}
 		}
 	}
 }
 
-func (q *PgQueQueue) logBackgroundError(ctx context.Context, message string, err error) {
+func (q *PgQueQueue) logBackgroundError(ctx context.Context, operation, message string, err error) {
 	if err == nil || ctx.Err() != nil {
 		return
+	}
+	if qm, metricErr := Metrics(); metricErr == nil && qm != nil {
+		attrs := metric.WithAttributes(
+			attribute.String("operation", pgQueBackgroundOperationLabel(operation)),
+		)
+		qm.PgQueBackgroundErrors.Add(ctx, 1, attrs)
 	}
 	logger := q.logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	logger.Warn(message, "error", err)
+}
+
+func pgQueBackgroundOperationLabel(operation string) string {
+	switch operation {
+	case "ticker", "maintenance", "nack":
+		return operation
+	default:
+		return "other"
+	}
 }
 
 func (q *PgQueQueue) Maintain(ctx context.Context) error {

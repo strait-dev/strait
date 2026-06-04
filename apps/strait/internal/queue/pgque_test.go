@@ -233,7 +233,7 @@ func TestPgQueLogBackgroundErrorWritesWarning(t *testing.T) {
 	}))
 	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{Logger: logger})
 
-	q.logBackgroundError(context.Background(), "pgque ticker failed", errors.New("tick failed"))
+	q.logBackgroundError(context.Background(), "ticker", "pgque ticker failed", errors.New("tick failed"))
 
 	got := buf.String()
 	if !strings.Contains(got, "pgque ticker failed") {
@@ -253,10 +253,32 @@ func TestPgQueLogBackgroundErrorSkipsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	q.logBackgroundError(ctx, "pgque ticker failed", errors.New("tick failed"))
+	q.logBackgroundError(ctx, "ticker", "pgque ticker failed", errors.New("tick failed"))
 
 	if got := buf.String(); got != "" {
 		t.Fatalf("log output = %q, want empty output", got)
+	}
+}
+
+func TestPgQueBackgroundOperationLabelBoundsCardinality(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		want      string
+	}{
+		{name: "ticker", operation: "ticker", want: "ticker"},
+		{name: "maintenance", operation: "maintenance", want: "maintenance"},
+		{name: "nack", operation: "nack", want: "nack"},
+		{name: "unknown", operation: "route:project-a:critical", want: "other"},
+		{name: "empty", operation: "", want: "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pgQueBackgroundOperationLabel(tt.operation); got != tt.want {
+				t.Fatalf("pgQueBackgroundOperationLabel(%q) = %q, want %q", tt.operation, got, tt.want)
+			}
+		})
 	}
 }
 

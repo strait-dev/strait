@@ -2,8 +2,14 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // Unit tests for queue metrics. The singleton uses a nop meter when
@@ -104,6 +110,73 @@ func TestQueueMetrics_NoBannedFieldNames(t *testing.T) {
 			t.Errorf("QueueMetrics should not have field %q (high-cardinality label risk)", f.Name)
 		}
 	}
+}
+
+func TestPgQueBackgroundErrorIncrementsBoundedCounter(t *testing.T) {
+	reader := setupQueueMetricsReader(t)
+
+	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
+	q.logBackgroundError(context.Background(), "ticker", "pgque ticker failed", errors.New("tick failed"))
+	q.logBackgroundError(context.Background(), "route:tenant-a", "pgque custom failed", errors.New("custom failed"))
+
+	if got := pgQueBackgroundErrorSum(t, reader, "ticker"); got != 1 {
+		t.Fatalf("pgque background errors for ticker = %d, want 1", got)
+	}
+	if got := pgQueBackgroundErrorSum(t, reader, "other"); got != 1 {
+		t.Fatalf("pgque background errors for other = %d, want 1", got)
+	}
+}
+
+func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
+	t.Helper()
+	oldProvider := otel.GetMeterProvider()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	otel.SetMeterProvider(provider)
+	ResetMetricsForTest()
+
+	t.Cleanup(func() {
+		ResetMetricsForTest()
+		otel.SetMeterProvider(oldProvider)
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Fatalf("shutdown meter provider: %v", err)
+		}
+	})
+	return reader
+}
+
+func pgQueBackgroundErrorSum(t *testing.T, reader *sdkmetric.ManualReader, operation string) int64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("collect metrics: %v", err)
+	}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "strait_queue_pgque_background_errors_total" {
+				continue
+			}
+			data, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("pgque background errors data = %T, want Sum[int64]", m.Data)
+			}
+			var total int64
+			for _, dp := range data.DataPoints {
+				if queueMetricAttrEq(dp.Attributes, "operation", operation) {
+					total += dp.Value
+				}
+			}
+			return total
+		}
+	}
+	return 0
+}
+
+func queueMetricAttrEq(set attribute.Set, key, want string) bool {
+	got, ok := set.Value(attribute.Key(key))
+	return ok && got.AsString() == want
 }
 
 func TestRecordPartitionStats_AllGaugesExercised(t *testing.T) {

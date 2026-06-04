@@ -55,6 +55,7 @@ type QueueMetrics struct {
 	OutboxExpiredLeases           metric.Int64Gauge
 	OutboxClaimTableDeadTuples    metric.Int64Gauge
 	OutboxClaimTableLiveTuples    metric.Int64Gauge
+	PgQueBackgroundErrors         metric.Int64Counter
 }
 
 var (
@@ -268,6 +269,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("event channel saturation gauge: %w", err)
 	}
+	pgqueBackgroundErrors, err := meter.Int64Counter(
+		"strait_queue_pgque_background_errors_total",
+		metric.WithDescription("PgQue background operation failures grouped by bounded operation name"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque background errors counter: %w", err)
+	}
 	m := &QueueMetrics{
 		OldestQueuedAge:             oldestAge,
 		DequeueScanRows:             scanRows,
@@ -292,6 +301,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		DLQOldestUnmaskedAge:        dlqOldestAge,
 		EventChannelSaturationRatio: eventChannelSaturation,
 		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
+		PgQueBackgroundErrors:       pgqueBackgroundErrors,
 	}
 	if err := initArchiveMetrics(meter, m); err != nil {
 		return nil, err
