@@ -20,6 +20,7 @@ func TestExpectedCompletion_LinearDAG(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(60 * time.Second)
 	if !got.Equal(want) {
@@ -40,6 +41,7 @@ func TestExpectedCompletion_ParallelDAG(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(25 * time.Second)
 	if !got.Equal(want) {
@@ -61,6 +63,7 @@ func TestExpectedCompletion_DiamondDAG(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(30 * time.Second)
 	if !got.Equal(want) {
@@ -82,6 +85,7 @@ func TestExpectedCompletion_Recalculation(t *testing.T) {
 	got := RecalculateExpectedCompletion(steps, completed, now)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	// Remaining: b(20) -> c(30) = 50s from now.
 	want := now.Add(50 * time.Second)
@@ -116,6 +120,7 @@ func TestExpectedCompletion_MixedDurations(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil when at least one step has duration")
+		return
 	}
 	want := start.Add(10 * time.Second)
 	if !got.Equal(want) {
@@ -141,6 +146,7 @@ func TestExpectedCompletion_SingleStep(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(42 * time.Second)
 	if !got.Equal(want) {
@@ -159,6 +165,7 @@ func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(30 * time.Second)
 	if !got.Equal(want) {
@@ -193,6 +200,7 @@ func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *te
 	got := RecalculateExpectedCompletion(steps, completed, now)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := now.Add(20 * time.Second)
 	if !got.Equal(want) {
@@ -212,6 +220,7 @@ func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testin
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := start.Add(60 * time.Second)
 	if !got.Equal(want) {
@@ -231,6 +240,7 @@ func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
 	got := RecalculateExpectedCompletion(steps, completed, now)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := now.Add(400 * time.Second)
 	if !got.Equal(want) {
@@ -249,6 +259,7 @@ func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testin
 	got := RecalculateExpectedCompletion(steps, completed, now)
 	if got == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	want := now.Add(3 * time.Second)
 	if !got.Equal(want) {
@@ -319,6 +330,7 @@ func TestExpectedCompletion_MaxIntDuration(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil")
+		return
 	}
 	// Should not panic, just produce a far-future time.
 	if got.Before(start) {
@@ -349,6 +361,7 @@ func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 	got := CalculateExpectedCompletion(steps, start)
 	if got == nil {
 		t.Fatal("expected non-nil for 1000-step chain")
+		return
 	}
 	want := start.Add(1000 * time.Second)
 	if !got.Equal(want) {
