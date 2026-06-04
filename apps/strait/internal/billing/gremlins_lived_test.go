@@ -331,6 +331,29 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 	}
 }
 
+func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	store := &mockBillingStore{
+		usageRecords: []UsageRecord{
+			{PeriodDate: now, RunsCount: 1, ComputeCostMicro: 100},
+		},
+		activeAddons: []Addon{
+			{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+			{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	forecast, err := svc.GetUsageForecast(context.Background(), "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forecast.AddonSpendMicro != 0 {
+		t.Errorf("AddonSpendMicro = %d, want 0 for roadmap addons", forecast.AddonSpendMicro)
+	}
+}
+
 func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()

@@ -91,6 +91,35 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	}
 }
 
+func TestUsageService_GetCurrentUsage_FiltersRoadmapAddons(t *testing.T) {
+	t.Parallel()
+
+	store := &mockBillingStore{
+		activeAddons: []Addon{
+			{AddonType: AddonConcurrency100, Quantity: 2, Active: true},
+			{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+			{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+			{AddonType: AddonEnvironments5, Quantity: 3, Active: false},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	resp, err := svc.GetCurrentUsage(context.Background(), "org_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(resp.ActiveAddons) != 1 {
+		t.Fatalf("ActiveAddons len = %d, want 1: %+v", len(resp.ActiveAddons), resp.ActiveAddons)
+	}
+	if resp.ActiveAddons[0].Type != string(AddonConcurrency100) {
+		t.Fatalf("ActiveAddons[0].Type = %q, want %q", resp.ActiveAddons[0].Type, AddonConcurrency100)
+	}
+	if resp.ActiveAddons[0].Quantity != 2 {
+		t.Fatalf("ActiveAddons[0].Quantity = %d, want 2", resp.ActiveAddons[0].Quantity)
+	}
+}
+
 func TestUsageService_NoAlertsForLowMonthlyRuns(t *testing.T) {
 	t.Parallel()
 

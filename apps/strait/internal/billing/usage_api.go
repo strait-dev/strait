@@ -205,6 +205,9 @@ func (s *UsageService) GetCurrentUsage(ctx context.Context, orgID string) (*Curr
 		addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
 		if addonErr == nil {
 			for _, a := range addons {
+				if !a.Active || !IsLaunchActiveAddonType(a.AddonType) {
+					continue
+				}
 				resp.ActiveAddons = append(resp.ActiveAddons, AddonSummary{
 					Type:     string(a.AddonType),
 					Quantity: a.Quantity,
@@ -355,7 +358,10 @@ func (s *UsageService) GetUsageForecast(ctx context.Context, orgID string) (*Usa
 	addons, addonErr := s.store.ListActiveAddons(ctx, orgID)
 	if addonErr == nil {
 		for _, a := range addons {
-			if pack, ok := AddonPacks[a.AddonType]; ok && a.Active && a.Quantity > 0 {
+			if !a.Active || !IsLaunchActiveAddonType(a.AddonType) || a.Quantity <= 0 {
+				continue
+			}
+			if pack, ok := AddonPacks[a.AddonType]; ok {
 				addonSpendMicro += int64(pack.PriceCents) * int64(a.Quantity) * 10000
 			}
 		}
