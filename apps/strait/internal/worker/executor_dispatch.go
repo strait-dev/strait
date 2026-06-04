@@ -101,6 +101,30 @@ func (e *Executor) dispatchSecrets(ctx context.Context, job *domain.Job) ([]doma
 	return secrets, nil
 }
 
+type dispatchHeaderInputs struct {
+	secrets    []domain.JobSecret
+	checkpoint *domain.RunCheckpoint
+}
+
+func (e *Executor) dispatchHeaderInputs(ctx context.Context, job *domain.Job, run *domain.JobRun) (dispatchHeaderInputs, error) {
+	secrets, err := e.dispatchSecrets(ctx, job)
+	if err != nil {
+		return dispatchHeaderInputs{}, err
+	}
+	return dispatchHeaderInputs{
+		secrets:    secrets,
+		checkpoint: e.dispatchCheckpoint(ctx, run),
+	}, nil
+}
+
+func (e *Executor) dispatchHeaders(ctx context.Context, job *domain.Job, run *domain.JobRun) (map[string]string, error) {
+	inputs, err := e.dispatchHeaderInputs(ctx, job, run)
+	if err != nil {
+		return nil, err
+	}
+	return e.buildDispatchHeaders(job, run, inputs.secrets, inputs.checkpoint)
+}
+
 // buildDispatchHeaders constructs the headers injected on an HTTP dispatch: the
 // job's decrypted secrets (X-Secret-*), the run-token JWT (X-Run-Token) the
 // endpoint SDK uses to call back to Strait, the HMAC body+timestamp signature,
@@ -709,11 +733,7 @@ func (e *Executor) tryFallbackDispatch(
 	// and resume from the last checkpoint on failover. ctx is the per-execution
 	// context, so secrets and the checkpoint are served from the dispatch cache
 	// the primary attempt already warmed.
-	secrets, err := e.dispatchSecrets(ctx, job)
-	if err != nil {
-		return nil, errors.Join(primaryErr, err), false
-	}
-	fallbackHeaders, err := e.buildDispatchHeaders(job, run, secrets, e.dispatchCheckpoint(ctx, run))
+	fallbackHeaders, err := e.dispatchHeaders(ctx, job, run)
 	if err != nil {
 		return nil, errors.Join(primaryErr, err), false
 	}
@@ -822,40 +842,37 @@ func (e *Executor) tracedDispatch(ctx context.Context, job *domain.Job, run *dom
 	// checkpoint load into the secrets cache-miss branch lets that cache
 	// hit silently swallow the checkpoint on attempt 2 and break durable
 	// resume.
-	var (
-		secrets    []domain.JobSecret
-		secretsErr error
-		cp         *domain.RunCheckpoint
-	)
+	var inputs dispatchHeaderInputs
+	var secretsErr error
 
 	var dispatchWG conc.WaitGroup
 	if cached, ok := dispatchCacheGet[[]domain.JobSecret](ctx, dispatchSecretsCacheKey(job)); ok {
-		secrets = cached
+		inputs.secrets = cached
 	} else {
 		dispatchWG.Go(func() {
-			secrets, secretsErr = e.dispatchSecrets(tracedCtx, job)
+			inputs.secrets, secretsErr = e.dispatchSecrets(tracedCtx, job)
 		})
 	}
 	if run.Attempt > 1 {
 		checkpointCacheKey := "checkpoint:" + run.ID
 		if cached, ok := dispatchCacheGet[*domain.RunCheckpoint](ctx, checkpointCacheKey); ok {
-			cp = cached
+			inputs.checkpoint = cached
 		} else {
 			dispatchWG.Go(func() {
-				cp, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
+				inputs.checkpoint, _ = e.store.GetLatestCheckpoint(tracedCtx, run.ID)
 			})
 		}
 	}
 	dispatchWG.Wait()
-	if run.Attempt > 1 && cp != nil {
-		dispatchCacheSet(ctx, "checkpoint:"+run.ID, cp)
+	if run.Attempt > 1 && inputs.checkpoint != nil {
+		dispatchCacheSet(ctx, "checkpoint:"+run.ID, inputs.checkpoint)
 	}
 
 	if secretsErr != nil {
 		return nil, nil, fmt.Errorf("load job %s secrets: %w", job.ID, secretsErr)
 	}
 
-	extraHeaders, err := e.buildDispatchHeaders(job, run, secrets, cp)
+	extraHeaders, err := e.buildDispatchHeaders(job, run, inputs.secrets, inputs.checkpoint)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -896,11 +913,7 @@ func (e *Executor) dispatch(ctx context.Context, job *domain.Job, run *domain.Jo
 		}
 	}()
 
-	secrets, err := e.dispatchSecrets(ctx, job)
-	if err != nil {
-		return err
-	}
-	extraHeaders, err := e.buildDispatchHeaders(job, run, secrets, e.dispatchCheckpoint(ctx, run))
+	extraHeaders, err := e.dispatchHeaders(ctx, job, run)
 	if err != nil {
 		return err
 	}

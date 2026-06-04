@@ -64,6 +64,80 @@ func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
 	}
 }
 
+func TestDispatchHeaderInputsFirstAttemptSkipsCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		listSecretsFn: func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
+			if jobID != "job-1" || environment != "env-1" {
+				t.Fatalf("ListJobSecretsByJob args = %q %q, want job-1 env-1", jobID, environment)
+			}
+			return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "secret"}}, nil
+		},
+		getLatestCheckpointFn: func(context.Context, string) (*domain.RunCheckpoint, error) {
+			t.Fatal("first-attempt dispatch headers must not load checkpoints")
+			return nil, nil
+		},
+	}
+	exec := &Executor{store: store}
+	job := &domain.Job{ID: "job-1", EnvironmentID: "env-1"}
+	run := &domain.JobRun{ID: "run-1", Attempt: 1}
+
+	inputs, err := exec.dispatchHeaderInputs(context.Background(), job, run)
+	if err != nil {
+		t.Fatalf("dispatchHeaderInputs() error = %v", err)
+	}
+	if len(inputs.secrets) != 1 || inputs.secrets[0].SecretKey != "API_KEY" {
+		t.Fatalf("secrets = %+v, want API_KEY secret", inputs.secrets)
+	}
+	if inputs.checkpoint != nil {
+		t.Fatalf("checkpoint = %+v, want nil on first attempt", inputs.checkpoint)
+	}
+}
+
+func TestDispatchHeaderInputsRetryUsesCache(t *testing.T) {
+	t.Parallel()
+
+	var secretCalls int
+	var checkpointCalls int
+	store := &mockExecutorStore{
+		listSecretsFn: func(context.Context, string, string) ([]domain.JobSecret, error) {
+			secretCalls++
+			return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "secret"}}, nil
+		},
+		getLatestCheckpointFn: func(context.Context, string) (*domain.RunCheckpoint, error) {
+			checkpointCalls++
+			return &domain.RunCheckpoint{ID: "cp-1", RunID: "run-1"}, nil
+		},
+	}
+	exec := &Executor{store: store}
+	job := &domain.Job{ID: "job-1", EnvironmentID: "env-1"}
+	run := &domain.JobRun{ID: "run-1", Attempt: 2}
+	ctx := withDispatchCache(context.Background())
+
+	first, err := exec.dispatchHeaderInputs(ctx, job, run)
+	if err != nil {
+		t.Fatalf("first dispatchHeaderInputs() error = %v", err)
+	}
+	second, err := exec.dispatchHeaderInputs(ctx, job, run)
+	if err != nil {
+		t.Fatalf("second dispatchHeaderInputs() error = %v", err)
+	}
+
+	if secretCalls != 1 {
+		t.Fatalf("secret calls = %d, want 1 cached call", secretCalls)
+	}
+	if checkpointCalls != 1 {
+		t.Fatalf("checkpoint calls = %d, want 1 cached call", checkpointCalls)
+	}
+	if first.checkpoint == nil || first.checkpoint.ID != "cp-1" {
+		t.Fatalf("first checkpoint = %+v, want cp-1", first.checkpoint)
+	}
+	if second.checkpoint == nil || second.checkpoint.ID != "cp-1" {
+		t.Fatalf("second checkpoint = %+v, want cp-1", second.checkpoint)
+	}
+}
+
 func TestHTTPDispatchConcurrencyLimit(t *testing.T) {
 	t.Parallel()
 
