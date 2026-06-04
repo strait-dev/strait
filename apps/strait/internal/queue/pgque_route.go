@@ -15,6 +15,7 @@ import (
 const (
 	pgQueHTTPRouteKey        = "http"
 	pgQueQueuePrefix         = "stq_"
+	pgQueSmallRouteSetLimit  = 8
 	pgQueWorkerRouteCacheTTL = time.Second
 )
 
@@ -231,32 +232,53 @@ func (q *PgQueQueue) workerRouteKeys(ctx context.Context, refs []domain.WorkerQu
 	if len(refs) == 1 {
 		return q.workerRouteKeysForSingleRef(ctx, refs[0])
 	}
-	routes := make([]string, 0, len(refs))
-	seen := make(map[string]struct{}, len(refs))
+	var smallRouteGroups [pgQueSmallRouteSetLimit][]string
+	routeGroups := smallRouteGroups[:0]
+	if len(refs) > len(smallRouteGroups) {
+		routeGroups = make([][]string, 0, len(refs))
+	}
+	totalRoutes := 0
 	for _, ref := range refs {
-		queueName := runQueueName(ref.QueueName)
-		if ref.EnvironmentID != "" {
-			key := pgQueWorkerRouteKey(ref.ProjectID, queueName, ref.EnvironmentID)
-			if _, ok := seen[key]; !ok {
-				seen[key] = struct{}{}
-				routes = append(routes, key)
-			}
-			continue
-		}
-		prefix := pgQueWorkerRouteKey(ref.ProjectID, queueName, "")
-		knownRoutes, err := q.workerRoutesForPrefix(ctx, prefix)
+		knownRoutes, err := q.workerRouteKeysForSingleRef(ctx, ref)
 		if err != nil {
 			return nil, err
 		}
-		for _, key := range knownRoutes {
+		if len(knownRoutes) == 0 {
+			continue
+		}
+		totalRoutes += len(knownRoutes)
+		routeGroups = append(routeGroups, knownRoutes)
+	}
+	routes := make([]string, 0, totalRoutes)
+	var seen map[string]struct{}
+	for _, knownRoutes := range routeGroups {
+		routes, seen = appendUniqueRouteKeys(routes, seen, knownRoutes)
+	}
+	return routes, nil
+}
+
+func appendUniqueRouteKeys(routes []string, seen map[string]struct{}, candidates []string) ([]string, map[string]struct{}) {
+	for _, key := range candidates {
+		if seen != nil {
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
 			routes = append(routes, key)
+			continue
+		}
+		if containsRoute(routes, key) {
+			continue
+		}
+		routes = append(routes, key)
+		if len(routes) > pgQueSmallRouteSetLimit {
+			seen = make(map[string]struct{}, len(routes)+len(candidates))
+			for _, routeKey := range routes {
+				seen[routeKey] = struct{}{}
+			}
 		}
 	}
-	return routes, nil
+	return routes, seen
 }
 
 func (q *PgQueQueue) workerRouteKeysForSingleRef(ctx context.Context, ref domain.WorkerQueueRef) ([]string, error) {

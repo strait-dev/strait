@@ -174,6 +174,59 @@ func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
 	}
 }
 
+func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
+	ctx := context.Background()
+	prefixA := pgQueWorkerRouteKey("project-a", "priority", "")
+	prefixB := pgQueWorkerRouteKey("project-b", "default", "")
+	knownRoutes := map[string][]string{
+		prefixA: {prefixA + "production"},
+		prefixB: {prefixB + "staging"},
+	}
+	queryCount := 0
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+			queryCount++
+			prefix, ok := args[0].(string)
+			if !ok {
+				t.Fatalf("route lookup prefix arg = %T, want string", args[0])
+			}
+			return &stringRows{values: knownRoutes[prefix]}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "priority"},
+		{ProjectID: "project-b", QueueName: "default"},
+		{ProjectID: "project-c", QueueName: "critical", EnvironmentID: "production"},
+	}
+
+	first, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		t.Fatalf("workerRouteKeys first error = %v", err)
+	}
+	second, err := q.workerRouteKeys(ctx, refs)
+	if err != nil {
+		t.Fatalf("workerRouteKeys second error = %v", err)
+	}
+
+	want := []string{
+		prefixA + "production",
+		prefixA,
+		prefixB + "staging",
+		prefixB,
+		pgQueWorkerRouteKey("project-c", "critical", "production"),
+	}
+	if !slices.Equal(first, want) {
+		t.Fatalf("first worker routes = %v, want %v", first, want)
+	}
+	if !slices.Equal(second, want) {
+		t.Fatalf("second worker routes = %v, want %v", second, want)
+	}
+	if queryCount != 2 {
+		t.Fatalf("route lookup count = %d, want 2", queryCount)
+	}
+}
+
 func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
 	ctx := context.Background()
 	prefix := pgQueWorkerRouteKey("project-a", "priority", "")
@@ -223,6 +276,73 @@ func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
 	}
 	if queryCount != 1 {
 		b.Fatalf("route lookup count = %d, want 1", queryCount)
+	}
+}
+
+func BenchmarkPgQueWorkerRouteKeysMultiRefCached(b *testing.B) {
+	ctx := context.Background()
+	prefixA := pgQueWorkerRouteKey("project-a", "priority", "")
+	prefixB := pgQueWorkerRouteKey("project-b", "default", "")
+	knownRoutes := map[string][]string{
+		prefixA: {
+			prefixA + "production",
+			prefixA + "staging",
+		},
+		prefixB: {
+			prefixB + "production",
+			prefixB + "canary",
+		},
+	}
+	queryCount := 0
+	allowQuery := true
+	db := &mockDBTX{
+		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
+			if !allowQuery {
+				b.Fatal("cached worker route lookup queried the database")
+			}
+			queryCount++
+			prefix, ok := args[0].(string)
+			if !ok {
+				b.Fatalf("route lookup prefix arg = %T, want string", args[0])
+			}
+			return &stringRows{values: knownRoutes[prefix]}, nil
+		},
+	}
+	q := NewPgQueQueue(db, nil, PgQueConfig{})
+	refs := []domain.WorkerQueueRef{
+		{ProjectID: "project-a", QueueName: "priority"},
+		{ProjectID: "project-b", QueueName: "default"},
+		{ProjectID: "project-c", QueueName: "critical", EnvironmentID: "production"},
+	}
+
+	if _, err := q.workerRouteKeys(ctx, refs); err != nil {
+		b.Fatalf("workerRouteKeys warmup error = %v", err)
+	}
+	q.routeMu.Lock()
+	for _, ref := range refs {
+		ref.QueueName = runQueueName(ref.QueueName)
+		entry := q.routeRefCache[ref]
+		entry.expiresAt = time.Now().Add(time.Hour)
+		q.routeRefCache[ref] = entry
+		if ref.EnvironmentID == "" {
+			prefix := pgQueWorkerRouteKey(ref.ProjectID, ref.QueueName, "")
+			routeEntry := q.routeCache[prefix]
+			routeEntry.expiresAt = time.Now().Add(time.Hour)
+			q.routeCache[prefix] = routeEntry
+		}
+	}
+	q.routeMu.Unlock()
+	allowQuery = false
+	b.ReportAllocs()
+	for b.Loop() {
+		routes, err := q.workerRouteKeys(ctx, refs)
+		if err != nil {
+			b.Fatalf("workerRouteKeys cached error = %v", err)
+		}
+		pgQueRouteBenchmarkSink = routes
+	}
+	if queryCount != 2 {
+		b.Fatalf("route lookup count = %d, want 2", queryCount)
 	}
 }
 
