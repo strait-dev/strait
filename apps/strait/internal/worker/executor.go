@@ -695,7 +695,10 @@ const (
 	eventChannelSaturationRatio    = 0.8
 	eventChannelWarnInterval       = 30 * time.Second
 	defaultDegradedPollInterval    = time.Second
+	eventChannelDropKindClosed     = eventChannelDropKind("closed")
 )
+
+type eventChannelDropKind string
 
 func resolveDegradedPollInterval(d time.Duration) time.Duration {
 	if d <= 0 {
@@ -856,7 +859,7 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"type", event.Type,
 				"run_id", event.Run.ID,
 			)
-			e.recordEventChannelDrop(ctx, "closed")
+			e.recordEventChannelDrop(ctx, eventChannelDropKindClosed)
 		}
 	}()
 
@@ -870,7 +873,7 @@ func (e *Executor) emit(ctx context.Context, event RunLifecycleEvent) {
 				"run_id", event.Run.ID,
 			)
 		}
-		e.recordEventChannelDrop(ctx, string(event.Type))
+		e.recordEventChannelDrop(ctx, eventChannelDropKind(event.Type))
 	}
 }
 
@@ -946,12 +949,12 @@ func (e *Executor) shouldLogSaturation(kind string) bool {
 // No-op when queue metrics have not been initialised. Uses the cached
 // Executor queueMetrics handle to avoid a sync.Once + error-check
 // lookup on every drop in the lifecycle hot path.
-func (e *Executor) recordEventChannelDrop(ctx context.Context, kind string) {
+func (e *Executor) recordEventChannelDrop(ctx context.Context, kind eventChannelDropKind) {
 	qm := e.queueMetrics
 	if qm == nil || qm.EventChannelDropped == nil {
 		return
 	}
-	qm.EventChannelDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", kind)))
+	qm.EventChannelDropped.Add(ctx, 1, metric.WithAttributes(attribute.String("kind", string(kind))))
 }
 
 // runEventLoop drains the event channel and fans out to all subscribers.
