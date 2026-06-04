@@ -324,14 +324,29 @@ func (m *mockExecutorStore) statusUpdates() []statusUpdateCall {
 func requireRetryTransition(t *testing.T, calls []statusUpdateCall) statusUpdateCall {
 	t.Helper()
 
+	return requireStatusTransition(t, calls, domain.StatusExecuting, domain.StatusQueued)
+}
+
+func requireStatusTransition(t *testing.T, calls []statusUpdateCall, from, to domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
 	for _, call := range calls {
-		if call.from == domain.StatusExecuting && call.to == domain.StatusQueued {
+		if call.from == from && call.to == to {
 			return call
 		}
 	}
 
-	t.Fatalf("expected retry transition %s -> %s; got %+v", domain.StatusExecuting, domain.StatusQueued, calls)
+	t.Fatalf("expected status transition %s -> %s; got %+v", from, to, calls)
 	return statusUpdateCall{}
+}
+
+func requireOnlyStatusTransition(t *testing.T, calls []statusUpdateCall, from, to domain.RunStatus) statusUpdateCall {
+	t.Helper()
+
+	if len(calls) != 1 {
+		t.Fatalf("status calls = %d, want 1; calls=%+v", len(calls), calls)
+	}
+	return requireStatusTransition(t, calls, from, to)
 }
 
 func requireRetryPriority(t *testing.T, calls []statusUpdateCall) int {
