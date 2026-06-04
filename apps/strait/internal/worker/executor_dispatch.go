@@ -709,19 +709,31 @@ func (e *Executor) recordHTTPRunCost(ctx context.Context, job *domain.Job, run *
 	}
 	billing.RecordHTTPModeRunCompleted(ctx)
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.HTTPCostPerRunMicrousd)
+	e.recordRunCostRow(ctx, job.ProjectID, run.ID, "failed to record HTTP run cost", func(costCtx context.Context, orgID, projectID, runID string) error {
+		return e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, projectID, runID)
+	})
+}
+
+func (e *Executor) recordRunCostRow(
+	ctx context.Context,
+	projectID string,
+	runID string,
+	logMessage string,
+	record func(context.Context, string, string, string) error,
+) {
 	if e.runCostRecorder == nil || e.billingEnforcer == nil {
 		return
 	}
-	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
+	orgID, err := e.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
 		return
 	}
 	// Tracked on stripeUsageWG so graceful shutdown waits for the billing row.
 	costCtx := context.WithoutCancel(ctx)
 	e.stripeUsageWG.Go(func() {
-		if err := e.runCostRecorder.RecordHTTPRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
-			e.logger.Warn("failed to record HTTP run cost",
-				"run_id", run.ID,
+		if err := record(costCtx, orgID, projectID, runID); err != nil {
+			e.logger.Warn(logMessage,
+				"run_id", runID,
 				"org_id", orgID,
 				"error", err,
 			)
@@ -1296,21 +1308,9 @@ func workerResultFailureMessage(status, errorMessage string) string {
 }
 
 func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	if e.runCostRecorder != nil && e.billingEnforcer != nil {
-		orgID, orgErr := e.billingEnforcer.GetProjectOrgID(ctx, job.ProjectID)
-		if orgErr == nil && orgID != "" {
-			costCtx := context.WithoutCancel(ctx)
-			e.stripeUsageWG.Go(func() {
-				if err := e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, job.ProjectID, run.ID); err != nil {
-					e.logger.Warn("failed to record worker run cost",
-						"run_id", run.ID,
-						"org_id", orgID,
-						"error", err,
-					)
-				}
-			})
-		}
-	}
+	e.recordRunCostRow(ctx, job.ProjectID, run.ID, "failed to record worker run cost", func(costCtx context.Context, orgID, projectID, runID string) error {
+		return e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, projectID, runID)
+	})
 	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 }
 
