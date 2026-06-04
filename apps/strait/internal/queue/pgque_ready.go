@@ -8,6 +8,8 @@ import (
 	"strait/internal/dbscan"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const pgQueSmallReadyWorkerJobSetLimit = 8
@@ -472,20 +474,7 @@ func (q *PgQueQueue) promoteDueRunsInTx(ctx context.Context, tx store.DBTX, limi
 	if err != nil {
 		return nil, fmt.Errorf("pgque promote due runs: %w", err)
 	}
-	defer rows.Close()
-
-	runs := make([]*domain.JobRun, 0, min(limit, 1024))
-	for rows.Next() {
-		run, scanErr := dbscan.ScanRun(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("pgque promote due runs scan: %w", scanErr)
-		}
-		runs = append(runs, run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque promote due runs rows: %w", err)
-	}
-	return runs, nil
+	return scanPgQueReadyRuns(rows, min(limit, 1024), "pgque promote due runs")
 }
 
 func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX, limit int) ([]*domain.JobRun, error) {
@@ -601,20 +590,7 @@ func (q *PgQueQueue) promoteReadyRetriesInTx(ctx context.Context, tx store.DBTX,
 	if err != nil {
 		return nil, fmt.Errorf("pgque promote ready retries: %w", err)
 	}
-	defer rows.Close()
-
-	runs := make([]*domain.JobRun, 0, min(limit, 1024))
-	for rows.Next() {
-		run, scanErr := dbscan.ScanRun(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("pgque promote ready retries scan: %w", scanErr)
-		}
-		runs = append(runs, run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque promote ready retries rows: %w", err)
-	}
-	return runs, nil
+	return scanPgQueReadyRuns(rows, min(limit, 1024), "pgque promote ready retries")
 }
 
 func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX, workflowRunID string) ([]*domain.JobRun, error) {
@@ -728,18 +704,23 @@ func (q *PgQueQueue) requeuePausedJobRunsInTx(ctx context.Context, tx store.DBTX
 	if err != nil {
 		return nil, fmt.Errorf("pgque requeue paused job runs: %w", err)
 	}
+
+	return scanPgQueReadyRuns(rows, 16, "pgque requeue paused job runs")
+}
+
+func scanPgQueReadyRuns(rows pgx.Rows, capacity int, label string) ([]*domain.JobRun, error) {
 	defer rows.Close()
 
-	runs := make([]*domain.JobRun, 0, 16)
+	runs := make([]*domain.JobRun, 0, capacity)
 	for rows.Next() {
 		run, scanErr := dbscan.ScanRun(rows)
 		if scanErr != nil {
-			return nil, fmt.Errorf("pgque requeue paused job runs scan: %w", scanErr)
+			return nil, fmt.Errorf("%s scan: %w", label, scanErr)
 		}
 		runs = append(runs, run)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("pgque requeue paused job runs rows: %w", err)
+		return nil, fmt.Errorf("%s rows: %w", label, err)
 	}
 	return runs, nil
 }
