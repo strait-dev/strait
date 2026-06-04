@@ -387,23 +387,26 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 }
 
 func TestUnclaimedReservedCandidates(t *testing.T) {
-	candidates := []pgQueCandidate{
-		{Event: pgQueReadyEvent{RunID: "run-1"}},
-		{Event: pgQueReadyEvent{RunID: "run-2"}},
-		{Event: pgQueReadyEvent{RunID: "run-3"}},
+	newCandidates := func() []pgQueCandidate {
+		return []pgQueCandidate{
+			{Event: pgQueReadyEvent{RunID: "run-1"}},
+			{Event: pgQueReadyEvent{RunID: "run-2"}},
+			{Event: pgQueReadyEvent{RunID: "run-3"}},
+		}
 	}
-	runs := []domain.JobRun{
+	candidates := newCandidates()
+	wantCandidates := newCandidates()
+
+	unclaimed := unclaimedReservedCandidates(candidates, []domain.JobRun{
 		{ID: "run-1"},
 		{ID: "run-3"},
-	}
-
-	unclaimed := unclaimedReservedCandidates(candidates, runs)
+	})
 
 	if len(unclaimed) != 1 || unclaimed[0].Event.RunID != "run-2" {
 		t.Fatalf("unclaimed candidates = %+v, want run-2", unclaimed)
 	}
 
-	allClaimed := unclaimedReservedCandidates(candidates, []domain.JobRun{
+	allClaimed := unclaimedReservedCandidates(newCandidates(), []domain.JobRun{
 		{ID: "run-1"},
 		{ID: "run-2"},
 		{ID: "run-3"},
@@ -412,9 +415,41 @@ func TestUnclaimedReservedCandidates(t *testing.T) {
 		t.Fatalf("all-claimed unclaimed candidates = %+v, want none", allClaimed)
 	}
 
-	noneClaimed := unclaimedReservedCandidates(candidates, nil)
-	if !slices.Equal(noneClaimed, candidates) {
+	noneClaimed := unclaimedReservedCandidates(newCandidates(), nil)
+	if !slices.Equal(noneClaimed, wantCandidates) {
 		t.Fatalf("none-claimed candidates = %+v, want all candidates", noneClaimed)
+	}
+}
+
+func TestUnclaimedReservedCandidatesLargeBatch(t *testing.T) {
+	candidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+		{Event: pgQueReadyEvent{RunID: "run-4"}},
+		{Event: pgQueReadyEvent{RunID: "run-5"}},
+		{Event: pgQueReadyEvent{RunID: "run-6"}},
+		{Event: pgQueReadyEvent{RunID: "run-7"}},
+		{Event: pgQueReadyEvent{RunID: "run-8"}},
+		{Event: pgQueReadyEvent{RunID: "run-9"}},
+		{Event: pgQueReadyEvent{RunID: "run-10"}},
+	}
+	runs := []domain.JobRun{
+		{ID: "run-1"},
+		{ID: "run-2"},
+		{ID: "run-3"},
+		{ID: "run-4"},
+		{ID: "run-5"},
+		{ID: "run-6"},
+		{ID: "run-7"},
+		{ID: "run-8"},
+		{ID: "run-9"},
+	}
+
+	unclaimed := unclaimedReservedCandidates(candidates, runs)
+
+	if len(unclaimed) != 1 || unclaimed[0].Event.RunID != "run-10" {
+		t.Fatalf("unclaimed candidates = %+v, want run-10", unclaimed)
 	}
 }
 
@@ -441,6 +476,29 @@ func BenchmarkUnclaimedReservedCandidatesAllClaimed(b *testing.B) {
 	}
 
 	for b.Loop() {
+		pgQueCandidateBenchmarkSink = unclaimedReservedCandidates(candidates, runs)
+	}
+}
+
+func BenchmarkUnclaimedReservedCandidatesPartialSmallBatch(b *testing.B) {
+	baseCandidates := []pgQueCandidate{
+		{Event: pgQueReadyEvent{RunID: "run-1"}},
+		{Event: pgQueReadyEvent{RunID: "run-2"}},
+		{Event: pgQueReadyEvent{RunID: "run-3"}},
+		{Event: pgQueReadyEvent{RunID: "run-4"}},
+		{Event: pgQueReadyEvent{RunID: "run-5"}},
+		{Event: pgQueReadyEvent{RunID: "run-6"}},
+		{Event: pgQueReadyEvent{RunID: "run-7"}},
+		{Event: pgQueReadyEvent{RunID: "run-8"}},
+	}
+	runs := []domain.JobRun{
+		{ID: "run-2"},
+		{ID: "run-7"},
+	}
+	candidates := make([]pgQueCandidate, len(baseCandidates))
+
+	for b.Loop() {
+		copy(candidates, baseCandidates)
 		pgQueCandidateBenchmarkSink = unclaimedReservedCandidates(candidates, runs)
 	}
 }

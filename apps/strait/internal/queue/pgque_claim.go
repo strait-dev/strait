@@ -77,7 +77,14 @@ func unclaimedReservedCandidates(candidates []pgQueCandidate, runs []domain.JobR
 		return candidates
 	}
 	if len(runs) == len(candidates) {
+		clear(candidates)
 		return nil
+	}
+
+	if len(runs) <= pgQueSmallCandidateSetLimit {
+		return compactUnclaimedReservedCandidates(candidates, func(runID string) bool {
+			return pgQueRunClaimedLinear(runs, runID)
+		})
 	}
 
 	claimed := make(map[string]struct{}, len(runs))
@@ -85,13 +92,32 @@ func unclaimedReservedCandidates(candidates []pgQueCandidate, runs []domain.JobR
 		claimed[run.ID] = struct{}{}
 	}
 
-	unclaimed := make([]pgQueCandidate, 0, len(candidates)-len(runs))
+	return compactUnclaimedReservedCandidates(candidates, func(runID string) bool {
+		_, ok := claimed[runID]
+		return ok
+	})
+}
+
+func compactUnclaimedReservedCandidates(candidates []pgQueCandidate, claimed func(runID string) bool) []pgQueCandidate {
+	write := 0
 	for _, candidate := range candidates {
-		if _, ok := claimed[candidate.Event.RunID]; !ok {
-			unclaimed = append(unclaimed, candidate)
+		if claimed(candidate.Event.RunID) {
+			continue
+		}
+		candidates[write] = candidate
+		write++
+	}
+	clear(candidates[write:])
+	return candidates[:write]
+}
+
+func pgQueRunClaimedLinear(runs []domain.JobRun, runID string) bool {
+	for _, run := range runs {
+		if run.ID == runID {
+			return true
 		}
 	}
-	return unclaimed
+	return false
 }
 
 func (q *PgQueQueue) claimRuns(
