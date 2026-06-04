@@ -51,7 +51,7 @@ const addonPackUnit = (type: string): string => {
 
 /** The complete addon product catalog with pricing and checkout slugs. */
 export const ADDON_CATALOG: AddonCatalogItem[] = ACTIVE_ADDONS.map((addon) => ({
-  type: addon.type as ActiveAddonTypeSlug,
+  type: addon.type,
   name: addon.displayName,
   description: addonDescription(addon.type),
   packSize: addon.packSize,

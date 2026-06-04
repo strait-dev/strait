@@ -5,31 +5,26 @@
  * type safety across all billing hooks, server functions, and UI components.
  */
 
+import {
+  ACTIVE_ADDON_KEYS,
+  type ActiveAddonKey,
+  ADDON_KEYS,
+  type AddonKey,
+  PLAN_KEYS,
+  type PlanKey,
+} from "@strait/billing/products";
+
 /** Budget or spending limit action determining behavior when a limit is reached. */
 export type LimitAction = "reject" | "notify";
 
 /** Plan tier slugs matching the Go backend `domain.PlanTier` constants. */
-export type PlanTierSlug =
-  | "free"
-  | "starter"
-  | "pro"
-  | "scale"
-  | "business"
-  | "enterprise";
+export type PlanTierSlug = PlanKey;
 
 /** Addon type identifiers matching the Go backend `billing.AddonType` constants. */
-export type AddonTypeSlug =
-  | "concurrency_100"
-  | "history_30d"
-  | "environments_5"
-  | "compliance_archive"
-  | "dedicated_workers";
+export type AddonTypeSlug = AddonKey;
 
 /** Addon type identifiers that are active and sellable at launch. */
-export type ActiveAddonTypeSlug =
-  | "concurrency_100"
-  | "history_30d"
-  | "environments_5";
+export type ActiveAddonTypeSlug = ActiveAddonKey;
 
 /** Anomaly severity levels returned by the anomaly detection endpoint. */
 export type AnomalySeverity = "warning" | "high" | "critical";
@@ -67,27 +62,11 @@ export const REFETCH_10M = 600_000;
 export const STALE_30S = 30_000;
 
 /** All valid plan tier slugs, ordered by rank. */
-export const ALL_PLAN_TIERS: readonly PlanTierSlug[] = [
-  "free",
-  "starter",
-  "pro",
-  "scale",
-  "business",
-  "enterprise",
-] as const;
+export const ALL_PLAN_TIERS: readonly PlanTierSlug[] = PLAN_KEYS;
 
 /** All valid addon type slugs. */
-export const ALL_ADDON_TYPES: readonly AddonTypeSlug[] = [
-  "concurrency_100",
-  "history_30d",
-  "environments_5",
-  "compliance_archive",
-  "dedicated_workers",
-] as const;
+export const ALL_ADDON_TYPES: readonly AddonTypeSlug[] = ADDON_KEYS;
 
 /** Addon type slugs accepted in active subscription usage payloads. */
-export const ACTIVE_ADDON_TYPES: readonly ActiveAddonTypeSlug[] = [
-  "concurrency_100",
-  "history_30d",
-  "environments_5",
-] as const;
+export const ACTIVE_ADDON_TYPES: readonly ActiveAddonTypeSlug[] =
+  ACTIVE_ADDON_KEYS;

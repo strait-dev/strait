@@ -15,6 +15,20 @@ export type PlanKey =
   | "business"
   | "enterprise";
 
+export type AddonKey =
+  | "concurrency_100"
+  | "history_30d"
+  | "environments_5"
+  | "compliance_archive"
+  | "dedicated_workers";
+
+export type ActiveAddonKey =
+  | "concurrency_100"
+  | "history_30d"
+  | "environments_5";
+
+export type RoadmapAddonKey = "compliance_archive" | "dedicated_workers";
+
 export type Plan = {
   name: string;
   description: string;
@@ -97,7 +111,7 @@ export type PlanApiResponse = {
 };
 
 export type BillingAddon = {
-  type: string;
+  type: AddonKey;
   displayName: string;
   lookupKey: string;
   packSize: number;
@@ -105,6 +119,16 @@ export type BillingAddon = {
   maxTotal: number;
   status: "active" | "roadmap";
   availableOn: PlanKey[];
+};
+
+export type ActiveBillingAddon = BillingAddon & {
+  type: ActiveAddonKey;
+  status: "active";
+};
+
+export type RoadmapBillingAddon = BillingAddon & {
+  type: RoadmapAddonKey;
+  status: "roadmap";
 };
 
 export const PLAN_KEYS: PlanKey[] = [
@@ -115,6 +139,25 @@ export const PLAN_KEYS: PlanKey[] = [
   "business",
   "enterprise",
 ] as PlanKey[];
+
+export const ADDON_KEYS: AddonKey[] = [
+  "concurrency_100",
+  "history_30d",
+  "environments_5",
+  "compliance_archive",
+  "dedicated_workers",
+] as AddonKey[];
+
+export const ACTIVE_ADDON_KEYS: ActiveAddonKey[] = [
+  "concurrency_100",
+  "history_30d",
+  "environments_5",
+] as ActiveAddonKey[];
+
+export const ROADMAP_ADDON_KEYS: RoadmapAddonKey[] = [
+  "compliance_archive",
+  "dedicated_workers",
+] as RoadmapAddonKey[];
 
 export const PLANS: Record<PlanKey, Plan> = {
   free: {
@@ -697,7 +740,7 @@ export const PLAN_API_RESPONSE: PlanApiResponse[] = [
   },
 ] as PlanApiResponse[];
 
-export const ACTIVE_ADDONS: BillingAddon[] = [
+export const ACTIVE_ADDONS: ActiveBillingAddon[] = [
   {
     type: "concurrency_100",
     displayName: "+100 concurrent runs",
@@ -728,9 +771,9 @@ export const ACTIVE_ADDONS: BillingAddon[] = [
     status: "active",
     availableOn: ["pro", "scale"],
   },
-] as BillingAddon[];
+] as ActiveBillingAddon[];
 
-export const ROADMAP_ADDONS: BillingAddon[] = [
+export const ROADMAP_ADDONS: RoadmapBillingAddon[] = [
   {
     type: "compliance_archive",
     displayName: "Compliance archive",
@@ -751,7 +794,7 @@ export const ROADMAP_ADDONS: BillingAddon[] = [
     status: "roadmap",
     availableOn: [],
   },
-] as BillingAddon[];
+] as RoadmapBillingAddon[];
 
 export const ROADMAP_FEATURES: string[] = [
   "SSO/SAML",

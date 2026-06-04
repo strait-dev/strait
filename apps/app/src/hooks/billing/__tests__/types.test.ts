@@ -1,3 +1,8 @@
+import {
+  ACTIVE_ADDON_KEYS,
+  ADDON_KEYS,
+  PLAN_KEYS,
+} from "@strait/billing/products";
 import { describe, expect, it } from "vitest";
 import {
   ACTIVE_ADDON_TYPES,
@@ -14,15 +19,8 @@ import {
 } from "../types";
 
 describe("PlanTierSlug", () => {
-  it("ALL_PLAN_TIERS contains all 6 tiers in order", () => {
-    expect(ALL_PLAN_TIERS).toEqual([
-      "free",
-      "starter",
-      "pro",
-      "scale",
-      "business",
-      "enterprise",
-    ]);
+  it("ALL_PLAN_TIERS mirrors the generated billing catalog", () => {
+    expect(ALL_PLAN_TIERS).toEqual(PLAN_KEYS);
   });
 
   it("type accepts valid tier strings", () => {
@@ -39,22 +37,12 @@ describe("PlanTierSlug", () => {
 });
 
 describe("AddonTypeSlug", () => {
-  it("ALL_ADDON_TYPES contains active and roadmap addon types", () => {
-    expect(ALL_ADDON_TYPES).toEqual([
-      "concurrency_100",
-      "history_30d",
-      "environments_5",
-      "compliance_archive",
-      "dedicated_workers",
-    ]);
+  it("ALL_ADDON_TYPES mirrors the generated billing catalog", () => {
+    expect(ALL_ADDON_TYPES).toEqual(ADDON_KEYS);
   });
 
-  it("ACTIVE_ADDON_TYPES contains only launch-active addon types", () => {
-    expect(ACTIVE_ADDON_TYPES).toEqual([
-      "concurrency_100",
-      "history_30d",
-      "environments_5",
-    ]);
+  it("ACTIVE_ADDON_TYPES mirrors launch-active generated add-ons", () => {
+    expect(ACTIVE_ADDON_TYPES).toEqual(ACTIVE_ADDON_KEYS);
   });
 
   it("type accepts valid addon type strings", () => {

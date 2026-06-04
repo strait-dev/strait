@@ -74,6 +74,10 @@ function goString(value) {
   return JSON.stringify(value ?? "");
 }
 
+function tsStringUnion(values) {
+  return values.map((value) => `  | ${JSON.stringify(value)}`).join("\n");
+}
+
 function goBool(value) {
   return value ? "true" : "false";
 }
@@ -272,6 +276,9 @@ function generateProductsTs() {
   const roadmapAddons = catalog.addons.filter(
     (addon) => addon.status !== "active"
   );
+  const addonOrder = catalog.addons.map((addon) => addon.type);
+  const activeAddonOrder = activeAddons.map((addon) => addon.type);
+  const roadmapAddonOrder = roadmapAddons.map((addon) => addon.type);
   return `${generatedHeader("//")}
 
 export const PRICING_CATALOG_VERSION = ${JSON.stringify(catalog.version)};
@@ -285,6 +292,15 @@ export type PlanKey =
   | "scale"
   | "business"
   | "enterprise";
+
+export type AddonKey =
+${tsStringUnion(addonOrder)};
+
+export type ActiveAddonKey =
+${tsStringUnion(activeAddonOrder)};
+
+export type RoadmapAddonKey =
+${tsStringUnion(roadmapAddonOrder)};
 
 export type Plan = {
   name: string;
@@ -368,7 +384,7 @@ export type PlanApiResponse = {
 };
 
 export type BillingAddon = {
-  type: string;
+  type: AddonKey;
   displayName: string;
   lookupKey: string;
   packSize: number;
@@ -378,15 +394,31 @@ export type BillingAddon = {
   availableOn: PlanKey[];
 };
 
+export type ActiveBillingAddon = BillingAddon & {
+  type: ActiveAddonKey;
+  status: "active";
+};
+
+export type RoadmapBillingAddon = BillingAddon & {
+  type: RoadmapAddonKey;
+  status: "roadmap";
+};
+
 export const PLAN_KEYS: PlanKey[] = ${JSON.stringify(planOrder, null, 2)} as PlanKey[];
+
+export const ADDON_KEYS: AddonKey[] = ${JSON.stringify(addonOrder, null, 2)} as AddonKey[];
+
+export const ACTIVE_ADDON_KEYS: ActiveAddonKey[] = ${JSON.stringify(activeAddonOrder, null, 2)} as ActiveAddonKey[];
+
+export const ROADMAP_ADDON_KEYS: RoadmapAddonKey[] = ${JSON.stringify(roadmapAddonOrder, null, 2)} as RoadmapAddonKey[];
 
 export const PLANS: Record<PlanKey, Plan> = ${JSON.stringify(plans, null, 2)} as Record<PlanKey, Plan>;
 
 export const PLAN_API_RESPONSE: PlanApiResponse[] = ${JSON.stringify(apiPlans, null, 2)} as PlanApiResponse[];
 
-export const ACTIVE_ADDONS: BillingAddon[] = ${JSON.stringify(activeAddons, null, 2)} as BillingAddon[];
+export const ACTIVE_ADDONS: ActiveBillingAddon[] = ${JSON.stringify(activeAddons, null, 2)} as ActiveBillingAddon[];
 
-export const ROADMAP_ADDONS: BillingAddon[] = ${JSON.stringify(roadmapAddons, null, 2)} as BillingAddon[];
+export const ROADMAP_ADDONS: RoadmapBillingAddon[] = ${JSON.stringify(roadmapAddons, null, 2)} as RoadmapBillingAddon[];
 
 export const ROADMAP_FEATURES: string[] = ${JSON.stringify(catalog.roadmapFeatures, null, 2)};
 
