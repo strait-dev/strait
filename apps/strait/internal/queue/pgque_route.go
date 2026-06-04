@@ -138,17 +138,16 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 		if ref.ProjectID == "" || ref.QueueName == "" {
 			return pgQueWorkerRefArgs{}
 		}
-		return pgQueWorkerRefArgs{
-			ProjectIDs:     []string{ref.ProjectID},
-			QueueNames:     []string{ref.QueueName},
-			EnvironmentIDs: []string{ref.EnvironmentID},
-		}
+		args := makeWorkerRefArgs(1)
+		args.ProjectIDs[0] = ref.ProjectID
+		args.QueueNames[0] = ref.QueueName
+		args.EnvironmentIDs[0] = ref.EnvironmentID
+		return args
 	}
-	projectIDs := make([]string, 0, len(refs))
-	queueNames := make([]string, 0, len(refs))
-	environmentIDs := make([]string, 0, len(refs))
+	args := makeWorkerRefArgs(len(refs))
 	var smallRefs [pgQueSmallWorkerRefLimit]domain.WorkerQueueRef
 	smallRefCount := 0
+	argCount := 0
 	var seen map[domain.WorkerQueueRef]struct{}
 	for _, ref := range refs {
 		if ref.ProjectID == "" || ref.QueueName == "" {
@@ -169,15 +168,12 @@ func workerQueueRefArgs(refs []domain.WorkerQueueRef) pgQueWorkerRefArgs {
 			}
 			seen[ref] = struct{}{}
 		}
-		projectIDs = append(projectIDs, ref.ProjectID)
-		queueNames = append(queueNames, ref.QueueName)
-		environmentIDs = append(environmentIDs, ref.EnvironmentID)
+		args.ProjectIDs[argCount] = ref.ProjectID
+		args.QueueNames[argCount] = ref.QueueName
+		args.EnvironmentIDs[argCount] = ref.EnvironmentID
+		argCount++
 	}
-	return pgQueWorkerRefArgs{
-		ProjectIDs:     projectIDs,
-		QueueNames:     queueNames,
-		EnvironmentIDs: environmentIDs,
-	}
+	return trimWorkerRefArgs(args, argCount)
 }
 
 func workerQueueRefSeen(
@@ -201,18 +197,35 @@ func workerQueueRefArgsFromNormalized(refs []domain.WorkerQueueRef) pgQueWorkerR
 	if len(refs) == 0 {
 		return pgQueWorkerRefArgs{}
 	}
-	projectIDs := make([]string, len(refs))
-	queueNames := make([]string, len(refs))
-	environmentIDs := make([]string, len(refs))
+	args := makeWorkerRefArgs(len(refs))
 	for i, ref := range refs {
-		projectIDs[i] = ref.ProjectID
-		queueNames[i] = ref.QueueName
-		environmentIDs[i] = ref.EnvironmentID
+		args.ProjectIDs[i] = ref.ProjectID
+		args.QueueNames[i] = ref.QueueName
+		args.EnvironmentIDs[i] = ref.EnvironmentID
+	}
+	return args
+}
+
+func makeWorkerRefArgs(size int) pgQueWorkerRefArgs {
+	if size <= 0 {
+		return pgQueWorkerRefArgs{}
+	}
+	values := make([]string, size*3)
+	return pgQueWorkerRefArgs{
+		ProjectIDs:     values[:size:size],
+		QueueNames:     values[size : 2*size : 2*size],
+		EnvironmentIDs: values[2*size : 3*size : 3*size],
+	}
+}
+
+func trimWorkerRefArgs(args pgQueWorkerRefArgs, size int) pgQueWorkerRefArgs {
+	if size <= 0 {
+		return pgQueWorkerRefArgs{}
 	}
 	return pgQueWorkerRefArgs{
-		ProjectIDs:     projectIDs,
-		QueueNames:     queueNames,
-		EnvironmentIDs: environmentIDs,
+		ProjectIDs:     args.ProjectIDs[:size:size],
+		QueueNames:     args.QueueNames[:size:size],
+		EnvironmentIDs: args.EnvironmentIDs[:size:size],
 	}
 }
 
