@@ -51,6 +51,8 @@ const (
 	LimitMaxLogDrains        LimitKey = "max_log_drains_per_org"
 	LimitMaxNotificationCh   LimitKey = "max_notification_channels"
 	LimitAPIRateLimit        LimitKey = "api_rate_limit"
+	LimitWorkerConnections   LimitKey = "worker_connections"
+	LimitMaxDispatchPriority LimitKey = "max_dispatch_priority"
 )
 
 // PlanRegistry provides plan definitions and feature checks.
@@ -224,6 +226,10 @@ func (r *StaticRegistry) MaxForLimit(tier domain.PlanTier, limit LimitKey) int {
 		return limits.MaxNotificationChannels
 	case LimitAPIRateLimit:
 		return limits.APIRateLimit
+	case LimitWorkerConnections:
+		return limits.WorkerConnections
+	case LimitMaxDispatchPriority:
+		return limits.MaxDispatchPriority
 	default:
 		return 0
 	}

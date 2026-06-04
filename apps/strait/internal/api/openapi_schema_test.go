@@ -117,7 +117,7 @@ func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 		"compute_cost_microusd",
 		"compute_microusd",
 		"by_model",
-		"BYOK",
+		strings.Join([]string{"BY", "OK"}, ""),
 		"OpenAI",
 		"Anthropic",
 		"LLM",

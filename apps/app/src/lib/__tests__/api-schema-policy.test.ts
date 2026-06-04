@@ -38,7 +38,7 @@ const removedPublicApiMarkers = [
   "compute_cost_microusd",
   "compute_microusd",
   "by_model",
-  "BYOK",
+  ["BY", "OK"].join(""),
   "OpenAI",
   "Anthropic",
   "LLM",

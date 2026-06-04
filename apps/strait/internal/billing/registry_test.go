@@ -166,6 +166,20 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		{domain.PlanFree, LimitAPIRateLimit, 60},
 		{domain.PlanScale, LimitAPIRateLimit, 3000},
 		{domain.PlanEnterprise, LimitAPIRateLimit, -1},
+
+		{domain.PlanFree, LimitWorkerConnections, WorkerConnectionsFree},
+		{domain.PlanStarter, LimitWorkerConnections, WorkerConnectionsStarter},
+		{domain.PlanPro, LimitWorkerConnections, WorkerConnectionsPro},
+		{domain.PlanScale, LimitWorkerConnections, WorkerConnectionsScale},
+		{domain.PlanBusiness, LimitWorkerConnections, WorkerConnectionsBusiness},
+		{domain.PlanEnterprise, LimitWorkerConnections, WorkerConnectionsEnterprise},
+
+		{domain.PlanFree, LimitMaxDispatchPriority, MaxDispatchPriorityFree},
+		{domain.PlanStarter, LimitMaxDispatchPriority, MaxDispatchPriorityStarter},
+		{domain.PlanPro, LimitMaxDispatchPriority, MaxDispatchPriorityPro},
+		{domain.PlanScale, LimitMaxDispatchPriority, MaxDispatchPriorityScale},
+		{domain.PlanBusiness, LimitMaxDispatchPriority, MaxDispatchPriorityBusiness},
+		{domain.PlanEnterprise, LimitMaxDispatchPriority, MaxDispatchPriorityEnterprise},
 	}
 
 	for _, tt := range tests {
@@ -249,7 +263,8 @@ func TestStaticRegistry_LimitsMonotonicallyIncrease(t *testing.T) {
 	limits := []LimitKey{
 		LimitMaxProjectsPerOrg, LimitMaxMembersPerOrg, LimitMaxConcurrentRuns,
 		LimitRetentionDays, LimitMaxWorkflowDAGSteps, LimitMaxScheduledJobs,
-		LimitMaxWebhookEndpoints, LimitAPIRateLimit,
+		LimitMaxWebhookEndpoints, LimitAPIRateLimit, LimitWorkerConnections,
+		LimitMaxDispatchPriority,
 	}
 
 	tiers := domain.AllPlanTiers()
