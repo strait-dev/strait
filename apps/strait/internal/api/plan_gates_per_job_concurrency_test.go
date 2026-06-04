@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -97,6 +98,34 @@ func TestCheckPerJobConcurrencyLimit_NilEnforcer_FailsOpen(t *testing.T) {
 
 	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999_999, 999_999); err != nil {
 		t.Fatalf("nil enforcer must fail open; got %v", err)
+	}
+}
+
+func TestCheckPerJobConcurrencyLimit_OrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := &tunableLimitsEnforcer{limits: freeLimits(), orgErr: errors.New("org lookup unavailable")}
+	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+
+	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
+	if err == nil {
+		t.Fatal("expected org lookup error to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
+	}
+}
+
+func TestCheckPerJobConcurrencyLimit_PlanLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := &tunableLimitsEnforcer{limitsErr: errors.New("plan lookup unavailable")}
+	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+
+	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
+	if err == nil {
+		t.Fatal("expected plan lookup error to fail closed")
+	}
+	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("error = %v, want billing enforcement unavailable", err)
 	}
 }
 

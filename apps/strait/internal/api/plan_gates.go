@@ -28,6 +28,11 @@ const cronMinIntervalSampleCount = 50
 // staticRegistry is a singleton PlanRegistry used by all plan gate checks.
 var staticRegistry = billing.NewStaticRegistry()
 
+func planGateUnavailable(resource string, err error) error {
+	slog.Error("plan gate: enforcement dependency unavailable", "resource", resource, "error", err)
+	return huma.Error503ServiceUnavailable("billing enforcement unavailable, please retry")
+}
+
 type logDrainOrgLimitCreator interface {
 	CreateLogDrainWithOrgLimit(ctx context.Context, drain *domain.LogDrain, orgID string, maxDrains int) error
 }
@@ -345,7 +350,7 @@ func (s *Server) checkEnvironmentLimit(ctx context.Context, projectID string) er
 
 	count, err := s.store.CountEnvironmentsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: environment count failures must not block creation
+		return planGateUnavailable("environment_count", err)
 	}
 
 	if count >= maxEnvironments {
@@ -370,7 +375,10 @@ func (s *Server) resolveEnvironmentCreateLimit(ctx context.Context, projectID st
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block environment creation
+		if err != nil {
+			return "", -1, limits.DisplayName, planGateUnavailable("environment_org_lookup", err)
+		}
+		return "", -1, limits.DisplayName, nil
 	}
 
 	return orgID, limits.MaxEnvironments, limits.DisplayName, nil
@@ -389,7 +397,7 @@ func (s *Server) checkScheduleLimit(ctx context.Context, projectID string, cronE
 
 	count, err := s.store.CountCronJobsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: schedule count failures must not block creation
+		return planGateUnavailable("schedule_count", err)
 	}
 
 	if count >= maxSchedules {
@@ -413,12 +421,15 @@ func (s *Server) resolveScheduleCreateLimit(ctx context.Context, projectID strin
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return "", -1, "", nil //nolint:nilerr // fail open: org lookup failures must not block schedule creation
+		if err != nil {
+			return "", -1, "", planGateUnavailable("schedule_org_lookup", err)
+		}
+		return "", -1, "", nil
 	}
 
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return "", -1, "", nil //nolint:nilerr // fail open: plan lookup failures must not block schedule creation
+		return "", -1, "", planGateUnavailable("schedule_plan_lookup", limErr)
 	}
 	if limits.MaxScheduledJobs == -1 {
 		return "", -1, limits.DisplayName, nil // Unlimited.
@@ -463,7 +474,7 @@ func (s *Server) checkWebhookEndpointLimit(ctx context.Context, projectID string
 
 	count, err := s.store.CountWebhookSubscriptionsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: webhook count failures must not block creation
+		return planGateUnavailable("webhook_endpoint_count", err)
 	}
 
 	if count >= maxEndpoints {
@@ -494,7 +505,10 @@ func (s *Server) resolveWebhookEndpointCreateLimit(ctx context.Context, projectI
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block webhook creation
+		if err != nil {
+			return "", -1, limits.DisplayName, planGateUnavailable("webhook_endpoint_org_lookup", err)
+		}
+		return "", -1, limits.DisplayName, nil
 	}
 
 	return orgID, limits.MaxWebhookEndpoints, limits.DisplayName, nil
@@ -521,7 +535,7 @@ func (s *Server) checkWebhookProjectLimit(ctx context.Context, projectID string,
 	}
 	count, err := s.store.CountWebhookSubscriptionsByProject(ctx, projectID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: webhook count failures must not block creation
+		return planGateUnavailable("webhook_project_count", err)
 	}
 	if count >= maxSubscriptions {
 		return huma.Error400BadRequest("webhook subscription limit exceeded")
@@ -542,7 +556,7 @@ func (s *Server) checkLogDrainLimit(ctx context.Context, projectID string) error
 
 	count, err := s.store.CountLogDrainsByOrg(ctx, orgID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: log-drain count failures must not block creation
+		return planGateUnavailable("log_drain_count", err)
 	}
 
 	if count >= maxDrains {
@@ -573,7 +587,10 @@ func (s *Server) resolveLogDrainCreateLimit(ctx context.Context, projectID strin
 
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return "", -1, limits.DisplayName, nil //nolint:nilerr // fail open: org lookup failures must not block log-drain creation
+		if err != nil {
+			return "", -1, limits.DisplayName, planGateUnavailable("log_drain_org_lookup", err)
+		}
+		return "", -1, limits.DisplayName, nil
 	}
 
 	return orgID, limits.MaxLogDrainsPerOrg, limits.DisplayName, nil
@@ -593,7 +610,7 @@ func (s *Server) checkNotificationChannelLimit(ctx context.Context, projectID st
 
 	count, err := s.store.CountNotificationChannelsByProject(ctx, projectID)
 	if err != nil {
-		return nil //nolint:nilerr // fail open: notification channel count failures must not block creation
+		return planGateUnavailable("notification_channel_count", err)
 	}
 
 	if count >= maxChannels {
@@ -673,11 +690,14 @@ func (s *Server) checkRunTTLLimit(ctx context.Context, projectID string, ttlSecs
 	}
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block run TTL updates
+		if err != nil {
+			return planGateUnavailable("run_ttl_org_lookup", err)
+		}
+		return nil
 	}
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return nil //nolint:nilerr // fail open: plan lookup failures must not block run TTL updates
+		return planGateUnavailable("run_ttl_plan_lookup", limErr)
 	}
 	if limits.RetentionDays <= 0 {
 		return nil // Unlimited. or unset
@@ -709,11 +729,14 @@ func (s *Server) checkPerJobConcurrencyLimit(ctx context.Context, projectID stri
 	}
 	orgID, err := s.billingEnforcer.GetProjectOrgID(ctx, projectID)
 	if err != nil || orgID == "" {
-		return nil //nolint:nilerr // fail open: org lookup failures must not block concurrency updates
+		if err != nil {
+			return planGateUnavailable("per_job_concurrency_org_lookup", err)
+		}
+		return nil
 	}
 	limits, limErr := s.billingEnforcer.GetOrgPlanLimits(ctx, orgID)
 	if limErr != nil {
-		return nil //nolint:nilerr // fail open: plan lookup failures must not block concurrency updates
+		return planGateUnavailable("per_job_concurrency_plan_lookup", limErr)
 	}
 	if limits.MaxConcurrentRuns < 0 {
 		return nil
