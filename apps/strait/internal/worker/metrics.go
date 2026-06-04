@@ -16,6 +16,7 @@ type workerRetryReason string
 type dispatchMode string
 type dispatchOutcome string
 type snoozeSkippedReason string
+type responseStatusClass string
 
 const (
 	workerDispatchModeGRPC       workerDispatchMode    = "grpc"
@@ -36,6 +37,8 @@ const (
 
 	snoozeSkippedReasonLocked   snoozeSkippedReason = "locked"
 	snoozeSkippedReasonConflict snoozeSkippedReason = "conflict"
+
+	responseStatusClassUnknown responseStatusClass = "unknown"
 )
 
 // workerMetrics holds the package-level metric instruments. It is an atomic
@@ -182,13 +185,13 @@ func recordDispatchPayloadBytes(ctx context.Context, mode dispatchMode, size int
 func recordDispatchResponseStatus(ctx context.Context, mode dispatchMode, statusCode int) {
 	workerMetrics.Load().responseStatus.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("mode", string(mode)),
-		attribute.String("status_class", statusClass(statusCode)),
+		attribute.String("status_class", string(statusClass(statusCode))),
 	))
 }
 
-func statusClass(statusCode int) string {
+func statusClass(statusCode int) responseStatusClass {
 	if statusCode < 100 || statusCode > 599 {
-		return "unknown"
+		return responseStatusClassUnknown
 	}
-	return string(rune('0'+statusCode/100)) + "xx"
+	return responseStatusClass(string(rune('0'+statusCode/100)) + "xx")
 }
