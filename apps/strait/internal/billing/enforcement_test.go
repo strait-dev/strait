@@ -246,6 +246,25 @@ func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T
 	}
 }
 
+func TestEnforcer_CheckProjectLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countProjectsErr: errors.New("project count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckProjectLimit(context.Background(), "org-count-error")
+	if err == nil {
+		t.Fatal("expected project limit check to fail closed when project count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)

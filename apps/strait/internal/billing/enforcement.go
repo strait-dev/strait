@@ -1260,7 +1260,8 @@ func (e *Enforcer) CheckProjectLimit(ctx context.Context, orgID string) error {
 
 	count, err := e.store.CountProjectsByOrg(ctx, orgID)
 	if err != nil {
-		return e.boundedFailOpen(ctx, orgID, "project_limit", "db_error")
+		e.logger.Warn("failed to count org projects for project limit check", "org_id", orgID, "error", err)
+		return serviceDegradedLimitError()
 	}
 	e.resetFailOpen(orgID, "project_limit")
 

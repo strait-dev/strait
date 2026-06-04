@@ -56,6 +56,7 @@ type mockBillingStore struct {
 	lastPaymentStatusUpdate    *paymentStatusUpdate
 	subscriptions              map[string]*OrgSubscription
 	projects                   map[string][]string
+	countProjectsErr           error
 	memberCounts               map[string]int
 	orgCountsByUser            map[string]int
 	executingRuns              map[string]int
@@ -309,6 +310,9 @@ func (m *mockBillingStore) ListProjectsByOrg(_ context.Context, orgID string) ([
 }
 
 func (m *mockBillingStore) CountProjectsByOrg(_ context.Context, orgID string) (int, error) {
+	if m.countProjectsErr != nil {
+		return 0, m.countProjectsErr
+	}
 	if m.projects != nil {
 		return len(m.projects[orgID]), nil
 	}
