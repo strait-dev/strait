@@ -908,7 +908,14 @@ func (e *Enforcer) checkMonthlyRunLimit(ctx context.Context, orgID, runID string
 			)
 			e.emitBillingEvent(orgID, "monthly_run_overage", string(limits.PlanTier))
 			recordBillingOverageRun(ctx, "monthly_runs", string(limits.PlanTier))
-			e.markRunOverage(ctx, runID)
+			if err := e.markRunOverage(ctx, runID); err != nil {
+				e.logger.Warn("failed to mark monthly run overage, failing closed",
+					"org_id", orgID,
+					"run_id", runID,
+					"error", err,
+				)
+				return serviceDegradedLimitError()
+			}
 			return nil
 		}
 
@@ -944,13 +951,14 @@ func (e *Enforcer) orgAllowsOverage(ctx context.Context, orgID string, tier doma
 	return !sub.OverageDisabled
 }
 
-func (e *Enforcer) markRunOverage(ctx context.Context, runID string) {
+func (e *Enforcer) markRunOverage(ctx context.Context, runID string) error {
 	if runID == "" || e.rdb == nil {
-		return
+		return nil
 	}
 	if err := e.rdb.Set(ctx, runOverageKey(runID), "1", time.Duration(monthlyRunCounterTTLSecs)*time.Second).Err(); err != nil {
-		e.logger.Warn("failed to mark run overage", "run_id", runID, "error", err)
+		return fmt.Errorf("mark run overage: %w", err)
 	}
+	return nil
 }
 
 func (e *Enforcer) IsRunOverage(ctx context.Context, runID string) bool {

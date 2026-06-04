@@ -1971,6 +1971,55 @@ func TestCheckMonthlyRunLimit_PaidOverageEnabledAllowsPastAllowance(t *testing.T
 	}
 }
 
+type overageMarkerFailRedis struct {
+	redis.Cmdable
+}
+
+func (r overageMarkerFailRedis) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+	cmd := redis.NewStatusCmd(ctx, "set", key, value, expiration)
+	if strings.HasPrefix(key, "billing:run_overage:") {
+		cmd.SetErr(errors.New("simulated overage marker outage"))
+		return cmd
+	}
+	return r.Cmdable.Set(ctx, key, value, expiration)
+}
+
+func TestCheckMonthlyRunLimit_OverageMarkerFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	baseRedis := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { baseRedis.Close() })
+
+	ctx := context.Background()
+	orgID := "org-paid-overage-marker-error"
+	runID := "run-paid-marker-error"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+		},
+	}
+	limits := GetPlanLimits(domain.PlanStarter)
+	if err := baseRedis.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+	enforcer := NewEnforcer(store, overageMarkerFailRedis{Cmdable: baseRedis}, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, runID)
+	if err == nil {
+		t.Fatal("expected paid overage run to fail closed when overage marker cannot be persisted")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+	if got := enforcer.IsRunOverage(ctx, runID); got {
+		t.Fatal("failed marker write must not leave a run marked as overage")
+	}
+}
+
 func TestCheckMonthlyRunLimit_FreeCardOverageOptInAllowsPastAllowance(t *testing.T) {
 	t.Parallel()
 	enforcer, store, mr := setupEnforcer(t)
