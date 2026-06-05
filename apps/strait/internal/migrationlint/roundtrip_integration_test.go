@@ -441,8 +441,8 @@ func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	})
 }
 
-func TestMigrationRoundtrip_000313_DeprecateAgentGuardrailColumns(t *testing.T) {
-	runRoundtrip(t, 313, func(t *testing.T, postUp schemaState) {
+func TestMigrationRoundtrip_000339_DeprecateAgentGuardrailColumns(t *testing.T) {
+	runRoundtrip(t, 339, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, stale := range []string{
 			"jobs.max_tokens_per_run",
@@ -485,8 +485,8 @@ func TestMigrationRoundtrip_000313_DeprecateAgentGuardrailColumns(t *testing.T) 
 	})
 }
 
-func TestMigrationRoundtrip_000314_EnterpriseContractOverageTerms(t *testing.T) {
-	runRoundtrip(t, 314, func(t *testing.T, postUp schemaState) {
+func TestMigrationRoundtrip_000340_EnterpriseContractOverageTerms(t *testing.T) {
+	runRoundtrip(t, 340, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, stale := range []string{
 			"enterprise_contracts.included_credit_microusd",
@@ -502,8 +502,8 @@ func TestMigrationRoundtrip_000314_EnterpriseContractOverageTerms(t *testing.T) 
 	})
 }
 
-func TestMigrationRoundtrip_000315_DropRetiredUsageColumns(t *testing.T) {
-	runRoundtrip(t, 315, func(t *testing.T, postUp schemaState) {
+func TestMigrationRoundtrip_000341_DropRetiredUsageColumns(t *testing.T) {
+	runRoundtrip(t, 341, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, retired := range retiredUsageColumnNames() {
 			if postUp.columns[retired] {
