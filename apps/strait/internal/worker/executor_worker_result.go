@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"strait/internal/billing"
 	"strait/internal/domain"
 )
 
@@ -109,13 +108,6 @@ func (r workerRunResult) failureMessage() string {
 		return "worker returned malformed or empty result"
 	}
 	return fmt.Sprintf("worker reported terminal status %q without error message", r.status)
-}
-
-func (e *Executor) recordWorkerModeCost(ctx context.Context, run *domain.JobRun, job *domain.Job) {
-	e.recordRunCostRow(ctx, job.ProjectID, run.ID, "failed to record worker run cost", func(costCtx context.Context, orgID, projectID, runID string) error {
-		return e.runCostRecorder.RecordWorkerRunCost(costCtx, orgID, projectID, runID)
-	})
-	e.ingestStripeUsageEvent(ctx, job.ProjectID, run.ID, billing.WorkerCostPerRunMicrousd)
 }
 
 func (e *Executor) completeWorkerTask(ctx context.Context, result any, status domain.WorkerTaskStatus) {
