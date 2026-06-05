@@ -3,6 +3,8 @@ package billing
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestCatalogResolver_TierLookupKeys_RoundTrip walks every entry in
@@ -16,21 +18,17 @@ func TestCatalogResolver_TierLookupKeys_RoundTrip(t *testing.T) {
 	for tier, cat := range PlanCatalogs {
 		if cat.LookupKeyMonthly != "" {
 			got, ok := r.TierForLookupKey(cat.LookupKeyMonthly)
-			if !ok {
-				t.Errorf("tier %q: monthly lookup key %q not registered", tier, cat.LookupKeyMonthly)
-			}
-			if got != tier {
-				t.Errorf("tier %q: monthly lookup key %q resolved to %q", tier, cat.LookupKeyMonthly, got)
-			}
+			assert.True(t, ok)
+			assert.Equal(t, tier,
+				got)
+
 		}
 		if cat.LookupKeyAnnual != "" {
 			got, ok := r.TierForLookupKey(cat.LookupKeyAnnual)
-			if !ok {
-				t.Errorf("tier %q: annual lookup key %q not registered", tier, cat.LookupKeyAnnual)
-			}
-			if got != tier {
-				t.Errorf("tier %q: annual lookup key %q resolved to %q", tier, cat.LookupKeyAnnual, got)
-			}
+			assert.True(t, ok)
+			assert.Equal(t, tier,
+				got)
+
 		}
 	}
 }
@@ -49,21 +47,26 @@ func TestCatalogResolver_AddonLookupKeys_RoundTrip(t *testing.T) {
 		}
 		if !IsLaunchActiveAddonType(pack.Type) {
 			if _, ok := r.AddonForLookupKey(pack.LookupKey); ok {
-				t.Errorf("roadmap addon %q: lookup key %q must not resolve as sellable addon", pack.Type, pack.LookupKey)
+				assert.Failf(t, "test failure",
+
+					"roadmap addon %q: lookup key %q must not resolve as sellable addon", pack.Type, pack.LookupKey)
 			}
-			if r.IsAddonLookupKey(pack.LookupKey) {
-				t.Errorf("roadmap addon %q: lookup key %q must not register as addon", pack.Type, pack.LookupKey)
-			}
+			assert.False(t, r.
+				IsAddonLookupKey(pack.LookupKey))
+
 			continue
 		}
 		got, ok := r.AddonForLookupKey(pack.LookupKey)
 		if !ok {
-			t.Errorf("addon %q: lookup key %q not registered", pack.Type, pack.LookupKey)
+			assert.Failf(t, "test failure",
+
+				"addon %q: lookup key %q not registered", pack.Type, pack.LookupKey)
 			continue
 		}
-		if got != pack.Type {
-			t.Errorf("addon lookup key %q resolved to %q, want %q", pack.LookupKey, got, pack.Type)
-		}
+		assert.Equal(t, pack.
+			Type, got,
+		)
+
 	}
 }
 
@@ -81,14 +84,18 @@ func TestCatalogResolver_OverageLookupKeys_NotResolvedAsTier(t *testing.T) {
 			continue
 		}
 		if _, ok := r.TierForLookupKey(cat.LookupKeyOverage); ok {
-			t.Errorf("tier %q: overage lookup key %q must not resolve as a tier", tier, cat.LookupKeyOverage)
+			assert.Failf(t, "test failure",
+
+				"tier %q: overage lookup key %q must not resolve as a tier", tier, cat.LookupKeyOverage)
 		}
 		if _, ok := r.AddonForLookupKey(cat.LookupKeyOverage); ok {
-			t.Errorf("tier %q: overage lookup key %q must not resolve as an addon", tier, cat.LookupKeyOverage)
+			assert.Failf(t, "test failure",
+
+				"tier %q: overage lookup key %q must not resolve as an addon", tier, cat.LookupKeyOverage)
 		}
-		if r.IsAddonLookupKey(cat.LookupKeyOverage) {
-			t.Errorf("tier %q: overage lookup key %q must not register as an addon", tier, cat.LookupKeyOverage)
-		}
+		assert.False(t, r.
+			IsAddonLookupKey(cat.LookupKeyOverage))
+
 	}
 }
 
@@ -100,15 +107,10 @@ func TestCatalogResolver_LookupKeys_StraitPrefix(t *testing.T) {
 
 	all := allCatalogLookupKeys()
 	for _, k := range all {
-		if !strings.HasPrefix(k, "strait_") {
-			t.Errorf("lookup key %q must use canonical strait_ prefix", k)
-		}
-		if strings.Contains(k, "_v2") {
-			t.Errorf("lookup key %q still carries the temporary _v2 suffix", k)
-		}
-		if k != strings.ToLower(k) {
-			t.Errorf("lookup key %q must be lowercase", k)
-		}
+		assert.True(t, strings.HasPrefix(k, "strait_"))
+		assert.False(t, strings.Contains(k, "_v2"))
+		assert.Equal(t, strings.ToLower(k), k)
+
 	}
 }
 
@@ -124,7 +126,9 @@ func TestCatalogResolver_LookupKeys_Unique(t *testing.T) {
 			return
 		}
 		if prev, exists := seen[key]; exists {
-			t.Errorf("lookup key %q is shared by %q and %q", key, prev, owner)
+			assert.Failf(t, "test failure",
+
+				"lookup key %q is shared by %q and %q", key, prev, owner)
 			return
 		}
 		seen[key] = owner

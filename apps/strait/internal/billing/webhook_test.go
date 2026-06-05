@@ -18,6 +18,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // signStripeWebhook creates a Stripe-Signature header value for a test request.
@@ -50,9 +53,10 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sig)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		if rr.Code == http.StatusUnauthorized {
-			t.Error("expected valid signature to pass")
-		}
+		assert.NotEqual(t, http.StatusUnauthorized,
+
+			rr.Code)
+
 	})
 
 	t.Run("invalid_signature", func(t *testing.T) {
@@ -61,9 +65,11 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 		req.Header.Set("Stripe-Signature", "t=1234567890,v1=invalidsig")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("expected 401, got %d", rr.Code)
-		}
+		assert.Equal(t,
+			http.StatusUnauthorized,
+
+			rr.Code)
+
 	})
 
 	t.Run("missing_headers", func(t *testing.T) {
@@ -71,9 +77,11 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("expected 401 with missing headers, got %d", rr.Code)
-		}
+		assert.Equal(t,
+			http.StatusUnauthorized,
+
+			rr.Code)
+
 	})
 
 	t.Run("expired_timestamp", func(t *testing.T) {
@@ -88,9 +96,11 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sig)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusUnauthorized {
-			t.Errorf("expected 401 for expired timestamp, got %d", rr.Code)
-		}
+		assert.Equal(t,
+			http.StatusUnauthorized,
+
+			rr.Code)
+
 	})
 }
 
@@ -112,27 +122,28 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	assert.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastUpserted,
+	)
+	assert.Equal(t,
+		"00000000-0000-0000-0000-000000000001",
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
+		store.
+			lastUpserted.OrgID,
+	)
+	assert.Equal(t,
+		"pro", store.
+			lastUpserted.
+			PlanTier)
 
-	if store.lastUpserted == nil {
-		t.Fatal("expected subscription to be upserted")
-	}
-	if store.lastUpserted.OrgID != "00000000-0000-0000-0000-000000000001" {
-		t.Errorf("org_id = %q, want org_test", store.lastUpserted.OrgID)
-	}
-	if store.lastUpserted.PlanTier != "pro" {
-		t.Errorf("plan_tier = %q, want pro", store.lastUpserted.PlanTier)
-	}
 }
 
 func TestWebhookHandler_SubscriptionCreated_EmptyOrgID_ReturnsError(t *testing.T) {
@@ -154,22 +165,19 @@ func TestWebhookHandler_SubscriptionCreated_EmptyOrgID_ReturnsError(t *testing.T
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	assert.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
+	assert.Nil(t, store.
+		lastUpserted)
 
 	// The handler should return a non-200 status so Stripe retries the webhook.
-	if rr.Code == http.StatusOK {
-		t.Error("expected non-200 when org_id is empty, so Stripe retries; got 200 OK")
-	}
 
-	if store.lastUpserted != nil {
-		t.Error("expected no subscription to be upserted when org_id is empty")
-	}
 }
 
 func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
@@ -202,33 +210,35 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	assert.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastPlanUpdate,
+	)
+	assert.Equal(t,
+		"free", store.
+			lastPlanUpdate.
+			tier)
+	assert.Equal(t,
+		"revoked",
+		store.lastPlanUpdate.
+			status)
+	assert.Equal(t,
+		"00000000-0000-0000-0000-000000000002",
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
+		store.
+			lastClearedPending,
+	)
+	require.Nil(t, store.
+		subscriptions["00000000-0000-0000-0000-000000000002"].PendingPlanTier,
+	)
 
-	if store.lastPlanUpdate == nil {
-		t.Fatal("expected plan to be updated")
-	}
-	if store.lastPlanUpdate.tier != "free" {
-		t.Errorf("plan_tier = %q, want free", store.lastPlanUpdate.tier)
-	}
-	if store.lastPlanUpdate.status != "revoked" {
-		t.Errorf("status = %q, want revoked", store.lastPlanUpdate.status)
-	}
-	if store.lastClearedPending != "00000000-0000-0000-0000-000000000002" {
-		t.Errorf("cleared pending org = %q, want org_revoke", store.lastClearedPending)
-	}
-	if store.subscriptions["00000000-0000-0000-0000-000000000002"].PendingPlanTier != nil {
-		t.Fatal("expected pending plan tier to be cleared on revoke")
-	}
 }
 
 func TestWebhookHandler_UnknownEventType(t *testing.T) {
@@ -244,17 +254,15 @@ func TestWebhookHandler_UnknownEventType(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	assert.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for unknown events, got %d", rr.Code)
-	}
 }
 
 func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
@@ -275,23 +283,20 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Send twice
-	for i := range 2 {
+	for range 2 {
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-		if rr.Code != http.StatusOK {
-			t.Errorf("attempt %d: expected 200, got %d", i+1, rr.Code)
-		}
-	}
+		assert.Equal(t,
+			http.StatusOK,
+			rr.Code)
 
-	if store.upsertCount != 2 {
-		t.Errorf("expected 2 upserts (idempotent), got %d", store.upsertCount)
 	}
+	assert.EqualValues(t, 2, store.upsertCount)
+
 }
 
 func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
@@ -325,29 +330,28 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// The spending limit should be preserved (not reset to -1).
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000004"]
-	if sub.SpendingLimitMicrousd != 50000000 {
-		t.Errorf("spending limit was overwritten: got %d, want 50000000", sub.SpendingLimitMicrousd)
-	}
-	if sub.LimitAction != "notify" {
-		t.Errorf("limit action was overwritten: got %q, want notify", sub.LimitAction)
-	}
-	if sub.PendingPlanTier != nil {
-		t.Fatal("expected duplicate create to clear stale pending downgrade")
-	}
+	assert.EqualValues(t, 50000000,
+		sub.SpendingLimitMicrousd,
+	)
+	assert.Equal(t,
+		"notify",
+		sub.LimitAction,
+	)
+	require.Nil(t, sub.
+		PendingPlanTier,
+	)
+
 }
 
 func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
@@ -385,27 +389,30 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastFullUpdate,
+	)
+	assert.False(t,
+		store.lastFullUpdate.
+			periodStart ==
+			nil ||
+			!store.lastFullUpdate.
+				periodStart.
+				Equal(newStart))
+	assert.False(t,
+		store.lastFullUpdate.
+			periodEnd ==
+			nil || !store.lastFullUpdate.
+			periodEnd.Equal(newEnd))
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	if store.lastFullUpdate == nil {
-		t.Fatal("expected full update to be called")
-	}
-	if store.lastFullUpdate.periodStart == nil || !store.lastFullUpdate.periodStart.Equal(newStart) {
-		t.Errorf("period start not updated correctly")
-	}
-	if store.lastFullUpdate.periodEnd == nil || !store.lastFullUpdate.periodEnd.Equal(newEnd) {
-		t.Errorf("period end not updated correctly")
-	}
 }
 
 func TestWebhook_DowngradeDeferred(t *testing.T) {
@@ -435,27 +442,27 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Plan should still be "pro" (not immediately downgraded).
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000006"]
-	if sub.PlanTier != "pro" {
-		t.Errorf("expected plan to remain pro during deferred downgrade, got %q", sub.PlanTier)
-	}
+	assert.Equal(t,
+		"pro", sub.
+			PlanTier)
+	assert.Equal(t,
+		"starter",
+		store.lastPendingTier,
+	)
+
 	// Pending tier should be set.
-	if store.lastPendingTier != "starter" {
-		t.Errorf("expected pending tier to be starter, got %q", store.lastPendingTier)
-	}
+
 }
 
 func TestWebhook_UpgradeImmediate(t *testing.T) {
@@ -487,35 +494,39 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastFullUpdate,
+	)
+	assert.Equal(t,
+		"pro", store.
+			lastFullUpdate.
+			tier)
+	assert.Equal(t,
+		"", store.
+			lastPendingTier,
+	)
+	assert.Equal(t,
+		"00000000-0000-0000-0000-000000000007",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+		store.
+			lastClearedPending,
+	)
+	require.Nil(t, store.
+		subscriptions["00000000-0000-0000-0000-000000000007"].PendingPlanTier,
+	)
 
 	// Plan should be immediately updated to "pro".
-	if store.lastFullUpdate == nil {
-		t.Fatal("expected full update to be called")
-	}
-	if store.lastFullUpdate.tier != "pro" {
-		t.Errorf("expected tier to be pro, got %q", store.lastFullUpdate.tier)
-	}
+
 	// No pending tier should be set.
-	if store.lastPendingTier != "" {
-		t.Errorf("expected no pending tier for upgrade, got %q", store.lastPendingTier)
-	}
-	if store.lastClearedPending != "00000000-0000-0000-0000-000000000007" {
-		t.Errorf("expected pending tier to be cleared for org_up, got %q", store.lastClearedPending)
-	}
-	if store.subscriptions["00000000-0000-0000-0000-000000000007"].PendingPlanTier != nil {
-		t.Fatal("expected pending tier to be cleared on immediate upgrade")
-	}
+
 }
 
 func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
@@ -547,23 +558,21 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Nil(t, store.
+		subscriptions["00000000-0000-0000-0000-000000000008"].PendingPlanTier,
+	)
+	require.Equal(t,
+		"pro", store.
+			subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if store.subscriptions["00000000-0000-0000-0000-000000000008"].PendingPlanTier != nil {
-		t.Fatal("expected stale pending free tier to be cleared")
-	}
-	if store.subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier != "pro" {
-		t.Fatalf("plan tier = %q, want pro", store.subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier)
-	}
 }
 
 func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
@@ -596,31 +605,30 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	assert.Equal(t,
+		"free", store.
+			lastPendingTier,
+	)
 
 	// Verify pending tier was set to "free".
-	if store.lastPendingTier != "free" {
-		t.Errorf("expected pending tier free, got %q", store.lastPendingTier)
-	}
 
 	// Plan should still be "pro" (not immediately changed).
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000009"]
-	if sub.PlanTier != "pro" {
-		t.Errorf("expected plan to remain pro until period end, got %q", sub.PlanTier)
-	}
-	if sub.Status != "canceled" {
-		t.Errorf("expected status canceled, got %q", sub.Status)
-	}
+	assert.Equal(t,
+		"pro", sub.
+			PlanTier)
+	assert.Equal(t,
+		"canceled",
+		sub.Status)
+
 }
 
 func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
@@ -641,22 +649,21 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	assert.Equal(t,
+		"", store.
+			lastPendingTier,
+	)
 
 	// No pending tier should be set since no subscription existed.
-	if store.lastPendingTier != "" {
-		t.Errorf("expected no pending tier, got %q", store.lastPendingTier)
-	}
+
 }
 
 func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) {
@@ -680,24 +687,22 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 		}
 
 		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
+		require.Equal(t,
+			http.StatusOK,
+			rr.Code)
+		require.NotNil(
+			t, store.lastUpserted,
+		)
+		assert.True(t,
+			store.lastUpserted.
+				MonthlyUsageEmail,
+		)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rr.Code)
-		}
-
-		if store.lastUpserted == nil {
-			t.Fatal("expected subscription to be upserted")
-		}
-		if !store.lastUpserted.MonthlyUsageEmail {
-			t.Error("expected MonthlyUsageEmail to be true for starter plan")
-		}
 	})
 
 	t.Run("pro_plan_enables_monthly_usage_email", func(t *testing.T) {
@@ -718,24 +723,22 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 		}
 
 		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
+		require.Equal(t,
+			http.StatusOK,
+			rr.Code)
+		require.NotNil(
+			t, store.lastUpserted,
+		)
+		assert.True(t,
+			store.lastUpserted.
+				MonthlyUsageEmail,
+		)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rr.Code)
-		}
-
-		if store.lastUpserted == nil {
-			t.Fatal("expected subscription to be upserted")
-		}
-		if !store.lastUpserted.MonthlyUsageEmail {
-			t.Error("expected MonthlyUsageEmail to be true for pro plan")
-		}
 	})
 }
 
@@ -780,37 +783,35 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		}
 
 		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rr.Code)
-		}
+		require.Equal(t,
+			http.StatusOK,
+			rr.Code)
 
 		// Wait for the async goroutine to complete.
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for welcome email callback")
+			require.Fail(t, "timed out waiting for welcome email callback")
 		}
+		require.Len(t,
+			calls, 1)
+		assert.Equal(t,
+			"00000000-0000-0000-0000-00000000000d",
 
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 welcome email call, got %d", len(calls))
-		}
-		if calls[0].orgID != "00000000-0000-0000-0000-00000000000d" {
-			t.Errorf("orgID = %q, want org_welcome", calls[0].orgID)
-		}
-		if calls[0].tier != domain.PlanStarter {
-			t.Errorf("tier = %q, want starter", calls[0].tier)
-		}
-		if calls[0].customerEmail != "user@example.com" {
-			t.Errorf("email = %q, want user@example.com", calls[0].customerEmail)
-		}
+			calls[0].orgID)
+		assert.Equal(t,
+			domain.PlanStarter,
+			calls[0].tier)
+		assert.Equal(t,
+			"user@example.com",
+			calls[0].customerEmail,
+		)
+
 	})
 
 	t.Run("no_customer_email_skips_welcome", func(t *testing.T) {
@@ -842,21 +843,18 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		}
 
 		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
-
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rr.Code)
-		}
+		require.Equal(t,
+			http.StatusOK,
+			rr.Code)
 
 		select {
 		case <-done:
-			t.Error("welcome email should not be called when customer email is empty")
+			assert.Fail(t, "welcome email should not be called when customer email is empty")
 		case <-time.After(200 * time.Millisecond):
 		}
 	})
@@ -885,26 +883,23 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		}
 
 		body, err := json.Marshal(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
+		require.Equal(t,
+			http.StatusOK,
+			rr.Code)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200 when no welcome fn configured, got %d", rr.Code)
-		}
 	})
 }
 
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	return b
 }
 
@@ -937,23 +932,23 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
+	assert.Equal(t,
+		"subscription.created",
+		audit.
+			events[0].Action,
+	)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
-	if audit.events[0].Action != "subscription.created" {
-		t.Errorf("action = %q, want subscription.created", audit.events[0].Action)
-	}
 }
 
 func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T) {
@@ -975,31 +970,27 @@ func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T)
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
 
 	var details map[string]string
-	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
-		t.Fatalf("failed to unmarshal details: %v", err)
-	}
-	if details["plan_tier"] != "pro" {
-		t.Errorf("plan_tier = %q, want pro", details["plan_tier"])
-	}
-	if details["stripe_subscription_id"] != "sub_details" {
-		t.Errorf("stripe_subscription_id = %q, want sub_details", details["stripe_subscription_id"])
-	}
+	require.NoError(t, json.Unmarshal(audit.events[0].Details,
+		&details))
+	assert.Equal(t,
+		"pro", details["plan_tier"])
+	assert.Equal(t,
+		"sub_details",
+		details["stripe_subscription_id"])
+
 }
 
 func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) {
@@ -1029,31 +1020,27 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
 
 	var details map[string]string
-	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
-		t.Fatalf("failed to unmarshal details: %v", err)
-	}
-	if details["previous_tier"] != "starter" {
-		t.Errorf("previous_tier = %q, want starter", details["previous_tier"])
-	}
-	if details["plan_tier"] != "pro" {
-		t.Errorf("plan_tier = %q, want pro", details["plan_tier"])
-	}
+	require.NoError(t, json.Unmarshal(audit.events[0].Details,
+		&details))
+	assert.Equal(t,
+		"starter",
+		details["previous_tier"])
+	assert.Equal(t,
+		"pro", details["plan_tier"])
+
 }
 
 func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T) {
@@ -1083,31 +1070,27 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
 
 	var details map[string]string
-	if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
-		t.Fatalf("failed to unmarshal details: %v", err)
-	}
-	if details["pending_plan_tier"] != "starter" {
-		t.Errorf("pending_plan_tier = %q, want starter", details["pending_plan_tier"])
-	}
-	if details["previous_tier"] != "pro" {
-		t.Errorf("previous_tier = %q, want pro", details["previous_tier"])
-	}
+	require.NoError(t, json.Unmarshal(audit.events[0].Details,
+		&details))
+	assert.Equal(t,
+		"starter",
+		details["pending_plan_tier"])
+	assert.Equal(t,
+		"pro", details["previous_tier"])
+
 }
 
 func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
@@ -1140,23 +1123,23 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
+	assert.Equal(t,
+		"subscription.canceled",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
-	if audit.events[0].Action != "subscription.canceled" {
-		t.Errorf("action = %q, want subscription.canceled", audit.events[0].Action)
-	}
+		audit.events[0].Action,
+	)
+
 }
 
 func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
@@ -1188,23 +1171,23 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
+	assert.Equal(t,
+		"subscription.revoked",
+		audit.
+			events[0].Action,
+	)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
-	if audit.events[0].Action != "subscription.revoked" {
-		t.Errorf("action = %q, want subscription.revoked", audit.events[0].Action)
-	}
 }
 
 func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
@@ -1226,17 +1209,15 @@ func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
 }
 
 func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
@@ -1258,32 +1239,35 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		audit.events,
+		1)
+	assert.Equal(t,
+		"subscription",
+		audit.events[0].ResourceType,
+	)
+	assert.Equal(t,
+		"00000000-0000-0000-0000-000000000017",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(audit.events))
-	}
-	if audit.events[0].ResourceType != "subscription" {
-		t.Errorf("resource_type = %q, want subscription", audit.events[0].ResourceType)
-	}
-	if audit.events[0].ResourceID != "00000000-0000-0000-0000-000000000017" {
-		t.Errorf("resource_id = %q, want org_restype", audit.events[0].ResourceID)
-	}
-	if audit.events[0].ActorType != "system" {
-		t.Errorf("actor_type = %q, want system", audit.events[0].ActorType)
-	}
-	if audit.events[0].ActorID != "stripe-webhook" {
-		t.Errorf("actor_id = %q, want stripe-webhook", audit.events[0].ActorID)
-	}
+		audit.
+			events[0].ResourceID,
+	)
+	assert.Equal(t,
+		"system",
+		audit.events[0].
+			ActorType)
+	assert.Equal(t,
+		"stripe-webhook",
+		audit.events[0].ActorID)
+
 }
 
 // Grace period webhook tests.
@@ -1316,32 +1300,34 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	before := time.Now()
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000018"]
-	if sub.PaymentStatus != "grace" {
-		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
-	}
-	if sub.GracePeriodEnd == nil {
-		t.Fatal("expected grace_period_end to be set")
-	}
+	assert.Equal(t,
+		"grace", sub.
+			PaymentStatus,
+	)
+	require.NotNil(
+		t, sub.GracePeriodEnd,
+	)
+
 	// Grace period should be roughly 72 hours from now.
 	expected := before.Add(72 * time.Hour)
 	diff := sub.GracePeriodEnd.Sub(expected)
-	if diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("grace_period_end off by %v from expected 72h", diff)
-	}
+	assert.False(t,
+		diff < -5*
+			time.Second ||
+			diff > 5*time.Second,
+	)
+
 }
 
 func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
@@ -1372,24 +1358,23 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastPaymentStatusUpdate,
+	)
+	assert.Equal(t,
+		"grace", store.
+			lastPaymentStatusUpdate.
+			status,
+	)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	if store.lastPaymentStatusUpdate == nil {
-		t.Fatal("expected payment status update")
-	}
-	if store.lastPaymentStatusUpdate.status != "grace" {
-		t.Errorf("status = %q, want grace", store.lastPaymentStatusUpdate.status)
-	}
 }
 
 func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
@@ -1422,25 +1407,21 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub := store.subscriptions["00000000-0000-0000-0000-00000000001a"]
-	if sub.PaymentStatus != "ok" {
-		t.Errorf("payment_status = %q, want ok", sub.PaymentStatus)
-	}
-	if sub.GracePeriodEnd != nil {
-		t.Errorf("expected grace_period_end to be cleared, got %v", sub.GracePeriodEnd)
-	}
+	assert.Equal(t,
+		"ok", sub.
+			PaymentStatus)
+	assert.Nil(t, sub.GracePeriodEnd)
+
 }
 
 func TestWebhook_SubscriptionUpdatedActiveDoesNotClearRestriction(t *testing.T) {
@@ -1471,24 +1452,27 @@ func TestWebhook_SubscriptionUpdatedActiveDoesNotClearRestriction(t *testing.T) 
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.False(t,
+		store.lastPaymentStatusUpdate !=
+			nil && store.
+			lastPaymentStatusUpdate.
+			status ==
+			"ok")
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if store.lastPaymentStatusUpdate != nil && store.lastPaymentStatusUpdate.status == "ok" {
-		t.Fatal("active subscription update must not clear restricted payment status")
-	}
 	sub := store.subscriptions["00000000-0000-0000-0000-00000000001f"]
-	if sub.PaymentStatus != "restricted" {
-		t.Fatalf("payment_status = %q, want restricted", sub.PaymentStatus)
-	}
+	require.Equal(t,
+		"restricted",
+		sub.PaymentStatus,
+	)
+
 }
 
 func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
@@ -1521,29 +1505,30 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub := store.subscriptions["00000000-0000-0000-0000-00000000001b"]
-	if sub.PaymentStatus != "grace" {
-		t.Errorf("payment_status = %q, want grace", sub.PaymentStatus)
-	}
+	assert.Equal(t,
+		"grace", sub.
+			PaymentStatus,
+	)
+	require.NotNil(
+		t, sub.GracePeriodEnd,
+	)
+	assert.False(t,
+		sub.GracePeriodEnd.
+			Before(time.Now().Add(70*
+				time.Hour)))
+
 	// Grace period should be extended to ~72h from now, not the old 24h.
-	if sub.GracePeriodEnd == nil {
-		t.Fatal("expected grace_period_end to be set")
-	}
-	if sub.GracePeriodEnd.Before(time.Now().Add(70 * time.Hour)) {
-		t.Errorf("expected grace period to be extended to ~72h, got %v", sub.GracePeriodEnd)
-	}
+
 }
 
 func TestWebhook_PaymentFailed_DoesNotRestoreRestrictedOrgToGrace(t *testing.T) {
@@ -1573,27 +1558,29 @@ func TestWebhook_PaymentFailed_DoesNotRestoreRestrictedOrgToGrace(t *testing.T) 
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.False(t,
+		store.lastPaymentStatusUpdate !=
+			nil && store.
+			lastPaymentStatusUpdate.
+			status ==
+			"grace")
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if store.lastPaymentStatusUpdate != nil && store.lastPaymentStatusUpdate.status == "grace" {
-		t.Fatal("payment failure must not move restricted org back to grace")
-	}
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000020"]
-	if sub.PaymentStatus != "restricted" {
-		t.Fatalf("payment_status = %q, want restricted", sub.PaymentStatus)
-	}
-	if sub.GracePeriodEnd != nil {
-		t.Fatalf("grace_period_end = %v, want nil", sub.GracePeriodEnd)
-	}
+	require.Equal(t,
+		"restricted",
+		sub.PaymentStatus,
+	)
+	require.Nil(t, sub.
+		GracePeriodEnd)
+
 }
 
 func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
@@ -1624,23 +1611,21 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Free org should not have grace period set.
 	sub := store.subscriptions["00000000-0000-0000-0000-00000000001c"]
-	if sub.PaymentStatus != "ok" {
-		t.Errorf("payment_status = %q, want ok (no grace for free orgs)", sub.PaymentStatus)
-	}
+	assert.Equal(t,
+		"ok", sub.
+			PaymentStatus)
+
 }
 
 func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
@@ -1668,10 +1653,11 @@ func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusServiceUnavailable,
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 in cloud mode with empty secret, got %d", rec.Code)
-	}
+		rec.Code)
+
 }
 
 func TestWebhook_EmptySecretCommunityMode_Rejects(t *testing.T) {
@@ -1699,10 +1685,11 @@ func TestWebhook_EmptySecretCommunityMode_Rejects(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusServiceUnavailable,
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 in community mode with empty secret, got %d", rec.Code)
-	}
+		rec.Code)
+
 }
 
 func TestWebhook_EmptySecretDefaultEdition_Rejects(t *testing.T) {
@@ -1729,10 +1716,11 @@ func TestWebhook_EmptySecretDefaultEdition_Rejects(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusServiceUnavailable,
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 in default edition with empty secret, got %d", rec.Code)
-	}
+		rec.Code)
+
 }
 
 func TestWebhook_EmptySecretWithDevBypass_Allows(t *testing.T) {
@@ -1760,10 +1748,11 @@ func TestWebhook_EmptySecretWithDevBypass_Allows(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
+	require.NotEqual(t, http.StatusServiceUnavailable,
 
-	if rec.Code == http.StatusServiceUnavailable {
-		t.Fatalf("dev bypass should allow unsigned webhooks, got %d", rec.Code)
-	}
+		rec.Code,
+	)
+
 }
 
 func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
@@ -1793,22 +1782,21 @@ func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub := store.subscriptions["00000000-0000-0000-0000-000000000050"]
-	if sub.PaymentStatus != "restricted" {
-		t.Errorf("payment_status = %q, want restricted", sub.PaymentStatus)
-	}
+	assert.Equal(t,
+		"restricted",
+		sub.PaymentStatus,
+	)
+
 }
 
 func FuzzWebhookSignatureHeader(f *testing.F) {
@@ -1872,18 +1860,18 @@ func TestWebhook_EnterpriseContractFailure_ReturnsError(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	assert.Equal(t,
+		http.StatusInternalServerError,
+
+		rr.Code)
 
 	// The handler must return 500 so Stripe retries the webhook.
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500 when enterprise contract insert fails, got %d", rr.Code)
-	}
+
 }
 
 // Issue 8: When UpsertEnterpriseContract succeeds, webhook returns 200.
@@ -1911,21 +1899,20 @@ func TestWebhook_EnterpriseContractSuccess_Returns200(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 on successful enterprise contract creation, got %d", rr.Code)
-	}
+	assert.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Verify contract was actually created.
 	if _, err := store.GetEnterpriseContract(context.Background(), "00000000-0000-0000-0000-000000000f80"); err != nil {
-		t.Errorf("enterprise contract should exist: %v", err)
+		assert.Failf(t, "test failure",
+
+			"enterprise contract should exist: %v", err)
 	}
 }
 
@@ -1963,17 +1950,14 @@ func TestWebhook_EnterpriseUpgradeAudit_FiresOnTransition(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Should have 2 audit events: subscription.upgraded_to_enterprise and subscription.created.
 	foundUpgradeAudit := false
@@ -1981,20 +1965,20 @@ func TestWebhook_EnterpriseUpgradeAudit_FiresOnTransition(t *testing.T) {
 		if ev.Action == "subscription.upgraded_to_enterprise" {
 			foundUpgradeAudit = true
 			var details map[string]string
-			if err := json.Unmarshal(ev.Details, &details); err != nil {
-				t.Fatalf("failed to unmarshal audit details: %v", err)
-			}
-			if details["previous_plan"] != "pro" {
-				t.Errorf("previous_plan = %q, want pro", details["previous_plan"])
-			}
-			if details["new_plan"] != "enterprise" {
-				t.Errorf("new_plan = %q, want enterprise", details["new_plan"])
-			}
+			require.NoError(t, json.Unmarshal(ev.Details,
+				&details))
+			assert.Equal(t,
+				"pro", details["previous_plan"])
+			assert.Equal(t,
+				"enterprise",
+				details["new_plan"])
+
 		}
 	}
-	if !foundUpgradeAudit {
-		t.Error("expected subscription.upgraded_to_enterprise audit event to fire on plan transition")
-	}
+	assert.True(t,
+		foundUpgradeAudit,
+	)
+
 }
 
 // Issue 9: Enterprise upgrade audit must NOT fire when already on enterprise tier.
@@ -2029,22 +2013,20 @@ func TestWebhook_EnterpriseUpgradeAudit_NoFireWhenAlreadyEnterprise(t *testing.T
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	for _, ev := range audit.events {
-		if ev.Action == "subscription.upgraded_to_enterprise" {
-			t.Error("enterprise upgrade audit should NOT fire when already on enterprise tier")
-		}
+		assert.NotEqual(t, "subscription.upgraded_to_enterprise",
+
+			ev.Action)
+
 	}
 }
 
@@ -2084,50 +2066,61 @@ func TestWebhook_DowngradeUsesAtomicSetPendingDowngrade(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastPendingDowngrade,
+	)
+	assert.Equal(t,
+		"00000000-0000-0000-0000-00000000f012",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+		store.
+			lastPendingDowngrade.
+			orgID)
+	assert.Equal(t,
+		"starter",
+		store.lastPendingDowngrade.
+			pendingTier,
+	)
+	assert.Nil(t, store.
+		lastFullUpdate,
+	)
+	assert.False(t,
+		store.lastPendingDowngrade.
+			periodStart ==
+			nil || !store.lastPendingDowngrade.
+			periodStart.Equal(newStart))
+	assert.False(t,
+		store.lastPendingDowngrade.
+			periodEnd == nil ||
+			!store.lastPendingDowngrade.
+				periodEnd.
+				Equal(newEnd))
 
 	// Verify SetPendingDowngrade was called atomically (not SetPendingPlanTier + UpdateOrgSubscriptionFull).
-	if store.lastPendingDowngrade == nil {
-		t.Fatal("expected SetPendingDowngrade to be called")
-	}
-	if store.lastPendingDowngrade.orgID != "00000000-0000-0000-0000-00000000f012" {
-		t.Errorf("orgID = %q, want 00000000-0000-0000-0000-00000000f012", store.lastPendingDowngrade.orgID)
-	}
-	if store.lastPendingDowngrade.pendingTier != "starter" {
-		t.Errorf("pendingTier = %q, want starter", store.lastPendingDowngrade.pendingTier)
-	}
 
 	// Verify the full update was NOT called separately (proving atomicity).
-	if store.lastFullUpdate != nil {
-		t.Error("UpdateOrgSubscriptionFull should not be called for downgrades; SetPendingDowngrade is atomic")
-	}
 
 	// Verify period dates were passed through.
-	if store.lastPendingDowngrade.periodStart == nil || !store.lastPendingDowngrade.periodStart.Equal(newStart) {
-		t.Error("expected period start to be passed to SetPendingDowngrade")
-	}
-	if store.lastPendingDowngrade.periodEnd == nil || !store.lastPendingDowngrade.periodEnd.Equal(newEnd) {
-		t.Error("expected period end to be passed to SetPendingDowngrade")
-	}
 
 	// Verify the current plan tier is preserved (not overwritten to starter).
 	sub := store.subscriptions["00000000-0000-0000-0000-00000000f012"]
-	if sub.PlanTier != "pro" {
-		t.Errorf("current plan_tier = %q, want pro (downgrade should be pending, not applied)", sub.PlanTier)
-	}
-	if sub.PendingPlanTier == nil || *sub.PendingPlanTier != "starter" {
-		t.Error("expected pending_plan_tier to be set to starter")
-	}
+	assert.Equal(t,
+		"pro", sub.
+			PlanTier)
+	assert.False(t,
+		sub.PendingPlanTier ==
+			nil ||
+			*sub.PendingPlanTier !=
+				"starter",
+	)
+
 }
 
 // Issue 15: ListOrgsWithPendingDowngrade includes MonthlyUsageEmail in returned data.
@@ -2159,23 +2152,17 @@ func TestMockStore_ListOrgsWithPendingDowngrade_IncludesMonthlyUsageEmail(t *tes
 	}
 
 	subs, err := store.ListOrgsWithPendingDowngrade(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(subs) != 2 {
-		t.Fatalf("expected 2 subscriptions, got %d", len(subs))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		subs, 2)
 
 	emailByOrg := make(map[string]bool)
 	for _, sub := range subs {
 		emailByOrg[sub.OrgID] = sub.MonthlyUsageEmail
 	}
+	assert.True(t,
+		emailByOrg["org-email-true"])
+	assert.False(t,
+		emailByOrg["org-email-false"])
 
-	if !emailByOrg["org-email-true"] {
-		t.Error("expected MonthlyUsageEmail=true for org-email-true")
-	}
-	if emailByOrg["org-email-false"] {
-		t.Error("expected MonthlyUsageEmail=false for org-email-false")
-	}
 }

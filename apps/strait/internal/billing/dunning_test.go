@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeDunningStore is an in-memory DunningStore that mirrors PgStore's
@@ -236,20 +239,23 @@ func TestDunner_AdvancesStepAtDayBoundary(t *testing.T) {
 	clock := entered.Add(3*24*time.Hour + 1*time.Minute) // past day 3
 	d, store, disp, emails := newSeededDunner(t, func() time.Time { return clock })
 	store.rows["org_dun_1"].DunningEnteredAt = entered
+	require.NoError(t,
+		d.Tick(context.Background()))
 
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick err = %v", err)
-	}
 	got := store.get("org_dun_1")
-	if got.DunningStep != DunningStepDay3 {
-		t.Fatalf("step = %d, want %d", got.DunningStep, DunningStepDay3)
-	}
-	if len(emails.calls) != 1 || emails.calls[0].step != DunningStepDay3 {
-		t.Fatalf("expected one day-3 email, got %+v", emails.calls)
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Fatalf("billing.delinquent count = %d, want 1", c)
-	}
+	require.Equal(t,
+		DunningStepDay3,
+		got.
+			DunningStep,
+	)
+	require.False(t,
+		len(emails.
+			calls) !=
+			1 || emails.
+			calls[0].step != DunningStepDay3,
+	)
+	require.EqualValues(t, 1, countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
+
 }
 
 func TestDunner_SameDayTickIsCooldownNoOp(t *testing.T) {
@@ -260,19 +266,16 @@ func TestDunner_SameDayTickIsCooldownNoOp(t *testing.T) {
 	store.rows["org_dun_1"].DunningEnteredAt = entered
 	// Use the production 24h cooldown so a second tick in the same day is suppressed.
 	d.cooldown = 24 * time.Hour
+	require.NoError(t,
+		d.Tick(context.Background()))
+	require.NoError(t,
+		d.Tick(context.Background()))
+	assert.Len(t, emails.
+		calls,
+		1)
+	assert.EqualValues(t, 1,
+		countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
 
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(emails.calls) != 1 {
-		t.Errorf("expected one email after duplicate tick, got %d", len(emails.calls))
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Errorf("delinquent dispatched %d times, want 1", c)
-	}
 }
 
 func TestDunner_LateTickJumpsMultipleSteps(t *testing.T) {
@@ -281,23 +284,27 @@ func TestDunner_LateTickJumpsMultipleSteps(t *testing.T) {
 	clock := entered.Add(15 * 24 * time.Hour) // past day 14
 	d, store, disp, emails := newSeededDunner(t, func() time.Time { return clock })
 	store.rows["org_dun_1"].DunningEnteredAt = entered
+	require.NoError(t,
+		d.Tick(context.Background()))
 
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	got := store.get("org_dun_1")
-	if got.DunningStep != DunningStepDay14 {
-		t.Errorf("step = %d, want %d", got.DunningStep, DunningStepDay14)
-	}
-	if got.PaymentStatus != "restricted" {
-		t.Errorf("payment_status = %q, want restricted", got.PaymentStatus)
-	}
-	if len(emails.calls) != 1 || emails.calls[0].step != DunningStepDay14 {
-		t.Errorf("expected one day-14 email, got %+v", emails.calls)
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Errorf("delinquent count = %d, want 1", c)
-	}
+	assert.Equal(t, DunningStepDay14,
+
+		got.
+			DunningStep,
+	)
+	assert.Equal(t, "restricted",
+
+		got.PaymentStatus,
+	)
+	assert.False(t, len(emails.
+		calls) !=
+		1 || emails.
+		calls[0].step != DunningStepDay14,
+	)
+	assert.EqualValues(t, 1,
+		countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
+
 }
 
 func TestDunner_Step6SuspendsAndDispatchesSuspended(t *testing.T) {
@@ -306,24 +313,33 @@ func TestDunner_Step6SuspendsAndDispatchesSuspended(t *testing.T) {
 	clock := entered.Add(75 * 24 * time.Hour)
 	d, store, disp, _ := newSeededDunner(t, func() time.Time { return clock })
 	store.rows["org_dun_1"].DunningEnteredAt = entered
+	require.NoError(t,
+		d.Tick(context.Background()))
 
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	got := store.get("org_dun_1")
-	if got.DunningStep != DunningStepDay74 {
-		t.Errorf("step = %d, want %d", got.DunningStep, DunningStepDay74)
-	}
-	if got.PaymentStatus != "suspended" {
-		t.Errorf("payment_status = %q, want suspended", got.PaymentStatus)
-	}
+	assert.Equal(t, DunningStepDay74,
+
+		got.
+			DunningStep,
+	)
+	assert.Equal(t, "suspended",
+
+		got.PaymentStatus,
+	)
+
 	events := dispatchedEventTypes(disp)
-	if countEvent(events, domain.WebhookEventBillingDelinquent) != 1 {
-		t.Errorf("delinquent dispatch count = %d, want 1; got %v", countEvent(events, domain.WebhookEventBillingDelinquent), events)
-	}
-	if countEvent(events, domain.WebhookEventBillingSuspended) != 1 {
-		t.Errorf("suspended dispatch count = %d, want 1; got %v", countEvent(events, domain.WebhookEventBillingSuspended), events)
-	}
+	assert.EqualValues(t, 1,
+		countEvent(events,
+			domain.
+				WebhookEventBillingDelinquent,
+		))
+	assert.EqualValues(t, 1,
+		countEvent(events,
+			domain.
+				WebhookEventBillingSuspended,
+		),
+	)
+
 }
 
 func TestDunner_ResolutionClearsAndAllowsReentry(t *testing.T) {
@@ -338,22 +354,32 @@ func TestDunner_ResolutionClearsAndAllowsReentry(t *testing.T) {
 		DunningStep:      1,
 		DunningEnteredAt: entered,
 	})
+	require.NoError(t,
+		store.
+			ResolveDunning(context.
+				Background(), "org_resolve",
 
-	if err := store.ResolveDunning(context.Background(), "org_resolve", clock); err != nil {
-		t.Fatal(err)
-	}
+				clock))
+
 	row := store.get("org_resolve")
-	if !row.DunningEnteredAt.IsZero() || row.DunningStep != 0 || row.DunningResolved == nil {
-		t.Fatalf("unexpected row after resolve: %+v", row)
-	}
+	require.False(t,
+		!row.DunningEnteredAt.
+			IsZero() || row.DunningStep != 0 ||
 
-	if err := store.StartDunning(context.Background(), "org_resolve", clock.Add(1*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+			row.DunningResolved == nil)
+	require.NoError(t,
+		store.
+			StartDunning(context.
+				Background(), "org_resolve",
+
+				clock.Add(1*time.Hour)))
+
 	row = store.get("org_resolve")
-	if row.DunningStep != 1 || row.DunningResolved != nil {
-		t.Fatalf("re-entry should restart at step 1 with no resolved_at, got %+v", row)
-	}
+	require.False(t,
+		row.DunningStep !=
+			1 || row.
+			DunningResolved != nil)
+
 }
 
 func TestDunner_StartDunningIsIdempotentForActiveCycle(t *testing.T) {
@@ -366,11 +392,16 @@ func TestDunner_StartDunningIsIdempotentForActiveCycle(t *testing.T) {
 		DunningStep:      1,
 		DunningEnteredAt: entered,
 	})
-	if err := store.StartDunning(context.Background(), "org_replay", entered.Add(1*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		store.
+			StartDunning(context.
+				Background(), "org_replay",
+
+				entered.Add(1*time.Hour)))
+
 	row := store.get("org_replay")
-	if !row.DunningEnteredAt.Equal(entered) {
-		t.Errorf("entered_at moved on replay: was %v now %v", entered, row.DunningEnteredAt)
-	}
+	assert.True(t, row.
+		DunningEnteredAt.
+		Equal(entered))
+
 }

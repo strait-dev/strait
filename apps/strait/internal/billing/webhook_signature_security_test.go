@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestWebhookSignatureSecurity verifies that webhooks are always rejected when the
@@ -44,10 +46,12 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
+			require.Equal(t,
+				http.StatusServiceUnavailable,
 
-			if rec.Code != http.StatusServiceUnavailable {
-				t.Fatalf("edition=%q with empty secret: expected 503, got %d", edition, rec.Code)
-			}
+				rec.Code,
+			)
+
 		})
 	}
 
@@ -62,10 +66,13 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
+		require.False(t,
+			rec.Code == http.
+				StatusServiceUnavailable ||
+				rec.Code == http.
+					StatusUnauthorized,
+		)
 
-		if rec.Code == http.StatusServiceUnavailable || rec.Code == http.StatusUnauthorized {
-			t.Fatalf("dev bypass should allow request, got %d", rec.Code)
-		}
 	})
 
 	t.Run("configured_secret_rejects_unsigned", func(t *testing.T) {
@@ -79,10 +86,11 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 		// No Stripe-Signature header
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
+		require.Equal(t,
+			http.StatusUnauthorized,
+			rec.
+				Code)
 
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401 for unsigned request with configured secret, got %d", rec.Code)
-		}
 	})
 
 	t.Run("configured_secret_accepts_valid_signature", func(t *testing.T) {
@@ -97,10 +105,12 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sig)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
+		require.False(t,
+			rec.Code == http.
+				StatusUnauthorized ||
+				rec.Code == http.StatusServiceUnavailable,
+		)
 
-		if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusServiceUnavailable {
-			t.Fatalf("expected valid signature to pass, got %d", rec.Code)
-		}
 	})
 
 	t.Run("configured_secret_rejects_wrong_signature", func(t *testing.T) {
@@ -116,9 +126,10 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 		req.Header.Set("Stripe-Signature", sig)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
+		require.Equal(t,
+			http.StatusUnauthorized,
+			rec.
+				Code)
 
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401 for wrong signature, got %d", rec.Code)
-		}
 	})
 }

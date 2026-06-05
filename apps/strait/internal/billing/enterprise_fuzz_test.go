@@ -2,6 +2,8 @@ package billing
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzEnterpriseTierValidation(f *testing.F) {
@@ -23,7 +25,7 @@ func FuzzEnterpriseTierValidation(f *testing.F) {
 			case EnterpriseTierStarter, EnterpriseTierGrowth, EnterpriseTierLarge:
 				// ok
 			default:
-				t.Errorf("IsValidEnterpriseTier(%q) = true but not a known tier", s)
+				assert.Failf(t, "test failure", "IsValidEnterpriseTier(%q) = true but not a known tier", s)
 			}
 		}
 	})
@@ -38,26 +40,22 @@ func FuzzApplyOverageDiscount(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, cost int64, discount int) {
 		result := ApplyOverageDiscount(cost, discount)
+		assert.GreaterOrEqual(t, result, int64(0))
+		assert.False(t, cost <=
+			0 && result != 0)
+		assert.False(t, cost >
+			0 && discount >= 100 && result != 0)
+		assert.False(t, cost >
+			0 && discount <= 0 && result != cost)
 
 		// Result should never be negative.
-		if result < 0 {
-			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, should be non-negative", cost, discount, result)
-		}
 
 		// If cost <= 0, result should be 0.
-		if cost <= 0 && result != 0 {
-			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want 0 for non-positive cost", cost, discount, result)
-		}
 
 		// If discount >= 100, result should be 0 (for positive cost).
-		if cost > 0 && discount >= 100 && result != 0 {
-			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want 0 for 100%%+ discount", cost, discount, result)
-		}
 
 		// If discount <= 0 and cost > 0, result should be original cost.
-		if cost > 0 && discount <= 0 && result != cost {
-			t.Errorf("ApplyOverageDiscount(%d, %d) = %d, want %d for zero discount", cost, discount, result, cost)
-		}
+
 	})
 }
 
@@ -70,8 +68,8 @@ func FuzzEnterpriseTierForPrice(f *testing.F) {
 	f.Fuzz(func(t *testing.T, priceID string) {
 		// Should never panic.
 		tier, ok := EnterpriseTierForPrice(priceID)
-		if ok && !IsValidEnterpriseTier(tier) {
-			t.Errorf("EnterpriseTierForPrice(%q) returned invalid tier %q", priceID, tier)
-		}
+		assert.False(t, ok &&
+			!IsValidEnterpriseTier(tier))
+
 	})
 }

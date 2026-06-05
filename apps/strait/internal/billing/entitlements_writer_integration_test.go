@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // readEntitlements pulls the persisted snapshot and unmarshals it. Used by
@@ -21,25 +24,27 @@ func readEntitlements(t *testing.T, ctx context.Context, orgID string) billing.O
 	err := testDB.Pool.QueryRow(ctx, `
 		SELECT entitlements FROM organization_subscriptions WHERE org_id = $1
 	`, orgID).Scan(&raw)
-	if err != nil {
-		t.Fatalf("read entitlements for %s: %v", orgID, err)
-	}
+	require.NoError(t, err)
+
 	var got billing.OrgPlanLimits
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal entitlements for %s: %v", orgID, err)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&got))
+
 	return got
 }
 
 func mustEqualLimits(t *testing.T, got, want billing.OrgPlanLimits, label string) {
 	t.Helper()
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns ||
-		got.MaxEnvironments != want.MaxEnvironments ||
-		got.RetentionDays != want.RetentionDays ||
-		got.MaxRunsPerDay != want.MaxRunsPerDay ||
-		got.WorkerConnections != want.WorkerConnections {
-		t.Errorf("%s: snapshot drift\n got:  %+v\n want: %+v", label, got, want)
-	}
+	assert.False(t, got.MaxConcurrentRuns !=
+		want.
+			MaxConcurrentRuns ||
+		got.MaxEnvironments !=
+			want.
+				MaxEnvironments || got.RetentionDays !=
+		want.RetentionDays ||
+		got.MaxRunsPerDay != want.MaxRunsPerDay || got.WorkerConnections != want.
+		WorkerConnections)
+
 }
 
 // TestEntitlementsWriter_UpsertPopulatesSnapshot exercises the
@@ -60,9 +65,8 @@ func TestEntitlementsWriter_UpsertPopulatesSnapshot(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := pgStore.UpsertOrgSubscription(ctx, sub); err != nil {
-		t.Fatalf("UpsertOrgSubscription: %v", err)
-	}
+	require.NoError(t, pgStore.
+		UpsertOrgSubscription(ctx, sub))
 
 	got := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, got, billing.GetPlanLimits(domain.PlanPro), "after upsert")
@@ -77,12 +81,14 @@ func TestEntitlementsWriter_PlanUpdateRefreshesSnapshot(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-planupd-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanScale), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanScale,
+			), "active",
+		))
 
 	got := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, got, billing.GetPlanLimits(domain.PlanScale), "after plan update")
@@ -96,14 +102,18 @@ func TestEntitlementsWriter_FullUpdateRefreshesSnapshot(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-full-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+
 	now := time.Now().UTC()
 	pe := now.Add(30 * 24 * time.Hour)
-	if err := pgStore.UpdateOrgSubscriptionFull(ctx, orgID, string(domain.PlanBusiness), "active", &now, &pe); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionFull: %v", err)
-	}
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionFull(ctx, orgID,
+			string(domain.
+				PlanBusiness,
+			),
+
+			"active", &now, &pe))
 
 	got := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, got, billing.GetPlanLimits(domain.PlanBusiness), "after full update")
@@ -118,12 +128,14 @@ func TestEntitlementsWriter_AddonCreateThenDeactivate(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-addon-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro,
+			), "active",
+		))
 
 	addon := &billing.Addon{
 		ID:        newID(),
@@ -132,21 +144,24 @@ func TestEntitlementsWriter_AddonCreateThenDeactivate(t *testing.T) {
 		Quantity:  2,
 		Active:    true,
 	}
-	if err := pgStore.CreateAddon(ctx, addon); err != nil {
-		t.Fatalf("CreateAddon: %v", err)
-	}
+	require.NoError(t, pgStore.
+		CreateAddon(ctx, addon))
 
 	withAddon := readEntitlements(t, ctx, orgID)
 	wantWith := billing.GetPlanLimits(domain.PlanPro)
-	wantWith.MaxConcurrentRuns += 200 // 2 packs of 100
-	if withAddon.MaxConcurrentRuns != wantWith.MaxConcurrentRuns {
-		t.Errorf("after CreateAddon: MaxConcurrentRuns got %d, want %d",
-			withAddon.MaxConcurrentRuns, wantWith.MaxConcurrentRuns)
-	}
+	wantWith.MaxConcurrentRuns += 200
+	assert.Equal(t, wantWith.
+		MaxConcurrentRuns,
 
-	if err := pgStore.DeactivateAddon(ctx, addon.ID); err != nil {
-		t.Fatalf("DeactivateAddon: %v", err)
-	}
+		withAddon.
+			MaxConcurrentRuns,
+	)
+	require.NoError(t, pgStore.
+		DeactivateAddon(ctx,
+			addon.ID))
+
+	// 2 packs of 100
+
 	withoutAddon := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, withoutAddon, billing.GetPlanLimits(domain.PlanPro), "after addon deactivate")
 }
@@ -160,17 +175,21 @@ func TestEntitlementsWriter_RestrictOrgCollapsesToFree(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-restrict-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro,
+			), "active",
+		))
 
 	graceEnd := time.Now().Add(7 * 24 * time.Hour)
-	if err := billing.RestrictOrgTx(ctx, testDB.Pool, orgID, &graceEnd); err != nil {
-		t.Fatalf("RestrictOrgTx: %v", err)
-	}
+	require.NoError(t, billing.
+		RestrictOrgTx(ctx,
+			testDB.Pool, orgID,
+			&graceEnd,
+		))
 
 	got := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, got, billing.GetPlanLimits(domain.PlanFree), "after restrict")
@@ -185,18 +204,20 @@ func TestEntitlementsWriter_ApplyPendingDowngradeRefreshesSnapshot(t *testing.T)
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-downgrade-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan: %v", err)
-	}
-	if err := pgStore.SetPendingPlanTier(ctx, orgID, string(domain.PlanStarter)); err != nil {
-		t.Fatalf("SetPendingPlanTier: %v", err)
-	}
-	if err := pgStore.ApplyPendingDowngrade(ctx, orgID); err != nil {
-		t.Fatalf("ApplyPendingDowngrade: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro,
+			), "active",
+		))
+	require.NoError(t, pgStore.
+		SetPendingPlanTier(
+			ctx, orgID, string(domain.PlanStarter)),
+	)
+	require.NoError(t, pgStore.
+		ApplyPendingDowngrade(ctx, orgID))
 
 	got := readEntitlements(t, ctx, orgID)
 	mustEqualLimits(t, got, billing.GetPlanLimits(domain.PlanStarter), "after apply pending downgrade")
@@ -223,22 +244,19 @@ func TestEntitlementsWriter_SnapshotEqualsComputeEntitlements(t *testing.T) {
 		},
 		func() error { return pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanScale), "active") },
 	}
-	for i, step := range steps {
-		if err := step(); err != nil {
-			t.Fatalf("step %d: %v", i, err)
-		}
+	for _, step := range steps {
+		require.NoError(t, step())
+
 		sub, err := pgStore.GetOrgSubscription(ctx, orgID)
-		if err != nil {
-			t.Fatalf("step %d GetOrgSubscription: %v", i, err)
-		}
+		require.NoError(t, err)
+
 		addons, err := pgStore.ListActiveAddons(ctx, orgID)
-		if err != nil {
-			t.Fatalf("step %d ListActiveAddons: %v", i, err)
-		}
+		require.NoError(t, err)
+
 		want := billing.ComputeEntitlements(sub, addons)
 		got := readEntitlements(t, ctx, orgID)
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("step %d: snapshot != ComputeEntitlements\n got:  %+v\n want: %+v", i, got, want)
-		}
+		assert.True(t, reflect.DeepEqual(got,
+			want))
+
 	}
 }

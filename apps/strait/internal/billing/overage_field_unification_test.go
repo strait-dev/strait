@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestOveragePerKMicrousd_SingleField guards the invariant that OrgPlanLimits
@@ -16,10 +19,14 @@ func TestOveragePerKMicrousd_SingleField(t *testing.T) {
 
 	rt := reflect.TypeFor[OrgPlanLimits]()
 	if _, ok := rt.FieldByName("OveragePerKRunsMicrousd"); ok {
-		t.Fatalf("OveragePerKRunsMicrousd should be removed; use OveragePerKMicrousd")
+		require.Failf(t, "test failure",
+
+			"OveragePerKRunsMicrousd should be removed; use OveragePerKMicrousd")
 	}
 	if _, ok := rt.FieldByName("OveragePerKMicrousd"); !ok {
-		t.Fatalf("OveragePerKMicrousd is the canonical field; missing")
+		require.Failf(t, "test failure",
+
+			"OveragePerKMicrousd is the canonical field; missing")
 	}
 }
 
@@ -39,8 +46,8 @@ func TestOveragePerKMicrousd_AllTiersPopulated(t *testing.T) {
 	}
 	for tier, expect := range want {
 		got := GetPlanLimits(tier).OveragePerKMicrousd
-		if got != expect {
-			t.Errorf("tier %q OveragePerKMicrousd = %d, want %d", tier, got, expect)
-		}
+		assert.Equal(t, expect,
+			got)
+
 	}
 }

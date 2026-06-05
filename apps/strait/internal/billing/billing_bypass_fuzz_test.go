@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -41,12 +43,11 @@ func FuzzStddev(f *testing.F) {
 		}
 
 		result := stddev(values)
-		if math.IsNaN(result) {
-			t.Errorf("stddev returned NaN for %v", values)
-		}
-		if result < 0 {
-			t.Errorf("stddev = %f, want >= 0", result)
-		}
+		assert.False(t, math.
+			IsNaN(result))
+		assert.GreaterOrEqual(t,
+			result, 0.0)
+
 	})
 }
 
@@ -63,13 +64,13 @@ func FuzzPauseReasonSQL(f *testing.F) {
 		// This tests that the mock store doesn't panic with arbitrary reasons.
 		store := &mockBillingStore{}
 		_, err := store.PauseHTTPJobsByOrg(context.Background(), "org-test", reason)
-		if err != nil {
-			t.Fatalf("PauseHTTPJobsByOrg with reason %q: %v", reason, err)
-		}
+		require.NoError(t,
+			err)
+
 		_, err = store.UnpauseJobsByPauseReason(context.Background(), "org-test", reason)
-		if err != nil {
-			t.Fatalf("UnpauseJobsByPauseReason with reason %q: %v", reason, err)
-		}
+		require.NoError(t,
+			err)
+
 	})
 }
 
@@ -80,37 +81,46 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		limits := GetPlanLimits(tier)
+		assert.NotEqual(t,
+			"", limits.
+				PlanTier,
+		)
 
 		// Every plan must have a tier set.
-		if limits.PlanTier == "" {
-			t.Errorf("plan %q has empty PlanTier", tier)
-		}
 
 		// Free plan must have bounded (non-unlimited) limits for safety.
 		if tier == domain.PlanFree {
-			if limits.MaxProjectsPerOrg == -1 {
-				t.Error("Free plan has unlimited projects")
-			}
-			if limits.MaxMembersPerOrg == -1 {
-				t.Error("Free plan has unlimited members")
-			}
-			if limits.MaxConcurrentRuns == -1 {
-				t.Error("Free plan has unlimited concurrent runs")
-			}
-			if limits.MaxScheduledJobs == -1 {
-				t.Error("Free plan has unlimited scheduled jobs")
-			}
+			assert.NotEqual(t,
+				-1, limits.
+					MaxProjectsPerOrg,
+			)
+			assert.NotEqual(t,
+				-1, limits.
+					MaxMembersPerOrg,
+			)
+			assert.NotEqual(t,
+				-1, limits.
+					MaxConcurrentRuns,
+			)
+			assert.NotEqual(t,
+				-1, limits.
+					MaxScheduledJobs,
+			)
+
 		}
+		assert.NotEqual(t,
+			"", limits.
+				DisplayName,
+		)
+		assert.False(t, limits.
+			RetentionDays ==
+			0 || limits.
+			RetentionDays < -1)
 
 		// All plans must have non-empty display name.
-		if limits.DisplayName == "" {
-			t.Errorf("plan %q has empty DisplayName", tier)
-		}
 
 		// Retention must be positive or -1 (unlimited).
-		if limits.RetentionDays == 0 || limits.RetentionDays < -1 {
-			t.Errorf("plan %q has invalid RetentionDays: %d", tier, limits.RetentionDays)
-		}
+
 	}
 }
 
@@ -133,9 +143,10 @@ func TestBypass_FeatureGatesConsistentAcrossTiers(t *testing.T) {
 			if allowed {
 				foundFirst = true
 			}
-			if foundFirst && !allowed {
-				t.Errorf("feature %q is allowed on a lower tier but not on %q (monotonicity violation)", f, tier)
-			}
+			assert.False(t, foundFirst &&
+				!allowed,
+			)
+
 		}
 	}
 }
@@ -163,22 +174,24 @@ func TestBypass_RequiredPlanNeverReturnsLowerTier(t *testing.T) {
 	for _, f := range features {
 		required := reg.RequiredPlanForFeature(f)
 		if IsRoadmapFeature(f) {
-			if required != "" {
-				t.Errorf("roadmap feature %q returned required tier %q, want empty", f, required)
-			}
+			assert.Equal(t, domain.PlanTier(""), required)
+
 			continue
 		}
 		reqOrder, ok := tierOrder[required]
 		if !ok {
-			t.Errorf("RequiredPlanForFeature(%q) returned unknown tier %q", f, required)
+			assert.Failf(t, "test failure",
+
+				"RequiredPlanForFeature(%q) returned unknown tier %q", f, required)
 			continue
 		}
 
 		// Every tier below the required one must NOT have the feature.
 		for tier, order := range tierOrder {
-			if order < reqOrder && reg.AllowsFeature(tier, f) {
-				t.Errorf("feature %q: required=%q but %q (lower) allows it", f, required, tier)
-			}
+			assert.False(t, order <
+				reqOrder &&
+				reg.AllowsFeature(tier, f))
+
 		}
 	}
 }
@@ -200,9 +213,12 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 	}
 
 	for _, f := range paidFeatures {
-		if reg.AllowsFeature(domain.PlanFree, f) {
-			t.Errorf("Free tier should not have feature %q", f)
-		}
+		assert.False(t, reg.
+			AllowsFeature(domain.
+				PlanFree,
+
+				f))
+
 	}
 }
 
@@ -218,9 +234,12 @@ func TestBypass_EnterpriseHasLaunchActiveFeatures(t *testing.T) {
 	}
 
 	for _, f := range allFeatures {
-		if !reg.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("Enterprise should have feature %q", f)
-		}
+		assert.True(t, reg.
+			AllowsFeature(domain.
+				PlanEnterprise,
+
+				f))
+
 	}
 }
 
@@ -231,12 +250,17 @@ func TestBypass_DowngradeAlwaysLosesFeatures(t *testing.T) {
 	// Downgrade from Scale to Starter should lose features.
 	scaleOnlyFeatures := []Feature{FeatureCanaryDeployments, FeatureAuditLogs}
 	for _, f := range scaleOnlyFeatures {
-		if !reg.AllowsFeature(domain.PlanScale, f) {
-			t.Errorf("Scale should have %q", f)
-		}
-		if reg.AllowsFeature(domain.PlanStarter, f) {
-			t.Errorf("Starter should NOT have %q after downgrade from Scale", f)
-		}
+		assert.True(t, reg.
+			AllowsFeature(domain.
+				PlanScale,
+
+				f))
+		assert.False(t, reg.
+			AllowsFeature(domain.
+				PlanStarter,
+
+				f))
+
 	}
 }
 
@@ -245,9 +269,8 @@ func TestBypass_SpendingLimitCannotGoNegative(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		l := GetPlanLimits(tier)
-		if l.OveragePerKMicrousd < 0 {
-			t.Errorf("plan %q has negative overage rate: %d", tier, l.OveragePerKMicrousd)
-		}
+		assert.GreaterOrEqual(t, l.OveragePerKMicrousd, int64(0))
+
 	}
 }
 
@@ -260,9 +283,11 @@ func TestBypass_ConcurrentPlanLookupSafe(t *testing.T) {
 		wg.Go(func() {
 			tier := domain.AllPlanTiers()[idx%5]
 			limits := GetPlanLimits(tier)
-			if limits.PlanTier != tier {
-				t.Errorf("concurrent lookup: expected %q, got %q", tier, limits.PlanTier)
-			}
+			assert.Equal(t, tier,
+				limits.
+					PlanTier,
+			)
+
 		})
 	}
 	wg.Wait()
@@ -292,9 +317,12 @@ func TestBypass_InvalidPlanTierInWebhook(t *testing.T) {
 
 	// Getting limits for an unknown tier should return free limits, not panic.
 	limits := GetPlanLimits(domain.PlanTier("hacked_premium"))
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("unknown tier should return free, got %q", limits.PlanTier)
-	}
+	assert.Equal(t, domain.
+		PlanFree,
+		limits.
+			PlanTier,
+	)
+
 }
 
 func TestBypass_PlanLimitsImmutable(t *testing.T) {
@@ -310,12 +338,17 @@ func TestBypass_PlanLimitsImmutable(t *testing.T) {
 	modified.RetentionDays = 99999
 
 	reread := GetPlanLimits(domain.PlanFree)
-	if reread.MaxProjectsPerOrg != origProjects {
-		t.Error("plan limits are mutable -- writing to returned struct affects future calls")
-	}
-	if reread.RetentionDays != origRetention {
-		t.Error("plan RetentionDays was mutated via returned struct")
-	}
+	assert.Equal(t, origProjects,
+
+		reread.
+			MaxProjectsPerOrg,
+	)
+	assert.Equal(t, origRetention,
+
+		reread.
+			RetentionDays,
+	)
+
 }
 
 // Adversarial: stddev edge cases
@@ -325,33 +358,35 @@ func TestStddev_KnownValues(t *testing.T) {
 
 	// [2, 4, 4, 4, 5, 5, 7, 9] -> stddev = 2.0
 	got := stddev([]float64{2, 4, 4, 4, 5, 5, 7, 9})
-	if got < 1.99 || got > 2.01 {
-		t.Errorf("stddev([2,4,4,4,5,5,7,9]) = %f, want ~2.0", got)
-	}
+	assert.False(t, got <
+		1.99 ||
+		got >
+			2.01)
+
 }
 
 func TestStddev_ZeroVariance(t *testing.T) {
 	t.Parallel()
 	got := stddev([]float64{5, 5, 5, 5, 5})
-	if got != 0 {
-		t.Errorf("stddev([5,5,5,5,5]) = %f, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		got)
+
 }
 
 func TestStddev_SingleElement(t *testing.T) {
 	t.Parallel()
 	got := stddev([]float64{42})
-	if got != 0 {
-		t.Errorf("stddev([42]) = %f, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		got)
+
 }
 
 func TestStddev_Empty(t *testing.T) {
 	t.Parallel()
 	got := stddev(nil)
-	if got != 0 {
-		t.Errorf("stddev(nil) = %f, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		got)
+
 }
 
 func TestStddev_LargeValues(t *testing.T) {
@@ -359,9 +394,12 @@ func TestStddev_LargeValues(t *testing.T) {
 	// Verify no overflow with large values
 	values := []float64{1e12, 1e12 + 1, 1e12 - 1}
 	got := stddev(values)
-	if math.IsNaN(got) || math.IsInf(got, 0) {
-		t.Errorf("stddev with large values returned %f", got)
-	}
+	assert.False(t, math.
+		IsNaN(got) || math.
+		IsInf(got,
+
+			0))
+
 }
 
 // Adversarial: HTTP job downgrade lifecycle
@@ -383,16 +421,16 @@ func TestBypass_PauseReasonSentinelConsistent(t *testing.T) {
 
 	// Simulate the downgrade applier pausing HTTP jobs.
 	paused, err := store.PauseHTTPJobsByOrg(context.Background(), "org-1", reason)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	_ = paused
 
 	// Simulate a webhook upgrade restoring the paused jobs.
 	unpaused, err := store.UnpauseJobsByPauseReason(context.Background(), "org-1", reason)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	_ = unpaused
 }
 
@@ -401,12 +439,11 @@ func TestBypass_HTTPJobCountNonNegative(t *testing.T) {
 
 	store := &mockBillingStore{}
 	count, err := store.CountHTTPJobsByOrg(context.Background(), "nonexistent-org")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count < 0 {
-		t.Errorf("CountHTTPJobsByOrg returned negative: %d", count)
-	}
+	require.NoError(t,
+		err)
+	assert.GreaterOrEqual(t,
+		count, 0)
+
 }
 
 // Adversarial: plan pricing consistency
@@ -422,12 +459,12 @@ func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 	for i := 1; i < len(paidTiers); i++ {
 		prev := GetPlanLimits(paidTiers[i-1])
 		curr := GetPlanLimits(paidTiers[i])
+		assert.GreaterOrEqual(t,
+			curr.PriceMonthlyUsd,
 
-		if curr.PriceMonthlyUsd < prev.PriceMonthlyUsd {
-			t.Errorf("plan %q price (%d) < plan %q price (%d)",
-				paidTiers[i], curr.PriceMonthlyUsd,
-				paidTiers[i-1], prev.PriceMonthlyUsd)
-		}
+			prev.
+				PriceMonthlyUsd)
+
 	}
 }
 
@@ -436,9 +473,8 @@ func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 
 	// Verify AllPlanTiers() includes all 6 tiers.
 	tiers := domain.AllPlanTiers()
-	if len(tiers) != 6 {
-		t.Fatalf("AllPlanTiers() returned %d tiers, want 6", len(tiers))
-	}
+	require.Len(t, tiers,
+		6)
 
 	expected := map[domain.PlanTier]bool{
 		domain.PlanFree:       false,
@@ -450,14 +486,15 @@ func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 	}
 	for _, tier := range tiers {
 		if _, ok := expected[tier]; !ok {
-			t.Errorf("unexpected tier %q in AllPlanTiers()", tier)
+			assert.Failf(t, "test failure",
+
+				"unexpected tier %q in AllPlanTiers()", tier)
 		}
 		expected[tier] = true
 	}
-	for tier, seen := range expected {
-		if !seen {
-			t.Errorf("AllPlanTiers() missing tier %q", tier)
-		}
+	for _, seen := range expected {
+		assert.True(t, seen)
+
 	}
 }
 
@@ -473,9 +510,10 @@ func TestBypass_IsDowngradeSymmetry(t *testing.T) {
 			}
 			aToB := IsDowngrade(a, b)
 			bToA := IsDowngrade(b, a)
-			if aToB && bToA {
-				t.Errorf("both %q->%q and %q->%q are downgrades (impossible)", a, b, b, a)
-			}
+			assert.False(t, aToB &&
+				bToA,
+			)
+
 		}
 	}
 }
@@ -488,17 +526,19 @@ func TestBypass_UnknownTierGetsFreeEnforcement(t *testing.T) {
 	// An org with an unknown plan tier should get free-tier limits.
 	limits := GetPlanLimits(domain.PlanTier("premium_hacked"))
 	freeLimits := GetPlanLimits(domain.PlanFree)
+	assert.Equal(t, freeLimits.
+		MaxProjectsPerOrg,
+		limits.
+			MaxProjectsPerOrg)
+	assert.True(t, limits.
+		AllowsHTTPMode,
+	)
+	assert.False(t, limits.
+		HasAuditLogs,
+	)
 
-	if limits.MaxProjectsPerOrg != freeLimits.MaxProjectsPerOrg {
-		t.Errorf("unknown tier projects=%d, free=%d", limits.MaxProjectsPerOrg, freeLimits.MaxProjectsPerOrg)
-	}
 	// HTTP mode is available on all tiers including free (the fallback).
-	if !limits.AllowsHTTPMode {
-		t.Error("unknown tier (falls back to free) should allow HTTP mode")
-	}
-	if limits.HasAuditLogs {
-		t.Error("unknown tier should not have audit logs")
-	}
+
 }
 
 func TestBypass_MassivePlanTierStrings(t *testing.T) {
@@ -507,9 +547,12 @@ func TestBypass_MassivePlanTierStrings(t *testing.T) {
 	// Very long tier strings should not cause panics or memory issues.
 	longTier := domain.PlanTier(strings.Repeat("a", 100000))
 	limits := GetPlanLimits(longTier)
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("massive tier string should fall back to free, got %q", limits.PlanTier)
-	}
+	assert.Equal(t, domain.
+		PlanFree,
+		limits.
+			PlanTier,
+	)
+
 }
 
 func TestBypass_NullBytesInTier(t *testing.T) {
@@ -517,9 +560,12 @@ func TestBypass_NullBytesInTier(t *testing.T) {
 
 	tier := domain.PlanTier("pro\x00admin")
 	limits := GetPlanLimits(tier)
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("null-byte tier should fall back to free, got %q", limits.PlanTier)
-	}
+	assert.Equal(t, domain.
+		PlanFree,
+		limits.
+			PlanTier,
+	)
+
 }
 
 func TestBypass_SQLInjectionInTier(t *testing.T) {
@@ -527,7 +573,10 @@ func TestBypass_SQLInjectionInTier(t *testing.T) {
 
 	tier := domain.PlanTier("'; DROP TABLE organization_subscriptions; --")
 	limits := GetPlanLimits(tier)
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("SQL injection tier should fall back to free, got %q", limits.PlanTier)
-	}
+	assert.Equal(t, domain.
+		PlanFree,
+		limits.
+			PlanTier,
+	)
+
 }

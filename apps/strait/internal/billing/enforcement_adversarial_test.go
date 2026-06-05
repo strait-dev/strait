@@ -15,6 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // 1. Enforcer nil-receiver adversarial tests
@@ -24,12 +26,14 @@ func TestEnforcer_NilReceiver_GetOrgPlanLimits(t *testing.T) {
 	// A nil Enforcer pointer should not panic; GetOrgPlanLimits handles nil receiver.
 	var e *Enforcer
 	limits, err := e.GetOrgPlanLimits(context.Background(), "org-1")
-	if err != nil {
-		t.Fatalf("expected nil error for nil enforcer, got %v", err)
-	}
-	if limits.PlanTier != domain.PlanFree {
-		t.Fatalf("expected free-tier defaults, got %q", limits.PlanTier)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		domain.PlanFree,
+		limits.
+			PlanTier,
+	)
+
 }
 
 // 2. EnsureOrgSubscription adversarial tests
@@ -47,9 +51,9 @@ func TestEnsureOrgSubscription_DelegatesCorrectly(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.EnsureOrgSubscription(context.Background(), "org-new")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	_ = calledWith
 }
 
@@ -67,9 +71,9 @@ func TestEnsureOrgSubscription_ExistingOrgNoError(t *testing.T) {
 	// Calling EnsureOrgSubscription for an existing org should not error.
 	// The mock's EnsureOrgSubscription always returns nil.
 	err := enforcer.EnsureOrgSubscription(context.Background(), "org-existing")
-	if err != nil {
-		t.Fatalf("expected nil error for existing org, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestEnsureOrgSubscription_ConcurrentIdempotent(t *testing.T) {
@@ -93,9 +97,9 @@ func TestEnsureOrgSubscription_ConcurrentIdempotent(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		if err != nil {
-			t.Fatalf("expected nil error in concurrent EnsureOrgSubscription, got %v", err)
-		}
+		require.NoError(t,
+			err)
+
 	}
 }
 
@@ -110,12 +114,14 @@ func TestWithBillingTx_NilPool_Panics(t *testing.T) {
 	// Verify we get a panic (not a silent nil error).
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic from nil pool, got none")
-		}
+		require.NotNil(t,
+			r)
+
 	}()
 	_ = WithBillingTx(context.Background(), nil, func(_ pgx.Tx) error {
-		t.Fatal("fn should not be called with nil pool")
+		require.Fail(t,
+
+			"fn should not be called with nil pool")
 		return nil
 	})
 }
@@ -127,9 +133,9 @@ func TestStripeUsageReporter_EmptySecretKey_Noop(t *testing.T) {
 	// Empty secret key causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("", slog.Default())
 	err := reporter.IngestRunOverage(context.Background(), "cust-1", "run-1")
-	if err != nil {
-		t.Fatalf("expected nil for empty secret key, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestStripeUsageReporter_EmptyCustomerID_Noop(t *testing.T) {
@@ -137,27 +143,27 @@ func TestStripeUsageReporter_EmptyCustomerID_Noop(t *testing.T) {
 	// Empty customer ID causes IngestRunOverage to silently return nil.
 	reporter := NewStripeUsageReporter("sk_test_key", slog.Default())
 	err := reporter.IngestRunOverage(context.Background(), "", "run-1")
-	if err != nil {
-		t.Fatalf("expected nil for empty customer ID, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestStripeUsageReporter_WithMetrics(t *testing.T) {
 	t.Parallel()
 	// Verify WithUsageReporterMetrics option can be applied without panic.
 	reporter := NewStripeUsageReporter("sk_test_key", slog.Default(), WithUsageReporterMetrics(nil))
-	if reporter == nil {
-		t.Fatal("expected non-nil reporter")
-	}
+	require.NotNil(t,
+		reporter)
+
 }
 
 func TestStripeUsageReporter_NilLogger(t *testing.T) {
 	t.Parallel()
 	// Passing nil logger should use slog.Default without panic.
 	reporter := NewStripeUsageReporter("sk_test_key", nil)
-	if reporter == nil {
-		t.Fatal("expected non-nil reporter")
-	}
+	require.NotNil(t,
+		reporter)
+
 }
 
 // 5. Billing enforcement edge cases
@@ -175,28 +181,27 @@ func TestEnforcer_FreeTier_AllLimitsHit(t *testing.T) {
 
 	// Project limit
 	err := enforcer.CheckProjectLimit(ctx, "org-free-all")
-	if err == nil {
-		t.Fatal("expected project limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	if le.Code != "project_limit_reached" {
-		t.Errorf("code = %q, want project_limit_reached", le.Code)
-	}
+	require.True(t, errors.As(err,
+		&le))
+	assert.Equal(t, "project_limit_reached",
+
+		le.Code,
+	)
 
 	// Member limit
 	err = enforcer.CheckMemberLimit(ctx, "org-free-all")
-	if err == nil {
-		t.Fatal("expected member limit error")
-	}
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError for members, got %T", err)
-	}
-	if le.Code != "member_limit_reached" {
-		t.Errorf("code = %q, want member_limit_reached", le.Code)
-	}
+	require.Error(t,
+		err)
+	require.True(t, errors.As(err,
+		&le))
+	assert.Equal(t, "member_limit_reached",
+
+		le.Code,
+	)
 
 	// Concurrent run limit
 	freeLimits := GetPlanLimits(domain.PlanFree)
@@ -204,15 +209,14 @@ func TestEnforcer_FreeTier_AllLimitsHit(t *testing.T) {
 		_ = enforcer.CheckConcurrentRunLimit(ctx, "org-free-all")
 	}
 	err = enforcer.CheckConcurrentRunLimit(ctx, "org-free-all")
-	if err == nil {
-		t.Fatal("expected concurrent run limit error")
-	}
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError for concurrent, got %T", err)
-	}
-	if le.Code != "org_concurrent_run_limit_exceeded" {
-		t.Errorf("code = %q, want org_concurrent_run_limit_exceeded", le.Code)
-	}
+	require.Error(t,
+		err)
+	require.True(t, errors.As(err,
+		&le))
+	assert.Equal(t, "org_concurrent_run_limit_exceeded",
+
+		le.Code)
+
 }
 
 func TestEnforcer_PlanUpgradeMidOperation_CacheInvalidation(t *testing.T) {
@@ -230,9 +234,8 @@ func TestEnforcer_PlanUpgradeMidOperation_CacheInvalidation(t *testing.T) {
 
 	// At free tier, 2 projects = at limit.
 	err := enforcer.CheckProjectLimit(ctx, "org-upgrade")
-	if err == nil {
-		t.Fatal("expected project limit at free tier")
-	}
+	require.Error(t,
+		err)
 
 	// Simulate plan upgrade.
 	store.subscriptions["org-upgrade"].PlanTier = "starter"
@@ -240,9 +243,9 @@ func TestEnforcer_PlanUpgradeMidOperation_CacheInvalidation(t *testing.T) {
 
 	// After upgrade, 2 projects should be under starter limit (5).
 	err = enforcer.CheckProjectLimit(ctx, "org-upgrade")
-	if err != nil {
-		t.Fatalf("expected pass after upgrade, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestEnforcer_ConcurrentPlanChange_DuringLimitCheck(t *testing.T) {
@@ -359,12 +362,13 @@ func TestAutoDisableResources_VariousStates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			manual, auto := AutoDisableResources(tt.impacts)
-			if len(manual) != tt.wantManualCount {
-				t.Errorf("manual actions = %d, want %d", len(manual), tt.wantManualCount)
-			}
-			if len(auto) != tt.wantAutoCount {
-				t.Errorf("auto disabled = %d, want %d", len(auto), tt.wantAutoCount)
-			}
+			assert.Len(t, manual,
+				tt.wantManualCount,
+			)
+			assert.Len(t, auto,
+				tt.wantAutoCount,
+			)
+
 		})
 	}
 }
@@ -389,9 +393,12 @@ func TestEnforcer_EnforcementMode_Disabled_SkipsDailyLimit(t *testing.T) {
 	// Exhaust the daily limit.
 	freeLimits := GetPlanLimits(domain.PlanFree)
 	for range freeLimits.MaxRunsPerDay + 100 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-disabled"); err != nil {
-			t.Fatalf("enforcement_mode=disabled should skip daily limit: %v", err)
-		}
+		require.NoError(t,
+			enforcer.
+				CheckDailyRunLimit(
+					ctx, "org-disabled",
+				))
+
 	}
 }
 
@@ -416,9 +423,12 @@ func TestEnforcer_EnforcementMode_Warn_SkipsDailyLimit(t *testing.T) {
 	// The free tier limit is 5000 -- use limit+10 to prove it is skipped.
 	freeLimits := GetPlanLimits(domain.PlanFree)
 	for range freeLimits.MaxRunsPerDay + 10 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-warn"); err != nil {
-			t.Fatalf("enforcement_mode=warn should skip daily limit: %v", err)
-		}
+		require.NoError(t,
+			enforcer.
+				CheckDailyRunLimit(
+					ctx, "org-warn",
+				))
+
 	}
 }
 
@@ -447,28 +457,31 @@ func TestEnforcer_OverrideRunLimits(t *testing.T) {
 	// orchestration runs, so stale support metadata must not reactivate
 	// a daily quota.
 	for range 11 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-override"); err != nil {
-			t.Fatalf("legacy daily override should not reject launch runs: %v", err)
-		}
+		require.NoError(t,
+			enforcer.
+				CheckDailyRunLimit(
+					ctx, "org-override",
+				))
+
 	}
 	limits, err := enforcer.GetOrgPlanLimits(ctx, "org-override")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
-	if limits.MaxRunsPerDay != -1 {
-		t.Fatalf("legacy daily override changed MaxRunsPerDay: got %d, want -1", limits.MaxRunsPerDay)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, -1, limits.
+		MaxRunsPerDay,
+	)
 
 	// Concurrent override: 2 runs.
 	for range 2 {
-		if err := enforcer.CheckConcurrentRunLimit(ctx, "org-override"); err != nil {
-			t.Fatalf("should allow up to concurrent override: %v", err)
-		}
+		require.NoError(t,
+			enforcer.
+				CheckConcurrentRunLimit(ctx, "org-override"))
+
 	}
 	err = enforcer.CheckConcurrentRunLimit(ctx, "org-override")
-	if err == nil {
-		t.Fatal("expected concurrent rejection at override limit+1")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestEnforcer_ProjectSuspended_CacheRace(t *testing.T) {
@@ -523,10 +536,9 @@ func TestEnforcer_DailyRunLimit_ConcurrentUnlimited(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 0, rejected.
+		Load())
 
-	if rejected.Load() != 0 {
-		t.Fatalf("expected 0 rejections for unlimited daily runs, got %d", rejected.Load())
-	}
 }
 
 func TestEnforcer_ConcurrentRunLimit_DoubleFreeAfterDecrement(t *testing.T) {
@@ -536,11 +548,11 @@ func TestEnforcer_ConcurrentRunLimit_DoubleFreeAfterDecrement(t *testing.T) {
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	ctx := context.Background()
+	require.NoError(t,
+		enforcer.
+			CheckConcurrentRunLimit(ctx, "org-double-decr"))
 
 	// Start one run.
-	if err := enforcer.CheckConcurrentRunLimit(ctx, "org-double-decr"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 
 	// Decrement twice (simulating double-free).
 	enforcer.DecrConcurrentRunCount(ctx, "org-double-decr")
@@ -549,12 +561,13 @@ func TestEnforcer_ConcurrentRunLimit_DoubleFreeAfterDecrement(t *testing.T) {
 	// Counter should be floored at 0, not go negative.
 	rdbClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	val, err := rdbClient.Get(ctx, "strait:org_concurrent:org-double-decr").Int64()
-	if err != nil && !errors.Is(err, redis.Nil) {
-		t.Fatalf("unexpected redis error: %v", err)
-	}
-	if val < 0 {
-		t.Fatalf("counter went negative: %d", val)
-	}
+	require.False(t,
+		err != nil &&
+			!errors.Is(err,
+				redis.Nil))
+	require.GreaterOrEqual(t, val,
+		int64(0))
+
 }
 
 func TestEnforcer_PaymentRestricted_BlocksAllLimitChecks(t *testing.T) {
@@ -585,16 +598,17 @@ func TestEnforcer_PaymentRestricted_BlocksAllLimitChecks(t *testing.T) {
 	for _, c := range checks {
 		t.Run(c.name, func(t *testing.T) {
 			err := c.check()
-			if err == nil {
-				t.Fatalf("%s: expected rejection for restricted payment", c.name)
-			}
+			require.Error(t,
+				err)
+
 			var le *LimitError
-			if !errors.As(err, &le) {
-				t.Fatalf("%s: expected *LimitError, got %T", c.name, err)
-			}
-			if le.Code != "payment_restricted" {
-				t.Errorf("%s: code = %q, want payment_restricted", c.name, le.Code)
-			}
+			require.True(t, errors.As(err,
+				&le))
+			assert.Equal(t, "payment_restricted",
+
+				le.
+					Code)
+
 		})
 	}
 }
@@ -620,16 +634,17 @@ func TestEnforcer_GracePeriodEdge_ExactExpiry(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-edge")
-	if err == nil {
-		t.Fatal("expected rejection for just-expired grace period")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	if le.Code != "grace_period_expired" {
-		t.Errorf("code = %q, want grace_period_expired", le.Code)
-	}
+	require.True(t, errors.As(err,
+		&le))
+	assert.Equal(t, "grace_period_expired",
+
+		le.Code,
+	)
+
 }
 
 func TestEnforcer_SuspendExcessProjects_UnlimitedPlan(t *testing.T) {
@@ -641,12 +656,10 @@ func TestEnforcer_SuspendExcessProjects_UnlimitedPlan(t *testing.T) {
 
 	// -1 means unlimited, should not suspend any projects.
 	suspended, err := enforcer.SuspendExcessProjects(context.Background(), "org-ent", -1)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if suspended != 0 {
-		t.Fatalf("expected 0 suspended for unlimited plan, got %d", suspended)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 0, suspended)
+
 }
 
 func TestEnforcer_LimitError_ImplementsErrorInterface(t *testing.T) {
@@ -662,16 +675,18 @@ func TestEnforcer_LimitError_ImplementsErrorInterface(t *testing.T) {
 
 	// Verify it implements the error interface.
 	var err error = le
-	if err.Error() != "test message" {
-		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
-	}
+	assert.Equal(t, "test message",
+
+		err.Error())
 
 	// Verify errors.As works.
 	var target *LimitError
-	if !errors.As(err, &target) {
-		t.Fatal("errors.As should match *LimitError")
-	}
-	if target.Code != "test_limit" {
-		t.Errorf("Code = %q, want test_limit", target.Code)
-	}
+	require.True(t, errors.As(err,
+		&target),
+	)
+	assert.Equal(t, "test_limit",
+
+		target.Code,
+	)
+
 }

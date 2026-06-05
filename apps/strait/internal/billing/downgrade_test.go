@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockDowngradeStore struct {
@@ -31,13 +34,12 @@ func TestPreviewDowngrade_ProToFree(t *testing.T) {
 	_ = now
 
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if impact.TargetTier != "free" {
-		t.Errorf("expected target tier free, got %s", impact.TargetTier)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, "free",
+		impact.
+			TargetTier,
+	)
 
 	freeLimits := GetPlanLimits(domain.PlanFree)
 
@@ -48,15 +50,19 @@ func TestPreviewDowngrade_ProToFree(t *testing.T) {
 	}
 
 	projImpact := impactMap["projects"]
-	if projImpact.Action != ResourceActionReduce {
-		t.Errorf("expected projects action reduce, got %s", projImpact.Action)
-	}
-	if projImpact.Current != 5 {
-		t.Errorf("expected current projects 5, got %d", projImpact.Current)
-	}
-	if projImpact.Limit != int64(freeLimits.MaxProjectsPerOrg) {
-		t.Errorf("expected limit %d for free plan, got %d", freeLimits.MaxProjectsPerOrg, projImpact.Limit)
-	}
+	assert.Equal(t, ResourceActionReduce,
+
+		projImpact.Action)
+	assert.EqualValues(t, 5,
+		projImpact.
+			Current,
+	)
+	assert.Equal(t, int64(freeLimits.
+		MaxProjectsPerOrg,
+	), projImpact.
+		Limit,
+	)
+
 }
 
 func TestPreviewDowngrade_SubscriptionNotFound(t *testing.T) {
@@ -65,9 +71,9 @@ func TestPreviewDowngrade_SubscriptionNotFound(t *testing.T) {
 	}
 
 	_, err := PreviewDowngrade(context.Background(), store, "org-missing", domain.PlanFree)
-	if err == nil {
-		t.Fatal("expected error for missing subscription")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestPreviewDowngrade_IncludesEffectiveDate(t *testing.T) {
@@ -89,16 +95,17 @@ func TestPreviewDowngrade_IncludesEffectiveDate(t *testing.T) {
 	}
 
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.NotEqual(
+		t, "", impact.
+			EffectiveDate,
+	)
+	assert.Equal(t, "2026-04-15",
 
-	if impact.EffectiveDate == "" {
-		t.Fatal("expected non-empty effective date")
-	}
-	if impact.EffectiveDate != "2026-04-15" {
-		t.Errorf("expected effective date 2026-04-15, got %s", impact.EffectiveDate)
-	}
+		impact.
+			EffectiveDate)
+
 }
 
 func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testing.T) {
@@ -119,21 +126,22 @@ func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testin
 	}
 
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if impact.EffectiveDate == "" {
-		t.Fatal("expected non-empty effective date when period end is nil")
-	}
+	require.NoError(t,
+		err)
+	require.NotEqual(
+		t, "", impact.
+			EffectiveDate,
+	)
 
 	// Should be end of current month.
 	now := time.Now().UTC()
 	endOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.UTC)
 	expected := endOfMonth.Format("2006-01-02")
-	if impact.EffectiveDate != expected {
-		t.Errorf("expected effective date %s (end of month), got %s", expected, impact.EffectiveDate)
-	}
+	assert.Equal(t, expected,
+		impact.
+			EffectiveDate,
+	)
+
 }
 
 func TestPreviewDowngrade_DoesNotExposeLaunchInactiveRegions(t *testing.T) {
@@ -148,13 +156,15 @@ func TestPreviewDowngrade_DoesNotExposeLaunchInactiveRegions(t *testing.T) {
 		},
 	}
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, imp := range impact.Impacts {
-		if imp.Resource == "regions" {
-			t.Fatalf("downgrade preview exposed launch-inactive regions impact: %#v", imp)
-		}
+		require.NotEqual(
+			t, "regions",
+			imp.Resource,
+		)
+
 	}
 }
 
@@ -183,9 +193,8 @@ func TestPreviewDowngrade_UsesActualPeriodRunsForMonthlyImpact(t *testing.T) {
 	}
 
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	var runsImpact *ResourceImpact
 	for i := range impact.Impacts {
@@ -194,19 +203,21 @@ func TestPreviewDowngrade_UsesActualPeriodRunsForMonthlyImpact(t *testing.T) {
 			break
 		}
 	}
-	if runsImpact == nil {
-		t.Fatal("expected runs_per_month impact")
-		return
-	}
-	if runsImpact.Current != 7_000 {
-		t.Fatalf("runs_per_month current = %d, want actual period usage 7000", runsImpact.Current)
-	}
-	if runsImpact.Limit != int64(GetPlanLimits(domain.PlanFree).MaxRunsPerMonth) {
-		t.Fatalf("runs_per_month limit = %d, want free monthly cap", runsImpact.Limit)
-	}
-	if runsImpact.Action != ResourceActionReduce {
-		t.Fatalf("runs_per_month action = %s, want reduce", runsImpact.Action)
-	}
+	require.NotNil(t,
+		runsImpact,
+	)
+	require.EqualValues(t, 7_000, runsImpact.
+		Current,
+	)
+	require.Equal(t,
+		int64(GetPlanLimits(
+			domain.PlanFree).MaxRunsPerMonth,
+		), runsImpact.Limit)
+	require.Equal(t,
+		ResourceActionReduce,
+
+		runsImpact.Action)
+
 }
 
 func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
@@ -225,13 +236,15 @@ func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
 		},
 	}
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, imp := range impact.Impacts {
-		if imp.Resource == "http_mode_jobs" {
-			t.Error("unexpected http_mode_jobs impact: HTTP mode is available on all tiers")
-		}
+		assert.NotEqual(t,
+			"http_mode_jobs",
+
+			imp.Resource)
+
 	}
 }
 
@@ -240,12 +253,12 @@ func TestAutoDisable_LogDrains_OverLimit_Disabled(t *testing.T) {
 		{Resource: "log_drains", Current: 5, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(manual) != 0 {
-		t.Errorf("expected no manual actions, got %d", len(manual))
-	}
-	if len(auto) != 1 || auto[0].Resource != "log_drains" {
-		t.Errorf("expected log_drains in auto-disabled, got %v", auto)
-	}
+	assert.Len(t, manual,
+		0)
+	assert.False(t, len(auto) !=
+		1 || auto[0].Resource != "log_drains",
+	)
+
 }
 
 func TestAutoDisable_AlertRules_OverLimit_Disabled(t *testing.T) {
@@ -253,12 +266,12 @@ func TestAutoDisable_AlertRules_OverLimit_Disabled(t *testing.T) {
 		{Resource: "alert_rules", Current: 10, Limit: 3, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(manual) != 0 {
-		t.Errorf("expected no manual actions, got %d", len(manual))
-	}
-	if len(auto) != 1 || auto[0].Resource != "alert_rules" {
-		t.Errorf("expected alert_rules in auto-disabled, got %v", auto)
-	}
+	assert.Len(t, manual,
+		0)
+	assert.False(t, len(auto) !=
+		1 || auto[0].Resource != "alert_rules",
+	)
+
 }
 
 func TestAutoDisable_Webhooks_OverLimit_Disabled(t *testing.T) {
@@ -266,12 +279,12 @@ func TestAutoDisable_Webhooks_OverLimit_Disabled(t *testing.T) {
 		{Resource: "webhooks", Current: 8, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(manual) != 0 {
-		t.Errorf("expected no manual actions, got %d", len(manual))
-	}
-	if len(auto) != 1 || auto[0].Resource != "webhooks" {
-		t.Errorf("expected webhooks in auto-disabled, got %v", auto)
-	}
+	assert.Len(t, manual,
+		0)
+	assert.False(t, len(auto) !=
+		1 || auto[0].Resource != "webhooks",
+	)
+
 }
 
 func TestAutoDisable_BelowLimit_NoAction(t *testing.T) {
@@ -281,12 +294,11 @@ func TestAutoDisable_BelowLimit_NoAction(t *testing.T) {
 		{Resource: "webhooks", Current: 0, Limit: 3, Action: ResourceActionOK},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(manual) != 0 {
-		t.Errorf("expected no manual actions for below-limit resources, got %d", len(manual))
-	}
-	if len(auto) != 0 {
-		t.Errorf("expected no auto-disabled for below-limit resources, got %d", len(auto))
-	}
+	assert.Len(t, manual,
+		0)
+	assert.Len(t, auto,
+		0)
+
 }
 
 func TestRequiresManualAction_Projects_OverLimit_Flagged(t *testing.T) {
@@ -294,12 +306,13 @@ func TestRequiresManualAction_Projects_OverLimit_Flagged(t *testing.T) {
 		{Resource: "projects", Current: 10, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(auto) != 0 {
-		t.Errorf("expected no auto-disabled for projects, got %d", len(auto))
-	}
-	if len(manual) != 1 || manual[0].Resource != "projects" {
-		t.Errorf("expected projects in manual actions, got %v", manual)
-	}
+	assert.Len(t, auto,
+		0)
+	assert.False(t, len(manual) !=
+		1 ||
+		manual[0].Resource != "projects",
+	)
+
 }
 
 func TestRequiresManualAction_Members_OverLimit_Flagged(t *testing.T) {
@@ -308,12 +321,11 @@ func TestRequiresManualAction_Members_OverLimit_Flagged(t *testing.T) {
 		{Resource: "members_per_org", Current: 20, Limit: 5, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(auto) != 0 {
-		t.Errorf("expected no auto-disabled for members, got %d", len(auto))
-	}
-	if len(manual) != 2 {
-		t.Errorf("expected 2 manual actions for members, got %d", len(manual))
-	}
+	assert.Len(t, auto,
+		0)
+	assert.Len(t, manual,
+		2)
+
 }
 
 func TestRequiresManualAction_BelowLimit_Empty(t *testing.T) {
@@ -322,12 +334,11 @@ func TestRequiresManualAction_BelowLimit_Empty(t *testing.T) {
 		{Resource: "members", Current: 2, Limit: 10, Action: ResourceActionOK},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	if len(manual) != 0 {
-		t.Errorf("expected no manual actions for below-limit, got %d", len(manual))
-	}
-	if len(auto) != 0 {
-		t.Errorf("expected no auto-disabled for below-limit, got %d", len(auto))
-	}
+	assert.Len(t, manual,
+		0)
+	assert.Len(t, auto,
+		0)
+
 }
 
 func TestAutoDisable_OnlyNonCritical(t *testing.T) {
@@ -341,25 +352,33 @@ func TestAutoDisable_OnlyNonCritical(t *testing.T) {
 		{Resource: "custom_roles", Current: 3, Limit: 0, Action: ResourceActionRemove},
 	}
 	manual, auto := AutoDisableResources(impacts)
+	assert.Len(t, manual,
+		3)
 
 	// projects, members, members_per_org should be manual
-	if len(manual) != 3 {
-		t.Errorf("expected 3 manual actions, got %d", len(manual))
-	}
+
 	for _, m := range manual {
-		if m.Resource != "projects" && m.Resource != "members" && m.Resource != "members_per_org" {
-			t.Errorf("unexpected resource in manual actions: %s", m.Resource)
-		}
+		assert.False(t, m.
+			Resource !=
+			"projects" &&
+			m.Resource != "members" &&
+			m.Resource != "members_per_org",
+		)
+
 	}
+	assert.Len(t, auto,
+		4)
 
 	// log_drains, alert_rules, webhooks, custom_roles should be auto-disabled
-	if len(auto) != 4 {
-		t.Errorf("expected 4 auto-disabled, got %d", len(auto))
-	}
+
 	for _, a := range auto {
-		if a.Resource == "projects" || a.Resource == "members" || a.Resource == "members_per_org" {
-			t.Errorf("critical resource %s should not be in auto-disabled", a.Resource)
-		}
+		assert.False(t, a.
+			Resource ==
+			"projects" ||
+			a.Resource == "members" ||
+			a.Resource == "members_per_org",
+		)
+
 	}
 }
 
@@ -380,9 +399,12 @@ func TestBuildImpact(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			impact := buildImpact("test", tt.current, tt.limit)
-			if impact.Action != tt.expected {
-				t.Errorf("buildImpact(%d, %d) action = %s, want %s", tt.current, tt.limit, impact.Action, tt.expected)
-			}
+			assert.Equal(t, tt.
+				expected,
+				impact.
+					Action,
+			)
+
 		})
 	}
 }

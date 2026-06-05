@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Cheaper-with-scale / pay-more-get-more invariants. If any of these flip
@@ -26,12 +28,11 @@ func TestDrift_AnnualDiscountRange(t *testing.T) {
 		p := Plans[tier]
 		monthly12 := int64(p.PriceMonthlyUsd) * 12
 		annual := int64(p.PriceAnnualUsd)
-		if annual >= monthly12 {
-			t.Errorf("%s annual %d should be less than monthly*12 %d", tier, annual, monthly12)
-		}
-		if annual*100 < monthly12*75 {
-			t.Errorf("%s annual %d is more than 25%% off monthly*12 %d", tier, annual, monthly12)
-		}
+		assert.False(t, annual >=
+			monthly12)
+		assert.GreaterOrEqual(t, annual*100, monthly12*
+			75)
+
 	}
 }
 
@@ -53,9 +54,8 @@ func TestDrift_StrictlyMonotonicPaidTiers(t *testing.T) {
 	}
 	spending := []int64{MaxSpendingStarter, MaxSpendingPro, MaxSpendingScale, MaxSpendingBusiness}
 	for i := 1; i < len(spending); i++ {
-		if spending[i] <= spending[i-1] {
-			t.Errorf("MaxSpending must strictly increase: idx=%d %d <= %d", i, spending[i], spending[i-1])
-		}
+		assert.False(t, spending[i] <= spending[i-1])
+
 	}
 	for _, m := range metrics {
 		var prev int64
@@ -75,12 +75,13 @@ func TestDrift_StrictlyMonotonicPaidTiers(t *testing.T) {
 				if prevEff == -1 {
 					prevEff = 1<<62 - 1
 				}
-				if curEff <= prevEff {
-					t.Errorf("%s must strictly increase %s -> %s: %d <= %d",
-						m.name, paidTierOrder[i-1], tier, cur, prev)
-				}
+				assert.False(t, curEff <=
+					prevEff)
+
 			} else if cur >= prev {
-				t.Errorf("%s must strictly decrease %s -> %s: %d >= %d",
+				assert.Failf(t, "test failure",
+
+					"%s must strictly decrease %s -> %s: %d >= %d",
 					m.name, paidTierOrder[i-1], tier, cur, prev)
 			}
 			prev = cur
@@ -109,9 +110,9 @@ func TestDrift_EnterpriseUnlimited(t *testing.T) {
 		{"APIRateLimit", p.APIRateLimit},
 	}
 	for _, c := range checks {
-		if c.got != -1 {
-			t.Errorf("Enterprise %s = %d, want -1 (unlimited)", c.name, c.got)
-		}
+		assert.EqualValues(t, -1,
+			c.got)
+
 	}
 }
 
@@ -135,8 +136,8 @@ func TestDrift_SLACreditBoundaries(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := CalculateSLACredit(c.uptime, target)
-		if got != c.want {
-			t.Errorf("CalculateSLACredit(%.2f, %.1f) = %d, want %d", c.uptime, target, got, c.want)
-		}
+		assert.Equal(t, c.
+			want, got)
+
 	}
 }

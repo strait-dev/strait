@@ -9,6 +9,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPercentReached covers the boundary arithmetic that decides whether a
@@ -37,10 +39,12 @@ func TestPercentReached(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := percentReached(tc.current, tc.limit, tc.pct); got != tc.want {
-				t.Errorf("percentReached(%d, %d, %d) = %v, want %v",
-					tc.current, tc.limit, tc.pct, got, tc.want)
-			}
+			assert.Equal(t, tc.
+				want, percentReached(
+				tc.current,
+
+				tc.limit, tc.pct))
+
 		})
 	}
 }
@@ -67,16 +71,16 @@ func TestMaybeEmitUsageThreshold_DedupesWithinPeriod(t *testing.T) {
 	}
 
 	key := usageThresholdKey("org-A", "monthly_runs", 80, "2026-05")
-	if !mr.Exists(key) {
-		t.Fatalf("expected dedupe key %q to exist after first emit", key)
-	}
+	require.True(t, mr.
+		Exists(key))
+
 	// 90% should still be free to fire once.
 	enforcer.maybeEmitUsageThreshold(ctx, "org-A", "free", "monthly_runs", "2026-05",
 		91, 100)
 	key90 := usageThresholdKey("org-A", "monthly_runs", 90, "2026-05")
-	if !mr.Exists(key90) {
-		t.Fatalf("expected 90%% dedupe key %q to exist after first crossing", key90)
-	}
+	require.True(t, mr.
+		Exists(key90))
+
 }
 
 // TestMaybeEmitUsageThreshold_HighestBucketWins ensures that when a single
@@ -97,13 +101,16 @@ func TestMaybeEmitUsageThreshold_HighestBucketWins(t *testing.T) {
 	// Only the 100% key should be claimed.
 	for _, pct := range []int{80, 90} {
 		k := usageThresholdKey("org-jump", "monthly_runs", pct, "2026-05")
-		if mr.Exists(k) {
-			t.Errorf("expected lower bucket %d%% key %q to be untouched, got existing", pct, k)
-		}
+		assert.False(t, mr.
+			Exists(k))
+
 	}
-	if !mr.Exists(usageThresholdKey("org-jump", "monthly_runs", 100, "2026-05")) {
-		t.Errorf("expected 100%% bucket key to be claimed")
-	}
+	assert.True(t, mr.
+		Exists(usageThresholdKey("org-jump",
+
+			"monthly_runs", 100, "2026-05",
+		)))
+
 }
 
 // TestMaybeEmitUsageThreshold_BelowAllBucketsNoOp verifies that callers below
@@ -121,7 +128,9 @@ func TestMaybeEmitUsageThreshold_BelowAllBucketsNoOp(t *testing.T) {
 		79, 100)
 
 	if got := mr.Keys(); len(got) != 0 {
-		t.Errorf("expected no Redis keys when below 80%%, got %v", got)
+		assert.Failf(t, "test failure",
+
+			"expected no Redis keys when below 80%%, got %v", got)
 	}
 }
 
@@ -143,9 +152,11 @@ func TestMaybeEmitUsageThreshold_DistinctPeriodsEmitIndependently(t *testing.T) 
 		80, 100)
 
 	for _, period := range []string{"2026-04", "2026-05"} {
-		if !mr.Exists(usageThresholdKey("org-month", "monthly_runs", 80, period)) {
-			t.Errorf("expected per-period dedupe for %s", period)
-		}
+		assert.True(t, mr.
+			Exists(usageThresholdKey("org-month",
+
+				"monthly_runs", 80, period)))
+
 	}
 }
 
@@ -180,10 +191,12 @@ func TestMaybeEmitUsageThreshold_RaceSingleEmission(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.True(t, mr.
+		Exists(usageThresholdKey("org-race",
 
-	if !mr.Exists(usageThresholdKey("org-race", "monthly_runs", 80, "2026-05")) {
-		t.Fatalf("expected exactly one of the racing callers to claim the dedupe key")
-	}
+			"monthly_runs", 80, "2026-05",
+		)))
+
 }
 
 // TestCheckMonthlyRunLimit_EmitsThresholdAtBoundary wires the threshold
@@ -203,24 +216,24 @@ func TestCheckMonthlyRunLimit_EmitsThresholdAtBoundary(t *testing.T) {
 	// Free tier: 5000/month. 80% boundary = 4000.
 	period := time.Now().UTC().Format("2006-01")
 	counterKey := monthlyRunKey(orgID, time.Now())
-	if err := mr.Set(counterKey, "3999"); err != nil {
-		t.Fatalf("seed counter: %v", err)
-	}
-
-	if err := enforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
-		t.Fatalf("CheckMonthlyRunLimit at 4000/5000: %v", err)
-	}
+	require.NoError(t,
+		mr.Set(counterKey,
+			"3999",
+		))
+	require.NoError(t,
+		enforcer.CheckMonthlyRunLimit(
+			ctx, orgID))
 
 	// One incr must have crossed 80% and claimed the dedupe key.
 	dedupe80 := usageThresholdKey(orgID, "monthly_runs", 80, period)
-	if !mr.Exists(dedupe80) {
-		t.Errorf("expected 80%% dedupe key %q to be claimed after crossing 4000/5000", dedupe80)
-	}
+	assert.True(t, mr.
+		Exists(dedupe80))
+
 	for _, pct := range []int{90, 100} {
 		k := usageThresholdKey(orgID, "monthly_runs", pct, period)
-		if mr.Exists(k) {
-			t.Errorf("expected %d%% dedupe key not yet claimed at boundary, got %q", pct, k)
-		}
+		assert.False(t, mr.
+			Exists(k))
+
 	}
 }
 
@@ -245,6 +258,8 @@ func TestMaybeEmitUsageThreshold_EmptyInputsAreNoOps(t *testing.T) {
 		enforcer.maybeEmitUsageThreshold(ctx, c.org, "starter", c.metric, c.period, 100, 100)
 	}
 	if got := mr.Keys(); len(got) != 0 {
-		t.Errorf("expected no keys for empty-id inputs, got %v", got)
+		assert.Failf(t, "test failure",
+
+			"expected no keys for empty-id inputs, got %v", got)
 	}
 }

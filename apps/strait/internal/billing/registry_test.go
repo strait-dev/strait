@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStaticRegistry_AllTiers(t *testing.T) {
@@ -12,9 +15,10 @@ func TestStaticRegistry_AllTiers(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		limits := reg.Get(tier)
-		if limits.PlanTier != tier {
-			t.Errorf("Get(%q).PlanTier = %q, want %q", tier, limits.PlanTier, tier)
-		}
+		assert.Equal(t, tier,
+
+			limits.PlanTier)
+
 	}
 }
 
@@ -22,16 +26,14 @@ func TestStaticRegistry_All(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 	all := reg.All()
+	require.Len(t, all,
 
-	if len(all) != 6 {
-		t.Fatalf("All() returned %d plans, want 6", len(all))
-	}
+		6)
 
 	expected := domain.AllPlanTiers()
 	for i, limits := range all {
-		if limits.PlanTier != expected[i] {
-			t.Errorf("All()[%d].PlanTier = %q, want %q", i, limits.PlanTier, expected[i])
-		}
+		assert.Equal(t, expected[i], limits.PlanTier)
+
 	}
 }
 
@@ -39,9 +41,10 @@ func TestStaticRegistry_UnknownTier_ReturnsFree(t *testing.T) {
 	t.Parallel()
 	reg := NewStaticRegistry()
 	limits := reg.Get(domain.PlanTier("nonexistent"))
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("Get(unknown) = %q, want %q", limits.PlanTier, domain.PlanFree)
-	}
+	assert.Equal(t, domain.
+		PlanFree, limits.PlanTier,
+	)
+
 }
 
 func TestStaticRegistry_AllowsFeature(t *testing.T) {
@@ -108,9 +111,9 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 		t.Run(string(tt.tier)+"_"+string(tt.feature), func(t *testing.T) {
 			t.Parallel()
 			got := reg.AllowsFeature(tt.tier, tt.feature)
-			if got != tt.want {
-				t.Errorf("AllowsFeature(%q, %q) = %v, want %v", tt.tier, tt.feature, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }
@@ -120,9 +123,9 @@ func TestStaticRegistry_AllowsFeature_InvalidFeature(t *testing.T) {
 	reg := NewStaticRegistry()
 
 	for _, tier := range domain.AllPlanTiers() {
-		if reg.AllowsFeature(tier, Feature("nonexistent_feature")) {
-			t.Errorf("AllowsFeature(%q, nonexistent) = true, want false", tier)
-		}
+		assert.False(t, reg.
+			AllowsFeature(tier, Feature("nonexistent_feature")))
+
 	}
 }
 
@@ -186,9 +189,9 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 		t.Run(string(tt.tier)+"_"+string(tt.limit), func(t *testing.T) {
 			t.Parallel()
 			got := reg.MaxForLimit(tt.tier, tt.limit)
-			if got != tt.want {
-				t.Errorf("MaxForLimit(%q, %q) = %d, want %d", tt.tier, tt.limit, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }
@@ -199,9 +202,10 @@ func TestStaticRegistry_MaxForLimit_InvalidKey(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		got := reg.MaxForLimit(tier, LimitKey("nonexistent_limit"))
-		if got != 0 {
-			t.Errorf("MaxForLimit(%q, nonexistent) = %d, want 0", tier, got)
-		}
+		assert.EqualValues(t, 0,
+
+			got)
+
 	}
 }
 
@@ -216,41 +220,48 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 		FeatureJobChaining, FeatureCompensatingTxns,
 	}
 	for _, f := range proFeatures {
-		if reg.AllowsFeature(domain.PlanFree, f) {
-			t.Errorf("Free should not have feature %q", f)
-		}
-		if reg.AllowsFeature(domain.PlanStarter, f) {
-			t.Errorf("Starter should not have feature %q", f)
-		}
+		assert.False(t, reg.
+			AllowsFeature(domain.PlanFree,
+
+				f))
+		assert.False(t, reg.
+			AllowsFeature(domain.PlanStarter,
+
+				f))
+
 	}
 
 	scaleFeatures := []Feature{FeatureCanaryDeployments, FeatureAuditLogs}
 	for _, f := range scaleFeatures {
-		if reg.AllowsFeature(domain.PlanFree, f) {
-			t.Errorf("Free should not have feature %q", f)
-		}
-		if reg.AllowsFeature(domain.PlanStarter, f) {
-			t.Errorf("Starter should not have feature %q", f)
-		}
-		if reg.AllowsFeature(domain.PlanPro, f) {
-			t.Errorf("Pro should not have feature %q", f)
-		}
+		assert.False(t, reg.
+			AllowsFeature(domain.PlanFree,
+
+				f))
+		assert.False(t, reg.
+			AllowsFeature(domain.PlanStarter,
+
+				f))
+		assert.False(t, reg.
+			AllowsFeature(domain.PlanPro,
+
+				f))
+
 	}
 
 	for _, f := range roadmapEnterpriseFeatures {
 		for _, tier := range domain.AllPlanTiers() {
-			if reg.AllowsFeature(tier, f) {
-				t.Errorf("%s should not have launch-roadmap feature %q", tier, f)
-			}
+			assert.False(t, reg.
+				AllowsFeature(tier, f))
+
 		}
 	}
 
 	enterpriseFeatures := []Feature{FeatureSLA}
 	for _, f := range enterpriseFeatures {
 		for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
-			if reg.AllowsFeature(tier, f) {
-				t.Errorf("%s should not have feature %q", tier, f)
-			}
+			assert.False(t, reg.
+				AllowsFeature(tier, f))
+
 		}
 	}
 }
@@ -277,14 +288,14 @@ func TestStaticRegistry_LimitsMonotonicallyIncrease(t *testing.T) {
 				continue
 			}
 			if prev == -1 {
-				t.Errorf("Limit %q: %s=%d (unlimited) but %s=%d (limited) -- should not decrease",
+				assert.Failf(t, "test failure",
+
+					"Limit %q: %s=%d (unlimited) but %s=%d (limited) -- should not decrease",
 					lk, tiers[i-1], prev, tiers[i], curr)
 				continue
 			}
-			if curr < prev {
-				t.Errorf("Limit %q: %s=%d > %s=%d -- limits should not decrease across tiers",
-					lk, tiers[i-1], prev, tiers[i], curr)
-			}
+			assert.GreaterOrEqual(t, curr, prev)
+
 		}
 	}
 }
@@ -324,9 +335,9 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 		t.Run(string(tt.feature), func(t *testing.T) {
 			t.Parallel()
 			got := reg.RequiredPlanForFeature(tt.feature)
-			if got != tt.want {
-				t.Errorf("RequiredPlanForFeature(%q) = %q, want %q", tt.feature, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }

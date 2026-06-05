@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -133,13 +135,11 @@ func buildSignedWebhookRequest(t *testing.T, secret string, payload []byte) *htt
 func webhookPayload(t *testing.T, eventType string, data any) []byte {
 	t.Helper()
 	raw, err := json.Marshal(data)
-	if err != nil {
-		t.Fatalf("marshal data: %v", err)
-	}
+	require.NoError(t, err)
+
 	payload, err := json.Marshal(StripeWebhookPayload{Type: eventType, Data: raw})
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
+	require.NoError(t, err)
+
 	return payload
 }
 
@@ -168,29 +168,26 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	}
 
 	raw, err := json.Marshal(data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	// Include an event ID so the replay cache can detect duplicates.
 	body, err := json.Marshal(StripeWebhookPayload{ID: "evt_dup_test_1", Type: "customer.subscription.created", Data: raw})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// First delivery.
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("first delivery: expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000020")
-	if err != nil {
-		t.Fatalf("expected subscription after first delivery: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanStarter) {
-		t.Fatalf("expected starter, got %s", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanStarter,
+		), sub.PlanTier)
+
 	firstUpsertCount := store.upsertCount
 
 	// Duplicate delivery (same event replayed with same webhook-id).
@@ -198,21 +195,25 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 	// be silently accepted without triggering a second upsert.
 	rr2 := httptest.NewRecorder()
 	handler.ServeHTTP(rr2, buildSignedWebhookRequest(t, testSecret, body))
-	if rr2.Code != http.StatusOK {
-		t.Fatalf("duplicate delivery: expected 200, got %d", rr2.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr2.Code)
 
 	// Subscription should still be starter, not double-created.
 	sub2, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000020")
-	if sub2.PlanTier != string(domain.PlanStarter) {
-		t.Fatalf("after duplicate: expected starter, got %s", sub2.PlanTier)
-	}
+	require.Equal(t,
+		string(domain.
+			PlanStarter,
+		), sub2.PlanTier,
+	)
+	require.Equal(t,
+		firstUpsertCount,
+		store.
+			upsertCount)
 
 	// Replay protection prevents the duplicate from reaching the handler,
 	// so the upsert count should remain unchanged.
-	if store.upsertCount != firstUpsertCount {
-		t.Fatalf("expected replay protection to skip duplicate, upsert count should be %d but got %d", firstUpsertCount, store.upsertCount)
-	}
+
 }
 
 func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
@@ -250,26 +251,29 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 	// First delivery: upgrade starter -> pro.
 	rr1 := httptest.NewRecorder()
 	handler.ServeHTTP(rr1, buildSignedWebhookRequest(t, testSecret, body))
-	if rr1.Code != http.StatusOK {
-		t.Fatalf("first update: expected 200, got %d", rr1.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr1.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000021")
-	if sub.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("after first update: expected pro, got %s", sub.PlanTier)
-	}
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub.PlanTier)
 
 	// Duplicate delivery.
 	rr2 := httptest.NewRecorder()
 	handler.ServeHTTP(rr2, buildSignedWebhookRequest(t, testSecret, body))
-	if rr2.Code != http.StatusOK {
-		t.Fatalf("duplicate update: expected 200, got %d", rr2.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr2.Code)
 
 	sub2, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000021")
-	if sub2.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("after duplicate update: expected pro, got %s", sub2.PlanTier)
-	}
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub2.PlanTier)
+
 }
 
 // 2. Budget edge cases
@@ -296,10 +300,10 @@ func TestSpendingLimit_OverageComputeEdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := computeOverageSpend(tt.periodSpend, tt.credit)
-			if got != tt.wantOverage {
-				t.Fatalf("computeOverageSpend(%d, %d) = %d, want %d",
-					tt.periodSpend, tt.credit, got, tt.wantOverage)
-			}
+			require.Equal(t,
+				tt.wantOverage,
+				got)
+
 		})
 	}
 }
@@ -327,10 +331,10 @@ func TestOverageLimitReached_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := isOverageLimitReached(tt.limitMicro, tt.overageSpend)
-			if got != tt.wantReached {
-				t.Fatalf("isOverageLimitReached(%d, %d) = %v, want %v",
-					tt.limitMicro, tt.overageSpend, got, tt.wantReached)
-			}
+			require.Equal(t,
+				tt.wantReached,
+				got)
+
 		})
 	}
 }
@@ -343,12 +347,12 @@ func TestUsagePeriodWindow_NilSubscription(t *testing.T) {
 
 	expectedStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	expectedEnd := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
-	if !start.Equal(expectedStart) {
-		t.Errorf("expected start %v, got %v", expectedStart, start)
-	}
-	if !end.Equal(expectedEnd) {
-		t.Errorf("expected end %v, got %v", expectedEnd, end)
-	}
+	assert.True(t,
+		start.Equal(expectedStart),
+	)
+	assert.True(t,
+		end.Equal(expectedEnd))
+
 }
 
 func TestUsagePeriodWindow_PaidWithPeriodDates(t *testing.T) {
@@ -363,12 +367,11 @@ func TestUsagePeriodWindow_PaidWithPeriodDates(t *testing.T) {
 	}
 
 	start, end := usagePeriodWindow(now, domain.PlanStarter, sub)
-	if !start.Equal(ps) {
-		t.Errorf("expected subscription period start %v, got %v", ps, start)
-	}
-	if !end.Equal(pe) {
-		t.Errorf("expected subscription period end %v, got %v", pe, end)
-	}
+	assert.True(t,
+		start.Equal(ps))
+	assert.True(t,
+		end.Equal(pe))
+
 }
 
 func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
@@ -384,12 +387,12 @@ func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
 	start, end := usagePeriodWindow(now, domain.PlanStarter, sub)
 	expectedStart := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	expectedEnd := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
-	if !start.Equal(expectedStart) {
-		t.Errorf("expected start %v, got %v", expectedStart, start)
-	}
-	if !end.Equal(expectedEnd) {
-		t.Errorf("expected end %v, got %v", expectedEnd, end)
-	}
+	assert.True(t,
+		start.Equal(expectedStart),
+	)
+	assert.True(t,
+		end.Equal(expectedEnd))
+
 }
 
 // 3. State machine violations (invalid plan transitions)
@@ -399,9 +402,9 @@ func TestIsDowngrade_SameTier(t *testing.T) {
 
 	tiers := []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanEnterprise}
 	for _, tier := range tiers {
-		if IsDowngrade(tier, tier) {
-			t.Errorf("IsDowngrade(%s, %s) should be false", tier, tier)
-		}
+		assert.False(t,
+			IsDowngrade(tier, tier))
+
 	}
 }
 
@@ -432,9 +435,10 @@ func TestIsDowngrade_AllTransitions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			got := IsDowngrade(tt.from, tt.to)
-			if got != tt.isDown {
-				t.Errorf("IsDowngrade(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.isDown)
-			}
+			assert.Equal(t,
+				tt.isDown,
+				got)
+
 		})
 	}
 }
@@ -444,12 +448,13 @@ func TestIsDowngrade_UnknownTier(t *testing.T) {
 
 	// Unknown tiers should fall back to free-tier limits.
 	bogus := domain.PlanTier("imaginary")
-	if IsDowngrade(bogus, domain.PlanFree) {
-		t.Error("bogus tier (maps to free) should not be downgrade to free")
-	}
-	if !IsDowngrade(domain.PlanPro, bogus) {
-		t.Error("pro to bogus (maps to free) should be a downgrade")
-	}
+	assert.False(t,
+		IsDowngrade(bogus, domain.
+			PlanFree))
+	assert.True(t,
+		IsDowngrade(domain.PlanPro,
+			bogus))
+
 }
 
 func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
@@ -488,18 +493,22 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Plan tier should remain pro (deferred).
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000022")
-	if sub.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("expected pro (deferred), got %s", sub.PlanTier)
-	}
-	if sub.PendingPlanTier == nil || *sub.PendingPlanTier != string(domain.PlanStarter) {
-		t.Fatal("expected pending plan tier to be starter")
-	}
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub.PlanTier)
+	require.False(t,
+		sub.PendingPlanTier ==
+			nil ||
+			*sub.PendingPlanTier !=
+				string(domain.PlanStarter))
+
 }
 
 func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
@@ -529,18 +538,20 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000023")
-	if sub.Status != "canceled" {
-		t.Fatalf("expected status canceled, got %s", sub.Status)
-	}
+	require.Equal(t,
+		"canceled",
+		sub.Status)
+	require.Nil(t, sub.
+		PendingPlanTier,
+	)
+
 	// Should NOT set pending plan tier since already free.
-	if sub.PendingPlanTier != nil {
-		t.Fatalf("expected no pending plan tier for already-free org, got %v", *sub.PendingPlanTier)
-	}
+
 }
 
 func TestWebhook_RevokeSubscription(t *testing.T) {
@@ -571,21 +582,24 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000024")
-	if sub.PlanTier != string(domain.PlanFree) {
-		t.Fatalf("expected free after revoke, got %s", sub.PlanTier)
-	}
-	if sub.Status != "revoked" {
-		t.Fatalf("expected status revoked, got %s", sub.Status)
-	}
+	require.Equal(t,
+		string(domain.
+			PlanFree),
+		sub.PlanTier)
+	require.Equal(t,
+		"revoked",
+		sub.Status)
+	require.Nil(t, sub.
+		PendingPlanTier,
+	)
+
 	// Pending plan tier should be cleared.
-	if sub.PendingPlanTier != nil {
-		t.Fatalf("expected nil pending plan tier after revoke, got %v", *sub.PendingPlanTier)
-	}
+
 }
 
 // 4. Nil/zero value paths
@@ -595,9 +609,12 @@ func TestGetPlanLimits_UnknownTierFallback(t *testing.T) {
 
 	limits := GetPlanLimits(domain.PlanTier("nonexistent"))
 	freeLimits := GetPlanLimits(domain.PlanFree)
-	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
-		t.Fatalf("unknown tier should return free limits, got runs/day=%d", limits.MaxRunsPerDay)
-	}
+	require.Equal(t,
+		freeLimits.
+			MaxRunsPerDay,
+		limits.MaxRunsPerDay,
+	)
+
 }
 
 func TestEnforcer_NilEnforcerGetOrgPlanLimits(t *testing.T) {
@@ -605,13 +622,15 @@ func TestEnforcer_NilEnforcerGetOrgPlanLimits(t *testing.T) {
 
 	var e *Enforcer
 	limits, err := e.GetOrgPlanLimits(context.Background(), "org-nil")
-	if err != nil {
-		t.Fatalf("nil enforcer should not error: %v", err)
-	}
+	require.NoError(t, err)
+
 	freeLimits := GetPlanLimits(domain.PlanFree)
-	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
-		t.Fatalf("nil enforcer should return free limits")
-	}
+	require.Equal(t,
+		freeLimits.
+			MaxRunsPerDay,
+		limits.MaxRunsPerDay,
+	)
+
 }
 
 func TestEnforcer_EmptyOrgID(t *testing.T) {
@@ -621,13 +640,15 @@ func TestEnforcer_EmptyOrgID(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	limits, err := e.GetOrgPlanLimits(context.Background(), "")
-	if err != nil {
-		t.Fatalf("empty org_id should not error: %v", err)
-	}
+	require.NoError(t, err)
+
 	freeLimits := GetPlanLimits(domain.PlanFree)
-	if limits.MaxRunsPerDay != freeLimits.MaxRunsPerDay {
-		t.Fatalf("empty org_id should return free limits")
-	}
+	require.Equal(t,
+		freeLimits.
+			MaxRunsPerDay,
+		limits.MaxRunsPerDay,
+	)
+
 }
 
 func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
@@ -646,14 +667,14 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
+	require.EqualValues(t, 0, store.
+		upsertCount)
 
 	// Should return an error so Stripe retries the webhook until org_id is resolvable.
-	if rr.Code == http.StatusOK {
-		t.Fatalf("expected non-200 for missing org_id so Stripe retries, got %d", rr.Code)
-	}
-	if store.upsertCount != 0 {
-		t.Fatal("expected no upsert when org_id is missing")
-	}
+
 }
 
 func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
@@ -677,14 +698,13 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
 	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000025")
-	if err != nil {
-		t.Fatalf("expected subscription created from customer metadata: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestWebhook_EmptyPayload(t *testing.T) {
@@ -698,9 +718,11 @@ func TestWebhook_EmptyPayload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("")))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty payload, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusBadRequest,
+		rr.
+			Code)
+
 }
 
 func TestWebhook_MalformedJSON(t *testing.T) {
@@ -713,9 +735,11 @@ func TestWebhook_MalformedJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader([]byte("{not json")))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for malformed JSON, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusBadRequest,
+		rr.
+			Code)
+
 }
 
 func TestWebhook_UnknownEventType(t *testing.T) {
@@ -729,9 +753,10 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for unknown event type, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 func TestWebhook_UnknownProductID(t *testing.T) {
@@ -750,11 +775,13 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		rr.Code)
 
 	// Should return 500 because ErrUnknownPrice is returned.
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for unknown product, got %d", rr.Code)
-	}
+
 }
 
 func TestWebhook_ProductFromNestedObject(t *testing.T) {
@@ -775,17 +802,17 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000027")
-	if err != nil {
-		t.Fatalf("expected subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("expected pro from nested product, got %s", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub.PlanTier)
+
 }
 
 func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
@@ -816,19 +843,23 @@ func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 for attempted Stripe binding rebinding", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		rr.Code)
+
 	if _, err := store.GetOrgSubscription(context.Background(), attackerOrg); !errors.Is(err, ErrSubscriptionNotFound) {
-		t.Fatalf("attacker org subscription lookup error = %v, want ErrSubscriptionNotFound", err)
+		require.Failf(t, "test failure",
+
+			"attacker org subscription lookup error = %v, want ErrSubscriptionNotFound", err)
 	}
 	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
-	if err != nil {
-		t.Fatalf("bound org subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanStarter) {
-		t.Fatalf("bound org plan = %q, want unchanged starter", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanStarter,
+		), sub.PlanTier)
+
 }
 
 func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissing(t *testing.T) {
@@ -856,16 +887,17 @@ func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissi
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
-	if err != nil {
-		t.Fatalf("bound org subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("bound org plan = %q, want pro", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub.PlanTier)
+
 }
 
 func TestWebhook_SubscriptionCreatedRejectsUnboundMetadataOrg(t *testing.T) {
@@ -893,16 +925,18 @@ func TestWebhook_SubscriptionCreatedRejectsUnboundMetadataOrg(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 for unbound metadata-only subscription", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		rr.Code)
+
 	sub, err := store.GetOrgSubscription(context.Background(), victimOrg)
-	if err != nil {
-		t.Fatalf("victim subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanFree) {
-		t.Fatalf("victim plan = %q, want unchanged free", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanFree),
+		sub.PlanTier)
+
 }
 
 func TestWebhook_SubscriptionCreatedAllowsPendingPlanIntent(t *testing.T) {
@@ -930,19 +964,22 @@ func TestWebhook_SubscriptionCreatedAllowsPendingPlanIntent(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 for pending plan intent", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 	sub, err := store.GetOrgSubscription(context.Background(), orgID)
-	if err != nil {
-		t.Fatalf("subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanPro) {
-		t.Fatalf("plan = %q, want pro", sub.PlanTier)
-	}
-	if sub.StripeCustomerID == nil || *sub.StripeCustomerID != "cust_pending_intent" {
-		t.Fatalf("stripe customer binding = %v, want cust_pending_intent", sub.StripeCustomerID)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanPro),
+		sub.PlanTier)
+	require.False(t,
+		sub.StripeCustomerID ==
+			nil || *sub.StripeCustomerID !=
+			"cust_pending_intent",
+	)
+
 }
 
 func TestWebhook_InvoicePaymentFailedRejectsMetadataOrgWithoutBinding(t *testing.T) {
@@ -969,16 +1006,17 @@ func TestWebhook_InvoicePaymentFailedRejectsMetadataOrgWithoutBinding(t *testing
 	body := webhookPayload(t, "invoice.payment_failed", inv)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 for unbound invoice metadata", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		rr.Code)
+
 	sub, err := store.GetOrgSubscription(context.Background(), victimOrg)
-	if err != nil {
-		t.Fatalf("victim subscription: %v", err)
-	}
-	if sub.PaymentStatus != "ok" {
-		t.Fatalf("victim payment status = %q, want unchanged ok", sub.PaymentStatus)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"ok", sub.
+			PaymentStatus)
+
 }
 
 func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *testing.T) {
@@ -1014,9 +1052,11 @@ func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *te
 	conflictBody := webhookPayload(t, "invoice.payment_failed", conflict)
 	conflictRR := httptest.NewRecorder()
 	handler.ServeHTTP(conflictRR, buildSignedWebhookRequest(t, testSecret, conflictBody))
-	if conflictRR.Code != http.StatusInternalServerError {
-		t.Fatalf("conflict status = %d, want 500", conflictRR.Code)
-	}
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		conflictRR.
+			Code)
 
 	valid := testInvoiceData{
 		ID:         "inv_bound",
@@ -1027,16 +1067,18 @@ func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *te
 	validBody := webhookPayload(t, "invoice.payment_failed", valid)
 	validRR := httptest.NewRecorder()
 	handler.ServeHTTP(validRR, buildSignedWebhookRequest(t, testSecret, validBody))
-	if validRR.Code != http.StatusOK {
-		t.Fatalf("valid status = %d, want 200", validRR.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		validRR.Code,
+	)
+
 	sub, err := store.GetOrgSubscription(context.Background(), boundOrg)
-	if err != nil {
-		t.Fatalf("bound subscription: %v", err)
-	}
-	if sub.PaymentStatus != "grace" {
-		t.Fatalf("bound payment status = %q, want grace", sub.PaymentStatus)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"grace",
+		sub.PaymentStatus,
+	)
+
 }
 
 // 5. Concurrent operations on billing state
@@ -1137,19 +1179,17 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if got := errCount.Load(); got != 0 {
-		t.Fatalf("expected 0 errors from concurrent deliveries, got %d", got)
-	}
+	require.EqualValues(t, 0, errCount.
+		Load())
 
 	// Final state should be consistent.
 	sub, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000028")
-	if err != nil {
-		t.Fatalf("expected subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanStarter) {
-		t.Fatalf("expected starter, got %s", sub.PlanTier)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		string(domain.
+			PlanStarter,
+		), sub.PlanTier)
+
 }
 
 func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
@@ -1182,11 +1222,11 @@ func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 0, errCount.
+		Load())
 
 	// Under limit, all should pass.
-	if got := errCount.Load(); got != 0 {
-		t.Fatalf("expected 0 errors, got %d", got)
-	}
+
 }
 
 func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
@@ -1209,13 +1249,13 @@ func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
 	for range 50 {
 		wg.Go(func() {
 			limits, err := e.GetOrgPlanLimits(context.Background(), "org-conc-limits")
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
-			}
-			if limits.PlanTier != domain.PlanPro {
-				t.Errorf("expected pro, got %s", limits.PlanTier)
-			}
+			assert.NoError(
+				t, err)
+			assert.Equal(t,
+				domain.PlanPro,
+				limits.PlanTier,
+			)
+
 		})
 	}
 	wg.Wait()
@@ -1241,10 +1281,11 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on upsert error, got %d", rr.Code)
-	}
+		rr.Code)
+
 }
 
 func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
@@ -1266,10 +1307,11 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on get subscription error, got %d", rr.Code)
-	}
+		rr.Code)
+
 }
 
 func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
@@ -1301,15 +1343,15 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 on fallback upsert, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotEqual(t, 0, store.
+		upsertCallCount.
+		Load())
 
 	// Verify fallback upsert was triggered.
-	if store.upsertCallCount.Load() == 0 {
-		t.Fatal("expected fallback upsert to be called")
-	}
+
 }
 
 func TestWebhook_AuditStoreError(t *testing.T) {
@@ -1329,17 +1371,16 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Audit error should not fail the webhook.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 despite audit error, got %d", rr.Code)
-	}
 
 	// Subscription should still be created.
 	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002c")
-	if err != nil {
-		t.Fatalf("subscription should exist despite audit error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
@@ -1352,12 +1393,14 @@ func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
 
 	err := e.CheckSpendingLimit(context.Background(), "org-fail-open")
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "service_degraded" {
-		t.Fatalf("Code = %q, want service_degraded", le.Code)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+	require.Equal(t,
+		"service_degraded",
+		le.Code,
+	)
+
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierExceeded(t *testing.T) {
@@ -1378,16 +1421,18 @@ func TestEnforcer_CheckSpendingLimit_FreeTierExceeded(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckSpendingLimit(context.Background(), "org-free-exceeded")
-	if err == nil {
-		t.Fatal("expected spending limit error for free tier exceeded")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "spending_limit_reached" {
-		t.Errorf("expected code spending_limit_reached, got %s", le.Code)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+	assert.Equal(t,
+		"spending_limit_reached",
+
+		le.Code)
+
 }
 
 func TestEnforcer_CheckSpendingLimit_PaidNoLimit(t *testing.T) {
@@ -1409,9 +1454,8 @@ func TestEnforcer_CheckSpendingLimit_PaidNoLimit(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckSpendingLimit(context.Background(), "org-no-limit")
-	if err != nil {
-		t.Fatalf("expected nil for unlimited spending, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnforcer_CheckSpendingLimit_PaidLimitReached(t *testing.T) {
@@ -1435,13 +1479,14 @@ func TestEnforcer_CheckSpendingLimit_PaidLimitReached(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckSpendingLimit(context.Background(), "org-limit-hit")
-	if err == nil {
-		t.Fatal("expected spending limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+
 }
 
 func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
@@ -1457,9 +1502,9 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
 
 	// No subscription -> free tier path -> any spend blocks.
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub")
-	if err == nil {
-		t.Fatal("expected spending limit error for no-subscription org with non-zero spend")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.T) {
@@ -1473,9 +1518,8 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub-zero")
-	if err != nil {
-		t.Fatalf("expected nil for no-spend no-subscription org, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnforcer_CheckProjectLimit_AtLimit(t *testing.T) {
@@ -1496,16 +1540,18 @@ func TestEnforcer_CheckProjectLimit_AtLimit(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckProjectLimit(context.Background(), "org-proj-limit")
-	if err == nil {
-		t.Fatal("expected project limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "project_limit_reached" {
-		t.Errorf("expected code project_limit_reached, got %s", le.Code)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+	assert.Equal(t,
+		"project_limit_reached",
+
+		le.Code)
+
 }
 
 func TestEnforcer_CheckMemberLimit_AtLimit(t *testing.T) {
@@ -1526,16 +1572,18 @@ func TestEnforcer_CheckMemberLimit_AtLimit(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckMemberLimit(context.Background(), "org-mem-limit")
-	if err == nil {
-		t.Fatal("expected member limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "member_limit_reached" {
-		t.Errorf("expected code member_limit_reached, got %s", le.Code)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+	assert.Equal(t,
+		"member_limit_reached",
+		le.
+			Code)
+
 }
 
 func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
@@ -1549,22 +1597,22 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 	e := NewEnforcer(store, nil, slog.Default())
 
 	err := e.CheckOrgCreationLimit(context.Background(), "user-max-orgs", domain.PlanFree)
-	if err == nil {
-		t.Fatal("expected org limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "org_limit_reached" {
-		t.Errorf("expected code org_limit_reached, got %s", le.Code)
-	}
+	require.True(t,
+		errors.As(
+			err, &le))
+	assert.Equal(t,
+		"org_limit_reached",
+		le.Code,
+	)
 
 	// Unlimited enterprise should always pass.
 	err = e.CheckOrgCreationLimit(context.Background(), "user-max-orgs", domain.PlanEnterprise)
-	if err != nil {
-		t.Fatalf("expected nil for enterprise unlimited orgs, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 // Payment status / grace period paths
@@ -1600,17 +1648,19 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	body := webhookPayload(t, "invoice.payment_failed", invData)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002d")
-	if sub.PaymentStatus != "grace" {
-		t.Fatalf("expected payment_status=grace, got %s", sub.PaymentStatus)
-	}
-	if sub.GracePeriodEnd == nil {
-		t.Fatal("expected grace_period_end to be set")
-	}
+	require.Equal(t,
+		"grace",
+		sub.PaymentStatus,
+	)
+	require.NotNil(
+		t, sub.GracePeriodEnd,
+	)
+
 }
 
 func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
@@ -1647,14 +1697,16 @@ func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002e")
-	if sub.PaymentStatus != "grace" {
-		t.Fatalf("expected payment_status=grace until invoice payment recovery, got %s", sub.PaymentStatus)
-	}
+	require.Equal(t,
+		"grace",
+		sub.PaymentStatus,
+	)
+
 }
 
 func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
@@ -1689,14 +1741,15 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	body := webhookPayload(t, "invoice.paid", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	sub, _ := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002f")
-	if sub.PaymentStatus != "ok" {
-		t.Fatalf("expected payment_status=ok after payment, got %s", sub.PaymentStatus)
-	}
+	require.Equal(t,
+		"ok", sub.
+			PaymentStatus)
+
 }
 
 func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
@@ -1729,14 +1782,15 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Nil(t, store.
+		lastPaymentStatusUpdate,
+	)
 
 	// Payment status should remain "ok" without unnecessary update.
-	if store.lastPaymentStatusUpdate != nil {
-		t.Fatal("expected no payment status update for already-ok org")
-	}
+
 }
 
 // Signature verification edge cases
@@ -1771,9 +1825,10 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 with valid sig in multi-sig header, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 func TestWebhook_FutureTimestamp(t *testing.T) {
@@ -1796,9 +1851,11 @@ func TestWebhook_FutureTimestamp(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for future timestamp, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusUnauthorized,
+
+		rr.Code)
+
 }
 
 func TestWebhook_NonNumericTimestamp(t *testing.T) {
@@ -1815,9 +1872,11 @@ func TestWebhook_NonNumericTimestamp(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for non-numeric timestamp, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusUnauthorized,
+
+		rr.Code)
+
 }
 
 // Downgrade preview and build impact
@@ -1826,27 +1885,33 @@ func TestBuildImpact_UnlimitedToLimited(t *testing.T) {
 	t.Parallel()
 
 	impact := buildImpact("test_resource", -1, 10)
-	if impact.Action != ResourceActionReduce {
-		t.Errorf("expected reduce action for unlimited->limited, got %s", impact.Action)
-	}
+	assert.Equal(t,
+		ResourceActionReduce,
+		impact.
+			Action)
+
 }
 
 func TestBuildImpact_LimitedToUnlimited(t *testing.T) {
 	t.Parallel()
 
 	impact := buildImpact("test_resource", 10, -1)
-	if impact.Action != ResourceActionOK {
-		t.Errorf("expected OK action for limited->unlimited, got %s", impact.Action)
-	}
+	assert.Equal(t,
+		ResourceActionOK,
+		impact.
+			Action)
+
 }
 
 func TestBuildImpact_LimitedToZero(t *testing.T) {
 	t.Parallel()
 
 	impact := buildImpact("test_resource", 5, 0)
-	if impact.Action != ResourceActionRemove {
-		t.Errorf("expected remove action for limited->zero, got %s", impact.Action)
-	}
+	assert.Equal(t,
+		ResourceActionRemove,
+		impact.
+			Action)
+
 }
 
 func TestAutoDisableResources_Separation(t *testing.T) {
@@ -1860,16 +1925,15 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	}
 
 	manual, auto := AutoDisableResources(impacts)
+	require.Len(t,
+		manual, 2)
+	require.Len(t,
+		auto, 1)
+	assert.Equal(t,
+		"log_drains",
+		auto[0].Resource,
+	)
 
-	if len(manual) != 2 {
-		t.Fatalf("expected 2 manual actions, got %d", len(manual))
-	}
-	if len(auto) != 1 {
-		t.Fatalf("expected 1 auto-disabled, got %d", len(auto))
-	}
-	if auto[0].Resource != "log_drains" {
-		t.Errorf("expected log drains as auto-disabled, got %s", auto[0].Resource)
-	}
 }
 
 // LimitError interface compliance
@@ -1884,19 +1948,21 @@ func TestLimitError_ErrorInterface(t *testing.T) {
 
 	// Verify it implements error interface.
 	var err error = le
-	if err.Error() != "test message" {
-		t.Errorf("Error() = %q, want %q", err.Error(), "test message")
-	}
+	assert.Equal(t,
+		"test message",
+		err.Error())
 
 	// Verify errors.As works.
 	wrapped := fmt.Errorf("wrapping: %w", le)
 	var target *LimitError
-	if !errors.As(wrapped, &target) {
-		t.Fatal("errors.As should unwrap to LimitError")
-	}
-	if target.Code != "test_code" {
-		t.Errorf("unwrapped code = %q, want test_code", target.Code)
-	}
+	require.True(t,
+		errors.As(
+			wrapped, &target,
+		))
+	assert.Equal(t,
+		"test_code",
+		target.Code)
+
 }
 
 // Anomaly detection edge cases
@@ -1905,14 +1971,13 @@ func TestAnomalyConfig_HighThresholdAutoComputed(t *testing.T) {
 	t.Parallel()
 
 	cfg := AnomalyConfig{WarningThreshold: 3.0, CriticalThreshold: 10.0}
-	if ht := cfg.highThreshold(); ht != 6.5 {
-		t.Errorf("expected auto-computed high threshold 6.5, got %f", ht)
-	}
+	assert.EqualValues(t, 6.5, cfg.highThreshold())
 
 	cfg2 := AnomalyConfig{WarningThreshold: 3.0, HighThreshold: 7.0, CriticalThreshold: 10.0}
-	if ht := cfg2.highThreshold(); ht != 7.0 {
-		t.Errorf("expected explicit high threshold 7.0, got %f", ht)
-	}
+	assert.EqualValues(t, 7.0, cfg2.
+		highThreshold(),
+	)
+
 }
 
 func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
@@ -1922,13 +1987,15 @@ func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
 		WarningThreshold:  0,
 		CriticalThreshold: 0,
 	})
+	assert.Equal(t,
+		spikeWarning,
+		d.config.WarningThreshold,
+	)
+	assert.Equal(t,
+		spikeCritical,
+		d.config.CriticalThreshold,
+	)
 
-	if d.config.WarningThreshold != spikeWarning {
-		t.Errorf("expected default warning threshold %f, got %f", spikeWarning, d.config.WarningThreshold)
-	}
-	if d.config.CriticalThreshold != spikeCritical {
-		t.Errorf("expected default critical threshold %f, got %f", spikeCritical, d.config.CriticalThreshold)
-	}
 }
 
 // SafePercent edge cases
@@ -1953,9 +2020,10 @@ func TestSafePercent_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := safePercent(tt.used, tt.limit)
-			if got != tt.expected {
-				t.Errorf("safePercent(%d, %d) = %f, want %f", tt.used, tt.limit, got, tt.expected)
-			}
+			assert.Equal(t,
+				tt.expected,
+				got)
+
 		})
 	}
 }
@@ -1988,10 +2056,10 @@ func TestRecommendPlan_AllTiers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := recommendPlan(tt.monthlyRuns, tt.monthlyCompute)
-			if got != tt.expected {
-				t.Errorf("recommendPlan(%d, %d) = %s, want %s",
-					tt.monthlyRuns, tt.monthlyCompute, got, tt.expected)
-			}
+			assert.Equal(t,
+				tt.expected,
+				got)
+
 		})
 	}
 }
@@ -2014,9 +2082,10 @@ func TestMicroToUSDString_Adversarial(t *testing.T) {
 
 	for _, tt := range tests {
 		got := microToUSDString(tt.micro)
-		if got != tt.expected {
-			t.Errorf("microToUSDString(%d) = %q, want %q", tt.micro, got, tt.expected)
-		}
+		assert.Equal(t,
+			tt.expected,
+			got)
+
 	}
 }
 
@@ -2052,14 +2121,14 @@ func TestWebhook_WelcomeEmailSentOnPaidPlan(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected welcome email to be sent for paid plan")
+		require.Fail(t, "expected welcome email to be sent for paid plan")
 	}
 }
 
@@ -2100,13 +2169,13 @@ func TestWebhook_WelcomeEmailNotSentForFreePlan(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.created", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	select {
 	case <-done:
-		t.Fatal("expected welcome email NOT to be sent when customer email is empty")
+		require.Fail(t, "expected welcome email NOT to be sent when customer email is empty")
 	case <-time.After(200 * time.Millisecond):
 	}
 }
@@ -2130,13 +2199,9 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 	from := time.Now().Add(-7 * 24 * time.Hour)
 	to := time.Now()
 	costs, err := svc.GetProjectCosts(context.Background(), "org-costs", from, to)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(costs) != 2 {
-		t.Fatalf("expected 2 projects, got %d", len(costs))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		costs, 2)
 
 	// Check aggregation for one of the projects.
 	costMap := make(map[string]ProjectCostEntry)
@@ -2144,14 +2209,13 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 		costMap[c.ProjectID] = c
 	}
 	if a, ok := costMap["proj-a"]; ok {
-		if a.Runs != 15 {
-			t.Errorf("proj-a runs: expected 15, got %d", a.Runs)
-		}
-		if a.TotalMicro != 1600 {
-			t.Errorf("proj-a total: expected 1600, got %d", a.TotalMicro)
-		}
+		assert.EqualValues(t, 15, a.Runs)
+		assert.EqualValues(t, 1600, a.TotalMicro)
+
 	} else {
-		t.Fatal("proj-a not found in costs")
+		require.Fail(t,
+
+			"proj-a not found in costs")
 	}
 }
 
@@ -2176,16 +2240,13 @@ func TestUsageService_ExportCSV(t *testing.T) {
 	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
 	csv, err := svc.ExportUsageCSV(context.Background(), "org-csv", from, to)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(csv) == 0 {
-		t.Fatal("expected non-empty CSV output")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, csv)
+	require.True(t,
+		bytes.Contains(csv, []byte("date,project,runs")))
+
 	// Check header is present.
-	if !bytes.Contains(csv, []byte("date,project,runs")) {
-		t.Fatal("expected CSV header in output")
-	}
+
 }
 
 func TestUsageService_ExportPDF(t *testing.T) {
@@ -2215,16 +2276,13 @@ func TestUsageService_ExportPDF(t *testing.T) {
 	from := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
 	pdf, err := svc.ExportUsagePDF(context.Background(), "org-pdf", from, to)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pdf) == 0 {
-		t.Fatal("expected non-empty PDF output")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, pdf)
+	require.True(t,
+		bytes.HasPrefix(pdf, []byte("%PDF")))
+
 	// PDF files start with %PDF.
-	if !bytes.HasPrefix(pdf, []byte("%PDF")) {
-		t.Fatal("expected PDF magic bytes")
-	}
+
 }
 
 func TestUsageService_GetProjectBudget(t *testing.T) {
@@ -2235,16 +2293,15 @@ func TestUsageService_GetProjectBudget(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	resp, err := svc.GetProjectBudget(context.Background(), "proj-budget")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.ProjectID != "proj-budget" {
-		t.Errorf("expected project_id proj-budget, got %s", resp.ProjectID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		"proj-budget",
+		resp.ProjectID,
+	)
+	assert.EqualValues(t, -1, resp.MonthlyBudgetMicro)
+
 	// Default mock returns -1, "notify".
-	if resp.MonthlyBudgetMicro != -1 {
-		t.Errorf("expected budget -1, got %d", resp.MonthlyBudgetMicro)
-	}
+
 }
 
 func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T) {
@@ -2265,12 +2322,11 @@ func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T
 	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
 
 	_, err := svc.GetSpendingLimit(context.Background(), "org-spend-error")
-	if err == nil {
-		t.Fatal("expected spend aggregation error")
-	}
-	if !strings.Contains(err.Error(), "summing org period spend") {
-		t.Fatalf("error = %v, want spend aggregation context", err)
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		strings.Contains(err.Error(), "summing org period spend"))
+
 }
 
 func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
@@ -2284,12 +2340,11 @@ func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
 	svc := NewUsageService(store, NewEnforcer(store, nil, slog.Default()))
 
 	_, err := svc.GetUsageForecast(context.Background(), "org-forecast-error")
-	if err == nil {
-		t.Fatal("expected plan lookup error")
-	}
-	if !strings.Contains(err.Error(), "getting org plan limits for forecast") {
-		t.Fatalf("error = %v, want plan-limit context", err)
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		strings.Contains(err.Error(), "getting org plan limits for forecast"))
+
 }
 
 func TestUsageService_PreviewDowngrade(t *testing.T) {
@@ -2311,29 +2366,30 @@ func TestUsageService_PreviewDowngrade(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	impact, err := svc.PreviewDowngrade(context.Background(), "org-preview", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if impact.TargetTier != string(domain.PlanFree) {
-		t.Errorf("expected target tier free, got %s", impact.TargetTier)
-	}
-	if len(impact.Impacts) == 0 {
-		t.Fatal("expected non-empty impacts")
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		string(domain.
+			PlanFree),
+		impact.TargetTier,
+	)
+	require.NotEmpty(t, impact.
+		Impacts)
 
 	// 5 projects > MaxProjectsFree (2), should appear in manual actions.
 	found := false
 	for _, ma := range impact.ManualActions {
 		if ma.Resource == "projects" {
 			found = true
-			if ma.Action != ResourceActionReduce {
-				t.Errorf("expected reduce action for projects, got %s", ma.Action)
-			}
+			assert.Equal(t,
+				ResourceActionReduce,
+				ma.
+					Action)
+
 		}
 	}
-	if !found {
-		t.Fatal("expected projects in manual actions")
-	}
+	require.True(t,
+		found)
+
 }
 
 func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
@@ -2353,20 +2409,15 @@ func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
 	}
 
 	impact, err := PreviewDowngrade(context.Background(), store, "org-preview-actual", domain.PlanFree)
-	if err != nil {
-		t.Fatalf("PreviewDowngrade: %v", err)
-	}
+	require.NoError(t, err)
 
 	byResource := make(map[string]ResourceImpact, len(impact.Impacts))
 	for _, item := range impact.Impacts {
 		byResource[item.Resource] = item
 	}
-	if got := byResource["members_per_org"].Current; got != 2 {
-		t.Fatalf("members_per_org current = %d, want actual count 2", got)
-	}
-	if got := byResource["concurrent_runs"].Current; got != 3 {
-		t.Fatalf("concurrent_runs current = %d, want actual executing count 3", got)
-	}
+	require.EqualValues(t, 2, byResource["members_per_org"].Current)
+	require.EqualValues(t, 3, byResource["concurrent_runs"].Current)
+
 }
 
 func TestUsageService_DetectAnomalies(t *testing.T) {
@@ -2409,15 +2460,14 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	alerts, err := svc.DetectAnomalies(context.Background(), "org-anomaly")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) == 0 {
-		t.Fatal("expected at least one anomaly alert for 10x spike")
-	}
-	if alerts[0].Severity != AnomalySeverityCritical {
-		t.Errorf("expected critical severity for 10x spike, got %s", alerts[0].Severity)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, alerts)
+	assert.Equal(t,
+		AnomalySeverityCritical,
+
+		alerts[0].Severity,
+	)
+
 }
 
 func TestUsageService_GetAnomalyConfig_NoSubscription(t *testing.T) {
@@ -2428,12 +2478,12 @@ func TestUsageService_GetAnomalyConfig_NoSubscription(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-no-sub")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.WarningThreshold != spikeWarning {
-		t.Errorf("expected default warning %f, got %f", spikeWarning, cfg.WarningThreshold)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		spikeWarning,
+		cfg.WarningThreshold,
+	)
+
 }
 
 func TestUsageService_GetAnomalyConfig_WithCustomThresholds(t *testing.T) {
@@ -2453,15 +2503,12 @@ func TestUsageService_GetAnomalyConfig_WithCustomThresholds(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-custom-thresh")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.WarningThreshold != 5.0 {
-		t.Errorf("expected warning 5.0, got %f", cfg.WarningThreshold)
-	}
-	if cfg.CriticalThreshold != 15.0 {
-		t.Errorf("expected critical 15.0, got %f", cfg.CriticalThreshold)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 5.0, cfg.WarningThreshold)
+	assert.EqualValues(t, 15.0, cfg.
+		CriticalThreshold,
+	)
+
 }
 
 func TestUsageService_SetAnomalyConfig_Validation(t *testing.T) {
@@ -2473,21 +2520,18 @@ func TestUsageService_SetAnomalyConfig_Validation(t *testing.T) {
 
 	// Warning must be > 1.0.
 	err := svc.SetAnomalyConfig(context.Background(), "org-thresh", 0.5, 10.0)
-	if err == nil {
-		t.Fatal("expected error for warning <= 1.0")
-	}
+	require.Error(t,
+		err)
 
 	// Critical must be > warning.
 	err = svc.SetAnomalyConfig(context.Background(), "org-thresh", 5.0, 3.0)
-	if err == nil {
-		t.Fatal("expected error for critical <= warning")
-	}
+	require.Error(t,
+		err)
 
 	// Valid config should succeed.
 	err = svc.SetAnomalyConfig(context.Background(), "org-thresh", 3.0, 10.0)
-	if err != nil {
-		t.Fatalf("expected nil for valid config, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
@@ -2507,21 +2551,18 @@ func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
 
 	// Negative limit.
 	err := svc.SetSpendingLimit(context.Background(), "org-spend-val", -1, "reject")
-	if err == nil {
-		t.Fatal("expected error for negative limit")
-	}
+	require.Error(t,
+		err)
 
 	// Invalid action.
 	err = svc.SetSpendingLimit(context.Background(), "org-spend-val", 100000, "block")
-	if err == nil {
-		t.Fatal("expected error for invalid action")
-	}
+	require.Error(t,
+		err)
 
 	// Over max limit for starter.
 	err = svc.SetSpendingLimit(context.Background(), "org-spend-val", MaxSpendingStarter+1, "reject")
-	if err == nil {
-		t.Fatal("expected error for over max limit")
-	}
+	require.Error(t,
+		err)
 
 	// Free plan cannot set spending limit.
 	store2 := &mockBillingStore{
@@ -2535,17 +2576,16 @@ func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
 	}
 	svc2 := NewUsageService(store2, NewEnforcer(store2, nil, slog.Default()))
 	err = svc2.SetSpendingLimit(context.Background(), "org-free-limit", 100000, "reject")
-	if err == nil {
-		t.Fatal("expected error for free plan spending limit")
-	}
+	require.Error(t,
+		err)
 
 	// No subscription.
 	store3 := &mockBillingStore{}
 	svc3 := NewUsageService(store3, NewEnforcer(store3, nil, slog.Default()))
 	err = svc3.SetSpendingLimit(context.Background(), "org-no-sub", 100000, "reject")
-	if err == nil {
-		t.Fatal("expected error for no subscription")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
@@ -2564,21 +2604,18 @@ func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	prefs, err := svc.GetEmailPreferences(context.Background(), "org-email")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !prefs.MonthlyUsageEmail {
-		t.Error("expected MonthlyUsageEmail to be true")
-	}
+	require.NoError(t, err)
+	assert.True(t,
+		prefs.MonthlyUsageEmail,
+	)
 
 	// No subscription => defaults to true.
 	prefs2, err := svc.GetEmailPreferences(context.Background(), "org-no-sub")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !prefs2.MonthlyUsageEmail {
-		t.Error("expected default MonthlyUsageEmail to be true")
-	}
+	require.NoError(t, err)
+	assert.True(t,
+		prefs2.MonthlyUsageEmail,
+	)
+
 }
 
 // Webhook: subscription.canceled with non-existent org
@@ -2599,9 +2636,10 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.deleted", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for cancel of non-existent org, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 // Webhook: subscription.revoked with non-existent org
@@ -2622,9 +2660,10 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	body := webhookPayload(t, "subscription.revoked", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for revoke of non-existent org, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 // Webhook: payment succeeded with non-existent org
@@ -2645,9 +2684,10 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	body := webhookPayload(t, "order.paid", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for payment on non-existent org, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 // Webhook: subscription.updated with unknown product returns OK (logged)
@@ -2677,11 +2717,12 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// Unknown product on update is a no-op (not an error).
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for unknown product on update, got %d", rr.Code)
-	}
+
 }
 
 // Webhook: subscription.updated with empty status defaults to "active"
@@ -2718,18 +2759,18 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 	body := webhookPayload(t, "customer.subscription.updated", data)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, buildSignedWebhookRequest(t, testSecret, body))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+
 }
 
 func TestNewEnforcer_PanicsOnNilStore(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic when store is nil")
-		}
+		require.NotNil(t, recover())
+
 	}()
 	NewEnforcer(nil, nil, slog.Default())
 }

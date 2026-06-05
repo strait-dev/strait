@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // projectBudgetCase compactly enumerates the 2x2 budget matrix
@@ -56,24 +59,26 @@ func TestEnforcer_CheckProjectBudgetLimit_Matrix(t *testing.T) {
 
 			err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb")
 			if tc.wantErrCode == "" {
-				if err != nil {
-					t.Fatalf("expected nil, got %v", err)
-				}
+				require.NoError(t,
+					err)
+
 				return
 			}
 			var lim *LimitError
-			if !errors.As(err, &lim) {
-				t.Fatalf("expected *LimitError, got %T: %v", err, err)
-			}
-			if lim.Code != tc.wantErrCode {
-				t.Errorf("LimitError.Code = %q, want %q", lim.Code, tc.wantErrCode)
-			}
-			if lim.Limit != tc.budget {
-				t.Errorf("LimitError.Limit = %d, want %d", lim.Limit, tc.budget)
-			}
-			if lim.CurrentUsage != tc.spend {
-				t.Errorf("LimitError.CurrentUsage = %d, want %d", lim.CurrentUsage, tc.spend)
-			}
+			require.True(t, errors.As(err,
+				&lim))
+			assert.Equal(t, tc.
+				wantErrCode,
+				lim.Code,
+			)
+			assert.Equal(t, tc.
+				budget,
+				lim.Limit)
+			assert.Equal(t, tc.
+				spend, lim.
+				CurrentUsage,
+			)
+
 		})
 	}
 }
@@ -84,10 +89,13 @@ func TestEnforcer_CheckProjectBudgetLimit_Matrix(t *testing.T) {
 func TestEnforcer_CheckProjectBudgetLimit_EmptyProjectID(t *testing.T) {
 	t.Parallel()
 	enforcer, _, _ := setupEnforcer(t)
+	assert.NoError(t,
+		enforcer.
+			CheckProjectBudgetLimit(context.Background(),
+				"",
+			),
+	)
 
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), ""); err != nil {
-		t.Errorf("empty projectID must be a no-op; got %v", err)
-	}
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_NilEnforcer protects the
@@ -95,9 +103,12 @@ func TestEnforcer_CheckProjectBudgetLimit_EmptyProjectID(t *testing.T) {
 func TestEnforcer_CheckProjectBudgetLimit_NilEnforcer(t *testing.T) {
 	t.Parallel()
 	var enforcer *Enforcer
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x"); err != nil {
-		t.Errorf("nil enforcer must be a no-op; got %v", err)
-	}
+	assert.NoError(t,
+		enforcer.
+			CheckProjectBudgetLimit(context.Background(),
+				"proj-x",
+			))
+
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed confirms that a
@@ -112,12 +123,13 @@ func TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
 	var lim *LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "service_degraded" {
-		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
-	}
+	require.True(t, errors.As(err,
+		&lim))
+	require.Equal(t,
+		"service_degraded",
+		lim.
+			Code)
+
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed mirrors the
@@ -141,12 +153,13 @@ func TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
 	var lim *LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "service_degraded" {
-		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
-	}
+	require.True(t, errors.As(err,
+		&lim))
+	require.Equal(t,
+		"service_degraded",
+		lim.
+			Code)
+
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed confirms that
@@ -164,10 +177,11 @@ func TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed(t *testing.T)
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-orphan")
 	var lim *LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "service_degraded" {
-		t.Fatalf("LimitError.Code = %q, want service_degraded", lim.Code)
-	}
+	require.True(t, errors.As(err,
+		&lim))
+	require.Equal(t,
+		"service_degraded",
+		lim.
+			Code)
+
 }

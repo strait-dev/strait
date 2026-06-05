@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // A. Free Tier Enforcement.
@@ -11,11 +13,11 @@ import (
 func TestFreeEnforcement_ExecutionMode(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
+	assert.True(t, free.
+		AllowsHTTPMode)
 
 	// HTTP mode is available on all tiers.
-	if !free.AllowsHTTPMode {
-		t.Error("Free.AllowsHTTPMode = false, want true")
-	}
+
 }
 
 func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
@@ -38,9 +40,9 @@ func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.fn(); got != tt.want {
-				t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, tt.fn())
+
 		})
 	}
 }
@@ -48,28 +50,27 @@ func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
 func TestFreeEnforcement_ResourceLimits(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
+	assert.EqualValues(t, 1,
 
-	if free.MaxEnvironments != 1 {
-		t.Errorf("Free.MaxEnvironments = %d, want 1", free.MaxEnvironments)
-	}
-	if free.MaxWebhookEndpoints != 0 {
-		t.Errorf("Free.MaxWebhookEndpoints = %d, want 0", free.MaxWebhookEndpoints)
-	}
-	if free.MaxScheduledJobs != MaxScheduledFree {
-		t.Errorf("Free.MaxScheduledJobs = %d, want %d", free.MaxScheduledJobs, MaxScheduledFree)
-	}
-	if free.WebhookEventLevel != "none" {
-		t.Errorf("Free.WebhookEventLevel = %q, want none", free.WebhookEventLevel)
-	}
-	if free.AllCronOverlapPolicies {
-		t.Error("Free.AllCronOverlapPolicies = true, want false")
-	}
-	if free.HasCanaryDeployments {
-		t.Error("Free.HasCanaryDeployments = true, want false")
-	}
-	if free.HasAuditLogs {
-		t.Error("Free.HasAuditLogs = true, want false")
-	}
+		free.MaxEnvironments)
+	assert.EqualValues(t, 0,
+
+		free.MaxWebhookEndpoints)
+	assert.Equal(t, MaxScheduledFree,
+
+		free.MaxScheduledJobs,
+	)
+	assert.Equal(t, "none",
+
+		free.WebhookEventLevel,
+	)
+	assert.False(t, free.
+		AllCronOverlapPolicies)
+	assert.False(t, free.
+		HasCanaryDeployments)
+	assert.False(t, free.
+		HasAuditLogs)
+
 }
 
 // B. Starter Tier Enforcement (12 tests).
@@ -99,9 +100,9 @@ func TestStarterEnforcement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.fn(); got != tt.want {
-				t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, tt.fn())
+
 		})
 	}
 }
@@ -132,9 +133,9 @@ func TestProEnforcement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.fn(); got != tt.want {
-				t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, tt.fn())
+
 		})
 	}
 }
@@ -163,9 +164,9 @@ func TestScaleEnforcement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := tt.fn(); got != tt.want {
-				t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, tt.fn())
+
 		})
 	}
 }
@@ -175,19 +176,15 @@ func TestScaleEnforcement(t *testing.T) {
 func TestEnterpriseEnforcement(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
+	assert.EqualValues(t, -1,
+		e.MaxWorkflowDAGSteps)
+	assert.EqualValues(t, -1,
+		e.MaxConcurrentRuns)
+	assert.EqualValues(t, -1,
+		e.MaxScheduledJobs)
+	assert.EqualValues(t, -1,
+		e.MaxWebhookEndpoints)
 
-	if e.MaxWorkflowDAGSteps != -1 {
-		t.Errorf("Enterprise.MaxWorkflowDAGSteps = %d, want -1 (unlimited)", e.MaxWorkflowDAGSteps)
-	}
-	if e.MaxConcurrentRuns != -1 {
-		t.Errorf("Enterprise.MaxConcurrentRuns = %d, want -1 (unlimited)", e.MaxConcurrentRuns)
-	}
-	if e.MaxScheduledJobs != -1 {
-		t.Errorf("Enterprise.MaxScheduledJobs = %d, want -1 (unlimited)", e.MaxScheduledJobs)
-	}
-	if e.MaxWebhookEndpoints != -1 {
-		t.Errorf("Enterprise.MaxWebhookEndpoints = %d, want -1 (unlimited)", e.MaxWebhookEndpoints)
-	}
 }
 
 // F. Cron Overlap + Schedule (8 tests).
@@ -212,12 +209,13 @@ func TestCronEnforcement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tt.tier)
-			if limits.AllCronOverlapPolicies != tt.overlap {
-				t.Errorf("%s: AllCronOverlapPolicies = %v, want %v", tt.tier, limits.AllCronOverlapPolicies, tt.overlap)
-			}
-			if limits.MaxScheduledJobs != tt.maxCron {
-				t.Errorf("%s: MaxScheduledJobs = %d, want %d", tt.tier, limits.MaxScheduledJobs, tt.maxCron)
-			}
+			assert.Equal(t, tt.
+				overlap, limits.AllCronOverlapPolicies,
+			)
+			assert.Equal(t, tt.
+				maxCron, limits.MaxScheduledJobs,
+			)
+
 		})
 	}
 
@@ -225,9 +223,9 @@ func TestCronEnforcement(t *testing.T) {
 	t.Run("free_overlap_allow_is_ok", func(t *testing.T) {
 		// "allow" policy should always work regardless of AllCronOverlapPolicies.
 		free := GetPlanLimits(domain.PlanFree)
-		if free.AllCronOverlapPolicies {
-			t.Error("free should not have all overlap policies")
-		}
+		assert.False(t, free.
+			AllCronOverlapPolicies)
+
 	})
 
 	t.Run("remove_cron_always_ok", func(t *testing.T) {
@@ -237,13 +235,15 @@ func TestCronEnforcement(t *testing.T) {
 
 	t.Run("boundary_free_schedule_limit", func(t *testing.T) {
 		free := GetPlanLimits(domain.PlanFree)
+		assert.LessOrEqual(t, MaxScheduledFree, free.
+			MaxScheduledJobs,
+		)
+		assert.False(t, MaxScheduledFree+
+			1 <= free.MaxScheduledJobs,
+		)
+
 		// MaxScheduledFree is the exact limit.
-		if MaxScheduledFree > free.MaxScheduledJobs {
-			t.Errorf("%dth schedule should be at the limit, not over", MaxScheduledFree)
-		}
-		if MaxScheduledFree+1 <= free.MaxScheduledJobs {
-			t.Errorf("%dth schedule should be over the limit", MaxScheduledFree+1)
-		}
+
 	})
 }
 
@@ -268,19 +268,19 @@ func TestWebhookEventEnforcement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tt.tier)
-			if limits.WebhookEventLevel != tt.level {
-				t.Errorf("%s: WebhookEventLevel = %q, want %q", tt.tier, limits.WebhookEventLevel, tt.level)
-			}
+			assert.Equal(t, tt.
+				level, limits.WebhookEventLevel,
+			)
+
 		})
 	}
 
 	t.Run("basic_events_list", func(t *testing.T) {
 		// Verify the basic event set matches what's enforced.
 		basic := map[string]bool{"run.completed": true, "run.failed": true}
-		for evt, allowed := range basic {
-			if !allowed {
-				t.Errorf("basic event %q should be allowed", evt)
-			}
+		for _, allowed := range basic {
+			assert.True(t, allowed)
+
 		}
 	})
 }
@@ -293,17 +293,18 @@ func TestSelfHostedEnforcement(t *testing.T) {
 	t.Run("community_edition_skips_gating", func(t *testing.T) {
 		t.Parallel()
 		edition := domain.EditionCommunity
-		if edition.RequiresHTTPModeGating() {
-			t.Error("EditionCommunity.RequiresHTTPModeGating() = true, want false")
-		}
+		assert.False(t, edition.
+			RequiresHTTPModeGating())
+
 	})
 
 	t.Run("cloud_edition_requires_gating", func(t *testing.T) {
 		t.Parallel()
 		edition := domain.EditionCloud
-		if !edition.RequiresHTTPModeGating() {
-			t.Error("EditionCloud.RequiresHTTPModeGating() = false, want true")
-		}
+		assert.True(t, edition.
+			RequiresHTTPModeGating(),
+		)
+
 	})
 
 	// On self-hosted, the enforcer is nil and getOrgPlanLimits returns nil.
@@ -319,14 +320,18 @@ func TestSelfHostedEnforcement(t *testing.T) {
 			FeatureAuditLogs, FeatureSLA,
 		}
 		for _, f := range features {
-			if !reg.AllowsFeature(domain.PlanEnterprise, f) {
-				t.Errorf("Enterprise should have feature %q", f)
-			}
+			assert.True(t, reg.
+				AllowsFeature(domain.PlanEnterprise,
+
+					f))
+
 		}
 		for _, f := range roadmapEnterpriseFeatures {
-			if reg.AllowsFeature(domain.PlanEnterprise, f) {
-				t.Errorf("Enterprise should not have launch-roadmap feature %q", f)
-			}
+			assert.False(t, reg.
+				AllowsFeature(domain.PlanEnterprise,
+
+					f))
+
 		}
 	})
 
@@ -341,10 +346,10 @@ func TestSelfHostedEnforcement(t *testing.T) {
 			"MaxProjectsPerOrg":   e.MaxProjectsPerOrg,
 			"MaxMembersPerOrg":    e.MaxMembersPerOrg,
 		}
-		for field, val := range unlimitedFields {
-			if val != -1 {
-				t.Errorf("Enterprise.%s = %d, want -1 (unlimited)", field, val)
-			}
+		for _, val := range unlimitedFields {
+			assert.EqualValues(t, -1,
+				val)
+
 		}
 	})
 
@@ -353,9 +358,9 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		// On community edition, no enforcer exists, so spending limits are never checked.
 		// This is verified by the nil check in getOrgPlanLimits.
 		edition := domain.EditionCommunity
-		if edition.RequiresHTTPModeGating() {
-			t.Error("community should not require gating")
-		}
+		assert.False(t, edition.
+			RequiresHTTPModeGating())
+
 	})
 }
 
@@ -389,14 +394,14 @@ func TestPlanLimits_Monotonic(t *testing.T) {
 					continue // unlimited is always >= any value
 				}
 				if prev == -1 {
-					t.Errorf("%s: %s=%d (unlimited) but %s=%d (limited)",
+					assert.Failf(t, "test failure",
+
+						"%s: %s=%d (unlimited) but %s=%d (limited)",
 						lim.name, tiers[i-1], prev, tiers[i], curr)
 					continue
 				}
-				if curr < prev {
-					t.Errorf("%s: %s=%d > %s=%d -- should not decrease",
-						lim.name, tiers[i-1], prev, tiers[i], curr)
-				}
+				assert.GreaterOrEqual(t, curr, prev)
+
 			}
 		})
 	}
@@ -427,10 +432,9 @@ func TestFeatureAccess_Monotonic(t *testing.T) {
 						firstAllowed = i
 					}
 				} else {
-					if firstAllowed != -1 {
-						t.Errorf("feature %q: allowed on %s (rank %d) but not on %s (rank %d)",
-							f, tiers[firstAllowed], firstAllowed, tier, i)
-					}
+					assert.EqualValues(t, -1,
+						firstAllowed)
+
 				}
 			}
 		})

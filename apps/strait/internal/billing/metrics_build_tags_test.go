@@ -7,13 +7,14 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBillingMetricsBuildTags(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok)
+
 	dir := filepath.Dir(file)
 
 	assertBuildTag(t, filepath.Join(dir, "metrics_cloud.go"), "//go:build cloud")
@@ -41,14 +42,12 @@ func TestBillingMetricsHelpersNoPanic(t *testing.T) {
 
 func TestBillingCloudMetricNames(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok)
+
 	dir := filepath.Dir(file)
 	content, err := os.ReadFile(filepath.Join(dir, "metrics_cloud.go"))
-	if err != nil {
-		t.Fatalf("read metrics_cloud.go: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	for _, name := range []string{
 		"strait_billing_quota_usage",
@@ -56,20 +55,21 @@ func TestBillingCloudMetricNames(t *testing.T) {
 		"strait_billing_overage_runs_total",
 		"strait_billing_webhook_processed_total",
 	} {
-		if !strings.Contains(string(content), name) {
-			t.Fatalf("metrics_cloud.go missing %s", name)
-		}
+		require.True(t, strings.Contains(string(
+			content), name,
+		))
+
 	}
 }
 
 func assertBuildTag(t *testing.T, path, tag string) {
 	t.Helper()
 	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t,
+		err)
+
 	lines := strings.SplitN(string(content), "\n", 2)
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != tag {
-		t.Fatalf("%s first line = %q, want %q", filepath.Base(path), lines[0], tag)
-	}
+	require.False(t,
+		len(lines) == 0 || strings.TrimSpace(lines[0]) != tag)
+
 }

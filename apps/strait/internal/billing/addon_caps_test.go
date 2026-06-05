@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -42,9 +43,9 @@ func TestAddonCap_UnderLimit_Allows(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
-	if err != nil {
-		t.Fatalf("expected addon to be allowed, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestAddonCap_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -70,12 +71,15 @@ func TestAddonCap_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
-	if err == nil || !strings.Contains(err.Error(), "get org plan limits for addon subscription") {
-		t.Fatalf("error = %v, want plan limit lookup failure", err)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("addon created after plan limit lookup failure: %#v", store.lastAddonCreated)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t,
+		err.Error(), "get org plan limits for addon subscription",
+	)
+	require.Nil(t, store.
+		lastAddonCreated,
+	)
+
 }
 
 func TestAddonCap_CountErrorFailsClosed(t *testing.T) {
@@ -102,12 +106,15 @@ func TestAddonCap_CountErrorFailsClosed(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonHistory30d, "")
-	if err == nil || !strings.Contains(err.Error(), "count active addons for addon subscription") {
-		t.Fatalf("error = %v, want active addon count failure", err)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("addon created after active addon count failure: %#v", store.lastAddonCreated)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t,
+		err.Error(), "count active addons for addon subscription",
+	)
+	require.Nil(t, store.
+		lastAddonCreated,
+	)
+
 }
 
 func TestAddonCap_CapExceededDoesNotCreateActiveAddon(t *testing.T) {
@@ -145,12 +152,12 @@ func TestAddonCap_CapExceededDoesNotCreateActiveAddon(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonHistory30d, "")
-	if err != nil {
-		t.Fatalf("expected cap exceeded addon webhook to be ignored without retry, got: %v", err)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("addon created after cap exceeded: %#v", store.lastAddonCreated)
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, store.
+		lastAddonCreated,
+	)
+
 }
 
 func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
@@ -171,12 +178,12 @@ func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
 		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
-	if err != nil {
-		t.Fatalf("expected addon to be allowed without enforcer, got: %v", err)
-	}
-	if store.lastAddonCreated == nil {
-		t.Fatal("expected launch-active addon to create active row without enforcer")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		store.lastAddonCreated,
+	)
+
 }
 
 func TestAddonCap_EnforcerNil_RoadmapAddonDoesNotCreateActiveAddon(t *testing.T) {
@@ -193,12 +200,12 @@ func TestAddonCap_EnforcerNil_RoadmapAddonDoesNotCreateActiveAddon(t *testing.T)
 		Metadata:   map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonComplianceArchive, "")
-	if err != nil {
-		t.Fatalf("expected roadmap addon webhook to be ignored without error, got: %v", err)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("roadmap addon created active row without enforcer: %#v", store.lastAddonCreated)
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, store.
+		lastAddonCreated,
+	)
+
 }
 
 func TestAddonCap_DisallowedAddonOnPlan_DoesNotCreateActiveAddon(t *testing.T) {
@@ -245,12 +252,12 @@ func TestAddonCap_DisallowedAddonOnPlan_DoesNotCreateActiveAddon(t *testing.T) {
 				Metadata:   map[string]string{"org_id": orgID},
 			}
 			err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), tt.addonType, "")
-			if err != nil {
-				t.Fatalf("expected disallowed addon webhook to be ignored without error, got: %v", err)
-			}
-			if store.lastAddonCreated != nil {
-				t.Fatalf("disallowed addon created active row: %#v", store.lastAddonCreated)
-			}
+			require.NoError(t,
+				err)
+			require.Nil(t, store.
+				lastAddonCreated,
+			)
+
 		})
 	}
 }

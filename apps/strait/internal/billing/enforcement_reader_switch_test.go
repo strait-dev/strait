@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // makeReaderSwitchEnforcer builds an Enforcer wired to a fresh mockBillingStore.
@@ -32,9 +35,9 @@ func TestReaderSwitch_SnapshotPresent_ReadsDirectly(t *testing.T) {
 	snap := GetPlanLimits(domain.PlanPro)
 	snap.MaxConcurrentRuns = 99999
 	raw, err := json.Marshal(snap)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	store.subscriptions["org-1"] = &OrgSubscription{
 		ID: "sub", OrgID: "org-1", PlanTier: string(domain.PlanFree),
 		Status: "active", EnforcementMode: "enforce",
@@ -42,13 +45,12 @@ func TestReaderSwitch_SnapshotPresent_ReadsDirectly(t *testing.T) {
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-1")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
-	if got.MaxConcurrentRuns != 99999 {
-		t.Errorf("MaxConcurrentRuns = %d, want 99999 (proves snapshot was read, not recomputed)",
-			got.MaxConcurrentRuns)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 99999,
+		got.MaxConcurrentRuns,
+	)
+
 }
 
 func TestReaderSwitch_EmptySnapshot_FallsBackAndOpportunisticallyWrites(t *testing.T) {
@@ -63,19 +65,20 @@ func TestReaderSwitch_EmptySnapshot_FallsBackAndOpportunisticallyWrites(t *testi
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-2")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	want := GetPlanLimits(domain.PlanPro)
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("recompute mismatch: got %d, want %d",
-			got.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
+	assert.Equal(t, want.
+		MaxConcurrentRuns,
+		got.MaxConcurrentRuns,
+	)
+	assert.False(t, store.
+		lastEntitlementsUpdates ==
+		nil || store.lastEntitlementsUpdates["org-2"].MaxConcurrentRuns != want.MaxConcurrentRuns)
+
 	// Opportunistic write must have fired.
-	if store.lastEntitlementsUpdates == nil || store.lastEntitlementsUpdates["org-2"].MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("opportunistic UpdateEntitlements not called for org-2: %+v",
-			store.lastEntitlementsUpdates)
-	}
+
 }
 
 func TestReaderSwitch_NilSnapshot_FallsBackAndOpportunisticallyWrites(t *testing.T) {
@@ -91,10 +94,14 @@ func TestReaderSwitch_NilSnapshot_FallsBackAndOpportunisticallyWrites(t *testing
 	}
 
 	if _, err := e.GetOrgPlanLimits(ctx, "org-3"); err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
+		require.Failf(t, "test failure",
+
+			"GetOrgPlanLimits: %v", err)
 	}
 	if _, ok := store.lastEntitlementsUpdates["org-3"]; !ok {
-		t.Errorf("opportunistic write missing for org-3: %+v", store.lastEntitlementsUpdates)
+		assert.Failf(t, "test failure",
+
+			"opportunistic write missing for org-3: %+v", store.lastEntitlementsUpdates)
 	}
 }
 
@@ -116,18 +123,20 @@ func TestReaderSwitch_AuthoritativeFalse_AlwaysRecomputes_NeverWrites(t *testing
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-4")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	want := GetPlanLimits(domain.PlanPro)
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("expected recompute (catalog Pro = %d), got %d",
-			want.MaxConcurrentRuns, got.MaxConcurrentRuns)
-	}
-	if len(store.lastEntitlementsUpdates) != 0 {
-		t.Errorf("authoritative=false must not opportunistically write, got: %+v",
-			store.lastEntitlementsUpdates)
-	}
+	assert.Equal(t, want.
+		MaxConcurrentRuns,
+		got.MaxConcurrentRuns,
+	)
+	assert.Len(t, store.
+		lastEntitlementsUpdates,
+
+		0,
+	)
+
 }
 
 func TestReaderSwitch_ConcurrentOverrideAppliesOnTopOfSnapshot(t *testing.T) {
@@ -148,12 +157,12 @@ func TestReaderSwitch_ConcurrentOverrideAppliesOnTopOfSnapshot(t *testing.T) {
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-5")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
-	if got.MaxConcurrentRuns != override {
-		t.Errorf("override not applied: got %d, want %d", got.MaxConcurrentRuns, override)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, override,
+		got.MaxConcurrentRuns,
+	)
+
 }
 
 func TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch(t *testing.T) {
@@ -173,12 +182,10 @@ func TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch(t *testing.T) {
 	}
 
 	got, err := e.GetOrgPlanLimits(ctx, "org-legacy-daily")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
-	if got.MaxRunsPerDay != -1 {
-		t.Errorf("legacy daily override changed launch limit: got %d, want -1", got.MaxRunsPerDay)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, -1, got.MaxRunsPerDay)
+
 }
 
 func TestHasPersistedEntitlements_BoundaryCases(t *testing.T) {
@@ -198,9 +205,9 @@ func TestHasPersistedEntitlements_BoundaryCases(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := hasPersistedEntitlements(tc.raw); got != tc.want {
-				t.Errorf("hasPersistedEntitlements(%q) = %v, want %v", string(tc.raw), got, tc.want)
-			}
+			assert.Equal(t, tc.
+				want, hasPersistedEntitlements(tc.raw))
+
 		})
 	}
 }

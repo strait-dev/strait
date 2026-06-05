@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdversarial_UpdateEntitlements_OversizedPayloadHandledCleanly stuffs a
@@ -24,9 +27,8 @@ func TestAdversarial_UpdateEntitlements_OversizedPayloadHandledCleanly(t *testin
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-ent-big-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
 
 	want := billing.GetPlanLimits(domain.PlanPro)
 	want.MaxAddonPacks = make(map[billing.AddonType]int, 5_000)
@@ -46,14 +48,17 @@ func TestAdversarial_UpdateEntitlements_OversizedPayloadHandledCleanly(t *testin
 	// Wrote successfully — read back and confirm the map round-tripped
 	// at full size. A truncated payload would deserialize a smaller map.
 	var raw []byte
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx, `
 		SELECT entitlements FROM organization_subscriptions WHERE org_id = $1
-	`, orgID).Scan(&raw); err != nil {
-		t.Fatalf("read entitlements: %v", err)
-	}
-	if len(raw) < 100_000 {
-		t.Errorf("payload appears truncated: got %d bytes", len(raw))
-	}
+	`,
+
+		orgID).Scan(
+		&raw))
+	assert.GreaterOrEqual(t,
+		len(raw),
+		100_000)
+
 }
 
 // TestAdversarial_UpdateEntitlements_SQLInjectionInOrgID confirms the
@@ -68,26 +73,25 @@ func TestAdversarial_UpdateEntitlements_SQLInjectionInOrgID(t *testing.T) {
 	// Set up two real orgs — if the injection worked, both would get
 	// rewritten by the smuggled UPDATE.
 	for _, id := range []string{"org-real-a-" + newID(), "org-real-b-" + newID()} {
-		if err := pgStore.EnsureOrgSubscription(ctx, id); err != nil {
-			t.Fatalf("EnsureOrgSubscription %s: %v", id, err)
-		}
+		require.NoError(t, pgStore.
+			EnsureOrgSubscription(ctx, id),
+		)
+
 	}
 
 	malicious := "'; UPDATE organization_subscriptions SET plan_tier = 'enterprise'; --"
 	want := billing.GetPlanLimits(domain.PlanFree)
-	if err := pgStore.UpdateEntitlements(ctx, malicious, want); err != nil {
-		t.Fatalf("UpdateEntitlements with crafted org_id should be a no-op, got error: %v", err)
-	}
+	require.NoError(t, pgStore.
+		UpdateEntitlements(
+			ctx, malicious,
+			want))
 
 	// No real org should have been silently elevated.
 	var count int
 	err := testDB.Pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM organization_subscriptions WHERE plan_tier = 'enterprise'
 	`).Scan(&count)
-	if err != nil {
-		t.Fatalf("count enterprise rows: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("SQL injection bypass: %d rows promoted to enterprise", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, count)
+
 }

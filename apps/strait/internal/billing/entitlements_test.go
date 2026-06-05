@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestComputeEntitlements_RoundTripMatchesPipeline locks ComputeEntitlements
@@ -76,10 +78,9 @@ func TestComputeEntitlements_RoundTripMatchesPipeline(t *testing.T) {
 			pipeline = ApplySubscriptionAddOns(pipeline, tc.addOns)
 
 			got := ComputeEntitlements(sub, tc.addons)
+			assert.True(t, reflect.
+				DeepEqual(got, pipeline))
 
-			if !reflect.DeepEqual(got, pipeline) {
-				t.Errorf("snapshot != pipeline\n got:  %+v\n want: %+v", got, pipeline)
-			}
 		})
 	}
 }
@@ -93,10 +94,9 @@ func TestComputeEntitlements_UnknownTierFallsBackToFree(t *testing.T) {
 	sub := &OrgSubscription{PlanTier: "platinum_deluxe"}
 	got := ComputeEntitlements(sub, nil)
 	want := GetPlanLimits(domain.PlanFree)
+	assert.True(t, reflect.
+		DeepEqual(got, want))
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("unknown tier should fall back to Free\n got:  %+v\n want: %+v", got, want)
-	}
 }
 
 func TestApplySubscriptionAddOns_IgnoresLegacyJSONBPacks(t *testing.T) {
@@ -104,9 +104,9 @@ func TestApplySubscriptionAddOns_IgnoresLegacyJSONBPacks(t *testing.T) {
 
 	base := GetPlanLimits(domain.PlanPro)
 	got := ApplySubscriptionAddOns(base, SubscriptionAddOns{})
-	if !reflect.DeepEqual(got, base) {
-		t.Errorf("legacy JSONB add-ons changed launch entitlements\n got:  %+v\n want: %+v", got, base)
-	}
+	assert.True(t, reflect.
+		DeepEqual(got, base))
+
 }
 
 // TestComputeEntitlements_NilSubFallsBackToFree mirrors the unknown-tier
@@ -116,9 +116,9 @@ func TestComputeEntitlements_NilSubFallsBackToFree(t *testing.T) {
 
 	got := ComputeEntitlements(nil, nil)
 	want := GetPlanLimits(domain.PlanFree)
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("nil sub should fall back to Free\n got:  %+v\n want: %+v", got, want)
-	}
+	assert.True(t, reflect.
+		DeepEqual(got, want))
+
 }
 
 // TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline locks the no-addon
@@ -136,9 +136,9 @@ func TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline(t *testing.T) {
 			sub := &OrgSubscription{PlanTier: string(tier)}
 			got := ComputeEntitlements(sub, []Addon{})
 			want := GetPlanLimits(tier)
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("empty addons should match catalog baseline for %s\n got:  %+v\n want: %+v", tier, got, want)
-			}
+			assert.True(t, reflect.
+				DeepEqual(got, want))
+
 		})
 	}
 }
@@ -159,7 +159,8 @@ func TestComputeEntitlements_TableAddonsExtendRetention(t *testing.T) {
 
 	// Scale retention = 60; +30 from table addon (history_30d) = 90.
 	wantRetention := RetentionScale + 30
-	if got.RetentionDays != wantRetention {
-		t.Errorf("retention composition: got %d, want %d", got.RetentionDays, wantRetention)
-	}
+	assert.Equal(t, wantRetention,
+
+		got.RetentionDays)
+
 }

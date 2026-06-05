@@ -3,6 +3,9 @@ package billing
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateSubscriptionData_Valid(t *testing.T) {
@@ -12,9 +15,9 @@ func TestValidateSubscriptionData_Valid(t *testing.T) {
 		ProductID:  "prod_1",
 		CustomerID: "cust_1",
 	}.ToStripe())
-	if err != nil {
-		t.Fatalf("expected nil, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestValidateSubscriptionData_EmptyID(t *testing.T) {
@@ -24,9 +27,8 @@ func TestValidateSubscriptionData_EmptyID(t *testing.T) {
 		ProductID:  "prod_1",
 		CustomerID: "cust_1",
 	}.ToStripe())
-	if err == nil {
-		t.Fatal("expected error for empty ID")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
@@ -36,9 +38,8 @@ func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
 		ProductID:  "",
 		CustomerID: "cust_1",
 	}.ToStripe())
-	if err == nil {
-		t.Fatal("expected error for empty product ID")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
@@ -49,9 +50,9 @@ func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
 		Product:    &testProductData{ID: "prod_nested"},
 		CustomerID: "cust_1",
 	}.ToStripe())
-	if err != nil {
-		t.Fatalf("expected nil with nested product, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestValidateSubscriptionData_EmptyCustomerID(t *testing.T) {
@@ -61,16 +62,14 @@ func TestValidateSubscriptionData_EmptyCustomerID(t *testing.T) {
 		ProductID:  "prod_1",
 		CustomerID: "",
 	}.ToStripe())
-	if err == nil {
-		t.Fatal("expected error for empty customer ID")
-	}
+	require.Error(t, err)
+
 }
 
 func TestIsValidUUID_Valid(t *testing.T) {
 	t.Parallel()
-	if !isValidUUID("550e8400-e29b-41d4-a716-446655440000") {
-		t.Fatal("expected valid UUID")
-	}
+	require.True(t, isValidUUID("550e8400-e29b-41d4-a716-446655440000"))
+
 }
 
 func TestIsValidUUID_Invalid(t *testing.T) {
@@ -84,9 +83,8 @@ func TestIsValidUUID_Invalid(t *testing.T) {
 		"XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX",
 	}
 	for _, c := range cases {
-		if isValidUUID(c) {
-			t.Errorf("expected invalid for %q", c)
-		}
+		assert.False(t, isValidUUID(c))
+
 	}
 }
 
@@ -99,9 +97,10 @@ func TestResolveOrgID_ValidUUID(t *testing.T) {
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "550e8400-e29b-41d4-a716-446655440000"},
 	}.ToStripe())
-	if orgID != "550e8400-e29b-41d4-a716-446655440000" {
-		t.Fatalf("expected valid UUID, got %q", orgID)
-	}
+	require.Equal(t, "550e8400-e29b-41d4-a716-446655440000",
+
+		orgID)
+
 }
 
 func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
@@ -113,9 +112,9 @@ func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "not-a-uuid"},
 	}.ToStripe())
-	if orgID != "" {
-		t.Fatalf("expected empty for invalid UUID, got %q", orgID)
-	}
+	require.Equal(t, "",
+		orgID)
+
 }
 
 func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
@@ -127,9 +126,9 @@ func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "'; DROP TABLE organizations; --"},
 	}.ToStripe())
-	if orgID != "" {
-		t.Fatalf("expected empty for SQL injection attempt, got %q", orgID)
-	}
+	require.Equal(t, "",
+		orgID)
+
 }
 
 func TestIsValidEmail_Valid(t *testing.T) {
@@ -140,9 +139,8 @@ func TestIsValidEmail_Valid(t *testing.T) {
 		"name@sub.domain.org",
 	}
 	for _, c := range cases {
-		if !isValidEmail(c) {
-			t.Errorf("expected valid for %q", c)
-		}
+		assert.True(t, isValidEmail(c))
+
 	}
 }
 
@@ -154,9 +152,10 @@ func TestIsValidEmail_Invalid(t *testing.T) {
 		"@no-local.com",
 	}
 	for _, c := range cases {
-		if isValidEmail(c) {
-			t.Errorf("expected invalid for %q", c)
-		}
+		assert.False(t, isValidEmail(
+			c),
+		)
+
 	}
 }
 
@@ -174,8 +173,10 @@ func FuzzResolveOrgID(f *testing.F) {
 		result := h.resolveOrgID(testSubscriptionData{
 			Metadata: map[string]string{"org_id": orgID},
 		}.ToStripe())
-		if result != "" && !isValidUUID(result) {
-			t.Errorf("resolveOrgID returned non-UUID: %q", result)
-		}
+		assert.False(t, result !=
+			"" &&
+
+			!isValidUUID(result))
+
 	})
 }

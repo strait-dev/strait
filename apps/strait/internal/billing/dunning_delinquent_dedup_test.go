@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // On the entry transition (previousStep == DunningStepNone), the Dunner
@@ -36,18 +39,20 @@ func TestDunner_EntryTransition_DoesNotDispatchDelinquent(t *testing.T) {
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Second),
 	)
-
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
+	require.NoError(t,
+		d.Tick(context.
+			Background()))
 
 	got := store.get("org_entry")
-	if got.DunningStep != DunningStepEntry {
-		t.Fatalf("step = %d, want %d (entry)", got.DunningStep, DunningStepEntry)
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 0 {
-		t.Errorf("billing.delinquent dispatched %d times on entry transition; want 0 (the Stripe webhook already announced it)", c)
-	}
+	require.Equal(t,
+		DunningStepEntry,
+		got.DunningStep,
+	)
+	assert.EqualValues(t, 0,
+		countEvent(dispatchedEventTypes(disp), domain.
+			WebhookEventBillingDelinquent,
+		))
+
 }
 
 // Escalation transitions (Entry→Day3, Day3→Day14, etc.) must still
@@ -73,18 +78,20 @@ func TestDunner_EscalationTransition_StillDispatchesDelinquent(t *testing.T) {
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Second),
 	)
-
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
+	require.NoError(t,
+		d.Tick(context.
+			Background()))
 
 	got := store.get("org_escalate")
-	if got.DunningStep != DunningStepDay3 {
-		t.Fatalf("step = %d, want %d (day3)", got.DunningStep, DunningStepDay3)
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Errorf("billing.delinquent dispatched %d times on Entry→Day3 escalation; want 1", c)
-	}
+	require.Equal(t,
+		DunningStepDay3,
+		got.DunningStep,
+	)
+	assert.EqualValues(t, 1,
+		countEvent(dispatchedEventTypes(disp), domain.
+			WebhookEventBillingDelinquent,
+		))
+
 }
 
 // Day 74 transition still emits both billing.delinquent (escalation) and
@@ -109,18 +116,20 @@ func TestDunner_Day74Transition_DispatchesBoth(t *testing.T) {
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Second),
 	)
-
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
+	require.NoError(t,
+		d.Tick(context.
+			Background()))
 
 	events := dispatchedEventTypes(disp)
-	if c := countEvent(events, domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Errorf("billing.delinquent count = %d, want 1", c)
-	}
-	if c := countEvent(events, domain.WebhookEventBillingSuspended); c != 1 {
-		t.Errorf("billing.suspended count = %d, want 1", c)
-	}
+	assert.EqualValues(t, 1,
+		countEvent(events, domain.
+			WebhookEventBillingDelinquent,
+		))
+	assert.EqualValues(t, 1,
+		countEvent(events, domain.
+			WebhookEventBillingSuspended,
+		))
+
 }
 
 // End-to-end pipeline guard: invoice.payment_failed runs handlePaymentFailed
@@ -171,9 +180,9 @@ func TestPipeline_PaymentFailedThenInitialDunnerTick_DelinquentExactlyOnce(t *te
 		AmountDue:  1500,
 	})
 	rr := fireWebhook(t, h, "invoice.payment_failed", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("webhook status = %d, want 200", rr.Code)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
 
 	// The dunning worker runs immediately afterwards at entered_at + 1s.
 	clock := time.Now().Add(1 * time.Second)
@@ -182,12 +191,12 @@ func TestPipeline_PaymentFailedThenInitialDunnerTick_DelinquentExactlyOnce(t *te
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Millisecond),
 	)
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Dunner Tick: %v", err)
-	}
+	require.NoError(t,
+		d.Tick(context.
+			Background()))
+	require.EqualValues(t, 1, countEvent(dispatchedEventTypes(
+		disp), domain.
+		WebhookEventBillingDelinquent,
+	))
 
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 1 {
-		t.Fatalf("billing.delinquent dispatch count = %d, want 1 (handlePaymentFailed only); saw event types %v",
-			c, dispatchedEventTypes(disp))
-	}
 }

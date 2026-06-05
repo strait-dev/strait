@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/telemetry"
 )
@@ -24,29 +25,37 @@ func TestBillingSentryBreadcrumbUsesContextHub(t *testing.T) {
 	})
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return
-	}
-	if got := event.Tags[string(telemetry.TagSubsystem)]; got != telemetry.SubsystemBilling {
-		t.Fatalf("subsystem tag = %q, want %q", got, telemetry.SubsystemBilling)
-	}
-	if got := event.Tags[string(telemetry.TagOrgID)]; got != "org-123" {
-		t.Fatalf("org_id tag = %q, want org-123", got)
-	}
-	if got := event.Tags[string(telemetry.TagMode)]; got != "all" {
-		t.Fatalf("mode tag = %q, want all", got)
-	}
-	if got := event.Tags[string(telemetry.TagRegion)]; got != "iad" {
-		t.Fatalf("region tag = %q, want iad", got)
-	}
-	if got := event.Tags[string(telemetry.TagVersion)]; got != "test-version" {
-		t.Fatalf("version tag = %q, want test-version", got)
-	}
-	if len(event.Breadcrumbs) != 1 {
-		t.Fatalf("breadcrumbs = %d, want 1", len(event.Breadcrumbs))
-	}
-	if got := event.Breadcrumbs[0].Category; got != "billing.plan_limits" {
-		t.Fatalf("breadcrumb category = %q, want billing.plan_limits", got)
-	}
+	require.NotNil(t,
+		event)
+	require.Equal(t,
+		telemetry.SubsystemBilling,
+
+		event.Tags[string(
+			telemetry.
+				TagSubsystem)])
+	require.Equal(t,
+		"org-123",
+		event.
+			Tags[string(telemetry.TagOrgID)])
+	require.Equal(t,
+		"all", event.
+			Tags[string(telemetry.TagMode)])
+	require.Equal(t,
+		"iad", event.
+			Tags[string(telemetry.TagRegion)],
+	)
+	require.Equal(t,
+		"test-version",
+
+		event.Tags[string(telemetry.TagVersion)])
+	require.Len(t, event.
+		Breadcrumbs,
+
+		1)
+	require.Equal(t,
+		"billing.plan_limits",
+
+		event.Breadcrumbs[0].Category,
+	)
+
 }

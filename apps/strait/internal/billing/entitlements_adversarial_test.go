@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestComputeEntitlements_StrippedSubDefaultsToFree confirms an empty/zero
@@ -19,10 +22,10 @@ func TestComputeEntitlements_StrippedSubDefaultsToFree(t *testing.T) {
 	sub := &OrgSubscription{} // PlanTier == ""
 	got := ComputeEntitlements(sub, nil)
 	want := GetPlanLimits(domain.PlanFree)
+	assert.True(t, reflect.
+		DeepEqual(got,
+			want))
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("stripped sub should resolve to Free\n got:  %+v\n want: %+v", got, want)
-	}
 }
 
 func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t *testing.T) {
@@ -35,16 +38,20 @@ func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t 
 		{AddonType: AddonEnvironments5, Quantity: 100, Active: true},
 	})
 	want := GetPlanLimits(domain.PlanFree)
+	require.Equal(t,
+		want.MaxConcurrentRuns,
+		got.MaxConcurrentRuns,
+	)
+	require.Equal(t,
+		want.HasDedicatedCompute,
+		got.
+			HasDedicatedCompute,
+	)
+	require.Equal(t,
+		want.MaxEnvironments,
+		got.MaxEnvironments,
+	)
 
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Fatalf("free concurrency changed by disallowed add-ons: got %d want %d", got.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
-	if got.HasDedicatedCompute != want.HasDedicatedCompute {
-		t.Fatalf("free dedicated compute changed by disallowed add-ons: got %v want %v", got.HasDedicatedCompute, want.HasDedicatedCompute)
-	}
-	if got.MaxEnvironments != want.MaxEnvironments {
-		t.Fatalf("free environments changed by disallowed add-ons: got %d want %d", got.MaxEnvironments, want.MaxEnvironments)
-	}
 }
 
 func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
@@ -52,9 +59,9 @@ func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 
 	base := GetPlanLimits(domain.PlanScale)
 	cap := base.MaxAddonPacks[AddonHistory30d]
-	if cap <= 0 {
-		t.Fatalf("scale history add-on cap = %d, want positive", cap)
-	}
+	require.False(t,
+		cap <= 0)
+
 	sub := &OrgSubscription{PlanTier: string(domain.PlanScale)}
 	got := ComputeEntitlements(sub, []Addon{
 		{AddonType: AddonHistory30d, Quantity: cap + 10, Active: true},
@@ -62,9 +69,10 @@ func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 	})
 
 	want := base.RetentionDays + cap*AddonPacks[AddonHistory30d].PackSize
-	if got.RetentionDays != want {
-		t.Fatalf("clamped retention = %d, want %d", got.RetentionDays, want)
-	}
+	require.Equal(t,
+		want, got.RetentionDays,
+	)
+
 }
 
 func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *testing.T) {
@@ -81,22 +89,20 @@ func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *tes
 	}
 
 	deactivated, err := ReconcileActiveAddonsForPlan(context.Background(), store, "org-addons", base)
-	if err != nil {
-		t.Fatalf("ReconcileActiveAddonsForPlan: %v", err)
-	}
-	if deactivated != 2 {
-		t.Fatalf("deactivated = %d, want 2", deactivated)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 2, deactivated)
+
 	got := map[string]bool{}
 	for _, id := range store.deactivatedAddonIDs {
 		got[id] = true
 	}
-	if got["keep-1"] {
-		t.Fatal("within-cap addon should not be deactivated")
-	}
-	if !got["over-cap"] || !got["disallowed"] {
-		t.Fatalf("deactivated ids = %v, want over-cap and disallowed", store.deactivatedAddonIDs)
-	}
+	require.False(t,
+		got["keep-1"])
+	require.False(t,
+		!got["over-cap"] ||
+			!got["disallowed"])
+
 }
 
 // TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling runs
@@ -124,7 +130,7 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 		domain.PlanScale, domain.PlanBusiness, domain.PlanEnterprise,
 	}
 
-	for i := range 200 {
+	for range 200 {
 		// Random slice of 0..15 addons.
 		n := rng.Intn(16)
 		addons := make([]Addon, 0, n)
@@ -146,15 +152,15 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 		// shrink limits). Unlimited stays unlimited.
 		base := GetPlanLimits(tier)
 		if base.MaxConcurrentRuns == -1 {
-			if got.MaxConcurrentRuns != -1 {
-				t.Fatalf("iter %d tier %s: unlimited ceiling collapsed to %d", i, tier, got.MaxConcurrentRuns)
-			}
+			require.EqualValues(t, -1, got.MaxConcurrentRuns)
+
 			continue
 		}
-		if got.MaxConcurrentRuns < base.MaxConcurrentRuns {
-			t.Fatalf("iter %d tier %s: addons reduced concurrency %d -> %d",
-				i, tier, base.MaxConcurrentRuns, got.MaxConcurrentRuns)
-		}
+		require.GreaterOrEqual(t, got.MaxConcurrentRuns,
+
+			base.MaxConcurrentRuns,
+		)
+
 	}
 }
 
@@ -165,9 +171,10 @@ func TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak(t *testing.T) {
 	t.Parallel()
 
 	var addOns SubscriptionAddOns
-	if err := json.Unmarshal([]byte(`{"retention_pack":999,"worker_connections":999}`), &addOns); err != nil {
-		t.Fatalf("unmarshal legacy add_ons: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(
+			[]byte(`{"retention_pack":999,"worker_connections":999}`), &addOns,
+		))
 
 	sub := &OrgSubscription{
 		PlanTier: string(domain.PlanFree),
@@ -180,23 +187,26 @@ func TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak(t *testing.T) {
 
 	got := ComputeEntitlements(sub, nil)
 	free := GetPlanLimits(domain.PlanFree)
+	assert.Equal(t, free.
+		RetentionDays,
+		got.RetentionDays,
+	)
+	assert.Equal(t, free.
+		WorkerConnections,
+		got.WorkerConnections,
+	)
+	assert.NotEqual(t,
+		1_000_000, got.
+			MaxRunsPerDay,
+	)
+	assert.NotEqual(t,
+		1_000_000, got.
+			MaxConcurrentRuns,
+	)
 
-	if got.RetentionDays != free.RetentionDays {
-		t.Errorf("legacy JSONB add-ons changed RetentionDays: got %d, want %d",
-			got.RetentionDays, free.RetentionDays)
-	}
-	if got.WorkerConnections != free.WorkerConnections {
-		t.Errorf("legacy JSONB add-ons changed WorkerConnections: got %d, want %d",
-			got.WorkerConnections, free.WorkerConnections)
-	}
 	// Override fields must not bleed into the snapshot — those are loaded
 	// at read time inside Enforcer.GetOrgPlanLimits, not persisted.
-	if got.MaxRunsPerDay == 1_000_000 {
-		t.Error("override_daily_run_limit leaked into entitlements snapshot")
-	}
-	if got.MaxConcurrentRuns == 1_000_000 {
-		t.Error("override_concurrent_run_limit leaked into entitlements snapshot")
-	}
+
 }
 
 // TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited covers the
@@ -215,17 +225,11 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 		{AddonType: AddonHistory30d, Quantity: 5, Active: true},
 		{AddonType: AddonEnvironments5, Quantity: 5, Active: true},
 	})
+	assert.EqualValues(t, -1, got.MaxConcurrentRuns)
+	assert.EqualValues(t, -1, got.MaxEnvironments)
+	assert.EqualValues(t, -1, got.WorkerConnections)
+	assert.EqualValues(t, 10,
+		got.MaxDispatchPriority,
+	)
 
-	if got.MaxConcurrentRuns != -1 {
-		t.Errorf("enterprise concurrency should stay unlimited, got %d", got.MaxConcurrentRuns)
-	}
-	if got.MaxEnvironments != -1 {
-		t.Errorf("enterprise environments should stay unlimited, got %d", got.MaxEnvironments)
-	}
-	if got.WorkerConnections != -1 {
-		t.Errorf("enterprise worker connections should stay unlimited, got %d", got.WorkerConnections)
-	}
-	if got.MaxDispatchPriority != 10 {
-		t.Errorf("enterprise dispatch priority should use launch platform cap 10, got %d", got.MaxDispatchPriority)
-	}
 }

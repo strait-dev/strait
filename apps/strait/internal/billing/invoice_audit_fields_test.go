@@ -3,6 +3,7 @@ package billing
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -18,11 +19,14 @@ func TestInvoiceAuditFields_AmountDueIsMinorUnitsString(t *testing.T) {
 		AmountDue: 4900,
 		Currency:  stripe.CurrencyUSD,
 	})
-	if got["amount_due_minor"] != "4900" {
-		t.Errorf("amount_due_minor: got %q, want %q", got["amount_due_minor"], "4900")
-	}
+	assert.Equal(t, "4900",
+
+		got["amount_due_minor"])
+
 	if _, exists := got["amount_due"]; exists {
-		t.Errorf("legacy amount_due field must be gone — replaced by amount_due_minor")
+		assert.Failf(t, "test failure",
+
+			"legacy amount_due field must be gone — replaced by amount_due_minor")
 	}
 }
 
@@ -37,9 +41,11 @@ func TestInvoiceAuditFields_LargeAmountSurvivesPrecision(t *testing.T) {
 		AmountDue: 9_999_999_999,
 		Currency:  stripe.CurrencyUSD,
 	})
-	if got["amount_due_minor"] != "9999999999" {
-		t.Errorf("large minor amount lost precision: got %q", got["amount_due_minor"])
-	}
+	assert.Equal(t, "9999999999",
+
+		got["amount_due_minor"],
+	)
+
 }
 
 // TestInvoiceAuditFields_CurrencyIsLowercased proves the canonicalisation:
@@ -55,9 +61,10 @@ func TestInvoiceAuditFields_CurrencyIsLowercased(t *testing.T) {
 			Currency:  stripe.Currency(in),
 		})
 		want := map[string]string{"USD": "usd", "Usd": "usd", "usd": "usd", "EUR": "eur"}[in]
-		if got["currency"] != want {
-			t.Errorf("currency %q: got %q, want %q", in, got["currency"], want)
-		}
+		assert.Equal(t, want,
+
+			got["currency"])
+
 	}
 }
 
@@ -72,9 +79,11 @@ func TestInvoiceAuditFields_StripeInvoiceNumIncludedWhenPresent(t *testing.T) {
 		AmountDue: 100,
 		Currency:  stripe.CurrencyUSD,
 	})
-	if got["stripe_invoice_num"] != "STRAIT-0001" {
-		t.Errorf("stripe_invoice_num: got %q", got["stripe_invoice_num"])
-	}
+	assert.Equal(t, "STRAIT-0001",
+
+		got["stripe_invoice_num"],
+	)
+
 }
 
 // TestInvoiceAuditFields_StripeInvoiceNumOmittedWhenEmpty rejects blank
@@ -88,7 +97,9 @@ func TestInvoiceAuditFields_StripeInvoiceNumOmittedWhenEmpty(t *testing.T) {
 		Currency:  stripe.CurrencyUSD,
 	})
 	if _, present := got["stripe_invoice_num"]; present {
-		t.Errorf("expected stripe_invoice_num to be omitted when empty, got map=%v", got)
+		assert.Failf(t, "test failure",
+
+			"expected stripe_invoice_num to be omitted when empty, got map=%v", got)
 	}
 }
 
@@ -99,7 +110,8 @@ func TestInvoiceAuditFields_StripeInvoiceNumOmittedWhenEmpty(t *testing.T) {
 func TestInvoiceAuditFields_NilInvoiceReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	got := invoiceAuditFields(nil)
-	if len(got) != 0 {
-		t.Errorf("nil invoice must return empty map, got %v", got)
-	}
+	assert.Len(t, got,
+
+		0)
+
 }

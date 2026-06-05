@@ -13,6 +13,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // CheckDailyRunLimit -- remaining branches
@@ -23,10 +25,11 @@ func TestCheckDailyRunLimit_NilRedis_FailsOpen(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, nil, slog.Default())
+	require.NoError(t,
+		enforcer.CheckDailyRunLimit(context.Background(),
 
-	if err := enforcer.CheckDailyRunLimit(context.Background(), "org-1"); err != nil {
-		t.Fatalf("expected nil with nil redis, got %v", err)
-	}
+			"org-1"))
+
 }
 
 // TestCheckDailyRunLimit_RedisError_FailsOpen verifies that a Redis connectivity
@@ -42,9 +45,9 @@ func TestCheckDailyRunLimit_RedisError_FailsOpen(t *testing.T) {
 	mr.Close()
 
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-redis-err")
-	if err != nil {
-		t.Fatalf("expected fail-open on Redis error, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 // TestCheckDailyRunLimit_UnlimitedFreeTier verifies that the free tier has
@@ -60,10 +63,11 @@ func TestCheckDailyRunLimit_UnlimitedFreeTier(t *testing.T) {
 
 	// All plans now have unlimited daily runs (MaxRunsPerDay = -1).
 	// Verify many runs succeed without hitting any limit.
-	for i := range 10_000 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-boundary"); err != nil {
-			t.Fatalf("unexpected error at run %d: daily runs should be unlimited: %v", i+1, err)
-		}
+	for range 10_000 {
+		require.NoError(t,
+			enforcer.CheckDailyRunLimit(ctx, "org-boundary"),
+		)
+
 	}
 }
 
@@ -84,16 +88,16 @@ func TestCheckDailyRunLimit_DBError_FailsClosed(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-db-err")
-	if err == nil {
-		t.Fatal("expected fail-closed error on DB error, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "service_degraded" {
-		t.Fatalf("Code = %q, want service_degraded", le.Code)
-	}
+	require.True(t, errors.As(err, &le))
+	require.Equal(t,
+		"service_degraded",
+		le.Code,
+	)
+
 }
 
 // TestCheckDailyRunLimit_EnforcementModeDisabled verifies that when the
@@ -118,10 +122,11 @@ func TestCheckDailyRunLimit_EnforcementModeDisabled(t *testing.T) {
 	limits := GetPlanLimits(domain.PlanFree)
 
 	// Burn through the limit.
-	for i := range limits.MaxRunsPerDay + 10 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-disabled"); err != nil {
-			t.Fatalf("expected no enforcement (disabled mode), got error at run %d: %v", i+1, err)
-		}
+	for range limits.MaxRunsPerDay + 10 {
+		require.NoError(t,
+			enforcer.CheckDailyRunLimit(ctx, "org-disabled"),
+		)
+
 	}
 }
 
@@ -146,10 +151,10 @@ func TestCheckDailyRunLimit_EnforcementModeWarn(t *testing.T) {
 	ctx := context.Background()
 	limits := GetPlanLimits(domain.PlanFree)
 
-	for i := range limits.MaxRunsPerDay + 5 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-warn"); err != nil {
-			t.Fatalf("expected no rejection in warn mode, got error at run %d: %v", i+1, err)
-		}
+	for range limits.MaxRunsPerDay + 5 {
+		require.NoError(t,
+			enforcer.CheckDailyRunLimit(ctx, "org-warn"))
+
 	}
 }
 
@@ -172,16 +177,16 @@ func TestCheckDailyRunLimit_PaymentRestricted(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-restricted")
-	if err == nil {
-		t.Fatal("expected payment restriction error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	if le.Code != "payment_restricted" {
-		t.Errorf("Code = %q, want payment_restricted", le.Code)
-	}
+	require.True(t, errors.As(err, &le))
+	assert.Equal(t, "payment_restricted",
+
+		le.Code,
+	)
+
 }
 
 // DecrDailyRunCount -- decrement paths and error handling
@@ -235,18 +240,18 @@ func TestDecrDailyRunCount_FloorsAtZero(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	ctx := context.Background()
+	require.NoError(t,
+		enforcer.CheckDailyRunLimit(ctx, "org-floor"))
 
 	// Increment once, then decrement twice. Counter should not go negative.
-	if err := enforcer.CheckDailyRunLimit(ctx, "org-floor"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+
 	enforcer.DecrDailyRunCount(ctx, "org-floor")
 	enforcer.DecrDailyRunCount(ctx, "org-floor")
+	require.NoError(t,
+		enforcer.CheckDailyRunLimit(ctx, "org-floor"))
 
 	// Counter should still allow runs (zero or positive).
-	if err := enforcer.CheckDailyRunLimit(ctx, "org-floor"); err != nil {
-		t.Fatalf("counter went negative; expected pass, got: %v", err)
-	}
+
 }
 
 // TestDecrDailyRunCount_RollbackWithUnlimitedRuns verifies decrement works
@@ -262,18 +267,20 @@ func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 
 	// Run some jobs.
 	for range 100 {
-		if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t,
+			enforcer.CheckDailyRunLimit(ctx, "org-rollback2"),
+		)
+
 	}
 
 	// Decrement should not panic.
 	enforcer.DecrDailyRunCount(ctx, "org-rollback2")
+	require.NoError(t,
+		enforcer.CheckDailyRunLimit(ctx, "org-rollback2"),
+	)
 
 	// Runs should still be allowed (unlimited).
-	if err := enforcer.CheckDailyRunLimit(ctx, "org-rollback2"); err != nil {
-		t.Fatalf("expected pass after decrement, got: %v", err)
-	}
+
 }
 
 // WithMetrics -- functional option
@@ -286,9 +293,8 @@ func TestWithMetrics_NilMetrics(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithMetrics(nil))
-	if enforcer.metrics != nil {
-		t.Fatal("expected nil metrics after WithMetrics(nil)")
-	}
+	require.Nil(t, enforcer.metrics)
+
 }
 
 // TestWithMetrics_SetsMetrics verifies that WithMetrics correctly sets the
@@ -301,9 +307,10 @@ func TestWithMetrics_SetsMetrics(t *testing.T) {
 
 	m := &telemetry.Metrics{}
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithMetrics(m))
-	if enforcer.metrics != m {
-		t.Fatal("expected metrics to be set")
-	}
+	require.Equal(t,
+		m, enforcer.metrics,
+	)
+
 }
 
 // TestWithMetrics_OverridesExisting verifies that calling WithMetrics twice
@@ -317,9 +324,10 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 	m1 := &telemetry.Metrics{}
 	m2 := &telemetry.Metrics{}
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithMetrics(m1), WithMetrics(m2))
-	if enforcer.metrics != m2 {
-		t.Fatal("expected last WithMetrics to win")
-	}
+	require.Equal(t,
+		m2, enforcer.metrics,
+	)
+
 }
 
 // NewEnforcer -- remaining constructor paths
@@ -328,9 +336,10 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 func TestNewEnforcer_NilStore_Panics(t *testing.T) {
 	t.Parallel()
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for nil store")
-		}
+		require.NotEqual(
+			t, nil, recover(),
+		)
+
 	}()
 	NewEnforcer(nil, nil, nil)
 }
@@ -344,9 +353,9 @@ func TestNewEnforcer_NilLogger_UsesDefault(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 
 	enforcer := NewEnforcer(store, rdb, nil)
-	if enforcer.logger == nil {
-		t.Fatal("expected logger to be non-nil (should fall back to slog.Default())")
-	}
+	require.NotNil(t,
+		enforcer.logger)
+
 }
 
 // TestNewEnforcer_NilRedis_CreatesEnforcer verifies that the enforcer can be
@@ -355,14 +364,10 @@ func TestNewEnforcer_NilRedis_CreatesEnforcer(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, nil, slog.Default())
+	require.NotNil(t,
+		enforcer)
+	require.Nil(t, enforcer.rdb)
 
-	if enforcer == nil {
-		t.Fatal("expected non-nil enforcer")
-		return
-	}
-	if enforcer.rdb != nil {
-		t.Fatal("expected nil rdb")
-	}
 }
 
 // TestNewEnforcer_WithMultipleOptions verifies that multiple functional
@@ -375,12 +380,13 @@ func TestNewEnforcer_WithMultipleOptions(t *testing.T) {
 
 	m := &telemetry.Metrics{}
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithMetrics(m))
-	if enforcer.metrics != m {
-		t.Fatal("WithMetrics option was not applied")
-	}
-	if enforcer.store != store {
-		t.Fatal("store not set correctly")
-	}
+	require.Equal(t,
+		m, enforcer.metrics,
+	)
+	require.Equal(t,
+		store, enforcer.store,
+	)
+
 }
 
 // TestNewEnforcer_CacheInitialized verifies that the org cache is properly
@@ -392,9 +398,10 @@ func TestNewEnforcer_CacheInitialized(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 
 	enforcer := NewEnforcer(store, rdb, slog.Default())
-	if enforcer.orgCache == nil {
-		t.Fatal("expected orgCache to be initialized")
-	}
+	require.NotNil(t,
+		enforcer.orgCache,
+	)
+
 }
 
 func TestNewEnforcer_RegistersStrongCacheNamespace(t *testing.T) {
@@ -409,16 +416,18 @@ func TestNewEnforcer_RegistersStrongCacheNamespace(t *testing.T) {
 	registry := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "billing-test"})
 
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithCacheBus(nil, registry))
+	require.NotNil(t,
+		enforcer.orgCache,
+	)
 
-	if enforcer.orgCache == nil {
-		t.Fatal("expected orgCache to be initialized")
-	}
 	for _, namespace := range registry.RegisteredNamespaces() {
 		if namespace == orgLimitsCacheNamespace {
 			return
 		}
 	}
-	t.Fatalf("cache namespace %s was not registered; registered namespaces: %v", orgLimitsCacheNamespace, registry.RegisteredNamespaces())
+	require.Failf(t, "test failure",
+
+		"cache namespace %s was not registered; registered namespaces: %v", orgLimitsCacheNamespace, registry.RegisteredNamespaces())
 }
 
 // InvalidateOrgCache -- cache invalidation
@@ -447,16 +456,17 @@ func TestInvalidateOrgCache_CacheHitThenInvalidate(t *testing.T) {
 
 	// Second call should come from cache (no additional store call).
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-cache")
-	if callCount != firstCount {
-		t.Fatalf("expected cached result, but store was called again (count: %d)", callCount)
-	}
+	require.Equal(t,
+		firstCount, callCount,
+	)
 
 	// Invalidate and verify the store is called again.
 	enforcer.InvalidateOrgCache("org-cache")
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-cache")
-	if callCount <= firstCount {
-		t.Fatal("expected store to be called again after cache invalidation")
-	}
+	require.False(t,
+		callCount <= firstCount,
+	)
+
 }
 
 func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
@@ -468,9 +478,9 @@ func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
 
 	limits := GetPlanLimits(domain.PlanPro)
 	raw, err := json.Marshal(limits)
-	if err != nil {
-		t.Fatalf("marshal limits: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org-versioned": {
@@ -487,24 +497,24 @@ func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	got, err := enforcer.GetOrgPlanLimits(context.Background(), "org-versioned")
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits() error = %v", err)
-	}
-	if got.PlanTier != domain.PlanPro {
-		t.Fatalf("PlanTier = %q, want %q", got.PlanTier, domain.PlanPro)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		domain.PlanPro, got.
+			PlanTier,
+	)
 
 	cached, err := rdb.Get(context.Background(), "strait:cache:"+orgLimitsCacheNamespace+":org-versioned").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(cached, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 12 {
-		t.Fatalf("redis version = %d, want 12", envelope.Version)
-	}
+	require.NoError(t,
+		json.Unmarshal(
+			cached, &envelope,
+		))
+	require.EqualValues(t, 12, envelope.Version)
+
 }

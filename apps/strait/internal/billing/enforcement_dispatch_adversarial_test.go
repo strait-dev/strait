@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // 100 concurrent CheckSpendingLimit calls at 85% spend must dispatch the
@@ -35,9 +37,11 @@ func TestCheckSpendingLimit_ConcurrentWarningDispatchedOnce(t *testing.T) {
 	wg.Wait()
 
 	got := dispatchedEventTypes(d)
-	if c := countEvent(got, domain.WebhookEventBillingCapWarning); c != 1 {
-		t.Errorf("cap_warning dispatched %d times under concurrency; want exactly 1", c)
-	}
+	assert.EqualValues(t, 1,
+		countEvent(got,
+			domain.WebhookEventBillingCapWarning,
+		))
+
 }
 
 // A clock-skew bounce (79% → 81% → 79%) must still produce exactly one
@@ -60,9 +64,11 @@ func TestCheckSpendingLimit_ClockSkewBounceDispatchesOnce(t *testing.T) {
 		_ = e.CheckSpendingLimit(ctx, sub.OrgID)
 	}
 	got := dispatchedEventTypes(d)
-	if c := countEvent(got, domain.WebhookEventBillingCapWarning); c != 1 {
-		t.Errorf("cap_warning dispatched %d times across skew sequence; want 1", c)
-	}
+	assert.EqualValues(t, 1,
+		countEvent(got,
+			domain.WebhookEventBillingCapWarning,
+		))
+
 }
 
 // A webhook delivery failure must NOT block the enforcer's return path.
@@ -82,9 +88,10 @@ func TestCheckSpendingLimit_DispatchFailureDoesNotBlockReturn(t *testing.T) {
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	var limitErr *LimitError
-	if !errors.As(err, &limitErr) {
-		t.Fatalf("CheckSpendingLimit err = %v, want *LimitError despite dispatcher error", err)
-	}
+	require.True(t, errors.As(err,
+		&limitErr,
+	))
+
 }
 
 // Period-boundary race: at the millisecond a new billing period opens,
@@ -97,10 +104,9 @@ func TestCheckSpendingLimit_PeriodBoundaryRace(t *testing.T) {
 
 	sub := newPaidSubscription("org_boundary", string(domain.PlanPro), 1_000_000, "block")
 	e, store, d := newFakeDispatcherEnforcer(t, sub, 850_000)
-
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("first call: %v", err)
-	}
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.OrgID))
 
 	// Roll over: drop dedup marks AND advance current_period_start.
 	newStart := sub.CurrentPeriodStart.Add(30 * 24 * time.Hour)
@@ -110,12 +116,14 @@ func TestCheckSpendingLimit_PeriodBoundaryRace(t *testing.T) {
 	store.mu.Lock()
 	delete(store.capEventMarks, sub.OrgID)
 	store.mu.Unlock()
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.OrgID))
 
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("post-rollover call: %v", err)
-	}
 	got := dispatchedEventTypes(d)
-	if c := countEvent(got, domain.WebhookEventBillingCapWarning); c != 2 {
-		t.Errorf("cap_warning dispatched %d times across period boundary; want 2", c)
-	}
+	assert.EqualValues(t, 2,
+		countEvent(got,
+			domain.WebhookEventBillingCapWarning,
+		))
+
 }

@@ -3,6 +3,8 @@ package billing
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestPercentReached_CurrentMaxInt64SaturatesTrue is the headline overflow
@@ -12,13 +14,13 @@ import (
 // counter that big is, definitionally, past any plan cap.
 func TestPercentReached_CurrentMaxInt64SaturatesTrue(t *testing.T) {
 	t.Parallel()
-	if !percentReached(math.MaxInt64, 1_000, 80) {
-		t.Errorf("MaxInt64 current must saturate to true; raw int64 multiply would wrap negative")
-	}
+	assert.True(t,
+		percentReached(math.MaxInt64, 1_000, 80))
+	assert.True(t,
+		percentReached(math.MaxInt64/50, 1_000, 80))
+
 	// Same invariant just past the overflow threshold.
-	if !percentReached(math.MaxInt64/50, 1_000, 80) {
-		t.Errorf("current past MaxInt64/100 must saturate to true")
-	}
+
 }
 
 // TestPercentReached_LimitMaxInt64SaturatesFalse closes the symmetric
@@ -28,9 +30,9 @@ func TestPercentReached_CurrentMaxInt64SaturatesTrue(t *testing.T) {
 // int64 space.
 func TestPercentReached_LimitMaxInt64SaturatesFalse(t *testing.T) {
 	t.Parallel()
-	if percentReached(1_000_000, math.MaxInt64, 80) {
-		t.Errorf("MaxInt64 limit must saturate to false; raw int64 multiply would wrap positive")
-	}
+	assert.False(t,
+		percentReached(1_000_000, math.MaxInt64, 80))
+
 }
 
 // TestPercentReached_BothMaxInt64DoesNotPanic is the "do not crash" test —
@@ -40,9 +42,8 @@ func TestPercentReached_LimitMaxInt64SaturatesFalse(t *testing.T) {
 func TestPercentReached_BothMaxInt64DoesNotPanic(t *testing.T) {
 	t.Parallel()
 	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("percentReached panicked on (MaxInt64, MaxInt64, 80): %v", r)
-		}
+		assert.Nil(t, recover())
+
 	}()
 	_ = percentReached(math.MaxInt64, math.MaxInt64, 80)
 }
@@ -54,9 +55,9 @@ func TestPercentReached_BothMaxInt64DoesNotPanic(t *testing.T) {
 func TestPercentReached_NonPositivePctReturnsFalse(t *testing.T) {
 	t.Parallel()
 	for _, pct := range []int{0, -1, -100} {
-		if percentReached(50, 100, pct) {
-			t.Errorf("pct=%d must return false (no meaningful threshold)", pct)
-		}
+		assert.False(t,
+			percentReached(50, 100, pct))
+
 	}
 }
 
@@ -78,9 +79,8 @@ func TestPercentReached_NormalRangeUnchanged(t *testing.T) {
 		{50, 100, 50, true},
 	}
 	for _, c := range cases {
-		if got := percentReached(c.current, c.limit, c.pct); got != c.want {
-			t.Errorf("percentReached(%d, %d, %d) = %v, want %v",
-				c.current, c.limit, c.pct, got, c.want)
-		}
+		assert.Equal(t,
+			c.want, percentReached(c.current, c.limit, c.pct))
+
 	}
 }

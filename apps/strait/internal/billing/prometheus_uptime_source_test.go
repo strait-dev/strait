@@ -10,6 +10,7 @@ import (
 
 	promv1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
+	"github.com/stretchr/testify/require"
 )
 
 // stubPromAPI implements the narrow promAPI surface so tests do not need
@@ -50,12 +51,10 @@ func TestPrometheusUptimeSource_ScalarValue(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: scalar(99.5)})
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct: %v", err)
-	}
-	if got != 99.5 {
-		t.Fatalf("got %v, want 99.5", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 99.5, got)
+
 }
 
 // TestPrometheusUptimeSource_VectorValue covers the Vector shape, which
@@ -69,12 +68,10 @@ func TestPrometheusUptimeSource_VectorValue(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: vec})
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct: %v", err)
-	}
-	if got != 97.25 {
-		t.Fatalf("got %v, want 97.25", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 97.25, got)
+
 }
 
 func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
@@ -87,12 +84,10 @@ func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: vec})
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct: %v", err)
-	}
-	if got != 90 {
-		t.Fatalf("got %v, want average 90", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 90, got)
+
 }
 
 // TestPrometheusUptimeSource_NegativeReadingCoercesToFull guards the
@@ -105,12 +100,10 @@ func TestPrometheusUptimeSource_NegativeReadingCoercesToFull(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: scalar(-3.2)})
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct: %v", err)
-	}
-	if got != 100 {
-		t.Fatalf("got %v, want 100 (negative reading should coerce)", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 100, got)
+
 }
 
 // TestPrometheusUptimeSource_OverHundredClamps protects the upper edge:
@@ -122,12 +115,10 @@ func TestPrometheusUptimeSource_OverHundredClamps(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: scalar(200)})
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct: %v", err)
-	}
-	if got != 100 {
-		t.Fatalf("got %v, want 100 (over-100 reading should clamp)", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 100, got)
+
 }
 
 // TestPrometheusUptimeSource_APIErrorWrapped guards the caller's
@@ -141,9 +132,10 @@ func TestPrometheusUptimeSource_APIErrorWrapped(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{err: sentinel})
 
 	_, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("expected wrapped sentinel error, got %v", err)
-	}
+	require.True(t, errors.Is(err,
+		sentinel,
+	))
+
 }
 
 func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
@@ -154,13 +146,15 @@ func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{
 		queryFn: func(ctx context.Context, _ string, _ time.Time, _ ...promv1.Option) (model.Value, promv1.Warnings, error) {
 			deadline, ok := ctx.Deadline()
-			if !ok {
-				t.Fatal("Prometheus query context did not include a deadline")
-			}
+			require.True(t, ok)
+
 			remaining := time.Until(deadline)
-			if remaining <= 0 || remaining > timeout {
-				t.Fatalf("query deadline remaining = %s, want within %s", remaining, timeout)
-			}
+			require.False(t,
+				remaining <=
+					0 || remaining >
+					timeout,
+			)
+
 			sawDeadline.Store(true)
 			return scalar(99.9), nil, nil
 		},
@@ -168,15 +162,12 @@ func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
 	src.queryTimeout = timeout
 
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err != nil {
-		t.Fatalf("MonthlyUptimePct() error = %v", err)
-	}
-	if got != 99.9 {
-		t.Fatalf("MonthlyUptimePct() = %v, want 99.9", got)
-	}
-	if !sawDeadline.Load() {
-		t.Fatal("query stub was not called")
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 99.9, got)
+	require.True(t, sawDeadline.
+		Load())
+
 }
 
 // TestPrometheusUptimeSource_EmptyQueryRejected guards the constructor:
@@ -186,7 +177,9 @@ func TestPrometheusUptimeSource_EmptyQueryRejected(t *testing.T) {
 	t.Parallel()
 
 	if _, err := NewPrometheusUptimeSource("http://prom:9090", "", nil); err == nil {
-		t.Fatal("expected error for empty query, got nil")
+		require.Fail(t,
+
+			"expected error for empty query, got nil")
 	}
 }
 
@@ -197,7 +190,9 @@ func TestPrometheusUptimeSource_EmptyURLRejected(t *testing.T) {
 	t.Parallel()
 
 	if _, err := NewPrometheusUptimeSource("", "avg_over_time(up[30d])*100", nil); err == nil {
-		t.Fatal("expected error for empty URL, got nil")
+		require.Fail(t,
+
+			"expected error for empty URL, got nil")
 	}
 }
 
@@ -210,7 +205,7 @@ func TestPrometheusUptimeSource_UnexpectedTypeError(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{value: model.Matrix{}})
 
 	_, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	if err == nil {
-		t.Fatal("expected error for unsupported result type, got nil")
-	}
+	require.Error(t,
+		err)
+
 }

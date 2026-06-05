@@ -12,6 +12,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newUsageServiceTest(t *testing.T, store *mockBillingStore) (*UsageService, *Enforcer) {
@@ -34,10 +36,10 @@ func newUsageServiceTest(t *testing.T, store *mockBillingStore) (*UsageService, 
 
 func assertFloatApprox(t *testing.T, got, want float64) {
 	t.Helper()
+	require.LessOrEqual(t, math.Abs(got-
+		want), 0.0001,
+	)
 
-	if math.Abs(got-want) > 0.0001 {
-		t.Fatalf("got %f, want %f", got, want)
-	}
 }
 
 func TestUsageService_GetCurrentUsage(t *testing.T) {
@@ -57,38 +59,50 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, "free",
+		resp.
+			Plan)
 
-	if resp.Plan != "free" {
-		t.Errorf("plan = %q, want free", resp.Plan)
-	}
 	freeLimits := GetPlanLimits(domain.PlanFree)
-	if resp.Usage.MonthlyRuns.Limit != int64(freeLimits.MaxRunsPerMonth) {
-		t.Errorf("monthly runs limit = %d, want %d", resp.Usage.MonthlyRuns.Limit, freeLimits.MaxRunsPerMonth)
-	}
-	if resp.Usage.RunsToday != resp.Usage.MonthlyRuns {
-		t.Errorf("legacy runs_today = %+v, want monthly_runs alias %+v", resp.Usage.RunsToday, resp.Usage.MonthlyRuns)
-	}
-	if resp.Usage.Projects.Used != 1 {
-		t.Errorf("projects used = %d, want 1", resp.Usage.Projects.Used)
-	}
-	if resp.Usage.Members.Used != 2 {
-		t.Errorf("members used = %d, want 2", resp.Usage.Members.Used)
-	}
-	if resp.Usage.ConcurrentRuns.Used != 3 {
-		t.Errorf("concurrent runs used = %d, want 3", resp.Usage.ConcurrentRuns.Used)
-	}
+	assert.Equal(t, int64(freeLimits.
+		MaxRunsPerMonth,
+	), resp.Usage.
+		MonthlyRuns.
+		Limit)
+	assert.Equal(t, resp.
+		Usage.MonthlyRuns,
+
+		resp.Usage.
+			RunsToday,
+	)
+	assert.EqualValues(t, 1,
+		resp.Usage.
+			Projects.
+			Used)
+	assert.EqualValues(t, 2,
+		resp.Usage.
+			Members.
+			Used)
+	assert.EqualValues(t, 3,
+		resp.Usage.
+			ConcurrentRuns.
+			Used,
+	)
+
 	// ConcurrentRuns: 3 used / ConcurrentFree limit.
 	expectedConcPct := safePercent(3, int64(freeLimits.MaxConcurrentRuns))
 	assertFloatApprox(t, resp.Usage.ConcurrentRuns.Percent, expectedConcPct)
 	// Members: 2 used / MaxMembersFree limit.
 	expectedMemberPct := safePercent(2, int64(freeLimits.MaxMembersPerOrg))
 	assertFloatApprox(t, resp.Usage.Members.Percent, expectedMemberPct)
-	if resp.Usage.RetentionDays != RetentionFree {
-		t.Errorf("retention = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
-	}
+	assert.Equal(t, RetentionFree,
+
+		resp.Usage.
+			RetentionDays,
+	)
+
 }
 
 func TestUsageService_GetCurrentUsage_FiltersRoadmapAddons(t *testing.T) {
@@ -105,19 +119,18 @@ func TestUsageService_GetCurrentUsage_FiltersRoadmapAddons(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, resp.
+		ActiveAddons,
+		1)
+	require.Equal(t,
+		string(AddonConcurrency100), resp.
+			ActiveAddons[0].
+			Type,
+	)
+	require.EqualValues(t, 2, resp.ActiveAddons[0].Quantity)
 
-	if len(resp.ActiveAddons) != 1 {
-		t.Fatalf("ActiveAddons len = %d, want 1: %+v", len(resp.ActiveAddons), resp.ActiveAddons)
-	}
-	if resp.ActiveAddons[0].Type != string(AddonConcurrency100) {
-		t.Fatalf("ActiveAddons[0].Type = %q, want %q", resp.ActiveAddons[0].Type, AddonConcurrency100)
-	}
-	if resp.ActiveAddons[0].Quantity != 2 {
-		t.Fatalf("ActiveAddons[0].Quantity = %d, want 2", resp.ActiveAddons[0].Quantity)
-	}
 }
 
 func TestUsageService_NoAlertsForLowMonthlyRuns(t *testing.T) {
@@ -131,14 +144,16 @@ func TestUsageService_NoAlertsForLowMonthlyRuns(t *testing.T) {
 	}
 
 	resp, err := svc.GetCurrentUsage(ctx, "org_alert")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	for _, alert := range resp.Alerts {
-		if alert.Dimension == "monthly_runs" {
-			t.Error("unexpected monthly_runs alert below threshold")
-		}
+		assert.NotEqual(t,
+			"monthly_runs",
+			alert.
+				Dimension,
+		)
+
 	}
 }
 
@@ -162,19 +177,13 @@ func TestUsageService_GetUsageHistory_IncludesRunAndCostUsage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	history, err := svc.GetUsageHistory(context.Background(), "org-usage", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, history,
+		2)
+	require.EqualValues(t, 4, history[0].RunsCount)
+	require.EqualValues(t, 2_500_000, history[0].SpendMicro)
 
-	if len(history) != 2 {
-		t.Fatalf("history len = %d, want 2", len(history))
-	}
-	if history[0].RunsCount != 4 {
-		t.Fatalf("day 1 runs = %d, want 4", history[0].RunsCount)
-	}
-	if history[0].SpendMicro != 2_500_000 {
-		t.Fatalf("day 1 spend = %d, want 2500000", history[0].SpendMicro)
-	}
 }
 
 func TestUsageService_GetUsageForecast_UsesSpend(t *testing.T) {
@@ -198,9 +207,8 @@ func TestUsageService_GetUsageForecast_UsesSpend(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-forecast")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	assertFloatApprox(t, forecast.ProjectedMonthlySpendUsd, 90)
 }
@@ -216,19 +224,20 @@ func TestUsageService_GetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetSpendingLimit(context.Background(), "org_free")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"free", resp.
+			PlanTier,
+	)
+	require.Equal(t,
+		"reject", resp.
+			LimitAction,
+	)
+	require.True(t, resp.
+		IsHardCapped,
+	)
 
-	if resp.PlanTier != "free" {
-		t.Fatalf("plan tier = %q, want free", resp.PlanTier)
-	}
-	if resp.LimitAction != "reject" {
-		t.Fatalf("limit action = %q, want reject", resp.LimitAction)
-	}
-	if !resp.IsHardCapped {
-		t.Fatal("expected free tier response to be hard capped")
-	}
 	assertFloatApprox(t, resp.CurrentSpendUsd, 2.5)
 	assertFloatApprox(t, resp.OverageSpendUsd, 2.5)
 }
@@ -247,19 +256,20 @@ func TestUsageService_GetSpendingLimit_FreeTierWithSubscription(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetSpendingLimit(context.Background(), "org_free")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"free", resp.
+			PlanTier,
+	)
+	require.Equal(t,
+		"reject", resp.
+			LimitAction,
+	)
+	require.True(t, resp.
+		IsHardCapped,
+	)
 
-	if resp.PlanTier != "free" {
-		t.Fatalf("plan tier = %q, want free", resp.PlanTier)
-	}
-	if resp.LimitAction != "reject" {
-		t.Fatalf("limit action = %q, want reject", resp.LimitAction)
-	}
-	if !resp.IsHardCapped {
-		t.Fatal("expected free tier response to be hard capped")
-	}
 	assertFloatApprox(t, resp.CurrentSpendUsd, 1.25)
 	assertFloatApprox(t, resp.OverageSpendUsd, 1.25)
 }
@@ -270,12 +280,13 @@ func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 
 	err := svc.SetSpendingLimit(context.Background(), "org_free", 5_000_000, "notify")
-	if err == nil {
-		t.Fatal("expected free tier spending limit update to fail")
-	}
-	if err.Error() != "spending limits are not available on the Free plan" {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"spending limits are not available on the Free plan",
+
+		err.Error())
+
 }
 
 func TestUsageService_SetSpendingLimit_NegativeValue_Rejected(t *testing.T) {
@@ -289,12 +300,15 @@ func TestUsageService_SetSpendingLimit_NegativeValue_Rejected(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", -1, "notify")
-	if err == nil {
-		t.Fatal("expected negative spending limit to be rejected")
-	}
-	if err.Error() != "spending limit must be non-negative" {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"spending limit must be non-negative",
+
+		err.
+			Error(),
+	)
+
 }
 
 func TestUsageService_SetSpendingLimit_NegativeLargeValue_Rejected(t *testing.T) {
@@ -308,9 +322,9 @@ func TestUsageService_SetSpendingLimit_NegativeLargeValue_Rejected(t *testing.T)
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", -999999999, "reject")
-	if err == nil {
-		t.Fatal("expected large negative spending limit to be rejected")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestUsageService_SetSpendingLimit_ZeroValue_Allowed(t *testing.T) {
@@ -324,9 +338,9 @@ func TestUsageService_SetSpendingLimit_ZeroValue_Allowed(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 0, "reject")
-	if err != nil {
-		t.Fatalf("zero spending limit should be allowed (hard cap): %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestUsageService_SetSpendingLimit_ValidPositive_Allowed(t *testing.T) {
@@ -340,9 +354,9 @@ func TestUsageService_SetSpendingLimit_ValidPositive_Allowed(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 50_000_000, "notify")
-	if err != nil {
-		t.Fatalf("valid positive spending limit should be allowed: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPausedJobs(t *testing.T) {
@@ -360,15 +374,18 @@ func TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPaused
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 20_000_000, "reject")
-	if err != nil {
-		t.Fatalf("raising cap above current spend should resume paused jobs: %v", err)
-	}
-	if store.unpausedOrgID != "org-1" {
-		t.Fatalf("unpaused org = %q, want org-1", store.unpausedOrgID)
-	}
-	if store.unpausedReason != "quota_exceeded" {
-		t.Fatalf("unpaused reason = %q, want quota_exceeded", store.unpausedReason)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"org-1", store.
+			unpausedOrgID,
+	)
+	require.Equal(t,
+		"quota_exceeded",
+		store.
+			unpausedReason,
+	)
+
 }
 
 func TestUsageService_SetSpendingLimit_NotifyActionResumesQuotaPausedJobs(t *testing.T) {
@@ -385,15 +402,18 @@ func TestUsageService_SetSpendingLimit_NotifyActionResumesQuotaPausedJobs(t *tes
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 10_000_000, "notify")
-	if err != nil {
-		t.Fatalf("notify cap should resume paused jobs: %v", err)
-	}
-	if store.unpausedOrgID != "org-1" {
-		t.Fatalf("unpaused org = %q, want org-1", store.unpausedOrgID)
-	}
-	if store.unpausedReason != "quota_exceeded" {
-		t.Fatalf("unpaused reason = %q, want quota_exceeded", store.unpausedReason)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"org-1", store.
+			unpausedOrgID,
+	)
+	require.Equal(t,
+		"quota_exceeded",
+		store.
+			unpausedReason,
+	)
+
 }
 
 func TestUsageService_SetSpendingLimit_StillAtRejectingCapDoesNotResume(t *testing.T) {
@@ -410,12 +430,12 @@ func TestUsageService_SetSpendingLimit_StillAtRejectingCapDoesNotResume(t *testi
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 20_000_000, "reject")
-	if err != nil {
-		t.Fatalf("still-blocking cap update should succeed: %v", err)
-	}
-	if store.unpausedOrgID != "" {
-		t.Fatalf("unexpected unpause for still-blocking cap: org=%q reason=%q", store.unpausedOrgID, store.unpausedReason)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"", store.unpausedOrgID,
+	)
+
 }
 
 func TestUsageService_SetOverageEnabled_DisablePaidPlanStoresFlag(t *testing.T) {
@@ -429,15 +449,16 @@ func TestUsageService_SetOverageEnabled_DisablePaidPlanStoresFlag(t *testing.T) 
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetOverageEnabled(context.Background(), "org-1", false)
-	if err != nil {
-		t.Fatalf("disable overage: %v", err)
-	}
-	if store.lastOverageDisabledOrg != "org-1" {
-		t.Fatalf("overage flag org = %q, want org-1", store.lastOverageDisabledOrg)
-	}
-	if !store.lastOverageDisabled {
-		t.Fatal("expected overage_disabled=true")
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"org-1", store.
+			lastOverageDisabledOrg,
+	)
+	require.True(t, store.
+		lastOverageDisabled,
+	)
+
 }
 
 func TestUsageService_SetOverageEnabled_EnableResumesQuotaPausedJobs(t *testing.T) {
@@ -451,15 +472,17 @@ func TestUsageService_SetOverageEnabled_EnableResumesQuotaPausedJobs(t *testing.
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetOverageEnabled(context.Background(), "org-1", true)
-	if err != nil {
-		t.Fatalf("enable overage: %v", err)
-	}
-	if store.lastOverageDisabled {
-		t.Fatal("expected overage_disabled=false")
-	}
-	if store.unpausedOrgID != "org-1" || store.unpausedReason != "quota_exceeded" {
-		t.Fatalf("quota unpause = org %q reason %q, want org-1 quota_exceeded", store.unpausedOrgID, store.unpausedReason)
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		store.lastOverageDisabled,
+	)
+	require.False(t,
+		store.unpausedOrgID !=
+			"org-1" ||
+			store.unpausedReason !=
+				"quota_exceeded")
+
 }
 
 func TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod(t *testing.T) {
@@ -473,12 +496,14 @@ func TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod(t *testing.T) 
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetOverageEnabled(context.Background(), "org-free", true)
-	if err == nil {
-		t.Fatal("expected free overage enablement without payment method to fail")
-	}
-	if err.Error() != "free overage requires a payment method on file" {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"free overage requires a payment method on file",
+
+		err.
+			Error())
+
 }
 
 func TestUsageService_SetOverageEnabled_FreeWithPaymentMethodAllowed(t *testing.T) {
@@ -493,12 +518,12 @@ func TestUsageService_SetOverageEnabled_FreeWithPaymentMethodAllowed(t *testing.
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetOverageEnabled(context.Background(), "org-free", true)
-	if err != nil {
-		t.Fatalf("free overage enablement with payment method should pass: %v", err)
-	}
-	if store.lastOverageDisabled {
-		t.Fatal("expected overage_disabled=false")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		store.lastOverageDisabled,
+	)
+
 }
 
 func TestUsageService_SetSpendingLimit_InvalidAction_Rejected(t *testing.T) {
@@ -512,9 +537,9 @@ func TestUsageService_SetSpendingLimit_InvalidAction_Rejected(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 10_000_000, "invalid")
-	if err == nil {
-		t.Fatal("expected invalid action to be rejected")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestRecommendPlan(t *testing.T) {
@@ -538,25 +563,24 @@ func TestRecommendPlan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := recommendPlan(tt.runs, tt.compute)
-			if got != tt.want {
-				t.Errorf("recommendPlan(%d, %d) = %q, want %q", tt.runs, tt.compute, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }
 
 func TestSafePercent(t *testing.T) {
 	t.Parallel()
+	assert.EqualValues(t, 50.0,
+		safePercent(50,
+			100))
+	assert.EqualValues(t, 0.0,
+		safePercent(0, 0))
+	assert.EqualValues(t, 0.0,
+		safePercent(100,
+			-1))
 
-	if got := safePercent(50, 100); got != 50.0 {
-		t.Errorf("safePercent(50, 100) = %f, want 50.0", got)
-	}
-	if got := safePercent(0, 0); got != 0.0 {
-		t.Errorf("safePercent(0, 0) = %f, want 0.0", got)
-	}
-	if got := safePercent(100, -1); got != 0.0 {
-		t.Errorf("safePercent(100, -1) = %f, want 0.0", got)
-	}
 }
 
 func TestUsageService_OverageCalculation(t *testing.T) {
@@ -578,9 +602,10 @@ func TestUsageService_OverageCalculation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := max(tt.spend-tt.credit, 0)
-			if got != tt.wantOverage {
-				t.Errorf("overage = %d, want %d", got, tt.wantOverage)
-			}
+			assert.Equal(t, tt.
+				wantOverage,
+				got)
+
 		})
 	}
 }
@@ -599,30 +624,32 @@ func TestUsageService_OverageAlertForPaidPlan(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_starter")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if resp.OverageMicro <= 0 {
-		t.Fatalf("expected positive overage, got %d", resp.OverageMicro)
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		resp.OverageMicro <=
+			0)
 
 	var foundOverageAlert bool
 	for _, alert := range resp.Alerts {
 		if alert.Dimension == "overage" {
 			foundOverageAlert = true
-			if strings.Contains(alert.Message, "included credit") {
-				t.Fatal("overage alert must not use compute credit language")
-			}
-			if !strings.Contains(alert.Message, "included run allowance") {
-				t.Fatal("overage alert should describe the included run allowance")
-			}
+			require.False(t,
+				strings.Contains(alert.
+					Message,
+					"included credit",
+				),
+			)
+			require.True(t, strings.Contains(alert.
+				Message,
+				"included run allowance",
+			))
+
 			break
 		}
 	}
-	if !foundOverageAlert {
-		t.Error("expected overage alert for paid plan with spend beyond allowance")
-	}
+	assert.True(t, foundOverageAlert)
+
 }
 
 func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
@@ -636,14 +663,15 @@ func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	for _, alert := range resp.Alerts {
-		if alert.Dimension == "overage" {
-			t.Error("free plan should not have overage alert")
-		}
+		assert.NotEqual(t,
+			"overage",
+			alert.Dimension,
+		)
+
 	}
 }
 
@@ -658,24 +686,28 @@ func TestUsageService_GetCurrentUsage_FreeTierSpendIsOverage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"free", resp.
+			Plan)
+	require.Equal(t,
+		CreditFreeMicrousd,
 
-	if resp.Plan != "free" {
-		t.Fatalf("plan = %q, want free", resp.Plan)
-	}
-	if resp.PeriodSpendMicro != CreditFreeMicrousd {
-		t.Fatalf("period spend = %d, want %d", resp.PeriodSpendMicro, CreditFreeMicrousd)
-	}
-	if resp.OverageMicro != CreditFreeMicrousd {
-		t.Fatalf("overage = %d, want %d", resp.OverageMicro, CreditFreeMicrousd)
-	}
+		resp.PeriodSpendMicro,
+	)
+	require.Equal(t,
+		CreditFreeMicrousd,
+
+		resp.OverageMicro,
+	)
 
 	for _, alert := range resp.Alerts {
-		if alert.Dimension == "overage" {
-			t.Fatal("free plan should not emit paid-plan overage alert")
-		}
+		require.NotEqual(
+			t, "overage",
+			alert.
+				Dimension)
+
 	}
 }
 
@@ -691,14 +723,15 @@ func TestUsageService_GetCurrentUsage_FreeTierOverSpend_NoOvgAlert(t *testing.T)
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_free")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	for _, alert := range resp.Alerts {
-		if alert.Dimension == "overage" {
-			t.Fatal("free plan should not emit paid-plan overage alert")
-		}
+		require.NotEqual(
+			t, "overage",
+			alert.
+				Dimension)
+
 	}
 }
 
@@ -713,12 +746,12 @@ func TestUsageService_GetEmailPreferences(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetEmailPreferences(context.Background(), "org-email")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.MonthlyUsageEmail != false {
-		t.Errorf("MonthlyUsageEmail = %v, want false", resp.MonthlyUsageEmail)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, false,
+		resp.MonthlyUsageEmail,
+	)
+
 }
 
 func TestUsageService_GetEmailPreferences_NotFound(t *testing.T) {
@@ -727,12 +760,12 @@ func TestUsageService_GetEmailPreferences_NotFound(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 
 	resp, err := svc.GetEmailPreferences(context.Background(), "org-missing")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.MonthlyUsageEmail != true {
-		t.Errorf("MonthlyUsageEmail = %v, want true (default)", resp.MonthlyUsageEmail)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, true,
+		resp.MonthlyUsageEmail,
+	)
+
 }
 
 func TestUsageService_UpdateEmailPreferences(t *testing.T) {
@@ -742,16 +775,18 @@ func TestUsageService_UpdateEmailPreferences(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	err := svc.UpdateEmailPreferences(context.Background(), "org-update", true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestStddev_Identical(t *testing.T) {
 	t.Parallel()
-	if got := stddev([]float64{5, 5, 5, 5}); got != 0 {
-		t.Errorf("stddev([5,5,5,5]) = %f, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		stddev([]float64{5,
+			5, 5, 5}),
+	)
+
 }
 
 func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
@@ -781,26 +816,29 @@ func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
 			alerts := svc.buildAlerts(usage)
 			if tt.wantSev == "" {
 				for _, a := range alerts {
-					if a.Dimension == "monthly_runs" {
-						t.Errorf("expected no alert for monthly_runs at %.1f%%, got %+v", tt.percent, a)
-					}
+					assert.NotEqual(t,
+						"monthly_runs",
+						a.
+							Dimension)
+
 				}
 			} else {
 				var found bool
 				for _, a := range alerts {
 					if a.Dimension == "monthly_runs" {
 						found = true
-						if a.Severity != tt.wantSev {
-							t.Errorf("severity = %q, want %q", a.Severity, tt.wantSev)
-						}
-						if a.Type != tt.wantType {
-							t.Errorf("type = %q, want %q", a.Type, tt.wantType)
-						}
+						assert.Equal(t, tt.
+							wantSev, a.
+							Severity,
+						)
+						assert.Equal(t, tt.
+							wantType,
+							a.Type)
+
 					}
 				}
-				if !found {
-					t.Errorf("expected alert for monthly_runs at %.1f%%", tt.percent)
-				}
+				assert.True(t, found)
+
 			}
 		})
 	}
@@ -810,36 +848,36 @@ func TestUsageService_SetAnomalyConfig_Valid(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 2.0, 8.0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestUsageService_SetAnomalyConfig_WarningTooLow(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 1.0, 5.0)
-	if err == nil {
-		t.Fatal("expected error for warning <= 1.0")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestUsageService_SetAnomalyConfig_CriticalBelowWarning(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 3.0, 3.0)
-	if err == nil {
-		t.Fatal("expected error for critical <= warning")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "reject")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
@@ -847,61 +885,64 @@ func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
 
 	store := &mockBillingStore{}
 	svc, _ := newUsageServiceTest(t, store)
+	require.NoError(t,
+		svc.SetProjectBudget(context.
+			Background(), "proj-1",
 
-	if err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "block"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+			5_000_000, "block"))
+
 }
 
 func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid action")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestUsageService_SetProjectBudget_NegativeNormalized(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	err := svc.SetProjectBudget(context.Background(), "proj-1", -5, "notify")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestUsageService_GetProjectBudget_DefaultNoBudget(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	resp, err := svc.GetProjectBudget(context.Background(), "proj-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.ProjectID != "proj-1" {
-		t.Errorf("ProjectID = %q, want proj-1", resp.ProjectID)
-	}
-	if resp.MonthlyBudgetMicro != -1 {
-		t.Errorf("MonthlyBudgetMicro = %d, want -1", resp.MonthlyBudgetMicro)
-	}
-	if resp.PercentUsed != 0 {
-		t.Errorf("PercentUsed = %f, want 0 (no budget)", resp.PercentUsed)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, "proj-1",
+		resp.
+			ProjectID,
+	)
+	assert.EqualValues(t, -1, resp.MonthlyBudgetMicro)
+	assert.EqualValues(t, 0,
+		resp.PercentUsed,
+	)
+
 }
 
 func TestUsageService_GetAnomalyConfig_DefaultsForMissingSubscription(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-none")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.WarningThreshold != spikeWarning {
-		t.Errorf("WarningThreshold = %f, want %f", resp.WarningThreshold, spikeWarning)
-	}
-	if resp.CriticalThreshold != spikeCritical {
-		t.Errorf("CriticalThreshold = %f, want %f", resp.CriticalThreshold, spikeCritical)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, spikeWarning,
+
+		resp.WarningThreshold,
+	)
+	assert.Equal(t, spikeCritical,
+
+		resp.CriticalThreshold,
+	)
+
 }
 
 func TestUsageService_GetAnomalyConfig_WithSubscription_ZeroThresholds(t *testing.T) {
@@ -913,12 +954,13 @@ func TestUsageService_GetAnomalyConfig_WithSubscription_ZeroThresholds(t *testin
 	}
 	svc, _ := newUsageServiceTest(t, store)
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.WarningThreshold != spikeWarning {
-		t.Errorf("WarningThreshold = %f, want %f (default for zero)", resp.WarningThreshold, spikeWarning)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, spikeWarning,
+
+		resp.WarningThreshold,
+	)
+
 }
 
 func TestUsageService_GetAnomalyConfig_CustomThresholdsFromSubscription(t *testing.T) {
@@ -936,15 +978,15 @@ func TestUsageService_GetAnomalyConfig_CustomThresholdsFromSubscription(t *testi
 	}
 	svc, _ := newUsageServiceTest(t, store)
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.WarningThreshold != 2.5 {
-		t.Errorf("WarningThreshold = %f, want 2.5", resp.WarningThreshold)
-	}
-	if resp.CriticalThreshold != 8.0 {
-		t.Errorf("CriticalThreshold = %f, want 8.0", resp.CriticalThreshold)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 2.5,
+		resp.WarningThreshold,
+	)
+	assert.EqualValues(t, 8.0,
+		resp.CriticalThreshold,
+	)
+
 }
 
 func TestUsageService_GetCurrentUsage_PaymentStatus(t *testing.T) {
@@ -963,18 +1005,20 @@ func TestUsageService_GetCurrentUsage_PaymentStatus(t *testing.T) {
 	}
 	svc, _ := newUsageServiceTest(t, store)
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.PaymentStatus != "past_due" {
-		t.Errorf("PaymentStatus = %q, want past_due", resp.PaymentStatus)
-	}
-	if resp.GracePeriodEnd == nil {
-		t.Fatal("expected non-nil GracePeriodEnd")
-	}
-	if *resp.GracePeriodEnd == "" {
-		t.Error("expected non-empty GracePeriodEnd")
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, "past_due",
+		resp.
+			PaymentStatus,
+	)
+	require.NotNil(t,
+		resp.GracePeriodEnd,
+	)
+	assert.NotEqual(t,
+		"", *resp.
+			GracePeriodEnd,
+	)
+
 }
 
 func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
@@ -989,27 +1033,28 @@ func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
 	}
 	svc, _ := newUsageServiceTest(t, store)
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.OverageMicro != CreditStarterMicrousd {
-		t.Errorf("overage should equal total spend in orchestration-only mode, got %d want %d", resp.OverageMicro, CreditStarterMicrousd)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, CreditStarterMicrousd,
+
+		resp.OverageMicro,
+	)
+
 }
 
 func TestUsageService_GetUsageForecast_ZeroHistory(t *testing.T) {
 	t.Parallel()
 	svc, _ := newUsageServiceTest(t, &mockBillingStore{})
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-empty")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.ProjectedMonthlyRuns != 0 {
-		t.Errorf("ProjectedMonthlyRuns = %d, want 0", forecast.ProjectedMonthlyRuns)
-	}
-	if forecast.ProjectedMonthlySpendUsd != 0 {
-		t.Errorf("ProjectedMonthlySpendUsd = %f, want 0", forecast.ProjectedMonthlySpendUsd)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 0,
+		forecast.ProjectedMonthlyRuns,
+	)
+	assert.EqualValues(t, 0,
+		forecast.ProjectedMonthlySpendUsd,
+	)
+
 }
 
 func TestUsageService_GetUsageForecast_DaysUntilMonthlyRunLimit(t *testing.T) {
@@ -1025,15 +1070,18 @@ func TestUsageService_GetUsageForecast_DaysUntilMonthlyRunLimit(t *testing.T) {
 		},
 	}
 	svc, enforcer := newUsageServiceTest(t, store)
-	if err := enforcer.rdb.Set(context.Background(), monthlyRunKey("org-monthly", now), "49980", time.Hour).Err(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		enforcer.rdb.
+			Set(context.
+				Background(), monthlyRunKey("org-monthly", now), "49980",
+
+				time.Hour).Err())
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-monthly")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.DaysUntilLimit != 2 {
-		t.Errorf("DaysUntilLimit = %d, want 2 based on monthly run allowance", forecast.DaysUntilLimit)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 2,
+		forecast.DaysUntilLimit,
+	)
+
 }

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestStripeMapping(t *testing.T) {
@@ -32,12 +34,11 @@ func TestStripeMapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tier, ok := m.TierForPrice(tt.productID)
-			if tier != tt.wantTier {
-				t.Errorf("TierForPrice(%q) tier = %q, want %q", tt.productID, tier, tt.wantTier)
-			}
-			if ok != tt.wantOK {
-				t.Errorf("TierForPrice(%q) ok = %v, want %v", tt.productID, ok, tt.wantOK)
-			}
+			assert.Equal(t, tt.
+				wantTier, tier)
+			assert.Equal(t, tt.
+				wantOK, ok)
+
 		})
 	}
 }
@@ -46,12 +47,12 @@ func TestStripeMapping_EmptyIDs(t *testing.T) {
 	t.Parallel()
 
 	m := NewStripeMapping("", "", "", "")
-	if m.PriceCount() != 0 {
-		t.Errorf("expected empty mapping, got %d entries", m.PriceCount())
-	}
-	if m.HasPrices() {
-		t.Error("HasPrices() = true, want false for empty mapping")
-	}
+	assert.EqualValues(t, 0,
+
+		m.PriceCount())
+	assert.False(t, m.
+		HasPrices())
+
 }
 
 func TestStripeMappingFromOptions(t *testing.T) {
@@ -82,21 +83,19 @@ func TestStripeMappingFromOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tier, ok := m.TierForPrice(tt.productID)
-			if tier != tt.wantTier {
-				t.Errorf("TierForPrice(%q) tier = %q, want %q", tt.productID, tier, tt.wantTier)
-			}
-			if ok != tt.wantOK {
-				t.Errorf("TierForPrice(%q) ok = %v, want %v", tt.productID, ok, tt.wantOK)
-			}
+			assert.Equal(t, tt.
+				wantTier, tier)
+			assert.Equal(t, tt.
+				wantOK, ok)
+
 		})
 	}
+	assert.EqualValues(t, 6,
 
-	if m.PriceCount() != 6 {
-		t.Errorf("PriceCount() = %d, want 6", m.PriceCount())
-	}
-	if !m.HasPrices() {
-		t.Error("HasPrices() = false, want true")
-	}
+		m.PriceCount())
+	assert.True(t, m.
+		HasPrices())
+
 }
 
 func TestStripeMappingFromOptions_EmptyIDs(t *testing.T) {
@@ -107,10 +106,10 @@ func TestStripeMappingFromOptions_EmptyIDs(t *testing.T) {
 		WithProPrices("", ""),
 		WithScalePrices("", ""),
 	)
+	assert.EqualValues(t, 0,
 
-	if m.PriceCount() != 0 {
-		t.Errorf("expected empty mapping, got %d entries", m.PriceCount())
-	}
+		m.PriceCount())
+
 }
 
 func TestStripeMappingFromOptions_PartialIDs(t *testing.T) {
@@ -120,20 +119,20 @@ func TestStripeMappingFromOptions_PartialIDs(t *testing.T) {
 		WithStarterPrices("s-m", ""),
 		WithScalePrices("", "sc-y"),
 	)
+	assert.EqualValues(t, 2,
 
-	if m.PriceCount() != 2 {
-		t.Errorf("PriceCount() = %d, want 2", m.PriceCount())
-	}
+		m.PriceCount())
 
 	tier, ok := m.TierForPrice("s-m")
-	if !ok || tier != domain.PlanStarter {
-		t.Errorf("expected starter for s-m, got %q/%v", tier, ok)
-	}
+	assert.False(t, !ok ||
+		tier != domain.PlanStarter,
+	)
 
 	tier, ok = m.TierForPrice("sc-y")
-	if !ok || tier != domain.PlanScale {
-		t.Errorf("expected scale for sc-y, got %q/%v", tier, ok)
-	}
+	assert.False(t, !ok ||
+		tier != domain.PlanScale,
+	)
+
 }
 
 func TestNewStripeMapping_BackwardCompatible(t *testing.T) {
@@ -149,8 +148,8 @@ func TestNewStripeMapping_BackwardCompatible(t *testing.T) {
 	for _, id := range []string{"s-m", "s-y", "p-m", "p-y", "unknown"} {
 		lt, lok := legacy.TierForPrice(id)
 		ot, ook := opts.TierForPrice(id)
-		if lt != ot || lok != ook {
-			t.Errorf("product %q: legacy=(%q,%v) opts=(%q,%v)", id, lt, lok, ot, ook)
-		}
+		assert.False(t, lt !=
+			ot || lok != ook)
+
 	}
 }

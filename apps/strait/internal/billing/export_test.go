@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockExportStore struct {
@@ -49,22 +52,20 @@ func TestExportCSV_Empty(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("failed to parse CSV: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, records,
+		1)
+	assert.Equal(t, "date",
+		records[0][0])
+
 	// Should have just the header row.
-	if len(records) != 1 {
-		t.Fatalf("expected 1 row (header), got %d", len(records))
-	}
-	if records[0][0] != "date" {
-		t.Errorf("expected first header column to be 'date', got %s", records[0][0])
-	}
+
 }
 
 func TestExportCSV_WithRecords(t *testing.T) {
@@ -90,43 +91,36 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("failed to parse CSV: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, records,
+		3)
 
 	// Header + 2 data rows.
-	if len(records) != 3 {
-		t.Fatalf("expected 3 rows, got %d", len(records))
-	}
 
 	expectedHeader := []string{"date", "project", "runs", "orchestration_cost_usd", "total_usd"}
 	for i, col := range expectedHeader {
-		if records[0][i] != col {
-			t.Errorf("header[%d]: expected %s, got %s", i, col, records[0][i])
-		}
-	}
+		assert.Equal(t, col,
+			records[0][i])
 
-	if records[1][0] != "2026-01-15" {
-		t.Errorf("expected date 2026-01-15, got %s", records[1][0])
 	}
-	if records[1][1] != "proj-a" {
-		t.Errorf("expected project proj-a, got %s", records[1][1])
-	}
-	if records[1][2] != "42" {
-		t.Errorf("expected runs 42, got %s", records[1][2])
-	}
-	if records[1][3] != "5.000000" {
-		t.Errorf("expected orchestration_cost_usd 5.000000, got %s", records[1][3])
-	}
-	if records[1][4] != "5.000000" {
-		t.Errorf("expected total_usd 5.000000, got %s", records[1][4])
-	}
+	assert.Equal(t, "2026-01-15",
+		records[1][0],
+	)
+	assert.Equal(t, "proj-a",
+		records[1][1])
+	assert.Equal(t, "42",
+		records[1][2])
+	assert.Equal(t, "5.000000",
+		records[1][3])
+	assert.Equal(t, "5.000000",
+		records[1][4])
+
 }
 
 func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
@@ -142,17 +136,16 @@ func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
-	if err != nil {
-		t.Fatalf("ExportCSV single-day period: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("parse CSV: %v", err)
-	}
-	if len(records) != 2 {
-		t.Fatalf("rows = %d, want header + one record", len(records))
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, records,
+		2)
+
 }
 
 func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
@@ -168,12 +161,10 @@ func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
 	}
 
 	data, err := ExportPDF(context.Background(), store, "org-1", ExportPeriod{From: day, To: day})
-	if err != nil {
-		t.Fatalf("ExportPDF single-day period: %v", err)
-	}
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Fatalf("expected PDF output, got %q", string(data[:5]))
-	}
+	require.NoError(t,
+		err)
+	require.True(t, strings.HasPrefix(string(data), "%PDF-"))
+
 }
 
 func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
@@ -193,17 +184,18 @@ func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("failed to parse CSV: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	if got := records[1][1]; !strings.HasPrefix(got, "'=") {
-		t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+		require.Failf(t, "test failure",
+
+			"project cell = %q, want formula escaped with apostrophe", got)
 	}
 }
 
@@ -239,16 +231,18 @@ func TestDeepSecExportCSV_EscapesHiddenFormulaProjectID(t *testing.T) {
 			}
 
 			data, err := ExportCSV(context.Background(), store, "org-1", period)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t,
+				err)
+
 			reader := csv.NewReader(strings.NewReader(string(data)))
 			records, err := reader.ReadAll()
-			if err != nil {
-				t.Fatalf("failed to parse CSV: %v", err)
-			}
+			require.NoError(t,
+				err)
+
 			if got := records[1][1]; !strings.HasPrefix(got, "'") {
-				t.Fatalf("project cell = %q, want formula escaped with apostrophe", got)
+				require.Failf(t, "test failure",
+
+					"project cell = %q, want formula escaped with apostrophe", got)
 			}
 		})
 	}
@@ -272,17 +266,16 @@ func TestDeepSecExportCSV_PreservesBenignInvisibleProjectID(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("failed to parse CSV: %v", err)
-	}
-	if got := records[1][1]; got != projectID {
-		t.Fatalf("project cell = %q, want unchanged %q", got, projectID)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		projectID, records[1][1])
+
 }
 
 func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
@@ -293,7 +286,9 @@ func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
 	}
 
 	if _, err := ExportCSV(context.Background(), store, "org-1", period); err == nil {
-		t.Fatal("expected oversized export period error")
+		require.Fail(t,
+
+			"expected oversized export period error")
 	}
 }
 
@@ -305,7 +300,9 @@ func TestDeepSecExportPDF_RejectsOversizedPeriod(t *testing.T) {
 	}
 
 	if _, err := ExportPDF(context.Background(), store, "org-1", period); err == nil {
-		t.Fatal("expected oversized export period error")
+		require.Fail(t,
+
+			"expected oversized export period error")
 	}
 }
 
@@ -319,12 +316,13 @@ func TestDeepSecExportCSV_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
 	}
 
 	_, err := ExportCSV(context.Background(), store, "org-1", period)
-	if !errors.Is(err, ErrUsageExportTooLarge) {
-		t.Fatalf("ExportCSV error = %v, want ErrUsageExportTooLarge", err)
-	}
-	if store.limitedQueryLimit != maxUsageExportRows+1 {
-		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
-	}
+	require.True(t, errors.Is(err, ErrUsageExportTooLarge))
+	require.Equal(t,
+		maxUsageExportRows+
+			1, store.
+			limitedQueryLimit,
+	)
+
 }
 
 func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
@@ -337,12 +335,13 @@ func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
 	}
 
 	_, err := ExportPDF(context.Background(), store, "org-1", period)
-	if !errors.Is(err, ErrUsageExportTooLarge) {
-		t.Fatalf("ExportPDF error = %v, want ErrUsageExportTooLarge", err)
-	}
-	if store.limitedQueryLimit != maxUsageExportRows+1 {
-		t.Fatalf("limited query limit = %d, want %d", store.limitedQueryLimit, maxUsageExportRows+1)
-	}
+	require.True(t, errors.Is(err, ErrUsageExportTooLarge))
+	require.Equal(t,
+		maxUsageExportRows+
+			1, store.
+			limitedQueryLimit,
+	)
+
 }
 
 func TestExportPDF_Empty(t *testing.T) {
@@ -353,16 +352,13 @@ func TestExportPDF_Empty(t *testing.T) {
 	}
 
 	data, err := ExportPDF(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	assert.True(t, strings.HasPrefix(
+		string(data), "%PDF-",
+	))
+	assert.GreaterOrEqual(t, len(data), 100)
 
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
-	}
-	if len(data) < 100 {
-		t.Errorf("expected non-trivial PDF output, got %d bytes", len(data))
-	}
 }
 
 func TestExportPDF_WithRecords(t *testing.T) {
@@ -388,23 +384,21 @@ func TestExportPDF_WithRecords(t *testing.T) {
 	}
 
 	data, err := ExportPDF(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
-	}
+	require.NoError(t,
+		err)
+	assert.True(t, strings.HasPrefix(
+		string(data), "%PDF-",
+	))
 
 	// PDF with records should be larger than an empty one.
 	emptyStore := &mockExportStore{}
 	emptyData, err := ExportPDF(context.Background(), emptyStore, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error generating empty PDF: %v", err)
-	}
-	if len(data) <= len(emptyData) {
-		t.Errorf("expected PDF with records (%d bytes) to be larger than empty PDF (%d bytes)", len(data), len(emptyData))
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, len(data) <= len(
+		emptyData),
+	)
+
 }
 
 func TestExportPDF_NoSubscription(t *testing.T) {
@@ -426,20 +420,19 @@ func TestExportPDF_NoSubscription(t *testing.T) {
 	}
 
 	data, err := ExportPDF(context.Background(), store, "org-no-sub", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	assert.True(t, strings.HasPrefix(
+		string(data), "%PDF-",
+	))
 
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Errorf("expected PDF output to start with %%PDF-, got %q", string(data[:20]))
-	}
 }
 
 func TestMicroToUSDString_NegativeValue(t *testing.T) {
 	got := microToUSDString(-1500000)
-	if got != "-1.500000" {
-		t.Errorf("microToUSDString(-1500000) = %s, want -1.500000", got)
-	}
+	assert.Equal(t, "-1.500000",
+		got)
+
 }
 
 func TestExportCSV_VerifyAllColumns(t *testing.T) {
@@ -459,23 +452,18 @@ func TestExportCSV_VerifyAllColumns(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	reader := csv.NewReader(strings.NewReader(string(data)))
 	records, err := reader.ReadAll()
-	if err != nil {
-		t.Fatalf("failed to parse CSV: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, records,
+		2)
+	assert.Equal(t, "10.000000",
+		records[1][4])
 
-	if len(records) != 2 {
-		t.Fatalf("expected 2 rows (header + 1 data), got %d", len(records))
-	}
-
-	if records[1][4] != "10.000000" {
-		t.Errorf("expected total_usd 10.000000, got %s", records[1][4])
-	}
 }
 
 func TestExportPDF_LargeDataSet(t *testing.T) {
@@ -496,17 +484,15 @@ func TestExportPDF_LargeDataSet(t *testing.T) {
 	}
 
 	data, err := ExportPDF(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	assert.True(t, strings.HasPrefix(
+		string(data), "%PDF-",
+	))
+	assert.GreaterOrEqual(t, len(data), 1000)
 
-	if !strings.HasPrefix(string(data), "%PDF-") {
-		t.Errorf("expected PDF header")
-	}
 	// Large dataset should produce a substantial PDF
-	if len(data) < 1000 {
-		t.Errorf("expected large PDF, got only %d bytes", len(data))
-	}
+
 }
 
 func TestMicroToUSDString(t *testing.T) {
@@ -522,8 +508,8 @@ func TestMicroToUSDString(t *testing.T) {
 
 	for _, tt := range tests {
 		got := microToUSDString(tt.input)
-		if got != tt.expected {
-			t.Errorf("microToUSDString(%d) = %s, want %s", tt.input, got, tt.expected)
-		}
+		assert.Equal(t, tt.
+			expected, got)
+
 	}
 }

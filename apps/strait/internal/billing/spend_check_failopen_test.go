@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSpendCheck_ContendedLock_FailsOpen verifies that a sibling goroutine
@@ -24,13 +25,17 @@ func TestSpendCheck_ContendedLock_FailsOpen(t *testing.T) {
 	_, _ = enforcer.rdb.SetNX(ctx, "strait:spend_check:org-cont", "sibling", 5*time.Second).Result()
 
 	start := time.Now()
-	if err := enforcer.CheckSpendingLimit(ctx, "org-cont"); err != nil {
-		t.Fatalf("unexpected error under lock contention: %v", err)
-	}
+	require.NoError(t,
+		enforcer.CheckSpendingLimit(ctx,
+
+			"org-cont"))
+
 	elapsed := time.Since(start)
-	if elapsed > 100*time.Millisecond {
-		t.Fatalf("CheckSpendingLimit took %v under contention, expected < 100ms (no sleep-retry)", elapsed)
-	}
+	require.LessOrEqual(t, elapsed,
+		100*time.
+			Millisecond,
+	)
+
 }
 
 // TestSpendCheck_NoBlockingSleep guards against re-introducing the sleep
@@ -47,12 +52,14 @@ func TestSpendCheck_NoBlockingSleep(t *testing.T) {
 	const trials = 5
 	for range trials {
 		start := time.Now()
-		if err := enforcer.CheckSpendingLimit(ctx, "org-fast"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if d := time.Since(start); d > 150*time.Millisecond {
-			t.Fatalf("CheckSpendingLimit took %v, want < 150ms (no sleep-retry)", d)
-		}
+		require.NoError(t,
+			enforcer.CheckSpendingLimit(ctx,
+
+				"org-fast"))
+		require.LessOrEqual(t, time.Since(start), 150*
+			time.
+				Millisecond)
+
 	}
 }
 
@@ -92,13 +99,12 @@ func TestSpendCheck_ConcurrentOrgUpdates(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 0, failures.Load())
+	require.LessOrEqual(t, time.Duration(maxLat.
+		Load()),
 
-	if failures.Load() != 0 {
-		t.Fatalf("got %d failures under concurrent check (expected 0)", failures.Load())
-	}
-	if max := time.Duration(maxLat.Load()); max > 200*time.Millisecond {
-		t.Fatalf("max latency = %v, want < 200ms (no sleep-retry serialization)", max)
-	}
+		200*time.Millisecond)
+
 }
 
 // TestSpendCheck_OverLimit_StillBlocks ensures the cleanup did not weaken
@@ -112,14 +118,15 @@ func TestSpendCheck_OverLimit_StillBlocks(t *testing.T) {
 	_, _ = enforcer.rdb.SetNX(ctx, "strait:spend_check:org-over", "sibling", 5*time.Second).Result()
 
 	err := enforcer.CheckSpendingLimit(ctx, "org-over")
-	if err == nil {
-		t.Fatal("expected over-limit to block even under contention")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !isLimitError(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "spending_limit_reached" {
-		t.Fatalf("Code = %q, want spending_limit_reached", le.Code)
-	}
+	require.True(t, isLimitError(err,
+		&le))
+	require.Equal(t,
+		"spending_limit_reached",
+
+		le.Code)
+
 }

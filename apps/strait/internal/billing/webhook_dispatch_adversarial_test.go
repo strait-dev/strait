@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // 10 MB synthetic detail blob: helper must reject before queuing the
@@ -24,15 +26,15 @@ func TestDispatchBillingWebhook_OversizedPayloadRejected(t *testing.T) {
 		"org_huge", domain.PlanScale, domain.WebhookEventBillingCapWarning,
 		map[string]any{"blob": huge},
 	)
-	if err == nil {
-		t.Fatal("oversized payload should error")
-	}
-	if !strings.Contains(err.Error(), "exceeds") {
-		t.Errorf("err = %v, want size-limit error", err)
-	}
-	if len(d.calls) != 0 {
-		t.Errorf("dispatcher should not have been called; got %d calls", len(d.calls))
-	}
+	require.Error(t,
+		err)
+	assert.True(t, strings.Contains(err.
+		Error(),
+		"exceeds",
+	))
+	assert.Len(t, d.calls,
+		0)
+
 }
 
 // Two callers producing the same logical event must produce distinct
@@ -47,24 +49,24 @@ func TestDispatchBillingWebhook_EventIDsAreUnique(t *testing.T) {
 			"org", domain.PlanPro, domain.WebhookEventBillingCapReached,
 			map[string]any{"spend_pct": 1.0},
 		)
-		if err != nil {
-			t.Fatalf("dispatch err = %v", err)
-		}
+		require.NoError(t,
+			err)
+
 	}
 	seen := make(map[string]bool, len(d.calls))
 	for _, c := range d.calls {
 		var env BillingEventEnvelope
-		if err := unmarshalEnvelope(c.payload, &env); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if seen[env.EventID] {
-			t.Errorf("duplicate event_id %q", env.EventID)
-		}
+		require.NoError(t,
+			unmarshalEnvelope(c.payload,
+				&env),
+		)
+		assert.False(t, seen[env.EventID])
+
 		seen[env.EventID] = true
 	}
-	if len(seen) != 5 {
-		t.Errorf("unique event_ids = %d, want 5", len(seen))
-	}
+	assert.Len(t, seen,
+		5)
+
 }
 
 // Concurrent dispatches must not race on the helper's internal state.
@@ -100,9 +102,9 @@ func TestDispatchBillingWebhook_ConcurrencySafe(t *testing.T) {
 		}
 	}
 	wg.Wait()
-	if len(d.calls) != n {
-		t.Errorf("dispatcher calls = %d, want %d", len(d.calls), n)
-	}
+	assert.Len(t, d.calls,
+		n)
+
 }
 
 // Wildcard event_types in webhook_subscriptions ("*") must match every
@@ -124,9 +126,9 @@ func TestBillingEventNames_DottedNamespace(t *testing.T) {
 		domain.WebhookEventSLACreditIssued,
 	}
 	for _, ev := range all {
-		if !strings.Contains(ev, ".") {
-			t.Errorf("%q missing dotted namespace", ev)
-		}
+		assert.True(t, strings.Contains(ev,
+			"."))
+
 	}
 }
 

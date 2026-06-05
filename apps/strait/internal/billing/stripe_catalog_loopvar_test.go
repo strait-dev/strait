@@ -4,6 +4,9 @@ package billing_test
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestLoopVarPerIterationAddress proves the Go 1.22+ semantics that the
@@ -35,12 +38,11 @@ func TestLoopVarPerIterationAddress(t *testing.T) {
 	}
 
 	want := []string{"a", "b", "c"}
-	if len(got) != len(want) {
-		t.Fatalf("len mismatch: got %v, want %v", got, want)
-	}
+	require.Len(t, got, len(want))
+
 	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("[%d] = %q, want %q (loop var copy was needed?)", i, got[i], want[i])
-		}
+		assert.Equal(t, want[i],
+			got[i])
+
 	}
 }

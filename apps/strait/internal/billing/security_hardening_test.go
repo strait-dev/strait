@@ -10,6 +10,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFailOpenTracker_Cleanup(t *testing.T) {
@@ -30,9 +32,9 @@ func TestFailOpenTracker_Cleanup(t *testing.T) {
 	// Verify entries exist
 	count := 0
 	e.failOpenTracker.Range(func(_, _ any) bool { count++; return true })
-	if count == 0 {
-		t.Fatal("expected entries in tracker")
-	}
+	require.NotEqual(t,
+		0, count)
+
 }
 
 func TestMaskEmail_Valid(t *testing.T) {
@@ -47,9 +49,9 @@ func TestMaskEmail_Valid(t *testing.T) {
 	}
 	for _, tt := range cases {
 		got := maskEmail(tt.input)
-		if got != tt.want {
-			t.Errorf("maskEmail(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+		assert.Equal(t, tt.
+			want, got)
+
 	}
 }
 
@@ -58,9 +60,8 @@ func TestMaskEmail_Invalid(t *testing.T) {
 	cases := []string{"", "no-at-sign", "@nodomain"}
 	for _, input := range cases {
 		got := maskEmail(input)
-		if strings.Contains(got, "@") && !strings.Contains(got, "***") {
-			t.Errorf("maskEmail(%q) = %q, should be masked", input, got)
-		}
+		assert.False(t, strings.Contains(got, "@") && !strings.Contains(got, "***"))
+
 	}
 }
 
@@ -68,12 +69,9 @@ func TestMaskEmail_NoLeak(t *testing.T) {
 	t.Parallel()
 	email := "sensitive.user@private.domain.com"
 	masked := maskEmail(email)
-	if strings.Contains(masked, "sensitive") {
-		t.Errorf("maskEmail leaked local part: %q", masked)
-	}
-	if !strings.Contains(masked, "private.domain.com") {
-		t.Error("maskEmail should preserve domain for debugging")
-	}
+	assert.False(t, strings.Contains(masked, "sensitive"))
+	assert.True(t, strings.Contains(masked, "private.domain.com"))
+
 }
 
 func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
@@ -96,10 +94,10 @@ func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
 	req2.Header.Set("webhook-id", "msg_unique_123")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
+	require.Equal(t, http.
+		StatusOK,
+		rec2.Code)
 
-	if rec2.Code != http.StatusOK {
-		t.Fatalf("duplicate should return 200 (silently accept), got %d", rec2.Code)
-	}
 }
 
 func TestWebhookReplayProtection_DifferentIDsAllowed(t *testing.T) {
@@ -153,9 +151,9 @@ func TestWebhookReplayCleanup(t *testing.T) {
 	// Verify old entries removed
 	count := 0
 	handler.replayCache.Range(func(_, _ any) bool { count++; return true })
-	if count != 1 {
-		t.Fatalf("expected 1 entry after cleanup, got %d", count)
-	}
+	require.EqualValues(t, 1,
+		count)
+
 }
 
 func FuzzMaskEmail(f *testing.F) {
@@ -171,9 +169,10 @@ func FuzzMaskEmail(f *testing.F) {
 		// Must never return the full local part for emails longer than 1 char
 		if strings.Contains(email, "@") {
 			parts := strings.SplitN(email, "@", 2)
-			if len(parts[0]) > 1 && strings.Contains(result, parts[0]) {
-				t.Errorf("maskEmail leaked full local part: input=%q result=%q", email, result)
-			}
+			assert.False(t, len(parts[0]) >
+				1 && strings.Contains(result,
+				parts[0]))
+
 		}
 	})
 }

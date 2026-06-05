@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithBusinessPrices_Resolves(t *testing.T) {
@@ -24,12 +27,10 @@ func TestWithBusinessPrices_Resolves(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			tier, ok := m.TierForPrice(c.price)
-			if !ok {
-				t.Fatalf("TierForPrice(%q) ok=false, want true", c.price)
-			}
-			if tier != domain.PlanBusiness {
-				t.Errorf("TierForPrice(%q) = %q, want %q", c.price, tier, domain.PlanBusiness)
-			}
+			require.True(t, ok)
+			assert.Equal(t, domain.
+				PlanBusiness, tier)
+
 		})
 	}
 }
@@ -41,12 +42,10 @@ func TestWithBusinessPrices_UnknownFallsThrough(t *testing.T) {
 		WithBusinessPrices("biz-month-id", "biz-year-id"),
 	)
 	tier, ok := m.TierForPrice("not-a-business-price")
-	if ok {
-		t.Errorf("unknown price ok = true, want false")
-	}
-	if tier != domain.PlanFree {
-		t.Errorf("unknown price tier = %q, want %q", tier, domain.PlanFree)
-	}
+	assert.False(t, ok)
+	assert.Equal(t, domain.
+		PlanFree, tier)
+
 }
 
 func TestWithBusinessPrices_EmptyIDsIgnored(t *testing.T) {
@@ -55,9 +54,10 @@ func TestWithBusinessPrices_EmptyIDsIgnored(t *testing.T) {
 	m := NewStripeMappingFromOptions(
 		WithBusinessPrices("", ""),
 	)
-	if m.PriceCount() != 0 {
-		t.Errorf("PriceCount() = %d, want 0 (empty IDs must not register)", m.PriceCount())
-	}
+	assert.EqualValues(t, 0,
+
+		m.PriceCount())
+
 }
 
 func TestWithBusinessFlatPrice_Resolves(t *testing.T) {
@@ -67,9 +67,10 @@ func TestWithBusinessFlatPrice_Resolves(t *testing.T) {
 		WithBusinessFlatPrice("biz-flat"),
 	)
 	tier, ok := m.TierForPrice("biz-flat")
-	if !ok || tier != domain.PlanBusiness {
-		t.Errorf("WithBusinessFlatPrice resolution = (%q, %v), want (Business, true)", tier, ok)
-	}
+	assert.False(t, !ok ||
+		tier != domain.PlanBusiness,
+	)
+
 }
 
 // CatalogResolver already publishes the Business lookup keys; this test
@@ -81,11 +82,9 @@ func TestCatalogResolver_BusinessLookupKeysRegistered(t *testing.T) {
 	r := NewCatalogResolver()
 	for _, key := range []string{"strait_business_monthly", "strait_business_annual"} {
 		got, ok := r.TierForLookupKey(key)
-		if !ok {
-			t.Fatalf("lookup key %q missing from CatalogResolver", key)
-		}
-		if got != domain.PlanBusiness {
-			t.Errorf("CatalogResolver[%q] = %q, want %q", key, got, domain.PlanBusiness)
-		}
+		require.True(t, ok)
+		assert.Equal(t, domain.
+			PlanBusiness, got)
+
 	}
 }

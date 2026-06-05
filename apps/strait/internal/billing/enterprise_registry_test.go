@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // roadmapEnterpriseFeatures lists enterprise/security features that are known
@@ -41,9 +43,11 @@ func TestRegistry_EnterpriseAllowsLaunchActiveFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range launchActiveFeatures {
-		if !r.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("Enterprise should allow feature %q", f)
-		}
+		assert.True(t, r.
+			AllowsFeature(domain.PlanEnterprise,
+
+				f))
+
 	}
 }
 
@@ -51,9 +55,11 @@ func TestRegistry_FreeBlocksEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range roadmapEnterpriseFeatures {
-		if r.AllowsFeature(domain.PlanFree, f) {
-			t.Errorf("Free should block enterprise feature %q", f)
-		}
+		assert.False(t, r.
+			AllowsFeature(domain.PlanFree,
+
+				f))
+
 	}
 }
 
@@ -61,9 +67,11 @@ func TestRegistry_StarterBlocksEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range roadmapEnterpriseFeatures {
-		if r.AllowsFeature(domain.PlanStarter, f) {
-			t.Errorf("Starter should block enterprise feature %q", f)
-		}
+		assert.False(t, r.
+			AllowsFeature(domain.PlanStarter,
+
+				f))
+
 	}
 }
 
@@ -71,9 +79,11 @@ func TestRegistry_ProBlocksEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range roadmapEnterpriseFeatures {
-		if r.AllowsFeature(domain.PlanPro, f) {
-			t.Errorf("Pro should block enterprise feature %q", f)
-		}
+		assert.False(t, r.
+			AllowsFeature(domain.PlanPro,
+
+				f))
+
 	}
 }
 
@@ -81,9 +91,11 @@ func TestRegistry_ScaleBlocksEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range roadmapEnterpriseFeatures {
-		if r.AllowsFeature(domain.PlanScale, f) {
-			t.Errorf("Scale should block enterprise feature %q", f)
-		}
+		assert.False(t, r.
+			AllowsFeature(domain.PlanScale,
+
+				f))
+
 	}
 }
 
@@ -91,12 +103,12 @@ func TestRegistry_EnterpriseBlocksRoadmapFeatures(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range roadmapEnterpriseFeatures {
-		if r.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("Enterprise should block launch-roadmap feature %q", f)
-		}
-		if !IsRoadmapFeature(f) {
-			t.Errorf("feature %q should be marked roadmap", f)
-		}
+		assert.False(t, r.
+			AllowsFeature(domain.PlanEnterprise,
+
+				f))
+		assert.True(t, IsRoadmapFeature(f))
+
 	}
 }
 
@@ -104,8 +116,10 @@ func TestRegistry_EveryLaunchActiveFeatureHasCase(t *testing.T) {
 	t.Parallel()
 	r := NewStaticRegistry()
 	for _, f := range launchActiveFeatures {
-		if !r.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("feature %q returns false for enterprise -- missing case in AllowsFeature?", f)
-		}
+		assert.True(t, r.
+			AllowsFeature(domain.PlanEnterprise,
+
+				f))
+
 	}
 }

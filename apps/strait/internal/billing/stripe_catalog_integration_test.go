@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/price"
 
@@ -30,9 +32,8 @@ func TestStripeCatalog_SandboxShape(t *testing.T) {
 		t.Skip("set STRAIT_STRIPE_INTEGRATION=1 to run; requires STRIPE_SECRET_KEY")
 	}
 	secret := os.Getenv("STRIPE_SECRET_KEY")
-	if secret == "" {
-		t.Fatal("STRIPE_SECRET_KEY must be set when STRAIT_STRIPE_INTEGRATION=1")
-	}
+	require.NotEqual(t, "", secret)
+
 	stripe.Key = secret
 
 	type lookupCase struct {
@@ -78,10 +79,7 @@ func TestStripeCatalog_SandboxShape(t *testing.T) {
 			cases = append(cases, lookupCase{cat.LookupKeyOverage, tier, "overage", expectedFor("overage")})
 		}
 	}
-
-	if len(cases) == 0 {
-		t.Fatal("PlanCatalogs has no lookup keys to verify")
-	}
+	require.NotEmpty(t, cases)
 
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
@@ -94,17 +92,16 @@ func TestStripeCatalog_SandboxShape(t *testing.T) {
 				seen++
 				p := iter.Price()
 				if seen > 1 {
-					t.Errorf("lookup_key %q matched more than one price (got %s)", tc.key, p.ID)
+					assert.Failf(t, "test failure",
+
+						"lookup_key %q matched more than one price (got %s)", tc.key, p.ID)
 					continue
 				}
 				assertShape(t, tc.key, tc.flavor, p, tc.expected)
 			}
-			if err := iter.Err(); err != nil {
-				t.Fatalf("listing prices for %q: %v", tc.key, err)
-			}
-			if seen == 0 {
-				t.Errorf("lookup_key %q is in catalog.go but not in Stripe sandbox — catalog drift", tc.key)
-			}
+			require.NoError(t, iter.Err())
+			assert.NotEqual(t, 0, seen)
+
 		})
 	}
 }
@@ -119,27 +116,30 @@ type expectedShape struct {
 
 func assertShape(t *testing.T, key, flavor string, p *stripe.Price, want expectedShape) {
 	t.Helper()
+	assert.Equal(t, want.active,
 
-	if p.Active != want.active {
-		t.Errorf("%s (%s): Active=%v, want %v", key, flavor, p.Active, want.active)
-	}
-	if string(p.Currency) != want.currency {
-		t.Errorf("%s (%s): Currency=%q, want %q", key, flavor, p.Currency, want.currency)
-	}
+		p.Active,
+	)
+	assert.Equal(t, want.currency,
+
+		string(p.Currency))
+
 	if want.recurring {
-		if p.Recurring == nil {
-			t.Errorf("%s (%s): expected recurring config, got nil", key, flavor)
-			return
-		}
-		if p.Recurring.Interval != want.interval {
-			t.Errorf("%s (%s): Recurring.Interval=%q, want %q",
-				key, flavor, p.Recurring.Interval, want.interval)
-		}
-		if want.metered && p.Recurring.UsageType != stripe.PriceRecurringUsageTypeMetered {
-			t.Errorf("%s (%s): UsageType=%q, want metered", key, flavor, p.Recurring.UsageType)
-		}
-		if want.metered && p.Recurring.Meter == "" {
-			t.Errorf("%s (%s): metered price has empty Meter id", key, flavor)
-		}
+		assert.NotNil(t, p.Recurring)
+		assert.Equal(t, want.interval,
+
+			p.Recurring.
+				Interval)
+		assert.False(t, want.metered &&
+			p.Recurring.
+				UsageType !=
+				stripe.PriceRecurringUsageTypeMetered,
+		)
+		assert.False(t, want.metered &&
+			p.Recurring.
+				Meter ==
+
+				"")
+
 	}
 }

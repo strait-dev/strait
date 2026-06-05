@@ -6,6 +6,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeUptimeSource returns a fixed uptime, optionally with an error.
@@ -153,17 +156,15 @@ func TestSLACalculator_HealthyUptime_NoCredit(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 100.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	assert.EqualValues(t, 0,
+		store.count())
+	assert.Len(t, issuer.
+		calls,
+		0)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 0 {
-		t.Errorf("expected 0 credit rows, got %d", store.count())
-	}
-	if len(issuer.calls) != 0 {
-		t.Errorf("expected 0 issuance calls, got %d", len(issuer.calls))
-	}
 }
 
 // 99.5% uptime against Starter's 99.9% target → 10% credit band.
@@ -175,22 +176,22 @@ func TestSLACalculator_99_5_Pct_IssuesTenPercent(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 99.5}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.EqualValues(t, 1, store.count())
+	require.Len(t, issuer.
+		calls,
+		1)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Fatalf("expected 1 credit row, got %d", store.count())
-	}
-	if len(issuer.calls) != 1 {
-		t.Fatalf("expected 1 issuance call, got %d", len(issuer.calls))
-	}
 	got := issuer.calls[0]
+	assert.EqualValues(t, 150_000_000,
+
+		got.creditMicrousd,
+	)
+
 	// $1,500/mo monthly base × 10% = $150 = 150_000_000 micro-USD.
-	if got.creditMicrousd != 150_000_000 {
-		t.Errorf("credit_microusd = %d, want 150_000_000", got.creditMicrousd)
-	}
+
 }
 
 func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.T) {
@@ -204,17 +205,14 @@ func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.EqualValues(t, 1, store.count())
+	require.Len(t, issuer.
+		calls,
+		1)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Fatalf("expected 1 credit row for contract overlapping credited month, got %d", store.count())
-	}
-	if len(issuer.calls) != 1 {
-		t.Fatalf("expected 1 issuance call, got %d", len(issuer.calls))
-	}
 }
 
 // 98% uptime → 25% credit band (band is 95.0 <= u < 99.0).
@@ -226,19 +224,19 @@ func TestSLACalculator_98_Pct_IssuesTwentyFivePercent(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 98.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.EqualValues(t, 1, store.count())
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Fatalf("expected 1 credit row, got %d", store.count())
-	}
 	got := issuer.calls[0]
+	assert.EqualValues(t, 375_000_000,
+
+		got.creditMicrousd,
+	)
+
 	// $1,500 × 25% = $375 = 375_000_000 micro-USD.
-	if got.creditMicrousd != 375_000_000 {
-		t.Errorf("credit_microusd = %d, want 375_000_000", got.creditMicrousd)
-	}
+
 }
 
 // 90% uptime → 50% credit band (capped).
@@ -250,19 +248,19 @@ func TestSLACalculator_DeepOutage_IssuesFiftyPercent(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 90.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.EqualValues(t, 1, store.count())
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Fatalf("expected 1 credit row, got %d", store.count())
-	}
 	got := issuer.calls[0]
+	assert.EqualValues(t, 750_000_000,
+
+		got.creditMicrousd,
+	)
+
 	// $1,500 × 50% = $750 = 750_000_000 micro-USD.
-	if got.creditMicrousd != 750_000_000 {
-		t.Errorf("credit_microusd = %d, want 750_000_000", got.creditMicrousd)
-	}
+
 }
 
 // A second tick within the same billing period must not issue a duplicate credit.
@@ -274,20 +272,18 @@ func TestSLACalculator_Idempotent_AlreadyIssued(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	assert.EqualValues(t, 1,
+		store.count())
+	assert.Len(t, issuer.
+		calls,
+		1)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick 1: %v", err)
-	}
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick 2: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Errorf("expected 1 credit row after two ticks, got %d", store.count())
-	}
-	if len(issuer.calls) != 1 {
-		t.Errorf("expected exactly 1 issuance call after two ticks, got %d", len(issuer.calls))
-	}
 }
 
 // If the Stripe-side issuance fails, no credit row is persisted (atomic).
@@ -299,17 +295,15 @@ func TestSLACalculator_IssuerFailure_DoesNotPersist(t *testing.T) {
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithIssuer(issuer).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	assert.EqualValues(t, 0,
+		store.count())
+	assert.Len(t, issuer.
+		calls,
+		1)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 0 {
-		t.Errorf("expected 0 credit rows after issuer failure, got %d", store.count())
-	}
-	if len(issuer.calls) != 1 {
-		t.Errorf("expected 1 issuance attempt, got %d", len(issuer.calls))
-	}
 }
 
 func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *testing.T) {
@@ -323,37 +317,34 @@ func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *te
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
 
 	ctx := context.Background()
-	if err := calc.Tick(ctx); err != nil {
-		t.Fatalf("tick 1: %v", err)
-	}
+	require.NoError(t,
+		calc.Tick(ctx))
+	require.EqualValues(t, 1, store.count())
+	assert.Len(t, dispatcher.
+		calls,
+		1)
 
-	if store.count() != 1 {
-		t.Fatalf("expected 1 durable credit row after dispatch failure, got %d", store.count())
-	}
-	if len(dispatcher.calls) != 1 {
-		t.Errorf("expected 1 dispatch attempt, got %d", len(dispatcher.calls))
-	}
 	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
 	row := store.creditFor(orgID, periodStart, periodEnd)
-	if row == nil {
-		t.Fatal("expected persisted credit row")
-		return
-	}
-	if row.WebhookDispatchedAt != nil {
-		t.Fatal("failed dispatch must not mark webhook_dispatched_at")
-	}
+	require.NotNil(t,
+		row)
+	require.Nil(t, row.WebhookDispatchedAt)
 
 	dispatcher.err = nil
-	if err := calc.Tick(ctx); err != nil {
-		t.Fatalf("tick 2: %v", err)
-	}
-	if len(dispatcher.calls) != 2 {
-		t.Fatalf("expected retry dispatch attempt, got %d", len(dispatcher.calls))
-	}
+	require.NoError(t,
+		calc.Tick(ctx))
+	require.Len(t, dispatcher.
+		calls,
+		2)
+
 	row = store.creditFor(orgID, periodStart, periodEnd)
-	if row == nil || row.WebhookDispatchedAt == nil {
-		t.Fatal("successful retry should mark webhook_dispatched_at")
-	}
+	require.False(t,
+		row == nil ||
+			row.
+				WebhookDispatchedAt ==
+
+				nil)
+
 }
 
 func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
@@ -364,21 +355,25 @@ func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
 	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
 	dispatcher := &fakeDispatcher{
 		onDispatch: func() {
-			if row := store.creditFor(orgID, periodStart, periodEnd); row == nil {
-				t.Fatal("sla.credit_issued dispatched before credit row was persisted")
-			}
+			require.NotEqual(
+				t, nil, store.
+					creditFor(orgID,
+						periodStart,
+
+						periodEnd))
+
 		},
 	}
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithDispatcher(dispatcher).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	require.Len(t, dispatcher.
+		calls,
+		1)
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-	if len(dispatcher.calls) != 1 {
-		t.Fatalf("expected one dispatch, got %d", len(dispatcher.calls))
-	}
 }
 
 func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) {
@@ -397,13 +392,11 @@ func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) 
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 1, store.count())
+	require.Len(t, dispatcher.
+		calls,
+		1)
 
-	if store.count() != 1 {
-		t.Fatalf("expected one credit row, got %d", store.count())
-	}
-	if len(dispatcher.calls) != 1 {
-		t.Fatalf("expected exactly one webhook dispatch, got %d", len(dispatcher.calls))
-	}
 }
 
 // Without an issuer wired, the calculator still records the credit row and
@@ -414,14 +407,12 @@ func TestSLACalculator_NoIssuer_PersistsRow(t *testing.T) {
 	store := newFakeSLAStore(newTestContract("org-no-issuer", EnterpriseTierStarter))
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
+	assert.EqualValues(t, 1,
+		store.count())
 
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-
-	if store.count() != 1 {
-		t.Errorf("expected 1 credit row without issuer, got %d", store.count())
-	}
 }
 
 // Out-of-range uptime readings (negative, > 100) get clamped before band lookup.
@@ -432,23 +423,22 @@ func TestSLACalculator_ClampsOutOfRangeUptime(t *testing.T) {
 	storeA := newFakeSLAStore(newTestContract("org-neg", EnterpriseTierStarter))
 	calcA := NewSLACalculator(storeA, fakeUptimeSource{pct: -10.0}, time.Hour, nil).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
-	if err := calcA.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-	if storeA.count() != 1 {
-		t.Errorf("expected 1 credit row for clamped-to-0 uptime, got %d", storeA.count())
-	}
+	require.NoError(t,
+		calcA.Tick(context.
+			Background()))
+	assert.EqualValues(t, 1,
+		storeA.count())
 
 	// >100 uptime clamps to 100 → above target → no credit.
 	storeB := newFakeSLAStore(newTestContract("org-over", EnterpriseTierStarter))
 	calcB := NewSLACalculator(storeB, fakeUptimeSource{pct: 150.0}, time.Hour, nil).
 		WithClock(fixedClock(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)))
-	if err := calcB.Tick(context.Background()); err != nil {
-		t.Fatalf("tick: %v", err)
-	}
-	if storeB.count() != 0 {
-		t.Errorf("expected 0 credit rows for clamped-to-100 uptime, got %d", storeB.count())
-	}
+	require.NoError(t,
+		calcB.Tick(context.
+			Background()))
+	assert.EqualValues(t, 0,
+		storeB.count())
+
 }
 
 // previousCalendarMonth returns the prior month's [start, end) window
@@ -486,12 +476,15 @@ func TestPreviousCalendarMonth(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			start, end := previousCalendarMonth(tc.ref)
-			if !start.Equal(tc.wantStart) {
-				t.Errorf("start = %s, want %s", start, tc.wantStart)
-			}
-			if !end.Equal(tc.wantEnd) {
-				t.Errorf("end = %s, want %s", end, tc.wantEnd)
-			}
+			assert.True(t, start.
+				Equal(
+					tc.wantStart,
+				))
+			assert.True(t, end.
+				Equal(tc.
+					wantEnd,
+				))
+
 		})
 	}
 }
@@ -501,10 +494,9 @@ func TestStaticUptimeSource(t *testing.T) {
 
 	src := NewStaticUptimeSource(99.95)
 	got, err := src.MonthlyUptimePct(context.Background(), "any-org", time.Now(), time.Now())
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if got != 99.95 {
-		t.Errorf("uptime = %v, want 99.95", got)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 99.95,
+		got)
+
 }

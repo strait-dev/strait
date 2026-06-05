@@ -12,6 +12,8 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -122,9 +124,8 @@ func fireWebhook(t *testing.T, handler http.Handler, eventType string, data json
 		Data: data,
 	}
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -140,9 +141,8 @@ func fireWebhookWithID(t *testing.T, handler http.Handler, eventID, eventType st
 		Data: data,
 	}
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -186,32 +186,34 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.paused", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotNil(
+			t, store.lastStatusUpdate,
+		)
+		assert.Equal(t,
+			"paused", store.
+				lastStatusUpdate.
+				status,
+		)
+		assert.Nil(t, store.lastPlanUpdate)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastStatusUpdate == nil {
-			t.Fatal("expected status update to be called")
-		}
-		if store.lastStatusUpdate.status != "paused" {
-			t.Errorf("status = %q, want paused", store.lastStatusUpdate.status)
-		}
-		if store.lastPlanUpdate != nil {
-			t.Errorf("expected plan tier NOT to be rewritten on pause, but UpdateOrgSubscriptionPlan was called with %+v", store.lastPlanUpdate)
-		}
 		if sub := store.subscriptions["00000000-0000-0000-0000-100000000001"]; sub.PlanTier != "pro" {
-			t.Errorf("plan_tier wiped on pause: got %q, want pro", sub.PlanTier)
+			assert.Failf(t, "test failure",
+
+				"plan_tier wiped on pause: got %q, want pro", sub.PlanTier)
 		}
-		if len(audit.events) == 0 {
-			t.Fatal("expected audit event to be recorded")
-		}
+		require.NotEmpty(t, audit.events)
+
 		var details map[string]string
-		if err := json.Unmarshal(audit.events[0].Details, &details); err != nil {
-			t.Fatalf("decoding audit details: %v", err)
-		}
-		if details["previous_plan_tier"] != "pro" {
-			t.Errorf("audit previous_plan_tier = %q, want pro", details["previous_plan_tier"])
-		}
+		require.NoError(t, json.Unmarshal(audit.
+			events[0].Details,
+			&details,
+		))
+		assert.Equal(t,
+			"pro", details["previous_plan_tier"])
+
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -229,13 +231,11 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.paused", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Nil(t, store.lastStatusUpdate)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when orgID empty, got %d", rr.Code)
-		}
-		if store.lastStatusUpdate != nil {
-			t.Error("expected no status update when orgID is empty")
-		}
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -253,10 +253,10 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.paused", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when subscription not found, got %d", rr.Code)
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -283,15 +283,18 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 
 		// First call succeeds.
 		rr1 := fireWebhookWithID(t, handler, "evt_pause_dup_1", "customer.subscription.paused", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		// Second call with same event ID is deduplicated by replay cache.
 		rr2 := fireWebhookWithID(t, handler, "evt_pause_dup_1", "customer.subscription.paused", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -305,13 +308,11 @@ func TestWebhookHandler_SubscriptionPaused_ValidatesMalformed(t *testing.T) {
 	// Subscription with an empty customer object: validateStripeSubscription must reject.
 	body := []byte(`{"id":"sub_pause_invalid","items":{"data":[{"price":{"id":"pro-id"}}]},"customer":{"id":""}}`)
 	rr := fireWebhook(t, handler, "customer.subscription.paused", body)
+	assert.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
+	assert.Nil(t, store.lastStatusUpdate)
 
-	if rr.Code == http.StatusOK {
-		t.Errorf("expected non-200 for invalid pause payload, got %d", rr.Code)
-	}
-	if store.lastStatusUpdate != nil {
-		t.Errorf("expected no status update on invalid payload, got %+v", store.lastStatusUpdate)
-	}
 }
 
 // Tests for handleSubscriptionResumed.
@@ -343,22 +344,22 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotNil(
+			t, store.lastFullUpdate,
+		)
+		assert.Equal(t,
+			"pro", store.lastFullUpdate.
+				tier)
+		assert.Equal(t,
+			"active", store.
+				lastFullUpdate.
+				status,
+		)
+		assert.NotEmpty(t, audit.events)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastFullUpdate == nil {
-			t.Fatal("expected full update to be called")
-		}
-		if store.lastFullUpdate.tier != "pro" {
-			t.Errorf("tier = %q, want pro", store.lastFullUpdate.tier)
-		}
-		if store.lastFullUpdate.status != "active" {
-			t.Errorf("status = %q, want active", store.lastFullUpdate.status)
-		}
-		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
-		}
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -376,10 +377,10 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when orgID empty, got %d", rr.Code)
-		}
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -397,10 +398,10 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when subscription not found, got %d", rr.Code)
-		}
 	})
 
 	t.Run("unknown_price_returns_ok", func(t *testing.T) {
@@ -426,13 +427,11 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Nil(t, store.lastFullUpdate)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when price unknown, got %d", rr.Code)
-		}
-		if store.lastFullUpdate != nil {
-			t.Error("expected no full update when price is unknown")
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -458,14 +457,17 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_resume_dup_1", "customer.subscription.resumed", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_resume_dup_1", "customer.subscription.resumed", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -501,27 +503,23 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		subStripe := subData.ToStripe()
 		subStripe.TrialEnd = trialEnd.Unix()
 		data, err := json.Marshal(subStripe)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		rr := fireWebhook(t, handler, "customer.subscription.trial_will_end", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.NotEmpty(t, audit.events)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
-		}
 		found := false
 		for _, ev := range audit.events {
 			if ev.Action == "subscription.trial_will_end" {
 				found = true
 			}
 		}
-		if !found {
-			t.Error("expected trial_will_end audit event")
-		}
+		assert.True(t,
+			found)
+
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -539,10 +537,10 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.trial_will_end", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when orgID empty, got %d", rr.Code)
-		}
 	})
 
 	t.Run("no_trial_end_timestamp", func(t *testing.T) {
@@ -570,13 +568,11 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.trial_will_end", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.NotEmpty(t, audit.events)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Error("expected audit event even without trial_end timestamp")
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -602,14 +598,17 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_trial_dup_1", "customer.subscription.trial_will_end", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_trial_dup_1", "customer.subscription.trial_will_end", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -644,16 +643,16 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "charge.dispute.created", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotEmpty(t, audit.events)
+		assert.Equal(t,
+			"charge.dispute.created",
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Fatal("expected audit event to be recorded")
-		}
-		if audit.events[0].Action != "charge.dispute.created" {
-			t.Errorf("audit action = %q, want charge.dispute.created", audit.events[0].Action)
-		}
+			audit.events[0].Action,
+		)
+
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -675,13 +674,12 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "charge.dispute.created", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Len(t, audit.
+			events, 0)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when org_id is missing, got %d", rr.Code)
-		}
-		if len(audit.events) != 0 {
-			t.Error("expected no audit events when org_id is empty")
-		}
 	})
 
 	t.Run("invalid_org_id_returns_ok", func(t *testing.T) {
@@ -707,13 +705,12 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		}`)
 
 		rr := fireWebhook(t, handler, "charge.dispute.created", disputeJSON)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Len(t, audit.
+			events, 0)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when org_id is invalid, got %d", rr.Code)
-		}
-		if len(audit.events) != 0 {
-			t.Error("expected no audit events when org_id is invalid UUID")
-		}
 	})
 
 	t.Run("no_charge_object_returns_ok", func(t *testing.T) {
@@ -727,10 +724,10 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		disputeJSON := []byte(`{"id": "dp_no_charge", "amount": 500}`)
 
 		rr := fireWebhook(t, handler, "charge.dispute.created", disputeJSON)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -757,14 +754,17 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_dispute_dup_1", "charge.dispute.created", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_dispute_dup_1", "charge.dispute.created", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -799,16 +799,16 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.upcoming", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotEmpty(t, audit.events)
+		assert.Equal(t,
+			"invoice.upcoming",
+			audit.
+				events[0].
+				Action)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Fatal("expected audit event to be recorded")
-		}
-		if audit.events[0].Action != "invoice.upcoming" {
-			t.Errorf("audit action = %q, want invoice.upcoming", audit.events[0].Action)
-		}
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -825,13 +825,12 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.upcoming", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Len(t, audit.
+			events, 0)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when org_id missing, got %d", rr.Code)
-		}
-		if len(audit.events) != 0 {
-			t.Error("expected no audit events when org_id is empty")
-		}
 	})
 
 	t.Run("next_payment_attempt_used_as_fallback_date", func(t *testing.T) {
@@ -852,13 +851,11 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.upcoming", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.NotEmpty(t, audit.events)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -877,14 +874,17 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_inv_up_dup_1", "invoice.upcoming", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_inv_up_dup_1", "invoice.upcoming", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -918,22 +918,21 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.marked_uncollectible", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotNil(
+			t, store.lastPaymentStatusUpdate,
+		)
+		assert.Equal(t,
+			"restricted", store.
+				lastPaymentStatusUpdate.
+				status,
+		)
+		assert.Nil(t, store.lastPaymentStatusUpdate.
+			graceEnd)
+		assert.NotEmpty(t, audit.events)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastPaymentStatusUpdate == nil {
-			t.Fatal("expected payment status update")
-		}
-		if store.lastPaymentStatusUpdate.status != "restricted" {
-			t.Errorf("payment_status = %q, want restricted", store.lastPaymentStatusUpdate.status)
-		}
-		if store.lastPaymentStatusUpdate.graceEnd != nil {
-			t.Error("expected nil grace end for restricted status")
-		}
-		if len(audit.events) == 0 {
-			t.Error("expected audit event to be recorded")
-		}
 	})
 
 	t.Run("free_plan_skips_restriction", func(t *testing.T) {
@@ -959,13 +958,11 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.marked_uncollectible", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Nil(t, store.lastPaymentStatusUpdate)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastPaymentStatusUpdate != nil {
-			t.Error("expected no payment status update for free plan")
-		}
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -981,10 +978,10 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.marked_uncollectible", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -1002,10 +999,10 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.marked_uncollectible", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200 when subscription not found, got %d", rr.Code)
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1031,14 +1028,17 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_uncol_dup_1", "invoice.marked_uncollectible", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_uncol_dup_1", "invoice.marked_uncollectible", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -1063,16 +1063,17 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.finalization_failed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotEmpty(t, audit.events)
+		assert.Equal(t,
+			"invoice.finalization_failed",
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Fatal("expected audit event to be recorded")
-		}
-		if audit.events[0].Action != "invoice.finalization_failed" {
-			t.Errorf("audit action = %q, want invoice.finalization_failed", audit.events[0].Action)
-		}
+			audit.
+				events[0].
+				Action)
+
 	})
 
 	t.Run("missing_org_id_still_logs", func(t *testing.T) {
@@ -1089,15 +1090,15 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.finalization_failed", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Len(t, audit.
+			events, 0)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 		// Org-less invoices are ignored; metadata is no longer tenant
 		// authority for billing side effects.
-		if len(audit.events) != 0 {
-			t.Error("expected no audit event without a bound org")
-		}
+
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1115,14 +1116,17 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_fin_dup_1", "invoice.finalization_failed", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_fin_dup_1", "invoice.finalization_failed", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -1148,16 +1152,15 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.finalized", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotEmpty(t, audit.events)
+		assert.Equal(t,
+			"invoice.finalized",
+			audit.
+				events[0].Action)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) == 0 {
-			t.Fatal("expected audit event to be recorded")
-		}
-		if audit.events[0].Action != "invoice.finalized" {
-			t.Errorf("audit action = %q, want invoice.finalized", audit.events[0].Action)
-		}
 	})
 
 	t.Run("missing_org_id_no_audit", func(t *testing.T) {
@@ -1174,13 +1177,12 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "invoice.finalized", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Len(t, audit.
+			events, 0)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if len(audit.events) != 0 {
-			t.Error("expected no audit event without a bound org")
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1200,16 +1202,19 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_finalized_dup_1", "invoice.finalized", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
+
 		rr2 := fireWebhookWithID(t, handler, "evt_finalized_dup_1", "invoice.finalized", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
-		if len(audit.events) != 1 {
-			t.Errorf("idempotent replay must yield exactly one audit event, got %d", len(audit.events))
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+		assert.Len(t, audit.
+			events, 1)
+
 	})
 }
 
@@ -1245,10 +1250,10 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.created", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -1270,11 +1275,12 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.created", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
 		// Missing org_id for addon returns 200 (noop) per the handler logic.
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
+
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1304,14 +1310,17 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_addon_dup_1", "customer.subscription.created", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_addon_dup_1", "customer.subscription.created", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -1347,10 +1356,10 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.deleted", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -1372,10 +1381,10 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.deleted", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1405,14 +1414,17 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		})
 
 		rr1 := fireWebhookWithID(t, handler, "evt_addon_cancel_dup_1", "customer.subscription.deleted", data)
-		if rr1.Code != http.StatusOK {
-			t.Errorf("first call: expected 200, got %d", rr1.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr1.
+				Code,
+		)
 
 		rr2 := fireWebhookWithID(t, handler, "evt_addon_cancel_dup_1", "customer.subscription.deleted", data)
-		if rr2.Code != http.StatusOK {
-			t.Errorf("duplicate call: expected 200, got %d", rr2.Code)
-		}
+		assert.Equal(t,
+			http.StatusOK, rr2.
+				Code,
+		)
+
 	})
 }
 
@@ -1450,14 +1462,16 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.updated", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Equal(t,
+			"starter", store.
+				lastPendingTier,
+		)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
 		// Verify the downgrade was deferred (pending tier set).
-		if store.lastPendingTier != "starter" {
-			t.Errorf("expected pending tier starter, got %q", store.lastPendingTier)
-		}
+
 	})
 
 	t.Run("downgrade_to_plan_with_http_mode_no_warning", func(t *testing.T) {
@@ -1485,13 +1499,13 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.updated", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		assert.Equal(t,
+			"", store.lastPendingTier,
+		)
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastPendingTier != "" {
-			t.Errorf("expected no pending tier for same-tier update, got %q", store.lastPendingTier)
-		}
 	})
 
 	t.Run("downgrade_with_period_end_date", func(t *testing.T) {
@@ -1519,16 +1533,20 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 		})
 
 		rr := fireWebhook(t, handler, "customer.subscription.updated", data)
+		assert.Equal(t,
+			http.StatusOK, rr.
+				Code)
+		require.NotNil(
+			t, store.lastPendingDowngrade,
+		)
+		assert.False(t,
+			store.lastPendingDowngrade.
+				periodEnd ==
+				nil ||
+				!store.lastPendingDowngrade.
+					periodEnd.
+					Equal(periodEnd))
 
-		if rr.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d", rr.Code)
-		}
-		if store.lastPendingDowngrade == nil {
-			t.Fatal("expected pending downgrade to be set")
-		}
-		if store.lastPendingDowngrade.periodEnd == nil || !store.lastPendingDowngrade.periodEnd.Equal(periodEnd) {
-			t.Error("expected period end to be passed to pending downgrade")
-		}
 	})
 }
 
@@ -1579,16 +1597,15 @@ func TestWebhookHandler_MalformedPayloads(t *testing.T) {
 
 			body := malformedEventBody(tc.eventType)
 			rr := fireWebhookRawBody(t, handler, body)
+			assert.NotEqual(t, http.StatusOK,
+				rr.Code,
+			)
 
-			if rr.Code == http.StatusOK {
-				t.Errorf("expected non-200 for malformed data in %s, got %d", tc.eventType, rr.Code)
-			}
 		})
 	}
 }
 
 // Tests for resumed with validation errors.
-
 func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
@@ -1609,10 +1626,10 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		}`)
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.NotEqual(t, http.StatusOK,
+			rr.Code,
+		)
 
-		if rr.Code == http.StatusOK {
-			t.Error("expected non-200 for empty subscription ID")
-		}
 	})
 
 	t.Run("empty_customer_id", func(t *testing.T) {
@@ -1631,10 +1648,10 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		}`)
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.NotEqual(t, http.StatusOK,
+			rr.Code,
+		)
 
-		if rr.Code == http.StatusOK {
-			t.Error("expected non-200 for empty customer ID")
-		}
 	})
 
 	t.Run("empty_price_id", func(t *testing.T) {
@@ -1653,10 +1670,10 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		}`)
 
 		rr := fireWebhook(t, handler, "customer.subscription.resumed", data)
+		assert.NotEqual(t, http.StatusOK,
+			rr.Code,
+		)
 
-		if rr.Code == http.StatusOK {
-			t.Error("expected non-200 for empty price ID")
-		}
 	})
 }
 

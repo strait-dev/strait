@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 type sourcePricingCatalog struct {
@@ -100,13 +102,15 @@ type sourceAddon struct {
 func TestGeneratedCatalogHashMatchesSource(t *testing.T) {
 	sourcePath := pricingCatalogSourcePath()
 	source, err := os.ReadFile(sourcePath)
-	if err != nil {
-		t.Fatalf("read pricing catalog source: %v", err)
-	}
+	require.NoError(t, err)
+
 	sum := sha256.Sum256(source)
-	if got := hex.EncodeToString(sum[:]); got != PricingCatalogHash {
-		t.Fatalf("pricing catalog hash = %s, want %s; run bun run --cwd packages/billing generate", PricingCatalogHash, got)
-	}
+	require.Equal(t, PricingCatalogHash,
+		hex.
+			EncodeToString(
+				sum[:],
+			))
+
 }
 
 func TestGeneratedPlanLimitsMatchCatalogSource(t *testing.T) {
@@ -165,9 +169,8 @@ func TestGeneratedPlanLimitsMatchCatalogSource(t *testing.T) {
 			assertEqual(t, "APIRateLimit", limits.APIRateLimit, sourcePlan.Limits.APIRateLimit)
 
 			catalog, ok := PlanCatalogs[tier]
-			if !ok {
-				t.Fatalf("PlanCatalogs missing %s", tier)
-			}
+			require.True(t, ok)
+
 			assertEqual(t, "PlanCatalog.Tier", catalog.Tier, tier)
 			assertEqual(t, "PlanCatalog.DisplayName", catalog.DisplayName, sourcePlan.DisplayName)
 			assertEqual(t, "PlanCatalog.PriceMonthlyCents", catalog.PriceMonthlyCents, generatedPlanPriceCents(sourcePlan.Prices.MonthlyCents))
@@ -202,9 +205,8 @@ func TestGeneratedAddonCatalogMatchesCatalogSource(t *testing.T) {
 			t.Parallel()
 
 			catalog, ok := AddonCatalogs[addonType]
-			if !ok {
-				t.Fatalf("AddonCatalogs missing %s", addonType)
-			}
+			require.True(t, ok)
+
 			assertEqual(t, "Type", catalog.Type, addonType)
 			assertEqual(t, "DisplayName", catalog.DisplayName, sourceAddon.DisplayName)
 			assertEqual(t, "LookupKey", catalog.LookupKey, sourceAddon.LookupKey)
@@ -217,32 +219,48 @@ func TestGeneratedAddonCatalogMatchesCatalogSource(t *testing.T) {
 			switch sourceAddon.Status {
 			case "active":
 				if sourceAddon.LookupKey == "" {
-					t.Fatalf("%s is active but has no Stripe lookup key", addonType)
+					require.Failf(t, "test failure",
+
+						"%s is active but has no Stripe lookup key", addonType)
 				}
 				if sourceAddon.PriceCents <= 0 {
-					t.Fatalf("%s is active but has non-positive price %d", addonType, sourceAddon.PriceCents)
+					require.Failf(t, "test failure",
+
+						"%s is active but has non-positive price %d", addonType, sourceAddon.PriceCents)
 				}
 				if len(sourceAddon.AvailableOn) == 0 {
-					t.Fatalf("%s is active but has no available tiers", addonType)
+					require.Failf(t, "test failure",
+
+						"%s is active but has no available tiers", addonType)
 				}
 				if !IsLaunchActiveAddonType(addonType) {
-					t.Fatalf("%s should be launch-active", addonType)
+					require.Failf(t, "test failure",
+
+						"%s should be launch-active", addonType)
 				}
 			case "roadmap":
 				if sourceAddon.LookupKey != "" {
-					t.Fatalf("%s is roadmap but has Stripe lookup key %q", addonType, sourceAddon.LookupKey)
+					require.Failf(t, "test failure",
+
+						"%s is roadmap but has Stripe lookup key %q", addonType, sourceAddon.LookupKey)
 				}
 				if sourceAddon.PriceCents != 0 {
-					t.Fatalf("%s is roadmap but has price %d", addonType, sourceAddon.PriceCents)
+					require.Failf(t, "test failure",
+
+						"%s is roadmap but has price %d", addonType, sourceAddon.PriceCents)
 				}
 				if len(sourceAddon.AvailableOn) != 0 {
-					t.Fatalf("%s is roadmap but is available on %v", addonType, sourceAddon.AvailableOn)
+					require.Failf(t, "test failure",
+
+						"%s is roadmap but is available on %v", addonType, sourceAddon.AvailableOn)
 				}
 				if IsLaunchActiveAddonType(addonType) {
-					t.Fatalf("%s should not be launch-active", addonType)
+					require.Failf(t, "test failure",
+
+						"%s should not be launch-active", addonType)
 				}
 			default:
-				t.Fatalf("%s has unknown add-on status %q", addonType, sourceAddon.Status)
+				require.Failf(t, "test failure", "%s has unknown add-on status %q", addonType, sourceAddon.Status)
 			}
 		})
 	}
@@ -252,9 +270,10 @@ func TestLaunchCatalogKeepsRoadmapFeaturesInactive(t *testing.T) {
 	t.Parallel()
 
 	source := loadSourcePricingCatalog(t)
-	if len(source.RoadmapFeature) == 0 {
-		t.Fatal("source catalog has no roadmap feature list")
-	}
+	require.NotEmpty(t, source.
+		RoadmapFeature,
+	)
+
 	for _, sourcePlan := range source.Plans {
 		tier := sourcePlanTier(t, sourcePlan.Tier)
 		if len(sourcePlan.RoadmapFeatures) == 0 && tier != domain.PlanEnterprise {
@@ -264,20 +283,19 @@ func TestLaunchCatalogKeepsRoadmapFeaturesInactive(t *testing.T) {
 			t.Parallel()
 
 			limits := GetPlanLimits(tier)
-			if limits.HasSSO ||
-				limits.HasSCIM ||
-				limits.HasIPAllowlisting ||
+			require.False(t, limits.
+				HasSSO || limits.
+				HasSCIM || limits.
+				HasIPAllowlisting ||
 				limits.HasStaticIPs ||
-				limits.HasVPCPeering ||
-				limits.HasDataResidency ||
-				limits.HasCustomRBAC ||
-				limits.HasDedicatedCompute ||
-				limits.HasPriorityQueue ||
-				limits.HasSessionManagement ||
-				limits.HasSecretRotation ||
-				limits.HasSIEMExport {
-				t.Fatalf("%s exposes a roadmap feature as an active entitlement: %+v", tier, limits)
-			}
+
+				limits.HasVPCPeering || limits.
+				HasDataResidency || limits.HasCustomRBAC ||
+				limits.HasDedicatedCompute || limits.
+				HasPriorityQueue || limits.HasSessionManagement ||
+				limits.HasSecretRotation || limits.HasSIEMExport,
+			)
+
 		})
 	}
 }
@@ -306,13 +324,13 @@ func loadSourcePricingCatalog(t *testing.T) sourcePricingCatalog {
 	t.Helper()
 
 	source, err := os.ReadFile(pricingCatalogSourcePath())
-	if err != nil {
-		t.Fatalf("read pricing catalog source: %v", err)
-	}
+	require.NoError(t, err)
+
 	var catalog sourcePricingCatalog
-	if err := json.Unmarshal(source, &catalog); err != nil {
-		t.Fatalf("parse pricing catalog source: %v", err)
-	}
+	require.NoError(t, json.
+		Unmarshal(source,
+			&catalog))
+
 	return catalog
 }
 
@@ -320,9 +338,9 @@ func sourcePlanTier(t *testing.T, tier string) domain.PlanTier {
 	t.Helper()
 
 	planTier := domain.PlanTier(tier)
-	if !planTier.IsValid() {
-		t.Fatalf("unknown source plan tier %q", tier)
-	}
+	require.True(t, planTier.
+		IsValid())
+
 	return planTier
 }
 
@@ -352,16 +370,15 @@ func generatedRBACLevel(sourceLevel string) string {
 
 func assertEqual[T comparable](t *testing.T, field string, got, want T) {
 	t.Helper()
+	require.Equal(t, want,
+		got)
 
-	if got != want {
-		t.Fatalf("%s = %v, want %v", field, got, want)
-	}
 }
 
 func assertDeepEqual(t *testing.T, field string, got, want any) {
 	t.Helper()
+	require.True(t, reflect.
+		DeepEqual(got,
+			want))
 
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("%s = %#v, want %#v", field, got, want)
-	}
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveOrgPlanLimits_DoesNotMutateSubscriptionCacheVersion(t *testing.T) {
@@ -22,18 +24,16 @@ func TestResolveOrgPlanLimits_DoesNotMutateSubscriptionCacheVersion(t *testing.T
 	}
 
 	resolution, err := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
-	if err != nil {
-		t.Fatalf("resolveOrgPlanLimits returned error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 12, sub.CacheVersion)
+	require.EqualValues(t, 13, resolution.
+		cacheVersion)
 
-	if sub.CacheVersion != 12 {
-		t.Fatalf("subscription CacheVersion mutated to %d, want 12", sub.CacheVersion)
-	}
-	if resolution.cacheVersion != 13 {
-		t.Fatalf("resolution cacheVersion = %d, want 13", resolution.cacheVersion)
-	}
 	if _, ok := store.lastEntitlementsUpdates[sub.OrgID]; !ok {
-		t.Fatalf("expected opportunistic entitlements write for %s", sub.OrgID)
+		require.Failf(t, "test failure",
+
+			"expected opportunistic entitlements write for %s", sub.OrgID)
 	}
 }
 
@@ -55,25 +55,30 @@ func TestResolveOrgPlanLimits_OverridesStayOutOfPersistedSnapshot(t *testing.T) 
 	}
 
 	resolution, err := e.resolveOrgPlanLimits(ctx, sub.OrgID, sub)
-	if err != nil {
-		t.Fatalf("resolveOrgPlanLimits returned error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, -1, resolution.
+		limits.MaxRunsPerDay)
+	require.Equal(t,
+		overrideConcurrent,
 
-	if resolution.limits.MaxRunsPerDay != -1 {
-		t.Fatalf("resolved MaxRunsPerDay = %d, want launch default -1", resolution.limits.MaxRunsPerDay)
-	}
-	if resolution.limits.MaxConcurrentRuns != overrideConcurrent {
-		t.Fatalf("resolved MaxConcurrentRuns = %d, want override %d", resolution.limits.MaxConcurrentRuns, overrideConcurrent)
-	}
+		resolution.limits.
+			MaxConcurrentRuns,
+	)
+
 	persisted, ok := store.lastEntitlementsUpdates[sub.OrgID]
-	if !ok {
-		t.Fatalf("expected opportunistic entitlements write for %s", sub.OrgID)
-	}
+	require.True(t, ok)
+
 	base := GetPlanLimits(domain.PlanPro)
-	if persisted.MaxRunsPerDay != base.MaxRunsPerDay {
-		t.Fatalf("persisted MaxRunsPerDay = %d, want base %d", persisted.MaxRunsPerDay, base.MaxRunsPerDay)
-	}
-	if persisted.MaxConcurrentRuns != base.MaxConcurrentRuns {
-		t.Fatalf("persisted MaxConcurrentRuns = %d, want base %d", persisted.MaxConcurrentRuns, base.MaxConcurrentRuns)
-	}
+	require.Equal(t,
+		base.MaxRunsPerDay,
+
+		persisted.MaxRunsPerDay,
+	)
+	require.Equal(t,
+		base.MaxConcurrentRuns,
+
+		persisted.MaxConcurrentRuns,
+	)
+
 }

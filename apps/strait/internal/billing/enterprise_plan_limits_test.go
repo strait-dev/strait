@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
@@ -29,22 +32,18 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}
 	for _, tt := range unlimited {
-		if tt.val != -1 {
-			t.Errorf("Enterprise.%s = %d, want -1 (unlimited)", tt.name, tt.val)
-		}
-	}
+		assert.EqualValues(t, -1, tt.val)
 
-	if e.MaxRunsPerDay != -1 {
-		t.Errorf("Enterprise.MaxRunsPerDay = %d, want -1", e.MaxRunsPerDay)
 	}
+	assert.EqualValues(t, -1, e.MaxRunsPerDay)
+
 }
 
 func TestEnterpriseLimits_RetentionUnlimited(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.RetentionDays != -1 {
-		t.Errorf("Enterprise.RetentionDays = %d, want -1 (unlimited)", e.RetentionDays)
-	}
+	assert.EqualValues(t, -1, e.RetentionDays)
+
 }
 
 func TestEnterpriseLimits_RoadmapFeatureFlagsInactive(t *testing.T) {
@@ -68,89 +67,89 @@ func TestEnterpriseLimits_RoadmapFeatureFlagsInactive(t *testing.T) {
 		{"HasSIEMExport", e.HasSIEMExport},
 	}
 	for _, tt := range flags {
-		if tt.val {
-			t.Errorf("Enterprise.%s = true, want false for launch roadmap item", tt.name)
-		}
+		assert.False(t, tt.
+			val)
+
 	}
 }
 
 func TestEnterpriseLimits_ExistingFeatureFlags(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
+	assert.False(t, e.
+		HasSSO)
+	assert.True(t, e.
+		HasSLA)
+	assert.True(t, e.
+		HasAuditLogs,
+	)
+	assert.False(t, !e.HasRBAC ||
 
-	if e.HasSSO {
-		t.Error("Enterprise.HasSSO = true, want false for launch")
-	}
-	if !e.HasSLA {
-		t.Error("Enterprise.HasSLA = false, want true")
-	}
-	if !e.HasAuditLogs {
-		t.Error("Enterprise.HasAuditLogs = false, want true")
-	}
-	if !e.HasRBAC || e.RBACLevel != "full" {
-		t.Errorf("Enterprise RBAC = (%v, %q), want (true, full)", e.HasRBAC, e.RBACLevel)
-	}
-	if !e.AllowsHTTPMode {
-		t.Error("Enterprise.AllowsHTTPMode = false, want true")
-	}
-	if !e.HasApprovalGates {
-		t.Error("Enterprise.HasApprovalGates = false, want true")
-	}
-	if !e.HasSubWorkflows {
-		t.Error("Enterprise.HasSubWorkflows = false, want true")
-	}
-	if !e.HasJobChaining {
-		t.Error("Enterprise.HasJobChaining = false, want true")
-	}
-	if !e.HasCompensatingTxns {
-		t.Error("Enterprise.HasCompensatingTxns = false, want true")
-	}
-	if !e.HasCanaryDeployments {
-		t.Error("Enterprise.HasCanaryDeployments = false, want true")
-	}
+		e.RBACLevel != "full")
+	assert.True(t, e.
+		AllowsHTTPMode,
+	)
+	assert.True(t, e.
+		HasApprovalGates,
+	)
+	assert.True(t, e.
+		HasSubWorkflows,
+	)
+	assert.True(t, e.
+		HasJobChaining,
+	)
+	assert.True(t, e.
+		HasCompensatingTxns,
+	)
+	assert.True(t, e.
+		HasCanaryDeployments,
+	)
+
 }
 
 func TestEnterpriseLimits_NoPricing(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.PriceMonthlyUsd != 0 {
-		t.Errorf("Enterprise.PriceMonthlyUsd = %d, want 0 (custom)", e.PriceMonthlyUsd)
-	}
-	if e.PriceAnnualUsd != 0 {
-		t.Errorf("Enterprise.PriceAnnualUsd = %d, want 0 (custom)", e.PriceAnnualUsd)
-	}
+	assert.EqualValues(t, 0,
+		e.PriceMonthlyUsd,
+	)
+	assert.EqualValues(t, 0,
+		e.PriceAnnualUsd,
+	)
+
 }
 
 func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.RequiresCreditCard {
-		t.Error("Enterprise.RequiresCreditCard = true, want false")
-	}
+	assert.False(t, e.
+		RequiresCreditCard,
+	)
+
 }
 
 func TestEnterpriseLimits_LaunchDefaultRegion(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if !reflect.DeepEqual(e.AllowedRegions, []string{"iad"}) {
-		t.Errorf("Enterprise.AllowedRegions = %#v, want launch default region", e.AllowedRegions)
-	}
+	assert.True(t, reflect.
+		DeepEqual(e.AllowedRegions, []string{"iad"}))
+
 }
 
 func TestEnterpriseLimits_DedicatedSupportLevel(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.SupportLevel != "dedicated" {
-		t.Errorf("Enterprise.SupportLevel = %q, want dedicated", e.SupportLevel)
-	}
+	assert.Equal(t, "dedicated",
+
+		e.SupportLevel)
+
 }
 
 func TestEnterpriseLimits_NoSelfServeAddonPacks(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	if e.MaxAddonPacks != nil {
-		t.Fatalf("Enterprise.MaxAddonPacks = %#v, want nil for custom contract terms", e.MaxAddonPacks)
-	}
+	require.Nil(t, e.MaxAddonPacks)
+
 }
 
 func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
@@ -174,9 +173,9 @@ func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
 			{"HasSIEMExport", limits.HasSIEMExport},
 		}
 		for _, tt := range flags {
-			if tt.val {
-				t.Errorf("%s.%s = true, want false", tier, tt.name)
-			}
+			assert.False(t, tt.
+				val)
+
 		}
 	}
 }
@@ -184,17 +183,15 @@ func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
 func TestNonEnterpriseTiers_NoSSO(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale, domain.PlanBusiness, domain.PlanEnterprise} {
-		if GetPlanLimits(tier).HasSSO {
-			t.Errorf("%s.HasSSO = true, want false", tier)
-		}
+		assert.False(t, GetPlanLimits(tier).HasSSO)
+
 	}
 }
 
 func TestNonEnterpriseTiers_NoSLA(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
-		if GetPlanLimits(tier).HasSLA {
-			t.Errorf("%s.HasSLA = true, want false", tier)
-		}
+		assert.False(t, GetPlanLimits(tier).HasSLA)
+
 	}
 }

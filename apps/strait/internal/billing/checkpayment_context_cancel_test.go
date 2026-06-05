@@ -8,6 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -25,9 +26,10 @@ func TestCheckSpendingLimit_RespectsContextCancellation(t *testing.T) {
 
 	// Hold the lock so the retry path always fires.
 	const orgID = "org-cancel"
-	if err := mr.Set("strait:spend_check:"+orgID, "1"); err != nil {
-		t.Fatalf("seed spending lock: %v", err)
-	}
+	require.NoError(t,
+		mr.Set("strait:spend_check:"+
+			orgID,
+			"1"))
 
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -51,8 +53,9 @@ func TestCheckSpendingLimit_RespectsContextCancellation(t *testing.T) {
 	// cancellation. Either way the retry loop must not have eaten 600ms.
 	_ = e.CheckSpendingLimit(ctx, orgID)
 	elapsed := time.Since(start)
+	require.False(t,
+		elapsed >= 200*
+			time.Millisecond,
+	)
 
-	if elapsed >= 200*time.Millisecond {
-		t.Fatalf("retry loop ignored ctx cancellation: elapsed %s (want < 200ms)", elapsed)
-	}
 }

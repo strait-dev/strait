@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockStore_WebhookIdempotency(t *testing.T) {
@@ -15,17 +17,16 @@ func TestMockStore_WebhookIdempotency(t *testing.T) {
 	store := &mockBillingStore{}
 
 	processed, err := store.IsWebhookProcessed(context.Background(), "msg_1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if processed {
-		t.Fatal("expected not processed")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		processed,
+	)
 
 	err = store.RecordProcessedWebhook(context.Background(), "msg_1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestMockStore_CountActiveAddonsByType(t *testing.T) {
@@ -33,12 +34,10 @@ func TestMockStore_CountActiveAddonsByType(t *testing.T) {
 	store := &mockBillingStore{}
 
 	count, err := store.CountActiveAddonsByType(context.Background(), "org-1", AddonConcurrency100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("expected 0, got %d", count)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestWebhook_ReplayCacheClearedOnError(t *testing.T) {
@@ -67,14 +66,19 @@ func TestWebhook_ReplayCacheClearedOnError(t *testing.T) {
 	req2.Header.Set("webhook-id", "msg_error_test")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
+	require.False(t,
+		rec2.Code ==
+			http.StatusOK &&
+			rec1.
+				Code != http.StatusOK,
+	)
 
 	// The retry should reach the handler (not be silently rejected as 200).
 	// It may still error (unknown product), but the key point is it wasn't
 	// blocked by the replay cache.
-	if rec2.Code == http.StatusOK && rec1.Code != http.StatusOK {
-		// This would mean first failed but retry was silently accepted -- that's the bug.
-		t.Fatal("retry was silently accepted despite first request failing")
-	}
+
+	// This would mean first failed but retry was silently accepted -- that's the bug.
+
 }
 
 func TestWebhook_DBIdempotencyPreventsReprocessing(t *testing.T) {
@@ -113,13 +117,14 @@ func TestWebhook_DBClaimPreventsConcurrentReprocessing(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusOK,
+		rec.
+			Code)
+	require.Nil(t, store.
+		lastUpserted,
+	)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected duplicate claim to return 200, got %d", rec.Code)
-	}
-	if store.lastUpserted != nil {
-		t.Fatal("duplicate claim should not execute subscription side effects")
-	}
 }
 
 func TestWebhook_DBClaimInProgressReturnsRetryableError(t *testing.T) {
@@ -136,14 +141,16 @@ func TestWebhook_DBClaimInProgressReturnsRetryableError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusServiceUnavailable,
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected in-progress duplicate to return 503 for retry, got %d", rec.Code)
-	}
-	if rec.Header().Get("Retry-After") == "" {
-		t.Fatal("expected Retry-After header for in-progress duplicate")
-	}
-	if store.lastUpserted != nil {
-		t.Fatal("in-progress duplicate should not execute subscription side effects")
-	}
+		rec.Code)
+	require.NotEqual(
+		t, "",
+		rec.Header().
+			Get("Retry-After"))
+	require.Nil(t, store.
+		lastUpserted,
+	)
+
 }
