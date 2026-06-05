@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdversarial_SQLInjectionThruAPI verifies that SQL injection payloads in
@@ -39,24 +40,26 @@ func TestAdversarial_SQLInjectionThruAPI(t *testing.T) {
 	}`, projectID, injectionName, slug)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job with SQL injection name: status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	created := mustDecodeObject(t, w)
 	jobID := asString(t, created, "id")
 
 	// Verify the job can be fetched back and the name is stored verbatim.
 	w2 := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID, "")
-	if w2.Code != http.StatusOK {
-		t.Fatalf("get job after SQL injection name: status = %d, body = %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w2.Code)
 
 	fetched := mustDecodeObject(t, w2)
 	gotName := asString(t, fetched, "name")
-	if gotName != injectionName {
-		t.Fatalf("job name mismatch: got %q, want %q", gotName, injectionName)
-	}
+	require.Equal(t, injectionName,
+
+		gotName)
+
 }
 
 // TestAdversarial_ConcurrentDequeueSameRun verifies that when a single run is
@@ -85,10 +88,9 @@ func TestAdversarial_ConcurrentDequeueSameRun(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 1, gotRun.
+		Load())
 
-	if gotRun.Load() != 1 {
-		t.Fatalf("expected exactly 1 goroutine to dequeue the run, got %d", gotRun.Load())
-	}
 }
 
 // TestAdversarial_TagSpecialCharsFullPipeline verifies that jobs with unicode,
@@ -110,30 +112,30 @@ func TestAdversarial_TagSpecialCharsFullPipeline(t *testing.T) {
 	}`, projectID, slug)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job with special tags: status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	created := mustDecodeObject(t, w)
 	tags := asObject(t, created, "tags")
 	teamTag, ok := tags["team"].(string)
-	if !ok {
-		t.Fatal("tag 'team' is not a string")
-	}
-	if teamTag != "<script>alert('xss')</script>" {
-		t.Fatalf("tag value mismatch: got %q", teamTag)
-	}
+	require.True(t, ok)
+	require.Equal(t, "<script>alert('xss')</script>",
+
+		teamTag)
 
 	// List jobs filtered by tag.
 	w2 := doRequest(t, http.MethodGet, fmt.Sprintf("/v1/jobs/?tag_key=team&tag_value=%s", "<script>alert('xss')</script>"), "", projectID)
-	if w2.Code != http.StatusOK {
-		t.Fatalf("list jobs by tag: status = %d, body = %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w2.Code)
 
 	jobs := mustDecodeList(t, w2)
-	if len(jobs) != 1 {
-		t.Fatalf("expected 1 job filtered by tag, got %d", len(jobs))
-	}
+	require.Len(t, jobs,
+		1,
+	)
+
 }
 
 // TestAdversarial_CronOverlapSkipConcurrent verifies that a cron job with
@@ -156,9 +158,10 @@ func TestAdversarial_CronOverlapSkipConcurrent(t *testing.T) {
 	}`, projectID, slug)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create cron job: status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	created := mustDecodeObject(t, w)
 	jobID := asString(t, created, "id")
@@ -166,9 +169,8 @@ func TestAdversarial_CronOverlapSkipConcurrent(t *testing.T) {
 	// Create an active (executing) run directly via store.
 	ctx := context.Background()
 	jobObj, err := testStore.GetJob(ctx, jobID)
-	if err != nil {
-		t.Fatalf("GetJob error: %v", err)
-	}
+	require.NoError(t, err)
+
 	status := domain.StatusExecuting
 	_ = testutil.MustCreateRun(t, ctx, testStore, jobObj, &testutil.RunOpts{
 		Status: &status,
@@ -178,13 +180,14 @@ func TestAdversarial_CronOverlapSkipConcurrent(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`)
 	w2 := httptest.NewRecorder()
 	testServer.ServeHTTP(w2, req)
+	require.False(t, w2.Code >=
+		500,
+	)
 
 	// The server should either skip (returning 200 with existing run info or a
 	// specific skip status) or return a conflict. Any 2xx/4xx is valid; only a
 	// 5xx would indicate a bug.
-	if w2.Code >= 500 {
-		t.Fatalf("overlap=skip trigger caused server error: status = %d, body = %s", w2.Code, w2.Body.String())
-	}
+
 }
 
 // TestAdversarial_EventTriggerAdversarialKeys creates an event trigger with
@@ -215,18 +218,16 @@ func TestAdversarial_EventTriggerAdversarialKeys(t *testing.T) {
 		RequestedAt: time.Now(),
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 	}
-	if err := testStore.CreateEventTrigger(ctx, trigger); err != nil {
-		t.Fatalf("CreateEventTrigger error: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateEventTrigger(ctx, trigger))
 
 	// Look up by exact key.
 	got, err := testStore.GetEventTriggerByEventKey(ctx, eventKey)
-	if err != nil {
-		t.Fatalf("GetEventTriggerByEventKey error: %v", err)
-	}
-	if got.ID != trigger.ID {
-		t.Fatalf("event trigger ID mismatch: got %q, want %q", got.ID, trigger.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, trigger.
+		ID, got.
+		ID)
+
 }
 
 // TestAdversarial_JobMemoryQuotaConcurrentWrites verifies that concurrent
@@ -265,19 +266,22 @@ func TestAdversarial_JobMemoryQuotaConcurrentWrites(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.NotEqual(t, 0,
+
+		successCount.
+			Load(),
+	)
 
 	// With maxPerJob=4096 and each entry ~820 bytes, at most 4 should succeed.
-	if successCount.Load() == 0 {
-		t.Fatal("expected at least one successful memory write")
-	}
 
 	totalSize, err := testStore.SumJobMemorySizeBytes(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("SumJobMemorySizeBytes error: %v", err)
-	}
-	if totalSize > maxPerJob {
-		t.Fatalf("total memory size %d exceeds quota %d", totalSize, maxPerJob)
-	}
+	require.NoError(t, err)
+	require.LessOrEqual(t,
+
+		totalSize,
+		maxPerJob,
+	)
+
 }
 
 // TestAdversarial_BudgetEnforcementConcurrentSpend sets up a project and
@@ -309,12 +313,11 @@ func TestAdversarial_BudgetEnforcementConcurrentSpend(t *testing.T) {
 	// Verify all created runs are accounted for in the store.
 	ctx := context.Background()
 	runs, err := testStore.ListRunsByJob(ctx, jobID, 100, 0)
-	if err != nil {
-		t.Fatalf("ListRunsByJob error: %v", err)
-	}
-	if int32(len(runs)) != created.Load() {
-		t.Fatalf("run count mismatch: store has %d, API reported %d created", len(runs), created.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, created.
+		Load(),
+		int32(len(runs)))
+
 }
 
 // TestAdversarial_WebhookSubscriptionURLReal verifies that creating a webhook
@@ -340,8 +343,12 @@ func TestAdversarial_WebhookSubscriptionURLReal(t *testing.T) {
 		}`, projectID, badURL)
 
 		w := doRequest(t, http.MethodPost, "/v1/webhooks/subscriptions", body, projectID)
-		if w.Code == http.StatusCreated || w.Code == http.StatusOK {
-			t.Fatalf("expected rejection for URL %q, got status %d", badURL, w.Code)
-		}
+		require.False(t, w.Code ==
+			http.
+				StatusCreated ||
+			w.Code ==
+				http.StatusOK,
+		)
+
 	}
 }

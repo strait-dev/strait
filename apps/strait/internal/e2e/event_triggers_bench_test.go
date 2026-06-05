@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // BenchmarkListExpiredEventTriggers seeds N waiting triggers with expired
@@ -94,15 +96,11 @@ func TestEventTriggerBench_SeedAndQuery(t *testing.T) {
 		RequestedAt:    time.Now().Add(-10 * time.Minute),
 		ExpiresAt:      time.Now().Add(-5 * time.Minute),
 	}
-	if err := testStore.CreateEventTrigger(ctx, trigger); err != nil {
-		t.Fatalf("create: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateEventTrigger(ctx, trigger))
 
 	expired, err := testStore.ListExpiredEventTriggers(ctx)
-	if err != nil {
-		t.Fatalf("list expired: %v", err)
-	}
-	if len(expired) == 0 {
-		t.Fatal("expected at least one expired trigger")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, expired)
+
 }

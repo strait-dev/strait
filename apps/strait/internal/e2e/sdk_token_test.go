@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func makeE2ERunToken(t *testing.T, runID string) string {
@@ -22,9 +23,8 @@ func makeE2ERunToken(t *testing.T, runID string) string {
 		"exp":     time.Now().Add(time.Hour).Unix(),
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("sign run token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -32,12 +32,18 @@ func activateE2ERun(t *testing.T, runID string) {
 	t.Helper()
 
 	ctx := context.Background()
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
-		"started_at": time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("set run dequeued: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
-		t.Fatalf("set run executing: %v", err)
-	}
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID,
+			domain.
+				StatusQueued, domain.StatusDequeued,
+
+			map[string]any{"started_at": time.Now().UTC()}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID,
+			domain.
+				StatusDequeued, domain.StatusExecuting,
+
+			map[string]any{}),
+	)
+
 }

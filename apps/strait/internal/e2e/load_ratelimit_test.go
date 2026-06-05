@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadRateLimit_BurstTrigger(t *testing.T) {
@@ -19,9 +21,10 @@ func TestLoadRateLimit_BurstTrigger(t *testing.T) {
 		`{"project_id":"%s","name":"rl-burst","slug":"rl-burst-%d","endpoint_url":"https://example.com/rl","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const burst = 200
@@ -54,9 +57,9 @@ func TestLoadRateLimit_SustainedRead(t *testing.T) {
 		`{"project_id":"%s","name":"rl-read","slug":"rl-read-%d","endpoint_url":"https://example.com/rl","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
 
 	const duration = 5 * time.Second
 	var total, successes atomic.Int64
@@ -80,10 +83,10 @@ func TestLoadRateLimit_SustainedRead(t *testing.T) {
 
 	t.Logf("Sustained read: %d/%d succeeded in %v (%.0f/sec)",
 		successes.Load(), total.Load(), duration, float64(total.Load())/duration.Seconds())
+	assert.GreaterOrEqual(
+		t, successes.
+			Load(), total.Load()/2)
 
-	if successes.Load() < total.Load()/2 {
-		t.Errorf("too many read failures: %d/%d", total.Load()-successes.Load(), total.Load())
-	}
 }
 
 func TestLoadRateLimit_MixedBurstReadWrite(t *testing.T) {
@@ -94,9 +97,10 @@ func TestLoadRateLimit_MixedBurstReadWrite(t *testing.T) {
 		`{"project_id":"%s","name":"rl-mix","slug":"rl-mix-%d","endpoint_url":"https://example.com/rl","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const workers = 10

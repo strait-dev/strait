@@ -16,6 +16,7 @@ import (
 	"strait/internal/webhook"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
@@ -48,9 +49,9 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"` + runID + `"}`,
 	}
-	if err := testStore.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create webhook delivery: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateWebhookDelivery(context.Background(),
+			delivery))
 
 	worker := webhook.NewDeliveryWorker(
 		testStore,
@@ -68,18 +69,17 @@ func TestE2E_WebhookDeliveryWorker_ProcessesPendingDeliveries(t *testing.T) {
 	for requests.Load() == 0 {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for webhook delivery")
+			require.Fail(t, "timed out waiting for webhook delivery")
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
 
 	deliveries, err := testStore.ListWebhookDeliveries(context.Background(), projectID, domain.WebhookStatusDelivered, 10, nil)
-	if err != nil {
-		t.Fatalf("list delivered webhooks: %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivered webhook, got %d", len(deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries,
+
+		1)
+
 }
 
 func TestE2E_PriorityAgingAffectsDequeueOrder(t *testing.T) {
@@ -109,20 +109,24 @@ func TestE2E_WebhookCircuitBreakerBlocksDelivery(t *testing.T) {
 	})
 
 	<-done
-	if breaker.calls.Load() == 0 {
-		t.Fatal("expected circuit breaker to be consulted")
-	}
-	if store.updates.Load() == 0 {
-		t.Fatal("expected delivery update after circuit breaker block")
-	}
+	require.NotEqual(t, 0,
+
+		breaker.
+			calls.Load())
+	require.NotEqual(t, 0,
+
+		store.updates.
+			Load())
 
 	d := store.deliveries[0]
-	if d.Status != domain.WebhookStatusPending {
-		t.Fatalf("delivery status = %s, want pending", d.Status)
-	}
-	if d.Attempts != 0 {
-		t.Fatalf("expected circuit breaker block not to consume an attempt, got %d", d.Attempts)
-	}
+	require.Equal(t, domain.
+		WebhookStatusPending,
+
+		d.Status,
+	)
+	require.EqualValues(t, 0, d.
+		Attempts)
+
 }
 
 func TestE2E_BulkDLQReplay_RequeuesRuns(t *testing.T) {
@@ -137,55 +141,70 @@ func TestE2E_BulkDLQReplay_RequeuesRuns(t *testing.T) {
 
 	runIDs := []string{asString(t, first, "id"), asString(t, second, "id")}
 	for _, runID := range runIDs {
-		if err := testStore.UpdateRunStatus(context.Background(), runID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
-			t.Fatalf("queued->dequeued %s: %v", runID, err)
-		}
-		if err := testStore.UpdateRunStatus(context.Background(), runID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
-			t.Fatalf("dequeued->executing %s: %v", runID, err)
-		}
-		if err := testStore.UpdateRunStatus(context.Background(), runID, domain.StatusExecuting, domain.StatusDeadLetter, nil); err != nil {
-			t.Fatalf("executing->dead_letter %s: %v", runID, err)
-		}
+		require.NoError(t, testStore.
+			UpdateRunStatus(context.
+				Background(), runID,
+				domain.StatusQueued,
+				domain.StatusDequeued,
+				nil,
+			))
+		require.NoError(t, testStore.
+			UpdateRunStatus(context.
+				Background(), runID,
+				domain.StatusDequeued,
+				domain.StatusExecuting,
+
+				nil))
+		require.NoError(t, testStore.
+			UpdateRunStatus(context.
+				Background(), runID,
+				domain.StatusExecuting,
+				domain.StatusDeadLetter,
+
+				nil))
+
 	}
 
 	body := fmt.Sprintf(`{"run_ids":["%s","%s"]}`, runIDs[0], runIDs[1])
 	w := doRequest(t, http.MethodPost, "/v1/runs/bulk-dlq-replay", body)
-	if w.Code != http.StatusOK {
-		t.Fatalf("bulk dlq replay status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	for _, runID := range runIDs {
 		run, err := testStore.GetRun(context.Background(), runID)
-		if err != nil {
-			t.Fatalf("get replayed run %s: %v", runID, err)
-		}
-		if run.Status != domain.StatusQueued {
-			t.Fatalf("run %s status = %s, want queued", runID, run.Status)
-		}
-		if run.Attempt != 1 {
-			t.Fatalf("run %s attempt = %d, want 1", runID, run.Attempt)
-		}
+		require.NoError(t, err)
+		require.Equal(t, domain.
+			StatusQueued,
+			run.
+				Status)
+		require.EqualValues(t, 1, run.
+			Attempt,
+		)
+
 	}
 }
 
 func TestE2E_APIResponsesIncludeSecurityHeaders(t *testing.T) {
 	w := doRequest(t, http.MethodGet, "/health", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("health status = %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "nosniff",
 
-	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
-		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
-	}
-	if got := w.Header().Get("X-Frame-Options"); got != "DENY" {
-		t.Fatalf("X-Frame-Options = %q, want DENY", got)
-	}
-	if got := w.Header().Get("Content-Security-Policy"); got != "default-src 'none'" {
-		t.Fatalf("Content-Security-Policy = %q, want default-src 'none'", got)
-	}
-	if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
-		t.Fatalf("Referrer-Policy = %q, want no-referrer", got)
-	}
+		w.Header().Get("X-Content-Type-Options"))
+	require.Equal(t, "DENY",
+
+		w.Header().Get("X-Frame-Options"))
+	require.Equal(t, "default-src 'none'",
+
+		w.Header().
+			Get("Content-Security-Policy"))
+	require.Equal(t, "no-referrer",
+
+		w.Header().
+			Get("Referrer-Policy"))
+
 }
 
 type alwaysOpenBreaker struct {

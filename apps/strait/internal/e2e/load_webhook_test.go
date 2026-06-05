@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
@@ -23,14 +25,14 @@ func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
 			`{"project_id":"%s","webhook_url":"https://example.com/wh-%d","event_types":["run.completed"]}`,
 			projectID, i,
 		))
-		if w.Code != 201 {
-			t.Fatalf("create subscription %d: %d %s", i, w.Code, w.Body.String())
-		}
+		require.EqualValues(t, 201,
+
+			w.Code)
+
 		resp := mustDecodeObject(t, w)
 		sub, ok := resp["subscription"].(map[string]any)
-		if !ok {
-			t.Fatalf("subscription %d: missing subscription object in response: %v", i, resp)
-		}
+		require.True(t, ok)
+
 		subIDs[i] = asString(t, sub, "id")
 	}
 	createElapsed := time.Since(start)
@@ -38,9 +40,11 @@ func TestLoadWebhook_SubscriptionCRUD(t *testing.T) {
 
 	start = time.Now()
 	listResp := doRequest(t, "GET", "/v1/webhooks/subscriptions/", "", projectID)
-	if listResp.Code != 200 {
-		t.Fatalf("list subscriptions: %d", listResp.Code)
-	}
+	require.EqualValues(t, 200,
+
+		listResp.
+			Code)
+
 	t.Logf("Listed subscriptions in %v", time.Since(start))
 
 	start = time.Now()
@@ -63,17 +67,19 @@ func TestLoadWebhook_DeliveryListing(t *testing.T) {
 		`{"project_id":"%s","name":"wh-deliv","slug":"wh-deliv-%d","endpoint_url":"https://example.com/wh","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
 
 	const iterations = 100
 	start := time.Now()
 	for range iterations {
 		resp := doRequest(t, "GET", "/v1/webhooks/deliveries/", "", projectID)
-		if resp.Code != 200 {
-			t.Fatalf("list deliveries: %d", resp.Code)
-		}
+		require.EqualValues(t, 200,
+
+			resp.Code,
+		)
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Listed deliveries %d times in %v (%.0f/sec)", iterations, elapsed, float64(iterations)/elapsed.Seconds())
@@ -111,8 +117,10 @@ func TestLoadWebhook_ConcurrentSubscriptionCreation(t *testing.T) {
 
 	t.Logf("Concurrent subscription creation: %d/%d succeeded in %v (%.0f/sec)",
 		successes.Load(), total, elapsed, float64(total)/elapsed.Seconds())
+	assert.LessOrEqual(t,
 
-	if failures.Load() > total/10 {
-		t.Errorf("too many failures: %d/%d", failures.Load(), total)
-	}
+		failures.
+			Load(),
+		total/10)
+
 }

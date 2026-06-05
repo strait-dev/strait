@@ -18,6 +18,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/webhook"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestE2E_Billing_SubscribeConsumeExceedUpgrade walks the full billing surface
@@ -63,14 +66,16 @@ func TestE2E_Billing_SubscribeConsumeExceedUpgrade(t *testing.T) {
 	})
 
 	orgID := "00000000-0000-0000-0000-0000000000e2"
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanStarter,
+			), "active"))
 
 	// (1) subscribe: lazy-create the org's subscription row and pin it to Starter.
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure subscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanStarter), "active"); err != nil {
-		t.Fatalf("upgrade to starter: %v", err)
-	}
+
 	enforcer.InvalidateOrgCache(orgID)
 
 	createProject := func(t *testing.T, projectID string) *httptest.ResponseRecorder {
@@ -88,52 +93,63 @@ func TestE2E_Billing_SubscribeConsumeExceedUpgrade(t *testing.T) {
 	for i := range billing.MaxProjectsStarter {
 		pid := fmt.Sprintf("proj-bill-%d-%s", i, newID())
 		w := createProject(t, pid)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("create project %d: status = %d, body = %s", i, w.Code, w.Body.String())
-		}
+		require.Equal(t, http.
+			StatusCreated,
+			w.Code,
+		)
+
 	}
 
 	// (3) exceed: the next create must surface as 402 with the canonical
 	// quota_exceeded body, not the ErrorResponse envelope.
 	overPID := "proj-bill-over-" + newID()
 	w := createProject(t, overPID)
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("over-cap create: status = %d, want 402, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusPaymentRequired,
+
+		w.Code)
+
 	var got map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-		t.Fatalf("decode 402 body: %v", err)
-	}
-	if got["code"] != "quota_exceeded" {
-		t.Errorf("code = %v, want quota_exceeded", got["code"])
-	}
-	if got["kind"] != "project_limit_reached" {
-		t.Errorf("kind = %v, want project_limit_reached", got["kind"])
-	}
-	if got["limit"].(float64) != float64(billing.MaxProjectsStarter) {
-		t.Errorf("limit = %v, want %d", got["limit"], billing.MaxProjectsStarter)
-	}
-	if got["plan"] != string(domain.PlanStarter) {
-		t.Errorf("plan = %v, want %q", got["plan"], domain.PlanStarter)
-	}
-	if got["upgrade_url"] == "" || got["upgrade_url"] == nil {
-		t.Errorf("upgrade_url is empty; clients rely on it to deep-link to checkout")
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&got))
+	assert.Equal(t, "quota_exceeded",
+
+		got["code"])
+	assert.Equal(t, "project_limit_reached",
+
+		got["kind"])
+	assert.Equal(t, float64(billing.
+		MaxProjectsStarter,
+	), got["limit"].(float64))
+	assert.Equal(t, string(domain.PlanStarter),
+		got["plan"])
+	assert.False(t, got["upgrade_url"] == "" ||
+		got["upgrade_url"] ==
+			nil)
+
 	if _, leaked := got["error"]; leaked {
-		t.Errorf("ErrorResponse envelope leaked into 402 body; SDKs expect the raw quota_exceeded shape")
+		assert.Failf(t, "test failure",
+
+			"ErrorResponse envelope leaked into 402 body; SDKs expect the raw quota_exceeded shape")
 	}
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro), "active",
+		))
 
 	// (4) upgrade: bump the plan, invalidate the cached limits, and confirm
 	// the same request that was rejected one beat ago now succeeds.
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("upgrade to pro: %v", err)
-	}
+
 	enforcer.InvalidateOrgCache(orgID)
 
 	w = createProject(t, overPID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("post-upgrade create: status = %d, want 201, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 }
 
 // TestE2E_Billing_CapDispatchToSubscriber closes the gap noted in
@@ -162,16 +178,22 @@ func TestE2E_Billing_CapDispatchToSubscriber(t *testing.T) {
 	subscriptionID := "sub-cap-e2e-" + newID()
 
 	pgStore := billing.NewPgStore(testEnv.DB.Pool)
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure subscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("set plan: %v", err)
-	}
-	const spendingLimit = int64(1_000_000) // $1.00
-	if err := pgStore.UpdateSpendingLimit(ctx, orgID, spendingLimit, "disable"); err != nil {
-		t.Fatalf("set spending limit: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro), "active",
+		))
+
+	const spendingLimit = int64(1_000_000)
+	require.NoError(t, pgStore.
+		UpdateSpendingLimit(ctx, orgID,
+			spendingLimit,
+			"disable",
+		))
+
+	// $1.00
 
 	// Seed project + project→org mapping. The enforcer's dispatch path
 	// fans events out through ListProjectsByOrg, so the mapping row is
@@ -182,11 +204,13 @@ func TestE2E_Billing_CapDispatchToSubscriber(t *testing.T) {
 		 ON CONFLICT (id) DO UPDATE SET org_id = EXCLUDED.org_id`,
 		projectID, orgID,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project: %v", err)
 	}
-	if err := pgStore.SetProjectOrgID(ctx, projectID, orgID); err != nil {
-		t.Fatalf("set project org: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectOrgID(ctx, projectID,
+			orgID))
 
 	sub := &domain.WebhookSubscription{
 		ID:         subscriptionID,
@@ -200,9 +224,9 @@ func TestE2E_Billing_CapDispatchToSubscriber(t *testing.T) {
 		Secret: "cap-e2e-secret",
 		Active: true,
 	}
-	if err := testStore.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("create webhook subscription: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateWebhookSubscription(ctx,
+			sub))
 
 	// Real DeliveryWorker + BillingDispatcher — the same wiring main.go
 	// builds. We do NOT start the delivery loop; the test only cares
@@ -213,72 +237,55 @@ func TestE2E_Billing_CapDispatchToSubscriber(t *testing.T) {
 		billing.WithBillingDispatcher(dispatcher))
 
 	monthStart := time.Date(time.Now().UTC().Year(), time.Now().UTC().Month(), 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, pgStore.
+		UpsertUsageRecord(ctx, &billing.
+			UsageRecord{ID: newID(), OrgID: orgID, ProjectID: projectID,
+			PeriodDate: monthStart,
+
+			RunsCount: 1, ComputeCostMicro: 850_000}))
+	require.NoError(t, enforcer.
+		CheckSpendingLimit(ctx, orgID))
 
 	// (3) Push spend to 85% — fires billing.cap_warning exactly once.
-	if err := pgStore.UpsertUsageRecord(ctx, &billing.UsageRecord{
-		ID:               newID(),
-		OrgID:            orgID,
-		ProjectID:        projectID,
-		PeriodDate:       monthStart,
-		RunsCount:        1,
-		ComputeCostMicro: 850_000,
-	}); err != nil {
-		t.Fatalf("seed usage record (warning): %v", err)
-	}
-	if err := enforcer.CheckSpendingLimit(ctx, orgID); err != nil {
-		t.Fatalf("warning-pass CheckSpendingLimit returned %v, want nil", err)
-	}
 
 	warnings := readSubscriptionDeliveries(t, ctx, subscriptionID, domain.WebhookEventBillingCapWarning)
-	if got := len(warnings); got != 1 {
-		t.Fatalf("cap_warning deliveries = %d, want 1", got)
-	}
-	if warnings[0].PlanTier != string(domain.PlanPro) {
-		t.Errorf("cap_warning envelope plan_tier = %q, want pro", warnings[0].PlanTier)
-	}
-	if warnings[0].OrgID != orgID {
-		t.Errorf("cap_warning envelope org_id = %q, want %q", warnings[0].OrgID, orgID)
-	}
+	require.EqualValues(t, 1, len(warnings))
+	assert.Equal(t, string(domain.PlanPro), warnings[0].PlanTier)
+	assert.Equal(t, orgID,
+
+		warnings[0].OrgID)
+	require.NoError(t, pgStore.
+		UpsertUsageRecord(ctx, &billing.
+			UsageRecord{ID: newID(), OrgID: orgID, ProjectID: projectID,
+			PeriodDate: monthStart.
+				Add(24 * time.Hour), RunsCount: 1, ComputeCostMicro: 700_000}))
+	require.Error(t, enforcer.
+		CheckSpendingLimit(ctx, orgID))
 
 	// (4) Push spend past the limit — fires cap_reached and (because
 	// action=disable) cap_disabled. cap_warning is dedup-suppressed.
-	if err := pgStore.UpsertUsageRecord(ctx, &billing.UsageRecord{
-		ID:               newID(),
-		OrgID:            orgID,
-		ProjectID:        projectID,
-		PeriodDate:       monthStart.Add(24 * time.Hour),
-		RunsCount:        1,
-		ComputeCostMicro: 700_000, // total 1_550_000 > $1.00 cap
-	}); err != nil {
-		t.Fatalf("seed usage record (over-cap): %v", err)
-	}
-	if err := enforcer.CheckSpendingLimit(ctx, orgID); err == nil {
-		t.Fatalf("over-cap CheckSpendingLimit returned nil, want *LimitError")
-	}
+
+	// total 1_550_000 > $1.00 cap
 
 	reached := readSubscriptionDeliveries(t, ctx, subscriptionID, domain.WebhookEventBillingCapReached)
-	if got := len(reached); got != 1 {
-		t.Fatalf("cap_reached deliveries = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, len(reached))
+
 	disabled := readSubscriptionDeliveries(t, ctx, subscriptionID, domain.WebhookEventBillingCapDisabled)
-	if got := len(disabled); got != 1 {
-		t.Fatalf("cap_disabled deliveries = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, len(disabled))
+	require.Error(t, enforcer.
+		CheckSpendingLimit(ctx, orgID))
 
 	// Per-period dedup: a second CheckSpendingLimit must not re-enqueue
 	// any of the three cap events.
-	if err := enforcer.CheckSpendingLimit(ctx, orgID); err == nil {
-		t.Fatalf("second over-cap CheckSpendingLimit returned nil, want *LimitError")
-	}
+
 	for _, evType := range []string{
 		domain.WebhookEventBillingCapWarning,
 		domain.WebhookEventBillingCapReached,
 		domain.WebhookEventBillingCapDisabled,
 	} {
 		all := readSubscriptionDeliveries(t, ctx, subscriptionID, evType)
-		if want := 1; len(all) != want {
-			t.Errorf("%s deliveries after dedup pass = %d, want %d", evType, len(all), want)
-		}
+		assert.Equal(t, len(all), 1)
+
 	}
 }
 
@@ -298,12 +305,13 @@ func TestE2E_Billing_DunningStateTransitions(t *testing.T) {
 	subscriptionID := "sub-dun-e2e-" + newID()
 
 	pgStore := billing.NewPgStore(testEnv.DB.Pool)
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure subscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("set plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro), "active",
+		))
 
 	if _, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO projects (id, org_id, name, created_at, updated_at)
@@ -311,11 +319,13 @@ func TestE2E_Billing_DunningStateTransitions(t *testing.T) {
 		 ON CONFLICT (id) DO UPDATE SET org_id = EXCLUDED.org_id`,
 		projectID, orgID,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project: %v", err)
 	}
-	if err := pgStore.SetProjectOrgID(ctx, projectID, orgID); err != nil {
-		t.Fatalf("set project org: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectOrgID(ctx, projectID,
+			orgID))
 
 	sub := &domain.WebhookSubscription{
 		ID:         subscriptionID,
@@ -328,9 +338,9 @@ func TestE2E_Billing_DunningStateTransitions(t *testing.T) {
 		Secret: "dun-e2e-secret",
 		Active: true,
 	}
-	if err := testStore.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("create webhook subscription: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateWebhookSubscription(ctx,
+			sub))
 
 	// Seed an active dunning cycle from 75 days ago. One Tick should
 	// jump step 1 → step 6 (the schedule is monotone, last-step-wins).
@@ -345,47 +355,51 @@ func TestE2E_Billing_DunningStateTransitions(t *testing.T) {
 		    updated_at = NOW()
 		WHERE org_id = $1
 	`, orgID, entered); err != nil {
-		t.Fatalf("seed dunning row: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed dunning row: %v", err)
 	}
 
 	worker := webhook.NewDeliveryWorker(testStore, slog.Default())
 	dispatcher := webhook.NewBillingDispatcher(worker, pgStore, testStore, slog.Default())
 	dunner := billing.NewDunner(pgStore, billing.WithDunnerDispatcher(dispatcher))
-
-	if err := dunner.Tick(ctx); err != nil {
-		t.Fatalf("dunner Tick: %v", err)
-	}
+	require.NoError(t, dunner.
+		Tick(
+			ctx))
 
 	var (
 		gotStep   int
 		gotStatus string
 	)
-	if err := testEnv.DB.Pool.QueryRow(ctx, `
+	require.NoError(t, testEnv.
+		DB.Pool.
+		QueryRow(ctx, `
 		SELECT dunning_step, COALESCE(payment_status, '')
 		FROM organization_subscriptions
 		WHERE org_id = $1
-	`, orgID).Scan(&gotStep, &gotStatus); err != nil {
-		t.Fatalf("read subscription after tick: %v", err)
-	}
-	if gotStep != billing.DunningStepDay74 {
-		t.Errorf("dunning_step = %d, want %d", gotStep, billing.DunningStepDay74)
-	}
-	if gotStatus != "suspended" {
-		t.Errorf("payment_status = %q, want suspended", gotStatus)
-	}
+	`,
+
+			orgID,
+		).Scan(&gotStep, &gotStatus))
+	assert.Equal(t, billing.
+		DunningStepDay74,
+
+		gotStep)
+	assert.Equal(t, "suspended",
+
+		gotStatus,
+	)
 
 	delinquent := readSubscriptionDeliveries(t, ctx, subscriptionID, domain.WebhookEventBillingDelinquent)
-	if got := len(delinquent); got != 1 {
-		t.Fatalf("billing.delinquent deliveries = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, len(delinquent))
+
 	suspended := readSubscriptionDeliveries(t, ctx, subscriptionID, domain.WebhookEventBillingSuspended)
-	if got := len(suspended); got != 1 {
-		t.Fatalf("billing.suspended deliveries = %d, want 1", got)
-	}
-	if delinquent[0].OrgID != orgID || suspended[0].OrgID != orgID {
-		t.Errorf("envelope org_id mismatch: delinquent=%q suspended=%q want=%q",
-			delinquent[0].OrgID, suspended[0].OrgID, orgID)
-	}
+	require.EqualValues(t, 1, len(suspended))
+	assert.False(t, delinquent[0].OrgID !=
+		orgID ||
+		suspended[0].OrgID !=
+			orgID)
+
 }
 
 // readSubscriptionDeliveries returns every webhook_deliveries row whose
@@ -402,27 +416,27 @@ func readSubscriptionDeliveries(t *testing.T, ctx context.Context, subscriptionI
 		WHERE subscription_id = $1
 		ORDER BY created_at ASC
 	`, subscriptionID)
-	if err != nil {
-		t.Fatalf("query webhook_deliveries: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	out := make([]billing.BillingEventEnvelope, 0, 4)
 	for rows.Next() {
 		var payload json.RawMessage
-		if err := rows.Scan(&payload); err != nil {
-			t.Fatalf("scan delivery row: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&payload))
+
 		var env billing.BillingEventEnvelope
-		if err := json.Unmarshal(payload, &env); err != nil {
-			t.Fatalf("decode billing envelope: %v (raw=%s)", err, string(payload))
-		}
+		require.NoError(t, json.
+			Unmarshal(payload,
+				&env))
+
 		if env.EventType == eventType {
 			out = append(out, env)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows iter: %v", err)
-	}
+	require.NoError(t, rows.
+		Err())
+
 	return out
 }
