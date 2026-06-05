@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,10 +25,8 @@ func TestNew_InvalidURL(t *testing.T) {
 		Database: "testdb",
 	}, nil)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(),
-		"clickhouse"))
-
+	assert.Contains(t, err.
+		Error(), "clickhouse")
 }
 
 func TestNew_DefaultPoolSizes(t *testing.T) {
@@ -84,7 +81,6 @@ func TestBuildConnURL_MalformedURL(t *testing.T) {
 
 	_, err := buildConnURL("://broken", "db")
 	require.Error(t, err)
-
 }
 
 func TestBuildConnURL_URLWithExistingParams(t *testing.T) {
@@ -92,15 +88,10 @@ func TestBuildConnURL_URLWithExistingParams(t *testing.T) {
 
 	got, err := buildConnURL("clickhouse://host:9000?timeout=5s", "mydb")
 	require.NoError(t, err)
-	assert.True(t, strings.Contains(got,
-		"timeout=5s",
-	))
-	assert.True(t, strings.Contains(got,
-		"database=mydb",
-	))
+	assert.Contains(t, got, "timeout=5s")
+	assert.Contains(t, got, "database=mydb")
 
 	// Should contain both existing and new params.
-
 }
 
 func TestBuildConnURL_EmptyURL(t *testing.T) {
@@ -109,10 +100,7 @@ func TestBuildConnURL_EmptyURL(t *testing.T) {
 	// Empty URL with a database should still work (url.Parse handles empty string).
 	got, err := buildConnURL("", "analytics")
 	require.NoError(t, err)
-	assert.True(t, strings.Contains(got,
-		"database=analytics",
-	))
-
+	assert.Contains(t, got, "database=analytics")
 }
 
 // Client nil-safety and error paths
@@ -123,7 +111,6 @@ func TestClient_HealthyWithNilDB(t *testing.T) {
 	c := &Client{db: nil, logger: slog.Default()}
 	assert.False(t, c.Healthy(context.
 		Background()))
-
 }
 
 func TestClient_CloseWithNilDB(t *testing.T) {
@@ -131,7 +118,6 @@ func TestClient_CloseWithNilDB(t *testing.T) {
 
 	c := &Client{db: nil, logger: slog.Default()}
 	assert.NoError(t, c.Close())
-
 }
 
 func TestClient_DBReturnsUnderlyingDB(t *testing.T) {
@@ -144,7 +130,6 @@ func TestClient_DBReturnsUnderlyingDB(t *testing.T) {
 
 	c := &Client{db: db}
 	assert.Equal(t, db, c.DB())
-
 }
 
 func TestClient_Query_NilClient(t *testing.T) {
@@ -184,7 +169,6 @@ func TestClient_Exec_ClosedDB(t *testing.T) {
 	c := &Client{db: db, logger: slog.Default()}
 	err = c.Exec(context.Background(), "SELECT 1")
 	assert.Error(t, err)
-
 }
 
 func TestClient_Query_ClosedDB(t *testing.T) {
@@ -201,8 +185,7 @@ func TestClient_Query_ClosedDB(t *testing.T) {
 		defer rows.Close()
 		_ = rows.Err()
 	}
-	assert.NotNil(t, qErr)
-
+	assert.Error(t, qErr)
 }
 
 func TestClient_Exec_CanceledContext(t *testing.T) {
@@ -219,7 +202,6 @@ func TestClient_Exec_CanceledContext(t *testing.T) {
 	c := &Client{db: db, logger: slog.Default()}
 	err = c.Exec(ctx, "SELECT 1")
 	assert.Error(t, err)
-
 }
 
 func TestClient_Healthy_ClosedDB(t *testing.T) {
@@ -233,5 +215,4 @@ func TestClient_Healthy_ClosedDB(t *testing.T) {
 	c := &Client{db: db, logger: slog.Default()}
 	assert.False(t, c.Healthy(context.
 		Background()))
-
 }

@@ -59,7 +59,6 @@ func TestActorFromContext_WithUserHeader(t *testing.T) {
 	actor := actorFromContext(ctx)
 	require.Equal(t, "user_abc123",
 		actor)
-
 }
 
 func TestActorFromContext_WithAPIKeyFallback(t *testing.T) {
@@ -71,15 +70,13 @@ func TestActorFromContext_WithAPIKeyFallback(t *testing.T) {
 	actor := actorFromContext(ctx)
 	require.Equal(t, "apikey:key-001",
 		actor)
-
 }
 
 func TestActorFromContext_Empty(t *testing.T) {
 	t.Parallel()
 
 	actor := actorFromContext(context.Background())
-	require.Equal(t, "", actor)
-
+	require.Empty(t, actor)
 }
 
 // Verify the domain type exists and can be constructed.
@@ -96,7 +93,6 @@ func TestKnownActor_Roundtrip(t *testing.T) {
 	require.Equal(t, "leo@example.com",
 		actor.Email,
 	)
-
 }
 
 func TestActorSyncer_CalledOnSync(t *testing.T) {
@@ -111,7 +107,6 @@ func TestActorSyncer_CalledOnSync(t *testing.T) {
 		calls, 1)
 	require.Equal(t, "user_1",
 		calls[0].ID)
-
 }
 
 func TestNewServerWithActorSyncer(t *testing.T) {
@@ -122,7 +117,6 @@ func TestNewServerWithActorSyncer(t *testing.T) {
 	srv := newTestServerWithActorSyncer(t, ms, nil, nil, syncer)
 	require.NotNil(t, srv)
 	require.NotNil(t, srv.actorSyncer)
-
 }
 
 func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
@@ -190,7 +184,6 @@ func TestInternalSecretAuth_SetsActorFromHeaders(t *testing.T) {
 	require.Equal(t, "leo@example.com",
 		syncer.calls[0].Email,
 	)
-
 }
 
 func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
@@ -235,7 +228,6 @@ func TestAPIKeyAuth_IgnoresActorHeaders(t *testing.T) {
 		capturedType)
 
 	// Verify actor is the API key, NOT the attacker headers.
-
 }
 
 func TestInternalSecretAuth_NoActorHeaders(t *testing.T) {
@@ -258,8 +250,7 @@ func TestInternalSecretAuth_NoActorHeaders(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.Equal(t, "", capturedActor)
-
+	require.Empty(t, capturedActor)
 }
 
 func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
@@ -288,7 +279,6 @@ func TestInternalSecretAuth_EmptyActorID(t *testing.T) {
 		capturedType)
 
 	// Empty X-Actor-Id should NOT set actor type to "user".
-
 }
 
 func TestAPIKeyAuth_MissingAuthHeader(t *testing.T) {
@@ -304,7 +294,6 @@ func TestAPIKeyAuth_MissingAuthHeader(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-
 }
 
 func TestAPIKeyAuth_InvalidBearerPrefix(t *testing.T) {
@@ -320,7 +309,6 @@ func TestAPIKeyAuth_InvalidBearerPrefix(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-
 }
 
 func TestActorSyncer_NilSyncer(t *testing.T) {
@@ -343,5 +331,4 @@ func TestActorSyncer_NilSyncer(t *testing.T) {
 		w.Code)
 
 	// Should not panic even though syncer is nil.
-
 }

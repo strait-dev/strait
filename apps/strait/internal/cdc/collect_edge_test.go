@@ -36,7 +36,6 @@ func TestCollect_AllActions(t *testing.T) {
 			assert.Equal(
 				t, action, event.
 					Action)
-
 		})
 	}
 }
@@ -65,7 +64,6 @@ func TestCollect_PreservesChangesField(t *testing.T) {
 	assert.Equal(
 		t, string(changes), string(event.
 			Changes))
-
 }
 
 func TestCollect_PreservesTimestamp(t *testing.T) {
@@ -91,7 +89,6 @@ func TestCollect_PreservesTimestamp(t *testing.T) {
 	assert.Equal(
 		t, ts, event.Timestamp,
 	)
-
 }
 
 func TestCollect_InvalidRecord_AllHandlers(t *testing.T) {
@@ -117,7 +114,6 @@ func TestCollect_InvalidRecord_AllHandlers(t *testing.T) {
 			_, err := h.Collect(context.Background(), msg)
 			assert.Error(
 				t, err)
-
 		})
 	}
 }
@@ -142,7 +138,6 @@ func TestCollect_EmptyProjectID(t *testing.T) {
 			Channel)
 
 	// Channel should still be formed, even with empty project ID.
-
 }
 
 func TestCollect_LargeRecord(t *testing.T) {
@@ -176,7 +171,6 @@ func TestCollect_LargeRecord(t *testing.T) {
 
 		100000,
 	)
-
 }
 
 func TestCollectChangeEvent_EmptyRecord(t *testing.T) {
@@ -193,7 +187,6 @@ func TestCollectChangeEvent_EmptyRecord(t *testing.T) {
 	assert.Equal(
 		t, "ch", msg.Channel,
 	)
-
 }
 
 func TestCollectChangeEvent_NilRecord(t *testing.T) {
@@ -208,5 +201,4 @@ func TestCollectChangeEvent_NilRecord(t *testing.T) {
 	msg, err := collectChangeEvent(event, "ch")
 	require.NoError(t, err)
 	require.NotNil(t, msg)
-
 }

@@ -136,7 +136,7 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	require.Equal(t, "batch",
 		run.TriggeredBy,
 	)
-	require.EqualValues(t, 3,
+	require.Equal(t, 3,
 		run.Priority)
 	require.Equal(t, "user-1",
 		run.CreatedBy,
@@ -168,7 +168,6 @@ func TestBatchFlusher_FlushesReadyBatch(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, items,
 		3)
-
 }
 
 func TestBatchFlusher_TransactionalFlushDrainsAndEnqueuesInOneCommit(t *testing.T) {
@@ -209,9 +208,7 @@ func TestBatchFlusher_TransactionalFlushDrainsAndEnqueuesInOneCommit(t *testing.
 		enqueued[0].
 			IdempotencyKey,
 	)
-	require.Len(t, bs.deletedItems,
-		0)
-
+	require.Empty(t, bs.deletedItems)
 }
 
 func TestBatchFlusher_TransactionalEnqueueFailureRollsBackDrain(t *testing.T) {
@@ -239,9 +236,7 @@ func TestBatchFlusher_TransactionalEnqueueFailureRollsBackDrain(t *testing.T) {
 		rolledBack || bs.
 		committed,
 	)
-	require.Len(t, bs.deletedItems,
-		0)
-
+	require.Empty(t, bs.deletedItems)
 }
 
 func TestBatchFlusher_TransactionalIdempotencyConflictCommitsDrain(t *testing.T) {
@@ -269,7 +264,6 @@ func TestBatchFlusher_TransactionalIdempotencyConflictCommitsDrain(t *testing.T)
 		committed || bs.
 		rolledBack,
 	)
-
 }
 
 func TestBatchFlusher_EnqueueFailureDoesNotDeleteBufferedItems(t *testing.T) {
@@ -293,9 +287,7 @@ func TestBatchFlusher_EnqueueFailureDoesNotDeleteBufferedItems(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-	require.Len(t, bs.deletedItems,
-		0)
-
+	require.Empty(t, bs.deletedItems)
 }
 
 func TestBatchFlusher_IdempotencyConflictDeletesPreviouslyFlushedItems(t *testing.T) {
@@ -322,7 +314,6 @@ func TestBatchFlusher_IdempotencyConflictDeletesPreviouslyFlushedItems(t *testin
 	require.False(t, len(bs.deletedItems) != 1 ||
 		bs.deletedItems[0] != "item-1",
 	)
-
 }
 
 func TestBatchFlusher_SkipsDisabledJob(t *testing.T) {
@@ -346,9 +337,7 @@ func TestBatchFlusher_SkipsDisabledJob(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
-
+	require.Empty(t, enqueued)
 }
 
 func TestBatchFlusher_SkipsWhenLockNotAcquired(t *testing.T) {
@@ -372,9 +361,7 @@ func TestBatchFlusher_SkipsWhenLockNotAcquired(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
-
+	require.Empty(t, enqueued)
 }
 
 func TestBatchFlusher_EmptyDrain(t *testing.T) {
@@ -399,9 +386,7 @@ func TestBatchFlusher_EmptyDrain(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
-
+	require.Empty(t, enqueued)
 }
 
 func TestBatchFlusher_CachesJobLookupWithinPoll(t *testing.T) {
@@ -426,5 +411,4 @@ func TestBatchFlusher_CachesJobLookupWithinPoll(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 1,
 		bs.getJobCalls.Load())
-
 }

@@ -25,7 +25,6 @@ func TestHandleCreateEnvironment_MissingName(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateEnvironment_MissingSlug(t *testing.T) {
@@ -38,7 +37,6 @@ func TestHandleCreateEnvironment_MissingSlug(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateEnvironment_StoreError(t *testing.T) {
@@ -56,7 +54,6 @@ func TestHandleCreateEnvironment_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleGetEnvironment_NotFound(t *testing.T) {
@@ -73,7 +70,6 @@ func TestHandleGetEnvironment_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleGetEnvironment_CrossProject(t *testing.T) {
@@ -98,7 +94,6 @@ func TestHandleGetEnvironment_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
@@ -123,7 +118,6 @@ func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 func TestHandleListEnvironments_EmptyList(t *testing.T) {
@@ -143,9 +137,8 @@ func TestHandleListEnvironments_EmptyList(t *testing.T) {
 
 	var envs []domain.Environment
 	decodePaginatedList(t, w.Body.Bytes(), &envs)
-	require.Len(t,
-		envs, 0)
-
+	require.Empty(t,
+		envs)
 }
 
 func TestHandleListEnvironments_Pagination(t *testing.T) {
@@ -188,7 +181,6 @@ func TestHandleListEnvironments_Pagination(t *testing.T) {
 	)
 
 	// Store returns limit+1 = 3 items so has_more should be true.
-
 }
 
 func TestHandleListEnvironments_EnvironmentScopedCallerOnlySeesOwnEnvironment(t *testing.T) {
@@ -217,7 +209,6 @@ func TestHandleListEnvironments_EnvironmentScopedCallerOnlySeesOwnEnvironment(t 
 	require.False(t, len(items) !=
 		1 || items[0].ID !=
 		"env-prod")
-
 }
 
 func TestHandleUpdateEnvironment_SlugOnly(t *testing.T) {
@@ -255,7 +246,6 @@ func TestHandleUpdateEnvironment_SlugOnly(t *testing.T) {
 	)
 	require.Equal(t, "My Env", env.
 		Name)
-
 }
 
 func TestHandleUpdateEnvironment_CrossProject(t *testing.T) {
@@ -280,7 +270,6 @@ func TestHandleUpdateEnvironment_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateEnvironment_EnvironmentScopedCallerCannotMutateOtherEnvironment(t *testing.T) {
@@ -309,7 +298,6 @@ func TestHandleUpdateEnvironment_EnvironmentScopedCallerCannotMutateOtherEnviron
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
@@ -338,7 +326,6 @@ func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnvironment(t *testing.T) {
@@ -363,7 +350,6 @@ func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnviron
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
@@ -380,7 +366,6 @@ func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleGetResolvedVariables_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
@@ -405,7 +390,6 @@ func TestHandleGetResolvedVariables_EnvironmentScopedCallerCannotReadOtherEnviro
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 func TestHandleGetResolvedVariables_InheritedVariables(t *testing.T) {
@@ -454,5 +438,4 @@ func TestHandleGetResolvedVariables_InheritedVariables(t *testing.T) {
 	require.Equal(t, "value", vars["LOCAL"])
 	require.Len(t,
 		vars, 3)
-
 }

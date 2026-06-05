@@ -33,7 +33,6 @@ func TestStatsAggregator_New(t *testing.T) {
 		store)
 	require.NotNil(t, a.
 		logger)
-
 }
 
 func TestStatsAggregator_WithAdvisoryLocker(t *testing.T) {
@@ -46,7 +45,6 @@ func TestStatsAggregator_WithAdvisoryLocker(t *testing.T) {
 	require.NotNil(t, a.
 		advisoryLocker,
 	)
-
 }
 
 type mockAdvisoryLocker struct {
@@ -99,7 +97,6 @@ func TestStatsAggregator_AggregatesPreviousHour(t *testing.T) {
 		Second() != 0)
 
 	// Verify hour is truncated.
-
 }
 
 func TestStatsAggregator_LockNotAcquired_Skips(t *testing.T) {
@@ -174,5 +171,4 @@ func TestStatsAggregator_RetriesFailedHourAfterClockAdvances(t *testing.T) {
 		!calls[1].Equal(
 			firstHour,
 		) || !calls[2].Equal(secondHour))
-
 }

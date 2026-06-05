@@ -58,7 +58,6 @@ func TestCounterReconciler_Defaults(t *testing.T) {
 		interval)
 	assert.NotNil(t, r.
 		logger)
-
 }
 
 func TestCounterReconciler_RunOnce_NoLock(t *testing.T) {
@@ -68,12 +67,11 @@ func TestCounterReconciler_RunOnce_NoLock(t *testing.T) {
 		r.runOnce(
 			context.Background(),
 		))
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		db.queryCalls,
 	)
 	assert.EqualValues(t, 1,
 		r.Iterations())
-
 }
 
 func TestCounterReconciler_RunOnce_AccumulatesDrift(t *testing.T) {
@@ -84,7 +82,6 @@ func TestCounterReconciler_RunOnce_AccumulatesDrift(t *testing.T) {
 		r.TotalDrift())
 
 	// Each query returns delta=7, two queries run → total 14.
-
 }
 
 func TestCounterReconciler_LockAcquireFailure(t *testing.T) {
@@ -92,11 +89,10 @@ func TestCounterReconciler_LockAcquireFailure(t *testing.T) {
 	locker := &fakeLocker{err: errors.New("lock down")}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{}).WithAdvisoryLocker(locker)
 	err := r.runOnce(context.Background())
-	assert.Error(t, err)
-	assert.EqualValues(t, 0,
+	require.Error(t, err)
+	assert.Equal(t, 0,
 		db.queryCalls,
 	)
-
 }
 
 func TestCounterReconciler_LockNotAcquired(t *testing.T) {
@@ -104,13 +100,12 @@ func TestCounterReconciler_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{}).WithAdvisoryLocker(locker)
 	_ = r.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		db.queryCalls,
 	)
 	assert.False(t, locker.
 		released,
 	)
-
 }
 
 func TestCounterReconciler_LockAcquiredAndReleased(t *testing.T) {
@@ -123,23 +118,21 @@ func TestCounterReconciler_LockAcquiredAndReleased(t *testing.T) {
 		!locker.
 			released,
 	)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		db.queryCalls,
 	)
-
 }
 
 func TestCounterReconciler_QueryErrorLogsButContinues(t *testing.T) {
 	db := &reconFakeDB{forcedErr: errors.New("deadlock")}
 	r := NewCounterReconciler(db, CounterReconcilerConfig{})
-	assert.NoError(t, r.
+	require.NoError(t, r.
 		runOnce(context.
 			Background(),
 		),
 	)
 	assert.EqualValues(t, 1,
 		r.Iterations())
-
 }
 
 func TestCounterReconciler_PanicReturnsError(t *testing.T) {
@@ -151,7 +144,6 @@ func TestCounterReconciler_PanicReturnsError(t *testing.T) {
 	)
 	require.EqualValues(t, 1,
 		r.Iterations())
-
 }
 
 func TestCounterReconciler_RunExitsOnCancel(t *testing.T) {
@@ -174,5 +166,4 @@ func TestCounterReconciler_RunExitsOnCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, r.Iterations(),
 		int64(2))
-
 }

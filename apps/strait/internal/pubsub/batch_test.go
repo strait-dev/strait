@@ -21,7 +21,6 @@ func TestRedisPublisher_PublishBatch_Empty(t *testing.T) {
 	err = rp.PublishBatch(context.Background(), []PubSubMessage{})
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_FailOpen(t *testing.T) {
@@ -43,7 +42,6 @@ func TestResilientPublisher_PublishBatch_FailOpen(t *testing.T) {
 		t, err)
 
 	// Resilient publisher swallows errors (fail-open).
-
 }
 
 func TestResilientPublisher_PublishBatch_NilPublisher(t *testing.T) {
@@ -54,7 +52,6 @@ func TestResilientPublisher_PublishBatch_NilPublisher(t *testing.T) {
 	})
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_Success(t *testing.T) {
@@ -83,7 +80,6 @@ func TestResilientPublisher_PublishBatch_Success(t *testing.T) {
 		t, err)
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 func TestPubSubMessage_Fields(t *testing.T) {
@@ -97,5 +93,4 @@ func TestPubSubMessage_Fields(t *testing.T) {
 		"payload",
 		string(
 			msg.Data))
-
 }

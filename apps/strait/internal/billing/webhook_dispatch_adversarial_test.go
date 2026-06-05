@@ -28,13 +28,9 @@ func TestDispatchBillingWebhook_OversizedPayloadRejected(t *testing.T) {
 	)
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.
-		Error(),
-		"exceeds",
-	))
-	assert.Len(t, d.calls,
-		0)
-
+	assert.Contains(t, err.
+		Error(), "exceeds")
+	assert.Empty(t, d.calls)
 }
 
 // Two callers producing the same logical event must produce distinct
@@ -51,7 +47,6 @@ func TestDispatchBillingWebhook_EventIDsAreUnique(t *testing.T) {
 		)
 		require.NoError(t,
 			err)
-
 	}
 	seen := make(map[string]bool, len(d.calls))
 	for _, c := range d.calls {
@@ -66,7 +61,6 @@ func TestDispatchBillingWebhook_EventIDsAreUnique(t *testing.T) {
 	}
 	assert.Len(t, seen,
 		5)
-
 }
 
 // Concurrent dispatches must not race on the helper's internal state.
@@ -104,7 +98,6 @@ func TestDispatchBillingWebhook_ConcurrencySafe(t *testing.T) {
 	wg.Wait()
 	assert.Len(t, d.calls,
 		n)
-
 }
 
 // Wildcard event_types in webhook_subscriptions ("*") must match every
@@ -126,9 +119,7 @@ func TestBillingEventNames_DottedNamespace(t *testing.T) {
 		domain.WebhookEventSLACreditIssued,
 	}
 	for _, ev := range all {
-		assert.True(t, strings.Contains(ev,
-			"."))
-
+		assert.Contains(t, ev, ".")
 	}
 }
 

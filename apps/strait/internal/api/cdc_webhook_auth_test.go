@@ -35,10 +35,9 @@ func TestCDCWebhookRouteRequiresInternalSecretAndSequinSignature(t *testing.T) {
 		t, http.StatusUnauthorized,
 		rec.
 			Code)
-	require.True(t,
-		strings.Contains(rec.
-			Body.String(), "invalid or missing internal secret",
-		))
+	require.Contains(t,
+		rec.
+			Body.String(), "invalid or missing internal secret")
 
 	req = httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", strings.NewReader("{}"))
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
@@ -48,9 +47,7 @@ func TestCDCWebhookRouteRequiresInternalSecretAndSequinSignature(t *testing.T) {
 		t, http.StatusUnauthorized,
 		rec.
 			Code)
-	require.True(t,
-		strings.Contains(rec.
-			Body.String(), "invalid signature",
-		))
-
+	require.Contains(t,
+		rec.
+			Body.String(), "invalid signature")
 }

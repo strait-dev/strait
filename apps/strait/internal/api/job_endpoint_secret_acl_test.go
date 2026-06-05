@@ -54,7 +54,6 @@ func TestSetJobEndpoint_SecretBearingJobRequiresSecretsWrite(t *testing.T) {
 				StatusForbidden,
 		))
 	require.False(t, updateCalled)
-
 }
 
 func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
@@ -95,7 +94,6 @@ func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
 	require.True(
 		t, updateCalled,
 	)
-
 }
 
 func TestUpdateJob_SecretBearingEndpointChangeRequiresSecretsWrite(t *testing.T) {
@@ -143,5 +141,4 @@ func TestUpdateJob_SecretBearingEndpointChangeRequiresSecretsWrite(t *testing.T)
 				StatusForbidden,
 		))
 	require.False(t, updateCalled)
-
 }

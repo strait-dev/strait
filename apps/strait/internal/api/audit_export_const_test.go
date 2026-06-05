@@ -12,7 +12,6 @@ func TestDefaultMaxExportRows_IsOneMillionDefault(t *testing.T) {
 	require.EqualValues(t, 1_000_000,
 
 		defaultMaxExportRows)
-
 }
 
 func TestResolveExportRowCap_FallsToDefault(t *testing.T) {
@@ -27,7 +26,6 @@ func TestResolveExportRowCap_FallsToDefault(t *testing.T) {
 	require.Equal(t, defaultMaxExportRows,
 
 		cap)
-
 }
 
 func TestResolveExportRowCap_ConfigOverride(t *testing.T) {
@@ -41,5 +39,4 @@ func TestResolveExportRowCap_ConfigOverride(t *testing.T) {
 	srv.config.AuditExportRowCapDefault = 500
 	cap := srv.resolveExportRowCap(context.Background(), "proj-1")
 	require.EqualValues(t, 500, cap)
-
 }

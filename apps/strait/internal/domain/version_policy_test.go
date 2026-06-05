@@ -59,7 +59,6 @@ func TestVersionPolicy_JSONRoundtrip(t *testing.T) {
 			require.Equal(t, policy,
 				got.Policy,
 			)
-
 		})
 	}
 }
@@ -71,7 +70,6 @@ func TestSystemRolePermissions_AdminHasWildcard(t *testing.T) {
 	require.False(t, len(perms) != 1 ||
 		perms[0] !=
 			"*")
-
 }
 
 func TestSystemRolePermissions_ViewerCannotWrite(t *testing.T) {
@@ -89,7 +87,6 @@ func TestSystemRolePermissions_ViewerCannotWrite(t *testing.T) {
 			p == ScopeJobsTrigger ||
 			p == ScopeWorkflowsTrigger,
 		)
-
 	}
 }
 
@@ -102,7 +99,6 @@ func TestSystemRolePermissions_OperatorHasRBACManage(t *testing.T) {
 			operatorPerms,
 
 			ScopeRBACManage))
-
 }
 
 func TestSystemRolePermissions_OperatorHasOutboxMutationScopes(t *testing.T) {
@@ -115,7 +111,6 @@ func TestSystemRolePermissions_OperatorHasOutboxMutationScopes(t *testing.T) {
 				operatorPerms,
 
 				scope))
-
 	}
 }
 
@@ -128,7 +123,6 @@ func TestSystemRolePermissions_TriggererCannotManageKeys(t *testing.T) {
 			ScopeAPIKeysManage ||
 			p ==
 				ScopeRBACManage)
-
 	}
 }
 
@@ -142,7 +136,6 @@ func TestSystemRolePermissions_AllRolesDefined(t *testing.T) {
 	require.Len(t, SystemRolePermissions,
 
 		len(expected))
-
 }
 
 func TestSystemRolePermissions_NonAdminScopesAllValid(t *testing.T) {
@@ -155,7 +148,6 @@ func TestSystemRolePermissions_NonAdminScopesAllValid(t *testing.T) {
 		}
 		for _, p := range perms {
 			assert.True(t, ValidScopes[p])
-
 		}
 	}
 }

@@ -60,7 +60,7 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 			captured = c
 		}
 	}
-	require.EqualValues(t, 1, count)
+	require.Equal(t, 1, count)
 	assert.Equal(t, orgID,
 		captured.orgID,
 	)
@@ -86,10 +86,9 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 	}
 	assert.Equal(t, "in_recover_1",
 		detail["stripe_invoice_id"])
-	assert.Equal(t, float64(12_340_000),
-		detail["amount_paid_microusd"],
+	assert.InDelta(t, float64(12_340_000),
+		detail["amount_paid_microusd"], 1e-9,
 	)
-
 }
 
 // When the org is already ok (routine renewal payment), no dispatch fires —
@@ -135,7 +134,6 @@ func TestHandlePaymentSucceeded_NoDispatch_WhenAlreadyOK(t *testing.T) {
 			c.
 				eventType,
 		)
-
 	}
 }
 
@@ -175,5 +173,4 @@ func TestHandlePaymentSucceeded_NoEnforcer_DoesNotPanic(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-
 }

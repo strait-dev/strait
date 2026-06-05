@@ -25,7 +25,6 @@ func TestMetrics_SingletonIsShared(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t,
 		b, a)
-
 }
 
 func TestRecordPartitionStats_NilSafe(t *testing.T) {
@@ -67,7 +66,6 @@ func TestResetMetricsForTest_AllowsReinit(t *testing.T) {
 	m2, err := Metrics()
 	require.NoError(t, err)
 	assert.NotSame(t, m1, m2)
-
 }
 
 func TestQueueMetrics_AllFieldsInitialized(t *testing.T) {
@@ -84,7 +82,6 @@ func TestQueueMetrics_AllFieldsInitialized(t *testing.T) {
 		assert.False(t,
 			f.IsNil(),
 		)
-
 	}
 }
 
@@ -118,7 +115,6 @@ func TestPgQueBackgroundErrorIncrementsBoundedCounter(t *testing.T) {
 	require.EqualValues(t, 1, pgQueBackgroundErrorSum(t,
 		reader,
 		"other"))
-
 }
 
 func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
@@ -135,7 +131,6 @@ func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 		otel.SetMeterProvider(oldProvider)
 		require.NoError(t, provider.
 			Shutdown(context.Background()))
-
 	})
 	return reader
 }
@@ -226,7 +221,6 @@ func TestPartitionMetricLabel_BoundsCardinality(t *testing.T) {
 	for partition, want := range tests {
 		assert.Equal(t,
 			want, partitionMetricLabel(partition))
-
 	}
 }
 
@@ -244,7 +238,6 @@ func TestPartitionMetricLabel_FuzzSeedsCollapseUnboundedNames(t *testing.T) {
 			got != "job_runs_partition" &&
 				got !=
 					"other")
-
 	}
 }
 
@@ -274,7 +267,6 @@ func FuzzPartitionLabelCardinality(f *testing.F) {
 
 		defer func() {
 			require.Nil(t, recover())
-
 		}()
 		m.RecordPartitionStats(context.Background(), label, PartitionStats{
 			LiveTuples:   10,

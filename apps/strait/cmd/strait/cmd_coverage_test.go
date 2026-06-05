@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +39,6 @@ func TestNewRootCommand_Structure(t *testing.T) {
 	for _, name := range []string{"serve", "server", "migrate", "version", "health"} {
 		require.True(t,
 			subs[name])
-
 	}
 }
 
@@ -68,7 +66,6 @@ func TestContainsModeFlag(t *testing.T) {
 			require.Equal(
 				t, tc.
 					want, got)
-
 		})
 	}
 }
@@ -83,10 +80,8 @@ func TestNewServeCommand(t *testing.T) {
 
 	f := cmd.Flags().Lookup("mode")
 	require.NotNil(t, f)
-	require.Equal(
-		t, "",
-		f.DefValue)
-
+	require.Empty(
+		t, f.DefValue)
 }
 
 func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *testing.T) {
@@ -96,11 +91,9 @@ func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *tes
 	require.Error(
 		t, err,
 	)
-	require.True(t,
-		strings.Contains(err.
-			Error(), "billing enforcement requires Redis",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "billing enforcement requires Redis")
 }
 
 func TestValidateBillingEnforcerDependency(t *testing.T) {
@@ -147,7 +140,6 @@ func TestValidateBillingEnforcerDependency(t *testing.T) {
 			assert.Contains(t, err.
 				Error(), tt.want,
 			)
-
 		})
 	}
 }
@@ -218,7 +210,6 @@ func TestValidateCloudBillingConfig(t *testing.T) {
 			assert.Contains(t, err.
 				Error(), tt.want,
 			)
-
 		})
 	}
 }
@@ -240,7 +231,6 @@ func TestLogAuditDMLGuardStartup_UsesDMLRestrictedInterface(t *testing.T) {
 	require.True(t,
 		checker.
 			called)
-
 }
 
 func TestNewVersionCommand(t *testing.T) {
@@ -256,7 +246,6 @@ func TestNewVersionCommand(t *testing.T) {
 	require.Equal(
 		t, "false",
 		f.DefValue)
-
 }
 
 func TestNewVersionCommand_Execute(t *testing.T) {
@@ -266,7 +255,6 @@ func TestNewVersionCommand_Execute(t *testing.T) {
 	cmd.SetArgs([]string{"--short"})
 	require.NoError(t, cmd.
 		Execute())
-
 }
 
 func TestNewVersionCommand_ExecuteLong(t *testing.T) {
@@ -276,14 +264,12 @@ func TestNewVersionCommand_ExecuteLong(t *testing.T) {
 	cmd.SetArgs(nil)
 	require.NoError(t, cmd.
 		Execute())
-
 }
 
 func TestNormalizeLegacyArgs_Empty(t *testing.T) {
 	t.Parallel()
 	got := normalizeLegacyArgs(nil)
 	require.Nil(t, got)
-
 }
 
 func TestNormalizeLegacyArgs_AllSubcommands(t *testing.T) {
@@ -295,7 +281,6 @@ func TestNormalizeLegacyArgs_AllSubcommands(t *testing.T) {
 		require.Equal(
 			t, sub,
 			got[0])
-
 	}
 }
 
@@ -306,7 +291,6 @@ func TestNormalizeLegacyArgs_UnknownNonFlag(t *testing.T) {
 	require.False(
 		t, len(got) != 1 || got[0] != "unknown-cmd",
 	)
-
 }
 
 // migrate.go: parsePositiveInt
@@ -347,7 +331,6 @@ func TestParsePositiveInt(t *testing.T) {
 			require.Equal(
 				t, tc.
 					want, got)
-
 		})
 	}
 }
@@ -359,11 +342,9 @@ func TestValidateMigrationDatabaseURLRejectsDisableSSLInProduction(t *testing.T)
 	require.Error(
 		t, err,
 	)
-	require.True(t,
-		strings.Contains(err.
-			Error(), "sslmode=disable",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "sslmode=disable")
 }
 
 func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T) {
@@ -376,7 +357,6 @@ func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T)
 		"postgres://localhost/strait?sslmode=disable",
 
 		""))
-
 }
 
 // migrate.go: sanitizeMigrationName
@@ -409,7 +389,6 @@ func TestSanitizeMigrationName(t *testing.T) {
 			require.Equal(
 				t, tc.
 					want, got)
-
 		})
 	}
 }
@@ -465,7 +444,6 @@ func TestNextMigrationVersion(t *testing.T) {
 					WriteFile(filepath.
 						Join(dir,
 							f), []byte("-- test"), 0o600))
-
 			}
 
 			got, err := nextMigrationVersion(dir)
@@ -473,7 +451,6 @@ func TestNextMigrationVersion(t *testing.T) {
 			require.Equal(
 				t, tc.
 					want, got)
-
 		})
 	}
 }
@@ -485,7 +462,6 @@ func TestNextMigrationVersion_NonexistentDir(t *testing.T) {
 	require.Error(
 		t, err,
 	)
-
 }
 
 // migrate.go: command structure
@@ -505,7 +481,6 @@ func TestNewMigrateCommand_Structure(t *testing.T) {
 	for _, name := range []string{"up", "down", "status", "create"} {
 		require.True(t,
 			subs[name])
-
 	}
 }
 
@@ -521,7 +496,6 @@ func TestNewMigrateDownCommand_YesFlag(t *testing.T) {
 	require.Equal(
 		t, "false",
 		f.DefValue)
-
 }
 
 // server.go
@@ -540,7 +514,6 @@ func TestNewServerCommand_Structure(t *testing.T) {
 	}
 	require.True(t,
 		subs["start"])
-
 }
 
 func TestNewServerStartCommand_ModeFlag(t *testing.T) {
@@ -553,10 +526,8 @@ func TestNewServerStartCommand_ModeFlag(t *testing.T) {
 
 	f := cmd.Flags().Lookup("mode")
 	require.NotNil(t, f)
-	require.Equal(
-		t, "",
-		f.DefValue)
-
+	require.Empty(
+		t, f.DefValue)
 }
 
 // services.go: retrySleep
@@ -574,7 +545,6 @@ func TestRetrySleep_ReturnsAfterDelay(t *testing.T) {
 	)
 
 	// attempt=0 means 1s delay; allow generous tolerance for CI
-
 }
 
 func TestRetrySleep_CancelledContext(t *testing.T) {
@@ -587,7 +557,6 @@ func TestRetrySleep_CancelledContext(t *testing.T) {
 	require.Error(
 		t, err,
 	)
-
 }
 
 func TestRetrySleep_NegativeAttempt(t *testing.T) {
@@ -600,7 +569,6 @@ func TestRetrySleep_NegativeAttempt(t *testing.T) {
 
 	err := retrySleep(ctx, -5)
 	require.NoError(t, err)
-
 }
 
 // services.go: nilSafeBillingEnforcer
@@ -610,7 +578,6 @@ func TestNilSafeBillingEnforcer_NilInput(t *testing.T) {
 
 	got := nilSafeBillingEnforcer(nil)
 	require.Nil(t, got)
-
 }
 
 func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
@@ -622,7 +589,6 @@ func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
 	var typed *billing.Enforcer
 	got := nilSafeBillingEnforcer(typed)
 	require.Nil(t, got)
-
 }
 
 // services.go: logWorkerShutdownStart / logWorkerShutdownComplete

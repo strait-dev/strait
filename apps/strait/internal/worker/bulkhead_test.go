@@ -23,7 +23,6 @@ func TestShardedBulkhead_AcquireUpToLimit(t *testing.T) {
 		require.True(t,
 			b.TryAcquire("job-1",
 				5))
-
 	}
 }
 
@@ -36,7 +35,6 @@ func TestShardedBulkhead_RejectsOverLimit(t *testing.T) {
 	require.False(t,
 		b.TryAcquire("job-1",
 			3))
-
 }
 
 func TestShardedBulkhead_ReleaseAllowsReacquire(t *testing.T) {
@@ -49,7 +47,6 @@ func TestShardedBulkhead_ReleaseAllowsReacquire(t *testing.T) {
 	require.True(t,
 		b.TryAcquire("job-1",
 			3))
-
 }
 
 func TestShardedBulkhead_ReleaseAll(t *testing.T) {
@@ -61,8 +58,7 @@ func TestShardedBulkhead_ReleaseAll(t *testing.T) {
 	for range 5 {
 		b.Release("job-1", 10)
 	}
-	require.EqualValues(t, 0, b.ActiveCount("job-1"))
-
+	require.Equal(t, 0, b.ActiveCount("job-1"))
 }
 
 func TestShardedBulkhead_MultipleJobs_Independent(t *testing.T) {
@@ -74,7 +70,6 @@ func TestShardedBulkhead_MultipleJobs_Independent(t *testing.T) {
 	require.True(t,
 		b.TryAcquire("job-B",
 			3))
-
 }
 
 func TestShardedBulkhead_MultipleJobs_EachHasOwnLimit(t *testing.T) {
@@ -92,7 +87,6 @@ func TestShardedBulkhead_MultipleJobs_EachHasOwnLimit(t *testing.T) {
 	require.False(t,
 		b.TryAcquire("job-B",
 			5))
-
 }
 
 func TestShardedBulkhead_DefaultLimitApplied(t *testing.T) {
@@ -104,7 +98,6 @@ func TestShardedBulkhead_DefaultLimitApplied(t *testing.T) {
 	require.False(t,
 		b.TryAcquire("job-1",
 			0))
-
 }
 
 func TestShardedBulkhead_ExplicitOverridesDefault(t *testing.T) {
@@ -114,12 +107,10 @@ func TestShardedBulkhead_ExplicitOverridesDefault(t *testing.T) {
 		require.True(t,
 			b.TryAcquire("job-1",
 				5))
-
 	}
 	require.False(t,
 		b.TryAcquire("job-1",
 			5))
-
 }
 
 func TestShardedBulkhead_DefaultZeroUnlimited(t *testing.T) {
@@ -129,7 +120,6 @@ func TestShardedBulkhead_DefaultZeroUnlimited(t *testing.T) {
 		require.True(t,
 			b.TryAcquire("job-1",
 				0))
-
 	}
 }
 
@@ -138,8 +128,7 @@ func TestShardedBulkhead_CleanupOnFullRelease(t *testing.T) {
 	b := NewShardedBulkhead(0)
 	b.TryAcquire("job-1", 5)
 	b.Release("job-1", 5)
-	require.EqualValues(t, 0, b.ActiveCount("job-1"))
-
+	require.Equal(t, 0, b.ActiveCount("job-1"))
 }
 
 func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
@@ -166,7 +155,6 @@ func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
 	require.EqualValues(t,
 		limit,
 		successes.Load())
-
 }
 
 func TestShardedBulkhead_ConcurrentMultipleJobs(t *testing.T) {
@@ -196,7 +184,6 @@ func TestShardedBulkhead_ConcurrentMultipleJobs(t *testing.T) {
 		require.LessOrEqual(t,
 			results[j].Load(), int32(limit),
 		)
-
 	}
 }
 
@@ -219,8 +206,7 @@ func TestShardedBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 	}
 
 	wg.Wait()
-	require.EqualValues(t, 0, b.ActiveCount("job-1"))
-
+	require.Equal(t, 0, b.ActiveCount("job-1"))
 }
 
 func TestShardedBulkhead_ShardDistribution(t *testing.T) {
@@ -238,7 +224,6 @@ func TestShardedBulkhead_ShardDistribution(t *testing.T) {
 	}
 	require.GreaterOrEqual(
 		t, len(shardsSeen), 10)
-
 }
 
 func TestShardedBulkhead_ReleaseWithoutAcquire(t *testing.T) {
@@ -246,8 +231,7 @@ func TestShardedBulkhead_ReleaseWithoutAcquire(t *testing.T) {
 	b := NewShardedBulkhead(0)
 	// Should not panic.
 	b.Release("never-acquired", 5)
-	require.EqualValues(t, 0, b.ActiveCount("never-acquired"))
-
+	require.Equal(t, 0, b.ActiveCount("never-acquired"))
 }
 
 func TestShardedBulkhead_ExplicitLimitOne(t *testing.T) {
@@ -264,7 +248,6 @@ func TestShardedBulkhead_ExplicitLimitOne(t *testing.T) {
 	require.True(t,
 		b.TryAcquire("job-1",
 			1))
-
 }
 
 func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
@@ -276,12 +259,10 @@ func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
 		require.True(t,
 			exec.tryAcquireBulkheadSlot("job-1",
 				0))
-
 	}
 	require.False(t,
 		exec.tryAcquireBulkheadSlot("job-1",
 			0))
-
 }
 
 func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
@@ -293,12 +274,10 @@ func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
 		require.True(t,
 			exec.tryAcquireBulkheadSlot("job-1",
 				5))
-
 	}
 	require.False(t,
 		exec.tryAcquireBulkheadSlot("job-1",
 			5))
-
 }
 
 func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
@@ -310,7 +289,6 @@ func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
 		require.True(t,
 			exec.tryAcquireBulkheadSlot("job-1",
 				0))
-
 	}
 }
 
@@ -353,7 +331,6 @@ func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
 		"job bulkhead at capacity",
 
 		calls[0].fields["error"])
-
 }
 
 func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
@@ -386,9 +363,8 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 			calls[1].to !=
 				domain.StatusCompleted,
 	)
-	require.EqualValues(t, 0, exec.
+	require.Equal(t, 0, exec.
 		bulkhead.ActiveCount("job-1"))
-
 }
 
 func newBulkheadTestExecutor(t *testing.T, defaultLimit int) *Executor {

@@ -58,12 +58,10 @@ func TestStreamSSEHandlersAreThinWrappers(t *testing.T) {
 			return true
 		})
 		require.True(t, sawStreamSSE)
-
 	}
 
 	for _, found := range wrappers {
 		require.True(t, found)
-
 	}
 }
 
@@ -97,6 +95,5 @@ func TestStreamSSESingleSubscribeCall(t *testing.T) {
 		}
 		return true
 	})
-	require.EqualValues(t, 1, subscribes)
-
+	require.Equal(t, 1, subscribes)
 }

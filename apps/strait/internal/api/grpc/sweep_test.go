@@ -51,5 +51,4 @@ func TestConnectedWorkerRefs_IncludesAllConnectedWorkers(t *testing.T) {
 			ProjectID: "project-1",
 		}] ||
 			!got[store.ActiveWorkerRef{WorkerID: "worker-draining", ProjectID: "project-1"}])
-
 }

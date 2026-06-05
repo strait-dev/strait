@@ -44,7 +44,6 @@ func TestTrigger_TTLSecsRejectsOverflow(t *testing.T) {
 		w.Code !=
 			http.StatusUnprocessableEntity,
 	)
-
 }
 
 func TestTrigger_TTLSecsAcceptsBoundary(t *testing.T) {
@@ -63,7 +62,6 @@ func TestTrigger_TTLSecsAcceptsBoundary(t *testing.T) {
 		w2.Code !=
 			http.
 				StatusUnprocessableEntity)
-
 }
 
 func TestTrigger_KeysRejectOversize(t *testing.T) {
@@ -86,7 +84,6 @@ func TestTrigger_KeysRejectOversize(t *testing.T) {
 				w.Code !=
 					http.StatusUnprocessableEntity,
 			)
-
 		})
 	}
 }
@@ -100,7 +97,6 @@ func TestTrigger_KeysAcceptBoundary(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"concurrency_key":"`+atSize+`"}`, "proj-1"))
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }
 
 func TestTrigger_TraceparentHeaderRejectsOversize(t *testing.T) {
@@ -114,9 +110,8 @@ func TestTrigger_TraceparentHeaderRejectsOversize(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "traceparent"))
-
+	require.Contains(
+		t, w.Body.String(), "traceparent")
 }
 
 func TestTrigger_TracestateHeaderRejectsOversize(t *testing.T) {
@@ -130,9 +125,8 @@ func TestTrigger_TracestateHeaderRejectsOversize(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "tracestate"))
-
+	require.Contains(
+		t, w.Body.String(), "tracestate")
 }
 
 func TestTrigger_SentryTraceAndBaggageHeadersRejectOversize(t *testing.T) {
@@ -156,9 +150,8 @@ func TestTrigger_SentryTraceAndBaggageHeadersRejectOversize(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 				w.Code,
 			)
-			require.True(
-				t, strings.Contains(w.Body.String(), tc.want))
-
+			require.Contains(
+				t, w.Body.String(), tc.want)
 		})
 	}
 }
@@ -176,7 +169,6 @@ func TestTrigger_TraceHeadersAcceptBoundary(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }
 
 func TestApplyRunTraceHeaderMetadata_TruncatesOversizeValues(t *testing.T) {
@@ -186,17 +178,12 @@ func TestApplyRunTraceHeaderMetadata_TruncatesOversizeValues(t *testing.T) {
 	tooLongOther := strings.Repeat("x", 9000)
 
 	got := applyRunTraceHeaderMetadata(nil, tooLongTraceparent, tooLongOther, tooLongOther, tooLongOther)
-	require.Equal(t, maxTraceparentLen,
-		len(got[domain.
-			RunMetadataTraceParent]))
-	require.Equal(t, maxTraceHeaderLen,
-		len(got[domain.
-			RunMetadataTraceState]))
-	require.Equal(t, maxTraceHeaderLen,
-		len(got[domain.
-			RunMetadataSentryTrace]))
-	require.Equal(t, maxTraceHeaderLen,
-		len(got[domain.
-			RunMetadataSentryBaggage]))
-
+	require.Len(t, got[domain.
+		RunMetadataTraceParent], maxTraceparentLen)
+	require.Len(t, got[domain.
+		RunMetadataTraceState], maxTraceHeaderLen)
+	require.Len(t, got[domain.
+		RunMetadataSentryTrace], maxTraceHeaderLen)
+	require.Len(t, got[domain.
+		RunMetadataSentryBaggage], maxTraceHeaderLen)
 }

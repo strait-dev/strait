@@ -98,9 +98,8 @@ func TestAsFloat_Adversarial(t *testing.T) {
 
 				return
 			}
-			require.Equal(t, tt.
-				wantF, gotF)
-
+			require.InDelta(t, tt.
+				wantF, gotF, 1e-9)
 		})
 	}
 }
@@ -117,7 +116,6 @@ func TestEvaluateCondition_NumericComparisonNonNumeric(t *testing.T) {
 			cond := mustJSON(`{"type":"` + op + `","left":"abc","right":"def"}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 			require.Error(t, err)
-
 		})
 
 		t.Run(op+"_bool_operands", func(t *testing.T) {
@@ -125,7 +123,6 @@ func TestEvaluateCondition_NumericComparisonNonNumeric(t *testing.T) {
 			cond := mustJSON(`{"type":"` + op + `","left":true,"right":false}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 			require.Error(t, err)
-
 		})
 
 		t.Run(op+"_null_operand", func(t *testing.T) {
@@ -133,7 +130,6 @@ func TestEvaluateCondition_NumericComparisonNonNumeric(t *testing.T) {
 			cond := mustJSON(`{"type":"` + op + `","left":null,"right":1}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -205,7 +201,6 @@ func TestTryReleaseDependencyRuns_AllSatisfied(t *testing.T) {
 	cb.tryReleaseDependencyRuns(context.Background(), run)
 	require.Len(t, queuedIDs,
 		2)
-
 }
 
 func TestTryReleaseDependencyRuns_SomePending(t *testing.T) {
@@ -239,7 +234,6 @@ func TestTryReleaseDependencyRuns_SomePending(t *testing.T) {
 	require.False(t, len(queuedIDs) !=
 		1 || queuedIDs[0] != "wr-1",
 	)
-
 }
 
 func TestTryReleaseDependencyRuns_FailedDependencyNotReleased(t *testing.T) {
@@ -269,9 +263,7 @@ func TestTryReleaseDependencyRuns_FailedDependencyNotReleased(t *testing.T) {
 	// The completing run itself is failed.
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusFailed}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
-	require.Len(t, queuedIDs,
-		0)
-
+	require.Empty(t, queuedIDs)
 }
 
 func TestTryReleaseDependencyRuns_DuplicateDependentJobIDs(t *testing.T) {
@@ -298,7 +290,6 @@ func TestTryReleaseDependencyRuns_DuplicateDependentJobIDs(t *testing.T) {
 		1)
 
 	// Deduplication should result in a single job ID.
-
 }
 
 func TestTryReleaseDependencyRuns_ListDependentsError(t *testing.T) {
@@ -344,11 +335,10 @@ func TestTryReleaseDependencyRuns_DependencyCheckError(t *testing.T) {
 	cb := newTestCallback(ms)
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		queuedCount)
 
 	// Only wr-2 should be queued; wr-1 error should be skipped.
-
 }
 
 func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
@@ -388,7 +378,6 @@ func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
 
 	// Each goroutine calls independently; the store mock is stateless so all
 	// 10 should succeed. This tests that no race condition panics occur.
-
 }
 
 // 3. enqueueStepAnalytics (callback.go, 22.2% coverage)
@@ -623,9 +612,7 @@ func TestSkipDependentSteps_NoDependents(t *testing.T) {
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
 	require.NoError(t,
 		err)
-	require.Len(t, skippedRefs,
-		0)
-
+	require.Empty(t, skippedRefs)
 }
 
 func TestSkipDependentSteps_DiamondDAG(t *testing.T) {
@@ -657,10 +644,8 @@ func TestSkipDependentSteps_DiamondDAG(t *testing.T) {
 
 	for _, ref := range []string{"b", "c", "d"} {
 		assert.True(t, skippedRefs[ref])
-
 	}
 	assert.False(t, skippedRefs["a"])
-
 }
 
 func TestSkipDependentSteps_FanOut(t *testing.T) {
@@ -691,7 +676,6 @@ func TestSkipDependentSteps_FanOut(t *testing.T) {
 		err)
 	require.Len(t, skippedRefs,
 		5)
-
 }
 
 func TestSkipDependentSteps_DeepChain(t *testing.T) {
@@ -724,7 +708,6 @@ func TestSkipDependentSteps_DeepChain(t *testing.T) {
 
 	for _, ref := range []string{"b", "c", "d", "e"} {
 		assert.True(t, skippedRefs[ref])
-
 	}
 }
 
@@ -757,7 +740,6 @@ func TestSkipDependentSteps_MiddleNodeFail(t *testing.T) {
 	assert.True(t, skippedRefs["d"])
 	assert.False(t, skippedRefs["c"])
 	assert.False(t, skippedRefs["a"])
-
 }
 
 func TestSkipDependentSteps_StoreError(t *testing.T) {
@@ -777,7 +759,6 @@ func TestSkipDependentSteps_StoreError(t *testing.T) {
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
 	require.Error(t, err)
-
 }
 
 // 6. Complex condition edge cases via EvaluateCondition
@@ -876,7 +857,6 @@ func TestEvaluateCondition_ConditionalBranch_EdgeValues(t *testing.T) {
 				err)
 			require.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
@@ -898,7 +878,6 @@ func TestEvaluateCondition_DeeplyNestedAllOf(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, got)
-
 }
 
 // 7. mapRunStatusToStepStatus edge cases
@@ -940,7 +919,6 @@ func TestMapRunStatusToStepStatus_AllTerminalStatuses(t *testing.T) {
 					domain.
 						StatusCanceled,
 			)
-
 		})
 	}
 }
@@ -973,7 +951,6 @@ func TestMapRunStatusToStepStatus_FailedNoError(t *testing.T) {
 	errField, ok := fields["error"].(string)
 	require.False(t, !ok || errField ==
 		"")
-
 }
 
 // 8. approvalAuditActor edge cases
@@ -1001,7 +978,6 @@ func TestApprovalAuditActor_EdgeCases(t *testing.T) {
 				wantID, id)
 			assert.Equal(t, tt.
 				wantType, typ)
-
 		})
 	}
 }
@@ -1017,7 +993,6 @@ func TestEffectiveResourceClass_Adversarial(t *testing.T) {
 	)
 	require.Equal(t, "custom",
 		effectiveResourceClass("custom"))
-
 }
 
 func TestHasResourceClassCapacity_Limits(t *testing.T) {
@@ -1064,7 +1039,6 @@ func TestHasResourceClassCapacity_Limits(t *testing.T) {
 	require.False(t, hasResourceClassCapacity(running,
 		"unknown-class",
 	))
-
 }
 
 // 10. advisoryXactLockIDForStepRun determinism
@@ -1082,7 +1056,6 @@ func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 	require.GreaterOrEqual(t, id1, int64(0))
 
 	// Must be non-negative (masked with 0x7fffffffffffffff).
-
 }
 
 // checkStepRetry boundary tests (callback_retry.go)
@@ -1101,7 +1074,6 @@ func TestCheckStepRetry_MaxAttemptsZero(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.False(t, shouldRetry)
-
 }
 
 func TestCheckStepRetry_MaxAttemptsNegative(t *testing.T) {
@@ -1118,7 +1090,6 @@ func TestCheckStepRetry_MaxAttemptsNegative(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.False(t, shouldRetry)
-
 }
 
 func TestCheckStepRetry_AttemptEqualsMax(t *testing.T) {
@@ -1135,7 +1106,6 @@ func TestCheckStepRetry_AttemptEqualsMax(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.False(t, shouldRetry)
-
 }
 
 func TestCheckStepRetry_AttemptBelowMax(t *testing.T) {
@@ -1152,9 +1122,8 @@ func TestCheckStepRetry_AttemptBelowMax(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, shouldRetry)
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 		newAttempt)
-
 }
 
 func TestCheckStepRetry_StepNotFound(t *testing.T) {
@@ -1169,7 +1138,6 @@ func TestCheckStepRetry_StepNotFound(t *testing.T) {
 	)
 	_, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
 	require.Error(t, err)
-
 }
 
 // OnJobRunTerminal OutputTransform tests
@@ -1241,7 +1209,6 @@ func TestOnJobRunTerminal_OutputTransformApplied(t *testing.T) {
 		string(output))
 	assert.NotEmpty(t,
 		output)
-
 }
 
 func TestOnJobRunTerminal_NoOutputTransform(t *testing.T) {
@@ -1303,11 +1270,9 @@ func TestOnJobRunTerminal_NoOutputTransform(t *testing.T) {
 
 	output, ok := storedFields["output"].(json.RawMessage)
 	require.True(t, ok)
-	assert.Equal(t, `{"result":"value"}`,
+	assert.JSONEq(t, `{"result":"value"}`,
 
-		string(
-			output))
-
+		string(output))
 }
 
 func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
@@ -1407,7 +1372,6 @@ func TestEmitEventIfConfigured_JobRunSourceType(t *testing.T) {
 	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
 	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
 	require.True(t, requeued)
-
 }
 
 func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
@@ -1437,7 +1401,6 @@ func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
 	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
 	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
 	require.False(t, updateRunCalled)
-
 }
 
 // scheduleRunnableSteps concurrency key tests
@@ -1478,7 +1441,6 @@ func TestScheduleRunnableSteps_ConcurrencyKeyBlocking(t *testing.T) {
 	for _, jobID := range enqueuedSteps {
 		require.NotEqual(t,
 			"j-b", jobID)
-
 	}
 }
 
@@ -1522,7 +1484,6 @@ func TestScheduleRunnableSteps_DifferentConcurrencyKeys(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 // scheduleRunnableSteps resource class capacity
@@ -1567,7 +1528,6 @@ func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
 	for _, jobID := range enqueuedSteps {
 		require.NotEqual(t,
 			"j-new", jobID)
-
 	}
 }
 
@@ -1601,7 +1561,6 @@ func TestScheduleRunnableSteps_NoDependsOn_NoParentOutputs(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, getStepOutputsCalled)
-
 }
 
 func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
@@ -1640,7 +1599,6 @@ func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, getStepOutputsCalled)
-
 }
 
 // propagateToParent -- direct lookup vs fallback
@@ -1707,7 +1665,6 @@ func TestPropagateToParent_WithParentStepRunID(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, directLookupUsed)
-
 }
 
 func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
@@ -1774,7 +1731,6 @@ func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, fallbackUsed)
-
 }
 
 // propagateToParent output aggregation
@@ -1934,7 +1890,6 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, outputFieldSet)
-
 }
 
 // propagateToParent canceled child
@@ -1995,9 +1950,8 @@ func TestPropagateToParent_CanceledChild(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, parentStepFailed)
-	assert.NotEqual(t,
-		"", errorMsg)
-
+	assert.NotEmpty(t,
+		errorMsg)
 }
 
 // OnEventReceived tests
@@ -2009,7 +1963,6 @@ func TestOnEventReceived_NilTrigger(t *testing.T) {
 	err := cb.OnEventReceived(context.Background(), nil)
 	require.NoError(t,
 		err)
-
 }
 
 func TestOnEventReceived_NonWorkflowStepSource(t *testing.T) {
@@ -2024,7 +1977,6 @@ func TestOnEventReceived_NonWorkflowStepSource(t *testing.T) {
 	err := cb.OnEventReceived(context.Background(), trigger)
 	require.NoError(t,
 		err)
-
 }
 
 func TestOnEventReceived_EmptyStepRunID(t *testing.T) {
@@ -2039,7 +1991,6 @@ func TestOnEventReceived_EmptyStepRunID(t *testing.T) {
 	err := cb.OnEventReceived(context.Background(), trigger)
 	require.NoError(t,
 		err)
-
 }
 
 func TestOnEventReceived_TerminalNonCompleted(t *testing.T) {
@@ -2060,7 +2011,6 @@ func TestOnEventReceived_TerminalNonCompleted(t *testing.T) {
 	err := cb.OnEventReceived(context.Background(), trigger)
 	require.NoError(t,
 		err)
-
 }
 
 func TestOnEventReceived_NonTerminalStep_WithPayload(t *testing.T) {
@@ -2120,10 +2070,9 @@ func TestOnEventReceived_NonTerminalStep_WithPayload(t *testing.T) {
 
 	output, ok := storedFields["output"]
 	require.True(t, ok)
-	assert.Equal(t, `{"event":"data"}`,
+	assert.JSONEq(t, `{"event":"data"}`,
 
 		string(output.(json.RawMessage)))
-
 }
 
 func TestOnEventReceived_NonTerminalStep_EmptyPayload(t *testing.T) {

@@ -57,5 +57,4 @@ func TestBillingSentryBreadcrumbUsesContextHub(t *testing.T) {
 
 		event.Breadcrumbs[0].Category,
 	)
-
 }

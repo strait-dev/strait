@@ -43,7 +43,6 @@ func FuzzPubSubMessageSerialization(f *testing.F) {
 			msg.Channel, decoded.
 				Channel,
 		)
-
 	})
 }
 
@@ -173,7 +172,6 @@ func FuzzResilientPublisherRecovery(f *testing.F) {
 		if successes > 0 {
 			assert.True(t, rp.
 				IsHealthy())
-
 		}
 	})
 }
@@ -214,7 +212,6 @@ func FuzzNewSubscriptionClose(f *testing.F) {
 		if closeImmediately {
 			sub.Close()
 			assert.True(t, called)
-
 		}
 
 		// closedSubscription helper must not panic.

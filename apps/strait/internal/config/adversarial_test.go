@@ -57,7 +57,6 @@ func TestConfig_NegativePort(t *testing.T) {
 	assert.Equal(t,
 		-1, cfg.
 			Port)
-
 }
 
 // TestConfig_EmptyDatabaseURL verifies that missing DATABASE_URL returns
@@ -80,7 +79,6 @@ func TestConfig_EmptyDatabaseURL(t *testing.T) {
 		"DATABASE_URL",
 		cfgErr.
 			Field)
-
 }
 
 // TestConfig_MalformedDatabaseURL verifies that a malformed DATABASE_URL
@@ -104,7 +102,6 @@ func TestConfig_MalformedDatabaseURL(t *testing.T) {
 
 		cfg.DatabaseURL,
 	)
-
 }
 
 // TestConfig_ExtremeWorkerConcurrency verifies that an extreme concurrency
@@ -123,7 +120,6 @@ func TestConfig_ExtremeWorkerConcurrency(t *testing.T) {
 		cfg.
 			WorkerConcurrency,
 	)
-
 }
 
 // FuzzConfigParsing fuzzes key environment variables to check for panics

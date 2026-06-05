@@ -48,13 +48,10 @@ func TestRegistry_StaleDeregisterIsNoop(t *testing.T) {
 	// And byAPIKey index must still hold the new entry.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	require.EqualValues(t, 1,
-		len(r.byAPIKey["key-1"]),
-	)
+	require.Len(t, r.byAPIKey["key-1"], 1)
 	require.Equal(t, w2.
 		regToken, r.byAPIKey["key-1"][0].
 		regToken)
-
 }
 
 // TestRegistry_ReconnectClosesOldRevokeCh asserts that the existing entry's
@@ -108,13 +105,11 @@ func TestRegistry_ReconnectAlreadyClosedRevokeCh(t *testing.T) {
 
 	defer func() {
 		require.Nil(t, recover())
-
 	}()
 	w2 := makeWorker("w1", "proj-a", "key-1", []string{"default"}, 4)
 	require.NoError(t,
 		r.Register(w2),
 	)
-
 }
 
 // TestRegistry_DeregisterZeroTokenIsNoop guards accidental zero-token calls
@@ -128,9 +123,7 @@ func TestRegistry_DeregisterZeroTokenIsNoop(t *testing.T) {
 		r.Register(w))
 
 	r.Deregister("w1", 0)
-	require.EqualValues(t, 1,
-		len(r.Snapshot()))
-
+	require.Len(t, r.Snapshot(), 1)
 }
 
 // TestRegistry_ReconnectStorm hammers the same workerID with many concurrent

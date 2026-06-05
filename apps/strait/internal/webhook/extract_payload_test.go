@@ -18,13 +18,12 @@ func TestExtractPayload_PrefersPayloadOverLastError(t *testing.T) {
 		LastError: `{"trigger_id":"t-shadow"}`,
 	}
 	got := extractPayload(d)
-	require.Equal(t, `{"event_key":"x","project_id":"p"}`,
+	require.JSONEq(t, `{"event_key":"x","project_id":"p"}`,
 
 		string(got))
-	require.Equal(t, `{"trigger_id":"t-shadow"}`,
+	require.JSONEq(t, `{"trigger_id":"t-shadow"}`,
 
 		d.LastError)
-
 }
 
 func TestExtractPayload_FallsBackToLastErrorWhenJSON(t *testing.T) {
@@ -35,11 +34,10 @@ func TestExtractPayload_FallsBackToLastErrorWhenJSON(t *testing.T) {
 		LastError: `{"k":"v"}`,
 	}
 	got := extractPayload(d)
-	require.Equal(t, `{"k":"v"}`,
+	require.JSONEq(t, `{"k":"v"}`,
 		string(got))
-	require.Equal(t, "", d.
+	require.Empty(t, d.
 		LastError)
-
 }
 
 func TestExtractPayload_FallsBackToMinimalWhenNeither(t *testing.T) {
@@ -56,7 +54,6 @@ func TestExtractPayload_FallsBackToMinimalWhenNeither(t *testing.T) {
 			got,
 			&parsed))
 	require.False(t, parsed["trigger_id"] != "trig-1" || parsed["delivery_id"] != "del-1")
-
 }
 
 func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {
@@ -68,8 +65,7 @@ func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {
 		LastError: "connection refused",
 	}
 	got := extractPayload(d)
-	require.Equal(t, `{"event_key":"x"}`,
+	require.JSONEq(t, `{"event_key":"x"}`,
 
 		string(got))
-
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -49,7 +48,6 @@ func TestHandleCreateLogDrain_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "my-drain", resp.
 		Name)
-
 }
 
 func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
@@ -61,7 +59,6 @@ func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
@@ -75,10 +72,9 @@ func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "validation"),
+	require.Contains(
+		t, w.Body.String(), "validation",
 	)
-
 }
 
 // handleListLogDrains.
@@ -105,7 +101,6 @@ func TestHandleListLogDrains_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t,
 		resp, 2)
-
 }
 
 // handleGetLogDrain.
@@ -131,7 +126,6 @@ func TestHandleGetLogDrain_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "drain-1", resp.
 		ID)
-
 }
 
 func TestHandleGetLogDrain_NotFound(t *testing.T) {
@@ -148,7 +142,6 @@ func TestHandleGetLogDrain_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // handleUpdateLogDrain.
@@ -179,7 +172,6 @@ func TestHandleUpdateLogDrain_Success(t *testing.T) {
 	require.Equal(t, "updated-drain",
 		resp.Name,
 	)
-
 }
 
 func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
@@ -191,9 +183,8 @@ func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "no fields to update"))
-
+	require.Contains(
+		t, w.Body.String(), "no fields to update")
 }
 
 // handleDeleteLogDrain.
@@ -212,7 +203,6 @@ func TestHandleDeleteLogDrain_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
@@ -229,7 +219,6 @@ func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // Regression: auth_config secrets must never be returned in API responses.
@@ -259,12 +248,11 @@ func TestHandleLogDrain_AuthConfigRedactedOnCreate(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.False(t, strings.Contains(w.Body.String(), "super-secret-bearer-token"))
+	require.NotContains(t, w.Body.String(), "super-secret-bearer-token")
 
 	var resp domain.LogDrain
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "***", resp.AuthConfig["token"])
-
 }
 
 func TestHandleLogDrain_AuthConfigRedactedOnGet(t *testing.T) {
@@ -284,8 +272,7 @@ func TestHandleLogDrain_AuthConfigRedactedOnGet(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-1", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.False(t, strings.Contains(w.Body.String(), "stored-secret-from-db"))
-
+	require.NotContains(t, w.Body.String(), "stored-secret-from-db")
 }
 
 func TestHandleLogDrain_AuthConfigRedactedOnList(t *testing.T) {
@@ -305,8 +292,7 @@ func TestHandleLogDrain_AuthConfigRedactedOnList(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.False(t, strings.Contains(w.Body.String(), "list-leak-secret"))
-
+	require.NotContains(t, w.Body.String(), "list-leak-secret")
 }
 
 // handleBulkReplayRuns.
@@ -343,8 +329,7 @@ func TestHandleBulkReplayRuns_Success(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.EqualValues(t, 1, int(resp["replayed"].(float64)))
-
+	require.Equal(t, 1, int(resp["replayed"].(float64)))
 }
 
 func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
@@ -371,7 +356,6 @@ func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
 	results := resp["results"].([]any)
 	first := results[0].(map[string]any)
 	require.Equal(t, "skipped", first["status"])
-
 }
 
 func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
@@ -407,7 +391,7 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.EqualValues(t, 0, int(resp["replayed"].(float64)))
+	require.Equal(t, 0, int(resp["replayed"].(float64)))
 
 	results := resp["results"].([]any)
 	require.Len(t,
@@ -417,7 +401,6 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 	require.False(t, result["status"] != "failed" ||
 		result["error"] != "job not found or disabled",
 	)
-
 }
 
 func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
@@ -430,5 +413,4 @@ func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }

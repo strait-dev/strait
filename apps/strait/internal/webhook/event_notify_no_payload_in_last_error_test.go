@@ -44,11 +44,9 @@ func TestEnqueueRunWebhook_DoesNotStashPayloadInLastError(t *testing.T) {
 		1)
 
 	d := deliveries[0]
-	assert.Equal(t, "",
-		d.LastError)
+	assert.Empty(t, d.LastError)
 	assert.NotEmpty(t,
 		d.Payload)
-
 }
 
 // Regression guard: EnqueueSubscriptionWebhooks must not stash the payload in
@@ -77,8 +75,6 @@ func TestEnqueueSubscriptionWebhooks_DoesNotStashPayloadInLastError(t *testing.T
 		1)
 
 	d := deliveries[0]
-	assert.Equal(t, "",
-		d.LastError)
+	assert.Empty(t, d.LastError)
 	assert.Equal(t, string(payload), string(d.Payload))
-
 }

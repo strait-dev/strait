@@ -16,10 +16,9 @@ func TestCalculateErrorBudget_SuccessRate_FullBudget(t *testing.T) {
 	t.Parallel()
 	// 100% success with 99% target = full budget (only 1% allowed to fail, none failed).
 	budget := CalculateErrorBudget(1.0, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 1.0,
+	assert.InDelta(t, 1.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_SuccessRate_HalfBudget(t *testing.T) {
@@ -29,27 +28,24 @@ func TestCalculateErrorBudget_SuccessRate_HalfBudget(t *testing.T) {
 	assert.False(t, budget <
 		0.49 || budget > 0.51,
 	)
-
 }
 
 func TestCalculateErrorBudget_SuccessRate_BudgetDepleted(t *testing.T) {
 	t.Parallel()
 	// 95% success vs 99% target = 5x over budget.
 	budget := CalculateErrorBudget(0.95, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
+	assert.InDelta(t, 0.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_SuccessRate_ExactlyAtTarget(t *testing.T) {
 	t.Parallel()
 	// At exactly the target: 1 - ((1-0.95)/(1-0.95)) = 1-1 = 0.
 	budget := CalculateErrorBudget(0.95, 0.95, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
+	assert.InDelta(t, 0.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_SuccessRate_BetterThanTarget(t *testing.T) {
@@ -57,7 +53,6 @@ func TestCalculateErrorBudget_SuccessRate_BetterThanTarget(t *testing.T) {
 	// 99.9% success vs 95% target = lots of budget.
 	budget := CalculateErrorBudget(0.999, 0.95, domain.SLOMetricSuccessRate)
 	assert.GreaterOrEqual(t, budget, 0.95)
-
 }
 
 func TestCalculateErrorBudget_Latency_WellUnderTarget(t *testing.T) {
@@ -67,35 +62,31 @@ func TestCalculateErrorBudget_Latency_WellUnderTarget(t *testing.T) {
 	assert.False(t, budget <
 		0.89 || budget > 0.91,
 	)
-
 }
 
 func TestCalculateErrorBudget_Latency_DoubleTarget(t *testing.T) {
 	t.Parallel()
 	// P95 = 2.0s vs target 1.0s = depleted.
 	budget := CalculateErrorBudget(2.0, 1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 0.0,
+	assert.InDelta(t, 0.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_ExactlyAtTarget(t *testing.T) {
 	t.Parallel()
 	budget := CalculateErrorBudget(1.0, 1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 0.0,
+	assert.InDelta(t, 0.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_ZeroLatency(t *testing.T) {
 	t.Parallel()
 	budget := CalculateErrorBudget(0.0, 1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 1.0,
+	assert.InDelta(t, 1.0,
 
-		budget)
-
+		budget, 1e-9)
 }
 
 // Budget always in [0, 1] with extreme inputs.
@@ -124,7 +115,6 @@ func TestCalculateErrorBudget_ExtremeInputs(t *testing.T) {
 			budget := CalculateErrorBudget(tt.current, tt.target, tt.metric)
 			assert.False(t, budget <
 				0 || budget > 1)
-
 		})
 	}
 }
@@ -136,16 +126,14 @@ func TestMetricValue_NilStats(t *testing.T) {
 	// This shouldn't be called with nil, but verify no panic.
 	defer func() {
 		require.Nil(t, recover())
-
 	}()
 	// metricValue with nil stats would panic on field access.
 	// The caller (evaluateSLO) checks for nil, so this tests the guard.
 	stats := &store.JobHealthStats{}
 	val := metricValue(domain.SLOMetricSuccessRate, stats)
-	assert.EqualValues(t, 0,
-		val,
+	assert.InDelta(t, 0,
+		val, 1e-9,
 	)
-
 }
 
 func TestMetricValue_AllMetricTypes(t *testing.T) {
@@ -156,24 +144,23 @@ func TestMetricValue_AllMetricTypes(t *testing.T) {
 		P95DurationSecs: 1.5,
 		P99DurationSecs: 2.3,
 	}
-	assert.EqualValues(t, 0.95,
+	assert.InDelta(t, 0.95,
 
 		metricValue(domain.SLOMetricSuccessRate,
-			stats))
-	assert.EqualValues(t, 1.5,
+			stats), 1e-9)
+	assert.InDelta(t, 1.5,
 
 		metricValue(domain.SLOMetricP95LatencySecs,
-			stats),
+			stats), 1e-9,
 	)
-	assert.EqualValues(t, 2.3,
+	assert.InDelta(t, 2.3,
 
 		metricValue(domain.SLOMetricP99LatencySecs,
-			stats),
+			stats), 1e-9,
 	)
-	assert.EqualValues(t, 0,
+	assert.InDelta(t, 0,
 		metricValue("unknown_metric",
-			stats))
-
+			stats), 1e-9)
 }
 
 // SLO domain type tests.
@@ -183,10 +170,9 @@ func TestJobSLO_WindowHoursValid(t *testing.T) {
 	validWindows := []int{24, 168, 720}
 	for _, w := range validWindows {
 		slo := domain.JobSLO{WindowHours: w}
-		assert.Equal(t, w,
+		assert.InDelta(t, w,
 			slo.
-				WindowHours)
-
+				WindowHours, 1e-9)
 	}
 }
 
@@ -203,13 +189,12 @@ func TestJobSLOStatus_WithEvaluation(t *testing.T) {
 		CurrentValue:    &cv,
 		BudgetRemaining: &br,
 	}
-	assert.EqualValues(t, 0.95,
+	assert.InDelta(t, 0.95,
 
-		*status.CurrentValue)
-	assert.EqualValues(t, 0.8,
+		*status.CurrentValue, 1e-9)
+	assert.InDelta(t, 0.8,
 
-		*status.BudgetRemaining)
-
+		*status.BudgetRemaining, 1e-9)
 }
 
 func TestJobSLOStatus_WithoutEvaluation(t *testing.T) {
@@ -224,7 +209,6 @@ func TestJobSLOStatus_WithoutEvaluation(t *testing.T) {
 	assert.Nil(t, status.CurrentValue)
 	assert.Nil(t, status.BudgetRemaining)
 	assert.Nil(t, status.EvaluatedAt)
-
 }
 
 // Evaluator empty SLO list test.
@@ -235,8 +219,7 @@ func TestSLOEvaluator_EmptySLOList(t *testing.T) {
 	// We cannot easily test with nil store (panics), so this tests the
 	// domain logic instead.
 	budget := CalculateErrorBudget(1.0, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 1.0,
+	assert.InDelta(t, 1.0,
 
-		budget)
-
+		budget, 1e-9)
 }

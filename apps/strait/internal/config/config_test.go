@@ -164,7 +164,6 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 	for _, tt := range falseFields {
 		t.Run(tt.name, func(t *testing.T) {
 			require.False(t, tt.got)
-
 		})
 	}
 	require.True(t, cfg.ProfilingAPIEnabled)
@@ -178,7 +177,6 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 	require.Equal(t, 100000, cfg.
 		ProfilingBlockRate,
 	)
-
 }
 
 func TestLoad_RequiredFields(t *testing.T) {
@@ -225,8 +223,7 @@ func TestLoad_RequiredFields(t *testing.T) {
 			tt.setEnv(t)
 			_, err := Load()
 			require.Error(t, err)
-			require.True(t, strings.Contains(err.Error(), tt.errorSub))
-
+			require.Contains(t, err.Error(), tt.errorSub)
 		})
 	}
 }
@@ -254,7 +251,6 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	)
 	require.Equal(t, 3, cfg.AdaptiveConcurrencyMin)
 	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
-
 }
 
 func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
@@ -277,7 +273,6 @@ func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
 		cfg.EncryptionKeyOld[1] !=
 			"old-key-2" ||
 		cfg.EncryptionKeyOld[2] != "old-key-3")
-
 }
 
 func TestLoad_EncryptionKeyMirroring(t *testing.T) {
@@ -290,7 +285,6 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		require.Equal(t, "my-key", cfg.
 			SecretEncryptionKey,
 		)
-
 	})
 
 	t.Run("secret encryption key fills encryption key", func(t *testing.T) {
@@ -302,7 +296,6 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		require.Equal(t, "my-secret-key",
 			cfg.EncryptionKey,
 		)
-
 	})
 
 	t.Run("both set independently", func(t *testing.T) {
@@ -318,7 +311,6 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		require.Equal(t, "secret-key",
 			cfg.SecretEncryptionKey,
 		)
-
 	})
 }
 
@@ -328,8 +320,7 @@ func TestLoad_InvalidSequinBaseURL(t *testing.T) {
 
 	_, err := Load()
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "SEQUIN_BASE_URL"))
-
+	require.Contains(t, err.Error(), "SEQUIN_BASE_URL")
 }
 
 func TestLoad_ValidConfig(t *testing.T) {
@@ -343,7 +334,6 @@ func TestLoad_ValidConfig(t *testing.T) {
 
 		cfg.RedisURL,
 	)
-
 }
 
 func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
@@ -352,7 +342,6 @@ func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, 50, cfg.WebhookConcurrency)
-
 }
 
 func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
@@ -362,7 +351,6 @@ func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, 100, cfg.WebhookConcurrency)
-
 }
 
 func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
@@ -371,7 +359,6 @@ func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, 500, cfg.MaxBulkTriggerItems)
-
 }
 
 func TestLoad_DurationOverrides(t *testing.T) {
@@ -411,7 +398,6 @@ func TestLoad_DurationOverrides(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.
 				got)
-
 		})
 	}
 }
@@ -479,7 +465,6 @@ func TestLoad_BoolOverrides(t *testing.T) {
 
 		cfg.ProfilingSecret,
 	)
-
 }
 
 func TestLoad_Float64Override(t *testing.T) {
@@ -488,8 +473,7 @@ func TestLoad_Float64Override(t *testing.T) {
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, 85.5, cfg.MemoryPressureThresholdPct)
-
+	require.InDelta(t, 85.5, cfg.MemoryPressureThresholdPct, 1e-9)
 }
 
 func TestLoad_SliceFields(t *testing.T) {
@@ -505,7 +489,6 @@ func TestLoad_SliceFields(t *testing.T) {
 		require.Equal(t, "https://app.example.com",
 
 			cfg.CORSAllowedOrigins[0])
-
 	})
 
 	t.Run("redis sentinel addrs", func(t *testing.T) {
@@ -517,7 +500,6 @@ func TestLoad_SliceFields(t *testing.T) {
 		require.Len(t, cfg.RedisSentinelAddrs,
 
 			3)
-
 	})
 
 	t.Run("worker partitions", func(t *testing.T) {
@@ -530,7 +512,6 @@ func TestLoad_SliceFields(t *testing.T) {
 			3)
 		require.Equal(t, "critical",
 			cfg.WorkerPartitions[0])
-
 	})
 
 	t.Run("profiling allowed CIDRs", func(t *testing.T) {
@@ -544,7 +525,6 @@ func TestLoad_SliceFields(t *testing.T) {
 			2)
 		require.Equal(t, "127.0.0.1/32",
 			cfg.ProfilingAllowedCIDRs[0])
-
 	})
 }
 
@@ -556,7 +536,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_SECRET")
-
 	})
 
 	t.Run("invalid profiling CIDR rejected", func(t *testing.T) {
@@ -566,7 +545,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_ALLOWED_CIDRS")
-
 	})
 
 	t.Run("enabled profiling requires listener", func(t *testing.T) {
@@ -578,7 +556,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_ENABLED")
-
 	})
 
 	t.Run("invalid management port rejected", func(t *testing.T) {
@@ -589,7 +566,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_MANAGEMENT_PORT")
-
 	})
 
 	t.Run("negative mutex profiling fraction rejected", func(t *testing.T) {
@@ -599,7 +575,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_MUTEX_FRACTION")
-
 	})
 
 	t.Run("negative block profiling rate rejected", func(t *testing.T) {
@@ -609,7 +584,6 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "STRAIT_PROFILING_BLOCK_RATE")
-
 	})
 }
 
@@ -621,7 +595,6 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		cfg, err := Load()
 		require.NoError(t, err)
 		require.Equal(t, 50, cfg.CDCBatchSize)
-
 	})
 
 	t.Run("CDC uses Sequin wait time when CDC not set", func(t *testing.T) {
@@ -633,7 +606,6 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		require.Equal(t, 10000, cfg.
 			CDCWaitTimeMs,
 		)
-
 	})
 
 	t.Run("explicit CDC overrides Sequin", func(t *testing.T) {
@@ -644,7 +616,6 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		cfg, err := Load()
 		require.NoError(t, err)
 		require.Equal(t, 25, cfg.CDCBatchSize)
-
 	})
 }
 
@@ -658,7 +629,6 @@ func TestLoad_EventTriggerRetentionDaysLegacy(t *testing.T) {
 
 		want := 14 * 24 * time.Hour
 		require.Equal(t, want, cfg.EventTriggerRetention)
-
 	})
 
 	t.Run("explicit duration takes precedence over days", func(t *testing.T) {
@@ -671,7 +641,6 @@ func TestLoad_EventTriggerRetentionDaysLegacy(t *testing.T) {
 
 		want := 168 * time.Hour
 		require.Equal(t, want, cfg.EventTriggerRetention)
-
 	})
 }
 
@@ -722,8 +691,7 @@ func TestLoad_OIDCValidation(t *testing.T) {
 			tt.setEnv(t)
 			_, err := Load()
 			require.Error(t, err)
-			require.True(t, strings.Contains(err.Error(), tt.errorSub))
-
+			require.Contains(t, err.Error(), tt.errorSub)
 		})
 	}
 
@@ -732,7 +700,6 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		// OIDC_ENABLED defaults to false, so no OIDC fields needed.
 		_, err := Load()
 		require.NoError(t, err)
-
 	})
 
 	t.Run("OIDC enabled with all fields", func(t *testing.T) {
@@ -745,7 +712,6 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		cfg, err := Load()
 		require.NoError(t, err)
 		require.True(t, cfg.OIDCEnabled)
-
 	})
 }
 
@@ -759,7 +725,6 @@ func TestLoad_MigrationModeValidation(t *testing.T) {
 			cfg, err := Load()
 			require.NoError(t, err)
 			require.Equal(t, mode, cfg.MigrationMode)
-
 		})
 	}
 
@@ -769,8 +734,7 @@ func TestLoad_MigrationModeValidation(t *testing.T) {
 
 		_, err := Load()
 		require.Error(t, err)
-		require.True(t, strings.Contains(err.Error(), "MIGRATION_MODE"))
-
+		require.Contains(t, err.Error(), "MIGRATION_MODE")
 	})
 }
 
@@ -781,8 +745,7 @@ func TestLoad_ClickHouseValidation(t *testing.T) {
 
 		_, err := Load()
 		require.Error(t, err)
-		require.True(t, strings.Contains(err.Error(), "CLICKHOUSE_URL"))
-
+		require.Contains(t, err.Error(), "CLICKHOUSE_URL")
 	})
 
 	t.Run("enabled with URL succeeds", func(t *testing.T) {
@@ -798,7 +761,6 @@ func TestLoad_ClickHouseValidation(t *testing.T) {
 			cfg.
 				ClickHouseURL,
 		)
-
 	})
 }
 
@@ -814,7 +776,6 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 			cfg.
 				SequinBaseURL,
 		)
-
 	})
 
 	t.Run("valid HTTP URL", func(t *testing.T) {
@@ -823,7 +784,6 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 
 		_, err := Load()
 		require.NoError(t, err)
-
 	})
 
 	t.Run("invalid URL rejected", func(t *testing.T) {
@@ -832,7 +792,6 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 
 		_, err := Load()
 		require.Error(t, err)
-
 	})
 
 	t.Run("empty URL is rejected", func(t *testing.T) {
@@ -841,7 +800,6 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 
 		_, err := Load()
 		require.Error(t, err)
-
 	})
 }
 
@@ -853,7 +811,6 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "REDIS_URL")
-
 	})
 
 	t.Run("missing Sequin consumer", func(t *testing.T) {
@@ -863,7 +820,6 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SEQUIN_CONSUMER_NAME")
-
 	})
 
 	t.Run("missing Sequin API token", func(t *testing.T) {
@@ -873,7 +829,6 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		_, err := Load()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "SEQUIN_API_TOKEN")
-
 	})
 }
 
@@ -887,7 +842,6 @@ func TestDeepSecLoad_SequinWebhookSecret(t *testing.T) {
 
 		cfg.SequinWebhookSecret,
 	)
-
 }
 
 func TestLoad_StringOverrides(t *testing.T) {
@@ -919,7 +873,7 @@ func TestLoad_StringOverrides(t *testing.T) {
 	require.Equal(t, "production",
 		cfg.SentryEnvironment,
 	)
-	require.Equal(t, 0.25, cfg.SentryTracesSampleRate)
+	require.InDelta(t, 0.25, cfg.SentryTracesSampleRate, 1e-9)
 	require.Equal(t, "2026.05.07-sha",
 		cfg.
 			SentryRelease,
@@ -950,7 +904,6 @@ func TestLoad_StringOverrides(t *testing.T) {
 
 		cfg.WorkerPartitionWeights,
 	)
-
 }
 
 func TestLoad_StripeBillingFields(t *testing.T) {
@@ -972,7 +925,6 @@ func TestLoad_StripeBillingFields(t *testing.T) {
 		cfg.StripeWebhookSecret,
 	)
 	require.True(t, cfg.BillingEnforcementEnabled)
-
 }
 
 func TestParseCSVEnv(t *testing.T) {
@@ -997,7 +949,7 @@ func TestParseCSVEnv(t *testing.T) {
 			}
 			got := parseCSVEnv(envKey)
 			if tt.value == "" {
-				require.Len(t, got, 0)
+				require.Empty(t, got)
 
 				return
 			}
@@ -1006,7 +958,6 @@ func TestParseCSVEnv(t *testing.T) {
 			for i := range got {
 				require.Equal(t, tt.want[i],
 					got[i])
-
 			}
 		})
 	}
@@ -1018,8 +969,7 @@ func TestLoad_InvalidRedisURL(t *testing.T) {
 
 	_, err := Load()
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "REDIS_URL"))
-
+	require.Contains(t, err.Error(), "REDIS_URL")
 }
 
 func TestLoad_WfMaxStepCapDefault(t *testing.T) {
@@ -1028,7 +978,6 @@ func TestLoad_WfMaxStepCapDefault(t *testing.T) {
 	cfg, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, 100, cfg.WfMaxStepCap)
-
 }
 
 // TestEnvExample_ListsAllAuditVars asserts the repository .env.example file
@@ -1078,8 +1027,6 @@ func TestEnvExample_ListsAllAuditVars(t *testing.T) {
 
 	content := string(data)
 	for _, key := range required {
-		assert.True(t, strings.Contains(content,
-			key+"="))
-
+		assert.Contains(t, content, key+"=")
 	}
 }

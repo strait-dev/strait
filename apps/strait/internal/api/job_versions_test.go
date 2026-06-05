@@ -54,10 +54,9 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, capturedRun)
-	require.EqualValues(t, 3, capturedRun.
+	require.Equal(t, 3, capturedRun.
 		JobVersion,
 	)
-
 }
 
 func TestTriggerJob_StampsVersionOne(t *testing.T) {
@@ -86,10 +85,9 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, capturedRun)
-	require.EqualValues(t, 1, capturedRun.
+	require.Equal(t, 1, capturedRun.
 		JobVersion,
 	)
-
 }
 
 func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
@@ -118,10 +116,9 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, capturedRun)
-	require.EqualValues(t, 0, capturedRun.
+	require.Equal(t, 0, capturedRun.
 		JobVersion,
 	)
-
 }
 
 func TestBulkTrigger_StampsJobVersion(t *testing.T) {
@@ -155,8 +152,7 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 	)
 
 	for _, run := range capturedRuns {
-		require.EqualValues(t, 5, run.JobVersion)
-
+		require.Equal(t, 5, run.JobVersion)
 	}
 }
 
@@ -193,7 +189,6 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 	first := capturedRuns[0].JobVersion
 	for _, run := range capturedRuns {
 		require.Equal(t, first, run.JobVersion)
-
 	}
 }
 
@@ -226,8 +221,7 @@ func TestCreateJob_ReturnsVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.Equal(t, float64(1), resp["version"])
-
+	require.InDelta(t, float64(1), resp["version"], 1e-9)
 }
 
 func TestUpdateJob_IncrementsVersion(t *testing.T) {
@@ -257,8 +251,7 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.Equal(t, float64(3), resp["version"])
-
+	require.InDelta(t, float64(3), resp["version"], 1e-9)
 }
 
 func TestListJobVersions_Success(t *testing.T) {
@@ -289,7 +282,6 @@ func TestListJobVersions_Success(t *testing.T) {
 
 	for _, v := range resp {
 		require.NotNil(t, v["version"])
-
 	}
 }
 
@@ -312,9 +304,8 @@ func TestListJobVersions_Empty(t *testing.T) {
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	require.Len(t,
-		resp, 0)
-
+	require.Empty(t,
+		resp)
 }
 
 func TestListJobVersions_StoreError(t *testing.T) {
@@ -335,7 +326,6 @@ func TestListJobVersions_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestGetJob_IncludesVersion(t *testing.T) {
@@ -359,8 +349,7 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.Equal(t, float64(5), resp["version"])
-
+	require.InDelta(t, float64(5), resp["version"], 1e-9)
 }
 
 func TestListJobs_IncludesVersion(t *testing.T) {
@@ -387,7 +376,6 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 
 	for _, job := range resp {
 		require.NotNil(t, job["version"])
-
 	}
 }
 
@@ -417,8 +405,7 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.Equal(t, float64(3), resp["job_version"])
-
+	require.InDelta(t, float64(3), resp["job_version"], 1e-9)
 }
 
 func TestListRuns_IncludesJobVersion(t *testing.T) {
@@ -445,7 +432,6 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 
 	for _, run := range resp {
 		require.NotNil(t, run["job_version"])
-
 	}
 }
 
@@ -473,7 +459,6 @@ func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 2)
-	require.Equal(t, float64(3), resp[0]["version"])
-	require.Equal(t, float64(2), resp[1]["version"])
-
+	require.InDelta(t, float64(3), resp[0]["version"], 1e-9)
+	require.InDelta(t, float64(2), resp[1]["version"], 1e-9)
 }

@@ -18,7 +18,6 @@ func TestEnterpriseMapping_StarterPrice(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, domain.
 		PlanEnterprise, tier)
-
 }
 
 func TestEnterpriseMapping_GrowthPrice(t *testing.T) {
@@ -30,7 +29,6 @@ func TestEnterpriseMapping_GrowthPrice(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, domain.
 		PlanEnterprise, tier)
-
 }
 
 func TestEnterpriseMapping_LargePrice(t *testing.T) {
@@ -42,7 +40,6 @@ func TestEnterpriseMapping_LargePrice(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, domain.
 		PlanEnterprise, tier)
-
 }
 
 func TestEnterpriseMapping_AllThreePrices(t *testing.T) {
@@ -57,7 +54,6 @@ func TestEnterpriseMapping_AllThreePrices(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, domain.
 			PlanEnterprise, tier)
-
 	}
 }
 
@@ -68,10 +64,9 @@ func TestEnterpriseMapping_EmptyPriceIDs(t *testing.T) {
 		WithEnterpriseGrowthPrice(""),
 		WithEnterpriseLargePrice(""),
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 
 		m.PriceCount())
-
 }
 
 func TestEnterpriseMapping_MixedWithOtherPlans(t *testing.T) {
@@ -118,10 +113,9 @@ func TestEnterpriseMapping_PriceCount(t *testing.T) {
 		WithEnterpriseStarterPrice("e_s"),
 		WithEnterpriseGrowthPrice("e_g"),
 	)
-	assert.EqualValues(t, 4,
+	assert.Equal(t, 4,
 
 		m.PriceCount())
-
 }
 
 func TestEnterpriseTierForPrice_Mapping(t *testing.T) {
@@ -148,6 +142,5 @@ func TestEnterpriseTierForPrice_Mapping(t *testing.T) {
 			wantOK, ok)
 		assert.Equal(t, tt.
 			want, tier)
-
 	}
 }

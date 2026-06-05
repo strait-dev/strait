@@ -47,7 +47,6 @@ func FuzzStddev(f *testing.F) {
 			IsNaN(result))
 		assert.GreaterOrEqual(t,
 			result, 0.0)
-
 	})
 }
 
@@ -70,7 +69,6 @@ func FuzzPauseReasonSQL(f *testing.F) {
 		_, err = store.UnpauseJobsByPauseReason(context.Background(), "org-test", reason)
 		require.NoError(t,
 			err)
-
 	})
 }
 
@@ -81,8 +79,8 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		limits := GetPlanLimits(tier)
-		assert.NotEqual(t,
-			"", limits.
+		assert.NotEmpty(t,
+			limits.
 				PlanTier,
 		)
 
@@ -106,10 +104,9 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 				-1, limits.
 					MaxScheduledJobs,
 			)
-
 		}
-		assert.NotEqual(t,
-			"", limits.
+		assert.NotEmpty(t,
+			limits.
 				DisplayName,
 		)
 		assert.False(t, limits.
@@ -120,7 +117,6 @@ func TestBypass_AllPlansHaveBoundedLimits(t *testing.T) {
 		// All plans must have non-empty display name.
 
 		// Retention must be positive or -1 (unlimited).
-
 	}
 }
 
@@ -146,7 +142,6 @@ func TestBypass_FeatureGatesConsistentAcrossTiers(t *testing.T) {
 			assert.False(t, foundFirst &&
 				!allowed,
 			)
-
 		}
 	}
 }
@@ -191,7 +186,6 @@ func TestBypass_RequiredPlanNeverReturnsLowerTier(t *testing.T) {
 			assert.False(t, order <
 				reqOrder &&
 				reg.AllowsFeature(tier, f))
-
 		}
 	}
 }
@@ -218,7 +212,6 @@ func TestBypass_FreeTierCannotAccessPaidFeatures(t *testing.T) {
 				PlanFree,
 
 				f))
-
 	}
 }
 
@@ -239,7 +232,6 @@ func TestBypass_EnterpriseHasLaunchActiveFeatures(t *testing.T) {
 				PlanEnterprise,
 
 				f))
-
 	}
 }
 
@@ -260,7 +252,6 @@ func TestBypass_DowngradeAlwaysLosesFeatures(t *testing.T) {
 				PlanStarter,
 
 				f))
-
 	}
 }
 
@@ -270,7 +261,6 @@ func TestBypass_SpendingLimitCannotGoNegative(t *testing.T) {
 	for _, tier := range domain.AllPlanTiers() {
 		l := GetPlanLimits(tier)
 		assert.GreaterOrEqual(t, l.OveragePerKMicrousd, int64(0))
-
 	}
 }
 
@@ -287,7 +277,6 @@ func TestBypass_ConcurrentPlanLookupSafe(t *testing.T) {
 				limits.
 					PlanTier,
 			)
-
 		})
 	}
 	wg.Wait()
@@ -322,7 +311,6 @@ func TestBypass_InvalidPlanTierInWebhook(t *testing.T) {
 		limits.
 			PlanTier,
 	)
-
 }
 
 func TestBypass_PlanLimitsImmutable(t *testing.T) {
@@ -348,7 +336,6 @@ func TestBypass_PlanLimitsImmutable(t *testing.T) {
 		reread.
 			RetentionDays,
 	)
-
 }
 
 // Adversarial: stddev edge cases
@@ -362,31 +349,27 @@ func TestStddev_KnownValues(t *testing.T) {
 		1.99 ||
 		got >
 			2.01)
-
 }
 
 func TestStddev_ZeroVariance(t *testing.T) {
 	t.Parallel()
 	got := stddev([]float64{5, 5, 5, 5, 5})
-	assert.EqualValues(t, 0,
-		got)
-
+	assert.InDelta(t, 0,
+		got, 1e-9)
 }
 
 func TestStddev_SingleElement(t *testing.T) {
 	t.Parallel()
 	got := stddev([]float64{42})
-	assert.EqualValues(t, 0,
-		got)
-
+	assert.InDelta(t, 0,
+		got, 1e-9)
 }
 
 func TestStddev_Empty(t *testing.T) {
 	t.Parallel()
 	got := stddev(nil)
-	assert.EqualValues(t, 0,
-		got)
-
+	assert.InDelta(t, 0,
+		got, 1e-9)
 }
 
 func TestStddev_LargeValues(t *testing.T) {
@@ -399,7 +382,6 @@ func TestStddev_LargeValues(t *testing.T) {
 		IsInf(got,
 
 			0))
-
 }
 
 // Adversarial: HTTP job downgrade lifecycle
@@ -443,7 +425,6 @@ func TestBypass_HTTPJobCountNonNegative(t *testing.T) {
 		err)
 	assert.GreaterOrEqual(t,
 		count, 0)
-
 }
 
 // Adversarial: plan pricing consistency
@@ -464,7 +445,6 @@ func TestBypass_PricingMonotonicallyIncreases(t *testing.T) {
 
 			prev.
 				PriceMonthlyUsd)
-
 	}
 }
 
@@ -494,7 +474,6 @@ func TestBypass_AllPlanTiersInAllPlanTiersSlice(t *testing.T) {
 	}
 	for _, seen := range expected {
 		assert.True(t, seen)
-
 	}
 }
 
@@ -513,7 +492,6 @@ func TestBypass_IsDowngradeSymmetry(t *testing.T) {
 			assert.False(t, aToB &&
 				bToA,
 			)
-
 		}
 	}
 }
@@ -538,7 +516,6 @@ func TestBypass_UnknownTierGetsFreeEnforcement(t *testing.T) {
 	)
 
 	// HTTP mode is available on all tiers including free (the fallback).
-
 }
 
 func TestBypass_MassivePlanTierStrings(t *testing.T) {
@@ -552,7 +529,6 @@ func TestBypass_MassivePlanTierStrings(t *testing.T) {
 		limits.
 			PlanTier,
 	)
-
 }
 
 func TestBypass_NullBytesInTier(t *testing.T) {
@@ -565,7 +541,6 @@ func TestBypass_NullBytesInTier(t *testing.T) {
 		limits.
 			PlanTier,
 	)
-
 }
 
 func TestBypass_SQLInjectionInTier(t *testing.T) {
@@ -578,5 +553,4 @@ func TestBypass_SQLInjectionInTier(t *testing.T) {
 		limits.
 			PlanTier,
 	)
-
 }

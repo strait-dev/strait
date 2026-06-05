@@ -85,7 +85,6 @@ func TestCDC_EventWithWrongProjectID(t *testing.T) {
 
 		publishedChannel,
 	)
-
 }
 
 // TestCDC_ConsumerReconnection verifies that the consumer retries polling
@@ -127,7 +126,6 @@ func TestCDC_ConsumerReconnection(t *testing.T) {
 	// Second poll should succeed.
 	err = consumer.poll(context.Background())
 	require.NoError(t, err)
-
 }
 
 // TestCDC_MessageOrderingGuarantee verifies that messages within a single
@@ -182,7 +180,6 @@ func TestCDC_MessageOrderingGuarantee(t *testing.T) {
 	require.False(t, order[0] != "a1" ||
 		order[1] != "a2" ||
 		order[2] != "a3")
-
 }
 
 // TestCDC_DuplicateEvent verifies that the same event delivered twice
@@ -226,7 +223,6 @@ func TestCDC_DuplicateEvent(t *testing.T) {
 		Background()))
 	require.EqualValues(t, 2, handleCount.
 		Load())
-
 }
 
 // TestCDC_BackpressureHandling verifies that when a handler returns errors,
@@ -284,7 +280,6 @@ func TestCDC_BackpressureHandling(t *testing.T) {
 	defer mu.Unlock()
 	require.Len(t,
 		nackIDs, 3)
-
 }
 
 // FuzzCDCEvent fuzzes CDC payloads to ensure the handler does not panic.

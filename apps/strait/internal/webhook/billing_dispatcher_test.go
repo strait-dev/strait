@@ -63,9 +63,8 @@ func TestBillingDispatcher_NoProjects_NoDeliveries(t *testing.T) {
 			Background(), "org-empty", domain.WebhookEventBillingCapWarning,
 
 			[]byte(`{"x":1}`)))
-	require.EqualValues(t, 0, len(ms.
-		getDeliveries()))
-
+	require.Empty(t, ms.
+		getDeliveries())
 }
 
 func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
@@ -123,13 +122,12 @@ func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
 		require.NotNil(t,
 			dl.NextRetryAt,
 		)
-		require.NotEqual(
-			t, "", dl.
+		require.NotEmpty(
+			t, dl.
 				RetryPolicy)
-		require.NotEqual(
-			t, "", dl.
+		require.NotEmpty(
+			t, dl.
 				WebhookURL)
-
 	}
 }
 
@@ -153,9 +151,8 @@ func TestBillingDispatcher_LiteralGlobIsNotInterpreted(t *testing.T) {
 			Background(), orgID, domain.WebhookEventBillingCapWarning,
 
 			[]byte(`{}`)))
-	require.EqualValues(t, 0, len(ms.
-		getDeliveries()))
-
+	require.Empty(t, ms.
+		getDeliveries())
 }
 
 func TestBillingDispatcher_PerProjectErrorDoesNotAbortFanout(t *testing.T) {
@@ -188,7 +185,6 @@ func TestBillingDispatcher_PerProjectErrorDoesNotAbortFanout(t *testing.T) {
 			1 || got[0].SubscriptionID !=
 
 			"s-g")
-
 }
 
 func TestBillingDispatcher_ProjectsLookupError_PropagatesAsError(t *testing.T) {
@@ -206,7 +202,6 @@ func TestBillingDispatcher_ProjectsLookupError_PropagatesAsError(t *testing.T) {
 	err := d.DispatchBillingEvent(context.Background(), "org-x", domain.WebhookEventBillingSuspended, []byte(`{}`))
 	require.Error(t,
 		err)
-
 }
 
 func TestBillingDispatcher_RejectsEmptyArgs(t *testing.T) {
@@ -223,5 +218,4 @@ func TestBillingDispatcher_RejectsEmptyArgs(t *testing.T) {
 			Background(), "org-1", "", []byte(`{}`),
 		),
 	)
-
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,7 +48,6 @@ func TestCreateLogDrain_UpdateBypass_NotPossible(t *testing.T) {
 
 	// Update either succeeds or 4xx for unrelated reasons; the key invariant
 	// is that the cap gate is NOT consulted (update doesn't add a row).
-
 }
 
 // TestCreateLogDrain_RaceAtCap simulates 50 concurrent creates against an
@@ -158,7 +156,6 @@ func TestCreateLogDrain_OrgScopedCount(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 // TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU mirrors the
@@ -247,7 +244,6 @@ func TestPlanGate_TamperedEntitlements_TrustsDB(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }
 
 // TestPlanGate_MaxLogDrainsPerOrg_ValuesPerTier locks in the per-tier values
@@ -272,7 +268,6 @@ func TestPlanGate_MaxLogDrainsPerOrg_ValuesPerTier(t *testing.T) {
 		assert.Equal(
 			t, tc.want,
 			got)
-
 	}
 }
 
@@ -297,7 +292,6 @@ func TestPlanGate_MaxNotificationChannels_ValuesPerTier(t *testing.T) {
 		assert.Equal(
 			t, tc.want,
 			got)
-
 	}
 }
 
@@ -319,9 +313,8 @@ func TestPlanGate_FreeMessageStable(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 
 	body := w.Body.String()
-	assert.True(t,
-		strings.Contains(body, "Log drains are not available"))
-	assert.True(t,
-		strings.Contains(body, "/settings/billing"))
-
+	assert.Contains(t,
+		body, "Log drains are not available")
+	assert.Contains(t,
+		body, "/settings/billing")
 }

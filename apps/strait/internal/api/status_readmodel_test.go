@@ -51,7 +51,6 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 	)
 	require.EqualValues(t, 0, storeCalls.
 		Load())
-
 }
 
 func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
@@ -85,11 +84,9 @@ func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
 			got.
 				Status,
 		)
-
 	}
 	require.EqualValues(t, 1, storeCalls.
 		Load())
-
 }
 
 func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -138,7 +135,6 @@ func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
 	)
 	require.EqualValues(t, 1, storeCalls.
 		Load())
-
 }
 
 func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -186,7 +182,6 @@ func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *test
 	)
 	require.EqualValues(t, 1, storeCalls.
 		Load())
-
 }
 
 type versionedStatusStore struct {

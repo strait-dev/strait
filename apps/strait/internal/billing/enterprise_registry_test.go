@@ -47,7 +47,6 @@ func TestRegistry_EnterpriseAllowsLaunchActiveFeatures(t *testing.T) {
 			AllowsFeature(domain.PlanEnterprise,
 
 				f))
-
 	}
 }
 
@@ -59,7 +58,6 @@ func TestRegistry_FreeBlocksEnterpriseFeatures(t *testing.T) {
 			AllowsFeature(domain.PlanFree,
 
 				f))
-
 	}
 }
 
@@ -71,7 +69,6 @@ func TestRegistry_StarterBlocksEnterpriseFeatures(t *testing.T) {
 			AllowsFeature(domain.PlanStarter,
 
 				f))
-
 	}
 }
 
@@ -83,7 +80,6 @@ func TestRegistry_ProBlocksEnterpriseFeatures(t *testing.T) {
 			AllowsFeature(domain.PlanPro,
 
 				f))
-
 	}
 }
 
@@ -95,7 +91,6 @@ func TestRegistry_ScaleBlocksEnterpriseFeatures(t *testing.T) {
 			AllowsFeature(domain.PlanScale,
 
 				f))
-
 	}
 }
 
@@ -108,7 +103,6 @@ func TestRegistry_EnterpriseBlocksRoadmapFeatures(t *testing.T) {
 
 				f))
 		assert.True(t, IsRoadmapFeature(f))
-
 	}
 }
 
@@ -120,6 +114,5 @@ func TestRegistry_EveryLaunchActiveFeatureHasCase(t *testing.T) {
 			AllowsFeature(domain.PlanEnterprise,
 
 				f))
-
 	}
 }

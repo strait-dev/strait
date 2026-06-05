@@ -56,7 +56,6 @@ func TestIdempotency_XHeader_ReturnsExistingRun(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-existing",
 		resp["id"])
-
 }
 
 func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
@@ -88,7 +87,6 @@ func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-std", resp["id"])
-
 }
 
 func TestIdempotency_XHeaderTakesPrecedenceOverStandard(t *testing.T) {
@@ -113,7 +111,6 @@ func TestIdempotency_XHeaderTakesPrecedenceOverStandard(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.Equal(t, "x-key", capturedKey)
-
 }
 
 func TestIdempotency_NoHeaderSkipsLookup(t *testing.T) {
@@ -140,7 +137,6 @@ func TestIdempotency_NoHeaderSkipsLookup(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, lookupCalled)
-
 }
 
 func TestIdempotency_EmptyHeaderSkipsLookup(t *testing.T) {
@@ -167,7 +163,6 @@ func TestIdempotency_EmptyHeaderSkipsLookup(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, lookupCalled)
-
 }
 
 func TestIdempotency_MissCreatesNewRun(t *testing.T) {
@@ -199,7 +194,6 @@ func TestIdempotency_MissCreatesNewRun(t *testing.T) {
 	require.Equal(t, "new-key", enqueued.
 		IdempotencyKey,
 	)
-
 }
 
 // Response shape verification.
@@ -329,7 +323,6 @@ func TestIdempotency_HitReturnsCurrentStatus(t *testing.T) {
 			var resp map[string]any
 			mustUnmarshal(t, w.Body.Bytes(), &resp)
 			require.Equal(t, string(status), resp["status"])
-
 		})
 	}
 }
@@ -413,11 +406,9 @@ func TestIdempotency_StoreLookupError_Returns500(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "internal server error",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "internal server error")
 }
 
 func TestIdempotency_StoreLookupError_DoesNotEnqueue(t *testing.T) {
@@ -443,7 +434,6 @@ func TestIdempotency_StoreLookupError_DoesNotEnqueue(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "err-key")
 	srv.ServeHTTP(w, r)
 	require.False(t, enqueued)
-
 }
 
 // Idempotency key stored on the enqueued run.
@@ -478,7 +468,6 @@ func TestIdempotency_KeyStoredOnEnqueuedRun(t *testing.T) {
 		capturedRun.
 			IdempotencyKey,
 	)
-
 }
 
 func TestIdempotency_NoKeyStoresEmptyOnRun(t *testing.T) {
@@ -502,10 +491,9 @@ func TestIdempotency_NoKeyStoresEmptyOnRun(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, capturedRun)
-	require.Equal(t, "", capturedRun.
+	require.Empty(t, capturedRun.
 		IdempotencyKey,
 	)
-
 }
 
 // Interaction with other features.
@@ -546,7 +534,6 @@ func TestIdempotency_HitBypassesRateLimitCheck(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-cached",
 		resp["id"])
-
 }
 
 func TestIdempotency_HitBeforeDedupCheck(t *testing.T) {
@@ -577,7 +564,6 @@ func TestIdempotency_HitBeforeDedupCheck(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.False(t, dedupCalled)
-
 }
 
 func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
@@ -617,7 +603,6 @@ func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-cached",
 		resp["id"])
-
 }
 
 func TestIdempotency_WithScheduledRun(t *testing.T) {
@@ -649,7 +634,6 @@ func TestIdempotency_WithScheduledRun(t *testing.T) {
 	require.Equal(t, "run-delayed",
 		resp["id"])
 	require.Equal(t, "delayed", resp["status"])
-
 }
 
 func TestIdempotency_WithDifferentPayloads(t *testing.T) {
@@ -681,7 +665,6 @@ func TestIdempotency_WithDifferentPayloads(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-original",
 		resp["id"])
-
 }
 
 // Edge cases.
@@ -705,7 +688,6 @@ func TestIdempotency_VeryLongKey_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestIdempotency_SpecialCharactersInKey(t *testing.T) {
@@ -750,7 +732,6 @@ func TestIdempotency_SpecialCharactersInKey(t *testing.T) {
 				w.Code,
 			)
 			require.Equal(t, key, capturedKey)
-
 		})
 	}
 }
@@ -781,7 +762,6 @@ func TestIdempotency_WhitespaceOnlyKey(t *testing.T) {
 	)
 	require.True(
 		t, lookupCalled)
-
 }
 
 func TestIdempotency_DisabledJobStillRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -806,7 +786,6 @@ func TestIdempotency_DisabledJobStillRejectsBeforeIdempotencyCheck(t *testing.T)
 
 		w.Code)
 	require.False(t, lookupCalled)
-
 }
 
 func TestIdempotency_JobNotFoundRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -831,7 +810,6 @@ func TestIdempotency_JobNotFoundRejectsBeforeIdempotencyCheck(t *testing.T) {
 		w.
 			Code)
 	require.False(t, lookupCalled)
-
 }
 
 func TestIdempotency_InvalidBodyRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -856,7 +834,6 @@ func TestIdempotency_InvalidBodyRejectsBeforeIdempotencyCheck(t *testing.T) {
 
 		w.Code)
 	require.False(t, lookupCalled)
-
 }
 
 // Concurrent requests with same idempotency key.
@@ -905,7 +882,6 @@ func TestIdempotency_ConcurrentRequestsSameKey(t *testing.T) {
 			t, http.StatusCreated,
 			w.Code,
 		)
-
 	}
 	assert.Equal(
 		t, int32(concurrency), lookupCount.
@@ -971,7 +947,6 @@ func TestIdempotency_ConcurrentRequestsMixedHitMiss(t *testing.T) {
 			t, resp["id"] ==
 				nil || resp["id"] ==
 				"")
-
 	}
 }
 
@@ -1013,10 +988,9 @@ func TestIdempotency_ReplayDoesNotCopyIdempotencyKey(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, enqueued)
-	require.Equal(t, "", enqueued.
+	require.Empty(t, enqueued.
 		IdempotencyKey,
 	)
-
 }
 
 // Idempotency + payload validation.
@@ -1050,7 +1024,6 @@ func TestIdempotency_PayloadValidationFailsBeforeIdempotencyCheck(t *testing.T) 
 
 		w.Code)
 	require.False(t, lookupCalled)
-
 }
 
 // Multiple sequential triggers with same key.
@@ -1089,7 +1062,7 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w1.
 			Code)
-	require.EqualValues(t, 1, enqueueCount)
+	require.Equal(t, 1, enqueueCount)
 
 	// Second trigger: should return cached
 	w2 := httptest.NewRecorder()
@@ -1098,7 +1071,7 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	srv.ServeHTTP(w2, r2)
 	require.Equal(t, http.StatusOK,
 		w2.Code)
-	require.EqualValues(t, 1, enqueueCount)
+	require.Equal(t, 1, enqueueCount)
 
 	var resp2 map[string]any
 	mustUnmarshal(t, w2.Body.Bytes(), &resp2)
@@ -1112,8 +1085,7 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	srv.ServeHTTP(w3, r3)
 	require.Equal(t, http.StatusOK,
 		w3.Code)
-	require.EqualValues(t, 1, enqueueCount)
-
+	require.Equal(t, 1, enqueueCount)
 }
 
 // Idempotency + execution window.
@@ -1149,7 +1121,6 @@ func TestIdempotency_ExecutionWindowDoesNotApplyOnHit(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-windowed",
 		resp["id"])
-
 }
 
 // Idempotency + dry run.
@@ -1176,7 +1147,6 @@ func TestIdempotency_DryRunDoesNotCheckIdempotency(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.False(t, lookupCalled)
-
 }
 
 // Cost budget + idempotency ordering.
@@ -1221,7 +1191,6 @@ func TestIdempotency_HitBypassesCostBudgetCheck(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-cached",
 		resp["id"])
-
 }
 
 // Idempotency key with different HTTP status scenarios.
@@ -1249,7 +1218,6 @@ func TestIdempotency_EnqueueFailureAfterMiss(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestIdempotency_MultipleJobsSameKeyIndependent(t *testing.T) {
@@ -1343,7 +1311,7 @@ func TestIdempotency_EnqueueUniqueViolation_RetriesLookup(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.EqualValues(t, 2, lookupCount)
+	require.Equal(t, 2, lookupCount)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
@@ -1396,10 +1364,9 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyKey(t *testing.T) {
 		t, "key-b", capturedRuns[1].
 			IdempotencyKey,
 	)
-	assert.Equal(
-		t, "", capturedRuns[2].IdempotencyKey,
+	assert.Empty(
+		t, capturedRuns[2].IdempotencyKey,
 	)
-
 }
 
 func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
@@ -1503,7 +1470,6 @@ func TestIdempotency_BulkTriggerConflictRetry(t *testing.T) {
 	assert.Equal(
 		t, "run-winner",
 		first["id"])
-
 }
 
 func TestIdempotency_BulkTriggerHeaderIgnored(t *testing.T) {
@@ -1533,12 +1499,11 @@ func TestIdempotency_BulkTriggerHeaderIgnored(t *testing.T) {
 	require.Len(t,
 		capturedRuns, 1,
 	)
-	assert.Equal(
-		t, "", capturedRuns[0].IdempotencyKey,
+	assert.Empty(
+		t, capturedRuns[0].IdempotencyKey,
 	)
 
 	// The HTTP header should NOT be applied to bulk items
-
 }
 
 // Replay with idempotency key that already has an active run should fail
@@ -1579,13 +1544,12 @@ func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, enqueued)
-	require.Equal(t, "", enqueued.
+	require.Empty(t, enqueued.
 		IdempotencyKey,
 	)
 	require.NotEqual(t, "run-active",
 		enqueued.
 			ID)
-
 }
 
 // Idempotency key with all terminal statuses should still return the cached
@@ -1639,7 +1603,6 @@ func TestIdempotency_TerminalRunAllowsKeyReuse(t *testing.T) {
 
 			// A new run should be enqueued since the terminal run is no
 			// longer returned by the idempotency lookup.
-
 		})
 	}
 }
@@ -1724,7 +1687,6 @@ func TestIdempotency_LookupPassesJobIDNotProjectID(t *testing.T) {
 		w.Code,
 	)
 	require.Equal(t, "job-xyz", capturedJobID)
-
 }
 
 // Verify the timing: idempotency hit returns immediately without computing
@@ -1777,7 +1739,6 @@ func TestIdempotency_HitSkipsAllDownstreamWork(t *testing.T) {
 
 	// Quota/cost checks happen AFTER idempotency, so quotaCalled should
 	// be false when idempotency hits (FF is disabled by default anyway).
-
 }
 
 // Idempotency key + context cancellation: verify the handler respects context.
@@ -1803,7 +1764,6 @@ func TestIdempotency_ContextCanceledDuringLookup(t *testing.T) {
 		w.Code)
 
 	// Context cancellation during idempotency lookup should return 500.
-
 }
 
 func TestIdempotency_ContextDeadlineExceededDuringLookup(t *testing.T) {
@@ -1825,7 +1785,6 @@ func TestIdempotency_ContextDeadlineExceededDuringLookup(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // Verify that idempotency key on trigger sets the correct triggered_by value.
@@ -1859,7 +1818,6 @@ func TestIdempotency_MissSetsTriggeredByManual(t *testing.T) {
 		capturedRun.
 			TriggeredBy,
 	)
-
 }
 
 // Idempotency key with priority: verify priority is set on miss but ignored on hit.
@@ -1889,14 +1847,13 @@ func TestIdempotency_MissPreservesPriority(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 7, capturedRun.
+	require.Equal(t, 7, capturedRun.
 		Priority,
 	)
 	require.Equal(t, "priority-key",
 		capturedRun.
 			IdempotencyKey,
 	)
-
 }
 
 func TestIdempotency_HitIgnoresNewPriority(t *testing.T) {
@@ -1969,7 +1926,6 @@ func TestIdempotency_MissWithScheduledAt(t *testing.T) {
 		capturedRun.
 			IdempotencyKey,
 	)
-
 }
 
 // Idempotency with job_version: verify the correct version is captured.
@@ -1999,10 +1955,9 @@ func TestIdempotency_MissStoresJobVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 42, capturedRun.
+	require.Equal(t, 42, capturedRun.
 		JobVersion,
 	)
-
 }
 
 // Verify idempotency key is NOT trimmed or normalized — stored exactly as sent.
@@ -2047,7 +2002,6 @@ func TestIdempotency_KeyNotNormalized(t *testing.T) {
 			require.Equal(t, tt.expected,
 				capturedKey,
 			)
-
 		})
 	}
 }
@@ -2087,13 +2041,11 @@ func TestIdempotency_ManyUniqueKeysConcurrently(t *testing.T) {
 				t, http.StatusCreated,
 				w.Code,
 			)
-
 		})
 	}
 	wg.Wait()
 	require.Equal(t, int32(n), enqueueCount.
 		Load())
-
 }
 
 // Verify idempotency hit returns HTTP 201 (not 200 or 409) consistently.
@@ -2118,7 +2070,6 @@ func TestIdempotency_HitAlwaysReturns201(t *testing.T) {
 		srv.ServeHTTP(w, r)
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 }
 
@@ -2148,7 +2099,6 @@ func TestIdempotency_WorksWithAPIKeyAuth(t *testing.T) {
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	require.Equal(t, "run-api-key",
 		resp["id"])
-
 }
 
 // Key length validation.
@@ -2169,11 +2119,9 @@ func TestIdempotency_KeyTooLong_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "256 characters",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "256 characters")
 }
 
 func TestIdempotency_KeyExactlyMaxLength_Succeeds(t *testing.T) {
@@ -2201,7 +2149,6 @@ func TestIdempotency_KeyExactlyMaxLength_Succeeds(t *testing.T) {
 		w.Code,
 	)
 	require.Equal(t, exactKey, capturedKey)
-
 }
 
 func TestIdempotency_BulkKeyTooLong_Returns400(t *testing.T) {
@@ -2220,11 +2167,9 @@ func TestIdempotency_BulkKeyTooLong_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "256 characters",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "256 characters")
 }
 
 func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
@@ -2248,7 +2193,6 @@ func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // Dedup response shape consistency.
@@ -2307,7 +2251,6 @@ func TestIdempotency_BodyFieldIdempotencyKeyRejected(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
@@ -2326,8 +2269,8 @@ func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
 	}
 	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
-		assert.Equal(
-			t, "", run.IdempotencyKey,
+		assert.Empty(
+			t, run.IdempotencyKey,
 		)
 
 		return nil
@@ -2340,7 +2283,6 @@ func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, lookupCalled)
-
 }
 
 // Intra-request bulk dedup (same key twice in one request).
@@ -2378,7 +2320,7 @@ func TestIdempotency_BulkSameKeyTwiceInOneRequest(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 1, enqueueCount)
+	require.Equal(t, 1, enqueueCount)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
@@ -2474,10 +2416,9 @@ func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {
 	r2 := authedRequest(http.MethodPost, "/v1/workflows/"+wfID+"/trigger", `{"payload":{}}`)
 	r2.Header.Set("X-Idempotency-Key", "wf-key-1")
 	srv.ServeHTTP(w2, r2)
-	require.EqualValues(t, 2, triggerCount)
+	require.Equal(t, 2, triggerCount)
 
 	// Both should trigger (header is ignored, no dedup).
-
 }
 
 func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
@@ -2513,7 +2454,6 @@ func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
 	require.Equal(t, "run-terminal",
 		resp["id"])
 	require.Equal(t, true, resp["idempotency_hit"])
-
 }
 
 // Helper.

@@ -284,7 +284,6 @@ func TestEvaluateCondition(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.want,
 				got)
-
 		})
 	}
 }
@@ -354,10 +353,8 @@ func TestCondition_Regex_PatternLengthLimit(t *testing.T) {
 
 	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(), "exceeds maximum length",
-	))
-
+	assert.Contains(t, err.
+		Error(), "exceeds maximum length")
 }
 
 func TestCondition_Regex_InputLengthLimit(t *testing.T) {
@@ -369,10 +366,8 @@ func TestCondition_Regex_InputLengthLimit(t *testing.T) {
 
 	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(), "exceeds maximum length",
-	))
-
+	assert.Contains(t, err.
+		Error(), "exceeds maximum length")
 }
 
 func TestCondition_Regex_ReDoS_DoesNotHang(t *testing.T) {
@@ -407,5 +402,4 @@ func TestCondition_Regex_ValidPattern(t *testing.T) {
 	got, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
 	require.NoError(t, err)
 	assert.True(t, got)
-
 }

@@ -59,7 +59,6 @@ func TestWebhook_EnterpriseContractCreated_GrowthTier(t *testing.T) {
 	assert.Equal(t, EnterpriseGrowthOverageDiscountPct,
 
 		cfg.OverageDiscountPct)
-
 }
 
 func TestWebhook_EnterpriseContractCreated_LargeTier(t *testing.T) {
@@ -76,7 +75,6 @@ func TestWebhook_EnterpriseContractCreated_LargeTier(t *testing.T) {
 	assert.Equal(t, EnterpriseLargeOverageDiscountPct,
 
 		cfg.OverageDiscountPct)
-
 }
 
 func TestWebhook_EnterpriseContractFields(t *testing.T) {
@@ -87,12 +85,11 @@ func TestWebhook_EnterpriseContractFields(t *testing.T) {
 	assert.EqualValues(t, 1_800_000,
 		cfg.
 			AnnualCommitmentCents)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		cfg.OverageDiscountPct,
 	)
 
 	// Verify all active launch contract fields would be populated correctly.
-
 }
 
 func TestWebhook_EnterpriseUnknownPriceNoContract(t *testing.T) {
@@ -102,7 +99,6 @@ func TestWebhook_EnterpriseUnknownPriceNoContract(t *testing.T) {
 	_, ok := EnterpriseTierForPrice("wh_test_unknown_price")
 	require.False(t,
 		ok)
-
 }
 
 func TestWebhook_EnterpriseContractUpsertIdempotent(t *testing.T) {
@@ -143,5 +139,4 @@ func TestWebhook_EnterpriseContractUpsertIdempotent(t *testing.T) {
 	assert.Equal(t, EnterpriseTierGrowth,
 
 		got.EnterpriseTier)
-
 }

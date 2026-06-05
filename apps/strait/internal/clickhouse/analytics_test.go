@@ -20,7 +20,6 @@ func TestNewAnalyticsStore(t *testing.T) {
 	assert.Nil(t,
 		store.pgFallback,
 	)
-
 }
 
 func TestNewAnalyticsStore_WithPgFallback(t *testing.T) {
@@ -31,7 +30,6 @@ func TestNewAnalyticsStore_WithPgFallback(t *testing.T) {
 	require.NotNil(t, store.
 		pgFallback,
 	)
-
 }
 
 func TestIsShortPeriod(t *testing.T) {

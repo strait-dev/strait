@@ -16,13 +16,11 @@ func TestErrorClassEnum_IsValid(t *testing.T) {
 	for _, e := range valid {
 		assert.True(t,
 			ErrorClassEnum(e).IsValid())
-
 	}
 	invalid := []string{"", "FATAL", "retry", "http_500"}
 	for _, e := range invalid {
 		assert.False(t,
 			ErrorClassEnum(e).IsValid() && e != "")
-
 	}
 }
 
@@ -31,7 +29,6 @@ func TestErrorClassEnum_IsRetryable(t *testing.T) {
 	for _, e := range nonRetryable {
 		assert.False(t,
 			ErrorClassEnum(e).IsRetryable())
-
 	}
 	retryable := []string{
 		ErrorClassServer, ErrorClassTransient, ErrorClassTimeout,
@@ -40,7 +37,6 @@ func TestErrorClassEnum_IsRetryable(t *testing.T) {
 	for _, e := range retryable {
 		assert.True(t,
 			ErrorClassEnum(e).IsRetryable())
-
 	}
 }
 
@@ -51,7 +47,6 @@ func TestErrorClassEnum_IsTransient(t *testing.T) {
 	for _, e := range transient {
 		assert.True(t,
 			ErrorClassEnum(e).IsTransient())
-
 	}
 	nonTransient := []string{
 		ErrorClassClient, ErrorClassAuth, ErrorClassBudget, ErrorClassOOM, ErrorClassServer,
@@ -59,7 +54,6 @@ func TestErrorClassEnum_IsTransient(t *testing.T) {
 	for _, e := range nonTransient {
 		assert.False(t,
 			ErrorClassEnum(e).IsTransient())
-
 	}
 }
 
@@ -81,7 +75,6 @@ func TestErrorClassEnum_Scan(t *testing.T) {
 	// nil resets.
 
 	// unknown errors.
-
 }
 
 func TestErrorClassEnum_Value(t *testing.T) {
@@ -95,7 +88,6 @@ func TestErrorClassEnum_Value(t *testing.T) {
 	assert.False(t,
 		empty != nil ||
 			err != nil)
-
 }
 
 func TestParseErrorClass(t *testing.T) {
@@ -131,6 +123,5 @@ func FuzzErrorClassScan(f *testing.F) {
 			err == nil &&
 
 				raw != "" && !e.IsValid())
-
 	})
 }

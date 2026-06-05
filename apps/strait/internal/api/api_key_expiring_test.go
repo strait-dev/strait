@@ -52,7 +52,6 @@ func TestListExpiringKeys_ReturnsNoExpiryKeys(t *testing.T) {
 	)
 	assert.Nil(t, result[0].
 		DaysLeft)
-
 }
 
 func TestListExpiringKeys_ReturnsDaysLeft(t *testing.T) {
@@ -98,7 +97,6 @@ func TestListExpiringKeys_ReturnsDaysLeft(t *testing.T) {
 			*result[0].DaysLeft <
 				9 || *result[0].
 			DaysLeft > 11)
-
 }
 
 func TestListExpiringKeys_DefaultWithinDays(t *testing.T) {
@@ -129,8 +127,7 @@ func TestListExpiringKeys_DefaultWithinDays(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	assert.EqualValues(t, 30, capturedDays)
-
+	assert.Equal(t, 30, capturedDays)
 }
 
 func TestListExpiringKeys_CapsAt365(t *testing.T) {
@@ -158,8 +155,7 @@ func TestListExpiringKeys_CapsAt365(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	assert.EqualValues(t, 365, capturedDays)
-
+	assert.Equal(t, 365, capturedDays)
 }
 
 func TestListExpiringKeys_RequiresPermission(t *testing.T) {
@@ -183,5 +179,4 @@ func TestListExpiringKeys_RequiresPermission(t *testing.T) {
 		t, http.StatusForbidden,
 		w.Code,
 	)
-
 }

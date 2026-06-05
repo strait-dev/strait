@@ -42,7 +42,6 @@ func TestAllPlanTiers(t *testing.T) {
 	for i, tier := range tiers {
 		assert.Equal(t,
 			expected[i], tier)
-
 	}
 }
 
@@ -73,8 +72,7 @@ func TestPlanTierRank(t *testing.T) {
 	// Verify monotonically increasing ranks.
 	tiers := AllPlanTiers()
 	for i := 1; i < len(tiers); i++ {
-		assert.False(t,
-			tiers[i].Rank() <= tiers[i-1].Rank())
-
+		assert.Greater(t,
+			tiers[i].Rank(), tiers[i-1].Rank())
 	}
 }

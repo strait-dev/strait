@@ -40,7 +40,6 @@ func TestProperty_RetryDelay_Bounded(t *testing.T) {
 		require.LessOrEqual(t,
 			delay, upperBound,
 		)
-
 	}
 }
 
@@ -98,7 +97,6 @@ func TestProperty_Concurrency_NeverExceedsMax(t *testing.T) {
 			require.LessOrEqual(t,
 				count, maxConc)
 			require.GreaterOrEqual(t, count, 0)
-
 		}
 	}
 }
@@ -150,6 +148,5 @@ func TestProperty_ErrorHash_MatchesReference(t *testing.T) {
 		want := hex.EncodeToString(h[:8])
 		require.Equal(t, want,
 			got)
-
 	}
 }

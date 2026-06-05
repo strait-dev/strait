@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -49,9 +48,8 @@ func TestTriggerJob_DryRunRejectsPastScheduledAt(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "scheduled_at must not be in the past"))
-
+	require.Contains(
+		t, err.Error(), "scheduled_at must not be in the past")
 }
 
 func TestTriggerJob_DryRunRejectsPriorityAboveBillingLimit(t *testing.T) {
@@ -75,11 +73,9 @@ func TestTriggerJob_DryRunRejectsPriorityAboveBillingLimit(t *testing.T) {
 	require.Equal(t, http.StatusPaymentRequired,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "dispatch priority exceeds plan limit",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "dispatch priority exceeds plan limit")
 }
 
 func TestCheckTriggerDispatchPriority_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -92,7 +88,6 @@ func TestCheckTriggerDispatchPriority_CloudNilEnforcerFailsClosed(t *testing.T) 
 	assert.Contains(t, err.Error(),
 		"billing enforcement unavailable",
 	)
-
 }
 
 func TestCheckTriggerDispatchPriority_CommunityNilEnforcerFailsOpen(t *testing.T) {
@@ -103,7 +98,6 @@ func TestCheckTriggerDispatchPriority_CommunityNilEnforcerFailsOpen(t *testing.T
 		context.Background(),
 		"proj-1",
 		10))
-
 }
 
 func TestTriggerJob_DryRunRejectsDailyCostBudgetExceeded(t *testing.T) {
@@ -133,11 +127,9 @@ func TestTriggerJob_DryRunRejectsDailyCostBudgetExceeded(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "project daily cost budget exceeded",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "project daily cost budget exceeded")
 }
 
 func TestTriggerJob_DebounceSuccessEmitsAuditEvent(t *testing.T) {
@@ -178,7 +170,6 @@ func TestTriggerJob_DebounceSuccessEmitsAuditEvent(t *testing.T) {
 		&details,
 	))
 	require.Equal(t, true, details["debounced"])
-
 }
 
 type triggerDryRunBillingEnforcer struct {
@@ -223,7 +214,6 @@ func TestTriggerJob_BatchBufferSuccessEmitsAuditEvent(t *testing.T) {
 		&details,
 	))
 	require.Equal(t, true, details["buffered"])
-
 }
 
 func TestTriggerJob_WaitingDependencySuccessEmitsAuditEvent(t *testing.T) {
@@ -258,5 +248,4 @@ func TestTriggerJob_WaitingDependencySuccessEmitsAuditEvent(t *testing.T) {
 		&details,
 	))
 	require.Equal(t, true, details["waiting"])
-
 }

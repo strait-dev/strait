@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -41,7 +40,6 @@ func TestHandleCreateRole(t *testing.T) {
 		Body).Decode(&role))
 	require.Equal(t, "role_1", role.
 		ID)
-
 }
 
 func TestHandleCreateRole_InvalidScope(t *testing.T) {
@@ -57,7 +55,6 @@ func TestHandleCreateRole_InvalidScope(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
@@ -80,12 +77,9 @@ func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"requires full RBAC",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "requires full RBAC")
 }
 
 func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -108,12 +102,9 @@ func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"requires advanced RBAC",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "requires advanced RBAC")
 }
 
 func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -136,12 +127,9 @@ func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"requires advanced RBAC",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "requires advanced RBAC")
 }
 
 func TestHandleListRoles(t *testing.T) {
@@ -159,7 +147,6 @@ func TestHandleListRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestHandleGetRole(t *testing.T) {
@@ -183,7 +170,6 @@ func TestHandleGetRole(t *testing.T) {
 		Body).Decode(&role))
 	require.Equal(t, "admin", role.
 		Name)
-
 }
 
 func TestHandleGetRole_WithLineage(t *testing.T) {
@@ -221,7 +207,6 @@ func TestHandleGetRole_WithLineage(t *testing.T) {
 	require.False(t, len(resp.Lineage) !=
 		1 || resp.Lineage[0].ID != "role_parent",
 	)
-
 }
 
 func TestHandleGetRole_NotFound(t *testing.T) {
@@ -239,7 +224,6 @@ func TestHandleGetRole_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateRole(t *testing.T) {
@@ -261,7 +245,6 @@ func TestHandleUpdateRole(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestHandleUpdateRole_NotFound(t *testing.T) {
@@ -283,7 +266,6 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateRole_InvalidScope(t *testing.T) {
@@ -299,7 +281,6 @@ func TestHandleUpdateRole_InvalidScope(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleDeleteRole_NotFound(t *testing.T) {
@@ -320,7 +301,6 @@ func TestHandleDeleteRole_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember(t *testing.T) {
@@ -343,7 +323,6 @@ func TestHandleAssignMember(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_RoleNotFound(t *testing.T) {
@@ -362,7 +341,6 @@ func TestHandleAssignMember_RoleNotFound(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListMembers(t *testing.T) {
@@ -388,7 +366,6 @@ func TestHandleListMembers(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &members)
 	require.Len(t,
 		members, 2)
-
 }
 
 func TestHandleRemoveMember_InvalidatesCache(t *testing.T) {
@@ -445,7 +422,6 @@ func TestHandleAssignMember_InvalidatesCache(t *testing.T) {
 	// Cache should be invalidated.
 	_, ok := srv.permCache.Get("", "user-reassign")
 	require.False(t, ok)
-
 }
 
 func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *testing.T) {
@@ -599,7 +575,6 @@ func TestHandleRemoveMember_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // Additional handler tests.
@@ -614,7 +589,6 @@ func TestHandleCreateRole_EmptyBody(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
@@ -628,7 +602,6 @@ func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateRole_MalformedJSON(t *testing.T) {
@@ -641,7 +614,6 @@ func TestHandleCreateRole_MalformedJSON(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateRole_StoreError(t *testing.T) {
@@ -660,7 +632,6 @@ func TestHandleCreateRole_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCreateRole_ResponseShape(t *testing.T) {
@@ -697,7 +668,6 @@ func TestHandleCreateRole_ResponseShape(t *testing.T) {
 	assert.Equal(
 		t, "Deploy stuff",
 		resp["description"])
-
 }
 
 func TestHandleDeleteRole_Success(t *testing.T) {
@@ -718,7 +688,6 @@ func TestHandleDeleteRole_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 
 		w.Code)
-
 }
 
 func TestHandleDeleteRole_StoreError(t *testing.T) {
@@ -739,7 +708,6 @@ func TestHandleDeleteRole_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleGetRole_StoreError(t *testing.T) {
@@ -757,7 +725,6 @@ func TestHandleGetRole_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListRoles_Empty(t *testing.T) {
@@ -778,9 +745,8 @@ func TestHandleListRoles_Empty(t *testing.T) {
 
 	var roles []domain.ProjectRole
 	decodePaginatedList(t, w.Body.Bytes(), &roles)
-	require.Len(t,
-		roles, 0)
-
+	require.Empty(t,
+		roles)
 }
 
 func TestHandleListRoles_StoreError(t *testing.T) {
@@ -798,7 +764,6 @@ func TestHandleListRoles_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateRole_EmptyBody(t *testing.T) {
@@ -811,7 +776,6 @@ func TestHandleUpdateRole_EmptyBody(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateRole_StoreError(t *testing.T) {
@@ -833,7 +797,6 @@ func TestHandleUpdateRole_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_EmptyBody(t *testing.T) {
@@ -846,7 +809,6 @@ func TestHandleAssignMember_EmptyBody(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_MissingUserID(t *testing.T) {
@@ -860,7 +822,6 @@ func TestHandleAssignMember_MissingUserID(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_MissingRoleID(t *testing.T) {
@@ -874,7 +835,6 @@ func TestHandleAssignMember_MissingRoleID(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_StoreError(t *testing.T) {
@@ -896,7 +856,6 @@ func TestHandleAssignMember_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
@@ -915,7 +874,6 @@ func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_ResponseShape(t *testing.T) {
@@ -952,7 +910,6 @@ func TestHandleAssignMember_ResponseShape(t *testing.T) {
 	}
 	assert.Equal(
 		t, "user_1", resp["user_id"])
-
 }
 
 func TestHandleListMembers_Empty(t *testing.T) {
@@ -973,9 +930,8 @@ func TestHandleListMembers_Empty(t *testing.T) {
 
 	var members []domain.ProjectMemberRole
 	decodePaginatedList(t, w.Body.Bytes(), &members)
-	require.Len(t,
-		members, 0)
-
+	require.Empty(t,
+		members)
 }
 
 func TestHandleListMembers_StoreError(t *testing.T) {
@@ -993,7 +949,6 @@ func TestHandleListMembers_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleRemoveMember_Success(t *testing.T) {
@@ -1011,7 +966,6 @@ func TestHandleRemoveMember_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 
 		w.Code)
-
 }
 
 func TestHandleRemoveMember_StoreError(t *testing.T) {
@@ -1029,7 +983,6 @@ func TestHandleRemoveMember_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleAssignMember_MalformedJSON(t *testing.T) {
@@ -1042,7 +995,6 @@ func TestHandleAssignMember_MalformedJSON(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
@@ -1055,5 +1007,4 @@ func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }

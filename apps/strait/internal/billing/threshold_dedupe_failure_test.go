@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -52,15 +51,10 @@ func TestMaybeEmitUsageThreshold_DedupeFailureLogsAtErrorLevel(t *testing.T) {
 		"org-broken", "starter", "monthly_runs", "2026-05", 80, 100)
 
 	out := logBuf.String()
-	assert.True(t,
-		strings.Contains(out,
-			`"level":"ERROR"`,
-		))
-	assert.True(t,
-		strings.Contains(out,
-			"usage threshold dedupe failed",
-		))
-
+	assert.Contains(t,
+		out, `"level":"ERROR"`)
+	assert.Contains(t,
+		out, "usage threshold dedupe failed")
 }
 
 // TestMaybeEmitUsageThreshold_DedupeFailureNoCounterWithoutMetrics guards the
@@ -75,12 +69,9 @@ func TestMaybeEmitUsageThreshold_DedupeFailureNoCounterWithoutMetrics(t *testing
 
 	enforcer.maybeEmitUsageThreshold(context.Background(),
 		"org-broken", "free", "daily_runs", "2026-05-10", 100, 100)
-	assert.True(t,
-		strings.Contains(logBuf.
-			String(),
-			`"level":"ERROR"`,
-		))
-
+	assert.Contains(t,
+		logBuf.
+			String(), `"level":"ERROR"`)
 }
 
 // TestMaybeEmitUsageThreshold_HealthyRedisDoesNotLogError proves the success
@@ -95,10 +86,7 @@ func TestMaybeEmitUsageThreshold_HealthyRedisDoesNotLogError(t *testing.T) {
 	enforcer, logBuf := newDedupeFailureTestEnforcer(t, rdb)
 	enforcer.maybeEmitUsageThreshold(context.Background(),
 		"org-healthy", "pro", "monthly_runs", "2026-05", 80, 100)
-	assert.False(t,
-		strings.Contains(logBuf.
-			String(),
-			`"level":"ERROR"`,
-		))
-
+	assert.NotContains(t,
+		logBuf.
+			String(), `"level":"ERROR"`)
 }

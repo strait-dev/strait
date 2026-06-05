@@ -23,7 +23,6 @@ func TestDeploymentVersion_OverflowVersion(t *testing.T) {
 		nil ||
 		*d.CanaryPercent != maxVal,
 	)
-
 }
 
 // TestDeploymentVersion_NegativeVersion verifies that a negative canary percent is representable.
@@ -37,7 +36,6 @@ func TestDeploymentVersion_NegativeVersion(t *testing.T) {
 	require.False(t, d.CanaryPercent ==
 		nil ||
 		*d.CanaryPercent != -1)
-
 }
 
 // TestDeploymentVersion_EmptyManifest verifies that an empty manifest JSON is handled.
@@ -50,7 +48,6 @@ func TestDeploymentVersion_EmptyManifest(t *testing.T) {
 	require.True(t, json.
 		Valid(d.
 			Manifest))
-
 }
 
 // TestDeploymentVersion_MalformedManifest verifies that invalid JSON manifest does not panic during assignment.
@@ -62,7 +59,6 @@ func TestDeploymentVersion_MalformedManifest(t *testing.T) {
 	require.False(t, json.
 		Valid(d.
 			Manifest))
-
 }
 
 // TestDeploymentVersion_DuplicateVersion verifies that setting the same status twice is fine.
@@ -74,7 +70,6 @@ func TestDeploymentVersion_DuplicateVersion(t *testing.T) {
 	d.Status = domain.DeploymentVersionStatusFinalized
 	require.True(t, d.Status.
 		IsValid())
-
 }
 
 // FuzzDeploymentVersion fuzzes deployment version construction with arbitrary values.

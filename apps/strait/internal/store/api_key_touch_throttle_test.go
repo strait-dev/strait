@@ -45,10 +45,8 @@ func TestAPIKeyTouchThrottle_HitWithinCooldownSkips(t *testing.T) {
 	require.True(t, ok)
 
 	last, _ := v.(int64)
-	require.False(t, time.
-		Now().UnixNano()-last >=
-		int64(cooldown))
-
+	require.Less(t, time.
+		Now().UnixNano()-last, int64(cooldown))
 }
 
 func TestAPIKeyTouchThrottle_HitOutsideCooldownReissues(t *testing.T) {
@@ -65,7 +63,6 @@ func TestAPIKeyTouchThrottle_HitOutsideCooldownReissues(t *testing.T) {
 	require.GreaterOrEqual(t, time.
 		Now().UnixNano()-last,
 		int64(cooldown))
-
 }
 
 func TestAPIKeyTouchThrottle_SweepEvictsStaleEntries(t *testing.T) {
@@ -108,7 +105,6 @@ func TestAPIKeyTouchThrottle_DefaultCooldownIs60s(t *testing.T) {
 	require.Equal(t, 60*
 		time.Second,
 		got)
-
 }
 
 func TestRecordAPIKeyTouch_SizeMatchesUniqueKeys(t *testing.T) {
@@ -147,7 +143,6 @@ func TestRecordAPIKeyTouch_SizeMatchesUniqueKeys(t *testing.T) {
 	})
 	require.Equal(t, got,
 		ranged)
-
 }
 
 func TestSweepAPIKeyTouchCache_SkipsWhenUnderThreshold(t *testing.T) {
@@ -169,7 +164,6 @@ func TestSweepAPIKeyTouchCache_SkipsWhenUnderThreshold(t *testing.T) {
 
 	// Under the high-water mark, the sweep MUST be a no-op even when every
 	// entry is stale. Operators rely on this to keep the cache warm.
-
 }
 
 func TestSweepAPIKeyTouchCache_EvictsStalePreservesFresh(t *testing.T) {
@@ -205,13 +199,12 @@ func TestSweepAPIKeyTouchCache_EvictsStalePreservesFresh(t *testing.T) {
 		}
 		return true
 	})
-	require.EqualValues(t, 0, staleLeft)
+	require.Equal(t, 0, staleLeft)
 	require.NotEqual(t, 0,
 		freshLeft,
 	)
 	require.Equal(t, int64(freshLeft), apiKeyTouchSize.
 		Load())
-
 }
 
 func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
@@ -257,7 +250,6 @@ func TestSweepAPIKeyTouchCache_SingleSweeperWins(t *testing.T) {
 	}
 	require.EqualValues(t, 0, apiKeyTouchSize.
 		Load())
-
 }
 
 func TestSweepAPIKeyTouchCache_RefreshedEntryNotEvicted(t *testing.T) {
@@ -315,5 +307,4 @@ func TestAPIKeyTouchThrottle_ConcurrentAccessRaceFree(t *testing.T) {
 	require.False(t, count ==
 		0 ||
 		count > ids)
-
 }

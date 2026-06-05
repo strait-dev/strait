@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -50,8 +49,8 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 3, resp.Total)
-	require.EqualValues(t, 3, resp.Created)
+	require.Equal(t, 3, resp.Total)
+	require.Equal(t, 3, resp.Created)
 	require.Len(t,
 		resp.Results, 3,
 	)
@@ -76,13 +75,12 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 		}
 	}
 	for _, r := range resp.Results {
-		assert.NotEqual(t, "", r.ID)
+		assert.NotEmpty(t, r.ID)
 		assert.Equal(
 			t, string(domain.
 				StatusQueued,
 			), r.Status,
 		)
-
 	}
 }
 
@@ -125,7 +123,6 @@ func TestHandleTriggerJob_WorkerModePropagatesExecutionModeAndQueue(t *testing.T
 			ExecutionMode)
 	require.Equal(t, "priority", captured.
 		QueueName)
-
 }
 
 func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.T) {
@@ -168,7 +165,6 @@ func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.
 		require.Equal(t, "priority", run.
 			QueueName,
 		)
-
 	}
 }
 
@@ -204,7 +200,6 @@ func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
 			&got))
 		require.Equal(t, expected[i],
 			got["key"])
-
 	}
 }
 
@@ -241,7 +236,6 @@ func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 		StatusQueued,
 	), resp.
 		Results[1].Status)
-
 }
 
 func TestHandleBulkTrigger_RejectsOutOfRangeScheduledAtAndTTL(t *testing.T) {
@@ -296,11 +290,9 @@ func TestHandleBulkTrigger_RejectsOutOfRangeScheduledAtAndTTL(t *testing.T) {
 				StatusBadRequest &&
 				w.Code != http.StatusUnprocessableEntity,
 			)
-			require.True(
-				t, strings.Contains(w.Body.
-					String(),
-					tc.want))
-
+			require.Contains(
+				t, w.Body.
+					String(), tc.want)
 		})
 	}
 }
@@ -315,7 +307,6 @@ func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
@@ -335,12 +326,10 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"maximum 500 items"),
+	require.Contains(
+		t, w.Body.
+			String(), "maximum 500 items",
 	)
-
 }
 
 func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
@@ -357,7 +346,6 @@ func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
@@ -376,7 +364,6 @@ func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
@@ -389,7 +376,6 @@ func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
@@ -412,10 +398,8 @@ func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-	require.False(t, strings.Contains(w.Body.
-		String(),
-		"results"))
-
+	require.NotContains(t, w.Body.
+		String(), "results")
 }
 
 func TestHandleBulkTrigger_SingleItem(t *testing.T) {
@@ -442,7 +426,6 @@ func TestHandleBulkTrigger_SingleItem(t *testing.T) {
 		StatusQueued,
 	), resp.
 		Results[0].Status)
-
 }
 
 func TestHandleBulkCancel_Success(t *testing.T) {
@@ -490,7 +473,6 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 		resp.Failed !=
 			0 || resp.Total !=
 		3)
-
 }
 
 func TestHandleBulkCancel_PartialFailure(t *testing.T) {
@@ -547,7 +529,6 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 	require.Equal(t, "run already in terminal state",
 
 		byID["run-3"].Error)
-
 }
 
 func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
@@ -559,7 +540,6 @@ func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
@@ -578,12 +558,9 @@ func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"maximum 100 run IDs",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "maximum 100 run IDs")
 }
 
 func TestHandleBulkCancel_InvalidBody(t *testing.T) {
@@ -595,7 +572,6 @@ func TestHandleBulkCancel_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleBulkCancel_AllTerminal(t *testing.T) {
@@ -632,7 +608,6 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 		0 ||
 		resp.Failed !=
 			3)
-
 }
 
 func TestHandleBulkCancel_WithChildren(t *testing.T) {
@@ -685,5 +660,4 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 	require.True(
 		t, childCancelCalled,
 	)
-
 }

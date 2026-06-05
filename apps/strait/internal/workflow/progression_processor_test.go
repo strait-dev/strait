@@ -21,7 +21,6 @@ func TestWorkflowProgression_GroupEventsByWorkflow(t *testing.T) {
 		2)
 	require.Len(t, grouped["wf-b"],
 		1)
-
 }
 
 type fakeProgressionEventStore struct {
@@ -115,13 +114,13 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 	require.NoError(t,
 		processor.
 			ProcessOnce(ctx))
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		listStepsCalls,
 	)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		batchLoadCalls,
 	)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		incrementBatchCalls,
 	)
 
@@ -130,11 +129,8 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 
 			"processed events = %v, want [1 2]", got)
 	}
-	require.Len(t, eventStore.
-		released,
-
-		0)
-
+	require.Empty(t, eventStore.
+		released)
 }
 
 func FuzzWorkflowProgression(f *testing.F) {
@@ -152,7 +148,6 @@ func FuzzWorkflowProgression(f *testing.F) {
 		require.Equal(t, stepRunID,
 			grouped[workflowRunID][0].StepRunID,
 		)
-
 	})
 }
 

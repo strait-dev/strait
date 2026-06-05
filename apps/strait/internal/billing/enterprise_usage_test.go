@@ -48,13 +48,12 @@ func TestGetCurrentUsage_EnterpriseWithContract(t *testing.T) {
 		resp.PeriodSpendMicro,
 	)
 	assert.Equal(t, string(EnterpriseTierStarter), resp.EnterpriseTier)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		resp.OverageDiscountPct,
 	)
-	assert.EqualValues(t, 99.9,
-		resp.SLAUptimePct,
+	assert.InDelta(t, 99.9,
+		resp.SLAUptimePct, 1e-9,
 	)
-
 }
 
 func TestGetCurrentUsage_EnterpriseNoContract(t *testing.T) {
@@ -83,10 +82,7 @@ func TestGetCurrentUsage_EnterpriseNoContract(t *testing.T) {
 	assert.EqualValues(t, 0,
 		resp.OverageMicro,
 	)
-	assert.Equal(t, "",
-		resp.EnterpriseTier,
-	)
-
+	assert.Empty(t, resp.EnterpriseTier)
 }
 
 func TestGetCurrentUsage_EnterpriseOverage_DiscountApplied(t *testing.T) {
@@ -132,7 +128,6 @@ func TestGetCurrentUsage_EnterpriseOverage_DiscountApplied(t *testing.T) {
 		resp.
 			OverageMicro,
 	)
-
 }
 
 func TestGetCurrentUsage_NonEnterprise_NoEnterpriseFields(t *testing.T) {
@@ -158,16 +153,13 @@ func TestGetCurrentUsage_NonEnterprise_NoEnterpriseFields(t *testing.T) {
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-pro")
 	require.NoError(t,
 		err)
-	assert.Equal(t, "",
-		resp.EnterpriseTier,
-	)
-	assert.EqualValues(t, 0,
+	assert.Empty(t, resp.EnterpriseTier)
+	assert.Equal(t, 0,
 		resp.OverageDiscountPct,
 	)
-	assert.EqualValues(t, 0,
-		resp.SLAUptimePct,
+	assert.InDelta(t, 0,
+		resp.SLAUptimePct, 1e-9,
 	)
-
 }
 
 func TestGetCurrentUsage_EnterpriseContractEndDate(t *testing.T) {
@@ -208,11 +200,10 @@ func TestGetCurrentUsage_EnterpriseContractEndDate(t *testing.T) {
 		resp.
 			ContractEndDate,
 	)
-	assert.EqualValues(t, 99.95,
+	assert.InDelta(t, 99.95,
 		resp.
-			SLAUptimePct,
+			SLAUptimePct, 1e-9,
 	)
-
 }
 
 func TestGetCurrentUsage_EnterpriseGrowthDiscount15Pct(t *testing.T) {
@@ -258,5 +249,4 @@ func TestGetCurrentUsage_EnterpriseGrowthDiscount15Pct(t *testing.T) {
 		resp.
 			OverageMicro,
 	)
-
 }

@@ -119,15 +119,12 @@ func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
 
 	cancel()
 	<-done
-	require.False(t,
-		callCount.Load() <=
-			3)
-	require.False(t,
-		a.CurrentLimit() <=
-			10)
+	require.Greater(t,
+		callCount.Load(), int32(3))
+	require.Greater(t,
+		a.CurrentLimit(), 10)
 
 	// After the successful probe with deep queue, limit should have increased.
-
 }
 
 func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
@@ -153,7 +150,6 @@ func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
 	require.LessOrEqual(t, probeCalls.
 		Load(), int32(0),
 	)
-
 }
 
 func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
@@ -221,10 +217,8 @@ func TestAdaptiveRun_UpdatesLimit_WhenProbeSignalsLoad(t *testing.T) {
 
 	cancel()
 	<-done
-	require.False(t,
-		a.CurrentLimit() <=
-			10)
-
+	require.Greater(t,
+		a.CurrentLimit(), 10)
 }
 
 func TestAdaptiveConcurrency_ConcurrentAccess(t *testing.T) {
@@ -247,7 +241,6 @@ func TestAdaptiveConcurrency_ConcurrentAccess(t *testing.T) {
 	require.False(t,
 		lim < 1 || lim >
 			1000)
-
 }
 
 func TestAdaptiveConcurrency_ZeroQueueDepth_ScaleDown(t *testing.T) {
@@ -257,8 +250,7 @@ func TestAdaptiveConcurrency_ZeroQueueDepth_ScaleDown(t *testing.T) {
 	// At minimum: two idle checks should not go below min.
 	_ = a.Observe(0, 0.0)
 	next := a.Observe(0, 0.0)
-	require.EqualValues(t, 1, next)
-
+	require.Equal(t, 1, next)
 }
 
 func TestAdaptiveConcurrency_MaxQueueDepth_ScaleUp(t *testing.T) {
@@ -267,8 +259,7 @@ func TestAdaptiveConcurrency_MaxQueueDepth_ScaleUp(t *testing.T) {
 	a := NewAdaptiveConcurrency(1, 50, 25)
 	// Max int queue depth should not overflow.
 	next := a.Observe(1<<30, 1.0)
-	require.EqualValues(t, 50, next)
-
+	require.Equal(t, 50, next)
 }
 
 func TestAdaptiveConcurrency_RapidFluctuations(t *testing.T) {
@@ -286,7 +277,6 @@ func TestAdaptiveConcurrency_RapidFluctuations(t *testing.T) {
 	require.False(t,
 		lim < 5 || lim >
 			100)
-
 }
 
 func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
@@ -376,13 +366,10 @@ func TestRunEventsFromDomain_EmptySlice(t *testing.T) {
 
 	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"}
 	records := runEventsFromDomain(run, nil)
-	require.Len(t, records,
-		0)
+	require.Empty(t, records)
 
 	records = runEventsFromDomain(run, []domain.RunEvent{})
-	require.Len(t, records,
-		0)
-
+	require.Empty(t, records)
 }
 
 func TestRunEventsFromDomain_EmptyStrings(t *testing.T) {
@@ -405,9 +392,8 @@ func TestRunEventsFromDomain_EmptyStrings(t *testing.T) {
 			r.ProjectID !=
 				"" || r.JobID !=
 			"")
-	assert.Equal(t,
-		"", r.Metadata)
-
+	assert.Empty(t,
+		r.Metadata)
 }
 
 func TestRunEventsFromDomain_MalformedJSON(t *testing.T) {
@@ -434,7 +420,6 @@ func TestRunEventsFromDomain_MalformedJSON(t *testing.T) {
 	)
 
 	// Data is treated as raw bytes, not validated for JSON correctness.
-
 }
 
 func TestRunEventsFromDomain_LargeDataField(t *testing.T) {
@@ -457,7 +442,6 @@ func TestRunEventsFromDomain_LargeDataField(t *testing.T) {
 		1)
 	assert.Len(t, records[0].Metadata,
 		len(bigData))
-
 }
 
 func TestRunEventsFromDomain_MixedEventTypes(t *testing.T) {
@@ -492,7 +476,6 @@ func TestRunEventsFromDomain_MixedEventTypes(t *testing.T) {
 				"")
 
 	// Verify each record preserves the correct fields.
-
 }
 
 func TestClickHouseSubscriber_DurationCalculation_NoStartTime(t *testing.T) {
@@ -516,8 +499,7 @@ func TestClickHouseSubscriber_DurationCalculation_NoStartTime(t *testing.T) {
 			FinishedAt: &now,
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_DurationCalculation_NoFinishTime(t *testing.T) {
@@ -540,8 +522,7 @@ func TestClickHouseSubscriber_DurationCalculation_NoFinishTime(t *testing.T) {
 			StartedAt: &now,
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NegativeDuration(t *testing.T) {
@@ -567,8 +548,7 @@ func TestClickHouseSubscriber_NegativeDuration(t *testing.T) {
 			FinishedAt: &now,
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_ZeroQueueWait(t *testing.T) {
@@ -585,8 +565,7 @@ func TestClickHouseSubscriber_ZeroQueueWait(t *testing.T) {
 		Run:       &domain.JobRun{ID: "run-zqw", ProjectID: "proj-1"},
 		QueueWait: 0,
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilJob_EmptyExecutionMode(t *testing.T) {
@@ -603,8 +582,7 @@ func TestClickHouseSubscriber_NilJob_EmptyExecutionMode(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-nilj", ProjectID: "proj-1"},
 		Job:  nil, // nil job
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_AnalyticsAndEventsEnqueued(t *testing.T) {
@@ -650,8 +628,7 @@ func TestClickHouseSubscriber_AnalyticsAndEventsEnqueued(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	assert.EqualValues(t, 2, exporter.PendingCount())
-
+	assert.Equal(t, 2, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NonTerminalTypes_NoEnqueue(t *testing.T) {
@@ -673,8 +650,7 @@ func TestClickHouseSubscriber_NonTerminalTypes_NoEnqueue(t *testing.T) {
 				Type: et,
 				Run:  &domain.JobRun{ID: "run-nt", ProjectID: "proj-1"},
 			})
-			assert.EqualValues(t, 0, exporter.PendingCount())
-
+			assert.Equal(t, 0, exporter.PendingCount())
 		})
 	}
 }
@@ -697,8 +673,7 @@ func TestClickHouseSubscriber_TagsMarshalSpecialChars(t *testing.T) {
 			Tags:      map[string]string{"key\"with\"quotes": "val\nwith\nnewlines", "emoji": "hello"},
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestRunEventsFromDomain_PreservesAllFields(t *testing.T) {
@@ -750,5 +725,4 @@ func TestRunEventsFromDomain_PreservesAllFields(t *testing.T) {
 	assert.True(t, r.
 		CreatedAt.Equal(
 		now))
-
 }

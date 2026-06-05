@@ -28,7 +28,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		)
 		require.Equal(t, "Hello",
 			got["subject"])
-
 	})
 
 	t.Run("preserves number type", func(t *testing.T) {
@@ -45,8 +44,7 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		count, ok := got["count"].(float64)
 		require.True(t, ok)
-		require.EqualValues(t, 42, count)
-
+		require.InDelta(t, 42, count, 1e-9)
 	})
 
 	t.Run("preserves boolean type", func(t *testing.T) {
@@ -64,7 +62,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		active, ok := got["active"].(bool)
 		require.True(t, ok)
 		require.True(t, active)
-
 	})
 
 	t.Run("preserves object type", func(t *testing.T) {
@@ -83,7 +80,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "value",
 			cfg["key"])
-
 	})
 
 	t.Run("embedded variable in string", func(t *testing.T) {
@@ -100,7 +96,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "Hello Alice, welcome!",
 
 			got["message"])
-
 	})
 
 	t.Run("embedded number in string", func(t *testing.T) {
@@ -117,7 +112,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "You have 5 items",
 
 			got["message"])
-
 	})
 
 	t.Run("multiple variables in one string", func(t *testing.T) {
@@ -134,7 +128,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "Hi Jane Doe!",
 			got["greeting"],
 		)
-
 	})
 
 	t.Run("unresolved variables left as-is", func(t *testing.T) {
@@ -151,7 +144,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "{{unknown_var}}",
 
 			got["to"])
-
 	})
 
 	t.Run("unresolved nested variable returns payload unchanged", func(t *testing.T) {
@@ -163,7 +155,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, string(
 			payload), string(result),
 		)
-
 	})
 
 	t.Run("dot-path variable resolution", func(t *testing.T) {
@@ -180,7 +171,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "nested@example.com",
 
 			got["email"])
-
 	})
 
 	t.Run("nested payload objects", func(t *testing.T) {
@@ -199,7 +189,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "deep",
 			outer["inner"])
-
 	})
 
 	t.Run("deeply nested 5+ levels", func(t *testing.T) {
@@ -227,7 +216,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "deep-replaced",
 			l4["l5"])
-
 	})
 
 	t.Run("array values", func(t *testing.T) {
@@ -248,7 +236,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.False(t, items[0] != "first" ||
 			items[1] !=
 				"static" || items[2] != "third")
-
 	})
 
 	t.Run("template in non-string context", func(t *testing.T) {
@@ -267,7 +254,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.True(t, ok)
 		require.Len(t, items, 3)
 		require.False(t, items[0] != float64(1) || items[1] != "replaced" || items[2] != float64(3))
-
 	})
 
 	t.Run("empty template marker", func(t *testing.T) {
@@ -284,7 +270,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "{{}}",
 			got["val"],
 		)
-
 	})
 
 	t.Run("invalid marker does not block later valid template", func(t *testing.T) {
@@ -301,14 +286,12 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "{{}} then done",
 
 			got["val"])
-
 	})
 
 	t.Run("nil payload returns as-is", func(t *testing.T) {
 		t.Parallel()
 		result := renderTemplateVars(nil, json.RawMessage(`{"a":"b"}`))
 		require.Nil(t, result)
-
 	})
 
 	t.Run("nil variables returns payload as-is", func(t *testing.T) {
@@ -318,7 +301,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, string(
 			payload), string(result),
 		)
-
 	})
 
 	t.Run("non-object variables returns payload as-is", func(t *testing.T) {
@@ -328,7 +310,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, string(
 			payload), string(result),
 		)
-
 	})
 
 	t.Run("no templates in payload", func(t *testing.T) {
@@ -345,7 +326,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "plain@example.com",
 
 			got["to"])
-
 	})
 
 	t.Run("null variable value replaces with empty string in embedded", func(t *testing.T) {
@@ -362,7 +342,6 @@ func TestRenderTemplateVars(t *testing.T) {
 		require.Equal(t, "value is  here",
 
 			got["msg"])
-
 	})
 
 	t.Run("null variable value preserved for full replacement", func(t *testing.T) {
@@ -377,7 +356,6 @@ func TestRenderTemplateVars(t *testing.T) {
 				&got,
 			))
 		require.Nil(t, got["val"])
-
 	})
 }
 
@@ -399,7 +377,6 @@ func TestResolveVar(t *testing.T) {
 		require.False(t, !ok ||
 			val != "Alice",
 		)
-
 	})
 
 	t.Run("nested path", func(t *testing.T) {
@@ -408,7 +385,6 @@ func TestResolveVar(t *testing.T) {
 		require.False(t, !ok ||
 			val != "alice@example.com",
 		)
-
 	})
 
 	t.Run("deeply nested path", func(t *testing.T) {
@@ -417,28 +393,24 @@ func TestResolveVar(t *testing.T) {
 		require.False(t, !ok ||
 			val != "SF",
 		)
-
 	})
 
 	t.Run("missing key", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "missing")
 		require.False(t, ok)
-
 	})
 
 	t.Run("missing nested key", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "user.phone")
 		require.False(t, ok)
-
 	})
 
 	t.Run("path through non-object", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "name.first")
 		require.False(t, ok)
-
 	})
 }
 
@@ -448,21 +420,17 @@ func TestStringify(t *testing.T) {
 		t.Parallel()
 		require.Equal(t, "hello",
 			stringify("hello"))
-
 	})
 
 	t.Run("integer float", func(t *testing.T) {
 		t.Parallel()
 		require.Equal(t, "42", stringify(float64(42)))
-
 	})
 
 	t.Run("fractional float", func(t *testing.T) {
 		t.Parallel()
 		s := stringify(3.14)
-		require.True(t, strings.Contains(s,
-			"3.14"))
-
+		require.Contains(t, s, "3.14")
 	})
 
 	t.Run("bool true", func(t *testing.T) {
@@ -470,20 +438,17 @@ func TestStringify(t *testing.T) {
 		require.Equal(t, "true",
 			stringify(
 				true))
-
 	})
 
 	t.Run("bool false", func(t *testing.T) {
 		t.Parallel()
 		require.Equal(t, "false",
 			stringify(false))
-
 	})
 
 	t.Run("nil", func(t *testing.T) {
 		t.Parallel()
-		require.Equal(t, "", stringify(nil))
-
+		require.Empty(t, stringify(nil))
 	})
 
 	t.Run("object", func(t *testing.T) {
@@ -493,7 +458,6 @@ func TestStringify(t *testing.T) {
 			s, `"k"`) ||
 
 			!strings.Contains(s, `"v"`))
-
 	})
 }
 
@@ -524,7 +488,7 @@ func TestRenderTemplateVars_RepeatedVariablesPreserveBehavior(t *testing.T) {
 	require.Equal(t, "ops@example.com/42/{{missing}}/ops@example.com",
 
 		got["message"])
-	require.Equal(t, float64(42), got["native_count"])
+	require.InDelta(t, float64(42), got["native_count"], 1e-9)
 
 	if _, ok := got["native_config"].(map[string]any); !ok {
 		require.Failf(t, "test failure",
@@ -541,7 +505,6 @@ func TestRenderStringTemplate_RepeatedVariablesPreserveBehavior(t *testing.T) {
 	require.Equal(t, "ops@example.com:42:{{missing}}:ops@example.com",
 
 		got)
-
 }
 
 func BenchmarkRenderTemplateVars(b *testing.B) {
@@ -739,7 +702,6 @@ func TestRenderStringTemplate(t *testing.T) {
 			got := renderStringTemplate(tt.template, tt.variables)
 			assert.Equal(t, tt.want,
 				got)
-
 		})
 	}
 }

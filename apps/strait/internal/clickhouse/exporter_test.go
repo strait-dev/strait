@@ -116,7 +116,6 @@ func TestExporter_EnqueuesNewRecordTypes(t *testing.T) {
 	})
 	assert.Equal(t, 2, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
@@ -133,7 +132,6 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	exporter.flush(context.Background())
 	assert.Equal(t, 0, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_EnqueuesEventTriggerEvent(t *testing.T) {
@@ -159,7 +157,6 @@ func TestExporter_EnqueuesEventTriggerEvent(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
@@ -186,7 +183,6 @@ func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_EnqueuesWorkflowStepAnalytics(t *testing.T) {
@@ -215,7 +211,6 @@ func TestExporter_EnqueuesWorkflowStepAnalytics(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
@@ -244,7 +239,6 @@ func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_NilExporter_NoPanic(t *testing.T) {
@@ -275,7 +269,6 @@ func TestExporter_EnqueuesBillingEvent(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_BillingEventWithAllFields(t *testing.T) {
@@ -298,7 +291,6 @@ func TestExporter_BillingEventWithAllFields(t *testing.T) {
 	})
 	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestExporter_BillingEventMixedWithOtherTypes(t *testing.T) {
@@ -330,5 +322,4 @@ func TestExporter_BillingEventMixedWithOtherTypes(t *testing.T) {
 	})
 	assert.Equal(t, 3, exporter.
 		PendingCount())
-
 }

@@ -59,7 +59,6 @@ func TestRespondError_AlwaysAPIError(t *testing.T) {
 				wantMsg, resp.
 				Error.Message,
 			)
-
 		})
 	}
 }
@@ -79,7 +78,6 @@ func TestRespondError_NeverBareString(t *testing.T) {
 			Bytes(), &raw))
 	require.False(t, len(raw.Error) == 0 || raw.
 		Error[0] != '{')
-
 }
 
 // TestHumaNewError_OverrideShape verifies the Huma override produces the
@@ -120,5 +118,4 @@ func TestHumaNewError_OverrideShape(t *testing.T) {
 		1 || resp.Error.Details[0] !=
 		"field x is required",
 	)
-
 }

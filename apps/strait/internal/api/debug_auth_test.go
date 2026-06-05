@@ -44,7 +44,6 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 			t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	})
 
 	t.Run("wrong secret returns 401", func(t *testing.T) {
@@ -57,7 +56,6 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 			t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	})
 
 	t.Run("correct secret returns 200", func(t *testing.T) {
@@ -69,7 +67,6 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 		assert.Equal(
 			t, http.StatusOK,
 			w.Code)
-
 	})
 }
 
@@ -96,7 +93,6 @@ func TestDebugStatsviz_Disabled_Returns404(t *testing.T) {
 	assert.Equal(
 		t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestPprof_RequiresAuth(t *testing.T) {
@@ -124,7 +120,6 @@ func TestPprof_RequiresAuth(t *testing.T) {
 			t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	})
 
 	t.Run("wrong secret returns 401", func(t *testing.T) {
@@ -137,7 +132,6 @@ func TestPprof_RequiresAuth(t *testing.T) {
 			t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	})
 
 	t.Run("correct secret returns 200", func(t *testing.T) {
@@ -149,7 +143,6 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		assert.Equal(
 			t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("bearer secret returns 200", func(t *testing.T) {
@@ -161,7 +154,6 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		assert.Equal(
 			t, http.StatusOK,
 			w.Code)
-
 	})
 }
 
@@ -192,7 +184,6 @@ func TestPprof_ProfilingSecretOverridesInternalSecret(t *testing.T) {
 			t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	})
 
 	t.Run("profiling secret authorizes pprof", func(t *testing.T) {
@@ -204,7 +195,6 @@ func TestPprof_ProfilingSecretOverridesInternalSecret(t *testing.T) {
 		assert.Equal(
 			t, http.StatusOK,
 			w.Code)
-
 	})
 }
 
@@ -254,7 +244,6 @@ func TestPprof_AuthLimiterScopeIsDedicated(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestPprof_AuthLimiterScopeIsDedicatedWithProfilingSecret(t *testing.T) {
@@ -304,7 +293,6 @@ func TestPprof_AuthLimiterScopeIsDedicatedWithProfilingSecret(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestPprof_RequestsMetricRecordsEndpointAndStatus(t *testing.T) {
@@ -341,7 +329,6 @@ func TestPprof_RequestsMetricRecordsEndpointAndStatus(t *testing.T) {
 		t, hasPprofRequestMetric(rm, "goroutine",
 			"200",
 		))
-
 }
 
 func TestPprof_AllowedCIDRs(t *testing.T) {
@@ -371,7 +358,6 @@ func TestPprof_AllowedCIDRs(t *testing.T) {
 		assert.Equal(
 			t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("disallowed remote ip returns 403", func(t *testing.T) {
@@ -384,7 +370,6 @@ func TestPprof_AllowedCIDRs(t *testing.T) {
 		assert.Equal(
 			t, http.StatusForbidden,
 			w.Code)
-
 	})
 }
 
@@ -411,7 +396,6 @@ func TestPprof_TextDebugOutputRejected(t *testing.T) {
 	assert.Equal(
 		t, http.StatusBadRequest,
 		w.Code)
-
 }
 
 func TestPprof_ExploratoryEndpointsNotExposed(t *testing.T) {
@@ -438,7 +422,6 @@ func TestPprof_ExploratoryEndpointsNotExposed(t *testing.T) {
 		assert.Equal(
 			t, http.StatusNotFound,
 			w.Code)
-
 	}
 }
 
@@ -472,7 +455,6 @@ func TestPprof_ManagementHandlerOnlyExposesPprofRoutes(t *testing.T) {
 		handler.ServeHTTP(w, req)
 		require.Equal(t, tt.want,
 			w.Code)
-
 	}
 }
 
@@ -504,7 +486,6 @@ func TestPprof_APIListenerCanBeDisabledForManagementOnly(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestPprof_Disabled_Returns404(t *testing.T) {
@@ -530,7 +511,6 @@ func TestPprof_Disabled_Returns404(t *testing.T) {
 	assert.Equal(
 		t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func hasPprofRequestMetric(rm metricdata.ResourceMetrics, endpoint, status string) bool {

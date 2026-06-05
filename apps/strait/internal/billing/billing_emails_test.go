@@ -14,7 +14,6 @@ func TestNewBillingEmailSender_EmptyKey_ReturnsNil(t *testing.T) {
 	t.Parallel()
 	s := NewBillingEmailSender("", "", nil)
 	require.Nil(t, s)
-
 }
 
 func TestNewBillingEmailSender_ValidKey_ReturnsNonNil(t *testing.T) {
@@ -22,82 +21,51 @@ func TestNewBillingEmailSender_ValidKey_ReturnsNonNil(t *testing.T) {
 	s := NewBillingEmailSender("re_test", "", nil)
 	require.NotNil(t,
 		s)
-
 }
 
 func TestSpendingLimitWarningHTML_EscapesHTML(t *testing.T) {
 	t.Parallel()
 	html := spendingLimitWarningHTML("<script>alert(1)</script>", "$50", "$100", "80%")
-	require.False(t,
-		strings.Contains(html,
-			"<script>",
-		))
-	require.True(t, strings.Contains(html,
-		"&lt;script&gt;",
-	))
-
+	require.NotContains(t,
+		html, "<script>")
+	require.Contains(t, html, "&lt;script&gt;")
 }
 
 func TestSpendingLimitWarningHTML_ContainsValues(t *testing.T) {
 	t.Parallel()
 	html := spendingLimitWarningHTML("Pro", "$42.50", "$100.00", "80%")
-	require.True(t, strings.Contains(html,
-		"Pro"))
-	require.True(t, strings.Contains(html,
-		"80%"))
-	require.True(t, strings.Contains(html,
-		"$100.00",
-	),
-	)
-
+	require.Contains(t, html, "Pro")
+	require.Contains(t, html, "80%")
+	require.Contains(t, html, "$100.00")
 }
 
 func TestOverageAlertHTML_EscapesHTML(t *testing.T) {
 	t.Parallel()
 	html := overageAlertHTML("<img>", "$10", "50000")
-	require.False(t,
-		strings.Contains(html,
-			"<img>",
-		))
-
+	require.NotContains(t,
+		html, "<img>")
 }
 
 func TestOverageAlertHTML_UsesRunAllowanceLanguage(t *testing.T) {
 	t.Parallel()
 	html := overageAlertHTML("Starter", "$10", "50000")
-	require.True(t, strings.Contains(html,
-		"included allowance of 50000 orchestration runs",
-	))
-	require.False(t,
-		strings.Contains(html,
-			"included credit",
-		))
-
+	require.Contains(t, html, "included allowance of 50000 orchestration runs")
+	require.NotContains(t,
+		html, "included credit")
 }
 
 func TestPaymentFailedHTML_ContainsGracePeriod(t *testing.T) {
 	t.Parallel()
 	html := paymentFailedHTML("Starter", "April 15, 2026")
-	require.True(t, strings.Contains(html,
-		"April 15, 2026",
-	))
-	require.True(t, strings.Contains(html,
-		"Starter",
-	),
-	)
-
+	require.Contains(t, html, "April 15, 2026")
+	require.Contains(t, html, "Starter")
 }
 
 func TestPlanChangedHTML_ContainsBothPlans(t *testing.T) {
 	t.Parallel()
 	html := planChangedHTML("Starter", "Pro", "March 30, 2026")
-	require.True(t, strings.Contains(html,
-		"Starter",
-	),
-	)
-	require.True(t, strings.Contains(html,
-		"Pro"))
-
+	require.Contains(t, html, "Starter")
+	require.Contains(t, html, "Pro")
 }
 
 func TestBillingEmailSender_NilSafety(t *testing.T) {
@@ -137,7 +105,6 @@ func TestNewBillingEmailSender_DefaultFromEmail(t *testing.T) {
 		s.
 			fromEmail,
 	)
-
 }
 
 func TestNewBillingEmailSender_CustomFromEmail(t *testing.T) {
@@ -150,17 +117,13 @@ func TestNewBillingEmailSender_CustomFromEmail(t *testing.T) {
 		s.
 			fromEmail,
 	)
-
 }
 
 func TestDowngradeHTTPJobsWarningHTML_EscapesHTML(t *testing.T) {
 	t.Parallel()
 	html := downgradeHTTPJobsWarningHTML("<script>alert(1)</script>", 3)
-	require.False(t,
-		strings.Contains(html,
-			"<script>",
-		))
-
+	require.NotContains(t,
+		html, "<script>")
 }
 
 func FuzzBillingEmailHTML(f *testing.F) {

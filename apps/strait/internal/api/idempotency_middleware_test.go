@@ -14,6 +14,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,7 +66,6 @@ func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
-
 }
 
 func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
@@ -90,7 +90,7 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 			require.Equal(t, http.
 				StatusCreated, status,
 			)
-			require.Equal(t, `{"id":"job-123"}`,
+			require.JSONEq(t, `{"id":"job-123"}`,
 				string(body),
 			)
 
@@ -107,13 +107,12 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
-	require.EqualValues(t, 1, handlerCalls)
+	require.Equal(t, 1, handlerCalls)
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
 	require.Len(t, ms.CompleteIdempotencyKeyCalls(),
 		1)
-
 }
 
 func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
@@ -139,7 +138,7 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
-	require.EqualValues(t, 0, handlerCalls)
+	require.Equal(t, 0, handlerCalls)
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
@@ -153,7 +152,6 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 			&body))
 	require.Equal(t, "job-123",
 		body["id"])
-
 }
 
 func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
@@ -170,7 +168,7 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	inner := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler must not run when caller lacks the route permission")
 	})
@@ -189,9 +187,7 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 	require.Equal(t, http.
 		StatusForbidden,
 		w.Code)
-	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
-		0)
-
+	require.Empty(t, ms.TryAcquireIdempotencyKeyCalls())
 }
 
 func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
@@ -221,10 +217,8 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
-	require.EqualValues(t, 1, createCalls)
-	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
-		0)
-
+	require.Equal(t, 1, createCalls)
+	require.Empty(t, ms.TryAcquireIdempotencyKeyCalls())
 }
 
 func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *testing.T) {
@@ -254,10 +248,8 @@ func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *te
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
-	require.EqualValues(t, 1, createCalls)
-	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
-		0)
-
+	require.Equal(t, 1, createCalls)
+	require.Empty(t, ms.TryAcquireIdempotencyKeyCalls())
 }
 
 func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
@@ -270,7 +262,7 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler should not be called when key is pending")
 	})
@@ -285,14 +277,13 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 	require.Equal(t, http.
 		StatusConflict, w.
 		Code)
-
 }
 
 func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler should not be called for oversized key")
 	})
@@ -308,7 +299,6 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
@@ -339,7 +329,6 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	require.Equal(t, http.
 		StatusCreated, w.
 		Code)
-
 }
 
 func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
@@ -373,9 +362,7 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 
 		w.Code)
 	require.True(t, deleteCalled)
-	require.Len(t, ms.CompleteIdempotencyKeyCalls(),
-		0)
-
+	require.Empty(t, ms.CompleteIdempotencyKeyCalls())
 }
 
 func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
@@ -409,10 +396,8 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 
 	for _, k := range captured {
 		require.True(t, isHexDigest(k))
-
 	}
 	require.NotEqual(t, captured[1], captured[0])
-
 }
 
 func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
@@ -446,17 +431,14 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 		require.Equal(t, http.
 			StatusCreated, w.
 			Code)
-
 	}
 	require.Len(t, capturedKeys,
 		2)
 
 	for _, k := range capturedKeys {
 		require.True(t, isHexDigest(k))
-
 	}
 	require.NotEqual(t, capturedKeys[1], capturedKeys[0])
-
 }
 
 func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
@@ -486,13 +468,8 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 	wrapped.ServeHTTP(httptest.NewRecorder(), req)
 
 	logText := logs.String()
-	require.False(t, strings.Contains(logText,
-		rawKey,
-	))
-	require.True(t, strings.Contains(logText,
-		"idempotency_key_hash",
-	))
-
+	require.NotContains(t, logText, rawKey)
+	require.Contains(t, logText, "idempotency_key_hash")
 }
 
 func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
@@ -522,7 +499,6 @@ func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
 		w.Header().Get("Idempotency-Replayed"))
 	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
 		1)
-
 }
 
 func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
@@ -552,7 +528,6 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 		w.Header().Get("Idempotency-Replayed"))
 	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
 		1)
-
 }
 
 // TestIdempotencyMiddleware_LogsUnknownStoreStatus pins the visibility
@@ -586,20 +561,13 @@ func TestIdempotencyMiddleware_LogsUnknownStoreStatus(t *testing.T) {
 	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
 	rec := httptest.NewRecorder()
 	wrapped.ServeHTTP(rec, req)
-	require.EqualValues(t, 1, handlerCalls)
+	require.Equal(t, 1, handlerCalls)
 	require.Equal(t, http.
 		StatusOK, rec.Code,
 	)
 
 	logText := logs.String()
-	require.True(t, strings.Contains(logText,
-		"unrecognized status",
-	))
-	require.True(t, strings.Contains(logText,
-		bogusStatus,
-	))
-	require.True(t, strings.Contains(logText,
-		"level=ERROR",
-	))
-
+	require.Contains(t, logText, "unrecognized status")
+	require.Contains(t, logText, bogusStatus)
+	require.Contains(t, logText, "level=ERROR")
 }

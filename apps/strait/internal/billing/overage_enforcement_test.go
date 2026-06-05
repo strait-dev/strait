@@ -63,7 +63,6 @@ func TestOverage_FreeTier_HardCap(t *testing.T) {
 
 		le.Code,
 	)
-
 }
 
 func TestOverage_FreeTier_ZeroSpend_Passes(t *testing.T) {
@@ -75,7 +74,6 @@ func TestOverage_FreeTier_ZeroSpend_Passes(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free")
 	require.NoError(t,
 		err)
-
 }
 
 func TestOverage_PaidTier_NoSpendingLimit_Allows(t *testing.T) {
@@ -88,7 +86,6 @@ func TestOverage_PaidTier_NoSpendingLimit_Allows(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
 	require.NoError(t,
 		err)
-
 }
 
 func TestOverage_PaidTier_WithSpendingLimit_Blocks(t *testing.T) {
@@ -101,7 +98,6 @@ func TestOverage_PaidTier_WithSpendingLimit_Blocks(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
 	require.Error(t,
 		err)
-
 }
 
 func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
@@ -113,7 +109,6 @@ func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
 	require.Error(t,
 		err)
-
 }
 
 func TestOverage_ScaleTier_NoSpendingLimit(t *testing.T) {
@@ -125,7 +120,6 @@ func TestOverage_ScaleTier_NoSpendingLimit(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-scale")
 	require.NoError(t,
 		err)
-
 }
 
 func TestOverage_NoSubscription_FreeTierFallback(t *testing.T) {
@@ -144,7 +138,6 @@ func TestOverage_NoSubscription_FreeTierFallback(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-none")
 	require.Error(t,
 		err)
-
 }
 
 func TestOverage_StarterTier_NoLimit_LargeSpend_Passes(t *testing.T) {
@@ -156,7 +149,6 @@ func TestOverage_StarterTier_NoLimit_LargeSpend_Passes(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-starter")
 	require.NoError(t,
 		err)
-
 }
 
 func TestOverage_ConcurrentSpendChecks(t *testing.T) {
@@ -220,7 +212,6 @@ func TestOverage_AllTiers_CorrectBehavior(t *testing.T) {
 			assert.Equal(t, tt.
 				wantBlock,
 				blocked)
-
 		})
 	}
 }

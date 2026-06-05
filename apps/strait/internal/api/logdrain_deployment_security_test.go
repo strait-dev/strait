@@ -50,7 +50,6 @@ func TestLogDrain_AuthConfigHeaderInjection(t *testing.T) {
 		w.Code)
 
 	// Authorization is intentionally allowed for custom header auth type.
-
 }
 
 // TestLogDrain_AuthConfigProtectedHeaderCase verifies that protected header
@@ -88,7 +87,6 @@ func TestLogDrain_AuthConfigProtectedHeaderCase(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 
 				w.Code)
-
 		})
 	}
 }
@@ -123,7 +121,6 @@ func TestLogDrain_AuthConfigEmptyBearer(t *testing.T) {
 		w.Code)
 
 	// Empty bearer token should be accepted (no validation on token value).
-
 }
 
 // TestLogDrain_LevelFilterInvalid verifies that invalid log levels in the
@@ -157,7 +154,6 @@ func TestLogDrain_LevelFilterInvalid(t *testing.T) {
 		t.Logf("note: invalid levels rejected with status %d", w.Code)
 	}
 	require.NotEqual(t, 0, w.Code)
-
 }
 
 // TestLogDrain_LevelFilterUnboundedArray verifies that a very large
@@ -194,7 +190,6 @@ func TestLogDrain_LevelFilterUnboundedArray(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// Must not panic. May return 201 or 413/400.
-
 }
 
 // TestLogDrain_EndpointSSRF verifies that internal/private IP addresses
@@ -235,7 +230,6 @@ func TestLogDrain_EndpointSSRF(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 
 				w.Code)
-
 		})
 	}
 }
@@ -276,7 +270,6 @@ func TestLogDrain_UpdateWithoutAuthType(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestDeployment_CanaryPercentBoundary verifies the canary_percent boundary
@@ -329,7 +322,6 @@ func TestDeployment_CanaryPercentBoundary(t *testing.T) {
 				w.Code ==
 					http.StatusCreated,
 			)
-
 		})
 	}
 }
@@ -364,7 +356,6 @@ func TestDeployment_CanaryDurationOverflow(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// The server must not panic. It may accept or reject the extreme duration.
-
 }
 
 // TestDeployment_ManifestArbitraryJSON verifies that a very large manifest
@@ -401,7 +392,6 @@ func TestDeployment_ManifestArbitraryJSON(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// Must not panic. Large payloads may be rejected by the framework.
-
 }
 
 // TestDeployment_ConcurrentVersionPublish verifies that concurrent deployment
@@ -440,13 +430,11 @@ func TestDeployment_ConcurrentVersionPublish(t *testing.T) {
 					w.
 						Code != http.StatusInternalServerError,
 			)
-
 		})
 	}
 	wg.Wait()
 	require.NotEqual(t, 0, createCount.
 		Load())
-
 }
 
 // FuzzLogDrainAuthConfig fuzzes the auth_config JSON to verify the
@@ -496,6 +484,5 @@ func FuzzDeploymentManifest(f *testing.F) {
 			t, json.Valid(result))
 
 		// The result must be valid JSON.
-
 	})
 }

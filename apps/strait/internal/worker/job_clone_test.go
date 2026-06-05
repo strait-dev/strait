@@ -12,7 +12,6 @@ import (
 func TestCloneJob_Nil(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, cloneJob(nil))
-
 }
 
 func TestCloneJob_CopiesScalars(t *testing.T) {
@@ -51,7 +50,6 @@ func TestCloneJob_CopiesScalars(t *testing.T) {
 		CacheVersion != job.CacheVersion ||
 		clone.EndpointSigningSecret !=
 			job.EndpointSigningSecret)
-
 }
 
 func TestCloneJob_IsolatesMutableFields(t *testing.T) {
@@ -82,22 +80,21 @@ func TestCloneJob_IsolatesMutableFields(t *testing.T) {
 		job.Tags["team"])
 	require.Equal(t, "on",
 		job.DefaultRunMetadata["trace"])
-	require.EqualValues(t, 1, job.
+	require.Equal(t, 1, job.
 		RetryDelaysSecs[0])
 	require.Equal(t, "customer",
 		job.
 			RateLimitKeys[0].Name)
 	require.Equal(t, "iad",
 		job.PreferredRegions[0])
-	require.Equal(t, `{"type":"object"}`,
+	require.JSONEq(t, `{"type":"object"}`,
 
 		string(job.ResultSchema),
 	)
-	require.Equal(t, `{"result":"$.output"}`,
+	require.JSONEq(t, `{"result":"$.output"}`,
 
 		string(job.OnCompletePayloadMapping))
-	require.Equal(t, `{"error":"$.error"}`,
+	require.JSONEq(t, `{"error":"$.error"}`,
 
 		string(job.OnFailurePayloadMapping))
-
 }

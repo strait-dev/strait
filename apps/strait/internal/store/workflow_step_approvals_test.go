@@ -54,7 +54,6 @@ func TestOnApprovalChanged_CalledAfterCreate(t *testing.T) {
 		captured.
 			Status,
 	)
-
 }
 
 func TestOnApprovalChanged_NilHookDoesNotPanic(t *testing.T) {
@@ -115,5 +114,4 @@ func TestOnApprovalChanged_UpdateFields(t *testing.T) {
 		captured.
 			ApprovedAt,
 	)
-
 }

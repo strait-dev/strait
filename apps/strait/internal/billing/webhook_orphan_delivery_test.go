@@ -73,9 +73,8 @@ func TestHandleInvoiceFinalized_OrphanReturns200(t *testing.T) {
 	assert.Equal(t, http.
 		StatusOK, rr.
 		Code)
-	assert.Len(t, audit.
-		events, 0)
-
+	assert.Empty(t, audit.
+		events)
 }
 
 // TestHandleInvoicePaid_OrphanReturns200 proves the same shape for
@@ -92,7 +91,6 @@ func TestHandleInvoicePaid_OrphanReturns200(t *testing.T) {
 	assert.Equal(t, http.
 		StatusOK, rr.
 		Code)
-
 }
 
 // TestHandleInvoicePaymentFailed_OrphanReturns200 proves the same shape for
@@ -109,7 +107,6 @@ func TestHandleInvoicePaymentFailed_OrphanReturns200(t *testing.T) {
 	assert.Equal(t, http.
 		StatusOK, rr.
 		Code)
-
 }
 
 // TestHandleInvoiceFinalized_KnownCustomerEmitsAudit proves the orphan path
@@ -137,5 +134,4 @@ func TestHandleInvoiceFinalized_KnownCustomerEmitsAudit(t *testing.T) {
 			Code)
 	require.NotEmpty(
 		t, audit.events)
-
 }

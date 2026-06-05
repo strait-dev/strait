@@ -141,7 +141,7 @@ func TestAuditCoverageGuard(t *testing.T) {
 
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		require.Nil(t, parseErr)
+		require.NoError(t, parseErr)
 
 		files[name] = file
 		for _, decl := range file.Decls {
@@ -331,7 +331,6 @@ func TestAuditNegativePathFloor(t *testing.T) {
 	require.GreaterOrEqual(t,
 		count, auditNegativePathFloor,
 	)
-
 }
 
 // itoa is a small int→string helper so the test has no runtime dependencies

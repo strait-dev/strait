@@ -69,7 +69,6 @@ func TestExportRateLimit_FailsClosed_OnRedisError(t *testing.T) {
 		t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 // TestListAuditEvents_TimeWindowCap_Rejects91Days verifies that handleListAuditEvents
@@ -101,7 +100,6 @@ func TestListAuditEvents_TimeWindowCap_Rejects91Days(t *testing.T) {
 		t, http.StatusBadRequest,
 		humaErr.
 			GetStatus())
-
 }
 
 // TestListAuditEvents_TimeWindowCap_Accepts89Days verifies that handleListAuditEvents
@@ -127,5 +125,4 @@ func TestListAuditEvents_TimeWindowCap_Accepts89Days(t *testing.T) {
 		To:   to.Format(time.RFC3339Nano),
 	})
 	assert.NoError(t, err)
-
 }

@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -129,7 +128,6 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 		"executing->completed",
 
 		last)
-
 }
 
 func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
@@ -487,11 +485,9 @@ func TestExecutor_Shutdown_Timeout(t *testing.T) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shutdownCancel()
 	err := exec.Shutdown(shutdownCtx)
-	require.True(t,
-		errors.Is(
-			err, context.
-				DeadlineExceeded,
-		))
+	require.ErrorIs(t,
+		err, context.
+			DeadlineExceeded)
 
 	runCancel()
 	close(allowPollExit)
@@ -569,7 +565,6 @@ func TestShutdown_WaitsForCallbacks(t *testing.T) {
 	require.True(t,
 		callbackCalled.
 			Load())
-
 }
 
 func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
@@ -607,5 +602,4 @@ func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
 		2*
 			time.Second,
 	)
-
 }

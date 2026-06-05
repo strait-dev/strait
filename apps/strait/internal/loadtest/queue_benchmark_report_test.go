@@ -1,7 +1,6 @@
 package loadtest
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -16,8 +15,8 @@ func TestSummarizeLatencies(t *testing.T) {
 		20 * time.Millisecond,
 		50 * time.Millisecond,
 	})
-	require.EqualValues(t, 5,
-		summary.Count,
+	require.InDelta(t, 5,
+		summary.Count, 1e-9,
 	)
 	require.Equal(t, time.
 		Millisecond,
@@ -31,7 +30,6 @@ func TestSummarizeLatencies(t *testing.T) {
 		time.Millisecond,
 
 		summary.Max)
-
 }
 
 func TestRelationBloatSampleRatios(t *testing.T) {
@@ -42,8 +40,8 @@ func TestRelationBloatSampleRatios(t *testing.T) {
 		HOTUpdates:   7,
 	}
 
-	require.EqualValues(t, 0.2, sample.DeadTupleRatio())
-	require.EqualValues(t, 0.7, sample.HOTUpdateRatio())
+	require.InDelta(t, 0.2, sample.DeadTupleRatio(), 1e-9)
+	require.InDelta(t, 0.7, sample.HOTUpdateRatio(), 1e-9)
 }
 
 func TestQueueBenchmarkReportMarkdown(t *testing.T) {
@@ -73,10 +71,7 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 
 	md := report.Markdown()
 	for _, want := range []string{"# baseline", "Engine: `legacy`", "Duplicate claims", "`job_runs`", "SQL Plans", "Seq Scan"} {
-		require.True(t, strings.Contains(md,
-			want,
-		))
-
+		require.Contains(t, md, want)
 	}
 }
 
@@ -119,18 +114,18 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 		BaselineEngine !=
 		"previous" || comparison.CandidateEngine !=
 		"pgque")
-	require.EqualValues(t, -5, comparison.
+	require.InDelta(t, -5, comparison.
 		CounterDelta.
-		NotifyCount)
-	require.EqualValues(t, -200, comparison.
+		NotifyCount, 1e-9)
+	require.InDelta(t, -200, comparison.
 		CounterDelta.
-		LogicalSlotWALBytes)
+		LogicalSlotWALBytes, 1e-9)
 	require.Equal(t, 15*
 		time.Millisecond,
 
 		comparison.P99LatencyDelta)
-	require.EqualValues(t, -25, comparison.
-		ThroughputDelta,
+	require.InDelta(t, -25, comparison.
+		ThroughputDelta, 1e-9,
 	)
 	require.Len(t, comparison.
 		RelationDeltas,
@@ -138,15 +133,14 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 		1)
 
 	delta := comparison.RelationDeltas[0]
-	require.EqualValues(t, -15, delta.DeadTuplesDelta)
-	require.EqualValues(t, -150, delta.
-		DeadTuplesPerKCompleted,
+	require.InDelta(t, -15, delta.DeadTuplesDelta, 1e-9)
+	require.InDelta(t, -150, delta.
+		DeadTuplesPerKCompleted, 1e-9,
 	)
 	require.NotEmpty(t,
 		comparison.
 			ImprovementHints,
 	)
-
 }
 
 func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
@@ -172,9 +166,6 @@ func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
 
 	md := comparison.Markdown()
 	for _, want := range []string{"# comparison", "Baseline: `previous`", "Candidate: `pgque`", "Relation Deltas", "SQL Plans", "Nested Loop"} {
-		require.True(t, strings.Contains(md,
-			want,
-		))
-
+		require.Contains(t, md, want)
 	}
 }

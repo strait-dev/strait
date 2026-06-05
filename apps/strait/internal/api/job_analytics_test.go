@@ -29,8 +29,7 @@ func TestHandleJobHistory_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/job-1/history", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleJobHistory_MissingParams(t *testing.T) {
@@ -38,8 +37,7 @@ func TestHandleJobHistory_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/jobs/job-1/history", "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleJobHistory_StoreError(t *testing.T) {
@@ -52,8 +50,7 @@ func TestHandleJobHistory_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/job-1/history", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 500, w.Code)
-
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleJobComparison_Success(t *testing.T) {
@@ -71,8 +68,7 @@ func TestHandleJobComparison_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/comparison", validFrom(), validTo(), "job_ids", "job-1,job-2"), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleJobComparison_MissingJobIDs(t *testing.T) {
@@ -80,15 +76,14 @@ func TestHandleJobComparison_MissingJobIDs(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/comparison", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleJobReliability_Success(t *testing.T) {
 	t.Parallel()
 	as := &AnalyticsStoreMock{
 		GetJobReliabilityFunc: func(_ context.Context, _ string, _, _ time.Time, limit int) ([]store.JobReliability, error) {
-			require.EqualValues(t, 10, limit)
+			require.Equal(t, 10, limit)
 
 			return []store.JobReliability{
 				{JobID: "job-1", Slug: "flaky-job", Total: 100, SuccessRate: 0.5, Failed: 50},
@@ -98,8 +93,7 @@ func TestHandleJobReliability_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/reliability", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleRunsByVersion_Success(t *testing.T) {
@@ -116,8 +110,7 @@ func TestHandleRunsByVersion_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/by-version", validFrom(), validTo(), "job_id", "job-1"), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleRunsByVersion_MissingJobID(t *testing.T) {
@@ -125,8 +118,7 @@ func TestHandleRunsByVersion_MissingJobID(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/by-version", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleJobCostRanking_Success(t *testing.T) {
@@ -141,7 +133,7 @@ func TestHandleJobCostRanking_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/cost-ranking", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var result []store.JobCostRanking
 	require.NoError(t, json.Unmarshal(w.Body.
@@ -150,7 +142,6 @@ func TestHandleJobCostRanking_Success(t *testing.T) {
 		t, len(result) !=
 			1 || result[0].TotalCost != 100000,
 	)
-
 }
 
 func TestHandleTopFailingJobs_Success(t *testing.T) {
@@ -165,8 +156,7 @@ func TestHandleTopFailingJobs_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/top-failing", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleTopFailingJobs_InvalidLimit(t *testing.T) {
@@ -174,6 +164,5 @@ func TestHandleTopFailingJobs_InvalidLimit(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("jobs/top-failing", validFrom(), validTo(), "limit", "abc"), "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }

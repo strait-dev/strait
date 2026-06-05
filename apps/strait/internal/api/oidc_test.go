@@ -60,7 +60,6 @@ func TestNewOIDCVerifier_RejectsWeakRSAKey(t *testing.T) {
 		OIDCPublicKeyPEM: string(mustOIDCPublicKeyPEM(t, 1024)),
 	})
 	require.Error(t, err)
-
 }
 
 func TestOIDCAuth_AllowsValidToken(t *testing.T) {
@@ -118,7 +117,6 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
@@ -153,7 +151,6 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
@@ -188,5 +185,4 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }

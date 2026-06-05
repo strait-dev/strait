@@ -12,6 +12,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,7 +96,7 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	var auditAction string
 	var webhookPayload map[string]any
 	webhookServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t,
+		assert.NoError(t,
 			json.NewDecoder(r.
 				Body).Decode(&webhookPayload))
 
@@ -167,8 +168,8 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 	require.False(t, createdKey.
 		KeyPrefix ==
 		"" || len(createdKey.KeyPrefix) != 12)
-	require.NotEqual(t,
-		"", createdKey.KeyHash,
+	require.NotEmpty(t,
+		createdKey.KeyHash,
 	)
 	require.Equal(t, "old-key-1",
 		markedOldID,
@@ -180,12 +181,11 @@ func TestAutoRotateAPIKeys_RotatesExpiredKey(t *testing.T) {
 
 		auditAction,
 	)
-	require.NotEqual(t,
-		"", webhookPayload["new_key"])
+	require.NotEmpty(t,
+		webhookPayload["new_key"])
 	require.Equal(t, createdKey.
 		KeyPrefix,
 		webhookPayload["new_key_prefix"])
-
 }
 
 func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
@@ -221,7 +221,6 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutWebhook(t *testing.T) {
 	require.Equal(t, "old-key-1",
 		disabledID,
 	)
-
 }
 
 func TestAutoRotateAPIKeys_SkipsKeyWithoutSigningSecret(t *testing.T) {
@@ -251,7 +250,6 @@ func TestAutoRotateAPIKeys_SkipsKeyWithoutSigningSecret(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 0,
 		created.Load())
-
 }
 
 func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
@@ -285,7 +283,6 @@ func TestAutoRotateAPIKeys_SkipsNoExpiryWhenNoLifetimePolicy(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 0,
 		created.Load())
-
 }
 
 func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
@@ -321,7 +318,6 @@ func TestAutoRotateAPIKeys_SkipsOverlongExpiry(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 0,
 		created.Load())
-
 }
 
 func TestReaperMaintenanceCycleRunsAutoRotate(t *testing.T) {
@@ -339,7 +335,6 @@ func TestReaperMaintenanceCycleRunsAutoRotate(t *testing.T) {
 	r.runMaintenanceCycle(context.Background())
 	require.EqualValues(t, 1,
 		listed.Load())
-
 }
 
 func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
@@ -359,7 +354,6 @@ func TestAutoRotateAPIKeys_NoDueKeys(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 0,
 		created.Load())
-
 }
 
 func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
@@ -386,7 +380,6 @@ func TestAutoRotateAPIKeys_CreateFails_SkipsKey(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 0,
 		markCalled.Load())
-
 }
 
 func TestAutoRotateAPIKeys_MarkRotatedFailsRevokesStandaloneKey(t *testing.T) {
@@ -434,7 +427,6 @@ func TestAutoRotateAPIKeys_MarkRotatedFailsRevokesStandaloneKey(t *testing.T) {
 		revokeCalled.Load())
 	require.EqualValues(t, 0,
 		auditCalled.Load())
-
 }
 
 func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
@@ -470,7 +462,6 @@ func TestAutoRotateAPIKeys_MultipleKeys(t *testing.T) {
 		created.Load())
 	require.EqualValues(t, 3,
 		marked.Load())
-
 }
 
 func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
@@ -496,7 +487,6 @@ func TestAutoRotateAPIKeys_NilRotationDays_NoNextRotation(t *testing.T) {
 	r.rotationWebhookClient = successfulRotationWebhookClient()
 	r.autoRotateAPIKeys(context.Background())
 	require.Nil(t, createdKey.NextRotationAt)
-
 }
 
 func rotationWebhookURLForTest(t *testing.T) string {
@@ -561,7 +551,6 @@ func TestNotifyRotationWebhook_BlocksPrivateURL(t *testing.T) {
 			"proj-1"))
 	require.EqualValues(t, 0,
 		called.Load())
-
 }
 
 func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testing.T) {
@@ -586,7 +575,6 @@ func TestNotifyRotationWebhook_BlocksPlaintextEvenWithPrivateEndpoints(t *testin
 			"proj-1"))
 	require.EqualValues(t, 0,
 		called.Load())
-
 }
 
 func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.T) {
@@ -639,7 +627,6 @@ func TestAutoRotateAPIKeys_WebhookFailureRevokesNewKeyKeepsOldActive(t *testing.
 		created.Load())
 	require.EqualValues(t, 1,
 		revoked.Load())
-
 }
 
 func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
@@ -685,5 +672,4 @@ func TestAutoRotateAPIKeys_MarksOldKeyOnlyAfterWebhookDelivery(t *testing.T) {
 	r.autoRotateAPIKeys(context.Background())
 	require.EqualValues(t, 1,
 		marked.Load())
-
 }

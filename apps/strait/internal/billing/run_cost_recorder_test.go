@@ -70,7 +70,7 @@ func TestRunCostRecorder_SameRunID_Skips(t *testing.T) {
 				"proj-1",
 
 				runID))
-	require.EqualValues(t, 1, store.upsertCalls)
+	require.Equal(t, 1, store.upsertCalls)
 	require.NoError(t,
 		recorder.
 			RecordHTTPRunCost(
@@ -78,8 +78,7 @@ func TestRunCostRecorder_SameRunID_Skips(t *testing.T) {
 				"proj-1",
 
 				runID))
-	require.EqualValues(t, 1, store.upsertCalls)
-
+	require.Equal(t, 1, store.upsertCalls)
 }
 
 // TestRunCostRecorder_DifferentRunIDs_BothRecord verifies that distinct runIDs
@@ -105,8 +104,7 @@ func TestRunCostRecorder_DifferentRunIDs_BothRecord(t *testing.T) {
 				"proj-1",
 
 				"run-B"))
-	require.EqualValues(t, 2, store.upsertCalls)
-
+	require.Equal(t, 2, store.upsertCalls)
 }
 
 // TestRunCostRecorder_RedisError_RecordsWithDurableIdempotency verifies that a
@@ -123,8 +121,7 @@ func TestRunCostRecorder_RedisError_RecordsWithDurableIdempotency(t *testing.T) 
 	err := recorder.RecordHTTPRunCost(ctx, "org-1", "proj-1", "run-redis-fail")
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 1, store.upsertCalls)
-
+	require.Equal(t, 1, store.upsertCalls)
 }
 
 // TestRunCostRecorder_EmptyRunID_RecordsWithoutDedup verifies that an empty
@@ -150,10 +147,9 @@ func TestRunCostRecorder_EmptyRunID_RecordsWithoutDedup(t *testing.T) {
 				"proj-1",
 
 				""))
-	require.EqualValues(t, 2, store.upsertCalls)
+	require.Equal(t, 2, store.upsertCalls)
 
 	// Two calls with empty runID should both write (no dedup key exists).
-
 }
 
 // TestRunCostRecorder_NilRedis_UsesDurableDedup verifies that a nil Redis
@@ -177,8 +173,7 @@ func TestRunCostRecorder_NilRedis_UsesDurableDedup(t *testing.T) {
 				"proj-1",
 
 				"run-no-redis"))
-	require.EqualValues(t, 1, store.upsertCalls)
-
+	require.Equal(t, 1, store.upsertCalls)
 }
 
 func TestRunCostRecorder_TransientDurableErrorsRetryBeforeReturning(t *testing.T) {
@@ -193,9 +188,8 @@ func TestRunCostRecorder_TransientDurableErrorsRetryBeforeReturning(t *testing.T
 				"org-1",
 
 				"proj-1", "delivery-retry"))
-	require.EqualValues(t, 3, store.durableCalls)
-	require.EqualValues(t, 1, store.upsertCalls)
-
+	require.Equal(t, 3, store.durableCalls)
+	require.Equal(t, 1, store.upsertCalls)
 }
 
 // TestRunCostRecorder_WorkerAndWebhookModes verifies idempotency for all three
@@ -231,14 +225,13 @@ func TestRunCostRecorder_WorkerAndWebhookModes(t *testing.T) {
 				"org-1",
 
 				"proj-1", "delivery-1"))
-	require.EqualValues(t, 2, store.upsertCalls)
+	require.Equal(t, 2, store.upsertCalls)
 
 	// Worker mode
 
 	// Webhook delivery mode
 
 	// Each distinct ID should produce exactly one upsert.
-
 }
 
 // TestRunCostRecorder_IdempotencyKey_TTL verifies the Redis key TTL is set
@@ -272,7 +265,6 @@ func TestRunCostRecorder_IdempotencyKey_TTL(t *testing.T) {
 				time.Second ||
 			ttl > expected,
 	)
-
 }
 
 // TestRunCostRecorder_DurableError_WrapsUnderlying ensures durable write errors

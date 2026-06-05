@@ -14,9 +14,8 @@ func TestEvaluatePoolRecommendations(t *testing.T) {
 
 	for range poolAdviceSampleConsistencyMin - 1 {
 		recs := evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 5, Total: 25, WaitCount: 0}, 25, 5, state)
-		require.Len(t,
-			recs, 0)
-
+		require.Empty(t,
+			recs)
 	}
 
 	recs := evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 0, Total: 25, WaitCount: 2}, 25, 5, state)
@@ -36,7 +35,6 @@ func TestEvaluatePoolRecommendations(t *testing.T) {
 	for _, seen := range wants {
 		require.True(t,
 			seen)
-
 	}
 }
 
@@ -55,7 +53,6 @@ func TestEvaluatePoolRecommendations_DoesNotTreatIdleWaitCountAsPressure(t *test
 		require.NotEqual(t, "Connection pool under pressure, check query performance",
 
 			rec)
-
 	}
 }
 
@@ -74,7 +71,6 @@ func TestEvaluatePoolRecommendations_AcquireLatencyEvidenceIsPressure(t *testing
 		len(recs) !=
 			1 || recs[0] != "Connection pool under pressure, check query performance",
 	)
-
 }
 
 func TestEvaluatePoolRecommendations_ResetsStreaks(t *testing.T) {
@@ -84,11 +80,10 @@ func TestEvaluatePoolRecommendations_ResetsStreaks(t *testing.T) {
 
 	_ = evaluatePoolRecommendations(poolSnapshot{Acquired: 25, Idle: 5, Total: 25, WaitCount: 0}, 25, 5, state)
 	_ = evaluatePoolRecommendations(poolSnapshot{Acquired: 10, Idle: 1, Total: 25, WaitCount: 0}, 25, 5, state)
-	require.EqualValues(t, 0, state.
+	require.Equal(t, 0, state.
 		acquiredAtMaxStreak)
-	require.EqualValues(t, 0, state.
+	require.Equal(t, 0, state.
 		idleAtMaxStreak)
-
 }
 
 func BenchmarkEvaluatePoolRecommendationsIdleWaitCount(b *testing.B) {

@@ -49,7 +49,6 @@ func TestHandleCreateProject_Success(t *testing.T) {
 	require.Equal(t, "My Project",
 		p.Name,
 	)
-
 }
 
 func TestHandleCreateProject_MissingFields(t *testing.T) {
@@ -72,7 +71,6 @@ func TestHandleCreateProject_MissingFields(t *testing.T) {
 			require.Equal(t, http.StatusUnprocessableEntity,
 
 				w.Code)
-
 		})
 	}
 }
@@ -87,7 +85,6 @@ func TestHandleCreateProject_NameTooShort(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateProject_Idempotent(t *testing.T) {
@@ -110,11 +107,9 @@ func TestHandleCreateProject_Idempotent(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 
 			w.Code)
-
 	}
 	require.EqualValues(t, 2, callCount.
 		Load())
-
 }
 
 func TestHandleCreateProject_StoreError(t *testing.T) {
@@ -132,7 +127,6 @@ func TestHandleCreateProject_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleGetProject_Success(t *testing.T) {
@@ -159,7 +153,6 @@ func TestHandleGetProject_Success(t *testing.T) {
 		Bytes(),
 		&p))
 	require.Equal(t, "proj-1", p.ID)
-
 }
 
 func TestHandleGetProject_NotFound(t *testing.T) {
@@ -176,7 +169,6 @@ func TestHandleGetProject_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleGetProject_StoreError(t *testing.T) {
@@ -193,7 +185,6 @@ func TestHandleGetProject_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListProjects_Success(t *testing.T) {
@@ -221,7 +212,6 @@ func TestHandleListProjects_Success(t *testing.T) {
 		&projects))
 	require.Len(t,
 		projects, 2)
-
 }
 
 func TestHandleListProjects_MissingOrgID(t *testing.T) {
@@ -233,7 +223,6 @@ func TestHandleListProjects_MissingOrgID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListProjects_Empty(t *testing.T) {
@@ -255,9 +244,8 @@ func TestHandleListProjects_Empty(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&projects))
-	require.Len(t,
-		projects, 0)
-
+	require.Empty(t,
+		projects)
 }
 
 func TestHandleDeleteProject_Success(t *testing.T) {
@@ -282,7 +270,6 @@ func TestHandleDeleteProject_Success(t *testing.T) {
 	require.True(
 		t, deleted.Load(),
 	)
-
 }
 
 func TestHandleDeleteProject_NotFound(t *testing.T) {
@@ -299,7 +286,6 @@ func TestHandleDeleteProject_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleDeleteProject_StoreError(t *testing.T) {
@@ -316,7 +302,6 @@ func TestHandleDeleteProject_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestProjectEndpoints_RequireAuth(t *testing.T) {
@@ -342,7 +327,6 @@ func TestProjectEndpoints_RequireAuth(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized,
 
 				w.Code)
-
 		})
 	}
 }
@@ -371,7 +355,6 @@ func TestProjectEndpoints_APIKey_CreateForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
@@ -396,7 +379,6 @@ func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
@@ -425,7 +407,6 @@ func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
@@ -450,7 +431,6 @@ func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
@@ -474,7 +454,6 @@ func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestProjectEndpoints_InternalSecret(t *testing.T) {
@@ -525,7 +504,6 @@ func TestProjectEndpoints_InternalSecret(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 
 		w.Code)
-
 }
 
 func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -551,7 +529,6 @@ func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -578,7 +555,6 @@ func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -607,7 +583,6 @@ func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -633,5 +608,4 @@ func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 
 		w.Code)
-
 }

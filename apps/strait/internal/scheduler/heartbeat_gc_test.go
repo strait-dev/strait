@@ -87,10 +87,9 @@ func TestHeartbeatGC_Defaults(t *testing.T) {
 	assert.Equal(t, time.
 		Hour, g.
 		interval)
-	assert.EqualValues(t, 10000,
+	assert.Equal(t, 10000,
 		g.batchLimit,
 	)
-
 }
 
 func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
@@ -110,7 +109,6 @@ func TestHeartbeatGC_RunOnceAccumulates(t *testing.T) {
 		1 || s.visibilityCalls !=
 		1 || s.cacheCalls !=
 		1)
-
 }
 
 func TestHeartbeatGC_LockNotAcquired(t *testing.T) {
@@ -118,9 +116,8 @@ func TestHeartbeatGC_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		s.calls)
-
 }
 
 func TestHeartbeatGC_LockAcquired(t *testing.T) {
@@ -133,7 +130,6 @@ func TestHeartbeatGC_LockAcquired(t *testing.T) {
 		!locker.
 			acquired ||
 		!locker.released)
-
 }
 
 func TestHeartbeatGC_DeleteError(t *testing.T) {
@@ -141,7 +137,6 @@ func TestHeartbeatGC_DeleteError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_CompactError(t *testing.T) {
@@ -149,7 +144,6 @@ func TestHeartbeatGC_CompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_RetryCompactError(t *testing.T) {
@@ -157,7 +151,6 @@ func TestHeartbeatGC_RetryCompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_ActiveClaimError(t *testing.T) {
@@ -165,7 +158,6 @@ func TestHeartbeatGC_ActiveClaimError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_ReadyEventError(t *testing.T) {
@@ -173,7 +165,6 @@ func TestHeartbeatGC_ReadyEventError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_PriorityEventCompactError(t *testing.T) {
@@ -181,7 +172,6 @@ func TestHeartbeatGC_PriorityEventCompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_VisibilityEventCompactError(t *testing.T) {
@@ -189,7 +179,6 @@ func TestHeartbeatGC_VisibilityEventCompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_RunCacheVersionCompactError(t *testing.T) {
@@ -197,7 +186,6 @@ func TestHeartbeatGC_RunCacheVersionCompactError(t *testing.T) {
 	g := NewHeartbeatGC(s, HeartbeatGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestHeartbeatGC_PanicReturnsError(t *testing.T) {
@@ -209,7 +197,6 @@ func TestHeartbeatGC_PanicReturnsError(t *testing.T) {
 	)
 	require.EqualValues(t, 1,
 		g.Iterations())
-
 }
 
 func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
@@ -232,5 +219,4 @@ func TestHeartbeatGC_RunExitsOnCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, g.Iterations(),
 		int64(2))
-
 }

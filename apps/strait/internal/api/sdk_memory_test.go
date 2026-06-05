@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -62,7 +61,6 @@ func TestHandleSDKSetMemory_SuccessUsesAtomicQuotaUpsert(t *testing.T) {
 	require.False(t, maxPerKey !=
 		128 || maxPerJob !=
 		512)
-
 }
 
 func TestHandleSDKSetMemory_PerKeyQuotaExceeded(t *testing.T) {
@@ -88,9 +86,8 @@ func TestHandleSDKSetMemory_PerKeyQuotaExceeded(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "value exceeds per-key memory limit"))
-
+	require.Contains(
+		t, w.Body.String(), "value exceeds per-key memory limit")
 }
 
 func TestHandleSDKSetMemory_PerJobQuotaExceeded(t *testing.T) {
@@ -116,7 +113,6 @@ func TestHandleSDKSetMemory_PerJobQuotaExceeded(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "value exceeds per-job memory limit"))
-
+	require.Contains(
+		t, w.Body.String(), "value exceeds per-job memory limit")
 }

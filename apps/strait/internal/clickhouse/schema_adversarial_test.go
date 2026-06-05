@@ -20,11 +20,8 @@ func TestCreateSchema_FailsOnFirstTable(t *testing.T) {
 	client := newFailingClient(t)
 	err := CreateSchema(context.Background(), client)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(),
-		"create table",
-	))
-
+	assert.Contains(t, err.
+		Error(), "create table")
 }
 
 func TestCreateSchema_CanceledContext(t *testing.T) {
@@ -42,7 +39,6 @@ func TestCreateSchema_CanceledContext(t *testing.T) {
 
 	err := CreateSchema(ctx, client)
 	require.Error(t, err)
-
 }
 
 func TestCreateSchema_ErrorMessageContainsTableName(t *testing.T) {
@@ -87,7 +83,7 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	for _, d := range ddls {
 		t.Run(d.name, func(t *testing.T) {
 			t.Parallel()
-			assert.NotEqual(t, "", strings.TrimSpace(d.ddl))
+			assert.NotEmpty(t, strings.TrimSpace(d.ddl))
 			assert.False(t, !strings.Contains(
 				d.ddl, "IF NOT EXISTS",
 			) &&
@@ -95,7 +91,6 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 					d.
 						ddl,
 					"AS"))
-
 		})
 	}
 }
@@ -117,17 +112,9 @@ func TestSchemaDDL_DoesNotCreateRetiredModelUsageEvents(t *testing.T) {
 			strings.Contains(CostDailyMV,
 
 				token))
-
 	}
-	require.True(t, strings.Contains(CostDailyMV,
-
-		"FROM run_analytics",
-	))
-	require.True(t, strings.Contains(CostDailyMV,
-
-		"sum(compute_cost_microusd)",
-	))
-
+	require.Contains(t, CostDailyMV, "FROM run_analytics")
+	require.Contains(t, CostDailyMV, "sum(compute_cost_microusd)")
 }
 
 // Schema alterations are well-formed
@@ -136,13 +123,11 @@ func TestSchemaAlterations_AreIdempotent(t *testing.T) {
 	t.Parallel()
 
 	for _, alt := range schemaAlterations {
-		assert.NotEqual(t, "", alt.
+		assert.NotEmpty(t, alt.
 			table)
-		assert.True(t, strings.Contains(alt.
+		assert.Contains(t, alt.
 			ddl, "ADD COLUMN IF NOT EXISTS",
-		),
 		)
-
 	}
 }
 
@@ -156,7 +141,6 @@ func TestSchemaDDL_UsesRedactedLongLivedAnalyticsColumns(t *testing.T) {
 			strings.Contains(WebhookDeliveryEventsTable,
 
 				raw))
-
 	}
 	for _, safe := range []string{"message_class LowCardinality(String)", "metadata_redacted String DEFAULT '{}'", "webhook_host String"} {
 		require.False(t, !strings.Contains(RunEventsTable,
@@ -166,18 +150,9 @@ func TestSchemaDDL_UsesRedactedLongLivedAnalyticsColumns(t *testing.T) {
 				safe,
 			),
 		)
-
 	}
-	require.False(t, strings.Contains(
-		WebhookDeliveryEventsTable,
-
-		"ORDER BY (project_id, webhook_url",
-	))
-	require.True(t, strings.Contains(WebhookDeliveryEventsTable,
-
-		"ORDER BY (project_id, webhook_host",
-	))
-
+	require.NotContains(t, WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_url")
+	require.Contains(t, WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_host")
 }
 
 func TestSchemaAlterations_AddRedactedAnalyticsColumns(t *testing.T) {
@@ -197,6 +172,5 @@ func TestSchemaAlterations_AddRedactedAnalyticsColumns(t *testing.T) {
 	}
 	for _, found := range required {
 		require.True(t, found)
-
 	}
 }

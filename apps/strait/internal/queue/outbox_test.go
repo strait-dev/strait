@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -19,7 +18,6 @@ func TestWriteOutboxInTx_EmptyEntries(t *testing.T) {
 	assert.NoError(
 		t, WriteOutboxInTx(context.
 			Background(), nil, []OutboxEntry{}))
-
 }
 
 func TestWriteOutboxInTx_MissingProjectIDRejected(t *testing.T) {
@@ -28,7 +26,6 @@ func TestWriteOutboxInTx_MissingProjectIDRejected(t *testing.T) {
 	}})
 	assert.Error(t,
 		err)
-
 }
 
 func TestWriteOutboxInTx_MissingJobIDRejected(t *testing.T) {
@@ -37,7 +34,6 @@ func TestWriteOutboxInTx_MissingJobIDRejected(t *testing.T) {
 	}})
 	assert.Error(t,
 		err)
-
 }
 
 func TestUniqueJobIDs_DeduplicatesInFirstSeenOrder(t *testing.T) {
@@ -55,7 +51,6 @@ func TestUniqueJobIDs_DeduplicatesInFirstSeenOrder(t *testing.T) {
 		require.Equal(t,
 			want[i],
 			got[i])
-
 	}
 }
 
@@ -72,7 +67,7 @@ func TestWriteOutboxInTx_UsesBatchForInserts(t *testing.T) {
 	}
 	require.NoError(t, WriteOutboxInTx(context.
 		Background(), tx, entries))
-	require.EqualValues(t, 0, tx.execCalls)
+	require.Equal(t, 0, tx.execCalls)
 	require.NotNil(
 		t, tx.sentBatch,
 	)
@@ -88,15 +83,13 @@ func TestWriteOutboxInTx_UsesBatchForInserts(t *testing.T) {
 	)
 
 	first := tx.sentBatch.QueuedQueries[0]
-	require.True(t,
-		strings.Contains(first.
-			SQL, "ON CONFLICT (id) DO NOTHING",
-		))
+	require.Contains(t,
+		first.
+			SQL, "ON CONFLICT (id) DO NOTHING")
 	require.Equal(t,
 		"outbox-1",
 		first.Arguments[0],
 	)
-
 }
 
 func TestWriteOutboxInTx_BatchExecErrorIncludesEntryID(t *testing.T) {
@@ -112,16 +105,14 @@ func TestWriteOutboxInTx_BatchExecErrorIncludesEntryID(t *testing.T) {
 	}
 
 	err := WriteOutboxInTx(context.Background(), tx, entries)
-	require.True(t,
-		errors.Is(err, writeErr))
-	require.True(t,
-		strings.Contains(err.
-			Error(), "outbox-2",
-		))
+	require.ErrorIs(t,
+		err, writeErr)
+	require.Contains(t,
+		err.
+			Error(), "outbox-2")
 	require.True(t,
 		results.closeCalled,
 	)
-
 }
 
 type outboxMockTx struct {

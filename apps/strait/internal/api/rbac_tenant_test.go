@@ -30,7 +30,6 @@ func TestHandleGetRole_CrossProjectBlocked(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleGetRole_SameProjectAllowed(t *testing.T) {
@@ -48,7 +47,6 @@ func TestHandleGetRole_SameProjectAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleUpdateRole_CrossProjectBlocked(t *testing.T) {
@@ -67,7 +65,6 @@ func TestHandleUpdateRole_CrossProjectBlocked(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleDeleteRole_CrossProjectBlocked(t *testing.T) {
@@ -91,7 +88,6 @@ func TestHandleDeleteRole_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, deleteCalled)
-
 }
 
 func TestHandleDeleteSecret_CrossProjectBlocked(t *testing.T) {
@@ -115,7 +111,6 @@ func TestHandleDeleteSecret_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, deleteCalled)
-
 }
 
 func TestHandleDeleteSecret_SameProjectAllowed(t *testing.T) {
@@ -138,5 +133,4 @@ func TestHandleDeleteSecret_SameProjectAllowed(t *testing.T) {
 		http.StatusNoContent &&
 		w.Code !=
 			http.StatusOK)
-
 }

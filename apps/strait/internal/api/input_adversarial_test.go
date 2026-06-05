@@ -36,7 +36,6 @@ func TestDecodeJSON_InvalidUTF8(t *testing.T) {
 	var target map[string]any
 	err := srv.decodeJSON(r, &target)
 	require.Error(t, err)
-
 }
 
 func TestDecodeJSON_NullBytes(t *testing.T) {
@@ -85,7 +84,6 @@ func TestDecodeJSON_BodyExceedsMaxSize(t *testing.T) {
 	var target map[string]any
 	err := srv.decodeJSON(r, &target)
 	require.Error(t, err)
-
 }
 
 func FuzzDecodeJSONAdversarial(f *testing.F) {
@@ -110,14 +108,12 @@ func TestPagination_NegativeLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("-1", "")
 	require.Error(t, err)
-
 }
 
 func TestPagination_OverflowLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings(fmt.Sprintf("%d", math.MaxInt64), "")
 	require.NoError(t, err)
-
 }
 
 func TestPagination_ExtremeDateCursor(t *testing.T) {
@@ -125,7 +121,6 @@ func TestPagination_ExtremeDateCursor(t *testing.T) {
 	_, cursor, err := parsePaginationFromStrings("10", "9999-12-31T23:59:59.999999999Z")
 	require.NoError(t, err)
 	require.NotNil(t, cursor)
-
 }
 
 func TestPagination_EmptyCursor(t *testing.T) {
@@ -136,14 +131,12 @@ func TestPagination_EmptyCursor(t *testing.T) {
 	require.Equal(t, defaultPageLimit,
 
 		limit)
-
 }
 
 func TestPagination_MalformedCursor(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("10", "not-a-date")
 	require.Error(t, err)
-
 }
 
 func FuzzPaginationParams(f *testing.F) {
@@ -166,7 +159,6 @@ func TestValidateTags_ControlCharacters(t *testing.T) {
 	// Control characters are currently accepted by validateTags.
 	err := validateTags(tags)
 	require.NoError(t, err)
-
 }
 
 func TestValidateTags_NullByteInKey(t *testing.T) {
@@ -174,7 +166,6 @@ func TestValidateTags_NullByteInKey(t *testing.T) {
 	tags := map[string]string{"key\x00injected": "val"}
 	err := validateTags(tags)
 	require.NoError(t, err)
-
 }
 
 func TestValidateTags_CombiningChars(t *testing.T) {
@@ -183,7 +174,6 @@ func TestValidateTags_CombiningChars(t *testing.T) {
 	tags := map[string]string{"e\u0301": "val"}
 	err := validateTags(tags)
 	require.NoError(t, err)
-
 }
 
 func TestValidateTags_BoundaryKeyLength(t *testing.T) {
@@ -193,14 +183,12 @@ func TestValidateTags_BoundaryKeyLength(t *testing.T) {
 		key := strings.Repeat("a", 64)
 		err := validateTags(map[string]string{key: "val"})
 		require.NoError(t, err)
-
 	})
 	t.Run("65_chars", func(t *testing.T) {
 		t.Parallel()
 		key := strings.Repeat("a", 65)
 		err := validateTags(map[string]string{key: "val"})
 		require.Error(t, err)
-
 	})
 }
 
@@ -211,14 +199,12 @@ func TestValidateTags_BoundaryValueLength(t *testing.T) {
 		val := strings.Repeat("b", 256)
 		err := validateTags(map[string]string{"key": val})
 		require.NoError(t, err)
-
 	})
 	t.Run("257_chars", func(t *testing.T) {
 		t.Parallel()
 		val := strings.Repeat("b", 257)
 		err := validateTags(map[string]string{"key": val})
 		require.Error(t, err)
-
 	})
 }
 
@@ -259,10 +245,8 @@ func TestPayloadSchema_RecursionDepthLimit(t *testing.T) {
 	payload := buildNestedPayload(50)
 	err := validatePayloadAgainstSchema(payload, schema)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(), "maximum schema nesting depth",
-	))
-
+	require.Contains(t, err.
+		Error(), "maximum schema nesting depth")
 }
 
 func TestPayloadSchema_AtExactLimit(t *testing.T) {
@@ -272,7 +256,6 @@ func TestPayloadSchema_AtExactLimit(t *testing.T) {
 	payload := buildNestedPayload(maxSchemaDepth)
 	err := validatePayloadAgainstSchema(payload, schema)
 	require.NoError(t, err)
-
 }
 
 func TestPayloadSchema_OneOverLimit(t *testing.T) {
@@ -281,10 +264,8 @@ func TestPayloadSchema_OneOverLimit(t *testing.T) {
 	payload := buildNestedPayload(maxSchemaDepth + 1)
 	err := validatePayloadAgainstSchema(payload, schema)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(), "maximum schema nesting depth",
-	))
-
+	require.Contains(t, err.
+		Error(), "maximum schema nesting depth")
 }
 
 func TestPayloadSchema_LargeArray(t *testing.T) {
@@ -297,7 +278,6 @@ func TestPayloadSchema_LargeArray(t *testing.T) {
 	schema := json.RawMessage(`{"type":"array","items":{"type":"number"}}`)
 	err := validatePayloadAgainstSchema(payload, schema)
 	require.NoError(t, err)
-
 }
 
 func FuzzPayloadSchemaDepth(f *testing.F) {
@@ -323,56 +303,48 @@ func TestValidateIDFormat_PathTraversal(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("../../etc/passwd")
 	require.Error(t, err)
-
 }
 
 func TestValidateIDFormat_EmptyID(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("")
 	require.Error(t, err)
-
 }
 
 func TestValidateIDFormat_ExtremelyLong(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", 10000))
 	require.Error(t, err)
-
 }
 
 func TestValidateIDFormat_NullByte(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("job\x00-123")
 	require.Error(t, err)
-
 }
 
 func TestValidateIDFormat_ValidNanoid(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("abc123def456")
 	require.NoError(t, err)
-
 }
 
 func TestValidateIDFormat_SlashInID(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("job/123")
 	require.Error(t, err)
-
 }
 
 func TestValidateIDFormat_ExactMaxLength(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", maxIDLength))
 	require.NoError(t, err)
-
 }
 
 func TestValidateIDFormat_OneOverMaxLength(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", maxIDLength+1))
 	require.Error(t, err)
-
 }
 
 // -- decodeJSON with various time.Time parsing edge cases (via cursor).
@@ -385,12 +357,10 @@ func TestPagination_UnixEpochCursor(t *testing.T) {
 		!cursor.Equal(time.Date(1970, 1, 1, 0, 0,
 			0, 0, time.
 				UTC)))
-
 }
 
 func TestPagination_ZeroLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("0", "")
 	require.Error(t, err)
-
 }

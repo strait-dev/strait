@@ -1,7 +1,6 @@
 package grpc
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -44,7 +43,6 @@ func TestRegistry_Register_HappyPath(t *testing.T) {
 	assert.Equal(
 		t, "w1",
 		snap[0].WorkerID)
-
 }
 
 // TestRegistry_Register_Collision verifies that re-registration of the same
@@ -58,7 +56,6 @@ func TestRegistry_Register_Collision(t *testing.T) {
 
 	err := r.Register(w2)
 	require.Error(t, err)
-
 }
 
 // TestRegistry_Register_Reconnect verifies that same-key re-registration evicts the old
@@ -76,7 +73,7 @@ func TestRegistry_Register_Reconnect(t *testing.T) {
 	r.mu.RLock()
 	count := len(r.byAPIKey["key-1"])
 	r.mu.RUnlock()
-	assert.EqualValues(t, 1, count)
+	assert.Equal(t, 1, count)
 
 	// Snapshot should show updated queues.
 	snap := r.Snapshot()
@@ -86,7 +83,6 @@ func TestRegistry_Register_Reconnect(t *testing.T) {
 	assert.Len(t,
 		snap[0].Queues,
 		2)
-
 }
 
 // TestRegistry_Deregister_RemovesWorkerAndIndex verifies full cleanup.
@@ -99,9 +95,8 @@ func TestRegistry_Deregister_RemovesWorkerAndIndex(t *testing.T) {
 	r.Deregister("w1", w.regToken)
 
 	snap := r.Snapshot()
-	assert.Len(t,
-		snap,
-		0)
+	assert.Empty(t,
+		snap)
 
 	r.mu.RLock()
 	_, keyExists := r.byAPIKey["key-1"]
@@ -109,7 +104,6 @@ func TestRegistry_Deregister_RemovesWorkerAndIndex(t *testing.T) {
 	assert.False(
 		t, keyExists,
 	)
-
 }
 
 // TestRegistry_Deregister_Noop verifies deregistering a nonexistent worker does not panic.
@@ -132,7 +126,6 @@ func TestRegistry_IncrementSlots_Cap(t *testing.T) {
 
 	snap := r.Snapshot()
 	assert.EqualValues(t, 2, snap[0].SlotsAvailable)
-
 }
 
 // TestRegistry_IncrementSlots_Normal verifies increment from below cap.
@@ -147,7 +140,6 @@ func TestRegistry_IncrementSlots_Normal(t *testing.T) {
 
 	snap := r.Snapshot()
 	assert.EqualValues(t, 3, snap[0].SlotsAvailable)
-
 }
 
 // TestRegistry_DecrementSlots_Normal decrements from above zero.
@@ -161,7 +153,6 @@ func TestRegistry_DecrementSlots_Normal(t *testing.T) {
 
 	snap := r.Snapshot()
 	assert.EqualValues(t, 3, snap[0].SlotsAvailable)
-
 }
 
 // TestRegistry_DecrementSlots_UnderflowGuard verifies that SlotsAvailable never goes
@@ -183,7 +174,6 @@ func TestRegistry_DecrementSlots_UnderflowGuard(t *testing.T) {
 
 		int32(0))
 	assert.EqualValues(t, 0, snap[0].SlotsAvailable)
-
 }
 
 // TestRegistry_SnapshotQueues_OnlyActiveWorkers verifies that draining workers are
@@ -204,12 +194,10 @@ func TestRegistry_SnapshotQueues_OnlyActiveWorkers(t *testing.T) {
 	for _, q := range queues {
 		assert.NotEqual(t, "q3",
 			q)
-
 	}
 	assert.Len(t,
 		queues,
 		2)
-
 }
 
 // TestRegistry_SnapshotQueues_Empty returns nil when no active workers are registered.
@@ -217,7 +205,6 @@ func TestRegistry_SnapshotQueues_Empty(t *testing.T) {
 	r := NewConnectionRegistry()
 	queues := r.SnapshotQueues()
 	assert.Nil(t, queues)
-
 }
 
 func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
@@ -234,7 +221,6 @@ func TestRegistry_SnapshotWorkerQueues_IncludesEnvironmentScopes(t *testing.T) {
 	for _, w := range []*ConnectedWorker{projectWide, staging, stagingDup, draining} {
 		require.NoError(t, r.
 			Register(w))
-
 	}
 
 	got := r.SnapshotWorkerQueues()
@@ -280,7 +266,6 @@ func TestRegistry_MarkDraining(t *testing.T) {
 
 		snap[0].Status,
 	)
-
 }
 
 // TestRegistry_MarkDraining_Noop verifies no panic for unknown worker.
@@ -311,7 +296,6 @@ func TestRegistry_PickWorkerForQueue_LeastLoaded(t *testing.T) {
 		picked.
 			WorkerID,
 	)
-
 }
 
 // TestRegistry_PickWorkerForQueue_NoSlots verifies that workers with zero slots are skipped.
@@ -325,7 +309,6 @@ func TestRegistry_PickWorkerForQueue_NoSlots(t *testing.T) {
 	_, ok := r.PickWorkerForQueue("proj-a", "q")
 	assert.False(
 		t, ok)
-
 }
 
 // TestRegistry_PickWorkerForQueue_WrongProject verifies project isolation.
@@ -338,7 +321,6 @@ func TestRegistry_PickWorkerForQueue_WrongProject(t *testing.T) {
 	_, ok := r.PickWorkerForQueue("proj-b", "q")
 	assert.False(
 		t, ok)
-
 }
 
 // TestRegistry_PickWorkerForQueue_WrongQueue verifies queue filtering.
@@ -351,22 +333,16 @@ func TestRegistry_PickWorkerForQueue_WrongQueue(t *testing.T) {
 	_, ok := r.PickWorkerForQueue("proj-a", "q2")
 	assert.False(
 		t, ok)
-
 }
 
 func TestRegistry_ErrNoWorkerForQueueSentinel(t *testing.T) {
 	t.Parallel()
-	require.True(
-		t, errors.Is(ErrNoWorkerAvailable,
-
-			ErrNoWorkerForQueue))
+	require.ErrorIs(
+		t, ErrNoWorkerAvailable, ErrNoWorkerForQueue)
 
 	wrapped := fmt.Errorf("dispatch failed: %w", ErrNoWorkerForQueue)
-	require.True(
-		t, errors.Is(wrapped,
-			ErrNoWorkerForQueue,
-		))
-
+	require.ErrorIs(
+		t, wrapped, ErrNoWorkerForQueue)
 }
 
 // TestRegistry_PickWorkerForQueue_DrainedSkipped verifies draining workers are skipped.
@@ -381,7 +357,6 @@ func TestRegistry_PickWorkerForQueue_DrainedSkipped(t *testing.T) {
 	_, ok := r.PickWorkerForQueue("proj-a", "q")
 	assert.False(
 		t, ok)
-
 }
 
 // TestRegistry_CloseByAPIKey_ClosesRevokeCh verifies that CloseByAPIKey signals all streams
@@ -502,7 +477,6 @@ func TestRegistry_Concurrent_SlotOperations(t *testing.T) {
 	assert.LessOrEqual(t,
 		slots,
 		total)
-
 }
 
 // TestRegistry_Concurrent_ReconnectStorm verifies that 1000 parallel reconnects for
@@ -550,5 +524,4 @@ func TestRegistry_Concurrent_ReconnectStorm(t *testing.T) {
 	assert.LessOrEqual(t,
 		stormCount,
 		1)
-
 }

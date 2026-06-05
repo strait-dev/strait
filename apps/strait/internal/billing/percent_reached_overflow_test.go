@@ -20,7 +20,6 @@ func TestPercentReached_CurrentMaxInt64SaturatesTrue(t *testing.T) {
 		percentReached(math.MaxInt64/50, 1_000, 80))
 
 	// Same invariant just past the overflow threshold.
-
 }
 
 // TestPercentReached_LimitMaxInt64SaturatesFalse closes the symmetric
@@ -32,7 +31,6 @@ func TestPercentReached_LimitMaxInt64SaturatesFalse(t *testing.T) {
 	t.Parallel()
 	assert.False(t,
 		percentReached(1_000_000, math.MaxInt64, 80))
-
 }
 
 // TestPercentReached_BothMaxInt64DoesNotPanic is the "do not crash" test —
@@ -43,7 +41,6 @@ func TestPercentReached_BothMaxInt64DoesNotPanic(t *testing.T) {
 	t.Parallel()
 	defer func() {
 		assert.Nil(t, recover())
-
 	}()
 	_ = percentReached(math.MaxInt64, math.MaxInt64, 80)
 }
@@ -57,7 +54,6 @@ func TestPercentReached_NonPositivePctReturnsFalse(t *testing.T) {
 	for _, pct := range []int{0, -1, -100} {
 		assert.False(t,
 			percentReached(50, 100, pct))
-
 	}
 }
 
@@ -81,6 +77,5 @@ func TestPercentReached_NormalRangeUnchanged(t *testing.T) {
 	for _, c := range cases {
 		assert.Equal(t,
 			c.want, percentReached(c.current, c.limit, c.pct))
-
 	}
 }

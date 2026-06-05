@@ -106,14 +106,12 @@ func TestObservePool_ZeroValues(t *testing.T) {
 				assert.EqualValues(t, 0,
 					dp.Value,
 				)
-
 			}
 		case metricdata.Sum[int64]:
 			for _, dp := range data.DataPoints {
 				assert.EqualValues(t, 0,
 					dp.Value,
 				)
-
 			}
 		}
 	}
@@ -166,7 +164,6 @@ func TestObservePool_NonZeroValues(t *testing.T) {
 		}
 		assert.Equal(t, want,
 			got)
-
 	}
 }
 
@@ -211,7 +208,6 @@ func TestObservePool_LargeUint64Saturation(t *testing.T) {
 			for _, dp := range data.DataPoints {
 				assert.GreaterOrEqual(t, dp.
 					Value, int64(0))
-
 			}
 		case metricdata.Sum[int64]:
 			// Counter metrics are not checked for value correctness here
@@ -239,7 +235,6 @@ func TestObservePool_NegativeRunningWorkers(t *testing.T) {
 		reader.Collect(context.
 			Background(), &rm),
 	)
-
 }
 
 func TestObservePool_CallbackReflectsLiveState(t *testing.T) {
@@ -268,7 +263,6 @@ func TestObservePool_CallbackReflectsLiveState(t *testing.T) {
 		values["strait_worker_pool_running"])
 	assert.EqualValues(t, 20,
 		values["strait_worker_pool_waiting"])
-
 }
 
 // collectMetricValues extracts metric name -> value from collected resource metrics.
@@ -358,14 +352,12 @@ func TestSanitizeQueryString_SensitiveParams(t *testing.T) {
 				assert.Equal(t, "[REDACTED]",
 
 					val)
-
 			}
 
 			for key, want := range tt.preserved {
 				got := params.Get(key)
 				assert.Equal(t, want,
 					got)
-
 			}
 		})
 	}
@@ -377,9 +369,7 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 	t.Run("empty string returns empty", func(t *testing.T) {
 		t.Parallel()
 		result := SanitizeQueryString("")
-		assert.Equal(t, "",
-			result)
-
+		assert.Empty(t, result)
 	})
 
 	t.Run("no sensitive params preserved", func(t *testing.T) {
@@ -398,17 +388,14 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 		assert.Equal(t, "asc",
 			params.
 				Get("sort"))
-
 	})
 
 	t.Run("malformed percent encoding returns empty", func(t *testing.T) {
 		t.Parallel()
 		result := SanitizeQueryString("%ZZ%YY")
-		assert.Equal(t, "",
-			result)
+		assert.Empty(t, result)
 
 		// url.ParseQuery fails on invalid percent encoding; function returns "".
-
 	})
 
 	t.Run("key with no value", func(t *testing.T) {
@@ -439,7 +426,6 @@ func TestSanitizeQueryString_EdgeCases(t *testing.T) {
 		assert.Equal(t, "[REDACTED]",
 
 			params.Get("api_key"))
-
 	})
 }
 
@@ -454,10 +440,9 @@ func TestInitProfiling_InvalidEndpoint(t *testing.T) {
 	// Pyroscope.Start may or may not error depending on implementation.
 	// The important thing is that it does not panic.
 	if err != nil {
-		assert.True(t, strings.Contains(err.Error(), "pyroscope"))
+		assert.Contains(t, err.Error(), "pyroscope")
 
 		// Verify the error is wrapped properly.
-
 	}
 }
 
@@ -516,7 +501,6 @@ func TestInitMetrics_AllPoolMetricsInitialized(t *testing.T) {
 	assert.NotNil(t, m.
 		PoolDroppedTasks,
 	)
-
 }
 
 func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
@@ -532,7 +516,6 @@ func TestInitMetrics_NotificationMetricsInitialized(t *testing.T) {
 	assert.NotNil(t, m.
 		NotificationDeliveryFailures,
 	)
-
 }
 
 func TestInitMetrics_OperationalMetricsInitialized(t *testing.T) {
@@ -569,7 +552,6 @@ func TestInitMetrics_OperationalMetricsInitialized(t *testing.T) {
 	assert.NotNil(t, m.
 		HTTPRequestDuration,
 	)
-
 }
 
 func TestGaugeRecording(t *testing.T) {
@@ -603,7 +585,6 @@ func TestGaugeRecording(t *testing.T) {
 	assert.EqualValues(t, 42,
 		data.DataPoints[0].
 			Value)
-
 }
 
 func TestUpDownCounterRecording(t *testing.T) {
@@ -638,5 +619,4 @@ func TestUpDownCounterRecording(t *testing.T) {
 	assert.EqualValues(t, 2,
 		sum.DataPoints[0].Value,
 	)
-
 }

@@ -125,7 +125,6 @@ func TestTenantIso_ListRunState_RejectsCrossProject(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_ListRunState_RejectsCrossEnv(t *testing.T) {
@@ -153,7 +152,6 @@ func TestTenantIso_ListRunState_RejectsCrossEnv(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_SDKGetState_RejectsTerminalRun(t *testing.T) {
@@ -171,7 +169,6 @@ func TestTenantIso_SDKGetState_RejectsTerminalRun(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusGone))
-
 }
 
 func TestTenantIso_SDKListState_RejectsTerminalRun(t *testing.T) {
@@ -189,7 +186,6 @@ func TestTenantIso_SDKListState_RejectsTerminalRun(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusGone))
-
 }
 
 func TestTenantIso_SDKGetMemory_RejectsTerminalRun(t *testing.T) {
@@ -211,7 +207,6 @@ func TestTenantIso_SDKGetMemory_RejectsTerminalRun(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusGone))
-
 }
 
 func TestTenantIso_SDKListMemory_RejectsTerminalRun(t *testing.T) {
@@ -233,7 +228,6 @@ func TestTenantIso_SDKListMemory_RejectsTerminalRun(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusGone))
-
 }
 
 func TestTenantIso_SDKComplete_RejectsStaleAttempt(t *testing.T) {
@@ -256,7 +250,6 @@ func TestTenantIso_SDKComplete_RejectsStaleAttempt(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusUnauthorized),
 	)
-
 }
 
 func TestTenantIso_SDKFail_RejectsStaleAttempt(t *testing.T) {
@@ -279,7 +272,6 @@ func TestTenantIso_SDKFail_RejectsStaleAttempt(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusUnauthorized),
 	)
-
 }
 
 // noRunTokenStateStore wraps APIStoreMock but explicitly does NOT implement
@@ -322,5 +314,4 @@ func TestTenantIso_SDKAuth_FallbackAttemptDoesNotBypass(t *testing.T) {
 
 		w.Code)
 	require.False(t, called.Load())
-
 }

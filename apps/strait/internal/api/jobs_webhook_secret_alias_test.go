@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	straitcrypto "strait/internal/crypto"
@@ -20,7 +19,6 @@ func requireEncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypted, wan
 	got, err := straitcrypto.DecryptField(enc, encrypted)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
-
 }
 
 func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
@@ -281,10 +279,7 @@ func TestHandleUpdateJob_AuditDetailsDoNotLeakSigningSecrets(t *testing.T) {
 
 	rawDetails := string(capturedAudit.Details)
 	for _, forbidden := range []string{webhookSecret, endpointSecret, "webhook_secret", "endpoint_signing_secret"} {
-		require.False(t, strings.Contains(rawDetails,
-			forbidden,
-		))
-
+		require.NotContains(t, rawDetails, forbidden)
 	}
 
 	var details map[string]any
@@ -298,7 +293,6 @@ func TestHandleUpdateJob_AuditDetailsDoNotLeakSigningSecrets(t *testing.T) {
 		t, ok)
 	require.Equal(t, name, changes["name"])
 	require.Equal(t, true, changes["signing_credential_changed"])
-
 }
 
 func TestHandleBatchCreateJobs_EncryptsEndpointSigningSecrets(t *testing.T) {

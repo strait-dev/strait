@@ -27,7 +27,7 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":950,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 	require.NotNil(t, insertedEvent)
 	assert.Equal(
 		t, domain.EventType("resource.oom_risk"),
@@ -36,7 +36,6 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	assert.Equal(
 		t, "warn", insertedEvent.
 			Level)
-
 }
 
 func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
@@ -54,9 +53,8 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 	require.False(t, eventCalled)
-
 }
 
 func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
@@ -74,7 +72,6 @@ func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":0,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 	require.False(t, eventCalled)
-
 }

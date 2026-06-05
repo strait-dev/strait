@@ -9,6 +9,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
@@ -67,13 +68,11 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 	for key, want := range wantTags {
 		require.Equal(t, want, event.
 			Tags[key])
-
 	}
 	require.Equal(t, "user-1",
 		event.User.ID)
 	require.Equal(t, "/v1/runs/{runID}",
 		event.Contexts["http.request"]["route"])
-
 }
 
 func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
@@ -92,9 +91,8 @@ func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
 		event.Tags["method"])
 	require.Equal(t, "/health",
 		event.Tags["route"])
-	require.Equal(t, "", event.
+	require.Empty(t, event.
 		User.ID)
-
 }
 
 func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
@@ -105,7 +103,7 @@ func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
 	var firstHub, secondHub *sentry.Hub
 	handler := sentryHandler.Handle(srv.sentryScope(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		hub := sentry.GetHubFromContext(r.Context())
-		require.NotNil(t, hub)
+		assert.NotNil(t, hub)
 
 		if firstHub == nil {
 			firstHub = hub
@@ -121,5 +119,4 @@ func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
 		nil)
 	require.NotEqual(t, secondHub,
 		firstHub)
-
 }

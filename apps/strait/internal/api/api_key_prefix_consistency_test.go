@@ -22,9 +22,7 @@ func TestGenerateAPIKey_PrefixSliceIsExactlyAPIKeyPrefixLen(t *testing.T) {
 	for range 8 {
 		raw, err := generateAPIKey()
 		require.NoError(t, err)
-		require.False(t, len(raw) <=
-			domain.APIKeyPrefixLen,
-		)
+		require.Greater(t, len(raw), domain.APIKeyPrefixLen)
 
 		prefix := raw[:domain.APIKeyPrefixLen]
 		assert.True(t,
@@ -33,7 +31,6 @@ func TestGenerateAPIKey_PrefixSliceIsExactlyAPIKeyPrefixLen(t *testing.T) {
 		assert.Len(t,
 			prefix, domain.
 				APIKeyPrefixLen)
-
 	}
 }
 
@@ -50,5 +47,4 @@ func TestGenerateAPIKey_RawKeysHaveStableShape(t *testing.T) {
 	assert.Len(t,
 		raw, wantLen,
 	)
-
 }

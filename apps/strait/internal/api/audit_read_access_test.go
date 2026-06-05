@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"sync"
 	"testing"
@@ -49,12 +48,10 @@ func TestAuditReadAccess_ListAuditEvents(t *testing.T) {
 			assert.Equal(
 				t, "proj-1", ev.ProjectID,
 			)
-
 		}
 	}
 	assert.True(t,
 		found)
-
 }
 
 func TestAuditReadAccess_GetAuditEvent(t *testing.T) {
@@ -90,7 +87,6 @@ func TestAuditReadAccess_GetAuditEvent(t *testing.T) {
 	}
 	assert.True(t,
 		found)
-
 }
 
 func TestAuditReadAccess_VerifyChain(t *testing.T) {
@@ -127,7 +123,6 @@ func TestAuditReadAccess_VerifyChain(t *testing.T) {
 	}
 	assert.True(t,
 		found)
-
 }
 
 func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -188,15 +183,12 @@ func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
 			var statusErr huma.StatusError
-			require.True(
-				t, errors.As(err,
-					&statusErr,
-				))
+			require.ErrorAs(
+				t, err, &statusErr)
 			require.Equal(t, http.StatusForbidden,
 				statusErr.
 					GetStatus(),
 			)
-
 		})
 	}
 }
@@ -237,7 +229,6 @@ func TestAuditReadAccess_ListSecrets(t *testing.T) {
 	}
 	assert.True(t,
 		found)
-
 }
 
 func TestAuditReadAccess_GetSecret(t *testing.T) {
@@ -279,7 +270,6 @@ func TestAuditReadAccess_GetSecret(t *testing.T) {
 	}
 	assert.True(t,
 		found)
-
 }
 
 func TestAuditReadAccess_ListAPIKeys(t *testing.T) {
@@ -316,7 +306,6 @@ func TestAuditReadAccess_ListAPIKeys(t *testing.T) {
 	}
 	assert.True(t,
 		found)
-
 }
 
 func assertDetailContains(t *testing.T, ev domain.AuditEvent, key string, want any) {
@@ -327,7 +316,6 @@ func assertDetailContains(t *testing.T, ev domain.AuditEvent, key string, want a
 		ok)
 	assert.Equal(
 		t, want, got)
-
 }
 
 func assertDetailNotContains(t *testing.T, ev domain.AuditEvent, key string) {

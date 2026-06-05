@@ -414,8 +414,7 @@ func TestCreateAuditEvent_SignAndVerify_SurviveJSONBCanonicalization(t *testing.
 	for _, ev := range events {
 		require.NoError(t, q.CreateAuditEvent(ctx,
 			ev))
-		require.NotEqual(t, "", ev.Signature)
-
+		require.NotEmpty(t, ev.Signature)
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
@@ -426,5 +425,4 @@ func TestCreateAuditEvent_SignAndVerify_SurviveJSONBCanonicalization(t *testing.
 		len(events), result.
 			EventsChecked,
 	)
-
 }

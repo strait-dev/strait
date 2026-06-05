@@ -352,7 +352,6 @@ func TestAnomalyMonitor_SpikeDetected_AlertFires(t *testing.T) {
 
 		deliveries[0].
 			EventType)
-
 }
 
 func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
@@ -379,7 +378,6 @@ func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
@@ -415,9 +413,8 @@ func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
 	am.check(context.Background())
 	// Second check should skip because cooldown is active.
 	am.check(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		deliveryCount)
-
 }
 
 func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
@@ -449,9 +446,8 @@ func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	am.check(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		deliveryCount)
-
 }
 
 func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
@@ -491,9 +487,8 @@ func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
 
 	// Second check should fire again after cooldown expires.
 	am.check(context.Background())
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		deliveryCount)
-
 }
 
 func TestAnomalyMonitor_CooldownKey_PerOrg(t *testing.T) {
@@ -542,7 +537,6 @@ func TestAnomalyMonitor_CooldownKey_PerOrg(t *testing.T) {
 	am.check(context.Background())
 	require.Len(t, deliveries,
 		3)
-
 }
 
 func TestAnomalyMonitor_WarningAt3x(t *testing.T) {
@@ -584,7 +578,6 @@ func TestAnomalyMonitor_WarningAt3x(t *testing.T) {
 		),
 	)
 	assert.Equal(t, string(billing.AnomalySeverityWarning), payload["severity"])
-
 }
 
 func TestAnomalyMonitor_ZeroAverage_Skipped(t *testing.T) {
@@ -611,7 +604,6 @@ func TestAnomalyMonitor_ZeroAverage_Skipped(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestAnomalyMonitor_NoHistorySkipped(t *testing.T) {
@@ -642,7 +634,6 @@ func TestAnomalyMonitor_NoHistorySkipped(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestAnomalyMonitor_NoOrgsWithActivity_NoOp(t *testing.T) {
@@ -662,7 +653,6 @@ func TestAnomalyMonitor_NoOrgsWithActivity_NoOp(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestAnomalyMonitor_StoreError_LogsContinues(t *testing.T) {
@@ -724,7 +714,6 @@ func TestAnomalyMonitor_MultipleOrgs_IndependentAlerts(t *testing.T) {
 	assert.Equal(t, "proj-1",
 		deliveries[0].ProjectID,
 	)
-
 }
 
 func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
@@ -824,7 +813,7 @@ func TestAnomalyMonitor_NotificationDeliveryCreated(t *testing.T) {
 	)
 	assert.Equal(t, "pending",
 		d.Status)
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 		d.MaxAttempts)
 
 	// Verify payload contains expected fields.
@@ -884,7 +873,6 @@ func TestAnomalyMonitor_CustomThresholds_Used(t *testing.T) {
 	am.check(context.Background())
 	require.Len(t, deliveries,
 		1)
-
 }
 
 func TestAnomalyMonitor_5xSpike_SendsEmail(t *testing.T) {
@@ -928,7 +916,6 @@ func TestAnomalyMonitor_5xSpike_SendsEmail(t *testing.T) {
 		channelIDs[d.ChannelID] = true
 	}
 	assert.False(t, !channelIDs["ch-webhook"] || !channelIDs["ch-email"])
-
 }
 
 func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
@@ -969,7 +956,6 @@ func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
 	)
 
 	// At 3x (warning severity): only webhook should fire, not email.
-
 }
 
 func TestAnomalyMonitor_WebhookPayload_RedactsOrgWideAnomalyData(t *testing.T) {
@@ -1056,5 +1042,4 @@ func TestAnomalyMonitor_NoChannels_StillLogs(t *testing.T) {
 	// Should not panic when there are no channels.
 	am.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }

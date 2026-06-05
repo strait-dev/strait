@@ -122,7 +122,6 @@ func FuzzUpdateWorkflowRequest(f *testing.F) {
 			require.NoError(t, json.
 				Unmarshal(w.Body.
 					Bytes(), &resp))
-
 		}
 	})
 }
@@ -248,7 +247,6 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 		require.Equal(t, wantAction,
 			capturedAction,
 		)
-
 	})
 }
 
@@ -372,12 +370,10 @@ func FuzzCreateJobRetryPriorityBoost(f *testing.F) {
 			assert.Equal(t, http.StatusCreated,
 				w.Code,
 			)
-
 		} else {
 			assert.Equal(t, http.StatusUnprocessableEntity,
 
 				w.Code)
-
 		}
 	})
 }

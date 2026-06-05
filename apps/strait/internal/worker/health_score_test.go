@@ -114,7 +114,6 @@ func TestEWMA(t *testing.T) {
 					result-
 						tt.expected,
 				), 1e-9)
-
 		})
 	}
 }
@@ -129,10 +128,9 @@ func TestHealthScorer_NewEndpoint_StartsHealthy(t *testing.T) {
 	require.NoError(
 		t, err)
 	assert.True(t, allowed)
-	assert.EqualValues(t, 100.0,
-		score.HealthScore,
+	assert.InDelta(t, 100.0,
+		score.HealthScore, 1e-9,
 	)
-
 }
 
 func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
@@ -150,7 +148,6 @@ func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
 		})
 		require.NoError(
 			t, err)
-
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://example.com/api")
@@ -161,7 +158,6 @@ func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
 		score.
 			HealthScore,
 		90.0)
-
 }
 
 func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
@@ -180,7 +176,6 @@ func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
 		})
 		require.NoError(
 			t, err)
-
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://failing.com/api")
@@ -189,11 +184,9 @@ func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
 	assert.False(t,
 		allowed,
 	)
-	assert.False(t,
-		score.HealthScore >=
-			healthScoreUnhealthy,
+	assert.Less(t,
+		score.HealthScore, healthScoreUnhealthy,
 	)
-
 }
 
 func TestHealthScorer_DegradedEndpoint(t *testing.T) {
@@ -212,7 +205,6 @@ func TestHealthScorer_DegradedEndpoint(t *testing.T) {
 		})
 		require.NoError(
 			t, err)
-
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://flaky.com/api")
@@ -226,7 +218,6 @@ func TestHealthScorer_DegradedEndpoint(t *testing.T) {
 				10)
 
 	// With 50% success rate, the composite score should be in the degraded range.
-
 }
 
 func TestHealthScorer_Recovery(t *testing.T) {
@@ -244,7 +235,7 @@ func TestHealthScorer_Recovery(t *testing.T) {
 		})
 	}
 
-	score, allowed, _ := hs.CheckHealth(ctx, "https://recovering.com/api")
+	_, allowed, _ := hs.CheckHealth(ctx, "https://recovering.com/api")
 	require.False(t,
 		allowed,
 	)
@@ -268,7 +259,6 @@ func TestHealthScorer_Recovery(t *testing.T) {
 			HealthScore,
 		healthScoreDegraded,
 	)
-
 }
 
 func TestHealthScorer_TimeoutAffectsScore(t *testing.T) {
@@ -294,7 +284,6 @@ func TestHealthScorer_TimeoutAffectsScore(t *testing.T) {
 	assert.False(t,
 		allowed,
 	)
-
 }
 
 func TestHealthScorer_HighLatencyReducesScore(t *testing.T) {
@@ -316,15 +305,13 @@ func TestHealthScorer_HighLatencyReducesScore(t *testing.T) {
 	score, _, err := hs.CheckHealth(ctx, "https://slow.com/api")
 	require.NoError(
 		t, err)
-	assert.False(t,
-		score.HealthScore >=
-			100,
+	assert.Less(t,
+		score.HealthScore, 100.0,
 	)
 
 	// Success rate is 1.0 but latency score should be low (4500/5000 = 0.9, so latency_score = 0.1).
 	// Composite = 0.5*1.0 + 0.3*1.0 + 0.2*0.1 = 0.82 * 100 = 82.
 	// With EWMA decay from initial 1.0, should still be lower than a fast endpoint.
-
 }
 
 func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
@@ -348,7 +335,6 @@ func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
 	assert.EqualValues(t, 10, score.
 		TotalRequests,
 	)
-
 }
 
 func TestThrottledConcurrency(t *testing.T) {
@@ -414,7 +400,6 @@ func TestThrottledConcurrency(t *testing.T) {
 					got >
 						tt.wantMax,
 			)
-
 		})
 	}
 }
@@ -444,7 +429,6 @@ func TestEndpointHealthScore_HealthLevel(t *testing.T) {
 				tt.expected,
 				h.
 					HealthLevel())
-
 		})
 	}
 }
@@ -484,7 +468,6 @@ func TestHealthScorer_ConcurrentAccess(t *testing.T) {
 			0 ||
 			score.HealthScore >
 				100)
-
 }
 
 func TestHealthScorer_ZeroJobTimeout(t *testing.T) {
@@ -502,10 +485,9 @@ func TestHealthScorer_ZeroJobTimeout(t *testing.T) {
 	})
 	require.NoError(
 		t, err)
-	assert.EqualValues(t, 1.0, score.
-		LatencyScore,
+	assert.InDelta(t, 1.0, score.
+		LatencyScore, 1e-9,
 	)
-
 }
 
 func TestHealthScorer_ScoreClampedToRange(t *testing.T) {
@@ -530,6 +512,5 @@ func TestHealthScorer_ScoreClampedToRange(t *testing.T) {
 				0 ||
 				score.HealthScore >
 					100)
-
 	}
 }

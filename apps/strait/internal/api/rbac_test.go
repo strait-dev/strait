@@ -33,7 +33,6 @@ func TestRequirePermission_AdminAllowsAll(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
@@ -55,7 +54,6 @@ func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
 	require.Equal(t, http.
 		StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
@@ -77,7 +75,6 @@ func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
@@ -100,7 +97,6 @@ func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_UnknownUserDenied(t *testing.T) {
@@ -122,7 +118,6 @@ func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 	require.Equal(t, http.
 		StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
@@ -143,7 +138,6 @@ func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestUsersAffectedByRoleMutation_DeepRoleChain(t *testing.T) {
@@ -168,7 +162,6 @@ func TestUsersAffectedByRoleMutation_DeepRoleChain(t *testing.T) {
 		users,
 		len(roles),
 	)
-
 }
 
 func TestUsersAffectedByRoleMutation_WideRoleTreeIgnoresUnrelatedBranches(t *testing.T) {
@@ -200,7 +193,6 @@ func TestUsersAffectedByRoleMutation_WideRoleTreeIgnoresUnrelatedBranches(t *tes
 		t, slices.
 			Equal(users,
 				want))
-
 }
 
 func BenchmarkUsersAffectedByRoleMutation(b *testing.B) {

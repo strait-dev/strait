@@ -51,7 +51,6 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 
 				rec.Code,
 			)
-
 		})
 	}
 
@@ -72,7 +71,6 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 				rec.Code == http.
 					StatusUnauthorized,
 		)
-
 	})
 
 	t.Run("configured_secret_rejects_unsigned", func(t *testing.T) {
@@ -90,7 +88,6 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 			http.StatusUnauthorized,
 			rec.
 				Code)
-
 	})
 
 	t.Run("configured_secret_accepts_valid_signature", func(t *testing.T) {
@@ -110,7 +107,6 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 				StatusUnauthorized ||
 				rec.Code == http.StatusServiceUnavailable,
 		)
-
 	})
 
 	t.Run("configured_secret_rejects_wrong_signature", func(t *testing.T) {
@@ -130,6 +126,5 @@ func TestWebhookSignatureSecurity(t *testing.T) {
 			http.StatusUnauthorized,
 			rec.
 				Code)
-
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 
@@ -68,8 +67,8 @@ func TestDispatchBillingWebhook_PayloadShape(t *testing.T) {
 		json.Unmarshal(
 			call.payload,
 			&env))
-	assert.NotEqual(t,
-		"", env.EventID,
+	assert.NotEmpty(t,
+		env.EventID,
 	)
 	assert.Equal(t, domain.
 		WebhookEventBillingCapWarning,
@@ -82,12 +81,11 @@ func TestDispatchBillingWebhook_PayloadShape(t *testing.T) {
 	)
 	assert.Equal(t, string(domain.PlanScale), env.
 		PlanTier)
-	assert.NotEqual(t,
-		"", env.OccurredAt,
+	assert.NotEmpty(t,
+		env.OccurredAt,
 	)
 	assert.NotNil(t,
 		env.Detail["spend_pct"])
-
 }
 
 func TestDispatchBillingWebhook_PropagatesDispatcherError(t *testing.T) {
@@ -97,15 +95,14 @@ func TestDispatchBillingWebhook_PropagatesDispatcherError(t *testing.T) {
 	d := &fakeDispatcher{err: sentinel}
 	err := DispatchBillingWebhook(context.Background(), d,
 		"org", domain.PlanPro, domain.WebhookEventBillingDelinquent, nil)
-	assert.True(t, errors.Is(err, sentinel))
-
+	assert.ErrorIs(t, err, sentinel)
 }
 
 func TestDispatchBillingWebhook_ValidatesInputs(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	assert.Error(t, DispatchBillingWebhook(ctx,
+	require.Error(t, DispatchBillingWebhook(ctx,
 		nil, "o", domain.
 			PlanFree,
 		"x",
@@ -113,7 +110,7 @@ func TestDispatchBillingWebhook_ValidatesInputs(t *testing.T) {
 		nil))
 
 	d := &fakeDispatcher{}
-	assert.Error(t, DispatchBillingWebhook(ctx,
+	require.Error(t, DispatchBillingWebhook(ctx,
 		d, "", domain.
 			PlanFree,
 		"x", nil,
@@ -123,7 +120,6 @@ func TestDispatchBillingWebhook_ValidatesInputs(t *testing.T) {
 			PlanFree,
 		"", nil,
 	))
-
 }
 
 func TestValidWebhookEventTypes_IncludesBilling(t *testing.T) {
@@ -157,9 +153,7 @@ func TestValidWebhookEventTypes_IncludesBilling(t *testing.T) {
 	for name, w := range want {
 		assert.Equal(t, w,
 			got[name])
-		assert.True(t, strings.Contains(w,
-			"."))
-
+		assert.Contains(t, w, ".")
 	}
 }
 
@@ -172,5 +166,4 @@ func TestEnforcer_WithBillingDispatcher(t *testing.T) {
 	require.NotNil(t,
 		e.billingDispatcher,
 	)
-
 }

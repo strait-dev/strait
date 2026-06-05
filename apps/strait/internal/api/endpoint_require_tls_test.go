@@ -59,7 +59,6 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 			w.Code, 400)
 		require.False(t, created.
 			Load())
-
 	})
 
 	t.Run("require tls accepts https endpoint", func(t *testing.T) {
@@ -71,7 +70,6 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 			w.Code)
 		require.True(
 			t, created.Load())
-
 	})
 
 	t.Run("knob off permits http endpoint", func(t *testing.T) {
@@ -83,6 +81,5 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 			w.Code)
 		require.True(
 			t, created.Load())
-
 	})
 }

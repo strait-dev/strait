@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +33,6 @@ func TestExecutor_HandleSystemFailure(t *testing.T) {
 				domain.
 					StatusSystemFailed,
 	)
-
 }
 
 func TestExecutor_Execute_JobLookupFails(t *testing.T) {
@@ -56,7 +54,6 @@ func TestExecutor_Execute_JobLookupFails(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		calls[0].to)
-
 }
 
 func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
@@ -114,13 +111,11 @@ func TestExecutor_NilMetrics(t *testing.T) {
 
 	defer func() {
 		require.Nil(t, recover())
-
 	}()
 	require.Error(t,
 		exec.dispatch(context.
 			Background(), job, run,
 		))
-
 }
 
 func TestExecutor_PanicRecovery(t *testing.T) {
@@ -161,10 +156,8 @@ func TestExecutor_PanicRecovery(t *testing.T) {
 	errMsg, ok := calls[0].fields["error"].(string)
 	require.True(t,
 		ok)
-	require.True(t,
-		strings.Contains(errMsg,
-			"panic:"))
-
+	require.Contains(t,
+		errMsg, "panic:")
 }
 
 func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
@@ -201,5 +194,4 @@ func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		calls[0].to)
-
 }

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +21,7 @@ func TestHandleAdminListDLQ_OK(t *testing.T) {
 	t.Parallel()
 	mock := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			require.NotEqual(t, "",
-				projectID,
-			)
+			require.NotEmpty(t, projectID)
 
 			return []domain.JobRun{{
 				ID: "run-1", JobID: "job-1", ProjectID: projectID,
@@ -41,7 +38,6 @@ func TestHandleAdminListDLQ_OK(t *testing.T) {
 		StatusOK,
 		w.Code)
 	require.Len(t, mock.ListDeadLetterRunsCalls(), 1)
-
 }
 
 func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
@@ -58,7 +54,6 @@ func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
 		StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
@@ -75,7 +70,6 @@ func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
 		StatusConflict,
 		w.Code,
 	)
-
 }
 
 func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
@@ -121,7 +115,6 @@ func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 	assert.Equal(t, "run-1",
 		enqueuedExisting,
 	)
-
 }
 
 func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
@@ -145,7 +138,6 @@ func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
 		StatusConflict,
 		w.Code,
 	)
-
 }
 
 func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
@@ -174,8 +166,7 @@ func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
 		StatusInternalServerError,
 
 		w.Code)
-	require.EqualValues(t, 1, unmaskCalls)
-
+	require.Equal(t, 1, unmaskCalls)
 }
 
 func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
@@ -203,8 +194,7 @@ func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-	require.EqualValues(t, 1, purgeCalls)
-
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
@@ -233,8 +223,7 @@ func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
 		StatusInternalServerError,
 
 		w.Code)
-	require.EqualValues(t, 1, purgeCalls)
-
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminListDLQ_ForbiddenWithEmptyScopes(t *testing.T) {
@@ -277,7 +266,6 @@ func TestHandleAdminListDLQ_ForbiddenWithoutScope(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRunsRead})
 	_, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{})
 	require.Error(t, err)
-
 }
 
 func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -313,7 +301,6 @@ func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
 		runs[0].ID !=
 			"run-prod",
 	)
-
 }
 
 func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -360,9 +347,8 @@ func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testin
 		runs[0].ID !=
 			"run-prod",
 	)
-	require.EqualValues(t, 1, filteredCalls)
-	require.EqualValues(t, 0, unfilteredCalls)
-
+	require.Equal(t, 1, filteredCalls)
+	require.Equal(t, 0, unfilteredCalls)
 }
 
 // TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed verifies that
@@ -392,9 +378,8 @@ func TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed(t *testing.T) {
 		StatusInternalServerError,
 
 		w.Code)
-	require.True(t, strings.Contains(buf.String(), "dlq purge failed"))
-	require.True(t, strings.Contains(buf.String(), "run_id=run-1"))
-
+	require.Contains(t, buf.String(), "dlq purge failed")
+	require.Contains(t, buf.String(), "run_id=run-1")
 }
 
 // TestHandleAdminListDLQ_MaskedFilter verifies the masked filter is
@@ -411,9 +396,7 @@ func TestHandleAdminListDLQ_MaskedFilter(t *testing.T) {
 		},
 		ListDeadLetterRunsFilteredFunc: func(_ context.Context, projectID string, jobID *string, masked *bool, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			filteredCalls++
-			require.NotEqual(t, "",
-				projectID,
-			)
+			require.NotEmpty(t, projectID)
 			require.False(t, masked ==
 				nil ||
 				*masked !=
@@ -434,9 +417,8 @@ func TestHandleAdminListDLQ_MaskedFilter(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-	require.EqualValues(t, 1, filteredCalls)
-	require.EqualValues(t, 0, unfilteredCalls)
-
+	require.Equal(t, 1, filteredCalls)
+	require.Equal(t, 0, unfilteredCalls)
 }
 
 // TestHandleAdminListDLQ_MaskedFilter_InvalidValue rejects values
@@ -453,5 +435,4 @@ func TestHandleAdminListDLQ_MaskedFilter_InvalidValue(t *testing.T) {
 		StatusBadRequest,
 		w.Code,
 	)
-
 }

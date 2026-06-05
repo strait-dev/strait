@@ -51,7 +51,6 @@ func validConfig() *Config {
 func TestValidate_Happy(t *testing.T) {
 	require.NoError(
 		t, validConfig().Validate())
-
 }
 
 func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
@@ -70,7 +69,6 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	c.SequinWebhookSecret = "sequin-webhook-secret"
 	require.NoError(
 		t, c.Validate())
-
 }
 
 func TestValidate_RedisURLScheme(t *testing.T) {
@@ -84,7 +82,6 @@ func TestValidate_RedisURLScheme(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "REDIS_URL",
 	)
-
 }
 
 func TestValidate_SequinPollingSettings(t *testing.T) {
@@ -118,7 +115,6 @@ func TestValidate_SequinPollingSettings(t *testing.T) {
 				t, err.Error(), tt.
 					want,
 			)
-
 		})
 	}
 }
@@ -132,7 +128,6 @@ func TestValidate_NegativeDuration(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "HEARTBEAT_INTERVAL",
 	)
-
 }
 
 func TestValidate_ZeroDuration(t *testing.T) {
@@ -140,7 +135,6 @@ func TestValidate_ZeroDuration(t *testing.T) {
 	c.DBStatementTimeout = 0
 	assert.Error(t,
 		c.Validate())
-
 }
 
 func TestValidate_PollVsHeartbeat(t *testing.T) {
@@ -153,7 +147,6 @@ func TestValidate_PollVsHeartbeat(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "POLLER_INTERVAL",
 	)
-
 }
 
 func TestValidate_StaleThresholdTooTight(t *testing.T) {
@@ -166,7 +159,6 @@ func TestValidate_StaleThresholdTooTight(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "STALE_THRESHOLD",
 	)
-
 }
 
 func TestValidate_WorkerDBSyncIntervalInvariants(t *testing.T) {
@@ -202,7 +194,6 @@ func TestValidate_WorkerDBSyncIntervalInvariants(t *testing.T) {
 				t, err.Error(), tt.
 					want,
 			)
-
 		})
 	}
 }
@@ -219,7 +210,6 @@ func TestLoad_WorkerDBSyncIntervalInvariant(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "WORKER_DB_SYNC_INTERVAL",
 	)
-
 }
 
 func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
@@ -233,7 +223,6 @@ func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "DB_MIN_CONNS",
 	)
-
 }
 
 func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
@@ -246,7 +235,6 @@ func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "DB_LOCK_TIMEOUT",
 	)
-
 }
 
 func TestValidate_MinExceedsMaxConns(t *testing.T) {
@@ -259,7 +247,6 @@ func TestValidate_MinExceedsMaxConns(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "DB_MIN_CONNS",
 	)
-
 }
 
 func TestValidate_DLQCrossCap(t *testing.T) {
@@ -272,7 +259,6 @@ func TestValidate_DLQCrossCap(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "DLQ_MAX_PER_JOB",
 	)
-
 }
 
 func TestValidate_DLQPolicyValue(t *testing.T) {
@@ -284,7 +270,6 @@ func TestValidate_DLQPolicyValue(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "DLQ_OVERFLOW_POLICY",
 	)
-
 }
 
 func TestValidate_AbsurdDurationsCaught(t *testing.T) {
@@ -296,7 +281,6 @@ func TestValidate_AbsurdDurationsCaught(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "exceeds reasonable max",
 	)
-
 }
 
 func TestValidate_ZeroWorkerConcurrency(t *testing.T) {
@@ -308,7 +292,6 @@ func TestValidate_ZeroWorkerConcurrency(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "WORKER_CONCURRENCY",
 	)
-
 }
 
 func TestValidate_InvalidExecutionTraceMode(t *testing.T) {
@@ -320,7 +303,6 @@ func TestValidate_InvalidExecutionTraceMode(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "EXECUTION_TRACE_MODE",
 	)
-
 }
 
 func TestValidate_AccumulatesMultipleErrors(t *testing.T) {
@@ -339,7 +321,6 @@ func TestValidate_AccumulatesMultipleErrors(t *testing.T) {
 
 			"WORKER_CONCURRENCY") || !strings.Contains(msg,
 			"DB_STATEMENT_TIMEOUT") || !strings.Contains(msg, "DLQ_OVERFLOW_POLICY"))
-
 }
 
 func FuzzValidateNeverPanics(f *testing.F) {
@@ -379,7 +360,6 @@ func TestValidate_AuditRetentionNegative(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditRetentionTooLarge(t *testing.T) {
@@ -389,11 +369,9 @@ func TestValidate_AuditRetentionTooLarge(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.
-			Error(), "AUDIT_RETENTION_DEFAULT_DAYS",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "AUDIT_RETENTION_DEFAULT_DAYS")
 }
 
 func TestValidate_AuditBufferTooSmall(t *testing.T) {
@@ -403,7 +381,6 @@ func TestValidate_AuditBufferTooSmall(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditSIEMEndpointWithoutToken(t *testing.T) {
@@ -414,7 +391,6 @@ func TestValidate_AuditSIEMEndpointWithoutToken(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditSIEMEndpointWithToken(t *testing.T) {
@@ -425,7 +401,6 @@ func TestValidate_AuditSIEMEndpointWithToken(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_AuditSIEMEndpointWithUserinfo(t *testing.T) {
@@ -436,7 +411,6 @@ func TestValidate_AuditSIEMEndpointWithUserinfo(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditSIEMEndpointUnparseable(t *testing.T) {
@@ -447,7 +421,6 @@ func TestValidate_AuditSIEMEndpointUnparseable(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDefaultsValid(t *testing.T) {
@@ -462,7 +435,6 @@ func TestValidate_AuditDefaultsValid(t *testing.T) {
 	assert.Equal(t,
 		4096, cfg.AuditAsyncBufferSize,
 	)
-
 }
 
 func TestValidate_AuditDLQReclaimBatchZero(t *testing.T) {
@@ -472,7 +444,6 @@ func TestValidate_AuditDLQReclaimBatchZero(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQReclaimBatchOne(t *testing.T) {
@@ -482,7 +453,6 @@ func TestValidate_AuditDLQReclaimBatchOne(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_AuditBufferExactly256(t *testing.T) {
@@ -492,7 +462,6 @@ func TestValidate_AuditBufferExactly256(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_AuditBuffer255(t *testing.T) {
@@ -502,7 +471,6 @@ func TestValidate_AuditBuffer255(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
@@ -512,7 +480,6 @@ func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
@@ -522,7 +489,6 @@ func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQMaxReclaimAttemptsZero(t *testing.T) {
@@ -532,7 +498,6 @@ func TestValidate_AuditDLQMaxReclaimAttemptsZero(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_AuditRetentionZero(t *testing.T) {
@@ -542,7 +507,6 @@ func TestValidate_AuditRetentionZero(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
@@ -552,7 +516,6 @@ func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
 	_, err := Load()
 	require.NoError(
 		t, err)
-
 }
 
 func TestValidate_JWTSigningKey31Chars(t *testing.T) {
@@ -562,7 +525,6 @@ func TestValidate_JWTSigningKey31Chars(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQMaxAgeDaysNegative(t *testing.T) {
@@ -572,7 +534,6 @@ func TestValidate_AuditDLQMaxAgeDaysNegative(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQMaxReclaimAttemptsNegative(t *testing.T) {
@@ -582,7 +543,6 @@ func TestValidate_AuditDLQMaxReclaimAttemptsNegative(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
@@ -592,5 +552,4 @@ func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }

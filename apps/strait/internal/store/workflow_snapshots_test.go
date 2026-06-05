@@ -109,7 +109,7 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 	assert.Equal(t, "My Workflow",
 		parsed.
 			Workflow.Name)
-	assert.EqualValues(t, 3, parsed.
+	assert.Equal(t, 3, parsed.
 		Workflow.
 		Version)
 	assert.Equal(t, "platform",
@@ -136,14 +136,13 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 		assert.Equal(t, expected,
 			step.StepType,
 		)
-
 	}
 
 	s := parsed.Steps[0]
 	assert.Equal(t, "job-1",
 		s.JobID,
 	)
-	assert.EqualValues(t, 3, s.
+	assert.Equal(t, 3, s.
 		RetryMaxAttempts,
 	)
 	assert.Equal(t, domain.
@@ -151,10 +150,10 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 
 		s.RetryBackoff,
 	)
-	assert.EqualValues(t, 5, s.
+	assert.Equal(t, 5, s.
 		RetryInitialDelaySecs,
 	)
-	assert.EqualValues(t, 120,
+	assert.Equal(t, 120,
 		s.TimeoutSecsOverride,
 	)
 	assert.Equal(t, "$.result",
@@ -177,25 +176,24 @@ func TestParseSnapshotDefinition_RoundTrip(t *testing.T) {
 		FailWorkflow,
 
 		s.OnFailure)
-	assert.Equal(t, `{"all_of":["deploy"]}`,
+	assert.JSONEq(t, `{"all_of":["deploy"]}`,
 
 		string(s.Condition))
-	assert.Equal(t, `{"key":"value"}`,
+	assert.JSONEq(t, `{"key":"value"}`,
 
 		string(s.Payload))
-	assert.EqualValues(t, 600,
+	assert.Equal(t, 600,
 		s.ApprovalTimeoutSecs,
 	)
 	assert.False(t, len(s.
 		ApprovalApprovers,
 	) != 2 || s.ApprovalApprovers[0] != "alice")
-	assert.EqualValues(t, 30, s.
+	assert.Equal(t, 30, s.
 		SleepDurationSecs,
 	)
 	assert.Equal(t, "emit-key",
 		s.EventEmitKey,
 	)
-
 }
 
 func TestParseSnapshotDefinition_ComplexConditions(t *testing.T) {
@@ -211,10 +209,9 @@ func TestParseSnapshotDefinition_ComplexConditions(t *testing.T) {
 	data, _ := json.Marshal(def)
 	parsed, err := ParseSnapshotDefinition(data)
 	require.NoError(t, err)
-	assert.Equal(t, `{"any_of":[{"all_of":["a","b"]},{"none_of":["c"]}]}`,
+	assert.JSONEq(t, `{"any_of":[{"all_of":["a","b"]},{"none_of":["c"]}]}`,
 
 		string(parsed.Steps[0].Condition))
-
 }
 
 func TestParseSnapshotDefinition_EmptyOptionalFields(t *testing.T) {
@@ -233,17 +230,16 @@ func TestParseSnapshotDefinition_EmptyOptionalFields(t *testing.T) {
 	require.NoError(t, err)
 
 	s := parsed.Steps[0]
-	assert.Equal(t, "", s.
+	assert.Empty(t, s.
 		OutputTransform,
 	)
-	assert.Equal(t, "", s.
+	assert.Empty(t, s.
 		EventKey)
-	assert.Equal(t, "", s.
+	assert.Empty(t, s.
 		SubWorkflowID,
 	)
 	assert.Nil(t, s.Condition)
 	assert.Nil(t, s.Payload)
-
 }
 
 func TestParseSnapshotDefinition_AllRetryFields(t *testing.T) {
@@ -264,20 +260,19 @@ func TestParseSnapshotDefinition_AllRetryFields(t *testing.T) {
 	require.NoError(t, err)
 
 	s := parsed.Steps[0]
-	assert.EqualValues(t, 5, s.
+	assert.Equal(t, 5, s.
 		RetryMaxAttempts,
 	)
 	assert.Equal(t, domain.
 		RetryBackoffFixed,
 
 		s.RetryBackoff)
-	assert.EqualValues(t, 10, s.
+	assert.Equal(t, 10, s.
 		RetryInitialDelaySecs,
 	)
-	assert.EqualValues(t, 120,
+	assert.Equal(t, 120,
 		s.RetryMaxDelaySecs,
 	)
-
 }
 
 func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
@@ -357,25 +352,22 @@ func TestParseSnapshotDefinition_ExhaustiveFieldCheck(t *testing.T) {
 	for _, c := range checks {
 		assert.Equal(t, c.want,
 			c.got)
-
 	}
 }
 
 func TestParseSnapshotDefinition_EmptyDefinition(t *testing.T) {
 	t.Parallel()
 	_, err := ParseSnapshotDefinition(nil)
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	_, err = ParseSnapshotDefinition(json.RawMessage(``))
 	assert.Error(t, err)
-
 }
 
 func TestParseSnapshotDefinition_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	_, err := ParseSnapshotDefinition(json.RawMessage(`{broken`))
 	assert.Error(t, err)
-
 }
 
 func TestParseSnapshotDefinition_DuplicateStepRefs(t *testing.T) {
@@ -389,7 +381,6 @@ func TestParseSnapshotDefinition_DuplicateStepRefs(t *testing.T) {
 	data, _ := json.Marshal(def)
 	_, err := ParseSnapshotDefinition(data)
 	assert.Error(t, err)
-
 }
 
 func TestParseSnapshotDefinition_ZeroSteps(t *testing.T) {
@@ -403,9 +394,8 @@ func TestParseSnapshotDefinition_ZeroSteps(t *testing.T) {
 	// (e.g., all steps disabled via overrides).
 	parsed, err := ParseSnapshotDefinition(data)
 	require.NoError(t, err)
-	assert.Len(t, parsed.
-		Steps, 0)
-
+	assert.Empty(t, parsed.
+		Steps)
 }
 
 func TestParseSnapshotDefinition_UniqueStepRefs_Pass(t *testing.T) {
@@ -422,5 +412,4 @@ func TestParseSnapshotDefinition_UniqueStepRefs_Pass(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, parsed.
 		Steps, 3)
-
 }

@@ -37,7 +37,6 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, called)
-
 }
 
 func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
@@ -64,7 +63,6 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, called)
-
 }
 
 func TestHandleGetJobGroupStats_Success(t *testing.T) {
@@ -88,6 +86,5 @@ func TestHandleGetJobGroupStats_Success(t *testing.T) {
 
 	var stats store.JobGroupStats
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
-	require.EqualValues(t, 4, stats.RunCounts["completed"])
-
+	require.Equal(t, 4, stats.RunCounts["completed"])
 }

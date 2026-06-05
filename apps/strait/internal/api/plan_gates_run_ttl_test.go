@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -24,7 +23,6 @@ func TestCheckRunTTLLimit_ZeroTTL_NoCap(t *testing.T) {
 		checkRunTTLLimit(context.
 			Background(), "proj-1", 0,
 		))
-
 }
 
 // TestCheckRunTTLLimit_FreeAtLimit_Allows verifies the cap is inclusive — Free
@@ -40,7 +38,6 @@ func TestCheckRunTTLLimit_FreeAtLimit_Allows(t *testing.T) {
 		checkRunTTLLimit(context.
 			Background(), "proj-1", maxTTL,
 		))
-
 }
 
 // TestCheckRunTTLLimit_FreeOverLimit_Rejects walks one second past the cap and
@@ -57,12 +54,9 @@ func TestCheckRunTTLLimit_FreeOverLimit_Rejects(t *testing.T) {
 	require.Error(t, err)
 
 	for _, fragment := range []string{limits.DisplayName, "retains", "run_ttl_secs"} {
-		assert.True(t,
-			strings.Contains(err.
-				Error(),
-				fragment,
-			))
-
+		assert.Contains(t,
+			err.
+				Error(), fragment)
 	}
 }
 
@@ -76,7 +70,6 @@ func TestCheckRunTTLLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 		checkRunTTLLimit(context.
 			Background(), "proj-1", 365*
 			86400))
-
 }
 
 func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -89,7 +82,6 @@ func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	assert.Contains(t, err.
 		Error(), "billing enforcement unavailable",
 	)
-
 }
 
 // TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen confirms self-hosted
@@ -101,7 +93,6 @@ func TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 		checkRunTTLLimit(context.
 			Background(), "proj-1", 999_999_999,
 		))
-
 }
 
 func TestCheckRunTTLLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -111,13 +102,9 @@ func TestCheckRunTTLLimit_OrgLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckRunTTLLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -127,13 +114,9 @@ func TestCheckRunTTLLimit_PlanLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 // TestCheckRunTTLLimit_RetentionZero_NoCap matches the production behavior of
@@ -148,5 +131,4 @@ func TestCheckRunTTLLimit_RetentionZero_NoCap(t *testing.T) {
 		checkRunTTLLimit(context.
 			Background(), "proj-1", 999_999_999,
 		))
-
 }

@@ -103,7 +103,6 @@ func TestDoS_BatchOperationMaxItems(t *testing.T) {
 	)
 
 	// Expect a 400 or 422 for exceeding the limit.
-
 }
 
 // TestDoS_MemoryBombPayload sends 1000 concurrent requests, each containing a
@@ -217,7 +216,6 @@ func TestDoS_GoroutineLeakSSE(t *testing.T) {
 	leaked := current - baseline
 	require.LessOrEqual(t, leaked,
 		10)
-
 }
 
 // TestDoS_WorkerPoolSaturation submits many tasks to the server concurrently
@@ -271,7 +269,6 @@ func TestDoS_WorkerPoolSaturation(t *testing.T) {
 	)
 
 	// All requests should have completed (either success or error, no hang).
-
 }
 
 // TestDoS_SSEConnectionLimitGlobal verifies that the SSE connection limiter
@@ -309,7 +306,6 @@ func TestDoS_SSEConnectionLimitGlobal(t *testing.T) {
 	srv.releaseSSEConn("proj-a")
 	require.True(
 		t, srv.acquireSSEConn("proj-d"))
-
 }
 
 // TestDoS_SSEConnectionLimitPerProject verifies the per-project SSE limit.
@@ -341,7 +337,6 @@ func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
 	// Third for same project should be rejected.
 
 	// Different project should still work.
-
 }
 
 func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
@@ -377,7 +372,6 @@ func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
 	close(start)
 	wg.Wait()
 	require.EqualValues(t, 1, acquired.Load())
-
 }
 
 // TestDoS_SSEConnectionLimit503Response verifies that the activity stream
@@ -420,5 +414,4 @@ func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
 
 		w.
 			Code)
-
 }

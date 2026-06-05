@@ -46,7 +46,6 @@ func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
 
 			result.
 				Remaining)
-
 	}
 
 	// Next request should be rejected with remaining=0.
@@ -59,7 +58,6 @@ func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
 	require.Equal(t, 0,
 		result.Remaining,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_FailOpenReturnsFullRemaining(t *testing.T) {
@@ -75,5 +73,4 @@ func TestRedisRateLimiterAllow_FailOpenReturnsFullRemaining(t *testing.T) {
 	require.Equal(t, 100,
 		result.Remaining,
 	)
-
 }

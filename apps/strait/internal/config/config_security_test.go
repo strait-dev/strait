@@ -34,7 +34,6 @@ func TestCORS_WildcardWithCredentials_Rejected(t *testing.T) {
 		want,
 
 		err.Error())
-
 }
 
 func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
@@ -52,7 +51,6 @@ func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
 		err)
 	assert.False(t,
 		len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "*")
-
 }
 
 func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
@@ -67,10 +65,8 @@ func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
 		t,
 
 		err)
-	assert.Len(t, cfg.
-		CORSAllowedOrigins,
-		0)
-
+	assert.Empty(t, cfg.
+		CORSAllowedOrigins)
 }
 
 func TestInternalSecret_TooShort_Rejected(t *testing.T) {
@@ -89,7 +85,6 @@ func TestInternalSecret_TooShort_Rejected(t *testing.T) {
 		want,
 
 		err.Error())
-
 }
 
 func TestInternalSecret_MinLength_Accepted(t *testing.T) {
@@ -103,7 +98,6 @@ func TestInternalSecret_MinLength_Accepted(t *testing.T) {
 		t,
 
 		err)
-
 }
 
 func TestInternalSecret_Long_Accepted(t *testing.T) {
@@ -117,7 +111,6 @@ func TestInternalSecret_Long_Accepted(t *testing.T) {
 		t,
 
 		err)
-
 }
 
 func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
@@ -138,7 +131,6 @@ func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
 		want,
 
 		err.Error())
-
 }
 
 func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
@@ -158,7 +150,6 @@ func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 		want,
 
 		err.Error())
-
 }
 
 func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
@@ -173,7 +164,6 @@ func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 		t,
 
 		err)
-
 }
 
 func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
@@ -192,5 +182,4 @@ func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
 	assert.Len(t, cfg.
 		CORSAllowedOrigins,
 		2)
-
 }

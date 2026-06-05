@@ -23,7 +23,6 @@ func TestAuditActionKeyRotated_Registered(t *testing.T) {
 	for _, required := range []string{"previous_epoch", "new_epoch", "rotated_by"} {
 		assert.True(t,
 			slices.Contains(schema.Required, required))
-
 	}
 
 	// ForbiddenKeysFor must union action-specific and common forbidden keys;
@@ -33,6 +32,5 @@ func TestAuditActionKeyRotated_Registered(t *testing.T) {
 	for _, must := range []string{"secret", "token", "private_key", "key", "new_key"} {
 		assert.True(t,
 			slices.Contains(forbidden, must))
-
 	}
 }

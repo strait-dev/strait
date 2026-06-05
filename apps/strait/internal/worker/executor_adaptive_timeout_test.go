@@ -46,7 +46,6 @@ func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
 	require.NotEqual(t, domain.
 		StatusTimedOut,
 		calls[1].to)
-
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
@@ -78,7 +77,6 @@ func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
@@ -110,5 +108,4 @@ func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }

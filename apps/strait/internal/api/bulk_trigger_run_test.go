@@ -48,7 +48,7 @@ func TestNewBulkTriggerRun_BuildsDelayedRun(t *testing.T) {
 		now:         now,
 		scheduledAt: &scheduledAt,
 	})
-	require.NotEqual(t, "", run.ID)
+	require.NotEmpty(t, run.ID)
 	require.False(t, run.JobID !=
 		job.ID ||
 		run.ProjectID !=
@@ -63,7 +63,7 @@ func TestNewBulkTriggerRun_BuildsDelayedRun(t *testing.T) {
 
 		run.Status,
 	)
-	require.EqualValues(t, 1, run.Attempt)
+	require.Equal(t, 1, run.Attempt)
 	require.Equal(t, `{"n":1}`, string(run.
 		Payload))
 	require.Equal(t, domain.TriggerManual,
@@ -111,7 +111,6 @@ func TestNewBulkTriggerRun_BuildsDelayedRun(t *testing.T) {
 			Metadata,
 			job.DefaultRunMetadata,
 		))
-
 }
 
 func TestNewBulkTriggerRun_BuildsQueuedRun(t *testing.T) {
@@ -133,7 +132,6 @@ func TestNewBulkTriggerRun_BuildsQueuedRun(t *testing.T) {
 
 		run.Status)
 	require.Nil(t, run.ScheduledAt)
-
 }
 
 func TestBulkTriggerExpiresAt_Precedence(t *testing.T) {

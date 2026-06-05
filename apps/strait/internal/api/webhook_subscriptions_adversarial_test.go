@@ -37,7 +37,6 @@ func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing.T) {
@@ -67,7 +66,6 @@ func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing
 		w.Code)
 	require.True(
 		t, called)
-
 }
 
 func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
@@ -88,7 +86,6 @@ func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
@@ -113,7 +110,6 @@ func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 // webhookSubStore returns an APIStoreMock suitable for webhook subscription
@@ -150,7 +146,6 @@ func TestWebhookSub_LocalhostURL(t *testing.T) {
 	}`)
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 // TestWebhookSub_PrivateIPURL verifies that private IP addresses (RFC 1918)
@@ -172,7 +167,6 @@ func TestWebhookSub_PrivateIPURL(t *testing.T) {
 			w := postWebhookSub(t, body)
 			require.GreaterOrEqual(t,
 				w.Code, 400)
-
 		})
 	}
 }
@@ -190,7 +184,6 @@ func TestWebhookSub_MetadataURL(t *testing.T) {
 	}`)
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 func TestWebhookSub_DNSPrivateURL(t *testing.T) {
@@ -204,7 +197,6 @@ func TestWebhookSub_DNSPrivateURL(t *testing.T) {
 	}`)
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
@@ -218,7 +210,6 @@ func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 // TestWebhookSub_FileScheme verifies that non-HTTP schemes like file:// are
@@ -234,7 +225,6 @@ func TestWebhookSub_FileScheme(t *testing.T) {
 	}`)
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 // TestWebhookSub_EmbeddedCredentials verifies that a URL with embedded
@@ -252,7 +242,6 @@ func TestWebhookSub_EmbeddedCredentials(t *testing.T) {
 	require.False(t, w.Code <
 		200 || w.Code >= 600,
 	)
-
 }
 
 // TestWebhookSub_EmptyEventTypes verifies that an empty event_types array is
@@ -268,7 +257,6 @@ func TestWebhookSub_EmptyEventTypes(t *testing.T) {
 	}`)
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 // TestWebhookSub_InvalidEventType verifies that an unknown event type string
@@ -286,7 +274,6 @@ func TestWebhookSub_InvalidEventType(t *testing.T) {
 	require.False(t, w.Code <
 		200 || w.Code >= 600,
 	)
-
 }
 
 // TestWebhookSub_ClientSecretIgnored verifies that a client-supplied secret
@@ -304,7 +291,6 @@ func TestWebhookSub_ClientSecretIgnored(t *testing.T) {
 	require.False(t, w.Code !=
 		201 && w.Code != 200,
 	)
-
 }
 
 // TestWebhookSub_NullByteInURL verifies that a null byte embedded in the
@@ -318,7 +304,6 @@ func TestWebhookSub_NullByteInURL(t *testing.T) {
 	require.False(t, w.Code <
 		200 || w.Code >= 600,
 	)
-
 }
 
 // FuzzWebhookSubURL fuzzes the webhook URL field to ensure the handler never
@@ -352,6 +337,5 @@ func FuzzWebhookSubURL(f *testing.F) {
 		)
 
 		// Must not panic and must return a valid HTTP status.
-
 	})
 }

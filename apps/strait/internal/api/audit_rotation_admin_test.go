@@ -25,11 +25,9 @@ func TestRotateAuditSigningKey_RequiresAdmin(t *testing.T) {
 
 	_, err := srv.handleRotateAuditSigningKey(nonAdminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-a"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "admin",
-		))
-
+	assert.Contains(t,
+		err.
+			Error(), "admin")
 }
 
 func TestRotateAuditSigningKey_RejectsCrossTenant(t *testing.T) {
@@ -46,11 +44,9 @@ func TestRotateAuditSigningKey_RejectsCrossTenant(t *testing.T) {
 
 	_, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-b"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "not found",
-		))
-
+	assert.Contains(t,
+		err.
+			Error(), "not found")
 }
 
 func TestRotateAuditSigningKey_ReturnsEpochs(t *testing.T) {
@@ -73,10 +69,10 @@ func TestRotateAuditSigningKey_ReturnsEpochs(t *testing.T) {
 	out, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-a"})
 	require.NoError(t, err)
 	require.NotNil(t, out)
-	assert.EqualValues(t, 1, out.
+	assert.Equal(t, 1, out.
 		Body.NewEpoch,
 	)
-	assert.EqualValues(t, 0, out.
+	assert.Equal(t, 0, out.
 		Body.PreviousEpoch,
 	)
 
@@ -112,5 +108,4 @@ func TestRotateAuditSigningKey_StorePropagatesError(t *testing.T) {
 		t, strings.Contains(err.
 			Error(), "pq:",
 		) || strings.Contains(err.Error(), "audit_events_pkey"))
-
 }

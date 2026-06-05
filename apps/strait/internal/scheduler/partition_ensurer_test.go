@@ -35,10 +35,9 @@ func TestPartitionEnsurer_Defaults(t *testing.T) {
 		time.Hour,
 		p.interval,
 	)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		p.monthsAhead,
 	)
-
 }
 
 func TestPartitionEnsurer_RunOnceHappyPath(t *testing.T) {
@@ -48,14 +47,13 @@ func TestPartitionEnsurer_RunOnceHappyPath(t *testing.T) {
 		p.runOnce(
 			context.Background(),
 		))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		s.calls)
 	assert.EqualValues(t, 1,
 		p.Iterations())
 	assert.EqualValues(t, 0,
 		p.Errors(),
 	)
-
 }
 
 func TestPartitionEnsurer_StoreErrorAccumulates(t *testing.T) {
@@ -66,7 +64,6 @@ func TestPartitionEnsurer_StoreErrorAccumulates(t *testing.T) {
 	assert.EqualValues(t, 2,
 		p.Errors(),
 	)
-
 }
 
 func TestPartitionEnsurer_PanicReturnsError(t *testing.T) {
@@ -78,7 +75,6 @@ func TestPartitionEnsurer_PanicReturnsError(t *testing.T) {
 	)
 	require.EqualValues(t, 1,
 		p.Errors())
-
 }
 
 func TestPartitionEnsurer_RunOnceForTestPropagatesRecoveredPanic(t *testing.T) {
@@ -91,7 +87,6 @@ func TestPartitionEnsurer_RunOnceForTestPropagatesRecoveredPanic(t *testing.T) {
 		p.Iterations())
 	require.EqualValues(t, 1,
 		p.Errors())
-
 }
 
 func TestPartitionEnsurer_LockNotAcquired(t *testing.T) {
@@ -99,9 +94,8 @@ func TestPartitionEnsurer_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	p := NewPartitionEnsurer(s, PartitionEnsurerConfig{}).WithAdvisoryLocker(locker)
 	_ = p.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		s.calls)
-
 }
 
 func TestPartitionEnsurer_LockAcquiredAndReleased(t *testing.T) {
@@ -114,7 +108,6 @@ func TestPartitionEnsurer_LockAcquiredAndReleased(t *testing.T) {
 		!locker.
 			released,
 	)
-
 }
 
 func TestPartitionEnsurer_RunExitsOnCancel(t *testing.T) {
@@ -137,5 +130,4 @@ func TestPartitionEnsurer_RunExitsOnCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, p.Iterations(),
 		int64(2))
-
 }

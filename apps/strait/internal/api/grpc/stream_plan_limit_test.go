@@ -129,7 +129,7 @@ func TestCheckPlanConnectionLimit_UsesDistributedReservation(t *testing.T) {
 		orgID,
 	)
 	require.NotNil(t, release)
-	require.EqualValues(t, 0, enforcer.
+	require.Equal(t, 0, enforcer.
 		callsLen(),
 	)
 
@@ -139,7 +139,7 @@ func TestCheckPlanConnectionLimit_UsesDistributedReservation(t *testing.T) {
 	reservationID := enforcer.lastReservationID
 	reservationLease := enforcer.lastReservationLease
 	enforcer.mu.Unlock()
-	require.EqualValues(t, 1, reserveCalls)
+	require.Equal(t, 1, reserveCalls)
 	require.False(
 		t, reservationOrgID !=
 			"org-1" ||
@@ -156,7 +156,6 @@ func TestCheckPlanConnectionLimit_UsesDistributedReservation(t *testing.T) {
 	require.EqualValues(t, 1, enforcer.
 		releaseCalls.
 		Load())
-
 }
 
 func TestCheckPlanConnectionLimit_ReservationDenialIsResourceExhausted(t *testing.T) {
@@ -190,10 +189,9 @@ func TestCheckPlanConnectionLimit_ReservationDenialIsResourceExhausted(t *testin
 	require.EqualValues(t, 0, enforcer.
 		releaseCalls.
 		Load())
-	require.EqualValues(t, 0, enforcer.
+	require.Equal(t, 0, enforcer.
 		callsLen(),
 	)
-
 }
 
 func TestRegisterWorkerStream_ReleasesReservationWhenRegistryRejects(t *testing.T) {
@@ -235,9 +233,8 @@ func TestRegisterWorkerStream_ReleasesReservationWhenRegistryRejects(t *testing.
 	require.EqualValues(t, 1, enforcer.
 		releaseCalls.
 		Load())
-	require.EqualValues(t, 1, registry.
+	require.Equal(t, 1, registry.
 		CountByOrg("org-1"))
-
 }
 
 // TestRegistry_CountByOrg verifies that CountByOrg only counts entries whose
@@ -258,13 +255,11 @@ func TestRegistry_CountByOrg(t *testing.T) {
 
 	for _, w := range []*ConnectedWorker{w1, w2, w3, w4} {
 		require.NoError(t, r.Register(w))
-
 	}
-	assert.EqualValues(t, 2, r.CountByOrg("org-1"))
-	assert.EqualValues(t, 1, r.CountByOrg("org-2"))
-	assert.EqualValues(t, 0, r.CountByOrg("org-3"))
-	assert.EqualValues(t, 0, r.CountByOrg(""))
-
+	assert.Equal(t, 2, r.CountByOrg("org-1"))
+	assert.Equal(t, 1, r.CountByOrg("org-2"))
+	assert.Equal(t, 0, r.CountByOrg("org-3"))
+	assert.Equal(t, 0, r.CountByOrg(""))
 }
 
 // TestRegistry_CountByOrg_Concurrent exercises CountByOrg under concurrent
@@ -305,7 +300,6 @@ func TestRegistry_CountByOrg_Concurrent(t *testing.T) {
 	readDone.Store(true)
 	assert.Equal(t,
 		n, r.CountByOrg("org-1"))
-
 }
 
 // gatingResult mirrors the real stream gating logic in stream.go so we can
@@ -369,11 +363,10 @@ func TestCheckPlanConnectionLimit_CloudNilEnforcerUnavailable(t *testing.T) {
 
 		status.
 			Code(err))
-	require.Equal(
-		t, "", orgID,
+	require.Empty(
+		t, orgID,
 	)
 	require.NotNil(t, release)
-
 }
 
 func TestCheckPlanConnectionLimit_CommunityNilEnforcerAllows(t *testing.T) {
@@ -386,11 +379,10 @@ func TestCheckPlanConnectionLimit_CommunityNilEnforcerAllows(t *testing.T) {
 
 	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
 	require.NoError(t, err)
-	require.Equal(
-		t, "", orgID,
+	require.Empty(
+		t, orgID,
 	)
 	require.NotNil(t, release)
-
 }
 
 func TestCheckPlanConnectionLimit_CommunityConfiguredEnforcerBypassesPlanGate(t *testing.T) {
@@ -410,17 +402,16 @@ func TestCheckPlanConnectionLimit_CommunityConfiguredEnforcerBypassesPlanGate(t 
 
 	orgID, release, err := svc.checkPlanConnectionLimit(context.Background(), "proj-a", "reservation-1")
 	require.NoError(t, err)
-	require.Equal(
-		t, "", orgID,
+	require.Empty(
+		t, orgID,
 	)
 	require.NotNil(t, release)
-	require.EqualValues(t, 0, enforcer.
+	require.Equal(t, 0, enforcer.
 		orgLookupHits,
 	)
-	require.EqualValues(t, 0, enforcer.
+	require.Equal(t, 0, enforcer.
 		reserveCalls,
 	)
-
 }
 
 // TestStreamGating_OrgLookupError_FailsClosed verifies that an explicit DB
@@ -437,12 +428,11 @@ func TestStreamGating_OrgLookupError_FailsClosed(t *testing.T) {
 	orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a")
 	require.True(t,
 		blocked)
-	assert.Equal(t,
-		"", orgID,
+	assert.Empty(t,
+		orgID,
 	)
-	assert.EqualValues(t, 0, enforcer.
+	assert.Equal(t, 0, enforcer.
 		callsLen())
-
 }
 
 func TestCheckPlanConnectionLimit_OrgLookupErrorIsUnavailable(t *testing.T) {
@@ -465,13 +455,12 @@ func TestCheckPlanConnectionLimit_OrgLookupErrorIsUnavailable(t *testing.T) {
 
 		status.
 			Code(err))
-	require.Equal(
-		t, "", orgID,
+	require.Empty(
+		t, orgID,
 	)
 	require.NotNil(t, release)
-	assert.EqualValues(t, 0, enforcer.
+	assert.Equal(t, 0, enforcer.
 		callsLen())
-
 }
 
 // TestStreamGating_UnresolvedOrg_FailsClosed verifies that an empty OrgID
@@ -490,9 +479,8 @@ func TestStreamGating_UnresolvedOrg_FailsClosed(t *testing.T) {
 
 			"expected fail-closed with unresolved org, got allowed")
 	}
-	assert.EqualValues(t, 0, enforcer.
+	assert.Equal(t, 0, enforcer.
 		callsLen())
-
 }
 
 func TestCheckPlanConnectionLimit_UnresolvedOrgIsUnavailable(t *testing.T) {
@@ -516,13 +504,12 @@ func TestCheckPlanConnectionLimit_UnresolvedOrgIsUnavailable(t *testing.T) {
 
 		status.
 			Code(err))
-	require.Equal(
-		t, "", orgID,
+	require.Empty(
+		t, orgID,
 	)
 	require.NotNil(t, release)
-	assert.EqualValues(t, 0, enforcer.
+	assert.Equal(t, 0, enforcer.
 		callsLen())
-
 }
 
 // TestStreamGating_BelowLimit_Allows verifies happy path: org has 2 active
@@ -539,7 +526,6 @@ func TestStreamGating_BelowLimit_Allows(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("existing-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
 		require.NoError(t, r.Register(w))
-
 	}
 
 	orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a")
@@ -572,7 +558,6 @@ func TestStreamGating_AtLimit_Blocks(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("existing-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
 		require.NoError(t, r.Register(w))
-
 	}
 
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
@@ -597,7 +582,6 @@ func TestStreamGating_OverLimit_Blocks(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("survivor-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
 		require.NoError(t, r.Register(w))
-
 	}
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		require.Fail(t,
@@ -620,7 +604,6 @@ func TestStreamGating_UnlimitedTier_NeverBlocks(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
 		require.NoError(t, r.Register(w))
-
 	}
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
 		require.Fail(t,
@@ -644,7 +627,6 @@ func TestStreamGating_PerOrgIsolation(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("a-%d", i), "proj-a", fmt.Sprintf("ka-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
 		require.NoError(t, r.Register(w))
-
 	}
 
 	// org-1 is at cap, must be blocked.

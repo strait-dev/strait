@@ -38,7 +38,6 @@ func TestWithEventsCounter(t *testing.T) {
 	require.NotNil(t,
 		w.eventsCounter,
 	)
-
 }
 
 func TestDrainRunEvents_MarshalError(t *testing.T) {
@@ -85,7 +84,6 @@ func TestDrainRunEvents_BearerAuthWithoutToken(t *testing.T) {
 	})
 	require.NoError(t,
 		err)
-
 }
 
 func TestDrainRunEvents_InvalidURL(t *testing.T) {
@@ -101,7 +99,6 @@ func TestDrainRunEvents_InvalidURL(t *testing.T) {
 		{ID: "evt-1", RunID: "run-1", Message: "test"},
 	})
 	require.Error(t, err)
-
 }
 
 func TestAdvanceCursor_NoAdvanceWhenBehind(t *testing.T) {
@@ -162,7 +159,6 @@ func TestAdvanceCursor_NoAdvanceWhenBehind(t *testing.T) {
 				RunID !=
 				tc.wantCur.
 					RunID)
-
 		})
 	}
 }
@@ -241,7 +237,6 @@ func TestProcessDrain_RunWithNilFinishedAt(t *testing.T) {
 		FinishedAt.
 		IsZero(),
 	)
-
 }
 
 func TestProcessDrain_EmptyEventsRunWithNilFinishedAt(t *testing.T) {
@@ -268,7 +263,6 @@ func TestProcessDrain_EmptyEventsRunWithNilFinishedAt(t *testing.T) {
 		FinishedAt.
 		IsZero(),
 	)
-
 }
 
 func TestProcessDrain_PoisonRunWithNilFinishedAt(t *testing.T) {
@@ -311,7 +305,6 @@ func TestProcessDrain_PoisonRunWithNilFinishedAt(t *testing.T) {
 		FinishedAt.
 		IsZero(),
 	)
-
 }
 
 func TestProcessDrain_ContextCancelledInInnerLoop(t *testing.T) {
@@ -368,7 +361,6 @@ func TestProcessDrain_ContextCancelledInInnerLoop(t *testing.T) {
 	defer mu.Unlock()
 	assert.LessOrEqual(t, callCount,
 		1)
-
 }
 
 // contextCancellingStore wraps mockDrainStore and cancels context after
@@ -432,7 +424,6 @@ func TestProcessDrain_DrainErrorWithEventsCounter(t *testing.T) {
 	w.mu.Unlock()
 	assert.Equal(t, 1,
 		fc)
-
 }
 
 func TestProcessDrain_SuccessWithEventsCounter(t *testing.T) {
@@ -479,7 +470,6 @@ func TestProcessDrain_SuccessWithEventsCounter(t *testing.T) {
 	assert.True(t, cp.
 		FinishedAt.
 		Equal(finishedAt))
-
 }
 
 // Ensure the unused import is satisfied.

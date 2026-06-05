@@ -31,7 +31,6 @@ func TestInternalSecretAuth_RateLimitedAfterFailures(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized,
 
 			w.Code)
-
 	}
 
 	// 11th request should be rate limited (429).
@@ -44,8 +43,7 @@ func TestInternalSecretAuth_RateLimitedAfterFailures(t *testing.T) {
 		t, http.StatusTooManyRequests,
 
 		w.Code)
-	assert.NotEqual(t, "", w.Header().Get("Retry-After"))
-
+	assert.NotEmpty(t, w.Header().Get("Retry-After"))
 }
 
 func TestInternalSecretAuth_DifferentIP_NotBlocked(t *testing.T) {
@@ -71,7 +69,6 @@ func TestInternalSecretAuth_DifferentIP_NotBlocked(t *testing.T) {
 	assert.NotEqual(t, http.StatusTooManyRequests,
 
 		w.Code)
-
 }
 
 func TestInternalSecretAuth_ValidSecret_NotRateLimited(t *testing.T) {
@@ -89,7 +86,6 @@ func TestInternalSecretAuth_ValidSecret_NotRateLimited(t *testing.T) {
 		require.NotEqual(t, http.StatusTooManyRequests,
 
 			w.Code)
-
 	}
 }
 
@@ -124,7 +120,6 @@ func TestHandleCreateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleCreateRole_WildcardAllowedWithWildcardScope(t *testing.T) {
@@ -154,7 +149,6 @@ func TestHandleCreateRole_WildcardAllowedWithWildcardScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "role_2", out.
 		Body.ID)
-
 }
 
 func TestHandleCreateRole_InternalSecretBypassesEscalationCheck(t *testing.T) {
@@ -182,7 +176,6 @@ func TestHandleCreateRole_InternalSecretBypassesEscalationCheck(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "role_3", out.
 		Body.ID)
-
 }
 
 func TestHandleCreateRole_SpecificScopeEscalationBlocked(t *testing.T) {
@@ -208,7 +201,6 @@ func TestHandleCreateRole_SpecificScopeEscalationBlocked(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleUpdateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
@@ -237,7 +229,6 @@ func TestHandleUpdateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleAssignMember_SelfAssignmentBlocked(t *testing.T) {
@@ -266,7 +257,6 @@ func TestHandleAssignMember_SelfAssignmentBlocked(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleAssignMember_EscalationViaRoleBlocked(t *testing.T) {
@@ -295,7 +285,6 @@ func TestHandleAssignMember_EscalationViaRoleBlocked(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T) {
@@ -337,7 +326,6 @@ func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T)
 	for _, result := range results {
 		require.Equal(t, "error", result.
 			Status)
-
 	}
 }
 
@@ -372,7 +360,6 @@ func TestHandleBulkAssignMembers_BlocksCrossProjectRole(t *testing.T) {
 		results[0].Error !=
 			"role not found",
 	)
-
 }
 
 func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
@@ -402,7 +389,6 @@ func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
 	require.Equal(t, "role-admin",
 		out.Body.RoleID,
 	)
-
 }
 
 func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
@@ -440,7 +426,6 @@ func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T
 	}})
 	require.False(t, err == nil ||
 		!isHumaStatusError(err, http.StatusForbidden))
-
 }
 
 func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
@@ -480,7 +465,6 @@ func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
 	}})
 	require.False(t, err == nil ||
 		!isHumaStatusError(err, http.StatusForbidden))
-
 }
 
 // S3: API key scope escalation -- handler-level tests.
@@ -508,7 +492,6 @@ func TestHandleCreateAPIKey_WildcardScopeDeniedWithoutWildcard(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleCreateAPIKey_WildcardScopeAllowedWithWildcard(t *testing.T) {
@@ -540,7 +523,6 @@ func TestHandleCreateAPIKey_WildcardScopeAllowedWithWildcard(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "key-new", out.
 		Body.ID)
-
 }
 
 func TestHandleCreateAPIKey_ScopeEscalationDenied(t *testing.T) {
@@ -567,7 +549,6 @@ func TestHandleCreateAPIKey_ScopeEscalationDenied(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleCreateAPIKey_SubsetScopesAllowed(t *testing.T) {
@@ -599,7 +580,6 @@ func TestHandleCreateAPIKey_SubsetScopesAllowed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "key-sub", out.
 		Body.ID)
-
 }
 
 func TestHandleCreateAPIKey_InternalSecretBypassesEscalationCheck(t *testing.T) {
@@ -631,7 +611,6 @@ func TestHandleCreateAPIKey_InternalSecretBypassesEscalationCheck(t *testing.T) 
 	require.Equal(t, "key-internal",
 		out.Body.
 			ID)
-
 }
 
 // S2: User with DB permissions (OIDC empty scopes) escalation check.
@@ -667,7 +646,6 @@ func TestHandleCreateRole_UserDBPermissions_EscalationBlocked(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestHandleCreateRole_UserDBPermissions_SubsetAllowed(t *testing.T) {
@@ -699,7 +677,6 @@ func TestHandleCreateRole_UserDBPermissions_SubsetAllowed(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "role_y", out.
 		Body.ID)
-
 }
 
 // isHumaStatusError checks if the error has a GetStatus() method returning the expected code.

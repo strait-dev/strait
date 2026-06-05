@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,7 +45,6 @@ func TestHandleUpdateEnvironment_Success(t *testing.T) {
 	require.Equal(t, "production",
 
 		updatedName)
-
 }
 
 func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
@@ -63,7 +61,6 @@ func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
@@ -93,7 +90,6 @@ func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 		w.Code)
 	require.Equal(t, "val2",
 		updatedVars["NEW"])
-
 }
 
 func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
@@ -110,7 +106,6 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestHandleDeleteEnvironment_Success(t *testing.T) {
@@ -135,7 +130,6 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 	require.Equal(t, "env-1",
 		deletedID,
 	)
-
 }
 
 func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
@@ -155,7 +149,6 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleUpdateJobGroup_Success(t *testing.T) {
@@ -180,7 +173,6 @@ func TestHandleUpdateJobGroup_Success(t *testing.T) {
 	require.Equal(t, "Updated",
 		updatedName,
 	)
-
 }
 
 func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
@@ -197,7 +189,6 @@ func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
@@ -223,7 +214,6 @@ func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
 
 		updatedDesc,
 	)
-
 }
 
 func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
@@ -240,7 +230,6 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestHandleListRunCheckpoints_Success(t *testing.T) {
@@ -266,7 +255,6 @@ func TestHandleListRunCheckpoints_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &checkpoints)
 	require.Len(t, checkpoints,
 		2)
-
 }
 
 func TestHandleListRunCheckpoints_Empty(t *testing.T) {
@@ -286,9 +274,7 @@ func TestHandleListRunCheckpoints_Empty(t *testing.T) {
 
 	var checkpoints []domain.RunCheckpoint
 	decodePaginatedList(t, w.Body.Bytes(), &checkpoints)
-	require.Len(t, checkpoints,
-		0)
-
+	require.Empty(t, checkpoints)
 }
 
 func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
@@ -307,7 +293,6 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestListRunUsageRoute_NotRegistered(t *testing.T) {
@@ -319,7 +304,6 @@ func TestListRunUsageRoute_NotRegistered(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleListRunToolCalls_RouteLaunchInactive(t *testing.T) {
@@ -331,7 +315,6 @@ func TestHandleListRunToolCalls_RouteLaunchInactive(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleListRunOutputs_Success(t *testing.T) {
@@ -359,7 +342,6 @@ func TestHandleListRunOutputs_Success(t *testing.T) {
 	require.Equal(t, "result",
 		outputs[0].OutputKey,
 	)
-
 }
 
 func TestHandleListRunOutputs_Empty(t *testing.T) {
@@ -376,7 +358,6 @@ func TestHandleListRunOutputs_Empty(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestHandleAPIReference_Returns200(t *testing.T) {
@@ -392,8 +373,7 @@ func TestHandleAPIReference_Returns200(t *testing.T) {
 		w.Code)
 
 	contentType := w.Header().Get("Content-Type")
-	require.True(t, strings.Contains(contentType, "text/html"))
-
+	require.Contains(t, contentType, "text/html")
 }
 
 func TestHandleOpenAPISpec_Returns200(t *testing.T) {
@@ -408,11 +388,10 @@ func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 		w.Code)
 
 	contentType := w.Header().Get("Content-Type")
-	require.True(t, strings.Contains(contentType, "json"))
+	require.Contains(t, contentType, "json")
 	require.NotEqual(t,
 		0, w.Body.
 			Len())
-
 }
 
 func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
@@ -425,8 +404,7 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-	require.True(t, strings.Contains(w.Body.String(), "openapi"))
-
+	require.Contains(t, w.Body.String(), "openapi")
 }
 
 func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
@@ -455,13 +433,9 @@ func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
 	body, err := io.ReadAll(zr)
 	require.NoError(t,
 		err)
-	require.True(t, strings.Contains(string(body),
-		"openapi",
-	))
-	require.False(t, w.
-		Body.Len() >=
-		len(srv.cachedOpenAPISpec))
-
+	require.Contains(t, string(body), "openapi")
+	require.Less(t, w.
+		Body.Len(), len(srv.cachedOpenAPISpec))
 }
 
 func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
@@ -481,7 +455,6 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 
 		loc,
 	)
-
 }
 
 // openAPIPathParams returns the names of path parameters declared on a
@@ -542,11 +515,9 @@ func TestOpenAPISpec_DeleteEventSubscription_HasSourceIDParam(t *testing.T) {
 	}
 	for _, found := range want {
 		assert.True(t, found)
-
 	}
 	assert.Len(t, params,
 		2)
-
 }
 
 func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
@@ -558,7 +529,6 @@ func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
 	assert.Equal(t, "deliveryID",
 
 		params[0])
-
 }
 
 func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
@@ -569,7 +539,6 @@ func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
 		1)
 	assert.Equal(t, "id",
 		params[0])
-
 }
 
 func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
@@ -632,5 +601,4 @@ func TestOpenAPISpec_AdminOutboxRow_ExposesRetryLineageField(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }

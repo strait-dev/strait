@@ -57,10 +57,9 @@ func TestQuotaResumeEnforcer_DoesNotRepeatSamePeriod(t *testing.T) {
 		enforcer.enforceLocked(context.Background()))
 	require.NoError(t,
 		enforcer.enforceLocked(context.Background()))
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		store.unpauseCalls,
 	)
-
 }
 
 func TestQuotaResumeEnforcer_UsesBillingBoundaryForUnpause(t *testing.T) {
@@ -79,7 +78,6 @@ func TestQuotaResumeEnforcer_UsesBillingBoundaryForUnpause(t *testing.T) {
 	require.False(t, len(store.boundaries) !=
 		1 || !store.boundaries[0].
 		Equal(periodEnd))
-
 }
 
 func TestQuotaResumeEnforcer_NewPeriodCanResumeAgain(t *testing.T) {
@@ -100,10 +98,9 @@ func TestQuotaResumeEnforcer_NewPeriodCanResumeAgain(t *testing.T) {
 	store.subs["org-1"].CurrentPeriodEnd = &nextPeriodEnd
 	require.NoError(t,
 		enforcer.enforceLocked(context.Background()))
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		store.unpauseCalls,
 	)
-
 }
 
 func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testing.T) {
@@ -121,7 +118,6 @@ func TestDeepSecQuotaResumeEnforcer_FreeTierCatchesUpAfterFirstOfMonth(t *testin
 	wantBoundary := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	require.True(t, boundary.
 		Equal(wantBoundary))
-
 }
 
 func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testing.T) {
@@ -140,11 +136,10 @@ func TestQuotaResumeEnforcer_DoesNotMarkPeriodResumedWhenNoRowsMatched(t *testin
 		enforcer.enforceLocked(context.Background()))
 	require.NoError(t,
 		enforcer.enforceLocked(context.Background()))
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		store.unpauseCalls,
 	)
 	require.False(t, len(store.boundaries) !=
 		2 || !store.boundaries[0].
 		Equal(periodEnd) || !store.boundaries[1].Equal(periodEnd))
-
 }

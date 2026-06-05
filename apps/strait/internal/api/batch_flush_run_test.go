@@ -45,7 +45,7 @@ func TestNewBatchFlushRun_BuildsQueuedRun(t *testing.T) {
 		},
 		now: now,
 	})
-	require.NotEqual(t, "", run.ID)
+	require.NotEmpty(t, run.ID)
 	require.False(t, run.JobID !=
 		job.ID || run.
 		ProjectID !=
@@ -56,9 +56,9 @@ func TestNewBatchFlushRun_BuildsQueuedRun(t *testing.T) {
 	require.Equal(t, "batch", run.
 		TriggeredBy,
 	)
-	require.EqualValues(t, 8, run.Priority)
-	require.EqualValues(t, 1, run.Attempt)
-	require.Equal(t, `{"items":[{"n":1},{"n":2}]}`,
+	require.Equal(t, 8, run.Priority)
+	require.Equal(t, 1, run.Attempt)
+	require.JSONEq(t, `{"items":[{"n":1},{"n":2}]}`,
 
 		string(run.Payload))
 	require.False(t, run.JobVersion !=
@@ -103,7 +103,6 @@ func TestNewBatchFlushRun_BuildsQueuedRun(t *testing.T) {
 	require.Equal(t, input.Baggage,
 		run.Metadata[domain.
 			RunMetadataSentryBaggage])
-
 }
 
 func TestBatchFlushPayload(t *testing.T) {
@@ -114,10 +113,9 @@ func TestBatchFlushPayload(t *testing.T) {
 		{Payload: json.RawMessage(`["b"]`)},
 	})
 	require.NoError(t, err)
-	require.Equal(t, `{"items":[{"a":1},["b"]]}`,
+	require.JSONEq(t, `{"items":[{"a":1},["b"]]}`,
 
 		string(payload))
-
 }
 
 func TestBatchFlushPayload_InvalidItem(t *testing.T) {

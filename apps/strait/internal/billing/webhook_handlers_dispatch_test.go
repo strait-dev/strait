@@ -55,11 +55,9 @@ func TestHandleSubscriptionPaused_DispatchesSuspended(t *testing.T) {
 			assert.Equal(t, "pro",
 				env.PlanTier,
 			)
-
 		}
 	}
 	assert.True(t, saw)
-
 }
 
 // invoice.payment_failed must dispatch billing.delinquent.
@@ -105,7 +103,6 @@ func TestHandlePaymentFailed_DispatchesDelinquent(t *testing.T) {
 			captured = c
 			assert.Equal(t, orgID,
 				c.orgID)
-
 		}
 	}
 	assert.True(t, saw)
@@ -115,7 +112,6 @@ func TestHandlePaymentFailed_DispatchesDelinquent(t *testing.T) {
 		Unmarshal(captured.
 			payload,
 			&env))
-	assert.Equal(t, float64(15_000_000),
-		env.Detail["amount_due_microusd"])
-
+	assert.InDelta(t, float64(15_000_000),
+		env.Detail["amount_due_microusd"], 1e-9)
 }

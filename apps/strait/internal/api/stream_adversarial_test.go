@@ -66,7 +66,6 @@ func TestSSE_NewlineInMessage(t *testing.T) {
 	// newlines inside a data field split the field into multiple data: lines,
 	// the presence of a bare newline between "line1" and "line2" is a protocol
 	// concern. We verify the message bytes appear in the output.
-
 }
 
 // TestSSE_DoubleNewlineInjection verifies that a message containing \n\n does
@@ -82,13 +81,12 @@ func TestSSE_DoubleNewlineInjection(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body, "before"))
-	require.True(
-		t, strings.Contains(body, "after"))
+	require.Contains(
+		t, body, "before")
+	require.Contains(
+		t, body, "after")
 
 	// Both halves of the payload must appear somewhere in the response.
-
 }
 
 // TestSSE_NullBytesInMessage ensures the handler does not panic or drop the
@@ -106,9 +104,8 @@ func TestSSE_NullBytesInMessage(t *testing.T) {
 		w.Code)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body, "data:"))
-
+	require.Contains(
+		t, body, "data:")
 }
 
 // TestSSE_HugeMessage sends a 10 MB message through the SSE handler and
@@ -132,7 +129,6 @@ func TestSSE_HugeMessage(t *testing.T) {
 	)
 
 	// The body must contain at least 10MB of 'A' characters.
-
 }
 
 // TestSSE_EmptyMessage verifies the handler writes a valid SSE frame even when
@@ -149,11 +145,10 @@ func TestSSE_EmptyMessage(t *testing.T) {
 		w.Code)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body, "data: \n\n"))
+	require.Contains(
+		t, body, "data: \n\n")
 
 	// Even an empty message should produce "data: \n\n".
-
 }
 
 // TestSSE_ControlCharsInMessage verifies that carriage return and tab
@@ -171,9 +166,8 @@ func TestSSE_ControlCharsInMessage(t *testing.T) {
 		w.Code)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body, "col1"))
-
+	require.Contains(
+		t, body, "col1")
 }
 
 // TestSSE_UnicodeInMessage verifies multi-byte UTF-8 characters survive the
@@ -191,9 +185,8 @@ func TestSSE_UnicodeInMessage(t *testing.T) {
 		w.Code)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body, "Hola"))
-
+	require.Contains(
+		t, body, "Hola")
 }
 
 // TestSSE_KeepaliveFormat verifies that the keepalive message uses the SSE
@@ -218,7 +211,6 @@ func TestSSE_KeepaliveFormat(t *testing.T) {
 		t, strings.HasPrefix(dataFrame, "data: "))
 	require.True(
 		t, strings.HasSuffix(dataFrame, "\n\n"))
-
 }
 
 // FuzzSSEMessageFormat fuzzes the content passed through the SSE data frame
@@ -242,7 +234,6 @@ func FuzzSSEMessageFormat(f *testing.F) {
 		result := buf.String()
 		require.True(
 			t, strings.HasPrefix(result, "data: "))
-
 	})
 }
 
@@ -269,8 +260,7 @@ func TestSSE_RapidMessages(t *testing.T) {
 	// Verify first, last, and a middle message.
 	for _, idx := range []int{0, count / 2, count - 1} {
 		needle := fmt.Sprintf(`"seq":%d`, idx)
-		require.True(
-			t, strings.Contains(body, needle))
-
+		require.Contains(
+			t, body, needle)
 	}
 }

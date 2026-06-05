@@ -30,7 +30,6 @@ func TestReplayDeadletter_DeleteScopedByProject(t *testing.T) {
 	require.Equal(t, "proj-abc",
 
 		deletedWithProject)
-
 }
 
 func TestDropDeadletter_DeleteScopedByProject(t *testing.T) {
@@ -58,5 +57,4 @@ func TestDropDeadletter_DeleteScopedByProject(t *testing.T) {
 	require.Equal(t, "proj-xyz",
 
 		deletedWithProject)
-
 }

@@ -102,7 +102,6 @@ func TestWorkerDispatch_EmitsOneDebugTrace(t *testing.T) {
 	require.Equal(
 		t, "error",
 		attrs["result"].String())
-
 }
 
 func BenchmarkDispatchHotPath(b *testing.B) {

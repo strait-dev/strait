@@ -62,13 +62,8 @@ func TestWriteTypedError_SanitizesRawError(t *testing.T) {
 				w.Code)
 
 			body := w.Body.String()
-			assert.False(t, strings.Contains(body,
-				tc.leaked,
-			))
-			assert.True(t, strings.Contains(body,
-				"internal server error",
-			))
-
+			assert.NotContains(t, body, tc.leaked)
+			assert.Contains(t, body, "internal server error")
 		})
 	}
 }
@@ -104,7 +99,6 @@ func TestWriteTypedError_PreservesKnownErrorTypes(t *testing.T) {
 		resp.
 			Error.
 			Message)
-
 }
 
 func TestWriteTypedError_WrappedError_NoLeak(t *testing.T) {
@@ -119,13 +113,8 @@ func TestWriteTypedError_WrappedError_NoLeak(t *testing.T) {
 	writeTypedError(w, r, wrapped)
 
 	body := w.Body.String()
-	assert.False(t, strings.Contains(body,
-		"password",
-	))
-	assert.False(t, strings.Contains(body,
-		"admin",
-	))
-
+	assert.NotContains(t, body, "password")
+	assert.NotContains(t, body, "admin")
 }
 
 func TestWriteTypedError_Huma5xxDoesNotLeakMessage(t *testing.T) {
@@ -146,10 +135,7 @@ func TestWriteTypedError_Huma5xxDoesNotLeakMessage(t *testing.T) {
 		strings.Contains(body,
 			"pq:") ||
 		strings.Contains(body, "failed to retry"))
-	require.True(t, strings.Contains(body,
-		"internal server error",
-	))
-
+	require.Contains(t, body, "internal server error")
 }
 
 func TestWriteTypedError_Huma4xxKeepsPublicMessage(t *testing.T) {
@@ -162,10 +148,8 @@ func TestWriteTypedError_Huma4xxKeepsPublicMessage(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-	require.True(t, strings.Contains(w.Body.
-		String(), "job not found",
-	))
-
+	require.Contains(t, w.Body.
+		String(), "job not found")
 }
 
 func FuzzWriteTypedError(f *testing.F) {
@@ -193,6 +177,5 @@ func FuzzWriteTypedError(f *testing.F) {
 				"internal server error" &&
 			strings.Contains(body,
 				errMsg))
-
 	})
 }

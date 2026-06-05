@@ -26,9 +26,8 @@ func TestEnqueueJobMetadata_WithExporter(t *testing.T) {
 	}
 
 	srv.enqueueJobMetadata(job)
-	assert.EqualValues(t, 1, exporter.
+	assert.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestEnqueueJobMetadata_NilExporter(t *testing.T) {
@@ -54,9 +53,8 @@ func TestEnqueueJobMetadata_NilJob(t *testing.T) {
 
 	// Should not panic with nil job.
 	srv.enqueueJobMetadata(nil)
-	assert.EqualValues(t, 0, exporter.
+	assert.Equal(t, 0, exporter.
 		PendingCount())
-
 }
 
 func TestEnqueueJobMetadata_MultipleJobs(t *testing.T) {
@@ -75,7 +73,6 @@ func TestEnqueueJobMetadata_MultipleJobs(t *testing.T) {
 			Slug:      slug,
 		})
 	}
-	assert.EqualValues(t, 3, exporter.
+	assert.Equal(t, 3, exporter.
 		PendingCount())
-
 }

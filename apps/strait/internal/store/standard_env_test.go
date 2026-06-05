@@ -22,7 +22,6 @@ func TestStandardEnvironmentSlugs(t *testing.T) {
 		assert.Equal(t,
 
 			expected[i], slug)
-
 	}
 }
 
@@ -33,15 +32,14 @@ func TestStandardEnvironmentNames(t *testing.T) {
 		assert.True(t,
 			ok,
 		)
-		assert.NotEqual(
-			t, "", name)
-
+		assert.NotEmpty(
+			t, name)
 	}
 }
 
 func TestErrStandardEnvironment(t *testing.T) {
 	t.Parallel()
-	require.NotNil(
+	require.Error(
 		t,
 		ErrStandardEnvironment)
 	assert.Equal(t,
@@ -49,5 +47,4 @@ func TestErrStandardEnvironment(t *testing.T) {
 		"cannot modify standard environment",
 
 		ErrStandardEnvironment.Error())
-
 }

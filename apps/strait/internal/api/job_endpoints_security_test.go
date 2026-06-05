@@ -32,7 +32,6 @@ func TestSetJobEndpoint_RejectsHostnameResolvingToPrivateIP(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
@@ -55,7 +54,6 @@ func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
 	require.GreaterOrEqual(t,
 		w.Code, 400)
-
 }
 
 func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
@@ -78,7 +76,7 @@ func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.NotEqual(t, "", storedSecret)
+	require.NotEmpty(t, storedSecret)
 	require.True(
 		t, straitcrypto.
 			IsEncryptedField(
@@ -91,7 +89,6 @@ func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
 		"" || plaintext ==
 		storedSecret,
 	)
-
 }
 
 func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) {
@@ -115,5 +112,4 @@ func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) 
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }

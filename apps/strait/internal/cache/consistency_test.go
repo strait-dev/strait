@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -42,7 +41,6 @@ func TestStrictConsistency_VersionedLoaderPreservesDatabaseVersion(t *testing.T)
 	stored := l2.values["k"]
 	l2.mu.Unlock()
 	require.Equal(t, int64(12), stored.Version)
-
 }
 
 func TestStrictConsistency_RacingStaleReaderCannotOverwriteNewerWriter(t *testing.T) {
@@ -80,7 +78,6 @@ func TestStrictConsistency_RacingStaleReaderCannotOverwriteNewerWriter(t *testin
 				Version !=
 				20)
 	require.Equal(t, int64(1), rejects.Load())
-
 }
 
 func TestStrictConsistency_GetConsistentVersionedRejectsLoaderBelowMinVersion(t *testing.T) {
@@ -94,9 +91,8 @@ func TestStrictConsistency_GetConsistentVersionedRejectsLoaderBelowMinVersion(t 
 	})
 
 	_, err := tier.GetConsistentVersioned(t.Context(), "k", 20, versionedStringLoader("db", 19))
-	require.True(t,
-		errors.Is(err, ErrStaleVersion))
-
+	require.ErrorIs(t,
+		err, ErrStaleVersion)
 }
 
 func TestStrictConsistency_WriteThroughCASAndPublishesUpdate(t *testing.T) {
@@ -177,7 +173,6 @@ func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Equal(t, int64(1), loads.Load())
-
 }
 
 func errUnexpectedVersioned[V comparable](got Versioned[V], wantValue V, wantVersion int64) error {

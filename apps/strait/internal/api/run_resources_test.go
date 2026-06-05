@@ -32,7 +32,6 @@ func TestHandleListRunResources_Success(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
@@ -48,7 +47,6 @@ func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_EnvironmentScopedCallerBlockedBeforeSnapshots(t *testing.T) {
@@ -73,7 +71,6 @@ func TestHandleListRunResources_EnvironmentScopedCallerBlockedBeforeSnapshots(t 
 	require.True(
 		t, isNotFound(err))
 	require.False(t, snapshotsCalled)
-
 }
 
 func TestHandleListRunResources_RunNotFound(t *testing.T) {
@@ -89,7 +86,6 @@ func TestHandleListRunResources_RunNotFound(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
@@ -108,7 +104,6 @@ func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_MissingProjectID(t *testing.T) {
@@ -129,7 +124,6 @@ func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 		w.Code)
 
 	// Without a project ID in context, requireProjectMatch allows through (internal caller).
-
 }
 
 func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
@@ -145,7 +139,6 @@ func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_InvalidToParam(t *testing.T) {
@@ -161,7 +154,6 @@ func TestHandleListRunResources_InvalidToParam(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestHandleListRunResources_InvalidLimit(t *testing.T) {
@@ -178,7 +170,6 @@ func TestHandleListRunResources_InvalidLimit(t *testing.T) {
 		require.Equal(t, http.
 			StatusBadRequest,
 			w.Code)
-
 	}
 }
 
@@ -200,10 +191,9 @@ func TestHandleListRunResources_LimitCapped(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-	require.EqualValues(t, 1000,
+	require.Equal(t, 1000,
 		capturedLimit,
 	)
-
 }
 
 func TestHandleListRunResources_StoreError(t *testing.T) {
@@ -223,5 +213,4 @@ func TestHandleListRunResources_StoreError(t *testing.T) {
 		StatusInternalServerError,
 		w.Code,
 	)
-
 }

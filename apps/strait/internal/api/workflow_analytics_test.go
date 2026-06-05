@@ -36,9 +36,8 @@ func TestHandleWorkflowStepDurations_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.
+	require.Equal(t, 200, w.
 		Code)
-
 }
 
 func TestHandleWorkflowStepDurations_MissingParams(t *testing.T) {
@@ -46,9 +45,8 @@ func TestHandleWorkflowStepDurations_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/workflows/wf-1/step-durations", "", "proj-1"))
-	require.EqualValues(t, 400, w.
+	require.Equal(t, 400, w.
 		Code)
-
 }
 
 func TestHandleWorkflowStepDurations_StoreError(t *testing.T) {
@@ -61,9 +59,8 @@ func TestHandleWorkflowStepDurations_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 500, w.
+	require.Equal(t, 500, w.
 		Code)
-
 }
 
 func TestHandleWorkflowCompletionRates_Success(t *testing.T) {
@@ -81,9 +78,8 @@ func TestHandleWorkflowCompletionRates_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/completion-rates", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.
+	require.Equal(t, 200, w.
 		Code)
-
 }
 
 func TestHandleWorkflowCompletionRates_InvalidBucket(t *testing.T) {
@@ -91,9 +87,8 @@ func TestHandleWorkflowCompletionRates_InvalidBucket(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/completion-rates", validFrom(), validTo(), "bucket", "month"), "", "proj-1"))
-	require.EqualValues(t, 400, w.
+	require.Equal(t, 400, w.
 		Code)
-
 }
 
 func TestHandleWorkflowAnalyticsSummary_Success(t *testing.T) {
@@ -108,9 +103,8 @@ func TestHandleWorkflowAnalyticsSummary_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/summary", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.
+	require.Equal(t, 200, w.
 		Code)
-
 }
 
 func TestHandleWorkflowAnalyticsSummary_StoreError(t *testing.T) {
@@ -123,7 +117,6 @@ func TestHandleWorkflowAnalyticsSummary_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/summary", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 500, w.
+	require.Equal(t, 500, w.
 		Code)
-
 }

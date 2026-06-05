@@ -22,7 +22,6 @@ func TestRequiredSentryTags_NormalizesRequiredValues(t *testing.T) {
 		require.Equal(t, expected,
 
 			tags[key])
-
 	}
 }
 
@@ -46,7 +45,6 @@ func TestNormalizeSubsystem_KnownBilling(t *testing.T) {
 		NormalizeSubsystem(
 			"billing",
 		))
-
 }
 
 func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
@@ -90,7 +88,6 @@ func TestApplySentryRuntimeScopeSetsRequiredTags(t *testing.T) {
 		require.Equal(t, expected,
 
 			event.Tags[key])
-
 	}
 }
 
@@ -108,6 +105,5 @@ func TestNormalizeHTTPStatusClass(t *testing.T) {
 		require.Equal(t, want,
 
 			NormalizeHTTPStatusClass(status))
-
 	}
 }

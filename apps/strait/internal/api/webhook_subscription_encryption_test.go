@@ -61,7 +61,6 @@ func requireBase64EncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypte
 	plaintext, err := enc.Decrypt(ciphertext)
 	require.NoError(t, err)
 	require.Equal(t, want, string(plaintext))
-
 }
 
 func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
@@ -103,7 +102,6 @@ func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
 	require.False(t, len(decrypted) <
 		6 || string(decrypted[:6]) != "whsec_",
 	)
-
 }
 
 func TestHandleCreateWebhookSubscription_WithoutEncryptorFailsClosed(t *testing.T) {
@@ -127,7 +125,6 @@ func TestHandleCreateWebhookSubscription_WithoutEncryptorFailsClosed(t *testing.
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleRotateWebhookSecret_EncryptsSecret(t *testing.T) {
@@ -158,7 +155,7 @@ func TestHandleRotateWebhookSecret_EncryptsSecret(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/subscriptions/sub-rotate-1/rotate-secret", body, "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.NotEqual(t, "", rotatedSecret)
+	require.NotEmpty(t, rotatedSecret)
 
 	// The stored secret should be encrypted (starts with "encrypted:" prefix from mock).
 
@@ -176,5 +173,4 @@ func TestHandleRotateWebhookSecret_EncryptsSecret(t *testing.T) {
 			"whsec_")
 
 	// The stored value should NOT start with whsec_ (it should be encrypted).
-
 }

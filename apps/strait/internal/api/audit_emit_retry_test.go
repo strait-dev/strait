@@ -131,7 +131,6 @@ func TestDrainer_RetriesTransientErrors(t *testing.T) {
 	assert.EqualValues(t, 0, dlqCalls.
 		Load(),
 	)
-
 }
 
 // TestDrainer_DeadlettersAfterExhaustingRetries: store always fails.
@@ -187,7 +186,6 @@ func TestDrainer_DeadlettersAfterExhaustingRetries(t *testing.T) {
 		t, len(auditRetryDelays), captured.
 			retryCount,
 	)
-
 }
 
 // TestDrainer_LogsIfDeadletterAlsoFails: both primary and DLQ fail.
@@ -216,7 +214,6 @@ func TestDrainer_LogsIfDeadletterAlsoFails(t *testing.T) {
 	assert.EqualValues(t, 1, dlqCalls.
 		Load(),
 	)
-
 }
 
 // TestDrainer_RetriesDoNotReorderEvents: submit 5 events, first one
@@ -263,7 +260,6 @@ func TestDrainer_RetriesDoNotReorderEvents(t *testing.T) {
 	for i, id := range ids {
 		assert.Equal(
 			t, id, writeOrder[i])
-
 	}
 }
 
@@ -357,7 +353,6 @@ func TestBackpressure_MetricSplit_SuccessOutcome(t *testing.T) {
 
 		"outcome", "failure",
 	))
-
 }
 
 // TestBackpressure_MetricSplit_FailureOutcome forces the sync-fallback
@@ -413,7 +408,6 @@ func TestBackpressure_MetricSplit_FailureOutcome(t *testing.T) {
 
 			"outcome", "failure",
 		))
-
 }
 
 // TestDrainer_RetryMetricIncremented: store fails twice then succeeds on 3rd
@@ -462,5 +456,4 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 	failedCount := h.sumCounterByAttr(t, "strait_audit_retry_attempts_total", "outcome", "failed")
 	assert.EqualValues(t, 1, successCount)
 	assert.EqualValues(t, 1, failedCount)
-
 }

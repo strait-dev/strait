@@ -85,13 +85,11 @@ func TestApplyWebhookDeadLetterSentryScope(t *testing.T) {
 		require.Equal(t,
 			want, event.
 				Tags[key])
-
 	}
 	require.Equal(t,
 		"hooks.example.com",
 		event.
 			Contexts["webhook.delivery"]["webhook_url_domain"])
-
 }
 
 // mockDeliveryStore implements DeliveryStore for testing.
@@ -151,8 +149,8 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 	require.Equal(t,
 		job.ID, d.
 			JobID)
-	require.Equal(t,
-		"", d.EventTriggerID,
+	require.Empty(t,
+		d.EventTriggerID,
 	)
 	require.Equal(t,
 		job.WebhookURL,
@@ -166,8 +164,8 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 		domain.WebhookStatusPending,
 
 		d.Status)
-	require.Equal(t,
-		"", d.LastError,
+	require.Empty(t,
+		d.LastError,
 	)
 
 	var payload map[string]any
@@ -178,7 +176,6 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 	require.Equal(t,
 		string(run.
 			Status), payload["status"])
-
 }
 
 func TestProcessBatch_ConcurrentDelivery(t *testing.T) {
@@ -221,21 +218,19 @@ func TestProcessBatch_ConcurrentDelivery(t *testing.T) {
 			LastError:   fmt.Sprintf(`{"delivery_id":"%s"}`, id),
 		}
 		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
-
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(total))
 	worker.processBatch(context.Background())
-	require.False(t,
+	require.Greater(t,
 		maxInFlight.
-			Load() <= 1)
+			Load(), int32(1))
 
 	for _, d := range ms.getDeliveries() {
 		require.Equal(t,
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -284,7 +279,6 @@ func TestProcessBatch_MixedEventAndRunDeliveries(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -483,8 +477,7 @@ func TestNotifyAsync_EnqueuesDelivery(t *testing.T) {
 		domain.WebhookStatusPending,
 
 		d.Status)
-	require.EqualValues(t, 5, d.MaxAttempts)
-
+	require.Equal(t, 5, d.MaxAttempts)
 }
 
 func TestNotifyAsync_NoURL_Skips(t *testing.T) {
@@ -494,9 +487,8 @@ func TestNotifyAsync_NoURL_Skips(t *testing.T) {
 	notifier := NewEventNotifier(ms, slog.Default())
 
 	notifier.NotifyAsync(&domain.EventTrigger{ID: "evt-2", EventKey: "no-url"})
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestWorker_DeliversSuccessfully(t *testing.T) {
@@ -570,7 +562,6 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 				d.Status !=
 					domain.WebhookStatusDelivered,
 		)
-
 	}
 }
 
@@ -634,7 +625,7 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 	// Delivery should still be pending with increased attempts.
 	for _, d := range ms.getDeliveries() {
 		if d.EventTriggerID == "evt-4" {
-			require.EqualValues(t, 1, d.Attempts)
+			require.Equal(t, 1, d.Attempts)
 			require.Equal(t,
 				domain.WebhookStatusPending,
 
@@ -643,7 +634,6 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 				d.NextRetryAt ==
 					nil ||
 					d.NextRetryAt.Before(time.Now()))
-
 		}
 	}
 }
@@ -694,7 +684,6 @@ func TestWorker_ClientError_DeadLetters(t *testing.T) {
 				d.Status !=
 					domain.WebhookStatusDead,
 		)
-
 	}
 }
 
@@ -734,11 +723,9 @@ func TestWorker_PayloadTooLarge_DeadLettersWithoutHTTPCall(t *testing.T) {
 		domain.WebhookStatusDead,
 
 		updated.Status)
-	require.True(t,
-		strings.Contains(updated.
-			LastError, "payload too large",
-		))
-
+	require.Contains(t,
+		updated.
+			LastError, "payload too large")
 }
 
 func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
@@ -772,9 +759,8 @@ func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.processBatch(context.Background())
-	require.EqualValues(t, 1, exporter.
+	require.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
@@ -808,9 +794,8 @@ func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.processBatch(context.Background())
-	require.EqualValues(t, 1, exporter.
+	require.Equal(t, 1, exporter.
 		PendingCount())
-
 }
 
 func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
@@ -856,7 +841,6 @@ func TestExponentialWebhookBackoff(t *testing.T) {
 	for _, tc := range cases {
 		assert.Equal(t,
 			tc.want, exponentialWebhookBackoff(tc.attempts))
-
 	}
 }
 
@@ -870,7 +854,6 @@ func approxBackoff(t *testing.T, got, want time.Duration, label string) {
 	require.False(t,
 		got < low ||
 			got > high)
-
 }
 
 func TestBackoffForRetryPolicy_Linear(t *testing.T) {
@@ -917,10 +900,9 @@ func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
 		"proj-1",
 		deliveries[0].
 			ProjectID)
-	require.Equal(t,
+	require.JSONEq(t,
 		`{"run_id":"r1"}`,
 		string(deliveries[0].Payload))
-
 }
 
 func TestEnqueueSubscriptionWebhooks_WildcardMatch(t *testing.T) {
@@ -944,7 +926,6 @@ func TestEnqueueSubscriptionWebhooks_WildcardMatch(t *testing.T) {
 		"https://example.com/wildcard",
 
 		deliveries[0].WebhookURL)
-
 }
 
 func TestEnqueueSubscriptionWebhooks_InactiveSkipped(t *testing.T) {
@@ -959,9 +940,8 @@ func TestEnqueueSubscriptionWebhooks_InactiveSkipped(t *testing.T) {
 	}}
 
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r3"}`))
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestEnqueueSubscriptionWebhooks_EventTypeMismatch(t *testing.T) {
@@ -976,9 +956,8 @@ func TestEnqueueSubscriptionWebhooks_EventTypeMismatch(t *testing.T) {
 	}}
 
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r4"}`))
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
@@ -1003,17 +982,15 @@ func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
 		"https://example.com/match",
 
 		deliveries[0].WebhookURL)
-
 }
 
 func TestReplayKeyFromDeliveryID(t *testing.T) {
 	t.Parallel()
-	require.Equal(t,
-		"", replayKeyFromDeliveryID(""))
+	require.Empty(t,
+		replayKeyFromDeliveryID(""))
 	require.Equal(t,
 		"rk_whd-42",
 		replayKeyFromDeliveryID("whd-42"))
-
 }
 
 // TestComputeReplayKey_HMACDerivation asserts the signed replay key is
@@ -1049,8 +1026,8 @@ func TestComputeReplayKey_HMACDerivation(t *testing.T) {
 	// Different secret must yield a different key (HMAC binding).
 	other := ComputeReplayKey([]byte("different_secret"), deliveryID)
 	require.NotEqual(t, got, other)
-	require.Equal(t,
-		"", ComputeReplayKey(secret,
+	require.Empty(t,
+		ComputeReplayKey(secret,
 			""))
 
 	// Empty delivery id returns empty.
@@ -1060,17 +1037,15 @@ func TestComputeReplayKey_HMACDerivation(t *testing.T) {
 	require.Equal(t,
 		ComputeReplayKeyUnsigned(deliveryID), unsigned,
 	)
-
 }
 
 func TestComputeReplayKeyUnsigned(t *testing.T) {
 	t.Parallel()
-	require.Equal(t,
-		"", ComputeReplayKeyUnsigned(""))
+	require.Empty(t,
+		ComputeReplayKeyUnsigned(""))
 	require.Equal(t,
 		"rk_run-9",
 		ComputeReplayKeyUnsigned("run-9"))
-
 }
 
 func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
@@ -1087,15 +1062,14 @@ func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
 	require.Equal(t,
 		want, got,
 	)
-	require.False(t,
-		strings.Contains(got, deliveryID))
+	require.NotContains(t,
+		got, deliveryID)
 	require.NotEqual(t, ComputeIdempotencyKey(secret, deliveryID,
 		1), got)
 	require.Equal(t,
 		"whd-signed-1:2",
 		ComputeIdempotencyKey(nil,
 			deliveryID, 2))
-
 }
 
 func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKeys(t *testing.T) {
@@ -1143,10 +1117,8 @@ func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKey
 	)
 
 	for _, header := range []string{receivedReplayKey, receivedIdempotencyKey} {
-		require.False(t,
-			strings.Contains(header,
-				delivery.ID))
-
+		require.NotContains(t,
+			header, delivery.ID)
 	}
 }
 
@@ -1204,7 +1176,6 @@ func TestAttemptDelivery_ReplayKeyStableAcrossRetries(t *testing.T) {
 		require.Equal(t,
 			want, got,
 		)
-
 	}
 }
 
@@ -1239,7 +1210,6 @@ func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
 			LastError:   `{"k":"v"}`,
 		}
 		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), d))
-
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default())
@@ -1251,7 +1221,6 @@ func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
 		require.True(t,
 			seen["rk_"+
 				id])
-
 	}
 }
 
@@ -1290,7 +1259,6 @@ func TestAttemptDelivery_IdempotencyKeyHeader(t *testing.T) {
 	)
 
 	// attempts incremented to 4 before dispatch
-
 }
 
 func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
@@ -1342,7 +1310,6 @@ func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
 	require.GreaterOrEqual(t,
 		len(receivedKeys), 2)
 	require.NotEqual(t, receivedKeys[1], receivedKeys[0])
-
 }
 
 func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
@@ -1373,7 +1340,6 @@ func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
 			LastError:   `{"run_id":"run-1"}`,
 		}
 		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), d))
-
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(2))
@@ -1384,34 +1350,30 @@ func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
 	require.Len(t,
 		receivedKeys,
 		2)
-
 }
 
 func TestDeliveryWorker_DefaultConcurrency50(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default())
-	assert.EqualValues(t, 50, worker.
+	assert.Equal(t, 50, worker.
 		concurrency)
-
 }
 
 func TestDeliveryWorker_ConcurrencyFromOption(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(100))
-	assert.EqualValues(t, 100, worker.
+	assert.Equal(t, 100, worker.
 		concurrency)
-
 }
 
 func TestDeliveryWorker_ConcurrencyZeroKeepsDefault(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(0))
-	assert.EqualValues(t, 50, worker.
+	assert.Equal(t, 50, worker.
 		concurrency)
-
 }
 
 func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
@@ -1449,7 +1411,6 @@ func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
 	)
 
 	// Should timeout around 5s, not 10s.
-
 }
 
 func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
@@ -1492,7 +1453,6 @@ func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
 		d.Status)
 
 	// Should succeed because retry timeout is 15s and server responds in ~5.5s.
-
 }
 
 func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
@@ -1537,7 +1497,6 @@ func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
 	peak := maxConcurrent.Load()
 	assert.GreaterOrEqual(t, peak,
 		int64(10))
-
 }
 
 // HTTP Transport tests.
@@ -1553,10 +1512,10 @@ func TestWithHTTPTransport_SetsCustomTransport(t *testing.T) {
 	transport, ok := worker.client.Transport.(*http.Transport)
 	require.True(t,
 		ok)
-	assert.EqualValues(t, 200, transport.
+	assert.Equal(t, 200, transport.
 		MaxIdleConns,
 	)
-	assert.EqualValues(t, 100, transport.
+	assert.Equal(t, 100, transport.
 		MaxIdleConnsPerHost,
 	)
 	assert.Equal(t,
@@ -1571,7 +1530,6 @@ func TestWithHTTPTransport_SetsCustomTransport(t *testing.T) {
 		10*time.
 			Second, worker.
 			client.Timeout)
-
 }
 
 func TestWithHTTPTransport_ConnectionReuse(t *testing.T) {
@@ -1616,7 +1574,6 @@ func TestWithHTTPTransport_ConnectionReuse(t *testing.T) {
 	conns := connCount.Load()
 	assert.LessOrEqual(t, conns,
 		int32(3))
-
 }
 
 func TestWithHTTPTransport_DefaultValues(t *testing.T) {
@@ -1633,7 +1590,6 @@ func TestWithHTTPTransport_DefaultValues(t *testing.T) {
 		t, worker.client.
 			CheckRedirect,
 	)
-
 }
 
 func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
@@ -1671,11 +1627,8 @@ func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
 		domain.WebhookStatusPending,
 
 		got.Status)
-	require.True(t,
-		strings.Contains(got.LastError,
-			"resolves to private",
-		))
-
+	require.Contains(t,
+		got.LastError, "resolves to private")
 }
 
 func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
@@ -1706,16 +1659,11 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 
 	got := ms.getDeliveries()[0]
 	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
-		require.False(t,
-			strings.Contains(got.LastError,
-				leaked))
-
+		require.NotContains(t,
+			got.LastError, leaked)
 	}
-	require.True(t,
-		strings.Contains(got.LastError,
-			"connection refused",
-		))
-
+	require.Contains(t,
+		got.LastError, "connection refused")
 }
 
 func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
@@ -1744,17 +1692,14 @@ func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *tes
 		got.Status)
 
 	for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
-		require.False(t,
-			strings.Contains(got.LastError,
-				leaked))
-
+		require.NotContains(t,
+			got.LastError, leaked)
 	}
 	require.Equal(t,
 		"create request: invalid webhook URL",
 
 		got.
 			LastError)
-
 }
 
 func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
@@ -1773,7 +1718,6 @@ func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t
 			Payload:     json.RawMessage(`{"event":"run.failed"}`),
 		}
 		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
-
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
@@ -1786,17 +1730,14 @@ func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t
 			got.Status)
 
 		for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
-			require.False(t,
-				strings.Contains(got.LastError,
-					leaked))
-
+			require.NotContains(t,
+				got.LastError, leaked)
 		}
 		require.Equal(t,
 			"create request: invalid webhook URL",
 
 			got.
 				LastError)
-
 	}
 }
 
@@ -1805,9 +1746,8 @@ func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t
 func TestGroupByURL_Empty(t *testing.T) {
 	t.Parallel()
 	result := groupByURL(nil)
-	require.Len(t,
-		result, 0)
-
+	require.Empty(t,
+		result)
 }
 
 func TestGroupByURL_SingleURL(t *testing.T) {
@@ -1822,7 +1762,6 @@ func TestGroupByURL_SingleURL(t *testing.T) {
 		result, 1)
 	require.Len(t,
 		result["https://a.com/hook"], 3)
-
 }
 
 func TestGroupByURL_MultipleURLs(t *testing.T) {
@@ -1846,7 +1785,6 @@ func TestGroupByURL_MultipleURLs(t *testing.T) {
 	require.Len(t,
 		result["https://c.com"], 1,
 	)
-
 }
 
 func TestChunkDeliveries_ExactMultiple(t *testing.T) {
@@ -1862,7 +1800,6 @@ func TestChunkDeliveries_ExactMultiple(t *testing.T) {
 	for _, c := range chunks {
 		require.Len(t,
 			c, 3)
-
 	}
 }
 
@@ -1878,7 +1815,6 @@ func TestChunkDeliveries_Remainder(t *testing.T) {
 	require.Len(t,
 		chunks[3],
 		1)
-
 }
 
 func TestChunkDeliveries_LargerThanInput(t *testing.T) {
@@ -1893,14 +1829,12 @@ func TestChunkDeliveries_LargerThanInput(t *testing.T) {
 	require.Len(t,
 		chunks[0],
 		3)
-
 }
 
 func TestChunkDeliveries_Empty(t *testing.T) {
 	t.Parallel()
 	chunks := chunkDeliveries(nil, 5)
 	require.Nil(t, chunks)
-
 }
 
 // Batch delivery tests.
@@ -1956,7 +1890,6 @@ func TestProcessBatch_BatchByURL_GroupsSameURL(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -1990,7 +1923,6 @@ func TestProcessBatch_BatchByURL_SingleDeliveryNotBatched(t *testing.T) {
 		ms.getDeliveries()[0].Status)
 
 	// Single delivery should use individual path (no batch header).
-
 }
 
 func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t *testing.T) {
@@ -2041,7 +1973,6 @@ func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t 
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -2091,7 +2022,6 @@ func TestProcessBatch_BatchByURL_RunWebhookSecretsStaySignedAndUnbatched(t *test
 	require.False(t,
 		sawUnsigned.
 			Load())
-
 }
 
 func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
@@ -2121,7 +2051,6 @@ func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
 		Load())
 
 	// 10 deliveries / batch size 3 = 4 batches (3+3+3+1)
-
 }
 
 func TestProcessBatch_BatchByURL_Disabled(t *testing.T) {
@@ -2151,7 +2080,6 @@ func TestProcessBatch_BatchByURL_Disabled(t *testing.T) {
 		Load())
 
 	// Without batching, each delivery is a separate request.
-
 }
 
 func TestAttemptBatchDelivery_Success_AllMarkedDelivered(t *testing.T) {
@@ -2182,8 +2110,7 @@ func TestAttemptBatchDelivery_Success_AllMarkedDelivered(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-		require.EqualValues(t, 1, d.Attempts)
-
+		require.Equal(t, 1, d.Attempts)
 	}
 }
 
@@ -2215,12 +2142,11 @@ func TestAttemptBatchDelivery_ServerError_AllRetried(t *testing.T) {
 			domain.WebhookStatusPending,
 
 			d.Status)
-		require.EqualValues(t, 1, d.Attempts)
+		require.Equal(t, 1, d.Attempts)
 		require.False(t,
 			d.NextRetryAt ==
 				nil ||
 				d.NextRetryAt.Before(time.Now()))
-
 	}
 }
 
@@ -2252,7 +2178,6 @@ func TestAttemptBatchDelivery_ClientError_AllDeadLettered(t *testing.T) {
 			domain.WebhookStatusDead,
 
 			d.Status)
-
 	}
 }
 
@@ -2302,8 +2227,7 @@ func TestAttemptBatchDelivery_CircuitBreakerOpen_SkipsBatch(t *testing.T) {
 			domain.WebhookStatusPending,
 
 			d.Status)
-		require.EqualValues(t, 0, d.Attempts)
-
+		require.Equal(t, 0, d.Attempts)
 	}
 }
 
@@ -2345,7 +2269,6 @@ func TestAttemptBatchDelivery_PayloadTooLarge_FallsBackToIndividual(t *testing.T
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -2389,7 +2312,6 @@ func TestAttemptBatchDelivery_Headers(t *testing.T) {
 		"application/json",
 		headers.
 			Get("Content-Type"))
-
 }
 
 func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
@@ -2443,7 +2365,6 @@ func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
 	require.NoError(t, json.Unmarshal(items[0].Payload, &p1))
 	require.Equal(t,
 		"val1", p1["key"])
-
 }
 
 func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
@@ -2474,11 +2395,10 @@ func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
-	require.EqualValues(t, 3, exporter.
+	require.Equal(t, 3, exporter.
 		PendingCount())
 
 	// One ClickHouse event per delivery in the batch.
-
 }
 
 func TestEnqueueDeliveryEvent_IncludesProjectID(t *testing.T) {
@@ -2513,7 +2433,6 @@ func TestEnqueueDeliveryEvent_IncludesProjectID(t *testing.T) {
 		"proj-project",
 		rec.ProjectID,
 	)
-
 }
 
 func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
@@ -2575,7 +2494,6 @@ func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -2592,7 +2510,6 @@ func TestWithBatchByURL_Option(t *testing.T) {
 	assert.False(t,
 		worker2.batchByURL,
 	)
-
 }
 
 func TestWithMaxBatchSize_Option(t *testing.T) {
@@ -2600,9 +2517,8 @@ func TestWithMaxBatchSize_Option(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxBatchSize(25))
-	assert.EqualValues(t, 25, worker.
+	assert.Equal(t, 25, worker.
 		maxBatchSize)
-
 }
 
 func TestWithMaxBatchSize_ZeroKeepsDefault(t *testing.T) {
@@ -2614,7 +2530,6 @@ func TestWithMaxBatchSize_ZeroKeepsDefault(t *testing.T) {
 		defaultMaxBatchSize,
 		worker.
 			maxBatchSize)
-
 }
 
 func TestExtractPayload_ValidJSON(t *testing.T) {
@@ -2629,10 +2544,9 @@ func TestExtractPayload_ValidJSON(t *testing.T) {
 	require.Equal(t,
 		"value",
 		m["key"])
-	require.Equal(t,
-		"", d.LastError,
+	require.Empty(t,
+		d.LastError,
 	)
-
 }
 
 func TestExtractPayload_InvalidJSON_Fallback(t *testing.T) {
@@ -2646,7 +2560,6 @@ func TestExtractPayload_InvalidJSON_Fallback(t *testing.T) {
 		&m))
 	require.Equal(t,
 		"d1", m["delivery_id"])
-
 }
 
 func TestExtractPayload_EmptyLastError_Fallback(t *testing.T) {
@@ -2660,7 +2573,6 @@ func TestExtractPayload_EmptyLastError_Fallback(t *testing.T) {
 		&m))
 	require.Equal(t,
 		"d2", m["delivery_id"])
-
 }
 
 // Adversarial tests: edge cases and failure modes.
@@ -2722,7 +2634,6 @@ func TestAttemptBatchDelivery_PayloadTooLarge_PreservesOriginalPayload(t *testin
 		require.Equal(t,
 			expected,
 			payload["unique_key"])
-
 	}
 }
 
@@ -2760,10 +2671,9 @@ func TestAttemptBatchDelivery_PayloadTooLarge_FallbackIsConcurrent(t *testing.T)
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(50), WithConcurrency(10))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
-	require.False(t,
+	require.Greater(t,
 		maxInFlight.
-			Load() <= 1)
-
+			Load(), int32(1))
 }
 
 func TestAttemptBatchDelivery_EmptyDeliveries(t *testing.T) {
@@ -2823,7 +2733,6 @@ func TestAttemptBatchDelivery_ContextCanceled(t *testing.T) {
 			domain.WebhookStatusPending,
 
 			d.Status)
-
 	}
 }
 
@@ -2938,7 +2847,6 @@ func TestAttemptBatchDelivery_InvalidURL_DeadLettersAll(t *testing.T) {
 			domain.WebhookStatusDead,
 
 			d.Status)
-
 	}
 }
 
@@ -2968,11 +2876,10 @@ func TestAttemptBatchDelivery_ClickHouseEventsOnAllPaths(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), "://invalid", deliveries)
-	require.EqualValues(t, 2, exporter.
+	require.Equal(t, 2, exporter.
 		PendingCount())
 
 	// ClickHouse events should fire even on request creation failure.
-
 }
 
 func TestProcessBatch_BatchByURL_ZeroDeliveries(t *testing.T) {
@@ -3047,7 +2954,6 @@ func TestProcessBatch_BatchByURL_MaxBatchSizeOne(t *testing.T) {
 		require.Equal(t,
 			"true", h,
 		)
-
 	}
 }
 
@@ -3081,7 +2987,6 @@ func TestAttemptBatchDelivery_ServerSlowResponse(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -3122,7 +3027,6 @@ func TestAttemptBatchDelivery_3xxResponse(t *testing.T) {
 				*d.LastStatusCode !=
 					http.StatusFound,
 		)
-
 	}
 }
 
@@ -3162,7 +3066,6 @@ func TestProcessBatch_BatchByURL_AllDifferentURLs(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -3208,7 +3111,6 @@ func TestAttemptBatchDelivery_NonJSONPayloadInLastError(t *testing.T) {
 	require.Equal(t,
 		"evt-99",
 		payload["trigger_id"])
-
 }
 
 func TestProcessBatch_BatchByURL_LargeNumberOfURLs(t *testing.T) {
@@ -3250,7 +3152,6 @@ func TestProcessBatch_BatchByURL_LargeNumberOfURLs(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -3277,7 +3178,6 @@ func TestAttemptBatchDelivery_EventTriggerNotifyStatusUpdated(t *testing.T) {
 	require.Equal(t,
 		"sent", ms.
 			getNotifyStatus())
-
 }
 
 func TestAttemptBatchDelivery_EventTriggerNotifyStatusFailed(t *testing.T) {
@@ -3303,7 +3203,6 @@ func TestAttemptBatchDelivery_EventTriggerNotifyStatusFailed(t *testing.T) {
 	require.Equal(t,
 		"failed",
 		ms.getNotifyStatus())
-
 }
 
 // Consistency tests: verify behavioral parity between batch and individual paths.
@@ -3347,7 +3246,6 @@ func TestAttemptBatchDelivery_NoDoubleClickHouseOnFallback(t *testing.T) {
 			PendingCount())
 
 	// Must be exactly 3, not 6 (which would indicate double-counting).
-
 }
 
 func TestAttemptBatchDelivery_ClickHouseExactCountOnSuccess(t *testing.T) {
@@ -3384,7 +3282,6 @@ func TestAttemptBatchDelivery_ClickHouseExactCountOnSuccess(t *testing.T) {
 	require.Equal(t,
 		count, exporter.
 			PendingCount())
-
 }
 
 func TestAttemptBatchDelivery_ClickHouseExactCountOn5xx(t *testing.T) {
@@ -3421,7 +3318,6 @@ func TestAttemptBatchDelivery_ClickHouseExactCountOn5xx(t *testing.T) {
 	require.Equal(t,
 		count, exporter.
 			PendingCount())
-
 }
 
 func TestBatchAndIndividual_SameDelivery_SameOutcome(t *testing.T) {
@@ -3510,13 +3406,12 @@ func TestBatchAndIndividual_SameDelivery_SameOutcome(t *testing.T) {
 		domain.WebhookStatusDelivered,
 
 		batchDeliveries[0].Status)
-	require.EqualValues(t, 1, d1.Attempts)
-	require.EqualValues(t, 1, batchDeliveries[0].Attempts)
+	require.Equal(t, 1, d1.Attempts)
+	require.Equal(t, 1, batchDeliveries[0].Attempts)
 
 	// Both should be delivered.
 
 	// Both should have 1 attempt.
-
 }
 
 func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
@@ -3560,8 +3455,8 @@ func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
 		domain.WebhookStatusPending,
 
 		batchDeliveries[0].Status)
-	require.EqualValues(t, 1, d1.Attempts)
-	require.EqualValues(t, 1, batchDeliveries[0].Attempts)
+	require.Equal(t, 1, d1.Attempts)
+	require.Equal(t, 1, batchDeliveries[0].Attempts)
 	require.False(t,
 		d1.NextRetryAt ==
 			nil ||
@@ -3578,7 +3473,6 @@ func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
 	// Both should have 1 attempt.
 
 	// Both should have future next_retry_at.
-
 }
 
 func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
@@ -3624,7 +3518,6 @@ func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
 		batchDeliveries[0].Status)
 
 	// Both should be dead.
-
 }
 
 func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
@@ -3701,7 +3594,6 @@ func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
 	require.NoError(t, json.Unmarshal(receivedBodies[0], &items))
 	require.Len(t,
 		items, 3)
-
 }
 
 func TestAttemptBatchDelivery_FallbackAttemptsNotDoubled(t *testing.T) {
@@ -3731,8 +3623,7 @@ func TestAttemptBatchDelivery_FallbackAttemptsNotDoubled(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		require.EqualValues(t, 1, d.Attempts)
-
+		require.Equal(t, 1, d.Attempts)
 	}
 }
 
@@ -3834,14 +3725,12 @@ func TestProcessBatch_IndividualAndBatch_SameStoreUpdates(t *testing.T) {
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 	for _, d := range ms2.getDeliveries() {
 		require.Equal(t,
 			domain.WebhookStatusDelivered,
 
 			d.Status)
-
 	}
 }
 
@@ -3890,12 +3779,9 @@ func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
 			domain.WebhookStatusPending,
 
 			d.Status)
-		require.EqualValues(t, 1, d.Attempts)
-		require.True(t,
-			strings.Contains(d.LastError,
-				"http request",
-			))
-
+		require.Equal(t, 1, d.Attempts)
+		require.Contains(t,
+			d.LastError, "http request")
 	}
 }
 
@@ -3912,7 +3798,6 @@ func TestWithRetryPolicy_Exponential(t *testing.T) {
 		worker.
 			defaultRetryPolicy,
 	)
-
 }
 
 func TestWithRetryPolicy_Linear(t *testing.T) {
@@ -3925,7 +3810,6 @@ func TestWithRetryPolicy_Linear(t *testing.T) {
 
 		worker.defaultRetryPolicy,
 	)
-
 }
 
 func TestWithRetryPolicy_Fixed(t *testing.T) {
@@ -3938,7 +3822,6 @@ func TestWithRetryPolicy_Fixed(t *testing.T) {
 
 		worker.defaultRetryPolicy,
 	)
-
 }
 
 func TestWithRetryPolicy_InvalidKeepsDefault(t *testing.T) {
@@ -3952,7 +3835,6 @@ func TestWithRetryPolicy_InvalidKeepsDefault(t *testing.T) {
 		worker.
 			defaultRetryPolicy,
 	)
-
 }
 
 func TestWithRetryPolicy_EmptyKeepsDefault(t *testing.T) {
@@ -3966,7 +3848,6 @@ func TestWithRetryPolicy_EmptyKeepsDefault(t *testing.T) {
 		worker.
 			defaultRetryPolicy,
 	)
-
 }
 
 func TestWithMetrics_SetsMetricsField(t *testing.T) {
@@ -3977,7 +3858,6 @@ func TestWithMetrics_SetsMetricsField(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMetrics(nil))
 	require.Nil(t, worker.
 		metrics)
-
 }
 
 func TestWithCircuitBreaker_SetsField(t *testing.T) {
@@ -3990,7 +3870,6 @@ func TestWithCircuitBreaker_SetsField(t *testing.T) {
 		cb, worker.
 			circuitBreaker,
 	)
-
 }
 
 func TestWithMaxPayloadBytes_Positive(t *testing.T) {
@@ -4001,7 +3880,6 @@ func TestWithMaxPayloadBytes_Positive(t *testing.T) {
 	require.EqualValues(t, 2048, worker.
 		maxPayloadBytes,
 	)
-
 }
 
 func TestWithMaxPayloadBytes_ZeroKeepsDefault(t *testing.T) {
@@ -4014,7 +3892,6 @@ func TestWithMaxPayloadBytes_ZeroKeepsDefault(t *testing.T) {
 
 		worker.maxPayloadBytes,
 	)
-
 }
 
 func TestWithBatchByURL_SetsField(t *testing.T) {
@@ -4025,7 +3902,6 @@ func TestWithBatchByURL_SetsField(t *testing.T) {
 	require.True(t,
 		worker.batchByURL,
 	)
-
 }
 
 // EnqueueRunWebhook edge cases.
@@ -4039,9 +3915,8 @@ func TestEnqueueRunWebhook_NilJob(t *testing.T) {
 	err := worker.EnqueueRunWebhook(context.Background(), nil, &domain.JobRun{})
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(), "job and run are required"))
-
+	require.Contains(t,
+		err.Error(), "job and run are required")
 }
 
 func TestEnqueueRunWebhook_NilRun(t *testing.T) {
@@ -4053,9 +3928,8 @@ func TestEnqueueRunWebhook_NilRun(t *testing.T) {
 	err := worker.EnqueueRunWebhook(context.Background(), &domain.Job{WebhookURL: "http://example.com"}, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(), "job and run are required"))
-
+	require.Contains(t,
+		err.Error(), "job and run are required")
 }
 
 func TestEnqueueRunWebhook_EmptyWebhookURL(t *testing.T) {
@@ -4069,9 +3943,8 @@ func TestEnqueueRunWebhook_EmptyWebhookURL(t *testing.T) {
 
 	err := worker.EnqueueRunWebhook(context.Background(), job, run)
 	require.NoError(t, err)
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestEnqueueRunWebhook_NonTerminalStatus(t *testing.T) {
@@ -4085,9 +3958,8 @@ func TestEnqueueRunWebhook_NonTerminalStatus(t *testing.T) {
 
 	err := worker.EnqueueRunWebhook(context.Background(), job, run)
 	require.NoError(t, err)
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
@@ -4118,7 +3990,6 @@ func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
 	require.Equal(t,
 		"failed",
 		payload["status"])
-
 }
 
 func TestEnqueueRunWebhook_UsesDefaultRetryPolicy(t *testing.T) {
@@ -4145,7 +4016,6 @@ func TestEnqueueRunWebhook_UsesDefaultRetryPolicy(t *testing.T) {
 		domain.WebhookRetryPolicyFixed,
 
 		deliveries[0].RetryPolicy)
-
 }
 
 // NotifyAsyncWithContext error paths.
@@ -4160,9 +4030,8 @@ func TestNotifyAsyncWithContext_EmptyNotifyURL(t *testing.T) {
 		ID:       "evt-empty",
 		EventKey: "test",
 	})
-	require.Len(t,
-		ms.getDeliveries(), 0)
-
+	require.Empty(t,
+		ms.getDeliveries())
 }
 
 func TestNotifyAsyncWithContext_StoreError(t *testing.T) {
@@ -4178,11 +4047,10 @@ func TestNotifyAsyncWithContext_StoreError(t *testing.T) {
 		ProjectID: "proj-1",
 		NotifyURL: "http://example.com/hook",
 	})
-	require.Len(t,
-		ms.getDeliveries(), 0)
+	require.Empty(t,
+		ms.getDeliveries())
 
 	// Delivery should not have been stored.
-
 }
 
 func TestNotifyAsyncWithContext_SetsRetryPolicy(t *testing.T) {
@@ -4206,7 +4074,6 @@ func TestNotifyAsyncWithContext_SetsRetryPolicy(t *testing.T) {
 		domain.WebhookRetryPolicyLinear,
 
 		deliveries[0].RetryPolicy)
-
 }
 
 func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
@@ -4234,7 +4101,6 @@ func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
 	require.Equal(t,
 		expected,
 		payload["callback_url"])
-
 }
 
 func TestNewDeliveryWorker_NilLogger(t *testing.T) {
@@ -4244,7 +4110,6 @@ func TestNewDeliveryWorker_NilLogger(t *testing.T) {
 	worker := NewDeliveryWorker(ms, nil)
 	require.NotNil(
 		t, worker)
-
 }
 
 func TestNewEventNotifier_IsAlias(t *testing.T) {
@@ -4255,7 +4120,6 @@ func TestNewEventNotifier_IsAlias(t *testing.T) {
 	require.NotNil(
 		t, notifier,
 	)
-
 }
 
 // errorDeliveryStore returns errors from CreateWebhookDelivery for testing error paths.
@@ -4328,8 +4192,8 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
 	)
 	worker.processBatch(context.Background())
-	require.NotEqual(t, "", receivedSigHeader)
-	require.NotEqual(t, "", receivedTimestamp)
+	require.NotEmpty(t, receivedSigHeader)
+	require.NotEmpty(t, receivedTimestamp)
 	require.True(t,
 		strings.HasPrefix(receivedSigHeader,
 			"v1=",
@@ -4349,7 +4213,6 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 	require.NotEqual(t, bodyOnlySig,
 		receivedSigHeader,
 	)
-
 }
 
 func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
@@ -4386,7 +4249,7 @@ func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
 		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
 	)
 	worker.processBatch(context.Background())
-	require.NotEqual(t, "", receivedSigHeader)
+	require.NotEmpty(t, receivedSigHeader)
 	require.Equal(t,
 		receivedSigHeader,
 		receivedStraitSigHeader,
@@ -4405,7 +4268,6 @@ func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
 	)
 	require.NotEqual(t, ComputeReplayKeyUnsigned(delivery.ID),
 		receivedReplayKey)
-
 }
 
 // fakeSecretDecryptor reverses a fixed prefix to simulate AES-GCM decryption
@@ -4461,8 +4323,8 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 	worker := NewDeliveryWorker(ms, slog.Default(),
 		WithSecretDecryptor(fakeSecretDecryptor{prefix: fakePrefix}))
 	worker.processBatch(context.Background())
-	require.NotEqual(t, "", receivedSigHeader)
-	require.NotEqual(t, "", receivedTimestamp)
+	require.NotEmpty(t, receivedSigHeader)
+	require.NotEmpty(t, receivedTimestamp)
 
 	expectedSig := "v1=" + ComputeTimestampedHMACSHA256(plaintextSecret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
 	require.Equal(t,
@@ -4474,7 +4336,6 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 	require.NotEqual(t, ciphertextSig,
 		receivedSigHeader,
 	)
-
 }
 
 // Regression: tenants with the same external webhook URL must
@@ -4490,7 +4351,6 @@ func TestBreakerKey_PerTenantScoping(t *testing.T) {
 	require.Equal(t,
 		url, breakerKey("", url),
 	)
-
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
@@ -4527,8 +4387,8 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
-	require.NotEqual(t, "", receivedSig)
-	require.NotEqual(t, "", receivedOldSig)
+	require.NotEmpty(t, receivedSig)
+	require.NotEmpty(t, receivedOldSig)
 	require.True(t,
 		strings.HasPrefix(receivedOldSig,
 			"v1="))
@@ -4536,7 +4396,6 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *
 		receivedOldSig,
 		receivedStraitOldSig,
 	)
-
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodExpired(t *testing.T) {
@@ -4570,11 +4429,10 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodExpired(t 
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
-	require.NotEqual(t, "", receivedSig)
-	require.Equal(t,
-		"", receivedOldSig,
+	require.NotEmpty(t, receivedSig)
+	require.Empty(t,
+		receivedOldSig,
 	)
-
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
@@ -4622,7 +4480,6 @@ func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
 		"webhook subscription signing secret unavailable",
 
 		deliveries[0].LastError)
-
 }
 
 func TestAttemptDelivery_EmptyFields_NoConditionalHeaders(t *testing.T) {
@@ -4654,16 +4511,15 @@ func TestAttemptDelivery_EmptyFields_NoConditionalHeaders(t *testing.T) {
 	worker.processBatch(context.Background())
 	require.NotNil(
 		t, headers)
-	require.Equal(t,
-		"", headers.
+	require.Empty(t,
+		headers.
 			Get("X-Strait-Trigger-ID"))
-	require.Equal(t,
-		"", headers.
+	require.Empty(t,
+		headers.
 			Get("X-Run-ID"))
-	require.Equal(t,
-		"", headers.
+	require.Empty(t,
+		headers.
 			Get("X-Job-ID"))
-
 }
 
 func TestAttemptDelivery_PopulatedFields_ConditionalHeadersPresent(t *testing.T) {
@@ -4704,7 +4560,6 @@ func TestAttemptDelivery_PopulatedFields_ConditionalHeadersPresent(t *testing.T)
 	require.Equal(t,
 		"job-42",
 		headers.Get("X-Job-ID"))
-
 }
 
 func TestAttemptDelivery_RetryExhausted_DeadLetters(t *testing.T) {
@@ -4742,7 +4597,6 @@ func TestAttemptDelivery_RetryExhausted_DeadLetters(t *testing.T) {
 
 		deliveries[0].Status,
 	)
-
 }
 
 func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
@@ -4754,7 +4608,6 @@ func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
 	require.LessOrEqual(t, got,
 		30*time.Minute+
 			(30*time.Minute)/5)
-
 }
 
 func TestBackoffForRetryPolicy_AttemptsZero_NormalizedToOne(t *testing.T) {
@@ -4776,7 +4629,6 @@ func TestBackoffForRetryPolicy_LinearCapsAt30Min(t *testing.T) {
 	require.LessOrEqual(t, got,
 		30*time.Minute+
 			(30*time.Minute)/5)
-
 }
 
 func TestBackoffForRetryPolicy_HugeAttemptsDoNotOverflow(t *testing.T) {
@@ -4784,16 +4636,13 @@ func TestBackoffForRetryPolicy_HugeAttemptsDoNotOverflow(t *testing.T) {
 
 	exponential := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 1_000_000)
 	approxBackoff(t, exponential, maxWebhookBackoff, "huge exponential attempt")
-	require.False(t,
-		exponential <=
-			0)
+	require.Positive(t,
+		exponential)
 
 	linear := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, int(^uint(0)>>1))
 	approxBackoff(t, linear, maxWebhookBackoff, "huge linear attempt")
-	require.False(t,
-		linear <=
-			0)
-
+	require.Positive(t,
+		linear)
 }
 
 func TestRecordCircuitBreakerState_AllStates(t *testing.T) {

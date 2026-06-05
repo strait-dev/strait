@@ -43,7 +43,6 @@ func TestValidateScopes(t *testing.T) {
 				tt.wantErr,
 				(err !=
 					nil))
-
 		})
 	}
 }
@@ -65,22 +64,19 @@ func TestValidateScopes_AllConstants(t *testing.T) {
 		ScopeOutboxRead, ScopeOutboxRetry, ScopeOutboxPurge,
 	}
 	for _, scope := range allScopes {
-		assert.NoError(t,
+		require.NoError(t,
 			ValidateScopes([]string{scope}))
-
 	}
 
 	// Every constant should also be in ValidScopes map.
 	for _, scope := range allScopes {
 		assert.True(t, ValidScopes[scope])
-
 	}
 	assert.Len(t, ValidScopes,
 
 		len(allScopes))
 
 	// ValidScopes map should have same count as allScopes.
-
 }
 
 func TestValidateScopes_ErrorMessage(t *testing.T) {
@@ -89,8 +85,7 @@ func TestValidateScopes_ErrorMessage(t *testing.T) {
 	err := ValidateScopes([]string{"banana"})
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(), "banana"))
-
+	assert.Contains(t, err.Error(), "banana")
 }
 
 func TestHasScope(t *testing.T) {
@@ -124,7 +119,6 @@ func TestHasScope(t *testing.T) {
 			assert.Equal(t,
 				tt.want, got,
 			)
-
 		})
 	}
 }

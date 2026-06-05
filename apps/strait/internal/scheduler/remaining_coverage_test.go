@@ -49,7 +49,6 @@ func TestWebhookMessageCleanup_DefaultInterval(t *testing.T) {
 		time.Hour,
 		c.interval,
 	)
-
 }
 
 func TestMemoryCleanup_Run_StopsOnCancel_RC(t *testing.T) {

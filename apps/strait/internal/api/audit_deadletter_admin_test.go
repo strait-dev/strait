@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,9 +51,8 @@ func TestListDeadletter_RequiresAdmin(t *testing.T) {
 
 	_, err := srv.handleListDeadletter(nonAdminCtx("proj-a"), &ListDeadletterInput{})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "admin"))
-
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestListDeadletter_ReturnsEntriesForOwnProject(t *testing.T) {
@@ -82,7 +80,6 @@ func TestListDeadletter_ReturnsEntriesForOwnProject(t *testing.T) {
 	assert.Len(t,
 		out.Body.Entries,
 		2)
-
 }
 
 func TestListDeadletter_RejectsCrossTenantProjectID(t *testing.T) {
@@ -94,9 +91,8 @@ func TestListDeadletter_RejectsCrossTenantProjectID(t *testing.T) {
 	// cannot enumerate other projects by watching error codes.
 	_, err := srv.handleListDeadletter(adminCtx("proj-a"), &ListDeadletterInput{ProjectID: "proj-b"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
@@ -184,7 +180,6 @@ func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
 	assert.NotEqual(t, seed.ID, out.
 		Body.NewEventID,
 	)
-
 }
 
 func TestReplayDeadletter_NotFound_404(t *testing.T) {
@@ -199,9 +194,8 @@ func TestReplayDeadletter_NotFound_404(t *testing.T) {
 
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "missing"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
@@ -252,7 +246,6 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 		t, "corrupt_payload",
 		seenReason,
 	)
-
 }
 
 func TestDropDeadletter_CrossTenant_404(t *testing.T) {
@@ -270,9 +263,8 @@ func TestDropDeadletter_CrossTenant_404(t *testing.T) {
 
 	_, err := srv.handleDropDeadletter(adminCtx("proj-a"), &DropDeadletterInput{ID: "dlq-1", Reason: "x"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
@@ -321,7 +313,6 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 		t, deleteCalled)
 	assert.False(
 		t, selfAuditHit)
-
 }
 
 func TestReplayDeadletter_MarkFailureFailsClosed(t *testing.T) {
@@ -358,7 +349,6 @@ func TestReplayDeadletter_MarkFailureFailsClosed(t *testing.T) {
 	require.Error(t, err)
 	require.False(t, deleteCalled)
 	require.False(t, selfAuditHit)
-
 }
 
 func TestReplayDeadletter_DeleteFailureFailsClosed(t *testing.T) {
@@ -392,7 +382,6 @@ func TestReplayDeadletter_DeleteFailureFailsClosed(t *testing.T) {
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
 	require.Error(t, err)
 	require.False(t, selfAuditHit)
-
 }
 
 // TestRedactDeadletterFilter_StripsSecretShapes asserts the filter now
@@ -417,12 +406,11 @@ func TestRedactDeadletterFilter_StripsSecretShapes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			out := redactDeadletterFilter(tc.projectID, tc.limit, tc.cursor)
-			assert.False(
-				t, strings.Contains(out, tc.
-					mustHide))
-			assert.True(t,
-				strings.Contains(out, "[redacted:"))
-
+			assert.NotContains(
+				t, out, tc.
+					mustHide)
+			assert.Contains(t,
+				out, "[redacted:")
 		})
 	}
 }
@@ -437,5 +425,4 @@ func TestRedactDeadletterFilter_PassesThroughPlainValues(t *testing.T) {
 	want := "project_id=proj-a&limit=50&cursor=2026-04-01T00:00:00Z"
 	assert.Equal(
 		t, want, out)
-
 }

@@ -82,7 +82,6 @@ func TestNewWorkerWithEmail_RegistersEmailSenderWhenConfigured(t *testing.T) {
 	require.True(t, w.HasSender(domain.
 		ChannelTypeEmail,
 	))
-
 }
 
 func TestNewWorkerWithEmail_SkipsEmailSenderWithoutAPIKey(t *testing.T) {
@@ -93,7 +92,6 @@ func TestNewWorkerWithEmail_SkipsEmailSenderWithoutAPIKey(t *testing.T) {
 		ChannelTypeEmail,
 	),
 	)
-
 }
 
 // panicNotificationStore panics on ClaimPendingNotificationDeliveries to test recovery.

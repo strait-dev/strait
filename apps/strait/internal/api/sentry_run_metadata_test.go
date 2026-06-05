@@ -30,14 +30,12 @@ func TestSentryRunMetadataCarriesTraceContext(t *testing.T) {
 	require.Equal(t, "dep-1",
 
 		got["dependency_key"])
-	require.NotEqual(t, "",
-		got[domain.RunMetadataSentryTrace])
+	require.NotEmpty(t, got[domain.RunMetadataSentryTrace])
 
 	wantTraceparent := "00-" + traceID.String() + "-" + spanID.String() + "-01"
 	require.Equal(t, wantTraceparent,
 
 		got[domain.RunMetadataTraceParent])
-
 }
 
 func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
@@ -66,5 +64,4 @@ func TestApplyRunTraceHeaderMetadataOverridesContextTrace(t *testing.T) {
 	require.Equal(t, "sentry-release=test-release,sentry-public_key=public",
 
 		got[domain.RunMetadataSentryBaggage])
-
 }

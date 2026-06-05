@@ -24,10 +24,7 @@ func TestJitterTTL_BoundedRange(t *testing.T) {
 			t, got,
 			base,
 		)
-		require.False(t, got >=
-			maxExclusive,
-		)
-
+		require.Less(t, got, maxExclusive)
 	}
 }
 
@@ -70,7 +67,6 @@ func TestJitterTTL_FullFraction(t *testing.T) {
 			base ||
 			got >=
 				maxExclusive)
-
 	}
 }
 
@@ -106,5 +102,4 @@ func TestJitterTTL_DistributionSpread(t *testing.T) {
 
 	// Allow generous tolerance to keep the test stable while still catching
 	// degenerate distributions (e.g. constant or extreme skew).
-
 }

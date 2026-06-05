@@ -53,7 +53,7 @@ func TestPrefetchStepOutputs_BatchesAllDeps(t *testing.T) {
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		callCount)
 
 	// Verify the unique dep refs: root, step-x, step-y (order may vary).
@@ -64,13 +64,11 @@ func TestPrefetchStepOutputs_BatchesAllDeps(t *testing.T) {
 
 	for i := range want {
 		require.Equal(t, want[i], capturedRefs[i])
-
 	}
 	require.Len(t, outputs,
 		3)
 
 	// Verify outputs contain all 3 keys.
-
 }
 
 // TestPrefetchStepOutputs_NoDeps_ReturnsNil verifies that when all
@@ -103,7 +101,6 @@ func TestPrefetchStepOutputs_NoDeps_ReturnsNil(t *testing.T) {
 		err)
 	require.Nil(t, outputs)
 	require.False(t, called)
-
 }
 
 // TestPrefetchStepOutputs_SkipsTerminalAndRunning verifies that
@@ -147,7 +144,6 @@ func TestPrefetchStepOutputs_SkipsTerminalAndRunning(t *testing.T) {
 	)
 	require.Len(t, outputs,
 		1)
-
 }
 
 // TestPrefetchStepOutputs_Error_PropagatedCorrectly verifies that a
@@ -173,8 +169,7 @@ func TestPrefetchStepOutputs_Error_PropagatedCorrectly(t *testing.T) {
 
 	_, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, storeErr))
-
+	require.ErrorIs(t, err, storeErr)
 }
 
 // TestPrefetchStepOutputs_EmptySlice verifies that an empty runnable
@@ -197,7 +192,6 @@ func TestPrefetchStepOutputs_EmptySlice(t *testing.T) {
 		err)
 	require.Nil(t, outputs)
 	require.False(t, called)
-
 }
 
 // TestPrefetchStepOutputs_AllTerminal verifies that when every step
@@ -229,7 +223,6 @@ func TestPrefetchStepOutputs_AllTerminal(t *testing.T) {
 		err)
 	require.Nil(t, outputs)
 	require.False(t, called)
-
 }
 
 // scheduleRunnableSteps — condition evaluates to false → step skipped.
@@ -303,7 +296,6 @@ func TestScheduleRunnableSteps_ConditionFalse_StepSkipped(t *testing.T) {
 	require.Equal(t, domain.
 		StepSkipped,
 		stepStatuses["guarded"])
-
 }
 
 // Cost gate tests (engine_steps.go L99-119).
@@ -371,5 +363,4 @@ func TestCostGate_BelowThreshold_Proceeds(t *testing.T) {
 		),
 	)
 	require.True(t, enqueued)
-
 }

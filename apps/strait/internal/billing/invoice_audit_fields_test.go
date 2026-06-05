@@ -45,7 +45,6 @@ func TestInvoiceAuditFields_LargeAmountSurvivesPrecision(t *testing.T) {
 
 		got["amount_due_minor"],
 	)
-
 }
 
 // TestInvoiceAuditFields_CurrencyIsLowercased proves the canonicalisation:
@@ -64,7 +63,6 @@ func TestInvoiceAuditFields_CurrencyIsLowercased(t *testing.T) {
 		assert.Equal(t, want,
 
 			got["currency"])
-
 	}
 }
 
@@ -83,7 +81,6 @@ func TestInvoiceAuditFields_StripeInvoiceNumIncludedWhenPresent(t *testing.T) {
 
 		got["stripe_invoice_num"],
 	)
-
 }
 
 // TestInvoiceAuditFields_StripeInvoiceNumOmittedWhenEmpty rejects blank
@@ -110,8 +107,5 @@ func TestInvoiceAuditFields_StripeInvoiceNumOmittedWhenEmpty(t *testing.T) {
 func TestInvoiceAuditFields_NilInvoiceReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	got := invoiceAuditFields(nil)
-	assert.Len(t, got,
-
-		0)
-
+	assert.Empty(t, got)
 }

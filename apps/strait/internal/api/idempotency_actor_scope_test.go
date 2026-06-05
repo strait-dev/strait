@@ -70,7 +70,6 @@ func TestDifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	for _, k := range acquireKeys {
 		require.True(
 			t, isHexDigest(k))
-
 	}
 	require.Len(t,
 		completeKeys,
@@ -78,7 +77,6 @@ func TestDifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 	require.False(t, completeKeys[0] != acquireKeys[0] ||
 		completeKeys[1] !=
 			acquireKeys[1])
-
 }
 
 // TestSameActorReplaysCache regresses the happy path: the same
@@ -127,7 +125,6 @@ func TestSameActorReplaysCache(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code)
 		require.Equal(t, string(cachedBody), w.Body.String())
-
 	}
 
 	mu.Lock()
@@ -136,7 +133,6 @@ func TestSameActorReplaysCache(t *testing.T) {
 		acquireKeys,
 		2)
 	require.Equal(t, acquireKeys[1], acquireKeys[0])
-
 }
 
 // TestOIDCAndAPIKeyActorsAreDistinct is the adversarial guard:
@@ -186,7 +182,6 @@ func TestOIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 		acquireKeys,
 		2)
 	require.NotEqual(t, acquireKeys[1], acquireKeys[0])
-
 }
 
 // TestAnonymousActorBypassesIdempotency pins the bypass behavior: when
@@ -240,9 +235,7 @@ func TestAnonymousActorBypassesIdempotency(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Len(t,
-		acquireKeys,
-		0)
-	require.EqualValues(t, 2, handled)
-
+	require.Empty(t,
+		acquireKeys)
+	require.Equal(t, 2, handled)
 }

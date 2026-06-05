@@ -41,7 +41,6 @@ func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
 		"stq_27d44f587337af384a66c080216b17d5",
 
 		pgQueQueueName(workerRoute))
-
 }
 
 func BenchmarkPgQueQueueName(b *testing.B) {
@@ -83,7 +82,6 @@ func TestPgQueRouteKeyForRun(t *testing.T) {
 		"worker:project-a:critical:",
 
 		pgQueRouteKeyForRun(workerRun))
-
 }
 
 func TestPgQueWorkerRouteRef(t *testing.T) {
@@ -143,7 +141,6 @@ func TestPgQueWorkerRouteRef(t *testing.T) {
 			require.Equal(t,
 				tt.want,
 				got)
-
 		})
 	}
 }
@@ -186,8 +183,7 @@ func TestPgQueWorkerRouteKeysCachesWildcardLookup(t *testing.T) {
 	require.True(t,
 		slices.Equal(second,
 			want))
-	require.EqualValues(t, 1, queryCount)
-
+	require.Equal(t, 1, queryCount)
 }
 
 func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
@@ -232,8 +228,7 @@ func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
 	require.True(t,
 		slices.Equal(second,
 			want))
-	require.EqualValues(t, 2, queryCount)
-
+	require.Equal(t, 2, queryCount)
 }
 
 func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
@@ -273,7 +268,6 @@ func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
 	q.routeMu.Unlock()
 	require.False(t,
 		ok)
-
 }
 
 func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
@@ -321,8 +315,7 @@ func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
 	require.True(t,
 		slices.Equal(second,
 			want))
-	require.EqualValues(t, 2, queryCount)
-
+	require.Equal(t, 2, queryCount)
 }
 
 func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
@@ -493,6 +486,5 @@ func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
 	require.True(t,
 		slices.Equal(second,
 			want))
-	require.EqualValues(t, 2, queryCount)
-
+	require.Equal(t, 2, queryCount)
 }

@@ -108,7 +108,7 @@ func FuzzReplicaID(f *testing.F) {
 
 		// Verify that hashGRPCAPIKey with random input never panics and returns non-empty.
 		hash := hashGRPCAPIKey(hostname)
-		assert.NotEqual(t, "", hash)
+		assert.NotEmpty(t, hash)
 
 		// The actual ReplicaID logic: if hostname non-empty, use it; else UUID.
 		var id string
@@ -118,8 +118,7 @@ func FuzzReplicaID(f *testing.F) {
 			// Fallback would produce a UUID — verify the invariant holds.
 			id = "fallback-uuid-simulated"
 		}
-		assert.NotEqual(t, "", id)
-
+		assert.NotEmpty(t, id)
 	})
 }
 
@@ -137,14 +136,14 @@ func FuzzTaskResultStatus(f *testing.F) {
 	f.Add("status with\nnewline", "err\twith\ttab")
 
 	f.Fuzz(func(t *testing.T, status, errMsg string) {
-		assert.Equal(t,
-			"", TaskResultStatus("not a proto"))
-		assert.Equal(t,
-			"", TaskResultError(42))
-		assert.Equal(t,
-			"", TaskResultStatus(nil))
-		assert.Equal(t,
-			"", TaskResultError(nil))
+		assert.Empty(t,
+			TaskResultStatus("not a proto"))
+		assert.Empty(t,
+			TaskResultError(42))
+		assert.Empty(t,
+			TaskResultStatus(nil))
+		assert.Empty(t,
+			TaskResultError(nil))
 
 		// Wrong-type input must return "" without panic.
 
@@ -156,7 +155,6 @@ func FuzzTaskResultStatus(f *testing.F) {
 			status, TaskResultStatus(tr))
 		assert.Equal(t,
 			errMsg, TaskResultError(tr))
-
 	})
 }
 
@@ -171,6 +169,5 @@ func FuzzDispatchHMAC(f *testing.F) {
 		sig := dispatchHMAC(secret, timestamp, body)
 		assert.True(t,
 			strings.HasPrefix(sig, "v1="))
-
 	})
 }

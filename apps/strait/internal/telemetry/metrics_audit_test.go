@@ -98,7 +98,6 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	// Validate that the InitMetrics struct actually exposes the four
 	// counter handles — protects against future refactors that might
 	// drop an assignment from the struct literal.
-
 }
 
 // TestObserveAuditDrainer_CallbackReflectsLiveState asserts that each
@@ -149,5 +148,4 @@ func TestObserveAuditDrainer_CallbackReflectsLiveState(t *testing.T) {
 	d.depth = 99
 	assert.EqualValues(
 		t, 99, readDepth())
-
 }

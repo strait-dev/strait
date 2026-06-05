@@ -32,7 +32,6 @@ func TestCanary_VersionRouting_10Percent(t *testing.T) {
 	assert.False(t, ratio <
 		0.07 ||
 		ratio > 0.13)
-
 }
 
 func TestCanary_VersionRouting_50Percent(t *testing.T) {
@@ -57,7 +56,6 @@ func TestCanary_VersionRouting_50Percent(t *testing.T) {
 	assert.False(t, ratio <
 		0.45 ||
 		ratio > 0.55)
-
 }
 
 func TestCanary_VersionRouting_100Percent(t *testing.T) {
@@ -71,10 +69,9 @@ func TestCanary_VersionRouting_100Percent(t *testing.T) {
 
 	router := NewCanaryRouter()
 	for range 100 {
-		require.EqualValues(t, 2,
+		require.Equal(t, 2,
 			router.
 				ResolveVersion(canary))
-
 	}
 }
 
@@ -89,20 +86,18 @@ func TestCanary_VersionRouting_0Percent(t *testing.T) {
 
 	router := NewCanaryRouter()
 	for range 100 {
-		require.EqualValues(t, 1,
+		require.Equal(t, 1,
 			router.
 				ResolveVersion(canary))
-
 	}
 }
 
 func TestCanary_NoActiveCanary(t *testing.T) {
 	t.Parallel()
 	router := NewCanaryRouter()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		router.
 			ResolveVersion(nil))
-
 }
 
 func TestCanary_InactiveStatus(t *testing.T) {
@@ -115,10 +110,9 @@ func TestCanary_InactiveStatus(t *testing.T) {
 	}
 
 	router := NewCanaryRouter()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		router.
 			ResolveVersion(canary))
-
 }
 
 func TestCanary_DeterministicRouting(t *testing.T) {
@@ -132,7 +126,7 @@ func TestCanary_DeterministicRouting(t *testing.T) {
 
 	// Inject deterministic random: always returns 0.3.
 	router := newCanaryRouterWithRandFn(func() float64 { return 0.3 })
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		router.
 			ResolveVersion(canary))
 
@@ -140,12 +134,11 @@ func TestCanary_DeterministicRouting(t *testing.T) {
 
 	// Always returns 0.7.
 	router = newCanaryRouterWithRandFn(func() float64 { return 0.7 })
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		router.
 			ResolveVersion(canary))
 
 	// 0.7 >= 0.5 threshold => source version.
-
 }
 
 // Health monitor tests.
@@ -167,7 +160,6 @@ func TestCanaryMonitor_AutoPromote_HealthyTarget(t *testing.T) {
 	assert.Equal(t, CanaryDecisionPromote,
 
 		decision)
-
 }
 
 func TestCanaryMonitor_AutoRollback_HighFailureRate(t *testing.T) {
@@ -185,7 +177,6 @@ func TestCanaryMonitor_AutoRollback_HighFailureRate(t *testing.T) {
 	assert.Equal(t, CanaryDecisionRollback,
 
 		decision)
-
 }
 
 func TestCanaryMonitor_AutoRollback_HighLatency(t *testing.T) {
@@ -203,7 +194,6 @@ func TestCanaryMonitor_AutoRollback_HighLatency(t *testing.T) {
 	assert.Equal(t, CanaryDecisionRollback,
 
 		decision)
-
 }
 
 func TestCanaryMonitor_InsufficientData(t *testing.T) {
@@ -221,7 +211,6 @@ func TestCanaryMonitor_InsufficientData(t *testing.T) {
 	assert.Equal(t, CanaryDecisionHold,
 
 		decision)
-
 }
 
 func TestCanaryMonitor_DisabledConfig(t *testing.T) {
@@ -233,7 +222,6 @@ func TestCanaryMonitor_DisabledConfig(t *testing.T) {
 	assert.Equal(t, CanaryDecisionHold,
 
 		decision)
-
 }
 
 func TestCanaryMonitor_NilConfig(t *testing.T) {
@@ -243,7 +231,6 @@ func TestCanaryMonitor_NilConfig(t *testing.T) {
 	assert.Equal(t, CanaryDecisionHold,
 
 		decision)
-
 }
 
 // NextPromoteStep tests.
@@ -271,16 +258,14 @@ func TestCanaryMonitor_PromoteSteps(t *testing.T) {
 		assert.Equal(t, tt.
 			want, got,
 		)
-
 	}
 }
 
 func TestCanaryMonitor_NilPromoteConfig(t *testing.T) {
 	t.Parallel()
 	got := NextPromoteStep(nil, 10)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		got)
-
 }
 
 // Validation tests.
@@ -290,35 +275,30 @@ func TestValidateCanary_Valid(t *testing.T) {
 	err := ValidateCanaryRequest("wf-1", 1, 2, 10)
 	assert.NoError(t,
 		err)
-
 }
 
 func TestValidateCanary_SameVersions(t *testing.T) {
 	t.Parallel()
 	err := ValidateCanaryRequest("wf-1", 1, 1, 10)
 	assert.Error(t, err)
-
 }
 
 func TestValidateCanary_NegativeTrafficPct(t *testing.T) {
 	t.Parallel()
 	err := ValidateCanaryRequest("wf-1", 1, 2, -1)
 	assert.Error(t, err)
-
 }
 
 func TestValidateCanary_TrafficPctOver100(t *testing.T) {
 	t.Parallel()
 	err := ValidateCanaryRequest("wf-1", 1, 2, 150)
 	assert.Error(t, err)
-
 }
 
 func TestValidateCanary_EmptyWorkflowID(t *testing.T) {
 	t.Parallel()
 	err := ValidateCanaryRequest("", 1, 2, 10)
 	assert.Error(t, err)
-
 }
 
 // Fuzz tests.
@@ -345,7 +325,6 @@ func FuzzCanary_TrafficPercentage(f *testing.F) {
 			1 &&
 			v !=
 				2)
-
 	})
 }
 
@@ -383,12 +362,11 @@ func TestCanary_RollbackDuringPromotion(t *testing.T) {
 	}
 
 	router := NewCanaryRouter()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		router.
 			ResolveVersion(canary))
 
 	// Non-active canary should return 0.
-
 }
 
 func TestCanary_ZeroRunsForMetrics(t *testing.T) {
@@ -405,7 +383,6 @@ func TestCanary_ZeroRunsForMetrics(t *testing.T) {
 	assert.Equal(t, CanaryDecisionHold,
 
 		decision)
-
 }
 
 func TestCanary_BoundaryTrafficValues(t *testing.T) {
@@ -434,7 +411,6 @@ func TestCanary_BoundaryTrafficValues(t *testing.T) {
 			expect,
 			got,
 		)
-
 	}
 }
 
@@ -477,7 +453,6 @@ func TestMarshalAutoPromoteConfig(t *testing.T) {
 
 	nilData := MarshalAutoPromoteConfig(nil)
 	assert.Nil(t, nilData)
-
 }
 
 // 2A. ResolveVersion TrafficPct boundary tests.
@@ -496,10 +471,9 @@ func TestCanary_ResolveVersion_TrafficPctZero_RandNotCalled(t *testing.T) {
 		return 0.0
 	})
 	v := router.ResolveVersion(canary)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		v)
 	assert.False(t, called)
-
 }
 
 func TestCanary_ResolveVersion_TrafficPct100_RandNotCalled(t *testing.T) {
@@ -516,10 +490,9 @@ func TestCanary_ResolveVersion_TrafficPct100_RandNotCalled(t *testing.T) {
 		return 0.99
 	})
 	v := router.ResolveVersion(canary)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		v)
 	assert.False(t, called)
-
 }
 
 func TestCanary_ResolveVersion_TrafficPctNegative(t *testing.T) {
@@ -531,10 +504,9 @@ func TestCanary_ResolveVersion_TrafficPctNegative(t *testing.T) {
 		Status:        CanaryActive,
 	}
 	router := newCanaryRouterWithRandFn(func() float64 { return 0.0 })
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		router.
 			ResolveVersion(canary))
-
 }
 
 func TestCanary_ResolveVersion_TrafficPct101(t *testing.T) {
@@ -546,10 +518,9 @@ func TestCanary_ResolveVersion_TrafficPct101(t *testing.T) {
 		Status:        CanaryActive,
 	}
 	router := newCanaryRouterWithRandFn(func() float64 { return 0.99 })
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		router.
 			ResolveVersion(canary))
-
 }
 
 // 2B. EvaluateHealth TargetRunCount boundary.
@@ -570,7 +541,6 @@ func TestCanary_EvaluateHealth_ExactlyMinRuns(t *testing.T) {
 	assert.Equal(t, CanaryDecisionPromote,
 
 		decision)
-
 }
 
 func TestCanary_EvaluateHealth_OneBelowMinRuns(t *testing.T) {
@@ -587,7 +557,6 @@ func TestCanary_EvaluateHealth_OneBelowMinRuns(t *testing.T) {
 	assert.Equal(t, CanaryDecisionHold,
 
 		decision)
-
 }
 
 // 2C. EvaluateHealth threshold=0 means disabled.
@@ -606,7 +575,6 @@ func TestCanary_EvaluateHealth_ZeroFailureThreshold(t *testing.T) {
 	assert.Equal(t, CanaryDecisionPromote,
 
 		decision)
-
 }
 
 func TestCanary_EvaluateHealth_ZeroLatencyThreshold(t *testing.T) {
@@ -623,7 +591,6 @@ func TestCanary_EvaluateHealth_ZeroLatencyThreshold(t *testing.T) {
 	assert.Equal(t, CanaryDecisionPromote,
 
 		decision)
-
 }
 
 // 2D. ValidateCanaryRequest trafficPct boundary valid values.
@@ -633,14 +600,12 @@ func TestValidateCanary_TrafficPctZeroValid(t *testing.T) {
 	assert.NoError(t,
 		ValidateCanaryRequest("wf-1", 1, 2, 0),
 	)
-
 }
 
 func TestValidateCanary_TrafficPct100Valid(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t,
 		ValidateCanaryRequest("wf-1", 1, 2, 100))
-
 }
 
 // 2E. NextPromoteStep boundary: currentPct equals a step value.
@@ -652,29 +617,26 @@ func TestCanary_NextPromoteStep_CurrentEqualsStep(t *testing.T) {
 		Steps:   []int{10, 25, 50, 100},
 	}
 	got := NextPromoteStep(config, 10)
-	assert.EqualValues(t, 25,
+	assert.Equal(t, 25,
 		got)
 
 	got = NextPromoteStep(config, 25)
-	assert.EqualValues(t, 50,
+	assert.Equal(t, 50,
 		got)
-
 }
 
 func TestCanary_NextPromoteStep_EmptySteps(t *testing.T) {
 	t.Parallel()
 	config := &AutoPromoteConfig{Enabled: true, Steps: []int{}}
 	got := NextPromoteStep(config, 0)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		got)
-
 }
 
 func TestCanary_NextPromoteStep_DisabledConfig(t *testing.T) {
 	t.Parallel()
 	config := &AutoPromoteConfig{Enabled: false, Steps: []int{10, 25}}
 	got := NextPromoteStep(config, 0)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		got)
-
 }

@@ -59,8 +59,7 @@ func TestProjectContextMiddleware_NoProjectID(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-	require.EqualValues(t, 0, setter.setCalls)
-
+	require.Equal(t, 0, setter.setCalls)
 }
 
 func TestProjectContextMiddleware_WithProjectID(t *testing.T) {
@@ -82,8 +81,7 @@ func TestProjectContextMiddleware_WithProjectID(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-	require.EqualValues(t, 1, setter.setCalls)
-
+	require.Equal(t, 1, setter.setCalls)
 }
 
 func TestProjectContextMiddleware_SetError(t *testing.T) {
@@ -110,7 +108,6 @@ func TestProjectContextMiddleware_SetError(t *testing.T) {
 		t, called)
 
 	// Even on SetProjectContext error, the middleware should still call next.
-
 }
 
 func TestProjectContextMiddleware_ClearError(t *testing.T) {
@@ -136,7 +133,6 @@ func TestProjectContextMiddleware_ClearError(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-
 }
 
 func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
@@ -159,7 +155,6 @@ func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-
 }
 
 // 1b. rlsTxMiddleware
@@ -227,7 +222,6 @@ func TestRLSTxMiddleware_NoProjectID_PassThrough(t *testing.T) {
 		0)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
@@ -255,13 +249,12 @@ func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-	require.EqualValues(t, 1, pool.calls)
-	require.EqualValues(t, 1, tx.execCalls)
-	require.EqualValues(t, 1, tx.commitCalls)
-	require.EqualValues(t, 0, tx.rollbackCalls)
+	require.Equal(t, 1, pool.calls)
+	require.Equal(t, 1, tx.execCalls)
+	require.Equal(t, 1, tx.commitCalls)
+	require.Equal(t, 0, tx.rollbackCalls)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
@@ -283,7 +276,6 @@ func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestRLSTxMiddleware_SetConfigFails_RollsBackAnd500(t *testing.T) {
@@ -302,12 +294,11 @@ func TestRLSTxMiddleware_SetConfigFails_RollsBackAnd500(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
 	require.False(t, called)
-	require.EqualValues(t, 1, tx.rollbackCalls)
-	require.EqualValues(t, 0, tx.commitCalls)
+	require.Equal(t, 1, tx.rollbackCalls)
+	require.Equal(t, 0, tx.commitCalls)
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestRLSTxMiddleware_HandlerPanic_RollsBack(t *testing.T) {
@@ -325,9 +316,8 @@ func TestRLSTxMiddleware_HandlerPanic_RollsBack(t *testing.T) {
 
 	defer func() {
 		require.NotNil(t, recover())
-		require.EqualValues(t, 1, tx.rollbackCalls)
-		require.EqualValues(t, 0, tx.commitCalls)
-
+		require.Equal(t, 1, tx.rollbackCalls)
+		require.Equal(t, 0, tx.commitCalls)
 	}()
 	handler.ServeHTTP(w, r)
 }
@@ -349,8 +339,7 @@ func TestRLSTxMiddleware_NoTxPool_FallsBackToLegacy(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.True(
 		t, called)
-	require.EqualValues(t, 1, setter.setCalls)
-
+	require.Equal(t, 1, setter.setCalls)
 }
 
 // 2. requestMetrics
@@ -372,7 +361,6 @@ func TestRequestMetrics_NilMetrics(t *testing.T) {
 		t, called)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequestMetrics_RecordsStatusOnSuccess(t *testing.T) {
@@ -392,7 +380,6 @@ func TestRequestMetrics_RecordsStatusOnSuccess(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
@@ -409,7 +396,6 @@ func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // 3. normalizeAPIError
@@ -423,7 +409,6 @@ func TestNormalizeAPIError_StringInput(t *testing.T) {
 	require.Equal(t, "bad input",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_EmptyString(t *testing.T) {
@@ -435,7 +420,6 @@ func TestNormalizeAPIError_EmptyString(t *testing.T) {
 	require.Equal(t, "Not Found",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_NilError(t *testing.T) {
@@ -450,7 +434,6 @@ func TestNormalizeAPIError_NilError(t *testing.T) {
 
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_NonNilError(t *testing.T) {
@@ -462,7 +445,6 @@ func TestNormalizeAPIError_NonNilError(t *testing.T) {
 	require.Equal(t, "field missing",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_APIErrorValue(t *testing.T) {
@@ -475,7 +457,6 @@ func TestNormalizeAPIError_APIErrorValue(t *testing.T) {
 	require.Equal(t, "custom message",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_APIErrorEmptyCode(t *testing.T) {
@@ -485,7 +466,6 @@ func TestNormalizeAPIError_APIErrorEmptyCode(t *testing.T) {
 	require.Equal(t, ErrorCodeNotFound,
 		got.
 			Code)
-
 }
 
 func TestNormalizeAPIError_APIErrorEmptyMessage(t *testing.T) {
@@ -495,7 +475,6 @@ func TestNormalizeAPIError_APIErrorEmptyMessage(t *testing.T) {
 	require.Equal(t, "Forbidden",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_APIErrorPointer(t *testing.T) {
@@ -506,7 +485,6 @@ func TestNormalizeAPIError_APIErrorPointer(t *testing.T) {
 		got.
 			Message != "ptr_msg",
 	)
-
 }
 
 func TestNormalizeAPIError_NilAPIErrorPointer(t *testing.T) {
@@ -519,7 +497,6 @@ func TestNormalizeAPIError_NilAPIErrorPointer(t *testing.T) {
 	require.Equal(t, "Bad Request",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_UnknownType(t *testing.T) {
@@ -532,7 +509,6 @@ func TestNormalizeAPIError_UnknownType(t *testing.T) {
 	require.Equal(t, "I'm a teapot",
 		got.Message,
 	)
-
 }
 
 func TestNormalizeAPIError_WrappedError(t *testing.T) {
@@ -544,7 +520,6 @@ func TestNormalizeAPIError_WrappedError(t *testing.T) {
 		got.
 			Message,
 	)
-
 }
 
 func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
@@ -557,7 +532,6 @@ func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
 		!strings.Contains(got.
 			Message, "err2",
 		))
-
 }
 
 // 4. validateTriggerRequest (dry-run validation)
@@ -604,7 +578,6 @@ func TestValidateTriggerRequest_Valid(t *testing.T) {
 	require.NotNil(t, result)
 	require.Equal(t, "job-1", result.
 		Job.ID)
-
 }
 
 func TestValidateTriggerRequest_EmptyJobID(t *testing.T) {
@@ -614,7 +587,6 @@ func TestValidateTriggerRequest_EmptyJobID(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "", req)
 	require.Error(t, err)
-
 }
 
 func TestValidateTriggerRequest_WhitespaceJobID(t *testing.T) {
@@ -624,7 +596,6 @@ func TestValidateTriggerRequest_WhitespaceJobID(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "   ", req)
 	require.Error(t, err)
-
 }
 
 func TestValidateTriggerRequest_JobNotFound(t *testing.T) {
@@ -639,7 +610,6 @@ func TestValidateTriggerRequest_JobNotFound(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-missing", req)
 	require.Error(t, err)
-
 }
 
 func TestValidateTriggerRequest_JobDisabled(t *testing.T) {
@@ -654,9 +624,8 @@ func TestValidateTriggerRequest_JobDisabled(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "disabled"))
-
+	require.Contains(
+		t, err.Error(), "disabled")
 }
 
 func TestValidateTriggerRequest_JobPaused(t *testing.T) {
@@ -671,9 +640,8 @@ func TestValidateTriggerRequest_JobPaused(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "paused"))
-
+	require.Contains(
+		t, err.Error(), "paused")
 }
 
 func TestValidateTriggerRequest_PayloadTooLarge(t *testing.T) {
@@ -690,9 +658,8 @@ func TestValidateTriggerRequest_PayloadTooLarge(t *testing.T) {
 	req := TriggerRequest{Payload: json.RawMessage(largePayload)}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "too large"))
-
+	require.Contains(
+		t, err.Error(), "too large")
 }
 
 func TestValidateTriggerRequest_StoreError(t *testing.T) {
@@ -707,7 +674,6 @@ func TestValidateTriggerRequest_StoreError(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
 	require.Error(t, err)
-
 }
 
 func TestValidateTriggerRequest_QuotaExceeded(t *testing.T) {
@@ -728,9 +694,8 @@ func TestValidateTriggerRequest_QuotaExceeded(t *testing.T) {
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "quota"))
-
+	require.Contains(
+		t, err.Error(), "quota")
 }
 
 // 5. handleCreateProject
@@ -750,7 +715,6 @@ func TestHandleCreateProject_StoreError_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCreateProject_DuplicateName_Adversarial(t *testing.T) {
@@ -770,7 +734,6 @@ func TestHandleCreateProject_DuplicateName_Adversarial(t *testing.T) {
 		w.Code)
 
 	// Without special duplicate handling, the store error maps to 500.
-
 }
 
 func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
@@ -837,7 +800,6 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 
 		resp.
 			Message)
-
 }
 
 func TestHandleCreateProject_InvalidBody_Adversarial(t *testing.T) {
@@ -849,7 +811,6 @@ func TestHandleCreateProject_InvalidBody_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateProject_EmptyBody_Adversarial(t *testing.T) {
@@ -861,7 +822,6 @@ func TestHandleCreateProject_EmptyBody_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
@@ -882,7 +842,6 @@ func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 // 6. handleDeleteSecret
@@ -906,7 +865,6 @@ func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.
 			Code)
-
 }
 
 func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
@@ -926,7 +884,6 @@ func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
@@ -946,7 +903,6 @@ func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // Additional edge cases for normalizeAPIError / defaultErrorCode
@@ -972,7 +928,6 @@ func TestDefaultErrorCode_AllStatusCodes(t *testing.T) {
 			t.Parallel()
 			code := defaultErrorCode(tc.status)
 			require.Equal(t, tc.want, code)
-
 		})
 	}
 }
@@ -987,7 +942,6 @@ func TestNormalizeAPIError_APIErrorPointerEmptyCodeAndMessage(t *testing.T) {
 	require.Equal(t, "Conflict", got.
 		Message,
 	)
-
 }
 
 // Cross-org access via requireProjectMatch
@@ -997,18 +951,14 @@ func TestRequireProjectMatch_SameProject(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	err := requireProjectMatch(ctx, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestRequireProjectMatch_DifferentProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	err := requireProjectMatch(ctx, "proj-2")
-	require.True(
-		t, errors.Is(err,
-			errProjectMismatch,
-		))
-
+	require.ErrorIs(
+		t, err, errProjectMismatch)
 }
 
 func TestRequireProjectMatch_NoProjectContext(t *testing.T) {
@@ -1016,7 +966,6 @@ func TestRequireProjectMatch_NoProjectContext(t *testing.T) {
 	// Internal callers without project context should pass through.
 	err := requireProjectMatch(context.Background(), "proj-1")
 	require.NoError(t, err)
-
 }
 
 // ScheduledAt validation via trigger handler
@@ -1048,7 +997,6 @@ func TestTriggerJob_ScheduledAtInThePast(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestTriggerJob_ScheduledAtFarFuture(t *testing.T) {
@@ -1078,7 +1026,6 @@ func TestTriggerJob_ScheduledAtFarFuture(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 // Helper: mock billing enforcer

@@ -24,7 +24,6 @@ func TestDeriveAuditSigningKey_DeterministicOutput(t *testing.T) {
 	assert.Len(
 		t, key1, 32,
 	)
-
 }
 
 // TestDeriveAuditSigningKey_DifferentInputs_DifferentKeys verifies that
@@ -39,5 +38,4 @@ func TestDeriveAuditSigningKey_DifferentInputs_DifferentKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, bytes.
 		Equal(key1, key2))
-
 }

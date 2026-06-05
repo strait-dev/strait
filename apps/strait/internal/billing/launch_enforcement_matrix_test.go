@@ -102,8 +102,7 @@ func TestLaunchEnforcementMatrixHasEvidenceForActivePromises(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, row := range launchEnforcementMatrix {
-		require.NotEqual(t, "",
-			row.promise)
+		require.NotEmpty(t, row.promise)
 		require.False(t,
 			seen[row.promise])
 
@@ -152,7 +151,6 @@ func TestLaunchEnforcementMatrixRoadmapFeaturesStayInactive(t *testing.T) {
 					AllowsFeature(tier, row.
 						roadmapGate,
 					))
-
 		}
 	}
 }
@@ -169,7 +167,6 @@ func TestLaunchEnforcementMatrixCoversEveryRoadmapFeature(t *testing.T) {
 	for _, feature := range allRegistryFeatures() {
 		require.False(t,
 			IsRoadmapFeature(feature) && !covered[feature])
-
 	}
 }
 
@@ -198,7 +195,6 @@ func TestLaunchEnforcementMatrixCoversEveryLaunchActiveFeature(t *testing.T) {
 		require.False(t,
 			active &&
 				!covered[feature])
-
 	}
 }
 
@@ -212,7 +208,6 @@ func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
 		}
 		require.True(t,
 			testNames[row.test])
-
 	}
 }
 
@@ -277,15 +272,12 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 				return readErr
 			}
 			for _, token := range forbidden {
-				require.False(t,
-					strings.Contains(string(body),
-						token))
-
+				require.NotContains(t,
+					string(body), token)
 			}
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 
@@ -305,10 +297,8 @@ func TestLaunchDocsDoNotAdvertisePlanGatedRBACAsUniversal(t *testing.T) {
 			"You can also create custom roles with any combination of scopes",
 			"RBAC also supports role inheritance and policy-based grants",
 		} {
-			require.False(t,
-				strings.Contains(body,
-					phrase))
-
+			require.NotContains(t,
+				body, phrase)
 		}
 	}
 }
@@ -333,10 +323,8 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 			"data residency is included",
 			"client.regions",
 		} {
-			require.False(t,
-				strings.Contains(body,
-					phrase))
-
+			require.NotContains(t,
+				body, phrase)
 		}
 	}
 }
@@ -368,15 +356,12 @@ func TestLaunchCopyDoesNotAdvertiseHTTPModeAsPaidUpgrade(t *testing.T) {
 				"HTTP mode requires the Pro plan",
 				"HTTP mode requires Pro",
 			} {
-				require.False(t,
-					strings.Contains(body,
-						phrase))
-
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 
@@ -419,15 +404,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T)
 				"dedicated compute included",
 				"priority queue included",
 			} {
-				require.False(t,
-					strings.Contains(body,
-						phrase))
-
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 
@@ -493,15 +475,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsActive(t *testing.T) {
 				"priority queue enabled",
 				"priority queue supported",
 			} {
-				require.False(t,
-					strings.Contains(body,
-						phrase))
-
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 
@@ -542,15 +521,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRetiredModelOrKeyFeatures(t *testing.T)
 				strings.Join([]string{"A", "I", " usage"}, ""),
 				strings.Join([]string{"A", "I", " cost"}, ""),
 			} {
-				require.False(t,
-					strings.Contains(body,
-						phrase))
-
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 
@@ -567,10 +543,8 @@ func TestLaunchBillingEmailsDoNotAdvertiseSelfServeTrials(t *testing.T) {
 		"after your trial",
 		"Trial ending soon",
 	} {
-		require.False(t,
-			strings.Contains(body,
-				phrase))
-
+		require.NotContains(t,
+			body, phrase)
 	}
 }
 
@@ -599,10 +573,8 @@ func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *tes
 		require.NoError(t, err)
 
 		for _, token := range forbidden {
-			require.False(t,
-				strings.Contains(string(body),
-					token))
-
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -623,10 +595,8 @@ func TestLaunchPricingDoesNotExportRetiredModelUsageToClickHouse(t *testing.T) {
 		require.NoError(t, err)
 
 		for _, token := range forbidden {
-			require.False(t,
-				strings.Contains(string(body),
-					token))
-
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -643,10 +613,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForBillingUsage(t *testing.T) 
 		"ru.total_tokens",
 		"ru.cost_microusd",
 	} {
-		require.False(t,
-			strings.Contains(string(body),
-				token))
-
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -667,10 +635,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresCostAnalytics(t *te
 		"ByModel",
 		"TotalTokens",
 	} {
-		require.False(t,
-			strings.Contains(string(body),
-				token))
-
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -687,10 +653,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresPerformanceAnalytic
 		"SUM(ru.cost_microusd)",
 		"SUM(u.cost_microusd)",
 	} {
-		require.False(t,
-			strings.Contains(string(body),
-				token))
-
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -710,17 +674,12 @@ func TestLaunchPricingCostBudgetSumsDoNotReadRetiredModelUsage(t *testing.T) {
 
 		fnBody := body[start : start+1+next]
 		for _, token := range []string{"run_usage", "cost_microusd) FROM run_usage", "u.cost_microusd"} {
-			require.False(t,
-				strings.Contains(fnBody,
-					token),
+			require.NotContains(t,
+				fnBody, token,
 			)
-
 		}
-		require.True(t,
-			strings.Contains(fnBody,
-				"billing_cost_events",
-			))
-
+		require.Contains(t,
+			fnBody, "billing_cost_events")
 	}
 }
 
@@ -748,10 +707,8 @@ func TestLaunchPricingDoesNotDefineLegacyRunTelemetryCode(t *testing.T) {
 			"completion_tokens",
 			"total_tokens",
 		} {
-			require.False(t,
-				strings.Contains(body,
-					token))
-
+			require.NotContains(t,
+				body, token)
 		}
 	}
 }
@@ -776,10 +733,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForClickHouseAnalytics(t *test
 		"ByModel",
 		"TotalTokens",
 	} {
-		require.False(t,
-			strings.Contains(string(body),
-				token))
-
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -798,10 +753,8 @@ func TestLaunchPricingDoesNotDefineRetiredModelUsageClickHouseExport(t *testing.
 			"total_tokens",
 			"insertRunUsageEvents",
 		} {
-			require.False(t,
-				strings.Contains(string(body),
-					token))
-
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -860,7 +813,6 @@ func TestLaunchSourceDoesNotExposeRetiredModelOrKeyMarketingTerms(t *testing.T) 
 			return nil
 		})
 		require.NoError(t, err)
-
 	}
 }
 

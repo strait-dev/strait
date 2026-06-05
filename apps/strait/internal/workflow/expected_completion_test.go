@@ -27,7 +27,6 @@ func TestExpectedCompletion_LinearDAG(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_ParallelDAG(t *testing.T) {
@@ -47,7 +46,6 @@ func TestExpectedCompletion_ParallelDAG(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_DiamondDAG(t *testing.T) {
@@ -68,7 +66,6 @@ func TestExpectedCompletion_DiamondDAG(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_Recalculation(t *testing.T) {
@@ -90,7 +87,6 @@ func TestExpectedCompletion_Recalculation(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_NoExpectedDurations(t *testing.T) {
@@ -103,7 +99,6 @@ func TestExpectedCompletion_NoExpectedDurations(t *testing.T) {
 	start := time.Now()
 	got := CalculateExpectedCompletion(steps, start)
 	assert.Nil(t, got)
-
 }
 
 func TestExpectedCompletion_MixedDurations(t *testing.T) {
@@ -122,14 +117,12 @@ func TestExpectedCompletion_MixedDurations(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_EmptySteps(t *testing.T) {
 	t.Parallel()
 	got := CalculateExpectedCompletion(nil, time.Now())
 	assert.Nil(t, got)
-
 }
 
 func TestExpectedCompletion_SingleStep(t *testing.T) {
@@ -146,7 +139,6 @@ func TestExpectedCompletion_SingleStep(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
@@ -164,7 +156,6 @@ func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
@@ -177,7 +168,6 @@ func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
 	completed := map[string]bool{"a": true, "b": true}
 	got := RecalculateExpectedCompletion(steps, completed, time.Now())
 	assert.Nil(t, got)
-
 }
 
 func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *testing.T) {
@@ -197,7 +187,6 @@ func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *te
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
@@ -216,7 +205,6 @@ func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testin
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
@@ -235,7 +223,6 @@ func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testing.T) {
@@ -253,7 +240,6 @@ func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testin
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 // Fuzz tests for expected completion.
@@ -323,7 +309,6 @@ func TestExpectedCompletion_MaxIntDuration(t *testing.T) {
 	)
 
 	// Should not panic, just produce a far-future time.
-
 }
 
 func TestExpectedCompletion_ZeroDuration(t *testing.T) {
@@ -337,7 +322,6 @@ func TestExpectedCompletion_ZeroDuration(t *testing.T) {
 	// hasAny check looks for > 0, so this should return nil.
 	got := CalculateExpectedCompletion(steps, time.Now())
 	assert.Nil(t, got)
-
 }
 
 func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
@@ -352,7 +336,6 @@ func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 	assert.True(t,
 		got.Equal(
 			want))
-
 }
 
 func BenchmarkCalculateExpectedCompletion(b *testing.B) {

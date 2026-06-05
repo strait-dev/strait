@@ -26,7 +26,6 @@ func TestSharedDedupe_SuppressesAcrossInstances(t *testing.T) {
 	b := newRecentDedupe(16).WithShared(shared, nil)
 	require.True(t, a.Remember("cdc:key-1"))
 	require.False(t, b.Remember("cdc:key-1"))
-
 }
 
 func TestSharedDedupe_TTLExpiryAllowsReprocessing(t *testing.T) {
@@ -69,7 +68,6 @@ func TestSharedDedupe_RedisFailureFallsBackToLocalDedupe(t *testing.T) {
 	require.NotEqual(t, 0,
 		fallbacks.Load(),
 	)
-
 }
 
 func TestWebhookReceiver_SharedDedupeSuppressesAcrossReceivers(t *testing.T) {
@@ -106,11 +104,9 @@ func TestWebhookReceiver_SharedDedupeSuppressesAcrossReceivers(t *testing.T) {
 		require.Equal(t, http.
 			StatusOK, rec.Code,
 		)
-
 	}
 	require.EqualValues(t, 1, calls.
 		Load())
-
 }
 
 func FuzzSharedDedupeKeys(f *testing.F) {

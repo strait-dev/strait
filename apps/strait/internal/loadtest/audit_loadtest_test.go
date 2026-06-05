@@ -154,7 +154,7 @@ loop:
 			reclaimed++
 		}
 	}
-	require.EqualValues(t, 0, store.
+	require.Equal(t, 0, store.
 		DeadletterCount())
 	require.NotEqual(t, 0,
 		reclaimed,

@@ -25,16 +25,12 @@ func TestPruneAlertCooldowns_DropsStaleEntries(t *testing.T) {
 		r.dlqAlertCooldown[fmt.Sprintf("fresh-dlq-%d", i)] = freshCutoff
 		r.queueAlertCooldown[fmt.Sprintf("fresh-q-%d", i)] = freshCutoff
 	}
-	require.EqualValues(t, 1000, len(r.dlqAlertCooldown))
-	require.EqualValues(t, 1000, len(r.queueAlertCooldown))
+	require.Len(t, r.dlqAlertCooldown, 1000)
+	require.Len(t, r.queueAlertCooldown, 1000)
 
 	r.pruneAlertCooldowns(now)
-	require.EqualValues(t, 500, len(
-		r.dlqAlertCooldown,
-	))
-	require.EqualValues(t, 500, len(
-		r.queueAlertCooldown,
-	))
+	require.Len(t, r.dlqAlertCooldown, 500)
+	require.Len(t, r.queueAlertCooldown, 500)
 
 	for i := range 500 {
 		if _, ok := r.dlqAlertCooldown[fmt.Sprintf("stale-dlq-%d", i)]; ok {

@@ -27,7 +27,6 @@ func TestNewService_ClientTimeout(t *testing.T) {
 		client.
 		Timeout,
 	)
-
 }
 
 func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
@@ -61,7 +60,6 @@ func TestDrainRunEvents_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) 
 	))
 	require.NotEqual(t,
 		0, lookups.Load())
-
 }
 
 func TestDrainRunEvents(t *testing.T) {
@@ -100,7 +98,6 @@ func TestDrainRunEvents(t *testing.T) {
 					got[1].ID !=
 						"evt-2",
 				)
-
 			},
 		},
 		{
@@ -131,7 +128,6 @@ func TestDrainRunEvents(t *testing.T) {
 					"user" || p !=
 					"pass",
 				)
-
 			},
 		},
 		{
@@ -185,7 +181,6 @@ func TestDrainRunEvents(t *testing.T) {
 				assert.NotEqual(t,
 					"evil.com", r.Host,
 				)
-
 			},
 		},
 	}

@@ -49,7 +49,6 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 		got.MaxQueuedRuns !=
 			100)
 	require.EqualValues(t, 1, calls.Load())
-
 }
 
 func TestQuotaCache_Invalidate(t *testing.T) {
@@ -67,7 +66,6 @@ func TestQuotaCache_Invalidate(t *testing.T) {
 
 	_, _ = c.Get(ctx, "p1")
 	require.EqualValues(t, 2, calls.Load())
-
 }
 
 func TestQuotaCache_SingleflightDedupes(t *testing.T) {
@@ -116,7 +114,6 @@ func TestQuotaCache_SingleflightDedupes(t *testing.T) {
 			nil || results[i].
 			MaxQueuedRuns !=
 			42)
-
 	}
 }
 
@@ -135,7 +132,6 @@ func TestQuotaCache_TTLExpiry(t *testing.T) {
 
 	_, _ = c.Get(ctx, "p1")
 	require.EqualValues(t, 2, calls.Load())
-
 }
 
 func TestQuotaCache_PropagatesError(t *testing.T) {
@@ -147,9 +143,8 @@ func TestQuotaCache_PropagatesError(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := c.Get(ctx, "p1")
-	require.True(
-		t, errors.Is(err,
-			sentinel),
+	require.ErrorIs(
+		t, err, sentinel,
 	)
 
 	// Failed loads must not poison the cache. A subsequent successful load
@@ -158,7 +153,6 @@ func TestQuotaCache_PropagatesError(t *testing.T) {
 	got, err := c.Get(ctx, "p1")
 	require.NoError(t, err)
 	require.NotNil(t, got)
-
 }
 
 func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
@@ -176,7 +170,6 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 
 	_, _ = c.Get(ctx, "p1")
 	require.EqualValues(t, 1, calls.Load())
-
 }
 
 func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
@@ -207,7 +200,6 @@ func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &envelope))
 	require.EqualValues(t, 9, envelope.Version)
 	require.EqualValues(t, 1, calls.Load())
-
 }
 
 func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
@@ -243,7 +235,6 @@ func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
 			Barrier ||
 		!envelope.Negative,
 	)
-
 }
 
 func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
@@ -259,7 +250,6 @@ func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
 	c.InvalidateWithVersion("project-stale", 10)
 	_, err := c.Get(t.Context(), "project-stale")
 	require.Error(t, err)
-
 }
 
 func TestQuotaCache_Disabled(t *testing.T) {
@@ -273,5 +263,4 @@ func TestQuotaCache_Disabled(t *testing.T) {
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
 	require.EqualValues(t, 3, calls.Load())
-
 }

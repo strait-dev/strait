@@ -376,7 +376,6 @@ func TestDowngradeApplier_AppliesPastDueDowngrades(t *testing.T) {
 		store.
 			appliedOrgIDs[1] !=
 			"org-2")
-
 }
 
 func TestDowngradeApplier_SkipsOrgsNotYetDue(t *testing.T) {
@@ -388,10 +387,8 @@ func TestDowngradeApplier_SkipsOrgsNotYetDue(t *testing.T) {
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, store.
-		appliedOrgIDs,
-		0)
-
+	require.Empty(t, store.
+		appliedOrgIDs)
 }
 
 func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
@@ -416,7 +413,6 @@ func TestDowngradeApplier_ContinuesOnSingleOrgError(t *testing.T) {
 		1)
 	assert.Equal(t, "org-ok",
 		store.appliedOrgIDs[0])
-
 }
 
 func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
@@ -440,10 +436,8 @@ func TestDowngradeApplier_DoesNotApplyWhenPendingTierChanged(t *testing.T) {
 
 	applier := NewDowngradeApplier(store, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, store.
-		appliedOrgIDs,
-		0)
-
+	require.Empty(t, store.
+		appliedOrgIDs)
 }
 
 func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing.T) {
@@ -471,10 +465,8 @@ func TestDowngradeApplier_RetainsPendingTierWhenLimitEnforcementFails(t *testing
 	require.Equal(t, "apply:org-fail-enforce",
 
 		store.operations[0])
-	require.Len(t, store.
-		clearedOrgIDs,
-		0)
-
+	require.Empty(t, store.
+		clearedOrgIDs)
 }
 
 func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t *testing.T) {
@@ -524,9 +516,8 @@ func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t 
 
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(ctx)
-	require.Len(t, store.
-		clearedOrgIDs,
-		0)
+	require.Empty(t, store.
+		clearedOrgIDs)
 
 	after, err := enforcer.GetOrgPlanLimits(ctx, orgID)
 	require.NoError(t,
@@ -535,7 +526,6 @@ func TestDowngradeApplier_InvalidatesOrgCacheAfterTierTransitionBeforeCleanup(t 
 		PlanFree, after.
 		PlanTier,
 	)
-
 }
 
 func TestDowngradeApplier_NilEnforcer(t *testing.T) {
@@ -556,7 +546,6 @@ func TestDowngradeApplier_NilEnforcer(t *testing.T) {
 		1)
 
 	// should not panic
-
 }
 
 func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
@@ -577,10 +566,8 @@ func TestDowngradeApplier_SkipsHTTPPauseWhenNewPlanAllows(t *testing.T) {
 	require.Len(t, store.
 		appliedOrgIDs,
 		1)
-	assert.Len(t, store.
-		pauseHTTPCalls,
-		0)
-
+	assert.Empty(t, store.
+		pauseHTTPCalls)
 }
 
 // TestDowngradeApplier_DeactivatesExcessLogDrains confirms the Pro→Free
@@ -644,7 +631,6 @@ func TestDowngradeApplier_DeactivatesExcessNotificationChannelsPerProject(t *tes
 
 			call.
 				max)
-
 	}
 	seen := map[string]bool{}
 	for _, call := range store.notifChannelCalls {
@@ -652,7 +638,6 @@ func TestDowngradeApplier_DeactivatesExcessNotificationChannelsPerProject(t *tes
 	}
 	for _, p := range store.projectIDs {
 		assert.True(t, seen[p])
-
 	}
 }
 
@@ -675,10 +660,9 @@ func TestDowngradeApplier_SkipsLogDrainCleanupForUnlimitedTier(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	applier := NewDowngradeApplier(store, enforcer, time.Minute)
 	applier.apply(context.Background())
-	assert.Len(t, store.
-		logDrainCalls, 0,
+	assert.Empty(t, store.
+		logDrainCalls,
 	)
-
 }
 
 // TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade pins the documented
@@ -709,7 +693,6 @@ func TestDowngradeApplier_EmitsMemberOverageEventOnDowngrade(t *testing.T) {
 	// the apply path must not panic and must succeed. The integration test
 	// covers the actual ClickHouse emission path. This test pins that the
 	// applier reaches the overage branch (count > cap) without erroring.
-
 }
 
 // TestDowngradeApplier_NoMemberOverageWhenUnderCap confirms the overage path
@@ -737,5 +720,4 @@ func TestDowngradeApplier_NoMemberOverageWhenUnderCap(t *testing.T) {
 	// No assertion on the chExporter here; the integration test covers the
 	// non-emission case. This test pins the under-cap branch is reached
 	// without error.
-
 }

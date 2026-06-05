@@ -59,7 +59,6 @@ func TestEnvironment_VariableKeyInjection(t *testing.T) {
 			require.Equal(t, "safe_value",
 				captured.
 					Variables[key])
-
 		})
 	}
 }
@@ -107,7 +106,6 @@ func TestEnvironment_VariableValueInjection(t *testing.T) {
 			want := strings.ReplaceAll(val, "\x00", "")
 			require.Equal(t, want, captured.
 				Variables["SAFE_KEY"])
-
 		})
 	}
 }
@@ -138,7 +136,6 @@ func TestEnvironment_CircularParentID(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// Should not panic or hang. Any response code is acceptable.
-
 }
 
 // TestEnvironment_DeepParentChain verifies that a 100-level deep parent chain
@@ -165,7 +162,6 @@ func TestEnvironment_DeepParentChain(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestEnvironment_VariableOverrideResolution verifies that child environment
@@ -215,7 +211,6 @@ func TestEnvironment_VariableOverrideResolution(t *testing.T) {
 			ResolvedVariableKeys,
 
 			"API_KEY"))
-
 }
 
 func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
@@ -255,7 +250,6 @@ func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
 		String(),
 		"DATABASE_URL",
 	))
-
 }
 
 func TestEnvironment_ListDoesNotLeakVariableValues(t *testing.T) {
@@ -281,15 +275,11 @@ func TestEnvironment_ListDoesNotLeakVariableValues(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-	require.False(t, strings.Contains(w.Body.
-		String(),
-		"secret-token-value",
-	))
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"API_TOKEN"))
-
+	require.NotContains(t, w.Body.
+		String(), "secret-token-value")
+	require.Contains(
+		t, w.Body.
+			String(), "API_TOKEN")
 }
 
 func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T) {
@@ -313,7 +303,6 @@ func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T
 		Slug:      "prod",
 	}})
 	require.Error(t, err)
-
 }
 
 func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
@@ -340,7 +329,6 @@ func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
 		ParentID:  "env-other",
 	}})
 	require.Error(t, err)
-
 }
 
 func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
@@ -370,7 +358,6 @@ func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
 		Body:  UpdateEnvironmentRequest{ParentID: &parentID},
 	})
 	require.Error(t, err)
-
 }
 
 func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
@@ -392,7 +379,6 @@ func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
@@ -423,7 +409,6 @@ func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusForbidden,
 		))
-
 }
 
 func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
@@ -456,7 +441,6 @@ func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusForbidden,
 		))
-
 }
 
 func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
@@ -491,7 +475,6 @@ func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.True(
 		t, updated)
-
 }
 
 // TestEnvironment_NullBytesInVariables verifies that null bytes in variable
@@ -552,7 +535,6 @@ func TestEnvironment_EmptyVariableName(t *testing.T) {
 	require.NotEqual(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // TestEnvironment_DuplicateVariableKeys verifies that sending duplicate keys
@@ -581,7 +563,6 @@ func TestEnvironment_DuplicateVariableKeys(t *testing.T) {
 	require.NotNil(t, captured)
 	require.Equal(t, "second", captured.
 		Variables["DB_HOST"])
-
 }
 
 // TestSecret_CreateWithSQLInjectionKey verifies that SQL injection attempts
@@ -627,7 +608,6 @@ func TestSecret_CreateWithSQLInjectionKey(t *testing.T) {
 			require.Equal(t, key, captured.
 				SecretKey,
 			)
-
 		})
 	}
 }
@@ -656,10 +636,9 @@ func TestSecret_EncryptionVerification(t *testing.T) {
 
 		w.Code)
 	require.NotNil(t, captured)
-	require.NotEqual(t, "", captured.
+	require.NotEmpty(t, captured.
 		EncryptedValue,
 	)
-
 }
 
 // TestSecret_DecryptionRoundTrip verifies that creating and listing secrets
@@ -698,9 +677,8 @@ func TestSecret_DecryptionRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w2.Code,
 	)
-	require.False(t, strings.Contains(w2.
-		Body.String(), "token-value"))
-
+	require.NotContains(t, w2.
+		Body.String(), "token-value")
 }
 
 // TestSecret_CrossEnvironmentIsolation verifies that secrets created for one
@@ -726,10 +704,8 @@ func TestSecret_CrossEnvironmentIsolation(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-	require.False(t, strings.Contains(w.Body.
-		String(),
-		"PROD_KEY"))
-
+	require.NotContains(t, w.Body.
+		String(), "PROD_KEY")
 }
 
 func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *testing.T) {
@@ -760,7 +736,6 @@ func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *t
 		Value:       "secret",
 	}})
 	require.Error(t, err)
-
 }
 
 func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
@@ -794,7 +769,6 @@ func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
 		Value:       "secret",
 	}})
 	require.Error(t, err)
-
 }
 
 func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
@@ -823,7 +797,6 @@ func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
 		t, ok)
 	require.Len(t,
 		items, 1)
-
 }
 
 func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(t *testing.T) {
@@ -883,7 +856,6 @@ func TestSecret_KeyVersionTracking(t *testing.T) {
 	require.GreaterOrEqual(t, captured.
 		KeyVersion,
 		0)
-
 }
 
 // FuzzEnvironmentVariables fuzzes environment variable key/value pairs to ensure

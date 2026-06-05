@@ -60,10 +60,9 @@ func TestNotificationTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 		t, "run.completed",
 		store.deliveries[0].EventType,
 	)
-	require.NotEqual(t, "", store.
+	require.NotEmpty(t, store.
 		deliveries[0].DedupeKey,
 	)
-
 }
 
 func TestNotificationTrigger_NonTerminalStatus_Skipped(t *testing.T) {
@@ -78,12 +77,9 @@ func TestNotificationTrigger_NonTerminalStatus_Skipped(t *testing.T) {
 	for _, status := range []string{"queued", "executing", "dequeued", "delayed"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
 		require.NoError(t, err)
-
 	}
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestNotificationTrigger_DisabledChannel_Skipped(t *testing.T) {
@@ -97,10 +93,8 @@ func TestNotificationTrigger_DisabledChannel_Skipped(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestNotificationTrigger_NoChannels(t *testing.T) {
@@ -110,10 +104,8 @@ func TestNotificationTrigger_NoChannels(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestNotificationTrigger_MultipleChannels(t *testing.T) {
@@ -132,7 +124,6 @@ func TestNotificationTrigger_MultipleChannels(t *testing.T) {
 	require.Len(t,
 		store.deliveries,
 		3)
-
 }
 
 func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
@@ -159,7 +150,7 @@ func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *test
 
 				store.
 					deliveries[0].EventType)
-			require.NotEqual(t, "", store.
+			require.NotEmpty(t, store.
 				deliveries[0].DedupeKey,
 			)
 
@@ -169,7 +160,6 @@ func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *test
 
 				&payload))
 			require.Equal(t, status, payload["status"])
-
 		})
 	}
 }
@@ -183,7 +173,6 @@ func TestDeepSecNotificationTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }
 
 func TestNotificationTrigger_PayloadHasRunData(t *testing.T) {
@@ -213,7 +202,6 @@ func TestNotificationTrigger_PayloadHasRunData(t *testing.T) {
 	assert.Equal(
 		t, "run.completed",
 		payload["event_type"])
-
 }
 
 func TestNotificationTrigger_InvalidJSON(t *testing.T) {
@@ -228,7 +216,6 @@ func TestNotificationTrigger_InvalidJSON(t *testing.T) {
 	}
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
@@ -242,10 +229,8 @@ func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestDeepSecNotificationTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
@@ -261,5 +246,4 @@ func TestDeepSecNotificationTrigger_CreateDeliveryErrorReturnsForRetry(t *testin
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }

@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,15 +16,12 @@ func TestRedactOTLPEndpoint_RemovesUserInfoAndCredentialQuery(t *testing.T) {
 
 	got := redactOTLPEndpoint(u)
 	for _, secret := range []string{"user", "pass", "abc", "def"} {
-		require.False(t, strings.Contains(got, secret))
-
+		require.NotContains(t, got, secret)
 	}
 	for _, want := range []string{"api_key=%5Bredacted%5D", "auth_token=%5Bredacted%5D", "tenant=prod"} {
-		require.True(t, strings.Contains(got, want))
-
+		require.Contains(t, got, want)
 	}
-	require.False(t, strings.Contains(got, "@otel.example.com"))
-
+	require.NotContains(t, got, "@otel.example.com")
 }
 
 func TestRedactOTLPEndpoint_DoesNotMutateInput(t *testing.T) {
@@ -39,5 +35,4 @@ func TestRedactOTLPEndpoint_DoesNotMutateInput(t *testing.T) {
 	_ = redactOTLPEndpoint(u)
 	require.Equal(t, raw,
 		u.String())
-
 }

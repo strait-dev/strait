@@ -72,7 +72,6 @@ func TestCaptureWriterAllowsUnderCap(t *testing.T) {
 	)
 	require.Equal(t, len(body), completedBytes)
 	require.False(t, deleteCalled)
-
 }
 
 // TestCaptureWriterDropsCacheOnOverflow pins the overflow contract:
@@ -135,7 +134,6 @@ func TestCaptureWriterDropsCacheOnOverflow(t *testing.T) {
 	require.True(
 		t, deleteCalled,
 	)
-
 }
 
 // TestCaptureWriterBuffersAtMostCap ensures the in-memory buffer
@@ -165,7 +163,6 @@ func TestCaptureWriterBuffersAtMostCap(t *testing.T) {
 	require.True(
 		t, cw.overflow,
 	)
-
 }
 
 // FuzzCaptureWriterBoundedBufferSize exercises the buffer-cap
@@ -194,7 +191,6 @@ func FuzzCaptureWriterBoundedBufferSize(f *testing.F) {
 		)
 		require.False(t, size > uint32(maxIdempotencyResponseBytes) && !cw.
 			overflow)
-
 	})
 }
 
@@ -214,5 +210,4 @@ func TestCaptureWriterPropertyBoundedBuffer(t *testing.T) {
 	}
 	require.NoError(t, quick.
 		Check(prop, &quick.Config{MaxCount: 200}))
-
 }

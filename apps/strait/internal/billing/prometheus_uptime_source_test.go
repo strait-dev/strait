@@ -53,8 +53,7 @@ func TestPrometheusUptimeSource_ScalarValue(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 99.5, got)
-
+	require.InDelta(t, 99.5, got, 1e-9)
 }
 
 // TestPrometheusUptimeSource_VectorValue covers the Vector shape, which
@@ -70,8 +69,7 @@ func TestPrometheusUptimeSource_VectorValue(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 97.25, got)
-
+	require.InDelta(t, 97.25, got, 1e-9)
 }
 
 func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
@@ -86,8 +84,7 @@ func TestDeepSecPrometheusUptimeSource_VectorAveragesAllSeries(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 90, got)
-
+	require.InDelta(t, 90, got, 1e-9)
 }
 
 // TestPrometheusUptimeSource_NegativeReadingCoercesToFull guards the
@@ -102,8 +99,7 @@ func TestPrometheusUptimeSource_NegativeReadingCoercesToFull(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 100, got)
-
+	require.InDelta(t, 100, got, 1e-9)
 }
 
 // TestPrometheusUptimeSource_OverHundredClamps protects the upper edge:
@@ -117,8 +113,7 @@ func TestPrometheusUptimeSource_OverHundredClamps(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 100, got)
-
+	require.InDelta(t, 100, got, 1e-9)
 }
 
 // TestPrometheusUptimeSource_APIErrorWrapped guards the caller's
@@ -132,10 +127,7 @@ func TestPrometheusUptimeSource_APIErrorWrapped(t *testing.T) {
 	src := newTestUptimeSource(t, stubPromAPI{err: sentinel})
 
 	_, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
-	require.True(t, errors.Is(err,
-		sentinel,
-	))
-
+	require.ErrorIs(t, err, sentinel)
 }
 
 func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
@@ -164,10 +156,9 @@ func TestPrometheusUptimeSource_QueryReceivesBoundedDeadline(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 99.9, got)
+	require.InDelta(t, 99.9, got, 1e-9)
 	require.True(t, sawDeadline.
 		Load())
-
 }
 
 // TestPrometheusUptimeSource_EmptyQueryRejected guards the constructor:
@@ -207,5 +198,4 @@ func TestPrometheusUptimeSource_UnexpectedTypeError(t *testing.T) {
 	_, err := src.MonthlyUptimePct(context.Background(), "org-1", time.Time{}, time.Now())
 	require.Error(t,
 		err)
-
 }

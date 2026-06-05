@@ -20,16 +20,15 @@ func TestStrongNamespacePoliciesCoverRequiredNamespaces(t *testing.T) {
 		if _, ok := required[policy.Namespace]; ok {
 			required[policy.Namespace] = true
 		}
-		require.NotEqual(t, "", policy.CacheKey)
-		require.NotEqual(t, "", policy.VersionSource)
+		require.NotEmpty(t, policy.CacheKey)
+		require.NotEmpty(t, policy.VersionSource)
 		require.NotEmpty(t, policy.MutationPaths)
-		require.NotEqual(t, "", policy.WriteThroughPath)
-		require.NotEqual(t, "", policy.BusPath)
-		require.NotEqual(t, "", policy.CDCRepairPath)
+		require.NotEmpty(t, policy.WriteThroughPath)
+		require.NotEmpty(t, policy.BusPath)
+		require.NotEmpty(t, policy.CDCRepairPath)
 		require.NotEmpty(t, policy.CDCTables)
-		require.NotEqual(t, "", policy.FailureMode)
-		require.NotEqual(t, "", policy.TestMarker)
-
+		require.NotEmpty(t, policy.FailureMode)
+		require.NotEmpty(t, policy.TestMarker)
 	}
 
 	for namespace, found := range required {

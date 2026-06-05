@@ -14,9 +14,8 @@ func TestAcquireAdvisoryLock_RejectsNilQueries(t *testing.T) {
 	err := AcquireAdvisoryLock(context.Background(), nil, AdvisoryLockNsAuditChain, "proj-1")
 	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.Error(), "queries is nil"))
-
+	assert.Contains(t,
+		err.Error(), "queries is nil")
 }
 
 func TestAcquireAdvisoryLock_RejectsEmptyNamespace(t *testing.T) {
@@ -25,9 +24,8 @@ func TestAcquireAdvisoryLock_RejectsEmptyNamespace(t *testing.T) {
 	err := AcquireAdvisoryLock(context.Background(), q, "", "proj-1")
 	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.Error(), "namespace is empty"))
-
+	assert.Contains(t,
+		err.Error(), "namespace is empty")
 }
 
 func TestAcquireAdvisoryLock_RejectsEmptyKey(t *testing.T) {
@@ -36,9 +34,8 @@ func TestAcquireAdvisoryLock_RejectsEmptyKey(t *testing.T) {
 	err := AcquireAdvisoryLock(context.Background(), q, AdvisoryLockNsAuditChain, "")
 	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.Error(), "key is empty"))
-
+	assert.Contains(t,
+		err.Error(), "key is empty")
 }
 
 // TestAdvisoryLockNamespaces_Distinct guards against two namespaces
@@ -60,11 +57,10 @@ func TestAdvisoryLockNamespaces_Distinct(t *testing.T) {
 	// deduplicates, so a collision would show up as len < 3.
 
 	for ns := range namespaces {
-		assert.NotEqual(t, "", ns)
+		assert.NotEmpty(t, ns)
 		assert.True(t,
 			strings.HasSuffix(ns,
 				":",
 			))
-
 	}
 }

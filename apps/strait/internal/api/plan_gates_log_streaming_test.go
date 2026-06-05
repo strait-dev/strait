@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -35,9 +34,8 @@ func TestRunLogStream_FreeTier_Rejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream/logs", "", "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "Log streaming"))
-
+	assert.Contains(t,
+		w.Body.String(), "Log streaming")
 }
 
 // TestRunLogStream_StarterTier_Allowed confirms the gate passes on the
@@ -64,7 +62,6 @@ func TestRunLogStream_StarterTier_Allowed(t *testing.T) {
 	require.NotEqual(t, http.
 		StatusForbidden, w.Code,
 	)
-
 }
 
 // TestRunLogStream_NilEnforcer_FailsOpen confirms community builds do not
@@ -88,5 +85,4 @@ func TestRunLogStream_NilEnforcer_FailsOpen(t *testing.T) {
 	require.NotEqual(t, http.
 		StatusForbidden, w.Code,
 	)
-
 }

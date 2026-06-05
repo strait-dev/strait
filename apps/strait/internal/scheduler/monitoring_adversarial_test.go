@@ -24,7 +24,6 @@ func TestAnomalyMonitor_ZeroInterval(t *testing.T) {
 			Minute, am.
 		interval,
 	)
-
 }
 
 // TestAnomalyMonitor_NegativeInterval verifies that a negative interval gets clamped to the default.
@@ -37,7 +36,6 @@ func TestAnomalyMonitor_NegativeInterval(t *testing.T) {
 			Minute, am.
 		interval,
 	)
-
 }
 
 // TestAnomalyMonitor_NilCooldown verifies the monitor does not panic when cooldown is nil.
@@ -81,7 +79,6 @@ func TestBudgetMonitor_ZeroBudget(t *testing.T) {
 		time.Minute,
 		bm.interval,
 	)
-
 }
 
 // TestBudgetMonitor_MaxIntBudget verifies construction with math.MaxInt64 interval works.
@@ -93,7 +90,6 @@ func TestBudgetMonitor_MaxIntBudget(t *testing.T) {
 		Duration(math.MaxInt64),
 
 		bm.interval)
-
 }
 
 // Stats Aggregator Tests.
@@ -104,7 +100,6 @@ func TestStatsAggregator_NilStore(t *testing.T) {
 	// Passing nil should not panic during construction.
 	sa := NewStatsAggregator(nil)
 	require.NotNil(t, sa)
-
 }
 
 // Grace Period Enforcer Tests.
@@ -117,7 +112,6 @@ func TestGracePeriod_ZeroDuration(t *testing.T) {
 	require.EqualValues(t, 0,
 		gpe.interval,
 	)
-
 }
 
 // TestGracePeriod_NegativeDuration verifies construction with negative interval.
@@ -130,7 +124,6 @@ func TestGracePeriod_NegativeDuration(t *testing.T) {
 			Second, gpe.
 		interval,
 	)
-
 }
 
 // TestGracePeriod_AlreadyRestricted verifies that orgs with "restricted" status are skipped.
@@ -145,10 +138,7 @@ func TestGracePeriod_AlreadyRestricted(t *testing.T) {
 	gpe := NewGracePeriodEnforcer(s, nil, time.Minute)
 	// enforce should skip the restricted org without error.
 	gpe.enforce(context.Background())
-	require.Len(t, s.updatedStatuses,
-
-		0)
-
+	require.Empty(t, s.updatedStatuses)
 }
 
 // TestGracePeriod_ConcurrentEnforce verifies that concurrent enforce calls do not panic.
@@ -183,15 +173,12 @@ func FuzzMonitorIntervals(f *testing.F) {
 	f.Fuzz(func(t *testing.T, intervalNs int64) {
 		s := &mockAnomalyMonitorStore{}
 		am := NewAnomalyMonitor(s, time.Duration(intervalNs))
-		require.False(t, am.
-			interval <=
-			0)
+		require.Positive(t, am.
+			interval)
 
 		e := &mockEnqueuer{}
 		bm := NewBudgetMonitor(struct{}{}, e, time.Duration(intervalNs))
-		require.False(t, bm.
-			interval <=
-			0)
-
+		require.Positive(t, bm.
+			interval)
 	})
 }

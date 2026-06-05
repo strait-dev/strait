@@ -37,7 +37,6 @@ func TestStrict_RedisCompareAndSetRejectsOutOfOrderWrites(t *testing.T) {
 			Version !=
 			10 || entry.Value != "new",
 	)
-
 }
 
 func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
@@ -55,5 +54,4 @@ func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
 	err := l2.Set(t.Context(), "k", cacheEntry[string]{Value: "this payload is too large"}, time.Minute)
 	require.Error(t,
 		err)
-
 }

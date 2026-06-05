@@ -26,9 +26,7 @@ func TestGetProjectCosts_Empty(t *testing.T) {
 	entries, err := GetProjectCosts(context.Background(), store, "org-1", from, to)
 	require.NoError(t,
 		err)
-	require.Len(t, entries,
-		0)
-
+	require.Empty(t, entries)
 }
 
 func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
@@ -73,5 +71,4 @@ func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	assert.EqualValues(t, 800,
 		projB.TotalMicro,
 	)
-
 }

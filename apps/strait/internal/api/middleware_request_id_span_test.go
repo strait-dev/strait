@@ -32,7 +32,7 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, span := tracer.Start(r.Context(), "child")
 		defer span.End()
-		assert.NotEqual(t, "", requestIDFromContext(r.
+		assert.NotEmpty(t, requestIDFromContext(r.
 			Context()))
 
 		w.WriteHeader(http.StatusOK)
@@ -67,7 +67,7 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 			kv.Key)
 
 		if kv.Key == attrRequestID {
-			require.NotEqual(t, "", kv.
+			require.NotEmpty(t, kv.
 				Value.AsString())
 
 			found = true
@@ -75,7 +75,6 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 	}
 	require.True(
 		t, found)
-
 }
 
 // TestAttachAuditContext_AttrKeyIsVendorNamespaced is the regression test for
@@ -85,7 +84,6 @@ func TestAttachAuditContext_AttrKeyIsVendorNamespaced(t *testing.T) {
 	require.Equal(t, "strait.request_id",
 		attrRequestID,
 	)
-
 }
 
 // TestAttachAuditContext_NoSpanWhenTracingDisabled verifies that calling
@@ -97,9 +95,8 @@ func TestAttachAuditContext_NoSpanWhenTracingDisabled(t *testing.T) {
 	called := false
 	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		called = true
-		assert.NotEqual(t, "", requestIDFromContext(r.
+		assert.NotEmpty(t, requestIDFromContext(r.
 			Context()))
-
 	})))
 
 	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
@@ -107,5 +104,4 @@ func TestAttachAuditContext_NoSpanWhenTracingDisabled(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	require.True(
 		t, called)
-
 }

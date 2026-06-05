@@ -53,7 +53,6 @@ func TestEventRoutes_RequirePermission_ReadRoutes(t *testing.T) {
 			assert.Equal(
 				t, tc.want,
 				w.Code)
-
 		})
 	}
 }
@@ -91,7 +90,6 @@ func TestEventRoutes_RequirePermission_WriteRoutes(t *testing.T) {
 			assert.Equal(
 				t, tc.want,
 				w.Code)
-
 		})
 	}
 }
@@ -130,7 +128,6 @@ func TestEventRoutes_RequirePermission_TriggerRoutes(t *testing.T) {
 			assert.Equal(
 				t, tc.want,
 				w.Code)
-
 		})
 	}
 }
@@ -176,7 +173,6 @@ func TestEventRoutes_Integration_InternalSecret_AllowsAll(t *testing.T) {
 			)
 
 			// Internal secret bypasses scope checks -- should never get 401 or 403.
-
 		})
 	}
 }

@@ -59,7 +59,6 @@ func TestBudgetMonitor_SpendingLimit_DedupPerDay(t *testing.T) {
 		1)
 
 	// Only one delivery expected due to dedup.
-
 }
 
 func TestBudgetMonitor_SpendingLimit_NilSubscription_Skips(t *testing.T) {
@@ -82,7 +81,6 @@ func TestBudgetMonitor_SpendingLimit_NilSubscription_Skips(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestBudgetMonitor_SpendingLimit_ListOrgsError(t *testing.T) {
@@ -102,7 +100,6 @@ func TestBudgetMonitor_SpendingLimit_ListOrgsError(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestBudgetMonitor_OldAlertKeys_PrunedOnNextCheck(t *testing.T) {
@@ -122,9 +119,8 @@ func TestBudgetMonitor_OldAlertKeys_PrunedOnNextCheck(t *testing.T) {
 	bm.alertedMu.Lock()
 	remaining := len(bm.alerted)
 	bm.alertedMu.Unlock()
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		remaining)
-
 }
 
 func TestBudgetMonitor_DefaultInterval(t *testing.T) {
@@ -134,7 +130,6 @@ func TestBudgetMonitor_DefaultInterval(t *testing.T) {
 	require.Equal(t, 5*
 		time.Minute, bm.
 		interval)
-
 }
 
 func TestBudgetMonitor_NegativeInterval_DefaultsTo5Min(t *testing.T) {
@@ -144,7 +139,6 @@ func TestBudgetMonitor_NegativeInterval_DefaultsTo5Min(t *testing.T) {
 	require.Equal(t, 5*
 		time.Minute, bm.
 		interval)
-
 }
 
 // Section separator.
@@ -160,9 +154,7 @@ func TestDowngradeApplier_ListError_Aborts(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 func TestDowngradeApplier_NoPendingDowngrades(t *testing.T) {
@@ -174,9 +166,7 @@ func TestDowngradeApplier_NoPendingDowngrades(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 func TestDowngradeApplier_WithAdvisoryLock_Acquired(t *testing.T) {
@@ -207,7 +197,6 @@ func TestDowngradeApplier_WithAdvisoryLock_Acquired(t *testing.T) {
 		1)
 	require.True(t, lockReleased.
 		Load())
-
 }
 
 func TestDowngradeApplier_WithAdvisoryLock_NotAcquired(t *testing.T) {
@@ -229,9 +218,7 @@ func TestDowngradeApplier_WithAdvisoryLock_NotAcquired(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 func TestDowngradeApplier_WithAdvisoryLock_AcquireError(t *testing.T) {
@@ -253,9 +240,7 @@ func TestDowngradeApplier_WithAdvisoryLock_AcquireError(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 func TestDowngradeApplier_EnforcesLimits_AfterDowngrade(t *testing.T) {
@@ -317,9 +302,7 @@ func TestDowngradeApplier_NilPendingTier_SkipsEnforcement(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 func TestDowngradeApplier_Run_StopsOnContextCancel(t *testing.T) {
@@ -364,9 +347,7 @@ func TestDowngradeApplier_AllOrgsFailApply(t *testing.T) {
 
 	applier := NewDowngradeApplier(s, nil, time.Minute)
 	applier.apply(context.Background())
-	require.Len(t, s.appliedOrgIDs,
-		0)
-
+	require.Empty(t, s.appliedOrgIDs)
 }
 
 // mockDowngradeStoreWithCallbacks extends mockDowngradeStore with callback-based resource enforcement.
@@ -428,9 +409,7 @@ func TestGraceEnforcer_WithAdvisoryLock_NotAcquired(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
-	require.Len(t, s.updatedStatuses,
-		0)
-
+	require.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_WithAdvisoryLock_Error(t *testing.T) {
@@ -451,9 +430,7 @@ func TestGraceEnforcer_WithAdvisoryLock_Error(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
-	require.Len(t, s.updatedStatuses,
-		0)
-
+	require.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_ListError_Aborts(t *testing.T) {
@@ -465,9 +442,7 @@ func TestGraceEnforcer_ListError_Aborts(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour)
 	g.enforce(context.Background())
-	require.Len(t, s.updatedStatuses,
-		0)
-
+	require.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_ConcurrentWebhookResolvesGrace(t *testing.T) {
@@ -486,11 +461,9 @@ func TestGraceEnforcer_ConcurrentWebhookResolvesGrace(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(s, nil, time.Hour)
 	g.enforce(context.Background())
-	require.Len(t, s.updatedStatuses,
-		0)
+	require.Empty(t, s.updatedStatuses)
 
 	// Should not restrict -- the re-read showed payment was resolved.
-
 }
 
 func TestGraceEnforcer_Run_StopsOnContextCancel(t *testing.T) {
@@ -541,7 +514,6 @@ func TestGraceEnforcer_PlanUpdateError_ContinuesOtherOrgs(t *testing.T) {
 
 	// org-plan-fail should have updated status but plan update failed, so it continues.
 	// org-plan-ok should succeed fully.
-
 }
 
 func TestGraceEnforcer_NilEnforcer_NoPanic(t *testing.T) {
@@ -560,7 +532,6 @@ func TestGraceEnforcer_NilEnforcer_NoPanic(t *testing.T) {
 		s.updatedStatuses["org-no-enforcer"])
 
 	// should not panic
-
 }
 
 func TestGraceEnforcer_GetOrgSubscriptionError_ContinuesOthers(t *testing.T) {
@@ -584,7 +555,6 @@ func TestGraceEnforcer_GetOrgSubscriptionError_ContinuesOthers(t *testing.T) {
 
 	// org-fresh-err should be skipped (GetOrgSubscription returns error).
 	// org-fresh-ok should be restricted.
-
 }
 
 // Section separator.
@@ -672,7 +642,6 @@ func TestStaleSubscriptionChecker_WithAdvisoryLock_NotAcquired(t *testing.T) {
 	checker := NewStaleSubscriptionChecker(s, time.Hour).WithAdvisoryLocker(locker)
 	checker.check(context.Background())
 	require.False(t, checkCalled)
-
 }
 
 func TestStaleSubscriptionChecker_Run_StopsOnContextCancel(t *testing.T) {

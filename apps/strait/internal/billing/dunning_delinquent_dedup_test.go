@@ -48,11 +48,10 @@ func TestDunner_EntryTransition_DoesNotDispatchDelinquent(t *testing.T) {
 		DunningStepEntry,
 		got.DunningStep,
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		countEvent(dispatchedEventTypes(disp), domain.
 			WebhookEventBillingDelinquent,
 		))
-
 }
 
 // Escalation transitions (Entry→Day3, Day3→Day14, etc.) must still
@@ -87,11 +86,10 @@ func TestDunner_EscalationTransition_StillDispatchesDelinquent(t *testing.T) {
 		DunningStepDay3,
 		got.DunningStep,
 	)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(dispatchedEventTypes(disp), domain.
 			WebhookEventBillingDelinquent,
 		))
-
 }
 
 // Day 74 transition still emits both billing.delinquent (escalation) and
@@ -121,15 +119,14 @@ func TestDunner_Day74Transition_DispatchesBoth(t *testing.T) {
 			Background()))
 
 	events := dispatchedEventTypes(disp)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(events, domain.
 			WebhookEventBillingDelinquent,
 		))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(events, domain.
 			WebhookEventBillingSuspended,
 		))
-
 }
 
 // End-to-end pipeline guard: invoice.payment_failed runs handlePaymentFailed
@@ -194,9 +191,8 @@ func TestPipeline_PaymentFailedThenInitialDunnerTick_DelinquentExactlyOnce(t *te
 	require.NoError(t,
 		d.Tick(context.
 			Background()))
-	require.EqualValues(t, 1, countEvent(dispatchedEventTypes(
+	require.Equal(t, 1, countEvent(dispatchedEventTypes(
 		disp), domain.
 		WebhookEventBillingDelinquent,
 	))
-
 }

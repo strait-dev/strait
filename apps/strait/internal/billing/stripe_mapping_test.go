@@ -38,7 +38,6 @@ func TestStripeMapping(t *testing.T) {
 				wantTier, tier)
 			assert.Equal(t, tt.
 				wantOK, ok)
-
 		})
 	}
 }
@@ -47,12 +46,11 @@ func TestStripeMapping_EmptyIDs(t *testing.T) {
 	t.Parallel()
 
 	m := NewStripeMapping("", "", "", "")
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 
 		m.PriceCount())
 	assert.False(t, m.
 		HasPrices())
-
 }
 
 func TestStripeMappingFromOptions(t *testing.T) {
@@ -87,15 +85,13 @@ func TestStripeMappingFromOptions(t *testing.T) {
 				wantTier, tier)
 			assert.Equal(t, tt.
 				wantOK, ok)
-
 		})
 	}
-	assert.EqualValues(t, 6,
+	assert.Equal(t, 6,
 
 		m.PriceCount())
 	assert.True(t, m.
 		HasPrices())
-
 }
 
 func TestStripeMappingFromOptions_EmptyIDs(t *testing.T) {
@@ -106,10 +102,9 @@ func TestStripeMappingFromOptions_EmptyIDs(t *testing.T) {
 		WithProPrices("", ""),
 		WithScalePrices("", ""),
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 
 		m.PriceCount())
-
 }
 
 func TestStripeMappingFromOptions_PartialIDs(t *testing.T) {
@@ -119,7 +114,7 @@ func TestStripeMappingFromOptions_PartialIDs(t *testing.T) {
 		WithStarterPrices("s-m", ""),
 		WithScalePrices("", "sc-y"),
 	)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 
 		m.PriceCount())
 
@@ -132,7 +127,6 @@ func TestStripeMappingFromOptions_PartialIDs(t *testing.T) {
 	assert.False(t, !ok ||
 		tier != domain.PlanScale,
 	)
-
 }
 
 func TestNewStripeMapping_BackwardCompatible(t *testing.T) {
@@ -150,6 +144,5 @@ func TestNewStripeMapping_BackwardCompatible(t *testing.T) {
 		ot, ook := opts.TierForPrice(id)
 		assert.False(t, lt !=
 			ot || lok != ook)
-
 	}
 }

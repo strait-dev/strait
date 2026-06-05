@@ -21,7 +21,6 @@ func TestTenantIso_EventSources_ListSubs_EmptyProjectCtx_Rejected(t *testing.T) 
 			http.
 				StatusBadRequest,
 		))
-
 }
 
 func TestTenantIso_EventSources_DeleteSub_EmptyProjectCtx_Rejected(t *testing.T) {
@@ -33,7 +32,6 @@ func TestTenantIso_EventSources_DeleteSub_EmptyProjectCtx_Rejected(t *testing.T)
 			http.
 				StatusBadRequest,
 		))
-
 }
 
 func TestTenantIso_EventSources_DeleteSub_RejectsCrossProject(t *testing.T) {
@@ -57,7 +55,6 @@ func TestTenantIso_EventSources_DeleteSub_RejectsCrossProject(t *testing.T) {
 			http.
 				StatusNotFound,
 		))
-
 }
 
 func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
@@ -104,7 +101,6 @@ func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, out.Body["dispatched"])
-
 }
 
 func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
@@ -157,5 +153,4 @@ func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.EqualValues(t, 0, out.Body["dispatched"])
-
 }

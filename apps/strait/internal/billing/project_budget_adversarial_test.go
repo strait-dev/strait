@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,7 +53,6 @@ func TestProjectBudget_RaceUnderConcurrency(t *testing.T) {
 	wg.Wait()
 	assert.Equal(t, int32(n), calls.
 		Load())
-
 }
 
 // TestProjectBudget_OrgLimitVsProjectLimit_DistinctErrors locks the
@@ -79,9 +77,7 @@ func TestProjectBudget_OrgLimitVsProjectLimit_DistinctErrors(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb")
 	var lim *LimitError
-	require.True(t, errors.As(err,
-		&lim,
-	))
+	require.ErrorAs(t, err, &lim)
 	assert.Equal(t, "project_budget_reached",
 
 		lim.Code,
@@ -91,7 +87,6 @@ func TestProjectBudget_OrgLimitVsProjectLimit_DistinctErrors(t *testing.T) {
 
 		lim.Code,
 	)
-
 }
 
 // TestProjectBudget_NotifyActionDoesNotLeakIntoBlock is a regression
@@ -118,7 +113,6 @@ func TestProjectBudget_NotifyActionDoesNotLeakIntoBlock(t *testing.T) {
 	assert.NoError(t,
 		enforcer.
 			CheckProjectBudgetLimit(context.Background(), "proj-pb"))
-
 }
 
 // TestProjectBudget_UnknownActionTreatedAsNotify documents the
@@ -146,5 +140,4 @@ func TestProjectBudget_UnknownActionTreatedAsNotify(t *testing.T) {
 	assert.NoError(t,
 		enforcer.
 			CheckProjectBudgetLimit(context.Background(), "proj-pb"))
-
 }

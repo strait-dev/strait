@@ -38,8 +38,7 @@ func TestTenantIso_AdminDLQ_Unmask_UsesScopedFetch(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, unmaskCalled)
-	require.EqualValues(t, 1, getCalls)
-
+	require.Equal(t, 1, getCalls)
 }
 
 // TestTenantIso_AdminDLQ_Purge_UsesScopedFetch is the symmetric cross-
@@ -67,8 +66,7 @@ func TestTenantIso_AdminDLQ_Purge_UsesScopedFetch(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, purgeCalled)
-	require.EqualValues(t, 1, getCalls)
-
+	require.Equal(t, 1, getCalls)
 }
 
 func TestRequireAdminScope_UserOIDCMustPassProjectRBAC(t *testing.T) {
@@ -95,14 +93,13 @@ func TestRequireAdminScope_UserOIDCMustPassProjectRBAC(t *testing.T) {
 	require.Error(t, srv.requireAdminScope(ctx, domain.
 		ScopeDLQPurge,
 	))
-	require.EqualValues(t, 0, permissionChecks)
+	require.Equal(t, 0, permissionChecks)
 
 	ctx = context.WithValue(ctx, ctxProjectIDKey, "proj-1")
 	require.NoError(t, srv.requireAdminScope(ctx,
 		domain.ScopeDLQPurge,
 	))
-	require.EqualValues(t, 1, permissionChecks)
-
+	require.Equal(t, 1, permissionChecks)
 }
 
 func TestRequireAdminScope_UserOIDCScopesDoNotBypassRBAC(t *testing.T) {
@@ -123,7 +120,6 @@ func TestRequireAdminScope_UserOIDCScopesDoNotBypassRBAC(t *testing.T) {
 	require.Error(t, srv.requireAdminScope(ctx, domain.
 		ScopeDLQPurge,
 	))
-
 }
 
 func TestRequireAdminScope_APIKeyRequiresProjectContext(t *testing.T) {
@@ -141,5 +137,4 @@ func TestRequireAdminScope_APIKeyRequiresProjectContext(t *testing.T) {
 	require.NoError(t, srv.requireAdminScope(ctx,
 		domain.ScopeDLQReplay,
 	))
-
 }

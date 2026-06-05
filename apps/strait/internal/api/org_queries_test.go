@@ -54,7 +54,6 @@ func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 	}
 	require.Len(t, projectIDs,
 		2)
-
 }
 
 func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
@@ -86,7 +85,6 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 		nil || resp.Error.Message !=
 		"api key does not belong to this organization",
 	)
-
 }
 
 func TestListOrgRuns_RequiresAuth(t *testing.T) {
@@ -99,7 +97,6 @@ func TestListOrgRuns_RequiresAuth(t *testing.T) {
 	require.Equal(t, http.
 		StatusUnauthorized,
 		w.Code)
-
 }
 
 func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
@@ -136,7 +133,6 @@ func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 		"proj-1" || jobs[1].ProjectID !=
 		"proj-2",
 	)
-
 }
 
 func TestListOrgRuns_Pagination_Works(t *testing.T) {
@@ -185,7 +181,6 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 		json.Unmarshal(envelope.Data, &runs))
 	require.Len(t, runs,
 		2)
-
 }
 
 func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
@@ -208,7 +203,5 @@ func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	require.Len(t, runs,
-		0)
-
+	require.Empty(t, runs)
 }

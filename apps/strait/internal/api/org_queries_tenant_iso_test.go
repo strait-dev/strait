@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -50,7 +49,6 @@ func TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID(t *testing.T) {
 		_, err = srv.handleListOrgJobs(ctx, &ListOrgJobsInput{OrgID: badOrg})
 		require.Error(t, err)
 		require.False(t, called)
-
 	}
 }
 
@@ -90,17 +88,9 @@ func TestTenantIso_OrgQueries_InternalSecret_AuditEmitted(t *testing.T) {
 		Code)
 
 	logs := buf.String()
-	require.True(t, strings.Contains(logs,
-		"org_queries internal-secret listing",
-	))
-	require.True(t, strings.Contains(logs,
-		"op=ListOrgRuns",
-	))
-	require.True(t, strings.Contains(logs,
-		"op=ListOrgJobs",
-	))
-	require.True(t, strings.Contains(logs,
-		"org_id="+
-			orgUUID))
-
+	require.Contains(t, logs, "org_queries internal-secret listing")
+	require.Contains(t, logs, "op=ListOrgRuns")
+	require.Contains(t, logs, "op=ListOrgJobs")
+	require.Contains(t, logs, "org_id="+
+		orgUUID)
 }

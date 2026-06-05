@@ -29,7 +29,6 @@ func TestFindRecentDeduplicatedRunSkipsDisabledWindow(t *testing.T) {
 	run, err := srv.findRecentDeduplicatedRun(context.Background(), &domain.Job{ID: "job-1"}, json.RawMessage(`{"ok":true}`))
 	require.NoError(t, err)
 	require.Nil(t, run)
-
 }
 
 func TestFindRecentDeduplicatedRunUsesDedupWindow(t *testing.T) {
@@ -57,7 +56,6 @@ func TestFindRecentDeduplicatedRunUsesDedupWindow(t *testing.T) {
 		run.ID !=
 			"run-existing",
 	)
-
 }
 
 func TestTriggerDedupOutputReturnsExistingRunShape(t *testing.T) {
@@ -89,7 +87,6 @@ func TestTriggerDedupOutputReturnsExistingRunShape(t *testing.T) {
 	require.Equal(t, "payload-hash",
 		body["payload_hash"])
 	require.Equal(t, false, body["idempotency_hit"])
-
 }
 
 func TestTriggerDedupOutputMapsLookupError(t *testing.T) {
@@ -107,13 +104,10 @@ func TestTriggerDedupOutputMapsLookupError(t *testing.T) {
 
 	_, err := srv.triggerDedupOutput(context.Background(), state)
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err,
-			&statusErr,
-		))
+	require.ErrorAs(
+		t, err, &statusErr)
 	require.Equal(t, http.StatusInternalServerError,
 
 		statusErr.
 			GetStatus())
-
 }

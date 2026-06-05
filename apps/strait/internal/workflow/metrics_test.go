@@ -64,7 +64,6 @@ func TestWorkflowRuntimeMetrics_RecordStepLifecycle(t *testing.T) {
 	require.EqualValues(t, 1,
 		sumInt64WithAttrs(
 			activeRunsData, map[string]string{"project": "project-a"}))
-
 }
 
 func TestWorkflowRuntimeMetrics_BoundsProjectLabels(t *testing.T) {
@@ -84,7 +83,6 @@ func TestWorkflowRuntimeMetrics_BoundsProjectLabels(t *testing.T) {
 		sumInt64WithAttrs(
 			activeRunsData, map[string]string{"project": "_other"},
 		))
-
 }
 
 func setupWorkflowRuntimeMetrics(t *testing.T, projectLabelLimit int) *sdkmetric.ManualReader {
@@ -107,7 +105,6 @@ func setupWorkflowRuntimeMetrics(t *testing.T, projectLabelLimit int) *sdkmetric
 			provider.Shutdown(
 				context.
 					Background()))
-
 	})
 	return reader
 }

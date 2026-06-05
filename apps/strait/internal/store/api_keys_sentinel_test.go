@@ -14,12 +14,11 @@ import (
 // that switched off the legacy err.Error() string compare.
 func TestErrAPIKeyNotFound_IsExportedSentinel(t *testing.T) {
 	t.Parallel()
-	require.NotNil(t, ErrAPIKeyNotFound)
+	require.Error(t, ErrAPIKeyNotFound)
 	assert.Equal(t,
 		"api key not found",
 
 		ErrAPIKeyNotFound.Error())
-
 }
 
 // TestErrAPIKeyNotFound_MatchableThroughWrapping is the regression guard:
@@ -29,12 +28,8 @@ func TestErrAPIKeyNotFound_IsExportedSentinel(t *testing.T) {
 func TestErrAPIKeyNotFound_MatchableThroughWrapping(t *testing.T) {
 	t.Parallel()
 	wrapped := fmt.Errorf("seed pentest: %w", ErrAPIKeyNotFound)
-	assert.True(t,
-		errors.Is(wrapped,
-
-			ErrAPIKeyNotFound,
-		))
-
+	assert.ErrorIs(t,
+		wrapped, ErrAPIKeyNotFound)
 }
 
 // TestErrAPIKeyNotFound_DoesNotMatchUnrelatedError keeps the matcher
@@ -42,15 +37,10 @@ func TestErrAPIKeyNotFound_MatchableThroughWrapping(t *testing.T) {
 func TestErrAPIKeyNotFound_DoesNotMatchUnrelatedError(t *testing.T) {
 	t.Parallel()
 	other := errors.New("some unrelated error")
-	assert.False(t,
-		errors.Is(other,
-			ErrAPIKeyNotFound,
-		))
+	require.NotErrorIs(t,
+		other, ErrAPIKeyNotFound)
 
 	otherWithSameMessage := errors.New("api key not found")
-	assert.False(t,
-		errors.Is(otherWithSameMessage,
-
-			ErrAPIKeyNotFound))
-
+	assert.NotErrorIs(t,
+		otherWithSameMessage, ErrAPIKeyNotFound)
 }

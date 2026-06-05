@@ -65,7 +65,6 @@ func TestWebhookSender_Success(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestWebhookSender_NonOKStatus(t *testing.T) {
@@ -83,7 +82,6 @@ func TestWebhookSender_NonOKStatus(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_4xxStatus(t *testing.T) {
@@ -101,7 +99,6 @@ func TestWebhookSender_4xxStatus(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_NetworkError(t *testing.T) {
@@ -119,7 +116,6 @@ func TestWebhookSender_NetworkError(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_NetworkErrorRedactsSecretURL(t *testing.T) {
@@ -145,14 +141,9 @@ func TestWebhookSender_NetworkErrorRedactsSecretURL(t *testing.T) {
 
 	errText := err.Error()
 	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
-		require.False(t, strings.Contains(errText,
-			leaked))
-
+		require.NotContains(t, errText, leaked)
 	}
-	require.True(t, strings.Contains(errText,
-		"connection refused",
-	))
-
+	require.Contains(t, errText, "connection refused")
 }
 
 func TestWebhookSender_HMACSignature(t *testing.T) {
@@ -183,9 +174,7 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-	require.NotEqual(t, "",
-		capturedTimestamp,
-	)
+	require.NotEmpty(t, capturedTimestamp)
 
 	_, parseErr := time.Parse(time.RFC3339, capturedTimestamp)
 	require.NoError(t, parseErr)
@@ -210,7 +199,6 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 		!strings.Contains(capturedStraitSig,
 			"d="+del.
 				ID))
-
 }
 
 func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
@@ -246,7 +234,6 @@ func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
 	require.Len(t, signatures,
 		2)
 	require.NotEqual(t, signatures[1], signatures[0])
-
 }
 
 func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
@@ -268,7 +255,6 @@ func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
 	require.False(t, hasSigHeader)
-
 }
 
 func TestWebhookSender_EventTypeHeader(t *testing.T) {
@@ -292,7 +278,6 @@ func TestWebhookSender_EventTypeHeader(t *testing.T) {
 	require.Equal(t, "run.completed",
 		capturedEventType,
 	)
-
 }
 
 func TestWebhookSender_ContentTypeJSON(t *testing.T) {
@@ -317,7 +302,6 @@ func TestWebhookSender_ContentTypeJSON(t *testing.T) {
 
 		capturedContentType,
 	)
-
 }
 
 func TestWebhookSender_RequestBody(t *testing.T) {
@@ -340,7 +324,6 @@ func TestWebhookSender_RequestBody(t *testing.T) {
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
 	require.Equal(t, string(payload), string(capturedBody))
-
 }
 
 func TestWebhookSender_ContextCancellation(t *testing.T) {
@@ -364,7 +347,6 @@ func TestWebhookSender_ContextCancellation(t *testing.T) {
 
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_EmptyURL(t *testing.T) {
@@ -378,7 +360,6 @@ func TestWebhookSender_EmptyURL(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_NilClient(t *testing.T) {
@@ -387,7 +368,6 @@ func TestWebhookSender_NilClient(t *testing.T) {
 	sender := NewWebhookSender(nil)
 	require.NotNil(t, sender.
 		client)
-
 }
 
 func TestWebhookSender_EmptyPayload(t *testing.T) {
@@ -411,7 +391,6 @@ func TestWebhookSender_EmptyPayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "{}",
 		string(capturedBody))
-
 }
 
 func TestWebhookSender_ServerHitCount(t *testing.T) {
@@ -435,7 +414,6 @@ func TestWebhookSender_ServerHitCount(t *testing.T) {
 	_ = sender.Send(ctx, ch, del)
 	require.Equal(t, int32(2), hits.
 		Load())
-
 }
 
 func testRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
@@ -476,7 +454,6 @@ func TestWebhookSender_RetriesOn503(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), hits.
 		Load())
-
 }
 
 func TestWebhookSender_RetriesOn500(t *testing.T) {
@@ -504,7 +481,6 @@ func TestWebhookSender_RetriesOn500(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), hits.
 		Load())
-
 }
 
 func TestWebhookSender_NoRetryOn400(t *testing.T) {
@@ -529,7 +505,6 @@ func TestWebhookSender_NoRetryOn400(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, int32(1), hits.
 		Load())
-
 }
 
 func TestWebhookSender_RetriesOn429(t *testing.T) {
@@ -557,7 +532,6 @@ func TestWebhookSender_RetriesOn429(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), hits.
 		Load())
-
 }
 
 func TestWebhookSender_NoRetryOn200(t *testing.T) {
@@ -582,7 +556,6 @@ func TestWebhookSender_NoRetryOn200(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(1), hits.
 		Load())
-
 }
 
 func TestWebhookSender_ExhaustsRetries(t *testing.T) {
@@ -607,7 +580,6 @@ func TestWebhookSender_ExhaustsRetries(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, int32(3), hits.
 		Load())
-
 }
 
 func TestWebhookSender_StatusBoundary200(t *testing.T) {
@@ -625,7 +597,6 @@ func TestWebhookSender_StatusBoundary200(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestWebhookSender_StatusBoundary199(t *testing.T) {
@@ -643,7 +614,6 @@ func TestWebhookSender_StatusBoundary199(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_StatusBoundary299(t *testing.T) {
@@ -661,7 +631,6 @@ func TestWebhookSender_StatusBoundary299(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestWebhookSender_StatusBoundary300(t *testing.T) {
@@ -679,7 +648,6 @@ func TestWebhookSender_StatusBoundary300(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestWebhookSender_DefaultRetryPolicy_500IsRetried(t *testing.T) {
@@ -706,7 +674,6 @@ func TestWebhookSender_DefaultRetryPolicy_500IsRetried(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, hits.Load(),
 		int32(2))
-
 }
 
 func TestWebhookSender_DefaultRetryPolicy_499NotRetried(t *testing.T) {
@@ -730,7 +697,6 @@ func TestWebhookSender_DefaultRetryPolicy_499NotRetried(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, int32(1), hits.
 		Load())
-
 }
 
 func TestWebhookSender_DefaultRetryPolicy_429IsRetried(t *testing.T) {
@@ -757,7 +723,6 @@ func TestWebhookSender_DefaultRetryPolicy_429IsRetried(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, hits.Load(),
 		int32(2))
-
 }
 
 func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
@@ -786,7 +751,6 @@ func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
 	) &&
 		!strings.Contains(err.Error(), "resolves to private"))
 	require.GreaterOrEqual(t, lookups.Load(), int32(2))
-
 }
 
 func TestWebhookSender_BlocksPrivateEndpointByDefault(t *testing.T) {
@@ -809,7 +773,6 @@ func TestWebhookSender_BlocksPrivateEndpointByDefault(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, int32(0), hits.
 		Load())
-
 }
 
 func TestWebhookSender_AllowsPrivateEndpointWhenConfigured(t *testing.T) {
@@ -833,5 +796,4 @@ func TestWebhookSender_AllowsPrivateEndpointWhenConfigured(t *testing.T) {
 			del))
 	require.Equal(t, int32(1), hits.
 		Load())
-
 }

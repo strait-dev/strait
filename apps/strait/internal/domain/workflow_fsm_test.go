@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 
@@ -16,7 +15,6 @@ func TestValidateWorkflowTransition_AllValidTransitions(t *testing.T) {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
 				assert.NoError(
 					t, ValidateWorkflowTransition(from, to))
-
 			})
 		}
 	}
@@ -47,7 +45,6 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 		t.Run(fmt.Sprintf("%s->%s", tc.from, tc.to), func(t *testing.T) {
 			assert.Error(t,
 				ValidateWorkflowTransition(tc.from, tc.to))
-
 		})
 	}
 }
@@ -59,9 +56,8 @@ func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 		err)
 
 	var unknownErr *UnknownStatusError
-	require.True(t,
-		errors.As(err, &unknownErr))
-
+	require.ErrorAs(t,
+		err, &unknownErr)
 }
 
 func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
@@ -73,10 +69,7 @@ func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 			transitions, ok := validWorkflowTransitions[status]
 			assert.True(t,
 				ok)
-			assert.Len(t, transitions,
-
-				0)
-
+			assert.Empty(t, transitions)
 		})
 	}
 	// failed and timed_out can transition to compensating.
@@ -87,7 +80,6 @@ func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 				len(transitions) !=
 
 					1 || transitions[0] != WfStatusCompensating)
-
 		})
 	}
 }
@@ -116,7 +108,6 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 		validWorkflowTransitions,
 
 		len(allStatuses))
-
 }
 
 func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
@@ -156,13 +147,11 @@ func TestWorkflowRunStatusIsValid(t *testing.T) {
 		require.True(t,
 			status.
 				IsValid())
-
 	}
 	require.False(t,
 		WorkflowRunStatus(
 			"not-valid",
 		).IsValid())
-
 }
 
 func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
@@ -171,37 +160,34 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusCompleted, WfStatusRunning)
 		var te *TransitionError
-		require.True(t,
-			errors.As(err, &te),
+		require.ErrorAs(t,
+			err, &te,
 		)
 		require.False(t,
 			te.From !=
 				RunStatus(WfStatusCompleted) || te.To != RunStatus(WfStatusRunning))
-
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WorkflowRunStatus("bogus"), WfStatusRunning)
 		var ue *UnknownStatusError
-		require.True(t,
-			errors.As(err, &ue),
+		require.ErrorAs(t,
+			err, &ue,
 		)
 		require.Equal(t,
 			RunStatus("bogus"),
 
 			ue.Status)
-
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusRunning, WfStatusRunning)
 		var te *TransitionError
-		require.True(t,
-			errors.As(err, &te),
+		require.ErrorAs(t,
+			err, &te,
 		)
-
 	})
 }
 
@@ -212,7 +198,6 @@ func TestValidateStepTransition_AllValidTransitions(t *testing.T) {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
 				assert.NoError(
 					t, ValidateStepTransition(from, to))
-
 			})
 		}
 	}
@@ -246,7 +231,6 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 			err := ValidateStepTransition(tc.from, tc.to)
 			require.Error(t,
 				err)
-
 		})
 	}
 }
@@ -258,9 +242,8 @@ func TestValidateStepTransition_UnknownStatus(t *testing.T) {
 		err)
 
 	var unknownErr *UnknownStatusError
-	require.True(t,
-		errors.As(err, &unknownErr))
-
+	require.ErrorAs(t,
+		err, &unknownErr)
 }
 
 func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
@@ -271,10 +254,7 @@ func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
 			transitions, ok := validStepTransitions[status]
 			assert.True(t,
 				ok)
-			assert.Len(t, transitions,
-
-				0)
-
+			assert.Empty(t, transitions)
 		})
 	}
 }
@@ -300,7 +280,6 @@ func TestAllStepStatusesCovered(t *testing.T) {
 		validStepTransitions,
 
 		len(allStatuses))
-
 }
 
 func TestValidateStepTransition_ErrorTypes(t *testing.T) {
@@ -309,37 +288,34 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepCompleted, StepRunning)
 		var te *TransitionError
-		require.True(t,
-			errors.As(err, &te),
+		require.ErrorAs(t,
+			err, &te,
 		)
 		require.False(t,
 			te.From !=
 				RunStatus(StepCompleted) || te.To != RunStatus(StepRunning))
-
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepRunStatus("bogus"), StepRunning)
 		var ue *UnknownStatusError
-		require.True(t,
-			errors.As(err, &ue),
+		require.ErrorAs(t,
+			err, &ue,
 		)
 		require.Equal(t,
 			RunStatus("bogus"),
 
 			ue.Status)
-
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepRunning, StepRunning)
 		var te *TransitionError
-		require.True(t,
-			errors.As(err, &te),
+		require.ErrorAs(t,
+			err, &te,
 		)
-
 	})
 }
 

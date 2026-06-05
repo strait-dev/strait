@@ -52,7 +52,6 @@ func TestRequireJSONContentType(t *testing.T) {
 			handler.ServeHTTP(w, req)
 			assert.Equal(t,
 				tc.want, w.Code)
-
 		})
 	}
 }
@@ -80,6 +79,5 @@ func FuzzRequireJSONContentType(f *testing.F) {
 					http.
 						StatusUnsupportedMediaType,
 		)
-
 	})
 }

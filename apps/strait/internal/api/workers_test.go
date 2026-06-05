@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -48,11 +47,10 @@ func TestHandleDeleteWorker_NilPubsubReturns503(t *testing.T) {
 	require.Nil(t, out)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 503, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
 		GetStatus())
-
 }
 
 // TestHandleDeleteWorker_PublishErrorReturns503 ensures publish failure does
@@ -74,11 +72,10 @@ func TestHandleDeleteWorker_PublishErrorReturns503(t *testing.T) {
 	require.Nil(t, out)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 503, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
 		GetStatus())
-
 }
 
 // TestHandleDeleteWorker_HealthyPublishReturns200 confirms the happy path
@@ -121,7 +118,6 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	require.Equal(t, "worker-1",
 		publishedData,
 	)
-
 }
 
 func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
@@ -149,16 +145,13 @@ func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
 	)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 503, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
 		GetStatus())
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-			"worker_disconnect_pending",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "worker_disconnect_pending")
 }
 
 func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
@@ -182,11 +175,10 @@ func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
 	require.Nil(t, out)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 503, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
 		GetStatus())
-
 }
 
 func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
@@ -206,11 +198,10 @@ func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
 	require.Nil(t, out)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 503, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
 		GetStatus())
-
 }
 
 // TestHandleDeleteWorker_UnknownWorker404 — cross-tenant existence guard:
@@ -225,11 +216,10 @@ func TestHandleDeleteWorker_UnknownWorker404(t *testing.T) {
 	require.Error(t, err)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 404, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 404, statusErr.
 		GetStatus())
-
 }
 
 // TestHandleDeleteWorker_StoreError404 — store failures should also yield
@@ -245,9 +235,8 @@ func TestHandleDeleteWorker_StoreError404(t *testing.T) {
 	require.Error(t, err)
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
-	require.EqualValues(t, 404, statusErr.
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 404, statusErr.
 		GetStatus())
-
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for the DLQ cap enforcer.
@@ -52,7 +53,6 @@ func TestDLQCapEnforcer_NoCapProceeds(t *testing.T) {
 		!proceed ||
 			err != nil,
 	)
-
 }
 
 func TestDLQCapEnforcer_UnderCapProceeds(t *testing.T) {
@@ -65,7 +65,6 @@ func TestDLQCapEnforcer_UnderCapProceeds(t *testing.T) {
 		!proceed ||
 			err != nil,
 	)
-
 }
 
 func TestDLQCapEnforcer_PerJobRejectAtCap(t *testing.T) {
@@ -75,11 +74,8 @@ func TestDLQCapEnforcer_PerJobRejectAtCap(t *testing.T) {
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
 	assert.False(t,
 		proceed)
-	assert.True(t, errors.Is(err,
-		ErrDLQOverflow,
-	))
+	require.ErrorIs(t, err, ErrDLQOverflow)
 	assert.EqualValues(t, 1, e.OverflowCount())
-
 }
 
 func TestDLQCapEnforcer_PerProjectRejectAtCap(t *testing.T) {
@@ -92,7 +88,6 @@ func TestDLQCapEnforcer_PerProjectRejectAtCap(t *testing.T) {
 			!errors.Is(err,
 
 				ErrDLQOverflow))
-
 }
 
 func TestDLQCapEnforcer_DropOldestMasksAndProceeds(t *testing.T) {
@@ -107,7 +102,6 @@ func TestDLQCapEnforcer_DropOldestMasksAndProceeds(t *testing.T) {
 	assert.EqualValues(t, 1, e.DroppedCount())
 	assert.Len(t, s.
 		masked, 1)
-
 }
 
 func TestDLQCapEnforcer_StoreErrorFailsOpen(t *testing.T) {
@@ -118,7 +112,6 @@ func TestDLQCapEnforcer_StoreErrorFailsOpen(t *testing.T) {
 	assert.True(t, proceed)
 	assert.Error(t,
 		err)
-
 }
 
 func TestDLQCapEnforcer_NilReceiverSafe(t *testing.T) {
@@ -128,7 +121,6 @@ func TestDLQCapEnforcer_NilReceiverSafe(t *testing.T) {
 		!proceed ||
 			err != nil,
 	)
-
 }
 
 func TestDLQCapEnforcer_DefaultPolicyIsDropOldest(t *testing.T) {
@@ -143,7 +135,6 @@ func TestDLQCapEnforcer_DefaultPolicyIsDropOldest(t *testing.T) {
 	)
 	assert.Len(t, s.
 		masked, 1)
-
 }
 
 func TestDLQCapEnforcer_InvalidPolicyNormalizes(t *testing.T) {
@@ -152,7 +143,6 @@ func TestDLQCapEnforcer_InvalidPolicyNormalizes(t *testing.T) {
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, Policy: "nonsense"}, nil)
 	proceed, _ := e.EnforceBeforeTransition(context.Background(), "p", "j")
 	assert.True(t, proceed)
-
 }
 
 // FuzzDLQDepthBounds feeds random depth/cap pairs to the enforcer and
@@ -176,13 +166,11 @@ func FuzzDLQDepthBounds(f *testing.F) {
 				proceed ||
 					err == nil,
 			)
-
 		} else {
 			assert.False(t,
 				!proceed ||
 					err != nil,
 			)
-
 		}
 	})
 }

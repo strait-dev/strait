@@ -45,13 +45,10 @@ func TestLaunchSourceDoesNotExposeLegacyAgentGuardrails(t *testing.T) {
 			return readErr
 		}
 		for _, stale := range forbidden {
-			assert.False(t, strings.Contains(string(
-				content), stale,
-			))
-
+			assert.NotContains(t, string(
+				content), stale)
 		}
 		return nil
 	})
 	require.NoError(t, err)
-
 }

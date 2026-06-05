@@ -110,7 +110,6 @@ func TestHandleVerifyAuditChain_CountsValid(t *testing.T) {
 		failedSum += v
 	}
 	assert.EqualValues(t, 0, failedSum)
-
 }
 
 // TestHandleVerifyAuditChain_CountsBroken asserts a non-Valid result
@@ -148,7 +147,6 @@ func TestHandleVerifyAuditChain_CountsBroken(t *testing.T) {
 
 	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
 	assert.EqualValues(t, 1, failed["chain_broken"])
-
 }
 
 // TestHandleVerifyAuditChain_CountsVerifierError asserts a verifier
@@ -190,7 +188,6 @@ func TestHandleVerifyAuditChain_CountsVerifierError(t *testing.T) {
 		sum += v
 	}
 	assert.EqualValues(t, 1, sum)
-
 }
 
 // TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore asserts
@@ -241,7 +238,6 @@ func TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore(t *testing.T
 		require.Equal(t, http.StatusOK,
 			w.Code,
 		)
-
 	}
 
 	dispatch("/v1/audit-events/verify")
@@ -252,5 +248,4 @@ func TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore(t *testing.T
 	)
 	assert.EqualValues(t, 1, incCalls.
 		Load())
-
 }

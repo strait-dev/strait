@@ -24,9 +24,8 @@ func TestJob_WebhookSecret_NotSerialized(t *testing.T) {
 	data, err := json.Marshal(job)
 	require.NoError(t,
 		err)
-	assert.False(t, strings.Contains(string(data), "super-secret-value"))
-	assert.False(t, strings.Contains(string(data), "webhook_secret"))
-
+	assert.NotContains(t, string(data), "super-secret-value")
+	assert.NotContains(t, string(data), "webhook_secret")
 }
 
 func TestWebhookSubscription_Secret_NotSerialized(t *testing.T) {
@@ -44,9 +43,8 @@ func TestWebhookSubscription_Secret_NotSerialized(t *testing.T) {
 	data, err := json.Marshal(sub)
 	require.NoError(t,
 		err)
-	assert.False(t, strings.Contains(string(data), "whsec_very-secret-token"))
-	assert.False(t, strings.Contains(string(data), `"secret"`))
-
+	assert.NotContains(t, string(data), "whsec_very-secret-token")
+	assert.NotContains(t, string(data), `"secret"`)
 }
 
 func TestJob_WebhookSecret_Adversarial_NestedMarshal(t *testing.T) {
@@ -68,8 +66,7 @@ func TestJob_WebhookSecret_Adversarial_NestedMarshal(t *testing.T) {
 	data, err := json.Marshal(e)
 	require.NoError(t,
 		err)
-	assert.False(t, strings.Contains(string(data), "nested-secret-value"))
-
+	assert.NotContains(t, string(data), "nested-secret-value")
 }
 
 func TestJobVersion_WebhookSecret_NotSerialized(t *testing.T) {
@@ -84,9 +81,8 @@ func TestJobVersion_WebhookSecret_NotSerialized(t *testing.T) {
 	data, err := json.Marshal(jv)
 	require.NoError(t,
 		err)
-	assert.False(t, strings.Contains(string(data), "version-secret-value"))
-	assert.False(t, strings.Contains(string(data), "webhook_secret"))
-
+	assert.NotContains(t, string(data), "version-secret-value")
+	assert.NotContains(t, string(data), "webhook_secret")
 }
 
 func TestWebhookSubscription_Secret_Adversarial_SliceMarshal(t *testing.T) {
@@ -101,5 +97,4 @@ func TestWebhookSubscription_Secret_Adversarial_SliceMarshal(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, strings.Contains(string(data), "secret-1") || strings.Contains(string(data), "secret-2"))
-
 }

@@ -52,7 +52,6 @@ func TestSpendingLimit_BoundaryValues(t *testing.T) {
 			require.Equal(t,
 				tt.
 					expected, got)
-
 		})
 	}
 }

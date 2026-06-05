@@ -20,9 +20,8 @@ func TestGetOrgRetentionDays_EmptyOrgID(t *testing.T) {
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "")
 	require.Error(t,
 		err)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		days)
-
 }
 
 func TestGetOrgRetentionDays_SubscriptionNotFound(t *testing.T) {
@@ -31,12 +30,9 @@ func TestGetOrgRetentionDays_SubscriptionNotFound(t *testing.T) {
 	resolver := NewPlanRetentionResolver(store)
 
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-no-sub")
-	require.True(t, errors.Is(err,
-		ErrSubscriptionNotFound,
-	))
-	assert.EqualValues(t, 0,
+	require.ErrorIs(t, err, ErrSubscriptionNotFound)
+	assert.Equal(t, 0,
 		days)
-
 }
 
 func TestGetOrgRetentionDays_StoreErrorDoesNotFallbackToShorterRetention(t *testing.T) {
@@ -51,9 +47,8 @@ func TestGetOrgRetentionDays_StoreErrorDoesNotFallbackToShorterRetention(t *test
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
 	require.Error(t,
 		err)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		days)
-
 }
 
 func TestDeepSecGetOrgRetentionDays_AddsActiveHistoryAddons(t *testing.T) {
@@ -80,7 +75,6 @@ func TestDeepSecGetOrgRetentionDays_AddsActiveHistoryAddons(t *testing.T) {
 	want := GetPlanLimits(domain.PlanScale).RetentionDays + 60
 	assert.Equal(t, want,
 		days)
-
 }
 
 func TestDeepSecGetOrgRetentionDays_UnlimitedRetentionRemainsUnlimited(t *testing.T) {
@@ -102,8 +96,7 @@ func TestDeepSecGetOrgRetentionDays_UnlimitedRetentionRemainsUnlimited(t *testin
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-enterprise")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, -1, days)
-
+	assert.Equal(t, -1, days)
 }
 
 func TestDeepSecGetOrgRetentionDays_AddonLookupErrorSkipsRetention(t *testing.T) {
@@ -119,9 +112,8 @@ func TestDeepSecGetOrgRetentionDays_AddonLookupErrorSkipsRetention(t *testing.T)
 	days, err := resolver.GetOrgRetentionDays(context.Background(), "org-pro")
 	require.Error(t,
 		err)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		days)
-
 }
 
 func TestGetOrgRetentionDays_ProPlan(t *testing.T) {
@@ -140,7 +132,6 @@ func TestGetOrgRetentionDays_ProPlan(t *testing.T) {
 	want := GetPlanLimits(domain.PlanPro).RetentionDays
 	assert.Equal(t, want,
 		days)
-
 }
 
 func TestListAllSubscribedOrgIDs(t *testing.T) {
@@ -152,18 +143,13 @@ func TestListAllSubscribedOrgIDs(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.Nil(t, ids)
-
 }
 
 func TestListAllSubscribedOrgIDsSQL_HasNoFixedRetentionSweepCap(t *testing.T) {
 	t.Parallel()
 
 	sql := strings.ToUpper(listAllSubscribedOrgIDsSQL())
-	require.False(t,
-		strings.Contains(sql,
-			"LIMIT"))
-	require.True(t, strings.Contains(sql,
-		"ORDER BY ORG_ID",
-	))
-
+	require.NotContains(t,
+		sql, "LIMIT")
+	require.Contains(t, sql, "ORDER BY ORG_ID")
 }

@@ -45,7 +45,7 @@ func TestNewDebouncePending_BuildsBufferedTrigger(t *testing.T) {
 		pending.
 			DebounceKey,
 	)
-	require.Equal(t, `{"customer_id":"customer-1"}`,
+	require.JSONEq(t, `{"customer_id":"customer-1"}`,
 
 		string(pending.Payload))
 	require.True(
@@ -77,7 +77,6 @@ func TestNewDebouncePending_BuildsBufferedTrigger(t *testing.T) {
 				Add(45*
 
 					time.Second)))
-
 }
 
 func TestNewBatchBufferItem_BuildsBufferedTrigger(t *testing.T) {
@@ -121,7 +120,6 @@ func TestNewBatchBufferItem_BuildsBufferedTrigger(t *testing.T) {
 	require.Equal(t, "apikey:batch",
 		item.CreatedBy,
 	)
-
 }
 
 func TestHandleDebounceTriggerSkipsWhenDisabled(t *testing.T) {
@@ -141,7 +139,6 @@ func TestHandleDebounceTriggerSkipsWhenDisabled(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, handled || out !=
 		nil)
-
 }
 
 func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
@@ -183,7 +180,6 @@ func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
 	require.True(
 		t, ok)
 	require.Equal(t, true, body["buffered"])
-
 }
 
 func jsonEqual(left, right json.RawMessage) bool {

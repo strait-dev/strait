@@ -28,7 +28,7 @@ func TestSelectBulkCancelableRuns_PartitionsRequestedRuns(t *testing.T) {
 		t, reflect.
 			DeepEqual(selection.
 				cancelableIDs, []string{"run-1"}))
-	require.EqualValues(t, 3, selection.
+	require.Equal(t, 3, selection.
 		failed,
 	)
 
@@ -41,7 +41,6 @@ func TestSelectBulkCancelableRuns_PartitionsRequestedRuns(t *testing.T) {
 		t, reflect.
 			DeepEqual(selection.
 				results, wantResults))
-
 }
 
 func TestSelectBulkCancelableRuns_HidesEnvironmentMismatch(t *testing.T) {
@@ -62,11 +61,10 @@ func TestSelectBulkCancelableRuns_HidesEnvironmentMismatch(t *testing.T) {
 	}
 
 	selection := srv.selectBulkCancelableRuns(ctx, []string{"run-env-b"}, runsMap)
-	require.Len(t,
+	require.Empty(t,
 		selection.
-			cancelableIDs,
-		0)
-	require.EqualValues(t, 1, selection.
+			cancelableIDs)
+	require.Equal(t, 1, selection.
 		failed,
 	)
 
@@ -75,7 +73,6 @@ func TestSelectBulkCancelableRuns_HidesEnvironmentMismatch(t *testing.T) {
 		t, reflect.
 			DeepEqual(selection.
 				results, wantResults))
-
 }
 
 func TestHandleBulkCancelRunsSkipsStoreCancelWhenNoRunsCancelable(t *testing.T) {
@@ -132,7 +129,6 @@ func TestHandleBulkCancelRunsSkipsStoreCancelWhenNoRunsCancelable(t *testing.T) 
 			DeepEqual(output.
 				Body.
 				Results, wantResults))
-
 }
 
 func TestBulkCancelSelection_AppendStoreResultsReportsRaces(t *testing.T) {
@@ -149,8 +145,8 @@ func TestBulkCancelSelection_AppendStoreResultsReportsRaces(t *testing.T) {
 	}
 
 	canceled := selection.appendStoreResults(runsMap, []store.BulkCancelResult{{ID: "run-2", Canceled: true}})
-	require.EqualValues(t, 1, canceled)
-	require.EqualValues(t, 2, selection.
+	require.Equal(t, 1, canceled)
+	require.Equal(t, 2, selection.
 		failed,
 	)
 
@@ -163,5 +159,4 @@ func TestBulkCancelSelection_AppendStoreResultsReportsRaces(t *testing.T) {
 		t, reflect.
 			DeepEqual(selection.
 				results, wantResults))
-
 }

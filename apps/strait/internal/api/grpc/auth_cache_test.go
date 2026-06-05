@@ -45,9 +45,8 @@ func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 		t, domain.ScopeWorkersConnect,
 		second.
 			Scopes[0])
-	require.Len(t,
+	require.Empty(t,
 		second.RotationWebhookSecret,
-		0,
 	)
 
 	redisKey := "strait:cache:" + grpcAPIKeyAuthCacheNamespace + ":hash-1"
@@ -59,5 +58,4 @@ func TestCachedAPIKeyResolver_UsesRedisL2AndSanitizesSecrets(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(raw, &envelope))
 	require.EqualValues(t, 8, envelope.Version)
-
 }

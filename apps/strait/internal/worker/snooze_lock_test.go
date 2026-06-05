@@ -26,9 +26,8 @@ func TestSnoozeRun_LockedRowSkipsCleanly(t *testing.T) {
 	// Must not panic, must not propagate the locked error to the caller. The
 	// only observable effect is the appended statusUpdate call from the mock.
 	exec.snoozeRun(context.Background(), run, "raced with reaper", nil)
-	require.EqualValues(t, 1, len(st.
-		statusUpdates()))
-
+	require.Len(t, st.
+		statusUpdates(), 1)
 }
 
 func TestSnoozeRun_ConflictRowSkipsCleanly(t *testing.T) {
@@ -43,9 +42,8 @@ func TestSnoozeRun_ConflictRowSkipsCleanly(t *testing.T) {
 	run := testRun(1)
 	run.Status = domain.StatusDequeued
 	exec.snoozeRun(context.Background(), run, "raced with completion", nil)
-	require.EqualValues(t, 1, len(st.
-		statusUpdates()))
-
+	require.Len(t, st.
+		statusUpdates(), 1)
 }
 
 func TestSnoozeRunFromExecuting_LockedRowSkipsCleanly(t *testing.T) {
@@ -60,9 +58,8 @@ func TestSnoozeRunFromExecuting_LockedRowSkipsCleanly(t *testing.T) {
 	run := testRun(1)
 	run.Status = domain.StatusExecuting
 	exec.snoozeRunFromExecuting(context.Background(), run, "watchdog tick", nil)
-	require.EqualValues(t, 1, len(st.
-		statusUpdates()))
-
+	require.Len(t, st.
+		statusUpdates(), 1)
 }
 
 func TestSnoozeRun_GenuineErrorStillLogged(t *testing.T) {
@@ -78,9 +75,8 @@ func TestSnoozeRun_GenuineErrorStillLogged(t *testing.T) {
 	run.Status = domain.StatusDequeued
 	// Must not panic. The path logs an error and returns; no emit.
 	exec.snoozeRun(context.Background(), run, "snooze under failure", nil)
-	require.EqualValues(t, 1, len(st.
-		statusUpdates()))
-
+	require.Len(t, st.
+		statusUpdates(), 1)
 }
 
 func TestDeepSecSnoozeRun_ExecutingClaimTableRunUsesExecutingSource(t *testing.T) {
@@ -100,5 +96,4 @@ func TestDeepSecSnoozeRun_ExecutingClaimTableRunUsesExecutingSource(t *testing.T
 		domain.StatusExecuting,
 
 		calls[0].from)
-
 }

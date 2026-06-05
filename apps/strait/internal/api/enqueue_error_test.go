@@ -61,7 +61,6 @@ func TestHandleReplayRun_EnqueueThrottledReturns429(t *testing.T) {
 	require.Equal(t, ErrorCodeEnqueueThrottled,
 
 		body.Error.Code)
-
 }
 
 func TestHandleTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
@@ -104,7 +103,6 @@ func TestHandleTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
 	require.Equal(t, ErrorCodeEnqueueThrottled,
 
 		body.Error.Code)
-
 }
 
 func TestHandleBulkTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
@@ -144,5 +142,4 @@ func TestHandleBulkTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
 	require.Equal(t, ErrorCodeEnqueueThrottled,
 
 		body.Error.Code)
-
 }

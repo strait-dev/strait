@@ -54,27 +54,20 @@ func TestCheckSchemaVersion_Match(t *testing.T) {
 	assert.NoError(
 		t, q.CheckSchemaVersion(context.Background(), domain.
 			ExpectedSchemaVersion))
-
 }
 
 func TestCheckSchemaVersion_BinaryBehind(t *testing.T) {
 	q := New(&fakeSchemaDB{version: domain.ExpectedSchemaVersion + 1})
 	err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion)
-	assert.True(t,
-		errors.Is(
-			err, ErrSchemaMismatch,
-		))
-
+	assert.ErrorIs(t,
+		err, ErrSchemaMismatch)
 }
 
 func TestCheckSchemaVersion_BinaryAhead(t *testing.T) {
 	q := New(&fakeSchemaDB{version: domain.ExpectedSchemaVersion - 6})
 	err := q.CheckSchemaVersion(context.Background(), domain.ExpectedSchemaVersion)
-	assert.True(t,
-		errors.Is(
-			err, ErrSchemaMismatch,
-		))
-
+	assert.ErrorIs(t,
+		err, ErrSchemaMismatch)
 }
 
 func TestCheckSchemaVersion_NoTable(t *testing.T) {
@@ -82,7 +75,6 @@ func TestCheckSchemaVersion_NoTable(t *testing.T) {
 	assert.NoError(
 		t, q.CheckSchemaVersion(context.Background(), domain.
 			ExpectedSchemaVersion))
-
 }
 
 func TestCheckSchemaVersion_SkipOnZero(t *testing.T) {
@@ -90,5 +82,4 @@ func TestCheckSchemaVersion_SkipOnZero(t *testing.T) {
 	assert.NoError(
 		t, q.CheckSchemaVersion(context.Background(), 0),
 	)
-
 }

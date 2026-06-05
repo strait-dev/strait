@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -80,15 +79,14 @@ func TestLoadRunCreationJobReturnsScopedJob(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want,
 		got)
-
 }
 
 func assertStatusError(t *testing.T, err error, status int, contains string) {
 	t.Helper()
 
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
+	require.ErrorAs(
+		t, err, &statusErr)
 	require.Equal(t, status,
 		statusErr.
 			GetStatus(),
@@ -97,5 +95,4 @@ func assertStatusError(t *testing.T, err error, status int, contains string) {
 		"" &&
 		!strings.Contains(err.
 			Error(), contains))
-
 }

@@ -77,10 +77,9 @@ func TestDowngradeApplier_DispatchesScheduleSuspended_OnCronTrim(t *testing.T) {
 			cronEvents++
 		}
 	}
-	require.EqualValues(t, 3,
+	require.Equal(t, 3,
 		cronEvents,
 	)
-
 }
 
 // TestDowngradeApplier_NoDispatch_WhenNoIDsReturned guards the fast-path: if
@@ -107,7 +106,6 @@ func TestDowngradeApplier_NoDispatch_WhenNoIDsReturned(t *testing.T) {
 			domain.WebhookEventScheduleSuspended,
 
 			e.eventType)
-
 	}
 }
 

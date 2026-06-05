@@ -3,7 +3,6 @@ package crypto
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"strings"
 	"testing"
 
@@ -17,7 +16,6 @@ func TestDecryptString_InvalidBase64(t *testing.T) {
 	_, err := enc.DecryptString("not-valid-base64!!!")
 	require.Error(
 		t, err)
-
 }
 
 func TestDecryptString_ValidBase64ButBadCiphertext(t *testing.T) {
@@ -29,7 +27,6 @@ func TestDecryptString_ValidBase64ButBadCiphertext(t *testing.T) {
 	_, err := enc.DecryptString(short)
 	require.Error(
 		t, err)
-
 }
 
 func TestDecryptString_ValidBase64WrongKey(t *testing.T) {
@@ -43,7 +40,6 @@ func TestDecryptString_ValidBase64WrongKey(t *testing.T) {
 	_, err = encB.DecryptString(ct)
 	require.Error(
 		t, err)
-
 }
 
 func TestNewEncryptorFromBytes_TooShort(t *testing.T) {
@@ -51,9 +47,8 @@ func TestNewEncryptorFromBytes_TooShort(t *testing.T) {
 	_, err := newEncryptorFromBytes([]byte("short"))
 	require.Error(
 		t, err)
-	require.True(t,
-		errors.Is(err, errInvalidKeyLength))
-
+	require.ErrorIs(t,
+		err, errInvalidKeyLength)
 }
 
 func TestNewEncryptorFromBytes_TooLong(t *testing.T) {
@@ -61,9 +56,8 @@ func TestNewEncryptorFromBytes_TooLong(t *testing.T) {
 	_, err := newEncryptorFromBytes(make([]byte, 64))
 	require.Error(
 		t, err)
-	require.True(t,
-		errors.Is(err, errInvalidKeyLength))
-
+	require.ErrorIs(t,
+		err, errInvalidKeyLength)
 }
 
 func TestNewKeyRotator_InvalidPrimary(t *testing.T) {
@@ -71,7 +65,6 @@ func TestNewKeyRotator_InvalidPrimary(t *testing.T) {
 	_, err := NewKeyRotator([]byte("bad"))
 	require.Error(
 		t, err)
-
 }
 
 func TestNewKeyRotator_InvalidOldKey(t *testing.T) {
@@ -80,7 +73,6 @@ func TestNewKeyRotator_InvalidOldKey(t *testing.T) {
 	_, err := NewKeyRotator(good, []byte("bad"))
 	require.Error(
 		t, err)
-
 }
 
 func TestKeyRotator_DecryptTooShort(t *testing.T) {
@@ -92,9 +84,8 @@ func TestKeyRotator_DecryptTooShort(t *testing.T) {
 	_, err = rotator.Decrypt([]byte("x"))
 	require.Error(
 		t, err)
-	require.True(t,
-		errors.Is(err, errCiphertextTooShort))
-
+	require.ErrorIs(t,
+		err, errCiphertextTooShort)
 }
 
 func TestKeyRotator_DecryptNoMatchingKey(t *testing.T) {
@@ -115,9 +106,8 @@ func TestKeyRotator_DecryptNoMatchingKey(t *testing.T) {
 	_, err = rotator.Decrypt(ct)
 	require.Error(
 		t, err)
-	require.True(t,
-		errors.Is(err, errDecryptFailed))
-
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestRotateKey_InvalidKey(t *testing.T) {
@@ -129,7 +119,6 @@ func TestRotateKey_InvalidKey(t *testing.T) {
 	err = rotator.RotateKey([]byte("bad"))
 	require.Error(
 		t, err)
-
 }
 
 func TestParseKey_Base64Standard(t *testing.T) {
@@ -143,7 +132,6 @@ func TestParseKey_Base64Standard(t *testing.T) {
 	enc, err := NewEncryptor(encoded)
 	require.NoError(t, err)
 	require.NotNil(t, enc)
-
 }
 
 func TestParseKey_Base64RawStandard(t *testing.T) {
@@ -157,7 +145,6 @@ func TestParseKey_Base64RawStandard(t *testing.T) {
 	enc, err := NewEncryptor(encoded)
 	require.NoError(t, err)
 	require.NotNil(t, enc)
-
 }
 
 func TestParseKey_Base64URLSafe(t *testing.T) {
@@ -174,7 +161,6 @@ func TestParseKey_Base64URLSafe(t *testing.T) {
 		enc, err := NewEncryptor(encoded)
 		require.NoError(t, err)
 		require.NotNil(t, enc)
-
 	}
 }
 
@@ -185,7 +171,6 @@ func TestParseKey_64CharsNonHex(t *testing.T) {
 	_, err := NewEncryptor(key)
 	require.Error(
 		t, err)
-
 }
 
 func TestParseKey_WrongLength(t *testing.T) {
@@ -193,7 +178,6 @@ func TestParseKey_WrongLength(t *testing.T) {
 	_, err := NewEncryptor("12345")
 	require.Error(
 		t, err)
-
 }
 
 func TestDecrypt_ExactlyNonceSizeBytes(t *testing.T) {
@@ -206,12 +190,11 @@ func TestDecrypt_ExactlyNonceSizeBytes(t *testing.T) {
 	_, err := enc.Decrypt(ciphertext)
 	require.Error(
 		t, err)
-	require.False(
-		t, errors.Is(err, errCiphertextTooShort),
+	require.NotErrorIs(
+		t, err, errCiphertextTooShort,
 	)
-	require.True(t,
-		errors.Is(err, errDecryptFailed))
-
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestKeyRotator_DecryptNoOldKeys(t *testing.T) {
@@ -231,7 +214,6 @@ func TestKeyRotator_DecryptNoOldKeys(t *testing.T) {
 		bytes.Equal(plaintext,
 			decrypted,
 		))
-
 }
 
 func TestKeyRotator_DecryptExactlyNonceSizeBytes(t *testing.T) {
@@ -246,12 +228,11 @@ func TestKeyRotator_DecryptExactlyNonceSizeBytes(t *testing.T) {
 	_, err = rotator.Decrypt(ciphertext)
 	require.Error(
 		t, err)
-	require.False(
-		t, errors.Is(err, errCiphertextTooShort),
+	require.NotErrorIs(
+		t, err, errCiphertextTooShort,
 	)
-	require.True(t,
-		errors.Is(err, errDecryptFailed))
-
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestEncrypt_ProducesUniqueCiphertexts(t *testing.T) {
@@ -266,5 +247,4 @@ func TestEncrypt_ProducesUniqueCiphertexts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, string(ct2),
 		string(ct1))
-
 }

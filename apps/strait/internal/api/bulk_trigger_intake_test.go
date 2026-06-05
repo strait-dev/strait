@@ -48,5 +48,4 @@ func TestBulkHasIdempotencyKey(t *testing.T) {
 	t.Parallel()
 	require.False(t, bulkHasIdempotencyKey([]BulkTriggerItem{{}, {Payload: json.RawMessage(`{}`)}}))
 	require.True(t, bulkHasIdempotencyKey([]BulkTriggerItem{{}, {IdempotencyKey: "k"}}))
-
 }

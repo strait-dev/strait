@@ -105,9 +105,7 @@ func TestSecrets_APIKeyHashNeverInLog(t *testing.T) {
 	// Status may be 200 or 204; we just want logs.
 
 	logText := handler.allLogText()
-	require.False(t, strings.Contains(logText,
-		keyHash))
-
+	require.NotContains(t, logText, keyHash)
 }
 
 // TestSecrets_JWTKeyNotInErrors verifies that sending an invalid JWT to runTokenAuth
@@ -127,10 +125,7 @@ func TestSecrets_JWTKeyNotInErrors(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	respBody := w.Body.String()
-	require.False(t, strings.Contains(respBody,
-		signingKey,
-	))
-
+	require.NotContains(t, respBody, signingKey)
 }
 
 // TestSecrets_WebhookSecretIsServerGenerated verifies that creating a webhook
@@ -169,7 +164,6 @@ func TestSecrets_WebhookSecretIsServerGenerated(t *testing.T) {
 		got)
 	require.False(t, len(got) != len("whsec_")+
 		64 || got[:6] != "whsec_")
-
 }
 
 // TestSecrets_APIKeyPrefixOnlyInLog verifies that log entries contain at most the
@@ -215,10 +209,8 @@ func TestSecrets_APIKeyPrefixOnlyInLog(t *testing.T) {
 	srv.ServeHTTP(w2, authedRequest(http.MethodDelete, "/v1/api-keys/key-002", ""))
 
 	logText := handler.allLogText()
-	require.False(t, strings.Contains(logText,
-		rawKey))
-	require.False(t, strings.Contains(logText,
-		remainder))
+	require.NotContains(t, logText, rawKey)
+	require.NotContains(t, logText, remainder)
 
 	// The full raw key must never appear.
 
@@ -247,12 +239,8 @@ func TestSecrets_PasswordFieldsNotSerialized(t *testing.T) {
 	require.NoError(t, err)
 
 	jsonStr := string(data)
-	require.False(t, strings.Contains(jsonStr,
-		"key_hash"),
-	)
-	require.False(t, strings.Contains(jsonStr,
-		apiKey.KeyHash,
-	))
+	require.NotContains(t, jsonStr, "key_hash")
+	require.NotContains(t, jsonStr, apiKey.KeyHash)
 
 	// domain.JobSecret has EncryptedValue tagged json:"-".
 	secret := domain.JobSecret{
@@ -267,11 +255,6 @@ func TestSecrets_PasswordFieldsNotSerialized(t *testing.T) {
 	require.NoError(t, err)
 
 	jsonStr2 := string(data2)
-	require.False(t, strings.Contains(jsonStr2,
-		"encrypted_value",
-	))
-	require.False(t, strings.Contains(jsonStr2,
-		secret.EncryptedValue,
-	))
-
+	require.NotContains(t, jsonStr2, "encrypted_value")
+	require.NotContains(t, jsonStr2, secret.EncryptedValue)
 }

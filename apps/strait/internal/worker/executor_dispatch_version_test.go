@@ -63,7 +63,6 @@ func TestExecute_UsesVersionedJobConfig(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }
 
 func TestExecute_FallsBackToLiveJob(t *testing.T) {
@@ -101,7 +100,6 @@ func TestExecute_FallsBackToLiveJob(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }
 
 func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
@@ -140,7 +138,6 @@ func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }
 
 func TestResolveJobForRun_Pin(t *testing.T) {
@@ -169,8 +166,7 @@ func TestResolveJobForRun_Pin(t *testing.T) {
 		"https://v1.example.com",
 
 		job.EndpointURL)
-	require.EqualValues(t, 1, run.JobVersion)
-
+	require.Equal(t, 1, run.JobVersion)
 }
 
 func TestResolveJobForRun_Latest(t *testing.T) {
@@ -193,12 +189,11 @@ func TestResolveJobForRun_Latest(t *testing.T) {
 		"https://v3.example.com",
 
 		job.EndpointURL)
-	require.EqualValues(t, 3, run.JobVersion)
+	require.Equal(t, 3, run.JobVersion)
 	require.Equal(t,
 		"ver_v3",
 		run.JobVersionID,
 	)
-
 }
 
 func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
@@ -222,8 +217,7 @@ func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
 		"https://v3.example.com",
 
 		job.EndpointURL)
-	require.EqualValues(t, 3, run.JobVersion)
-
+	require.Equal(t, 3, run.JobVersion)
 }
 
 func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
@@ -253,8 +247,7 @@ func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
 		"https://v1.example.com",
 
 		job.EndpointURL)
-	require.EqualValues(t, 1, run.JobVersion)
-
+	require.Equal(t, 1, run.JobVersion)
 }
 
 func TestResolveJobForRun_SameVersion(t *testing.T) {
@@ -277,7 +270,6 @@ func TestResolveJobForRun_SameVersion(t *testing.T) {
 		"https://v2.example.com",
 
 		job.EndpointURL)
-
 }
 
 func TestResolveJobForRun_EmptyPolicyFallsToPin(t *testing.T) {
@@ -309,8 +301,7 @@ func TestResolveJobForRun_EmptyPolicyFallsToPin(t *testing.T) {
 		"https://v2.example.com",
 
 		job.EndpointURL)
-	assert.EqualValues(t, 2, run.JobVersion)
-
+	assert.Equal(t, 2, run.JobVersion)
 }
 
 func TestResolveJobForRun_Latest_UpdatesVersionID(t *testing.T) {
@@ -335,12 +326,11 @@ func TestResolveJobForRun_Latest_UpdatesVersionID(t *testing.T) {
 	_, err := e.resolveJobForRun(context.Background(), run)
 	require.NoError(
 		t, err)
-	assert.EqualValues(t, 4, run.JobVersion)
+	assert.Equal(t, 4, run.JobVersion)
 	assert.Equal(t,
 		"ver_v4",
 		run.JobVersionID,
 	)
-
 }
 
 func TestResolveJobForRun_Minor_Compatible_UpdatesVersionID(t *testing.T) {
@@ -366,12 +356,11 @@ func TestResolveJobForRun_Minor_Compatible_UpdatesVersionID(t *testing.T) {
 	_, err := e.resolveJobForRun(context.Background(), run)
 	require.NoError(
 		t, err)
-	assert.EqualValues(t, 3, run.JobVersion)
+	assert.Equal(t, 3, run.JobVersion)
 	assert.Equal(t,
 		"ver_v3",
 		run.JobVersionID,
 	)
-
 }
 
 func TestResolveJobForRun_GetJobError(t *testing.T) {
@@ -387,7 +376,6 @@ func TestResolveJobForRun_GetJobError(t *testing.T) {
 	_, err := e.resolveJobForRun(context.Background(), run)
 	require.Error(t,
 		err)
-
 }
 
 func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
@@ -411,7 +399,6 @@ func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
 	_, err := e.resolveJobForRun(context.Background(), run)
 	require.Error(t,
 		err)
-
 }
 
 func TestResolveJobForRun_Pin_MultipleVersionGap(t *testing.T) {
@@ -442,12 +429,11 @@ func TestResolveJobForRun_Pin_MultipleVersionGap(t *testing.T) {
 	job, err := e.resolveJobForRun(context.Background(), run)
 	require.NoError(
 		t, err)
-	assert.EqualValues(t, 1, requestedVersion)
+	assert.Equal(t, 1, requestedVersion)
 	assert.Equal(t,
 		"https://v1.example.com",
 
 		job.EndpointURL)
-
 }
 
 func TestResolveJobForRun_Minor_NotBackwardsCompatible_FallsToPin(t *testing.T) {
@@ -486,6 +472,5 @@ func TestResolveJobForRun_Minor_NotBackwardsCompatible_FallsToPin(t *testing.T) 
 		"https://v1.example.com",
 
 		job.EndpointURL)
-	assert.EqualValues(t, 1, run.JobVersion)
-
+	assert.Equal(t, 1, run.JobVersion)
 }

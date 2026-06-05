@@ -286,9 +286,9 @@ func TestImportResult_Fields(t *testing.T) {
 
 func TestDiffEntry_Actions(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, DiffAction("CREATE"), DiffCreate)
-	assert.Equal(t, DiffAction("UPDATE"), DiffUpdate)
-	assert.Equal(t, DiffAction("SKIP"), DiffSkip)
+	assert.Equal(t, DiffCreate, DiffAction("CREATE"))
+	assert.Equal(t, DiffUpdate, DiffAction("UPDATE"))
+	assert.Equal(t, DiffSkip, DiffAction("SKIP"))
 }
 
 func TestRedactedPlaceholder(t *testing.T) {

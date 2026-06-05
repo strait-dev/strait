@@ -77,7 +77,6 @@ func TestAdminEndpointsReachability(t *testing.T) {
 			// structured JSON error bodies. Treat a 404 whose body
 			// indicates chi's default "404 page not found" as the fail
 			// case; any 4xx/5xx from the handler itself is fine.
-
 		})
 	}
 }

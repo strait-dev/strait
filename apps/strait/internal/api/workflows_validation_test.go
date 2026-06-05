@@ -1,7 +1,6 @@
 package api
 
 import (
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -19,7 +18,6 @@ func TestValidateWorkflowSteps_MaxStepLimit(t *testing.T) {
 
 	err := validateWorkflowSteps(steps)
 	require.Error(t, err)
-
 }
 
 func TestValidateWorkflowSteps_InvalidResourceClass(t *testing.T) {
@@ -33,7 +31,6 @@ func TestValidateWorkflowSteps_InvalidResourceClass(t *testing.T) {
 
 	err := validateWorkflowSteps(steps)
 	require.Error(t, err)
-
 }
 
 func TestValidateWorkflowSteps_RejectsUnknownStepType(t *testing.T) {
@@ -47,9 +44,8 @@ func TestValidateWorkflowSteps_RejectsUnknownStepType(t *testing.T) {
 
 	err := validateWorkflowSteps(steps)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "invalid step_type"))
-
+	require.Contains(
+		t, err.Error(), "invalid step_type")
 }
 
 func TestValidateWorkflowSteps_RejectsOversizedSleepDuration(t *testing.T) {
@@ -63,9 +59,8 @@ func TestValidateWorkflowSteps_RejectsOversizedSleepDuration(t *testing.T) {
 
 	err := validateWorkflowSteps(steps)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "sleep_duration_secs must be <="))
-
+	require.Contains(
+		t, err.Error(), "sleep_duration_secs must be <=")
 }
 
 func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
@@ -77,7 +72,6 @@ func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
 		SleepDurationSecs: domain.MaxSleepDurationSecs,
 	}}
 	require.NoError(t, validateWorkflowSteps(steps))
-
 }
 
 func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
@@ -122,10 +116,9 @@ func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
 
 			err := validateWorkflowSteps(steps)
 			require.Error(t, err)
-			require.True(
-				t, strings.Contains(err.Error(), tt.want),
+			require.Contains(
+				t, err.Error(), tt.want,
 			)
-
 		})
 	}
 }
@@ -140,7 +133,6 @@ func TestValidateWorkflowSteps_AllowsValidEventNotifyURL(t *testing.T) {
 		EventNotifyURL: "https://example.com:443/hook",
 	}}
 	require.NoError(t, validateWorkflowSteps(steps))
-
 }
 
 func TestValidateWorkflowStepAcyclic_DuplicateDependencyIsNotCycle(t *testing.T) {
@@ -151,5 +143,4 @@ func TestValidateWorkflowStepAcyclic_DuplicateDependencyIsNotCycle(t *testing.T)
 		{StepRef: "b", JobID: "job-b", DependsOn: []string{"a", "a"}},
 	}
 	require.NoError(t, validateWorkflowSteps(steps))
-
 }

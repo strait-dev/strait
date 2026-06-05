@@ -52,7 +52,6 @@ func TestSetProjectBudget_Valid_Stores(t *testing.T) {
 		store.
 			setAction,
 	)
-
 }
 
 func TestSetProjectBudget_InvalidAction_Rejects(t *testing.T) {
@@ -64,7 +63,6 @@ func TestSetProjectBudget_InvalidAction_Rejects(t *testing.T) {
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 50000000, "invalid")
 	require.Error(t,
 		err)
-
 }
 
 func TestSetProjectBudget_NegativeBudget_SetsUnlimited(t *testing.T) {
@@ -77,5 +75,4 @@ func TestSetProjectBudget_NegativeBudget_SetsUnlimited(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.EqualValues(t, -1, store.setBudget)
-
 }

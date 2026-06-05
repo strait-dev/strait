@@ -57,12 +57,11 @@ func TestSLOHandler_TerminalRun_InsertsEvaluation(t *testing.T) {
 		t, "slo-1", store.
 			evaluations[0].SLOID,
 	)
-	require.NotEqual(t, "", store.
+	require.NotEmpty(t, store.
 		evaluations[0].ID)
 	require.False(t, store.evaluations[0].EvaluatedAt.
 		IsZero())
-	assert.EqualValues(t, 1.0, store.evaluations[0].CurrentValue)
-
+	assert.InDelta(t, 1.0, store.evaluations[0].CurrentValue, 1e-9)
 }
 
 func TestSLOHandler_NonTerminal_Skipped(t *testing.T) {
@@ -77,12 +76,9 @@ func TestSLOHandler_NonTerminal_Skipped(t *testing.T) {
 	for _, status := range []string{"queued", "executing", "dequeued"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
 		require.NoError(t, err)
-
 	}
-	require.Len(t,
-		store.evaluations,
-		0)
-
+	require.Empty(t,
+		store.evaluations)
 }
 
 func TestSLOHandler_NoSLOs_NoEvaluation(t *testing.T) {
@@ -92,10 +88,8 @@ func TestSLOHandler_NoSLOs_NoEvaluation(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.evaluations,
-		0)
-
+	require.Empty(t,
+		store.evaluations)
 }
 
 func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
@@ -116,8 +110,7 @@ func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
 		3)
 
 	for _, eval := range store.evaluations {
-		assert.EqualValues(t, 0.0, eval.CurrentValue)
-
+		assert.InDelta(t, 0.0, eval.CurrentValue, 1e-9)
 	}
 }
 
@@ -151,7 +144,6 @@ func TestSLOHandler_DoesNotOverwriteExistingSLOEvaluationWithPlaceholder(t *test
 		1)
 	require.Equal(t, "slo-empty",
 		store.evaluations[0].SLOID)
-
 }
 
 func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T) {
@@ -176,7 +168,6 @@ func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T)
 	require.Len(t,
 		store.evaluations,
 		1)
-
 }
 
 func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *testing.T) {
@@ -202,7 +193,6 @@ func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *tes
 	require.Len(t,
 		store.evaluations,
 		1)
-
 }
 
 func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
@@ -231,7 +221,6 @@ func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
 	require.Len(t,
 		store.evaluations,
 		1)
-
 }
 
 func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
@@ -243,7 +232,6 @@ func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }
 
 func TestSLOHandler_InvalidJSON(t *testing.T) {
@@ -258,7 +246,6 @@ func TestSLOHandler_InvalidJSON(t *testing.T) {
 	}
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
@@ -274,7 +261,6 @@ func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }
 
 func TestSLOHandler_TimedOutStatus(t *testing.T) {
@@ -291,8 +277,7 @@ func TestSLOHandler_TimedOutStatus(t *testing.T) {
 	require.Len(t,
 		store.evaluations,
 		1)
-	assert.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
-
+	assert.InDelta(t, 0.0, store.evaluations[0].CurrentValue, 1e-9)
 }
 
 func TestSLOHandler_CanceledStatus(t *testing.T) {
@@ -309,8 +294,7 @@ func TestSLOHandler_CanceledStatus(t *testing.T) {
 	require.Len(t,
 		store.evaluations,
 		1)
-	assert.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
-
+	assert.InDelta(t, 0.0, store.evaluations[0].CurrentValue, 1e-9)
 }
 
 func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T) {
@@ -339,15 +323,13 @@ func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T)
 			require.Len(t,
 				store.evaluations,
 				1)
-			require.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
-
+			require.InDelta(t, 0.0, store.evaluations[0].CurrentValue, 1e-9)
 		})
 	}
 }
 
 func TestDeepSecSLOCurrentValue_FailsClosedForUnknownStatus(t *testing.T) {
 	t.Parallel()
-	require.EqualValues(t, 0.0, sloCurrentValue(domain.
-		RunStatus("future_terminal")))
-
+	require.InDelta(t, 0.0, sloCurrentValue(domain.
+		RunStatus("future_terminal")), 1e-9)
 }

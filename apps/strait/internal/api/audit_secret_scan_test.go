@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 
@@ -110,7 +109,6 @@ func TestAuditDetails_NoSecretLeakage(t *testing.T) {
 			require.NoError(t, json.Unmarshal(ev.
 				Details, &details,
 			))
-
 		}
 		if hits := scanForSecrets(details); len(hits) > 0 {
 			assert.Failf(t, "test failure",
@@ -147,7 +145,7 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			hits := scanForSecrets(map[string]any{"leak": tc.value})
 			if tc.want == "" {
-				assert.LessOrEqual(t, len(hits), 0)
+				assert.Empty(t, hits)
 
 				return
 			}
@@ -160,7 +158,6 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 			}
 			assert.True(t,
 				found)
-
 		})
 	}
 
@@ -168,7 +165,6 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 	hex := "abcdef0123456789abcdef0123456789abcdef01"
 	hits := scanForSecrets(fmt.Sprintf("strait_%s", hex))
 	assert.NotEmpty(t, hits)
-
 }
 
 // TestAuditDetails_ScannerIgnoresBenign asserts the scanner does not flag
@@ -224,7 +220,6 @@ func TestScanAndRedact_RedactsStripeKey(t *testing.T) {
 			1 || shapes[0] !=
 			"stripe_secret_key",
 	)
-
 }
 
 // TestScanAndRedact_RedactsJWT asserts a JWT-shaped token is redacted.
@@ -245,7 +240,6 @@ func TestScanAndRedact_RedactsJWT(t *testing.T) {
 			1 || shapes[0] !=
 			"jwt_like",
 	)
-
 }
 
 // TestScanAndRedact_RedactsPEM asserts a PEM private-key header substring
@@ -265,7 +259,6 @@ func TestScanAndRedact_RedactsPEM(t *testing.T) {
 			1 || shapes[0] !=
 			"private_key_block",
 	)
-
 }
 
 func TestScanAndRedact_RedactsNestedWithoutMutatingInput(t *testing.T) {
@@ -290,7 +283,6 @@ func TestScanAndRedact_RedactsNestedWithoutMutatingInput(t *testing.T) {
 	require.Equal(t, "[redacted:bearer_token]",
 
 		got)
-
 }
 
 // TestScanAndRedact_NoFalsePositivesOnBenignContent asserts realistic
@@ -311,8 +303,7 @@ func TestScanAndRedact_NoFalsePositivesOnBenignContent(t *testing.T) {
 		"proj_slug": "proj_abc123",
 	}
 	_, shapes := scanAndRedact(in)
-	assert.LessOrEqual(t, len(shapes), 0)
-
+	assert.Empty(t, shapes)
 }
 
 // TestMarshalAndCapDetails_EmitsRedactedMetric asserts the production emit
@@ -336,10 +327,10 @@ func TestMarshalAndCapDetails_EmitsRedactedMetric(t *testing.T) {
 	require.NoError(t, err)
 
 	s := string(raw)
-	assert.False(
-		t, strings.Contains(s, "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"))
-	assert.False(
-		t, strings.Contains(s, "Bearer abcdef1234567890ABCDEF"),
+	assert.NotContains(
+		t, s, "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX")
+	assert.NotContains(
+		t, s, "Bearer abcdef1234567890ABCDEF",
 	)
 
 	var decoded map[string]any
@@ -357,7 +348,5 @@ func TestMarshalAndCapDetails_EmitsRedactedMetric(t *testing.T) {
 	for _, sh := range shapes {
 		delete(wantShapes, sh.(string))
 	}
-	assert.LessOrEqual(t, len(wantShapes),
-		0)
-
+	assert.Empty(t, wantShapes)
 }

@@ -62,7 +62,6 @@ func TestDispatchSpendingLimit_RaceUnderConcurrency(t *testing.T) {
 	assert.NotEmpty(
 		t, h.store.
 			statusCalls)
-
 }
 
 // TestDispatchSpendingLimit_StaleCacheFailsClosed simulates a stale
@@ -87,7 +86,6 @@ func TestDispatchSpendingLimit_StaleCacheFailsClosed(t *testing.T) {
 
 	runDispatch(h, "run-stale-cache")
 	assert.True(t, sawSystemFailed(h.store))
-
 }
 
 // TestDispatchSpendingLimit_NotInfluencedByDailyCounter is a regression
@@ -144,7 +142,6 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t,
 		failed, n)
-
 }
 
 // itoa avoids strconv import noise — same job for every run, only the

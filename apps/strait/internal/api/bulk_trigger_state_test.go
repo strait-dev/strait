@@ -37,11 +37,10 @@ func TestBulkTriggerStateAppendRunResultsUpdatesCounters(t *testing.T) {
 
 			"created result = %#v", got)
 	}
-	require.EqualValues(t, 1, state.
+	require.Equal(t, 1, state.
 		created)
-	require.EqualValues(t, 1, state.
+	require.Equal(t, 1, state.
 		enqueuedInBatch)
-
 }
 
 func TestBulkTriggerStateBuffersRunWhenBatchCanUseEnqueueBatch(t *testing.T) {
@@ -69,7 +68,6 @@ func TestBulkTriggerStateBuffersRunWhenBatchCanUseEnqueueBatch(t *testing.T) {
 	require.False(t, len(state.
 		pendingRuns) != 1 || state.
 		pendingRuns[0] != run)
-
 }
 
 func TestBulkTriggerStateEnqueuesImmediatelyWhenIdempotencyPresent(t *testing.T) {
@@ -94,11 +92,8 @@ func TestBulkTriggerStateEnqueuesImmediatelyWhenIdempotencyPresent(t *testing.T)
 	require.NoError(t, err)
 	require.False(t, handled)
 	require.Equal(t, run, captured)
-	require.Len(t,
-		state.pendingRuns,
-
-		0)
-
+	require.Empty(t,
+		state.pendingRuns)
 }
 
 func TestBulkTriggerStateEnqueuePendingRunsUsesBatch(t *testing.T) {
@@ -135,6 +130,5 @@ func TestBulkTriggerStateEnqueuePendingRunsUsesBatch(t *testing.T) {
 		require.Equal(t, runs[i],
 
 			captured[i])
-
 	}
 }

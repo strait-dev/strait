@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -65,7 +64,6 @@ func TestExportCSV_Empty(t *testing.T) {
 		records[0][0])
 
 	// Should have just the header row.
-
 }
 
 func TestExportCSV_WithRecords(t *testing.T) {
@@ -107,7 +105,6 @@ func TestExportCSV_WithRecords(t *testing.T) {
 	for i, col := range expectedHeader {
 		assert.Equal(t, col,
 			records[0][i])
-
 	}
 	assert.Equal(t, "2026-01-15",
 		records[1][0],
@@ -120,7 +117,6 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		records[1][3])
 	assert.Equal(t, "5.000000",
 		records[1][4])
-
 }
 
 func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
@@ -145,7 +141,6 @@ func TestExportCSV_SingleDayPeriodAllowed(t *testing.T) {
 		err)
 	require.Len(t, records,
 		2)
-
 }
 
 func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
@@ -164,7 +159,6 @@ func TestExportPDF_SingleDayPeriodAllowed(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, strings.HasPrefix(string(data), "%PDF-"))
-
 }
 
 func TestDeepSecExportCSV_EscapesFormulaProjectID(t *testing.T) {
@@ -275,7 +269,6 @@ func TestDeepSecExportCSV_PreservesBenignInvisibleProjectID(t *testing.T) {
 		err)
 	require.Equal(t,
 		projectID, records[1][1])
-
 }
 
 func TestDeepSecExportCSV_RejectsOversizedPeriod(t *testing.T) {
@@ -316,13 +309,12 @@ func TestDeepSecExportCSV_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
 	}
 
 	_, err := ExportCSV(context.Background(), store, "org-1", period)
-	require.True(t, errors.Is(err, ErrUsageExportTooLarge))
+	require.ErrorIs(t, err, ErrUsageExportTooLarge)
 	require.Equal(t,
 		maxUsageExportRows+
 			1, store.
 			limitedQueryLimit,
 	)
-
 }
 
 func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
@@ -335,13 +327,12 @@ func TestDeepSecExportPDF_RejectsRowOverflowWithBoundedQuery(t *testing.T) {
 	}
 
 	_, err := ExportPDF(context.Background(), store, "org-1", period)
-	require.True(t, errors.Is(err, ErrUsageExportTooLarge))
+	require.ErrorIs(t, err, ErrUsageExportTooLarge)
 	require.Equal(t,
 		maxUsageExportRows+
 			1, store.
 			limitedQueryLimit,
 	)
-
 }
 
 func TestExportPDF_Empty(t *testing.T) {
@@ -358,7 +349,6 @@ func TestExportPDF_Empty(t *testing.T) {
 		string(data), "%PDF-",
 	))
 	assert.GreaterOrEqual(t, len(data), 100)
-
 }
 
 func TestExportPDF_WithRecords(t *testing.T) {
@@ -395,10 +385,9 @@ func TestExportPDF_WithRecords(t *testing.T) {
 	emptyData, err := ExportPDF(context.Background(), emptyStore, "org-1", period)
 	require.NoError(t,
 		err)
-	assert.False(t, len(data) <= len(
+	assert.Greater(t, len(data), len(
 		emptyData),
 	)
-
 }
 
 func TestExportPDF_NoSubscription(t *testing.T) {
@@ -425,14 +414,12 @@ func TestExportPDF_NoSubscription(t *testing.T) {
 	assert.True(t, strings.HasPrefix(
 		string(data), "%PDF-",
 	))
-
 }
 
 func TestMicroToUSDString_NegativeValue(t *testing.T) {
 	got := microToUSDString(-1500000)
 	assert.Equal(t, "-1.500000",
 		got)
-
 }
 
 func TestExportCSV_VerifyAllColumns(t *testing.T) {
@@ -463,7 +450,6 @@ func TestExportCSV_VerifyAllColumns(t *testing.T) {
 		2)
 	assert.Equal(t, "10.000000",
 		records[1][4])
-
 }
 
 func TestExportPDF_LargeDataSet(t *testing.T) {
@@ -492,7 +478,6 @@ func TestExportPDF_LargeDataSet(t *testing.T) {
 	assert.GreaterOrEqual(t, len(data), 1000)
 
 	// Large dataset should produce a substantial PDF
-
 }
 
 func TestMicroToUSDString(t *testing.T) {
@@ -510,6 +495,5 @@ func TestMicroToUSDString(t *testing.T) {
 		got := microToUSDString(tt.input)
 		assert.Equal(t, tt.
 			expected, got)
-
 	}
 }

@@ -273,7 +273,6 @@ func TestBillingEnforcement_CloudNilEnforcerFailsClosed(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		execStore.statusCalls[0].to)
-
 }
 
 func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
@@ -308,10 +307,8 @@ func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
 
 	execStore.mu.Lock()
 	defer execStore.mu.Unlock()
-	require.Len(t, execStore.
-		statusCalls,
-		0)
-
+	require.Empty(t, execStore.
+		statusCalls)
 }
 
 func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
@@ -362,7 +359,6 @@ func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		execStore.statusCalls[0].to)
-
 }
 
 // TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount verifies
@@ -452,7 +448,6 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	assert.False(t,
 		err == nil && val !=
 			"0")
-
 }
 
 // TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount
@@ -543,7 +538,6 @@ func TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount(t 
 		strconv.Itoa(billing.
 			MaxRunsPerMonthFree,
 		), val)
-
 }
 
 func TestBillingEnforcement_AutomaticRetryDoesNotIncrementMonthlyRunCount(t *testing.T) {
@@ -636,7 +630,6 @@ func TestBillingEnforcement_FirstAttemptIncrementsMonthlyRunCount(t *testing.T) 
 		t, err)
 	require.Equal(t,
 		"1", val)
-
 }
 
 func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) {
@@ -704,7 +697,6 @@ func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) 
 	exec.stripeUsageWG.Wait()
 	require.EqualValues(t, 1, bStore.usageRecords.
 		Load())
-
 }
 
 func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) {
@@ -768,7 +760,6 @@ func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) 
 	exec.stripeUsageWG.Wait()
 	require.EqualValues(t, 1, bStore.usageRecords.
 		Load())
-
 }
 
 // TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter pins the fix for
@@ -871,7 +862,6 @@ func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
 	}
 	assert.Equal(t,
 		"0", val)
-
 }
 
 func TestBillingEnforcement_HTTPModePlanLookupErrorFailsClosedAndRollsBackCounters(t *testing.T) {

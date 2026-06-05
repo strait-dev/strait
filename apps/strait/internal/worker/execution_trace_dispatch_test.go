@@ -44,16 +44,12 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	trace, ok := traceValue.(*domain.ExecutionTrace)
 	require.True(t,
 		ok)
-	require.False(t,
-		trace.QueueWaitMs <=
-			0)
-	require.False(t,
-		trace.DispatchMs <=
-			0)
-	require.False(t,
-		trace.TotalMs <=
-			0)
-
+	require.Positive(t,
+		trace.QueueWaitMs)
+	require.Positive(t,
+		trace.DispatchMs)
+	require.Positive(t,
+		trace.TotalMs)
 }
 
 func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
@@ -91,16 +87,12 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	trace, ok := traceValue.(*domain.ExecutionTrace)
 	require.True(t,
 		ok)
-	require.False(t,
-		trace.QueueWaitMs <=
-			0)
-	require.False(t,
-		trace.DispatchMs <=
-			0)
-	require.False(t,
-		trace.TotalMs <=
-			0)
-
+	require.Positive(t,
+		trace.QueueWaitMs)
+	require.Positive(t,
+		trace.DispatchMs)
+	require.Positive(t,
+		trace.TotalMs)
 }
 
 func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
@@ -139,11 +131,8 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	trace, ok := traceValue.(*domain.ExecutionTrace)
 	require.True(t,
 		ok)
-	require.False(t,
-		trace.QueueWaitMs <=
-			0)
-	require.False(t,
-		trace.TotalMs <=
-			0)
-
+	require.Positive(t,
+		trace.QueueWaitMs)
+	require.Positive(t,
+		trace.TotalMs)
 }

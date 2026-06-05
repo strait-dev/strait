@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -19,7 +18,6 @@ func TestIsShortPeriod_Exactly24h(t *testing.T) {
 	require.True(t,
 		isShortPeriod(from,
 			to))
-
 }
 
 // TestIsShortPeriod_OneMsOver24h verifies one millisecond over 24h is not short.
@@ -32,7 +30,6 @@ func TestIsShortPeriod_OneMsOver24h(t *testing.T) {
 		t, isShortPeriod(from,
 			to),
 	)
-
 }
 
 // TestIsShortPeriod_ZeroDuration verifies from == to is short.
@@ -43,7 +40,6 @@ func TestIsShortPeriod_ZeroDuration(t *testing.T) {
 	require.True(t,
 		isShortPeriod(now,
 			now))
-
 }
 
 // TestIsShortPeriod_InvertedRange verifies from > to yields a negative duration.
@@ -57,7 +53,6 @@ func TestIsShortPeriod_InvertedRange(t *testing.T) {
 			to))
 
 	// Negative duration is <= 24h, so isShortPeriod returns true.
-
 }
 
 // TestIsShortPeriod_NegativeDuration verifies a large negative range is still short.
@@ -71,7 +66,6 @@ func TestIsShortPeriod_NegativeDuration(t *testing.T) {
 			to))
 
 	// to.Sub(from) is very negative, which is <= 24h.
-
 }
 
 // FuzzIsShortPeriod fuzzes the isShortPeriod boundary with random time ranges.
@@ -89,7 +83,6 @@ func FuzzIsShortPeriod(f *testing.F) {
 		assert.Equal(t,
 			want,
 			got)
-
 	})
 }
 
@@ -99,34 +92,21 @@ func TestJobMemoryQuotaError_Is(t *testing.T) {
 
 	perKey := &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: 1024}
 	perJob := &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerJob, Max: 4096}
-	require.True(t,
-		errors.Is(perKey,
-			ErrJobMemoryPerKeyLimitExceeded,
-		))
-	require.False(
-		t, errors.Is(perKey,
-			ErrJobMemoryPerJobLimitExceeded,
-		))
-	require.True(t,
-		errors.Is(perJob,
-			ErrJobMemoryPerJobLimitExceeded,
-		))
-	require.False(
-		t, errors.Is(perJob,
-			ErrJobMemoryPerKeyLimitExceeded,
-		))
+	require.ErrorIs(t,
+		perKey, ErrJobMemoryPerKeyLimitExceeded)
+	require.NotErrorIs(
+		t, perKey, ErrJobMemoryPerJobLimitExceeded)
+	require.ErrorIs(t,
+		perJob, ErrJobMemoryPerJobLimitExceeded)
+	require.NotErrorIs(
+		t, perJob, ErrJobMemoryPerKeyLimitExceeded)
 
 	// Unknown kind should not match either sentinel.
 	unknown := &JobMemoryQuotaError{Kind: "unknown", Max: 100}
-	require.False(
-		t, errors.Is(unknown,
-			ErrJobMemoryPerKeyLimitExceeded,
-		))
-	require.False(
-		t, errors.Is(unknown,
-			ErrJobMemoryPerJobLimitExceeded,
-		))
-
+	require.NotErrorIs(
+		t, unknown, ErrJobMemoryPerKeyLimitExceeded)
+	require.NotErrorIs(
+		t, unknown, ErrJobMemoryPerJobLimitExceeded)
 }
 
 // TestJobMemoryQuotaError_Message verifies error message format for each kind.
@@ -162,7 +142,6 @@ func TestJobMemoryQuotaError_Message(t *testing.T) {
 			assert.Equal(t,
 				tc.want,
 				got)
-
 		})
 	}
 }
@@ -180,7 +159,6 @@ func TestJobMemoryQuota_ExactlyAtPerKey(t *testing.T) {
 			0 &&
 			sizeBytes >
 				maxPerKey)
-
 }
 
 // TestJobMemoryQuota_OneOverPerKey verifies one byte over per-key limit triggers error.
@@ -194,7 +172,6 @@ func TestJobMemoryQuota_OneOverPerKey(t *testing.T) {
 			0 ||
 			sizeBytes <=
 				maxPerKey)
-
 }
 
 // TestJobMemoryQuota_ExactlyAtPerJob verifies size exactly at per-job limit passes.
@@ -212,7 +189,6 @@ func TestJobMemoryQuota_ExactlyAtPerJob(t *testing.T) {
 			0 &&
 			currentTotal-
 				existingSize+newSize > maxPerJob)
-
 }
 
 // TestJobMemoryQuota_NegativeQuota verifies negative quota disables the check.
@@ -227,7 +203,6 @@ func TestJobMemoryQuota_NegativeQuota(t *testing.T) {
 			0 &&
 			sizeBytes >
 				maxPerKey)
-
 }
 
 // TestJobMemoryQuota_ZeroQuota verifies zero quota disables the check.
@@ -241,7 +216,6 @@ func TestJobMemoryQuota_ZeroQuota(t *testing.T) {
 			0 &&
 			sizeBytes >
 				maxPerKey)
-
 }
 
 // FuzzJobMemoryQuota fuzzes the per-key quota check logic.
@@ -266,7 +240,6 @@ func FuzzJobMemoryQuota(f *testing.F) {
 				err !=
 					nil,
 		)
-
 	})
 }
 
@@ -286,7 +259,6 @@ func TestAuditEvent_EmptyDetails(t *testing.T) {
 	var q *Queries // nil, will panic on DB access.
 	defer func() {
 		require.NotNil(t, recover())
-
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.
@@ -300,7 +272,6 @@ func TestAuditEvent_HugePayload(t *testing.T) {
 	var q *Queries
 	defer func() {
 		require.NotNil(t, recover())
-
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.
@@ -314,7 +285,6 @@ func TestAuditEvent_NullBytesInActor(t *testing.T) {
 	var q *Queries
 	defer func() {
 		require.NotNil(t, recover())
-
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.

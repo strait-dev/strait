@@ -94,7 +94,6 @@ func TestOnComplete_TriggersDownstreamJob(t *testing.T) {
 		string(result), string(call.
 			run.Payload,
 		))
-
 }
 
 func TestOnComplete_TriggersDownstreamWorkflow(t *testing.T) {
@@ -121,7 +120,6 @@ func TestOnComplete_TriggersDownstreamWorkflow(t *testing.T) {
 	defer trigger.mu.Unlock()
 	require.Len(t, trigger.
 		calls, 1)
-
 }
 
 func TestOnComplete_TriggersBothJobAndWorkflow(t *testing.T) {
@@ -191,7 +189,6 @@ func TestOnComplete_PassesOutputAsPayload(t *testing.T) {
 		string(result), string(enqueuer.
 			calls[0].run.
 			Payload))
-
 }
 
 func TestOnComplete_PayloadMappingForJob(t *testing.T) {
@@ -252,14 +249,13 @@ func TestOnComplete_NoTriggerConfigured(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
+	require.Empty(t, enqueuer.
+		calls)
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 func TestOnComplete_JobNotFound(t *testing.T) {
@@ -279,9 +275,8 @@ func TestOnComplete_JobNotFound(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
-
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 // Unit tests for on_failure triggers.
@@ -335,7 +330,6 @@ func TestOnFailure_TriggersOnDeadLetter(t *testing.T) {
 		payload["error"])
 	assert.Equal(t,
 		"job-1", payload["source_job_id"])
-
 }
 
 func TestOnFailure_TriggersOnTimedOut(t *testing.T) {
@@ -361,7 +355,6 @@ func TestOnFailure_TriggersOnTimedOut(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-
 }
 
 func TestOnFailure_DoesNotTriggerOnSuccess(t *testing.T) {
@@ -380,9 +373,8 @@ func TestOnFailure_DoesNotTriggerOnSuccess(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
-
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestOnFailure_TriggersWorkflow(t *testing.T) {
@@ -415,7 +407,6 @@ func TestOnFailure_TriggersWorkflow(t *testing.T) {
 		wfTrigger.
 			calls[0].triggeredBy,
 	)
-
 }
 
 func TestOnFailure_PassesErrorContext(t *testing.T) {
@@ -461,9 +452,8 @@ func TestOnFailure_PassesErrorContext(t *testing.T) {
 		"server", payload["error_class"])
 	assert.Equal(t,
 		"crashed", payload["status"])
-	assert.Equal(t,
-		float64(2), payload["attempt"])
-
+	assert.InDelta(t,
+		float64(2), payload["attempt"], 1e-9)
 }
 
 func TestOnFailure_PayloadMapping(t *testing.T) {
@@ -505,7 +495,6 @@ func TestOnFailure_PayloadMapping(t *testing.T) {
 		"boom", payload["err"])
 	assert.Equal(t,
 		"run-1", payload["run"])
-
 }
 
 // Chain depth enforcement tests.
@@ -535,9 +524,8 @@ func TestChainDepth_Enforcement(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
-
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestChainDepth_Propagation(t *testing.T) {
@@ -567,10 +555,9 @@ func TestChainDepth_Propagation(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-	assert.EqualValues(t, 6, enqueuer.calls[0].run.
+	assert.Equal(t, 6, enqueuer.calls[0].run.
 		LineageDepth,
 	)
-
 }
 
 func TestChainDepth_StartsAtZero(t *testing.T) {
@@ -600,10 +587,9 @@ func TestChainDepth_StartsAtZero(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-	assert.EqualValues(t, 1, enqueuer.calls[0].run.
+	assert.Equal(t, 1, enqueuer.calls[0].run.
 		LineageDepth,
 	)
-
 }
 
 func TestChainDepth_ExactlyAtLimit(t *testing.T) {
@@ -633,7 +619,7 @@ func TestChainDepth_ExactlyAtLimit(t *testing.T) {
 	enqueuer.mu.Lock()
 	okCalls := len(enqueuer.calls)
 	enqueuer.mu.Unlock()
-	require.EqualValues(t, 1, okCalls)
+	require.Equal(t, 1, okCalls)
 
 	// depth = 10 should NOT work
 	run2 := &domain.JobRun{
@@ -648,7 +634,6 @@ func TestChainDepth_ExactlyAtLimit(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-
 }
 
 // Fuzz tests for job chaining.
@@ -705,9 +690,8 @@ func FuzzChainDepthOverflow(f *testing.F) {
 		defer enqueuer.mu.Unlock()
 
 		if depth >= domain.MaxJobChainDepth {
-			assert.Len(t, enqueuer.
-				calls, 0)
-
+			assert.Empty(t, enqueuer.
+				calls)
 		} else if depth >= 0 {
 			if len(enqueuer.calls) != 1 {
 				assert.Failf(t, "test failure",
@@ -777,9 +761,8 @@ func TestChaining_SQLInjectionInJobSlug(t *testing.T) {
 
 			enqueuer.mu.Lock()
 			defer enqueuer.mu.Unlock()
-			assert.Len(t, enqueuer.
-				calls, 0)
-
+			assert.Empty(t, enqueuer.
+				calls)
 		})
 	}
 }
@@ -816,7 +799,6 @@ func TestChaining_5MBOutputPayload(t *testing.T) {
 		Payload),
 		5*1024*
 			1024)
-
 }
 
 func TestChaining_ConcurrentCompletions(t *testing.T) {
@@ -850,7 +832,6 @@ func TestChaining_ConcurrentCompletions(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	assert.Len(t, enqueuer.
 		calls, 50)
-
 }
 
 func TestChaining_NilOutputWithMapping(t *testing.T) {
@@ -878,7 +859,6 @@ func TestChaining_NilOutputWithMapping(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-
 }
 
 func TestChaining_UnicodeInPayload(t *testing.T) {
@@ -905,7 +885,6 @@ func TestChaining_UnicodeInPayload(t *testing.T) {
 	defer enqueuer.mu.Unlock()
 	require.Len(t, enqueuer.
 		calls, 1)
-
 }
 
 func TestOnFailure_AllTerminalFailureStatuses(t *testing.T) {
@@ -941,7 +920,6 @@ func TestOnFailure_AllTerminalFailureStatuses(t *testing.T) {
 			defer enqueuer.mu.Unlock()
 			assert.Len(t, enqueuer.
 				calls, 1)
-
 		})
 	}
 }
@@ -976,9 +954,8 @@ func TestOnFailure_NonTerminalStatusesDoNotTrigger(t *testing.T) {
 
 			enqueuer.mu.Lock()
 			defer enqueuer.mu.Unlock()
-			assert.Len(t, enqueuer.
-				calls, 0)
-
+			assert.Empty(t, enqueuer.
+				calls)
 		})
 	}
 }
@@ -1005,7 +982,6 @@ func TestIsTerminalFailureStatus(t *testing.T) {
 			got := isTerminalFailureStatus(tt.status)
 			assert.Equal(t,
 				tt.want, got)
-
 		})
 	}
 }

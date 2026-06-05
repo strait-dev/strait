@@ -17,7 +17,7 @@ func TestDelayedPoller_ActivatesDueRuns(t *testing.T) {
 	var totalActivated atomic.Int64
 	ms := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			assert.EqualValues(t, 1000,
+			assert.Equal(t, 1000,
 				limit)
 
 			totalActivated.Add(2)
@@ -32,7 +32,6 @@ func TestDelayedPoller_ActivatesDueRuns(t *testing.T) {
 	p.Run(ctx)
 	require.GreaterOrEqual(t, totalActivated.
 		Load(), int64(2))
-
 }
 
 func TestDelayedPoller_NoDueRuns(t *testing.T) {
@@ -53,7 +52,6 @@ func TestDelayedPoller_NoDueRuns(t *testing.T) {
 	require.NotEqual(t,
 		0, calls.
 			Load())
-
 }
 
 func TestDelayedPoller_ActivateError(t *testing.T) {
@@ -74,7 +72,6 @@ func TestDelayedPoller_ActivateError(t *testing.T) {
 	require.GreaterOrEqual(t, calls.
 		Load(), int32(2),
 	)
-
 }
 
 func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
@@ -89,7 +86,7 @@ func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
 	}
 	promoter := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			assert.EqualValues(t, 4,
+			assert.Equal(t, 4,
 				limit)
 
 			promoterCalls.Add(1)
@@ -107,7 +104,6 @@ func TestDelayedPoller_UsesPromoterWhenConfigured(t *testing.T) {
 	require.EqualValues(t, 0,
 		storeCalls.
 			Load())
-
 }
 
 func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
@@ -116,7 +112,7 @@ func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
 	var totalActivated atomic.Int64
 	ms := &mockPollerStore{
 		activateDueRunsFn: func(_ context.Context, limit int) (int64, error) {
-			assert.EqualValues(t, 3,
+			assert.Equal(t, 3,
 				limit)
 
 			call := calls.Add(1)
@@ -142,7 +138,6 @@ func TestDelayedPoller_DrainsBoundedPagesPerTick(t *testing.T) {
 		totalActivated.
 			Load(),
 	)
-
 }
 
 func TestDelayedPoller_StopsAfterMaxBatchesPerTick(t *testing.T) {
@@ -162,15 +157,13 @@ func TestDelayedPoller_StopsAfterMaxBatchesPerTick(t *testing.T) {
 	p.poll(context.Background())
 	require.EqualValues(t, 3,
 		calls.Load())
-
 }
 
 func TestDelayedPoller_ClampsUnsafeDefaults(t *testing.T) {
 	t.Parallel()
 	p := NewDelayedPoller(&mockPollerStore{}, nil, 0)
-	require.False(t, p.
-		interval <=
-		0)
+	require.Positive(t, p.
+		interval)
 	require.NotNil(t, p.
 		logger)
 	require.Equal(t, defaultDelayedPollerBatchLimit,
@@ -181,5 +174,4 @@ func TestDelayedPoller_ClampsUnsafeDefaults(t *testing.T) {
 
 		p.maxBatchesPerTick,
 	)
-
 }

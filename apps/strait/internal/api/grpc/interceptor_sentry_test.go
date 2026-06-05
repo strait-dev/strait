@@ -75,7 +75,6 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		require.Equal(
 			t, want, event.
 				Tags[key])
-
 	}
 	require.Equal(
 		t, "apikey:key-1",
@@ -85,7 +84,6 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		t, "proj-1",
 		event.Contexts["grpc.request"]["project_id"],
 	)
-
 }
 
 func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
@@ -103,7 +101,6 @@ func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
 		t, err)
 	require.True(t,
 		sawHub)
-
 }
 
 func TestGRPCSentryScopeContinuesIncomingSentryTrace(t *testing.T) {
@@ -123,11 +120,8 @@ func TestGRPCSentryScopeContinuesIncomingSentryTrace(t *testing.T) {
 	})
 
 	traceparent := hub.GetTraceparent()
-	require.True(t,
-		strings.Contains(traceparent,
-
-			"0123456789abcdef0123456789abcdef",
-		))
+	require.Contains(t,
+		traceparent, "0123456789abcdef0123456789abcdef")
 
 	if baggage := hub.GetBaggage(); !strings.Contains(baggage, "sentry-release=test-release") {
 		require.Failf(t, "test failure",
@@ -165,7 +159,6 @@ func TestUnarySentryInterceptorAddsBreadcrumb(t *testing.T) {
 	require.Equal(
 		t, "Heartbeat",
 		bc.Data["rpc"])
-
 }
 
 func TestShouldCaptureGRPCSentryError_OnlyServerSideCodes(t *testing.T) {
@@ -179,5 +172,4 @@ func TestShouldCaptureGRPCSentryError_OnlyServerSideCodes(t *testing.T) {
 	require.False(
 		t, shouldCaptureGRPCSentryError(status.Error(codes.Unauthenticated,
 			"missing auth")))
-
 }

@@ -6,15 +6,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestThrottledError_Unwrap(t *testing.T) {
 	e := &ThrottledError{ProjectID: "p", RetryAfter: 0}
-	assert.True(t,
-		errors.Is(
-			e, ErrEnqueueThrottled,
-		))
-
+	assert.ErrorIs(t,
+		e, ErrEnqueueThrottled)
 }
 
 func TestAsThrottled_Positive(t *testing.T) {
@@ -36,23 +34,21 @@ func TestAsThrottled_Negative(t *testing.T) {
 
 func TestBackpressure_NilSafeAndDisabled(t *testing.T) {
 	var b *Backpressure
-	assert.NoError(
+	require.NoError(
 		t, b.TryConsume(context.
 			Background(), "p"))
 
 	b2 := NewBackpressure(nil, BackpressureConfig{}, false)
-	assert.NoError(
+	require.NoError(
 		t, b2.TryConsume(context.
 			Background(), "p"))
-
 }
 
 func TestBackpressure_EmptyProjectID(t *testing.T) {
 	b := NewBackpressure(nil, BackpressureConfig{}, true)
-	assert.NoError(
+	require.NoError(
 		t, b.TryConsume(context.
 			Background(), ""))
-
 }
 
 func TestBackpressure_DefaultConfig(t *testing.T) {
@@ -60,5 +56,4 @@ func TestBackpressure_DefaultConfig(t *testing.T) {
 	assert.False(t,
 		b.cfg.DefaultMaxTokens !=
 			1000 || b.cfg.DefaultRefillPerSec != 100)
-
 }

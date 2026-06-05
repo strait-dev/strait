@@ -85,7 +85,6 @@ func TestExecutor_HeartbeatFlushesBeforeShutdown(t *testing.T) {
 
 	calls := hbStore.calls()
 	require.NotEmpty(t, calls)
-
 }
 
 func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
@@ -131,8 +130,8 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 	q := &mockExecQueue{
 		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
 			dequeueCalls.Add(1)
-			require.False(t,
-				n <= 0)
+			require.Positive(t,
+				n)
 
 			return []domain.JobRun{}, nil
 		},
@@ -142,9 +141,8 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 	exec.poll(context.Background())
 	require.EqualValues(t, 1, dequeueCalls.
 		Load())
-	require.EqualValues(t, 0, exec.pool.
+	require.Equal(t, 0, exec.pool.
 		ActiveCount())
-
 }
 
 func TestExecutor_Poll_DequeueError(t *testing.T) {
@@ -161,7 +159,6 @@ func TestExecutor_Poll_DequeueError(t *testing.T) {
 	exec.poll(context.Background())
 	require.EqualValues(t, 1, dequeueCalls.
 		Load())
-
 }
 
 func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
@@ -172,8 +169,8 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	q := &mockExecQueue{
 		dequeueNByProjectFn: func(_ context.Context, n int, projectID string) ([]domain.JobRun, error) {
 			called = true
-			require.False(t,
-				n <= 0)
+			require.Positive(t,
+				n)
 			require.Equal(t,
 				"proj-a",
 				projectID,
@@ -204,7 +201,6 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	exec.poll(context.Background())
 	require.True(t,
 		called)
-
 }
 
 func BenchmarkExecutorPoll(b *testing.B) {
@@ -280,7 +276,6 @@ func TestAdaptiveDequeue_SkipsWhenPoolSaturated(t *testing.T) {
 	require.False(t,
 		dequeueCalled.
 			Load())
-
 }
 
 func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
@@ -321,7 +316,6 @@ func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
 
 	got := requestedN.Load()
 	require.EqualValues(t, 5, got)
-
 }
 
 func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
@@ -350,7 +344,6 @@ func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
 
 	got := requestedN.Load()
 	require.EqualValues(t, 10, got)
-
 }
 
 func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
@@ -388,7 +381,6 @@ func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
 
 	got := requestedN.Load()
 	require.EqualValues(t, 1, got)
-
 }
 
 func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
@@ -414,7 +406,6 @@ func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
 	require.False(t,
 		dequeueCalled.
 			Load())
-
 }
 
 func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
@@ -440,5 +431,4 @@ func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
 	require.True(t,
 		dequeueCalled.
 			Load())
-
 }

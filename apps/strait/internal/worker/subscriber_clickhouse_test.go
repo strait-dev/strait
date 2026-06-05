@@ -50,8 +50,7 @@ func TestClickHouseSubscriber_NonTerminalEvent(t *testing.T) {
 		Type: EventSnoozed,
 		Run:  &domain.JobRun{ID: "run-1"},
 	})
-	assert.EqualValues(t, 0, exporter.PendingCount())
-
+	assert.Equal(t, 0, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilRun(t *testing.T) {
@@ -66,8 +65,7 @@ func TestClickHouseSubscriber_NilRun(t *testing.T) {
 		Type: EventCompleted,
 		Run:  nil,
 	})
-	assert.EqualValues(t, 0, exporter.PendingCount())
-
+	assert.Equal(t, 0, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
@@ -100,8 +98,7 @@ func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
 		},
 		QueueWait: 200 * time.Millisecond,
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
@@ -130,8 +127,7 @@ func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
 			JobVersionID: "ver-123",
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
@@ -151,8 +147,7 @@ func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
 			Status:    domain.StatusCompleted,
 		},
 	})
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_AllTerminalTypes(t *testing.T) {
@@ -172,8 +167,7 @@ func TestClickHouseSubscriber_AllTerminalTypes(t *testing.T) {
 				Type: et,
 				Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 			})
-			assert.EqualValues(t, 1, exporter.PendingCount())
-
+			assert.Equal(t, 1, exporter.PendingCount())
 		})
 	}
 }
@@ -208,8 +202,7 @@ func TestClickHouseSubscriber_EnqueuesRunEvents(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	assert.EqualValues(t, 3, exporter.PendingCount())
-
+	assert.Equal(t, 3, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
@@ -225,8 +218,7 @@ func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
 	handle.Wait()
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_EventListError(t *testing.T) {
@@ -246,8 +238,7 @@ func TestClickHouseSubscriber_EventListError(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
 	handle.Wait()
-	assert.EqualValues(t, 1, exporter.PendingCount())
-
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestRunEventsFromDomain(t *testing.T) {
@@ -298,15 +289,14 @@ func TestRunEventsFromDomain(t *testing.T) {
 			r.Message !=
 				"hello",
 	)
-	assert.Equal(t,
+	assert.JSONEq(t,
 		`{"key":"val"}`,
 		r.Metadata,
 	)
 
 	r2 := records[1]
-	assert.Equal(t,
-		"", r2.Metadata)
-
+	assert.Empty(t,
+		r2.Metadata)
 }
 
 func TestRunAnalyticsRecordFromLifecycleEvent(t *testing.T) {
@@ -369,7 +359,6 @@ func TestRunAnalyticsRecordFromLifecycleEvent(t *testing.T) {
 
 				&startedAt || record.FinishedAt !=
 			&finishedAt)
-
 }
 
 func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
@@ -497,10 +486,9 @@ func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		require.Fail(t, "Wait did not return within 5 seconds")
 	}
-	assert.EqualValues(t, 2, exporter.PendingCount())
+	assert.Equal(t, 2, exporter.PendingCount())
 
 	// Verify the events were enqueued: 1 analytics + 1 event record = 2.
-
 }
 
 func TestClickHouseSubscriberHandle_WaitNoGoroutines(t *testing.T) {
@@ -544,7 +532,6 @@ func TestIsTerminalEvent(t *testing.T) {
 			assert.Equal(t,
 				tt.want, isTerminalEvent(tt.
 					eventType))
-
 		})
 	}
 }

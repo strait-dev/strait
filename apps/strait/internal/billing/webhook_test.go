@@ -56,7 +56,6 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 		assert.NotEqual(t, http.StatusUnauthorized,
 
 			rr.Code)
-
 	})
 
 	t.Run("invalid_signature", func(t *testing.T) {
@@ -69,7 +68,6 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 			http.StatusUnauthorized,
 
 			rr.Code)
-
 	})
 
 	t.Run("missing_headers", func(t *testing.T) {
@@ -81,7 +79,6 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 			http.StatusUnauthorized,
 
 			rr.Code)
-
 	})
 
 	t.Run("expired_timestamp", func(t *testing.T) {
@@ -100,7 +97,6 @@ func TestWebhookHandler_VerifySignature(t *testing.T) {
 			http.StatusUnauthorized,
 
 			rr.Code)
-
 	})
 }
 
@@ -143,7 +139,6 @@ func TestWebhookHandler_SubscriptionCreated(t *testing.T) {
 		"pro", store.
 			lastUpserted.
 			PlanTier)
-
 }
 
 func TestWebhookHandler_SubscriptionCreated_EmptyOrgID_ReturnsError(t *testing.T) {
@@ -177,7 +172,6 @@ func TestWebhookHandler_SubscriptionCreated_EmptyOrgID_ReturnsError(t *testing.T
 		lastUpserted)
 
 	// The handler should return a non-200 status so Stripe retries the webhook.
-
 }
 
 func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
@@ -238,7 +232,6 @@ func TestWebhookHandler_SubscriptionRevoked(t *testing.T) {
 	require.Nil(t, store.
 		subscriptions["00000000-0000-0000-0000-000000000002"].PendingPlanTier,
 	)
-
 }
 
 func TestWebhookHandler_UnknownEventType(t *testing.T) {
@@ -262,7 +255,6 @@ func TestWebhookHandler_UnknownEventType(t *testing.T) {
 	assert.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
@@ -293,10 +285,8 @@ func TestWebhookHandler_IdempotentUpsert(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK,
 			rr.Code)
-
 	}
-	assert.EqualValues(t, 2, store.upsertCount)
-
+	assert.Equal(t, 2, store.upsertCount)
 }
 
 func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
@@ -351,7 +341,6 @@ func TestWebhook_DuplicateCreatedPreservesSpendingLimit(t *testing.T) {
 	require.Nil(t, sub.
 		PendingPlanTier,
 	)
-
 }
 
 func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
@@ -412,7 +401,6 @@ func TestWebhook_UpdatedRefreshesPeriodDates(t *testing.T) {
 			periodEnd ==
 			nil || !store.lastFullUpdate.
 			periodEnd.Equal(newEnd))
-
 }
 
 func TestWebhook_DowngradeDeferred(t *testing.T) {
@@ -462,7 +450,6 @@ func TestWebhook_DowngradeDeferred(t *testing.T) {
 	)
 
 	// Pending tier should be set.
-
 }
 
 func TestWebhook_UpgradeImmediate(t *testing.T) {
@@ -509,8 +496,8 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 		"pro", store.
 			lastFullUpdate.
 			tier)
-	assert.Equal(t,
-		"", store.
+	assert.Empty(t,
+		store.
 			lastPendingTier,
 	)
 	assert.Equal(t,
@@ -526,7 +513,6 @@ func TestWebhook_UpgradeImmediate(t *testing.T) {
 	// Plan should be immediately updated to "pro".
 
 	// No pending tier should be set.
-
 }
 
 func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
@@ -572,7 +558,6 @@ func TestWebhook_CancellationThenUpgradeClearsPendingFreeTier(t *testing.T) {
 	require.Equal(t,
 		"pro", store.
 			subscriptions["00000000-0000-0000-0000-000000000008"].PlanTier)
-
 }
 
 func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
@@ -628,7 +613,6 @@ func TestWebhook_CanceledSetsPendingFreeTier(t *testing.T) {
 	assert.Equal(t,
 		"canceled",
 		sub.Status)
-
 }
 
 func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
@@ -657,13 +641,12 @@ func TestWebhook_CanceledWithNoPriorSubscription(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-	assert.Equal(t,
-		"", store.
+	assert.Empty(t,
+		store.
 			lastPendingTier,
 	)
 
 	// No pending tier should be set since no subscription existed.
-
 }
 
 func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) {
@@ -702,7 +685,6 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 			store.lastUpserted.
 				MonthlyUsageEmail,
 		)
-
 	})
 
 	t.Run("pro_plan_enables_monthly_usage_email", func(t *testing.T) {
@@ -738,7 +720,6 @@ func TestWebhookHandler_SubscriptionCreated_SetsMonthlyUsageEmail(t *testing.T) 
 			store.lastUpserted.
 				MonthlyUsageEmail,
 		)
-
 	})
 }
 
@@ -811,7 +792,6 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 			"user@example.com",
 			calls[0].customerEmail,
 		)
-
 	})
 
 	t.Run("no_customer_email_skips_welcome", func(t *testing.T) {
@@ -891,7 +871,6 @@ func TestWebhookHandler_SubscriptionCreated_WelcomeEmail(t *testing.T) {
 		require.Equal(t,
 			http.StatusOK,
 			rr.Code)
-
 	})
 }
 
@@ -948,7 +927,6 @@ func TestWebhook_SubscriptionCreated_CreatesAuditEvent(t *testing.T) {
 		audit.
 			events[0].Action,
 	)
-
 }
 
 func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T) {
@@ -990,7 +968,6 @@ func TestWebhook_SubscriptionCreated_AuditDetails_ContainsPlanTier(t *testing.T)
 	assert.Equal(t,
 		"sub_details",
 		details["stripe_subscription_id"])
-
 }
 
 func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) {
@@ -1040,7 +1017,6 @@ func TestWebhook_SubscriptionUpdated_Upgrade_AuditHasPreviousTier(t *testing.T) 
 		details["previous_tier"])
 	assert.Equal(t,
 		"pro", details["plan_tier"])
-
 }
 
 func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T) {
@@ -1090,7 +1066,6 @@ func TestWebhook_SubscriptionUpdated_Downgrade_AuditHasPendingTier(t *testing.T)
 		details["pending_plan_tier"])
 	assert.Equal(t,
 		"pro", details["previous_tier"])
-
 }
 
 func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
@@ -1139,7 +1114,6 @@ func TestWebhook_SubscriptionCanceled_CreatesAuditEvent(t *testing.T) {
 
 		audit.events[0].Action,
 	)
-
 }
 
 func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
@@ -1187,7 +1161,6 @@ func TestWebhook_SubscriptionRevoked_CreatesAuditEvent(t *testing.T) {
 		audit.
 			events[0].Action,
 	)
-
 }
 
 func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
@@ -1217,7 +1190,6 @@ func TestWebhook_AuditStore_Nil_DoesNotPanic(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
@@ -1267,7 +1239,6 @@ func TestWebhook_AuditEvent_HasCorrectResourceType(t *testing.T) {
 	assert.Equal(t,
 		"stripe-webhook",
 		audit.events[0].ActorID)
-
 }
 
 // Grace period webhook tests.
@@ -1327,7 +1298,6 @@ func TestWebhook_PaymentFailed_SetsGracePeriod72h(t *testing.T) {
 			time.Second ||
 			diff > 5*time.Second,
 	)
-
 }
 
 func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
@@ -1374,7 +1344,6 @@ func TestWebhook_PaymentFailed_StatusBecomesGrace(t *testing.T) {
 			lastPaymentStatusUpdate.
 			status,
 	)
-
 }
 
 func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
@@ -1421,7 +1390,6 @@ func TestWebhook_PaymentSucceeded_ClearsGracePeriod(t *testing.T) {
 		"ok", sub.
 			PaymentStatus)
 	assert.Nil(t, sub.GracePeriodEnd)
-
 }
 
 func TestWebhook_SubscriptionUpdatedActiveDoesNotClearRestriction(t *testing.T) {
@@ -1472,7 +1440,6 @@ func TestWebhook_SubscriptionUpdatedActiveDoesNotClearRestriction(t *testing.T) 
 		"restricted",
 		sub.PaymentStatus,
 	)
-
 }
 
 func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
@@ -1528,7 +1495,6 @@ func TestWebhook_PaymentFailed_AlreadyInGrace_Extends(t *testing.T) {
 				time.Hour)))
 
 	// Grace period should be extended to ~72h from now, not the old 24h.
-
 }
 
 func TestWebhook_PaymentFailed_DoesNotRestoreRestrictedOrgToGrace(t *testing.T) {
@@ -1580,7 +1546,6 @@ func TestWebhook_PaymentFailed_DoesNotRestoreRestrictedOrgToGrace(t *testing.T) 
 	)
 	require.Nil(t, sub.
 		GracePeriodEnd)
-
 }
 
 func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
@@ -1625,7 +1590,6 @@ func TestWebhook_PaymentFailed_FreeOrg_Ignored(t *testing.T) {
 	assert.Equal(t,
 		"ok", sub.
 			PaymentStatus)
-
 }
 
 func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
@@ -1657,7 +1621,6 @@ func TestWebhook_EmptySecretCloudMode_Rejects(t *testing.T) {
 		http.StatusServiceUnavailable,
 
 		rec.Code)
-
 }
 
 func TestWebhook_EmptySecretCommunityMode_Rejects(t *testing.T) {
@@ -1689,7 +1652,6 @@ func TestWebhook_EmptySecretCommunityMode_Rejects(t *testing.T) {
 		http.StatusServiceUnavailable,
 
 		rec.Code)
-
 }
 
 func TestWebhook_EmptySecretDefaultEdition_Rejects(t *testing.T) {
@@ -1720,7 +1682,6 @@ func TestWebhook_EmptySecretDefaultEdition_Rejects(t *testing.T) {
 		http.StatusServiceUnavailable,
 
 		rec.Code)
-
 }
 
 func TestWebhook_EmptySecretWithDevBypass_Allows(t *testing.T) {
@@ -1752,7 +1713,6 @@ func TestWebhook_EmptySecretWithDevBypass_Allows(t *testing.T) {
 
 		rec.Code,
 	)
-
 }
 
 func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
@@ -1796,7 +1756,6 @@ func TestWebhook_InvoiceUncollectible_SetsRestricted(t *testing.T) {
 		"restricted",
 		sub.PaymentStatus,
 	)
-
 }
 
 func FuzzWebhookSignatureHeader(f *testing.F) {
@@ -1871,7 +1830,6 @@ func TestWebhook_EnterpriseContractFailure_ReturnsError(t *testing.T) {
 		rr.Code)
 
 	// The handler must return 500 so Stripe retries the webhook.
-
 }
 
 // Issue 8: When UpsertEnterpriseContract succeeds, webhook returns 200.
@@ -1972,13 +1930,11 @@ func TestWebhook_EnterpriseUpgradeAudit_FiresOnTransition(t *testing.T) {
 			assert.Equal(t,
 				"enterprise",
 				details["new_plan"])
-
 		}
 	}
 	assert.True(t,
 		foundUpgradeAudit,
 	)
-
 }
 
 // Issue 9: Enterprise upgrade audit must NOT fire when already on enterprise tier.
@@ -2026,7 +1982,6 @@ func TestWebhook_EnterpriseUpgradeAudit_NoFireWhenAlreadyEnterprise(t *testing.T
 		assert.NotEqual(t, "subscription.upgraded_to_enterprise",
 
 			ev.Action)
-
 	}
 }
 
@@ -2120,7 +2075,6 @@ func TestWebhook_DowngradeUsesAtomicSetPendingDowngrade(t *testing.T) {
 			*sub.PendingPlanTier !=
 				"starter",
 	)
-
 }
 
 // Issue 15: ListOrgsWithPendingDowngrade includes MonthlyUsageEmail in returned data.
@@ -2164,5 +2118,4 @@ func TestMockStore_ListOrgsWithPendingDowngrade_IncludesMonthlyUsageEmail(t *tes
 		emailByOrg["org-email-true"])
 	assert.False(t,
 		emailByOrg["org-email-false"])
-
 }

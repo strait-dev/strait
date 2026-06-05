@@ -68,7 +68,6 @@ func TestEmitAuditEvent_DetailsSizeCap(t *testing.T) {
 		Details,
 	), auditMaxDetailsBytes,
 	)
-
 }
 
 // TestEmitAuditEvent_RejectsMissingActorOnUserRequest verifies emit is
@@ -96,7 +95,6 @@ func TestEmitAuditEvent_RejectsMissingActorOnUserRequest(t *testing.T) {
 				"name": "x", "slug": "x", "execution_mode": "http",
 			})
 			assert.EqualValues(t, 0, called.Load())
-
 		})
 	}
 }
@@ -122,7 +120,6 @@ func TestEmitAuditEvent_AllowsEmptyActorForInternal(t *testing.T) {
 		"name": "x", "slug": "x", "execution_mode": "http",
 	})
 	assert.EqualValues(t, 1, called.Load())
-
 }
 
 // TestEmitAuditEvent_AllowsInternalActor verifies that an empty actor with
@@ -146,7 +143,6 @@ func TestEmitAuditEvent_AllowsInternalActor(t *testing.T) {
 		"name": "x", "slug": "x", "execution_mode": "http",
 	})
 	assert.EqualValues(t, 1, called.Load())
-
 }
 
 // TestEmitAuditEventAsync_DrainerPanicIsContained verifies a panic in one
@@ -177,7 +173,6 @@ func TestEmitAuditEventAsync_DrainerPanicIsContained(t *testing.T) {
 	srv.Close()
 	assert.EqualValues(t, 2, goodWrites.
 		Load())
-
 }
 
 // TestEmitAuditEventAsync_DetailsImmutableAfterSend verifies the marshaled
@@ -255,5 +250,4 @@ func TestEmitAuditEvent_RejectsUnknownAction(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	srv.Close()
 	assert.EqualValues(t, 0, called.Load())
-
 }

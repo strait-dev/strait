@@ -79,7 +79,6 @@ func TestNewDebounceRun_MapsPendingAndJobFields(t *testing.T) {
 		nil ||
 		!run.
 			ExpiresAt.Equal(wantExpiresAt))
-
 }
 
 func TestDebounceRunExpiresAt_Precedence(t *testing.T) {
@@ -119,7 +118,6 @@ func TestDebounceRunExpiresAt_Precedence(t *testing.T) {
 
 			got := debounceRunExpiresAt(tc.pending, tc.job, now)
 			require.True(t, got.Equal(tc.want))
-
 		})
 	}
 }
@@ -129,14 +127,12 @@ func TestDebounceRunTags_InvalidJSONReturnsNil(t *testing.T) {
 
 	tags := debounceRunTags(domain.DebouncePending{Tags: json.RawMessage(`{"broken"`)})
 	require.Nil(t, tags)
-
 }
 
 func TestDebounceRunID_GeneratesWhenPendingIDEmpty(t *testing.T) {
 	t.Parallel()
 
 	id := debounceRunID("")
-	require.NotEqual(t, "", id)
+	require.NotEmpty(t, id)
 	require.NotEqual(t, debounceRunID(""), id)
-
 }

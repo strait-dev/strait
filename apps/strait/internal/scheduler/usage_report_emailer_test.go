@@ -332,9 +332,8 @@ func TestUsageReportEmailer_SendsForEndedPeriod(t *testing.T) {
 	require.Len(t, msg.
 		Attachments,
 		1)
-	assert.NotEqual(t,
-		"", msg.Attachments[0].Filename)
-
+	assert.NotEmpty(t,
+		msg.Attachments[0].Filename)
 }
 
 func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
@@ -366,7 +365,6 @@ func TestDeepSecUsageReportEmailer_CatchesUpMissedEndedPeriod(t *testing.T) {
 	require.Len(t, emailAPI.
 		sent,
 		1)
-
 }
 
 func TestUsageReportEmailer_SkipsFreePlan(t *testing.T) {
@@ -394,10 +392,8 @@ func TestUsageReportEmailer_SkipsFreePlan(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
-	require.Len(t, emailAPI.
-		sent,
-		0)
-
+	require.Empty(t, emailAPI.
+		sent)
 }
 
 func TestUsageReportEmailer_SkipsFuturePeriodEnd(t *testing.T) {
@@ -422,10 +418,8 @@ func TestUsageReportEmailer_SkipsFuturePeriodEnd(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
-	require.Len(t, emailAPI.
-		sent,
-		0)
-
+	require.Empty(t, emailAPI.
+		sent)
 }
 
 func TestUsageReportEmailer_SkipsOptedOut(t *testing.T) {
@@ -454,10 +448,8 @@ func TestUsageReportEmailer_SkipsOptedOut(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
-	require.Len(t, emailAPI.
-		sent,
-		0)
-
+	require.Empty(t, emailAPI.
+		sent)
 }
 
 func TestUsageReportEmailer_DeduplicatesOnRestart(t *testing.T) {
@@ -504,7 +496,6 @@ func TestUsageReportEmailer_DeduplicatesOnRestart(t *testing.T) {
 	require.Len(t, store.
 		recordSentCalls,
 		1)
-
 }
 
 func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
@@ -533,9 +524,8 @@ func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
 	emailAPI := &mockResendAPI{}
 	emailer := NewUsageReportEmailer(store, emailAPI, "billing@test.dev", time.Hour)
 	emailer.checkAndSend(context.Background())
-	require.Len(t, emailAPI.
-		sent,
-		0)
+	require.Empty(t, emailAPI.
+		sent)
 	require.Len(t, store.
 		recordSentCalls,
 		1)
@@ -546,7 +536,6 @@ func TestUsageReportEmailer_RecordsDedupOnEmptyRecipients(t *testing.T) {
 	// No email should be sent.
 
 	// RecordSentUsageReport should still be called to prevent infinite retry.
-
 }
 
 func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
@@ -577,7 +566,6 @@ func TestUsageReportEmailer_RetriesSameDayAfterSendFailure(t *testing.T) {
 	require.Len(t, emailAPI.
 		sent,
 		2)
-
 }
 
 func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) {
@@ -608,7 +596,6 @@ func TestUsageReportEmailer_ClaimPreventsDuplicateEmailSideEffect(t *testing.T) 
 	require.Len(t, emailAPI.
 		sent,
 		1)
-
 }
 
 func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) {
@@ -640,10 +627,8 @@ func TestUsageReportEmailer_FinalizesClaimOnlyAfterSuccessfulSend(t *testing.T) 
 	require.False(t, len(store.finalizeCalls) != 1 || store.
 		finalizeCalls[0] != "org-finalize",
 	)
-	require.Len(t, store.
-		releaseCalls,
-		0)
-
+	require.Empty(t, store.
+		releaseCalls)
 }
 
 func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
@@ -688,7 +673,7 @@ func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
 		1)
 
 	html := emailAPI.sent[0].Html
-	require.True(t, strings.Contains(html, "$1.00"))
+	require.Contains(t, html, "$1.00")
 	require.False(t, strings.Contains(html,
 		"$10.00") ||
 		strings.Contains(html, "$9.00"))
@@ -698,6 +683,5 @@ func TestUsageReportEmailer_UsesBoundedPeriodTotals(t *testing.T) {
 		require.False(t, !call.
 			from.Equal(periodStart) || !call.to.
 			Equal(periodEnd))
-
 	}
 }

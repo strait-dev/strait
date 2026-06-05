@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -87,7 +86,6 @@ func TestHandleAdminListOutbox_OK(t *testing.T) {
 		nil || *rows[0].RetryOfOutboxID !=
 		lineage,
 	)
-
 }
 
 func TestHandleAdminGetOutbox_NotFound(t *testing.T) {
@@ -107,7 +105,6 @@ func TestHandleAdminGetOutbox_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleAdminOutbox_ForbiddenWithoutScope(t *testing.T) {
@@ -191,7 +188,6 @@ func TestHandleAdminOutbox_EnvironmentScopedCallerForbidden(t *testing.T) {
 			"expected environment-scoped outbox purge to be forbidden")
 	}
 	require.False(t, storeCalled)
-
 }
 
 func TestHandleAdminRetryOutbox_Unauthorized(t *testing.T) {
@@ -204,7 +200,6 @@ func TestHandleAdminRetryOutbox_Unauthorized(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestHandleAdminGetOutbox_OK_IncludesRetryLineage(t *testing.T) {
@@ -241,7 +236,6 @@ func TestHandleAdminGetOutbox_OK_IncludesRetryLineage(t *testing.T) {
 		nil || *out.
 		RetryOfOutboxID != lineage,
 	)
-
 }
 
 func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
@@ -348,7 +342,6 @@ func TestHandleAdminRetryOutbox_ConflictWhenActiveCloneExists(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
@@ -396,8 +389,7 @@ func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
 
 		w.Code,
 	)
-	require.EqualValues(t, 1, retryCalls)
-
+	require.Equal(t, 1, retryCalls)
 }
 
 func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
@@ -464,8 +456,7 @@ func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, for
 
 	raw := string(details)
 	for _, value := range forbidden {
-		require.False(t, strings.Contains(raw, value))
-
+		require.NotContains(t, raw, value)
 	}
 	for _, required := range []string{
 		"payload_sha256",
@@ -476,9 +467,8 @@ func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, for
 		"error_present",
 		"error_bytes",
 	} {
-		require.True(
-			t, strings.Contains(raw, required))
-
+		require.Contains(
+			t, raw, required)
 	}
 }
 
@@ -517,8 +507,7 @@ func TestHandleAdminPurgeOutbox_AuditFailureFailsRequest(t *testing.T) {
 
 		w.Code,
 	)
-	require.EqualValues(t, 1, purgeCalls)
-
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminPurgeOutbox_NotFound(t *testing.T) {
@@ -538,7 +527,6 @@ func TestHandleAdminPurgeOutbox_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleAdminPurgeOutbox_ConflictForNonQuarantinedRow(t *testing.T) {
@@ -558,5 +546,4 @@ func TestHandleAdminPurgeOutbox_ConflictForNonQuarantinedRow(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }

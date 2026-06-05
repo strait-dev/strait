@@ -19,7 +19,6 @@ func TestHandleListAuditEvents_InvalidOrder(t *testing.T) {
 		t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestHandleListAuditEvents_InvalidFrom(t *testing.T) {
@@ -33,5 +32,4 @@ func TestHandleListAuditEvents_InvalidFrom(t *testing.T) {
 		t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }

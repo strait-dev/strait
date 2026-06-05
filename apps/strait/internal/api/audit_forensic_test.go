@@ -71,7 +71,6 @@ func TestAuditEvent_PopulatesForensicFields(t *testing.T) {
 
 		captured.SchemaVersion,
 	)
-
 }
 
 // TestAuditEvent_EmptyForensicFieldsAreTolerated verifies that missing
@@ -115,7 +114,6 @@ func TestAuditEvent_EmptyForensicFieldsAreTolerated(t *testing.T) {
 
 		captured.SchemaVersion,
 	)
-
 }
 
 // TestAttachAuditContext_TruncatesOversizeUserAgent verifies the
@@ -123,15 +121,13 @@ func TestAuditEvent_EmptyForensicFieldsAreTolerated(t *testing.T) {
 // malicious client from ballooning the audit log.
 func TestAttachAuditContext_TruncatesOversizeUserAgent(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 2048, auditUserAgentMaxBytes)
+	assert.Equal(t, 2048, auditUserAgentMaxBytes)
 
 	// Assert the constant matches the plan's 2048 bytes.
 
 	// Use a sentinel that proves truncation.
 	longUA := strings.Repeat("X", auditUserAgentMaxBytes*2)
-	require.False(t, len(longUA) <=
-		auditUserAgentMaxBytes,
-	)
+	require.Greater(t, len(longUA), auditUserAgentMaxBytes)
 
 	// Simulate what attachAuditContext does to the UA string.
 	ua := longUA
@@ -141,5 +137,4 @@ func TestAttachAuditContext_TruncatesOversizeUserAgent(t *testing.T) {
 	assert.Len(t,
 		ua, auditUserAgentMaxBytes,
 	)
-
 }

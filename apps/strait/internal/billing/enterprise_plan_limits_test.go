@@ -32,18 +32,15 @@ func TestEnterpriseLimits_AllUnlimited(t *testing.T) {
 		{"MaxJobChainDepth", e.MaxJobChainDepth},
 	}
 	for _, tt := range unlimited {
-		assert.EqualValues(t, -1, tt.val)
-
+		assert.Equal(t, -1, tt.val)
 	}
 	assert.EqualValues(t, -1, e.MaxRunsPerDay)
-
 }
 
 func TestEnterpriseLimits_RetentionUnlimited(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1, e.RetentionDays)
-
+	assert.Equal(t, -1, e.RetentionDays)
 }
 
 func TestEnterpriseLimits_RoadmapFeatureFlagsInactive(t *testing.T) {
@@ -69,7 +66,6 @@ func TestEnterpriseLimits_RoadmapFeatureFlagsInactive(t *testing.T) {
 	for _, tt := range flags {
 		assert.False(t, tt.
 			val)
-
 	}
 }
 
@@ -104,19 +100,17 @@ func TestEnterpriseLimits_ExistingFeatureFlags(t *testing.T) {
 	assert.True(t, e.
 		HasCanaryDeployments,
 	)
-
 }
 
 func TestEnterpriseLimits_NoPricing(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		e.PriceMonthlyUsd,
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		e.PriceAnnualUsd,
 	)
-
 }
 
 func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
@@ -125,7 +119,6 @@ func TestEnterpriseLimits_NoRequiredCreditCard(t *testing.T) {
 	assert.False(t, e.
 		RequiresCreditCard,
 	)
-
 }
 
 func TestEnterpriseLimits_LaunchDefaultRegion(t *testing.T) {
@@ -133,7 +126,6 @@ func TestEnterpriseLimits_LaunchDefaultRegion(t *testing.T) {
 	e := GetPlanLimits(domain.PlanEnterprise)
 	assert.True(t, reflect.
 		DeepEqual(e.AllowedRegions, []string{"iad"}))
-
 }
 
 func TestEnterpriseLimits_DedicatedSupportLevel(t *testing.T) {
@@ -142,14 +134,12 @@ func TestEnterpriseLimits_DedicatedSupportLevel(t *testing.T) {
 	assert.Equal(t, "dedicated",
 
 		e.SupportLevel)
-
 }
 
 func TestEnterpriseLimits_NoSelfServeAddonPacks(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
 	require.Nil(t, e.MaxAddonPacks)
-
 }
 
 func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
@@ -175,7 +165,6 @@ func TestNonEnterpriseTiers_NoEnterpriseFeatures(t *testing.T) {
 		for _, tt := range flags {
 			assert.False(t, tt.
 				val)
-
 		}
 	}
 }
@@ -184,7 +173,6 @@ func TestNonEnterpriseTiers_NoSSO(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale, domain.PlanBusiness, domain.PlanEnterprise} {
 		assert.False(t, GetPlanLimits(tier).HasSSO)
-
 	}
 }
 
@@ -192,6 +180,5 @@ func TestNonEnterpriseTiers_NoSLA(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
 		assert.False(t, GetPlanLimits(tier).HasSLA)
-
 	}
 }

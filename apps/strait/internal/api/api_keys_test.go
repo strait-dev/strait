@@ -56,7 +56,7 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 		1 || captured.
 		Scopes[0] != "jobs:read",
 	)
-	require.NotEqual(t, "", captured.
+	require.NotEmpty(t, captured.
 		KeyHash,
 	)
 	require.NotNil(t, captured.ExpiresAt)
@@ -69,12 +69,12 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.NotEqual(t, "", resp.ID)
+	require.NotEmpty(t, resp.ID)
 	require.True(
 		t, strings.HasPrefix(resp.Key,
 			"strait_",
 		))
-	require.NotEqual(t, "", resp.KeyPrefix)
+	require.NotEmpty(t, resp.KeyPrefix)
 	require.Equal(t, "proj-1", resp.
 		ProjectID,
 	)
@@ -85,7 +85,6 @@ func TestHandleCreateAPIKey_Success(t *testing.T) {
 	require.False(t, resp.CreatedAt.
 		IsZero(),
 	)
-
 }
 
 func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
@@ -120,7 +119,6 @@ func TestHandleCreateAPIKey_WithExpiry(t *testing.T) {
 		Before(earliest) ||
 		captured.ExpiresAt.
 			After(latest))
-
 }
 
 func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
@@ -133,7 +131,6 @@ func TestHandleCreateAPIKey_MissingFields(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
@@ -146,7 +143,6 @@ func TestHandleCreateAPIKey_MissingProjectID(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateAPIKey_StoreError(t *testing.T) {
@@ -166,7 +162,6 @@ func TestHandleCreateAPIKey_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleListAPIKeys_Success(t *testing.T) {
@@ -194,7 +189,6 @@ func TestHandleListAPIKeys_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 2)
-
 }
 
 func TestHandleListAPIKeys_MissingProjectID(t *testing.T) {
@@ -206,7 +200,6 @@ func TestHandleListAPIKeys_MissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListAPIKeys_StoreError(t *testing.T) {
@@ -225,7 +218,6 @@ func TestHandleListAPIKeys_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleRevokeAPIKey_Success(t *testing.T) {
@@ -254,7 +246,6 @@ func TestHandleRevokeAPIKey_Success(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.Equal(t, "revoked", resp["status"])
-
 }
 
 func TestHandleRevokeAPIKey_GRPCEnabledRequiresPubSubBeforeRevoking(t *testing.T) {
@@ -290,7 +281,6 @@ func TestHandleRevokeAPIKey_GRPCEnabledRequiresPubSubBeforeRevoking(t *testing.T
 		w.Code,
 	)
 	require.False(t, revoked)
-
 }
 
 func TestHandleRevokeAPIKey_GRPCEnabledPublishFailureReturnsUnavailable(t *testing.T) {
@@ -330,7 +320,6 @@ func TestHandleRevokeAPIKey_GRPCEnabledPublishFailureReturnsUnavailable(t *testi
 	)
 	require.True(
 		t, revoked)
-
 }
 
 func TestHandleRevokeAPIKey_AlreadyRevokedRetriesBroadcast(t *testing.T) {
@@ -378,7 +367,6 @@ func TestHandleRevokeAPIKey_AlreadyRevokedRetriesBroadcast(t *testing.T) {
 	require.False(t, revokeCalled)
 	require.True(
 		t, published)
-
 }
 
 func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
@@ -396,7 +384,6 @@ func TestHandleRevokeAPIKey_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestGenerateAPIKey_Format(t *testing.T) {
@@ -407,7 +394,6 @@ func TestGenerateAPIKey_Format(t *testing.T) {
 		t, strings.HasPrefix(key, "strait_"))
 	require.Len(t,
 		key, 71)
-
 }
 
 func TestGenerateAPIKey_Uniqueness(t *testing.T) {
@@ -418,7 +404,6 @@ func TestGenerateAPIKey_Uniqueness(t *testing.T) {
 	keyB, err := generateAPIKey()
 	require.NoError(t, err)
 	require.NotEqual(t, keyB, keyA)
-
 }
 
 func TestHashAPIKey_Deterministic(t *testing.T) {
@@ -427,7 +412,6 @@ func TestHashAPIKey_Deterministic(t *testing.T) {
 	h1 := hashAPIKey(key)
 	h2 := hashAPIKey(key)
 	require.Equal(t, h2, h1)
-
 }
 
 func TestHashAPIKey_DifferentKeys(t *testing.T) {
@@ -435,7 +419,6 @@ func TestHashAPIKey_DifferentKeys(t *testing.T) {
 	h1 := hashAPIKey("strait_" + strings.Repeat("ab", 32))
 	h2 := hashAPIKey("strait_" + strings.Repeat("cd", 32))
 	require.NotEqual(t, h2, h1)
-
 }
 
 func TestAPIKeyAuth_ValidKey(t *testing.T) {
@@ -574,7 +557,6 @@ func TestAPIKeyAuth_ExpiredKey(t *testing.T) {
 		Error.Message !=
 		"api key has expired",
 	)
-
 }
 
 func TestAPIKeyAuth_RevokedKey(t *testing.T) {
@@ -607,7 +589,6 @@ func TestAPIKeyAuth_RevokedKey(t *testing.T) {
 		Error.Message !=
 		"api key has been revoked",
 	)
-
 }
 
 func TestAPIKeyAuth_InvalidKey(t *testing.T) {
@@ -627,7 +608,6 @@ func TestAPIKeyAuth_InvalidKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestAPIKeyAuth_MissingHeader(t *testing.T) {
@@ -640,7 +620,6 @@ func TestAPIKeyAuth_MissingHeader(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestDualAuth_FallbackToInternalSecret(t *testing.T) {
@@ -657,7 +636,6 @@ func TestDualAuth_FallbackToInternalSecret(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/stats", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestDualAuth_APIKeyTakesPrecedence(t *testing.T) {
@@ -688,15 +666,13 @@ func TestDualAuth_APIKeyTakesPrecedence(t *testing.T) {
 		w.Code)
 	require.True(
 		t, lookedUp.Load())
-
 }
 
 func TestProjectIDFromContext(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	require.Equal(t, "proj-1", projectIDFromContext(ctx))
-	require.Equal(t, "", projectIDFromContext(context.Background()))
-
+	require.Empty(t, projectIDFromContext(context.Background()))
 }
 
 func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
@@ -725,7 +701,6 @@ func TestCreateAPIKey_OrgScoped_Success(t *testing.T) {
 	require.Equal(t, "proj-1", captured.
 		ProjectID,
 	)
-
 }
 
 func TestCreateAPIKey_OrgScoped_RequiresInternalSecret(t *testing.T) {
@@ -741,7 +716,6 @@ func TestCreateAPIKey_OrgScoped_RequiresInternalSecret(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestOrgScopedKey_CanAccessAllProjectsInOrg(t *testing.T) {
@@ -779,7 +753,6 @@ func TestOrgScopedKey_CanAccessAllProjectsInOrg(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	require.Len(t,
 		runs, 2)
-
 }
 
 func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
@@ -802,7 +775,6 @@ func TestOrgScopedKey_CannotAccessOtherOrg(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
@@ -846,7 +818,6 @@ func TestOrgScopedKey_ListReturnsOrgKeys(t *testing.T) {
 	require.Len(t,
 		resp, 2)
 	require.Equal(t, "org-1", resp[0].OrgID)
-
 }
 
 func TestOrgScopedKey_ListRejectsProjectScopedCaller(t *testing.T) {
@@ -877,7 +848,6 @@ func TestOrgScopedKey_ListRejectsProjectScopedCaller(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 type apiKeyListContextStore struct {
@@ -921,7 +891,7 @@ func TestOrgScopedKey_ListClearsAndRestoresProjectRLSContext(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.EqualValues(t, 2, wrappedStore.
+	require.Equal(t, 2, wrappedStore.
 		clearCalls,
 	)
 	require.False(t, len(wrappedStore.
@@ -932,7 +902,6 @@ func TestOrgScopedKey_ListClearsAndRestoresProjectRLSContext(t *testing.T) {
 		wrappedStore.
 			setProjects[1] != "proj-anchor",
 	)
-
 }
 
 func TestOrgScopedKey_RevokeWorks(t *testing.T) {
@@ -956,5 +925,4 @@ func TestOrgScopedKey_RevokeWorks(t *testing.T) {
 		w.Code)
 	require.Equal(t, "key-org-1",
 		revokedID)
-
 }

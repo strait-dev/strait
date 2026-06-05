@@ -33,7 +33,6 @@ func TestRequirePermission_APIKey_AllowsWildcard(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
@@ -53,7 +52,6 @@ func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
@@ -73,7 +71,6 @@ func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
@@ -93,7 +90,6 @@ func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
@@ -113,7 +109,6 @@ func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
@@ -133,7 +128,6 @@ func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // Internal secret tests.
@@ -153,7 +147,6 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
@@ -176,7 +169,6 @@ func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // Unknown actor type.
@@ -199,7 +191,6 @@ func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 // User permission tests.
@@ -229,7 +220,6 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
@@ -255,7 +245,6 @@ func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.T) {
@@ -281,7 +270,6 @@ func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_MissingPermission(t *testing.T) {
@@ -301,7 +289,6 @@ func TestRequirePermission_User_MissingPermission(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testing.T) {
@@ -338,7 +325,6 @@ func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testi
 	require.Len(t,
 		ms.GetResourcePoliciesCalls(),
 		1)
-
 }
 
 func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T) {
@@ -365,7 +351,6 @@ func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T)
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testing.T) {
@@ -396,7 +381,6 @@ func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testin
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_NoRole(t *testing.T) {
@@ -416,7 +400,6 @@ func TestRequirePermission_User_NoRole(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_DBError(t *testing.T) {
@@ -437,7 +420,6 @@ func TestRequirePermission_User_DBError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
@@ -459,7 +441,6 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_CacheHit(t *testing.T) {
@@ -496,7 +477,6 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 		w2.Code)
 	require.EqualValues(t, 1, callCount.
 		Load())
-
 }
 
 func TestRequirePermission_User_MissingActorID(t *testing.T) {
@@ -518,7 +498,6 @@ func TestRequirePermission_User_MissingActorID(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_WildcardPermission(t *testing.T) {
@@ -541,7 +520,6 @@ func TestRequirePermission_User_WildcardPermission(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 }
 
@@ -565,7 +543,6 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 
 	// First call populates cache.
@@ -580,7 +557,6 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 	makeReq()
 	require.EqualValues(t, 2, callCount.
 		Load())
-
 }
 
 func TestRequirePermission_ChainedMiddleware(t *testing.T) {
@@ -605,7 +581,6 @@ func TestRequirePermission_ChainedMiddleware(t *testing.T) {
 	chained.ServeHTTP(w, r)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
@@ -634,7 +609,6 @@ func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 		w.Code)
 
 	// Token only has jobs:read, so jobs:write should be denied.
-
 }
 
 func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testing.T) {
@@ -662,10 +636,9 @@ func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testi
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.Len(t,
-		ms.GetUserPermissionsCalls(), 0,
+	require.Empty(t,
+		ms.GetUserPermissionsCalls(),
 	)
-
 }
 
 func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
@@ -694,5 +667,4 @@ func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
 	handler.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }

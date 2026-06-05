@@ -2,12 +2,12 @@ package workflow
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateDAG(t *testing.T) {
@@ -157,12 +157,11 @@ func TestValidateDAG(t *testing.T) {
 
 func assertErrorContains(t *testing.T, err error, want string) {
 	t.Helper()
-	assert.Error(t,
+	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), want))
-
+	assert.Contains(t,
+		err.
+			Error(), want)
 }
 
 func step(ref string, deps ...string) domain.WorkflowStep {

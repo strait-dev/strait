@@ -1,10 +1,12 @@
 package crypto
 
 import (
+	"bytes"
 	cryptorand "crypto/rand"
 	mathrand "math/rand/v2"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +40,7 @@ func TestProperty_EncryptionRoundTrip(t *testing.T) {
 
 		decrypted, err := enc.Decrypt(ciphertext)
 		require.NoError(t, err)
-		require.Equal(t, plaintext, decrypted)
+		assert.True(t, bytes.Equal(plaintext, decrypted))
 	}
 }
 

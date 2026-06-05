@@ -31,10 +31,9 @@ func TestIdempotencyGC_Defaults(t *testing.T) {
 	assert.Equal(t, time.
 		Hour, g.
 		interval)
-	assert.EqualValues(t, 10000,
+	assert.Equal(t, 10000,
 		g.batchLimit,
 	)
-
 }
 
 func TestIdempotencyGC_RunOnceAccumulates(t *testing.T) {
@@ -43,9 +42,8 @@ func TestIdempotencyGC_RunOnceAccumulates(t *testing.T) {
 	_ = g.runOnce(context.Background())
 	assert.EqualValues(t, 23,
 		g.TotalDeleted())
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		s.calls)
-
 }
 
 func TestIdempotencyGC_LockNotAcquired(t *testing.T) {
@@ -53,9 +51,8 @@ func TestIdempotencyGC_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		s.calls)
-
 }
 
 func TestIdempotencyGC_LockAcquiredAndReleased(t *testing.T) {
@@ -68,7 +65,6 @@ func TestIdempotencyGC_LockAcquiredAndReleased(t *testing.T) {
 		!locker.
 			acquired ||
 		!locker.released)
-
 }
 
 func TestIdempotencyGC_DeleteError(t *testing.T) {
@@ -76,7 +72,6 @@ func TestIdempotencyGC_DeleteError(t *testing.T) {
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{})
 	assert.Error(t, g.runOnce(context.
 		Background()))
-
 }
 
 func TestIdempotencyGC_PanicReturnsError(t *testing.T) {
@@ -88,7 +83,6 @@ func TestIdempotencyGC_PanicReturnsError(t *testing.T) {
 	)
 	require.EqualValues(t, 1,
 		g.Iterations())
-
 }
 
 func TestIdempotencyGC_RunExitsOnCancel(t *testing.T) {
@@ -111,5 +105,4 @@ func TestIdempotencyGC_RunExitsOnCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, g.Iterations(),
 		int64(2))
-
 }

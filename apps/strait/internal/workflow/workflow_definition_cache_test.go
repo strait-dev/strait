@@ -67,7 +67,6 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 		string(got[0].Payload) == `{"payload":true}` &&
 		string(got[0].StageNotifications) == `{"notify":true}`
 	require.True(t, byteFieldsWereCloned)
-
 }
 
 func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
@@ -116,5 +115,4 @@ func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
 		1 || got[0].
 		StepRef != "first" ||
 		got[0].DependsOn[0] != "root")
-
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -84,9 +83,8 @@ func TestSchedulerStop_NoTimeoutWhenComponentsExitCleanly(t *testing.T) {
 		250*time.
 			Millisecond,
 	)
-	require.False(t,
-		strings.Contains(logs.String(), "scheduler component exceeded shutdown deadline"))
-
+	require.NotContains(t,
+		logs.String(), "scheduler component exceeded shutdown deadline")
 }
 
 func TestSchedulerStop_ReportsTimedOutComponentCount(t *testing.T) {
@@ -110,15 +108,9 @@ func TestSchedulerStop_ReportsTimedOutComponentCount(t *testing.T) {
 	s.Stop()
 
 	output := logs.String()
-	require.True(t, strings.Contains(output,
-		"component=stuck_a",
-	))
-	require.True(t, strings.Contains(output,
-		"component=stuck_b",
-	))
-	require.True(t, strings.Contains(output,
-		"timed_out_components=2",
-	))
+	require.Contains(t, output, "component=stuck_a")
+	require.Contains(t, output, "component=stuck_b")
+	require.Contains(t, output, "timed_out_components=2")
 
 	close(blocked)
 	s.wg.Wait()

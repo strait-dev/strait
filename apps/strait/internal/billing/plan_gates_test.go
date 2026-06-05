@@ -27,7 +27,6 @@ func TestFeatureGating_ApprovalGates(t *testing.T) {
 		assert.Equal(t, tt.
 			want, limits.HasApprovalGates,
 		)
-
 	}
 }
 
@@ -50,7 +49,6 @@ func TestFeatureGating_SubWorkflows(t *testing.T) {
 		assert.Equal(t, tt.
 			want, limits.HasSubWorkflows,
 		)
-
 	}
 }
 
@@ -73,7 +71,6 @@ func TestFeatureGating_CanaryDeployments(t *testing.T) {
 		assert.Equal(t, tt.
 			want, limits.HasCanaryDeployments,
 		)
-
 	}
 }
 
@@ -96,7 +93,6 @@ func TestFeatureGating_CompensatingTxns(t *testing.T) {
 		assert.Equal(t, tt.
 			want, limits.HasCompensatingTxns,
 		)
-
 	}
 }
 
@@ -123,7 +119,6 @@ func TestFeatureGating_JobChaining(t *testing.T) {
 		assert.Equal(t, tt.
 			wantDepth, limits.MaxJobChainDepth,
 		)
-
 	}
 }
 
@@ -135,12 +130,9 @@ func TestDAGStepLimit_ExactBoundary(t *testing.T) {
 		if limits.MaxWorkflowDAGSteps == -1 {
 			continue // unlimited, no boundary
 		}
-		assert.False(t, limits.
-			MaxWorkflowDAGSteps <=
-
-			0,
+		assert.Positive(t, limits.
+			MaxWorkflowDAGSteps,
 		)
-
 	}
 }
 
@@ -156,7 +148,6 @@ func TestCronOverlapPolicy_FreeTier(t *testing.T) {
 		assert.True(t, limits.
 			AllCronOverlapPolicies,
 		)
-
 	}
 }
 

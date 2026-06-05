@@ -84,7 +84,6 @@ func TestSubscription_MessageOrdering_FIFO(t *testing.T) {
 		require.Equal(t,
 			expected,
 			string(msg))
-
 	}
 }
 
@@ -134,7 +133,6 @@ func TestSubscription_MessageOrdering_UnderConcurrentWrites(t *testing.T) {
 	)
 
 	// Verify all messages arrived (no duplicates or losses).
-
 }
 
 // 2. Duplicate message delivery (ResilientPublisher deduplication semantics)
@@ -152,10 +150,8 @@ func TestResilientPublisher_NoDuplicatePublishOnSuccess(t *testing.T) {
 				fmt.
 					Appendf(nil, "msg-%d",
 						i)))
-
 	}
 	assert.Equal(t, int64(iterations), cp.publishCount.Load())
-
 }
 
 func TestResilientPublisher_PublishBatch_NoDuplicateOnFailure(t *testing.T) {
@@ -182,7 +178,6 @@ func TestResilientPublisher_PublishBatch_NoDuplicateOnFailure(t *testing.T) {
 
 	// The mock's PublishBatch iterates over each message, so it should call
 	// publishFunc once for ch1 and then fail (stopping the batch).
-
 }
 
 // 3. Subscriber crash/disconnect during message processing
@@ -304,7 +299,6 @@ func TestSubscription_BufferOverflow_DoesNotBlock(t *testing.T) {
 	msg = <-sub.Ch
 	assert.Equal(t,
 		"msg-2", string(msg))
-
 }
 
 func TestSubscription_ZeroBufferChannel(t *testing.T) {
@@ -328,7 +322,6 @@ func TestSubscription_ZeroBufferChannel(t *testing.T) {
 	assert.Equal(t,
 		"sync-msg",
 		string(msg))
-
 }
 
 // 5. Concurrent subscribe/unsubscribe
@@ -362,7 +355,6 @@ func TestResilientPublisher_ConcurrentSubscribeUnsubscribe(t *testing.T) {
 	wg.Wait()
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
@@ -399,7 +391,6 @@ func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
 	wg.Wait()
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 // 6. Malformed messages (nil, empty, oversized)
@@ -414,7 +405,6 @@ func TestResilientPublisher_NilData(t *testing.T) {
 	require.NoError(
 		t, err)
 	assert.Equal(t, int64(1), cp.publishCount.Load())
-
 }
 
 func TestResilientPublisher_EmptyChannel(t *testing.T) {
@@ -426,7 +416,6 @@ func TestResilientPublisher_EmptyChannel(t *testing.T) {
 	err := rp.Publish(t.Context(), "", []byte("data"))
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_OversizedMessage(t *testing.T) {
@@ -440,7 +429,6 @@ func TestResilientPublisher_OversizedMessage(t *testing.T) {
 	err := rp.Publish(t.Context(), "events:large", data)
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_AllNilData(t *testing.T) {
@@ -458,7 +446,6 @@ func TestResilientPublisher_PublishBatch_AllNilData(t *testing.T) {
 	err := rp.PublishBatch(context.Background(), msgs)
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_EmptyMessages(t *testing.T) {
@@ -474,7 +461,6 @@ func TestResilientPublisher_PublishBatch_EmptyMessages(t *testing.T) {
 	err = rp.PublishBatch(context.Background(), []PubSubMessage{})
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_MixedChannelNames(t *testing.T) {
@@ -494,7 +480,6 @@ func TestResilientPublisher_PublishBatch_MixedChannelNames(t *testing.T) {
 	err := rp.PublishBatch(context.Background(), msgs)
 	require.NoError(
 		t, err)
-
 }
 
 // ResilientPublisher health transitions under adversarial conditions
@@ -547,7 +532,6 @@ func TestResilientPublisher_ConcurrentPublishDegradation(t *testing.T) {
 		rp.IsHealthy())
 
 	// After 100 failures with threshold=5, the publisher should be degraded.
-
 }
 
 func TestResilientPublisher_CloseNilPublisher(t *testing.T) {
@@ -557,7 +541,6 @@ func TestResilientPublisher_CloseNilPublisher(t *testing.T) {
 	err := rp.Close()
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_CloseFailure(t *testing.T) {
@@ -571,7 +554,6 @@ func TestResilientPublisher_CloseFailure(t *testing.T) {
 		t, err)
 
 	// Resilient publisher swallows close errors.
-
 }
 
 func TestResilientPublisher_DefaultThreshold(t *testing.T) {
@@ -591,7 +573,6 @@ func TestResilientPublisher_DefaultThreshold(t *testing.T) {
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
 	assert.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_DefaultLogger(t *testing.T) {
@@ -614,7 +595,6 @@ func TestRedisPublisher_PublishBatch_NilMessages(t *testing.T) {
 	err := rp.PublishBatch(context.Background(), nil)
 	require.NoError(
 		t, err)
-
 }
 
 func TestNewSubscription_NilCancel(t *testing.T) {
@@ -623,7 +603,7 @@ func TestNewSubscription_NilCancel(t *testing.T) {
 	// NewSubscription with a cancel func that does nothing should be safe.
 	ch := make(chan []byte)
 	sub := NewSubscription(ch, func() {})
-	assert.True(t, ch == sub.Ch)
+	assert.Equal(t, (<-chan []byte)(ch), sub.Ch)
 
 	// Close should not panic.
 	sub.Close()

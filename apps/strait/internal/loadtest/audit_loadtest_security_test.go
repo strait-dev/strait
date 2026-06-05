@@ -70,7 +70,6 @@ func TestAuditEmitHarness_WaitDrainWaitsForInFlightEvent(t *testing.T) {
 	require.True(t, h.
 		WaitDrain(time.
 			Second))
-
 }
 
 func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {

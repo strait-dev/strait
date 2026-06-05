@@ -29,7 +29,6 @@ func TestValidateQueueName(t *testing.T) {
 
 			err := validateQueueName(tt.queue)
 			require.Equal(t, tt.wantErr, (err != nil))
-
 		})
 	}
 }

@@ -28,11 +28,9 @@ func TestDrift_AnnualDiscountRange(t *testing.T) {
 		p := Plans[tier]
 		monthly12 := int64(p.PriceMonthlyUsd) * 12
 		annual := int64(p.PriceAnnualUsd)
-		assert.False(t, annual >=
-			monthly12)
+		assert.Less(t, annual, monthly12)
 		assert.GreaterOrEqual(t, annual*100, monthly12*
 			75)
-
 	}
 }
 
@@ -54,8 +52,7 @@ func TestDrift_StrictlyMonotonicPaidTiers(t *testing.T) {
 	}
 	spending := []int64{MaxSpendingStarter, MaxSpendingPro, MaxSpendingScale, MaxSpendingBusiness}
 	for i := 1; i < len(spending); i++ {
-		assert.False(t, spending[i] <= spending[i-1])
-
+		assert.Greater(t, spending[i], spending[i-1])
 	}
 	for _, m := range metrics {
 		var prev int64
@@ -75,9 +72,7 @@ func TestDrift_StrictlyMonotonicPaidTiers(t *testing.T) {
 				if prevEff == -1 {
 					prevEff = 1<<62 - 1
 				}
-				assert.False(t, curEff <=
-					prevEff)
-
+				assert.Greater(t, curEff, prevEff)
 			} else if cur >= prev {
 				assert.Failf(t, "test failure",
 
@@ -110,9 +105,8 @@ func TestDrift_EnterpriseUnlimited(t *testing.T) {
 		{"APIRateLimit", p.APIRateLimit},
 	}
 	for _, c := range checks {
-		assert.EqualValues(t, -1,
+		assert.Equal(t, -1,
 			c.got)
-
 	}
 }
 
@@ -138,6 +132,5 @@ func TestDrift_SLACreditBoundaries(t *testing.T) {
 		got := CalculateSLACredit(c.uptime, target)
 		assert.Equal(t, c.
 			want, got)
-
 	}
 }

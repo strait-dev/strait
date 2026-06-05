@@ -48,7 +48,6 @@ func TestFailureRingBuffer_WrapAround_SnapshotOrder(t *testing.T) {
 		assert.Equal(t, w,
 			snap[i].Event.ID,
 		)
-
 	}
 }
 
@@ -66,7 +65,6 @@ func TestFailureRingBuffer_ExactlyFull(t *testing.T) {
 		assert.Equal(t, itoa(i), snap[i].Event.
 			ID,
 		)
-
 	}
 }
 
@@ -84,7 +82,6 @@ func TestFailureRingBuffer_MultipleLaps(t *testing.T) {
 		snap[1].Event.
 			ID != "6",
 	)
-
 }
 
 func TestFailureRingBuffer_ZeroCapacity_UsesDefault(t *testing.T) {
@@ -94,7 +91,6 @@ func TestFailureRingBuffer_ZeroCapacity_UsesDefault(t *testing.T) {
 
 		rb.cap,
 	)
-
 }
 
 func TestNewAuditSIEMDrain_ZeroDefaults(t *testing.T) {
@@ -108,7 +104,6 @@ func TestNewAuditSIEMDrain_ZeroDefaults(t *testing.T) {
 
 		d.flushInterval,
 	)
-
 }
 
 func TestNewAuditSIEMDrain_NegativeDefaults(t *testing.T) {
@@ -122,7 +117,6 @@ func TestNewAuditSIEMDrain_NegativeDefaults(t *testing.T) {
 
 		d.flushInterval,
 	)
-
 }
 
 func TestNewAuditSIEMDrain_ClientTimeout(t *testing.T) {
@@ -132,7 +126,6 @@ func TestNewAuditSIEMDrain_ClientTimeout(t *testing.T) {
 		time.Second, d.
 		client.
 		Timeout)
-
 }
 
 func TestNewAuditSIEMDrain_PositivePreserved(t *testing.T) {
@@ -144,7 +137,6 @@ func TestNewAuditSIEMDrain_PositivePreserved(t *testing.T) {
 		time.Second, d.
 		flushInterval,
 	)
-
 }
 
 func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
@@ -162,7 +154,6 @@ func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
 
 			cap(d.
 				ch))
-
 	})
 	t.Run("above_min", func(t *testing.T) {
 		t.Parallel()
@@ -175,7 +166,6 @@ func TestAuditSIEMDrain_Start_ChannelCapacity(t *testing.T) {
 		})
 		assert.Equal(t, 400,
 			cap(d.ch))
-
 	})
 }
 
@@ -218,7 +208,6 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_MetricsFire(t *testing.T) {
 	}
 	assert.Equal(t, int64(3),
 		failedVal)
-
 }
 
 func TestAuditSIEMDrain_DrainRemainingToSubDLQ_Empty_NoWarn(t *testing.T) {
@@ -230,7 +219,6 @@ func TestAuditSIEMDrain_DrainRemainingToSubDLQ_Empty_NoWarn(t *testing.T) {
 	d.drainRemainingToSubDLQ()
 	assert.False(t, spy.
 		called.Load())
-
 }
 
 func TestAuditSIEMDrain_FlushLocked_NilParentCtx(t *testing.T) {
@@ -310,7 +298,6 @@ func TestAuditSIEMDrain_ShutdownCh_BatchFullFlush(t *testing.T) {
 	}
 	assert.Equal(t, 6,
 		total)
-
 }
 
 func TestAuditSIEMDrain_CtxDone_BatchFullFlush_Deterministic(t *testing.T) {
@@ -367,5 +354,4 @@ func TestAuditSIEMDrain_CtxDone_BatchFullFlush_Deterministic(t *testing.T) {
 	}
 	assert.Equal(t, 6,
 		total)
-
 }

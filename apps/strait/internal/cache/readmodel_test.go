@@ -36,7 +36,6 @@ func TestStatusReadModel_CASRejectsOutOfOrderUpdate(t *testing.T) {
 	require.False(t,
 		got.Version !=
 			5 || got.Value != "running")
-
 }
 
 func TestStatusReadModel_SetIfColdDoesNotOverwriteNewerCDCValue(t *testing.T) {
@@ -62,7 +61,6 @@ func TestStatusReadModel_SetIfColdDoesNotOverwriteNewerCDCValue(t *testing.T) {
 		got.Version !=
 			9 || got.Value != "completed",
 	)
-
 }
 
 func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) {
@@ -91,5 +89,4 @@ func TestStatusReadModel_SetIfColdVersionRejectsOlderCDCOverwrite(t *testing.T) 
 		got.Version !=
 			10 || got.Value != "executing",
 	)
-
 }

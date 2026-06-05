@@ -38,5 +38,4 @@ func TestSLACredit_IDUsesUUIDV7(t *testing.T) {
 		err)
 	assert.EqualValues(t, 7,
 		parsed.Version())
-
 }

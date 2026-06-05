@@ -34,7 +34,6 @@ func TestCircuit_ClosedPassesThrough(t *testing.T) {
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func TestCircuit_OpensAtThreshold(t *testing.T) {
@@ -55,11 +54,8 @@ func TestCircuit_OpensAtThreshold(t *testing.T) {
 			"fn should not run when circuit open")
 		return nil
 	})
-	assert.True(t,
-		errors.Is(
-			err, ErrCircuitOpen,
-		))
-
+	assert.ErrorIs(t,
+		err, ErrCircuitOpen)
 }
 
 func TestCircuit_HalfOpenAfterCooldown(t *testing.T) {
@@ -79,7 +75,6 @@ func TestCircuit_HalfOpenAfterCooldown(t *testing.T) {
 		CircuitHalfOpen,
 
 		c.State())
-
 }
 
 func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
@@ -92,13 +87,12 @@ func TestCircuit_HalfOpenSuccessCloses(t *testing.T) {
 	now = now.Add(200 * time.Millisecond)
 
 	err := c.Do(context.Background(), func(_ context.Context) error { return nil })
-	assert.NoError(
+	require.NoError(
 		t, err)
 	assert.Equal(t,
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
@@ -111,9 +105,9 @@ func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
 	now = now.Add(200 * time.Millisecond)
 
 	err := c.Do(context.Background(), func(_ context.Context) error { return context.Canceled })
-	require.True(t,
-		errors.Is(err, context.
-			Canceled),
+	require.ErrorIs(t,
+		err, context.
+			Canceled,
 	)
 	require.Equal(t,
 		CircuitHalfOpen,
@@ -126,7 +120,6 @@ func TestCircuit_HalfOpenCanceledProbeAllowsRetry(t *testing.T) {
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
@@ -180,7 +173,6 @@ func TestCircuit_HalfOpenAllowsOnlyOneProbe(t *testing.T) {
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
@@ -208,7 +200,6 @@ func TestCircuit_HalfOpenFailureReopensExponentially(t *testing.T) {
 		CircuitHalfOpen,
 
 		c.State())
-
 }
 
 func TestCircuit_DoesNotCountContextCanceled(t *testing.T) {
@@ -221,7 +212,6 @@ func TestCircuit_DoesNotCountContextCanceled(t *testing.T) {
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func TestCircuit_WindowPruning(t *testing.T) {
@@ -239,7 +229,6 @@ func TestCircuit_WindowPruning(t *testing.T) {
 			State())
 
 	// Only the latest failure is in the window, so breaker stays closed.
-
 }
 
 func TestCircuit_ConcurrentFailuresOpenOnce(t *testing.T) {
@@ -261,7 +250,6 @@ func TestCircuit_ConcurrentFailuresOpenOnce(t *testing.T) {
 		c.State())
 	assert.NotEqual(t, 0, count.
 		Load())
-
 }
 
 func TestCircuit_MaxOpenForCap(t *testing.T) {
@@ -282,7 +270,6 @@ func TestCircuit_MaxOpenForCap(t *testing.T) {
 	assert.LessOrEqual(t, c.currentOpenDuration(), 300*
 		time.Millisecond,
 	)
-
 }
 
 // TestCircuit_AllTransitionsVisible walks the four transition edges
@@ -342,7 +329,6 @@ func TestCircuit_AllTransitionsVisible(t *testing.T) {
 		CircuitClosed,
 		c.
 			State())
-
 }
 
 func FuzzCircuitTransitions(f *testing.F) {
@@ -359,7 +345,6 @@ func FuzzCircuitTransitions(f *testing.F) {
 		})
 		defer func() {
 			require.Nil(t, recover())
-
 		}()
 		boom := errors.New("boom")
 		// Execute n ops with pattern bits selecting success/failure.

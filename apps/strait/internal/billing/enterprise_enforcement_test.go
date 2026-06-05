@@ -11,9 +11,8 @@ import (
 func TestEnforcement_Enterprise_NoConcurrentRunLimit(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxConcurrentRuns)
-
 }
 
 func TestEnforcement_Enterprise_NoDailyRunLimit(t *testing.T) {
@@ -21,23 +20,20 @@ func TestEnforcement_Enterprise_NoDailyRunLimit(t *testing.T) {
 	e := GetPlanLimits(domain.PlanEnterprise)
 	assert.EqualValues(t, -1,
 		e.MaxRunsPerDay)
-
 }
 
 func TestEnforcement_Enterprise_NoProjectLimit(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxProjectsPerOrg)
-
 }
 
 func TestEnforcement_Enterprise_NoMemberLimit(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxMembersPerOrg)
-
 }
 
 func TestEnforcement_Enterprise_HTTPModeAllowed(t *testing.T) {
@@ -46,7 +42,6 @@ func TestEnforcement_Enterprise_HTTPModeAllowed(t *testing.T) {
 	assert.True(t, e.
 		AllowsHTTPMode,
 	)
-
 }
 
 func TestEnforcement_Enterprise_NoSpendingLimitCap(t *testing.T) {
@@ -55,7 +50,6 @@ func TestEnforcement_Enterprise_NoSpendingLimitCap(t *testing.T) {
 	maxSpend := MaxSpendingLimit(domain.PlanEnterprise)
 	assert.EqualValues(t, -1,
 		maxSpend)
-
 }
 
 func TestEnforcement_Enterprise_CannotBypassViaInvalidTierString(t *testing.T) {
@@ -67,7 +61,6 @@ func TestEnforcement_Enterprise_CannotBypassViaInvalidTierString(t *testing.T) {
 	)
 	assert.False(t, limits.
 		HasSSO)
-
 }
 
 func TestEnforcement_Enterprise_PlanDowngradeFromEnterprise(t *testing.T) {
@@ -77,7 +70,6 @@ func TestEnforcement_Enterprise_PlanDowngradeFromEnterprise(t *testing.T) {
 		assert.True(t, IsDowngrade(domain.PlanEnterprise,
 
 			target))
-
 	}
 }
 
@@ -91,23 +83,20 @@ func TestEnforcement_Enterprise_CaseSensitiveTierLookup(t *testing.T) {
 	invalid := domain.PlanTier("Enterprise")
 	assert.False(t, invalid.
 		IsValid())
-
 }
 
 func TestEnforcement_Enterprise_UnlimitedScheduledJobs(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxScheduledJobs)
-
 }
 
 func TestEnforcement_Enterprise_UnlimitedWebhookEndpoints(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxWebhookEndpoints)
-
 }
 
 func TestEnforcement_Enterprise_CustomWebhookEventLevel(t *testing.T) {
@@ -117,5 +106,4 @@ func TestEnforcement_Enterprise_CustomWebhookEventLevel(t *testing.T) {
 
 		e.WebhookEventLevel,
 	)
-
 }

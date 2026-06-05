@@ -32,7 +32,7 @@ func TestAPIKey_HashNeverReversible(t *testing.T) {
 	hash := hashAPIKey(rawKey)
 	require.Len(t,
 		hash, 64)
-	require.False(t, strings.Contains(hash, rawKey))
+	require.NotContains(t, hash, rawKey)
 	require.NotEqual(t, rawKey,
 		hash)
 
@@ -46,7 +46,6 @@ func TestAPIKey_HashNeverReversible(t *testing.T) {
 
 	hash3 := hashAPIKey(rawKey2)
 	require.NotEqual(t, hash3, hash)
-
 }
 
 // TestAPIKey_RotationGracePeriod verifies that an old key still works during
@@ -93,7 +92,6 @@ func TestAPIKey_RotationGracePeriod(t *testing.T) {
 	require.NotEqual(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 // TestAPIKey_ConcurrentRotation verifies that two simultaneous rotation requests
@@ -136,7 +134,6 @@ func TestAPIKey_ConcurrentRotation(t *testing.T) {
 			assert.NotEqual(t, http.StatusInternalServerError,
 
 				w.Code)
-
 		})
 	}
 	wg.Wait()
@@ -168,9 +165,8 @@ func TestAPIKey_RevocationImmediate(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "revoked"))
-
+	require.Contains(
+		t, w.Body.String(), "revoked")
 }
 
 // TestAPIKey_ExpiredKeyRejected verifies that an expired key returns 401.
@@ -199,9 +195,8 @@ func TestAPIKey_ExpiredKeyRejected(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "expired"))
-
+	require.Contains(
+		t, w.Body.String(), "expired")
 }
 
 // TestAPIKey_ScopeEscalation verifies that a key with limited scopes cannot
@@ -228,7 +223,6 @@ func TestAPIKey_ScopeEscalation(t *testing.T) {
 		t, domain.HasScope(wildcardScopes,
 			"jobs:write"),
 	)
-
 }
 
 // TestAPIKey_PrefixFormat verifies that generated API keys always start with
@@ -245,7 +239,6 @@ func TestAPIKey_PrefixFormat(t *testing.T) {
 			key, 71)
 
 		// Key should be "strait_" + 64 hex characters = 71 characters total.
-
 	}
 }
 
@@ -279,7 +272,6 @@ func TestAPIKey_BruteForceResistance(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized,
 			w.Code,
 		)
-
 	}
 }
 
@@ -304,7 +296,6 @@ func TestAPIKey_NullByteInKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-
 }
 
 // TestAPIKey_EmptyBearerToken verifies that an empty bearer token is rejected.
@@ -338,7 +329,6 @@ func TestAPIKey_EmptyBearerToken(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized,
 				w.Code,
 			)
-
 		})
 	}
 }
@@ -375,7 +365,6 @@ func TestAPIKey_InvalidRotationInterval(t *testing.T) {
 					nil &&
 					interval <=
 						0)
-
 			}
 		})
 	}
@@ -405,7 +394,6 @@ func TestHandleCreateAPIKey_RejectsEmptyScopes(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.StatusBadRequest),
 	)
-
 }
 
 func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
@@ -434,7 +422,6 @@ func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
 	}})
 	require.True(
 		t, isHumaStatusError(err, http.StatusForbidden))
-
 }
 
 func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t *testing.T) {
@@ -462,7 +449,6 @@ func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t 
 	}})
 	require.True(
 		t, isHumaStatusError(err, http.StatusNotFound))
-
 }
 
 func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
@@ -496,7 +482,6 @@ func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
 	require.False(t, len(keys) !=
 		1 || keys[0].ID !=
 		"key-prod")
-
 }
 
 func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(t *testing.T) {
@@ -523,7 +508,6 @@ func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(
 	_, err := srv.handleRevokeAPIKey(ctx, &RevokeAPIKeyInput{KeyID: "key-staging"})
 	require.True(
 		t, isHumaStatusError(err, http.StatusNotFound))
-
 }
 
 func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(t *testing.T) {
@@ -559,7 +543,6 @@ func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(
 	})
 	require.True(
 		t, isHumaStatusError(err, http.StatusNotFound))
-
 }
 
 func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T) {
@@ -593,7 +576,6 @@ func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T
 	})
 	require.True(
 		t, isHumaStatusError(err, http.StatusForbidden))
-
 }
 
 // FuzzAPIKeyAuth fuzzes Authorization headers to ensure the auth middleware

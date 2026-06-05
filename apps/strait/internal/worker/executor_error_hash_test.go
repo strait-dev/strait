@@ -19,7 +19,6 @@ func TestErrorHash_ASCIIBeyondLimitTruncatesAtByte200(t *testing.T) {
 	wantHex := hex.EncodeToString(want[:8])
 	require.Equal(t, wantHex,
 		errorHash(msg))
-
 }
 
 func TestErrorHash_MultibyteUnderRuneLimitFullyHashed(t *testing.T) {
@@ -33,7 +32,6 @@ func TestErrorHash_MultibyteUnderRuneLimitFullyHashed(t *testing.T) {
 	wantHex := hex.EncodeToString(want[:8])
 	require.Equal(t, wantHex,
 		errorHash(msg))
-
 }
 
 func TestErrorHash_MultibyteOverRuneLimitTruncatedByRune(t *testing.T) {
@@ -51,7 +49,6 @@ func TestErrorHash_MultibyteOverRuneLimitTruncatedByRune(t *testing.T) {
 	more := msg + strings.Repeat("漢", 5)
 	require.Equal(t, wantHex,
 		errorHash(more))
-
 }
 
 func TestErrorHash_EmojiTruncationStable(t *testing.T) {
@@ -64,7 +61,6 @@ func TestErrorHash_EmojiTruncationStable(t *testing.T) {
 	wantHex := hex.EncodeToString(want[:8])
 	require.Equal(t, wantHex,
 		errorHash(msg))
-
 }
 
 func TestErrorHash_Stable(t *testing.T) {
@@ -75,5 +71,4 @@ func TestErrorHash_Stable(t *testing.T) {
 	second := errorHash(msg)
 	require.Equal(t, second,
 		first)
-
 }

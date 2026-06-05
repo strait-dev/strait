@@ -50,7 +50,6 @@ func TestExecutorEndpointSigningSecretDecryptsEncryptedField(t *testing.T) {
 	require.Equal(t,
 		"plain-endpoint-secret",
 		got)
-
 }
 
 func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
@@ -65,7 +64,6 @@ func TestExecutorEndpointSigningSecretPreservesLegacyPlaintext(t *testing.T) {
 		got)
 	require.False(t,
 		straitcrypto.IsEncryptedField(got))
-
 }
 
 func TestDispatchHeaderInputsFirstAttemptSkipsCheckpoint(t *testing.T) {
@@ -101,7 +99,6 @@ func TestDispatchHeaderInputsFirstAttemptSkipsCheckpoint(t *testing.T) {
 			"API_KEY",
 	)
 	require.Nil(t, inputs.checkpoint)
-
 }
 
 func TestDispatchHeaderInputsRetryUsesCache(t *testing.T) {
@@ -131,8 +128,8 @@ func TestDispatchHeaderInputsRetryUsesCache(t *testing.T) {
 	second, err := exec.dispatchHeaderInputs(ctx, job, run)
 	require.NoError(
 		t, err)
-	require.EqualValues(t, 1, secretCalls)
-	require.EqualValues(t, 1, checkpointCalls)
+	require.Equal(t, 1, secretCalls)
+	require.Equal(t, 1, checkpointCalls)
 	require.False(t,
 		first.checkpoint ==
 			nil || first.checkpoint.
@@ -145,7 +142,6 @@ func TestDispatchHeaderInputsRetryUsesCache(t *testing.T) {
 			checkpoint.
 			ID !=
 			"cp-1")
-
 }
 
 func TestDispatch_RetryIncludesCheckpointHeaders(t *testing.T) {
@@ -185,7 +181,6 @@ func TestDispatch_RetryIncludesCheckpointHeaders(t *testing.T) {
 		cpTime.Format(time.
 			RFC3339), headers.
 			Get("X-Checkpoint-At"))
-
 }
 
 func TestDispatch_FirstAttemptNoCheckpointHeaders(t *testing.T) {
@@ -214,9 +209,8 @@ func TestDispatch_FirstAttemptNoCheckpointHeaders(t *testing.T) {
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
-	require.Equal(t,
-		"", headers.Get("X-Last-Checkpoint"))
-
+	require.Empty(t,
+		headers.Get("X-Last-Checkpoint"))
 }
 
 func TestDispatch_NoCheckpointGraceful(t *testing.T) {
@@ -242,12 +236,11 @@ func TestDispatch_NoCheckpointGraceful(t *testing.T) {
 	run := testRun(2)
 
 	exec.execute(context.Background(), run)
-	require.Equal(t,
-		"", headers.Get("X-Last-Checkpoint"))
+	require.Empty(t,
+		headers.Get("X-Last-Checkpoint"))
 	require.Equal(t,
 		domain.StatusCompleted,
 		run.Status)
-
 }
 
 // TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm pins the
@@ -294,7 +287,6 @@ func TestTracedDispatch_RetryEmitsCheckpointHeadersWhenSecretsCacheWarm(t *testi
 		cpTime.Format(time.
 			RFC3339), headers.
 			Get("X-Checkpoint-At"))
-
 }
 
 func TestDispatch_RetryIncludesPreviousError(t *testing.T) {
@@ -321,7 +313,6 @@ func TestDispatch_RetryIncludesPreviousError(t *testing.T) {
 	require.Equal(t,
 		"connection timeout",
 		headers.Get("X-Previous-Error"))
-
 }
 
 func TestDispatch_RetryNoPreviousError(t *testing.T) {
@@ -345,10 +336,9 @@ func TestDispatch_RetryNoPreviousError(t *testing.T) {
 	run.Error = ""
 
 	exec.execute(context.Background(), run)
-	require.Equal(t,
-		"", headers.Get("X-Previous-Error"),
+	require.Empty(t,
+		headers.Get("X-Previous-Error"),
 	)
-
 }
 
 func TestHTTPDispatchTraceRecorderExecutionTrace(t *testing.T) {
@@ -365,7 +355,6 @@ func TestHTTPDispatchTraceRecorderExecutionTrace(t *testing.T) {
 	require.EqualValues(t, 15, trace.TtfbMs)
 	require.EqualValues(t, 15, trace.TransferMs)
 	require.EqualValues(t, 40, trace.DispatchMs)
-
 }
 
 func TestReadDispatchResponse(t *testing.T) {
@@ -413,8 +402,8 @@ func TestReadDispatchResponse(t *testing.T) {
 			got, err := readDispatchResponse(context.Background(), resp)
 			if tt.wantErr {
 				var endpointErr *domain.EndpointError
-				require.True(t,
-					errors.As(err, &endpointErr))
+				require.ErrorAs(t,
+					err, &endpointErr)
 				require.Equal(t,
 					tt.statusCode, endpointErr.
 						StatusCode,
@@ -435,7 +424,6 @@ func TestReadDispatchResponse(t *testing.T) {
 			}
 			require.Equal(t,
 				tt.want, string(got))
-
 		})
 	}
 }
@@ -489,7 +477,6 @@ func TestHTTPDispatchConcurrencyLimit(t *testing.T) {
 			got := httpDispatchConcurrencyLimit(tt.job, tt.prefetch)
 			require.Equal(t,
 				tt.want, got)
-
 		})
 	}
 }
@@ -533,7 +520,6 @@ func TestHTTPDispatch_InjectsTraceparentHeader(t *testing.T) {
 		"00-abcdef1234567890abcdef1234567890-fedcba0987654321-01",
 
 		got)
-
 }
 
 func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
@@ -579,7 +565,6 @@ func TestHTTPDispatch_InjectsTracestateHeader(t *testing.T) {
 		"congo=t61rcWkgMzE",
 		capturedHeaders.
 			Get("Tracestate"))
-
 }
 
 func TestHTTPDispatch_InjectsSentryTraceHeaders(t *testing.T) {
@@ -626,7 +611,6 @@ func TestHTTPDispatch_InjectsSentryTraceHeaders(t *testing.T) {
 
 		capturedHeaders.
 			Get(sentry.SentryBaggageHeader))
-
 }
 
 func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
@@ -660,19 +644,18 @@ func TestHTTPDispatch_NoTraceMetadata(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Traceparent"))
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Tracestate"))
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get(sentry.SentryTraceHeader))
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get(sentry.SentryBaggageHeader))
-
 }
 
 func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
@@ -708,10 +691,9 @@ func TestHTTPDispatch_EmptyTraceParent(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Traceparent"))
-
 }
 
 func TestHTTPDispatch_NilMetadata(t *testing.T) {
@@ -745,13 +727,12 @@ func TestHTTPDispatch_NilMetadata(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Traceparent"))
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Tracestate"))
-
 }
 
 func TestHTTPDispatch_TraceHeadersCoexistWithExtraHeaders(t *testing.T) {
@@ -801,7 +782,6 @@ func TestHTTPDispatch_TraceHeadersCoexistWithExtraHeaders(t *testing.T) {
 			Get(
 				"X-Custom-Header",
 			))
-
 }
 
 func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
@@ -838,8 +818,8 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t,
-		"", capturedHeaders.
+	assert.Empty(t,
+		capturedHeaders.
 			Get("Secret"))
 
 	if _, ok := capturedHeaders["Secret"]; ok {
@@ -852,7 +832,6 @@ func TestHTTPDispatch_NonTraceMetadataNotLeaked(t *testing.T) {
 
 		capturedHeaders.
 			Get("Traceparent"))
-
 }
 
 func TestHTTPDispatch_RedactsEndpointURLFromClientErrors(t *testing.T) {
@@ -870,15 +849,13 @@ func TestHTTPDispatch_RedactsEndpointURLFromClientErrors(t *testing.T) {
 	_, err := e.dispatchToEndpoint(t.Context(), rawURL, &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		errors.Is(err, rootErr))
+	require.ErrorIs(t,
+		err, rootErr)
 
 	got := err.Error()
 	for _, leaked := range []string{"hooks.example.com", "user:pass", "/private/path", "token=secret", "#frag"} {
-		require.False(t,
-			strings.Contains(got,
-				leaked))
-
+		require.NotContains(t,
+			got, leaked)
 	}
 	require.False(t,
 		!strings.Contains(
@@ -887,5 +864,4 @@ func TestHTTPDispatch_RedactsEndpointURLFromClientErrors(t *testing.T) {
 			"context deadline exceeded",
 		),
 	)
-
 }

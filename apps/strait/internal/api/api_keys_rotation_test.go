@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,11 +49,9 @@ func TestHandleRotateAPIKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.
-			Body.String(), "grace_expires_at",
-		))
-
+	require.Contains(
+		t, w.
+			Body.String(), "grace_expires_at")
 }
 
 func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
@@ -74,7 +71,7 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 			"key-old" ||
 			newKeyID != "key-new",
 		)
-		require.False(t, time.Until(graceExpiresAt) <= 0)
+		require.Positive(t, time.Until(graceExpiresAt))
 
 		return nil
 	}
@@ -101,8 +98,7 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 
 		publishedChannel,
 	)
-	require.False(t, time.Until(publishedDeadline) <= 0)
-
+	require.Positive(t, time.Until(publishedDeadline))
 }
 
 func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T) {
@@ -144,7 +140,6 @@ func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T
 		w.Code)
 	require.False(t, created)
 	require.False(t, rotated)
-
 }
 
 func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
@@ -187,7 +182,6 @@ func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 	require.True(
 		t, revokedReplacement.
 			Load())
-
 }
 
 func TestAPIKeyAuth_RejectsExpiredRotationGrace(t *testing.T) {
@@ -207,5 +201,4 @@ func TestAPIKeyAuth_RejectsExpiredRotationGrace(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }

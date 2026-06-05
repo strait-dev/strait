@@ -30,7 +30,6 @@ func TestWithBusinessPrices_Resolves(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, domain.
 				PlanBusiness, tier)
-
 		})
 	}
 }
@@ -45,7 +44,6 @@ func TestWithBusinessPrices_UnknownFallsThrough(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, domain.
 		PlanFree, tier)
-
 }
 
 func TestWithBusinessPrices_EmptyIDsIgnored(t *testing.T) {
@@ -54,10 +52,9 @@ func TestWithBusinessPrices_EmptyIDsIgnored(t *testing.T) {
 	m := NewStripeMappingFromOptions(
 		WithBusinessPrices("", ""),
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 
 		m.PriceCount())
-
 }
 
 func TestWithBusinessFlatPrice_Resolves(t *testing.T) {
@@ -70,7 +67,6 @@ func TestWithBusinessFlatPrice_Resolves(t *testing.T) {
 	assert.False(t, !ok ||
 		tier != domain.PlanBusiness,
 	)
-
 }
 
 // CatalogResolver already publishes the Business lookup keys; this test
@@ -85,6 +81,5 @@ func TestCatalogResolver_BusinessLookupKeysRegistered(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, domain.
 			PlanBusiness, got)
-
 	}
 }

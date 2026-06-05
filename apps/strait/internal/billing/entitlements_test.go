@@ -80,7 +80,6 @@ func TestComputeEntitlements_RoundTripMatchesPipeline(t *testing.T) {
 			got := ComputeEntitlements(sub, tc.addons)
 			assert.True(t, reflect.
 				DeepEqual(got, pipeline))
-
 		})
 	}
 }
@@ -96,7 +95,6 @@ func TestComputeEntitlements_UnknownTierFallsBackToFree(t *testing.T) {
 	want := GetPlanLimits(domain.PlanFree)
 	assert.True(t, reflect.
 		DeepEqual(got, want))
-
 }
 
 func TestApplySubscriptionAddOns_IgnoresLegacyJSONBPacks(t *testing.T) {
@@ -106,7 +104,6 @@ func TestApplySubscriptionAddOns_IgnoresLegacyJSONBPacks(t *testing.T) {
 	got := ApplySubscriptionAddOns(base, SubscriptionAddOns{})
 	assert.True(t, reflect.
 		DeepEqual(got, base))
-
 }
 
 // TestComputeEntitlements_NilSubFallsBackToFree mirrors the unknown-tier
@@ -118,7 +115,6 @@ func TestComputeEntitlements_NilSubFallsBackToFree(t *testing.T) {
 	want := GetPlanLimits(domain.PlanFree)
 	assert.True(t, reflect.
 		DeepEqual(got, want))
-
 }
 
 // TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline locks the no-addon
@@ -138,7 +134,6 @@ func TestComputeEntitlements_EmptyAddonsMatchesPlanBaseline(t *testing.T) {
 			want := GetPlanLimits(tier)
 			assert.True(t, reflect.
 				DeepEqual(got, want))
-
 		})
 	}
 }
@@ -162,5 +157,4 @@ func TestComputeEntitlements_TableAddonsExtendRetention(t *testing.T) {
 	assert.Equal(t, wantRetention,
 
 		got.RetentionDays)
-
 }

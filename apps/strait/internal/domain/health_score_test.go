@@ -35,7 +35,6 @@ func TestTriggerJobCompletion_Constant(t *testing.T) {
 		"job_completion",
 
 		TriggerJobCompletion)
-
 }
 
 func TestSLOMetricConstants_Values(t *testing.T) {
@@ -52,7 +51,6 @@ func TestSLOMetricConstants_Values(t *testing.T) {
 		"p99_latency_secs",
 
 		SLOMetricP99LatencySecs)
-
 }
 
 func TestJobSLOStatus_NilEvaluation(t *testing.T) {
@@ -67,7 +65,6 @@ func TestJobSLOStatus_NilEvaluation(t *testing.T) {
 	}
 	assert.Nil(t, status.CurrentValue)
 	assert.Nil(t, status.BudgetRemaining)
-
 }
 
 func TestJobSLOStatus_WithEvaluation(t *testing.T) {
@@ -83,29 +80,27 @@ func TestJobSLOStatus_WithEvaluation(t *testing.T) {
 		CurrentValue:    &cv,
 		BudgetRemaining: &br,
 	}
-	assert.Equal(t,
+	assert.InDelta(t,
 		0.95,
 
-		*status.CurrentValue)
-	assert.Equal(t,
+		*status.CurrentValue, 1e-9)
+	assert.InDelta(t,
 		0.6,
 
-		*status.BudgetRemaining)
-
+		*status.BudgetRemaining, 1e-9)
 }
 
 func TestEndpointHealthScore_DefaultValues(t *testing.T) {
 	t.Parallel()
 	h := &EndpointHealthScore{}
-	assert.Equal(t,
+	assert.InDelta(t,
 		float64(0),
 
-		h.HealthScore)
+		h.HealthScore, 1e-9)
 	assert.Equal(t,
 		"unhealthy",
 
 		h.HealthLevel())
-
 }
 
 func TestJobSLO_ValidWindowHours(t *testing.T) {
@@ -117,6 +112,5 @@ func TestJobSLO_ValidWindowHours(t *testing.T) {
 			w,
 
 			slo.WindowHours)
-
 	}
 }

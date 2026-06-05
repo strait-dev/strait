@@ -35,7 +35,6 @@ func FuzzSLOEvaluator_ErrorBudget(f *testing.F) {
 		assert.False(t, math.
 			IsInf(
 				got, 0))
-
 	})
 }
 
@@ -56,7 +55,6 @@ func FuzzSLOEvaluator_LatencyBudget(f *testing.F) {
 			assert.False(t, math.
 				IsInf(
 					got, 0))
-
 		}
 	})
 }
@@ -136,7 +134,6 @@ func FuzzUsageReportEmailer_HTML(f *testing.F) {
 		html := buildUsageReportHTML(orgID, planTier, periodStart, periodEnd, creditMicro, addonCount, overageMicro)
 		assert.True(t, utf8.
 			ValidString(html))
-
 	})
 }
 

@@ -36,7 +36,6 @@ func TestLoad_MVCCGuardrailDefaults(t *testing.T) {
 			tt.want,
 			tt.
 				got)
-
 	}
 }
 
@@ -75,7 +74,6 @@ func TestLoad_MVCCGuardrailOverrides(t *testing.T) {
 	assert.False(t,
 		cfg.DBWatchdogEnabled,
 	)
-
 }
 
 func TestLoad_MVCCGuardrailZeroRejected(t *testing.T) {
@@ -89,7 +87,6 @@ func TestLoad_MVCCGuardrailZeroRejected(t *testing.T) {
 	_, err := Load()
 	require.Error(t,
 		err)
-
 }
 
 // FuzzDurationParsing asserts that arbitrary duration-ish strings fed to the

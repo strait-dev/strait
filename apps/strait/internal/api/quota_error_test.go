@@ -29,11 +29,10 @@ func TestNewQuotaExceeded_BodyShape(t *testing.T) {
 	}
 
 	out := newQuotaExceeded(le, "")
-	require.NotNil(t, out)
+	require.Error(t, out)
 
 	var rse *rawStatusError
-	require.True(t, errors.As(out,
-		&rse))
+	require.ErrorAs(t, out, &rse)
 	assert.Equal(t, http.
 		StatusPaymentRequired,
 
@@ -56,16 +55,15 @@ func TestNewQuotaExceeded_BodyShape(t *testing.T) {
 	assert.Equal(t, "monthly run cap reached",
 
 		got["message"])
-	assert.EqualValues(t, 10_000,
-		got["limit"].(float64))
-	assert.EqualValues(t, 10_001,
-		got["current"].(float64))
+	assert.InDelta(t, 10_000,
+		got["limit"].(float64), 1e-9)
+	assert.InDelta(t, 10_001,
+		got["current"].(float64), 1e-9)
 	assert.Equal(t, "starter",
 		got["plan"])
 	assert.Equal(t, "https://strait.dev/upgrade",
 
 		got["upgrade_url"])
-
 }
 
 // TestNewQuotaExceeded_ServiceDegradedMapsTo503 documents the one LimitError
@@ -82,8 +80,7 @@ func TestNewQuotaExceeded_ServiceDegradedMapsTo503(t *testing.T) {
 
 	out := newQuotaExceeded(le, "")
 	var rse *rawStatusError
-	require.True(t, errors.As(out,
-		&rse))
+	require.ErrorAs(t, out, &rse)
 	assert.Equal(t, http.
 		StatusServiceUnavailable,
 
@@ -99,7 +96,6 @@ func TestNewQuotaExceeded_ServiceDegradedMapsTo503(t *testing.T) {
 	assert.Equal(t, "service_degraded",
 
 		got["kind"])
-
 }
 
 // TestNewQuotaExceeded_PrefixComposesMessage covers the bulk-item prefix
@@ -111,8 +107,7 @@ func TestNewQuotaExceeded_PrefixComposesMessage(t *testing.T) {
 	le := &billing.LimitError{Code: "plan_cap_reached", Message: "boom"}
 	out := newQuotaExceeded(le, "item 3")
 	var rse *rawStatusError
-	require.True(t, errors.As(out,
-		&rse))
+	require.ErrorAs(t, out, &rse)
 
 	body, _ := json.Marshal(rse.body)
 	var got map[string]any
@@ -120,7 +115,6 @@ func TestNewQuotaExceeded_PrefixComposesMessage(t *testing.T) {
 	assert.Equal(t, "item 3: boom",
 
 		got["message"])
-
 }
 
 // TestLimitErrorTo402_PassThroughNonLimitError ensures non-billing errors are
@@ -130,7 +124,5 @@ func TestLimitErrorTo402_PassThroughNonLimitError(t *testing.T) {
 
 	original := errors.New("network read failed")
 	got := limitErrorTo402(original, "")
-	assert.True(t, errors.Is(got,
-		original))
-
+	assert.ErrorIs(t, got, original)
 }

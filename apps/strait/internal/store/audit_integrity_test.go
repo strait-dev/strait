@@ -32,7 +32,6 @@ func TestDeriveAuditSigningKey_Returns32Bytes(t *testing.T) {
 	key, err := DeriveAuditSigningKey("test-internal-secret")
 	require.NoError(t, err)
 	assert.Len(t, key, 32)
-
 }
 
 func TestDeriveAuditSigningKey_Deterministic(t *testing.T) {
@@ -41,7 +40,6 @@ func TestDeriveAuditSigningKey_Deterministic(t *testing.T) {
 	key1, _ := DeriveAuditSigningKey("same-secret")
 	key2, _ := DeriveAuditSigningKey("same-secret")
 	assert.Equal(t, string(key2), string(key1))
-
 }
 
 func TestDeriveAuditSigningKey_EmptySecret_Error(t *testing.T) {
@@ -49,7 +47,6 @@ func TestDeriveAuditSigningKey_EmptySecret_Error(t *testing.T) {
 
 	_, err := DeriveAuditSigningKey("")
 	require.Error(t, err)
-
 }
 
 func TestComputeAuditSignature_Deterministic(t *testing.T) {
@@ -63,7 +60,6 @@ func TestComputeAuditSignature_Deterministic(t *testing.T) {
 	assert.Equal(t, sig2,
 		sig1)
 	assert.Len(t, sig1, 64)
-
 }
 
 func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
@@ -96,7 +92,6 @@ func TestComputeAuditSignature_ChangesWithFields(t *testing.T) {
 			assert.NotEqual(t, baseSig,
 				modSig,
 			)
-
 		})
 	}
 }
@@ -184,7 +179,6 @@ func TestComputeAuditSignatureV3_BindsAnchorAndRotationEpoch(t *testing.T) {
 	require.NotEqual(t, baseSig,
 		ComputeAuditSignature(&epochChanged, key),
 	)
-
 }
 
 func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
@@ -210,7 +204,6 @@ func TestComputeAuditSignatureV4_BindsShardID(t *testing.T) {
 	v3.SchemaVersion = 3
 	v3.ShardID = ""
 	require.NotEqual(t, ComputeAuditSignature(base, key), ComputeAuditSignature(&v3, key))
-
 }
 
 func TestComputeAuditSignatureV4_LengthDelimitsShardID(t *testing.T) {
@@ -246,7 +239,6 @@ func TestComputeAuditSignature_DifferentKeys(t *testing.T) {
 	sig2 := ComputeAuditSignature(ev, key2)
 	assert.NotEqual(t, sig2,
 		sig1)
-
 }
 
 func TestAuditChain_ManualVerification(t *testing.T) {
@@ -304,7 +296,6 @@ func TestAuditChain_Adversarial_TamperedEvent(t *testing.T) {
 		ev.
 			Signature,
 	)
-
 }
 
 func TestAuditChain_Adversarial_BrokenChain(t *testing.T) {
@@ -326,7 +317,6 @@ func TestAuditChain_Adversarial_BrokenChain(t *testing.T) {
 	)
 
 	// Chain verification: ev2's previous_hash should be ev1's signature.
-
 }
 
 func FuzzComputeAuditSignature(f *testing.F) {
@@ -350,6 +340,5 @@ func FuzzComputeAuditSignature(f *testing.F) {
 		assert.Equal(t, sig2,
 			sig1)
 		assert.Len(t, sig1, 64)
-
 	})
 }

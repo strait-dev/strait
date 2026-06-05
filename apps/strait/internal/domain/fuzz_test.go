@@ -36,6 +36,5 @@ func FuzzParseEdition(f *testing.F) {
 				EditionCloud)
 
 		// Result must be one of the known values.
-
 	})
 }

@@ -54,7 +54,6 @@ func TestProperty_DAG_ValidatedNoCycles(t *testing.T) {
 			}
 		}
 		require.Equal(t, len(steps), visited)
-
 	}
 }
 
@@ -137,7 +136,6 @@ func TestProperty_TemplateRenderIdempotent(t *testing.T) {
 		require.Equal(t, string(
 			secondRe,
 		), string(firstRe))
-
 	}
 }
 

@@ -28,7 +28,6 @@ func TestCloseByAPIKey_NoDoubleClosePanic(t *testing.T) {
 	for i := range workers {
 		w := makeWorker(workerID(i), "proj-a", "shared-key", []string{"q"}, 4)
 		require.NoError(t, r.Register(w))
-
 	}
 
 	var wg sync.WaitGroup

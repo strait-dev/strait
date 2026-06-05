@@ -249,12 +249,12 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 		TriggerDebounce,
 		run.TriggeredBy,
 	)
-	require.EqualValues(t, 5,
+	require.Equal(t, 5,
 		run.Priority)
 	require.Equal(t, "user-1",
 		run.CreatedBy,
 	)
-	require.Equal(t, `{"action":"reindex"}`,
+	require.JSONEq(t, `{"action":"reindex"}`,
 
 		string(run.Payload))
 	require.Equal(t, domain.
@@ -272,14 +272,12 @@ func TestDebouncePoller_FiresDuePending(t *testing.T) {
 		1 || ds.
 		completed[0] != "dp-1",
 	)
-	require.Len(t, ds.restored,
-		0)
-	require.EqualValues(t, 1,
+	require.Empty(t, ds.restored)
+	require.Equal(t, 1,
 		ds.txCalls)
 	require.False(t, len(ds.txLockIDs) !=
 		1 || ds.
 		txLockIDs[0] != cronAdmissionLockID("proj-1"))
-
 }
 
 func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
@@ -303,13 +301,11 @@ func TestDebouncePoller_SkipsDisabledJob(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
+	require.Empty(t, enqueued)
 	require.Len(t, ds.claimed,
 		1)
 	require.Len(t, ds.completed,
 		1)
-
 }
 
 func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
@@ -333,13 +329,11 @@ func TestDebouncePoller_SkipsPausedJob(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
+	require.Empty(t, enqueued)
 	require.Len(t, ds.claimed,
 		1)
 	require.Len(t, ds.completed,
 		1)
-
 }
 
 func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
@@ -366,7 +360,6 @@ func TestDebouncePoller_UsesPendingIDAsIdempotencyKey(t *testing.T) {
 	require.Equal(t, "debounce:dp-1",
 		key,
 	)
-
 }
 
 func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
@@ -391,9 +384,7 @@ func TestDebouncePoller_DeletesPendingWhenRunAlreadyExists(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, ds.restored,
-		0)
-
+	require.Empty(t, ds.restored)
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *testing.T) {
@@ -418,10 +409,9 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *te
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		enqueued)
-	require.Len(t, ds.completed,
-		0)
+	require.Empty(t, ds.completed)
 	require.False(t, len(ds.rescheduled) !=
 		1 || ds.
 		rescheduled[0].id !=
@@ -442,7 +432,6 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeProjectQuotaExceeded(t *te
 		!ds.duePending[0].FireAt.
 			After(time.Now().UTC()),
 	)
-
 }
 
 func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testing.T) {
@@ -473,10 +462,9 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testi
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		enqueued)
-	require.Len(t, ds.completed,
-		0)
+	require.Empty(t, ds.completed)
 	require.False(t, len(ds.rescheduled) !=
 		1 || ds.
 		rescheduled[0].id !=
@@ -497,7 +485,6 @@ func TestDebouncePoller_ReschedulesPendingWhenFireTimeRateLimitExceeded(t *testi
 		!ds.duePending[0].FireAt.
 			After(time.Now().UTC()),
 	)
-
 }
 
 func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
@@ -520,11 +507,9 @@ func TestDebouncePoller_SkipsPendingExtendedAfterDueList(t *testing.T) {
 	poller := NewDebouncePoller(ds, q, time.Second)
 	require.NoError(t,
 		poller.pollLocked(context.Background()))
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		enqueued)
-	require.Len(t, ds.claimed,
-		0)
-
+	require.Empty(t, ds.claimed)
 }
 
 func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
@@ -549,17 +534,14 @@ func TestDebouncePoller_RestoreDoesNotOverwriteNewerPending(t *testing.T) {
 	}}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, ds.restored,
-		0)
-	require.Len(t, ds.completed,
-		0)
+	require.Empty(t, ds.restored)
+	require.Empty(t, ds.completed)
 	require.False(t, len(ds.duePending) !=
 		1 || ds.
 		duePending[0].ID !=
 		"dp-old" ||
 		!ds.duePending[0].FireAt.
 			Equal(future))
-
 }
 
 func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {
@@ -583,9 +565,7 @@ func TestDebouncePoller_SkipsWhenLockNotAcquired(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
-
+	require.Empty(t, enqueued)
 }
 
 func TestDebouncePoller_NoDuePending(t *testing.T) {
@@ -601,7 +581,5 @@ func TestDebouncePoller_NoDuePending(t *testing.T) {
 	}
 	poller := NewDebouncePoller(ds, q, time.Second)
 	poller.poll(context.Background())
-	require.Len(t, enqueued,
-		0)
-
+	require.Empty(t, enqueued)
 }

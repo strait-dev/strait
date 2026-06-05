@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,9 +33,8 @@ func TestCanaryDeploymentUpdate_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-1/canary", `{"traffic_pct":50}`, "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Canary deployments"))
-
+	require.Contains(
+		t, w.Body.String(), "Canary deployments")
 }
 
 func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
@@ -65,9 +63,8 @@ func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-1/canary/rollback", "", "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Canary deployments"))
-
+	require.Contains(
+		t, w.Body.String(), "Canary deployments")
 }
 
 func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
@@ -90,9 +87,8 @@ func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-1/canary", "", "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Canary deployments"))
-
+	require.Contains(
+		t, w.Body.String(), "Canary deployments")
 }
 
 func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
@@ -120,9 +116,8 @@ func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Canary deployments"))
-
+	require.Contains(
+		t, w.Body.String(), "Canary deployments")
 }
 
 func TestDeploymentVersionCanaryStrategy_ScaleTierAllowed(t *testing.T) {
@@ -150,5 +145,4 @@ func TestDeploymentVersionCanaryStrategy_ScaleTierAllowed(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-1"))
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }

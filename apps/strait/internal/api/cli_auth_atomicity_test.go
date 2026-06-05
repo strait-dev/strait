@@ -93,15 +93,12 @@ func TestApproveDeviceCodeRollsBackOnApproveFailure(t *testing.T) {
 		ProjectID: "proj-rollback",
 	}})
 	require.Error(t, err)
-	require.EqualValues(t, 1, createAPIKeyHits)
-	require.EqualValues(t, 1, approveHits)
-	require.Len(t,
+	require.Equal(t, 1, createAPIKeyHits)
+	require.Equal(t, 1, approveHits)
+	require.Empty(t,
 		persistedKeyIDs,
-
-		0,
 	)
-	require.EqualValues(t, 0, auditHits)
-
+	require.Equal(t, 0, auditHits)
 }
 
 // TestApproveDeviceCodeCommitsOnSuccess regression-tests the happy
@@ -177,8 +174,8 @@ func TestApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 		ProjectID: "proj-commit",
 	}})
 	require.NoError(t, err)
-	require.EqualValues(t, 1, createAPIKeyHits)
-	require.EqualValues(t, 1, approveHits)
+	require.Equal(t, 1, createAPIKeyHits)
+	require.Equal(t, 1, approveHits)
 	require.False(t, len(persistedKeyIDs) != 1 || persistedKeyIDs[0] != "key-committed")
 	require.NotEmpty(t, auditEvents)
 
@@ -192,7 +189,6 @@ func TestApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 	require.True(
 		t, sawApproved,
 	)
-
 }
 
 // TestApproveDeviceCodePropagatesNotFound checks that the
@@ -235,5 +231,4 @@ func TestApproveDeviceCodePropagatesNotFound(t *testing.T) {
 		ProjectID: "proj-race",
 	}})
 	require.Error(t, err)
-
 }

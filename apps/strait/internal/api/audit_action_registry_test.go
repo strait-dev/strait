@@ -56,7 +56,7 @@ func TestAuditActionRegistryCoverage(t *testing.T) {
 
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		require.Nil(t, parseErr)
+		require.NoError(t, parseErr)
 
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)

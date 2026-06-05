@@ -31,7 +31,6 @@ func TestQueueNotifier_BackoffDelay_ExponentialGrowth(t *testing.T) {
 				delay <
 					minExpected ||
 					delay > maxExpected)
-
 		}
 	}
 }
@@ -57,7 +56,6 @@ func TestQueueNotifier_BackoffDelay_CappedAtMax(t *testing.T) {
 			delay, time.Duration(float64(30*time.Second)*0.74))
 
 		// With jitter: max is 30s * 1.25 = 37.5s.
-
 	}
 }
 
@@ -81,7 +79,6 @@ func TestQueueNotifier_BackoffDelay_Jitter(t *testing.T) {
 		len(seen), 5)
 
 	// With 100 samples and jitter, we should see at least 10 distinct values.
-
 }
 
 func TestQueueNotifier_BackoffDelay_AttemptZero(t *testing.T) {
@@ -100,6 +97,5 @@ func TestQueueNotifier_BackoffDelay_AttemptZero(t *testing.T) {
 					time.Millisecond || delay > 626*time.Millisecond)
 
 		// Base is 500ms, jitter 75%-125% = 375ms-625ms.
-
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -51,9 +50,8 @@ func TestUpdateJob_RunTTLBypass_AfterDowngrade(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, updateCalled)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "run_ttl_secs"))
-
+	assert.Contains(t,
+		w.Body.String(), "run_ttl_secs")
 }
 
 // TestUpdateJob_NoRunTTLChange_NotGated documents the deliberate carve-out: a
@@ -89,7 +87,6 @@ func TestUpdateJob_NoRunTTLChange_NotGated(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"renamed"}`))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestCloneJob_RunTTLBypass_FromHighTTLSource walks the clone vector: a Pro-era
@@ -130,7 +127,6 @@ func TestCloneJob_RunTTLBypass_FromHighTTLSource(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, createCalled)
-
 }
 
 // TestCloneJob_RunTTLAtLimit_Allows verifies the clone gate is inclusive at
@@ -170,5 +166,4 @@ func TestCloneJob_RunTTLAtLimit_Allows(t *testing.T) {
 		w.Code)
 	require.True(
 		t, created)
-
 }

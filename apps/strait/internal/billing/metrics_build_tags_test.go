@@ -55,10 +55,8 @@ func TestBillingCloudMetricNames(t *testing.T) {
 		"strait_billing_overage_runs_total",
 		"strait_billing_webhook_processed_total",
 	} {
-		require.True(t, strings.Contains(string(
-			content), name,
-		))
-
+		require.Contains(t, string(
+			content), name)
 	}
 }
 
@@ -71,5 +69,4 @@ func assertBuildTag(t *testing.T, path, tag string) {
 	lines := strings.SplitN(string(content), "\n", 2)
 	require.False(t,
 		len(lines) == 0 || strings.TrimSpace(lines[0]) != tag)
-
 }

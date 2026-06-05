@@ -67,7 +67,6 @@ func newAuthMetricsHarness(t *testing.T) (authRuntimeMetrics, *sdkmetric.ManualR
 	t.Cleanup(func() {
 		require.NoError(t, provider.
 			Shutdown(context.Background()))
-
 	})
 	return newAuthRuntimeMetrics(provider.Meter("auth-metrics-test")), reader
 }
@@ -142,7 +141,6 @@ func assertAttributes(t *testing.T, got []attribute.KeyValue, want map[string]st
 		t, authAttrsMatch(got,
 
 			want))
-
 }
 
 func authAttrsMatch(got []attribute.KeyValue, want map[string]string) bool {

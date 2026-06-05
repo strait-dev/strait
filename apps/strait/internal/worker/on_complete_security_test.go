@@ -56,7 +56,6 @@ func TestOnComplete_PayloadMappingPathTraversal(t *testing.T) {
 	assert.Equal(t,
 		"visible", out["normal"],
 	)
-
 }
 
 // TestOnComplete_PayloadMappingDeepPath verifies that a 100-level deep path
@@ -94,7 +93,6 @@ func TestOnComplete_PayloadMappingDeepPath(t *testing.T) {
 			&out))
 	assert.Equal(t,
 		"leaf", out["deep"])
-
 }
 
 // TestOnComplete_PayloadMappingEmptyPath verifies that an empty path string
@@ -143,7 +141,6 @@ func TestOnComplete_PayloadMappingTrailingDots(t *testing.T) {
 			require.NoError(
 				t, json.Unmarshal(mapped,
 					&out))
-
 		})
 	}
 }
@@ -166,7 +163,6 @@ func TestOnComplete_PayloadMappingNumericKeys(t *testing.T) {
 			&out))
 	assert.Equal(t,
 		"found", out["val"])
-
 }
 
 // TestOnComplete_PayloadMappingNullSource verifies that a nil/empty result
@@ -218,7 +214,6 @@ func TestOnComplete_PayloadMappingCircularRef(t *testing.T) {
 		"value", out["self"])
 	assert.Equal(t,
 		"deep", out["nested"])
-
 }
 
 // TestOnComplete_PayloadMappingHugeOutput verifies that a mapping that maps
@@ -240,7 +235,7 @@ func TestOnComplete_PayloadMappingHugeOutput(t *testing.T) {
 		t, err)
 
 	mapped, mapErr := applyPayloadMapping(result, mapping)
-	require.Nil(t, mapErr)
+	require.NoError(t, mapErr)
 
 	var out map[string]any
 	require.NoError(
@@ -248,7 +243,6 @@ func TestOnComplete_PayloadMappingHugeOutput(t *testing.T) {
 			&out))
 	require.Len(t, out,
 		10)
-
 }
 
 // TestOnComplete_TriggerDisabledJob verifies that MaybeTrigger logs a warning
@@ -274,9 +268,8 @@ func TestOnComplete_TriggerDisabledJob(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 // TestOnComplete_TriggerDeletedJob verifies that MaybeTrigger handles a nil
@@ -303,9 +296,8 @@ func TestOnComplete_TriggerDeletedJob(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 // TestOnComplete_ConcurrentCompletionTrigger fires two concurrent MaybeTrigger
@@ -343,7 +335,6 @@ func TestOnComplete_ConcurrentCompletionTrigger(t *testing.T) {
 	defer trigger.mu.Unlock()
 	require.Len(t, trigger.
 		calls, 10)
-
 }
 
 // FuzzPayloadMappingPath fuzzes dot-notation paths against a fixed result

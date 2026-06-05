@@ -53,9 +53,8 @@ func TestCheckSpendingLimit_RespectsContextCancellation(t *testing.T) {
 	// cancellation. Either way the retry loop must not have eaten 600ms.
 	_ = e.CheckSpendingLimit(ctx, orgID)
 	elapsed := time.Since(start)
-	require.False(t,
-		elapsed >= 200*
+	require.Less(t,
+		elapsed, 200*
 			time.Millisecond,
 	)
-
 }

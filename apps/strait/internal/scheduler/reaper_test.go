@@ -32,7 +32,7 @@ func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 		scheduleRetryFn: func(_ context.Context, _ string, at time.Time, attempt int) error {
 			assert.False(t, at.
 				Before(time.Now()))
-			assert.EqualValues(t, 2,
+			assert.Equal(t, 2,
 				attempt)
 
 			scheduled.Add(1)
@@ -67,7 +67,6 @@ func TestReaper_ReapStale_RetriesWhenAttemptsRemain(t *testing.T) {
 	require.EqualValues(t, 2,
 		scheduled.Load(),
 	)
-
 }
 
 func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
@@ -113,7 +112,6 @@ func TestReaper_ReapStale_CrashesWhenAttemptsExhausted(t *testing.T) {
 	r.reapStale(context.Background())
 	require.Equal(t, int32(len(runs)), transitioned.
 		Load())
-
 }
 
 func TestReaper_ReapExpired(t *testing.T) {
@@ -145,7 +143,6 @@ func TestReaper_ReapExpired(t *testing.T) {
 	r.reapExpired(context.Background())
 	require.EqualValues(t, 1,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapStaleDequeued(t *testing.T) {
@@ -180,7 +177,6 @@ func TestReaper_ReapStaleDequeued(t *testing.T) {
 	r.reapStaleDequeued(context.Background())
 	require.EqualValues(t, 1,
 		transitioned.Load())
-
 }
 
 func TestReaper_NoStaleRuns(t *testing.T) {
@@ -208,7 +204,6 @@ func TestReaper_NoStaleRuns(t *testing.T) {
 	r.reapStaleDequeued(context.Background())
 	require.EqualValues(t, 0,
 		transitioned.Load())
-
 }
 
 func TestReaper_RunLoop(t *testing.T) {
@@ -233,7 +228,6 @@ func TestReaper_RunLoop(t *testing.T) {
 
 	r.Run(ctx)
 	require.GreaterOrEqual(t, ticked.Load(), int32(1))
-
 }
 
 func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
@@ -241,8 +235,7 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 	var deleted atomic.Int64
 	ms := &mockReaperStore{
 		deleteOldWorkflowRunsFn: func(_ context.Context, before time.Time, limit int) (int64, error) {
-			require.False(t, limit <=
-				0)
+			require.Positive(t, limit)
 			require.False(t, before.
 				IsZero())
 
@@ -255,7 +248,6 @@ func TestReaper_ReapOldWorkflowRuns(t *testing.T) {
 	r.reapOldWorkflowRuns(context.Background())
 	require.EqualValues(t, 3,
 		deleted.Load())
-
 }
 
 func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
@@ -307,7 +299,6 @@ func TestReaper_ReapTimedOutWorkflows(t *testing.T) {
 		stepCancels.Load())
 	require.EqualValues(t, 1,
 		jobRunCancels.Load())
-
 }
 
 func TestReaper_ReapStale_ListError(t *testing.T) {
@@ -327,7 +318,6 @@ func TestReaper_ReapStale_ListError(t *testing.T) {
 	r.reapStale(context.Background())
 	require.EqualValues(t, 0,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapStale_UpdateError(t *testing.T) {
@@ -357,7 +347,6 @@ func TestReaper_ReapStale_UpdateError(t *testing.T) {
 		updateCalls.Load())
 	require.EqualValues(t, 1,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapExpired_ListError(t *testing.T) {
@@ -377,7 +366,6 @@ func TestReaper_ReapExpired_ListError(t *testing.T) {
 	r.reapExpired(context.Background())
 	require.EqualValues(t, 0,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapExpired_UpdateError(t *testing.T) {
@@ -407,7 +395,6 @@ func TestReaper_ReapExpired_UpdateError(t *testing.T) {
 		updateCalls.Load())
 	require.EqualValues(t, 1,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
@@ -427,7 +414,6 @@ func TestReaper_ReapStaleDequeued_ListError(t *testing.T) {
 	r.reapStaleDequeued(context.Background())
 	require.EqualValues(t, 0,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
@@ -457,7 +443,6 @@ func TestReaper_ReapStaleDequeued_UpdateError(t *testing.T) {
 		updateCalls.Load())
 	require.EqualValues(t, 1,
 		transitioned.Load())
-
 }
 
 func TestReaper_ReapExpiredApprovals(t *testing.T) {
@@ -523,7 +508,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 1,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("list_error", func(t *testing.T) {
@@ -560,7 +544,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 0,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("update_approval_error_continues", func(t *testing.T) {
@@ -613,7 +596,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 1,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("update_step_error_continues", func(t *testing.T) {
@@ -655,7 +637,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 1,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("workflow_running_to_failed", func(t *testing.T) {
@@ -689,7 +670,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 1,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("workflow_paused_fallback", func(t *testing.T) {
@@ -726,7 +706,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 2,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("both_workflow_updates_fail", func(t *testing.T) {
@@ -781,7 +760,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 3,
 			workflowUpdates.
 				Load())
-
 	})
 
 	t.Run("multiple_approvals", func(t *testing.T) {
@@ -832,7 +810,6 @@ func TestReaper_ReapExpiredApprovals(t *testing.T) {
 		require.EqualValues(t, 3,
 			workflowUpdates.
 				Load())
-
 	})
 }
 
@@ -853,7 +830,6 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 		r.reapOldWorkflowRuns(context.Background())
 		require.EqualValues(t, 0,
 			deleteCalls.Load())
-
 	})
 
 	t.Run("delete_error", func(t *testing.T) {
@@ -871,7 +847,6 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 		r.reapOldWorkflowRuns(context.Background())
 		require.EqualValues(t, 1,
 			deleteCalls.Load())
-
 	})
 
 	t.Run("delete_zero_count", func(t *testing.T) {
@@ -889,7 +864,6 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 		r.reapOldWorkflowRuns(context.Background())
 		require.EqualValues(t, 1,
 			deleteCalls.Load())
-
 	})
 
 	t.Run("negative_retention", func(t *testing.T) {
@@ -907,7 +881,6 @@ func TestReaper_ReapOldWorkflowRuns_EdgeCases(t *testing.T) {
 		r.reapOldWorkflowRuns(context.Background())
 		require.EqualValues(t, 0,
 			deleteCalls.Load())
-
 	})
 }
 
@@ -945,7 +918,6 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			Load() != 0 ||
 			jobRunCancels.
 				Load() != 0)
-
 	})
 
 	t.Run("workflow_update_error_continues", func(t *testing.T) {
@@ -995,7 +967,6 @@ func TestReaper_ReapTimedOutWorkflows_EdgeCases(t *testing.T) {
 			stepCancels.Load())
 		require.EqualValues(t, 1,
 			jobRunCancels.Load())
-
 	})
 }
 
@@ -1010,7 +981,6 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 			24*time.Hour,
 			r.workflowRetention,
 		)
-
 	})
 
 	t.Run("ignores_zero_retention", func(t *testing.T) {
@@ -1022,7 +992,6 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 
 			r.workflowRetention,
 		)
-
 	})
 
 	t.Run("ignores_negative_retention", func(t *testing.T) {
@@ -1034,7 +1003,6 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 
 			r.workflowRetention,
 		)
-
 	})
 
 	t.Run("custom_retention_used_in_reap", func(t *testing.T) {
@@ -1070,7 +1038,6 @@ func TestReaper_WithWorkflowRetention(t *testing.T) {
 			diff >
 				time.Minute,
 		)
-
 	})
 }
 
@@ -1097,7 +1064,6 @@ func TestReaper_ReapTerminalRetention(t *testing.T) {
 	r.reapTerminalRetention(context.Background())
 	require.EqualValues(t, 1,
 		called.Load())
-
 }
 
 func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
@@ -1126,7 +1092,6 @@ func TestReaper_RetentionDisabled_SkipsRetention(t *testing.T) {
 	r.Run(ctx)
 	require.EqualValues(t, 0,
 		called.Load())
-
 }
 
 func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
@@ -1154,7 +1119,6 @@ func TestReaper_RetentionEnabled_CallsRetention(t *testing.T) {
 
 	r.Run(ctx)
 	require.GreaterOrEqual(t, called.Load(), int32(1))
-
 }
 
 func TestReaper_CustomRetentionPeriods(t *testing.T) {
@@ -1180,7 +1144,6 @@ func TestReaper_CustomRetentionPeriods(t *testing.T) {
 	r.reapTerminalRetention(context.Background())
 	require.EqualValues(t, 1,
 		called.Load())
-
 }
 
 func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
@@ -1206,7 +1169,6 @@ func TestReaper_DefaultRetentionPeriodsWhenZero(t *testing.T) {
 	r.reapTerminalRetention(context.Background())
 	require.EqualValues(t, 1,
 		called.Load())
-
 }
 
 func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
@@ -1252,7 +1214,6 @@ func TestReapExpiredEventTriggers_WorkflowStep_TimesOut(t *testing.T) {
 	require.True(t, triggerTimedOut)
 	require.True(t, stepFailed)
 	require.True(t, workflowFailed)
-
 }
 
 func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
@@ -1296,7 +1257,6 @@ func TestReapExpiredEventTriggers_JobRun_TimesOut(t *testing.T) {
 	r.reapExpiredEventTriggers(context.Background())
 	require.True(t, triggerTimedOut)
 	require.True(t, runTimedOut)
-
 }
 
 func TestReapExpiredEventTriggers_NoExpired(t *testing.T) {
@@ -1357,7 +1317,6 @@ func TestReapExpiredEventTriggers_JobRunAlreadyTerminal(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredEventTriggers(context.Background())
 	require.False(t, updateRunCalled)
-
 }
 
 func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
@@ -1401,7 +1360,6 @@ func TestReapExpiredEventTriggers_SleepCompletesStep(t *testing.T) {
 		StepCompleted,
 		updatedStepStatus,
 	)
-
 }
 
 func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
@@ -1449,7 +1407,6 @@ func TestReapExpiredEventTriggers_SleepCallsOnStepCompleted(t *testing.T) {
 	require.Equal(t, "sr-1",
 		callbackStepID,
 	)
-
 }
 
 func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
@@ -1497,7 +1454,6 @@ func TestReapExpiredEventTriggers_DelegatesOnStepFailed(t *testing.T) {
 	require.Equal(t, "sr-1",
 		failedStepID,
 	)
-
 }
 
 func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
@@ -1535,7 +1491,6 @@ func TestReapExpiredEventTriggers_NilCallbackFallback(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.True(t, wfStatusUpdated)
-
 }
 
 func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
@@ -1568,7 +1523,6 @@ func TestReapInconsistentEventTriggers_WorkflowStepReconciled(t *testing.T) {
 	r.workflowCallback = wfCb
 	r.ReapOnce(context.Background())
 	require.True(t, onEventCalled)
-
 }
 
 func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
@@ -1600,7 +1554,6 @@ func TestReapInconsistentEventTriggers_SleepReconciled(t *testing.T) {
 	r.workflowCallback = wfCb
 	r.ReapOnce(context.Background())
 	require.True(t, onStepCompletedCalled)
-
 }
 
 func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
@@ -1629,7 +1582,6 @@ func TestReapInconsistentEventTriggers_JobRunReconciled(t *testing.T) {
 	require.Equal(t, "run-stale",
 		requeuedRunID,
 	)
-
 }
 
 func TestReapInconsistentEventTriggers_ListError(t *testing.T) {
@@ -1675,7 +1627,6 @@ func TestCompleteSleepTrigger_StepUpdateError(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.True(t, triggerUpdated)
-
 }
 
 func TestReapOldEventTriggers_RetentionDisabled(t *testing.T) {
@@ -1729,7 +1680,6 @@ func TestCompleteSleepTrigger_NoStepRunID(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.True(t, triggerUpdated)
-
 }
 
 // completeSleepTrigger: nil callback skips OnStepCompleted call.
@@ -1764,7 +1714,6 @@ func TestCompleteSleepTrigger_NilCallback(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.True(t, stepUpdated)
-
 }
 
 // completeSleepTrigger: trigger status update error returns early.
@@ -1797,7 +1746,6 @@ func TestCompleteSleepTrigger_TriggerUpdateError(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.False(t, stepUpdated)
-
 }
 
 // reapInconsistentEventTriggers: OnEventReceived error continues to next trigger.
@@ -1842,7 +1790,6 @@ func TestReapInconsistentEventTriggers_EventReceivedError(t *testing.T) {
 	)
 
 	// The second trigger (job run) should still be processed despite the first failing.
-
 }
 
 // reapInconsistentEventTriggers: empty job run ID is skipped.
@@ -1869,7 +1816,6 @@ func TestReapInconsistentEventTriggers_EmptyJobRunID(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.ReapOnce(context.Background())
 	require.False(t, updateCalled)
-
 }
 
 func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
@@ -1896,7 +1842,6 @@ func TestReaper_ReapStalledWorkflows_Reconcile(t *testing.T) {
 	r.reapStalledWorkflows(context.Background())
 	require.EqualValues(t, 1,
 		resumed.Load())
-
 }
 
 func TestReaper_ReapStalledWorkflows_DefaultReconciles(t *testing.T) {
@@ -1927,7 +1872,6 @@ func TestReaper_ReapStalledWorkflows_DefaultReconciles(t *testing.T) {
 	r.reapStalledWorkflows(context.Background())
 	require.EqualValues(t, 1,
 		resumed.Load())
-
 }
 
 func TestReaper_WithStalledActionEmptyUsesReconcile(t *testing.T) {
@@ -1937,7 +1881,6 @@ func TestReaper_WithStalledActionEmptyUsesReconcile(t *testing.T) {
 	require.Equal(t, "reconcile",
 		r.stalledAction,
 	)
-
 }
 
 func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
@@ -1967,7 +1910,6 @@ func TestReaper_ReapStalledWorkflows_FailWorkflow(t *testing.T) {
 	r.reapStalledWorkflows(context.Background())
 	require.EqualValues(t, 1,
 		failed.Load())
-
 }
 
 // mockNotifierReaperStore composes mockReaperStore with ApprovalNotifierStore and ApprovalReminderStore.
@@ -2065,7 +2007,6 @@ func TestReaper_ReapExpiredApprovals_SendsExpiredNotification(t *testing.T) {
 
 		deliveries[0].EventType,
 	)
-
 }
 
 func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T) {
@@ -2092,7 +2033,6 @@ func TestReaper_ReapExpiredApprovals_NoNotificationWithoutInterface(t *testing.T
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
 	require.True(t, approvalReaped)
-
 }
 
 func TestReaper_ReapExpiredApprovals_IgnoresRejectedApprovals(t *testing.T) {
@@ -2117,7 +2057,6 @@ func TestReaper_ReapExpiredApprovals_IgnoresRejectedApprovals(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
 	require.False(t, updateCalled)
-
 }
 
 func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
@@ -2156,7 +2095,6 @@ func TestReaper_ReapExpiredApprovals_MixedApprovals(t *testing.T) {
 	require.False(t, len(reapedIDs) != 1 ||
 		reapedIDs[0] !=
 			"appr-2")
-
 }
 
 func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
@@ -2196,7 +2134,6 @@ func TestSkipThenReap_ApprovalNotReaped(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapExpiredApprovals(context.Background())
 	require.False(t, updateCalled)
-
 }
 
 func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
@@ -2242,7 +2179,6 @@ func TestReaper_ReapApprovalReminders_SendsReminder(t *testing.T) {
 		payload["workflow_run_id"] != "wr-1" ||
 		payload["workflow_id"] !=
 			"wf-1" || payload["step_run_id"] != "sr-1")
-
 }
 
 func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
@@ -2262,7 +2198,6 @@ func TestReaper_ReapApprovalReminders_BeforeHalfway_NoReminder(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestReaper_ReapApprovalReminders_ExactlyHalfway(t *testing.T) {
@@ -2293,7 +2228,6 @@ func TestReaper_ReapApprovalReminders_ExactlyHalfway(t *testing.T) {
 	r.reapApprovalReminders(context.Background())
 	require.Len(t, deliveries,
 		1)
-
 }
 
 func TestReaper_ReapApprovalReminders_ShortTimeout(t *testing.T) {
@@ -2325,7 +2259,6 @@ func TestReaper_ReapApprovalReminders_ShortTimeout(t *testing.T) {
 	r.reapApprovalReminders(context.Background())
 	require.Len(t, deliveries,
 		1)
-
 }
 
 func TestReaper_ReapApprovalReminders_LongTimeout(t *testing.T) {
@@ -2357,7 +2290,6 @@ func TestReaper_ReapApprovalReminders_LongTimeout(t *testing.T) {
 	r.reapApprovalReminders(context.Background())
 	require.Len(t, deliveries,
 		1)
-
 }
 
 func TestReaper_ReapApprovalReminders_StoreError(t *testing.T) {
@@ -2376,7 +2308,6 @@ func TestReaper_ReapApprovalReminders_StoreError(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
@@ -2404,9 +2335,8 @@ func TestReaper_ReapApprovalReminders_Dedup(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		deliveryCount)
-
 }
 
 func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testing.T) {
@@ -2454,7 +2384,6 @@ func TestReaper_ReapApprovalReminders_CachesWorkflowAndChannelsPerPoll(t *testin
 			Load())
 	require.EqualValues(t, 1,
 		channelLookups.Load())
-
 }
 
 func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *testing.T) {
@@ -2504,7 +2433,6 @@ func TestReaper_ReapApprovalReminders_BulkListsChannelsForMultipleProjects(t *te
 		bulkLookups.Load())
 	require.EqualValues(t, 0,
 		singleLookups.Load())
-
 }
 
 func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
@@ -2523,7 +2451,6 @@ func TestReaper_ReapApprovalReminders_NoApprovals(t *testing.T) {
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func BenchmarkReaper_ReapApprovalReminders_ManyProjects(b *testing.B) {

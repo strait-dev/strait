@@ -61,7 +61,6 @@ func TestResultChannelRegistry_SendToUnknownRun(t *testing.T) {
 			result,
 		),
 	)
-
 }
 
 // TestResultChannelRegistry_RejectCrossProject is the regression test for the
@@ -161,7 +160,6 @@ func TestResultChannelRegistry_RejectStaleAssignmentIdentity(t *testing.T) {
 					"worker-1",
 					tc.result,
 				))
-
 		})
 	}
 
@@ -201,7 +199,6 @@ func TestResultChannelRegistry_DeduplicateSend(t *testing.T) {
 		second)
 
 	// channel full, should be dropped
-
 }
 
 func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
@@ -232,7 +229,6 @@ func TestDeepSecResultChannelRegistry_RejectsDuplicateRegister(t *testing.T) {
 			result,
 		),
 	)
-
 }
 
 // TestResultChannelRegistry_Deregister verifies cleanup after dispatch completes.
@@ -248,7 +244,6 @@ func TestResultChannelRegistry_Deregister(t *testing.T) {
 			"worker-1",
 
 			result))
-
 }
 
 // TestDispatchHMAC_Format verifies that dispatchHMAC returns the v1= prefix.
@@ -257,7 +252,6 @@ func TestDispatchHMAC_Format(t *testing.T) {
 	assert.False(t,
 		len(sig) < 3 || sig[:3] !=
 			"v1=")
-
 }
 
 // TestDispatchHMAC_Deterministic verifies that the same inputs always produce the same signature.
@@ -266,7 +260,6 @@ func TestDispatchHMAC_Deterministic(t *testing.T) {
 	s2 := dispatchHMAC("secret", "123", []byte("body"))
 	assert.Equal(t,
 		s2, s1)
-
 }
 
 // TestDispatchHMAC_DifferentInputsDifferentSigs verifies that different inputs produce different signatures.
@@ -274,7 +267,6 @@ func TestDispatchHMAC_DifferentInputsDifferentSigs(t *testing.T) {
 	s1 := dispatchHMAC("secret1", "123", []byte("body"))
 	s2 := dispatchHMAC("secret2", "123", []byte("body"))
 	assert.NotEqual(t, s2, s1)
-
 }
 
 func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
@@ -284,7 +276,7 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 
 	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
 	require.NoError(t, err)
-	require.NotEqual(t, "", assignment.
+	require.NotEmpty(t, assignment.
 		RunTokenJwt,
 	)
 	require.Equal(
@@ -308,12 +300,11 @@ func TestBuildAssignment_RunTokenIncludesAttemptAndAssignment(t *testing.T) {
 	require.Equal(
 		t, "run-1", claims.
 			Subject)
-	require.EqualValues(t, 3, claims.Attempt)
+	require.Equal(t, 3, claims.Attempt)
 	require.Equal(
 		t, "task-1", claims.
 			AssignmentID,
 	)
-
 }
 
 func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
@@ -324,7 +315,7 @@ func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
 
 	assignment, err := dispatcher.buildAssignment(run, job, "task-1")
 	require.NoError(t, err)
-	require.NotEqual(t, "", assignment.
+	require.NotEmpty(t, assignment.
 		HmacSignature,
 	)
 	require.Equal(
@@ -335,7 +326,6 @@ func TestBuildAssignment_DecryptsEndpointSigningSecret(t *testing.T) {
 	)
 	require.False(
 		t, straitcrypto.IsEncryptedField("plain-endpoint-secret"))
-
 }
 
 // TestTaskResultStatus_HappyPath verifies TaskResultStatus extracts status correctly.
@@ -344,23 +334,20 @@ func TestTaskResultStatus_HappyPath(t *testing.T) {
 	got := TaskResultStatus(result)
 	assert.Equal(t,
 		"success", got)
-
 }
 
 // TestTaskResultStatus_Nil verifies nil opaque returns empty string.
 func TestTaskResultStatus_Nil(t *testing.T) {
 	got := TaskResultStatus(nil)
-	assert.Equal(t,
-		"", got)
-
+	assert.Empty(t,
+		got)
 }
 
 // TestTaskResultStatus_WrongType verifies wrong type returns empty string.
 func TestTaskResultStatus_WrongType(t *testing.T) {
 	got := TaskResultStatus("not a TaskResult")
-	assert.Equal(t,
-		"", got)
-
+	assert.Empty(t,
+		got)
 }
 
 // TestTaskResultError_HappyPath verifies TaskResultError extracts error message.
@@ -371,15 +358,13 @@ func TestTaskResultError_HappyPath(t *testing.T) {
 		"something went wrong",
 		got,
 	)
-
 }
 
 // TestTaskResultError_Nil verifies nil returns empty string.
 func TestTaskResultError_Nil(t *testing.T) {
 	got := TaskResultError(nil)
-	assert.Equal(t,
-		"", got)
-
+	assert.Empty(t,
+		got)
 }
 
 func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
@@ -393,7 +378,6 @@ func TestTaskResultOutput_HappyPathCopiesPayload(t *testing.T) {
 	require.Equal(
 		t, `{"ok":true}`, string(got),
 	)
-
 }
 
 func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
@@ -409,7 +393,6 @@ func TestTaskResultHelpers_InvalidSuccessOutputBecomesFailure(t *testing.T) {
 
 		TaskResultError(result))
 	require.Nil(t, TaskResultOutput(result))
-
 }
 
 func TestTaskResultHelpers_UnwrapWorkerTaskResult(t *testing.T) {
@@ -447,7 +430,6 @@ func TestTaskResultOutput_NilWrongTypeAndEmpty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Nil(t, TaskResultOutput(tt.input))
-
 		})
 	}
 }
@@ -470,9 +452,8 @@ func TestWorkerDispatch_NoWorkerAvailable(t *testing.T) {
 	}
 
 	_, err := d.WorkerDispatch(context.Background(), run, job)
-	assert.True(t,
-		errors.Is(err, ErrNoWorkerAvailable))
-
+	assert.ErrorIs(t,
+		err, ErrNoWorkerAvailable)
 }
 
 // TestWorkerDispatch_NilSendCh verifies that a nil SendCh is handled gracefully before
@@ -500,13 +481,12 @@ func TestWorkerDispatch_NilSendCh(t *testing.T) {
 	job := &domain.Job{ID: "job-1", Queue: "q", Slug: "my-job"}
 
 	_, err := d.WorkerDispatch(context.Background(), run, job)
-	assert.True(t,
-		errors.Is(err, ErrNoWorkerAvailable))
+	require.ErrorIs(t,
+		err, ErrNoWorkerAvailable)
 
 	// Slots must NOT be decremented because the guard fires before DecrementSlots.
 	snap := registry.Snapshot()
 	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
-
 }
 
 // TestWorkerDispatch_SlotRestoredOnDBError verifies slot is restored when CreateWorkerTask fails.
@@ -539,7 +519,6 @@ func TestWorkerDispatch_SlotRestoredOnDBError(t *testing.T) {
 	registry.IncrementSlots("w1")
 	snap = registry.Snapshot()
 	assert.EqualValues(t, 4, snap[0].SlotsAvailable)
-
 }
 
 // TestWorkerDispatch_ContextCancelWhileWaiting verifies cancellation while waiting for TaskResult

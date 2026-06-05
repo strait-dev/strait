@@ -44,7 +44,6 @@ func TestBoostPriority_TableDriven(t *testing.T) {
 			require.Equal(t,
 				tc.expected,
 				got)
-
 		})
 	}
 }
@@ -53,8 +52,7 @@ func TestBoostPriority_TableDriven(t *testing.T) {
 func TestBoostPriority_Overflow(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(9, 5)
-	require.EqualValues(t, 10, got)
-
+	require.Equal(t, 10, got)
 }
 
 // TestBoostPriority_NegativeBoost verifies that a negative boost triggers the
@@ -62,19 +60,17 @@ func TestBoostPriority_Overflow(t *testing.T) {
 func TestBoostPriority_NegativeBoost(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(5, -3)
-	require.EqualValues(t, 10, got)
+	require.Equal(t, 10, got)
 
 	// boosted = 5 + (-3) = 2, which is < current (5), so the overflow guard
 	// activates and returns 10.
-
 }
 
 // TestBoostPriority_ZeroCurrent verifies boosting from zero priority.
 func TestBoostPriority_ZeroCurrent(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(0, 3)
-	require.EqualValues(t, 3, got)
-
+	require.Equal(t, 3, got)
 }
 
 func FuzzBoostPriority(f *testing.F) {
@@ -127,7 +123,6 @@ func FuzzBoostPriority(f *testing.F) {
 			assert.Equal(t,
 				expected,
 				result)
-
 		}
 	})
 }
@@ -155,7 +150,6 @@ func FuzzBoostPriorityOverflow(f *testing.F) {
 		// Must never overflow to negative.
 
 		// Must never exceed 10.
-
 	})
 }
 
@@ -174,7 +168,6 @@ func TestProperty_Priority_HigherFirst(t *testing.T) {
 		)
 		require.LessOrEqual(t, result,
 			10)
-
 	}
 }
 
@@ -228,7 +221,6 @@ func FuzzHandleFailureRetryPriority(f *testing.F) {
 					}
 					assert.LessOrEqual(t, pInt,
 						10)
-
 				}
 			}
 		}
@@ -237,6 +229,5 @@ func FuzzHandleFailureRetryPriority(f *testing.F) {
 			run.Priority)
 
 		// Original run must not be mutated.
-
 	})
 }

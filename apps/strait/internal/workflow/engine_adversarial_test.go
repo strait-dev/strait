@@ -149,10 +149,8 @@ func TestWorkflowNesting_OverMaxDepth(t *testing.T) {
 		context.Background(), stepRun, step, runs[leafID], nil, time.Now(),
 	)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(), "nesting depth",
-	))
-
+	require.Contains(t, err.
+		Error(), "nesting depth")
 }
 
 // TestWorkflowNesting_ZeroDepth verifies that WithMaxNestingDepth(0) is ignored
@@ -167,7 +165,6 @@ func TestWorkflowNesting_ZeroDepth(t *testing.T) {
 		engine.
 			maxNestingDepth,
 	)
-
 }
 
 // TestWorkflowNesting_NegativeDepth verifies that WithMaxNestingDepth(-1) is
@@ -182,7 +179,6 @@ func TestWorkflowNesting_NegativeDepth(t *testing.T) {
 		engine.
 			maxNestingDepth,
 	)
-
 }
 
 // TestWorkflowTrigger_HugePayload verifies that TriggerWorkflow accepts a
@@ -209,11 +205,10 @@ func TestWorkflowTrigger_HugePayload(t *testing.T) {
 	run, trigErr := engine.TriggerWorkflow(
 		context.Background(), "wf-1", "proj-1", payload, "manual", nil, nil,
 	)
-	require.Nil(t, trigErr)
+	require.NoError(t, trigErr)
 	require.NotNil(t,
 		run)
 	require.GreaterOrEqual(t, len(capturedPayload), 1<<20)
-
 }
 
 // TestWorkflowTrigger_NullPayload verifies that TriggerWorkflow handles a nil
@@ -231,7 +226,6 @@ func TestWorkflowTrigger_NullPayload(t *testing.T) {
 		err)
 	require.NotNil(t,
 		run)
-
 }
 
 // TestWorkflowTrigger_EmptyStepOverrides verifies that passing an empty
@@ -259,9 +253,8 @@ func TestWorkflowTrigger_EmptyStepOverrides(t *testing.T) {
 		err)
 	require.NotNil(t,
 		run)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		enqueued)
-
 }
 
 // TestWorkflowTrigger_InvalidStepOverride verifies that referencing a
@@ -281,11 +274,9 @@ func TestWorkflowTrigger_InvalidStepOverride(t *testing.T) {
 		nil,
 	)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
+	require.Contains(t, err.
 		Error(), "unknown step_ref",
-	),
 	)
-
 }
 
 // TestStepExecution_UnknownStepType verifies that startStep for an unrecognized
@@ -323,7 +314,6 @@ func TestStepExecution_UnknownStepType(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, enqueued)
-
 }
 
 // TestStepExecution_CostGateZeroThreshold verifies that a cost gate with
@@ -362,7 +352,6 @@ func TestStepExecution_CostGateZeroThreshold(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, enqueued)
-
 }
 
 // TestStepExecution_CostGateNegativeThreshold verifies that a negative cost
@@ -401,7 +390,6 @@ func TestStepExecution_CostGateNegativeThreshold(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, enqueued)
-
 }
 
 // TestSnapshotEnforcement_StaleVersion verifies that GetOrCreateWorkflowSnapshot
@@ -438,7 +426,6 @@ func TestSnapshotEnforcement_StaleVersion(t *testing.T) {
 	require.Equal(t, "snap-v1",
 		run.WorkflowSnapshotID,
 	)
-
 }
 
 // TestSnapshotEnforcement_ConcurrentUpdate verifies that if
@@ -463,10 +450,8 @@ func TestSnapshotEnforcement_ConcurrentUpdate(t *testing.T) {
 		json.RawMessage(`{}`), "manual", nil, nil,
 	)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(), "create workflow snapshot",
-	))
-
+	require.Contains(t, err.
+		Error(), "create workflow snapshot")
 }
 
 // FuzzWorkflowPayload verifies that TriggerWorkflow does not panic on

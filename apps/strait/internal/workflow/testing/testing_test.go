@@ -86,7 +86,7 @@ func TestParseTestSuite_InvalidMockConfig(t *testing.T) {
 
 	suite, err := ParseTestSuiteJSON(data)
 	require.NoError(t, err)
-	assert.EqualValues(t, 200, suite.Tests[0].Mocks["service"].StatusCode)
+	assert.Equal(t, 200, suite.Tests[0].Mocks["service"].StatusCode)
 }
 
 // FilterTests.

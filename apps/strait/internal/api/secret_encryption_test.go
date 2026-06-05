@@ -40,9 +40,8 @@ func TestHandleCreateSecret_DelegatesValueEncryptionToStore(t *testing.T) {
 		storedSecret.
 			EncryptedValue,
 	)
-	require.EqualValues(t, 0, apiEncryptor.
+	require.Equal(t, 0, apiEncryptor.
 		calls)
-
 }
 
 func TestHandleCreateSecret_WithoutEncryptor_StoresRaw(t *testing.T) {
@@ -74,7 +73,6 @@ func TestHandleCreateSecret_WithoutEncryptor_StoresRaw(t *testing.T) {
 	)
 
 	// Without encryptor, value is stored as-is (backward compatible fallback).
-
 }
 
 func TestHandleCreateSecret_PassesPlaintextValuesToStore(t *testing.T) {
@@ -113,9 +111,8 @@ func TestHandleCreateSecret_PassesPlaintextValuesToStore(t *testing.T) {
 			require.Equal(t, pt, storedSecret.
 				EncryptedValue,
 			)
-			require.EqualValues(t, 0, apiEncryptor.
+			require.Equal(t, 0, apiEncryptor.
 				calls)
-
 		})
 	}
 }

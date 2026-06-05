@@ -75,12 +75,9 @@ func TestHandleGetWorkflowRunTimeline_Success(t *testing.T) {
 		resp.Steps, 2)
 	require.Equal(t, "step-a", resp.
 		Steps[0].StepRef)
-	require.False(t, resp.Steps[0].
-		DurationMs <=
-		0)
-	require.False(t, resp.TotalMs <=
-		0)
-
+	require.Positive(t, resp.Steps[0].
+		DurationMs)
+	require.Positive(t, resp.TotalMs)
 }
 
 func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
@@ -143,7 +140,6 @@ func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
 	)
 
 	// Both steps should be parallel with each other.
-
 }
 
 func TestHandleGetWorkflowRunTimeline_NotFound(t *testing.T) {
@@ -160,7 +156,6 @@ func TestHandleGetWorkflowRunTimeline_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleGetWorkflowRunTimeline_EmptySteps(t *testing.T) {
@@ -191,9 +186,8 @@ func TestHandleGetWorkflowRunTimeline_EmptySteps(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.Len(t,
-		resp.Steps, 0)
-
+	require.Empty(t,
+		resp.Steps)
 }
 
 func TestBuildWorkflowRunTimeline_WaitUsesMostRecentFinishedStepBeforeStart(t *testing.T) {
@@ -219,7 +213,6 @@ func TestBuildWorkflowRunTimeline_WaitUsesMostRecentFinishedStepBeforeStart(t *t
 		time.Millisecond,
 	), step.WaitMs,
 	)
-
 }
 
 func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
@@ -246,7 +239,6 @@ func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
 		t, timelineStepByRef(t,
 			resp.Steps,
 			"c").OnCriticalPath)
-
 }
 
 func TestBuildWorkflowTimelineRelationships_NoBoundaryOverlap(t *testing.T) {
@@ -261,11 +253,10 @@ func TestBuildWorkflowTimelineRelationships_NoBoundaryOverlap(t *testing.T) {
 	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
 
 	for _, ref := range []string{"a", "b", "c"} {
-		require.Len(t,
-			parallelMap[ref], 0)
+		require.Empty(t,
+			parallelMap[ref])
 		require.True(
 			t, criticalRefs[ref])
-
 	}
 }
 
@@ -289,13 +280,12 @@ func TestBuildWorkflowTimelineRelationships_NestedOverlapOrdering(t *testing.T) 
 		t, slices.Equal(parallelMap["inner-a"], []string{"outer"}))
 	require.True(
 		t, slices.Equal(parallelMap["inner-b"], []string{"outer"}))
-	require.Len(t,
-		parallelMap["tail"], 0,
+	require.Empty(t,
+		parallelMap["tail"],
 	)
 	require.False(t, !criticalRefs["outer"] || criticalRefs["inner-a"] ||
 		criticalRefs["inner-b"] ||
 		!criticalRefs["tail"])
-
 }
 
 func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) {
@@ -315,7 +305,6 @@ func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) 
 				"join"}))
 	require.EqualValues(t, 6_000, estimateMS)
 	require.EqualValues(t, 6_000, remainingMS)
-
 }
 
 func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
@@ -333,7 +322,6 @@ func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
 				"b"}))
 	require.EqualValues(t, 5_000, estimateMS)
 	require.EqualValues(t, 5_000, remainingMS)
-
 }
 
 func TestEstimateStepTiming_RunningPastTimeoutClampsRemaining(t *testing.T) {
@@ -348,7 +336,6 @@ func TestEstimateStepTiming_RunningPastTimeoutClampsRemaining(t *testing.T) {
 	)
 	require.EqualValues(t, 2_000, estimateMS)
 	require.EqualValues(t, 0, remainingMS)
-
 }
 
 func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) domain.TimelineStep {

@@ -81,6 +81,5 @@ func FuzzSecretScanner_KnownPrefixesAreDetected(f *testing.F) {
 		payload := prefix + cs
 		hits := scanForSecrets(payload)
 		assert.NotEmpty(t, hits)
-
 	})
 }

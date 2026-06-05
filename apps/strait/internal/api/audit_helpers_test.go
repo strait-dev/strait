@@ -19,20 +19,17 @@ func TestTagKeysSortedAndValueFree(t *testing.T) {
 	require.True(
 		t, reflect.
 			DeepEqual(got, want))
-
 }
 
 func TestTagKeysEmpty(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, tagKeys(nil))
-
 }
 
 func TestHashIdempotencyKey(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, "", hashIdempotencyKey(""))
+	require.Empty(t, hashIdempotencyKey(""))
 	require.Equal(t, "f6fdb32bfd0ba473",
 
 		hashIdempotencyKey("idem-123"))
-
 }

@@ -38,10 +38,9 @@ func TestDLQAgeOut_Defaults(t *testing.T) {
 		24*time.
 		Hour,
 		a.retention)
-	assert.EqualValues(t, 1000,
+	assert.Equal(t, 1000,
 		a.batchLimit,
 	)
-
 }
 
 func TestDLQAgeOut_RunOnceMasksRows(t *testing.T) {
@@ -51,11 +50,10 @@ func TestDLQAgeOut_RunOnceMasksRows(t *testing.T) {
 		a.runOnce(
 			context.
 				Background()))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		s.calls)
 	assert.EqualValues(t, 7,
 		a.TotalMasked())
-
 }
 
 func TestDLQAgeOut_AccumulatesAcrossCycles(t *testing.T) {
@@ -65,7 +63,6 @@ func TestDLQAgeOut_AccumulatesAcrossCycles(t *testing.T) {
 	_ = a.runOnce(context.Background())
 	assert.EqualValues(t, 6,
 		a.TotalMasked())
-
 }
 
 func TestDLQAgeOut_StoreErrorPropagates(t *testing.T) {
@@ -73,7 +70,6 @@ func TestDLQAgeOut_StoreErrorPropagates(t *testing.T) {
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{})
 	assert.Error(t, a.runOnce(context.
 		Background()))
-
 }
 
 func TestDLQAgeOut_PanicReturnsError(t *testing.T) {
@@ -84,7 +80,6 @@ func TestDLQAgeOut_PanicReturnsError(t *testing.T) {
 			Background()))
 	require.EqualValues(t, 1,
 		a.Iterations())
-
 }
 
 func TestDLQAgeOut_LockNotAcquired(t *testing.T) {
@@ -92,9 +87,8 @@ func TestDLQAgeOut_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	a := NewDLQAgeOut(s, DLQAgeOutConfig{}).WithAdvisoryLocker(locker)
 	_ = a.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		s.calls)
-
 }
 
 func TestDLQAgeOut_LockAcquiredAndReleased(t *testing.T) {
@@ -106,7 +100,6 @@ func TestDLQAgeOut_LockAcquiredAndReleased(t *testing.T) {
 		acquired ||
 		!locker.released,
 	)
-
 }
 
 // scanningDLQStore implements DLQAgeOutStore and DLQPartitionScanner to
@@ -186,7 +179,7 @@ func TestDLQAgeOut_ParallelPartitionScan(t *testing.T) {
 	assert.Len(t, s.scannedPartitions,
 
 		len(parts))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		s.maskCalls,
 	)
 	assert.False(t, !s.
@@ -198,7 +191,6 @@ func TestDLQAgeOut_ParallelPartitionScan(t *testing.T) {
 		a.TotalMasked())
 
 	// Scans should finish before the serial mask.
-
 }
 
 func TestDLQAgeOut_RunExitsOnCancel(t *testing.T) {

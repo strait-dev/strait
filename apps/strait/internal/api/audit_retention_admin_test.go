@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -48,7 +47,7 @@ func TestGetAuditRetention_DefaultWhenUnset(t *testing.T) {
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
 	require.NoError(t, err)
-	assert.EqualValues(t, 365, out.Body.
+	assert.Equal(t, 365, out.Body.
 		Days)
 	assert.True(t,
 		out.Body.InheritedFromDefault,
@@ -57,7 +56,6 @@ func TestGetAuditRetention_DefaultWhenUnset(t *testing.T) {
 		t, "proj-a", out.
 			Body.ProjectID,
 	)
-
 }
 
 func TestGetAuditRetention_ProjectOverride(t *testing.T) {
@@ -71,11 +69,10 @@ func TestGetAuditRetention_ProjectOverride(t *testing.T) {
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
 	require.NoError(t, err)
-	assert.EqualValues(t, 30, out.Body.Days)
+	assert.Equal(t, 30, out.Body.Days)
 	assert.False(
 		t, out.Body.InheritedFromDefault,
 	)
-
 }
 
 func TestGetAuditRetention_RequiresAdmin(t *testing.T) {
@@ -84,9 +81,8 @@ func TestGetAuditRetention_RequiresAdmin(t *testing.T) {
 
 	_, err := srv.handleGetAuditRetention(nonAdminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "admin"))
-
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestGetAuditRetention_RejectsCrossTenant(t *testing.T) {
@@ -95,9 +91,8 @@ func TestGetAuditRetention_RejectsCrossTenant(t *testing.T) {
 
 	_, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-b"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestPutAuditRetention_PersistsAndEmitsAudit(t *testing.T) {
@@ -162,12 +157,11 @@ func TestPutAuditRetention_PersistsAndEmitsAudit(t *testing.T) {
 	assert.Equal(
 		t, "proj-a", storedProject,
 	)
-	assert.EqualValues(t, 30, storedDays)
+	assert.Equal(t, 30, storedDays)
 	require.True(
 		t, selfAuditHit)
-	assert.EqualValues(t, 90, seenOldDays)
-	assert.EqualValues(t, 30, seenNewDays)
-
+	assert.InDelta(t, 90, seenOldDays, 1e-9)
+	assert.InDelta(t, 30, seenNewDays, 1e-9)
 }
 
 func TestPutAuditRetention_RejectsNegative(t *testing.T) {
@@ -186,9 +180,8 @@ func TestPutAuditRetention_RejectsNegative(t *testing.T) {
 	in.Body.Days = -1
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), ">= 0"))
-
+	assert.Contains(t,
+		err.Error(), ">= 0")
 }
 
 func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
@@ -207,9 +200,8 @@ func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
 	in.Body.Days = domain.MaxAuditRetentionDays + 1
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "maximum"))
-
+	assert.Contains(t,
+		err.Error(), "maximum")
 }
 
 func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
@@ -246,7 +238,6 @@ func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, 500))
 	require.EqualValues(t, 1, setCalls.Load())
-
 }
 
 func TestPutAuditRetention_ZeroDisablesTrim(t *testing.T) {
@@ -290,11 +281,10 @@ func TestPutAuditRetention_ZeroDisablesTrim(t *testing.T) {
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
 	require.NoError(t, err)
-	assert.EqualValues(t, 0, out.Body.Days)
+	assert.Equal(t, 0, out.Body.Days)
 	assert.False(
 		t, out.Body.InheritedFromDefault,
 	)
-
 }
 
 func TestPutAuditRetention_RequiresAdmin(t *testing.T) {
@@ -305,9 +295,8 @@ func TestPutAuditRetention_RequiresAdmin(t *testing.T) {
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(nonAdminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "admin"))
-
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestPutAuditRetention_RejectsCrossTenant(t *testing.T) {
@@ -318,7 +307,6 @@ func TestPutAuditRetention_RejectsCrossTenant(t *testing.T) {
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }

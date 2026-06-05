@@ -36,7 +36,6 @@ func TestAdversarial_WorkerIDHijackSameProject(t *testing.T) {
 	assert.False(t, len(snap) !=
 		1 || snap[0].APIKeyID !=
 		"key-legit")
-
 }
 
 func TestAdversarial_WorkerIDNamespaceAllowsSameIDAcrossProjects(t *testing.T) {
@@ -62,7 +61,6 @@ func TestAdversarial_WorkerIDNamespaceAllowsSameIDAcrossProjects(t *testing.T) {
 			projectID ||
 
 			picked.WorkerID != "shared-worker")
-
 	}
 }
 
@@ -87,7 +85,6 @@ func TestAdversarial_WorkerIDNamespaceProjectScopedSlotRelease(t *testing.T) {
 	}
 	require.EqualValues(t, 1, available["proj-a"])
 	require.EqualValues(t, 2, available["proj-b"])
-
 }
 
 // TestAdversarial_SlotExhaustion verifies that dispatch beyond SlotsTotal causes
@@ -116,7 +113,6 @@ func TestAdversarial_SlotExhaustion(t *testing.T) {
 	// No worker should be pickable.
 	_, ok := r.PickWorkerForQueue("proj-a", "q")
 	assert.False(t, ok)
-
 }
 
 // TestAdversarial_RegistrationMaxWorkerIDLen verifies that worker IDs longer than
@@ -124,39 +120,34 @@ func TestAdversarial_SlotExhaustion(t *testing.T) {
 func TestAdversarial_RegistrationMaxWorkerIDLen(t *testing.T) {
 	// maxWorkerIDLen is defined as 128 in stream.go.
 	longID := strings.Repeat("x", maxWorkerIDLen+1)
-	require.False(t, len(
-		longID) <=
-		maxWorkerIDLen,
+	require.Greater(t, len(
+		longID), maxWorkerIDLen,
 	)
-	assert.EqualValues(t, 128,
+	assert.Equal(t, 128,
 		maxWorkerIDLen,
 	)
 
 	// The registry itself does not enforce length — that's stream.go's job.
 	// Verify the constant is set correctly and that the validation is enforceable.
-
 }
 
 // TestAdversarial_MaxQueuesPerWorker verifies the constant is enforced.
 func TestAdversarial_MaxQueuesPerWorker(t *testing.T) {
-	assert.EqualValues(t, 64, maxQueuesPerWorker)
-
+	assert.Equal(t, 64, maxQueuesPerWorker)
 }
 
 // TestAdversarial_MaxInFlightTasks verifies the constant is enforced.
 func TestAdversarial_MaxInFlightTasks(t *testing.T) {
-	assert.EqualValues(t, 256,
+	assert.Equal(t, 256,
 		maxInFlightTasks,
 	)
-
 }
 
 // TestAdversarial_MaxLogMessageBytes verifies log clamping constant.
 func TestAdversarial_MaxLogMessageBytes(t *testing.T) {
-	assert.EqualValues(t, 4096,
+	assert.Equal(t, 4096,
 		maxLogMessageBytes,
 	)
-
 }
 
 // TestAdversarial_SlotInflation verifies that IncrementSlots cannot inflate beyond SlotsTotal,
@@ -177,7 +168,6 @@ func TestAdversarial_SlotInflation(t *testing.T) {
 		snap[0].
 			SlotsAvailable,
 		snap[0].SlotsTotal)
-
 }
 
 // TestAdversarial_SendChannelDeadlock verifies that a full (blocked) SendCh does not
@@ -261,7 +251,6 @@ func TestAdversarial_ReconnectStorm_ByAPIKeyConsistency(t *testing.T) {
 	assert.LessOrEqual(t,
 		workers,
 		1)
-
 }
 
 // TestAdversarial_SnapshotDuringDrain verifies that SnapshotQueues handles a worker
@@ -275,7 +264,6 @@ func TestAdversarial_SnapshotDuringDrain(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("w%d", i), "proj-a", fmt.Sprintf("key-%d", i), []string{"q"}, 4)
 		require.NoError(t, r.
 			Register(w))
-
 	}
 
 	var wg sync.WaitGroup
@@ -308,12 +296,10 @@ func TestAdversarial_CrossProject_PickWorker(t *testing.T) {
 		w := makeWorker(fmt.Sprintf("proj-a-w%d", i), "proj-a", fmt.Sprintf("ka%d", i), []string{"shared-q"}, 4)
 		require.NoError(t, r.
 			Register(w))
-
 	}
 
 	_, ok := r.PickWorkerForQueue("proj-b", "shared-q")
 	assert.False(t, ok)
-
 }
 
 // TestAdversarial_CloseByAPIKey_MultipleWorkers verifies that all streams for a given
@@ -327,7 +313,6 @@ func TestAdversarial_CloseByAPIKey_MultipleWorkers(t *testing.T) {
 		workers[i] = w
 		require.NoError(t, r.
 			Register(w))
-
 	}
 
 	r.CloseByAPIKey("shared-key")

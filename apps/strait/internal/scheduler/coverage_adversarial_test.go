@@ -68,7 +68,6 @@ func TestGraceEnforcer_WithAdvisoryLocker_Acquired(t *testing.T) {
 	g.enforce(context.Background())
 	assert.Equal(t, "restricted",
 		s.updatedStatuses["org-1"])
-
 }
 
 func TestGraceEnforcer_WithAdvisoryLocker_NotAcquired(t *testing.T) {
@@ -87,9 +86,7 @@ func TestGraceEnforcer_WithAdvisoryLocker_NotAcquired(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
-	assert.Len(t, s.updatedStatuses,
-		0)
-
+	assert.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_WithAdvisoryLocker_Error(t *testing.T) {
@@ -108,9 +105,7 @@ func TestGraceEnforcer_WithAdvisoryLocker_Error(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute).WithAdvisoryLocker(locker)
 	g.enforce(context.Background())
-	assert.Len(t, s.updatedStatuses,
-		0)
-
+	assert.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_ListError(t *testing.T) {
@@ -135,9 +130,7 @@ func TestGraceEnforcer_GetOrgSubscriptionError(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
-	assert.Len(t, s.updatedStatuses,
-		0)
-
+	assert.Empty(t, s.updatedStatuses)
 }
 
 // covMockGraceStoreWithGetError returns an error from GetOrgSubscription.
@@ -225,9 +218,7 @@ func TestGraceEnforcer_ConcurrentlyResolved(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
-	assert.Len(t, s.updatedStatuses,
-		0)
-
+	assert.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
@@ -244,9 +235,7 @@ func TestGraceEnforcer_UpdatePlanError(t *testing.T) {
 	}
 	g := NewGracePeriodEnforcer(s, nil, time.Minute)
 	g.enforce(context.Background())
-	assert.Len(t, s.updatedStatuses,
-		0)
-
+	assert.Empty(t, s.updatedStatuses)
 }
 
 func TestGraceEnforcer_WithEnforcer(t *testing.T) {
@@ -265,7 +254,6 @@ func TestGraceEnforcer_WithEnforcer(t *testing.T) {
 		s.updatedStatuses["org-enforcer"])
 	assert.Equal(t, "free",
 		s.updatedPlans["org-enforcer"])
-
 }
 
 // Usage flusher: Run loop, advisory locker paths, upsert errors
@@ -311,7 +299,6 @@ func TestUsageFlusher_AdvisoryLocker_NotAcquired(t *testing.T) {
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
 	require.False(t, flushed)
-
 }
 
 func TestUsageFlusher_AdvisoryLocker_Error(t *testing.T) {
@@ -332,7 +319,6 @@ func TestUsageFlusher_AdvisoryLocker_Error(t *testing.T) {
 	uf := NewUsageFlusher(s, time.Minute).WithAdvisoryLocker(locker)
 	uf.flush(context.Background())
 	require.False(t, flushed)
-
 }
 
 func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
@@ -367,7 +353,6 @@ func TestUsageFlusher_AdvisoryLocker_Acquired(t *testing.T) {
 
 		upsertCount.
 			Load())
-
 }
 
 func TestUsageFlusher_ListOrgsError(t *testing.T) {
@@ -418,7 +403,6 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.True(t, upsertedProjects["proj-ok"])
-
 }
 
 // Downgrade applier: Run loop, SuspendExcessProjects path
@@ -469,7 +453,6 @@ func TestDowngradeApplier_SuspendExcessProjects(t *testing.T) {
 	d := NewDowngradeApplier(store, nil, time.Minute)
 	d.apply(context.Background())
 	assert.True(t, suspended)
-
 }
 
 func TestDowngradeApplier_SuspendExcessProjects_Error(t *testing.T) {
@@ -617,7 +600,6 @@ func TestBudgetMonitor_WithRunLimitNotifications(t *testing.T) {
 		runLimitStore)
 	require.NotNil(t, bm.
 		enforcer)
-
 }
 
 func TestBudgetMonitor_CheckRunLimitWarnings_ListOrgsError(t *testing.T) {
@@ -656,12 +638,10 @@ func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 	bm.check(context.Background())
-	require.Len(t, deliveries,
-		0)
+	require.Empty(t, deliveries)
 
 	// The enforcer will return false for Check80PercentMonthlyWarning with the mock store,
 	// so no notifications should be sent.
-
 }
 
 func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
@@ -766,7 +746,6 @@ func TestCronScheduler_ConcurrentTriggerSameJob(t *testing.T) {
 	wg.Wait()
 	require.EqualValues(t, 1,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T) {
@@ -787,7 +766,6 @@ func TestCronScheduler_DurableFireKeySkipsWorkflowAfterLockRelease(t *testing.T)
 	require.EqualValues(t, 1,
 		triggered.Load(),
 	)
-
 }
 
 func TestCronScheduler_TriggerJob_NoTTL_NilExpiresAt(t *testing.T) {
@@ -812,7 +790,6 @@ func TestCronScheduler_TriggerJob_NoTTL_NilExpiresAt(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.NotNil(t, capturedRun)
 	assert.Nil(t, capturedRun.ExpiresAt)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_WithTimezone(t *testing.T) {
@@ -836,7 +813,6 @@ func TestCronScheduler_TriggerWorkflow_WithTimezone(t *testing.T) {
 	err := cs.LoadJobs(context.Background())
 	require.NoError(t,
 		err)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_SkipIfRunning_ActiveRuns(t *testing.T) {
@@ -866,7 +842,6 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning_ActiveRuns(t *testing.T) {
 	require.EqualValues(t, 0,
 		triggered.Load(),
 	)
-
 }
 
 func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
@@ -880,7 +855,6 @@ func TestCronScheduler_LoadJobs_ListJobsError(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-
 }
 
 // Batch flusher: GetJob error, enqueue error during flush, advisory lock races
@@ -904,7 +878,6 @@ func TestBatchFlusher_GetJobReturnsError(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 // covMockBatchStoreWithJobError is a batch store that returns an error from GetJob.
@@ -975,7 +948,6 @@ func TestBatchFlusher_EnqueueError_Continues(t *testing.T) {
 		successCount.Load())
 
 	// First batch should fail, second should succeed.
-
 }
 
 func TestBatchFlusher_LargeBatch(t *testing.T) {
@@ -1023,7 +995,6 @@ func TestBatchFlusher_LargeBatch(t *testing.T) {
 	require.Len(t, payloadItems,
 		batchSize,
 	)
-
 }
 
 // Debounce poller: TTL edge cases
@@ -1072,7 +1043,6 @@ func TestDebouncePoller_CustomTTL(t *testing.T) {
 					Second)
 
 	// TTLSecs=120, so ExpiresAt should be roughly 2 minutes from now.
-
 }
 
 func TestDebouncePoller_JobTTL_Fallback(t *testing.T) {
@@ -1118,7 +1088,6 @@ func TestDebouncePoller_JobTTL_Fallback(t *testing.T) {
 	)
 
 	// RunTTLSecs=600, so ExpiresAt should be roughly 10 minutes from now.
-
 }
 
 func TestDebouncePoller_TimeoutFallback(t *testing.T) {
@@ -1164,7 +1133,6 @@ func TestDebouncePoller_TimeoutFallback(t *testing.T) {
 	)
 
 	// TimeoutSecs=120 + 60 = 180s = 3 minutes.
-
 }
 
 func TestDebouncePoller_WithTags(t *testing.T) {
@@ -1201,7 +1169,6 @@ func TestDebouncePoller_WithTags(t *testing.T) {
 		capturedRun.
 			Tags["region"] !=
 			"us")
-
 }
 
 func TestDebouncePoller_Run_StopsOnCancel(t *testing.T) {
@@ -1247,7 +1214,6 @@ func TestStaleSubscriptionChecker_Check_LockerError(t *testing.T) {
 	c := NewStaleSubscriptionChecker(s, time.Minute).WithAdvisoryLocker(locker)
 	c.check(context.Background())
 	require.False(t, checked)
-
 }
 
 // SLO error budget: adversarial float inputs
@@ -1285,7 +1251,6 @@ func TestCalculateErrorBudget_ExtremeValues(t *testing.T) {
 
 					tt.metric,
 				)
-
 			}
 		})
 	}
@@ -1384,7 +1349,6 @@ func TestBudgetMonitor_SpendingLimit_NilPeriodStart_FallbackToNow(t *testing.T) 
 		deliveries)
 
 	// With nil period start, it should use time.Now() as fallback and still alert.
-
 }
 
 func TestBudgetMonitor_SpendingLimit_SubError(t *testing.T) {
@@ -1500,9 +1464,8 @@ func TestSafeGo_RecoversPanic(t *testing.T) {
 	})
 	wg.Wait()
 	require.True(t, exitCalled)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		exitCode)
-
 }
 
 // Memory cleanup: Run loop
@@ -1607,5 +1570,4 @@ func TestBudgetMonitor_SpendingLimit_100Then80_DedupCheck(t *testing.T) {
 	require.Len(t, deliveries,
 		firstCount,
 	)
-
 }

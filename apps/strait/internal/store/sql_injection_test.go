@@ -22,13 +22,12 @@ func assertLogDrainFieldError(t *testing.T, patch map[string]any, wantField stri
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
+	require.ErrorAs(t,
+		err, &fe)
 	require.Equal(
 		t, wantField,
 		fe.Field,
 	)
-
 }
 
 func assertEventSourceFieldError(t *testing.T, patch map[string]any, wantField string) {
@@ -39,13 +38,12 @@ func assertEventSourceFieldError(t *testing.T, patch map[string]any, wantField s
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
+	require.ErrorAs(t,
+		err, &fe)
 	require.Equal(
 		t, wantField,
 		fe.Field,
 	)
-
 }
 
 // UpdateLogDrain: SQL injection vectors
@@ -89,10 +87,9 @@ func TestUpdateLogDrain_AcceptsAllValidColumns(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				require.False(
-					t, errors.As(err, &fe),
+				require.NotErrorAs(
+					t, err, &fe,
 				)
-
 			}()
 		})
 	}
@@ -126,7 +123,6 @@ func TestUpdateLogDrain_MixedValidInvalid(t *testing.T) {
 		fe.
 			Field,
 	)
-
 }
 
 // UpdateEventSource: SQL injection vectors
@@ -165,10 +161,9 @@ func TestUpdateEventSource_AcceptsAllValidColumns(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				require.False(
-					t, errors.As(err, &fe),
+				require.NotErrorAs(
+					t, err, &fe,
 				)
-
 			}()
 		})
 	}
@@ -191,14 +186,13 @@ func TestUpdateRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
+	require.ErrorAs(t,
+		err, &fe)
 	require.Equal(
 		t, "admin_column",
 		fe.
 			Field,
 	)
-
 }
 
 func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
@@ -225,10 +219,9 @@ func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				require.False(
-					t, errors.As(err, &fe),
+				require.NotErrorAs(
+					t, err, &fe,
 				)
-
 			}()
 		})
 	}
@@ -244,9 +237,8 @@ func TestUpdateStepRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
-
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 func TestUpdateWorkflowRunStatus_AllowlistRejectsUnknown(t *testing.T) {
@@ -259,9 +251,8 @@ func TestUpdateWorkflowRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
-
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 // Fuzz: column name strings for UpdateLogDrain
@@ -299,7 +290,6 @@ func FuzzUpdateLogDrainColumnName(f *testing.F) {
 			assert.False(t,
 				!panicked &&
 					errors.As(resultErr, &fe))
-
 		} else {
 			// Disallowed columns: must return a FieldError (never reach SQL).
 			var fe *domain.FieldError
@@ -308,10 +298,9 @@ func FuzzUpdateLogDrainColumnName(f *testing.F) {
 
 					"disallowed column %q caused a panic instead of FieldError", colName)
 			} else if !errors.As(resultErr, &fe) {
-				assert.NotNil(
+				assert.Error(
 					t, resultErr,
 				)
-
 			}
 		}
 	})
@@ -350,7 +339,6 @@ func FuzzUpdateEventSourceColumnName(f *testing.F) {
 			assert.False(t,
 				!panicked &&
 					errors.As(resultErr, &fe))
-
 		} else {
 			var fe *domain.FieldError
 			if panicked {
@@ -358,10 +346,9 @@ func FuzzUpdateEventSourceColumnName(f *testing.F) {
 
 					"disallowed column %q caused a panic instead of FieldError", colName)
 			} else if !errors.As(resultErr, &fe) {
-				assert.NotNil(
+				assert.Error(
 					t, resultErr,
 				)
-
 			}
 		}
 	})
@@ -381,9 +368,8 @@ func TestDynamicUpdate_ManyKeys(t *testing.T) {
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err, &fe))
-
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 func TestDynamicUpdate_NullByteInColumn(t *testing.T) {

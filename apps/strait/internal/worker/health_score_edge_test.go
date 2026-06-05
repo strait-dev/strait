@@ -59,11 +59,8 @@ func TestHealthScorer_RecordResult_GetError(t *testing.T) {
 	})
 	require.Error(t,
 		err)
-	assert.True(t, errors.Is(err,
-		store.
-			getErr,
-	))
-
+	assert.ErrorIs(t, err, store.
+		getErr)
 }
 
 func TestHealthScorer_RecordResult_UpsertError(t *testing.T) {
@@ -77,7 +74,6 @@ func TestHealthScorer_RecordResult_UpsertError(t *testing.T) {
 	})
 	require.Error(t,
 		err)
-
 }
 
 func TestHealthScorer_CheckHealth_StoreError(t *testing.T) {
@@ -88,7 +84,6 @@ func TestHealthScorer_CheckHealth_StoreError(t *testing.T) {
 	_, _, err := hs.CheckHealth(context.Background(), "https://err.com/api")
 	require.Error(t,
 		err)
-
 }
 
 // Boundary score value tests.
@@ -125,7 +120,6 @@ func TestHealthScorer_ExactBoundaryScores(t *testing.T) {
 				tt.wantAllowed,
 				allowed,
 			)
-
 		})
 	}
 }
@@ -153,12 +147,10 @@ func TestHealthScorer_MultipleEndpoints_Isolated(t *testing.T) {
 	assert.False(t,
 		allowedA)
 	assert.True(t, allowedB)
-	assert.False(t,
-		scoreA.HealthScore >=
-			scoreB.
-				HealthScore,
+	assert.Less(t,
+		scoreA.HealthScore, scoreB.
+			HealthScore,
 	)
-
 }
 
 // EWMA convergence mathematical verification.
@@ -175,7 +167,6 @@ func TestEWMA_ConvergenceAfterManyIterations(t *testing.T) {
 		Abs(current-
 			value), 0.001,
 	)
-
 }
 
 func TestEWMA_Symmetry(t *testing.T) {
@@ -189,7 +180,6 @@ func TestEWMA_Symmetry(t *testing.T) {
 			expected,
 		), 1e-15,
 	)
-
 }
 
 // ThrottledConcurrency exhaustive boundary tests.
@@ -198,16 +188,14 @@ func TestThrottledConcurrency_NegativeMaxConcurrency(t *testing.T) {
 	t.Parallel()
 	// Negative max concurrency should pass through unchanged.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 50}, -5)
-	assert.EqualValues(t, -5, got)
-
+	assert.Equal(t, -5, got)
 }
 
 func TestThrottledConcurrency_MaxConcurrencyOne(t *testing.T) {
 	t.Parallel()
 	// With max=1 and degraded score, should still return at least 1.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 35}, 1)
-	assert.EqualValues(t, 1, got)
-
+	assert.Equal(t, 1, got)
 }
 
 func TestThrottledConcurrency_LargeMaxConcurrency(t *testing.T) {
@@ -218,11 +206,10 @@ func TestThrottledConcurrency_LargeMaxConcurrency(t *testing.T) {
 		got <= 0 ||
 			got >
 				1000)
-	assert.EqualValues(t, 625, got)
+	assert.Equal(t, 625, got)
 
 	// At 45, ratio = (45-30)/(60-30) = 0.5, factor = 0.25 + 0.5*0.75 = 0.625
 	// throttled = ceil(1000 * 0.625) = 625
-
 }
 
 func TestThrottledConcurrency_ScoreExactlyAtDegradedBoundary(t *testing.T) {
@@ -230,11 +217,10 @@ func TestThrottledConcurrency_ScoreExactlyAtDegradedBoundary(t *testing.T) {
 	// Score = 60.0 is the boundary between degraded and healthy.
 	// healthScoreDegraded = 60.0, so score > 60 is healthy. score = 60 is degraded.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 60.0}, 10)
-	assert.EqualValues(t, 10, got)
+	assert.Equal(t, 10, got)
 
 	// ratio = (60-30)/(60-30) = 1.0, factor = 0.25 + 1.0*0.75 = 1.0
 	// throttled = ceil(10 * 1.0) = 10
-
 }
 
 // Score monotonicity tests.
@@ -312,7 +298,6 @@ func TestHealthScorer_LatencyExceedsTimeout(t *testing.T) {
 
 	// latency_score = 1 - min(1, 10000/5000) = 1 - 1 = 0
 	// EWMA from 1.0: 0.1*0 + 0.9*1.0 = 0.9
-
 }
 
 func TestHealthScorer_ZeroLatency(t *testing.T) {
@@ -329,13 +314,12 @@ func TestHealthScorer_ZeroLatency(t *testing.T) {
 	})
 	require.NoError(
 		t, err)
-	assert.EqualValues(t, 1.0, score.
-		LatencyScore,
+	assert.InDelta(t, 1.0, score.
+		LatencyScore, 1e-9,
 	)
 
 	// latency_score = 1 - min(1, 0/5000) = 1 - 0 = 1.0
 	// EWMA stays at 1.0
-
 }
 
 // Concurrent multi-endpoint stress test.
@@ -366,14 +350,13 @@ func TestHealthScorer_ConcurrentMultiEndpoint(t *testing.T) {
 	// All endpoints should have valid scores.
 	for _, ep := range endpoints {
 		score, _, err := hs.CheckHealth(ctx, ep)
-		assert.NoError(t,
+		require.NoError(t,
 			err)
 		assert.False(t,
 			score.HealthScore <
 				0 ||
 				score.HealthScore >
 					100)
-
 	}
 }
 
@@ -417,7 +400,6 @@ func TestHealthScorer_AllDispatchResultCombinations(t *testing.T) {
 				0 ||
 				score.LatencyScore >
 					1)
-
 	}
 }
 

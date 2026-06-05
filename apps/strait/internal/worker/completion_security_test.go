@@ -44,7 +44,6 @@ func TestCompletion_HugeResultPayload(t *testing.T) {
 
 	events := getEvents()
 	require.NotEmpty(t, events)
-
 }
 
 // TestCompletion_NullResultPayload verifies that handleSuccess handles a nil
@@ -75,7 +74,6 @@ func TestCompletion_NullResultPayload(t *testing.T) {
 	require.Equal(t,
 		EventCompleted,
 		events[0].Type)
-
 }
 
 // TestCompletion_ResultWithNullBytes verifies that result payloads containing
@@ -104,7 +102,6 @@ func TestCompletion_ResultWithNullBytes(t *testing.T) {
 
 	events := getEvents()
 	require.NotEmpty(t, events)
-
 }
 
 // TestCompletion_ConcurrentCompletionAndTimeout verifies that concurrent
@@ -144,7 +141,6 @@ func TestCompletion_ConcurrentCompletionAndTimeout(t *testing.T) {
 	// Must not panic. At least one event should be emitted.
 	events := getEvents()
 	require.NotEmpty(t, events)
-
 }
 
 // TestCompletion_WebhookCallbackFailure verifies that when the webhook path
@@ -169,9 +165,7 @@ func TestCompletion_WebhookCallbackFailure(t *testing.T) {
 
 	// The plain store path should not have been used.
 	calls := store.statusUpdates()
-	require.Len(t, calls,
-		0)
-
+	require.Empty(t, calls)
 }
 
 // TestCompletion_MetricsOverflow verifies that handleSuccess does not panic
@@ -227,7 +221,6 @@ func TestSnooze_NegativeDuration(t *testing.T) {
 			calls[0].to !=
 				domain.
 					StatusQueued)
-
 }
 
 // TestSnooze_PastTimestamp verifies that a snooze with an explicitly past
@@ -246,7 +239,6 @@ func TestSnooze_PastTimestamp(t *testing.T) {
 	calls := store.statusUpdates()
 	require.Len(t, calls,
 		1)
-
 }
 
 // TestSnooze_MaxTimestamp verifies that snoozing with a year-9999 timestamp
@@ -276,7 +268,6 @@ func TestSnooze_MaxTimestamp(t *testing.T) {
 		1)
 	require.True(t,
 		scheduled[0].at.Equal(farFuture))
-
 }
 
 // TestSnooze_ConcurrentSnoozeAndResume verifies that concurrent snooze and
@@ -302,7 +293,6 @@ func TestSnooze_ConcurrentSnoozeAndResume(t *testing.T) {
 	calls := store.statusUpdates()
 	require.Len(t, calls,
 		20)
-
 }
 
 // TestMiddleware_EmptyChain verifies that Chain with an empty middleware slice
@@ -316,7 +306,6 @@ func TestMiddleware_EmptyChain(t *testing.T) {
 	Chain()(handler)(context.Background(), &ExecutionContext{})
 	require.True(t,
 		called)
-
 }
 
 // TestMiddleware_PanicInHandler verifies that a panic in a middleware is
@@ -346,7 +335,6 @@ func TestMiddleware_PanicInHandler(t *testing.T) {
 		require.False(t,
 			!ok || msg != "middleware exploded",
 		)
-
 	}()
 
 	Chain(panicMW)(handler)(context.Background(), &ExecutionContext{
@@ -365,7 +353,6 @@ func TestMiddleware_NilMiddleware(t *testing.T) {
 		r := recover()
 		require.NotNil(t,
 			r)
-
 	}()
 
 	// A nil ExecutionMiddleware will panic when called.
@@ -409,7 +396,6 @@ func TestMiddleware_ConcurrentExecution(t *testing.T) {
 		return true
 	})
 	require.NotEqual(t, 0, seen)
-
 }
 
 // FuzzMiddlewareChain fuzzes the number and ordering of middleware to verify
@@ -457,6 +443,5 @@ func FuzzMiddlewareChain(f *testing.F) {
 				count ==
 					0 && !handlerCalled,
 		)
-
 	})
 }

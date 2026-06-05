@@ -31,9 +31,8 @@ func TestEnqueueTriggerRunUsesDirectQueueWithoutTx(t *testing.T) {
 	}
 	srv := &Server{queue: queue}
 	require.NoError(t, srv.enqueueTriggerRun(context.Background(), nil, run))
-	require.EqualValues(t, 1, queue.
+	require.Equal(t, 1, queue.
 		enqueueCalls)
-
 }
 
 func TestEnqueueTriggerRunUsesTransactionalQueueWithTx(t *testing.T) {
@@ -57,9 +56,8 @@ func TestEnqueueTriggerRunUsesTransactionalQueueWithTx(t *testing.T) {
 	}
 	srv := &Server{queue: queue}
 	require.NoError(t, srv.enqueueTriggerRun(context.Background(), tx, run))
-	require.EqualValues(t, 1, queue.
+	require.Equal(t, 1, queue.
 		enqueueInTxCalls)
-
 }
 
 type triggerEnqueueQueue struct {

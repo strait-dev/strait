@@ -79,5 +79,4 @@ func TestHandleBulkCancelAllSkipsStoreWhenFilterMissing(t *testing.T) {
 		t, isHumaStatusError(err,
 			400),
 	)
-
 }

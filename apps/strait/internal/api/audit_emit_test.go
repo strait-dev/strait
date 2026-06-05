@@ -95,7 +95,6 @@ func TestEmitAuditEventAsync_OrderingAndContextSnapshot(t *testing.T) {
 		got, _ := details["i"].(float64)
 		assert.Equal(
 			t, i, int(got))
-
 	}
 }
 
@@ -123,7 +122,6 @@ func TestEmitAuditEventAsync_ShutdownFlush(t *testing.T) {
 
 	srv.Close()
 	require.EqualValues(t, 25, written.Load())
-
 }
 
 // TestEmitAuditEventAsync_BufferFullDropsEvents verifies that when the buffer
@@ -203,7 +201,6 @@ func TestEmitAuditEventAsync_DrainerErrorContinues(t *testing.T) {
 
 	srv.Close()
 	require.EqualValues(t, 2, written.Load())
-
 }
 
 // TestEmitAuditEventAsync_StopsAcceptingAfterClose verifies events submitted
@@ -274,7 +271,6 @@ func TestShutdown_CancelsInFlightDBWrites(t *testing.T) {
 	// Without context propagation we would see ~10s per the per-event
 	// timeout. A multi-attempt retry sequence with short delays could
 	// also push past 5s without proper cancellation.
-
 }
 
 // TestStartAuditAsyncDrain_PopulatesDrainCtx verifies the new drain
@@ -286,7 +282,6 @@ func TestStartAuditAsyncDrain_PopulatesDrainCtx(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, nil, nil)
 	require.NotNil(t, srv.drainContext())
-
 }
 
 // TestAuditDrainer_FieldAssignmentNoDataRace exercises concurrent depth
@@ -352,5 +347,4 @@ func TestEmitAuditEventAsync_BackpressureFallsBackToSync(t *testing.T) {
 	srv.Close()
 	assert.NotEqual(t, 0, syncWrites.
 		Load())
-
 }

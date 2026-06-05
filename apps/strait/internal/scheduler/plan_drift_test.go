@@ -60,7 +60,6 @@ func TestParsePlanTopNode_IndexScan(t *testing.T) {
 		cost !=
 			12.5,
 	)
-
 }
 
 func TestParsePlanTopNode_SeqScan(t *testing.T) {
@@ -72,7 +71,6 @@ func TestParsePlanTopNode_SeqScan(t *testing.T) {
 		cost !=
 			500.0,
 	)
-
 }
 
 func TestParsePlanTopNode_BitmapHeap(t *testing.T) {
@@ -81,7 +79,6 @@ func TestParsePlanTopNode_BitmapHeap(t *testing.T) {
 		nil ||
 		node != "Bitmap Heap Scan",
 	)
-
 }
 
 func TestParsePlanTopNode_Malformed(t *testing.T) {
@@ -138,7 +135,6 @@ func TestPlanDriftMonitor_NodeTypeChangeDetected(t *testing.T) {
 		b.
 			TopNodeType,
 	)
-
 }
 
 func TestPlanDriftMonitor_CostChangeBeyondTolerance(t *testing.T) {
@@ -153,7 +149,6 @@ func TestPlanDriftMonitor_CostChangeBeyondTolerance(t *testing.T) {
 	_ = m.runOnce(context.Background())
 	assert.EqualValues(t, 1,
 		m.DriftCount())
-
 }
 
 func TestPlanDriftMonitor_CostChangeWithinTolerance(t *testing.T) {
@@ -168,7 +163,6 @@ func TestPlanDriftMonitor_CostChangeWithinTolerance(t *testing.T) {
 	_ = m.runOnce(context.Background())
 	assert.EqualValues(t, 0,
 		m.DriftCount())
-
 }
 
 func TestPlanDriftMonitor_SamePlanNoDrift(t *testing.T) {
@@ -182,7 +176,6 @@ func TestPlanDriftMonitor_SamePlanNoDrift(t *testing.T) {
 	_ = m.runOnce(context.Background())
 	assert.EqualValues(t, 0,
 		m.DriftCount())
-
 }
 
 func TestPlanDriftMonitor_ExplainErrorContinues(t *testing.T) {
@@ -198,7 +191,6 @@ func TestPlanDriftMonitor_ExplainErrorContinues(t *testing.T) {
 	_ = m.runOnce(context.Background())
 	assert.EqualValues(t, 1,
 		m.Iterations())
-
 }
 
 func TestPlanDriftMonitor_LockNotAcquired(t *testing.T) {
@@ -209,10 +201,9 @@ func TestPlanDriftMonitor_LockNotAcquired(t *testing.T) {
 		Queries: []WatchedQuery{{Name: "q1", SQL: "SELECT 1"}},
 	}).WithAdvisoryLocker(locker)
 	_ = m.runOnce(context.Background())
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		s.upsertCalls,
 	)
-
 }
 
 func TestPlanDriftMonitor_RunExitsOnCancel(t *testing.T) {

@@ -60,8 +60,7 @@ func TestSnoozeRun_NegativeSnoozeCount_TreatsAsZero(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	// -5 + 1 = -4. The code does not guard against negative values.
 	count, _ := strconv.Atoi(meta["snooze_count"])
-	require.EqualValues(t, -4, count)
-
+	require.Equal(t, -4, count)
 }
 
 func TestSnoozeRun_EmptyMetadataMap(t *testing.T) {
@@ -79,7 +78,6 @@ func TestSnoozeRun_EmptyMetadataMap(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	require.Equal(t,
 		"1", meta["snooze_count"])
-
 }
 
 func TestSnoozeRun_EmptyReason(t *testing.T) {
@@ -92,9 +90,8 @@ func TestSnoozeRun_EmptyReason(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "", nil)
 
 	calls := store.statusUpdates()
-	require.Equal(t,
-		"", calls[0].fields["error"])
-
+	require.Empty(t,
+		calls[0].fields["error"])
 }
 
 func TestSnoozeRun_MaxExceeded_HandleSystemFailureFails(t *testing.T) {
@@ -120,7 +117,6 @@ func TestSnoozeRun_MaxExceeded_HandleSystemFailureFails(t *testing.T) {
 	require.NotEqual(t, 0, callCount)
 
 	// handleSystemFailure was attempted but failed — verify it was called.
-
 }
 
 func TestSnoozeRun_CancelledContext(t *testing.T) {
@@ -160,7 +156,6 @@ func TestSnoozeRun_SequentialSnoozes_CountIncrementsMonotonically(t *testing.T) 
 		require.Equal(t,
 			expected,
 			meta["snooze_count"])
-
 	}
 }
 
@@ -176,9 +171,8 @@ func TestSnoozeRunFromExecuting_EmptyReason(t *testing.T) {
 	calls := store.statusUpdates()
 	require.Len(t, calls,
 		1)
-	require.Equal(t,
-		"", calls[0].fields["error"])
-
+	require.Empty(t,
+		calls[0].fields["error"])
 }
 
 // Adversarial handler tests.
@@ -223,7 +217,6 @@ func TestHandleFailure_Retry_NotAtMaxAttempts(t *testing.T) {
 	require.True(t,
 		foundRetry,
 	)
-
 }
 
 func TestHandleFailure_ZeroAttempt(t *testing.T) {
@@ -274,7 +267,6 @@ func TestHandleFailure_ClientError_NoRetry(t *testing.T) {
 		require.NotEqual(t, domain.
 			StatusQueued,
 			c.to)
-
 	}
 	found := false
 	for _, c := range calls {
@@ -285,7 +277,6 @@ func TestHandleFailure_ClientError_NoRetry(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 func TestHandleTimeout_Retry_NotAtMaxAttempts(t *testing.T) {
@@ -324,7 +315,6 @@ func TestHandleTimeout_Retry_NotAtMaxAttempts(t *testing.T) {
 	require.True(t,
 		foundRetry,
 	)
-
 }
 
 func TestHandleSuccess_CircuitBreakerFailure_StillCompletes(t *testing.T) {
@@ -355,7 +345,6 @@ func TestHandleSuccess_CircuitBreakerFailure_StillCompletes(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 func TestHandleSuccess_CompleteRunFails_NoEvent(t *testing.T) {
@@ -384,7 +373,6 @@ func TestHandleSuccess_CompleteRunFails_NoEvent(t *testing.T) {
 		require.NotEqual(t, EventCompleted,
 			ev.
 				Type)
-
 	}
 }
 
@@ -407,7 +395,6 @@ func TestChain_MiddlewarePanic_Propagates(t *testing.T) {
 			"middleware exploded",
 
 			r)
-
 	}()
 
 	Chain(panicMW)(handler)(context.Background(), &ExecutionContext{
@@ -437,7 +424,6 @@ func TestChain_HandlerPanic_PropagatesThroughMiddleware(t *testing.T) {
 		)
 
 		// The defer in middleware should have run despite the panic.
-
 	}()
 
 	Chain(mw)(handler)(context.Background(), &ExecutionContext{
@@ -509,8 +495,7 @@ func TestEmit_ConcurrentEmits_NoRace(t *testing.T) {
 	for range exec.eventCh {
 		count++
 	}
-	require.EqualValues(t, 50, count)
-
+	require.Equal(t, 50, count)
 }
 
 // Adversarial isTerminalStatus tests — catches the bug where
@@ -545,7 +530,6 @@ func TestIsTerminalStatus_MatchesDomainIsTerminal(t *testing.T) {
 			require.Equal(t,
 				want, got,
 			)
-
 		})
 	}
 }
@@ -684,7 +668,6 @@ func TestPubSubSubscriber_EmptyRunID(t *testing.T) {
 	)
 
 	// Channel should be "run:" with empty ID.
-
 }
 
 // Adversarial completeRunWithWebhook tests.
@@ -705,7 +688,6 @@ func TestCompleteRunWithWebhook_CancelledContext(t *testing.T) {
 		domain.StatusCompleted, map[string]any{})
 	require.NoError(
 		t, err)
-
 }
 
 func TestCompleteRunWithWebhook_NilFields(t *testing.T) {
@@ -721,7 +703,6 @@ func TestCompleteRunWithWebhook_NilFields(t *testing.T) {
 		domain.StatusCompleted, nil)
 	require.NoError(
 		t, err)
-
 }
 
 // slogDiscard returns a logger that discards all output.

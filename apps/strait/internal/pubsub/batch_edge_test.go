@@ -34,7 +34,6 @@ func TestResilientPublisher_PublishBatch_DegradeAfterThreshold(t *testing.T) {
 	_ = rp.PublishBatch(context.Background(), []PubSubMessage{{Channel: "c", Data: []byte("d")}})
 	assert.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_PublishBatch_RecoverAfterSuccess(t *testing.T) {
@@ -62,7 +61,6 @@ func TestResilientPublisher_PublishBatch_RecoverAfterSuccess(t *testing.T) {
 	_ = rp.PublishBatch(context.Background(), []PubSubMessage{{Channel: "c", Data: []byte("d")}})
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 func TestResilientPublisher_PublishBatch_SingleMessage_Optimization(t *testing.T) {
@@ -82,7 +80,6 @@ func TestResilientPublisher_PublishBatch_SingleMessage_Optimization(t *testing.T
 	})
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 func TestResilientPublisher_PublishBatch_LargeBatch(t *testing.T) {
@@ -111,7 +108,6 @@ func TestResilientPublisher_PublishBatch_LargeBatch(t *testing.T) {
 	err := rp.PublishBatch(context.Background(), msgs)
 	require.NoError(
 		t, err)
-
 }
 
 func TestResilientPublisher_PublishBatch_ConcurrentBatches(t *testing.T) {
@@ -139,7 +135,6 @@ func TestResilientPublisher_PublishBatch_ConcurrentBatches(t *testing.T) {
 	wg.Wait()
 	assert.True(t, rp.
 		IsHealthy())
-
 }
 
 func TestPubSubMessage_EmptyData(t *testing.T) {
@@ -148,17 +143,15 @@ func TestPubSubMessage_EmptyData(t *testing.T) {
 	assert.Nil(t, msg.Data)
 
 	msg2 := PubSubMessage{Channel: "ch", Data: []byte{}}
-	assert.Len(t, msg2.
-		Data, 0,
+	assert.Empty(t, msg2.
+		Data,
 	)
-
 }
 
 func TestPubSubMessage_EmptyChannel(t *testing.T) {
 	t.Parallel()
 	msg := PubSubMessage{Channel: "", Data: []byte("data")}
-	assert.Equal(t,
-		"", msg.Channel,
+	assert.Empty(t,
+		msg.Channel,
 	)
-
 }

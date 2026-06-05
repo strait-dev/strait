@@ -21,14 +21,12 @@ func TestCatalogResolver_TierLookupKeys_RoundTrip(t *testing.T) {
 			assert.True(t, ok)
 			assert.Equal(t, tier,
 				got)
-
 		}
 		if cat.LookupKeyAnnual != "" {
 			got, ok := r.TierForLookupKey(cat.LookupKeyAnnual)
 			assert.True(t, ok)
 			assert.Equal(t, tier,
 				got)
-
 		}
 	}
 }
@@ -66,7 +64,6 @@ func TestCatalogResolver_AddonLookupKeys_RoundTrip(t *testing.T) {
 		assert.Equal(t, pack.
 			Type, got,
 		)
-
 	}
 }
 
@@ -95,7 +92,6 @@ func TestCatalogResolver_OverageLookupKeys_NotResolvedAsTier(t *testing.T) {
 		}
 		assert.False(t, r.
 			IsAddonLookupKey(cat.LookupKeyOverage))
-
 	}
 }
 
@@ -108,9 +104,8 @@ func TestCatalogResolver_LookupKeys_StraitPrefix(t *testing.T) {
 	all := allCatalogLookupKeys()
 	for _, k := range all {
 		assert.True(t, strings.HasPrefix(k, "strait_"))
-		assert.False(t, strings.Contains(k, "_v2"))
+		assert.NotContains(t, k, "_v2")
 		assert.Equal(t, strings.ToLower(k), k)
-
 	}
 }
 

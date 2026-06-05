@@ -94,13 +94,12 @@ func TestPriorityPromoter_Defaults(t *testing.T) {
 		time.Minute,
 		p.ageThreshold,
 	)
-	assert.EqualValues(t, 1000,
+	assert.Equal(t, 1000,
 		p.maxPriority,
 	)
-	assert.EqualValues(t, 500,
+	assert.Equal(t, 500,
 		p.batchLimit,
 	)
-
 }
 
 func TestPriorityPromoter_RunOnce_AppendsPriorityEvents(t *testing.T) {
@@ -115,13 +114,12 @@ func TestPriorityPromoter_RunOnce_AppendsPriorityEvents(t *testing.T) {
 	require.NoError(t,
 		p.runOnce(
 			context.Background()))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		db.calls)
 	assert.EqualValues(t, 3,
 		p.RowsPromoted())
 	assert.EqualValues(t, 1,
 		p.Iterations())
-
 }
 
 func TestPriorityPromoter_RunOnce_WithLock_Acquired(t *testing.T) {
@@ -137,9 +135,8 @@ func TestPriorityPromoter_RunOnce_WithLock_Acquired(t *testing.T) {
 	assert.True(t, locker.
 		released,
 	)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		db.calls)
-
 }
 
 func TestPriorityPromoter_RunOnce_WithLock_NotAcquired(t *testing.T) {
@@ -149,33 +146,30 @@ func TestPriorityPromoter_RunOnce_WithLock_NotAcquired(t *testing.T) {
 	require.NoError(t,
 		p.runOnce(
 			context.Background()))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		db.calls)
 	assert.False(t, locker.
 		released,
 	)
-
 }
 
 func TestPriorityPromoter_RunOnce_LockError(t *testing.T) {
 	db := &fakeDB{}
 	locker := &fakeLocker{err: errors.New("pg down")}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{}).WithAdvisoryLocker(locker)
-	assert.Error(t, p.runOnce(context.
+	require.Error(t, p.runOnce(context.
 		Background()))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		db.calls)
-
 }
 
 func TestPriorityPromoter_RunOnce_InsertError(t *testing.T) {
 	db := &fakeDB{err: errors.New("deadlock")}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{})
-	assert.Error(t, p.runOnce(context.
+	require.Error(t, p.runOnce(context.
 		Background()))
 	assert.EqualValues(t, 1,
 		p.Iterations())
-
 }
 
 func TestPriorityPromoter_QuerySanity(t *testing.T) {
@@ -186,8 +180,8 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 		BatchLimit:   100,
 	})
 	_ = p.runOnce(context.Background())
-	require.NotEqual(t,
-		"", db.lastSQL,
+	require.NotEmpty(t,
+		db.lastSQL,
 	)
 
 	// The exec must be parameterized (no inline values) so pg can cache the
@@ -195,7 +189,6 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 	for _, p := range []string{"$1", "$2", "$3", "job_run_state", "job_run_priority_events", "s.status = 'queued'", "FOR UPDATE OF s SKIP LOCKED", "INSERT INTO job_run_priority_events", "LEAST(COALESCE(priority.priority, s.priority) + 1"} {
 		assert.True(t, contains(db.lastSQL,
 			p))
-
 	}
 	assert.Len(t, db.lastArgs,
 		3)
@@ -203,7 +196,6 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 		db.lastArgs[0])
 	assert.EqualValues(t, 100,
 		db.lastArgs[2])
-
 }
 
 func contains(haystack, needle string) bool {
@@ -237,5 +229,4 @@ func TestPriorityPromoter_RunExitsOnContextCancel(t *testing.T) {
 	}
 	assert.GreaterOrEqual(t, p.Iterations(),
 		int64(2))
-
 }

@@ -41,9 +41,8 @@ func TestUpdateAuditExportCap_RequiresAdmin(t *testing.T) {
 	in.Body.RowCap = 500
 	_, err := srv.handleUpdateAuditExportCap(nonAdminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "admin"))
-
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestUpdateAuditExportCap_RejectsCrossTenant(t *testing.T) {
@@ -57,9 +56,8 @@ func TestUpdateAuditExportCap_RejectsCrossTenant(t *testing.T) {
 	in.Body.RowCap = 1
 	_, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "not found"))
-
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestUpdateAuditExportCap_RejectsNegative(t *testing.T) {
@@ -77,9 +75,8 @@ func TestUpdateAuditExportCap_RejectsNegative(t *testing.T) {
 	in.Body.RowCap = -1
 	_, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), ">= 0"))
-
+	assert.Contains(t,
+		err.Error(), ">= 0")
 }
 
 func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
@@ -147,9 +144,8 @@ func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
 	assert.EqualValues(t, 500, storedCap)
 	require.True(
 		t, selfAuditHit)
-	assert.EqualValues(t, 42, seenOldCap)
-	assert.EqualValues(t, 500, seenNewCap)
-
+	assert.InDelta(t, 42, seenOldCap, 1e-9)
+	assert.InDelta(t, 500, seenNewCap, 1e-9)
 }
 
 func TestUpdateAuditExportCap_ZeroReinheritsDefault(t *testing.T) {
@@ -191,7 +187,6 @@ func TestUpdateAuditExportCap_ZeroReinheritsDefault(t *testing.T) {
 	// After re-inheriting, resolveExportRowCap returns the config default.
 	effective := srv.resolveExportRowCap(context.Background(), "proj-a")
 	assert.EqualValues(t, 7777, effective)
-
 }
 
 func TestExportAuditEvents_PerProjectCap(t *testing.T) {
@@ -243,13 +238,12 @@ func TestExportAuditEvents_PerProjectCap(t *testing.T) {
 	)
 
 	body := buf.String()
-	assert.True(t,
-		strings.Contains(body, `"_capped":true`))
+	assert.Contains(t,
+		body, `"_capped":true`)
 	assert.Equal(
 		t, cap, streamedCount.
 			Load(),
 	)
 
 	// StreamAuditEvents short-circuits via errExportCapReached after cap rows.
-
 }

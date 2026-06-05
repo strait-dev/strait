@@ -52,8 +52,7 @@ func TestHandleEventVolume_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleEventVolume_InvalidBucket(t *testing.T) {
@@ -61,8 +60,7 @@ func TestHandleEventVolume_InvalidBucket(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo(), "bucket", "week"), "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleEventVolume_MissingParams(t *testing.T) {
@@ -70,8 +68,7 @@ func TestHandleEventVolume_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/events/volume", "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleEventVolume_StoreError(t *testing.T) {
@@ -84,8 +81,7 @@ func TestHandleEventVolume_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 500, w.Code)
-
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleEventLatency_Success(t *testing.T) {
@@ -100,13 +96,12 @@ func TestHandleEventLatency_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var result store.EventLatencyStats
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &result))
-	assert.EqualValues(t, 1000, result.Count)
-
+	assert.Equal(t, 1000, result.Count)
 }
 
 func TestHandleEventLatency_StoreError(t *testing.T) {
@@ -119,8 +114,7 @@ func TestHandleEventLatency_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 500, w.Code)
-
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleCostForecast_Success(t *testing.T) {
@@ -133,8 +127,7 @@ func TestHandleCostForecast_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/forecast", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleCostForecast_MissingParams(t *testing.T) {
@@ -142,8 +135,7 @@ func TestHandleCostForecast_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/costs/forecast", "", "proj-1"))
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleCostByTrigger_Success(t *testing.T) {
@@ -159,6 +151,5 @@ func TestHandleCostByTrigger_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-trigger", validFrom(), validTo()), "", "proj-1"))
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }

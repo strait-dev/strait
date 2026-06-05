@@ -23,7 +23,6 @@ func TestEffectiveLimits_NoAddons(t *testing.T) {
 	assert.Equal(t, base.
 		RetentionDays, result.RetentionDays,
 	)
-
 }
 
 func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
@@ -36,7 +35,6 @@ func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
 	}
 	for _, addonType := range active {
 		require.True(t, IsLaunchActiveAddonType(addonType))
-
 	}
 
 	roadmap := []AddonType{
@@ -46,7 +44,6 @@ func TestLaunchActiveAddonTypesExcludeRoadmapAddons(t *testing.T) {
 	for _, addonType := range roadmap {
 		require.False(t,
 			IsLaunchActiveAddonType(addonType))
-
 	}
 }
 
@@ -71,7 +68,6 @@ func TestAddonPacksDerivedFromGeneratedCatalog(t *testing.T) {
 					catalog.PackSize || pack.PriceCents !=
 				catalog.PriceCents || pack.MaxTotal !=
 				catalog.MaxTotal)
-
 	}
 }
 
@@ -88,7 +84,6 @@ func TestEffectiveLimits_Concurrency100Pack(t *testing.T) {
 
 		result.MaxConcurrentRuns,
 	)
-
 }
 
 func TestEffectiveLimits_MultiplePacksStack(t *testing.T) {
@@ -106,7 +101,6 @@ func TestEffectiveLimits_MultiplePacksStack(t *testing.T) {
 	)
 
 	// 3 packs x 100
-
 }
 
 func TestEffectiveLimits_Environments5Pack(t *testing.T) {
@@ -122,7 +116,6 @@ func TestEffectiveLimits_Environments5Pack(t *testing.T) {
 
 		result.MaxEnvironments,
 	)
-
 }
 
 func TestEffectiveLimits_History30dPack(t *testing.T) {
@@ -149,7 +142,6 @@ func TestEffectiveLimits_History30dPack(t *testing.T) {
 
 		result.RetentionDays,
 	)
-
 }
 
 func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
@@ -163,7 +155,7 @@ func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
 		{AddonType: AddonHistory30d, Quantity: 1000, Active: true},
 	})
 	maxTotal := AddonPacks[AddonHistory30d].MaxTotal
-	require.EqualValues(t, 365,
+	require.Equal(t, 365,
 		maxTotal)
 	require.LessOrEqual(t, result.RetentionDays,
 		maxTotal,
@@ -173,7 +165,6 @@ func TestEffectiveLimits_History30dClampedToCatalogMaxTotal(t *testing.T) {
 	require.Equal(t,
 		want,
 		result.RetentionDays)
-
 }
 
 func TestEffectiveLimits_ComplianceArchiveLaunchRoadmapNoEffect(t *testing.T) {
@@ -188,7 +179,6 @@ func TestEffectiveLimits_ComplianceArchiveLaunchRoadmapNoEffect(t *testing.T) {
 	})
 	assert.False(t, result.
 		HasSIEMExport)
-
 }
 
 func TestEffectiveLimits_DedicatedWorkersLaunchRoadmapNoEffect(t *testing.T) {
@@ -203,7 +193,6 @@ func TestEffectiveLimits_DedicatedWorkersLaunchRoadmapNoEffect(t *testing.T) {
 	})
 	assert.False(t, result.
 		HasDedicatedCompute)
-
 }
 
 func TestEffectiveLimits_MixedAddons(t *testing.T) {
@@ -227,7 +216,6 @@ func TestEffectiveLimits_MixedAddons(t *testing.T) {
 	assert.Equal(t, base.
 		RetentionDays+30, result.
 		RetentionDays)
-
 }
 
 func TestEffectiveLimits_NegativeQuantity_Ignored(t *testing.T) {
@@ -241,7 +229,6 @@ func TestEffectiveLimits_NegativeQuantity_Ignored(t *testing.T) {
 	assert.Equal(t, base.
 		MaxConcurrentRuns, result.
 		MaxConcurrentRuns)
-
 }
 
 func TestEffectiveLimits_UnknownAddonType_Ignored(t *testing.T) {
@@ -259,7 +246,6 @@ func TestEffectiveLimits_UnknownAddonType_Ignored(t *testing.T) {
 		MaxEnvironments ||
 		result.RetentionDays != base.RetentionDays,
 	)
-
 }
 
 func TestEffectiveLimits_InactiveAddons_NotApplied(t *testing.T) {
@@ -278,7 +264,6 @@ func TestEffectiveLimits_InactiveAddons_NotApplied(t *testing.T) {
 		MaxEnvironments, result.
 		MaxEnvironments,
 	)
-
 }
 
 func TestEffectiveLimits_UnlimitedNotModified(t *testing.T) {
@@ -290,12 +275,11 @@ func TestEffectiveLimits_UnlimitedNotModified(t *testing.T) {
 	}
 
 	result := EffectiveLimits(base, addons)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		result.MaxConcurrentRuns,
 	)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		result.MaxEnvironments)
-
 }
 
 func TestIsValidAddonType(t *testing.T) {
@@ -303,11 +287,9 @@ func TestIsValidAddonType(t *testing.T) {
 
 	for _, at := range AllAddonTypes() {
 		assert.True(t, IsValidAddonType(at))
-
 	}
 	assert.False(t, IsValidAddonType(AddonType("nonexistent")))
 	assert.False(t, IsValidAddonType(AddonType("")))
-
 }
 
 func TestAllAddonTypes_Count(t *testing.T) {
@@ -316,7 +298,6 @@ func TestAllAddonTypes_Count(t *testing.T) {
 	assert.Len(t, types,
 
 		5)
-
 }
 
 func TestAddonPacks_AllDefined(t *testing.T) {
@@ -333,31 +314,28 @@ func TestAddonPacks_AllDefined(t *testing.T) {
 func TestAddonPacks_SellableMetadataMatchesLaunchStatus(t *testing.T) {
 	t.Parallel()
 	for at, pack := range AddonPacks {
-		assert.False(t, pack.
-			PackSize <= 0)
+		assert.Positive(t, pack.
+			PackSize)
 		assert.Equal(t, at,
 
 			pack.Type)
-		assert.NotEqual(t,
+		assert.NotEmpty(t,
 
-			"", pack.DisplayName)
+			pack.DisplayName)
 
 		if IsLaunchActiveAddonType(at) {
-			assert.False(t, pack.
-				PriceCents <= 0)
-			assert.NotEqual(t,
+			assert.Positive(t, pack.
+				PriceCents)
+			assert.NotEmpty(t,
 
-				"", pack.LookupKey)
+				pack.LookupKey)
 
 			continue
 		}
-		assert.EqualValues(t, 0,
+		assert.Equal(t, 0,
 
 			pack.PriceCents)
-		assert.Equal(t, "",
-
-			pack.LookupKey)
-
+		assert.Empty(t, pack.LookupKey)
 	}
 }
 
@@ -382,6 +360,5 @@ func FuzzEffectiveLimits(f *testing.F) {
 		)
 
 		// Base limits should never decrease.
-
 	})
 }

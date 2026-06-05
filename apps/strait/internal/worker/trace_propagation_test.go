@@ -99,9 +99,7 @@ func TestTraceChain(t *testing.T) {
 		mu.Lock()
 		gotTP := capturedHeaders.Get("Traceparent")
 		mu.Unlock()
-		assert.True(t, strings.Contains(gotTP,
-			traceID))
-
+		assert.Contains(t, gotTP, traceID)
 	})
 
 	t.Run("NoTraceContext_NoLeaks", func(t *testing.T) {
@@ -152,10 +150,9 @@ func TestTraceChain(t *testing.T) {
 		mu.Lock()
 		gotTP := capturedHeaders.Get("Traceparent")
 		mu.Unlock()
-		assert.Equal(t,
-			"", gotTP,
+		assert.Empty(t,
+			gotTP,
 		)
-
 	})
 
 	t.Run("SpanParentChild", func(t *testing.T) {
@@ -200,7 +197,6 @@ func TestTraceChain(t *testing.T) {
 		// The created span's parent should have the span ID from the traceparent.
 
 		// The span should share the same trace ID.
-
 	})
 
 	t.Run("MultipleWorkflowSteps", func(t *testing.T) {
@@ -239,7 +235,6 @@ func TestTraceChain(t *testing.T) {
 				traceID,
 				s.SpanContext.
 					TraceID().String())
-
 		}
 
 		// All 3 spans should have DIFFERENT span IDs.
@@ -297,10 +292,9 @@ func TestTraceAdversarial(t *testing.T) {
 		// Go's net/http rejects header values containing \r\n entirely,
 		// so either the request fails (safe) or the header is sanitized (also safe).
 		if err != nil {
-			require.True(t,
-				strings.Contains(err.
-					Error(), "invalid header",
-				))
+			require.Contains(t,
+				err.
+					Error(), "invalid header")
 
 			// The request was rejected before being sent -- CRLF injection prevented.
 
@@ -309,12 +303,11 @@ func TestTraceAdversarial(t *testing.T) {
 
 		mu.Lock()
 		defer mu.Unlock()
-		assert.Equal(t,
-			"", capturedHeaders.
+		assert.Empty(t,
+			capturedHeaders.
 				Get("X-Evil"))
 
 		// If the request somehow went through, X-Evil must NOT appear.
-
 	})
 
 	t.Run("OverlongTraceparent", func(t *testing.T) {
@@ -375,7 +368,6 @@ func TestTraceAdversarial(t *testing.T) {
 			gotTP)
 
 		// The header is set (HTTP allows long headers); just verify no panic occurred.
-
 	})
 
 	t.Run("NullBytesInMetadata", func(t *testing.T) {
@@ -440,13 +432,11 @@ func TestTraceAdversarial(t *testing.T) {
 
 		mu.Lock()
 		defer mu.Unlock()
-		assert.NotEqual(
-			t, "",
-			capturedHeaders.
+		assert.NotEmpty(
+			t, capturedHeaders.
 				Get("Traceparent"))
-		assert.NotEqual(
-			t, "",
-			capturedHeaders.
+		assert.NotEmpty(
+			t, capturedHeaders.
 				Get("Tracestate"),
 		)
 
@@ -464,7 +454,6 @@ func TestTraceAdversarial(t *testing.T) {
 						"x-internal-key" ||
 					lower == "x-user-key",
 			)
-
 		}
 
 		// Verify only expected headers are present (Content-Type, X-Run-ID, X-Job-ID,
@@ -483,7 +472,6 @@ func TestTraceAdversarial(t *testing.T) {
 		}
 		for key := range capturedHeaders {
 			assert.True(t, allowedHeaders[key])
-
 		}
 	})
 }

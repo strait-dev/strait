@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -23,7 +22,6 @@ func TestCheckPerJobConcurrencyLimit_ZeroValues_NoOp(t *testing.T) {
 	require.NoError(t, srv.
 		checkPerJobConcurrencyLimit(context.Background(),
 			"proj-1", 0, 0))
-
 }
 
 // TestCheckPerJobConcurrencyLimit_FreeAtLimit_Allows verifies the cap is
@@ -43,7 +41,6 @@ func TestCheckPerJobConcurrencyLimit_FreeAtLimit_Allows(t *testing.T) {
 		checkPerJobConcurrencyLimit(context.Background(),
 			"proj-1", 0, limits.MaxConcurrentRuns,
 		))
-
 }
 
 // TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsMaxConcurrency walks
@@ -59,12 +56,9 @@ func TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsMaxConcurrency(t *test
 	require.Error(t, err)
 
 	for _, fragment := range []string{limits.DisplayName, "max_concurrency"} {
-		assert.True(t,
-			strings.Contains(err.
-				Error(),
-				fragment,
-			))
-
+		assert.Contains(t,
+			err.
+				Error(), fragment)
 	}
 }
 
@@ -80,12 +74,9 @@ func TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsPerKey(t *testing.T) {
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 0, limits.MaxConcurrentRuns+1)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(),
-			"max_concurrency_per_key",
-		))
-
+	assert.Contains(t,
+		err.
+			Error(), "max_concurrency_per_key")
 }
 
 // TestCheckPerJobConcurrencyLimit_EnterpriseUnlimited_Allows confirms the
@@ -98,7 +89,6 @@ func TestCheckPerJobConcurrencyLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 		checkPerJobConcurrencyLimit(context.Background(),
 			"proj-1", 100_000, 100_000,
 		))
-
 }
 
 func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -111,7 +101,6 @@ func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	assert.Contains(t, err.
 		Error(), "billing enforcement unavailable",
 	)
-
 }
 
 // TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen confirms
@@ -123,7 +112,6 @@ func TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen(t *testing.T)
 		checkPerJobConcurrencyLimit(context.Background(),
 			"proj-1", 999_999, 999_999,
 		))
-
 }
 
 func TestCheckPerJobConcurrencyLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -133,13 +121,9 @@ func TestCheckPerJobConcurrencyLimit_OrgLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckPerJobConcurrencyLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -149,13 +133,9 @@ func TestCheckPerJobConcurrencyLimit_PlanLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 // TestCheckPerJobConcurrencyLimit_FirstFieldRejects_DoesNotEvaluateSecond
@@ -171,10 +151,7 @@ func TestCheckPerJobConcurrencyLimit_FirstFieldRejects_DoesNotEvaluateSecond(t *
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 10, 10)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(),
-			"max_concurrency",
-		))
-
+	assert.Contains(t,
+		err.
+			Error(), "max_concurrency")
 }

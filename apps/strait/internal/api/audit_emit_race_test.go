@@ -53,7 +53,6 @@ func TestStopAuditAsyncDrain_ConcurrentAccess(t *testing.T) {
 	total := written.Load()
 	assert.NotEqual(t, 0,
 		total)
-
 }
 
 // TestEmitAuditEventAsync_NilChannelFallsBackSync verifies that when the async
@@ -90,7 +89,6 @@ func TestEmitAuditEventAsync_NilChannelFallsBackSync(t *testing.T) {
 	assert.EqualValues(t, 1, syncWrites.
 		Load(),
 	)
-
 }
 
 // TestRetryInterruptedByShutdown verifies that a long retry sleep is
@@ -163,5 +161,4 @@ func TestRetryInterruptedByShutdown(t *testing.T) {
 	// the drainer goroutine would still be alive sleeping for 10s — that
 	// goroutine leak is the primary hazard fixed here. We assert timing to
 	// confirm Close does not block beyond the expected budget.
-
 }

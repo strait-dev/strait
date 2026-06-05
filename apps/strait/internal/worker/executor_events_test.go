@@ -59,13 +59,12 @@ func TestCompletedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 			time.
 				Millisecond, event.ExecDur,
 	)
-	require.EqualValues(t, 2, event.
+	require.Equal(t, 2, event.
 		Attempt)
 	require.Equal(t,
 		250*time.
 			Millisecond, event.QueueWait,
 	)
-
 }
 
 func TestTerminalRunEvent_UsesTerminalStatusAndRunState(t *testing.T) {
@@ -111,13 +110,12 @@ func TestTerminalRunEvent_UsesTerminalStatusAndRunState(t *testing.T) {
 			ExecTrace)
 	require.EqualValues(t, 0, event.
 		ExecDur)
-	require.EqualValues(t, 3, event.
+	require.Equal(t, 3, event.
 		Attempt)
 	require.Equal(t,
 		300*time.
 			Millisecond, event.QueueWait,
 	)
-
 }
 
 func TestTerminalRunEvent_DeadLettered(t *testing.T) {
@@ -141,11 +139,10 @@ func TestTerminalRunEvent_DeadLettered(t *testing.T) {
 			StatusDeadLetter,
 		event.ToStatus,
 	)
-	require.EqualValues(t, 4, event.
+	require.Equal(t, 4, event.
 		Attempt)
 	require.EqualValues(t, 0, event.
 		QueueWait)
-
 }
 
 func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
@@ -189,7 +186,7 @@ func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
 		trace,
 		event.
 			ExecTrace)
-	require.EqualValues(t, 3, event.
+	require.Equal(t, 3, event.
 		Attempt)
 	require.Equal(t,
 		400*time.
@@ -197,7 +194,6 @@ func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
 	)
 	require.EqualValues(t, 0, event.
 		ExecDur)
-
 }
 
 func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
@@ -238,7 +234,7 @@ func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 			StatusSystemFailed,
 		event.ToStatus,
 	)
-	require.EqualValues(t, 5, event.
+	require.Equal(t, 5, event.
 		Attempt)
 	require.Equal(t,
 		500*time.
@@ -248,5 +244,4 @@ func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 		ExecTrace)
 	require.EqualValues(t, 0, event.
 		ExecDur)
-
 }

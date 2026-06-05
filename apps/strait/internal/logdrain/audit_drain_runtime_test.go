@@ -123,7 +123,6 @@ func TestAuditSIEMDrain_StartStopRacefree(t *testing.T) {
 			5)
 
 	// Allow a tiny slack for test-server / httptest internals.
-
 }
 
 // TestAuditSIEMDrain_EnqueueBeforeStart_Noop ensures Enqueue is safe when
@@ -147,7 +146,6 @@ func TestAuditSIEMDrain_NilReceiverSafe(t *testing.T) {
 		drain.
 			FlushNow(context.
 				Background()))
-
 }
 
 // TestSIEMDrain_FlushNow_DrainsBufferedEvents asserts that FlushNow
@@ -274,7 +272,6 @@ func TestSIEMDrain_Stop_CancelsInFlightFlush(t *testing.T) {
 	// Stop budget is 5s but with parent-ctx propagation a hanging
 	// request returns immediately when the parent is cancelled. We
 	// require well under the 30s flush deadline.
-
 }
 
 // TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel runs many concurrent

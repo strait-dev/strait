@@ -18,7 +18,6 @@ func TestAnalyticsHandler_Table(t *testing.T) {
 	h := NewAnalyticsHandler(nil, nil)
 	require.Equal(t, "job_runs", h.
 		Table())
-
 }
 
 func TestAnalyticsHandler_InsertAction_Skipped(t *testing.T) {
@@ -41,8 +40,7 @@ func TestAnalyticsHandler_InsertAction_Skipped(t *testing.T) {
 	require.NoError(t, h.Handle(context.
 		Background(),
 		msg))
-	require.EqualValues(t, 0, exp.PendingLen())
-
+	require.Equal(t, 0, exp.PendingLen())
 }
 
 func TestAuditHandler_Table(t *testing.T) {
@@ -50,7 +48,6 @@ func TestAuditHandler_Table(t *testing.T) {
 	h := NewAuditHandler(&mockAuditStore{}, nil)
 	require.Equal(t, "job_runs", h.
 		Table())
-
 }
 
 func TestAuditAction_Delete(t *testing.T) {
@@ -60,7 +57,6 @@ func TestAuditAction_Delete(t *testing.T) {
 		t, ok)
 	require.Equal(t, "run.deleted",
 		got)
-
 }
 
 func TestAuditAction_ReadIsIgnored(t *testing.T) {
@@ -68,7 +64,6 @@ func TestAuditAction_ReadIsIgnored(t *testing.T) {
 	got, ok := auditAction(ActionRead, "executing")
 	require.False(t, ok || got !=
 		"")
-
 }
 
 func TestAuditHandler_EmptyProjectID_Skipped(t *testing.T) {
@@ -90,10 +85,9 @@ func TestAuditHandler_EmptyProjectID_Skipped(t *testing.T) {
 	require.NoError(t, h.Handle(context.
 		Background(),
 		msg))
-	require.Len(t,
-		store.events, 0,
+	require.Empty(t,
+		store.events,
 	)
-
 }
 
 func TestAuditHandler_InvalidJSON_ReturnsError(t *testing.T) {
@@ -110,7 +104,6 @@ func TestAuditHandler_InvalidJSON_ReturnsError(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestAuditHandler_DeleteAction(t *testing.T) {
@@ -140,7 +133,6 @@ func TestAuditHandler_DeleteAction(t *testing.T) {
 		store.
 			events[0].Action,
 	)
-
 }
 
 func TestEnsureConsumer_AlreadyExists(t *testing.T) {
@@ -148,9 +140,9 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Respond OK to the probe receive call.
 		var body map[string]any
-		require.NoError(t, json.NewDecoder(r.
+		assert.NoError(t, json.NewDecoder(r.
 			Body).Decode(&body))
-		require.Equal(t, float64(1), body["batch_size"])
+		assert.InDelta(t, float64(1), body["batch_size"], 1e-9)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[]}`))
@@ -160,7 +152,6 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.NoError(t, err)
-
 }
 
 func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
@@ -183,13 +174,13 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 		}
 		if strings.Contains(r.URL.Path, "/api/sinks") {
 			var body map[string]any
-			require.NoError(t, json.NewDecoder(r.
+			assert.NoError(t, json.NewDecoder(r.
 				Body).Decode(&body))
-			require.Equal(t, "test-consumer",
+			assert.Equal(t, "test-consumer",
 				body["name"])
-			require.Equal(t, "strait-db",
+			assert.Equal(t, "strait-db",
 				body["database"])
-			require.Equal(t, "Bearer token",
+			assert.Equal(t, "Bearer token",
 				r.Header.
 					Get("Authorization"))
 
@@ -204,7 +195,6 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.NoError(t, err)
-
 }
 
 func TestEnsureConsumer_CreateFails(t *testing.T) {
@@ -227,11 +217,9 @@ func TestEnsureConsumer_CreateFails(t *testing.T) {
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(), "status 400",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "status 400")
 }
 
 func TestDoRequest_InvalidBaseURL(t *testing.T) {
@@ -240,11 +228,9 @@ func TestDoRequest_InvalidBaseURL(t *testing.T) {
 	client := NewClient("", "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(), "invalid base url",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "invalid base url")
 }
 
 func TestDoRequest_NoPolicies(t *testing.T) {
@@ -258,9 +244,8 @@ func TestDoRequest_NoPolicies(t *testing.T) {
 	client := NewClient(ts.URL, "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	msgs, err := client.Receive(context.Background(), 1, 0)
 	require.NoError(t, err)
-	require.Len(t,
-		msgs, 0)
-
+	require.Empty(t,
+		msgs)
 }
 
 func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
@@ -290,13 +275,12 @@ func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.NoError(t, err)
-
 }
 
 func TestDoRequest_NoAuthToken(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "", r.Header.
+		assert.Empty(t, r.Header.
 			Get("Authorization"))
 
 		w.Header().Set("Content-Type", "application/json")
@@ -307,7 +291,6 @@ func TestDoRequest_NoAuthToken(t *testing.T) {
 	client := NewClient(ts.URL, "consumer", "", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.NoError(t, err)
-
 }
 
 func TestEnsureConsumer_NoAuthToken(t *testing.T) {
@@ -325,7 +308,7 @@ func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[]}`))
 			return
 		}
-		require.Equal(t, "", r.Header.
+		assert.Empty(t, r.Header.
 			Get("Authorization"))
 
 		w.WriteHeader(http.StatusCreated)
@@ -336,7 +319,6 @@ func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 	client := NewClient(ts.URL, "consumer", "", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.NoError(t, err)
-
 }
 
 func TestEnsureConsumer_NetworkError(t *testing.T) {
@@ -356,7 +338,6 @@ func TestEnsureConsumer_NetworkError(t *testing.T) {
 	client := NewClient(serverURL, "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
 	require.Error(t, err)
-
 }
 
 func TestNewClient_InvalidBaseURL(t *testing.T) {
@@ -377,7 +358,6 @@ func TestNotificationTriggerHandler_Table(t *testing.T) {
 	h := NewNotificationTriggerHandler(nil, nil)
 	require.Equal(t, "job_runs", h.
 		Table())
-
 }
 
 func TestSLOHandler_Table(t *testing.T) {
@@ -385,7 +365,6 @@ func TestSLOHandler_Table(t *testing.T) {
 	h := NewSLOHandler(nil, nil)
 	require.Equal(t, "job_runs", h.
 		Table())
-
 }
 
 func TestWebhookTriggerHandler_Table(t *testing.T) {
@@ -393,7 +372,6 @@ func TestWebhookTriggerHandler_Table(t *testing.T) {
 	h := NewWebhookTriggerHandler(nil, nil)
 	require.Equal(t, "job_runs", h.
 		Table())
-
 }
 
 func TestWebhookReceiver_RegisterAdditionalHandler(t *testing.T) {
@@ -411,5 +389,4 @@ func TestWebhookReceiver_RegisterAdditionalHandler(t *testing.T) {
 	require.Len(t,
 		wr.additionalHandlers["job_runs"],
 		2)
-
 }

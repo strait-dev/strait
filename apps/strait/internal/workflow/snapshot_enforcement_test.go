@@ -73,7 +73,6 @@ func TestLoadStepDefinitions_WithSnapshot(t *testing.T) {
 		"build" ||
 		steps[1].StepRef !=
 			"deploy")
-
 }
 
 func TestLoadStepDefinitions_WithoutSnapshot_FallsBackToLiveTable(t *testing.T) {
@@ -105,7 +104,6 @@ func TestLoadStepDefinitions_WithoutSnapshot_FallsBackToLiveTable(t *testing.T) 
 	assert.Equal(t, "test",
 		steps[0].StepRef,
 	)
-
 }
 
 func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T) {
@@ -141,7 +139,6 @@ func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T)
 		steps[0].StepRef !=
 			"fallback",
 	)
-
 }
 
 func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
@@ -194,13 +191,13 @@ func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
 		err)
 
 	got := steps[0]
-	assert.EqualValues(t, 5,
+	assert.Equal(t, 5,
 		got.RetryMaxAttempts,
 	)
-	assert.EqualValues(t, 120,
+	assert.Equal(t, 120,
 		got.TimeoutSecsOverride,
 	)
-	assert.Equal(t, `{"op":"eq"}`,
+	assert.JSONEq(t, `{"op":"eq"}`,
 		string(got.Condition))
 	assert.Equal(t, `{"x":1}`,
 		string(got.
@@ -215,7 +212,6 @@ func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
 	assert.Equal(t, "ck",
 		got.ConcurrencyKey,
 	)
-
 }
 
 func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {

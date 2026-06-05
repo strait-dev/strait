@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -67,7 +66,6 @@ func TestCheckSpendingLimit_DispatchesCapWarningAt80Pct(t *testing.T) {
 	assert.False(t, contains(got, domain.
 		WebhookEventBillingCapReached,
 	))
-
 }
 
 func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T) {
@@ -79,7 +77,7 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	var limitErr *LimitError
-	require.True(t, errors.As(err, &limitErr))
+	require.ErrorAs(t, err, &limitErr)
 
 	got := dispatchedEventTypes(d)
 	assert.True(t, contains(got, domain.
@@ -98,11 +96,10 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 				pausedReason !=
 				"quota_exceeded",
 	)
-	require.EqualValues(t, 2, countEvent(got,
+	require.Equal(t, 2, countEvent(got,
 		domain.WebhookEventScheduleSuspended,
 	),
 	)
-
 }
 
 func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
@@ -133,17 +130,16 @@ func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
 
 	err := e.CheckMonthlyRunLimitForRun(context.Background(), orgID, "run-free-cap")
 	var limitErr *LimitError
-	require.True(t, errors.As(err, &limitErr))
+	require.ErrorAs(t, err, &limitErr)
 	require.False(t,
 		store.pausedOrgID !=
 			orgID ||
 			store.pausedReason !=
 				"quota_exceeded",
 	)
-	require.EqualValues(t, 1, countEvent(dispatchedEventTypes(d),
+	require.Equal(t, 1, countEvent(dispatchedEventTypes(d),
 		domain.WebhookEventScheduleSuspended,
 	))
-
 }
 
 func TestDeepSecCheckSpendingLimitNotifyDispatchesWithoutRejecting(t *testing.T) {
@@ -163,7 +159,6 @@ func TestDeepSecCheckSpendingLimitNotifyDispatchesWithoutRejecting(t *testing.T)
 	assert.False(t, contains(got, domain.
 		WebhookEventBillingOverageDisabled,
 	))
-
 }
 
 func TestDeepSecCheckSpendingLimitRejectActionRejects(t *testing.T) {
@@ -173,16 +168,15 @@ func TestDeepSecCheckSpendingLimitRejectActionRejects(t *testing.T) {
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)
 
 	var limitErr *LimitError
-	require.True(t, errors.As(e.CheckSpendingLimit(context.
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
 		Background(), sub.
 		OrgID,
-	), &limitErr))
+	), &limitErr)
 
 	got := dispatchedEventTypes(d)
 	assert.True(t, contains(got, domain.
 		WebhookEventBillingOverageDisabled,
 	))
-
 }
 
 func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
@@ -192,10 +186,10 @@ func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 7_000_000) // 140% of cap
 
 	var capErr *LimitError
-	require.True(t, errors.As(e.CheckSpendingLimit(context.
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
 		Background(), sub.
 		OrgID,
-	), &capErr))
+	), &capErr)
 
 	got := dispatchedEventTypes(d)
 	assert.True(t, contains(got, domain.
@@ -204,7 +198,6 @@ func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
 	assert.False(t, contains(got, domain.
 		WebhookEventBillingOverageDisabled,
 	))
-
 }
 
 func TestCheckSpendingLimit_DedupPerPeriod(t *testing.T) {
@@ -217,11 +210,10 @@ func TestCheckSpendingLimit_DedupPerPeriod(t *testing.T) {
 		_ = e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	}
 	got := dispatchedEventTypes(d)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(got,
 			domain.WebhookEventBillingCapWarning,
 		))
-
 }
 
 func TestCheckSpendingLimit_PeriodRolloverResetsDedup(t *testing.T) {
@@ -248,11 +240,10 @@ func TestCheckSpendingLimit_PeriodRolloverResetsDedup(t *testing.T) {
 			OrgID))
 
 	got := dispatchedEventTypes(d)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		countEvent(got,
 			domain.WebhookEventBillingCapWarning,
 		))
-
 }
 
 func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
@@ -265,10 +256,10 @@ func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, nil) // no dispatcher
 	var noDispErr *LimitError
-	require.True(t, errors.As(e.CheckSpendingLimit(context.
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
 		Background(), sub.
 		OrgID,
-	), &noDispErr))
+	), &noDispErr)
 
 	// No panic, no dispatch — already implied by reaching here.
 }

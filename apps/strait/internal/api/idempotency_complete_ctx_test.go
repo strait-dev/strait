@@ -70,11 +70,10 @@ func TestCompleteIdempotencyKeyUsesDetachedContext(t *testing.T) {
 	require.True(
 		t, completeCalled,
 	)
-	require.Nil(t, completeCtxErr)
+	require.NoError(t, completeCtxErr)
 	require.True(
 		t, completeDeadline,
 	)
-
 }
 
 // TestCompleteIdempotencyKeyTimeoutBudgetEnforced is the adversarial
@@ -185,5 +184,4 @@ func TestCompleteIdempotencyKeyHappyPathStillCommits(t *testing.T) {
 	)
 	require.Equal(t, `{"created":true}`,
 		string(completeBody))
-
 }

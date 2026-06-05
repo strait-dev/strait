@@ -15,7 +15,6 @@ func TestSecretKey_HKDF_Returns32Bytes(t *testing.T) {
 	key, err := q.secretKey()
 	require.NoError(t, err)
 	assert.Len(t, key, 32)
-
 }
 
 func TestSecretKey_HKDF_Deterministic(t *testing.T) {
@@ -28,7 +27,6 @@ func TestSecretKey_HKDF_Deterministic(t *testing.T) {
 	key2, err := q.secretKey()
 	require.NoError(t, err)
 	assert.Equal(t, string(key2), string(key1))
-
 }
 
 func TestSecretKey_HKDF_DifferentFromSHA256(t *testing.T) {
@@ -43,7 +41,6 @@ func TestSecretKey_HKDF_DifferentFromSHA256(t *testing.T) {
 	legacySum := sha256.Sum256([]byte(passphrase))
 	legacyKey := legacySum[:]
 	assert.NotEqual(t, string(legacyKey), string(hkdfKey))
-
 }
 
 func TestSecretKey_EmptyKey_ReturnsError(t *testing.T) {
@@ -52,7 +49,6 @@ func TestSecretKey_EmptyKey_ReturnsError(t *testing.T) {
 	q := &Queries{secretEncryptionKey: ""}
 	_, err := q.secretKey()
 	require.Error(t, err)
-
 }
 
 func TestEncryptDecrypt_Roundtrip_HKDF(t *testing.T) {
@@ -71,7 +67,6 @@ func TestEncryptDecrypt_Roundtrip_HKDF(t *testing.T) {
 	assert.Equal(t, plaintext,
 		decrypted,
 	)
-
 }
 
 func TestDecryptSecretWithFallback_NewKey(t *testing.T) {
@@ -89,7 +84,6 @@ func TestDecryptSecretWithFallback_NewKey(t *testing.T) {
 	assert.Equal(t, "new-format-secret",
 
 		decrypted)
-
 }
 
 func TestDecryptSecretWithFallback_LegacyKey(t *testing.T) {
@@ -111,7 +105,6 @@ func TestDecryptSecretWithFallback_LegacyKey(t *testing.T) {
 	assert.Equal(t, "legacy-secret-value",
 
 		decrypted)
-
 }
 
 func TestDecryptSecretWithFallback_WrongKey_Fails(t *testing.T) {
@@ -126,7 +119,6 @@ func TestDecryptSecretWithFallback_WrongKey_Fails(t *testing.T) {
 	q2 := &Queries{secretEncryptionKey: "key-two-completely-different"}
 	_, err = q2.decryptSecretWithFallback(encrypted)
 	require.Error(t, err)
-
 }
 
 func TestDecryptSecretWithFallback_OldConfiguredKey(t *testing.T) {
@@ -148,7 +140,6 @@ func TestDecryptSecretWithFallback_OldConfiguredKey(t *testing.T) {
 	require.Equal(t, "rotated-secret",
 
 		decrypted)
-
 }
 
 func FuzzSecretEncryptDecrypt(f *testing.F) {
@@ -171,6 +162,5 @@ func FuzzSecretEncryptDecrypt(f *testing.F) {
 		assert.Equal(t, plaintext,
 			decrypted,
 		)
-
 	})
 }

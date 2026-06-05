@@ -20,7 +20,6 @@ func TestSDKTelemetry_ToolCallRouteLaunchInactive(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestSDKTelemetry_IterationRouteLaunchInactive(t *testing.T) {
@@ -40,5 +39,4 @@ func TestSDKTelemetry_IterationRouteLaunchInactive(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, called)
-
 }

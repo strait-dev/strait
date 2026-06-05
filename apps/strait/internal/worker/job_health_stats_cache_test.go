@@ -41,11 +41,9 @@ func TestGetJobHealthStats_DisabledPassesThrough(t *testing.T) {
 			t, err)
 		require.True(t,
 			sameJobHealthStats(got, want))
-
 	}
 	require.EqualValues(t, 5, calls.
 		Load())
-
 }
 
 // With TTL set, repeated calls for the same jobID should hit the store once.
@@ -66,11 +64,9 @@ func TestGetJobHealthStats_TTLServesFromCache(t *testing.T) {
 			t, err)
 		require.True(t,
 			sameJobHealthStats(got, want))
-
 	}
 	require.EqualValues(t, 1, calls.
 		Load())
-
 }
 
 // Concurrent misses for the same jobID must collapse into a single store call
@@ -108,7 +104,6 @@ func TestGetJobHealthStats_SingleflightCoalescesMisses(t *testing.T) {
 	wg.Wait()
 	require.EqualValues(t, 1, calls.
 		Load())
-
 }
 
 // Errors must propagate (and not poison the cache: a follow-up successful call
@@ -139,7 +134,6 @@ func TestGetJobHealthStats_ErrorIsNotCached(t *testing.T) {
 		sameJobHealthStats(got, want))
 	require.EqualValues(t, 2, calls.
 		Load())
-
 }
 
 func sameJobHealthStats(got, want *orcstore.JobHealthStats) bool {

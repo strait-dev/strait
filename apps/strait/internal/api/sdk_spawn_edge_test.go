@@ -115,7 +115,6 @@ func TestHandleSDKSpawn_AwaitCompletion_RejectsTimeoutAboveMaximum(t *testing.T)
 	require.False(t, enqueued.Load() || statusUpdated.
 		Load() || createdTrigger.
 		Load())
-
 }
 
 func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
@@ -151,7 +150,6 @@ func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
 	assert.False(
 		t, statusUpdated.
 			Load())
-
 }
 
 func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
@@ -187,7 +185,6 @@ func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 	)
 
 	// Should still create the child run, but not transition parent.
-
 }
 
 // Cross-project spawn tests.
@@ -210,7 +207,6 @@ func TestHandleSDKSpawn_CrossProject_RequiresTargetKey(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
@@ -233,7 +229,6 @@ func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
@@ -257,7 +252,6 @@ func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
@@ -281,7 +275,6 @@ func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
@@ -305,7 +298,6 @@ func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T) {
@@ -334,7 +326,6 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T)
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing.T) {
@@ -374,7 +365,6 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
@@ -414,7 +404,6 @@ func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyUsesAuthCache(t *testing.T) {
@@ -451,11 +440,9 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyUsesAuthCache(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code,
 		)
-
 	}
 	require.EqualValues(t, 1, keyLookups.
 		Load())
-
 }
 
 func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
@@ -482,7 +469,6 @@ func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKSpawn_ParentRunNotFound(t *testing.T) {
@@ -502,5 +488,4 @@ func TestHandleSDKSpawn_ParentRunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }

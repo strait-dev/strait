@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/config"
@@ -34,7 +33,6 @@ func TestHandleCreateNotificationChannel_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateNotificationChannel_SuccessDiscord(t *testing.T) {
@@ -52,7 +50,6 @@ func TestHandleCreateNotificationChannel_SuccessDiscord(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateNotificationChannel_SuccessWebhook(t *testing.T) {
@@ -70,7 +67,6 @@ func TestHandleCreateNotificationChannel_SuccessWebhook(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsPrivateIP(t *testing.T) {
@@ -83,7 +79,6 @@ func TestHandleCreateNotificationChannel_RejectsPrivateIP(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsLocalhostURL(t *testing.T) {
@@ -96,7 +91,6 @@ func TestHandleCreateNotificationChannel_RejectsLocalhostURL(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsMetadataEndpoint(t *testing.T) {
@@ -109,7 +103,6 @@ func TestHandleCreateNotificationChannel_RejectsMetadataEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsMissingWebhookURL(t *testing.T) {
@@ -122,7 +115,6 @@ func TestHandleCreateNotificationChannel_RejectsMissingWebhookURL(t *testing.T) 
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsMissingURL(t *testing.T) {
@@ -135,7 +127,6 @@ func TestHandleCreateNotificationChannel_RejectsMissingURL(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsInvalidConfig(t *testing.T) {
@@ -148,7 +139,6 @@ func TestHandleCreateNotificationChannel_RejectsInvalidConfig(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsMissingProjectID(t *testing.T) {
@@ -161,7 +151,6 @@ func TestHandleCreateNotificationChannel_RejectsMissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testing.T) {
@@ -174,7 +163,6 @@ func TestHandleCreateNotificationChannel_RejectsUnsupportedChannelType(t *testin
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateNotificationChannel_ValidatesNewConfig(t *testing.T) {
@@ -197,7 +185,6 @@ func TestHandleUpdateNotificationChannel_ValidatesNewConfig(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleUpdateNotificationChannel_AcceptsValidConfig(t *testing.T) {
@@ -222,7 +209,6 @@ func TestHandleUpdateNotificationChannel_AcceptsValidConfig(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/notification-channels/ch-1", body, "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleUpdateNotificationChannel_SkipsValidationWhenConfigUnchanged(t *testing.T) {
@@ -247,7 +233,6 @@ func TestHandleUpdateNotificationChannel_SkipsValidationWhenConfigUnchanged(t *t
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/notification-channels/ch-1", body, "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleUpdateNotificationChannel_NotFound(t *testing.T) {
@@ -264,7 +249,6 @@ func TestHandleUpdateNotificationChannel_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateNotificationChannel_ReturnsConfig(t *testing.T) {
@@ -293,7 +277,6 @@ func TestHandleCreateNotificationChannel_ReturnsConfig(t *testing.T) {
 	}
 	require.False(t, string(resp["config"]) ==
 		"null" || string(resp["config"]) == `""`)
-
 }
 
 func TestHandleGetNotificationChannel_ReturnsConfig(t *testing.T) {
@@ -324,9 +307,8 @@ func TestHandleGetNotificationChannel_ReturnsConfig(t *testing.T) {
 
 			"response missing config field")
 	}
-	require.True(
-		t, strings.Contains(string(resp["config"]), "webhook_url"))
-
+	require.Contains(
+		t, string(resp["config"]), "webhook_url")
 }
 
 func TestHandleListNotificationChannels_ReturnsConfig(t *testing.T) {
@@ -344,9 +326,8 @@ func TestHandleListNotificationChannels_ReturnsConfig(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-channels", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), `"config"`))
-
+	require.Contains(
+		t, w.Body.String(), `"config"`)
 }
 
 func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
@@ -372,7 +353,6 @@ func TestGlobalAllowPrivateEndpoints_ResetBetweenServers(t *testing.T) {
 	t.Cleanup(srv2.Close)
 	require.False(t, globalAllowPrivateEndpoints.
 		Load())
-
 }
 
 // Regression: notification channel config carries webhook URLs that act as
@@ -396,9 +376,8 @@ func TestHandleNotificationChannel_ConfigRedactedOnGet(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-channels/ch-1", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.False(t, strings.Contains(w.Body.String(), "SUPER-SECRET-TOKEN"))
-	require.False(t, strings.Contains(w.Body.String(), "hooks.slack.com"))
-
+	require.NotContains(t, w.Body.String(), "SUPER-SECRET-TOKEN")
+	require.NotContains(t, w.Body.String(), "hooks.slack.com")
 }
 
 func TestHandleNotificationChannel_ConfigRedactedOnList(t *testing.T) {
@@ -418,8 +397,7 @@ func TestHandleNotificationChannel_ConfigRedactedOnList(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-channels", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.False(t, strings.Contains(w.Body.String(), "LIST-LEAK-SECRET"))
-
+	require.NotContains(t, w.Body.String(), "LIST-LEAK-SECRET")
 }
 
 func TestGlobalAllowPrivateEndpoints_DefaultFalse(t *testing.T) {
@@ -432,5 +410,4 @@ func TestGlobalAllowPrivateEndpoints_DefaultFalse(t *testing.T) {
 	t.Cleanup(srv.Close)
 	require.False(t, globalAllowPrivateEndpoints.
 		Load())
-
 }

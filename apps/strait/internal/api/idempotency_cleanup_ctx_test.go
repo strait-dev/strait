@@ -79,11 +79,10 @@ func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 	require.True(
 		t, deleteCalled,
 	)
-	require.Nil(t, deleteCtxErr)
+	require.NoError(t, deleteCtxErr)
 	require.True(
 		t, deleteCtxDeadline,
 	)
-
 }
 
 func TestPanicCleanupStripsRequestTransactionFromDetachedContext(t *testing.T) {
@@ -127,7 +126,6 @@ func TestPanicCleanupStripsRequestTransactionFromDetachedContext(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.False(t, deleteTxOK)
-
 }
 
 // TestNonSuccessCleanupSurvivesTimeout verifies the non-2xx
@@ -182,8 +180,7 @@ func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 	require.True(
 		t, deleteCalled,
 	)
-	require.Nil(t, deleteCtxErr)
-
+	require.NoError(t, deleteCtxErr)
 }
 
 // TestCleanupBoundsCleanupDuration is the adversarial guard:
@@ -286,12 +283,11 @@ func TestSuccessCompletionRunsAfterRLSTxCommit(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 
 		w.Code)
-	require.EqualValues(t, 1, tx.
+	require.Equal(t, 1, tx.
 		commitCalls)
 	require.True(
 		t, completeAfterCommit,
 	)
-
 }
 
 func TestSuccessPendingKeyCleanedWhenRLSTxCommitFails(t *testing.T) {
@@ -329,7 +325,6 @@ func TestSuccessPendingKeyCleanedWhenRLSTxCommitFails(t *testing.T) {
 	require.True(
 		t, deleteCalled,
 	)
-
 }
 
 type testCancelKey struct{}

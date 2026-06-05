@@ -26,7 +26,6 @@ func TestNewRedisClient_EmptyURL(t *testing.T) {
 	require.Error(t,
 		err)
 	assert.Nil(t, client)
-
 }
 
 func TestNewRedisClient_SentinelConfig(t *testing.T) {
@@ -73,7 +72,6 @@ func TestNewRedisClient_SentinelWithRedissEnablesTLS(t *testing.T) {
 	require.NotNil(t,
 		opts.TLSConfig,
 	)
-
 }
 
 func TestNewRedisClient_SentinelInvalidURLFailsClosed(t *testing.T) {
@@ -81,7 +79,6 @@ func TestNewRedisClient_SentinelInvalidURLFailsClosed(t *testing.T) {
 	_, err := NewRedisClient("not-a-valid-url", "mymaster", []string{"localhost:26379"}, RedisPoolOptions{})
 	require.Error(t,
 		err)
-
 }
 
 func TestNewRedisClient_InvalidURL(t *testing.T) {
@@ -89,7 +86,6 @@ func TestNewRedisClient_InvalidURL(t *testing.T) {
 	_, err := NewRedisClient("not-a-valid-url", "", nil, RedisPoolOptions{})
 	require.Error(t,
 		err)
-
 }
 
 func TestNewRedisClient_SentinelMasterWithoutAddrs(t *testing.T) {
@@ -117,7 +113,6 @@ func TestRedisPublisher_Ping(t *testing.T) {
 	err = pub.Ping(ctx)
 	assert.Error(t,
 		err)
-
 }
 
 func TestNewRedisClient_AppliesPoolOptions(t *testing.T) {
@@ -157,7 +152,6 @@ func TestNewRedisClient_AppliesPoolOptions(t *testing.T) {
 		pool.ConnMaxLifetime,
 
 		opts.ConnMaxLifetime)
-
 }
 
 func TestNewRedisClient_EmptyPoolOptions_KeepsURLDefaults(t *testing.T) {
@@ -172,12 +166,10 @@ func TestNewRedisClient_EmptyPoolOptions_KeepsURLDefaults(t *testing.T) {
 	assert.NotEqual(
 		t, 0, opts.
 			PoolSize)
-	assert.False(t,
-		opts.ReadTimeout <=
-			0)
+	assert.Positive(t,
+		opts.ReadTimeout)
 
 	// go-redis defaults: PoolSize = 10*GOMAXPROCS, MinIdleConns = 0.
-
 }
 
 func TestNewRedisClient_SentinelAppliesPoolOptions(t *testing.T) {
@@ -202,5 +194,4 @@ func TestNewRedisClient_SentinelAppliesPoolOptions(t *testing.T) {
 		pool.ReadTimeout,
 
 		opts.ReadTimeout)
-
 }

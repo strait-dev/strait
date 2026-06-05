@@ -60,7 +60,6 @@ func TestChunkStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
 	assert.Equal(
 		t, "no-cache",
 		w.Header().Get("Cache-Control"))
-
 }
 
 // TestChunkStreamRouteAcceptsSSEAcceptHeader pins the regression where
@@ -91,7 +90,6 @@ func TestChunkStreamRouteAcceptsSSEAcceptHeader(t *testing.T) {
 
 	// pubsub is nil so handler emits a 200 with an SSE error body. The
 	// important assertion is that we cleared the JSON Accept gate.
-
 }
 
 // TestChunkStreamPreservesTerminalGuard confirms the run-state guard at
@@ -115,7 +113,6 @@ func TestChunkStreamPreservesTerminalGuard(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusGone,
 		w.Code)
-
 }
 
 // TestChunkStreamRequiresAuth ensures the moved route still rejects
@@ -133,5 +130,4 @@ func TestChunkStreamRequiresAuth(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-
 }

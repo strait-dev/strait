@@ -56,7 +56,6 @@ func TestDispatch_ExpiredTTL_StillDispatches(t *testing.T) {
 
 	calls := st.statusUpdates()
 	require.NotEmpty(t, calls)
-
 }
 
 // dispatch: unreachable endpoint URL -- should fail/retry
@@ -95,7 +94,6 @@ func TestDispatch_ConnectionRefused_Fails(t *testing.T) {
 			last.to !=
 				domain.StatusFailed,
 	)
-
 }
 
 // dispatch: nil job reference -- should handle gracefully
@@ -120,7 +118,6 @@ func TestDispatch_NilJobLookup_PanicsOnNilReturn(t *testing.T) {
 		r := recover()
 		require.NotNil(t,
 			r)
-
 	}()
 	exec.execute(context.Background(), run)
 }
@@ -144,7 +141,6 @@ func TestDispatch_JobLookupError_SystemFails(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		calls[0].to)
-
 }
 
 // dispatch: zero max_attempts -- should still execute once
@@ -178,7 +174,6 @@ func TestDispatch_ZeroMaxAttempts_ExecutesOnce(t *testing.T) {
 		domain.StatusDeadLetter,
 		last.
 			to)
-
 }
 
 // dispatch: context cancellation during execution
@@ -224,7 +219,6 @@ func TestDispatch_ContextCancellation_HandledGracefully(t *testing.T) {
 	// First transition should be dequeued -> executing.
 
 	// Should time out and get re-enqueued or timed_out.
-
 }
 
 // dispatch: concurrent dispatch of same run ID -- idempotency via status transitions
@@ -271,7 +265,6 @@ func TestDispatch_ConcurrentSameRunID_OnlyOneExecutes(t *testing.T) {
 
 	// Only the first goroutine should have successfully transitioned to executing.
 	// Others should have silently exited on the status conflict error.
-
 }
 
 // dispatch: very large payload -- should not crash
@@ -325,7 +318,6 @@ func TestDispatch_LargePayload_NoOOMPanic(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // dispatch: all retry strategies (exponential, fixed)
@@ -364,7 +356,6 @@ func TestDispatch_RetryStrategy_Exponential_RetriesOnFailure(t *testing.T) {
 	}
 	require.True(t,
 		hasRetry)
-
 }
 
 func TestDispatch_RetryStrategy_Fixed_RetriesOnFailure(t *testing.T) {
@@ -423,7 +414,6 @@ func TestDispatch_RetryStrategy_Fixed_RetriesOnFailure(t *testing.T) {
 	}
 	require.True(t,
 		hasRetry)
-
 }
 
 // dispatch: endpoint returns non-JSON response -- should not panic
@@ -458,7 +448,6 @@ func TestDispatch_NonJSONResponse_Completes(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // dispatch: circuit breaker open -- should snooze
@@ -487,7 +476,6 @@ func TestDispatch_CircuitBreakerOpen_Snoozes(t *testing.T) {
 		calls[0].to)
 
 	// Should snooze back to queued.
-
 }
 
 // dispatch: circuit breaker check error -- system failure
@@ -514,7 +502,6 @@ func TestDispatch_CircuitBreakerCheckError_SystemFails(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		calls[0].to)
-
 }
 
 // dispatch: empty endpoint URL -- should fail on HTTP dispatch
@@ -541,7 +528,6 @@ func TestDispatch_EmptyEndpointURL_Fails(t *testing.T) {
 
 		last.to,
 	)
-
 }
 
 // dispatch: endpoint returns 429 -- should be classified as transient
@@ -575,7 +561,6 @@ func TestDispatch_Endpoint429_Retries(t *testing.T) {
 	}
 	require.True(t,
 		hasRetry)
-
 }
 
 // dispatch: endpoint returns 200 with empty body -- should complete
@@ -608,7 +593,6 @@ func TestDispatch_EmptyResponseBody_Completes(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // dispatch: unknown execution mode -- system failure
@@ -634,7 +618,6 @@ func TestDispatch_UnknownExecutionMode_SystemFails(t *testing.T) {
 		domain.StatusSystemFailed,
 
 		calls[0].to)
-
 }
 
 // ingestStripeUsageEvent: with compute usage metadata (realistic data)
@@ -687,7 +670,6 @@ func TestDispatch_StatusUpdateFails_StopsProcessing(t *testing.T) {
 	require.LessOrEqual(t, httpCalled.
 		Load(), int32(0),
 	)
-
 }
 
 // dispatch: bulkhead at capacity -- should snooze
@@ -696,7 +678,7 @@ func TestDispatch_BulkheadFull_Snoozes(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"endpoint should not be called when bulkhead is full")
 		w.WriteHeader(http.StatusOK)
@@ -759,7 +741,6 @@ func TestDispatch_Endpoint503_RetriesWithAttemptsRemaining(t *testing.T) {
 	}
 	require.True(t,
 		hasRetry)
-
 }
 
 // dispatch: adaptive timeout with health stats
@@ -803,7 +784,6 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // dispatchToEndpoint: request build error with malformed URL
@@ -823,12 +803,9 @@ func TestDispatchToEndpoint_MalformedURL_ReturnsError(t *testing.T) {
 	_, err := e.dispatchToEndpoint(context.Background(), "http://\x00invalid", run, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(
-			err.Error(), "build request",
-		),
+	require.Contains(t,
+		err.Error(), "build request",
 	)
-
 }
 
 // dispatchToEndpoint: extra headers are injected
@@ -873,7 +850,6 @@ func TestDispatchToEndpoint_ExtraHeaders_Injected(t *testing.T) {
 	assert.Equal(t,
 		"custom-value", captured.
 			Get("X-Custom"))
-
 }
 
 // dispatchToEndpoint: response body > 1MB is truncated
@@ -904,5 +880,4 @@ func TestDispatchToEndpoint_LargeResponseBody_Truncated(t *testing.T) {
 	require.LessOrEqual(t, len(result), 1<<20)
 
 	// LimitReader caps at 1MB.
-
 }

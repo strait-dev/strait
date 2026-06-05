@@ -23,7 +23,6 @@ func TestAuditActionRetentionTrimmed_Registered(t *testing.T) {
 	for _, required := range []string{"deleted_count", "trimmed_before", "previous_hash"} {
 		assert.True(t,
 			slices.Contains(schema.Required, required))
-
 	}
 
 	// Common forbidden keys (defense-in-depth) must still apply to the
@@ -32,6 +31,5 @@ func TestAuditActionRetentionTrimmed_Registered(t *testing.T) {
 	for _, must := range []string{"secret", "token", "private_key", "password"} {
 		assert.True(t,
 			slices.Contains(forbidden, must))
-
 	}
 }

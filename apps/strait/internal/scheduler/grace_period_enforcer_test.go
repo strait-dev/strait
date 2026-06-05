@@ -191,7 +191,6 @@ func TestGraceEnforcer_PastGrace_RestrictsToFree(t *testing.T) {
 	assert.Equal(t, "free",
 		store.
 			updatedPlans["org-expired"])
-
 }
 
 func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
@@ -234,7 +233,6 @@ func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
 		"notification:project-b",
 	} {
 		require.True(t, got[want])
-
 	}
 }
 
@@ -249,15 +247,10 @@ func TestGraceEnforcer_WithinGrace_NoAction(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
-	assert.Len(t, store.
-		updatedStatuses,
-
-		0)
-	assert.Len(t, store.
-		updatedPlans,
-
-		0)
-
+	assert.Empty(t, store.
+		updatedStatuses)
+	assert.Empty(t, store.
+		updatedPlans)
 }
 
 func TestGraceEnforcer_NoOrgsInGrace_NoOp(t *testing.T) {
@@ -269,11 +262,8 @@ func TestGraceEnforcer_NoOrgsInGrace_NoOp(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
-	assert.Len(t, store.
-		updatedStatuses,
-
-		0)
-
+	assert.Empty(t, store.
+		updatedStatuses)
 }
 
 func TestGraceEnforcer_MultipleOrgs_IndependentProcessing(t *testing.T) {
@@ -306,7 +296,6 @@ func TestGraceEnforcer_MultipleOrgs_IndependentProcessing(t *testing.T) {
 	assert.Equal(t, "free",
 		store.
 			updatedPlans["org-b"])
-
 }
 
 func TestGraceEnforcer_AtomicRestrictionIneligibleSkipsCacheReset(t *testing.T) {
@@ -323,15 +312,10 @@ func TestGraceEnforcer_AtomicRestrictionIneligibleSkipsCacheReset(t *testing.T) 
 	enforcer := newTestEnforcer(t)
 	g := NewGracePeriodEnforcer(store, enforcer, time.Hour)
 	g.enforce(context.Background())
-	require.Len(t, store.
-		updatedStatuses,
-
-		0)
-	require.Len(t, store.
-		updatedPlans,
-
-		0)
-
+	require.Empty(t, store.
+		updatedStatuses)
+	require.Empty(t, store.
+		updatedPlans)
 }
 
 func TestGraceEnforcer_AlreadyRestricted_Skipped(t *testing.T) {
@@ -351,15 +335,10 @@ func TestGraceEnforcer_AlreadyRestricted_Skipped(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
-	assert.Len(t, store.
-		updatedStatuses,
-
-		0)
-	assert.Len(t, store.
-		updatedPlans,
-
-		0)
+	assert.Empty(t, store.
+		updatedStatuses)
+	assert.Empty(t, store.
+		updatedPlans)
 
 	// Already restricted orgs should be skipped entirely.
-
 }

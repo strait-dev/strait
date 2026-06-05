@@ -117,7 +117,6 @@ func TestContractExpiryChecker_SendsReminderForExpiringContract(t *testing.T) {
 		sent[0].
 		autoRenew,
 	)
-
 }
 
 func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
@@ -143,7 +142,6 @@ func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T) {
@@ -161,7 +159,6 @@ func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T
 	checker.check(context.Background())
 	require.Len(t, emails.
 		sent, 1)
-
 }
 
 func TestContractExpiryChecker_DurableClaimPreventsDuplicateReminder(t *testing.T) {
@@ -183,10 +180,9 @@ func TestContractExpiryChecker_DurableClaimPreventsDuplicateReminder(t *testing.
 	require.Len(t, emailsA.
 		sent, 1,
 	)
-	require.Len(t, emailsB.
-		sent, 0,
+	require.Empty(t, emailsB.
+		sent,
 	)
-
 }
 
 func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T) {
@@ -204,7 +200,6 @@ func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T)
 		1 || store.restricted[0] !=
 
 		"org-expired")
-
 }
 
 func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T) {
@@ -225,7 +220,6 @@ func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T)
 		1 || invalidator.orgs[0] !=
 
 		"org-expired")
-
 }
 
 func TestContractExpiryChecker_SkipsStaleExpiredContractRestriction(t *testing.T) {
@@ -239,10 +233,8 @@ func TestContractExpiryChecker_SkipsStaleExpiredContractRestriction(t *testing.T
 	}
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	checker.check(context.Background())
-	require.Len(t, store.
-		restricted,
-		0)
-
+	require.Empty(t, store.
+		restricted)
 }
 
 func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
@@ -264,7 +256,6 @@ func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
 	for _, call := range emails.sent {
 		assert.True(t, call.
 			autoRenew)
-
 	}
 }
 
@@ -275,9 +266,8 @@ func TestContractExpiryChecker_NoContracts(t *testing.T) {
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-	require.Len(t, emails.
-		sent, 0)
-
+	require.Empty(t, emails.
+		sent)
 }
 
 func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
@@ -295,10 +285,9 @@ func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	// Should not panic.
 	checker.check(context.Background())
-	require.Len(t, store.
-		claims, 0,
+	require.Empty(t, store.
+		claims,
 	)
-
 }
 
 func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {
@@ -316,7 +305,6 @@ func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-	require.Len(t, emails.
-		sent, 0)
-
+	require.Empty(t, emails.
+		sent)
 }

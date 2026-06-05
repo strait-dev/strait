@@ -32,9 +32,8 @@ func FuzzParsePagination_Additional(f *testing.F) {
 		limit, cursor, err := parsePaginationFromStrings(limitStr, cursorStr)
 
 		if err == nil {
-			assert.False(
-				t, limit <=
-					0,
+			assert.Positive(
+				t, limit,
 			)
 
 			// When successful, limit must be positive and bounded.
@@ -79,7 +78,6 @@ func FuzzValidateIDFormat_Additional(f *testing.F) {
 		// Invariant: IDs over max length are rejected.
 
 		// Invariant: path traversal patterns are rejected.
-
 	})
 }
 

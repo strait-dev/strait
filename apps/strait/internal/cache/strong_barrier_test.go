@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -29,8 +28,8 @@ func TestStrongBarrierRejectsStaleFill(t *testing.T) {
 	_, err := tier.GetConsistentVersioned(t.Context(), "k", 0, func(context.Context, string) (Versioned[string], error) {
 		return Versioned[string]{Value: "stale", Version: 9}, nil
 	})
-	require.True(t,
-		errors.Is(err, ErrStaleVersion))
+	require.ErrorIs(t,
+		err, ErrStaleVersion)
 
 	l2.mu.Lock()
 	stored := l2.values["k"]
@@ -40,7 +39,6 @@ func TestStrongBarrierRejectsStaleFill(t *testing.T) {
 			stored.
 				Version !=
 				10)
-
 }
 
 func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
@@ -82,7 +80,6 @@ func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
 			got.
 				Version !=
 				10)
-
 }
 
 func TestStrongBarrierBusMessageIsIdempotent(t *testing.T) {
@@ -112,7 +109,6 @@ func TestStrongBarrierBusMessageIsIdempotent(t *testing.T) {
 			stored.
 				Version !=
 				10)
-
 }
 
 func TestStrongBarrierRedisCASAllowsEqualVersionReplacement(t *testing.T) {
@@ -142,5 +138,4 @@ func TestStrongBarrierRedisCASAllowsEqualVersionReplacement(t *testing.T) {
 				"fresh" ||
 			entry.
 				Version != 10)
-
 }

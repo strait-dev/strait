@@ -23,7 +23,6 @@ func TestRedisRateLimiterAllow_NilClientFailOpen(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
@@ -44,7 +43,6 @@ func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_EffectivelyUnlimitedBypassesRedis(t *testing.T) {
@@ -67,7 +65,6 @@ func TestRedisRateLimiterAllow_EffectivelyUnlimitedBypassesRedis(t *testing.T) {
 
 		result.Remaining,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_EffectivelyUnlimitedDailyWindowStillUsesRedis(t *testing.T) {
@@ -93,7 +90,6 @@ func TestRedisRateLimiterAllow_EffectivelyUnlimitedDailyWindowStillUsesRedis(t *
 	)
 	require.Equal(t, 1,
 		calls)
-
 }
 
 func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
@@ -162,7 +158,6 @@ func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
 	require.False(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
@@ -182,7 +177,6 @@ func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_ZeroLimit_Allowed(t *testing.T) {
@@ -203,7 +197,6 @@ func TestRedisRateLimiterAllow_ZeroLimit_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_ZeroWindow_Allowed(t *testing.T) {
@@ -224,7 +217,6 @@ func TestRedisRateLimiterAllow_ZeroWindow_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
@@ -281,7 +273,6 @@ func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
 	r3, _ := limiter.Allow(ctx, "rl:apikey:B", 1, time.Minute)
 	require.True(t, r3.
 		Allowed)
-
 }
 
 func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
@@ -297,7 +288,6 @@ func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
 	defer cancel()
 	_, err := limiter.AllowStrict(ctx, "key", 1, time.Minute)
 	require.Error(t, err)
-
 }
 
 func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
@@ -318,7 +308,6 @@ func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_EffectivelyUnlimitedStillUsesRedis(t *testing.T) {
@@ -344,7 +333,6 @@ func TestRedisRateLimiterAllowStrict_EffectivelyUnlimitedStillUsesRedis(t *testi
 	)
 	require.Equal(t, 1,
 		calls)
-
 }
 
 func TestRedisRateLimiterAllowStrict_ZeroWindow_Allowed(t *testing.T) {
@@ -365,7 +353,6 @@ func TestRedisRateLimiterAllowStrict_ZeroWindow_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_NegativeLimit_Allowed(t *testing.T) {
@@ -386,7 +373,6 @@ func TestRedisRateLimiterAllowStrict_NegativeLimit_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_NegativeWindow_Allowed(t *testing.T) {
@@ -407,7 +393,6 @@ func TestRedisRateLimiterAllowStrict_NegativeWindow_Allowed(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_NilClient_FailOpen(t *testing.T) {
@@ -423,7 +408,6 @@ func TestRedisRateLimiterAllowStrict_NilClient_FailOpen(t *testing.T) {
 	require.Equal(t, 10,
 		result.Remaining,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_Disabled_FailOpen(t *testing.T) {
@@ -444,7 +428,6 @@ func TestRedisRateLimiterAllowStrict_Disabled_FailOpen(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 func TestRedisRateLimiterAllowStrict_ShortResult_Error(t *testing.T) {
@@ -464,7 +447,6 @@ func TestRedisRateLimiterAllowStrict_ShortResult_Error(t *testing.T) {
 	defer cancel()
 	_, err := limiter.AllowStrict(ctx, "key", 10, time.Minute)
 	require.Error(t, err)
-
 }
 
 func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
@@ -509,5 +491,4 @@ func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
 		err)
 	require.False(t, r3.
 		Allowed)
-
 }

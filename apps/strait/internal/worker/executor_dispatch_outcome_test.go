@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,13 +13,14 @@ import (
 	"strait/internal/domain"
 	"strait/internal/testutil"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_Dispatch_Success(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t,
+		assert.Equal(t,
 			"run-1", r.Header.
 				Get("X-Run-ID"),
 		)
@@ -64,13 +64,12 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 		run.
 			Status,
 	)
-
 }
 
 func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t,
+		assert.Equal(t,
 			"super-secret",
 			r.Header.Get("X-Secret-API_KEY"))
 
@@ -119,8 +118,8 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 		err)
 
 	var endpointErr *domain.EndpointError
-	require.True(t,
-		errors.As(err, &endpointErr))
+	require.ErrorAs(t,
+		err, &endpointErr)
 	require.Equal(t,
 		http.StatusInternalServerError,
 
@@ -144,7 +143,6 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 		domain.StatusDeadLetter,
 		calls[1].
 			to)
-
 }
 
 func TestExecutor_Dispatch_Timeout(t *testing.T) {
@@ -184,7 +182,6 @@ func TestExecutor_Dispatch_Timeout(t *testing.T) {
 			require.Equal(t,
 				tt.wantStatus, calls[1].to,
 			)
-
 		})
 	}
 }
@@ -216,8 +213,7 @@ func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
 	attempt, ok := calls[1].fields["attempt"].(int)
 	require.True(t,
 		ok)
-	require.EqualValues(t, 2, attempt)
-
+	require.Equal(t, 2, attempt)
 }
 
 func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
@@ -244,7 +240,6 @@ func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
 		domain.StatusDeadLetter,
 		calls[1].
 			to)
-
 }
 
 func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
@@ -270,7 +265,6 @@ func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
 	require.Equal(t,
 		domain.StatusQueued,
 		calls[1].to)
-
 }
 
 func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
@@ -309,7 +303,6 @@ func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
 		domain.StatusCompleted,
 		calls[1].
 			to)
-
 }
 
 func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
@@ -348,7 +341,6 @@ func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
 		domain.StatusDeadLetter,
 		calls[1].
 			to)
-
 }
 
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
@@ -380,7 +372,6 @@ func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 		run.
 			Status,
 	)
-
 }
 
 func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
@@ -413,7 +404,6 @@ func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
 		run.
 			Status,
 	)
-
 }
 
 func TestExecutor_Dispatch_EmptyResponse(t *testing.T) {

@@ -34,7 +34,6 @@ func TestBuildSentryRelease(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.
 				want, BuildSentryRelease(tc.version, tc.commit))
-
 		})
 	}
 }
@@ -109,7 +108,6 @@ func TestApplySentryFingerprint_Rules(t *testing.T) {
 				DeepEqual(got.Fingerprint,
 
 					tc.want))
-
 		})
 	}
 }
@@ -128,7 +126,6 @@ func TestApplySentryFingerprint_PreservesExplicitFingerprint(t *testing.T) {
 		DeepEqual(got.Fingerprint,
 
 			[]string{"custom", "fingerprint"}))
-
 }
 
 func TestSentryClientOptionsCarriesRelease(t *testing.T) {
@@ -143,7 +140,6 @@ func TestSentryClientOptionsCarriesRelease(t *testing.T) {
 
 		opts.Release,
 	)
-
 }
 
 func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
@@ -163,8 +159,8 @@ func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
 		opts.TracesSampler,
 	)
 
-	require.EqualValues(t, 0,
-		opts.TracesSampleRate,
+	require.InDelta(t, 0,
+		opts.TracesSampleRate, 1e-9,
 	)
 	require.False(t, opts.
 		MaxBreadcrumbs !=
@@ -174,5 +170,4 @@ func TestSentryClientOptionsEnablesTracingWithSampler(t *testing.T) {
 	require.True(t, opts.
 		StrictTraceContinuation,
 	)
-
 }

@@ -9,6 +9,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzDeriveAuditSigningKey asserts that DeriveAuditSigningKey is total
@@ -33,14 +34,13 @@ func FuzzDeriveAuditSigningKey(f *testing.F) {
 
 			return
 		}
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, key, 32)
 
 		// Determinism: same input produces same key.
 		key2, _ := store.DeriveAuditSigningKey(secret)
 		assert.Equal(t, string(key2), string(
 			key))
-
 	})
 }
 
@@ -73,6 +73,5 @@ func FuzzComputeAuditSignature(f *testing.F) {
 
 		sig2 := store.ComputeAuditSignature(ev, key)
 		assert.Equal(t, sig2, sig)
-
 	})
 }

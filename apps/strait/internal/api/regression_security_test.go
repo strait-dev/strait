@@ -18,7 +18,7 @@ import (
 // 32 and that deeply nested schemas are rejected.
 func TestRegression_PayloadSchemaMaxDepth(t *testing.T) {
 	t.Parallel()
-	require.EqualValues(t, 32,
+	require.Equal(t, 32,
 		maxSchemaDepth,
 	)
 
@@ -31,9 +31,8 @@ func TestRegression_PayloadSchemaMaxDepth(t *testing.T) {
 
 	err := validatePayloadAgainstSchema(payload, schema)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(), "maximum schema nesting depth",
-	))
+	require.Contains(t, err.
+		Error(), "maximum schema nesting depth")
 
 	// A schema at exactly maxSchemaDepth should still pass.
 	okSchema := regressionNestedSchema(maxSchemaDepth - 1)
@@ -43,7 +42,6 @@ func TestRegression_PayloadSchemaMaxDepth(t *testing.T) {
 			okPayload,
 
 			okSchema))
-
 }
 
 // regressionNestedSchema creates a JSON schema with the given nesting depth.
@@ -90,11 +88,10 @@ func TestRegression_IDFormatValidation(t *testing.T) {
 			err := validateIDFormat(tc.id)
 			if tc.wantErr {
 				require.Error(t, err)
-				require.True(t, strings.Contains(err.
+				require.Contains(t, err.
 					Error(), tc.
-					errSub),
+					errSub,
 				)
-
 			} else if err != nil {
 				require.Failf(t, "test failure",
 
@@ -151,7 +148,6 @@ func TestRegression_EndpointURLSSRF(t *testing.T) {
 			t.Parallel()
 			err := validateURLWithAllowPrivate(tc.url, false)
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -189,17 +185,15 @@ func TestRegression_EventFilterUnboundedArrays(t *testing.T) {
 	// Verify exceeding the limit is rejected.
 	tags["extra-key"] = "extra-value"
 	require.Error(t, validateTags(tags))
-
 }
 
 // TestRegression_BatchSizeLimits verifies the maxBatchSize constant is 50 and
 // that the limit is enforced.
 func TestRegression_BatchSizeLimits(t *testing.T) {
 	t.Parallel()
-	require.EqualValues(t, 50,
+	require.Equal(t, 50,
 		maxBatchSize,
 	)
-
 }
 
 // TestRegression_RequestBodySizeLimit verifies the default request body size
@@ -226,7 +220,6 @@ func TestRegression_RequestBodySizeLimit(t *testing.T) {
 		expected)
 
 	// Verify default body limit.
-
 }
 
 // FuzzRegression_AllValidators is a meta-fuzz test that exercises validateTags,

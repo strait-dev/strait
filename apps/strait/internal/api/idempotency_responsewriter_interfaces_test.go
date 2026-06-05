@@ -69,7 +69,6 @@ func TestCaptureWriterHijackForwardsToUnderlying(t *testing.T) {
 	require.True(t, mock.
 		hijacked,
 	)
-
 }
 
 // TestCaptureWriterHijackReportsUnsupported pins the error sentinel:
@@ -85,10 +84,7 @@ func TestCaptureWriterHijackReportsUnsupported(t *testing.T) {
 	require.True(t, ok)
 
 	_, _, err := hj.Hijack()
-	require.True(t, errors.Is(err,
-		http.ErrNotSupported,
-	))
-
+	require.ErrorIs(t, err, http.ErrNotSupported)
 }
 
 // TestCaptureWriterImplementsPusher pins the type assertion for
@@ -140,7 +136,6 @@ func TestCaptureWriterFlushDoesNotCorruptCapturedBody(t *testing.T) {
 
 		rec.Body.
 			String())
-
 }
 
 // nonFlushingWriter is a minimal ResponseWriter that does not implement

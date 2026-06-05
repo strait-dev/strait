@@ -48,7 +48,6 @@ func TestHandleUpdateJob_Success(t *testing.T) {
 		Bytes(), &resp))
 	require.Equal(t, "Updated Name",
 		resp["name"])
-
 }
 
 func TestHandleUpdateJob_NotFound(t *testing.T) {
@@ -65,7 +64,6 @@ func TestHandleUpdateJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleUpdateJob_InvalidBody(t *testing.T) {
@@ -82,7 +80,6 @@ func TestHandleUpdateJob_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateJob_InvalidCron(t *testing.T) {
@@ -99,7 +96,6 @@ func TestHandleUpdateJob_InvalidCron(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateJob_StoreError(t *testing.T) {
@@ -119,7 +115,6 @@ func TestHandleUpdateJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
@@ -132,7 +127,6 @@ func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJob_InvalidURL(t *testing.T) {
@@ -145,7 +139,6 @@ func TestHandleCreateJob_InvalidURL(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJob_InvalidCron(t *testing.T) {
@@ -158,7 +151,6 @@ func TestHandleCreateJob_InvalidCron(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJob_StoreError(t *testing.T) {
@@ -177,7 +169,6 @@ func TestHandleCreateJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJob_DefaultValues(t *testing.T) {
@@ -200,9 +191,8 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, got)
-	require.EqualValues(t, 3, got.MaxAttempts)
-	require.EqualValues(t, 300, got.TimeoutSecs)
-
+	require.Equal(t, 3, got.MaxAttempts)
+	require.Equal(t, 300, got.TimeoutSecs)
 }
 
 func TestHandleDeleteJob_NotFound(t *testing.T) {
@@ -222,7 +212,6 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleDeleteJob_StoreError(t *testing.T) {
@@ -242,7 +231,6 @@ func TestHandleDeleteJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCancelRun_NotFound(t *testing.T) {
@@ -259,7 +247,6 @@ func TestHandleCancelRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleCancelRun_TerminalState(t *testing.T) {
@@ -276,7 +263,6 @@ func TestHandleCancelRun_TerminalState(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCancelRun_UpdateError(t *testing.T) {
@@ -296,7 +282,6 @@ func TestHandleCancelRun_UpdateError(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
@@ -347,7 +332,6 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	require.False(t, len(bulkCancelParentIDs) == 0 ||
 		bulkCancelParentIDs[0] != "run-parent",
 	)
-
 }
 
 func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
@@ -406,7 +390,6 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 	require.GreaterOrEqual(t, bulkCancelCalls,
 
 		1)
-
 }
 
 func TestHandleTriggerJob_NotFound(t *testing.T) {
@@ -423,7 +406,6 @@ func TestHandleTriggerJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
@@ -500,7 +482,6 @@ func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
 	require.Equal(t, domain.StatusDelayed,
 		enqueued.
 			Status)
-
 }
 
 func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
@@ -535,7 +516,6 @@ func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
 	)
 	require.True(
 		t, enqueued)
-
 }
 
 func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
@@ -566,7 +546,6 @@ func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
 
 		w.Code)
 	require.False(t, enqueued)
-
 }
 
 func TestHandleTriggerJob_EnqueueError(t *testing.T) {
@@ -589,7 +568,6 @@ func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing.T) {
@@ -647,7 +625,6 @@ func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing
 		enqueued.
 			QueueName,
 	)
-
 }
 
 func TestValidateURL_ValidHTTPS(t *testing.T) {
@@ -655,7 +632,6 @@ func TestValidateURL_ValidHTTPS(t *testing.T) {
 	require.NoError(t, validateURLWithAllowPrivate(
 		"https://example.com",
 		false))
-
 }
 
 func TestValidateURL_ValidHTTP(t *testing.T) {
@@ -663,7 +639,6 @@ func TestValidateURL_ValidHTTP(t *testing.T) {
 	require.NoError(t, validateURLWithAllowPrivate(
 		"http://example.com",
 		false))
-
 }
 
 func TestValidateURL_InvalidScheme(t *testing.T) {
@@ -671,7 +646,6 @@ func TestValidateURL_InvalidScheme(t *testing.T) {
 	require.Error(t, validateURLWithAllowPrivate("ftp://example.com",
 
 		false))
-
 }
 
 func TestValidateURL_NoHost(t *testing.T) {
@@ -679,7 +653,6 @@ func TestValidateURL_NoHost(t *testing.T) {
 	require.Error(t, validateURLWithAllowPrivate("http://",
 		false,
 	))
-
 }
 
 func TestValidateURL_LoopbackIP(t *testing.T) {
@@ -687,7 +660,6 @@ func TestValidateURL_LoopbackIP(t *testing.T) {
 	require.Error(t, validateURLWithAllowPrivate("http://127.0.0.1",
 
 		false))
-
 }
 
 func TestValidateURL_PrivateIP(t *testing.T) {
@@ -695,14 +667,12 @@ func TestValidateURL_PrivateIP(t *testing.T) {
 	require.Error(t, validateURLWithAllowPrivate("http://192.168.1.1",
 
 		false))
-
 }
 
 func TestValidateURL_AllowPrivateEndpointsAllowsLoopback(t *testing.T) {
 	globalAllowPrivateEndpoints.Store(true)
 	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
 	require.NoError(t, validateURL("http://127.0.0.1:49152/webhook"))
-
 }
 
 func TestValidateURLWithTLS_AllowPrivateEndpointsRespectsTLS(t *testing.T) {
@@ -714,7 +684,6 @@ func TestValidateURLWithTLS_AllowPrivateEndpointsRespectsTLS(t *testing.T) {
 	require.NoError(t, validateURLWithTLS("http://127.0.0.1:49152/webhook",
 
 		false))
-
 }
 
 func TestValidateURL_InvalidURL(t *testing.T) {
@@ -722,7 +691,6 @@ func TestValidateURL_InvalidURL(t *testing.T) {
 	require.Error(t, validateURLWithAllowPrivate("://bad",
 		false,
 	))
-
 }
 
 func TestValidateURL_ErrorCasing(t *testing.T) {
@@ -756,7 +724,6 @@ func TestHandleStats_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListChildRuns_StoreError(t *testing.T) {
@@ -773,7 +740,6 @@ func TestHandleListChildRuns_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListChildRuns_SuccessBody(t *testing.T) {
@@ -789,11 +755,9 @@ func TestHandleListChildRuns_SuccessBody(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-parent/children", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "run-child-1",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "run-child-1")
 }
 
 func TestHandleGetJob_StoreError(t *testing.T) {
@@ -810,7 +774,6 @@ func TestHandleGetJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListJobs_StoreError(t *testing.T) {
@@ -827,7 +790,6 @@ func TestHandleListJobs_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleGetRun_StoreError(t *testing.T) {
@@ -844,7 +806,6 @@ func TestHandleGetRun_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateJob_AllFields(t *testing.T) {
@@ -911,7 +872,6 @@ func TestHandleUpdateJob_AllFields(t *testing.T) {
 		updated.
 			PayloadSchema,
 	))
-
 }
 
 func TestHandleTriggerJob_InvalidBody(t *testing.T) {
@@ -928,7 +888,6 @@ func TestHandleTriggerJob_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_GetJobError(t *testing.T) {
@@ -945,7 +904,6 @@ func TestHandleTriggerJob_GetJobError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
@@ -967,7 +925,6 @@ func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
@@ -995,7 +952,6 @@ func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
@@ -1022,7 +978,6 @@ func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-123", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleSDKComplete_StoreGetError(t *testing.T) {
@@ -1040,7 +995,6 @@ func TestHandleSDKComplete_StoreGetError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleSDKComplete_UpdateError(t *testing.T) {
@@ -1061,7 +1015,6 @@ func TestHandleSDKComplete_UpdateError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleSDKFail_StoreGetError(t *testing.T) {
@@ -1079,7 +1032,6 @@ func TestHandleSDKFail_StoreGetError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleSDKFail_UpdateError(t *testing.T) {
@@ -1100,7 +1052,6 @@ func TestHandleSDKFail_UpdateError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleSDKComplete_InvalidBody(t *testing.T) {
@@ -1112,7 +1063,6 @@ func TestHandleSDKComplete_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleSDKFail_InvalidBody(t *testing.T) {
@@ -1124,7 +1074,6 @@ func TestHandleSDKFail_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
@@ -1164,7 +1113,6 @@ func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
 			diff >
 				5*time.Second,
 	)
-
 }
 
 func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
@@ -1204,7 +1152,6 @@ func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
 			diff >
 				5*time.Second,
 	)
-
 }
 
 func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
@@ -1238,7 +1185,6 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 		w.
 			Code)
 	require.False(t, enqueued)
-
 }
 
 func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
@@ -1266,7 +1212,6 @@ func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
 		w.
 			Code)
 	require.False(t, enqueued)
-
 }
 
 func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
@@ -1296,7 +1241,6 @@ func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, enqueued)
-
 }
 
 type txAPIStoreMock struct {
@@ -1354,13 +1298,11 @@ func TestHandleTriggerJob_DedupWindowRechecksInsideLimitGuard(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 2, findCalls)
+	require.Equal(t, 2, findCalls)
 	require.False(t, enqueued)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "run-winner",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "run-winner")
 }
 
 func TestHandleTriggerJob_DelayedRunExpiresRelativeToScheduledAt(t *testing.T) {
@@ -1402,7 +1344,6 @@ func TestHandleTriggerJob_DelayedRunExpiresRelativeToScheduledAt(t *testing.T) {
 			Add(
 				time.
 					Second)))
-
 }
 
 func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
@@ -1437,7 +1378,6 @@ func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
 		t, capturedRun.ScheduledAt.
 			After(time.
 				Now().Add(24*time.Hour)))
-
 }
 
 func TestHandleCreateJob_WithRunTTL(t *testing.T) {
@@ -1460,9 +1400,8 @@ func TestHandleCreateJob_WithRunTTL(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp))
-	require.Equal(t, float64(300),
-		resp["run_ttl_secs"])
-
+	require.InDelta(t, float64(300),
+		resp["run_ttl_secs"], 1e-9)
 }
 
 func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
@@ -1484,10 +1423,9 @@ func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.NotNil(t, updated)
-	require.EqualValues(t, 600, updated.
+	require.Equal(t, 600, updated.
 		RunTTLSecs,
 	)
-
 }
 
 func TestHealthReady_RedisDown(t *testing.T) {
@@ -1509,7 +1447,6 @@ func TestHealthReady_RedisDown(t *testing.T) {
 		t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 func TestHealthReady_NoPinger(t *testing.T) {
@@ -1528,7 +1465,6 @@ func TestHealthReady_NoPinger(t *testing.T) {
 	assert.Equal(
 		t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHealthReady_RedisOK(t *testing.T) {
@@ -1548,7 +1484,6 @@ func TestHealthReady_RedisOK(t *testing.T) {
 	assert.Equal(
 		t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleListRunEvents_Success(t *testing.T) {
@@ -1578,7 +1513,6 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &events)
 	assert.Len(t,
 		events, 2)
-
 }
 
 func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
@@ -1600,7 +1534,6 @@ func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
 	assert.Equal(
 		t, "error", gotLevel,
 	)
-
 }
 
 func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
@@ -1622,7 +1555,6 @@ func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
 	assert.Equal(
 		t, "heartbeat", gotType,
 	)
-
 }
 
 func TestHandleListRunEvents_StoreError(t *testing.T) {
@@ -1641,7 +1573,6 @@ func TestHandleListRunEvents_StoreError(t *testing.T) {
 		t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListRunEvents_EmptyResult(t *testing.T) {
@@ -1661,9 +1592,8 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 
 	var events []domain.RunEvent
 	decodePaginatedList(t, w.Body.Bytes(), &events)
-	assert.Len(t,
-		events, 0)
-
+	assert.Empty(t,
+		events)
 }
 
 func TestHandleListWebhookDeliveries_Success(t *testing.T) {
@@ -1688,7 +1618,6 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
 	assert.Len(t,
 		deliveries, 1)
-
 }
 
 func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
@@ -1728,7 +1657,6 @@ func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
 
 		deliveries[0].
 			WebhookURL)
-
 }
 
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
@@ -1750,7 +1678,6 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	assert.Equal(
 		t, "pending", gotStatus,
 	)
-
 }
 
 func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t *testing.T) {
@@ -1796,7 +1723,6 @@ func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t 
 	require.False(t, len(deliveries) != 1 ||
 		deliveries[0].ID !=
 			"del-prod")
-
 }
 
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
@@ -1815,10 +1741,9 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	assert.EqualValues(t, 11, gotLimit)
+	assert.Equal(t, 11, gotLimit)
 
 	// handler passes limit+1 for has_more detection
-
 }
 
 func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
@@ -1837,10 +1762,9 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	assert.EqualValues(t, 51, gotLimit)
+	assert.Equal(t, 51, gotLimit)
 
 	// handler passes limit+1 (default 50+1)
-
 }
 
 func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
@@ -1859,10 +1783,9 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	assert.EqualValues(t, 101, gotLimit)
+	assert.Equal(t, 101, gotLimit)
 
 	// handler passes limit+1 (capped 100+1)
-
 }
 
 func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
@@ -1876,7 +1799,6 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 		t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
@@ -1890,7 +1812,6 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 		t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
@@ -1909,7 +1830,6 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 		t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
@@ -1929,7 +1849,6 @@ func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetWebhookDelivery_Success(t *testing.T) {
@@ -1949,7 +1868,6 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
@@ -1983,7 +1901,6 @@ func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 		delivery.
 			WebhookURL,
 	)
-
 }
 
 func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
@@ -2002,7 +1919,6 @@ func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
@@ -2023,7 +1939,6 @@ func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
@@ -2048,7 +1963,6 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
@@ -2073,7 +1987,6 @@ func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
@@ -2095,7 +2008,6 @@ func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleRetryWebhookDelivery(t *testing.T) {
@@ -2140,7 +2052,6 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 			resp.
 				Attempts !=
 				0)
-
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -2157,7 +2068,6 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("conflict when status is not failed", func(t *testing.T) {
@@ -2174,7 +2084,6 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 
 	t.Run("get delivery store error", func(t *testing.T) {
@@ -2191,7 +2100,6 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 
 	t.Run("retry delivery store error", func(t *testing.T) {
@@ -2211,7 +2119,6 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2250,7 +2157,6 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 				t, http.StatusCreated,
 				w.Code,
 			)
-
 		})
 	}
 }
@@ -2289,7 +2195,6 @@ func TestHandleRetryWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 		delivery.
 			WebhookURL,
 	)
-
 }
 
 func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
@@ -2313,7 +2218,6 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 		) || !strings.Contains(w.Body.
 			String(), "max",
 		))
-
 }
 
 func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
@@ -2331,7 +2235,6 @@ func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
 		t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
@@ -2364,7 +2267,6 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 			assert.Equal(
 				t, tt.wantStatus,
 				w.Code)
-
 		})
 	}
 }
@@ -2454,7 +2356,6 @@ func TestValidateWorkflowConfig(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-
 		})
 	}
 }
@@ -2488,7 +2389,6 @@ func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
 		w.
 			Code)
 	require.False(t, enqueued)
-
 }
 
 func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
@@ -2521,7 +2421,6 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 	)
 	require.True(
 		t, enqueued)
-
 }
 
 func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
@@ -2545,7 +2444,6 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 	) || !strings.Contains(w.
 		Body.String(), "oneof",
 	))
-
 }
 
 func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
@@ -2565,11 +2463,9 @@ func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "retry_delays_secs values must be positive",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "retry_delays_secs values must be positive")
 }
 
 func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
@@ -2596,7 +2492,6 @@ func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
 			require.Equal(t, http.StatusCreated,
 				w.Code,
 			)
-
 		})
 	}
 }
@@ -2615,7 +2510,6 @@ func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
@@ -2632,5 +2526,4 @@ func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }

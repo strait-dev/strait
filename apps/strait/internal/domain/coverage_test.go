@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,10 +23,7 @@ func TestNewVersionID_PanicsOnGenerateError(t *testing.T) {
 
 		msg, ok := r.(string)
 		require.True(t, ok)
-		require.True(t, strings.Contains(msg,
-
-			"injected failure"))
-
+		require.Contains(t, msg, "injected failure")
 	}()
 
 	NewVersionID()

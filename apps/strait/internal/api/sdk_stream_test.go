@@ -48,7 +48,6 @@ func TestHandleSDKStreamChunk_PublishesChunk(t *testing.T) {
 		msg["type"])
 	require.Equal(t, "Hello ", msg["chunk"])
 	require.Equal(t, "default", msg["stream_id"])
-
 }
 
 func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
@@ -72,7 +71,6 @@ func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
 	var msg map[string]any
 	_ = json.Unmarshal(publishedPayload, &msg)
 	require.Equal(t, "default", msg["stream_id"])
-
 }
 
 func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
@@ -85,7 +83,6 @@ func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
@@ -98,5 +95,4 @@ func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }

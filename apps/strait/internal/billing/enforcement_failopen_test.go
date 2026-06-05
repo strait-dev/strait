@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -31,7 +30,6 @@ func TestEnforcer_FailOpen_FirstError_Allows(t *testing.T) {
 	err := e.boundedFailOpen(context.Background(), "org-1", "daily_run", "db_error")
 	require.NoError(t,
 		err)
-
 }
 
 func TestEnforcer_FailOpen_ThresholdExceeded_Blocks(t *testing.T) {
@@ -43,7 +41,6 @@ func TestEnforcer_FailOpen_ThresholdExceeded_Blocks(t *testing.T) {
 		err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
 		require.NoError(t,
 			err)
-
 	}
 
 	err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
@@ -51,14 +48,11 @@ func TestEnforcer_FailOpen_ThresholdExceeded_Blocks(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le,
-	))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"service_degraded",
 
 		le.Code)
-
 }
 
 func TestEnforcer_FailOpen_ResetOnSuccess(t *testing.T) {
@@ -76,7 +70,6 @@ func TestEnforcer_FailOpen_ResetOnSuccess(t *testing.T) {
 		err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
 		require.NoError(t,
 			err)
-
 	}
 }
 
@@ -92,7 +85,6 @@ func TestEnforcer_FailOpen_DifferentOrgs_Independent(t *testing.T) {
 	err := e.boundedFailOpen(ctx, "org-B", "daily_run", "db_error")
 	require.NoError(t,
 		err)
-
 }
 
 func TestEnforcer_FailOpen_DifferentCheckTypes_Independent(t *testing.T) {
@@ -107,7 +99,6 @@ func TestEnforcer_FailOpen_DifferentCheckTypes_Independent(t *testing.T) {
 	err := e.boundedFailOpen(ctx, "org-1", "spending_limit", "db_error")
 	require.NoError(t,
 		err)
-
 }
 
 func TestEnforcer_FailOpen_Concurrent(t *testing.T) {
@@ -140,7 +131,6 @@ func TestEnforcer_FailOpen_Concurrent(t *testing.T) {
 	require.NotEqual(
 		t, 100, blocked,
 	)
-
 }
 
 func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
@@ -171,13 +161,11 @@ func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
 				err := e.boundedFailOpen(ctx, "org-1", tt.checkType, "test_error")
 				require.NoError(t,
 					err)
-
 			}
 
 			err := e.boundedFailOpen(ctx, "org-1", tt.checkType, "test_error")
 			require.Error(t,
 				err)
-
 		})
 	}
 }

@@ -37,8 +37,8 @@ func TestReplicaID_FallbackUUID(t *testing.T) {
 	os.Unsetenv("HOSTNAME")
 
 	id := ReplicaID()
-	assert.NotEqual(t,
-		"", id)
+	assert.NotEmpty(t,
+		id)
 
 	// Reset for subsequent tests.
 	replicaIDOnce = sync.Once{}
@@ -71,8 +71,8 @@ func TestReplicaID_NonEmptyAlways(t *testing.T) {
 	// Test with HOSTNAME set.
 	t.Setenv("HOSTNAME", "container-node-1")
 	id := ReplicaID()
-	assert.NotEqual(t,
-		"", id)
+	assert.NotEmpty(t,
+		id)
 
 	// Reset and test without HOSTNAME.
 	replicaIDOnce = sync.Once{}
@@ -80,8 +80,8 @@ func TestReplicaID_NonEmptyAlways(t *testing.T) {
 	os.Unsetenv("HOSTNAME")
 
 	id = ReplicaID()
-	assert.NotEqual(t,
-		"", id)
+	assert.NotEmpty(t,
+		id)
 
 	// Cleanup.
 	replicaIDOnce = sync.Once{}

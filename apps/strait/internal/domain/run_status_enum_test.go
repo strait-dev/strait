@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,13 +17,11 @@ func TestRunStatus_IsValid(t *testing.T) {
 		assert.True(t,
 			s.IsValid(),
 		)
-
 	}
 	invalid := []RunStatus{"", "pending", "dlq_overflow", "DEAD_LETTER", "Queued"}
 	for _, s := range invalid {
 		assert.False(t,
 			s.IsValid())
-
 	}
 }
 
@@ -33,14 +30,12 @@ func TestRunStatus_IsActive(t *testing.T) {
 	for _, s := range active {
 		assert.True(t,
 			s.IsActive())
-
 	}
 	inactive := []RunStatus{StatusQueued, StatusCompleted, StatusDeadLetter, StatusDelayed}
 	for _, s := range inactive {
 		assert.False(t,
 			s.IsActive(),
 		)
-
 	}
 }
 
@@ -51,7 +46,6 @@ func TestRunStatus_IsClaimable(t *testing.T) {
 	assert.False(t,
 		StatusDequeued.
 			IsClaimable())
-
 }
 
 func TestRunStatus_IsTerminal(t *testing.T) {
@@ -87,7 +81,6 @@ func TestRunStatus_IsDeadLetter(t *testing.T) {
 	assert.False(t,
 		StatusFailed.
 			IsDeadLetter())
-
 }
 
 func TestRunStatus_IsFailure(t *testing.T) {
@@ -98,14 +91,12 @@ func TestRunStatus_IsFailure(t *testing.T) {
 		assert.True(t,
 			s.IsFailure(),
 		)
-
 	}
 	nonFailures := []RunStatus{StatusCompleted, StatusCanceled, StatusExpired, StatusQueued}
 	for _, s := range nonFailures {
 		assert.False(t,
 			s.IsFailure(),
 		)
-
 	}
 }
 
@@ -133,11 +124,10 @@ func TestRunStatus_Scan(t *testing.T) {
 
 				return
 			}
-			assert.NoError(
+			require.NoError(
 				t, err)
 			assert.Equal(t,
 				c.want, s)
-
 		})
 	}
 }
@@ -167,11 +157,8 @@ func TestParseRunStatus(t *testing.T) {
 			got != StatusQueued)
 
 	_, err = ParseRunStatus("dlq_overflow")
-	assert.True(t,
-		errors.Is(err,
-
-			ErrUnknownRunStatus))
-
+	assert.ErrorIs(t,
+		err, ErrUnknownRunStatus)
 }
 
 // FuzzRunStatusScan must not panic on any input and must either accept the
@@ -192,6 +179,5 @@ func FuzzRunStatusScan(f *testing.F) {
 			err == nil &&
 
 				raw != "" && !s.IsValid())
-
 	})
 }

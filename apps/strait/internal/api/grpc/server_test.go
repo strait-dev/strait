@@ -1,7 +1,6 @@
 package grpc
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -21,11 +20,9 @@ func TestNewServer_NilPubRejected(t *testing.T) {
 	require.Error(
 		t, err)
 	require.Nil(t, srv)
-	require.True(t,
-		strings.Contains(
-			err.
-				Error(), "pubsub"))
-
+	require.Contains(t,
+		err.
+			Error(), "pubsub")
 }
 
 // testConfig returns a minimal config suitable for unit tests.
@@ -62,7 +59,6 @@ func TestGRPCListenAddress_DefaultsToLoopback(t *testing.T) {
 		t, "127.0.0.1:50051",
 
 		grpcListenAddress(cfg))
-
 }
 
 func TestValidateGRPCPlaintextExposure_BlocksPublicBind(t *testing.T) {
@@ -72,7 +68,6 @@ func TestValidateGRPCPlaintextExposure_BlocksPublicBind(t *testing.T) {
 	cfg.GRPCBindAddr = "0.0.0.0"
 	require.Error(
 		t, validateGRPCPlaintextExposure(cfg))
-
 }
 
 func TestValidateGRPCPlaintextExposure_AllowsPublicBindWithExplicitOverride(t *testing.T) {
@@ -82,7 +77,6 @@ func TestValidateGRPCPlaintextExposure_AllowsPublicBindWithExplicitOverride(t *t
 	cfg.GRPCBindAddr = "0.0.0.0"
 	cfg.GRPCAllowPlaintext = true
 	require.NoError(t, validateGRPCPlaintextExposure(cfg))
-
 }
 
 func TestValidateGRPCPlaintextExposure_AllowsLoopback(t *testing.T) {
@@ -94,7 +88,6 @@ func TestValidateGRPCPlaintextExposure_AllowsLoopback(t *testing.T) {
 			cfg := testConfig()
 			cfg.GRPCBindAddr = bind
 			require.NoError(t, validateGRPCPlaintextExposure(cfg))
-
 		})
 	}
 }
@@ -107,7 +100,6 @@ func TestValidateGRPCPlaintextExposure_AllowsTLSOnPublicBind(t *testing.T) {
 	cfg.GRPCTLSCertPath = "/tmp/cert.pem"
 	cfg.GRPCTLSKeyPath = "/tmp/key.pem"
 	require.NoError(t, validateGRPCPlaintextExposure(cfg))
-
 }
 
 // TestBuildServer_OnlyCertPath_Error verifies that setting only cert path (not key) returns error.
@@ -125,7 +117,6 @@ func TestBuildServer_OnlyCertPath_Error(t *testing.T) {
 	_, err := s.buildServer()
 	require.Error(
 		t, err)
-
 }
 
 // TestBuildServer_OnlyKeyPath_Error verifies that setting only key path (not cert) returns error.
@@ -143,7 +134,6 @@ func TestBuildServer_OnlyKeyPath_Error(t *testing.T) {
 	_, err := s.buildServer()
 	require.Error(
 		t, err)
-
 }
 
 // TestBuildServer_BothPathsSet_BadCert verifies that invalid cert/key files return an error.
@@ -161,7 +151,6 @@ func TestBuildServer_BothPathsSet_BadCert(t *testing.T) {
 	_, err := s.buildServer()
 	require.Error(
 		t, err)
-
 }
 
 // TestNewServer_Plaintext verifies NewServer succeeds with plaintext config.
@@ -184,7 +173,6 @@ func TestServer_Registry(t *testing.T) {
 
 	reg := srv.Registry()
 	require.NotNil(t, reg)
-
 }
 
 // TestServer_WorkerDispatcher verifies WorkerDispatcher() returns a non-nil dispatcher.
@@ -197,5 +185,4 @@ func TestServer_WorkerDispatcher(t *testing.T) {
 
 	d := srv.WorkerDispatcher("test-jwt-key")
 	require.NotNil(t, d)
-
 }

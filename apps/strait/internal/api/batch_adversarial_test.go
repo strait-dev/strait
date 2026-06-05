@@ -31,7 +31,6 @@ func TestBatch_MixedValidInvalid(t *testing.T) {
 		assert.False(t, !item.wantErr &&
 			err !=
 				nil)
-
 	}
 }
 
@@ -46,7 +45,6 @@ func TestBatch_AtMaxItems(t *testing.T) {
 
 	err := validateTags(tags)
 	require.NoError(t, err)
-
 }
 
 func TestBatch_OverMaxItems(t *testing.T) {
@@ -60,8 +58,7 @@ func TestBatch_OverMaxItems(t *testing.T) {
 
 	err := validateTags(tags)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "too many tags"))
-
+	assert.Contains(t, err.Error(), "too many tags")
 }
 
 func TestBatch_AllInvalid(t *testing.T) {
@@ -72,7 +69,6 @@ func TestBatch_AllInvalid(t *testing.T) {
 		tags := map[string]string{strings.Repeat("x", 65): "val"}
 		err := validateTags(tags)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -83,13 +79,12 @@ func TestBatch_PerItemPayloadBomb(t *testing.T) {
 	bigPayload := json.RawMessage(`{"data":"` + strings.Repeat("a", 5*1024*1024+1) + `"}`)
 	err := validatePayloadSize(bigPayload)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "payload too large"))
+	assert.Contains(t, err.Error(), "payload too large")
 
 	// Just under the limit should pass.
 	smallPayload := json.RawMessage(`{"ok":true}`)
 	err = validatePayloadSize(smallPayload)
 	require.NoError(t, err)
-
 }
 
 func TestBatch_EmptyArray(t *testing.T) {
@@ -106,7 +101,6 @@ func TestBatch_EmptyArray(t *testing.T) {
 	// Empty payload should pass schema validation with empty schema.
 	err = validatePayloadAgainstSchema(json.RawMessage{}, json.RawMessage{})
 	require.NoError(t, err)
-
 }
 
 func TestBatch_DuplicateIdempotencyKeys(t *testing.T) {
@@ -122,13 +116,11 @@ func TestBatch_DuplicateIdempotencyKeys(t *testing.T) {
 	// Duplicate keys that are valid should each pass length validation.
 	for range 5 {
 		require.LessOrEqual(t, len(key), maxIdempotencyKeyLength)
-
 	}
 
 	// One char over the limit should fail.
 	tooLong := key + "x"
-	require.False(t, len(tooLong) <= maxIdempotencyKeyLength)
-
+	require.Greater(t, len(tooLong), maxIdempotencyKeyLength)
 }
 
 func FuzzBatchTriggerPayload(f *testing.F) {
@@ -163,7 +155,6 @@ func TestCanonicalizePayload_PreservesLargeJSONIntegers(t *testing.T) {
 		[]byte(`9007199254740993123456789`)))
 	require.True(t, bytes.Contains(canonical,
 		[]byte(`123456789012345678901234567890`)))
-
 }
 
 func TestBulkCancel_NonExistentIDs(t *testing.T) {
@@ -181,7 +172,6 @@ func TestBulkCancel_NonExistentIDs(t *testing.T) {
 	for _, id := range badIDs {
 		err := validateIDFormat(id)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -196,8 +186,7 @@ func TestBulkCancel_MixedExistingAndNot(t *testing.T) {
 	}
 	for _, id := range validIDs {
 		err := validateIDFormat(id)
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 
 	// Invalid IDs should fail format validation.
@@ -210,8 +199,7 @@ func TestBulkCancel_MixedExistingAndNot(t *testing.T) {
 	}
 	for _, id := range invalidIDs {
 		err := validateIDFormat(id)
-		assert.Error(t, err)
-
+		require.Error(t, err)
 	}
 
 	// Combined: iterate a mixed list and check partitioning.
@@ -229,5 +217,4 @@ func TestBulkCancel_MixedExistingAndNot(t *testing.T) {
 	}
 	assert.Equal(t, len(validIDs), validCount)
 	assert.Equal(t, len(invalidIDs), invalidCount)
-
 }

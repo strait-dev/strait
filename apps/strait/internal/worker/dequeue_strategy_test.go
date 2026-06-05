@@ -82,7 +82,6 @@ func TestPoll_DequeueUsesQueueDequeueN(t *testing.T) {
 	exec.poll(context.Background())
 	require.EqualValues(t, 1, q.dequeueNCalled.
 		Load())
-
 }
 
 // TestPoll_PartitionsOverrideAutoSelect verifies that partition-based
@@ -107,7 +106,6 @@ func TestPoll_PartitionsOverrideAutoSelect(t *testing.T) {
 		Load())
 	require.EqualValues(t, 0, q.dequeueNCalled.
 		Load())
-
 }
 
 func TestDequeueRuns_AppendsWorkerRunsWithRemainingCapacity(t *testing.T) {
@@ -140,7 +138,6 @@ func TestDequeueRuns_AppendsWorkerRunsWithRemainingCapacity(t *testing.T) {
 	require.False(t,
 		len(q.workerQueueInputs) != 1 || q.workerQueueInputs[0] !=
 			workerQueues[0])
-
 }
 
 func TestDequeueRuns_SkipsWorkerPassWhenHTTPClaimsFillCapacity(t *testing.T) {
@@ -165,7 +162,6 @@ func TestDequeueRuns_SkipsWorkerPassWhenHTTPClaimsFillCapacity(t *testing.T) {
 		2)
 	require.EqualValues(t, 0, q.workerQueueCalled.
 		Load())
-
 }
 
 func TestDequeueRuns_WorkerFailureKeepsHTTPClaims(t *testing.T) {
@@ -192,5 +188,4 @@ func TestDequeueRuns_WorkerFailureKeepsHTTPClaims(t *testing.T) {
 	)
 	require.EqualValues(t, 1, q.workerQueueCalled.
 		Load())
-
 }

@@ -77,8 +77,8 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		gotTS == "" ||
 			gotDelivery ==
 				"")
-	require.NotEqual(
-		t, "", gotSig,
+	require.NotEmpty(
+		t, gotSig,
 	)
 	require.True(t, strings.HasPrefix(gotSig, "t="+
 		gotTS+",d="+gotDelivery+
@@ -102,7 +102,6 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	)
 	require.True(t, bytes.
 		Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)))
-
 }
 
 func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
@@ -145,7 +144,6 @@ func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
 	require.False(t,
 		targetCalled,
 	)
-
 }
 
 func TestNotifyRotationWebhook_MissingSecretFailsClosed(t *testing.T) {
@@ -174,7 +172,6 @@ func TestNotifyRotationWebhook_MissingSecretFailsClosed(t *testing.T) {
 	)
 	require.False(t,
 		called.Load())
-
 }
 
 func TestNotifyRotationWebhook_DecryptFailureFailsClosed(t *testing.T) {
@@ -201,7 +198,6 @@ func TestNotifyRotationWebhook_DecryptFailureFailsClosed(t *testing.T) {
 		))
 	require.False(t,
 		called.Load())
-
 }
 
 func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
@@ -227,5 +223,4 @@ func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
 		))
 	require.False(t,
 		called.Load())
-
 }

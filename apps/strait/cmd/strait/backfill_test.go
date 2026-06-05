@@ -50,7 +50,7 @@ func TestRunBackfillHistoryWithStore_ExecutionUsesRetentionAwareArchive(t *testi
 	require.NoError(t, runBackfillHistoryWithStore(context.Background(), store,
 		shortRetention, longRetention, 100,
 		false))
-	require.EqualValues(t, 2, store.
+	require.Equal(t, 2, store.
 		archiveCalls,
 	)
 	require.Equal(
@@ -62,10 +62,9 @@ func TestRunBackfillHistoryWithStore_ExecutionUsesRetentionAwareArchive(t *testi
 		t, longRetention,
 		store.
 			archiveLongRetention)
-	require.EqualValues(t, 100, store.
+	require.Equal(t, 100, store.
 		archiveBatchSize,
 	)
-
 }
 
 func TestRunBackfillHistoryWithStore_DryRunUsesSameRetentions(t *testing.T) {
@@ -77,7 +76,7 @@ func TestRunBackfillHistoryWithStore_DryRunUsesSameRetentions(t *testing.T) {
 	require.NoError(t, runBackfillHistoryWithStore(context.Background(), store,
 		shortRetention, longRetention, 100,
 		true))
-	require.EqualValues(t, 0, store.
+	require.Equal(t, 0, store.
 		archiveCalls,
 	)
 	require.Equal(
@@ -89,5 +88,4 @@ func TestRunBackfillHistoryWithStore_DryRunUsesSameRetentions(t *testing.T) {
 		t, longRetention,
 		store.
 			countLongRetention)
-
 }

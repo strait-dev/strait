@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -26,10 +25,9 @@ func TestCheckAlertRuleLimit_FreeTier_RejectsZeroCap(t *testing.T) {
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "not available"))
-
+	assert.Contains(t,
+		err.
+			Error(), "not available")
 }
 
 // TestCheckAlertRuleLimit_ProTier_RejectsZeroCap verifies alert rules are not
@@ -42,10 +40,9 @@ func TestCheckAlertRuleLimit_ProTier_RejectsZeroCap(t *testing.T) {
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "not available"))
-
+	assert.Contains(t,
+		err.
+			Error(), "not available")
 }
 
 // TestCheckAlertRuleLimit_Enterprise_RejectsUntilLaunchActive verifies
@@ -58,7 +55,6 @@ func TestCheckAlertRuleLimit_Enterprise_RejectsUntilLaunchActive(t *testing.T) {
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
 	require.Error(t, err)
-
 }
 
 // TestCheckAlertRuleLimit_NilEnforcer_FailsOpen confirms that the
@@ -71,5 +67,4 @@ func TestCheckAlertRuleLimit_NilEnforcer_FailsOpen(t *testing.T) {
 	require.NoError(t, srv.checkAlertRuleLimit(context.Background(),
 
 		"proj-1", 9999))
-
 }

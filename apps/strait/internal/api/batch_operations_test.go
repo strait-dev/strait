@@ -52,7 +52,6 @@ func TestHandleGetBatchOperation_Success(t *testing.T) {
 		&got))
 	require.Equal(t, "batch-1", got.
 		ID)
-
 }
 
 func TestHandleGetBatchOperation_NotFound(t *testing.T) {
@@ -70,7 +69,6 @@ func TestHandleGetBatchOperation_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleListBatchOperations tests.
@@ -104,7 +102,6 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &got)
 	require.Len(t,
 		got, 2)
-
 }
 
 // handleBulkCancelAll tests.
@@ -137,7 +134,6 @@ func TestHandleBulkCancelAll_Success(t *testing.T) {
 	require.False(t, !ok || canceled !=
 		2,
 	)
-
 }
 
 func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
@@ -192,7 +188,6 @@ func TestHandleBulkCancelWorkflowRuns_Success(t *testing.T) {
 	require.False(t, !ok || canceled !=
 		2,
 	)
-
 }
 
 func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
@@ -206,7 +201,6 @@ func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 // handleListRuns payload_contains filter tests.
@@ -236,5 +230,4 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 
 		&parsed))
 	require.Equal(t, "val", parsed["key"])
-
 }

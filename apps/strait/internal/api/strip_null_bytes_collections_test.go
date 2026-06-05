@@ -53,7 +53,6 @@ func TestStripNullBytesFromStruct_Collections(t *testing.T) {
 			t, strings.ContainsRune(
 				s,
 				0))
-
 	}
 
 	for i, tag := range p.Tags {

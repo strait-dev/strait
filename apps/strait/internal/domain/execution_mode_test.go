@@ -30,9 +30,8 @@ func TestExecutionMode_Constants(t *testing.T) {
 	t.Parallel()
 	assert.Equal(
 		t,
-		ExecutionMode("http"), ExecutionModeHTTP)
+		ExecutionModeHTTP, ExecutionMode("http"))
 	assert.Equal(
 		t,
-		ExecutionMode("worker"), ExecutionModeWorker)
-
+		ExecutionModeWorker, ExecutionMode("worker"))
 }

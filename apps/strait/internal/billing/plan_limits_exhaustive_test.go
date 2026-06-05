@@ -17,7 +17,6 @@ func TestFreeEnforcement_ExecutionMode(t *testing.T) {
 		AllowsHTTPMode)
 
 	// HTTP mode is available on all tiers.
-
 }
 
 func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
@@ -42,7 +41,6 @@ func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.
 				want, tt.fn())
-
 		})
 	}
 }
@@ -50,10 +48,10 @@ func TestFreeEnforcement_WorkflowFeatures(t *testing.T) {
 func TestFreeEnforcement_ResourceLimits(t *testing.T) {
 	t.Parallel()
 	free := GetPlanLimits(domain.PlanFree)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 
 		free.MaxEnvironments)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 
 		free.MaxWebhookEndpoints)
 	assert.Equal(t, MaxScheduledFree,
@@ -70,7 +68,6 @@ func TestFreeEnforcement_ResourceLimits(t *testing.T) {
 		HasCanaryDeployments)
 	assert.False(t, free.
 		HasAuditLogs)
-
 }
 
 // B. Starter Tier Enforcement (12 tests).
@@ -102,7 +99,6 @@ func TestStarterEnforcement(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.
 				want, tt.fn())
-
 		})
 	}
 }
@@ -135,7 +131,6 @@ func TestProEnforcement(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.
 				want, tt.fn())
-
 		})
 	}
 }
@@ -166,7 +161,6 @@ func TestScaleEnforcement(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.
 				want, tt.fn())
-
 		})
 	}
 }
@@ -176,15 +170,14 @@ func TestScaleEnforcement(t *testing.T) {
 func TestEnterpriseEnforcement(t *testing.T) {
 	t.Parallel()
 	e := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxWorkflowDAGSteps)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxConcurrentRuns)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxScheduledJobs)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		e.MaxWebhookEndpoints)
-
 }
 
 // F. Cron Overlap + Schedule (8 tests).
@@ -215,7 +208,6 @@ func TestCronEnforcement(t *testing.T) {
 			assert.Equal(t, tt.
 				maxCron, limits.MaxScheduledJobs,
 			)
-
 		})
 	}
 
@@ -225,7 +217,6 @@ func TestCronEnforcement(t *testing.T) {
 		free := GetPlanLimits(domain.PlanFree)
 		assert.False(t, free.
 			AllCronOverlapPolicies)
-
 	})
 
 	t.Run("remove_cron_always_ok", func(t *testing.T) {
@@ -238,12 +229,11 @@ func TestCronEnforcement(t *testing.T) {
 		assert.LessOrEqual(t, MaxScheduledFree, free.
 			MaxScheduledJobs,
 		)
-		assert.False(t, MaxScheduledFree+
-			1 <= free.MaxScheduledJobs,
+		assert.Greater(t, MaxScheduledFree+
+			1, free.MaxScheduledJobs,
 		)
 
 		// MaxScheduledFree is the exact limit.
-
 	})
 }
 
@@ -271,7 +261,6 @@ func TestWebhookEventEnforcement(t *testing.T) {
 			assert.Equal(t, tt.
 				level, limits.WebhookEventLevel,
 			)
-
 		})
 	}
 
@@ -280,7 +269,6 @@ func TestWebhookEventEnforcement(t *testing.T) {
 		basic := map[string]bool{"run.completed": true, "run.failed": true}
 		for _, allowed := range basic {
 			assert.True(t, allowed)
-
 		}
 	})
 }
@@ -295,7 +283,6 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		edition := domain.EditionCommunity
 		assert.False(t, edition.
 			RequiresHTTPModeGating())
-
 	})
 
 	t.Run("cloud_edition_requires_gating", func(t *testing.T) {
@@ -304,7 +291,6 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		assert.True(t, edition.
 			RequiresHTTPModeGating(),
 		)
-
 	})
 
 	// On self-hosted, the enforcer is nil and getOrgPlanLimits returns nil.
@@ -324,14 +310,12 @@ func TestSelfHostedEnforcement(t *testing.T) {
 				AllowsFeature(domain.PlanEnterprise,
 
 					f))
-
 		}
 		for _, f := range roadmapEnterpriseFeatures {
 			assert.False(t, reg.
 				AllowsFeature(domain.PlanEnterprise,
 
 					f))
-
 		}
 	})
 
@@ -347,9 +331,8 @@ func TestSelfHostedEnforcement(t *testing.T) {
 			"MaxMembersPerOrg":    e.MaxMembersPerOrg,
 		}
 		for _, val := range unlimitedFields {
-			assert.EqualValues(t, -1,
+			assert.Equal(t, -1,
 				val)
-
 		}
 	})
 
@@ -360,7 +343,6 @@ func TestSelfHostedEnforcement(t *testing.T) {
 		edition := domain.EditionCommunity
 		assert.False(t, edition.
 			RequiresHTTPModeGating())
-
 	})
 }
 
@@ -401,7 +383,6 @@ func TestPlanLimits_Monotonic(t *testing.T) {
 					continue
 				}
 				assert.GreaterOrEqual(t, curr, prev)
-
 			}
 		})
 	}
@@ -432,9 +413,8 @@ func TestFeatureAccess_Monotonic(t *testing.T) {
 						firstAllowed = i
 					}
 				} else {
-					assert.EqualValues(t, -1,
+					assert.Equal(t, -1,
 						firstAllowed)
-
 				}
 			}
 		})

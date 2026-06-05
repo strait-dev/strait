@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -53,7 +52,6 @@ func TestCheckHTTPModeAllowed_FreePlanAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_StarterPlanAllowed(t *testing.T) {
@@ -74,7 +72,6 @@ func TestCheckHTTPModeAllowed_StarterPlanAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_ProPlanAllowed(t *testing.T) {
@@ -94,7 +91,6 @@ func TestCheckHTTPModeAllowed_ProPlanAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_CommunityEditionAllowed(t *testing.T) {
@@ -107,7 +103,6 @@ func TestCheckHTTPModeAllowed_CommunityEditionAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
@@ -120,7 +115,6 @@ func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeWorker, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -136,7 +130,6 @@ func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
 	assert.Contains(t, err.
 		Error(), "billing enforcement unavailable",
 	)
-
 }
 
 func TestCheckHTTPModeAllowed_CommunityNilEnforcerAllowed(t *testing.T) {
@@ -149,7 +142,6 @@ func TestCheckHTTPModeAllowed_CommunityNilEnforcerAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -168,13 +160,9 @@ func TestCheckHTTPModeAllowed_OrgLookupErrorFailsClosed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckHTTPModeAllowed_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -193,13 +181,9 @@ func TestCheckHTTPModeAllowed_PlanLookupErrorFailsClosed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
@@ -219,7 +203,6 @@ func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
 	require.NoError(t, err)
-
 }
 
 func TestCheckHTTPModeAllowed_UnavailablePlanDoesNotAdvertiseUpgrade(t *testing.T) {
@@ -244,9 +227,6 @@ func TestCheckHTTPModeAllowed_UnavailablePlanDoesNotAdvertiseUpgrade(t *testing.
 
 	msg := err.Error()
 	for _, forbidden := range []string{"Pro plan", "$49.99", "Upgrade"} {
-		require.False(t, strings.Contains(
-			msg, forbidden,
-		))
-
+		require.NotContains(t, msg, forbidden)
 	}
 }

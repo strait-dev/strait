@@ -59,7 +59,6 @@ func TestWorkerSentryScopeAttachesDispatchRequestContext(t *testing.T) {
 		require.Equal(t,
 			want, event.
 				Tags[key])
-
 	}
 	require.Equal(t,
 		"user-1",
@@ -68,7 +67,6 @@ func TestWorkerSentryScopeAttachesDispatchRequestContext(t *testing.T) {
 	require.Equal(t,
 		"req-1",
 		event.Contexts["dispatch.request"]["request_id"])
-
 }
 
 func TestWorkerSentryCaptureContract(t *testing.T) {
@@ -145,7 +143,6 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 		require.Equal(t,
 			want, event.
 				Tags[key])
-
 	}
 	require.Equal(t,
 		"user-1",
@@ -165,10 +162,9 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 		2)
 
 	for _, breadcrumb := range event.Breadcrumbs {
-		require.False(t,
-			strings.Contains(breadcrumb.
-				Message, "secret-token",
-			))
+		require.NotContains(t,
+			breadcrumb.
+				Message, "secret-token")
 
 		if _, ok := breadcrumb.Data["authorization"]; ok {
 			require.Fail(t,
@@ -180,12 +176,9 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 		Exception)
 
 	for _, exception := range event.Exception {
-		require.False(t,
-			strings.Contains(exception.
-				Value,
-				"secret-token",
-			))
-
+		require.NotContains(t,
+			exception.
+				Value, "secret-token")
 	}
 }
 

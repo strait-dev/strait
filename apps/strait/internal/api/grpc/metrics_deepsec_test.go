@@ -17,6 +17,5 @@ func TestDeepSecWorkerQueueMetricKindDoesNotExposeQueueNames(t *testing.T) {
 	}
 	for queue, want := range cases {
 		require.Equal(t, want, workerQueueMetricKind(queue))
-
 	}
 }

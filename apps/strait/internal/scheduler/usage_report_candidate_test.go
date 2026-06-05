@@ -34,7 +34,6 @@ func TestUsageReportCandidate_EligiblePaidOptInEndedPeriod(t *testing.T) {
 	require.True(t, candidate.
 		periodEnd.
 		Equal(wantPeriodEnd))
-
 }
 
 func TestUsageReportCandidate_IneligibleRules(t *testing.T) {

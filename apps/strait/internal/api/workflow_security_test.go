@@ -79,7 +79,6 @@ func TestWorkflow_VersionPublishConcurrent(t *testing.T) {
 	defer mu.Unlock()
 	require.GreaterOrEqual(t, version,
 		2)
-
 }
 
 // TestWorkflow_StepApprovalWithoutPermission verifies that approving a workflow
@@ -104,7 +103,6 @@ func TestWorkflow_StepApprovalWithoutPermission(t *testing.T) {
 
 		w.
 			Code)
-
 }
 
 // TestWorkflow_CancelRunningWorkflow verifies that canceling an active workflow
@@ -146,7 +144,6 @@ func TestWorkflow_CancelRunningWorkflow(t *testing.T) {
 		t, stepsCanceled)
 	require.True(
 		t, jobsCanceled)
-
 }
 
 // TestWorkflow_TriggerDisabledWorkflow verifies that triggering a disabled
@@ -171,11 +168,9 @@ func TestWorkflow_TriggerDisabledWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"disabled"))
-
+	require.Contains(
+		t, w.Body.
+			String(), "disabled")
 }
 
 // TestWorkflow_StepOverrideInjection verifies that a step_ref with malicious
@@ -203,7 +198,6 @@ func TestWorkflow_StepOverrideInjection(t *testing.T) {
 				w.Code)
 
 			// Should either reject or handle safely; no panic.
-
 		})
 	}
 }
@@ -305,7 +299,6 @@ func TestWorkflow_ConcurrentApprovalDecision(t *testing.T) {
 	}
 	require.LessOrEqual(t, successes,
 		1)
-
 }
 
 // TestWorkflow_TimelineQueryInjection passes adversarial query parameters to
@@ -336,7 +329,6 @@ func TestWorkflow_TimelineQueryInjection(t *testing.T) {
 				w.Code)
 
 			// We expect 404 since the mock always returns not found.
-
 		})
 	}
 }
@@ -386,7 +378,6 @@ func TestWorkflow_LabelInjection(t *testing.T) {
 		w.Code)
 
 	// No panic is the main assertion; the endpoint may succeed or reject invalid labels.
-
 }
 
 // FuzzWorkflowTrigger fuzzes the trigger payload for a workflow.

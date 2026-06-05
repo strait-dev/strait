@@ -45,7 +45,6 @@ func TestDebugView_AllStepsIncluded(t *testing.T) {
 	assert.EqualValues(t, 10000, view.
 		TotalDuration,
 	)
-
 }
 
 func TestDebugView_FailedStepHasError(t *testing.T) {
@@ -63,7 +62,6 @@ func TestDebugView_FailedStepHasError(t *testing.T) {
 		view.
 			Steps[0].Error,
 	)
-
 }
 
 func TestDebugView_CostPerStep(t *testing.T) {
@@ -86,7 +84,6 @@ func TestDebugView_CostPerStep(t *testing.T) {
 	assert.EqualValues(t, 3500, view.
 		TotalCost,
 	)
-
 }
 
 func TestDebugView_DataFlowEdges(t *testing.T) {
@@ -113,7 +110,6 @@ func TestDebugView_DataFlowEdges(t *testing.T) {
 	assert.NotEqual(t, 0, view.
 		DataFlow[0].DataSize,
 	)
-
 }
 
 func TestDebugView_PendingStepsIncluded(t *testing.T) {
@@ -136,7 +132,6 @@ func TestDebugView_PendingStepsIncluded(t *testing.T) {
 		view.
 			Steps[1].Status,
 	)
-
 }
 
 func TestDebugView_StepTimingAccuracy(t *testing.T) {
@@ -153,14 +148,12 @@ func TestDebugView_StepTimingAccuracy(t *testing.T) {
 	assert.EqualValues(t, 5000, view.
 		Steps[0].Duration,
 	)
-
 }
 
 func TestDebugView_NilRun(t *testing.T) {
 	t.Parallel()
 	_, err := BuildDebugView(nil, nil, nil, nil)
 	assert.Error(t, err)
-
 }
 
 // Compare tests.
@@ -180,10 +173,7 @@ func TestCompare_IdenticalRuns(t *testing.T) {
 	assert.Nil(t, comp.
 		StatusDiff,
 	)
-	assert.Len(t, comp.StepDiffs,
-		0,
-	)
-
+	assert.Empty(t, comp.StepDiffs)
 }
 
 func TestCompare_DifferentStatuses(t *testing.T) {
@@ -198,7 +188,6 @@ func TestCompare_DifferentStatuses(t *testing.T) {
 		comp.
 			StatusDiff.
 			B != "failed")
-
 }
 
 func TestCompare_DifferentTiming(t *testing.T) {
@@ -220,7 +209,6 @@ func TestCompare_DifferentTiming(t *testing.T) {
 		5000 ||
 		comp.StepDiffs[0].DurationB != 10000,
 	)
-
 }
 
 func TestCompare_MissingSteps(t *testing.T) {
@@ -243,7 +231,6 @@ func TestCompare_MissingSteps(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-
 }
 
 func TestCompare_MissingStepsInA(t *testing.T) {
@@ -266,7 +253,6 @@ func TestCompare_MissingStepsInA(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-
 }
 
 // Adversarial tests.
@@ -286,7 +272,6 @@ func TestDebugView_1000StepWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, view.Steps,
 		1000)
-
 }
 
 func TestDebugView_CrossProjectAccess(t *testing.T) {
@@ -299,7 +284,6 @@ func TestDebugView_CrossProjectAccess(t *testing.T) {
 	assert.Equal(t, "wf-1",
 		view.WorkflowID,
 	)
-
 }
 
 func TestDebugView_RunInProgress(t *testing.T) {
@@ -329,7 +313,6 @@ func TestDebugView_RunInProgress(t *testing.T) {
 	)
 
 	// TotalDuration should be 0 since workflow hasn't finished.
-
 }
 
 func TestDebugView_LargeOutputPayload(t *testing.T) {
@@ -349,7 +332,6 @@ func TestDebugView_LargeOutputPayload(t *testing.T) {
 			Output), 1024*
 			1024,
 	)
-
 }
 
 func BenchmarkBuildDebugView_DataFlowChain1000(b *testing.B) {

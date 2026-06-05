@@ -18,7 +18,6 @@ func TestNewEncryptor_AcceptsRaw32ByteKey(t *testing.T) {
 	enc, err := NewEncryptor(key)
 	require.NoError(t, err)
 	require.NotNil(t, enc)
-
 }
 
 func TestNewEncryptor_AcceptsHexKey(t *testing.T) {
@@ -30,7 +29,6 @@ func TestNewEncryptor_AcceptsHexKey(t *testing.T) {
 	enc, err := NewEncryptor(hexKey)
 	require.NoError(t, err)
 	require.NotNil(t, enc)
-
 }
 
 func TestNewEncryptor_InvalidKeyLength(t *testing.T) {
@@ -43,7 +41,6 @@ func TestNewEncryptor_InvalidKeyLength(t *testing.T) {
 		t, "invalid key length",
 		err.
 			Error())
-
 }
 
 func TestNewEncryptor_InvalidHexKey(t *testing.T) {
@@ -56,7 +53,6 @@ func TestNewEncryptor_InvalidHexKey(t *testing.T) {
 		t, "invalid key length",
 		err.
 			Error())
-
 }
 
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
@@ -67,8 +63,8 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 
 	ciphertext, err := enc.Encrypt(plaintext)
 	require.NoError(t, err)
-	require.False(
-		t, len(ciphertext) <= 12)
+	require.Greater(
+		t, len(ciphertext), 12)
 
 	decrypted, err := enc.Decrypt(ciphertext)
 	require.NoError(t, err)
@@ -76,7 +72,6 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 		bytes.Equal(decrypted,
 			plaintext,
 		))
-
 }
 
 func TestEncryptDecrypt_EmptyPlaintext(t *testing.T) {
@@ -89,9 +84,8 @@ func TestEncryptDecrypt_EmptyPlaintext(t *testing.T) {
 
 	decrypted, err := enc.Decrypt(ciphertext)
 	require.NoError(t, err)
-	require.Len(t,
-		decrypted, 0)
-
+	require.Empty(t,
+		decrypted)
 }
 
 func TestDecrypt_WrongKey(t *testing.T) {
@@ -109,7 +103,6 @@ func TestDecrypt_WrongKey(t *testing.T) {
 	require.Equal(
 		t, "decrypt failed",
 		err.Error())
-
 }
 
 func TestDecrypt_TruncatedCiphertext(t *testing.T) {
@@ -125,7 +118,6 @@ func TestDecrypt_TruncatedCiphertext(t *testing.T) {
 
 		err.Error(),
 	)
-
 }
 
 func TestEncryptStringDecryptString_RoundTrip(t *testing.T) {
@@ -136,14 +128,13 @@ func TestEncryptStringDecryptString_RoundTrip(t *testing.T) {
 
 	ciphertext, err := enc.EncryptString(plaintext)
 	require.NoError(t, err)
-	require.NotEqual(t, "", strings.TrimSpace(ciphertext))
+	require.NotEmpty(t, strings.TrimSpace(ciphertext))
 
 	decrypted, err := enc.DecryptString(ciphertext)
 	require.NoError(t, err)
 	require.Equal(
 		t, plaintext, decrypted,
 	)
-
 }
 
 func TestEncryptor_ConcurrentUse(t *testing.T) {
@@ -160,12 +151,14 @@ func TestEncryptor_ConcurrentUse(t *testing.T) {
 			for j := range iterations {
 				plaintext := []byte("payload-" + strings.Repeat("x", i+j))
 				ciphertext, err := enc.Encrypt(plaintext)
-				if !assert.NoError(t, err) {
+				if err != nil {
+					require.NoError(t, err)
 					return
 				}
 
 				decrypted, err := enc.Decrypt(ciphertext)
-				if !assert.NoError(t, err) {
+				if err != nil {
+					require.NoError(t, err)
 					return
 				}
 
@@ -198,7 +191,6 @@ func TestKeyRotator_EncryptUsesPrimary(t *testing.T) {
 		bytes.Equal(decrypted,
 			plaintext,
 		))
-
 }
 
 func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
@@ -222,7 +214,6 @@ func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
 		t, "legacy-secret",
 		string(
 			decrypted))
-
 }
 
 func TestNewKeyRotatorFromStrings_DecryptsOldStringKey(t *testing.T) {
@@ -251,7 +242,6 @@ func TestNewKeyRotatorFromStrings_DecryptsOldStringKey(t *testing.T) {
 		t, "new-secret",
 		decryptedString,
 	)
-
 }
 
 func TestKeyRotator_RotateKeyFlow(t *testing.T) {
@@ -282,7 +272,6 @@ func TestKeyRotator_RotateKeyFlow(t *testing.T) {
 		t, "after-rotation",
 		string(plainAfter),
 	)
-
 }
 
 func mustEncryptor(t *testing.T, key string) *Encryptor {

@@ -59,7 +59,7 @@ func TestInitProfiling_NonEmptyEndpoint_SetsProfileRates(t *testing.T) {
 	defer shutdown()
 
 	prevMutex := runtime.SetMutexProfileFraction(0)
-	assert.EqualValues(t, 100,
+	assert.Equal(t, 100,
 		prevMutex,
 	)
 

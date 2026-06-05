@@ -24,7 +24,7 @@ func TestAuditActionSchemas_CompleteCoverage(t *testing.T) {
 			missing = append(missing, action)
 		}
 	}
-	require.LessOrEqual(t, len(missing), 0)
+	require.Empty(t, missing)
 
 	// And the reverse: no stale schema entries.
 	stale := []string{}
@@ -33,8 +33,7 @@ func TestAuditActionSchemas_CompleteCoverage(t *testing.T) {
 			stale = append(stale, action)
 		}
 	}
-	require.LessOrEqual(t, len(stale), 0)
-
+	require.Empty(t, stale)
 }
 
 // handlerActionPayloads maps every action to a realistic detail payload
@@ -250,7 +249,6 @@ func TestAuditDetailSchema_RequiredKeysPresent(t *testing.T) {
 			}
 			assert.False(
 				t, isZero(v))
-
 		}
 
 		// Forbidden keys must be absent.

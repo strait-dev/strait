@@ -34,7 +34,6 @@ func TestFailOpenTracker_Cleanup(t *testing.T) {
 	e.failOpenTracker.Range(func(_, _ any) bool { count++; return true })
 	require.NotEqual(t,
 		0, count)
-
 }
 
 func TestMaskEmail_Valid(t *testing.T) {
@@ -51,7 +50,6 @@ func TestMaskEmail_Valid(t *testing.T) {
 		got := maskEmail(tt.input)
 		assert.Equal(t, tt.
 			want, got)
-
 	}
 }
 
@@ -61,7 +59,6 @@ func TestMaskEmail_Invalid(t *testing.T) {
 	for _, input := range cases {
 		got := maskEmail(input)
 		assert.False(t, strings.Contains(got, "@") && !strings.Contains(got, "***"))
-
 	}
 }
 
@@ -69,9 +66,8 @@ func TestMaskEmail_NoLeak(t *testing.T) {
 	t.Parallel()
 	email := "sensitive.user@private.domain.com"
 	masked := maskEmail(email)
-	assert.False(t, strings.Contains(masked, "sensitive"))
-	assert.True(t, strings.Contains(masked, "private.domain.com"))
-
+	assert.NotContains(t, masked, "sensitive")
+	assert.Contains(t, masked, "private.domain.com")
 }
 
 func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
@@ -97,7 +93,6 @@ func TestWebhookReplayProtection_DuplicateRejected(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		rec2.Code)
-
 }
 
 func TestWebhookReplayProtection_DifferentIDsAllowed(t *testing.T) {
@@ -151,9 +146,8 @@ func TestWebhookReplayCleanup(t *testing.T) {
 	// Verify old entries removed
 	count := 0
 	handler.replayCache.Range(func(_, _ any) bool { count++; return true })
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		count)
-
 }
 
 func FuzzMaskEmail(f *testing.F) {
@@ -172,7 +166,6 @@ func FuzzMaskEmail(f *testing.F) {
 			assert.False(t, len(parts[0]) >
 				1 && strings.Contains(result,
 				parts[0]))
-
 		}
 	})
 }

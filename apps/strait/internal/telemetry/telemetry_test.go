@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,16 +15,15 @@ func TestInit_NoEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	shutdown, err := Init(ctx, "test-service", "", "test")
-	assert.NoError(t,
+	require.NoError(t,
 		err)
 	assert.NotNil(t,
 		shutdown)
 
 	// Verify shutdown function works without error
 	err = shutdown(ctx)
-	assert.NoError(t,
+	require.NoError(t,
 		err)
-
 }
 
 // TestInit_WithEndpoint verifies that Init can be called with a valid endpoint.
@@ -66,16 +64,14 @@ func TestInit_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
 	_ = shutdown(ctx)
 
 	out := buf.String()
-	require.True(t, strings.Contains(out, "otel tracing enabled"))
+	require.Contains(t, out, "otel tracing enabled")
 
 	for _, leaked := range []string{"user", "pass", "signed"} {
-		require.False(t,
-			strings.Contains(out, leaked))
-
+		require.NotContains(t,
+			out, leaked)
 	}
-	require.True(t, strings.Contains(out, "sig=%5Bredacted%5D"))
-	require.True(t, strings.Contains(out, "tenant=prod"))
-
+	require.Contains(t, out, "sig=%5Bredacted%5D")
+	require.Contains(t, out, "tenant=prod")
 }
 
 // TestInit_ServiceName verifies that Init accepts a service name.
@@ -92,7 +88,7 @@ func TestInit_ServiceName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			shutdown, err := Init(ctx, name, "", "test")
-			assert.NoError(t,
+			require.NoError(t,
 				err)
 			assert.NotNil(t,
 				shutdown)
@@ -126,9 +122,8 @@ func TestInit_ShutdownIdempotent(t *testing.T) {
 	// Call shutdown multiple times
 	for range 3 {
 		err := shutdown(ctx)
-		assert.NoError(t,
+		require.NoError(t,
 			err)
-
 	}
 }
 
@@ -138,8 +133,7 @@ func TestInit_InvalidURL_ReturnsError(t *testing.T) {
 	_, err := Init(ctx, "test-service", "://bad", "test")
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(), "parse otel trace endpoint"))
-
+	assert.Contains(t, err.Error(), "parse otel trace endpoint")
 }
 
 func TestInit_HttpsScheme(t *testing.T) {
@@ -168,7 +162,6 @@ func TestInitLogBridge_InvalidURL_ReturnsError(t *testing.T) {
 		err)
 	assert.Nil(t, logger)
 	assert.Nil(t, shutdown)
-
 }
 
 func TestInitLogBridge_HttpsScheme(t *testing.T) {

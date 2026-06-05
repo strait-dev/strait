@@ -26,7 +26,6 @@ func TestCreateAPIKey_ExpiresInOverflowRejected(t *testing.T) {
 		w.Code !=
 			http.StatusBadRequest,
 	)
-
 }
 
 func TestCreateAPIKey_ExpiresInBoundary(t *testing.T) {
@@ -48,7 +47,6 @@ func TestCreateAPIKey_ExpiresInBoundary(t *testing.T) {
 			Code !=
 			http.
 				StatusBadRequest)
-
 }
 
 func TestCreateAPIKey_RotationIntervalOverflowRejected(t *testing.T) {
@@ -62,7 +60,6 @@ func TestCreateAPIKey_RotationIntervalOverflowRejected(t *testing.T) {
 		w.Code !=
 			http.StatusBadRequest,
 	)
-
 }
 
 func TestCreateAPIKey_QuotaMaxKeyLifetimeClampedDoesNotWrap(t *testing.T) {

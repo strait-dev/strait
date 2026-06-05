@@ -37,7 +37,6 @@ func TestRequireCloudEdition_Community(t *testing.T) {
 	assert.Equal(t, "https://strait.dev/pricing",
 
 		body["upgrade"])
-
 }
 
 func TestRequireCloudEdition_Cloud(t *testing.T) {
@@ -55,5 +54,4 @@ func TestRequireCloudEdition_Cloud(t *testing.T) {
 		StatusOK,
 		rr.Code)
 	require.True(t, called)
-
 }

@@ -28,8 +28,8 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 			"application/json",
 			r.Header.
 				Get("Content-Type"))
-		assert.NotEqual(
-			t, "", r.Header.Get("X-Run-ID"))
+		assert.NotEmpty(
+			t, r.Header.Get("X-Run-ID"))
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -41,8 +41,7 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	assert.True(t, result.
 		Delivered)
-	assert.EqualValues(t, 200, result.StatusCode)
-
+	assert.Equal(t, 200, result.StatusCode)
 }
 
 func TestSendWebhookOnce_ServerError(t *testing.T) {
@@ -58,8 +57,7 @@ func TestSendWebhookOnce_ServerError(t *testing.T) {
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	assert.False(t,
 		result.Delivered)
-	assert.EqualValues(t, 500, result.StatusCode)
-
+	assert.Equal(t, 500, result.StatusCode)
 }
 
 func TestSendWebhookOnce_ClientError(t *testing.T) {
@@ -75,8 +73,7 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	assert.False(t,
 		result.Delivered)
-	assert.EqualValues(t, 400, result.StatusCode)
-
+	assert.Equal(t, 400, result.StatusCode)
 }
 
 func TestSendWebhookOnce_WithSignature(t *testing.T) {
@@ -98,19 +95,18 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	require.True(t,
 		result.Delivered)
-	assert.NotEqual(
-		t, "", gotSig)
+	assert.NotEmpty(
+		t, gotSig)
 	assert.False(t,
 		len(gotSig) < 5 ||
 			gotSig[:3] != "v1=",
 	)
-	assert.NotEqual(
-		t, "", gotStraitSig,
+	assert.NotEmpty(
+		t, gotStraitSig,
 	)
-	assert.NotEqual(
-		t, "", gotTimestamp,
+	assert.NotEmpty(
+		t, gotTimestamp,
 	)
-
 }
 
 func TestSendWebhookOnce_PayloadContent(t *testing.T) {
@@ -118,7 +114,7 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 	var gotPayload WebhookPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		require.NoError(
+		assert.NoError(
 			t, json.Unmarshal(body,
 				&gotPayload,
 			))
@@ -151,8 +147,7 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 	assert.Equal(t,
 		"completed", gotPayload.
 			Status)
-	assert.EqualValues(t, 2, gotPayload.Attempt)
-
+	assert.Equal(t, 2, gotPayload.Attempt)
 }
 
 func TestSendWebhookOnce_NetworkError(t *testing.T) {
@@ -163,10 +158,9 @@ func TestSendWebhookOnce_NetworkError(t *testing.T) {
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
 	assert.False(t,
 		result.Delivered)
-	assert.NotEqual(
-		t, "", result.Error,
+	assert.NotEmpty(
+		t, result.Error,
 	)
-
 }
 
 func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
@@ -177,7 +171,6 @@ func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
 	result := SendWebhookWithRetry(t.Context(), job, run, 3)
 	assert.True(t, result.
 		Delivered)
-
 }
 
 func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
@@ -196,7 +189,6 @@ func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
 	assert.True(t, result.
 		Delivered)
 	assert.EqualValues(t, 1, attempts.Load())
-
 }
 
 func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
@@ -215,8 +207,7 @@ func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
 	assert.False(t,
 		result.Delivered)
 	assert.EqualValues(t, 1, attempts.Load())
-	assert.EqualValues(t, 400, result.StatusCode)
-
+	assert.Equal(t, 400, result.StatusCode)
 }
 
 func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
@@ -227,7 +218,6 @@ func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
 	result := SendWebhookWithRetry(t.Context(), job, run, 0)
 	assert.True(t, result.
 		Delivered)
-
 }
 
 func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
@@ -261,7 +251,6 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 		result.Delivered)
 	assert.GreaterOrEqual(t, attempts.
 		Load(), int32(1))
-
 }
 
 func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
@@ -284,7 +273,6 @@ func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
 	assert.True(t, result.
 		Delivered)
 	assert.EqualValues(t, 2, attempts.Load())
-
 }
 
 func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
@@ -303,5 +291,4 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 	assert.False(t,
 		result.Delivered)
 	assert.EqualValues(t, 2, attempts.Load())
-
 }

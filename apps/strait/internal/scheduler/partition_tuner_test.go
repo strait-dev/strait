@@ -128,9 +128,9 @@ func TestPartitionTuner_AppliesHotThenCold(t *testing.T) {
 	tu := NewPartitionTuner(s, PartitionTunerConfig{Clock: clock})
 	require.NoError(t,
 		tu.runOnce(context.Background()))
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		tu.HotCount())
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 		tu.ColdCount())
 
 	// Verify the hot DDLs target the correct partitions. Filter on the
@@ -142,9 +142,8 @@ func TestPartitionTuner_AppliesHotThenCold(t *testing.T) {
 			hotDDLs++
 		}
 	}
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		hotDDLs)
-
 }
 
 func TestPartitionTuner_EmptyPartitionList(t *testing.T) {
@@ -156,7 +155,6 @@ func TestPartitionTuner_EmptyPartitionList(t *testing.T) {
 		HotCount() !=
 		0 || tu.
 		ColdCount() != 0)
-
 }
 
 func TestPartitionTuner_ListError(t *testing.T) {
@@ -166,7 +164,6 @@ func TestPartitionTuner_ListError(t *testing.T) {
 		runOnce(context.
 			Background()),
 	)
-
 }
 
 func TestPartitionTuner_ExecErrorContinuesToNextPartition(t *testing.T) {
@@ -184,7 +181,6 @@ func TestPartitionTuner_ExecErrorContinuesToNextPartition(t *testing.T) {
 
 	// Both partitions should have been attempted but failed; counters
 	// should stay zero because neither succeeded.
-
 }
 
 func TestPartitionTuner_LockNotAcquired(t *testing.T) {
@@ -192,8 +188,7 @@ func TestPartitionTuner_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	tu := NewPartitionTuner(s, PartitionTunerConfig{}).WithAdvisoryLocker(locker)
 	_ = tu.runOnce(context.Background())
-	assert.Len(t, s.DDLs(), 0)
-
+	assert.Empty(t, s.DDLs())
 }
 
 func TestPartitionTuner_RunExitsOnCancel(t *testing.T) {
@@ -225,7 +220,7 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 		Clock: func() time.Time { return time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC) },
 	})
 	_ = tu.runOnce(context.Background())
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		tu.HotCount())
 
 	s.mu.Lock()
@@ -235,7 +230,7 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 	// Now simulate month 5: hot = {04, 05}
 	tu.clock = func() time.Time { return time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC) }
 	_ = tu.runOnce(context.Background())
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		tu.HotCount())
 
 	// 03 should now be cold.
@@ -246,7 +241,6 @@ func TestPartitionTuner_RotatesHotAsTimeAdvances(t *testing.T) {
 		}
 	}
 	assert.True(t, coldFor03)
-
 }
 
 // slowTunerStore exposes any ordering or race hazards in the
@@ -325,7 +319,6 @@ func TestPartitionTuner_ParallelExec(t *testing.T) {
 		ColdCount())
 
 	// Each partition emits one autovacuum DDL plus one fillfactor DDL.
-
 }
 
 func TestPartitionTuner_AppliesFillfactorWhenMissing(t *testing.T) {
@@ -344,7 +337,6 @@ func TestPartitionTuner_AppliesFillfactorWhenMissing(t *testing.T) {
 		}
 	}
 	require.True(t, fillffSet)
-
 }
 
 func TestPartitionTuner_SkipsFillfactorWhenAlreadySet(t *testing.T) {
@@ -360,8 +352,7 @@ func TestPartitionTuner_SkipsFillfactorWhenAlreadySet(t *testing.T) {
 		tu.runOnce(context.Background()))
 
 	for _, sql := range s.DDLs() {
-		require.False(t, strings.Contains(sql, "fillfactor"))
-
+		require.NotContains(t, sql, "fillfactor")
 	}
 }
 
@@ -374,7 +365,7 @@ func TestPartitionTuner_FillfactorAppliesToColdPartitions(t *testing.T) {
 	tu := NewPartitionTuner(s, PartitionTunerConfig{Clock: clock})
 	require.NoError(t,
 		tu.runOnce(context.Background()))
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		tu.ColdCount())
 
 	var fillffSet bool
@@ -384,7 +375,6 @@ func TestPartitionTuner_FillfactorAppliesToColdPartitions(t *testing.T) {
 		}
 	}
 	require.True(t, fillffSet)
-
 }
 
 func TestParsePartitionMonth(t *testing.T) {
@@ -404,6 +394,5 @@ func TestParsePartitionMonth(t *testing.T) {
 			c.wantY ||
 			m != c.wantM,
 		)
-
 	}
 }

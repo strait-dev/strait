@@ -14,7 +14,6 @@ func TestAdaptivePoll_BaseOnFreshStart(t *testing.T) {
 			Second,
 
 		a.Next())
-
 }
 
 func TestAdaptivePoll_BacksOffOnEmpty(t *testing.T) {
@@ -34,7 +33,6 @@ func TestAdaptivePoll_BacksOffOnEmpty(t *testing.T) {
 		prev,
 
 		8*time.Second)
-
 }
 
 func TestAdaptivePoll_CappedAtMax(t *testing.T) {
@@ -44,7 +42,6 @@ func TestAdaptivePoll_CappedAtMax(t *testing.T) {
 	}
 	assert.LessOrEqual(t, a.
 		Next(), 5*time.Second)
-
 }
 
 func TestAdaptivePoll_FloorAtMin(t *testing.T) {
@@ -55,7 +52,6 @@ func TestAdaptivePoll_FloorAtMin(t *testing.T) {
 			Next(), 500*time.Millisecond)
 
 	// huge depth → wants tiny interval
-
 }
 
 func TestAdaptivePoll_DepthShortensInterval(t *testing.T) {
@@ -76,16 +72,14 @@ func TestAdaptivePoll_ClaimResetsEmpty(t *testing.T) {
 	before := a.Next()
 	a.ObserveClaim(3)
 	after := a.Next()
-	assert.False(t,
-		after >=
-			before,
+	assert.Less(t,
+		after, before,
 	)
 	assert.Equal(t,
 		1*time.
 			Second,
 
 		after)
-
 }
 
 func TestAdaptivePoll_Disable(t *testing.T) {
@@ -99,16 +93,14 @@ func TestAdaptivePoll_Disable(t *testing.T) {
 			Second,
 
 		a.Next())
-
 }
 
 func TestAdaptivePoll_ObserveClaimZero(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 30*time.Second)
 	a.ObserveClaim(0)
-	assert.EqualValues(t, 1, a.emptyCount)
+	assert.Equal(t, 1, a.emptyCount)
 
 	// zero claim == empty
-
 }
 
 // FuzzAdaptivePoll_MonotonicBounds asserts the result is always within
@@ -127,6 +119,5 @@ func FuzzAdaptivePoll_Bounds(f *testing.F) {
 			d < 100*
 				time.
 					Millisecond || d > 10*time.Second)
-
 	})
 }

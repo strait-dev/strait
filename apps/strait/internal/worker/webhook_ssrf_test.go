@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -88,11 +87,9 @@ func TestNewSafeWebhookTransport_BlocksPrivateLoopback(t *testing.T) {
 
 			"expected SSRF guard to block loopback dial; got status %d", resp.StatusCode)
 	}
-	require.True(t,
-		strings.Contains(err.
-			Error(), "ssrf:",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "ssrf:")
 }
 
 // TestNewSafeWebhookTransport_BlocksLinkLocalMetadata pins the
@@ -113,9 +110,7 @@ func TestNewSafeWebhookTransport_BlocksLinkLocalMetadata(t *testing.T) {
 
 			"expected SSRF guard to refuse link-local metadata dial; got status %d", resp.StatusCode)
 	}
-	require.True(t,
-		strings.Contains(err.
-			Error(), "ssrf:",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "ssrf:")
 }

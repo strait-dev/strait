@@ -124,9 +124,8 @@ func TestHandleCreateSecret_LeavesEncryptionToStore(t *testing.T) {
 	require.Equal(t, "super-secret",
 		storedValue,
 	)
-	require.EqualValues(t, 0, apiEncryptor.
+	require.Equal(t, 0, apiEncryptor.
 		calls)
-
 }
 
 func TestHandleCreateSecret_MissingFields(t *testing.T) {
@@ -138,7 +137,6 @@ func TestHandleCreateSecret_MissingFields(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleListSecrets_Success(t *testing.T) {
@@ -161,7 +159,6 @@ func TestHandleListSecrets_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/secrets/?job_id=job-1&environment=production", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleDeleteSecret_Success(t *testing.T) {
@@ -184,7 +181,6 @@ func TestHandleDeleteSecret_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateSecret_NoEncryptionKey_Returns503(t *testing.T) {
@@ -198,5 +194,4 @@ func TestHandleCreateSecret_NoEncryptionKey_Returns503(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }

@@ -44,7 +44,6 @@ func TestHandleTriggerJob_RejectsOversizedTags(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.String(), "too many tags"))
-
+	require.Contains(
+		t, w.Body.String(), "too many tags")
 }

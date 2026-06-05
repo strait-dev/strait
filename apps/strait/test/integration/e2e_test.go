@@ -287,7 +287,7 @@ func TestEndToEndJobExecution(t *testing.T) {
 		"max_attempts": 1,
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 201, resp.StatusCode)
+	require.Equal(t, 201, resp.StatusCode)
 
 	var job struct {
 		ID string `json:"id"`
@@ -303,7 +303,7 @@ func TestEndToEndJobExecution(t *testing.T) {
 			"payload": map[string]any{"iteration": i},
 		})
 		require.NoError(t, err)
-		require.EqualValues(t, 201, resp.StatusCode)
+		require.Equal(t, 201, resp.StatusCode)
 
 		var run struct {
 			ID string `json:"id"`
@@ -408,7 +408,6 @@ func TestEndToEndJobExecution(t *testing.T) {
 	t.Logf("Endpoint received %d dispatches", dispatched)
 	t.Logf("Results: %d completed, %d failed, %d endpoint errors", completed, failed, len(epErrs))
 	assert.Equal(t, numRuns, completed)
-
 }
 
 // TestEndToEndWorkflowExecution tests a 2-step workflow with real execution.
@@ -543,7 +542,7 @@ func TestEndToEndStressLoop(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 1,
 	})
-	require.EqualValues(t, 201, resp.StatusCode)
+	require.Equal(t, 201, resp.StatusCode)
 
 	var job struct {
 		ID string `json:"id"`
@@ -611,5 +610,4 @@ func TestEndToEndStressLoop(t *testing.T) {
 			"endpoint error: %s", e)
 	}
 	assert.Equal(t, iterations, completed)
-
 }

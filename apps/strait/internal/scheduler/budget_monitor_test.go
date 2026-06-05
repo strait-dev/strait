@@ -67,7 +67,6 @@ func TestFormatBudgetAlertKey(t *testing.T) {
 	expected := "proj-1:2026-03-16"
 	require.Equal(t, expected,
 		key)
-
 }
 
 func TestBudgetMonitor_PruneAlertedForPeriods_DropsOldKeys(t *testing.T) {
@@ -93,7 +92,6 @@ func TestBudgetMonitor_PruneAlertedForPeriods_DropsOldKeys(t *testing.T) {
 	for _, key := range []string{"spending:org-1:100:2026-04-15", "runlimit:org-2:80:2026-04"} {
 		require.True(t, bm.
 			alerted[key])
-
 	}
 }
 
@@ -227,8 +225,8 @@ func TestBudgetMonitor_80Percent_TriggersWebhook(t *testing.T) {
 
 		deliveries[0].EventType,
 	)
-	require.NotEqual(t,
-		"", deliveries[0].DedupeKey,
+	require.NotEmpty(t,
+		deliveries[0].DedupeKey,
 	)
 
 	// At 80%: only webhook should fire, not email.
@@ -281,7 +279,6 @@ func TestBudgetMonitor_100Percent_TriggersWebhookAndEmail(t *testing.T) {
 
 			d.EventType,
 		)
-
 	}
 	assert.False(t, !channelTypes["ch-webhook"] ||
 		!channelTypes["ch-email"])
@@ -326,7 +323,6 @@ func TestBudgetMonitor_RunLimitWarningUsesMonthlyAllowance(t *testing.T) {
 			enforcer.CheckMonthlyRunLimit(context.Background(),
 				"org-1",
 			))
-
 	}
 
 	var deliveries []*domain.NotificationDelivery
@@ -375,10 +371,9 @@ func assertProjectScopedBudgetPayload(t *testing.T, payload json.RawMessage) {
 				"project-scoped budget payload leaked %q: %s", key, string(payload))
 		}
 	}
-	require.NotEqual(t,
-		"", decoded["event"])
+	require.NotEmpty(t,
+		decoded["event"])
 	require.NotNil(t, decoded["threshold_pct"])
-
 }
 
 func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
@@ -413,9 +408,8 @@ func TestBudgetMonitor_SpendingAlertRetriesAfterDeliveryFailure(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	bm.check(context.Background())
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		attempts)
-
 }
 
 func TestBudgetMonitor_Below80_NoAlert(t *testing.T) {
@@ -442,7 +436,6 @@ func TestBudgetMonitor_Below80_NoAlert(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestBudgetMonitor_NoSpendingLimit_Skipped(t *testing.T) {
@@ -465,7 +458,6 @@ func TestBudgetMonitor_NoSpendingLimit_Skipped(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }
 
 func TestBudgetMonitor_FreeOrgHardCapped_NoSpendingAlert(t *testing.T) {
@@ -488,5 +480,4 @@ func TestBudgetMonitor_FreeOrgHardCapped_NoSpendingAlert(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithSpendingLimitStore(ss)
 	bm.check(context.Background())
 	require.False(t, deliveryCalled)
-
 }

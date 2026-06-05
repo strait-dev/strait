@@ -39,11 +39,9 @@ func TestRunLifecycle_CancelTerminalRun(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 
 				w.Code)
-			require.True(
-				t, strings.Contains(w.Body.
-					String(),
-					"terminal"))
-
+			require.Contains(
+				t, w.Body.
+					String(), "terminal")
 		})
 	}
 }
@@ -94,7 +92,6 @@ func TestRunLifecycle_CancelConcurrent(t *testing.T) {
 	}
 	require.LessOrEqual(t, successes,
 		1)
-
 }
 
 // TestRunLifecycle_ReplayNonTerminalRun verifies that replaying a run in a
@@ -128,7 +125,6 @@ func TestRunLifecycle_ReplayNonTerminalRun(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 
 				w.Code)
-
 		})
 	}
 }
@@ -156,7 +152,6 @@ func TestRunLifecycle_ReplayDeadLetterRun(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestRunLifecycle_RestartMaxDepth verifies that restart works for a run
@@ -189,7 +184,6 @@ func TestRunLifecycle_RestartMaxDepth(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestRunLifecycle_RestartLineageOverflow verifies a restart request for a run
@@ -224,7 +218,6 @@ func TestRunLifecycle_RestartLineageOverflow(t *testing.T) {
 	)
 
 	// Should succeed without panic; the handler does not check lineage depth.
-
 }
 
 // TestRunLifecycle_CancelChildRuns verifies that canceling a parent run also
@@ -269,7 +262,6 @@ func TestRunLifecycle_CancelChildRuns(t *testing.T) {
 	require.True(
 		t, childCancelCalled.
 			Load())
-
 }
 
 // TestRunLifecycle_CancelMaxDepthExceeded verifies that the recursive child
@@ -309,7 +301,6 @@ func TestRunLifecycle_CancelMaxDepthExceeded(t *testing.T) {
 		int64(20))
 
 	// maxCancelDepth is 20.
-
 }
 
 // TestRunLifecycle_SnoozeNegativeDuration verifies that the snooze endpoint does
@@ -328,7 +319,6 @@ func TestRunLifecycle_SnoozeNegativeDuration(t *testing.T) {
 	)
 
 	// Snooze is not an API route, so expect 404 or 405.
-
 }
 
 // TestRunLifecycle_SnoozeMaxDuration is a companion to the negative duration test,
@@ -344,7 +334,6 @@ func TestRunLifecycle_SnoozeMaxDuration(t *testing.T) {
 		w.Code ==
 			http.StatusCreated,
 	)
-
 }
 
 // TestRunLifecycle_PauseResumeRace sends concurrent pause and resume requests to
@@ -400,7 +389,6 @@ func TestRunLifecycle_CompletionWithHugeResult(t *testing.T) {
 	require.Len(t,
 		parsed["data"].(string), 10*1024*
 			1024)
-
 }
 
 // TestRunLifecycle_CompletionWithNullResult verifies that a null JSON result
@@ -414,7 +402,6 @@ func TestRunLifecycle_CompletionWithNullResult(t *testing.T) {
 		&parsed,
 	))
 	require.Nil(t, parsed)
-
 }
 
 // TestRunLifecycle_DoubleCompletion verifies that attempting to cancel (simulate
@@ -460,7 +447,6 @@ func TestRunLifecycle_DoubleCompletion(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w2.Code)
-
 }
 
 // FuzzRunLifecycleTransitions fuzzes random status strings as query parameters

@@ -28,7 +28,6 @@ func TestResilientPublisher_Publish_NilPublisher(t *testing.T) {
 	// Publish with nil publisher should fail open (no error returned).
 
 	// Should accumulate failures.
-
 }
 
 func TestResilientPublisher_Publish_Success(t *testing.T) {
@@ -47,7 +46,6 @@ func TestResilientPublisher_Publish_Success(t *testing.T) {
 			[]byte("payload")))
 	require.True(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_Close_NilPublisher(t *testing.T) {
@@ -58,7 +56,6 @@ func TestResilientPublisher_Close_NilPublisher(t *testing.T) {
 		t, rp.Close())
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_Close_Success(t *testing.T) {
@@ -73,7 +70,6 @@ func TestResilientPublisher_Close_Success(t *testing.T) {
 		t, rp.Close())
 	require.True(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_Close_Error(t *testing.T) {
@@ -88,7 +84,6 @@ func TestResilientPublisher_Close_Error(t *testing.T) {
 		t, rp.Close())
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_Ping_Success(t *testing.T) {
@@ -103,7 +98,6 @@ func TestResilientPublisher_Ping_Success(t *testing.T) {
 		t, rp.Ping(t.Context()))
 	require.True(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_Subscribe_NilPublisher(t *testing.T) {
@@ -145,7 +139,6 @@ func TestResilientPublisher_Subscribe_Success(t *testing.T) {
 		sub)
 	require.True(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_DefaultThreshold_ZeroFallback(t *testing.T) {
@@ -173,7 +166,6 @@ func TestResilientPublisher_DefaultThreshold_ZeroFallback(t *testing.T) {
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_NegativeThreshold(t *testing.T) {
@@ -196,7 +188,6 @@ func TestResilientPublisher_NegativeThreshold(t *testing.T) {
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_PublishBatch_EmptySlice(t *testing.T) {
@@ -216,7 +207,6 @@ func TestResilientPublisher_PublishBatch_EmptySlice(t *testing.T) {
 	)
 	assert.False(t,
 		published)
-
 }
 
 func TestResilientPublisher_PublishBatch_NilPublisherDegrades(t *testing.T) {
@@ -231,7 +221,6 @@ func TestResilientPublisher_PublishBatch_NilPublisherDegrades(t *testing.T) {
 		t, err)
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_PublishBatch_RecoveryAfterFailure(t *testing.T) {
@@ -266,5 +255,4 @@ func TestResilientPublisher_PublishBatch_RecoveryAfterFailure(t *testing.T) {
 	})
 	require.True(t,
 		rp.IsHealthy())
-
 }

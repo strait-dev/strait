@@ -64,7 +64,6 @@ func TestLogsEmitOnlySchemeAndHost(t *testing.T) {
 		require.True(t,
 			result.Delivered,
 		)
-
 	})
 
 	want := httputil.RedactURLForLog(job.WebhookURL)
@@ -78,7 +77,6 @@ func TestLogsEmitOnlySchemeAndHost(t *testing.T) {
 		require.Equal(
 			t, want, raw,
 		)
-
 	}
 }
 
@@ -121,12 +119,10 @@ func TestOTelAttributeRedacted(t *testing.T) {
 			require.Equal(
 				t, want, got,
 			)
-
 		}
 	}
 	require.True(t,
 		seen)
-
 }
 
 // TestErrorStringStripsURL pins SanitizeHTTPClientError on the
@@ -166,7 +162,6 @@ func TestErrorStringStripsURL(t *testing.T) {
 				result.Error,
 				"leak-me",
 			))
-
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -194,6 +189,5 @@ func FuzzRedactURLForLogNeverLeaksQuery(f *testing.F) {
 		require.False(
 			t, strings.ContainsAny(got,
 				"?#"))
-
 	})
 }

@@ -29,7 +29,6 @@ func TestSafeGo_NoPanic_RunsNormally(t *testing.T) {
 	})
 	wg.Wait()
 	require.True(t, ran)
-
 }
 
 func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
@@ -52,7 +51,6 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 		event.
 			Breadcrumbs[0].Category,
 	)
-
 }
 
 func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
@@ -91,7 +89,6 @@ func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
 		CheckInStatusOK,
 		got[1].Status)
 	require.GreaterOrEqual(t, got[1].Duration, time.Duration(0))
-
 }
 
 func TestSafeGoWithContext_PassesSentryContextToComponent(t *testing.T) {
@@ -116,7 +113,6 @@ func TestSafeGoWithContext_PassesSentryContextToComponent(t *testing.T) {
 
 		gotCheckIn.component,
 	)
-
 }
 
 func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
@@ -166,7 +162,6 @@ func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
 		CheckInStatusOK,
 		got[1].checkIn.
 			Status)
-
 }
 
 func TestRunSchedulerCycleCheckInWithError_CapturesFailedCycle(t *testing.T) {
@@ -204,7 +199,6 @@ func TestRunSchedulerCycleCheckInWithError_CapturesFailedCycle(t *testing.T) {
 		got[1].
 			MonitorSlug,
 	)
-
 }
 
 func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
@@ -242,7 +236,6 @@ func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
 	require.LessOrEqual(t, got[1].
 		Duration, time.
 		Minute)
-
 }
 
 func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
@@ -268,12 +261,10 @@ func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
 		require.Equal(t, want,
 			event.
 				Tags[key])
-
 	}
 	require.Equal(t, "poller",
 		event.
 			Contexts["scheduler.component"]["component"])
-
 }
 
 func TestSafeGo_Panic_CallsExit(t *testing.T) {
@@ -294,7 +285,6 @@ func TestSafeGo_Panic_CallsExit(t *testing.T) {
 	require.EqualValues(t, 1,
 		exitCode.
 			Load())
-
 }
 
 func TestSafeGo_Panic_NilValue(t *testing.T) {
@@ -318,5 +308,4 @@ func TestSafeGo_Panic_NilValue(t *testing.T) {
 	// panic(nil) is still caught by recover() in Go 1.21+; in older Go it returns nil.
 	// Either way, exitFunc should be called because the deferred recover fires.
 	// Note: In Go 1.21+ panic(nil) wraps into a *runtime.PanicNilError.
-
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,7 +53,6 @@ func TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun(t
 		Load())
 
 	// Only the fresh item should have triggered the gate.
-
 }
 
 // flakyEnforcer trips the gate on a specific item index. Used to simulate the
@@ -107,7 +105,6 @@ func TestBulkTrigger_FailureAtItemN_StopsAtFirstFailure(t *testing.T) {
 		Load())
 
 	// Gate fired exactly 5 times: items 0..3 passed, item 4 failed and bailed.
-
 }
 
 // TestBulkTrigger_PerItemErrorMessageReferencesItemIndex verifies that the
@@ -134,11 +131,8 @@ func TestBulkTrigger_PerItemErrorMessageReferencesItemIndex(t *testing.T) {
 	)
 
 	bodyStr := w.Body.String()
-	assert.True(t,
-		strings.Contains(bodyStr,
-			"item 2",
-		))
-
+	assert.Contains(t,
+		bodyStr, "item 2")
 }
 
 func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
@@ -176,7 +170,6 @@ func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, enqueued.Load())
-
 }
 
 func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
@@ -214,7 +207,6 @@ func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
 	require.False(t, enqueued.Load())
 	require.EqualValues(t, 1, budgetChecks.
 		Load())
-
 }
 
 func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
@@ -260,13 +252,12 @@ func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, resp.Created)
+	require.Equal(t, 0, resp.Created)
 
 	for _, result := range resp.Results {
 		require.True(
 			t, result.IdempotencyHit,
 		)
-
 	}
 }
 
@@ -301,5 +292,4 @@ func TestBulkTrigger_DailyCostBudgetCheckedOnceForNewBatch(t *testing.T) {
 	require.EqualValues(t, 1, budgetChecks.
 		Load())
 	require.EqualValues(t, 3, enqueued.Load())
-
 }

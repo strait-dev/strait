@@ -20,27 +20,24 @@ func TestNew_Disabled(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t,
 		c)
-
 }
 
 func TestNew_EnabledWithoutURL(t *testing.T) {
 	t.Parallel()
 	_, err := New(Config{Enabled: true, URL: ""}, nil)
-	assert.Error(t, err)
-
+	require.Error(t, err)
 }
 
 func TestClient_Nil_Operations(t *testing.T) {
 	t.Parallel()
 	var c *Client
 	assert.False(t, c.Healthy(context.Background()))
-	assert.NoError(t, c.
+	require.NoError(t, c.
 		Close())
 	assert.Nil(t,
 		c.DB())
-	assert.NoError(t, c.
+	require.NoError(t, c.
 		Exec(context.Background(), "SELECT 1"))
-
 }
 
 func TestQueryRow_NilClient_ReturnsError(t *testing.T) {
@@ -50,7 +47,6 @@ func TestQueryRow_NilClient_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t,
 		row)
-
 }
 
 func TestQueryRow_NilDB_ReturnsError(t *testing.T) {
@@ -60,7 +56,6 @@ func TestQueryRow_NilDB_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t,
 		row)
-
 }
 
 func TestExporter_Nil_Operations(t *testing.T) {
@@ -72,7 +67,6 @@ func TestExporter_Nil_Operations(t *testing.T) {
 	e.Stop()
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestExporter_Enqueue_And_PendingCount(t *testing.T) {
@@ -84,7 +78,6 @@ func TestExporter_Enqueue_And_PendingCount(t *testing.T) {
 	e.Enqueue("record2")
 	assert.Equal(t, 2, e.
 		PendingCount())
-
 }
 
 func TestExporter_Backpressure_CapsAndReallocates(t *testing.T) {
@@ -99,7 +92,6 @@ func TestExporter_Backpressure_CapsAndReallocates(t *testing.T) {
 	count := e.PendingCount()
 	assert.Equal(t, 20,
 		count)
-
 }
 
 func TestExporter_StopRejectsNewEnqueues(t *testing.T) {
@@ -117,7 +109,6 @@ func TestExporter_StopRejectsNewEnqueues(t *testing.T) {
 	cancel()
 	e.Stop()
 	assert.False(t, e.Enqueue("after-stop"))
-
 }
 
 func TestExporter_ConcurrentEnqueue(t *testing.T) {
@@ -139,7 +130,6 @@ func TestExporter_ConcurrentEnqueue(t *testing.T) {
 		perGoroutine,
 
 		e.PendingCount())
-
 }
 
 func TestExporter_FlushDrainsPending(t *testing.T) {
@@ -152,7 +142,6 @@ func TestExporter_FlushDrainsPending(t *testing.T) {
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestExporter_DisabledClient(t *testing.T) {
@@ -160,7 +149,6 @@ func TestExporter_DisabledClient(t *testing.T) {
 	e := NewExporter(nil, ExporterConfig{Enabled: true}, nil)
 	assert.Nil(t,
 		e)
-
 }
 
 func TestExporter_DisabledConfig(t *testing.T) {
@@ -168,7 +156,6 @@ func TestExporter_DisabledConfig(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: false}, nil)
 	assert.Nil(t,
 		e)
-
 }
 
 func TestConfig_CustomPoolSize(t *testing.T) {
@@ -179,7 +166,6 @@ func TestConfig_CustomPoolSize(t *testing.T) {
 		20 || cfg.
 		MaxIdleConns !=
 		10)
-
 }
 
 func TestExporter_InsertBatch_TypeRouting(t *testing.T) {
@@ -214,7 +200,6 @@ func TestExporter_InsertBatch_TypeRouting(t *testing.T) {
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestExporter_InsertBatch_EmptyBatch(t *testing.T) {
@@ -225,7 +210,6 @@ func TestExporter_InsertBatch_EmptyBatch(t *testing.T) {
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestExporter_InsertBatch_NilClient(t *testing.T) {
@@ -240,8 +224,7 @@ func TestExporter_InsertBatch_NilClient(t *testing.T) {
 	}
 
 	err := e.insertBatch(context.Background(), []any{RunEventRecord{EventID: "evt-1"}})
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 }
 
 func TestExporter_MultipleBatchFlushes(t *testing.T) {
@@ -263,7 +246,6 @@ func TestExporter_MultipleBatchFlushes(t *testing.T) {
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestNew_DriverRegistered(t *testing.T) {
@@ -273,7 +255,6 @@ func TestNew_DriverRegistered(t *testing.T) {
 		Contains(drivers,
 			"clickhouse",
 		))
-
 }
 
 func TestExporter_PlaceholderFormat(t *testing.T) {
@@ -301,7 +282,6 @@ func TestExporter_PlaceholderFormat(t *testing.T) {
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestBuildConnURL_AppendsDatabase(t *testing.T) {
@@ -311,7 +291,6 @@ func TestBuildConnURL_AppendsDatabase(t *testing.T) {
 	assert.Equal(t, "clickhouse://localhost:9000?database=analytics",
 
 		got)
-
 }
 
 func TestBuildConnURL_NoOverrideExisting(t *testing.T) {
@@ -321,7 +300,6 @@ func TestBuildConnURL_NoOverrideExisting(t *testing.T) {
 	assert.Equal(t, "clickhouse://localhost:9000?database=existing",
 
 		got)
-
 }
 
 func TestBuildConnURL_EmptyDatabase(t *testing.T) {
@@ -331,7 +309,6 @@ func TestBuildConnURL_EmptyDatabase(t *testing.T) {
 	assert.Equal(t, "clickhouse://localhost:9000",
 
 		got)
-
 }
 
 // newFailingClient returns a Client whose Exec always returns an error
@@ -368,7 +345,6 @@ func TestExporter_FlushRequeuesOnError(t *testing.T) {
 	failures := e.consecutiveFailures
 	e.mu.Unlock()
 	assert.Equal(t, 1, failures)
-
 }
 
 func TestExporter_FlushDropsAfterMaxRetries(t *testing.T) {
@@ -391,7 +367,6 @@ func TestExporter_FlushDropsAfterMaxRetries(t *testing.T) {
 	}
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestExporter_FlushResetsOnSuccess(t *testing.T) {
@@ -427,7 +402,6 @@ func TestExporter_FlushResetsOnSuccess(t *testing.T) {
 	failures := e.consecutiveFailures
 	e.mu.Unlock()
 	assert.Equal(t, 0, failures)
-
 }
 
 func TestExporter_StopDrainsAllPending(t *testing.T) {
@@ -441,12 +415,10 @@ func TestExporter_StopDrainsAllPending(t *testing.T) {
 	e.Stop()
 	assert.Equal(t, 0, e.
 		PendingCount())
-
 }
 
 func TestCreateSchema_NilClient(t *testing.T) {
 	t.Parallel()
 	err := CreateSchema(context.Background(), nil)
-	assert.NoError(t, err)
-
+	require.NoError(t, err)
 }

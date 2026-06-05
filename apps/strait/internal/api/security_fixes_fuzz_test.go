@@ -94,7 +94,6 @@ func FuzzCrossProjectJobAccess(f *testing.F) {
 				&job) == nil &&
 				job.ProjectID ==
 					projectA)
-
 		}
 	})
 }
@@ -120,7 +119,6 @@ func FuzzCrossProjectRunAccess(f *testing.F) {
 				&run) == nil &&
 				run.ProjectID ==
 					projectA)
-
 		}
 	})
 }
@@ -146,7 +144,6 @@ func FuzzCrossProjectWorkflowAccess(f *testing.F) {
 				&wf) == nil &&
 				wf.ProjectID ==
 					projectA)
-
 		}
 	})
 }
@@ -172,7 +169,6 @@ func FuzzCrossProjectEnvironmentAccess(f *testing.F) {
 				&env) == nil &&
 				env.ProjectID ==
 					projectA)
-
 		}
 	})
 }
@@ -214,7 +210,6 @@ func FuzzSDKTokenRunIDMismatch(f *testing.F) {
 		assert.NotEqual(t, http.
 			StatusOK, w.Code,
 		)
-
 	})
 }
 
@@ -237,8 +232,7 @@ func FuzzURLValidationErrorCasing(f *testing.F) {
 		err := validateURL(rawURL)
 		if err != nil {
 			msg := err.Error()
-			assert.False(t, strings.Contains(msg, "uRL"))
-
+			assert.NotContains(t, msg, "uRL")
 		}
 	})
 }
@@ -269,7 +263,6 @@ func FuzzNullByteStripping(f *testing.F) {
 		assert.False(t, strings.ContainsRune(s.
 			Value,
 			0))
-
 	})
 }
 
@@ -296,10 +289,8 @@ func FuzzCronFieldCount(f *testing.F) {
 
 		if fieldCount == 5 {
 			assert.NoError(t, err)
-
 		} else {
 			assert.Error(t, err)
-
 		}
 	})
 }
@@ -338,7 +329,6 @@ func FuzzWebhookEventTypes(f *testing.F) {
 			!knownTypes[eventType])
 		assert.False(t, !isValid &&
 			knownTypes[eventType])
-
 	})
 }
 
@@ -398,7 +388,6 @@ func FuzzTriggerScheduledAt(f *testing.F) {
 			w.
 				Code == http.
 				StatusCreated)
-
 	})
 }
 
@@ -434,7 +423,6 @@ func FuzzProjectMatchHelper(f *testing.F) {
 			resourceProjectID &&
 			err !=
 				nil)
-
 	})
 }
 
@@ -463,6 +451,5 @@ func FuzzNullByteReader(f *testing.F) {
 			len(input))
 
 		// Verify length is preserved (null bytes become spaces, not removed).
-
 	})
 }

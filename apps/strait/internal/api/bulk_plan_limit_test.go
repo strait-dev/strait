@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -76,7 +75,6 @@ func TestBulkTrigger_PriorityCheckedPerItem_AllAllowed(t *testing.T) {
 		w.Code)
 	require.EqualValues(t, 3, enforcer.calls.
 		Load())
-
 }
 
 // TestBulkTrigger_PriorityCheckedPerItem_ZeroPriorityNotChecked verifies that
@@ -102,7 +100,6 @@ func TestBulkTrigger_PriorityCheckedPerItem_ZeroPriorityNotChecked(t *testing.T)
 		w.Code)
 	require.EqualValues(t, 1, enforcer.calls.
 		Load())
-
 }
 
 // TestBulkTrigger_PriorityRejectsSmuggled verifies that one over-cap item in a
@@ -139,7 +136,6 @@ func TestBulkTrigger_PriorityRejectsSmuggled(t *testing.T) {
 		calls.
 		Load(),
 		int64(1))
-
 }
 
 func TestBulkTrigger_CloudNilBillingEnforcerFailsClosed(t *testing.T) {
@@ -161,12 +157,9 @@ func TestBulkTrigger_CloudNilBillingEnforcerFailsClosed(t *testing.T) {
 
 		w.
 			Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"service_unavailable",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "service_unavailable")
 }
 
 // TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen verifies that the
@@ -189,7 +182,6 @@ func TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 
 		w.Code)
-
 }
 
 // TestBulkTrigger_LargeBatch_GateCalledPerItem locks in that the gate is
@@ -222,5 +214,4 @@ func TestBulkTrigger_LargeBatch_GateCalledPerItem(t *testing.T) {
 	require.Equal(t, int64(itemCount), enforcer.
 		calls.
 		Load())
-
 }

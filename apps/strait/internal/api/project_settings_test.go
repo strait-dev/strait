@@ -23,7 +23,6 @@ func TestGetProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(
 		t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestGetProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -40,7 +39,6 @@ func TestGetProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
 	require.Equal(
 		t, http.StatusOK, w.Code,
 	)
-
 }
 
 func TestGetProjectSettings_APIKey_CrossOrgForbidden(t *testing.T) {
@@ -58,7 +56,6 @@ func TestGetProjectSettings_APIKey_CrossOrgForbidden(t *testing.T) {
 	require.Equal(
 		t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestGetProjectSettings_APIKey_SameOrgAllowed(t *testing.T) {
@@ -75,7 +72,6 @@ func TestGetProjectSettings_APIKey_SameOrgAllowed(t *testing.T) {
 	require.Equal(
 		t, http.StatusOK, w.Code,
 	)
-
 }
 
 func TestUpdateProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -94,7 +90,6 @@ func TestUpdateProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(
 		t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestUpdateProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -112,7 +107,6 @@ func TestUpdateProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
 	require.NotEqual(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestGetProjectSettings_NoProjectContext_Forbidden(t *testing.T) {
@@ -127,7 +121,6 @@ func TestGetProjectSettings_NoProjectContext_Forbidden(t *testing.T) {
 	require.Equal(
 		t, http.StatusForbidden,
 		w.Code)
-
 }
 
 func TestUpdateProjectSettings_InvalidBody_BadRequest(t *testing.T) {
@@ -143,5 +136,4 @@ func TestUpdateProjectSettings_InvalidBody_BadRequest(t *testing.T) {
 		t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }

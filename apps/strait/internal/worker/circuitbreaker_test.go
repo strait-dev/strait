@@ -17,7 +17,6 @@ func TestCircuitBreaker_StartsInClosedState(t *testing.T) {
 		cb.State())
 	require.True(t,
 		cb.Allow())
-
 }
 
 func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
@@ -38,7 +37,6 @@ func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 		cb.State())
 	require.False(t,
 		cb.Allow())
-
 }
 
 func TestCircuitBreaker_SuccessResetsFailureCount(t *testing.T) {
@@ -48,7 +46,7 @@ func TestCircuitBreaker_SuccessResetsFailureCount(t *testing.T) {
 	cb.RecordFailure()
 	cb.RecordFailure()
 	cb.RecordSuccess()
-	require.EqualValues(t, 0, cb.ConsecutiveFailures())
+	require.Equal(t, 0, cb.ConsecutiveFailures())
 
 	cb.RecordFailure()
 	cb.RecordFailure()
@@ -56,7 +54,6 @@ func TestCircuitBreaker_SuccessResetsFailureCount(t *testing.T) {
 		circuitClosed,
 
 		cb.State())
-
 }
 
 func TestCircuitBreaker_TransitionsToHalfOpenAfterCooldown(t *testing.T) {
@@ -82,7 +79,6 @@ func TestCircuitBreaker_TransitionsToHalfOpenAfterCooldown(t *testing.T) {
 		circuitHalfOpen,
 
 		cb.State())
-
 }
 
 func TestCircuitBreaker_HalfOpenClosesOnSuccess(t *testing.T) {
@@ -100,7 +96,6 @@ func TestCircuitBreaker_HalfOpenClosesOnSuccess(t *testing.T) {
 		circuitClosed,
 
 		cb.State())
-
 }
 
 func TestCircuitBreaker_HalfOpenReopensOnFailure(t *testing.T) {
@@ -118,7 +113,6 @@ func TestCircuitBreaker_HalfOpenReopensOnFailure(t *testing.T) {
 		circuitOpen,
 
 		cb.State())
-
 }
 
 func TestCircuitBreaker_Reset(t *testing.T) {
@@ -135,8 +129,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 		circuitClosed,
 
 		cb.State())
-	require.EqualValues(t, 0, cb.ConsecutiveFailures())
-
+	require.Equal(t, 0, cb.ConsecutiveFailures())
 }
 
 func TestCircuitBreaker_DefaultConfig(t *testing.T) {
@@ -152,7 +145,6 @@ func TestCircuitBreaker_DefaultConfig(t *testing.T) {
 
 		cb.openDuration,
 	)
-
 }
 
 func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
@@ -179,5 +171,4 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 
 			circuitClosed && state != circuitOpen &&
 			state != circuitHalfOpen)
-
 }

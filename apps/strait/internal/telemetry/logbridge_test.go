@@ -21,7 +21,6 @@ func TestInitLogBridge_NoEndpoint(t *testing.T) {
 	assert.Nil(t, logger)
 	assert.NoError(t,
 		shutdown(ctx))
-
 }
 
 func TestInitLogBridge_WithEndpoint(t *testing.T) {
@@ -58,16 +57,14 @@ func TestInitLogBridge_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
 	_ = shutdown(ctx)
 
 	out := buf.String()
-	require.True(t, strings.Contains(out, "otel log bridge enabled"))
+	require.Contains(t, out, "otel log bridge enabled")
 
 	for _, leaked := range []string{"user", "pass", "secret"} {
-		require.False(t,
-			strings.Contains(out, leaked))
-
+		require.NotContains(t,
+			out, leaked)
 	}
-	require.True(t, strings.Contains(out, "token=%5Bredacted%5D"))
-	require.True(t, strings.Contains(out, "tenant=prod"))
-
+	require.Contains(t, out, "token=%5Bredacted%5D")
+	require.Contains(t, out, "tenant=prod")
 }
 
 func TestInitLogBridge_EmptyEnvironment(t *testing.T) {
@@ -93,9 +90,8 @@ func TestTeeHandler_FansOut(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("hello", "key", "value")
-	assert.True(t, strings.Contains(buf1.String(), "hello"))
-	assert.True(t, strings.Contains(buf2.String(), "hello"))
-
+	assert.Contains(t, buf1.String(), "hello")
+	assert.Contains(t, buf2.String(), "hello")
 }
 
 func TestTeeHandler_Enabled(t *testing.T) {
@@ -114,7 +110,6 @@ func TestTeeHandler_Enabled(t *testing.T) {
 			Background(), slog.
 			LevelWarn,
 		))
-
 }
 
 func TestTeeHandler_WithAttrs(t *testing.T) {
@@ -127,8 +122,7 @@ func TestTeeHandler_WithAttrs(t *testing.T) {
 	withAttrs := tee.WithAttrs([]slog.Attr{slog.String("run_id", "run-123")})
 	logger := slog.New(withAttrs)
 	logger.Info("test")
-	assert.True(t, strings.Contains(buf.String(), "run_id"))
-
+	assert.Contains(t, buf.String(), "run_id")
 }
 
 func TestTeeHandler_WithGroup(t *testing.T) {
@@ -141,8 +135,7 @@ func TestTeeHandler_WithGroup(t *testing.T) {
 	withGroup := tee.WithGroup("request")
 	logger := slog.New(withGroup)
 	logger.Info("test", "method", "GET")
-	assert.True(t, strings.Contains(buf.String(), "request.method"))
-
+	assert.Contains(t, buf.String(), "request.method")
 }
 
 func TestTeeHandler_LevelFiltering(t *testing.T) {
@@ -156,14 +149,10 @@ func TestTeeHandler_LevelFiltering(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("info message")
-	assert.False(t, strings.Contains(warnBuf.
-		String(),
-		"info message",
-	))
-	assert.True(t, strings.Contains(infoBuf.
-		String(), "info message",
-	))
-
+	assert.NotContains(t, warnBuf.
+		String(), "info message")
+	assert.Contains(t, infoBuf.
+		String(), "info message")
 }
 
 func TestNewTeeHandler_SingleHandler(t *testing.T) {
@@ -176,9 +165,8 @@ func TestNewTeeHandler_SingleHandler(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("single handler test", "k", "v")
-	assert.True(t, strings.Contains(buf.String(), "single handler test"))
-	assert.True(t, strings.Contains(buf.String(), "k=v"))
-
+	assert.Contains(t, buf.String(), "single handler test")
+	assert.Contains(t, buf.String(), "k=v")
 }
 
 func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
@@ -203,9 +191,8 @@ func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
 	out2 := buf2.String()
 	count1 := strings.Count(out1, "concurrent log")
 	count2 := strings.Count(out2, "concurrent log")
-	assert.EqualValues(t, 100,
+	assert.Equal(t, 100,
 		count1)
-	assert.EqualValues(t, 100,
+	assert.Equal(t, 100,
 		count2)
-
 }

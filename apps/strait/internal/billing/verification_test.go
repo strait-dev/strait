@@ -45,7 +45,6 @@ func TestGracePeriod_ScaleTier_BlockAfterExpiry(t *testing.T) {
 	assert.Equal(t, "grace_period_expired",
 
 		le.Code)
-
 }
 
 func TestGracePeriod_ScaleTier_AllowDuringGrace(t *testing.T) {
@@ -70,7 +69,6 @@ func TestGracePeriod_ScaleTier_AllowDuringGrace(t *testing.T) {
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-scale-grace")
 	require.NoError(t,
 		err)
-
 }
 
 func TestGracePeriod_ScaleTier_PaymentRestricted(t *testing.T) {
@@ -101,7 +99,6 @@ func TestGracePeriod_ScaleTier_PaymentRestricted(t *testing.T) {
 
 		le.
 			Code)
-
 }
 
 // Idempotent addon deactivation.
@@ -132,7 +129,6 @@ func TestDeactivateAddon_DoubleCall_NoError(t *testing.T) {
 	// Deactivate once.
 
 	// Deactivate again -- should be idempotent, no error.
-
 }
 
 // Self-hosted verification: billing gates are skipped, but the launch catalog
@@ -159,7 +155,6 @@ func TestSelfHosted_LaunchActiveFeaturesAvailable(t *testing.T) {
 				PlanEnterprise,
 
 				f))
-
 	}
 
 	for _, f := range roadmapEnterpriseFeatures {
@@ -168,22 +163,20 @@ func TestSelfHosted_LaunchActiveFeaturesAvailable(t *testing.T) {
 				PlanEnterprise,
 
 				f))
-
 	}
 
 	enterpriseLimits := GetPlanLimits(domain.PlanEnterprise)
-	assert.EqualValues(t, -1, enterpriseLimits.
+	assert.Equal(t, -1, enterpriseLimits.
 		MaxConcurrentRuns,
 	)
-	assert.EqualValues(t, -1, enterpriseLimits.
+	assert.Equal(t, -1, enterpriseLimits.
 		MaxWorkflowDAGSteps,
 	)
-	assert.EqualValues(t, -1, enterpriseLimits.
+	assert.Equal(t, -1, enterpriseLimits.
 		MaxScheduledJobs,
 	)
 
 	// Verify unlimited limits.
-
 }
 
 func TestSelfHosted_EditionCommunity_SkipsGating(t *testing.T) {
@@ -227,5 +220,4 @@ func TestAddon_EffectiveLimits_Integration(t *testing.T) {
 
 		result.MaxConcurrentRuns,
 	)
-
 }

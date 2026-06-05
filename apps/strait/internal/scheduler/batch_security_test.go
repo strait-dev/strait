@@ -42,7 +42,6 @@ func TestBatchFlusher_DisabledJobSkip(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 // TestBatchFlusher_ZeroBatchSize verifies that a zero BatchMaxSize falls back
@@ -84,7 +83,6 @@ func TestBatchFlusher_ZeroBatchSize(t *testing.T) {
 			&result))
 	require.Len(t, result.
 		Items, 3)
-
 }
 
 // TestBatchFlusher_NegativeBatchSize verifies that a negative BatchMaxSize
@@ -115,7 +113,6 @@ func TestBatchFlusher_NegativeBatchSize(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 1,
 		enqueued.Load())
-
 }
 
 // TestBatchFlusher_PayloadMarshalError verifies that a payload that causes
@@ -147,7 +144,6 @@ func TestBatchFlusher_PayloadMarshalError(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 // TestBatchFlusher_TTLZeroSeconds verifies that RunTTLSecs = 0 causes the
@@ -186,7 +182,6 @@ func TestBatchFlusher_TTLZeroSeconds(t *testing.T) {
 	require.False(t, enqueuedRun.
 		ExpiresAt.
 		Before(expectedMin))
-
 }
 
 // TestAutoRotate_ConcurrentRotation verifies that multiple concurrent rotation

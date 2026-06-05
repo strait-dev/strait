@@ -127,7 +127,6 @@ func TestApplyOutputTransform(t *testing.T) {
 			require.Equal(t, tt.wantTransformed,
 
 				gotStr)
-
 		})
 	}
 }

@@ -36,7 +36,6 @@ func TestCompleteRunWithWebhook_NoTxPool_NoWebhook(t *testing.T) {
 	require.Equal(t,
 		domain.StatusCompleted,
 		calls[0].to)
-
 }
 
 func TestCompleteRunWithWebhook_NoTxPool_WithWebhook(t *testing.T) {
@@ -78,9 +77,7 @@ func TestCompleteRunWithWebhook_WithTxPool_NoWebhookUsesTransaction(t *testing.T
 	)
 
 	calls := store.statusUpdates()
-	require.Len(t, calls,
-		0)
-
+	require.Empty(t, calls)
 }
 
 func TestCompleteRunWithWebhook_WithTxPool_WithWebhook(t *testing.T) {
@@ -110,9 +107,7 @@ func TestCompleteRunWithWebhook_WithTxPool_WithWebhook(t *testing.T) {
 
 	// The plain store path should NOT have been called — the tx path was used.
 	calls := store.statusUpdates()
-	require.Len(t, calls,
-		0)
-
+	require.Empty(t, calls)
 }
 
 func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
@@ -133,7 +128,6 @@ func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
 	require.True(t,
 		txPool.beginCalled,
 	)
-
 }
 
 func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
@@ -155,7 +149,6 @@ func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
 	require.Equal(t,
 		"db write failed",
 		err.Error())
-
 }
 
 func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
@@ -218,7 +211,6 @@ func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
 			!completion.
 				webhookRun.FinishedAt.
 				Equal(finishedAt))
-
 }
 
 func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
@@ -264,7 +256,6 @@ func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
 			!completion.
 				webhookRun.FinishedAt.
 				Equal(finishedAt))
-
 }
 
 // Handler integration tests.
@@ -305,7 +296,6 @@ func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
 		EventCompleted,
 		events[0].
 			Type)
-
 }
 
 func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
@@ -343,7 +333,6 @@ func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
 	}
 	require.True(t,
 		foundDL)
-
 }
 
 func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
@@ -381,7 +370,6 @@ func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
 	}
 	require.True(t,
 		foundTO)
-
 }
 
 // Test helpers.

@@ -136,9 +136,9 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			_, err := q.ListRunsByProject(context.Background(), "proj-fuzz", nil, &mk, nil, nil, nil, nil, nil, nil, 10, nil)
 			require.Error(t,
 				err)
-			require.True(t,
-				errors.Is(err, cap1.
-					sentinel))
+			require.ErrorIs(t,
+				err, cap1.
+					sentinel)
 			require.False(t,
 				!strings.Contains(cap1.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
 					!strings.Contains(cap1.sql,
@@ -155,15 +155,13 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			// the caller's control.
 			if len(key) >= 8 {
 				stripped := stripPlaceholders(cap1.sql)
-				require.False(t,
-					strings.Contains(stripped, key),
+				require.NotContains(t,
+					stripped, key,
 				)
-
 			}
 			require.True(t,
 				argsContain(cap1.
 					args, key))
-
 		}
 
 		// Branch 2: key + value.
@@ -197,7 +195,6 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			require.True(t,
 				argsContain(cap2.
 					args, value))
-
 		}
 	})
 }
@@ -237,10 +234,9 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 		// the captured INSERT template ("key", "id", "status", etc.).
 		if len(key) >= 8 {
 			stripped := stripPlaceholders(capture.sql)
-			require.False(t,
-				strings.Contains(stripped, key),
+			require.NotContains(t,
+				stripped, key,
 			)
-
 		}
 	})
 }
@@ -283,9 +279,8 @@ func FuzzCreateEventTrigger_EventKeyPassthrough(f *testing.F) {
 
 		if len(eventKey) >= 8 {
 			stripped := stripPlaceholders(capture.sql)
-			require.False(t,
-				strings.Contains(stripped, eventKey))
-
+			require.NotContains(t,
+				stripped, eventKey)
 		}
 	})
 }
@@ -359,7 +354,6 @@ func FuzzDecryptSecretWithFallback_CorruptionDeterministic(f *testing.F) {
 		require.Equal(t,
 			"fuzz-plaintext",
 			got)
-
 	})
 }
 
@@ -382,7 +376,6 @@ func FuzzDomainIsValid_StatusAndModes_NoPanic(f *testing.F) {
 		// Each call below must complete without panicking.
 		defer func() {
 			require.Nil(t, recover())
-
 		}()
 
 		// RunStatus.

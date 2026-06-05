@@ -70,10 +70,7 @@ func TestPartitionReclaimer_SkipsRecentPartitions(t *testing.T) {
 	require.NoError(t,
 		r.RunOnceForTest(context.
 			Background()))
-	assert.Len(t, s.dropped,
-		0,
-	)
-
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DropsEmptyOldPartition(t *testing.T) {
@@ -90,7 +87,6 @@ func TestPartitionReclaimer_DropsEmptyOldPartition(t *testing.T) {
 	require.Len(t, s.dropped,
 
 		1)
-
 }
 
 func TestPartitionReclaimer_SkipsNonEmptyPartition(t *testing.T) {
@@ -104,10 +100,7 @@ func TestPartitionReclaimer_SkipsNonEmptyPartition(t *testing.T) {
 	require.NoError(t,
 		r.RunOnceForTest(context.
 			Background()))
-	assert.Len(t, s.dropped,
-		0,
-	)
-
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DropsOutboxHistoryPartition(t *testing.T) {
@@ -125,7 +118,6 @@ func TestPartitionReclaimer_DropsOutboxHistoryPartition(t *testing.T) {
 	require.Len(t, s.dropped,
 
 		1)
-
 }
 
 func TestPartitionReclaimer_InvalidPartitionName(t *testing.T) {
@@ -142,10 +134,7 @@ func TestPartitionReclaimer_InvalidPartitionName(t *testing.T) {
 	require.NoError(t,
 		r.RunOnceForTest(context.
 			Background()))
-	assert.Len(t, s.dropped,
-		0,
-	)
-
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DDLError(t *testing.T) {
@@ -165,7 +154,6 @@ func TestPartitionReclaimer_DDLError(t *testing.T) {
 		r.Errors())
 	assert.EqualValues(t, 0,
 		r.Dropped())
-
 }
 
 func TestPartitionReclaimer_IterationsIncrement(t *testing.T) {
@@ -176,7 +164,6 @@ func TestPartitionReclaimer_IterationsIncrement(t *testing.T) {
 	}
 	assert.EqualValues(t, 3,
 		r.Iterations())
-
 }
 
 func TestPartitionReclaimer_BothTableTypes(t *testing.T) {
@@ -198,7 +185,6 @@ func TestPartitionReclaimer_BothTableTypes(t *testing.T) {
 	require.Len(t, s.dropped,
 
 		2)
-
 }
 
 func TestPartitionReclaimer_Defaults(t *testing.T) {
@@ -207,10 +193,9 @@ func TestPartitionReclaimer_Defaults(t *testing.T) {
 		time.
 			Hour, r.interval,
 	)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		r.safetyMonths,
 	)
-
 }
 
 func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
@@ -227,10 +212,7 @@ func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
 		r.RunOnceForTest(context.
 			Background()))
 	assert.False(t, s.atomicDropCalled[name])
-	assert.Len(t, s.dropped,
-		0,
-	)
-
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
@@ -250,7 +232,6 @@ func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
 	assert.Len(t, s.dropped,
 		1,
 	)
-
 }
 
 func TestPartitionReclaimer_UsesAtomicDropAfterEstimateZero(t *testing.T) {
@@ -267,8 +248,5 @@ func TestPartitionReclaimer_UsesAtomicDropAfterEstimateZero(t *testing.T) {
 		r.RunOnceForTest(context.
 			Background()))
 	require.True(t, s.atomicDropCalled[name])
-	require.Len(t, s.dropped,
-
-		0)
-
+	require.Empty(t, s.dropped)
 }

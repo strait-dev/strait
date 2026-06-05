@@ -49,7 +49,6 @@ func TestTOCTOU_TokenExpiryBoundary(t *testing.T) {
 		After(now))
 
 	// Using After for the valid case.
-
 }
 
 // TestTOCTOU_RetryDelayNeverNegative verifies that NextRetryDelay never returns
@@ -66,7 +65,6 @@ func TestTOCTOU_RetryDelayNeverNegative(t *testing.T) {
 			require.GreaterOrEqual(t,
 				delay,
 				time.Duration(0))
-
 		}
 	}
 
@@ -76,7 +74,6 @@ func TestTOCTOU_RetryDelayNeverNegative(t *testing.T) {
 		require.GreaterOrEqual(t,
 			delay,
 			time.Duration(0))
-
 	}
 }
 
@@ -98,7 +95,6 @@ func TestTOCTOU_BackoffDelayStability(t *testing.T) {
 			delay < minExpected ||
 				delay > maxExpected,
 		)
-
 	}
 }
 
@@ -177,7 +173,6 @@ func TestTOCTOU_CircuitBreakerHalfOpenTiming(t *testing.T) {
 		circuitOpen,
 		cb.
 			State())
-
 }
 
 // TestTOCTOU_HealthScoreDecayTiming verifies that recording multiple consecutive
@@ -209,7 +204,6 @@ func TestTOCTOU_HealthScoreDecayTiming(t *testing.T) {
 		0.15)
 
 	// After 20 consecutive failures, the success rate should be very low.
-
 }
 
 // TestTOCTOU_PoisonPillThresholdBoundary verifies that poison pill detection
@@ -269,11 +263,9 @@ func TestTOCTOU_PoisonPillThresholdBoundary(t *testing.T) {
 		}
 		metadata2["_error_hash"] = hash
 		metadata2["_error_hash_count"] = fmt.Sprintf("%d", count)
-		require.False(t,
-			count >=
-				threshold,
+		require.Less(t,
+			count, threshold,
 		)
-
 	}
 }
 
@@ -321,8 +313,7 @@ func TestTOCTOU_ConcurrentBudgetCheckSpend(t *testing.T) {
 	close(start)
 	wg.Wait()
 	require.EqualValues(t, 1, successes)
-	require.EqualValues(t, 0, b.remaining)
-
+	require.Equal(t, 0, b.remaining)
 }
 
 // TestTOCTOU_BulkheadAcquireReleaseTiming verifies that bulkhead acquisition
@@ -342,7 +333,6 @@ func TestTOCTOU_BulkheadAcquireReleaseTiming(t *testing.T) {
 			bh.TryAcquire(jobID,
 				maxConcurrency,
 			))
-
 	}
 
 	// Next acquire should fail immediately (not block or delay).
@@ -375,7 +365,6 @@ func TestTOCTOU_BulkheadAcquireReleaseTiming(t *testing.T) {
 			ActiveCount(jobID))
 
 	// Verify active count.
-
 }
 
 // TestTOCTOU_ErrorClassificationStability verifies that classifyError returns
@@ -456,7 +445,6 @@ func TestTOCTOU_ErrorClassificationStability(t *testing.T) {
 				require.Equal(t,
 					first, got,
 				)
-
 			}
 		})
 	}

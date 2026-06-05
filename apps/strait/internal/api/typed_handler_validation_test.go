@@ -42,7 +42,6 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 
 			rec.Code,
 		)
-
 	})
 
 	t.Run("missing required field is rejected", func(t *testing.T) {
@@ -61,7 +60,6 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 
 			rec.Code,
 		)
-
 	})
 
 	t.Run("valid body passes to handler", func(t *testing.T) {
@@ -78,6 +76,5 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 		require.Equal(t, http.StatusOK,
 			rec.Code)
 		require.Equal(t, "ok", got)
-
 	})
 }

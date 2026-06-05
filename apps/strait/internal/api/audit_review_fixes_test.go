@@ -75,7 +75,6 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 		}
 	}
 	assert.EqualValues(t, 1, total)
-
 }
 
 // TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric verifies that a
@@ -127,5 +126,4 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 		}
 	}
 	assert.EqualValues(t, 0, total)
-
 }

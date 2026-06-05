@@ -55,7 +55,7 @@ func TestReaper_RetryStaleRunUsesBackoffAndKeepsWorkflowCallbackSilent(t *testin
 	require.True(t, reaper.
 		retryStaleRun(context.
 			Background(), run))
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		scheduledAttempt,
 	)
 	require.Equal(t, domain.
@@ -64,7 +64,6 @@ func TestReaper_RetryStaleRunUsesBackoffAndKeepsWorkflowCallbackSilent(t *testin
 		transitionedTo,
 	)
 	require.False(t, callbackCalled)
-
 }
 
 func TestReaper_RetryStaleRunStopsWhenAttemptsExhausted(t *testing.T) {
@@ -87,7 +86,6 @@ func TestReaper_RetryStaleRunStopsWhenAttemptsExhausted(t *testing.T) {
 		retryStaleRun(
 			context.
 				Background(), run))
-
 }
 
 func FuzzNextStaleRunRetryAt(f *testing.F) {
@@ -105,7 +103,6 @@ func FuzzNextStaleRunRetryAt(f *testing.F) {
 				Add(
 					time.
 						Hour+time.Second)))
-
 	})
 }
 

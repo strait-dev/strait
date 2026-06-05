@@ -43,14 +43,13 @@ func TestCreateJob_WithRetryPriorityBoost(t *testing.T) {
 
 		w.Code)
 	require.NotNil(t, captured)
-	require.EqualValues(t, 3, captured.RetryPriorityBoost)
+	require.Equal(t, 3, captured.RetryPriorityBoost)
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.Equal(t, float64(3), resp["retry_priority_boost"])
-
+	require.InDelta(t, float64(3), resp["retry_priority_boost"], 1e-9)
 }
 
 func TestCreateJob_DefaultRetryPriorityBoost(t *testing.T) {
@@ -81,10 +80,9 @@ func TestCreateJob_DefaultRetryPriorityBoost(t *testing.T) {
 
 		w.Code)
 	require.NotNil(t, captured)
-	require.EqualValues(t, 1, captured.RetryPriorityBoost)
+	require.Equal(t, 1, captured.RetryPriorityBoost)
 
 	// When omitted from request, the handler defaults to 1 (matching DB default).
-
 }
 
 func TestCreateJob_RetryPriorityBoostZeroDefaultsToOne(t *testing.T) {
@@ -118,8 +116,7 @@ func TestCreateJob_RetryPriorityBoostZeroDefaultsToOne(t *testing.T) {
 
 		w.Code)
 	require.NotNil(t, captured)
-	require.EqualValues(t, 1, captured.RetryPriorityBoost)
-
+	require.Equal(t, 1, captured.RetryPriorityBoost)
 }
 
 func TestUpdateJob_RetryPriorityBoost(t *testing.T) {
@@ -160,8 +157,7 @@ func TestUpdateJob_RetryPriorityBoost(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, captured)
-	require.EqualValues(t, 5, captured.RetryPriorityBoost)
-
+	require.Equal(t, 5, captured.RetryPriorityBoost)
 }
 
 func TestUpdateJob_RetryPriorityBoostToZero(t *testing.T) {
@@ -202,8 +198,7 @@ func TestUpdateJob_RetryPriorityBoostToZero(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, captured)
-	require.EqualValues(t, 0, captured.RetryPriorityBoost)
-
+	require.Equal(t, 0, captured.RetryPriorityBoost)
 }
 
 func TestCreateJob_RejectNegativeBoost(t *testing.T) {
@@ -224,7 +219,6 @@ func TestCreateJob_RejectNegativeBoost(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestCreateJob_RejectBoostOver10(t *testing.T) {
@@ -245,7 +239,6 @@ func TestCreateJob_RejectBoostOver10(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestUpdateJob_RejectNegativeBoost(t *testing.T) {
@@ -277,7 +270,6 @@ func TestUpdateJob_RejectNegativeBoost(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestUpdateJob_RejectBoostOver10(t *testing.T) {
@@ -309,7 +301,6 @@ func TestUpdateJob_RejectBoostOver10(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
@@ -354,11 +345,10 @@ func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
 		w.Code)
 	require.Len(t,
 		captured, 2)
-	require.EqualValues(t, 5, captured[0].RetryPriorityBoost)
-	require.EqualValues(t, 1, captured[1].RetryPriorityBoost)
+	require.Equal(t, 5, captured[0].RetryPriorityBoost)
+	require.Equal(t, 1, captured[1].RetryPriorityBoost)
 
 	// Sending 0 on batch create defaults to 1 (same as omitting).
-
 }
 
 func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
@@ -404,7 +394,6 @@ func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
 
 	errs, _ := resp["errors"].([]any)
 	require.NotEmpty(t, errs)
-
 }
 
 func TestCloneJob_PreservesRetryPriorityBoost(t *testing.T) {
@@ -447,8 +436,7 @@ func TestCloneJob_PreservesRetryPriorityBoost(t *testing.T) {
 
 		w.Code)
 	require.NotNil(t, cloned)
-	require.EqualValues(t, 7, cloned.RetryPriorityBoost)
-
+	require.Equal(t, 7, cloned.RetryPriorityBoost)
 }
 
 func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
@@ -496,7 +484,6 @@ func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 			require.Equal(t, tc.wantStatus,
 				w.Code,
 			)
-
 		})
 	}
 }

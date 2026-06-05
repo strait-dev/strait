@@ -92,7 +92,6 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_RunTTL(t *testing.T) {
 	assert.Equal(
 		t, maxTTL,
 		c.detail["cap"])
-
 }
 
 // TestPlanGate_DispatchesWorkflowRegistrationRejected_PerJobConcurrency walks
@@ -119,7 +118,6 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_PerJobConcurrency(t *te
 		t, limits.
 			MaxConcurrentRuns,
 		calls[0].detail["cap"])
-
 }
 
 // TestPlanGate_AllowedRequest_NoDispatch confirms that a request that passes
@@ -138,10 +136,7 @@ func TestPlanGate_AllowedRequest_NoDispatch(t *testing.T) {
 	require.NoError(t, srv.
 		checkRunTTLLimit(context.
 			Background(), "proj-1", maxTTL))
-	assert.EqualValues(t, 0, len(
-		enforcer.snapshot()),
-	)
-
+	assert.Empty(t, enforcer.snapshot())
 }
 
 // TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy
@@ -161,7 +156,6 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy(t *te
 	require.False(t, len(calls) != 1 ||
 		calls[0].detail["reason"] != "cron_overlap_policy" ||
 		calls[0].detail["requested_value"] != "skip")
-
 }
 
 func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
@@ -202,7 +196,6 @@ func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
 	require.False(t, len(calls) != 1 ||
 		calls[0].detail["reason"] != "cron_overlap_policy" ||
 		calls[0].detail["requested_value"] != "skip")
-
 }
 
 func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
@@ -245,7 +238,6 @@ func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
 					http.
 						StatusForbidden,
 				))
-
 		})
 	}
 }
@@ -286,5 +278,4 @@ func TestPlanGate_CloneJobRejectsOnFailureChaining(t *testing.T) {
 			http.
 				StatusForbidden,
 		))
-
 }

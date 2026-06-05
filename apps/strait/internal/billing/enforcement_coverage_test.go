@@ -29,7 +29,6 @@ func TestCheckDailyRunLimit_NilRedis_FailsOpen(t *testing.T) {
 		enforcer.CheckDailyRunLimit(context.Background(),
 
 			"org-1"))
-
 }
 
 // TestCheckDailyRunLimit_RedisError_FailsOpen verifies that a Redis connectivity
@@ -47,7 +46,6 @@ func TestCheckDailyRunLimit_RedisError_FailsOpen(t *testing.T) {
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-redis-err")
 	require.NoError(t,
 		err)
-
 }
 
 // TestCheckDailyRunLimit_UnlimitedFreeTier verifies that the free tier has
@@ -67,7 +65,6 @@ func TestCheckDailyRunLimit_UnlimitedFreeTier(t *testing.T) {
 		require.NoError(t,
 			enforcer.CheckDailyRunLimit(ctx, "org-boundary"),
 		)
-
 	}
 }
 
@@ -92,12 +89,11 @@ func TestCheckDailyRunLimit_DBError_FailsClosed(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err, &le))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"service_degraded",
 		le.Code,
 	)
-
 }
 
 // TestCheckDailyRunLimit_EnforcementModeDisabled verifies that when the
@@ -126,7 +122,6 @@ func TestCheckDailyRunLimit_EnforcementModeDisabled(t *testing.T) {
 		require.NoError(t,
 			enforcer.CheckDailyRunLimit(ctx, "org-disabled"),
 		)
-
 	}
 }
 
@@ -154,7 +149,6 @@ func TestCheckDailyRunLimit_EnforcementModeWarn(t *testing.T) {
 	for range limits.MaxRunsPerDay + 5 {
 		require.NoError(t,
 			enforcer.CheckDailyRunLimit(ctx, "org-warn"))
-
 	}
 }
 
@@ -181,12 +175,11 @@ func TestCheckDailyRunLimit_PaymentRestricted(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err, &le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "payment_restricted",
 
 		le.Code,
 	)
-
 }
 
 // DecrDailyRunCount -- decrement paths and error handling
@@ -251,7 +244,6 @@ func TestDecrDailyRunCount_FloorsAtZero(t *testing.T) {
 		enforcer.CheckDailyRunLimit(ctx, "org-floor"))
 
 	// Counter should still allow runs (zero or positive).
-
 }
 
 // TestDecrDailyRunCount_RollbackWithUnlimitedRuns verifies decrement works
@@ -270,7 +262,6 @@ func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 		require.NoError(t,
 			enforcer.CheckDailyRunLimit(ctx, "org-rollback2"),
 		)
-
 	}
 
 	// Decrement should not panic.
@@ -280,7 +271,6 @@ func TestDecrDailyRunCount_RollbackWithUnlimitedRuns(t *testing.T) {
 	)
 
 	// Runs should still be allowed (unlimited).
-
 }
 
 // WithMetrics -- functional option
@@ -294,7 +284,6 @@ func TestWithMetrics_NilMetrics(t *testing.T) {
 
 	enforcer := NewEnforcer(store, rdb, slog.Default(), WithMetrics(nil))
 	require.Nil(t, enforcer.metrics)
-
 }
 
 // TestWithMetrics_SetsMetrics verifies that WithMetrics correctly sets the
@@ -310,7 +299,6 @@ func TestWithMetrics_SetsMetrics(t *testing.T) {
 	require.Equal(t,
 		m, enforcer.metrics,
 	)
-
 }
 
 // TestWithMetrics_OverridesExisting verifies that calling WithMetrics twice
@@ -327,7 +315,6 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 	require.Equal(t,
 		m2, enforcer.metrics,
 	)
-
 }
 
 // NewEnforcer -- remaining constructor paths
@@ -336,10 +323,9 @@ func TestWithMetrics_OverridesExisting(t *testing.T) {
 func TestNewEnforcer_NilStore_Panics(t *testing.T) {
 	t.Parallel()
 	defer func() {
-		require.NotEqual(
-			t, nil, recover(),
+		require.NotNil(
+			t, recover(),
 		)
-
 	}()
 	NewEnforcer(nil, nil, nil)
 }
@@ -355,7 +341,6 @@ func TestNewEnforcer_NilLogger_UsesDefault(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, nil)
 	require.NotNil(t,
 		enforcer.logger)
-
 }
 
 // TestNewEnforcer_NilRedis_CreatesEnforcer verifies that the enforcer can be
@@ -367,7 +352,6 @@ func TestNewEnforcer_NilRedis_CreatesEnforcer(t *testing.T) {
 	require.NotNil(t,
 		enforcer)
 	require.Nil(t, enforcer.rdb)
-
 }
 
 // TestNewEnforcer_WithMultipleOptions verifies that multiple functional
@@ -386,7 +370,6 @@ func TestNewEnforcer_WithMultipleOptions(t *testing.T) {
 	require.Equal(t,
 		store, enforcer.store,
 	)
-
 }
 
 // TestNewEnforcer_CacheInitialized verifies that the org cache is properly
@@ -401,7 +384,6 @@ func TestNewEnforcer_CacheInitialized(t *testing.T) {
 	require.NotNil(t,
 		enforcer.orgCache,
 	)
-
 }
 
 func TestNewEnforcer_RegistersStrongCacheNamespace(t *testing.T) {
@@ -463,10 +445,9 @@ func TestInvalidateOrgCache_CacheHitThenInvalidate(t *testing.T) {
 	// Invalidate and verify the store is called again.
 	enforcer.InvalidateOrgCache("org-cache")
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-cache")
-	require.False(t,
-		callCount <= firstCount,
+	require.Greater(t,
+		callCount, firstCount,
 	)
-
 }
 
 func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
@@ -516,5 +497,4 @@ func TestOrgLimitsCache_PreservesSubscriptionCacheVersionInRedis(t *testing.T) {
 			cached, &envelope,
 		))
 	require.EqualValues(t, 12, envelope.Version)
-
 }

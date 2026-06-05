@@ -14,7 +14,6 @@ func TestAPIKeyPrefixLen_MatchesStraitTagPlusFiveHex(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t,
 		len("strait_")+5, APIKeyPrefixLen)
-
 }
 
 // TestAPIKeyPrefixLen_LongerThanTagAlone guards against an accidental
@@ -23,10 +22,8 @@ func TestAPIKeyPrefixLen_MatchesStraitTagPlusFiveHex(t *testing.T) {
 // identifier in audit logs and the UI.
 func TestAPIKeyPrefixLen_LongerThanTagAlone(t *testing.T) {
 	t.Parallel()
-	assert.False(t,
-		APIKeyPrefixLen <=
-			len("strait_"))
-
+	assert.Greater(t,
+		APIKeyPrefixLen, len("strait_"))
 }
 
 // TestAPIKeyPrefixLen_FitsRawKey asserts the prefix length is safely below
@@ -36,10 +33,8 @@ func TestAPIKeyPrefixLen_LongerThanTagAlone(t *testing.T) {
 func TestAPIKeyPrefixLen_FitsRawKey(t *testing.T) {
 	t.Parallel()
 	const minRawKeyLen = len("strait_") + 32
-	assert.False(t,
-		APIKeyPrefixLen >=
-			minRawKeyLen)
+	assert.Less(t,
+		APIKeyPrefixLen, minRawKeyLen)
 
 	// 32 hex chars = 16 random bytes
-
 }

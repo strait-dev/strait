@@ -158,7 +158,6 @@ func TestSlackSender_MalformedConfig(t *testing.T) {
 			defer sendCancel()
 			err := sender.Send(sendCtx, ch, del)
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -192,7 +191,6 @@ func TestDiscordSender_MalformedConfig(t *testing.T) {
 			defer sendCancel()
 			err := sender.Send(sendCtx, ch, del)
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -236,7 +234,6 @@ func TestWebhookSender_SpecialCharacterPayloads(t *testing.T) {
 				string(capturedBody))
 
 			// Payload must arrive verbatim.
-
 		})
 	}
 }
@@ -288,12 +285,8 @@ func TestWorker_DispatchUnsupportedChannelType(t *testing.T) {
 	assert.Equal(t, 1, updatedDelivery.
 		Attempts,
 	)
-	assert.True(t, strings.Contains(updatedDelivery.
-		LastError,
-
-		"unsupported channel type",
-	))
-
+	assert.Contains(t, updatedDelivery.
+		LastError, "unsupported channel type")
 }
 
 func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
@@ -347,11 +340,8 @@ func TestWorker_RedactsSenderURLSecretsFromLastError(t *testing.T) {
 		LastError,
 		"hooks.slack.com/services",
 	))
-	require.True(t, strings.Contains(updatedDelivery.
-		LastError,
-		"[redacted-url]",
-	))
-
+	require.Contains(t, updatedDelivery.
+		LastError, "[redacted-url]")
 }
 
 func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
@@ -373,8 +363,7 @@ func TestSlackSender_RedactsWebhookURLInTransportError(t *testing.T) {
 		"secret-token",
 	) ||
 		strings.Contains(msg, "hooks.slack.com/services"))
-	require.True(t, strings.Contains(msg, "[redacted-url]"))
-
+	require.Contains(t, msg, "[redacted-url]")
 }
 
 func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
@@ -396,8 +385,7 @@ func TestDiscordSender_RedactsWebhookURLInTransportError(t *testing.T) {
 		"secret-token",
 	) ||
 		strings.Contains(msg, "discord.com/api/webhooks"))
-	require.True(t, strings.Contains(msg, "[redacted-url]"))
-
+	require.Contains(t, msg, "[redacted-url]")
 }
 
 func TestWorker_DispatchChannelNotFound(t *testing.T) {
@@ -438,7 +426,6 @@ func TestWorker_DispatchChannelNotFound(t *testing.T) {
 	assert.Equal(t, 1, updatedDelivery.
 		Attempts,
 	)
-
 }
 
 func TestWorker_DispatchSkipsDisabledChannel(t *testing.T) {
@@ -496,11 +483,8 @@ func TestWorker_DispatchSkipsDisabledChannel(t *testing.T) {
 	require.Nil(t,
 		updatedDelivery.NextRetryAt,
 	)
-	require.True(t, strings.Contains(updatedDelivery.
-		LastError,
-		"disabled",
-	))
-
+	require.Contains(t, updatedDelivery.
+		LastError, "disabled")
 }
 
 func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
@@ -560,7 +544,6 @@ func TestWorker_DispatchSenderError_RetriesWithBackoff(t *testing.T) {
 		d.Status)
 	require.NotNil(t, d.NextRetryAt)
 	assert.Equal(t, 1, d.Attempts)
-
 }
 
 func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
@@ -615,7 +598,6 @@ func TestWorker_DispatchSenderError_ExhaustsMaxAttempts(t *testing.T) {
 	assert.Equal(t, 3, updatedDelivery.
 		Attempts,
 	)
-
 }
 
 func TestWorker_LeaseLostDuringUpdate(t *testing.T) {
@@ -775,7 +757,6 @@ func TestWebhookSender_ConcurrentSends(t *testing.T) {
 	assert.Equal(t, int64(goroutines),
 		hits.Load(),
 	)
-
 }
 
 func TestSlackSender_ConcurrentSends(t *testing.T) {
@@ -811,7 +792,6 @@ func TestSlackSender_ConcurrentSends(t *testing.T) {
 	assert.Equal(t, int64(goroutines),
 		hits.Load(),
 	)
-
 }
 
 func TestDiscordSender_ConcurrentSends(t *testing.T) {
@@ -847,7 +827,6 @@ func TestDiscordSender_ConcurrentSends(t *testing.T) {
 	assert.Equal(t, int64(goroutines),
 		hits.Load(),
 	)
-
 }
 
 // 4. Retry exhaustion and backoff edge cases
@@ -957,14 +936,12 @@ func TestWorker_BackoffCalculation(t *testing.T) {
 					backoff >
 						tt.wantMaxBackoff,
 				)
-
 			}
 			assert.False(t, tt.wantStatus ==
 				"failed" &&
 				updatedDelivery.
 					NextRetryAt !=
 					nil)
-
 		})
 	}
 }
@@ -1017,7 +994,6 @@ func TestWorker_ZeroMaxAttempts_FailsImmediately(t *testing.T) {
 			Status)
 
 	// With MaxAttempts=0, Attempts(1) >= MaxAttempts(0), so it should fail.
-
 }
 
 // 5. Duplicate notification prevention (delivery deduplication at worker level)
@@ -1075,13 +1051,12 @@ func TestWorker_SuccessfulDelivery_SetsDeliveredAt(t *testing.T) {
 	assert.NotNil(t, updatedDelivery.
 		DeliveredAt,
 	)
-	assert.Equal(t, "", updatedDelivery.
+	assert.Empty(t, updatedDelivery.
 		LastError,
 	)
 	assert.Nil(t, updatedDelivery.
 		NextRetryAt,
 	)
-
 }
 
 func TestWorker_ClaimsBatches(t *testing.T) {
@@ -1260,10 +1235,7 @@ func TestEmailSender_XSSInPayloadFields(t *testing.T) {
 
 	// The HTML body must escape the XSS attempt.
 	body := mock.calls[0].Html
-	assert.False(t, strings.Contains(body,
-		"<script>",
-	))
-
+	assert.NotContains(t, body, "<script>")
 }
 
 func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
@@ -1287,12 +1259,9 @@ func TestEmailSender_InvalidPayloadJSON(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mock.calls,
 		1)
-	assert.NotEqual(t, "",
-		mock.calls[0].Html,
-	)
+	assert.NotEmpty(t, mock.calls[0].Html)
 
 	// The fallback should still produce some HTML body.
-
 }
 
 func TestEmailSender_NilPayload(t *testing.T) {
@@ -1314,7 +1283,6 @@ func TestEmailSender_NilPayload(t *testing.T) {
 	defer sendCancel()
 	err := sender.Send(sendCtx, channel, delivery)
 	require.NoError(t, err)
-
 }
 
 func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
@@ -1331,7 +1299,6 @@ func TestWebhookSender_InvalidJSON_Config(t *testing.T) {
 	defer sendCancel()
 	err := sender.Send(sendCtx, ch, del)
 	require.Error(t, err)
-
 }
 
 // Worker with concurrent Start/Stop

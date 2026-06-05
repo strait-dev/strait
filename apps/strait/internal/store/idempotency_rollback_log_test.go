@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -20,9 +19,8 @@ func TestLogIdempotencyRollbackErr_NilNoLog(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logIdempotencyRollbackErr(nil)
-	require.EqualValues(t, 0, buf.
+	require.Equal(t, 0, buf.
 		Len())
-
 }
 
 // TestLogIdempotencyRollbackErr_TxClosedNoLog ensures we don't spam logs
@@ -35,9 +33,8 @@ func TestLogIdempotencyRollbackErr_TxClosedNoLog(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(old) })
 
 	logIdempotencyRollbackErr(pgx.ErrTxClosed)
-	require.EqualValues(t, 0, buf.
+	require.Equal(t, 0, buf.
 		Len())
-
 }
 
 // TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog verifies that wrapped
@@ -51,9 +48,8 @@ func TestLogIdempotencyRollbackErr_TxClosedWrappedNoLog(t *testing.T) {
 
 	wrapped := errors.Join(errors.New("outer"), pgx.ErrTxClosed)
 	logIdempotencyRollbackErr(wrapped)
-	require.EqualValues(t, 0, buf.
+	require.Equal(t, 0, buf.
 		Len())
-
 }
 
 // TestLogIdempotencyRollbackErr_RealErrorEmitsWarn proves the helper does
@@ -69,17 +65,10 @@ func TestLogIdempotencyRollbackErr_RealErrorEmitsWarn(t *testing.T) {
 	logIdempotencyRollbackErr(errors.New("connection reset by peer"))
 
 	out := buf.String()
-	require.True(
-		t, strings.Contains(out,
-			"level=WARN",
-		))
-	require.True(
-		t, strings.Contains(out,
-			"failed to rollback idempotency transaction",
-		))
-	require.True(
-		t, strings.Contains(out,
-			"connection reset by peer",
-		))
-
+	require.Contains(
+		t, out, "level=WARN")
+	require.Contains(
+		t, out, "failed to rollback idempotency transaction")
+	require.Contains(
+		t, out, "connection reset by peer")
 }

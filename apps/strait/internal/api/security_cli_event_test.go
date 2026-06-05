@@ -67,7 +67,6 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 	for _, s := range createdKey.Scopes {
 		assert.True(t,
 			domain.ValidScopes[s])
-
 	}
 }
 
@@ -118,7 +117,6 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 		assert.False(
 			t, adminScopes[s],
 		)
-
 	}
 }
 
@@ -170,7 +168,6 @@ func TestHandleApproveDeviceCode_ScopesMatchCLIDefaults(t *testing.T) {
 	for _, s := range domain.CLIDefaultScopes {
 		assert.True(t,
 			scopeSet[s])
-
 	}
 }
 
@@ -212,9 +209,8 @@ func TestHandleSendEvent_CrossProject_Returns404(t *testing.T) {
 	var errResp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &errResp); err == nil {
 		detail, _ := errResp["detail"].(string)
-		assert.False(
-			t, strings.Contains(strings.ToLower(detail), "does not belong"))
-
+		assert.NotContains(
+			t, strings.ToLower(detail), "does not belong")
 	}
 }
 
@@ -256,7 +252,6 @@ func TestHandleSendEvent_SameProject_Succeeds(t *testing.T) {
 	srv.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK,
 		rr.Code)
-
 }
 
 func TestHandleCancelEventTrigger_CrossProject_Returns404(t *testing.T) {
@@ -291,9 +286,8 @@ func TestHandleCancelEventTrigger_CrossProject_Returns404(t *testing.T) {
 	var errResp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &errResp); err == nil {
 		detail, _ := errResp["detail"].(string)
-		assert.False(
-			t, strings.Contains(strings.ToLower(detail), "does not belong"))
-
+		assert.NotContains(
+			t, strings.ToLower(detail), "does not belong")
 	}
 }
 
@@ -328,5 +322,4 @@ func TestHandleCancelEventTrigger_SameProject_Succeeds(t *testing.T) {
 	srv.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK,
 		rr.Code)
-
 }

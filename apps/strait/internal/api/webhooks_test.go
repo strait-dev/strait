@@ -44,7 +44,6 @@ func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
 	require.Equal(t, false, resp["success"])
 	require.False(t, resp["error"] ==
 		nil || resp["error"] == "")
-
 }
 
 func TestHandleTestWebhook_InvalidURL(t *testing.T) {
@@ -60,7 +59,6 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
@@ -78,15 +76,11 @@ func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
 			Code)
 
 	response := w.Body.String()
-	require.True(
-		t, strings.Contains(response,
-			"invalid webhook URL",
-		))
+	require.Contains(
+		t, response, "invalid webhook URL")
 
 	for _, leaked := range []string{"127.0.0.1", "token=secret", "private", "loopback"} {
-		require.False(t, strings.Contains(response,
-			leaked))
-
+		require.NotContains(t, response, leaked)
 	}
 }
 
@@ -102,7 +96,6 @@ func TestHandleTestWebhook_MissingURL(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
@@ -146,9 +139,8 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 		String(), "user:pass") ||
 		strings.Contains(w.Body.String(),
 			"/private/path"))
-	require.True(
-		t, strings.Contains(w.Body.String(), "https://hooks.example.com"))
-
+	require.Contains(
+		t, w.Body.String(), "https://hooks.example.com")
 }
 
 func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
@@ -174,7 +166,6 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
@@ -201,7 +192,6 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnv
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscopedSubscriptionDelivery(t *testing.T) {
@@ -225,7 +215,6 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscoped
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
@@ -247,5 +236,4 @@ func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }

@@ -31,7 +31,7 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := triggerLimitAPIError(tc.sent, "fallback")
 			var tae *typedAPIError
-			require.True(t, errors.As(err, &tae))
+			require.ErrorAs(t, err, &tae)
 			require.Equal(t, http.StatusTooManyRequests,
 
 				tae.status)
@@ -50,7 +50,6 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 				wantRetryAfter))
 
 			// Details must echo the same number for body-only clients.
-
 		})
 	}
 }
@@ -67,9 +66,6 @@ func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
 	require.Equal(t, in, out)
-
-	//nolint:errorlint // intentional identity check; see comment above
-
 }
 
 // TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors is the negative
@@ -80,12 +76,11 @@ func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 func TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
-	require.Nil(t, errors.Unwrap(out))
+	require.NoError(t, errors.Unwrap(out))
 
 	// errors.Unwrap on a passthrough must return nil — the helper hasn't
 	// added a layer. A wrapper that satisfies errors.Is(out, in) would
 	// expose `in` via Unwrap.
-
 }
 
 // TestTriggerLimitAPIError_UnknownErrorBecomes500 verifies the fallback
@@ -94,11 +89,10 @@ func TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors(t *testing.T) {
 func TestTriggerLimitAPIError_UnknownErrorBecomes500(t *testing.T) {
 	out := triggerLimitAPIError(errors.New("unknown"), "fallback msg")
 	var se huma.StatusError
-	require.True(t, errors.As(out, &se))
+	require.ErrorAs(t, out, &se)
 	require.Equal(t, http.StatusInternalServerError,
 
 		se.GetStatus())
-
 }
 
 // TestNewTriggerLimit429_ResponseShape directly exercises the helper so
@@ -107,9 +101,8 @@ func TestTriggerLimitAPIError_UnknownErrorBecomes500(t *testing.T) {
 func TestNewTriggerLimit429_ResponseShape(t *testing.T) {
 	err := newTriggerLimit429("queued quota exceeded")
 	var tae *typedAPIError
-	require.True(t, errors.As(err, &tae))
-	require.NotEqual(t, "",
-		tae.headers["Retry-After"])
+	require.ErrorAs(t, err, &tae)
+	require.NotEmpty(t, tae.headers["Retry-After"])
 
 	if n, err := strconv.Atoi(tae.headers["Retry-After"]); err != nil || n <= 0 {
 		require.Failf(t, "test failure",

@@ -41,7 +41,6 @@ func TestUsage_DateRangeInjection(t *testing.T) {
 			t.Parallel()
 			_, _, err := parseDateRangeTyped(tc.from, tc.to)
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -67,7 +66,6 @@ func TestUsage_FutureProjection(t *testing.T) {
 	srv.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK,
 		rr.Code)
-
 }
 
 // TestUsage_CrossProjectUsage verifies that project A cannot query project B's
@@ -92,7 +90,6 @@ func TestUsage_CrossProjectUsage(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		rr.
 			Code)
-
 }
 
 func TestUsage_ProjectScopedAPIKeyCannotReadOrgBillingState(t *testing.T) {
@@ -117,7 +114,6 @@ func TestUsage_ProjectScopedAPIKeyCannotReadOrgBillingState(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestUsage_OrgScopedAPIKeyCanReadOrgBillingState(t *testing.T) {
@@ -167,7 +163,6 @@ func TestUsage_ProjectScopedUserCannotReadOrgBillingControls(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
@@ -199,7 +194,6 @@ func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T) {
@@ -225,7 +219,6 @@ func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T)
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
@@ -252,7 +245,6 @@ func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestUsage_OrgScopedUserCanMutateSiblingProjectBudget(t *testing.T) {
@@ -308,11 +300,10 @@ func TestUsage_ExportCSVInjection(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/export?org_id=org-1&from=2024-01-01&to=2024-12-31&format=csv", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-	require.False(t, rr.Code >= 500)
+	require.Less(t, rr.Code, 500)
 
 	// The handler writes directly to the response writer, so we may get
 	// 200 or the huma framework status. Just verify no panic.
-
 }
 
 // TestUsage_CostAnomalyFalsePositive verifies that a legitimate usage spike
@@ -344,7 +335,6 @@ func TestUsage_CostAnomalyFalsePositive(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&alerts))
 	require.Len(t,
 		alerts, 1)
-
 }
 
 // TestSilentError_JSONMarshalFailure verifies that the usage handler returns
@@ -367,7 +357,6 @@ func TestSilentError_JSONMarshalFailure(t *testing.T) {
 
 		rr.
 			Code)
-
 }
 
 // TestSilentError_DecryptFailure verifies that a decrypt error in the
@@ -385,7 +374,6 @@ func TestSilentError_DecryptFailure(t *testing.T) {
 	)
 
 	// Without billing enforcer, the server returns a 403 or 501.
-
 }
 
 // TestSilentError_WebhookCallbackFailure verifies that a failed spending
@@ -406,7 +394,6 @@ func TestSilentError_WebhookCallbackFailure(t *testing.T) {
 		rr.Code)
 
 	// usageService is nil, so should return 501.
-
 }
 
 // TestSilentError_PaginationInvalidCursor verifies that an invalid pagination
@@ -428,7 +415,6 @@ func TestSilentError_PaginationInvalidCursor(t *testing.T) {
 	require.NotEqual(t, http.StatusOK,
 		rr.Code,
 	)
-
 }
 
 // TestSilentError_StoreConnectionFailure verifies that a store failure

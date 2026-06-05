@@ -39,7 +39,6 @@ func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
 	require.Equal(t, defaultJobQueueName,
 		captured.
 			Queue)
-
 }
 
 func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
@@ -112,7 +111,6 @@ func TestHandleCreateJob_EncryptsEndpointSigningSecretAtRest(t *testing.T) {
 	require.Equal(t, "loadtest-secret-32-bytes-long",
 
 		plaintext)
-
 }
 
 func TestHandleUpdateJob_HTTPModeRequiresEndpoint(t *testing.T) {
@@ -141,7 +139,6 @@ func TestHandleUpdateJob_HTTPModeRequiresEndpoint(t *testing.T) {
 	require.Error(t, err)
 	require.True(
 		t, isBadRequest(err))
-
 }
 
 func TestHandleCloneJob_EnvironmentMismatchReturns404(t *testing.T) {
@@ -164,7 +161,6 @@ func TestHandleCloneJob_EnvironmentMismatchReturns404(t *testing.T) {
 	require.Error(t, err)
 	require.True(
 		t, isNotFound(err))
-
 }
 
 func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
@@ -242,7 +238,6 @@ func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
 	require.Equal(t, sourceJob.EndpointSigningSecret,
 
 		captured.EndpointSigningSecret)
-
 }
 
 func isBadRequest(err error) bool {

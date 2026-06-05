@@ -84,7 +84,6 @@ func TestDisconnectStartForFailedListenResetsAfterReconnect(t *testing.T) {
 
 	stillDown := disconnectStartForFailedListen(oldOutage, false, newOutage)
 	require.True(t, stillDown.Equal(oldOutage))
-
 }
 
 func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
@@ -104,7 +103,6 @@ func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
 	assert.EqualValues(t, numGoroutines*
 		100, n.
 		Reconnects())
-
 }
 
 // incReconnects mirrors the atomic increment the production Run loop
@@ -201,7 +199,6 @@ func TestQueueNotifier_SuccessfulListenClearsDegradedImmediately(t *testing.T) {
 	}
 	require.NotEqual(t, 0, atomic.
 		LoadInt64(&n.lastConnectedUnixNano))
-
 }
 
 // Verify that QueueNotifier satisfies the DegradedNotifier interface.
@@ -216,5 +213,4 @@ func TestQueueNotifier_ConnectionAgeAfterSet(t *testing.T) {
 		ConnectionAge(), 5*
 		time.
 			Millisecond)
-
 }

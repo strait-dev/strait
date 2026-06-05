@@ -41,13 +41,9 @@ func TestPlanGate_RoadmapFeaturesDoNotReturnUpgradeCTA(t *testing.T) {
 			require.Error(t, err)
 
 			msg := err.Error()
-			require.True(
-				t, strings.Contains(msg,
-					"roadmap/contact-sales only at launch",
-				))
-			require.False(t, strings.Contains(
-				strings.ToLower(msg), "upgrade"))
-
+			require.Contains(
+				t, msg, "roadmap/contact-sales only at launch")
+			require.NotContains(t, strings.ToLower(msg), "upgrade")
 		})
 	}
 }
@@ -63,13 +59,9 @@ func TestPlanGate_FeatureOrgLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestPlanGate_FeaturePlanLookupErrorFailsClosed(t *testing.T) {
@@ -82,11 +74,7 @@ func TestPlanGate_FeaturePlanLookupErrorFailsClosed(t *testing.T) {
 
 	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-
-			"billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }

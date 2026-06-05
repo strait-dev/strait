@@ -34,7 +34,6 @@ func TestPermissionCache_GetSet(t *testing.T) {
 		t, ok)
 	require.Len(t,
 		perms, 2)
-
 }
 
 func TestPermissionCache_Expiry(t *testing.T) {
@@ -71,7 +70,6 @@ func TestPermissionCache_Invalidate(t *testing.T) {
 
 	_, ok := c.Get("proj", "user")
 	require.False(t, ok)
-
 }
 
 func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -122,7 +120,6 @@ func TestPermissionCache_SetWithVersionPreservesVersionInRedis(t *testing.T) {
 	require.EqualValues(t, 14, envelope.
 		Version,
 	)
-
 }
 
 func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
@@ -148,7 +145,6 @@ func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
 		Contains(got, domain.
 			ScopeJobsWrite,
 		))
-
 }
 
 func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
@@ -182,7 +178,6 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	}
 	require.EqualValues(t, 0, deps.Redis.
 		Exists(t.Context(), indexKey).Val())
-
 }
 
 func TestPermissionCache_IsolatesProjects(t *testing.T) {
@@ -206,7 +201,6 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 		1 ||
 		permsB[0] !=
 			"*")
-
 }
 
 func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
@@ -236,7 +230,6 @@ expired:
 	// A second Get should still miss (entry was evicted, not just stale).
 	_, ok := c.Get("proj", "user")
 	require.False(t, ok)
-
 }
 
 func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
@@ -253,7 +246,6 @@ func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
 	require.False(t, len(perms) !=
 		2 || perms[0] !=
 		"*")
-
 }
 
 func TestPermissionCache_InvalidateNonexistent(t *testing.T) {
@@ -278,9 +270,8 @@ func TestPermissionCache_EmptyPermissionsSlice(t *testing.T) {
 	require.True(
 		t, ok)
 	require.NotNil(t, perms)
-	require.Len(t,
-		perms, 0)
-
+	require.Empty(t,
+		perms)
 }
 
 func TestPermissionCache_ConcurrentReadWrite(t *testing.T) {
@@ -336,7 +327,6 @@ func TestPermissionCache_ManyEntries(t *testing.T) {
 		_, ok := c.Get("proj", "user-"+string(rune(i)))
 		require.True(
 			t, ok)
-
 	}
 }
 
@@ -349,7 +339,6 @@ func TestPermissionCache_ZeroTTL(t *testing.T) {
 
 	_, ok := c.Get("proj", "user")
 	require.False(t, ok)
-
 }
 
 func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
@@ -374,7 +363,6 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 	for _, ok := range results {
 		assert.True(t,
 			ok)
-
 	}
 }
 
@@ -409,14 +397,12 @@ expired:
 			_, ok := c.Get("proj", "user")
 			assert.False(
 				t, ok)
-
 		})
 	}
 	wg.Wait()
 
 	_, ok := c.Get("proj", "user")
 	require.False(t, ok)
-
 }
 
 func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
@@ -456,7 +442,6 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	wg.Wait()
 	require.NotEqual(t, 0, readCount.
 		Load())
-
 }
 
 func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
@@ -484,7 +469,6 @@ func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
 	require.False(t, len(perms) !=
 		1 || perms[0] !=
 		"refreshed")
-
 }
 
 func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
@@ -511,5 +495,4 @@ func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
 		1 || permsCollision[0] !=
 		"perm-collision",
 	)
-
 }

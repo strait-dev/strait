@@ -66,7 +66,6 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 	require.True(t,
 		scheduled[0].
 			at.Equal(retryAt))
-
 }
 
 func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
@@ -92,7 +91,6 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 	exec.execute(context.Background(), run)
 	require.EqualValues(t, 1, failureCalled.
 		Load())
-
 }
 
 func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T) {
@@ -135,7 +133,6 @@ func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T
 	require.Equal(t,
 		want, healthKeys[len(healthKeys)-
 			1])
-
 }
 
 func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
@@ -166,7 +163,6 @@ func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
 	require.Equal(t,
 		want, healthKeys[len(healthKeys)-
 			1])
-
 }
 
 func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
@@ -192,5 +188,4 @@ func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
 	exec.execute(context.Background(), run)
 	require.EqualValues(t, 1, successCalled.
 		Load())
-
 }

@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -32,7 +31,7 @@ func TestExecutor_WorkflowStepVisibilityRaceRequeues(t *testing.T) {
 	retries := store.scheduleRetries()
 	require.Len(t, retries,
 		1)
-	require.EqualValues(t, 1, retries[0].attempt)
+	require.Equal(t, 1, retries[0].attempt)
 
 	calls := store.statusUpdates()
 	require.Len(t, calls,
@@ -46,7 +45,6 @@ func TestExecutor_WorkflowStepVisibilityRaceRequeues(t *testing.T) {
 		StatusSystemFailed,
 
 		calls[0].to)
-
 }
 
 func TestResolveExecutionPolicy_WrapsMissingStepRunAsTransient(t *testing.T) {
@@ -61,10 +59,7 @@ func TestResolveExecutionPolicy_WrapsMissingStepRunAsTransient(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", WorkflowStepRunID: "wsr-missing"}
 
 	_, err := exec.resolveExecutionPolicy(context.Background(), run, executionPolicy{maxAttempts: 3})
-	require.True(t,
-		errors.Is(
-			err, orcstore.
-				ErrWorkflowStepRunNotFound,
-		))
-
+	require.ErrorIs(t,
+		err, orcstore.
+			ErrWorkflowStepRunNotFound)
 }

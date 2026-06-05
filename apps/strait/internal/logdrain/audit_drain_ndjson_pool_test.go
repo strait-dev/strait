@@ -49,7 +49,6 @@ func TestEncodeNDJSONBatch_ReturnsIndependentBytes(t *testing.T) {
 	require.Equal(t, string(
 		copyOfFirst,
 	), string(first))
-
 }
 
 // TestEncodeNDJSONBatch_PooledBufferReuse asserts repeated encodes use
@@ -75,9 +74,7 @@ func TestEncodeNDJSONBatch_PooledBufferReuse(t *testing.T) {
 		ev.ID = "ev-reuse-" + ndjsonItoa(i)
 		out, err := encodeNDJSONBatch([]domain.AuditEvent{ev})
 		require.NoError(t, err)
-		require.True(t, strings.Contains(string(out),
-			ev.ID))
-
+		require.Contains(t, string(out), ev.ID)
 	}
 }
 

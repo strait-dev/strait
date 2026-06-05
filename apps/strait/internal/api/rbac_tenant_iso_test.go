@@ -42,7 +42,6 @@ func TestTenantIso_RBAC_UpdateRole_RejectsCrossProject(t *testing.T) {
 
 		w.Code)
 	require.False(t, updated)
-
 }
 
 // TestTenantIso_RBAC_UpdateRole_RejectsStoreError verifies that an
@@ -73,7 +72,6 @@ func TestTenantIso_RBAC_UpdateRole_RejectsStoreError(t *testing.T) {
 
 		w.Code)
 	require.False(t, updated)
-
 }
 
 // TestTenantIso_RBAC_GetRole_LineageStopsAtForeignParent verifies that the
@@ -110,9 +108,8 @@ func TestTenantIso_RBAC_GetRole_LineageStopsAtForeignParent(t *testing.T) {
 	)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body,
-			`"id":"role_p1"`),
+	require.Contains(
+		t, body, `"id":"role_p1"`,
 	)
 	require.False(t, strings.Contains(body,
 		`"id":"role_p2"`,
@@ -130,9 +127,7 @@ func TestTenantIso_RBAC_GetRole_LineageStopsAtForeignParent(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w2.
 			Code)
-	require.True(
-		t, strings.Contains(w2.
-			Body.String(), `"id":"role_sys"`,
-		))
-
+	require.Contains(
+		t, w2.
+			Body.String(), `"id":"role_sys"`)
 }

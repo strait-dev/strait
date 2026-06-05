@@ -38,7 +38,6 @@ func TestDiscordSender_Success(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestDiscordSender_EmptyWebhookURL(t *testing.T) {
@@ -51,7 +50,6 @@ func TestDiscordSender_EmptyWebhookURL(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_InvalidConfig(t *testing.T) {
@@ -67,7 +65,6 @@ func TestDiscordSender_InvalidConfig(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_StatusBoundary200(t *testing.T) {
@@ -85,7 +82,6 @@ func TestDiscordSender_StatusBoundary200(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestDiscordSender_StatusBoundary199(t *testing.T) {
@@ -103,7 +99,6 @@ func TestDiscordSender_StatusBoundary199(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_StatusBoundary299(t *testing.T) {
@@ -121,7 +116,6 @@ func TestDiscordSender_StatusBoundary299(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.NoError(t, err)
-
 }
 
 func TestDiscordSender_StatusBoundary300(t *testing.T) {
@@ -139,7 +133,6 @@ func TestDiscordSender_StatusBoundary300(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_NilClient(t *testing.T) {
@@ -147,7 +140,6 @@ func TestDiscordSender_NilClient(t *testing.T) {
 	sender := NewDiscordSender(nil)
 	require.NotNil(t, sender.
 		client)
-
 }
 
 func TestDiscordSender_ContextCancellation(t *testing.T) {
@@ -171,7 +163,6 @@ func TestDiscordSender_ContextCancellation(t *testing.T) {
 
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_Non2xxStatus(t *testing.T) {
@@ -189,7 +180,6 @@ func TestDiscordSender_Non2xxStatus(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }
 
 func TestDiscordSender_NetworkError(t *testing.T) {
@@ -207,5 +197,4 @@ func TestDiscordSender_NetworkError(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
 	require.Error(t, err)
-
 }

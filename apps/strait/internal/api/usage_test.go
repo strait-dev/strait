@@ -345,7 +345,6 @@ func TestUsageEndpoint_APIKey_CrossTenantForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_APIKey_SameTenantAllowed(t *testing.T) {
@@ -369,7 +368,6 @@ func TestUsageEndpoint_APIKey_SameTenantAllowed(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "org-A", resp.
 		OrgID)
-
 }
 
 func TestUsageEndpoint_InternalSecret_AllowsAnyOrg(t *testing.T) {
@@ -385,7 +383,6 @@ func TestUsageEndpoint_InternalSecret_AllowsAnyOrg(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestUsageEndpoint_NotConfigured(t *testing.T) {
@@ -400,7 +397,6 @@ func TestUsageEndpoint_NotConfigured(t *testing.T) {
 	require.Equal(t, http.StatusNotImplemented,
 
 		w.Code)
-
 }
 
 func TestUsageEndpoint_MissingOrgID(t *testing.T) {
@@ -415,7 +411,6 @@ func TestUsageEndpoint_MissingOrgID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestGetUsageHistory_Success(t *testing.T) {
@@ -428,7 +423,6 @@ func TestGetUsageHistory_Success(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
@@ -455,7 +449,6 @@ func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
 	require.True(
 		t, resp.IsHardCapped,
 	)
-
 }
 
 func TestGetUsageHistory_MissingParams(t *testing.T) {
@@ -479,7 +472,6 @@ func TestGetUsageHistory_MissingParams(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 				w.
 					Code)
-
 		})
 	}
 }
@@ -494,7 +486,6 @@ func TestGetUsageForecast_Success(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestGetProjectCosts_Success(t *testing.T) {
@@ -507,7 +498,6 @@ func TestGetProjectCosts_Success(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
@@ -521,7 +511,6 @@ func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestExportCSV_ReturnsValidCSV(t *testing.T) {
@@ -537,8 +526,7 @@ func TestExportCSV_ReturnsValidCSV(t *testing.T) {
 	assert.Equal(
 		t, "text/csv", w.
 			Header().Get("Content-Type"))
-	assert.NotEqual(t, "", w.Header().Get("Content-Disposition"))
-
+	assert.NotEmpty(t, w.Header().Get("Content-Disposition"))
 }
 
 func TestAnomalyAlerts_NoHistoryReturnsEmpty(t *testing.T) {
@@ -554,9 +542,8 @@ func TestAnomalyAlerts_NoHistoryReturnsEmpty(t *testing.T) {
 
 	var alerts []billing.AnomalyAlert
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &alerts))
-	assert.Len(t,
-		alerts, 0)
-
+	assert.Empty(t,
+		alerts)
 }
 
 func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
@@ -574,7 +561,6 @@ func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
@@ -596,7 +582,6 @@ func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing.T) {
@@ -623,7 +608,6 @@ func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_OIDC_MismatchedOrgForbidden(t *testing.T) {
@@ -645,7 +629,6 @@ func TestUsageEndpoint_OIDC_MismatchedOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_OIDC_MissingProjectContextForbidden(t *testing.T) {
@@ -664,7 +647,6 @@ func TestUsageEndpoint_OIDC_MissingProjectContextForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_OIDC_DeletedProjectContextForbidden(t *testing.T) {
@@ -689,7 +671,6 @@ func TestUsageEndpoint_OIDC_DeletedProjectContextForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestSpendingLimit_OIDC_ReadRoleCannotMutate(t *testing.T) {
@@ -711,7 +692,6 @@ func TestSpendingLimit_OIDC_ReadRoleCannotMutate(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_APIKey_ReadScopeRequired(t *testing.T) {
@@ -728,7 +708,6 @@ func TestUsageEndpoint_APIKey_ReadScopeRequired(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUsageEndpoint_APIKey_ReadScopeAllowed(t *testing.T) {
@@ -744,7 +723,6 @@ func TestUsageEndpoint_APIKey_ReadScopeAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // internalSecretRequestWithProject creates an internal-secret request with a
@@ -782,7 +760,6 @@ func TestGetProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestGetProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -799,7 +776,6 @@ func TestGetProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestGetProjectBudget_APIKey_CrossOrgForbidden(t *testing.T) {
@@ -820,7 +796,6 @@ func TestGetProjectBudget_APIKey_CrossOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestGetProjectBudget_APIKey_SameOrgAllowed(t *testing.T) {
@@ -837,7 +812,6 @@ func TestGetProjectBudget_APIKey_SameOrgAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestUpdateProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -856,7 +830,6 @@ func TestUpdateProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUpdateProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -873,7 +846,6 @@ func TestUpdateProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // Edge cases.
@@ -891,7 +863,6 @@ func TestGetProjectBudget_NoProjectContext_BadRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestGetProjectBudget_NonexistentProject_Forbidden(t *testing.T) {
@@ -906,7 +877,6 @@ func TestGetProjectBudget_NonexistentProject_Forbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestUpdateProjectBudget_EmptyProjectID_BadRequest(t *testing.T) {
@@ -919,7 +889,6 @@ func TestUpdateProjectBudget_EmptyProjectID_BadRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
@@ -931,7 +900,6 @@ func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestProjectBudget_NilEnforcer_WithProjectContext_Forbidden(t *testing.T) {
@@ -945,7 +913,6 @@ func TestProjectBudget_NilEnforcer_WithProjectContext_Forbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestProjectBudget_NilEnforcer_NoProjectContext_Forbidden(t *testing.T) {
@@ -962,7 +929,6 @@ func TestProjectBudget_NilEnforcer_NoProjectContext_Forbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestExportUsage_PDF_Format(t *testing.T) {
@@ -987,7 +953,6 @@ func TestExportUsage_PDF_Format(t *testing.T) {
 	)
 	assert.True(t,
 		strings.HasPrefix(w.Body.String(), "%PDF-"))
-
 }
 
 func TestExportUsage_DefaultFormat_CSV(t *testing.T) {
@@ -1003,7 +968,6 @@ func TestExportUsage_DefaultFormat_CSV(t *testing.T) {
 	assert.Equal(
 		t, "text/csv", w.
 			Header().Get("Content-Type"))
-
 }
 
 func TestExportUsage_InvalidFormat(t *testing.T) {
@@ -1017,7 +981,6 @@ func TestExportUsage_InvalidFormat(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
@@ -1032,7 +995,6 @@ func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
 	require.Equal(t, http.StatusRequestEntityTooLarge,
 
 		w.Code)
-
 }
 
 func TestExportUsage_CSV_ExplicitFormat(t *testing.T) {
@@ -1051,7 +1013,6 @@ func TestExportUsage_CSV_ExplicitFormat(t *testing.T) {
 
 		w.Header().Get("Content-Disposition"),
 	)
-
 }
 
 func TestExportUsage_MissingOrgID(t *testing.T) {
@@ -1063,7 +1024,6 @@ func TestExportUsage_MissingOrgID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestExportUsage_MissingDateRange(t *testing.T) {
@@ -1075,7 +1035,6 @@ func TestExportUsage_MissingDateRange(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestExportUsage_APIKey_CrossTenantForbidden(t *testing.T) {
@@ -1090,7 +1049,6 @@ func TestExportUsage_APIKey_CrossTenantForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestExportUsage_APIKey_SameTenantAllowed(t *testing.T) {
@@ -1104,7 +1062,6 @@ func TestExportUsage_APIKey_SameTenantAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestExportUsage_NotConfigured(t *testing.T) {
@@ -1116,7 +1073,6 @@ func TestExportUsage_NotConfigured(t *testing.T) {
 	require.Equal(t, http.StatusNotImplemented,
 
 		w.Code)
-
 }
 
 func TestExportUsage_InvalidDateRange(t *testing.T) {
@@ -1129,7 +1085,6 @@ func TestExportUsage_InvalidDateRange(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestExportUsage_PDF_ResponseBody(t *testing.T) {
@@ -1145,5 +1100,4 @@ func TestExportUsage_PDF_ResponseBody(t *testing.T) {
 		w.Code)
 	assert.Equal(
 		t, len(pdfContent), w.Body.Len())
-
 }

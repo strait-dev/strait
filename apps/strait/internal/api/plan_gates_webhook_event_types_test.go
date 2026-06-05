@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -24,13 +23,12 @@ func TestCheckWebhookEventTypes_NoneTier_RejectsAll(t *testing.T) {
 
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.completed"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "not available"))
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "Free"))
-
+	assert.Contains(t,
+		err.
+			Error(), "not available")
+	assert.Contains(t,
+		err.
+			Error(), "Free")
 }
 
 // TestCheckWebhookEventTypes_BasicTier_AcceptsBasicEvents asserts the Starter
@@ -45,7 +43,6 @@ func TestCheckWebhookEventTypes_BasicTier_AcceptsBasicEvents(t *testing.T) {
 
 	for _, et := range []string{"run.completed", "run.failed"} {
 		assert.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{et}))
-
 	}
 }
 
@@ -62,13 +59,12 @@ func TestCheckWebhookEventTypes_BasicTier_RejectsUpgradeEvents(t *testing.T) {
 
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "run.timed_out"))
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "Pro"))
-
+	assert.Contains(t,
+		err.
+			Error(), "run.timed_out")
+	assert.Contains(t,
+		err.
+			Error(), "Pro")
 }
 
 // TestCheckWebhookEventTypes_AllTier_AcceptsEverything proves the Pro and
@@ -85,7 +81,6 @@ func TestCheckWebhookEventTypes_AllTier_AcceptsEverything(t *testing.T) {
 		all = append(all, eventType)
 	}
 	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", all))
-
 }
 
 // TestCheckWebhookEventTypes_AllCustomTier_Accepts confirms enterprise
@@ -99,7 +94,6 @@ func TestCheckWebhookEventTypes_AllCustomTier_Accepts(t *testing.T) {
 	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out",
 
 		"workflow.failed"}))
-
 }
 
 func TestCheckWebhookEventTypes_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -110,7 +104,6 @@ func TestCheckWebhookEventTypes_CloudNilEnforcerFailsClosed(t *testing.T) {
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "billing enforcement unavailable")
-
 }
 
 // TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen confirms self-hosted
@@ -120,7 +113,6 @@ func TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen(t *testing.T) {
 
 	srv := &Server{edition: domain.EditionCommunity}
 	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"}))
-
 }
 
 // TestCheckWebhookEventTypes_EmptyEventList_NoOp documents that a zero-length
@@ -137,5 +129,4 @@ func TestCheckWebhookEventTypes_EmptyEventList_NoOp(t *testing.T) {
 	// The "none" branch fires before the loop, so even an empty list rejects.
 	// This test pins that behavior so a refactor that moves the loop earlier
 	// does not silently flip the semantics.
-
 }

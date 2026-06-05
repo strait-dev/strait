@@ -35,8 +35,8 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			actions[ev.Action]++
-			assert.NotEqual(t, "", ev.ProjectID)
-			assert.NotEqual(t, "", ev.ActorID)
+			assert.NotEmpty(t, ev.ProjectID)
+			assert.NotEmpty(t, ev.ActorID)
 
 			return nil
 		},
@@ -156,7 +156,6 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 	defer mu.Unlock()
 	for _, action := range wantActions {
 		assert.NotEqual(t, 0, actions[action])
-
 	}
 
 	// Spot-check that details marshaled round-trips. The real emit path
@@ -167,5 +166,4 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 	var roundTripped map[string]any
 	_ = json.Unmarshal(b, &roundTripped)
 	require.Equal(t, "v", roundTripped["k"])
-
 }

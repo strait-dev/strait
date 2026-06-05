@@ -110,7 +110,7 @@ func TestCompensateWorkflowRun_EnqueuesCompensationJobs(t *testing.T) {
 			wfRun.ID || got.Metadata[domain.RunMetadataCompensationStepRef] != "charge-card",
 	)
 	require.Equal(t, "prod", got.Tags["env"])
-	require.EqualValues(t, 45, got.TimeoutSecsOverride)
+	require.Equal(t, 45, got.TimeoutSecsOverride)
 
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(got.Payload,
@@ -118,5 +118,4 @@ func TestCompensateWorkflowRun_EnqueuesCompensationJobs(t *testing.T) {
 	require.False(t, payload["workflow_run_id"] != wfRun.ID || payload["step_ref"] !=
 		"charge-card",
 	)
-
 }

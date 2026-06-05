@@ -71,5 +71,4 @@ func TestDeleteAuditEventsBeforeExcluding_EnumeratesInAutocommit(t *testing.T) {
 	assert.False(t,
 		fake.beginCalled,
 	)
-
 }

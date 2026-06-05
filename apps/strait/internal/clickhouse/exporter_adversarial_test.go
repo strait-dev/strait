@@ -27,7 +27,6 @@ func TestNewExporter_ZeroBatchSize(t *testing.T) {
 		config.
 		BatchSize,
 	)
-
 }
 
 func TestNewExporter_NegativeBatchSize(t *testing.T) {
@@ -39,7 +38,6 @@ func TestNewExporter_NegativeBatchSize(t *testing.T) {
 		config.
 		BatchSize,
 	)
-
 }
 
 func TestNewExporter_ZeroFlushInterval(t *testing.T) {
@@ -51,7 +49,6 @@ func TestNewExporter_ZeroFlushInterval(t *testing.T) {
 		Second, e.
 		config.FlushInterval,
 	)
-
 }
 
 func TestNewExporter_NegativeFlushInterval(t *testing.T) {
@@ -63,7 +60,6 @@ func TestNewExporter_NegativeFlushInterval(t *testing.T) {
 		Second, e.
 		config.FlushInterval,
 	)
-
 }
 
 func TestNewExporter_NilLogger(t *testing.T) {
@@ -72,7 +68,6 @@ func TestNewExporter_NilLogger(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true}, nil)
 	require.NotNil(t, e)
 	assert.NotNil(t, e.logger)
-
 }
 
 // WithMetrics
@@ -83,7 +78,6 @@ func TestExporter_WithMetrics_NilExporter(t *testing.T) {
 	var e *Exporter
 	got := e.WithMetrics(&ExporterMetrics{})
 	assert.Nil(t, got)
-
 }
 
 func TestExporter_WithMetrics_AttachesMetrics(t *testing.T) {
@@ -94,7 +88,6 @@ func TestExporter_WithMetrics_AttachesMetrics(t *testing.T) {
 	result := e.WithMetrics(m)
 	assert.Equal(t, e, result)
 	assert.Equal(t, m, e.metrics)
-
 }
 
 // Flush with OTel metrics wired up
@@ -133,7 +126,6 @@ func TestExporter_FlushFailure_IncrementsMetrics(t *testing.T) {
 	// Third flush: exceeds maxFlushRetries, drops batch, DroppedRecords incremented.
 	e.flush(context.Background())
 	assert.Equal(t, 0, e.PendingCount())
-
 }
 
 func TestExporter_FlushFailure_NilMetricCounters(t *testing.T) {
@@ -181,7 +173,6 @@ func TestExporter_RejectsSingleRecordAboveByteCap(t *testing.T) {
 	require.False(t, ok)
 	require.Equal(t, 0, e.PendingCount())
 	require.Equal(t, 0, e.pendingBytes)
-
 }
 
 func TestExporter_EnqueueDropsOldestByByteCap(t *testing.T) {
@@ -197,7 +188,6 @@ func TestExporter_EnqueueDropsOldestByByteCap(t *testing.T) {
 		require.True(t, e.Enqueue(RunEventRecord{EventID: id, RunID: "run-1",
 			ProjectID: "proj-1",
 			Message:   strings.Repeat("x", 180), CreatedAt: time.Now()}))
-
 	}
 	require.LessOrEqual(t, e.
 		pendingBytes,
@@ -212,7 +202,6 @@ func TestExporter_EnqueueDropsOldestByByteCap(t *testing.T) {
 
 			event.EventID,
 		)
-
 	}
 }
 
@@ -248,7 +237,6 @@ func TestExporter_FlushFailureRequeueHonorsByteCap(t *testing.T) {
 
 			event.
 				EventID)
-
 	}
 }
 
@@ -281,7 +269,6 @@ func TestSanitizeRunEventRecord_DropsRawMessageAndMetadata(t *testing.T) {
 			strings.Contains(rec.Metadata,
 				leaked,
 			))
-
 	}
 }
 
@@ -300,11 +287,7 @@ func TestSanitizeRunEventRecord_KeepsOnlyKnownEventLabels(t *testing.T) {
 		unknown.
 			Message,
 	)
-	require.False(t, strings.Contains(
-		unknown.Message,
-		"secret-token",
-	))
-
+	require.NotContains(t, unknown.Message, "secret-token")
 }
 
 func TestSanitizeWebhookDeliveryEventRecord_RedactsURLBeforePersistence(t *testing.T) {
@@ -322,11 +305,7 @@ func TestSanitizeWebhookDeliveryEventRecord_RedactsURLBeforePersistence(t *testi
 	)
 
 	for _, leaked := range []string{"user", "pass", "services", "token", "api_key", "secret", "frag"} {
-		require.False(t, strings.Contains(
-			rec.WebhookURL,
-			leaked),
-		)
-
+		require.NotContains(t, rec.WebhookURL, leaked)
 	}
 }
 
@@ -372,7 +351,6 @@ func TestExporter_InsertBatch_AllRecordTypes_FailingClient(t *testing.T) {
 			errMsg,
 			table,
 		))
-
 	}
 }
 
@@ -394,7 +372,6 @@ func TestExporter_InsertBatch_AllRecordTypes_NilDBClient(t *testing.T) {
 
 	err := e.insertBatch(context.Background(), batch)
 	require.NoError(t, err)
-
 }
 
 func TestExporter_InsertBatch_OnlyUnknownTypes(t *testing.T) {
@@ -405,7 +382,6 @@ func TestExporter_InsertBatch_OnlyUnknownTypes(t *testing.T) {
 	// All unknown types: should succeed (just logs warnings) and not error.
 	err := e.insertBatch(context.Background(), []any{42, "string", 3.14, struct{}{}})
 	require.NoError(t, err)
-
 }
 
 func TestExporter_InsertBatch_EmptySlice(t *testing.T) {
@@ -414,7 +390,6 @@ func TestExporter_InsertBatch_EmptySlice(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true}, slog.Default())
 	err := e.insertBatch(context.Background(), []any{})
 	require.NoError(t, err)
-
 }
 
 func TestExporter_InsertBatch_NilSlice(t *testing.T) {
@@ -423,7 +398,6 @@ func TestExporter_InsertBatch_NilSlice(t *testing.T) {
 	e := NewExporter(&Client{}, ExporterConfig{Enabled: true}, slog.Default())
 	err := e.insertBatch(context.Background(), nil)
 	require.NoError(t, err)
-
 }
 
 // Backpressure edge cases
@@ -441,7 +415,6 @@ func TestExporter_Backpressure_ExactBoundary(t *testing.T) {
 	// One more triggers overflow: drops 1, keeps 10.
 	e.Enqueue(999)
 	assert.Equal(t, 10, e.PendingCount())
-
 }
 
 func TestExporter_Backpressure_DropsOldestKeepsNewest(t *testing.T) {
@@ -462,7 +435,6 @@ func TestExporter_Backpressure_DropsOldestKeepsNewest(t *testing.T) {
 	e.mu.Unlock()
 	assert.Equal(t, 5, first.(int))
 	assert.Equal(t, 14, last.(int))
-
 }
 
 // Flush requeue with buffer overflow
@@ -497,7 +469,6 @@ func TestExporter_FlushRequeue_OverflowTruncates(t *testing.T) {
 		PendingCount(), 20)
 
 	// After failed flush, requeued batch + existing should be capped at maxBuffer (20).
-
 }
 
 // Concurrent enqueue + flush
@@ -534,7 +505,6 @@ func TestExporter_ConcurrentEnqueueAndFlush(t *testing.T) {
 	assert.Equal(t, 0, e.PendingCount())
 
 	// All enqueued records should have been flushed.
-
 }
 
 // Start/Stop lifecycle
@@ -572,7 +542,6 @@ func TestExporter_StopWithoutStart_Blocks(t *testing.T) {
 	assert.False(t, e.Enqueue("should-fail"))
 
 	// Enqueue after stop should be rejected.
-
 }
 
 func TestExporter_ContextCancel_FlushesBeforeExit(t *testing.T) {
@@ -599,7 +568,6 @@ func TestExporter_ContextCancel_FlushesBeforeExit(t *testing.T) {
 	assert.Equal(t, 0, e.PendingCount())
 
 	// Final flush should have drained.
-
 }
 
 // TestExporter helpers
@@ -616,7 +584,6 @@ func TestNewTestExporter(t *testing.T) {
 	assert.True(t, e.config.
 		Enabled,
 	)
-
 }
 
 func TestTestExporter_PendingLen(t *testing.T) {
@@ -629,7 +596,6 @@ func TestTestExporter_PendingLen(t *testing.T) {
 	e.pending = append(e.pending, "a", "b")
 	e.mu.Unlock()
 	assert.Equal(t, 2, e.PendingLen())
-
 }
 
 func TestTestExporter_PendingAt(t *testing.T) {
@@ -651,7 +617,6 @@ func TestTestExporter_PendingAt(t *testing.T) {
 
 		e.PendingAt(1))
 	assert.Nil(t, e.PendingAt(2))
-
 }
 
 func TestExporter_DoubleStop_DoesNotPanic(t *testing.T) {
@@ -676,7 +641,6 @@ func TestTestExporter_NilPendingLen(t *testing.T) {
 
 	var e *Exporter
 	assert.Equal(t, 0, e.PendingLen())
-
 }
 
 func TestTestExporter_NilPendingAt(t *testing.T) {
@@ -684,7 +648,6 @@ func TestTestExporter_NilPendingAt(t *testing.T) {
 
 	var e *Exporter
 	assert.Nil(t, e.PendingAt(0))
-
 }
 
 // insertBatch: partial record types kill CONDITIONALS_BOUNDARY on len guards.
@@ -724,7 +687,6 @@ func TestExporter_InsertBatch_OnlyRunEvents_NoOtherTableErrors(t *testing.T) {
 		assert.False(t, contains(
 			errMsg, table,
 		))
-
 	}
 }
 
@@ -754,7 +716,6 @@ func TestExporter_InsertBatch_OnlyAnalytics_NoOtherTableErrors(t *testing.T) {
 	assert.False(t, contains(
 		errMsg, "run_events",
 	))
-
 }
 
 func TestExporter_InsertBatch_OnlyBillingEvents_NoOtherTableErrors(t *testing.T) {
@@ -786,7 +747,6 @@ func TestExporter_InsertBatch_OnlyBillingEvents_NoOtherTableErrors(t *testing.T)
 	assert.False(t, contains(
 		errMsg, "run_analytics",
 	))
-
 }
 
 // Client pool defaults kill CONDITIONALS_BOUNDARY on maxOpen/maxIdle.
@@ -809,7 +769,6 @@ func TestNewClient_DefaultPoolSettings(t *testing.T) {
 		maxIdle = 5
 	}
 	assert.Equal(t, 5, maxIdle)
-
 }
 
 func TestNewClient_NegativePoolSettings(t *testing.T) {
@@ -829,7 +788,6 @@ func TestNewClient_NegativePoolSettings(t *testing.T) {
 		maxIdle = 5
 	}
 	assert.Equal(t, 5, maxIdle)
-
 }
 
 func TestNewClient_PositivePoolSettings_Preserved(t *testing.T) {
@@ -849,7 +807,6 @@ func TestNewClient_PositivePoolSettings_Preserved(t *testing.T) {
 		maxIdle = 5
 	}
 	assert.Equal(t, 8, maxIdle)
-
 }
 
 // Helpers

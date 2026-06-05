@@ -110,7 +110,6 @@ func TestGeneratedCatalogHashMatchesSource(t *testing.T) {
 			EncodeToString(
 				sum[:],
 			))
-
 }
 
 func TestGeneratedPlanLimitsMatchCatalogSource(t *testing.T) {
@@ -295,7 +294,6 @@ func TestLaunchCatalogKeepsRoadmapFeaturesInactive(t *testing.T) {
 				HasPriorityQueue || limits.HasSessionManagement ||
 				limits.HasSecretRotation || limits.HasSIEMExport,
 			)
-
 		})
 	}
 }
@@ -372,7 +370,6 @@ func assertEqual[T comparable](t *testing.T, field string, got, want T) {
 	t.Helper()
 	require.Equal(t, want,
 		got)
-
 }
 
 func assertDeepEqual(t *testing.T, field string, got, want any) {
@@ -380,5 +377,4 @@ func assertDeepEqual(t *testing.T, field string, got, want any) {
 	require.True(t, reflect.
 		DeepEqual(got,
 			want))
-
 }

@@ -69,12 +69,11 @@ func TestTryAcquireIdempotencyKeyLegacy_DeletePropagatesError(t *testing.T) {
 	_, _, _, _, err := q.TryAcquireIdempotencyKey(context.Background(), "proj-1", "key-1", time.Minute)
 	require.Error(t,
 		err)
-	require.True(t,
-		errors.Is(err, rootCause))
-	require.True(t,
-		strings.Contains(err.
-			Error(), "delete expired idempotency key",
-		))
+	require.ErrorIs(t,
+		err, rootCause)
+	require.Contains(t,
+		err.
+			Error(), "delete expired idempotency key")
 
 	// Belt-and-suspenders: the function must NOT have attempted the retry
 	// insert after a failed delete — otherwise the original error semantics
@@ -86,6 +85,5 @@ func TestTryAcquireIdempotencyKeyLegacy_DeletePropagatesError(t *testing.T) {
 				len(db.calls) > 1 &&
 				db.calls[len(db.calls)-1] ==
 					"insert")
-
 	}
 }

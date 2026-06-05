@@ -14,7 +14,6 @@ func TestValidateTransition_AllValidTransitions(t *testing.T) {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
 				assert.NoError(t, ValidateTransition(from, to))
-
 			})
 		}
 	}
@@ -43,7 +42,6 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s->%s", tc.from, tc.to), func(t *testing.T) {
 			assert.Error(t, ValidateTransition(tc.from, tc.to))
-
 		})
 	}
 }
@@ -71,11 +69,8 @@ func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 				}
 				return
 			}
-			assert.Len(t,
-				transitions,
-
-				0)
-
+			assert.Empty(t,
+				transitions)
 		})
 	}
 }
@@ -138,7 +133,6 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 		t, validTransitions,
 
 		len(allStatuses))
-
 }
 
 func TestRunStatusIsValid(t *testing.T) {
@@ -146,7 +140,6 @@ func TestRunStatusIsValid(t *testing.T) {
 	require.True(t, StatusQueued.
 		IsValid())
 	require.False(t, RunStatus("not-valid").IsValid())
-
 }
 
 func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
@@ -174,7 +167,6 @@ func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 				err == nil)
 			require.False(t, !tc.wantErr &&
 				err != nil)
-
 		})
 	}
 }

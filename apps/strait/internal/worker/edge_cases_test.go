@@ -20,7 +20,6 @@ func TestClassifyError_Nil(t *testing.T) {
 	require.Equal(t,
 		"unknown",
 		classifyError(nil))
-
 }
 
 func TestClassifyError_RateLimited(t *testing.T) {
@@ -30,7 +29,6 @@ func TestClassifyError_RateLimited(t *testing.T) {
 		"rate_limited",
 
 		classifyError(err))
-
 }
 
 func TestClassifyError_AuthUnauthorized(t *testing.T) {
@@ -38,7 +36,6 @@ func TestClassifyError_AuthUnauthorized(t *testing.T) {
 	err := &domain.EndpointError{StatusCode: 401, Body: "unauthorized"}
 	require.Equal(t,
 		"auth", classifyError(err))
-
 }
 
 func TestClassifyError_AuthForbidden(t *testing.T) {
@@ -46,7 +43,6 @@ func TestClassifyError_AuthForbidden(t *testing.T) {
 	err := &domain.EndpointError{StatusCode: 403, Body: "forbidden"}
 	require.Equal(t,
 		"auth", classifyError(err))
-
 }
 
 func TestClassifyError_ClientError(t *testing.T) {
@@ -55,7 +51,6 @@ func TestClassifyError_ClientError(t *testing.T) {
 	require.Equal(t,
 		"client",
 		classifyError(err))
-
 }
 
 func TestClassifyError_ClientError422(t *testing.T) {
@@ -64,7 +59,6 @@ func TestClassifyError_ClientError422(t *testing.T) {
 	require.Equal(t,
 		"client",
 		classifyError(err))
-
 }
 
 func TestClassifyError_ServerError(t *testing.T) {
@@ -73,7 +67,6 @@ func TestClassifyError_ServerError(t *testing.T) {
 	require.Equal(t,
 		"server",
 		classifyError(err))
-
 }
 
 func TestClassifyError_ServerError502(t *testing.T) {
@@ -82,7 +75,6 @@ func TestClassifyError_ServerError502(t *testing.T) {
 	require.Equal(t,
 		"server",
 		classifyError(err))
-
 }
 
 func TestClassifyError_DeadlineExceeded(t *testing.T) {
@@ -92,7 +84,6 @@ func TestClassifyError_DeadlineExceeded(t *testing.T) {
 		classifyError(context.
 			DeadlineExceeded,
 		))
-
 }
 
 func TestClassifyError_ContextCanceled(t *testing.T) {
@@ -103,7 +94,6 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 			context.
 				Canceled,
 		))
-
 }
 
 func TestClassifyError_NetworkError(t *testing.T) {
@@ -112,7 +102,6 @@ func TestClassifyError_NetworkError(t *testing.T) {
 	require.Equal(t,
 		"connection",
 		classifyError(err))
-
 }
 
 func TestClassifyError_GenericError(t *testing.T) {
@@ -121,7 +110,6 @@ func TestClassifyError_GenericError(t *testing.T) {
 		"unknown",
 		classifyError(errors.New(
 			"something went wrong")))
-
 }
 
 // shouldRetryForClass and shouldUseFallbackForClass edge cases.
@@ -146,7 +134,6 @@ func TestShouldRetryForClass(t *testing.T) {
 	for _, tt := range tests {
 		assert.Equal(t,
 			tt.want, shouldRetryForClass(tt.class))
-
 	}
 }
 
@@ -171,7 +158,6 @@ func TestShouldUseFallbackForClass(t *testing.T) {
 		assert.Equal(t,
 			tt.want, shouldUseFallbackForClass(tt.
 				class))
-
 	}
 }
 
@@ -188,7 +174,6 @@ func TestNextRetryDelayWithPolicy_ExponentialDefault(t *testing.T) {
 				1200*time.Millisecond)
 
 	// empty policy defaults to exponential, zero initial defaults to 1s.
-
 }
 
 func TestNextRetryDelayWithPolicy_ExponentialGrowth(t *testing.T) {
@@ -203,7 +188,6 @@ func TestNextRetryDelayWithPolicy_ExponentialGrowth(t *testing.T) {
 	)
 
 	// attempt 3 with base 2s: 2s -> 4s -> 8s (before jitter).
-
 }
 
 func TestNextRetryDelayWithPolicy_FixedPolicy(t *testing.T) {
@@ -217,7 +201,6 @@ func TestNextRetryDelayWithPolicy_FixedPolicy(t *testing.T) {
 					time.Second)
 
 	// fixed policy: always returns initialDelaySecs (10s) regardless of attempt.
-
 }
 
 func TestNextRetryDelayWithPolicy_NegativeInputs(t *testing.T) {
@@ -231,7 +214,6 @@ func TestNextRetryDelayWithPolicy_NegativeInputs(t *testing.T) {
 				1200*time.Millisecond)
 
 	// negative attempt floors to 1, negative initial floors to 1s, negative max floors to 3600s.
-
 }
 
 func TestNextRetryDelayWithPolicy_CapsAtMax(t *testing.T) {
@@ -244,7 +226,6 @@ func TestNextRetryDelayWithPolicy_CapsAtMax(t *testing.T) {
 	)
 
 	// 30s + 20% jitter
-
 }
 
 func TestDurationMillisecondsAtLeastOne(t *testing.T) {
@@ -267,7 +248,6 @@ func TestDurationMillisecondsAtLeastOne(t *testing.T) {
 			assert.Equal(t,
 				tt.expected,
 				got)
-
 		})
 	}
 }

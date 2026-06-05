@@ -124,7 +124,6 @@ func TestNotionLock_TierConstants(t *testing.T) {
 		assert.Equal(t, w.
 			overagePerKMicrousd, got.OveragePerKMicrousd,
 		)
-
 	}
 }
 
@@ -145,7 +144,6 @@ func TestNotionLock_SpendingCapsMicrousd(t *testing.T) {
 	for _, c := range cases {
 		assert.Equal(t, c.
 			want, c.got)
-
 	}
 }
 
@@ -165,7 +163,6 @@ func TestNotionLock_AddonPrices(t *testing.T) {
 		assert.Equal(t, wantCents,
 
 			pack.PriceCents)
-
 	}
 }
 
@@ -181,6 +178,5 @@ func TestNotionLock_SLACreditBands(t *testing.T) {
 
 			SLACreditTiers[i].CreditPct,
 		)
-
 	}
 }

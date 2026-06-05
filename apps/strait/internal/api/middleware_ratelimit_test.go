@@ -105,7 +105,6 @@ func TestSetUsageHeaders_UsesMonthlyRunAllowance(t *testing.T) {
 		rr.Header().Get("X-Strait-Usage-Limit"))
 	require.Equal(t, "48766",
 		rr.Header().Get("X-Strait-Usage-Remaining"))
-
 }
 
 func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
@@ -117,7 +116,6 @@ func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-
 }
 
 func TestProjectRateLimit_APIKeyOverride(t *testing.T) {
@@ -137,7 +135,6 @@ func TestProjectRateLimit_APIKeyOverride(t *testing.T) {
 			Code)
 
 	// With disabled Redis, it fails open (allowed).
-
 }
 
 func TestProjectRateLimit_DefaultFallback_UsesConfig(t *testing.T) {
@@ -161,7 +158,6 @@ func TestProjectRateLimit_DefaultFallback_UsesConfig(t *testing.T) {
 			Code)
 
 	// Fail-open: should be 200.
-
 }
 
 func TestProjectRateLimit_InternalSecret_NoRateLimit(t *testing.T) {
@@ -181,13 +177,12 @@ func TestProjectRateLimit_InternalSecret_NoRateLimit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-	require.Equal(t, "", rr.
+	require.Empty(t, rr.
 		Header().Get("X-RateLimit-Limit"))
 
 	// No API key ID and no project ID means limit stays 0 -> pass through.
 
 	// No rate limit headers should be set.
-
 }
 
 func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
@@ -209,7 +204,6 @@ func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
 			Code)
 
 	// Disabled limiter -> fail open -> 200.
-
 }
 
 func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
@@ -232,7 +226,6 @@ func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		rr.Code)
-
 }
 
 func TestProjectRateLimit_ZeroDefaultConfig_SkipsRateLimit(t *testing.T) {
@@ -249,11 +242,10 @@ func TestProjectRateLimit_ZeroDefaultConfig_SkipsRateLimit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-	require.Equal(t, "", rr.
+	require.Empty(t, rr.
 		Header().Get("X-RateLimit-Limit"))
 
 	// No headers when rate limiting is completely disabled.
-
 }
 
 func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
@@ -280,7 +272,6 @@ func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-
 }
 
 func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
@@ -303,12 +294,11 @@ func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
 	require.Equal(t, billing.
 		APIRateFree,
 		rl.limit)
-	require.EqualValues(t, 60, rl.
+	require.Equal(t, 60, rl.
 		windowSecs)
 	require.Equal(t, "rl:plan:org-free",
 
 		rl.key)
-
 }
 
 func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing.T) {
@@ -333,7 +323,6 @@ func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing
 		windowSecs != 0 ||
 		rl.key != "",
 	)
-
 }
 
 func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
@@ -361,7 +350,6 @@ func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
 	require.Equal(t, "rl:apikey:key-1",
 
 		rl.key)
-
 }
 
 func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
@@ -379,11 +367,10 @@ func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
-	require.NotNil(t, rl.err)
+	require.Error(t, rl.err)
 	require.False(t, rl.limit !=
 		0 || rl.
 		key != "")
-
 }
 
 func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -402,11 +389,10 @@ func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
-	require.NotNil(t, rl.err)
+	require.Error(t, rl.err)
 	require.False(t, rl.limit !=
 		0 || rl.
 		key != "")
-
 }
 
 func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T) {
@@ -435,7 +421,6 @@ func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T)
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		rr.Code)
-
 }
 
 func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
@@ -452,5 +437,4 @@ func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		rr.
 			Code)
-
 }

@@ -42,7 +42,6 @@ func TestCanonicalizeIdempotencyPath(t *testing.T) {
 			require.Equal(t, tc.want,
 				canonicalizeIdempotencyPath(
 					tc.in))
-
 		})
 	}
 }
@@ -100,7 +99,6 @@ func TestIdempotencyKeySurvivesPathCosmetics(t *testing.T) {
 				acquireKeys,
 				2)
 			require.Equal(t, acquireKeys[1], acquireKeys[0])
-
 		})
 	}
 }
@@ -155,7 +153,6 @@ func TestIdempotencyKeyDistinguishesDifferentResources(t *testing.T) {
 				acquireKeys,
 				2)
 			require.NotEqual(t, acquireKeys[1], acquireKeys[0])
-
 		})
 	}
 }

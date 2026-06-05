@@ -112,8 +112,7 @@ func TestDowngradeStrategy_CoversEveryOrgPlanLimitField(t *testing.T) {
 			missing = append(missing, f.Name)
 		}
 	}
-	require.LessOrEqual(t, len(missing), 0)
-
+	require.Empty(t, missing)
 }
 
 // TestDowngradeStrategy_NoStaleEntries fails if downgradeStrategyMap has an
@@ -133,8 +132,7 @@ func TestDowngradeStrategy_NoStaleEntries(t *testing.T) {
 			stale = append(stale, name)
 		}
 	}
-	require.LessOrEqual(t, len(stale), 0)
-
+	require.Empty(t, stale)
 }
 
 // TestDowngradeApplier_ConcurrentTicks_NoDoubleDeactivation simulates two
@@ -170,5 +168,4 @@ func TestDowngradeApplier_ConcurrentTicks_NoDoubleDeactivation(t *testing.T) {
 	// rows with enabled=true and OFFSETs past the cap, so a stale-state
 	// second pass returns 0 rows. This test pins that the applier itself
 	// is happy to be called twice.
-
 }

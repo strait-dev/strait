@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -23,7 +22,6 @@ func TestTriggerIdempotencyKeyPrefersPrimaryHeader(t *testing.T) {
 	require.Equal(t, "primary-key",
 		key,
 	)
-
 }
 
 func TestTriggerIdempotencyKeyFallsBackToStandardHeader(t *testing.T) {
@@ -34,7 +32,6 @@ func TestTriggerIdempotencyKeyFallsBackToStandardHeader(t *testing.T) {
 	require.Equal(t, "standard-key",
 		key,
 	)
-
 }
 
 func TestTriggerIdempotencyKeyRejectsTooLong(t *testing.T) {
@@ -44,12 +41,9 @@ func TestTriggerIdempotencyKeyRejectsTooLong(t *testing.T) {
 		XIdempotencyKey: strings.Repeat("x", maxIdempotencyKeyLength+1),
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-			"idempotency key must be 256 characters or fewer",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "idempotency key must be 256 characters or fewer")
 }
 
 func TestTriggerIdempotencyHitReturnsExistingRun(t *testing.T) {
@@ -94,8 +88,8 @@ func TestResolveTriggerIdempotencyConflictReturnsWinningRun(t *testing.T) {
 	)
 
 	var statusErr *rawStatusError
-	require.True(
-		t, errors.As(err, &statusErr))
+	require.ErrorAs(
+		t, err, &statusErr)
 
 	assertIdempotencyResponse(t, statusErr, "run-winner", domain.StatusExecuting)
 }
@@ -117,5 +111,4 @@ func assertIdempotencyResponse(t *testing.T, err *rawStatusError, runID string, 
 	require.Equal(t, true,
 		body["idempotency_hit"],
 	)
-
 }

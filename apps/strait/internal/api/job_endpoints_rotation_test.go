@@ -61,15 +61,14 @@ func TestSetJobEndpoint_SSRFErrorIsSanitized(t *testing.T) {
 	require.Error(t, err)
 
 	msg := err.Error()
-	require.True(
-		t, strings.Contains(msg, "endpoint_url failed validation"))
+	require.Contains(
+		t, msg, "endpoint_url failed validation")
 	require.False(t, strings.Contains(msg,
 		"127.0.0.1",
 	) || strings.Contains(msg, "private") || strings.Contains(msg, "loopback"),
 	)
 	require.Nil(t, capture.
 		Load())
-
 }
 
 func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
@@ -103,10 +102,9 @@ func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
 			IsEncryptedField(cap.
 				SigningSecret,
 			))
-	require.Equal(t, "", out.
+	require.Empty(t, out.
 		Body.SigningSecret,
 	)
-
 }
 
 func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
@@ -143,9 +141,7 @@ func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
 			IsEncryptedField(cap.
 				SigningSecret,
 			))
-	require.NotEqual(t, "",
-		out.Body.SigningSecret,
-	)
+	require.NotEmpty(t, out.Body.SigningSecret)
 	require.True(
 		t, strings.HasPrefix(out.Body.
 			SigningSecret,
@@ -156,7 +152,6 @@ func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
 		SigningSecret,
 		out.Body.SigningSecret,
 	)
-
 }
 
 func TestSetJobEndpoint_RotateFalseDoesNotReturnSecret(t *testing.T) {
@@ -179,8 +174,7 @@ func TestSetJobEndpoint_RotateFalseDoesNotReturnSecret(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, "", out.
+	require.Empty(t, out.
 		Body.SigningSecret,
 	)
-
 }

@@ -16,7 +16,6 @@ func TestValidateIdent_Valid(t *testing.T) {
 	for _, s := range valid {
 		assert.NoError(
 			t, ValidateIdent(s))
-
 	}
 }
 
@@ -28,7 +27,6 @@ func TestValidateIdent_Invalid(t *testing.T) {
 	for _, s := range invalid {
 		assert.Error(t,
 			ValidateIdent(s))
-
 	}
 }
 
@@ -36,7 +34,6 @@ func TestValidateIdent_TooLong(t *testing.T) {
 	long := strings.Repeat("a", 129)
 	assert.Error(t,
 		ValidateIdent(long))
-
 }
 
 func TestSafeQuoteIdent_HappyPath(t *testing.T) {
@@ -46,7 +43,6 @@ func TestSafeQuoteIdent_HappyPath(t *testing.T) {
 		`"job_runs_p2026_04"`,
 
 		got)
-
 }
 
 func TestSafeQuoteIdent_RejectsInjection(t *testing.T) {
@@ -84,7 +80,6 @@ func FuzzValidateIdent(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		defer func() {
 			require.Nil(t, recover())
-
 		}()
 		_ = ValidateIdent(s)
 	})

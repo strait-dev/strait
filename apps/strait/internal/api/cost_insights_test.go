@@ -28,7 +28,7 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			require.EqualValues(t, 2.0, threshold)
+			require.InDelta(t, 2.0, threshold, 1e-9)
 
 			return []store.CostOutlier{
 				{RunID: "run-1", JobID: "job-1", CostMicrousd: 50000, AvgCostMicrousd: 10000, StddevMicrousd: 5000, DeviationsAbove: 8.0},
@@ -41,7 +41,7 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var resp struct {
 		Outliers  []store.CostOutlier `json:"outliers"`
@@ -52,15 +52,14 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 	require.Len(t,
 		resp.Outliers,
 		3)
-	require.EqualValues(t, 2.0, resp.Threshold)
-
+	require.InDelta(t, 2.0, resp.Threshold, 1e-9)
 }
 
 func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			require.EqualValues(t, 3.0, threshold)
+			require.InDelta(t, 3.0, threshold, 1e-9)
 
 			return nil, nil
 		},
@@ -69,15 +68,14 @@ func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z", "threshold", "3.0"), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			require.EqualValues(t, 2.0, threshold)
+			require.InDelta(t, 2.0, threshold, 1e-9)
 
 			return nil, nil
 		},
@@ -86,8 +84,7 @@ func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
-
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleGetCostInsights_MissingParams(t *testing.T) {
@@ -96,8 +93,7 @@ func TestHandleGetCostInsights_MissingParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/cost-insights", "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
@@ -111,17 +107,15 @@ func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var resp struct {
 		Outliers []store.CostOutlier `json:"outliers"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp))
-	require.Len(t,
-		resp.Outliers,
-		0)
-
+	require.Empty(t,
+		resp.Outliers)
 }
 
 func TestHandleGetCostInsights_StoreError(t *testing.T) {
@@ -135,6 +129,5 @@ func TestHandleGetCostInsights_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 500, w.Code)
-
+	require.Equal(t, 500, w.Code)
 }

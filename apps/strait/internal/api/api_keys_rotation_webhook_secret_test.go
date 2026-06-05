@@ -121,7 +121,6 @@ func TestCreateAPIKey_RotationWebhookSecret_ReturnedOnce(t *testing.T) {
 
 		captured.RotationWebhookURL,
 	)
-
 }
 
 func TestCreateAPIKey_RotationWebhookURL_RedactedInAudit(t *testing.T) {
@@ -187,16 +186,13 @@ func TestCreateAPIKey_RotationWebhookURL_RedactedInAudit(t *testing.T) {
 		"opaque-shared-secret",
 		"rotation_webhook_url\"",
 	} {
-		require.False(t, strings.Contains(details,
-			forbidden))
-
+		require.NotContains(t, details, forbidden)
 	}
 	require.False(t, !strings.Contains(details,
 		"rotation_webhook_url_host",
 	) || !strings.Contains(details,
 		"localhost",
 	))
-
 }
 
 func TestCreateAPIKey_RotationIntervalRequiresWebhookURL(t *testing.T) {
@@ -213,7 +209,6 @@ func TestCreateAPIKey_RotationIntervalRequiresWebhookURL(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestCreateAPIKey_NoRotationWebhookURL_NoSecret(t *testing.T) {
@@ -234,13 +229,11 @@ func TestCreateAPIKey_NoRotationWebhookURL_NoSecret(t *testing.T) {
 	var resp CreateAPIKeyResponse
 	require.NoError(t, json.
 		NewDecoder(w.Body).Decode(&resp))
-	require.Equal(t, "", resp.
+	require.Empty(t, resp.
 		RotationWebhookSecret,
 	)
-	require.Len(t, captured.
-		RotationWebhookSecret,
-		0)
-
+	require.Empty(t, captured.
+		RotationWebhookSecret)
 }
 
 func TestCreateAPIKey_RotationWebhookURL_RequiresEncryptor(t *testing.T) {
@@ -258,7 +251,6 @@ func TestCreateAPIKey_RotationWebhookURL_RequiresEncryptor(t *testing.T) {
 		StatusInternalServerError,
 		w.Code,
 	)
-
 }
 
 func TestCreateAPIKey_RotationWebhookURL_RejectsDeliveryInvalidURLs(t *testing.T) {
@@ -309,7 +301,6 @@ func TestCreateAPIKey_RotationWebhookURL_RejectsDeliveryInvalidURLs(t *testing.T
 				StatusBadRequest,
 				w.Code)
 			require.False(t, createCalled)
-
 		})
 	}
 }
@@ -372,5 +363,4 @@ func TestRotateAPIKey_PreservesRotationWebhookSecret(t *testing.T) {
 		*created.RotationIntervalDays !=
 			rotationInterval,
 	)
-
 }

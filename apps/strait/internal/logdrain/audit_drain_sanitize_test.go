@@ -26,7 +26,6 @@ func TestSanitizeSIEMEndpoint(t *testing.T) {
 			assert.Equal(t,
 
 				tc.want, got)
-
 		})
 	}
 }

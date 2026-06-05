@@ -83,7 +83,6 @@ func TestReaper_HandleCostGateTimeout_AutoApprove(t *testing.T) {
 
 		approvedStepRef,
 	)
-
 }
 
 func TestReaper_HandleCostGateTimeout_AutoReject(t *testing.T) {
@@ -114,7 +113,6 @@ func TestReaper_HandleCostGateTimeout_AutoReject(t *testing.T) {
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
 	require.False(t, approveCalled)
-
 }
 
 func TestReaper_HandleCostGateTimeout_NilCallback(t *testing.T) {
@@ -131,7 +129,6 @@ func TestReaper_HandleCostGateTimeout_NilCallback(t *testing.T) {
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
-
 }
 
 func TestReaper_HandleCostGateTimeout_NoCostGateStore(t *testing.T) {
@@ -150,7 +147,6 @@ func TestReaper_HandleCostGateTimeout_NoCostGateStore(t *testing.T) {
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
-
 }
 
 func TestReaper_HandleCostGateTimeout_StoreError(t *testing.T) {
@@ -173,7 +169,6 @@ func TestReaper_HandleCostGateTimeout_StoreError(t *testing.T) {
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
-
 }
 
 func TestReaper_HandleCostGateTimeout_StepRunNotFound(t *testing.T) {
@@ -207,7 +202,6 @@ func TestReaper_HandleCostGateTimeout_StepRunNotFound(t *testing.T) {
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
 	require.False(t, approveCalled)
-
 }
 
 func TestReaper_HandleCostGateTimeout_ApproveStepError(t *testing.T) {
@@ -238,7 +232,6 @@ func TestReaper_HandleCostGateTimeout_ApproveStepError(t *testing.T) {
 
 	handled := r.handleCostGateTimeout(context.Background(), approval)
 	require.False(t, handled)
-
 }
 
 // reapApprovalReminders dedup cleanup tests.
@@ -271,13 +264,13 @@ func TestReaper_ReapApprovalReminders_DedupCleanupAfterExpiry(t *testing.T) {
 
 	// First call: should send reminder and add to reminderSent.
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		callCount,
 	)
 
 	// Second call: dedup suppresses the delivery (expiry is in the future).
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		callCount,
 	)
 
@@ -286,10 +279,9 @@ func TestReaper_ReapApprovalReminders_DedupCleanupAfterExpiry(t *testing.T) {
 
 	// Third call: cleanup removes the expired entry, allowing the reminder to fire again.
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		callCount,
 	)
-
 }
 
 func TestReaper_ReapApprovalReminders_NoExpiresAt_DefaultTTL(t *testing.T) {
@@ -316,16 +308,15 @@ func TestReaper_ReapApprovalReminders_NoExpiresAt_DefaultTTL(t *testing.T) {
 
 	r := NewReaper(ms, time.Second, 30*time.Second, 0, 0, false, nil)
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		deliveryCount,
 	)
 
 	// Second call should be deduped even without ExpiresAt (default 1h TTL).
 	r.reapApprovalReminders(context.Background())
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		deliveryCount,
 	)
-
 }
 
 func TestReaper_ReapApprovalReminders_MultipleChannels(t *testing.T) {
@@ -366,7 +357,6 @@ func TestReaper_ReapApprovalReminders_MultipleChannels(t *testing.T) {
 	}
 	for _, id := range []string{"ch-1", "ch-2", "ch-3"} {
 		assert.True(t, channelIDs[id])
-
 	}
 }
 
@@ -414,7 +404,6 @@ func TestReaper_OrgRetention_MultipleOrgs_PartialErrors(t *testing.T) {
 	)
 
 	// org-1 and org-2 should be processed; org-fail should be skipped.
-
 }
 
 func TestReaper_OrgRetention_ZeroRetentionDays_Skipped(t *testing.T) {
@@ -445,7 +434,6 @@ func TestReaper_OrgRetention_ZeroRetentionDays_Skipped(t *testing.T) {
 	require.EqualValues(t, 0,
 		deleteRunsCalled.
 			Load())
-
 }
 
 func TestReaper_OrgRetention_NegativeRetentionDays_Skipped(t *testing.T) {
@@ -476,5 +464,4 @@ func TestReaper_OrgRetention_NegativeRetentionDays_Skipped(t *testing.T) {
 	require.EqualValues(t, 0,
 		deleteRunsCalled.
 			Load())
-
 }

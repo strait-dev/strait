@@ -166,7 +166,6 @@ func TestBus_SelfOriginMessageDoesNotEvictOrigin(t *testing.T) {
 	require.False(t,
 		!ok || got != "cached",
 	)
-
 }
 
 func TestBus_DuplicateInvalidationMessagesAreIdempotent(t *testing.T) {
@@ -237,7 +236,6 @@ func TestBus_UpdateMessageAppliesOnlyMonotonicVersion(t *testing.T) {
 	require.False(t,
 		!ok || got != "new",
 	)
-
 }
 
 func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
@@ -265,7 +263,6 @@ func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
 	}))
 	require.Equal(t, int64(2), invalid.Load())
 	require.Equal(t, int64(1), unknown.Load())
-
 }
 
 func TestBus_SubscribeFailureFailsOpen(t *testing.T) {
@@ -275,7 +272,6 @@ func TestBus_SubscribeFailureFailsOpen(t *testing.T) {
 	publisher.subscribeErr = errors.New("redis down")
 	bus := NewBus(publisher, BusConfig{Origin: "node-a"})
 	require.NoError(t, bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})))
-
 }
 
 func TestBus_ClosedSubscriptionStopsWithoutPanic(t *testing.T) {
@@ -286,7 +282,6 @@ func TestBus_ClosedSubscriptionStopsWithoutPanic(t *testing.T) {
 	publisher := &closedSubPublisher{sub: pubsub.NewSubscription(ch, func() {})}
 	bus := NewBus(publisher, BusConfig{Origin: "node-a"})
 	require.NoError(t, bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})))
-
 }
 
 type closedSubPublisher struct {

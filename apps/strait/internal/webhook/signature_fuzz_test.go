@@ -111,6 +111,5 @@ func FuzzComputeHMACSHA256(f *testing.F) {
 		result := ComputeHMACSHA256(secret, body)
 		assert.Len(t, result,
 			64)
-
 	})
 }

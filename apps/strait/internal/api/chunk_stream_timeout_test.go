@@ -84,7 +84,6 @@ func TestChunkStreamClosesAfterMaxDuration(t *testing.T) {
 	}
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestChunkStreamFallsBackToDefaultDurationWhenZero pins the
@@ -131,5 +130,4 @@ func TestChunkStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
 		time.Until(deadline),
 		25*time.
 			Minute)
-
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"strait/internal/domain"
@@ -34,9 +33,8 @@ func TestBuildAuditEventReturnsMarshalErrorOnInvalidDetails(t *testing.T) {
 		"bad": unmarshalableForAudit{Ch: make(chan int)},
 	})
 	require.Nil(t, ev)
-	require.True(
-		t, errors.Is(err, errAuditDetailsMarshal))
-
+	require.ErrorIs(
+		t, err, errAuditDetailsMarshal)
 }
 
 // TestBuildAuditEventReturnsNilNilOnIntentionalSkip pins the other half
@@ -61,7 +59,6 @@ func TestBuildAuditEventReturnsNilNilOnIntentionalSkip(t *testing.T) {
 	require.False(t, ev !=
 		nil || err !=
 		nil)
-
 }
 
 // TestEmitAuditEventDropsOnMarshalFailure regresses the fire-and-forget
@@ -85,6 +82,5 @@ func TestEmitAuditEventDropsOnMarshalFailure(t *testing.T) {
 	srv.emitAuditEvent(ctx, domain.AuditActionRoleCreated, "role", "r-1", map[string]any{
 		"bad": unmarshalableForAudit{Ch: make(chan int)},
 	})
-	require.EqualValues(t, 0, writes)
-
+	require.Equal(t, 0, writes)
 }

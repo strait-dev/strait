@@ -65,8 +65,7 @@ func TestEnforcer_CheckProjectBudgetLimit_Matrix(t *testing.T) {
 				return
 			}
 			var lim *LimitError
-			require.True(t, errors.As(err,
-				&lim))
+			require.ErrorAs(t, err, &lim)
 			assert.Equal(t, tc.
 				wantErrCode,
 				lim.Code,
@@ -78,7 +77,6 @@ func TestEnforcer_CheckProjectBudgetLimit_Matrix(t *testing.T) {
 				spend, lim.
 				CurrentUsage,
 			)
-
 		})
 	}
 }
@@ -95,7 +93,6 @@ func TestEnforcer_CheckProjectBudgetLimit_EmptyProjectID(t *testing.T) {
 				"",
 			),
 	)
-
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_NilEnforcer protects the
@@ -108,7 +105,6 @@ func TestEnforcer_CheckProjectBudgetLimit_NilEnforcer(t *testing.T) {
 			CheckProjectBudgetLimit(context.Background(),
 				"proj-x",
 			))
-
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed confirms that a
@@ -123,13 +119,11 @@ func TestEnforcer_CheckProjectBudgetLimit_BudgetReadFailsClosed(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
 	var lim *LimitError
-	require.True(t, errors.As(err,
-		&lim))
+	require.ErrorAs(t, err, &lim)
 	require.Equal(t,
 		"service_degraded",
 		lim.
 			Code)
-
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed mirrors the
@@ -153,13 +147,11 @@ func TestEnforcer_CheckProjectBudgetLimit_SpendReadFailsClosed(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-x")
 	var lim *LimitError
-	require.True(t, errors.As(err,
-		&lim))
+	require.ErrorAs(t, err, &lim)
 	require.Equal(t,
 		"service_degraded",
 		lim.
 			Code)
-
 }
 
 // TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed confirms that
@@ -177,11 +169,9 @@ func TestEnforcer_CheckProjectBudgetLimit_OrgResolutionFailsClosed(t *testing.T)
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-orphan")
 	var lim *LimitError
-	require.True(t, errors.As(err,
-		&lim))
+	require.ErrorAs(t, err, &lim)
 	require.Equal(t,
 		"service_degraded",
 		lim.
 			Code)
-
 }

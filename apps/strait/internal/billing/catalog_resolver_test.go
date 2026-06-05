@@ -32,7 +32,6 @@ func TestCatalogResolver_TierForLookupKey(t *testing.T) {
 		got, ok := r.TierForLookupKey(c.key)
 		assert.False(t, !ok ||
 			got != c.want)
-
 	}
 }
 
@@ -77,7 +76,6 @@ func TestCatalogResolver_AddonForLookupKey(t *testing.T) {
 		got, ok := r.AddonForLookupKey(c.key)
 		assert.False(t, !ok ||
 			got != c.want)
-
 	}
 }
 
@@ -96,7 +94,6 @@ func TestCatalogResolver_RoadmapAddonLookupKeysUnmapped(t *testing.T) {
 		}
 		assert.False(t, r.
 			IsAddonLookupKey(key))
-
 	}
 }
 
@@ -111,7 +108,6 @@ func TestCatalogResolver_IsAddonLookupKey(t *testing.T) {
 		IsAddonLookupKey("strait_addon_log_drain_10gb"))
 	assert.False(t, r.
 		IsAddonLookupKey(""))
-
 }
 
 func TestCatalogResolver_NilSafe(t *testing.T) {
@@ -133,16 +129,15 @@ func TestCatalogResolver_NilSafe(t *testing.T) {
 	)
 	assert.False(t, r.
 		TierCount() != 0 || r.AddonCount() != 0)
-
 }
 
 func TestCatalogResolver_Counts(t *testing.T) {
 	t.Parallel()
 	r := NewCatalogResolver()
-	assert.EqualValues(t, 9,
+	assert.Equal(t, 9,
 
 		r.TierCount())
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 
 		r.AddonCount())
 
@@ -150,7 +145,6 @@ func TestCatalogResolver_Counts(t *testing.T) {
 	// Free has only monthly = 1. Enterprise has none. Total = 9.
 
 	// Only launch-active addons resolve as sellable Stripe addon lookup keys.
-
 }
 
 func TestCatalogResolver_BusinessTier(t *testing.T) {
@@ -167,5 +161,4 @@ func TestCatalogResolver_BusinessTier(t *testing.T) {
 	assert.Equal(t, domain.
 		PlanBusiness, gotAnnual,
 	)
-
 }

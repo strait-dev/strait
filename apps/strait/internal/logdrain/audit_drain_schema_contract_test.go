@@ -75,12 +75,11 @@ func TestAuditSIEMDrain_PayloadMatchesSchema(t *testing.T) {
 		}
 		schema, err := compiler.Compile(fmt.Sprintf("audit_schema.json#/$defs/%s", action))
 		if err != nil {
-			assert.NoErrorf(t, err, "%s: compile schema", action)
+			require.NoErrorf(t, err, "%s: compile schema", action)
 			continue
 		}
 		assert.NoError(t,
 			schema.Validate(details))
-
 	}
 }
 

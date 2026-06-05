@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -31,9 +30,8 @@ func TestHandleResetIdempotencyKey_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-abc/idempotency-key", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), `"status":"reset"`))
-
+	require.Contains(
+		t, w.Body.String(), `"status":"reset"`)
 }
 
 func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
@@ -49,7 +47,6 @@ func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleRescheduleRun_Success(t *testing.T) {
@@ -77,9 +74,8 @@ func TestHandleRescheduleRun_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-r1/reschedule", body))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "run-r1"))
-
+	require.Contains(
+		t, w.Body.String(), "run-r1")
 }
 
 func TestHandleRescheduleRun_NotFound(t *testing.T) {
@@ -99,7 +95,6 @@ func TestHandleRescheduleRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
@@ -111,7 +106,6 @@ func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleBulkTrigger_WithTTL(t *testing.T) {
@@ -160,7 +154,6 @@ func TestHandleBulkTrigger_WithTTL(t *testing.T) {
 		Second ||
 		diff > 130*time.Second,
 	)
-
 }
 
 func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
@@ -180,7 +173,6 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 		w.Code)
 	require.NotNil(t, capturedTriggeredBy)
 	require.Equal(t, "api", *capturedTriggeredBy)
-
 }
 
 func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
@@ -203,7 +195,6 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 		domain.
 			ExecutionModeHTTP,
 	)
-
 }
 
 func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
@@ -216,7 +207,6 @@ func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
@@ -235,7 +225,6 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.Nil(t, capturedMode)
-
 }
 
 func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
@@ -259,8 +248,8 @@ func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.Nil(t, capturedStatus)
-	require.Len(t,
-		ms.ListRunsByTagCalls(), 0)
+	require.Empty(t,
+		ms.ListRunsByTagCalls())
 
 	var resp struct {
 		Data []domain.JobRun `json:"data"`
@@ -272,7 +261,6 @@ func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
 		ID != "run-failed" ||
 		resp.Data[1].ID != "run-timed-out",
 	)
-
 }
 
 func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
@@ -299,8 +287,8 @@ func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
 		domain.
 			ExecutionModeWorker,
 	)
-	require.Len(t,
-		ms.ListRunsByTagCalls(), 0)
+	require.Empty(t,
+		ms.ListRunsByTagCalls())
 
 	var resp struct {
 		Data []domain.JobRun `json:"data"`
@@ -309,7 +297,6 @@ func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
 	require.False(t, len(resp.Data) != 1 || resp.
 		Data[0].ID != "run-infra",
 	)
-
 }
 
 func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
@@ -350,7 +337,6 @@ func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
 	)
 	require.Equal(t, "tenant-42",
 		enqueuedRuns[0].ConcurrencyKey)
-
 }
 
 func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
@@ -389,7 +375,6 @@ func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
 		Metadata["env"])
 	require.Equal(t, "user-dep", enqueued.
 		Metadata["dependency_key"])
-
 }
 
 func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
@@ -425,11 +410,10 @@ func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
 	require.Len(t,
 		enqueuedRuns, 2,
 	)
-	require.NotEqual(t, "", enqueuedRuns[0].BatchID)
+	require.NotEmpty(t, enqueuedRuns[0].BatchID)
 	require.Equal(t, enqueuedRuns[1].BatchID,
 		enqueuedRuns[0].BatchID,
 	)
-
 }
 
 func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
@@ -458,8 +442,7 @@ func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 		w.Code,
 	)
 	require.NotNil(t, created)
-	require.EqualValues(t, 5, created.MaxConcurrencyPerKey)
-
+	require.Equal(t, 5, created.MaxConcurrencyPerKey)
 }
 
 func TestParseBracketParam(t *testing.T) {
@@ -489,7 +472,6 @@ func TestParseBracketParam(t *testing.T) {
 				t, ok != tt.wantOK ||
 					k != tt.
 						wantK)
-
 		})
 	}
 }
@@ -516,7 +498,6 @@ func TestHandlePauseRun_HTTPRun_CanBePaused(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
@@ -533,7 +514,6 @@ func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandlePauseRun_TerminalRun(t *testing.T) {
@@ -551,7 +531,6 @@ func TestHandlePauseRun_TerminalRun(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleResumeRun_RequeuesRun(t *testing.T) {
@@ -581,7 +560,6 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleResumeRun_NotPaused(t *testing.T) {
@@ -599,7 +577,6 @@ func TestHandleResumeRun_NotPaused(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
@@ -617,7 +594,6 @@ func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleResumeRun_NotFound(t *testing.T) {
@@ -633,7 +609,6 @@ func TestHandleResumeRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
@@ -649,7 +624,6 @@ func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandlePauseRun_NotFound(t *testing.T) {
@@ -665,7 +639,6 @@ func TestHandlePauseRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
@@ -687,7 +660,6 @@ func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
 		*capturedErrorClass !=
 			"timeout",
 	)
-
 }
 
 func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
@@ -705,7 +677,6 @@ func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	require.Nil(t, capturedErrorClass)
-
 }
 
 func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
@@ -716,5 +687,4 @@ func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }

@@ -2,7 +2,6 @@ package logdrain
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -76,7 +75,6 @@ func TestAuditSIEMDrain_RetryOn5xx(t *testing.T) {
 	require.Equal(t, int32(3), calls.Load())
 	require.Equal(t, 0,
 		drain.DrainedFailureCount())
-
 }
 
 func TestAuditSIEMDrain_NoRetryOn4xx(t *testing.T) {
@@ -94,9 +92,7 @@ func TestAuditSIEMDrain_NoRetryOn4xx(t *testing.T) {
 	require.Error(t, err)
 
 	var terminal *terminalStatusError
-	require.True(t, errors.As(err,
-		&terminal,
-	))
+	require.ErrorAs(t, err, &terminal)
 
 	require.Equal(t, int32(1), calls.Load())
 	require.Equal(t, "siem_4xx",
@@ -110,7 +106,6 @@ func TestAuditSIEMDrain_NoRetryOn4xx(t *testing.T) {
 		"siem_4xx" || failures[0].
 		Event.ID !=
 		"ev-1")
-
 }
 
 func TestAuditSIEMDrain_CircuitOpens(t *testing.T) {
@@ -133,7 +128,6 @@ func TestAuditSIEMDrain_CircuitOpens(t *testing.T) {
 				Background(), []domain.
 				AuditEvent{sampleEvent("ev")},
 			))
-
 	}
 	before := calls.Load()
 	// 6th call should be short-circuited without an HTTP hit.
@@ -190,7 +184,7 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	require.Nil(t,
+	require.NoError(t,
 		lastErr,
 	)
 	require.NoError(t,
@@ -263,7 +257,6 @@ func TestAuditSIEMDrain_JitterBackoffBounded(t *testing.T) {
 	require.LessOrEqual(t, elapsed,
 		3*time.
 			Second)
-
 }
 
 // TestAuditSIEMDrain_ContextCanceled_NoRetry asserts that a context
@@ -311,7 +304,6 @@ func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
 		Load())
 	assert.Equal(t, 1,
 		drain.DrainedFailureCount())
-
 }
 
 // TestAuditSIEMDrain_RequestConstructError_NoRetry asserts that a
@@ -328,11 +320,8 @@ func TestAuditSIEMDrain_RequestConstructError_NoRetry(t *testing.T) {
 
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("bad-url")})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err,
-		errRequestConstruct,
-	))
+	require.ErrorIs(t, err, errRequestConstruct)
 	assert.False(t, drain.
 		breakerWasOpen.
 		Load())
-
 }

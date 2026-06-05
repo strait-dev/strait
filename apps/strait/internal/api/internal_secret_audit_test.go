@@ -75,9 +75,8 @@ func requireBypassAudit(t *testing.T, cap *auditCapture, gate, handler, resource
 	assert.Equal(
 		t, resourceID, ev.
 			ResourceID)
-	assert.NotEqual(t, "", detailString(t, ev,
+	assert.NotEmpty(t, detailString(t, ev,
 		"caller"))
-
 }
 
 // TestBatchEnableJobs_InternalSecretBypass_EmitsAudit walks the documented
@@ -114,9 +113,8 @@ func TestBatchEnableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	assert.Equal(
 		t, "handleBatchEnableJobs",
 		detailString(t, ev, "handler"))
-	assert.NotEqual(t, "", detailString(t, ev,
+	assert.NotEmpty(t, detailString(t, ev,
 		"caller"))
-
 }
 
 // TestBatchDisableJobs_InternalSecretBypass_EmitsAudit mirrors the enable
@@ -146,7 +144,6 @@ func TestBatchDisableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		t, "batch_disable_jobs.project_match",
 
 		detailString(t, bypass[0], "gate"))
-
 }
 
 // TestBatchEnableJobs_ProjectScopedCaller_NoBypassAudit confirms a normal
@@ -222,7 +219,6 @@ func TestSendEvent_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		t, "send_event.project_match",
 
 		detailString(t, bypass[0], "gate"))
-
 }
 
 // TestGetEventTrigger_InternalSecretBypass_EmitsAudit covers the read path.
@@ -253,7 +249,6 @@ func TestGetEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	assert.Equal(
 		t, "handleGetEventTrigger",
 		detailString(t, bypass[0], "handler"))
-
 }
 
 // TestCancelEventTrigger_InternalSecretBypass_EmitsAudit covers the
@@ -287,7 +282,6 @@ func TestCancelEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		t, "cancel_event_trigger.project_match",
 
 		detailString(t, bypass[0], "gate"))
-
 }
 
 func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
@@ -505,7 +499,6 @@ func TestBypassCallerLabel_NoPrincipal(t *testing.T) {
 	t.Parallel()
 	got := bypassCallerLabel(context.Background())
 	require.Equal(t, "unknown", got)
-
 }
 
 // TestBypassCallerLabel_InternalOnly pins the normal internal-secret call:
@@ -518,7 +511,6 @@ func TestBypassCallerLabel_InternalOnly(t *testing.T) {
 	got := bypassCallerLabel(ctx)
 	require.Equal(t, "internal_secret",
 		got)
-
 }
 
 // TestBypassCallerLabel_PrefersActorID pins the precedence: when an actor
@@ -530,7 +522,6 @@ func TestBypassCallerLabel_PrefersActorID(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 	got := bypassCallerLabel(ctx)
 	require.Equal(t, "user_42", got)
-
 }
 
 // TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal walks the
@@ -565,7 +556,6 @@ func TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal(t *testing.T) {
 	assert.Equal(
 		t, "thing-1", bypass[0].ResourceID,
 	)
-
 }
 
 // TestEmitInternalSecretBypassAudit_DetailKeysMatchSchema is a tight
@@ -595,6 +585,5 @@ func TestEmitInternalSecretBypassAudit_DetailKeysMatchSchema(t *testing.T) {
 		v, ok := details[key].(string)
 		assert.False(
 			t, !ok || strings.TrimSpace(v) == "")
-
 	}
 }

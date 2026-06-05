@@ -62,7 +62,6 @@ func TestPreviewDowngrade_ProToFree(t *testing.T) {
 	), projImpact.
 		Limit,
 	)
-
 }
 
 func TestPreviewDowngrade_SubscriptionNotFound(t *testing.T) {
@@ -73,7 +72,6 @@ func TestPreviewDowngrade_SubscriptionNotFound(t *testing.T) {
 	_, err := PreviewDowngrade(context.Background(), store, "org-missing", domain.PlanFree)
 	require.Error(t,
 		err)
-
 }
 
 func TestPreviewDowngrade_IncludesEffectiveDate(t *testing.T) {
@@ -97,15 +95,14 @@ func TestPreviewDowngrade_IncludesEffectiveDate(t *testing.T) {
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
 	require.NoError(t,
 		err)
-	require.NotEqual(
-		t, "", impact.
+	require.NotEmpty(
+		t, impact.
 			EffectiveDate,
 	)
 	assert.Equal(t, "2026-04-15",
 
 		impact.
 			EffectiveDate)
-
 }
 
 func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testing.T) {
@@ -128,8 +125,8 @@ func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testin
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
 	require.NoError(t,
 		err)
-	require.NotEqual(
-		t, "", impact.
+	require.NotEmpty(
+		t, impact.
 			EffectiveDate,
 	)
 
@@ -141,7 +138,6 @@ func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testin
 		impact.
 			EffectiveDate,
 	)
-
 }
 
 func TestPreviewDowngrade_DoesNotExposeLaunchInactiveRegions(t *testing.T) {
@@ -164,7 +160,6 @@ func TestPreviewDowngrade_DoesNotExposeLaunchInactiveRegions(t *testing.T) {
 			t, "regions",
 			imp.Resource,
 		)
-
 	}
 }
 
@@ -217,7 +212,6 @@ func TestPreviewDowngrade_UsesActualPeriodRunsForMonthlyImpact(t *testing.T) {
 		ResourceActionReduce,
 
 		runsImpact.Action)
-
 }
 
 func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
@@ -244,7 +238,6 @@ func TestPreviewDowngrade_HTTPJobsImpact(t *testing.T) {
 			"http_mode_jobs",
 
 			imp.Resource)
-
 	}
 }
 
@@ -253,12 +246,10 @@ func TestAutoDisable_LogDrains_OverLimit_Disabled(t *testing.T) {
 		{Resource: "log_drains", Current: 5, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, manual,
-		0)
+	assert.Empty(t, manual)
 	assert.False(t, len(auto) !=
 		1 || auto[0].Resource != "log_drains",
 	)
-
 }
 
 func TestAutoDisable_AlertRules_OverLimit_Disabled(t *testing.T) {
@@ -266,12 +257,10 @@ func TestAutoDisable_AlertRules_OverLimit_Disabled(t *testing.T) {
 		{Resource: "alert_rules", Current: 10, Limit: 3, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, manual,
-		0)
+	assert.Empty(t, manual)
 	assert.False(t, len(auto) !=
 		1 || auto[0].Resource != "alert_rules",
 	)
-
 }
 
 func TestAutoDisable_Webhooks_OverLimit_Disabled(t *testing.T) {
@@ -279,12 +268,10 @@ func TestAutoDisable_Webhooks_OverLimit_Disabled(t *testing.T) {
 		{Resource: "webhooks", Current: 8, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, manual,
-		0)
+	assert.Empty(t, manual)
 	assert.False(t, len(auto) !=
 		1 || auto[0].Resource != "webhooks",
 	)
-
 }
 
 func TestAutoDisable_BelowLimit_NoAction(t *testing.T) {
@@ -294,11 +281,8 @@ func TestAutoDisable_BelowLimit_NoAction(t *testing.T) {
 		{Resource: "webhooks", Current: 0, Limit: 3, Action: ResourceActionOK},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, manual,
-		0)
-	assert.Len(t, auto,
-		0)
-
+	assert.Empty(t, manual)
+	assert.Empty(t, auto)
 }
 
 func TestRequiresManualAction_Projects_OverLimit_Flagged(t *testing.T) {
@@ -306,13 +290,11 @@ func TestRequiresManualAction_Projects_OverLimit_Flagged(t *testing.T) {
 		{Resource: "projects", Current: 10, Limit: 2, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, auto,
-		0)
+	assert.Empty(t, auto)
 	assert.False(t, len(manual) !=
 		1 ||
 		manual[0].Resource != "projects",
 	)
-
 }
 
 func TestRequiresManualAction_Members_OverLimit_Flagged(t *testing.T) {
@@ -321,11 +303,9 @@ func TestRequiresManualAction_Members_OverLimit_Flagged(t *testing.T) {
 		{Resource: "members_per_org", Current: 20, Limit: 5, Action: ResourceActionReduce},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, auto,
-		0)
+	assert.Empty(t, auto)
 	assert.Len(t, manual,
 		2)
-
 }
 
 func TestRequiresManualAction_BelowLimit_Empty(t *testing.T) {
@@ -334,11 +314,8 @@ func TestRequiresManualAction_BelowLimit_Empty(t *testing.T) {
 		{Resource: "members", Current: 2, Limit: 10, Action: ResourceActionOK},
 	}
 	manual, auto := AutoDisableResources(impacts)
-	assert.Len(t, manual,
-		0)
-	assert.Len(t, auto,
-		0)
-
+	assert.Empty(t, manual)
+	assert.Empty(t, auto)
 }
 
 func TestAutoDisable_OnlyNonCritical(t *testing.T) {
@@ -364,7 +341,6 @@ func TestAutoDisable_OnlyNonCritical(t *testing.T) {
 			m.Resource != "members" &&
 			m.Resource != "members_per_org",
 		)
-
 	}
 	assert.Len(t, auto,
 		4)
@@ -378,7 +354,6 @@ func TestAutoDisable_OnlyNonCritical(t *testing.T) {
 			a.Resource == "members" ||
 			a.Resource == "members_per_org",
 		)
-
 	}
 }
 
@@ -404,7 +379,6 @@ func TestBuildImpact(t *testing.T) {
 				impact.
 					Action,
 			)
-
 		})
 	}
 }

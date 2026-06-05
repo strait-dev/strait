@@ -54,8 +54,7 @@ func TestHandleVerifyAuditChain_ValidChain(t *testing.T) {
 		Decode(&result))
 	assert.True(t,
 		result.Valid)
-	assert.EqualValues(t, 5, result.EventsChecked)
-
+	assert.Equal(t, 5, result.EventsChecked)
 }
 
 func TestHandleVerifyAuditChain_BrokenChain(t *testing.T) {
@@ -100,7 +99,6 @@ func TestHandleVerifyAuditChain_BrokenChain(t *testing.T) {
 	assert.Equal(
 		t, "ev-3", result.
 			BrokenAtID)
-
 }
 
 func TestHandleVerifyAuditChain_Adversarial_WrongScope(t *testing.T) {
@@ -124,7 +122,6 @@ func TestHandleVerifyAuditChain_Adversarial_WrongScope(t *testing.T) {
 		t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestVerifyAuditChain_RateLimited asserts the per-project rate limit on
@@ -186,7 +183,6 @@ func TestVerifyAuditChain_RateLimited(t *testing.T) {
 	assert.Equal(
 		t, http.StatusOK,
 		w3.Code)
-
 }
 
 // TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen verifies the
@@ -224,7 +220,6 @@ func TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen(t *testing.T) {
 		handler.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 }
 
@@ -262,7 +257,6 @@ func TestVerifyAuditChain_RateLimit_InternalSecretBypass(t *testing.T) {
 		handler.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 }
 
@@ -287,5 +281,4 @@ func TestComputeAuditSignature_ConsistentWithStore(t *testing.T) {
 	sig := store.ComputeAuditSignature(ev, key)
 	assert.Len(t,
 		sig, 64)
-
 }

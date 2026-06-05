@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,12 +13,12 @@ import (
 func TestNewPool_MinimumConcurrency(t *testing.T) {
 	t.Parallel()
 	p0 := NewPool(0)
-	require.EqualValues(t, 1, p0.Available())
+	require.Equal(t, 1, p0.Available())
 
 	_ = p0.Shutdown(context.Background())
 
 	pNeg := NewPool(-1)
-	require.EqualValues(t, 1, pNeg.Available())
+	require.Equal(t, 1, pNeg.Available())
 
 	_ = pNeg.Shutdown(context.Background())
 }
@@ -63,7 +62,7 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 			require.Fail(t, "expected first two tasks to start")
 		}
 	}
-	require.EqualValues(t, 2, p.ActiveCount())
+	require.Equal(t, 2, p.ActiveCount())
 
 	close(block)
 	_ = p.Shutdown(context.Background())
@@ -148,7 +147,7 @@ func TestPool_ActiveCount(t *testing.T) {
 			require.Fail(t, "tasks did not start in time")
 		}
 	}
-	require.EqualValues(t, 2, p.ActiveCount())
+	require.Equal(t, 2, p.ActiveCount())
 
 	close(release)
 	_ = p.Shutdown(context.Background())
@@ -172,11 +171,8 @@ func TestPool_Shutdown_RespectsContext(t *testing.T) {
 	err := p.Shutdown(ctx)
 	require.Error(t,
 		err)
-	require.True(t,
-		errors.Is(
-			err, context.DeadlineExceeded,
-		))
-
+	require.ErrorIs(t,
+		err, context.DeadlineExceeded)
 }
 
 func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
@@ -189,7 +185,6 @@ func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
 	err := p.Shutdown(context.Background())
 	require.NoError(
 		t, err)
-
 }
 
 func TestPool_Metrics(t *testing.T) {
@@ -216,7 +211,6 @@ func TestPool_Metrics(t *testing.T) {
 	_ = p.Shutdown(context.Background())
 	require.EqualValues(t, 2, p.CompletedTasks())
 	require.EqualValues(t, 2, p.SuccessfulTasks())
-
 }
 
 func TestPool_WithQueueSize(t *testing.T) {
@@ -237,5 +231,4 @@ func TestPool_WithQueueSize(t *testing.T) {
 	close(block)
 	_ = p.Shutdown(context.Background())
 	require.EqualValues(t, 3, p.SubmittedTasks())
-
 }

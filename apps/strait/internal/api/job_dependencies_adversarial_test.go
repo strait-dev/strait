@@ -26,7 +26,6 @@ func TestDependencyCondition_Valid(t *testing.T) {
 		assert.True(t,
 			isValidDependencyCondition(
 				cond))
-
 	}
 }
 
@@ -50,7 +49,6 @@ func TestDependencyCondition_Invalid(t *testing.T) {
 	for _, cond := range cases {
 		assert.False(
 			t, isValidDependencyCondition(cond))
-
 	}
 }
 
@@ -70,7 +68,6 @@ func TestDependencyCondition_SQLInjection(t *testing.T) {
 	for _, payload := range payloads {
 		assert.False(
 			t, isValidDependencyCondition(payload))
-
 	}
 }
 
@@ -90,7 +87,6 @@ func TestDependencyCondition_NullBytes(t *testing.T) {
 	for _, payload := range payloads {
 		assert.False(
 			t, isValidDependencyCondition(payload))
-
 	}
 }
 
@@ -112,7 +108,6 @@ func TestDependencyCondition_CaseSensitive(t *testing.T) {
 	for _, cond := range cases {
 		assert.False(
 			t, isValidDependencyCondition(cond))
-
 	}
 }
 
@@ -142,7 +137,6 @@ func TestDependency_SelfReference(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-
 }
 
 // TestDependency_EmptyDependsOnID verifies that an empty depends_on_job_id is
@@ -168,7 +162,6 @@ func TestDependency_EmptyDependsOnID(t *testing.T) {
 	)
 
 	// Empty depends_on_job_id should fail validation (required field).
-
 }
 
 // TestDependency_CrossProject verifies that creating a dependency between jobs
@@ -198,7 +191,6 @@ func TestDependency_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 // FuzzDependencyCondition fuzzes the isValidDependencyCondition function with
@@ -226,7 +218,6 @@ func FuzzDependencyCondition(f *testing.F) {
 			t, result && !valid[cond])
 		assert.False(
 			t, !result && valid[cond])
-
 	})
 }
 
@@ -267,6 +258,5 @@ func FuzzDependencyIDs(f *testing.F) {
 		require.NotEqual(t, 0, w.Code)
 
 		// We only care that the server does not panic; any status is fine.
-
 	})
 }

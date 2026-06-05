@@ -104,7 +104,6 @@ func TestEnqueueBatch_EmptySlice(t *testing.T) {
 	n, err := q.EnqueueBatch(context.Background(), nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, n)
-
 }
 
 func TestEnqueueBatch_SingleRun(t *testing.T) {
@@ -116,7 +115,6 @@ func TestEnqueueBatch_SingleRun(t *testing.T) {
 	n, err := q.EnqueueBatch(context.Background(), runs)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
-
 }
 
 func TestEnqueueBatch_AssignsIDs(t *testing.T) {
@@ -132,12 +130,10 @@ func TestEnqueueBatch_AssignsIDs(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, run := range runs {
-		require.NotEqual(t, "", run.
+		require.NotEmpty(t, run.
 			ID)
-
 	}
 	require.NotEqual(t, runs[1].ID, runs[0].ID)
-
 }
 
 func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
@@ -153,7 +149,6 @@ func TestEnqueueBatch_PreservesExistingIDs(t *testing.T) {
 	require.Equal(t,
 		"preset-id-1",
 		runs[0].ID)
-
 }
 
 func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
@@ -164,8 +159,7 @@ func TestEnqueueBatch_DefaultAttemptToOne(t *testing.T) {
 	runs := []*domain.JobRun{{JobID: "job-1", ProjectID: "proj-1", Attempt: 0}}
 	_, err := q.EnqueueBatch(context.Background(), runs)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, runs[0].Attempt)
-
+	require.Equal(t, 1, runs[0].Attempt)
 }
 
 func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
@@ -182,7 +176,6 @@ func TestEnqueueBatch_DefaultTriggeredByManual(t *testing.T) {
 		runs[0].
 			TriggeredBy,
 	)
-
 }
 
 func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
@@ -199,7 +192,6 @@ func TestEnqueueBatch_FutureScheduledAt_StatusDelayed(t *testing.T) {
 
 		runs[0].
 			Status)
-
 }
 
 func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
@@ -216,7 +208,6 @@ func TestEnqueueBatch_PastScheduledAt_StatusQueued(t *testing.T) {
 
 		runs[0].
 			Status)
-
 }
 
 func TestEnqueueBatch_CopyFromError(t *testing.T) {
@@ -234,7 +225,6 @@ func TestEnqueueBatch_CopyFromError(t *testing.T) {
 		"enqueue batch: copy from: copy protocol error",
 
 		err.Error())
-
 }
 
 func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
@@ -249,7 +239,6 @@ func TestEnqueueBatch_NoCopyFromSupport(t *testing.T) {
 		"enqueue batch: underlying db does not support CopyFrom",
 
 		err.Error())
-
 }
 
 func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
@@ -270,7 +259,6 @@ func TestEnqueueBatch_DoesNotIssueExplicitNotify(t *testing.T) {
 		require.NotEqual(t, "SELECT pg_notify($1, $2)",
 
 			c.sql)
-
 	}
 }
 
@@ -305,11 +293,10 @@ func TestEnqueueBatch_TagsSerialized(t *testing.T) {
 		ok)
 
 	tagsStr := string(tagsVal)
-	require.False(t,
-		len(tagsStr) <= 2)
+	require.Greater(t,
+		len(tagsStr), 2)
 
 	// JSON should contain both keys (order may vary).
-
 }
 
 // Adversarial batch tests.
@@ -369,7 +356,6 @@ func TestEnqueueBatch_NilTags_DefaultsToEmptyJSON(t *testing.T) {
 			ok)
 		require.Equal(t,
 			"{}", string(tagsVal))
-
 	}
 }
 
@@ -403,7 +389,6 @@ func TestEnqueueBatch_MixedScheduledAt(t *testing.T) {
 
 		runs[2].
 			Status)
-
 }
 
 func TestEnqueueBatch_PreservesExistingAttempt(t *testing.T) {
@@ -417,6 +402,5 @@ func TestEnqueueBatch_PreservesExistingAttempt(t *testing.T) {
 
 	_, err := q.EnqueueBatch(context.Background(), runs)
 	require.NoError(t, err)
-	require.EqualValues(t, 5, runs[0].Attempt)
-
+	require.Equal(t, 5, runs[0].Attempt)
 }

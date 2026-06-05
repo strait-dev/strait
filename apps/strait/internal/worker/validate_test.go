@@ -15,7 +15,6 @@ func TestValidateEndpointURL_Valid(t *testing.T) {
 	}
 	for _, u := range urls {
 		assert.NoError(t, validateEndpointURL(u))
-
 	}
 }
 
@@ -30,7 +29,6 @@ func TestValidateEndpointURL_PrivateIP(t *testing.T) {
 		assert.Error(
 			t,
 			validateEndpointURL(u))
-
 	}
 }
 
@@ -44,7 +42,6 @@ func TestValidateEndpointURL_Loopback(t *testing.T) {
 		assert.Error(
 			t,
 			validateEndpointURL(u))
-
 	}
 }
 
@@ -54,7 +51,6 @@ func TestValidateEndpointURL_LinkLocal(t *testing.T) {
 		t,
 		validateEndpointURL("http://169.254.169.254/latest/meta-data/"),
 	)
-
 }
 
 func TestValidateEndpointURL_InvalidScheme(t *testing.T) {
@@ -62,7 +58,6 @@ func TestValidateEndpointURL_InvalidScheme(t *testing.T) {
 	assert.Error(
 		t,
 		validateEndpointURL("ftp://example.com/file"))
-
 }
 
 func TestValidateEndpointURL_MissingHost(t *testing.T) {
@@ -70,7 +65,6 @@ func TestValidateEndpointURL_MissingHost(t *testing.T) {
 	assert.Error(
 		t,
 		validateEndpointURL("http:///path"))
-
 }
 
 func TestValidateEndpointURL_CloudMetadata(t *testing.T) {
@@ -78,7 +72,6 @@ func TestValidateEndpointURL_CloudMetadata(t *testing.T) {
 	assert.Error(
 		t,
 		validateEndpointURL("http://169.254.169.254/latest/meta-data/iam/security-credentials/"))
-
 }
 
 func TestValidateEndpointURL_CGNAT(t *testing.T) {
@@ -92,7 +85,6 @@ func TestValidateEndpointURL_CGNAT(t *testing.T) {
 		assert.Error(
 			t,
 			validateEndpointURL(u))
-
 	}
 }
 
@@ -107,7 +99,6 @@ func TestValidateEndpointURL_IPv6ULA(t *testing.T) {
 		assert.Error(
 			t,
 			validateEndpointURL(u))
-
 	}
 }
 
@@ -115,7 +106,6 @@ func TestValidateEndpointURL_CGNATBoundary(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t, validateEndpointURL("http://100.63.255.255/ok"))
 	assert.NoError(t, validateEndpointURL("http://100.128.0.0/ok"))
-
 }
 
 func FuzzValidateEndpointURL(f *testing.F) {

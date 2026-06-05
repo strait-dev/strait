@@ -58,8 +58,8 @@ func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 
 	err := q.finishBatchReservation(ctx, state, batch, nil)
 	require.Error(t, err)
-	require.True(
-		t, errors.Is(err, ackErr))
+	require.ErrorIs(
+		t, err, ackErr)
 
 	state.mu.Lock()
 	activeBatch := state.activeBatch
@@ -68,7 +68,7 @@ func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	state.mu.Unlock()
 	require.Equal(t, batch,
 		activeBatch)
-	require.EqualValues(t, 0, inFlight)
+	require.Equal(t, 0, inFlight)
 	require.False(t, closing)
 	require.NoError(t, q.finishBatchReservation(ctx, state,
 		batch,
@@ -78,8 +78,7 @@ func TestPgQueFinishBatchReservationReopensAfterAckFailure(t *testing.T) {
 	activeBatch = state.activeBatch
 	state.mu.Unlock()
 	require.Nil(t, activeBatch)
-	require.EqualValues(t, 2, ackAttempts)
-
+	require.Equal(t, 2, ackAttempts)
 }
 
 func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
@@ -91,8 +90,8 @@ func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
 	var calls []execCall
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "pgque.maint_operations()"))
+			require.Contains(
+				t, sql, "pgque.maint_operations()")
 
 			return &stringRows{values: []string{"stq_a", "stq_b"}}, nil
 		},
@@ -113,11 +112,9 @@ func TestPgQueMaintainRunsRotationPhases(t *testing.T) {
 		calls[1].
 			args[0] !=
 			"stq_b")
-	require.True(
-		t, strings.Contains(calls[2].
-			sql, "pgque.maint_rotate_tables_step2()",
-		))
-
+	require.Contains(
+		t, calls[2].
+			sql, "pgque.maint_rotate_tables_step2()")
 }
 
 func TestPgQueMaintainWrapsPhaseErrors(t *testing.T) {
@@ -178,9 +175,8 @@ func TestPgQueMaintainWrapsPhaseErrors(t *testing.T) {
 			q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 			err := q.Maintain(ctx)
-			require.True(
-				t, errors.Is(err, tt.wantErr))
-
+			require.ErrorIs(
+				t, err, tt.wantErr)
 		})
 	}
 }
@@ -197,16 +193,14 @@ func TestPgQueNextWorkerRouteStartRotates(t *testing.T) {
 	want := []int{0, 1, 2, 0, 1}
 	require.True(
 		t, slices.Equal(got, want))
-
 }
 
 func TestPgQueNextWorkerRouteStartHandlesSmallRouteCounts(t *testing.T) {
 	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
-	require.EqualValues(t, 0, q.nextWorkerRouteStart(0))
-	require.EqualValues(t, 0, q.nextWorkerRouteStart(1))
-	require.EqualValues(t, 0, q.nextWorkerRouteStart(2))
-	require.EqualValues(t, 1, q.nextWorkerRouteStart(2))
-
+	require.Equal(t, 0, q.nextWorkerRouteStart(0))
+	require.Equal(t, 0, q.nextWorkerRouteStart(1))
+	require.Equal(t, 0, q.nextWorkerRouteStart(2))
+	require.Equal(t, 1, q.nextWorkerRouteStart(2))
 }
 
 func TestPgQueScanWorkerRoutesRotatesAcrossManyRoutes(t *testing.T) {
@@ -250,7 +244,7 @@ func TestPgQueScanWorkerRoutesStopsAtCapacity(t *testing.T) {
 
 	claimed, err := q.scanWorkerRoutes(routes, 2, func(routeKey string, remaining int) ([]domain.JobRun, error) {
 		scanned = append(scanned, routeKey)
-		require.EqualValues(t, 2, remaining)
+		require.Equal(t, 2, remaining)
 
 		return []domain.JobRun{
 			{ID: "run-a"},
@@ -279,11 +273,10 @@ func TestPgQueLogBackgroundErrorWritesWarning(t *testing.T) {
 	q.logBackgroundError(context.Background(), "ticker", "pgque ticker failed", errors.New("tick failed"))
 
 	got := buf.String()
-	require.True(
-		t, strings.Contains(got, "pgque ticker failed"))
-	require.True(
-		t, strings.Contains(got, "tick failed"))
-
+	require.Contains(
+		t, got, "pgque ticker failed")
+	require.Contains(
+		t, got, "tick failed")
 }
 
 func TestPgQueLogBackgroundErrorSkipsCanceledContext(t *testing.T) {
@@ -296,9 +289,8 @@ func TestPgQueLogBackgroundErrorSkipsCanceledContext(t *testing.T) {
 	cancel()
 
 	q.logBackgroundError(ctx, "ticker", "pgque ticker failed", errors.New("tick failed"))
-	require.Equal(t, "", buf.
+	require.Empty(t, buf.
 		String())
-
 }
 
 func TestPgQueBackgroundOperationLabelBoundsCardinality(t *testing.T) {
@@ -318,7 +310,6 @@ func TestPgQueBackgroundOperationLabelBoundsCardinality(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want,
 				pgQueBackgroundOperationLabel(tt.operation))
-
 		})
 	}
 }
@@ -347,13 +338,12 @@ func TestPgQueNackReservedMessageLogsFailure(t *testing.T) {
 	}, "invalid ready event")
 
 	got := buf.String()
-	require.True(
-		t, strings.Contains(got, "pgque nack failed"))
-	require.True(
-		t, strings.Contains(got, "invalid ready event"))
-	require.True(
-		t, strings.Contains(got, "nack failed"))
-
+	require.Contains(
+		t, got, "pgque nack failed")
+	require.Contains(
+		t, got, "invalid ready event")
+	require.Contains(
+		t, got, "nack failed")
 }
 
 func TestPgQueNackReservedMessageSkipsCanceledContext(t *testing.T) {
@@ -380,9 +370,8 @@ func TestPgQueNackReservedMessageSkipsCanceledContext(t *testing.T) {
 		Payload:   "{}",
 		CreatedAt: time.Now(),
 	}, "not claimable")
-	require.Equal(t, "", buf.
+	require.Empty(t, buf.
 		String())
-
 }
 
 type stringRows struct {
@@ -438,10 +427,9 @@ func TestPgQueActiveBatchLockedReturnsSentinelForEmptyReceive(t *testing.T) {
 	q := NewPgQueQueue(db, NewPostgresRunWriter(db), PgQueConfig{})
 
 	batch, err := q.activeBatchLocked(ctx, &pgQueRouteState{}, "stq_empty")
-	require.True(
-		t, errors.Is(err, errPgQueNoMessages))
+	require.ErrorIs(
+		t, err, errPgQueNoMessages)
 	require.Nil(t, batch)
-
 }
 
 func TestUnclaimedReservedCandidates(t *testing.T) {
@@ -468,16 +456,14 @@ func TestUnclaimedReservedCandidates(t *testing.T) {
 		{ID: "run-2"},
 		{ID: "run-3"},
 	})
-	require.Len(t,
-		allClaimed,
-		0)
+	require.Empty(t,
+		allClaimed)
 
 	noneClaimed := unclaimedReservedCandidates(newCandidates(), nil)
 	require.True(
 		t, slices.Equal(noneClaimed,
 			wantCandidates,
 		))
-
 }
 
 func TestUnclaimedReservedCandidatesLargeBatch(t *testing.T) {
@@ -509,7 +495,6 @@ func TestUnclaimedReservedCandidatesLargeBatch(t *testing.T) {
 	require.False(t, len(unclaimed) != 1 || unclaimed[0].Event.RunID !=
 		"run-10",
 	)
-
 }
 
 func BenchmarkUnclaimedReservedCandidatesAllClaimed(b *testing.B) {
@@ -587,7 +572,6 @@ func TestSelectPgQueClaimCandidates(t *testing.T) {
 	require.Len(t,
 		selection.
 			Candidates, 2)
-
 }
 
 func TestPgQueCandidateRunIDsPreservesOrder(t *testing.T) {
@@ -604,7 +588,6 @@ func TestPgQueCandidateRunIDsPreservesOrder(t *testing.T) {
 			"run-2",
 			"run-3"}),
 	)
-
 }
 
 func TestPgQueRefreshCandidateClaimStateUpdatesSmallBatch(t *testing.T) {
@@ -616,8 +599,8 @@ func TestPgQueRefreshCandidateClaimStateUpdatesSmallBatch(t *testing.T) {
 	}
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "job_run_state"))
+			require.Contains(
+				t, sql, "job_run_state")
 			require.Len(t,
 				args, 1)
 
@@ -654,7 +637,6 @@ func TestPgQueRefreshCandidateClaimStateUpdatesSmallBatch(t *testing.T) {
 		9 ||
 		!candidates[2].HasConcurrencyLimit,
 	)
-
 }
 
 func BenchmarkSelectPgQueClaimCandidates(b *testing.B) {
@@ -814,7 +796,6 @@ func TestWorkerQueueRefArgsFromNormalized(t *testing.T) {
 				"production",
 				"staging",
 			}))
-
 }
 
 func TestPgQueClaimFilterWorkerArgsUsesPrecomputedArgs(t *testing.T) {
@@ -845,7 +826,6 @@ func TestPgQueClaimFilterWorkerArgsUsesPrecomputedArgs(t *testing.T) {
 			args.
 				EnvironmentIDs,
 		))
-
 }
 
 func TestRemoveReservedMessagesKeepsUnreservedBatchMessages(t *testing.T) {
@@ -871,7 +851,6 @@ func TestRemoveReservedMessagesKeepsUnreservedBatchMessages(t *testing.T) {
 	wantIDs := []int64{1, 3}
 	require.True(
 		t, slices.Equal(gotIDs, wantIDs))
-
 }
 
 func TestRemoveReservedMessagesClearsCompactedTail(t *testing.T) {
@@ -900,7 +879,6 @@ func TestRemoveReservedMessagesClearsCompactedTail(t *testing.T) {
 
 	for _, msg := range messages[len(batch.Messages):] {
 		require.Equal(t, (pgQueMessage{}), msg)
-
 	}
 }
 
@@ -989,7 +967,6 @@ func TestPgQueEnsureRouteConfiguresRotationPeriod(t *testing.T) {
 
 		rotationPeriod,
 	)
-
 }
 
 func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
@@ -1055,8 +1032,8 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 
 				return pgconn.CommandTag{}, nil
 			}
-			require.True(
-				t, strings.Contains(sql, "pgque.send_batch"))
+			require.Contains(
+				t, sql, "pgque.send_batch")
 
 			sendBatchCalls++
 			require.Len(t,
@@ -1086,10 +1063,10 @@ func TestPgQueSendReadyEventsFetchesGenerationsSetBased(t *testing.T) {
 	require.NoError(t, q.sendReadyEvents(ctx,
 		db, runs),
 	)
-	require.EqualValues(t, 1, queryCalls)
-	require.EqualValues(t, 0, queryRowCalls)
-	require.EqualValues(t, 1, sendBatchCalls)
-	require.EqualValues(t, 1, recordCalls)
+	require.Equal(t, 1, queryCalls)
+	require.Equal(t, 0, queryRowCalls)
+	require.Equal(t, 1, sendBatchCalls)
+	require.Equal(t, 1, recordCalls)
 	require.True(
 		t, slices.Equal(gotRunIDs, []string{"run-a",
 			"run-b",
@@ -1170,8 +1147,8 @@ func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 				recordCalls++
 				return pgconn.CommandTag{}, nil
 			}
-			require.True(
-				t, strings.Contains(sql, "pgque.send_batch"))
+			require.Contains(
+				t, sql, "pgque.send_batch")
 
 			payloads, ok := args[2].([]string)
 			require.True(
@@ -1202,14 +1179,14 @@ func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 	require.NoError(t, q.sendReadyEvents(ctx,
 		db, runs),
 	)
-	require.EqualValues(t, 1, jobRouteQueries)
+	require.Equal(t, 1, jobRouteQueries)
 	require.True(
 		t, slices.Equal(gotJobIDs, []string{"job-a",
 			"job-b",
 		}))
-	require.EqualValues(t, 1, generationQueries)
-	require.EqualValues(t, 0, queryRowCalls)
-	require.EqualValues(t, 1, recordCalls)
+	require.Equal(t, 1, generationQueries)
+	require.Equal(t, 0, queryRowCalls)
+	require.Equal(t, 1, recordCalls)
 	require.Len(t,
 		sentEvents,
 		3)
@@ -1221,7 +1198,6 @@ func TestPgQueSendReadyEventsFetchesWorkerRoutesSetBased(t *testing.T) {
 	}
 	for runID, want := range wantEvents {
 		require.Equal(t, want, sentEvents[runID])
-
 	}
 }
 
@@ -1267,8 +1243,8 @@ func TestPgQueEnsureRunRoutesCachedFetchesWorkerRoutesSetBased(t *testing.T) {
 	gotJobIDs := []string{}
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "FROM jobs"))
+			require.Contains(
+				t, sql, "FROM jobs")
 
 			jobRouteQueries++
 			require.Len(t,
@@ -1312,21 +1288,20 @@ func TestPgQueEnsureRunRoutesCachedFetchesWorkerRoutesSetBased(t *testing.T) {
 		{ID: "run-c", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
 	}
 	require.NoError(t, q.ensureRunRoutesCached(ctx, runs))
-	require.EqualValues(t, 1, jobRouteQueries)
+	require.Equal(t, 1, jobRouteQueries)
 	require.True(
 		t, slices.Equal(gotJobIDs, []string{"job-a",
 			"job-b",
 		}))
-	require.EqualValues(t, 0, queryRowCalls)
-
+	require.Equal(t, 0, queryRowCalls)
 }
 
 func TestPgQueEnsureRunRoutesCachedFailsWhenWorkerJobMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "FROM jobs"))
+			require.Contains(
+				t, sql, "FROM jobs")
 
 			return &pgQueWorkerJobRouteRows{
 				values: []pgQueWorkerJobRouteRow{
@@ -1342,9 +1317,8 @@ func TestPgQueEnsureRunRoutesCachedFailsWhenWorkerJobMissing(t *testing.T) {
 		{ID: "run-b", JobID: "job-b", ProjectID: "project-a", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "missing job job-b"))
-
+	require.Contains(
+		t, err.Error(), "missing job job-b")
 }
 
 func TestPgQueSendReadyEventsSkipsNoQueuedRuns(t *testing.T) {
@@ -1377,7 +1351,6 @@ func TestPgQueSendReadyEventsSkipsNoQueuedRuns(t *testing.T) {
 		{ID: "run-complete", Status: domain.StatusCompleted},
 	})
 	require.NoError(t, err)
-
 }
 
 func TestPgQueEnsureRunRoutesCachedSkipsNoQueuedRuns(t *testing.T) {
@@ -1409,7 +1382,6 @@ func TestPgQueEnsureRunRoutesCachedSkipsNoQueuedRuns(t *testing.T) {
 		{ID: "run-complete", Status: domain.StatusCompleted},
 	})
 	require.NoError(t, err)
-
 }
 
 func BenchmarkPgQueEnsureRunRoutesCachedHTTPBatch(b *testing.B) {
@@ -1501,8 +1473,8 @@ func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "FROM jobs"))
+			require.Contains(
+				t, sql, "FROM jobs")
 
 			return &pgQueWorkerJobRouteRows{
 				values: []pgQueWorkerJobRouteRow{
@@ -1518,17 +1490,16 @@ func TestPgQueReadyRunsForEventsFailsWhenWorkerJobMissing(t *testing.T) {
 		{ID: "run-b", JobID: "job-b", ProjectID: "project-b", Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeWorker},
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "missing job job-b"))
-
+	require.Contains(
+		t, err.Error(), "missing job job-b")
 }
 
 func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
 	ctx := context.Background()
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
-			require.True(
-				t, strings.Contains(sql, "ready_generation"))
+			require.Contains(
+				t, sql, "ready_generation")
 
 			return &pgQueGenerationRows{
 				values: []pgQueGenerationRow{
@@ -1551,9 +1522,8 @@ func TestPgQueSendReadyEventsFailsWhenGenerationMissing(t *testing.T) {
 		{ID: "run-b", Status: domain.StatusQueued},
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "missing run run-b"))
-
+	require.Contains(
+		t, err.Error(), "missing run run-b")
 }
 
 func TestPgQueRecordReadyEmitBatchRejectsMismatchedInputs(t *testing.T) {
@@ -1569,9 +1539,8 @@ func TestPgQueRecordReadyEmitBatchRejectsMismatchedInputs(t *testing.T) {
 
 	err := q.recordReadyEmitBatch(context.Background(), db, []string{"run-a"}, nil)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "mismatched id/generation counts"))
-
+	require.Contains(
+		t, err.Error(), "mismatched id/generation counts")
 }
 
 func BenchmarkPgQueRecordReadyEmitBatch(b *testing.B) {
@@ -1601,8 +1570,8 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 	var tickedQueue string
 	db := &mockDBTX{
 		queryRowFn: func(_ context.Context, sql string, args ...any) pgx.Row {
-			require.True(
-				t, strings.Contains(sql, "ready_generation"))
+			require.Contains(
+				t, sql, "ready_generation")
 			require.False(t, len(args) != 1 || args[0] != "run-queued")
 
 			return &mockRow{scanFn: func(dest ...any) error {
@@ -1704,7 +1673,6 @@ func TestPgQueEnqueueExistingSendsReadyEventForQueuedRun(t *testing.T) {
 	require.Equal(t, pgQueQueueName(pgQueHTTPRouteKey),
 		tickedQueue,
 	)
-
 }
 
 func TestPgQueEnqueueExistingIgnoresNonQueuedRun(t *testing.T) {
@@ -1731,7 +1699,6 @@ func TestPgQueEnqueueExistingIgnoresNonQueuedRun(t *testing.T) {
 				StatusCompleted,
 		},
 	))
-
 }
 
 type pgQueGenerationRow struct {
@@ -1875,5 +1842,4 @@ func assertPgQueReadyEvent(t *testing.T, payload string, want pgQueReadyEvent) {
 			payload),
 			&got))
 	require.Equal(t, want, got)
-
 }

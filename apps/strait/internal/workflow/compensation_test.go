@@ -40,7 +40,6 @@ func TestCompensation_ReverseOrder(t *testing.T) {
 		Steps[1].StepRef)
 
 	// b should be compensated before a (reverse order).
-
 }
 
 func TestCompensation_OnlyCompletedSteps(t *testing.T) {
@@ -61,7 +60,6 @@ func TestCompensation_OnlyCompletedSteps(t *testing.T) {
 		1)
 	assert.Equal(t, "a", plan.
 		Steps[0].StepRef)
-
 }
 
 func BenchmarkBuildCompensationPlan_Chain100(b *testing.B) {
@@ -148,7 +146,6 @@ func TestCompensation_SkipsStepsWithoutCompensation(t *testing.T) {
 		Steps[0].StepRef)
 
 	// Only a has compensation (b has none, c failed).
-
 }
 
 func TestCompensation_PassesOriginalOutput(t *testing.T) {
@@ -169,7 +166,6 @@ func TestCompensation_PassesOriginalOutput(t *testing.T) {
 			Steps[0].
 			OriginalOutput,
 		))
-
 }
 
 func TestCompensation_DiamondDAG(t *testing.T) {
@@ -203,7 +199,6 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	assert.Equal(t, "a", refs[len(refs)-1])
 
 	// Last should be a (root).
-
 }
 
 func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
@@ -232,7 +227,6 @@ func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
 	for i := range want {
 		require.Equal(t, want[i],
 			refs[i])
-
 	}
 }
 
@@ -250,7 +244,6 @@ func TestCompensation_NoCompensationNeeded(t *testing.T) {
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
 	require.NoError(t, err)
 	assert.Nil(t, plan)
-
 }
 
 func TestCompensation_EmptySteps(t *testing.T) {
@@ -258,7 +251,6 @@ func TestCompensation_EmptySteps(t *testing.T) {
 	plan, err := BuildCompensationPlan("wfr-1", nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, plan)
-
 }
 
 func TestCompensation_TimeoutPropagated(t *testing.T) {
@@ -272,10 +264,9 @@ func TestCompensation_TimeoutPropagated(t *testing.T) {
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
 	require.NoError(t, err)
-	assert.EqualValues(t, 60, plan.
+	assert.Equal(t, 60, plan.
 		Steps[0].TimeoutSecs,
 	)
-
 }
 
 // FSM transition tests.
@@ -284,70 +275,60 @@ func TestFSM_FailedToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusFailed, domain.WfStatusCompensating)
 	assert.NoError(t, err)
-
 }
 
 func TestFSM_CompensatingToCompensated(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompensated)
 	assert.NoError(t, err)
-
 }
 
 func TestFSM_CompensatingToCompensationFailed(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompensationFailed)
 	assert.NoError(t, err)
-
 }
 
 func TestFSM_CompensatingToCompleted(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompleted)
 	assert.Error(t, err)
-
 }
 
 func TestFSM_CompletedToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompleted, domain.WfStatusCompensating)
 	assert.Error(t, err)
-
 }
 
 func TestFSM_RunningToCompensated(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusRunning, domain.WfStatusCompensated)
 	assert.Error(t, err)
-
 }
 
 func TestFSM_TimedOutToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusTimedOut, domain.WfStatusCompensating)
 	assert.NoError(t, err)
-
 }
 
 func TestFSM_CompensatingToCanceled(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCanceled)
 	assert.NoError(t, err)
-
 }
 
 func TestFSM_CompensatedIsTerminal(t *testing.T) {
 	t.Parallel()
 	assert.True(t, domain.WfStatusCompensated.
 		IsTerminal())
-
 }
 
 func TestFSM_CompensationFailedIsTerminal(t *testing.T) {
 	t.Parallel()
 	assert.True(t, domain.WfStatusCompensationFailed.
 		IsTerminal())
-
 }
 
 // ValidateCompensationRequest tests.
@@ -356,14 +337,12 @@ func TestValidateCompensation_FailedRun(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusFailed}
 	assert.NoError(t, ValidateCompensationRequest(run))
-
 }
 
 func TestValidateCompensation_TimedOutRun(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusTimedOut}
 	assert.NoError(t, ValidateCompensationRequest(run))
-
 }
 
 func TestValidateCompensation_RunningRun(t *testing.T) {
@@ -371,25 +350,20 @@ func TestValidateCompensation_RunningRun(t *testing.T) {
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusRunning}
 	err := ValidateCompensationRequest(run)
 	assert.Error(t, err)
-
 }
 
 func TestValidateCompensation_AlreadyCompensating(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusCompensating}
 	err := ValidateCompensationRequest(run)
-	assert.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(),
-		"already compensating",
-	))
-
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already compensating")
 }
 
 func TestValidateCompensation_NilRun(t *testing.T) {
 	t.Parallel()
 	err := ValidateCompensationRequest(nil)
 	assert.Error(t, err)
-
 }
 
 // Fuzz tests.
@@ -462,7 +436,6 @@ func TestCompensation_NilStepOutput(t *testing.T) {
 	assert.Nil(t, plan.
 		Steps[0].OriginalOutput,
 	)
-
 }
 
 func TestCompensation_HugeOutput(t *testing.T) {
@@ -486,7 +459,6 @@ func TestCompensation_HugeOutput(t *testing.T) {
 		), 5*
 			1024*1024,
 	)
-
 }
 
 func TestCompensation_ManySteps(t *testing.T) {
@@ -528,7 +500,6 @@ func TestCompensation_ManySteps(t *testing.T) {
 	// First compensated should be step-099 (last in chain).
 
 	// Last should be step-000.
-
 }
 
 func TestCompensation_CompensationOfCompensation(t *testing.T) {
@@ -548,7 +519,6 @@ func TestCompensation_CompensationOfCompensation(t *testing.T) {
 		1)
 
 	// Plan should be simple, not recursive.
-
 }
 
 func TestBuildTopologicalOrder_Deterministic(t *testing.T) {
@@ -593,5 +563,4 @@ func TestBuildTopologicalOrder_DuplicateDependencyRefs(t *testing.T) {
 	require.Equal(t, "a,b",
 		strings.Join(order,
 			","))
-
 }

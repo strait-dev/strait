@@ -41,7 +41,7 @@ func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
 		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
 	require.NoError(t, err)
 	assert.True(t, capped)
-	assert.EqualValues(t, 5, exported)
+	assert.Equal(t, 5, exported)
 
 	var parsed []map[string]any
 	require.NoError(t, json.
@@ -82,8 +82,7 @@ func TestStreamAuditNDJSON_EmitsCapMarker(t *testing.T) {
 		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
 	require.NoError(t, err)
 	assert.True(t, capped)
-	assert.EqualValues(t, 3, exported)
-
+	assert.Equal(t, 3, exported)
 }
 
 // itoaBench is a local int-to-string helper.

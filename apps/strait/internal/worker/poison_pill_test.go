@@ -103,8 +103,7 @@ func TestErrorHash(t *testing.T) {
 			t.Parallel()
 			ha := errorHash(tc.a)
 			hb := errorHash(tc.b)
-			require.NotEqual(t, "",
-				ha)
+			require.NotEmpty(t, ha)
 			assert.Len(t, ha,
 				16)
 			assert.False(t,
@@ -116,7 +115,6 @@ func TestErrorHash(t *testing.T) {
 				tc.expect ==
 					"different" &&
 					ha == hb)
-
 		})
 	}
 }
@@ -334,10 +332,7 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 
 			if tc.expectPoisoned {
 				errField, _ := last.fields["error"].(string)
-				assert.True(t, strings.Contains(errField,
-					"poison pill detected",
-				))
-
+				assert.Contains(t, errField, "poison pill detected")
 			}
 
 			if tc.expectCount != "" {
@@ -348,7 +343,6 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 					tc.expectCount,
 
 					meta["_error_hash_count"])
-
 			}
 		})
 	}
@@ -544,7 +538,6 @@ func TestPoisonPill_CorruptMetadataCount(t *testing.T) {
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
 		"1", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_NegativeCount(t *testing.T) {
@@ -579,7 +572,6 @@ func TestPoisonPill_NegativeCount(t *testing.T) {
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
 		"-4", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_VeryLargeCount(t *testing.T) {
@@ -610,7 +602,6 @@ func TestPoisonPill_VeryLargeCount(t *testing.T) {
 			to)
 
 	// 2147483647 >= 3, so poison pill triggers
-
 }
 
 func TestPoisonPill_EmptyErrorString(t *testing.T) {
@@ -641,7 +632,6 @@ func TestPoisonPill_EmptyErrorString(t *testing.T) {
 			StatusDeadLetter,
 		last.
 			to)
-
 }
 
 func TestPoisonPill_NilMetadataMap(t *testing.T) {
@@ -674,7 +664,6 @@ func TestPoisonPill_NilMetadataMap(t *testing.T) {
 		ok)
 	assert.Equal(t,
 		"1", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_HashCollisionByDesign(t *testing.T) {
@@ -708,7 +697,6 @@ func TestPoisonPill_HashCollisionByDesign(t *testing.T) {
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
 		"2", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_MetadataPreservesExistingKeys(t *testing.T) {
@@ -738,13 +726,11 @@ func TestPoisonPill_MetadataPreservesExistingKeys(t *testing.T) {
 	assert.Equal(t,
 		"us-east",
 		meta["region"])
-	assert.NotEqual(
-		t, "",
-		meta["_error_hash"],
+	assert.NotEmpty(
+		t, meta["_error_hash"],
 	)
 	assert.Equal(t,
 		"1", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
@@ -781,7 +767,6 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
 		"1", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
@@ -817,15 +802,10 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 			to)
 
 	errField, _ := last.fields["error"].(string)
-	assert.True(t, strings.Contains(errField,
-		"poison pill detected (same error 3 times)",
-	))
-	assert.True(t, strings.Contains(errField,
-		"endpoint returned 500",
-	))
-	assert.False(t,
-		strings.Contains(errField,
-			errBody))
+	assert.Contains(t, errField, "poison pill detected (same error 3 times)")
+	assert.Contains(t, errField, "endpoint returned 500")
+	assert.NotContains(t,
+		errField, errBody)
 
 	errClass, _ := last.fields["error_class"].(string)
 	assert.Equal(t,
@@ -841,13 +821,11 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 	}
 
 	meta, _ := last.fields["metadata"].(map[string]string)
-	assert.NotEqual(
-		t, "",
-		meta["_error_hash"],
+	assert.NotEmpty(
+		t, meta["_error_hash"],
 	)
 	assert.Equal(t,
 		"3", meta["_error_hash_count"])
-
 }
 
 func TestPoisonPill_DoesNotInterfereWithCircuitBreaker(t *testing.T) {
@@ -884,7 +862,6 @@ func TestPoisonPill_DoesNotInterfereWithCircuitBreaker(t *testing.T) {
 			to,
 	)
 	assert.True(t, circuitFailureCalled)
-
 }
 
 func TestPoisonPill_TimeoutBypassesPoisonPill(t *testing.T) {
@@ -916,7 +893,6 @@ func TestPoisonPill_TimeoutBypassesPoisonPill(t *testing.T) {
 			to)
 
 	// Should retry normally, not DLQ
-
 }
 
 func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
@@ -953,7 +929,7 @@ func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
 	priority, ok := last.fields["priority"].(int)
 	require.True(t,
 		ok)
-	assert.EqualValues(t, 5, priority)
+	assert.Equal(t, 5, priority)
 
 	// 3 + 2
 
@@ -961,7 +937,6 @@ func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
 		"2", meta["_error_hash_count"])
-
 }
 
 // Integration-style tests
@@ -1034,10 +1009,7 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	)
 
 	errField, _ := calls[2].fields["error"].(string)
-	assert.True(t, strings.Contains(errField,
-		"poison pill detected",
-	))
-
+	assert.Contains(t, errField, "poison pill detected")
 }
 
 func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
@@ -1074,7 +1046,6 @@ func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
 		meta, _ = last.fields["metadata"].(map[string]string)
 		require.Equal(t,
 			"1", meta["_error_hash_count"])
-
 	}
 }
 
@@ -1116,7 +1087,6 @@ func TestPoisonPill_Integration_ErrorThenRecoveryThenSameError(t *testing.T) {
 		require.Equal(t,
 			expectedCounts[i], meta["_error_hash_count"],
 		)
-
 	}
 }
 

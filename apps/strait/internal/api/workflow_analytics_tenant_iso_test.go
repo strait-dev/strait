@@ -34,5 +34,4 @@ func TestTenantIso_WorkflowAnalytics_StepDurations_RejectsCrossProject(t *testin
 		t, isHumaStatusError(err,
 
 			http.StatusNotFound))
-
 }

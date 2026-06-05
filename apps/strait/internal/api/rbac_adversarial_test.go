@@ -34,7 +34,6 @@ func TestHasScope_WildcardBypass(t *testing.T) {
 		assert.True(t,
 			domain.HasScope(scopes,
 				target))
-
 	}
 }
 
@@ -50,7 +49,6 @@ func TestHasScope_EmptyScopes(t *testing.T) {
 		))
 
 	// Empty scopes slice should grant access for backwards compatibility.
-
 }
 
 // TestHasScope_NullByteScope verifies that null bytes in scope strings do not bypass matching.
@@ -66,7 +64,6 @@ func TestHasScope_NullByteScope(t *testing.T) {
 	require.Error(t, domain.ValidateScopes([]string{poisoned}))
 
 	// It should also not pass validation.
-
 }
 
 // TestHasScope_CaseSensitivity verifies that scope matching is case-sensitive.
@@ -87,7 +84,6 @@ func TestHasScope_CaseSensitivity(t *testing.T) {
 		got := domain.HasScope([]string{tc.scope}, tc.required)
 		assert.Equal(
 			t, tc.want, got)
-
 	}
 }
 
@@ -108,7 +104,6 @@ func TestHasScope_UnknownScope(t *testing.T) {
 	// But it should not match a different scope.
 
 	// Validation should reject it.
-
 }
 
 // FuzzScopeParsing fuzzes the ValidateScopes function with arbitrary scope strings.
@@ -140,9 +135,9 @@ func TestAPIKey_TimingAttack(t *testing.T) {
 	secret := "test-internal-secret-that-is-long-enough-for-timing"
 	wrongPrefix := "xest-internal-secret-that-is-long-enough-for-timing"
 	wrongSuffix := "test-internal-secret-that-is-long-enough-for-timinx"
-	require.EqualValues(t, 1, subtle.ConstantTimeCompare([]byte(secret), []byte(secret)))
-	require.EqualValues(t, 0, subtle.ConstantTimeCompare([]byte(secret), []byte(wrongPrefix)))
-	require.EqualValues(t, 0, subtle.ConstantTimeCompare([]byte(secret), []byte(wrongSuffix)))
+	require.Equal(t, 1, subtle.ConstantTimeCompare([]byte(secret), []byte(secret)))
+	require.Equal(t, 0, subtle.ConstantTimeCompare([]byte(secret), []byte(wrongPrefix)))
+	require.Equal(t, 0, subtle.ConstantTimeCompare([]byte(secret), []byte(wrongSuffix)))
 
 	// Verify that subtle.ConstantTimeCompare is used by checking behavior.
 	// With constant-time comparison, matching and non-matching should both
@@ -251,7 +246,6 @@ func TestRequirePermission_APIKeyScopeEdgeCases(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -280,21 +274,18 @@ func TestSecurityHeaders_AlwaysSet(t *testing.T) {
 		got := w.Header().Get(header)
 		assert.Equal(
 			t, want, got)
-
 	}
-	assert.Equal(
-		t, "", w.Header().
+	assert.Empty(
+		t, w.Header().
 			Get(securityHeaderHSTS))
 
 	// HSTS should NOT be set for non-HTTPS requests.
-
 }
 
 // TestSecurityHeaders_NilRequest verifies requestIsHTTPS handles nil safely.
 func TestSecurityHeaders_NilRequest(t *testing.T) {
 	t.Parallel()
 	require.False(t, requestIsHTTPS(nil))
-
 }
 
 // TestSecureCookie_SecurityFlags verifies secure cookie security attributes.
@@ -311,15 +302,14 @@ func TestSecureCookie_SecurityFlags(t *testing.T) {
 
 		c.SameSite,
 	)
-	assert.EqualValues(t, 3600, c.MaxAge)
-
+	assert.Equal(t, 3600, c.MaxAge)
 }
 
 // TestConstantTimeCompare_EmptyInputs verifies constant-time comparison with edge cases.
 func TestConstantTimeCompare_EmptyInputs(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 1, subtle.ConstantTimeCompare([]byte{}, []byte{}))
-	assert.EqualValues(t, 0, subtle.ConstantTimeCompare([]byte{}, []byte("a")))
+	assert.Equal(t, 1, subtle.ConstantTimeCompare([]byte{}, []byte{}))
+	assert.Equal(t, 0, subtle.ConstantTimeCompare([]byte{}, []byte("a")))
 
 	// Empty vs empty should match.
 
@@ -327,7 +317,7 @@ func TestConstantTimeCompare_EmptyInputs(t *testing.T) {
 
 	// Very long strings of same length.
 	long := strings.Repeat("x", 10000)
-	assert.EqualValues(t, 1, subtle.ConstantTimeCompare([]byte(long), []byte(long)))
+	assert.Equal(t, 1, subtle.ConstantTimeCompare([]byte(long), []byte(long)))
 
 	_ = math.MaxFloat64 // Ensure math is used.
 }

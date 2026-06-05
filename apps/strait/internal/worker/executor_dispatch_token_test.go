@@ -55,7 +55,7 @@ func TestTracedDispatch_IncludesRunTokenIssuer(t *testing.T) {
 
 func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 	t.Helper()
-	require.NotEqual(t, "", token)
+	require.NotEmpty(t, token)
 
 	claims := struct {
 		Attempt int `json:"attempt,omitempty"`
@@ -73,6 +73,5 @@ func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 		"strait:run-token",
 		claims.Issuer,
 	)
-	require.EqualValues(t, 1, claims.Attempt)
-
+	require.Equal(t, 1, claims.Attempt)
 }

@@ -47,7 +47,6 @@ func TestAddSentryBreadcrumbSanitizesData(t *testing.T) {
 		bc.Data["dsn"])
 	require.EqualValues(t, 3,
 		bc.Data["count"])
-
 }
 
 func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
@@ -64,10 +63,8 @@ func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
 	}, nil)
 	require.NotNil(t, breadcrumb)
 
-	require.False(t, strings.Contains(breadcrumb.
-		Message,
-
-		"user:pass"))
+	require.NotContains(t, breadcrumb.
+		Message, "user:pass")
 
 	require.NotContains(t, breadcrumb.Data, "authorization")
 	require.Equal(t, "[REDACTED]",
@@ -78,7 +75,6 @@ func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
 		breadcrumb.
 			Data["status_code"],
 	)
-
 }
 
 func TestSentryPGXTracerAddsSQLBreadcrumbWithoutArgs(t *testing.T) {
@@ -111,7 +107,6 @@ func TestSentryPGXTracerAddsSQLBreadcrumbWithoutArgs(t *testing.T) {
 	require.Equal(t, "SELECT 1",
 
 		bc.Data["command"])
-
 }
 
 func TestRedisBreadcrumbHookAddsCommandAndPipelineBreadcrumbs(t *testing.T) {

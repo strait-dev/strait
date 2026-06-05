@@ -28,7 +28,6 @@ func TestHashURL_UsesSHA256Hex(t *testing.T) {
 		want, got)
 	require.Len(t, got,
 		64)
-
 }
 
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
@@ -191,7 +190,6 @@ func TestRedisWebhookCircuitBreaker_DisabledAllowsDelivery(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_OpensAfterThreshold(t *testing.T) {
@@ -217,7 +215,6 @@ func TestRedisWebhookCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 		err)
 	require.False(t,
 		canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T) {
@@ -242,7 +239,6 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T)
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_NilClient(t *testing.T) {
@@ -253,7 +249,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_NilClient(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_EmptyURL(t *testing.T) {
@@ -270,7 +265,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_EmptyURL(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_OpenCircuit(t *testing.T) {
@@ -300,7 +294,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_OpenCircuit(t *testing.T) {
 		err)
 	require.False(t,
 		canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_ClosedCircuit(t *testing.T) {
@@ -321,7 +314,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_ClosedCircuit(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_FailureWindowExpiry(t *testing.T) {
@@ -361,7 +353,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_FailureWindowExpiry(t *testing.T)
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccess_DisabledNoOp(t *testing.T) {
@@ -445,7 +436,6 @@ func TestWithWebhookCircuitBreakerOpenDuration(t *testing.T) {
 		5*time.Minute,
 		breaker.openDuration,
 	)
-
 }
 
 func TestWithWebhookCircuitBreakerOpenDuration_ZeroIgnored(t *testing.T) {
@@ -462,7 +452,6 @@ func TestWithWebhookCircuitBreakerOpenDuration_ZeroIgnored(t *testing.T) {
 		breaker.
 			openDuration,
 	)
-
 }
 
 func TestWithWebhookCircuitBreakerOpenDuration_NegativeIgnored(t *testing.T) {
@@ -479,7 +468,6 @@ func TestWithWebhookCircuitBreakerOpenDuration_NegativeIgnored(t *testing.T) {
 		breaker.
 			openDuration,
 	)
-
 }
 
 func TestWithWebhookCircuitBreakerThreshold_ZeroIgnored(t *testing.T) {
@@ -496,7 +484,6 @@ func TestWithWebhookCircuitBreakerThreshold_ZeroIgnored(t *testing.T) {
 		breaker.
 			failureThreshold,
 	)
-
 }
 
 func TestWithWebhookCircuitBreakerWindow_ZeroIgnored(t *testing.T) {
@@ -513,7 +500,6 @@ func TestWithWebhookCircuitBreakerWindow_ZeroIgnored(t *testing.T) {
 		breaker.
 			failureWindow,
 	)
-
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testing.T) {
@@ -544,7 +530,6 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testin
 	require.NoError(t,
 		err)
 	require.True(t, canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_ExactThresholdOpensCircuit(t *testing.T) {
@@ -588,7 +573,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_ExactThresholdOpensCircuit(t *tes
 	isOpen := state.open[openKey]
 	state.mu.Unlock()
 	require.True(t, isOpen)
-
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_BelowThreshold_StaysClosed(t *testing.T) {
@@ -628,7 +612,6 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_BelowThreshold_StaysClosed(t *tes
 	state.mu.Unlock()
 	require.False(t,
 		isOpen)
-
 }
 
 func TestRedisWebhookCircuitBreaker_FailureWindowBoundary(t *testing.T) {
@@ -671,8 +654,7 @@ func TestRedisWebhookCircuitBreaker_FailureWindowBoundary(t *testing.T) {
 	state.mu.Lock()
 	remaining := len(state.failures[failureKey])
 	state.mu.Unlock()
-	require.EqualValues(t, 1, remaining)
-
+	require.Equal(t, 1, remaining)
 }
 
 func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T) {
@@ -712,7 +694,6 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T
 	isOpen = state.open[openKey]
 	state.mu.Unlock()
 	require.True(t, isOpen)
-
 }
 
 func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *testing.T) {
@@ -745,7 +726,6 @@ func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *
 		err)
 	require.False(t,
 		canDeliver)
-
 }
 
 func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
@@ -773,5 +753,4 @@ func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, canB)
-
 }

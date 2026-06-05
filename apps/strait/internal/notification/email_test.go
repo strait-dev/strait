@@ -61,7 +61,6 @@ func TestEmailSender_SendSuccess(t *testing.T) {
 	assert.Equal(t, "alerts@strait.dev",
 		req.
 			From)
-
 }
 
 func TestEmailSender_SendFailure_ReturnsError(t *testing.T) {
@@ -86,8 +85,6 @@ func TestEmailSender_SendFailure_ReturnsError(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, err))
-
 }
 
 func TestEmailSender_MissingAPIKey_Fails(t *testing.T) {
@@ -95,7 +92,6 @@ func TestEmailSender_MissingAPIKey_Fails(t *testing.T) {
 
 	_, err := NewEmailSender("", "noreply@strait.dev")
 	require.Error(t, err)
-
 }
 
 func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
@@ -177,7 +173,6 @@ func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
 			assert.True(t, containsStr(req.Html, tt.
 				wantInBody,
 			))
-
 		})
 	}
 }
@@ -205,7 +200,6 @@ func TestEmailSender_SetsCorrectFromAddress(t *testing.T) {
 	assert.Equal(t, "custom@example.com",
 		mock.
 			calls[0].From)
-
 }
 
 func TestEmailSender_SetsCorrectSubjectLine(t *testing.T) {
@@ -246,7 +240,6 @@ func TestEmailSender_SetsCorrectSubjectLine(t *testing.T) {
 			assert.Equal(t, tt.expected,
 				mock.calls[0].Subject,
 			)
-
 		})
 	}
 }
@@ -274,7 +267,6 @@ func TestEmailSender_DefaultFromAddress(t *testing.T) {
 	assert.Equal(t, "noreply@strait.dev",
 		mock.
 			calls[0].From)
-
 }
 
 func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {
@@ -295,7 +287,6 @@ func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
 	require.Error(t, err)
-
 }
 
 func TestEmailSender_InvalidConfig_Fails(t *testing.T) {
@@ -316,7 +307,6 @@ func TestEmailSender_InvalidConfig_Fails(t *testing.T) {
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
 	require.Error(t, err)
-
 }
 
 func containsStr(s, substr string) bool {

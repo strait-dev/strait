@@ -213,7 +213,6 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		))
 		assert.Equal(t,
 			"pro", details["previous_plan_tier"])
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -235,7 +234,6 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 			http.StatusOK, rr.
 				Code)
 		assert.Nil(t, store.lastStatusUpdate)
-
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -256,7 +254,6 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -294,7 +291,6 @@ func TestWebhookHandler_SubscriptionPaused(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -312,7 +308,6 @@ func TestWebhookHandler_SubscriptionPaused_ValidatesMalformed(t *testing.T) {
 		rr.Code,
 	)
 	assert.Nil(t, store.lastStatusUpdate)
-
 }
 
 // Tests for handleSubscriptionResumed.
@@ -359,7 +354,6 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 				status,
 		)
 		assert.NotEmpty(t, audit.events)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -380,7 +374,6 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -401,7 +394,6 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("unknown_price_returns_ok", func(t *testing.T) {
@@ -431,7 +423,6 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 			http.StatusOK, rr.
 				Code)
 		assert.Nil(t, store.lastFullUpdate)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -467,7 +458,6 @@ func TestWebhookHandler_SubscriptionResumed(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -519,7 +509,6 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		}
 		assert.True(t,
 			found)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -540,7 +529,6 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("no_trial_end_timestamp", func(t *testing.T) {
@@ -572,7 +560,6 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 			http.StatusOK, rr.
 				Code)
 		assert.NotEmpty(t, audit.events)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -608,7 +595,6 @@ func TestWebhookHandler_TrialWillEnd(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -652,7 +638,6 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 
 			audit.events[0].Action,
 		)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -677,9 +662,8 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Len(t, audit.
-			events, 0)
-
+		assert.Empty(t, audit.
+			events)
 	})
 
 	t.Run("invalid_org_id_returns_ok", func(t *testing.T) {
@@ -708,9 +692,8 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Len(t, audit.
-			events, 0)
-
+		assert.Empty(t, audit.
+			events)
 	})
 
 	t.Run("no_charge_object_returns_ok", func(t *testing.T) {
@@ -727,7 +710,6 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -764,7 +746,6 @@ func TestWebhookHandler_ChargeDisputeCreated(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -808,7 +789,6 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 			audit.
 				events[0].
 				Action)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -828,9 +808,8 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Len(t, audit.
-			events, 0)
-
+		assert.Empty(t, audit.
+			events)
 	})
 
 	t.Run("next_payment_attempt_used_as_fallback_date", func(t *testing.T) {
@@ -855,7 +834,6 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 			http.StatusOK, rr.
 				Code)
 		assert.NotEmpty(t, audit.events)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -884,7 +862,6 @@ func TestWebhookHandler_InvoiceUpcoming(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -932,7 +909,6 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		assert.Nil(t, store.lastPaymentStatusUpdate.
 			graceEnd)
 		assert.NotEmpty(t, audit.events)
-
 	})
 
 	t.Run("free_plan_skips_restriction", func(t *testing.T) {
@@ -962,7 +938,6 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 			http.StatusOK, rr.
 				Code)
 		assert.Nil(t, store.lastPaymentStatusUpdate)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -981,7 +956,6 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("subscription_not_found_returns_ok", func(t *testing.T) {
@@ -1002,7 +976,6 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1038,7 +1011,6 @@ func TestWebhookHandler_InvoiceUncollectible(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -1073,7 +1045,6 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 			audit.
 				events[0].
 				Action)
-
 	})
 
 	t.Run("missing_org_id_still_logs", func(t *testing.T) {
@@ -1093,12 +1064,11 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Len(t, audit.
-			events, 0)
+		assert.Empty(t, audit.
+			events)
 
 		// Org-less invoices are ignored; metadata is no longer tenant
 		// authority for billing side effects.
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1126,7 +1096,6 @@ func TestWebhookHandler_InvoiceFinalizationFailed(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -1160,7 +1129,6 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 			"invoice.finalized",
 			audit.
 				events[0].Action)
-
 	})
 
 	t.Run("missing_org_id_no_audit", func(t *testing.T) {
@@ -1180,9 +1148,8 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Len(t, audit.
-			events, 0)
-
+		assert.Empty(t, audit.
+			events)
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1214,7 +1181,6 @@ func TestWebhookHandler_InvoiceFinalized(t *testing.T) {
 		)
 		assert.Len(t, audit.
 			events, 1)
-
 	})
 }
 
@@ -1253,7 +1219,6 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -1280,7 +1245,6 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 				Code)
 
 		// Missing org_id for addon returns 200 (noop) per the handler logic.
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1320,7 +1284,6 @@ func TestWebhookHandler_AddonSubscriptionCreated(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -1359,7 +1322,6 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("missing_org_id_returns_ok", func(t *testing.T) {
@@ -1384,7 +1346,6 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-
 	})
 
 	t.Run("idempotent_duplicate_event", func(t *testing.T) {
@@ -1424,7 +1385,6 @@ func TestWebhookHandler_AddonSubscriptionCanceled(t *testing.T) {
 			http.StatusOK, rr2.
 				Code,
 		)
-
 	})
 }
 
@@ -1471,7 +1431,6 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 		)
 
 		// Verify the downgrade was deferred (pending tier set).
-
 	})
 
 	t.Run("downgrade_to_plan_with_http_mode_no_warning", func(t *testing.T) {
@@ -1502,10 +1461,9 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 		assert.Equal(t,
 			http.StatusOK, rr.
 				Code)
-		assert.Equal(t,
-			"", store.lastPendingTier,
+		assert.Empty(t,
+			store.lastPendingTier,
 		)
-
 	})
 
 	t.Run("downgrade_with_period_end_date", func(t *testing.T) {
@@ -1546,7 +1504,6 @@ func TestWebhookHandler_MaybeSendHTTPJobsDowngradeWarning(t *testing.T) {
 				!store.lastPendingDowngrade.
 					periodEnd.
 					Equal(periodEnd))
-
 	})
 }
 
@@ -1600,7 +1557,6 @@ func TestWebhookHandler_MalformedPayloads(t *testing.T) {
 			assert.NotEqual(t, http.StatusOK,
 				rr.Code,
 			)
-
 		})
 	}
 }
@@ -1629,7 +1585,6 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK,
 			rr.Code,
 		)
-
 	})
 
 	t.Run("empty_customer_id", func(t *testing.T) {
@@ -1651,7 +1606,6 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK,
 			rr.Code,
 		)
-
 	})
 
 	t.Run("empty_price_id", func(t *testing.T) {
@@ -1673,7 +1627,6 @@ func TestWebhookHandler_SubscriptionResumed_ValidationErrors(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK,
 			rr.Code,
 		)
-
 	})
 }
 

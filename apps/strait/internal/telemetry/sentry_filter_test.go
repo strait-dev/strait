@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/getsentry/sentry-go"
@@ -33,7 +32,6 @@ func TestBeforeSend_DropsRequestCancellation(t *testing.T) {
 	event := &sentry.Event{Request: &sentry.Request{URL: "https://api.example.test/v1/runs"}}
 	hint := &sentry.EventHint{OriginalException: context.Canceled}
 	require.Nil(t, BeforeSend(event, hint))
-
 }
 
 func TestBeforeSend_KeepsBackgroundCancellation(t *testing.T) {
@@ -41,10 +39,9 @@ func TestBeforeSend_KeepsBackgroundCancellation(t *testing.T) {
 
 	event := &sentry.Event{}
 	hint := &sentry.EventHint{OriginalException: context.Canceled}
-	require.NotEqual(t,
-		nil, BeforeSend(event,
+	require.NotNil(t,
+		BeforeSend(event,
 			hint))
-
 }
 
 func TestBeforeSend_DropsValidationAnd4xx(t *testing.T) {
@@ -53,7 +50,6 @@ func TestBeforeSend_DropsValidationAnd4xx(t *testing.T) {
 	event := &sentry.Event{}
 	hint := &sentry.EventHint{OriginalException: testStatusError{status: http.StatusUnprocessableEntity}}
 	require.Nil(t, BeforeSend(event, hint))
-
 }
 
 func TestBeforeSend_KeepsGenuine5xx(t *testing.T) {
@@ -61,10 +57,9 @@ func TestBeforeSend_KeepsGenuine5xx(t *testing.T) {
 
 	event := &sentry.Event{}
 	hint := &sentry.EventHint{OriginalException: testStatusError{status: http.StatusInternalServerError}}
-	require.NotEqual(t,
-		nil, BeforeSend(event,
+	require.NotNil(t,
+		BeforeSend(event,
 			hint))
-
 }
 
 func TestBeforeSend_DoesNotDropPlainPgxNoRows(t *testing.T) {
@@ -72,10 +67,9 @@ func TestBeforeSend_DoesNotDropPlainPgxNoRows(t *testing.T) {
 
 	event := &sentry.Event{}
 	hint := &sentry.EventHint{OriginalException: pgx.ErrNoRows}
-	require.NotEqual(t,
-		nil, BeforeSend(event,
+	require.NotNil(t,
+		BeforeSend(event,
 			hint))
-
 }
 
 func TestBeforeSend_DropsExpectedNotFound(t *testing.T) {
@@ -105,7 +99,6 @@ func TestBeforeSend_DropsExpectedNotFound(t *testing.T) {
 			t.Parallel()
 			require.Nil(t, BeforeSend(tc.event,
 				&sentry.EventHint{OriginalException: tc.err}))
-
 		})
 	}
 }
@@ -127,7 +120,6 @@ func TestBeforeSend_DropsResolvedTransientAndCircuitOpen(t *testing.T) {
 			require.Nil(t, BeforeSend(&sentry.
 				Event{}, &sentry.
 				EventHint{OriginalException: tc.err}))
-
 		})
 	}
 }
@@ -170,9 +162,7 @@ func TestBeforeSend_SanitizesEvent(t *testing.T) {
 		got.Request.
 			QueryString,
 	)
-	require.False(t, strings.Contains(got.Message,
-		"postgres://",
-	))
+	require.NotContains(t, got.Message, "postgres://")
 	require.Equal(t, "[REDACTED]",
 
 		got.Exception[0].Value,
@@ -186,7 +176,6 @@ func TestBeforeSend_SanitizesEvent(t *testing.T) {
 	require.Equal(t, "[REDACTED]",
 
 		got.Breadcrumbs[0].Data["message"])
-
 }
 
 func TestSanitizeQueryString_RedactsCommonCredentialParameters(t *testing.T) {
@@ -194,18 +183,14 @@ func TestSanitizeQueryString_RedactsCommonCredentialParameters(t *testing.T) {
 
 	got := SanitizeQueryString("sig=signed&code=oauth-code&jwt=header.payload&session_id=cookievalue&sid=short&samlresponse=assertion&ticket=tgt&ok=1&tenant=prod")
 	for _, leaked := range []string{"signed", "oauth-code", "header.payload", "cookievalue", "short", "assertion", "tgt"} {
-		require.False(t, strings.Contains(got, leaked))
-
+		require.NotContains(t, got, leaked)
 	}
 	for _, key := range []string{"sig", "code", "jwt", "session_id", "sid", "samlresponse", "ticket"} {
-		require.True(t, strings.Contains(got, key+
-			"=%5BREDACTED%5D",
-		))
-
+		require.Contains(t, got, key+
+			"=%5BREDACTED%5D")
 	}
 	for _, preserved := range []string{"ok=1", "tenant=prod"} {
-		require.True(t, strings.Contains(got, preserved))
-
+		require.Contains(t, got, preserved)
 	}
 }
 
@@ -221,10 +206,9 @@ func TestBeforeSendTransaction_SamplesHeavyTransactions(t *testing.T) {
 		}
 	}
 	require.True(t, dropped)
-	require.NotEqual(t,
-		nil, BeforeSendTransaction(&sentry.
+	require.NotNil(t,
+		BeforeSendTransaction(&sentry.
 			Event{Transaction: "GET /v1/jobs"}, nil))
-
 }
 
 func TestSentryTracesSamplerDropsHeavyTransactionsEarly(t *testing.T) {
@@ -232,29 +216,28 @@ func TestSentryTracesSamplerDropsHeavyTransactionsEarly(t *testing.T) {
 
 	sampler := SentryTracesSampler(0.5)
 	heavy := sampler(sentry.SamplingContext{Span: &sentry.Span{Name: "GET /v1/runs/stream"}})
-	require.EqualValues(t, 0,
-		heavy)
+	require.InDelta(t, 0,
+		heavy, 1e-9)
 
 	normal := sampler(sentry.SamplingContext{Span: &sentry.Span{Name: "GET /v1/jobs"}})
-	require.EqualValues(t, 0.5,
-		normal)
+	require.InDelta(t, 0.5,
+		normal, 1e-9)
 
 	parentTrue := sampler(sentry.SamplingContext{
 		Span:          &sentry.Span{Name: "GET /v1/jobs"},
 		ParentSampled: sentry.SampledTrue,
 	})
-	require.EqualValues(t, 0.5,
-		parentTrue,
+	require.InDelta(t, 0.5,
+		parentTrue, 1e-9,
 	)
 
 	parentFalse := sampler(sentry.SamplingContext{
 		Span:          &sentry.Span{Name: "GET /v1/jobs"},
 		ParentSampled: sentry.SampledFalse,
 	})
-	require.EqualValues(t, 0.5,
-		parentFalse,
+	require.InDelta(t, 0.5,
+		parentFalse, 1e-9,
 	)
-
 }
 
 func TestInitSentry_NoDSNNoop(t *testing.T) {

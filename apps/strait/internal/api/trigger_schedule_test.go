@@ -22,7 +22,6 @@ func TestTriggerInitialStatus(t *testing.T) {
 		StatusQueued, triggerInitialStatus(&past, now))
 	require.Equal(t, domain.
 		StatusQueued, triggerInitialStatus(nil, now))
-
 }
 
 func TestTriggerExpiryBaseUsesFutureSchedule(t *testing.T) {
@@ -74,5 +73,4 @@ func TestTriggerExpiresAtPriority(t *testing.T) {
 	want = scheduledAt.Add(70 * time.Second)
 	require.True(
 		t, got.Equal(want))
-
 }

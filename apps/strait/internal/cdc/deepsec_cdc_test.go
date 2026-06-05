@@ -11,6 +11,7 @@ import (
 	"strait/internal/clickhouse"
 	"strait/internal/pubsub"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,9 +32,9 @@ func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T)
 			ackIDs = append(ackIDs, ids...)
 			mu.Unlock()
 		case "/api/http_pull_consumers/deepsec/nack":
-			require.Fail(t, "unexpected nack")
+			assert.Fail(t, "unexpected nack")
 		default:
-			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -50,10 +51,9 @@ func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T)
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.EqualValues(t, 1, sideEffects)
+	require.Equal(t, 1, sideEffects)
 	require.False(t, len(ackIDs) != 1 ||
 		ackIDs[0] != "a1")
-
 }
 
 func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
@@ -77,7 +77,7 @@ func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
 			nackIDs = append(nackIDs, ids...)
 			mu.Unlock()
 		default:
-			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -93,11 +93,10 @@ func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.EqualValues(t, 0, ackCalls)
+	require.Equal(t, 0, ackCalls)
 	require.False(t, len(nackIDs) != 1 ||
 		nackIDs[0] != "a1",
 	)
-
 }
 
 func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.T) {
@@ -122,7 +121,7 @@ func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.
 			nackIDs = append(nackIDs, ids...)
 			mu.Unlock()
 		default:
-			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -144,13 +143,12 @@ func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.EqualValues(t, 1, pub.
+	require.Equal(t, 1, pub.
 		batchCalls)
-	require.EqualValues(t, 0, ackCalls)
+	require.Equal(t, 0, ackCalls)
 	require.False(t, len(nackIDs) != 1 ||
 		nackIDs[0] != "a1",
 	)
-
 }
 
 func TestDeepSecAnalyticsHandler_AcceptsJSONBTags(t *testing.T) {
@@ -180,10 +178,9 @@ func TestDeepSecAnalyticsHandler_AcceptsJSONBTags(t *testing.T) {
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
 	require.True(
 		t, ok)
-	require.Equal(t, `{"team":"platform","risk":["billing","cdc"]}`,
+	require.JSONEq(t, `{"team":"platform","risk":["billing","cdc"]}`,
 
 		rec.Tags)
-
 }
 
 type deepSecTrackingPublisher struct {

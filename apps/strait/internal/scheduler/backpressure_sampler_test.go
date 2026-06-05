@@ -31,7 +31,6 @@ func TestBackpressureSampler_Disabled(t *testing.T) {
 	require.Nil(t, NewBackpressureSampler(&fakeBPSampler{},
 		nil,
 		10*time.Second, 0))
-
 }
 
 func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
@@ -56,7 +55,6 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 	require.EqualValues(t, 2,
 		fake.calls.
 			Load())
-
 }
 
 func TestBackpressureSamplerMetricAttributes_DoNotIncludeProjectID(t *testing.T) {
@@ -66,7 +64,6 @@ func TestBackpressureSamplerMetricAttributes_DoNotIncludeProjectID(t *testing.T)
 			"project_id",
 			string(attr.
 				Key))
-
 	}
 }
 
@@ -84,7 +81,6 @@ func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 			Load())
 
 	// must not panic
-
 }
 
 func TestBackpressureSampler_RunHonoursContext(t *testing.T) {

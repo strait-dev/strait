@@ -52,7 +52,7 @@ func TestRunWithOptionalAdvisoryLock_PrefersPinnedRunner(t *testing.T) {
 		err)
 	require.False(t, !acquired ||
 		!ran)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		runner.runCalls,
 	)
 	require.False(t, runner.
@@ -60,7 +60,6 @@ func TestRunWithOptionalAdvisoryLock_PrefersPinnedRunner(t *testing.T) {
 		0 ||
 		runner.
 			releaseCalls != 0)
-
 }
 
 func TestRunWithOptionalAdvisoryLock_RunnerNotAcquiredSkipsWork(t *testing.T) {
@@ -76,7 +75,6 @@ func TestRunWithOptionalAdvisoryLock_RunnerNotAcquiredSkipsWork(t *testing.T) {
 		err)
 	require.False(t, acquired ||
 		ran)
-
 }
 
 func TestRunWithOptionalAdvisoryLock_FallbackReleasesAfterWorkError(t *testing.T) {
@@ -88,14 +86,12 @@ func TestRunWithOptionalAdvisoryLock_FallbackReleasesAfterWorkError(t *testing.T
 		return workErr
 	})
 	require.True(t, acquired)
-	require.True(t, errors.Is(err,
-		workErr))
+	require.ErrorIs(t, err, workErr)
 	require.False(t, locker.
 		tryCalls !=
 		1 ||
 		locker.
 			releaseCalls != 1)
-
 }
 
 func TestRunWithOptionalAdvisoryLock_FallbackSurfacesReleaseError(t *testing.T) {
@@ -107,11 +103,7 @@ func TestRunWithOptionalAdvisoryLock_FallbackSurfacesReleaseError(t *testing.T) 
 		return nil
 	})
 	require.True(t, acquired)
-	require.True(t, errors.Is(err,
-		releaseErr,
-	),
-	)
-
+	require.ErrorIs(t, err, releaseErr)
 }
 
 func TestRunWithOptionalAdvisoryLock_FallbackReleasesAfterPanic(t *testing.T) {
@@ -119,14 +111,13 @@ func TestRunWithOptionalAdvisoryLock_FallbackReleasesAfterPanic(t *testing.T) {
 
 	locker := &testAdvisoryLocker{acquired: true}
 	defer func() {
-		require.NotEqual(t,
-			nil, recover())
+		require.NotNil(t,
+			recover())
 		require.False(t, locker.
 			tryCalls !=
 			1 ||
 			locker.
 				releaseCalls != 1)
-
 	}()
 
 	_, _ = runWithOptionalAdvisoryLock(t.Context(), locker, 123, func(context.Context) error {

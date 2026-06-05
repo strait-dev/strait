@@ -28,7 +28,6 @@ func TestEnterpriseContract_NegativeCommitment(t *testing.T) {
 		t, ValidateEnterpriseContract(
 			c,
 		))
-
 }
 
 func TestEnterpriseContract_NegativeDiscount(t *testing.T) {
@@ -46,7 +45,6 @@ func TestEnterpriseContract_NegativeDiscount(t *testing.T) {
 		t, ValidateEnterpriseContract(
 			c,
 		))
-
 }
 
 func TestEnterpriseContract_DiscountOver100(t *testing.T) {
@@ -64,7 +62,6 @@ func TestEnterpriseContract_DiscountOver100(t *testing.T) {
 		t, ValidateEnterpriseContract(
 			c,
 		))
-
 }
 
 func TestEnterpriseContract_ZeroLengthContract(t *testing.T) {
@@ -82,7 +79,6 @@ func TestEnterpriseContract_ZeroLengthContract(t *testing.T) {
 		t, ValidateEnterpriseContract(
 			c,
 		))
-
 }
 
 func TestEnterpriseContract_InvalidBillingCadences(t *testing.T) {
@@ -100,7 +96,6 @@ func TestEnterpriseContract_InvalidBillingCadences(t *testing.T) {
 		assert.Error(t,
 			ValidateEnterpriseContract(c),
 		)
-
 	}
 }
 
@@ -110,7 +105,6 @@ func TestApplyOverageDiscount_NegativeCost(t *testing.T) {
 	t.Parallel()
 	got := ApplyOverageDiscount(-1_000_000, 10)
 	assert.EqualValues(t, 0, got)
-
 }
 
 func TestApplyOverageDiscount_OverflowCost(t *testing.T) {
@@ -122,7 +116,6 @@ func TestApplyOverageDiscount_OverflowCost(t *testing.T) {
 
 	// The exact value depends on overflow behavior, but it should not be negative
 	// or panic. With int64 arithmetic: MaxInt64 * 90 / 100 is within bounds.
-
 }
 
 // EnterpriseTierForPrice adversarial tests.
@@ -132,7 +125,6 @@ func TestEnterpriseTierForPrice_NullBytes(t *testing.T) {
 	_, ok := EnterpriseTierForPrice("price\x00id")
 	assert.False(t,
 		ok)
-
 }
 
 func TestEnterpriseTierForPrice_VeryLongString(t *testing.T) {
@@ -141,7 +133,6 @@ func TestEnterpriseTierForPrice_VeryLongString(t *testing.T) {
 	_, ok := EnterpriseTierForPrice(long)
 	assert.False(t,
 		ok)
-
 }
 
 func TestEnterpriseTierForPrice_SQLInjection(t *testing.T) {
@@ -150,7 +141,6 @@ func TestEnterpriseTierForPrice_SQLInjection(t *testing.T) {
 	_, ok := EnterpriseTierForPrice(malicious)
 	assert.False(t,
 		ok)
-
 }
 
 // IsDowngrade enterprise transitions.
@@ -161,7 +151,6 @@ func TestIsDowngrade_EnterpriseToScale(t *testing.T) {
 		IsDowngrade(domain.PlanEnterprise,
 
 			domain.PlanScale))
-
 }
 
 func TestIsDowngrade_ScaleToEnterprise(t *testing.T) {
@@ -170,7 +159,6 @@ func TestIsDowngrade_ScaleToEnterprise(t *testing.T) {
 		IsDowngrade(domain.PlanScale,
 
 			domain.PlanEnterprise))
-
 }
 
 func TestIsDowngrade_EnterpriseToEnterprise(t *testing.T) {
@@ -181,7 +169,6 @@ func TestIsDowngrade_EnterpriseToEnterprise(t *testing.T) {
 			domain.PlanEnterprise,
 		),
 	)
-
 }
 
 func TestIsDowngrade_EnterpriseToFree(t *testing.T) {
@@ -190,7 +177,6 @@ func TestIsDowngrade_EnterpriseToFree(t *testing.T) {
 		IsDowngrade(domain.PlanEnterprise,
 
 			domain.PlanFree))
-
 }
 
 // SLA credit boundary tests.
@@ -215,24 +201,21 @@ func TestCalculateSLACredit_ExactBoundaries(t *testing.T) {
 		assert.Equal(t,
 			tt.want,
 			got)
-
 	}
 }
 
 func TestCalculateSLACredit_NegativeUptime(t *testing.T) {
 	t.Parallel()
 	got := CalculateSLACredit(-10.0, EnterpriseStarterSLAPct)
-	assert.EqualValues(t, 50, got)
-
+	assert.Equal(t, 50, got)
 }
 
 func TestCalculateSLACredit_NaNUptimeDoesNotGrantCredit(t *testing.T) {
 	t.Parallel()
-	require.EqualValues(t, 0, CalculateSLACredit(math.
+	require.Equal(t, 0, CalculateSLACredit(math.
 		NaN(), EnterpriseStarterSLAPct,
 	))
-	require.EqualValues(t, 0, CalculateSLACredit(99.0,
+	require.Equal(t, 0, CalculateSLACredit(99.0,
 
 		math.NaN()))
-
 }

@@ -127,7 +127,6 @@ func TestTenantIsolation_ListWorkflowRuns_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_ListWorkflowRuns_CrossProject(t *testing.T) {
@@ -140,7 +139,6 @@ func TestTenantIsolation_ListWorkflowRuns_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleGetWorkflowRun tenant isolation.
@@ -155,7 +153,6 @@ func TestTenantIsolation_GetWorkflowRun_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRun_CrossProject(t *testing.T) {
@@ -168,7 +165,6 @@ func TestTenantIsolation_GetWorkflowRun_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleCancelWorkflowRun tenant isolation.
@@ -183,7 +179,6 @@ func TestTenantIsolation_CancelWorkflowRun_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_CancelWorkflowRun_CrossProject(t *testing.T) {
@@ -196,7 +191,6 @@ func TestTenantIsolation_CancelWorkflowRun_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handlePauseWorkflowRun tenant isolation.
@@ -211,7 +205,6 @@ func TestTenantIsolation_PauseWorkflowRun_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_PauseWorkflowRun_CrossProject(t *testing.T) {
@@ -224,7 +217,6 @@ func TestTenantIsolation_PauseWorkflowRun_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleResumeWorkflowRun tenant isolation.
@@ -239,7 +231,6 @@ func TestTenantIsolation_ResumeWorkflowRun_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_ResumeWorkflowRun_CrossProject(t *testing.T) {
@@ -252,7 +243,6 @@ func TestTenantIsolation_ResumeWorkflowRun_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleGetWorkflowRunLabels tenant isolation.
@@ -267,7 +257,6 @@ func TestTenantIsolation_GetWorkflowRunLabels_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRunLabels_CrossProject(t *testing.T) {
@@ -280,7 +269,6 @@ func TestTenantIsolation_GetWorkflowRunLabels_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleListWorkflowStepRuns tenant isolation.
@@ -295,7 +283,6 @@ func TestTenantIsolation_ListWorkflowStepRuns_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_ListWorkflowStepRuns_CrossProject(t *testing.T) {
@@ -308,7 +295,6 @@ func TestTenantIsolation_ListWorkflowStepRuns_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleGetWorkflowRunGraph tenant isolation.
@@ -323,7 +309,6 @@ func TestTenantIsolation_GetWorkflowRunGraph_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRunGraph_CrossProject(t *testing.T) {
@@ -336,7 +321,6 @@ func TestTenantIsolation_GetWorkflowRunGraph_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleGetWorkflowRunExplain tenant isolation.
@@ -351,7 +335,6 @@ func TestTenantIsolation_GetWorkflowRunExplain_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRunExplain_CrossProject(t *testing.T) {
@@ -364,7 +347,6 @@ func TestTenantIsolation_GetWorkflowRunExplain_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleGetWorkflowRunTimeline tenant isolation.
@@ -379,7 +361,6 @@ func TestTenantIsolation_GetWorkflowRunTimeline_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRunTimeline_CrossProject(t *testing.T) {
@@ -392,7 +373,6 @@ func TestTenantIsolation_GetWorkflowRunTimeline_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleRetryWorkflowRun tenant isolation.
@@ -407,7 +387,6 @@ func TestTenantIsolation_RetryWorkflowRun_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 
 		w.Code)
-
 }
 
 func TestTenantIsolation_RetryWorkflowRun_CrossProject(t *testing.T) {
@@ -420,7 +399,6 @@ func TestTenantIsolation_RetryWorkflowRun_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleRetryWorkflowStep tenant isolation.
@@ -435,7 +413,6 @@ func TestTenantIsolation_RetryWorkflowStep_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_RetryWorkflowStep_CrossProject(t *testing.T) {
@@ -448,7 +425,6 @@ func TestTenantIsolation_RetryWorkflowStep_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleReplayWorkflowSubtree tenant isolation.
@@ -463,7 +439,6 @@ func TestTenantIsolation_ReplayWorkflowSubtree_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_ReplayWorkflowSubtree_CrossProject(t *testing.T) {
@@ -476,7 +451,6 @@ func TestTenantIsolation_ReplayWorkflowSubtree_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleForceCompleteWorkflowStep tenant isolation.
@@ -491,7 +465,6 @@ func TestTenantIsolation_ForceCompleteWorkflowStep_OwnProject(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestTenantIsolation_ForceCompleteWorkflowStep_CrossProject(t *testing.T) {
@@ -504,7 +477,6 @@ func TestTenantIsolation_ForceCompleteWorkflowStep_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // handleBulkReplayWorkflowRuns tenant isolation.
@@ -525,8 +497,7 @@ func TestTenantIsolation_BulkReplayWorkflowRuns_OwnProject(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 1, int(resp["replayed"].(float64)))
-
+	require.Equal(t, 1, int(resp["replayed"].(float64)))
 }
 
 func TestTenantIsolation_BulkReplayWorkflowRuns_CrossProject(t *testing.T) {
@@ -546,8 +517,7 @@ func TestTenantIsolation_BulkReplayWorkflowRuns_CrossProject(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, int(resp["replayed"].(float64)))
+	require.Equal(t, 0, int(resp["replayed"].(float64)))
 
 	// Cross-project run should NOT be replayed.
-
 }

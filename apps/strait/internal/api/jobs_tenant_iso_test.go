@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -38,7 +37,6 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossProject(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 // TestTenantIso_Jobs_GetJobHealth_RejectsCrossEnv verifies that an
@@ -66,7 +64,6 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossEnv(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusNotFound,
 		))
-
 }
 
 // TestTenantIso_Jobs_BatchEnable_RejectsForeignIDs ensures that the project_id
@@ -93,7 +90,6 @@ func TestTenantIso_Jobs_BatchEnable_RejectsForeignIDs(t *testing.T) {
 	require.Equal(t, "proj-aaa",
 		capturedProjectID,
 	)
-
 }
 
 // TestTenantIso_Jobs_BatchEnable_MixedIDs_OnlyOwnUpdated checks that when a
@@ -122,7 +118,6 @@ func TestTenantIso_Jobs_BatchEnable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 	require.EqualValues(t, 1, out.
 		Body.Updated,
 	)
-
 }
 
 // TestTenantIso_Jobs_BatchDisable_RejectsForeignIDs mirrors the enable case.
@@ -143,7 +138,6 @@ func TestTenantIso_Jobs_BatchDisable_RejectsForeignIDs(t *testing.T) {
 	require.EqualValues(t, 0, out.
 		Body.Updated,
 	)
-
 }
 
 // TestTenantIso_Jobs_BatchDisable_MixedIDs_OnlyOwnUpdated symmetric to enable.
@@ -166,7 +160,6 @@ func TestTenantIso_Jobs_BatchDisable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 	require.EqualValues(t, 1, out.
 		Body.Updated,
 	)
-
 }
 
 // TestTenantIso_Jobs_BatchEnable_EmptyProjectCtx_Rejected ensures that a
@@ -190,7 +183,6 @@ func TestTenantIso_Jobs_BatchEnable_EmptyProjectCtx_Rejected(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusBadRequest,
 		))
-
 }
 
 // TestTenantIso_Jobs_BatchDisable_EmptyProjectCtx_Rejected symmetric to enable.
@@ -211,7 +203,6 @@ func TestTenantIso_Jobs_BatchDisable_EmptyProjectCtx_Rejected(t *testing.T) {
 		t, isHumaStatusError(err,
 			http.StatusBadRequest,
 		))
-
 }
 
 // TestTenantIso_Jobs_BatchCreate_RejectsForeignProjectID checks that a
@@ -246,11 +237,10 @@ func TestTenantIso_Jobs_BatchCreate_RejectsForeignProjectID(t *testing.T) {
 	// The handler returns rawStatusError (400) when no items succeed.
 
 	var rse *rawStatusError
-	require.True(
-		t, errors.As(err, &rse))
+	require.ErrorAs(
+		t, err, &rse)
 	require.Equal(t, http.StatusBadRequest,
 
 		rse.status,
 	)
-
 }

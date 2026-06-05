@@ -27,7 +27,6 @@ func TestChain_Empty(t *testing.T) {
 	wrapped(context.Background(), &ExecutionContext{})
 	require.True(t,
 		called)
-
 }
 
 func TestChain_Single(t *testing.T) {
@@ -55,7 +54,6 @@ func TestChain_Single(t *testing.T) {
 	for i := range expected {
 		require.Equal(t,
 			expected[i], order[i])
-
 	}
 }
 
@@ -86,7 +84,6 @@ func TestChain_Multiple_OnionOrder(t *testing.T) {
 	for i := range expected {
 		require.Equal(t,
 			expected[i], order[i])
-
 	}
 }
 
@@ -121,7 +118,6 @@ func TestChain_ShortCircuit(t *testing.T) {
 	)
 	require.False(t,
 		cReached)
-
 }
 
 type ctxKey string
@@ -146,7 +142,6 @@ func TestChain_ContextPropagation(t *testing.T) {
 		"injected",
 		gotValue,
 	)
-
 }
 
 func TestChain_ExecutionContextModification(t *testing.T) {
@@ -171,7 +166,6 @@ func TestChain_ExecutionContextModification(t *testing.T) {
 		injectedJob,
 		gotJob,
 	)
-
 }
 
 // These tests share a global TracerProvider, so they run sequentially under a
@@ -208,7 +202,6 @@ func TestTracingMiddleware(t *testing.T) {
 			"executor.Execute",
 
 			spans[0].Name)
-
 	})
 
 	t.Run("SetsRunAttributes", func(t *testing.T) {
@@ -258,7 +251,6 @@ func TestTracingMiddleware(t *testing.T) {
 					"job.endpoint" ||
 					attr.Key == "job.version",
 			)
-
 		}
 	})
 
@@ -284,7 +276,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("NilMetadata_NoPanic", func(t *testing.T) {
@@ -298,7 +289,6 @@ func TestTracingMiddleware(t *testing.T) {
 		spans := exporter.GetSpans()
 		require.Len(t, spans,
 			1)
-
 	})
 
 	t.Run("ExtractsTraceParentAndState", func(t *testing.T) {
@@ -340,7 +330,6 @@ func TestTracingMiddleware(t *testing.T) {
 		require.Equal(t,
 			traceState,
 			gotTS)
-
 	})
 
 	t.Run("EmptyTraceParent_Ignored", func(t *testing.T) {
@@ -364,7 +353,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("MalformedTraceParent_Graceful", func(t *testing.T) {
@@ -387,7 +375,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("AllZerosTraceID_Ignored", func(t *testing.T) {
@@ -412,7 +399,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("SampledFlagZero_StillPropagates", func(t *testing.T) {
@@ -444,7 +430,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("OnlyTraceState_NoParent", func(t *testing.T) {
@@ -468,7 +453,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 
 	t.Run("MetadataWithNonTraceKeys", func(t *testing.T) {
@@ -495,7 +479,6 @@ func TestTracingMiddleware(t *testing.T) {
 
 			gotTraceID,
 		)
-
 	})
 }
 

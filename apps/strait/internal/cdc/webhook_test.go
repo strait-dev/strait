@@ -96,7 +96,6 @@ func TestWebhookReceiver_DispatchesByTable(t *testing.T) {
 	)
 	require.Len(t, h.handled,
 		1)
-
 }
 
 func TestWebhookReceiver_UnknownTable_Returns200(t *testing.T) {
@@ -113,7 +112,6 @@ func TestWebhookReceiver_UnknownTable_Returns200(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK, rr.Code,
 	)
-
 }
 
 func TestWebhookReceiver_InvalidJSON_Returns400(t *testing.T) {
@@ -126,7 +124,6 @@ func TestWebhookReceiver_InvalidJSON_Returns400(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		rr.Code)
-
 }
 
 func TestWebhookReceiver_HandlerError_Returns500(t *testing.T) {
@@ -146,7 +143,6 @@ func TestWebhookReceiver_HandlerError_Returns500(t *testing.T) {
 		StatusInternalServerError,
 		rr.Code,
 	)
-
 }
 
 func TestWebhookReceiver_CollectAndPublish(t *testing.T) {
@@ -177,7 +173,6 @@ func TestWebhookReceiver_CollectAndPublish(t *testing.T) {
 	assert.Equal(t, "cdc:project:p1:job_runs",
 
 		pub.calls[0].channel)
-
 }
 
 func TestWebhookReceiver_PublishFailureStillAcksProjection(t *testing.T) {
@@ -207,7 +202,6 @@ func TestWebhookReceiver_PublishFailureStillAcksProjection(t *testing.T) {
 		1)
 	require.Len(t, pub.calls,
 		1)
-
 }
 
 func TestWebhookReceiver_PublishFailureStillRetriesAdditionalHandlerFailure(t *testing.T) {
@@ -238,7 +232,6 @@ func TestWebhookReceiver_PublishFailureStillRetriesAdditionalHandlerFailure(t *t
 	)
 	require.Len(t, sideEffect.
 		handled, 1)
-
 }
 
 func TestDeepSecWebhookReceiver_RejectsNonPost(t *testing.T) {
@@ -251,7 +244,6 @@ func TestDeepSecWebhookReceiver_RejectsNonPost(t *testing.T) {
 	require.Equal(t, http.
 		StatusMethodNotAllowed,
 		rr.Code)
-
 }
 
 func TestDeepSecWebhookReceiver_RejectsOversizedBody(t *testing.T) {
@@ -265,7 +257,6 @@ func TestDeepSecWebhookReceiver_RejectsOversizedBody(t *testing.T) {
 		StatusRequestEntityTooLarge,
 		rr.
 			Code)
-
 }
 
 func TestDeepSecWebhookReceiver_RejectsInvalidAction(t *testing.T) {
@@ -281,7 +272,6 @@ func TestDeepSecWebhookReceiver_RejectsInvalidAction(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		rr.Code)
-
 }
 
 func TestDeepSecWebhookReceiver_RejectsReadAndEmptyActions(t *testing.T) {
@@ -306,7 +296,6 @@ func TestDeepSecWebhookReceiver_RejectsReadAndEmptyActions(t *testing.T) {
 			require.Equal(t, http.
 				StatusBadRequest,
 				rr.Code)
-
 		})
 	}
 }
@@ -350,7 +339,6 @@ func TestDeepSecWebhookReceiver_VerifiesHMACSignature(t *testing.T) {
 	)
 	require.Len(t, h.handled,
 		1)
-
 }
 
 func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) {
@@ -372,11 +360,9 @@ func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) 
 		require.Equal(t, http.
 			StatusOK, rr.Code,
 		)
-
 	}
 	require.Len(t, h.handled,
 		1)
-
 }
 
 func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *testing.T) {
@@ -429,7 +415,6 @@ func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *t
 	}
 	require.EqualValues(t, 1, h.
 		count.Load())
-
 }
 
 func TestDeepSecWebhookReceiver_DoesNotMarkFailedDeliverySeen(t *testing.T) {
@@ -460,7 +445,6 @@ func TestDeepSecWebhookReceiver_DoesNotMarkFailedDeliverySeen(t *testing.T) {
 	)
 	require.Len(t, h.handled,
 		2)
-
 }
 
 func TestDeepSecWebhookReceiver_AdditionalHandlerFailureRetriesDelivery(t *testing.T) {
@@ -483,5 +467,4 @@ func TestDeepSecWebhookReceiver_AdditionalHandlerFailureRetriesDelivery(t *testi
 		StatusInternalServerError,
 		rr.Code,
 	)
-
 }

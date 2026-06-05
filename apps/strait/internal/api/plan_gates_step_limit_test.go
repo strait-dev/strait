@@ -75,7 +75,6 @@ func TestCheckWorkflowStepLimit_TierBoundaries(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-
 		})
 	}
 }
@@ -89,7 +88,7 @@ func TestCheckWorkflowStepLimit_UnlimitedTiers(t *testing.T) {
 			t.Parallel()
 
 			limits := billing.GetPlanLimits(tier)
-			require.EqualValues(t, -1, limits.
+			require.Equal(t, -1, limits.
 				MaxWorkflowDAGSteps,
 			)
 
@@ -98,7 +97,6 @@ func TestCheckWorkflowStepLimit_UnlimitedTiers(t *testing.T) {
 				100))
 
 			// A step count well above any tiered limit must be accepted.
-
 		})
 	}
 }
@@ -137,11 +135,9 @@ func TestCheckWorkflowStepLimit_CloudEmptyOrgFailsClosed(t *testing.T) {
 
 	err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.
-			Error(), "billing enforcement unavailable",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
@@ -152,7 +148,6 @@ func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 		billingEnforcer: nil,
 	}
 	require.NoError(t, s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000))
-
 }
 
 func TestCheckWorkflowStepLimit_CommunityEditionFailsOpen(t *testing.T) {
@@ -173,7 +168,6 @@ func TestCheckWorkflowStepLimit_CommunityEditionFailsOpen(t *testing.T) {
 		1000))
 
 	// Far above the free-plan cap; community edition must allow it.
-
 }
 
 func TestCheckWorkflowStepLimit_ErrorMessageMentionsPlanAndCounts(t *testing.T) {
@@ -190,13 +184,8 @@ func TestCheckWorkflowStepLimit_ErrorMessageMentionsPlanAndCounts(t *testing.T) 
 
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	msg := err.Error()
-	assert.True(t,
-		strings.Contains(msg,
-
-			limits.DisplayName))
-	assert.True(t,
-		strings.Contains(msg,
-
-			"/settings/billing"))
-
+	assert.Contains(t,
+		msg, limits.DisplayName)
+	assert.Contains(t,
+		msg, "/settings/billing")
 }

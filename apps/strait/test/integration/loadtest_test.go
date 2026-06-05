@@ -215,7 +215,6 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 		triggered*90/
 			100)
 	assert.LessOrEqual(t, statusCounts["timeout"], 0)
-
 }
 
 func TestLoadTestRapidFireSameJob(t *testing.T) {
@@ -236,7 +235,7 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 3,
 	})
-	require.EqualValues(t, 201, resp.
+	require.Equal(t, 201, resp.
 		StatusCode,
 	)
 
@@ -324,7 +323,6 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 		len(runIDs)*
 			85/100,
 	)
-
 }
 
 func TestLoadTestWorkflowFanOut(t *testing.T) {
@@ -348,7 +346,7 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 			"timeout_secs": 30,
 			"max_attempts": 1,
 		})
-		require.EqualValues(t, 201, resp.
+		require.Equal(t, 201, resp.
 			StatusCode,
 		)
 
@@ -373,7 +371,7 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 			{"step_ref": "merge", "step_type": "job", "job_id": jobIDs[0], "depends_on": []string{"fan-a", "fan-b", "fan-c"}},
 		},
 	})
-	require.EqualValues(t, 201, resp.
+	require.Equal(t, 201, resp.
 		StatusCode,
 	)
 
@@ -452,7 +450,6 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 		len(wfRunIDs)*
 			80/
 			100)
-
 }
 
 func TestLoadTestAPIEndpointStress(t *testing.T) {
@@ -575,7 +572,6 @@ func TestLoadTestAPIEndpointStress(t *testing.T) {
 		assert.LessOrEqual(t, r.latP99,
 			10*
 				time.Second)
-
 	}
 }
 

@@ -61,7 +61,6 @@ func TestAuditSchemaGeneratedIsFresh(t *testing.T) {
 	assert.True(t, bytes.Equal(gBytes,
 
 		cBytes))
-
 }
 
 // findRepoRoot walks up from the test's cwd looking for go.mod. Tests

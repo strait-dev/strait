@@ -72,7 +72,6 @@ func TestPoolBackpressureSampler_NoDeltaAdmits(t *testing.T) {
 	require.False(t, s.Shedding())
 
 	// counters unchanged → no signal
-
 }
 
 // Avg wait below threshold keeps shedding false; at or above the threshold
@@ -97,7 +96,6 @@ func TestPoolBackpressureSampler_ThresholdGate(t *testing.T) {
 	ps.set(20, 700*time.Millisecond)
 	s.sampleOnce()
 	require.False(t, s.Shedding())
-
 }
 
 // All concurrent readers must observe the same verdict — this is the property
@@ -128,7 +126,6 @@ func TestPoolBackpressureSampler_ConcurrentReadsAreConsistent(t *testing.T) {
 	wg.Wait()
 	require.EqualValues(t, fanout,
 		sheds.Load())
-
 }
 
 // Stop must release the goroutine and not block on a second call.
@@ -187,7 +184,6 @@ func TestShouldApplyDBBackpressure_AllConcurrentRequestsAgreeUnderPressure(t *te
 	wg.Wait()
 	require.EqualValues(t, 0, admitted.
 		Load())
-
 }
 
 // Occupancy >90% should shed regardless of sampler verdict — the snapshot
@@ -200,5 +196,4 @@ func TestShouldApplyDBBackpressure_HighOccupancyShortCircuits(t *testing.T) {
 	require.True(t, srv.shouldApplyDBBackpressure())
 
 	// Sampler is in admit state (no data) but occupancy alone should shed.
-
 }

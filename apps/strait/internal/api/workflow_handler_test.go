@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -160,8 +159,7 @@ func TestHandleCreateWorkflow_SuccessWithSteps(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 2, createStepCalls)
-
+	require.Equal(t, 2, createStepCalls)
 }
 
 func TestHandleCreateWorkflow_MissingFields(t *testing.T) {
@@ -172,7 +170,6 @@ func TestHandleCreateWorkflow_MissingFields(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
@@ -184,7 +181,6 @@ func TestHandleCreateWorkflow_InvalidStep(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateWorkflow_RejectsUnknownStepType(t *testing.T) {
@@ -204,11 +200,9 @@ func TestHandleCreateWorkflow_RejectsUnknownStepType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "invalid step_type",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "invalid step_type")
 }
 
 func TestHandleCreateWorkflow_CrossProjectBlockedBeforeCreate(t *testing.T) {
@@ -235,7 +229,6 @@ func TestHandleCreateWorkflow_CrossProjectBlockedBeforeCreate(t *testing.T) {
 			StatusNotFound,
 		),
 	)
-
 }
 
 func TestHandleCreateWorkflow_RejectsCrossProjectJobStep(t *testing.T) {
@@ -265,7 +258,6 @@ func TestHandleCreateWorkflow_RejectsCrossProjectJobStep(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusBadRequest,
 		))
-
 }
 
 func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
@@ -277,11 +269,9 @@ func TestHandleCreateWorkflow_InvalidResourceClass(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "resource_class",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "resource_class")
 }
 
 func TestHandleCreateWorkflow_PolicyViolation(t *testing.T) {
@@ -306,12 +296,10 @@ func TestHandleCreateWorkflow_PolicyViolation(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "max_fan_out",
-		))
+	require.Contains(
+		t, w.Body.
+			String(), "max_fan_out")
 	require.False(t, createCalled)
-
 }
 
 func TestHandleGetWorkflow_FoundWithSteps(t *testing.T) {
@@ -330,7 +318,6 @@ func TestHandleGetWorkflow_FoundWithSteps(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetWorkflow_NotFound(t *testing.T) {
@@ -346,7 +333,6 @@ func TestHandleGetWorkflow_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleListWorkflows_Success(t *testing.T) {
@@ -362,7 +348,6 @@ func TestHandleListWorkflows_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows", "", "proj-1"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleListWorkflows_MissingProjectID(t *testing.T) {
@@ -373,7 +358,6 @@ func TestHandleListWorkflows_MissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T) {
@@ -401,7 +385,6 @@ func TestHandleCreateWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.
 
 		w.Code)
 	require.False(t, createCalled)
-
 }
 
 func TestHandleCloneWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T) {
@@ -434,7 +417,6 @@ func TestHandleCloneWorkflow_ScheduledWorkflowEnforcesScheduleLimit(t *testing.T
 
 		w.Code)
 	require.False(t, createCalled)
-
 }
 
 func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
@@ -481,8 +463,7 @@ func TestHandleUpdateWorkflow_SuccessWithStepReplacement(t *testing.T) {
 		w.Code)
 	require.True(
 		t, deleteCalled)
-	require.EqualValues(t, 1, createStepCalls)
-
+	require.Equal(t, 1, createStepCalls)
 }
 
 func TestHandleUpdateWorkflow_RejectsUnknownStepType(t *testing.T) {
@@ -517,11 +498,9 @@ func TestHandleUpdateWorkflow_RejectsUnknownStepType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "invalid step_type",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "invalid step_type")
 }
 
 func TestHandleUpdateWorkflow_AddingCronEnforcesScheduleLimit(t *testing.T) {
@@ -551,7 +530,6 @@ func TestHandleUpdateWorkflow_AddingCronEnforcesScheduleLimit(t *testing.T) {
 
 		w.Code)
 	require.False(t, updateCalled)
-
 }
 
 func TestHandleUpdateWorkflow_PolicyViolation(t *testing.T) {
@@ -594,15 +572,13 @@ func TestHandleUpdateWorkflow_PolicyViolation(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "max_fan_out",
-		))
+	require.Contains(
+		t, w.Body.
+			String(), "max_fan_out")
 	require.False(t, updateCalled)
 	require.False(t, deleteCalled ||
 		createStepCalled,
 	)
-
 }
 
 func TestHandleUpdateWorkflow_InvalidResourceClass(t *testing.T) {
@@ -619,11 +595,9 @@ func TestHandleUpdateWorkflow_InvalidResourceClass(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "resource_class",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "resource_class")
 }
 
 func TestHandleUpdateWorkflow_NotFound(t *testing.T) {
@@ -640,7 +614,6 @@ func TestHandleUpdateWorkflow_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T) {
@@ -687,7 +660,7 @@ func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T
 	count, ok := resp["active_runs_on_previous_version"]
 	require.True(
 		t, ok)
-	require.EqualValues(t, 5, int(count.(float64)))
+	require.Equal(t, 5, int(count.(float64)))
 	require.Equal(t, "v-old", resp["previous_version_id"])
 	require.True(
 		t, auditCalled)
@@ -696,7 +669,6 @@ func TestHandleUpdateWorkflow_ActiveRunsReportedWithoutBreakingFlag(t *testing.T
 	// even without a breaking_change flag. The breaking-change path still
 	// emits workflow.updated_breaking; this asserts the default path emits
 	// the generic action.
-
 }
 
 func TestHandleUpdateWorkflow_BreakingChangeEmitsAudit(t *testing.T) {
@@ -735,14 +707,13 @@ func TestHandleUpdateWorkflow_BreakingChangeEmitsAudit(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp))
-	require.EqualValues(t, 5, int(resp["active_runs_on_previous_version"].(float64)))
+	require.Equal(t, 5, int(resp["active_runs_on_previous_version"].(float64)))
 	require.True(
 		t, auditCalled)
 	require.Equal(t, "workflow.updated_breaking",
 
 		capturedAction,
 	)
-
 }
 
 func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T) {
@@ -779,7 +750,7 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp))
-	require.EqualValues(t, 5, int(resp["active_runs_on_previous_version"].(float64)))
+	require.Equal(t, 5, int(resp["active_runs_on_previous_version"].(float64)))
 	require.Equal(t, "workflow.updated",
 		capturedAction,
 	)
@@ -787,7 +758,6 @@ func TestHandleUpdateWorkflow_BreakingChangeFalseEmitsGenericAudit(t *testing.T)
 	// breaking_change=false still emits workflow.updated (the generic
 	// action). The breaking variant is only emitted when breaking_change=true
 	// AND there are active runs on the previous version.
-
 }
 
 func TestHandleUpdateWorkflow_NoActiveRunsEmitsGenericAudit(t *testing.T) {
@@ -837,7 +807,6 @@ func TestHandleUpdateWorkflow_NoActiveRunsEmitsGenericAudit(t *testing.T) {
 	// Even with breaking_change=true, when there are zero active runs on the
 	// previous version the handler falls back to the generic workflow.updated
 	// action rather than workflow.updated_breaking.
-
 }
 
 func TestHandleUpdateWorkflow_FirstVersionSkipsActiveCheck(t *testing.T) {
@@ -878,7 +847,6 @@ func TestHandleUpdateWorkflow_FirstVersionSkipsActiveCheck(t *testing.T) {
 			"expected no active_runs_on_previous_version for first version")
 	}
 	require.False(t, countCalled)
-
 }
 
 func TestHandleUpdateWorkflow_CountActiveRunsError(t *testing.T) {
@@ -948,9 +916,8 @@ func TestHandleGetActiveVersions_ReturnsVersionBreakdown(t *testing.T) {
 
 	first := versions[0].(map[string]any)
 	require.Equal(t, "v-2", first["version_id"])
-	require.EqualValues(t, 9, int(first["total"].(float64)))
-	require.EqualValues(t, 5, int(first["running"].(float64)))
-
+	require.Equal(t, 9, int(first["total"].(float64)))
+	require.Equal(t, 5, int(first["running"].(float64)))
 }
 
 func TestHandleGetActiveVersions_Empty(t *testing.T) {
@@ -975,9 +942,8 @@ func TestHandleGetActiveVersions_Empty(t *testing.T) {
 	versions, ok := resp["versions"].([]any)
 	require.True(
 		t, ok)
-	require.Len(t,
-		versions, 0)
-
+	require.Empty(t,
+		versions)
 }
 
 func TestHandleGetActiveVersions_StoreError(t *testing.T) {
@@ -994,7 +960,6 @@ func TestHandleGetActiveVersions_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleDeleteWorkflow(t *testing.T) {
@@ -1014,7 +979,6 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusNoContent,
 			w.
 				Code)
-
 	})
 
 	t.Run("error", func(t *testing.T) {
@@ -1032,7 +996,6 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 
 	t.Run("active_runs_returns_409", func(t *testing.T) {
@@ -1049,7 +1012,6 @@ func TestHandleDeleteWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 }
 
@@ -1096,9 +1058,8 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		)
 		require.True(
 			t, labelsSaved)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 
 	t.Run("workflow not found", func(t *testing.T) {
@@ -1120,7 +1081,6 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("engine unavailable", func(t *testing.T) {
@@ -1131,7 +1091,6 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("workflow disabled", func(t *testing.T) {
@@ -1156,7 +1115,6 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 			w.
 				Code)
 		require.False(t, triggerCalled)
-
 	})
 	t.Run("policy violation blocks trigger", func(t *testing.T) {
 		t.Parallel()
@@ -1189,12 +1147,10 @@ func TestHandleTriggerWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "max_fan_out",
-			))
+		require.Contains(
+			t, w.Body.
+				String(), "max_fan_out")
 		require.False(t, triggerCalled)
-
 	})
 }
 
@@ -1222,7 +1178,6 @@ func TestHandleListWorkflowRuns(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/runs?limit=10", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("invalid params", func(t *testing.T) {
@@ -1238,7 +1193,6 @@ func TestHandleListWorkflowRuns(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 }
 
@@ -1269,7 +1223,6 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?status=running&limit=20", "", "proj-1"))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("missing project id", func(t *testing.T) {
@@ -1280,7 +1233,6 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("invalid status", func(t *testing.T) {
@@ -1299,7 +1251,6 @@ func TestHandleListWorkflowRunsByProject(t *testing.T) {
 
 			w.Code)
 		require.False(t, called)
-
 	})
 }
 
@@ -1318,7 +1269,6 @@ func TestHandleGetWorkflowRun(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -1335,7 +1285,6 @@ func TestHandleGetWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 }
 
@@ -1372,9 +1321,8 @@ func TestHandlePauseWorkflowRun(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 }
 
@@ -1414,9 +1362,8 @@ func TestHandleResumeWorkflowRun(t *testing.T) {
 			w.Code)
 		require.True(
 			t, resumeCalled)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 }
 
@@ -1444,7 +1391,6 @@ func TestHandleGetWorkflowRunLabels(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	require.Equal(t, "test", resp.
 		Labels["env"])
-
 }
 
 func TestHandleDryRunWorkflow(t *testing.T) {
@@ -1463,7 +1409,6 @@ func TestHandleDryRunWorkflow(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-1/dry-run", body))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("cycle", func(t *testing.T) {
@@ -1474,7 +1419,6 @@ func TestHandleDryRunWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 }
 
@@ -1510,7 +1454,6 @@ func TestHandleWorkflowPlan(t *testing.T) {
 	roots, ok := resp["roots"].([]any)
 	require.False(t, !ok || len(roots) != 1 ||
 		roots[0] != "a")
-
 }
 
 func TestHandleWorkflowGraph(t *testing.T) {
@@ -1539,7 +1482,6 @@ func TestHandleWorkflowGraph(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/graph?format=dot", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestWorkflowTopologyEndpoints_RejectCrossProjectBeforeLoadingSteps(t *testing.T) {
@@ -1576,7 +1518,6 @@ func TestWorkflowTopologyEndpoints_RejectCrossProjectBeforeLoadingSteps(t *testi
 			StatusNotFound,
 		),
 	)
-
 }
 
 func TestHandleCancelWorkflowRun(t *testing.T) {
@@ -1631,9 +1572,8 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 			t, stepsCanceled)
 		require.True(
 			t, jobsCanceled)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -1649,7 +1589,6 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("already terminal", func(t *testing.T) {
@@ -1665,7 +1604,6 @@ func TestHandleCancelWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 }
 
@@ -1729,9 +1667,8 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 			w.Code)
 		require.True(
 			t, approved)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 
 	t.Run("success with same project context", func(t *testing.T) {
@@ -1773,7 +1710,6 @@ func TestHandleApproveWorkflowStep(t *testing.T) {
 			w.Code)
 		require.True(
 			t, approved)
-
 	})
 }
 
@@ -1830,9 +1766,8 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 			w.Code)
 		require.True(
 			t, skipped)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 
 	t.Run("callback unavailable", func(t *testing.T) {
@@ -1843,7 +1778,6 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("callback error", func(t *testing.T) {
@@ -1865,7 +1799,6 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("success with same project context", func(t *testing.T) {
@@ -1902,7 +1835,6 @@ func TestHandleSkipWorkflowStep(t *testing.T) {
 			w.Code)
 		require.True(
 			t, skipped)
-
 	})
 }
 
@@ -1960,9 +1892,8 @@ func TestHandleForceCompleteWorkflowStep(t *testing.T) {
 			w.Code)
 		require.True(
 			t, forced)
-		require.EqualValues(t, 1, published["workflow-run:wr-1"])
-		require.EqualValues(t, 1, published["workflow:wf-1:runs"])
-
+		require.Equal(t, 1, published["workflow-run:wr-1"])
+		require.Equal(t, 1, published["workflow:wf-1:runs"])
 	})
 
 	t.Run("callback unavailable", func(t *testing.T) {
@@ -1973,7 +1904,6 @@ func TestHandleForceCompleteWorkflowStep(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("callback error", func(t *testing.T) {
@@ -1995,7 +1925,6 @@ func TestHandleForceCompleteWorkflowStep(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 }
 
@@ -2019,7 +1948,6 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/steps", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("store error", func(t *testing.T) {
@@ -2038,7 +1966,6 @@ func TestHandleListWorkflowStepRuns(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2065,11 +1992,9 @@ func TestHandleGetWorkflowRunGraph(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/graph", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "\"runnable\":[\"b\"]",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "\"runnable\":[\"b\"]")
 }
 
 func TestHandleGetWorkflowRunGraph_CriticalPathEstimate(t *testing.T) {
@@ -2124,7 +2049,6 @@ func TestHandleGetWorkflowRunGraph_CriticalPathEstimate(t *testing.T) {
 		remainingMS >
 			22_000,
 	)
-
 }
 
 func TestHandleGetWorkflowRunExplain(t *testing.T) {
@@ -2150,11 +2074,9 @@ func TestHandleGetWorkflowRunExplain(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/explain?step_ref=review&decision_type=condition", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "\"decision\":\"skip\"",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "\"decision\":\"skip\"")
 }
 
 func TestHandleRetryWorkflowStep(t *testing.T) {
@@ -2186,7 +2108,6 @@ func TestHandleRetryWorkflowStep(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/review/retry", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleReplayWorkflowSubtree(t *testing.T) {
@@ -2215,7 +2136,6 @@ func TestHandleReplayWorkflowSubtree(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/b/replay-subtree", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
@@ -2234,7 +2154,6 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("already_terminal", func(t *testing.T) {
@@ -2251,11 +2170,9 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "already in terminal state",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "already in terminal state")
 	})
 
 	t.Run("already_paused_idempotent", func(t *testing.T) {
@@ -2276,8 +2193,7 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-		require.EqualValues(t, 0, updateCalls)
-
+		require.Equal(t, 0, updateCalls)
 	})
 
 	t.Run("not_running", func(t *testing.T) {
@@ -2294,11 +2210,9 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "only be paused from running state",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "only be paused from running state")
 	})
 
 	t.Run("update_conflict", func(t *testing.T) {
@@ -2318,7 +2232,6 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 
 	t.Run("get_updated_run_error", func(t *testing.T) {
@@ -2343,7 +2256,6 @@ func TestHandlePauseWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2357,7 +2269,6 @@ func TestHandleResumeWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("not_found", func(t *testing.T) {
@@ -2375,7 +2286,6 @@ func TestHandleResumeWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("not_paused", func(t *testing.T) {
@@ -2393,11 +2303,9 @@ func TestHandleResumeWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "not paused",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "not paused")
 	})
 
 	t.Run("callback_error", func(t *testing.T) {
@@ -2419,7 +2327,6 @@ func TestHandleResumeWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 
 	t.Run("get_updated_run_error", func(t *testing.T) {
@@ -2446,7 +2353,6 @@ func TestHandleResumeWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2469,7 +2375,6 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 
 	t.Run("cancel_step_runs_error", func(t *testing.T) {
@@ -2492,7 +2397,6 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 
 	t.Run("cancel_job_runs_error", func(t *testing.T) {
@@ -2515,7 +2419,6 @@ func TestHandleCancelWorkflowRun_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2543,7 +2446,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("empty_steps", func(t *testing.T) {
@@ -2553,7 +2455,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("duplicate_step_ref", func(t *testing.T) {
@@ -2564,7 +2465,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("unknown_dependency", func(t *testing.T) {
@@ -2575,7 +2475,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("self_dependency", func(t *testing.T) {
@@ -2586,7 +2485,6 @@ func TestHandleDryRunWorkflow_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 }
 
@@ -2614,7 +2512,6 @@ func TestHandleSkipWorkflowStep_ErrorPaths(t *testing.T) {
 			w.
 				Code)
 		require.False(t, callbackCalled)
-
 	})
 
 	t.Run("workflow_run_not_found_returns_not_found_without_callback", func(t *testing.T) {
@@ -2638,7 +2535,6 @@ func TestHandleSkipWorkflowStep_ErrorPaths(t *testing.T) {
 			w.
 				Code)
 		require.False(t, callbackCalled)
-
 	})
 }
 
@@ -2661,7 +2557,6 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 
 			w.Code)
 		require.False(t, called)
-
 	})
 
 	t.Run("limit_clamped_to_100", func(t *testing.T) {
@@ -2684,7 +2579,6 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs?limit=200", "", "proj-1"))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("store_error", func(t *testing.T) {
@@ -2701,7 +2595,6 @@ func TestHandleListWorkflowRunsByProject_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2738,7 +2631,6 @@ func TestHandleWorkflowVersionDiffAndImpact(t *testing.T) {
 	srv.ServeHTTP(w2, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v2/impact", ""))
 	require.Equal(t, http.StatusOK,
 		w2.Code)
-
 }
 
 func TestHandleListWorkflowVersions(t *testing.T) {
@@ -2752,7 +2644,7 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 			},
 			ListWorkflowVersionsFunc: func(_ context.Context, workflowID string, limit int) ([]domain.WorkflowVersion, error) {
 				require.Equal(t, "wf-1", workflowID)
-				require.EqualValues(t, 10, limit)
+				require.Equal(t, 10, limit)
 
 				return []domain.WorkflowVersion{{ID: "v1", WorkflowID: workflowID, Version: 1}}, nil
 			},
@@ -2768,7 +2660,6 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 		require.False(t, len(versions) !=
 			1 || versions[0].ID != "v1",
 		)
-
 	})
 
 	t.Run("invalid limit", func(t *testing.T) {
@@ -2779,7 +2670,6 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("store error", func(t *testing.T) {
@@ -2798,7 +2688,6 @@ func TestHandleListWorkflowVersions(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2822,7 +2711,6 @@ func TestHandleGetWorkflowVersion(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/wf-1/versions/v1", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -2838,7 +2726,6 @@ func TestHandleGetWorkflowVersion(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("store error", func(t *testing.T) {
@@ -2854,7 +2741,6 @@ func TestHandleGetWorkflowVersion(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2886,7 +2772,6 @@ func TestHandleListWorkflowVersionSteps(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&steps))
 		require.Len(t,
 			steps, 2)
-
 	})
 
 	t.Run("version not found", func(t *testing.T) {
@@ -2902,7 +2787,6 @@ func TestHandleListWorkflowVersionSteps(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("list steps error", func(t *testing.T) {
@@ -2921,7 +2805,6 @@ func TestHandleListWorkflowVersionSteps(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -2955,7 +2838,6 @@ func TestHandleSimulateWorkflowAndPolicy(t *testing.T) {
 	srv.ServeHTTP(w3, authedRequest(http.MethodGet, "/v1/workflow-policies/proj-1", ""))
 	require.Equal(t, http.StatusOK,
 		w3.Code)
-
 }
 
 func TestHandleRetryWorkflowRun(t *testing.T) {
@@ -2996,7 +2878,6 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		require.Equal(t, "wr-1", resp.
 			RetryOfRunID,
 		)
-
 	})
 
 	t.Run("reject retry of non-terminal run", func(t *testing.T) {
@@ -3016,7 +2897,6 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -3034,7 +2914,6 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("engine unavailable", func(t *testing.T) {
@@ -3048,7 +2927,6 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("engine error propagated", func(t *testing.T) {
@@ -3072,7 +2950,6 @@ func TestHandleRetryWorkflowRun(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -3087,11 +2964,9 @@ func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "sub_workflow_id",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "sub_workflow_id")
 	})
 
 	t.Run("sub_workflow step with job_id returns 400", func(t *testing.T) {
@@ -3103,11 +2978,9 @@ func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "must not have job_id",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "must not have job_id")
 	})
 
 	t.Run("negative max_nesting_depth returns 400", func(t *testing.T) {
@@ -3119,11 +2992,9 @@ func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-		require.True(
-			t, strings.Contains(w.Body.
-				String(), "max_nesting_depth",
-			))
-
+		require.Contains(
+			t, w.Body.
+				String(), "max_nesting_depth")
 	})
 
 	t.Run("valid sub_workflow step returns 201", func(t *testing.T) {
@@ -3154,14 +3025,13 @@ func TestHandleCreateWorkflow_SubWorkflowValidation(t *testing.T) {
 		require.Equal(t, "wf-child", capturedStep.
 			SubWorkflowID,
 		)
-		require.EqualValues(t, 5, capturedStep.
+		require.Equal(t, 5, capturedStep.
 			MaxNestingDepth,
 		)
 		require.Equal(t, domain.WorkflowStepTypeSubWorkflow,
 
 			capturedStep.
 				StepType)
-
 	})
 }
 
@@ -3204,16 +3074,14 @@ func TestHandleTriggerWorkflowWithStepOverrides(t *testing.T) {
 		require.False(t, capturedOverrides[0].StepRef !=
 			"b" || capturedOverrides[0].Enabled,
 		)
-
 	})
 
 	t.Run("empty step_overrides does not fail", func(t *testing.T) {
 		t.Parallel()
 		trigger := &mockWorkflowTrigger{
 			triggerWorkflowFn: func(_ context.Context, _, _ string, _ json.RawMessage, _ string, stepOverrides []domain.StepOverride) (*domain.WorkflowRun, error) {
-				require.Len(t,
-					stepOverrides,
-					0)
+				require.Empty(t,
+					stepOverrides)
 
 				return &domain.WorkflowRun{ID: "wr-1", Status: domain.WfStatusRunning}, nil
 			},
@@ -3233,7 +3101,6 @@ func TestHandleTriggerWorkflowWithStepOverrides(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code,
 		)
-
 	})
 
 	t.Run("step_overrides error propagated", func(t *testing.T) {
@@ -3256,7 +3123,6 @@ func TestHandleTriggerWorkflowWithStepOverrides(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -3294,7 +3160,7 @@ func TestHandleCloneWorkflow(t *testing.T) {
 				require.Equal(t, "original-copy",
 					wf.Slug,
 				)
-				require.EqualValues(t, 300, wf.TimeoutSecs)
+				require.Equal(t, 300, wf.TimeoutSecs)
 
 				return nil
 			},
@@ -3322,11 +3188,10 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code,
 		)
-		require.EqualValues(t, 2, stepsCopied)
+		require.Equal(t, 2, stepsCopied)
 		require.True(
 			t, snapshotCreated,
 		)
-
 	})
 
 	t.Run("success with custom name and slug", func(t *testing.T) {
@@ -3364,7 +3229,6 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code,
 		)
-
 	})
 
 	t.Run("rejects cross-project target", func(t *testing.T) {
@@ -3394,7 +3258,6 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("source workflow not found", func(t *testing.T) {
@@ -3411,7 +3274,6 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("empty body uses defaults", func(t *testing.T) {
@@ -3442,7 +3304,6 @@ func TestHandleCloneWorkflow(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 			w.Code,
 		)
-
 	})
 }
 
@@ -3466,7 +3327,6 @@ func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("step_not_terminal", func(t *testing.T) {
@@ -3486,7 +3346,6 @@ func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("run_not_found", func(t *testing.T) {
@@ -3503,7 +3362,6 @@ func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("reset_error", func(t *testing.T) {
@@ -3526,7 +3384,6 @@ func TestHandleRetryWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusConflict,
 			w.
 				Code)
-
 	})
 }
 
@@ -3547,7 +3404,6 @@ func TestHandleReplayWorkflowSubtree_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("step_not_in_version", func(t *testing.T) {
@@ -3567,7 +3423,6 @@ func TestHandleReplayWorkflowSubtree_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("callback_unavailable", func(t *testing.T) {
@@ -3578,7 +3433,6 @@ func TestHandleReplayWorkflowSubtree_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 }
 
@@ -3595,7 +3449,6 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable,
 
 			w.Code)
-
 	})
 
 	t.Run("callback_error", func(t *testing.T) {
@@ -3618,7 +3471,6 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("cross_project_returns_not_found_without_callback", func(t *testing.T) {
@@ -3644,7 +3496,6 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 			w.
 				Code)
 		require.False(t, callbackCalled)
-
 	})
 
 	t.Run("workflow_run_not_found_returns_not_found_without_callback", func(t *testing.T) {
@@ -3670,7 +3521,6 @@ func TestHandleApproveWorkflowStep_ErrorPaths(t *testing.T) {
 			w.
 				Code)
 		require.False(t, callbackCalled)
-
 	})
 }
 
@@ -3685,7 +3535,6 @@ func TestHandleWorkflowPlan_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("workflow_not_found", func(t *testing.T) {
@@ -3701,7 +3550,6 @@ func TestHandleWorkflowPlan_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 }
 
@@ -3716,7 +3564,6 @@ func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest,
 
 			w.Code)
-
 	})
 
 	t.Run("store_error", func(t *testing.T) {
@@ -3732,7 +3579,6 @@ func TestHandleUpsertWorkflowPolicy_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusInternalServerError,
 
 			w.Code)
-
 	})
 }
 
@@ -3760,7 +3606,6 @@ func TestHandleUpsertWorkflowPolicy_APIKeyRejected(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestHandleUpsertWorkflowPolicy_WorkflowAuthorRejected(t *testing.T) {
@@ -3788,7 +3633,6 @@ func TestHandleUpsertWorkflowPolicy_WorkflowAuthorRejected(t *testing.T) {
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestHandleUpsertWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -3826,7 +3670,6 @@ func TestHandleUpsertWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -3849,7 +3692,6 @@ func TestHandleGetWorkflowPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) 
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestHandleUpsertWorkflowPolicy_RBACManagerAllowed(t *testing.T) {
@@ -3889,7 +3731,6 @@ func TestHandleUpsertWorkflowPolicy_RBACManagerAllowed(t *testing.T) {
 	require.NoError(t, err)
 	require.True(
 		t, upserted)
-
 }
 
 func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
@@ -3911,7 +3752,6 @@ func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 
 	t.Run("to_not_found", func(t *testing.T) {
@@ -3933,7 +3773,6 @@ func TestHandleWorkflowVersionDiff_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 }
 
@@ -3956,7 +3795,6 @@ func TestHandleWorkflowVersionImpact_ErrorPaths(t *testing.T) {
 		require.Equal(t, http.StatusNotFound,
 			w.
 				Code)
-
 	})
 }
 
@@ -3983,7 +3821,6 @@ func TestHandleListWorkflows_TagFilter(t *testing.T) {
 		w.Code)
 	require.True(
 		t, called)
-
 }
 
 func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
@@ -4010,7 +3847,6 @@ func TestHandleListWorkflowRunsByProject_TagFilter(t *testing.T) {
 		w.Code)
 	require.True(
 		t, called)
-
 }
 
 func TestHandlePauseWorkflowRun_MarksJobRunsPaused(t *testing.T) {
@@ -4045,7 +3881,6 @@ func TestHandlePauseWorkflowRun_MarksJobRunsPaused(t *testing.T) {
 		w.Code)
 	require.True(
 		t, markCalled)
-
 }
 
 func TestHandlePauseWorkflowRun_NoContainerRuntime(t *testing.T) {
@@ -4072,7 +3907,6 @@ func TestHandlePauseWorkflowRun_NoContainerRuntime(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandlePauseWorkflowRun_AlreadyPaused(t *testing.T) {
@@ -4089,7 +3923,6 @@ func TestHandlePauseWorkflowRun_AlreadyPaused(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/pause", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandlePauseWorkflowRun_TerminalState(t *testing.T) {
@@ -4107,7 +3940,6 @@ func TestHandlePauseWorkflowRun_TerminalState(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
@@ -4136,8 +3968,8 @@ func TestPublishWorkflowRunHook_FiresWebhook(t *testing.T) {
 				t, "proj-1", d.ProjectID,
 			)
 			assert.NotEmpty(t, d.Payload)
-			assert.Equal(
-				t, "", d.LastError,
+			assert.Empty(
+				t, d.LastError,
 			)
 
 			return nil
@@ -4215,5 +4047,4 @@ func TestPublishWorkflowRunHook_NilDelivery(t *testing.T) {
 		w.Code)
 
 	// Should succeed without panic when no webhook subscriptions exist.
-
 }

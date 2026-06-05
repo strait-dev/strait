@@ -48,6 +48,5 @@ func TestOveragePerKMicrousd_AllTiersPopulated(t *testing.T) {
 		got := GetPlanLimits(tier).OveragePerKMicrousd
 		assert.Equal(t, expect,
 			got)
-
 	}
 }

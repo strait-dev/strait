@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -37,11 +36,10 @@ func TestCreateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "ExecutionMode"))
+	require.Contains(
+		t, w.Body.String(), "ExecutionMode")
 
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
-
 }
 
 // TestUpdateJob_UnsupportedExecutionMode_Rejected asserts that unsupported
@@ -73,9 +71,8 @@ func TestUpdateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "ExecutionMode"))
+	require.Contains(
+		t, w.Body.String(), "ExecutionMode")
 
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
-
 }

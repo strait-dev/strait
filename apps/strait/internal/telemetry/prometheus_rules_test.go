@@ -80,7 +80,6 @@ func TestPrometheusRules_MetricsExist(t *testing.T) {
 	assert.GreaterOrEqual(t,
 		rules, 10)
 	require.NotEqual(t, 0, checked)
-
 }
 
 func TestPrometheusRules_Shape(t *testing.T) {
@@ -89,7 +88,7 @@ func TestPrometheusRules_Shape(t *testing.T) {
 	records := map[string]struct{}{}
 
 	for _, group := range doc.Groups {
-		assert.NotEqual(t, "", group.
+		assert.NotEmpty(t, group.
 			Name)
 
 		for _, rule := range group.Rules {
@@ -142,7 +141,6 @@ func TestPrometheusRules_Shape(t *testing.T) {
 		len(alerts), 20)
 	assert.GreaterOrEqual(t,
 		len(records), 10)
-
 }
 
 func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
@@ -181,8 +179,7 @@ func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
 			assert.Failf(t, "recording rule missing", "%s", record)
 			continue
 		}
-		assert.NotEqual(t, "", expr)
-
+		assert.NotEmpty(t, expr)
 	}
 }
 
@@ -207,7 +204,6 @@ func TestPrometheusRules_Promtool(t *testing.T) {
 	cmd := exec.Command(bin, "check", "rules", tmp.Name())
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "%s", out)
-
 }
 
 func locateRulesFile(t *testing.T) string {
@@ -224,13 +220,6 @@ func loadPrometheusRuleDoc(t *testing.T) prometheusRuleDoc {
 	require.NoError(t, yaml.Unmarshal(raw, &doc))
 
 	return doc
-}
-
-func prometheusRuleName(alert, record string) string {
-	if alert != "" {
-		return alert
-	}
-	return record
 }
 
 // moduleRoot walks up from the test binary's working directory until it

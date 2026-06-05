@@ -33,8 +33,7 @@ func TestCaptureRuntimeProfiles_WritesRequestedArtifacts(t *testing.T) {
 
 			artifact.
 				Name)
-		require.NotEqual(t,
-			"",
+		require.NotEmpty(t,
 			artifact.Kind)
 		require.Equal(t, dir,
 			filepath.
@@ -48,7 +47,6 @@ func TestCaptureRuntimeProfiles_WritesRequestedArtifacts(t *testing.T) {
 		require.NotEqual(t,
 			0, info.
 				Size())
-
 	}
 }
 

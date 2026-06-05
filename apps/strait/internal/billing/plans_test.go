@@ -116,7 +116,6 @@ func TestGetPlanLimits(t *testing.T) {
 			assert.Equal(t, tt.
 				wantRetention, limits.RetentionDays,
 			)
-
 		})
 	}
 }
@@ -127,7 +126,6 @@ func TestGetPlanLimits_UnknownTier(t *testing.T) {
 	assert.Equal(t, domain.
 		PlanFree, limits.PlanTier,
 	)
-
 }
 
 func TestIsDowngrade(t *testing.T) {
@@ -171,7 +169,6 @@ func TestIsDowngrade(t *testing.T) {
 			got := IsDowngrade(tt.from, tt.to)
 			assert.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
@@ -186,7 +183,6 @@ func TestPlanLimits_AllowsHTTPMode(t *testing.T) {
 			limits := GetPlanLimits(tier)
 			assert.True(t, limits.
 				AllowsHTTPMode)
-
 		})
 	}
 }
@@ -199,7 +195,6 @@ func TestPlanLimits_DailyRunsUnlimited(t *testing.T) {
 			limits := GetPlanLimits(tier)
 			assert.EqualValues(t, -1,
 				limits.MaxRunsPerDay)
-
 		})
 	}
 }
@@ -209,7 +204,6 @@ func TestHTTPCostPerRunMicrousd(t *testing.T) {
 	assert.EqualValues(t, 20,
 
 		HTTPCostPerRunMicrousd)
-
 }
 
 func TestAllPlansHaveEntries(t *testing.T) {
@@ -224,7 +218,6 @@ func TestAllPlansHaveEntries(t *testing.T) {
 	assert.Len(t, Plans,
 
 		6)
-
 }
 
 func TestPlanLimits_WorkflowFeatures(t *testing.T) {
@@ -272,7 +265,6 @@ func TestPlanLimits_WorkflowFeatures(t *testing.T) {
 			assert.Equal(t, tt.
 				wantCanary, l.HasCanaryDeployments,
 			)
-
 		})
 	}
 }
@@ -319,7 +311,6 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 			assert.Equal(t, tt.
 				wantAPIRate, l.APIRateLimit,
 			)
-
 		})
 	}
 }
@@ -345,7 +336,6 @@ func TestPlanLimits_AuditLogs(t *testing.T) {
 			assert.Equal(t, tt.
 				want, limits.HasAuditLogs,
 			)
-
 		})
 	}
 }
@@ -372,42 +362,40 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 
 		scale.
 			OveragePerKMicrousd)
-
 }
 
 func TestPlanConstants_Pricing(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 1_900,
+	assert.Equal(t, 1_900,
 
 		PriceStarterMonthlyCents,
 	)
-	assert.EqualValues(t, 18_000,
+	assert.Equal(t, 18_000,
 
 		PriceStarterAnnualCents,
 	)
-	assert.EqualValues(t, 9_900,
+	assert.Equal(t, 9_900,
 
 		PriceProMonthlyCents)
-	assert.EqualValues(t, 94_800,
+	assert.Equal(t, 94_800,
 
 		PriceProAnnualCents)
-	assert.EqualValues(t, 29_900,
+	assert.Equal(t, 29_900,
 
 		PriceScaleMonthlyCents,
 	)
-	assert.EqualValues(t, 286_800,
+	assert.Equal(t, 286_800,
 
 		PriceScaleAnnualCents,
 	)
-	assert.EqualValues(t, 49_900,
+	assert.Equal(t, 49_900,
 
 		PriceBusinessMonthlyCents,
 	)
-	assert.EqualValues(t, 478_800,
+	assert.Equal(t, 478_800,
 
 		PriceBusinessAnnualCents,
 	)
-
 }
 
 func TestPlanConstants_Credits(t *testing.T) {
@@ -432,100 +420,94 @@ func TestPlanConstants_Credits(t *testing.T) {
 
 		CreditBusinessMicrousd,
 	)
-
 }
 
 func TestPlanConstants_Concurrent(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 
 		ConcurrentFree)
-	assert.EqualValues(t, 15,
+	assert.Equal(t, 15,
 
 		ConcurrentStarter)
-	assert.EqualValues(t, 100,
+	assert.Equal(t, 100,
 
 		ConcurrentPro)
-	assert.EqualValues(t, 300,
+	assert.Equal(t, 300,
 
 		ConcurrentScale)
-	assert.EqualValues(t, 500,
+	assert.Equal(t, 500,
 
 		ConcurrentBusiness)
-
 }
 
 func TestPlanConstants_Retention(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 7,
+	assert.Equal(t, 7,
 
 		RetentionFree)
-	assert.EqualValues(t, 14,
+	assert.Equal(t, 14,
 
 		RetentionStarter)
-	assert.EqualValues(t, 30,
+	assert.Equal(t, 30,
 
 		RetentionPro)
-	assert.EqualValues(t, 60,
+	assert.Equal(t, 60,
 
 		RetentionScale)
-	assert.EqualValues(t, 90,
+	assert.Equal(t, 90,
 
 		RetentionBusiness)
-	assert.EqualValues(t, -1,
+	assert.Equal(t, -1,
 		RetentionEnterprise)
-
 }
 
 func TestPlanConstants_OrgLimits(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 
 		MaxOrgsFree)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 
 		MaxOrgsStarter)
-	assert.EqualValues(t, 5,
+	assert.Equal(t, 5,
 
 		MaxOrgsPro)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 
 		MaxOrgsScale)
-
 }
 
 func TestPlanConstants_ProjectLimits(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 
 		MaxProjectsFree)
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 
 		MaxProjectsStarter)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 
 		MaxProjectsPro)
-	assert.EqualValues(t, 50,
+	assert.Equal(t, 50,
 
 		MaxProjectsScale)
-
 }
 
 func TestPlanConstants_MemberLimits(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 
 		MaxMembersFree)
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 
 		MaxMembersStarter)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 
 		MaxMembersPro)
-	assert.EqualValues(t, 50,
+	assert.Equal(t, 50,
 
 		MaxMembersScale)
-
 }
 
 func TestPlanConstants_SpendingLimits(t *testing.T) {
@@ -548,7 +530,6 @@ func TestPlanConstants_SpendingLimits(t *testing.T) {
 
 		MaxSpendingBusiness,
 	)
-
 }
 
 func TestPlanConstants_Overage(t *testing.T) {
@@ -557,7 +538,6 @@ func TestPlanConstants_Overage(t *testing.T) {
 
 		DefaultOveragePerKMicrousd,
 	)
-
 }
 
 func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
@@ -583,11 +563,9 @@ func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
 	for _, tt := range flags {
 		assert.False(t, tt.
 			val)
-
 	}
 	assert.True(t, ent.
 		HasSLA)
-
 }
 
 func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
@@ -604,10 +582,9 @@ func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
 		require.False(t,
 			limits.
 				HasPriorityQueue)
-		require.EqualValues(t, 10,
+		require.Equal(t, 10,
 			limits.MaxDispatchPriority,
 		)
-
 	}
 }
 
@@ -621,7 +598,6 @@ func TestPlanLimits_NonEnterpriseNoEnterpriseFeatures(t *testing.T) {
 			HasStaticIPs)
 		assert.False(t, l.
 			HasSIEMExport)
-
 	}
 }
 
@@ -639,9 +615,8 @@ func FuzzGetPlanLimits_NoPanic(f *testing.F) {
 	f.Fuzz(func(t *testing.T, tier string) {
 		// Should never panic, always returns valid limits.
 		limits := GetPlanLimits(domain.PlanTier(tier))
-		assert.NotEqual(t,
+		assert.NotEmpty(t,
 
-			"", limits.PlanTier)
-
+			limits.PlanTier)
 	})
 }

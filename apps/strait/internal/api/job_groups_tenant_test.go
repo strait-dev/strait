@@ -62,7 +62,6 @@ func TestHandleGetJobGroup_CrossProjectBlocked(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleGetJobGroup_SameProjectAllowed(t *testing.T) {
@@ -75,7 +74,6 @@ func TestHandleGetJobGroup_SameProjectAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleUpdateJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -89,7 +87,6 @@ func TestHandleUpdateJobGroup_CrossProjectBlocked(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleDeleteJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -108,7 +105,6 @@ func TestHandleDeleteJobGroup_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, deleteCalled)
-
 }
 
 func TestHandleListJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -124,7 +120,6 @@ func TestHandleListJobsByGroup_CrossProjectBlocked(t *testing.T) {
 
 	// Cross-project list returns 200 with empty results (not 404) because
 	// the group may have been deleted and the endpoint gracefully degrades.
-
 }
 
 func TestHandlePauseAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -143,7 +138,6 @@ func TestHandlePauseAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, pauseCalled)
-
 }
 
 func TestHandleResumeAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -162,7 +156,6 @@ func TestHandleResumeAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, resumeCalled)
-
 }
 
 func TestHandleGetJobGroupStats_CrossProjectBlocked(t *testing.T) {
@@ -175,7 +168,6 @@ func TestHandleGetJobGroupStats_CrossProjectBlocked(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestHandleCreateJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -195,7 +187,6 @@ func TestHandleCreateJobGroup_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
 	require.False(t, createCalled)
-
 }
 
 func TestHandleCreateJobGroup_SameProjectAllowed(t *testing.T) {
@@ -209,5 +200,4 @@ func TestHandleCreateJobGroup_SameProjectAllowed(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }

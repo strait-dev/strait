@@ -98,7 +98,6 @@ func TestOnCompleteTrigger_HappyPath(t *testing.T) {
 		"job-1", call.extraTags["source_job_id"])
 	assert.Equal(t,
 		"run-1", call.extraTags["source_run_id"])
-
 }
 
 func TestOnCompleteTrigger_NoWorkflowConfigured(t *testing.T) {
@@ -113,9 +112,8 @@ func TestOnCompleteTrigger_NoWorkflowConfigured(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 func TestOnCompleteTrigger_NonCompletedStatus(t *testing.T) {
@@ -149,9 +147,8 @@ func TestOnCompleteTrigger_NonCompletedStatus(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 func TestOnCompleteTrigger_WorkflowNotFound(t *testing.T) {
@@ -172,9 +169,8 @@ func TestOnCompleteTrigger_WorkflowNotFound(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	require.Len(t, trigger.
-		calls, 0)
-
+	require.Empty(t, trigger.
+		calls)
 }
 
 func TestOnCompleteTrigger_TriggerError(t *testing.T) {
@@ -201,7 +197,6 @@ func TestOnCompleteTrigger_TriggerError(t *testing.T) {
 	defer trigger.mu.Unlock()
 	require.Len(t, trigger.
 		calls, 1)
-
 }
 
 func TestOnCompleteTrigger_PayloadMapping(t *testing.T) {
@@ -280,7 +275,6 @@ func TestExtractPath(t *testing.T) {
 			got := extractPath(data, tt.path)
 			assert.Equal(t,
 				tt.expected, got)
-
 		})
 	}
 }
@@ -301,7 +295,6 @@ func TestApplyPayloadMapping_EmptyInputs(t *testing.T) {
 		t, err)
 	assert.Equal(t,
 		string(input), string(result))
-
 }
 
 func TestApplyPayloadMapping_NonObjectResult(t *testing.T) {
@@ -313,7 +306,6 @@ func TestApplyPayloadMapping_NonObjectResult(t *testing.T) {
 		t, err)
 	assert.Equal(t,
 		string(input), string(result))
-
 }
 
 func TestOnCompleteTrigger_NilLookupAndTriggerer(t *testing.T) {

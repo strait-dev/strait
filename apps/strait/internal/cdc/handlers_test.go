@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"strait/internal/pubsub"
@@ -46,7 +45,6 @@ func TestJobRunHandlerTable(t *testing.T) {
 	h := NewJobRunHandler(nil, nil)
 	require.Equal(t, "job_runs",
 		h.Table())
-
 }
 
 func TestJobRunHandlerHandlePublishes(t *testing.T) {
@@ -108,8 +106,7 @@ func TestJobRunHandlerHandlePublishes(t *testing.T) {
 			)
 
 			if tt.action == ActionUpdate {
-				require.True(t, strings.Contains(logs.String(), `"action":"update"`))
-
+				require.Contains(t, logs.String(), `"action":"update"`)
 			}
 		})
 	}
@@ -125,7 +122,6 @@ func TestJobRunHandlerHandleNilPublisher(t *testing.T) {
 	}
 	require.NoError(t, h.Handle(context.Background(),
 		msg))
-
 }
 
 func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
@@ -135,8 +131,7 @@ func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "decode job_run record"))
-
+	require.Contains(t, err.Error(), "decode job_run record")
 }
 
 func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -152,8 +147,7 @@ func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 		msg))
 	require.Len(t, pub.calls,
 		1)
-	require.True(t, strings.Contains(logs.String(), "failed to publish cdc event"))
-
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestWorkflowRunHandlerTable(t *testing.T) {
@@ -161,7 +155,6 @@ func TestWorkflowRunHandlerTable(t *testing.T) {
 	h := NewWorkflowRunHandler(nil, nil)
 	require.Equal(t, "workflow_runs",
 		h.Table())
-
 }
 
 func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
@@ -219,7 +212,6 @@ func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
 				event.
 					Timestamp,
 			)
-
 		})
 	}
 }
@@ -230,7 +222,6 @@ func TestWorkflowRunHandlerHandleNilPublisher(t *testing.T) {
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"wf_run_1","workflow_id":"wf_1","project_id":"proj_9","status":"running"}`)}
 	require.NoError(t, h.Handle(context.Background(),
 		msg))
-
 }
 
 func TestWorkflowRunHandlerHandleInvalidRecord(t *testing.T) {
@@ -238,8 +229,7 @@ func TestWorkflowRunHandlerHandleInvalidRecord(t *testing.T) {
 	h := NewWorkflowRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "decode workflow_run record"))
-
+	require.Contains(t, err.Error(), "decode workflow_run record")
 }
 
 func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -252,8 +242,7 @@ func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 		msg))
 	require.Len(t, pub.calls,
 		1)
-	require.True(t, strings.Contains(logs.String(), "failed to publish cdc event"))
-
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestWorkflowStepRunHandlerTable(t *testing.T) {
@@ -262,7 +251,6 @@ func TestWorkflowStepRunHandlerTable(t *testing.T) {
 	require.Equal(t, "workflow_step_runs",
 
 		h.Table())
-
 }
 
 func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
@@ -321,7 +309,6 @@ func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
 				event.
 					Timestamp,
 			)
-
 		})
 	}
 }
@@ -332,7 +319,6 @@ func TestWorkflowStepRunHandlerHandleNilPublisher(t *testing.T) {
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"step_run_1","workflow_run_id":"wf_run_123","step_ref":"build","status":"running"}`)}
 	require.NoError(t, h.Handle(context.Background(),
 		msg))
-
 }
 
 func TestWorkflowStepRunHandlerHandleInvalidRecord(t *testing.T) {
@@ -340,8 +326,7 @@ func TestWorkflowStepRunHandlerHandleInvalidRecord(t *testing.T) {
 	h := NewWorkflowStepRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "decode workflow_step_run record"))
-
+	require.Contains(t, err.Error(), "decode workflow_step_run record")
 }
 
 func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -354,8 +339,7 @@ func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 		msg))
 	require.Len(t, pub.calls,
 		1)
-	require.True(t, strings.Contains(logs.String(), "failed to publish cdc event"))
-
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestChangeEventMarshalWithChanges(t *testing.T) {
@@ -370,8 +354,7 @@ func TestChangeEventMarshalWithChanges(t *testing.T) {
 
 	data, err := json.Marshal(e)
 	require.NoError(t, err)
-	require.True(t, strings.Contains(string(data), `"changes":{`))
-
+	require.Contains(t, string(data), `"changes":{`)
 }
 
 func TestChangeEventMarshalOmitsNilChanges(t *testing.T) {
@@ -385,8 +368,7 @@ func TestChangeEventMarshalOmitsNilChanges(t *testing.T) {
 
 	data, err := json.Marshal(e)
 	require.NoError(t, err)
-	require.False(t, strings.Contains(string(data), `"changes":`))
-
+	require.NotContains(t, string(data), `"changes":`)
 }
 
 func newBufferedLogger() (*slog.Logger, *bytes.Buffer) {
@@ -399,7 +381,6 @@ func TestEventTriggerHandlerTable(t *testing.T) {
 	h := NewEventTriggerHandler(nil, nil)
 	require.Equal(t, "event_triggers",
 		h.Table())
-
 }
 
 func TestEventTriggerHandlerHandlePublishes(t *testing.T) {
@@ -450,13 +431,8 @@ func TestEventTriggerHandlerHandlePublishes(t *testing.T) {
 			)
 
 			logOutput := logs.String()
-			require.True(t, strings.Contains(logOutput,
-				"cdc event_trigger change",
-			))
-			require.True(t, strings.Contains(logOutput,
-				"aml:app-1",
-			))
-
+			require.Contains(t, logOutput, "cdc event_trigger change")
+			require.Contains(t, logOutput, "aml:app-1")
 		})
 	}
 }
@@ -471,9 +447,7 @@ func TestEventTriggerHandlerBadRecord(t *testing.T) {
 		Record: json.RawMessage(`{invalid`),
 	}
 	require.Error(t, h.Handle(context.Background(), msg))
-	require.Len(t, pub.calls,
-		0)
-
+	require.Empty(t, pub.calls)
 }
 
 func TestEventTriggerHandlerNilPublisher(t *testing.T) {
@@ -490,7 +464,6 @@ func TestEventTriggerHandlerNilPublisher(t *testing.T) {
 	}
 	require.NoError(t, h.Handle(context.Background(),
 		msg))
-
 }
 
 func TestEventTriggerHandlerPublishError(t *testing.T) {
@@ -517,10 +490,7 @@ func TestEventTriggerHandlerPublishError(t *testing.T) {
 	// Should not return error (publish errors are logged, not returned)
 
 	logOutput := logs.String()
-	require.True(t, strings.Contains(logOutput,
-		"failed to publish cdc event",
-	))
-
+	require.Contains(t, logOutput, "failed to publish cdc event")
 }
 
 func TestChangeEventSourceField(t *testing.T) {
@@ -547,7 +517,6 @@ func TestChangeEventSourceField(t *testing.T) {
 			&event))
 	require.Equal(t, "cdc",
 		event.Source)
-
 }
 
 func TestAllHandlersIncludeSource(t *testing.T) {
@@ -592,6 +561,5 @@ func TestAllHandlersIncludeSource(t *testing.T) {
 				&event))
 		require.Equal(t, "cdc",
 			event.Source)
-
 	}
 }

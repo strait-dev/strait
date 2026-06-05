@@ -15,7 +15,7 @@ func TestHandleGetPerformanceAnalytics_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetPerformanceAnalyticsFunc: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
-			require.EqualValues(t, 24, periodHours)
+			require.Equal(t, 24, periodHours)
 
 			return &store.PerformanceAnalytics{
 				SlowestJobs: []store.JobPerformance{
@@ -31,14 +31,13 @@ func TestHandleGetPerformanceAnalytics_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetPerformanceAnalytics_CustomPeriod(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetPerformanceAnalyticsFunc: func(_ context.Context, _ string, periodHours int) (*store.PerformanceAnalytics, error) {
-			require.EqualValues(t, 72, periodHours)
+			require.Equal(t, 72, periodHours)
 
 			return &store.PerformanceAnalytics{
 				SlowestJobs: make([]store.JobPerformance, 0),
@@ -51,7 +50,6 @@ func TestHandleGetPerformanceAnalytics_CustomPeriod(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/analytics/performance?period_hours=72", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetPerformanceAnalytics_InvalidPeriod(t *testing.T) {
@@ -62,7 +60,6 @@ func TestHandleGetPerformanceAnalytics_InvalidPeriod(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestHandleGetPerformanceAnalytics_NilStore_Returns503(t *testing.T) {
@@ -75,5 +72,4 @@ func TestHandleGetPerformanceAnalytics_NilStore_Returns503(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }

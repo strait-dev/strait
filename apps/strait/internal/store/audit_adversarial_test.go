@@ -25,7 +25,6 @@ func TestComputeAuditSignature_StrictDeterminism(t *testing.T) {
 		got := ComputeAuditSignature(ev, key)
 		require.Equal(t, expected,
 			got)
-
 	}
 }
 
@@ -103,7 +102,6 @@ func TestComputeAuditSignature_SingleBitChange(t *testing.T) {
 				len(baseSig)/
 					4,
 			)
-
 		})
 	}
 }
@@ -176,7 +174,6 @@ func TestAuditChain_Adversarial_DeleteMiddleEvent(t *testing.T) {
 	)
 
 	// "Delete" middle event -- verify event[2].PreviousHash doesn't match event[0].Signature.
-
 }
 
 // TestAuditChain_Adversarial_ReorderEvents verifies that swapping two events
@@ -238,7 +235,6 @@ func TestAuditChain_Adversarial_ModifyEventContent(t *testing.T) {
 
 		ev.Signature,
 	)
-
 }
 
 // TestAuditChain_Adversarial_InsertForgedEvent verifies that inserting a
@@ -264,7 +260,6 @@ func TestAuditChain_Adversarial_InsertForgedEvent(t *testing.T) {
 
 		forged.Signature,
 	)
-
 }
 
 // TestDeriveAuditSigningKey_DifferentSecrets produces different keys.
@@ -274,7 +269,6 @@ func TestDeriveAuditSigningKey_DifferentSecrets(t *testing.T) {
 	key2, _ := DeriveAuditSigningKey("secret-two")
 	require.NotEqual(t, string(key2),
 		string(key1))
-
 }
 
 // TestDeriveAuditSigningKey_SimilarSecrets verifies that similar secrets
@@ -294,7 +288,6 @@ func TestDeriveAuditSigningKey_SimilarSecrets(t *testing.T) {
 		16)
 
 	// HKDF should cause most bytes to differ.
-
 }
 
 // TestComputeAuditSignature_EmptyFields verifies signature works with all
@@ -315,10 +308,8 @@ func TestComputeAuditSignature_EmptyFields(t *testing.T) {
 		CreatedAt:    time.Time{},
 	}
 	sig := ComputeAuditSignature(ev, key)
-	require.NotEqual(t, "",
-		sig)
+	require.NotEmpty(t, sig)
 	assert.Len(t, sig, 64)
-
 }
 
 // TestComputeAuditSignature_NullBytesInFields verifies null bytes don't
@@ -334,7 +325,6 @@ func TestComputeAuditSignature_NullBytesInFields(t *testing.T) {
 	sig2 := ComputeAuditSignature(ev2, key)
 	require.NotEqual(t, sig2,
 		sig1)
-
 }
 
 // TestComputeAuditSignature_LargeDetails verifies signature works with
@@ -351,7 +341,6 @@ func TestComputeAuditSignature_LargeDetails(t *testing.T) {
 	require.False(t, sig ==
 		"" || len(sig) != 64,
 	)
-
 }
 
 // FuzzComputeAuditSignature_Deterministic verifies that computing the same
@@ -374,7 +363,6 @@ func FuzzComputeAuditSignature_Deterministic(f *testing.F) {
 		sig2 := ComputeAuditSignature(ev, key)
 		require.Equal(t, sig2,
 			sig1)
-
 	})
 }
 
@@ -394,6 +382,5 @@ func FuzzDeriveAuditSigningKey_NoPanic(f *testing.F) {
 		}
 		require.NoError(t, err)
 		require.Len(t, key, 32)
-
 	})
 }

@@ -41,7 +41,6 @@ func TestCron_ExtremelyLong(t *testing.T) {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	_, err := parser.Parse(long)
 	require.Error(t, err)
-
 }
 
 // TestCron_ExtremeFrequency verifies that an every-minute expression parses and
@@ -62,7 +61,6 @@ func TestCron_ExtremeFrequency(t *testing.T) {
 			time.Second ||
 		delta <
 			0)
-
 }
 
 // TestCron_InvalidFields verifies that non-numeric and special characters are rejected.
@@ -81,7 +79,6 @@ func TestCron_InvalidFields(t *testing.T) {
 	for _, expr := range invalids {
 		_, err := parser.Parse(expr)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -118,7 +115,6 @@ func TestCron_UnicodeDigits(t *testing.T) {
 	for _, expr := range expressions {
 		_, err := parser.Parse(expr)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -128,22 +124,19 @@ func TestSLOEvaluator_BoundaryThreshold(t *testing.T) {
 
 	// Exactly at target for success rate: budget should be 0.
 	budget := CalculateErrorBudget(0.99, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		budget,
+	assert.InDelta(t, 0.0,
+		budget, 1e-9,
 	)
 
 	// Exactly at target for latency: budget should be 0.
 	budget = CalculateErrorBudget(1.0, 1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 0.0,
-		budget,
+	assert.InDelta(t, 0.0,
+		budget, 1e-9,
 	)
 
 	// Epsilon better than target should yield a tiny positive budget.
 	budget = CalculateErrorBudget(0.99+1e-10, 0.99, domain.SLOMetricSuccessRate)
-	assert.False(t, budget <=
-		0.0,
-	)
-
+	assert.Greater(t, budget, 0.0)
 }
 
 // TestSLOEvaluator_ZeroSamples tests CalculateErrorBudget with zero-value inputs.
@@ -166,10 +159,9 @@ func TestSLOEvaluator_ZeroSamples(t *testing.T) {
 
 	// Unknown metric always returns 1.0.
 	budget = CalculateErrorBudget(0.0, 0.0, "unknown_metric")
-	assert.EqualValues(t, 1.0,
-		budget,
+	assert.InDelta(t, 1.0,
+		budget, 1e-9,
 	)
-
 }
 
 // TestSLOEvaluator_NegativeLatency tests that negative latency values produce a clamped budget.
@@ -192,7 +184,6 @@ func TestSLOEvaluator_NegativeLatency(t *testing.T) {
 	budget = CalculateErrorBudget(math.Inf(1), 1.0, domain.SLOMetricP95LatencySecs)
 	require.False(t, math.
 		IsNaN(budget))
-
 }
 
 // TestReaper_ZeroRetention verifies that NewReaper clamps zero retention to defaults.
@@ -213,7 +204,6 @@ func TestReaper_ZeroRetention(t *testing.T) {
 	)
 
 	// Zero values should be clamped to 30d and 90d respectively.
-
 }
 
 // TestReaper_NegativeRetention verifies that negative retention is clamped to defaults.
@@ -232,7 +222,6 @@ func TestReaper_NegativeRetention(t *testing.T) {
 		Hour, r.
 		longRetention,
 	)
-
 }
 
 // TestReaper_MaxRetention verifies that math.MaxInt64 duration does not panic.
@@ -251,7 +240,6 @@ func TestReaper_MaxRetention(t *testing.T) {
 	),
 		r.longRetention,
 	)
-
 }
 
 // TestDebouncePoller_ZeroInterval verifies that a zero interval is clamped to 1 second.
@@ -265,7 +253,6 @@ func TestDebouncePoller_ZeroInterval(t *testing.T) {
 		Second,
 		p.interval,
 	)
-
 }
 
 // TestDebouncePoller_SubMillisecond verifies that sub-millisecond intervals are clamped.

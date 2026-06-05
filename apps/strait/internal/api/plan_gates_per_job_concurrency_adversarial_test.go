@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -50,9 +49,8 @@ func TestUpdateJob_PerJobConcurrencyBypass_AfterDowngrade(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, updateCalled)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "max_concurrency"))
-
+	assert.Contains(t,
+		w.Body.String(), "max_concurrency")
 }
 
 // TestUpdateJob_OnlyPerKeyChanged_ChecksWithExistingMaxConcurrency catches a
@@ -91,9 +89,8 @@ func TestUpdateJob_OnlyPerKeyChanged_ChecksWithExistingMaxConcurrency(t *testing
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "max_concurrency_per_key"))
-
+	assert.Contains(t,
+		w.Body.String(), "max_concurrency_per_key")
 }
 
 // TestUpdateJob_NoConcurrencyChange_NotGated documents the deliberate
@@ -128,7 +125,6 @@ func TestUpdateJob_NoConcurrencyChange_NotGated(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"renamed"}`))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestCloneJob_PerJobConcurrencyBypass_FromHighSource walks the clone vector:
@@ -167,5 +163,4 @@ func TestCloneJob_PerJobConcurrencyBypass_FromHighSource(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, createCalled)
-
 }

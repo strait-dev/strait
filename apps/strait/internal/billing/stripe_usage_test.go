@@ -15,7 +15,6 @@ func TestStripeUsageReporter_IngestRunOverage_EmptySecretNoop(t *testing.T) {
 	err := reporter.IngestRunOverage(context.Background(), "cust-123", "run-456")
 	require.NoError(t,
 		err)
-
 }
 
 func TestStripeUsageReporter_SkipsWhenNotConfigured(t *testing.T) {
@@ -32,7 +31,6 @@ func TestStripeUsageReporter_SkipsWhenNotConfigured(t *testing.T) {
 	err = reporter2.IngestRunOverage(context.Background(), "", "run-456")
 	require.NoError(t,
 		err)
-
 }
 
 func TestStripeUsageReporter_ConstructorNilLogger(t *testing.T) {
@@ -45,7 +43,6 @@ func TestStripeUsageReporter_ConstructorNilLogger(t *testing.T) {
 	err := reporter.IngestRunOverage(context.Background(), "", "run-1")
 	require.NoError(t,
 		err)
-
 }
 
 func TestStripeUsageReporter_ConstructorWithMetrics(t *testing.T) {
@@ -53,5 +50,4 @@ func TestStripeUsageReporter_ConstructorWithMetrics(t *testing.T) {
 	reporter := NewStripeUsageReporter("sk_test_key", slog.Default(), WithUsageReporterMetrics(nil))
 	require.NotNil(t,
 		reporter)
-
 }

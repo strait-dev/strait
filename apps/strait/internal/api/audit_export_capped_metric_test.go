@@ -137,7 +137,6 @@ func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 
 	got := h.sumCounter(t, "strait_audit_events_export_capped_total")
 	assert.EqualValues(t, 1, got)
-
 }
 
 // TestAuditExport_NoCap_DoesNotIncrementExportCappedCounter verifies
@@ -174,5 +173,4 @@ func TestAuditExport_NoCap_DoesNotIncrementExportCappedCounter(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code)
 	assert.EqualValues(t, 0, h.sumCounter(t, "strait_audit_events_export_capped_total"))
-
 }

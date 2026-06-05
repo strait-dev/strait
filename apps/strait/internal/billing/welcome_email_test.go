@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -14,60 +13,36 @@ import (
 func TestWelcomeEmailHTML_EscapesHTMLInPlanName(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("<script>alert(1)</script>", "$49.99")
-	require.False(t,
-		strings.Contains(output,
-
-			"<script>"))
-	require.True(t, strings.Contains(output,
-
-		"&lt;script&gt;"))
-
+	require.NotContains(t,
+		output, "<script>")
+	require.Contains(t, output, "&lt;script&gt;")
 }
 
 func TestWelcomeEmailHTML_EscapesHTMLInCredit(t *testing.T) {
 	t.Parallel()
 	injection := "<img src=x onerror=alert(1)>"
 	output := welcomeEmailHTML("Pro", injection)
-	require.False(t,
-		strings.Contains(output,
-
-			injection))
-	require.True(t, strings.Contains(output,
-
-		"&lt;img src=x onerror=alert(1)&gt;",
-	))
+	require.NotContains(t,
+		output, injection)
+	require.Contains(t, output, "&lt;img src=x onerror=alert(1)&gt;")
 
 	// The raw injection string should not appear unescaped.
 	// html.EscapeString turns "<" and ">" into "&lt;" and "&gt;".
-
 }
 
 func TestWelcomeEmailHTML_NormalValues(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("Pro", "1000000")
-	require.True(t, strings.Contains(output,
-
-		"Welcome to Strait Pro!"),
-	)
-	require.True(t, strings.Contains(output,
-
-		"1000000"))
-
+	require.Contains(t, output, "Welcome to Strait Pro!")
+	require.Contains(t, output, "1000000")
 }
 
 func TestWelcomeEmailHTML_ContainsStructure(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("Starter", "$19.99")
-	require.True(t, strings.Contains(output,
-
-		"Set spending limit"))
-	require.True(t, strings.Contains(output,
-
-		"support@strait.dev"))
-	require.True(t, strings.Contains(output,
-
-		"billing"))
-
+	require.Contains(t, output, "Set spending limit")
+	require.Contains(t, output, "support@strait.dev")
+	require.Contains(t, output, "billing")
 }
 
 func FuzzWelcomeEmailHTML(f *testing.F) {
@@ -78,75 +53,48 @@ func FuzzWelcomeEmailHTML(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, planName, credit string) {
 		result := welcomeEmailHTML(planName, credit)
-		assert.False(t, strings.Contains(result,
-
-			"<script>"))
-
+		assert.NotContains(t, result, "<script>")
 	})
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsCSM(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.True(t, strings.Contains(output,
-
-		"Customer Success Manager",
-	),
-	)
-
+	require.Contains(t, output, "Customer Success Manager")
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsOnboarding(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.True(t, strings.Contains(output,
-
-		"onboarding"))
-
+	require.Contains(t, output, "onboarding")
 }
 
 func TestEnterpriseWelcomeEmailHTML_MarksSSOAsRoadmap(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.True(t, strings.Contains(output,
-
-		"Roadmap and contact-sales items such as SSO/SAML",
-	))
-	require.False(t,
-		strings.Contains(output,
-
-			"SSO/SAML + SCIM"))
-
+	require.Contains(t, output, "Roadmap and contact-sales items such as SSO/SAML")
+	require.NotContains(t,
+		output, "SSO/SAML + SCIM")
 }
 
 func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseNetworkControls(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.False(t,
-		strings.Contains(output,
-
-			"Static IPs, VPC peering, data residency",
-		))
-
+	require.NotContains(t,
+		output, "Static IPs, VPC peering, data residency")
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsSLA(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.True(t, strings.Contains(output,
-
-		"SLA"))
-
+	require.Contains(t, output, "SLA")
 }
 
 func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseDedicatedCompute(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	require.False(t,
-		strings.Contains(output,
-
-			"Dedicated compute"))
-
+	require.NotContains(t,
+		output, "Dedicated compute")
 }
 
 func TestRunAllowanceDisplay_Enterprise(t *testing.T) {
@@ -155,7 +103,6 @@ func TestRunAllowanceDisplay_Enterprise(t *testing.T) {
 	assert.Equal(t, "Custom (per contract)",
 
 		got)
-
 }
 
 func TestRunAllowanceDisplay_Starter(t *testing.T) {
@@ -164,34 +111,21 @@ func TestRunAllowanceDisplay_Starter(t *testing.T) {
 	assert.Equal(t, "50000",
 		got,
 	)
-
 }
 
 func TestContractRenewalHTML_ContainsDate(t *testing.T) {
 	t.Parallel()
 	output := contractRenewalHTML("April 1, 2027", 30)
-	require.True(t, strings.Contains(output,
-
-		"April 1, 2027"))
-	require.True(t, strings.Contains(output,
-
-		"auto-renew"))
-
+	require.Contains(t, output, "April 1, 2027")
+	require.Contains(t, output, "auto-renew")
 }
 
 func TestContractExpiryHTML_ContainsDate(t *testing.T) {
 	t.Parallel()
 	output := contractExpiryHTML("April 1, 2027", 7)
-	require.True(t, strings.Contains(output,
-
-		"April 1, 2027"))
-	require.True(t, strings.Contains(output,
-
-		"expires"))
-	require.True(t, strings.Contains(output,
-
-		"Scale"))
-
+	require.Contains(t, output, "April 1, 2027")
+	require.Contains(t, output, "expires")
+	require.Contains(t, output, "Scale")
 }
 
 func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
@@ -215,7 +149,6 @@ func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
 			assert.Equal(t, tt.
 				want, got,
 			)
-
 		})
 	}
 }
@@ -240,7 +173,6 @@ func TestPlanDisplayName_AllTiers(t *testing.T) {
 			assert.Equal(t, tt.
 				want, got,
 			)
-
 		})
 	}
 }
@@ -251,7 +183,6 @@ func TestNewResendWelcomeEmailFunc_InvalidEmail(t *testing.T) {
 	err := fn(context.Background(), "org-1", domain.PlanStarter, "not-an-email")
 	require.Error(t,
 		err)
-
 }
 
 func TestNewResendWelcomeEmailFunc_DefaultFromEmail(t *testing.T) {

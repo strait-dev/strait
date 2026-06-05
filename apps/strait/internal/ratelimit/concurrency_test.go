@@ -21,13 +21,11 @@ func TestRedisConcurrencyLimiterAcquire_NilClientFailOpen(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, allowed)
-	require.Equal(t, "",
-		token)
+	require.Empty(t, token)
 	require.NoError(t,
 		limiter.Release(t.Context(), "job",
 			"0:any-token",
 		))
-
 }
 
 func TestRedisConcurrencyLimiterAcquire_DisabledBypassesRedis(t *testing.T) {
@@ -46,9 +44,7 @@ func TestRedisConcurrencyLimiterAcquire_DisabledBypassesRedis(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, allowed)
-	require.Equal(t, "",
-		token)
-
+	require.Empty(t, token)
 }
 
 func TestRedisConcurrencyLimiterAcquireRelease_EnforcesSlots(t *testing.T) {
@@ -145,9 +141,7 @@ func TestRedisConcurrencyLimiterAcquire_RedisErrorFailsOpen(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, allowed)
-	require.Equal(t, "",
-		token)
-
+	require.Empty(t, token)
 }
 
 func TestRedisConcurrencyLimiterRelease_InvalidToken(t *testing.T) {
@@ -165,7 +159,6 @@ func TestRedisConcurrencyLimiterRelease_InvalidToken(t *testing.T) {
 		Release(ctx, "job",
 			"invalid",
 		))
-
 }
 
 func TestParseRedisConcurrencyToken(t *testing.T) {
@@ -198,7 +191,6 @@ func TestRedisConcurrencyLimiterAcquire_ZeroConcurrency_Error(t *testing.T) {
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 0, time.Minute)
 	require.Error(t, err)
-
 }
 
 func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) {
@@ -215,7 +207,6 @@ func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) 
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", -1, time.Minute)
 	require.Error(t, err)
-
 }
 
 func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
@@ -232,7 +223,6 @@ func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 1, 0)
 	require.Error(t, err)
-
 }
 
 func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
@@ -249,7 +239,6 @@ func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 1, -time.Second)
 	require.Error(t, err)
-
 }
 
 func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
@@ -273,7 +262,6 @@ func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
 	require.Error(t, limiter.
 		Release(ctx, "job",
 			""))
-
 }
 
 func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
@@ -290,7 +278,6 @@ func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
 	err := limiter.Release(ctx, "job", "0:some-id")
 	require.NoError(t,
 		err)
-
 }
 
 func TestRedisConcurrencySlotKey(t *testing.T) {

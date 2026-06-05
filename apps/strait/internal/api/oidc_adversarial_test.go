@@ -37,7 +37,6 @@ func TestOIDCVerify_ValidToken(t *testing.T) {
 	require.Equal(t,
 		"user-1", claims.
 			Subject)
-
 }
 
 // TestOIDCVerify_ExpiredToken verifies that a token expired well beyond the
@@ -58,7 +57,6 @@ func TestOIDCVerify_ExpiredToken(t *testing.T) {
 	_, err := v.verify(signed)
 	require.Error(t,
 		err)
-
 }
 
 // TestOIDCVerify_ExpiryBoundary checks behaviour around the 30-second leeway.
@@ -85,7 +83,6 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			"user-boundary-past",
 			claims.
 				Subject)
-
 	})
 
 	t.Run("expired 31s ago rejected beyond leeway", func(t *testing.T) {
@@ -99,7 +96,6 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 		_, err := v.verify(signed)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("expires 1s from now accepted", func(t *testing.T) {
@@ -117,7 +113,6 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			"user-boundary-future",
 			claims.
 				Subject)
-
 	})
 }
 
@@ -138,7 +133,6 @@ func TestOIDCVerify_WrongIssuer(t *testing.T) {
 	_, err := v.verify(signed)
 	require.Error(t,
 		err)
-
 }
 
 // TestOIDCVerify_WrongAudience verifies that a mismatched audience is rejected.
@@ -158,7 +152,6 @@ func TestOIDCVerify_WrongAudience(t *testing.T) {
 	_, err := v.verify(signed)
 	require.Error(t,
 		err)
-
 }
 
 // TestOIDCVerify_EmptySubject verifies that an empty sub claim is rejected
@@ -179,9 +172,7 @@ func TestOIDCVerify_EmptySubject(t *testing.T) {
 	_, err := v.verify(signed)
 	require.Error(t,
 		err)
-	require.True(t, strings.Contains(err.Error(),
-		"subject"))
-
+	require.Contains(t, err.Error(), "subject")
 }
 
 // TestOIDCVerify_InvalidSignature verifies that a tampered token payload is
@@ -210,7 +201,6 @@ func TestOIDCVerify_InvalidSignature(t *testing.T) {
 	_, err := v.verify(tampered)
 	require.Error(t,
 		err)
-
 }
 
 // TestOIDCVerify_MalformedJWT verifies that random non-JWT strings are
@@ -231,7 +221,6 @@ func TestOIDCVerify_MalformedJWT(t *testing.T) {
 	for _, tok := range malformed {
 		_, err := v.verify(tok)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -261,7 +250,6 @@ func TestOIDCVerify_NullBytesInClaims(t *testing.T) {
 		"user\x00injected",
 		claims.Subject,
 	)
-
 }
 
 // TestNewOIDCVerifier_InvalidPEM verifies that an invalid PEM string is
@@ -278,7 +266,6 @@ func TestNewOIDCVerifier_InvalidPEM(t *testing.T) {
 	_, err := newOIDCVerifier(cfg)
 	require.Error(t,
 		err)
-
 }
 
 // TestNewOIDCVerifier_EmptyConfig verifies that an empty PEM is rejected when
@@ -297,7 +284,6 @@ func TestNewOIDCVerifier_EmptyConfig(t *testing.T) {
 		_, err := newOIDCVerifier(cfg)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("disabled returns verifier", func(t *testing.T) {
@@ -310,7 +296,6 @@ func TestNewOIDCVerifier_EmptyConfig(t *testing.T) {
 			v)
 		require.False(t,
 			v.enabled)
-
 	})
 }
 

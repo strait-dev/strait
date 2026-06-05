@@ -19,7 +19,6 @@ func TestNewVersionID_HasPrefix(t *testing.T) {
 		strings.HasPrefix(id,
 			VersionIDPrefix,
 		))
-
 }
 
 func TestNewVersionID_CorrectLength(t *testing.T) {
@@ -30,7 +29,6 @@ func TestNewVersionID_CorrectLength(t *testing.T) {
 	require.Len(t, id,
 		expected,
 	)
-
 }
 
 func TestNewVersionID_Unique(t *testing.T) {
@@ -57,7 +55,6 @@ func TestNewVersionID_OnlyValidChars(t *testing.T) {
 				strings.ContainsRune(VersionIDAlphabet,
 
 					c))
-
 		}
 	}
 }
@@ -73,7 +70,6 @@ func TestNewVersionID_NoUpperCase(t *testing.T) {
 				unicode.
 					IsUpper(c),
 			)
-
 		}
 	}
 }
@@ -110,7 +106,6 @@ func TestNewVersionID_Concurrent(t *testing.T) {
 		goroutines*
 			perGoroutine,
 	)
-
 }
 
 func TestNewVersionID_AlphabetConsistency(t *testing.T) {
@@ -122,5 +117,4 @@ func TestNewVersionID_AlphabetConsistency(t *testing.T) {
 		expected,
 		VersionIDAlphabet,
 	)
-
 }

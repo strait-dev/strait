@@ -37,7 +37,6 @@ func TestHandleSDKSetState_Success(t *testing.T) {
 	require.Equal(t, "step_result",
 		captured.StateKey,
 	)
-
 }
 
 func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
@@ -56,7 +55,6 @@ func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
@@ -75,7 +73,6 @@ func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSetState_MissingKey(t *testing.T) {
@@ -89,7 +86,6 @@ func TestHandleSDKSetState_MissingKey(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestHandleSDKGetState_Found(t *testing.T) {
@@ -108,7 +104,6 @@ func TestHandleSDKGetState_Found(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleSDKGetState)(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleSDKGetState_NotFound(t *testing.T) {
@@ -128,7 +123,6 @@ func TestHandleSDKGetState_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKListState(t *testing.T) {
@@ -153,7 +147,6 @@ func TestHandleSDKListState(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &items))
 	require.Len(t,
 		items, 2)
-
 }
 
 func TestHandleSDKDeleteState(t *testing.T) {
@@ -176,5 +169,4 @@ func TestHandleSDKDeleteState(t *testing.T) {
 		w.Code,
 	)
 	require.Equal(t, "mykey", deletedKey)
-
 }

@@ -36,7 +36,6 @@ func TestProperty_DequeuedNeverExceedsEnqueued(t *testing.T) {
 
 				enqueued,
 			)
-
 		}
 	}
 }
@@ -67,7 +66,6 @@ func TestProperty_BudgetSpentNeverExceedsBudget(t *testing.T) {
 
 				0,
 			)
-
 		}
 	}
 }

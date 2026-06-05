@@ -254,8 +254,7 @@ func TestDunner_AdvancesStepAtDayBoundary(t *testing.T) {
 			1 || emails.
 			calls[0].step != DunningStepDay3,
 	)
-	require.EqualValues(t, 1, countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
-
+	require.Equal(t, 1, countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
 }
 
 func TestDunner_SameDayTickIsCooldownNoOp(t *testing.T) {
@@ -273,9 +272,8 @@ func TestDunner_SameDayTickIsCooldownNoOp(t *testing.T) {
 	assert.Len(t, emails.
 		calls,
 		1)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
-
 }
 
 func TestDunner_LateTickJumpsMultipleSteps(t *testing.T) {
@@ -302,9 +300,8 @@ func TestDunner_LateTickJumpsMultipleSteps(t *testing.T) {
 		1 || emails.
 		calls[0].step != DunningStepDay14,
 	)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent))
-
 }
 
 func TestDunner_Step6SuspendsAndDispatchesSuspended(t *testing.T) {
@@ -328,18 +325,17 @@ func TestDunner_Step6SuspendsAndDispatchesSuspended(t *testing.T) {
 	)
 
 	events := dispatchedEventTypes(disp)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(events,
 			domain.
 				WebhookEventBillingDelinquent,
 		))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(events,
 			domain.
 				WebhookEventBillingSuspended,
 		),
 	)
-
 }
 
 func TestDunner_ResolutionClearsAndAllowsReentry(t *testing.T) {
@@ -379,7 +375,6 @@ func TestDunner_ResolutionClearsAndAllowsReentry(t *testing.T) {
 		row.DunningStep !=
 			1 || row.
 			DunningResolved != nil)
-
 }
 
 func TestDunner_StartDunningIsIdempotentForActiveCycle(t *testing.T) {
@@ -403,5 +398,4 @@ func TestDunner_StartDunningIsIdempotentForActiveCycle(t *testing.T) {
 	assert.True(t, row.
 		DunningEnteredAt.
 		Equal(entered))
-
 }

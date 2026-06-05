@@ -137,7 +137,7 @@ func TestBatchProcess_MixedValidInvalid(t *testing.T) {
 
 		pubMsg, err := handler.Collect(context.Background(), msg)
 		if tc.wantErr {
-			assert.Error(t, err)
+			require.Error(t, err)
 			continue
 		}
 		if err != nil {
@@ -154,7 +154,7 @@ func TestBatchProcess_MixedValidInvalid(t *testing.T) {
 		}
 		successCount++
 	}
-	assert.EqualValues(t, 3, successCount)
+	assert.Equal(t, 3, successCount)
 }
 
 // FuzzChangeEventParsing fuzzes raw CDC event JSON to check for panics

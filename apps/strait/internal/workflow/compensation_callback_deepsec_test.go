@@ -28,8 +28,7 @@ func TestOnJobRunTerminal_CompensationCompletionMarksWorkflowCompensated(t *test
 			require.Equal(t, `{"refunded":true}`,
 
 				string(output))
-			require.Equal(t, "",
-				errMsg)
+			require.Empty(t, errMsg)
 
 			terminalStatus = status
 			return &domain.CompensationRun{ID: "cr-1", WorkflowRunID: "wfr-1", Status: status}, nil
@@ -74,7 +73,6 @@ func TestOnJobRunTerminal_CompensationCompletionMarksWorkflowCompensated(t *test
 		workflowTo !=
 			domain.
 				WfStatusCompensated)
-
 }
 
 func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
@@ -126,5 +124,4 @@ func TestOnJobRunTerminal_CompensationFailureMarksWorkflowFailed(t *testing.T) {
 
 		workflowTo,
 	)
-
 }

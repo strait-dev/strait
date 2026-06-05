@@ -73,7 +73,6 @@ func TestCancelChildRunsRecursive_PaginatesChildrenForNextDepth(t *testing.T) {
 				wantBatches,
 
 				slices.Equal[[]string]))
-
 }
 
 func TestCancelChildRunsRecursive_StopsOnCancelError(t *testing.T) {
@@ -99,8 +98,7 @@ func TestCancelChildRunsRecursive_StopsOnCancelError(t *testing.T) {
 
 	total := srv.cancelChildRunsRecursive(context.Background(), "run-parent")
 	require.EqualValues(t, 2, total)
-	require.EqualValues(t, 2, cancelCalls)
-
+	require.Equal(t, 2, cancelCalls)
 }
 
 func TestCancelChildRunsRecursive_StopsAtDepthLimit(t *testing.T) {
@@ -130,7 +128,6 @@ func TestCancelChildRunsRecursive_StopsAtDepthLimit(t *testing.T) {
 
 		cancelCalls,
 	)
-
 }
 
 func TestNextChildCancellationParents_StopsParentOnListError(t *testing.T) {
@@ -163,5 +160,4 @@ func TestNextChildCancellationParents_StopsParentOnListError(t *testing.T) {
 				[]string{
 					"parent-a", "parent-b", "parent-b",
 				}))
-
 }

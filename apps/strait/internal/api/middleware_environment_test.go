@@ -20,14 +20,12 @@ func TestRequireEnvironmentMatch_NoCallerEnv(t *testing.T) {
 	require.NoError(t, requireEnvironmentMatch(context.Background(),
 
 		""))
-
 }
 
 func TestRequireEnvironmentMatch_Match(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxEnvironmentIDKey, "env-prod")
 	require.NoError(t, requireEnvironmentMatch(ctx, "env-prod"))
-
 }
 
 func TestRequireEnvironmentMatch_Mismatch(t *testing.T) {
@@ -70,7 +68,6 @@ func TestHandleGetJob_EnvironmentMismatch_Returns404(t *testing.T) {
 	require.Error(t, err)
 	require.True(
 		t, isNotFound(err))
-
 }
 
 func TestHandleGetJob_EnvironmentMatch_Allowed(t *testing.T) {
@@ -91,7 +88,6 @@ func TestHandleGetJob_EnvironmentMatch_Allowed(t *testing.T) {
 		Body == nil || out.Body.ID !=
 
 		"job-1")
-
 }
 
 func TestHandleGetRun_EnvironmentMismatch_Returns404(t *testing.T) {
@@ -112,7 +108,6 @@ func TestHandleGetRun_EnvironmentMismatch_Returns404(t *testing.T) {
 	require.Error(t, err)
 	require.True(
 		t, isNotFound(err))
-
 }
 
 func isNotFound(err error) bool {

@@ -107,8 +107,8 @@ func TestConsumerPoll_BatchCollection_AcksAfterPublish(t *testing.T) {
 		Background()))
 
 	pub.mu.Lock()
-	assert.EqualValues(t, 1, pub.batchCalls)
-	assert.EqualValues(t, 2, pub.totalMsgs)
+	assert.Equal(t, 1, pub.batchCalls)
+	assert.Equal(t, 2, pub.totalMsgs)
 
 	pub.mu.Unlock()
 
@@ -120,9 +120,8 @@ func TestConsumerPoll_BatchCollection_AcksAfterPublish(t *testing.T) {
 		t, !slices.Contains(ackIDs,
 			"a1") || !slices.
 			Contains(ackIDs, "a2"))
-	assert.Len(t,
-		nackIDs, 0)
-
+	assert.Empty(t,
+		nackIDs)
 }
 
 func TestConsumerPoll_BatchPublishFailure_AcksProjectionOnlyMessage(t *testing.T) {
@@ -170,12 +169,11 @@ func TestConsumerPoll_BatchPublishFailure_AcksProjectionOnlyMessage(t *testing.T
 		t, len(ackIDs) !=
 			1 || ackIDs[0] != "a1",
 	)
-	assert.Len(t,
-		nackIDs, 0)
+	assert.Empty(t,
+		nackIDs)
 
 	// Projection publish is best-effort. Without a durable additional handler
 	// failure, the message is ACKed to avoid redelivery amplification.
-
 }
 
 func TestConsumerPoll_BatchPublishFailure_NacksAdditionalHandlerFailure(t *testing.T) {
@@ -225,13 +223,12 @@ func TestConsumerPoll_BatchPublishFailure_NacksAdditionalHandlerFailure(t *testi
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t,
-		ackIDs, 0)
+	assert.Empty(t,
+		ackIDs)
 	assert.False(
 		t, len(nackIDs) !=
 			1 || nackIDs[0] != "a1",
 	)
-
 }
 
 func TestConsumerPoll_CollectError_NacksMessage(t *testing.T) {
@@ -352,17 +349,16 @@ func TestConsumerPoll_MixedHandlers_BatchAndInline(t *testing.T) {
 		Background()))
 
 	pub.mu.Lock()
-	assert.EqualValues(t, 1, pub.batchCalls)
-	assert.EqualValues(t, 1, pub.totalMsgs)
+	assert.Equal(t, 1, pub.batchCalls)
+	assert.Equal(t, 1, pub.totalMsgs)
 
 	pub.mu.Unlock()
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.EqualValues(t, 1, inlineHandled)
+	assert.Equal(t, 1, inlineHandled)
 	assert.Len(t,
 		ackIDs, 2)
-
 }
 
 func TestConsumerSetPublisher(t *testing.T) {
@@ -375,7 +371,6 @@ func TestConsumerSetPublisher(t *testing.T) {
 	pub := &trackingPublisher{}
 	consumer.SetPublisher(pub)
 	require.NotNil(t, consumer.publisher)
-
 }
 
 // decodeAckIDs is defined in consumer_test.go.

@@ -41,7 +41,6 @@ func TestDeepSec_BulkTriggerRejectsCrossEnvironmentJob(t *testing.T) {
 			http.
 				StatusNotFound,
 		))
-
 }
 
 func TestDeepSec_BulkCancelAllEnvironmentScopedRequiresJobFilter(t *testing.T) {
@@ -65,7 +64,6 @@ func TestDeepSec_BulkCancelAllEnvironmentScopedRequiresJobFilter(t *testing.T) {
 			http.
 				StatusForbidden,
 		))
-
 }
 
 func TestDeepSec_BulkCancelAllRejectsCrossEnvironmentJobFilter(t *testing.T) {
@@ -92,7 +90,6 @@ func TestDeepSec_BulkCancelAllRejectsCrossEnvironmentJobFilter(t *testing.T) {
 			http.
 				StatusNotFound,
 		))
-
 }
 
 func TestDeepSec_CreateJobRejectsEnvironmentScopedMismatch(t *testing.T) {
@@ -122,7 +119,6 @@ func TestDeepSec_CreateJobRejectsEnvironmentScopedMismatch(t *testing.T) {
 			http.
 				StatusForbidden,
 		))
-
 }
 
 func TestDeepSec_UpdateJobRejectsEnvironmentScopedMove(t *testing.T) {
@@ -155,7 +151,6 @@ func TestDeepSec_UpdateJobRejectsEnvironmentScopedMove(t *testing.T) {
 			http.
 				StatusForbidden,
 		))
-
 }
 
 func TestDeepSec_ListJobsFiltersEnvironmentScopedResults(t *testing.T) {
@@ -181,7 +176,6 @@ func TestDeepSec_ListJobsFiltersEnvironmentScopedResults(t *testing.T) {
 	require.False(t, len(got) !=
 		1 || got[0].ID !=
 		"job-prod")
-
 }
 
 func TestDeepSec_BatchCreateRejectsInvalidCron(t *testing.T) {
@@ -208,7 +202,6 @@ func TestDeepSec_BatchCreateRejectsInvalidCron(t *testing.T) {
 		}},
 	}})
 	require.Error(t, err)
-
 }
 
 func TestDeepSec_CreateJobDependencyRejectsCrossEnvironment(t *testing.T) {
@@ -245,7 +238,6 @@ func TestDeepSec_CreateJobDependencyRejectsCrossEnvironment(t *testing.T) {
 			http.
 				StatusBadRequest,
 		))
-
 }
 
 func TestDeepSec_UsageDateRangeRejectsMultiYearWindows(t *testing.T) {
@@ -253,7 +245,6 @@ func TestDeepSec_UsageDateRangeRejectsMultiYearWindows(t *testing.T) {
 
 	_, _, err := parseDateRangeTyped("2024-01-01", "2026-01-01")
 	require.Error(t, err)
-
 }
 
 func TestDeepSec_ProjectScopedAPIKeyCannotMutateOrgSpendingLimit(t *testing.T) {
@@ -274,5 +265,4 @@ func TestDeepSec_ProjectScopedAPIKeyCannotMutateOrgSpendingLimit(t *testing.T) {
 			http.
 				StatusForbidden,
 		))
-
 }

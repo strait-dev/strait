@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -68,7 +67,6 @@ func TestEnqueue_AdversarialIdempotencyKey(t *testing.T) {
 		domain.StatusQueued,
 		run.Status,
 	)
-
 }
 
 func TestEnqueue_LongIdempotencyKey(t *testing.T) {
@@ -87,7 +85,6 @@ func TestEnqueue_LongIdempotencyKey(t *testing.T) {
 
 	err := q.Enqueue(context.Background(), run)
 	require.NoError(t, err)
-
 }
 
 func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
@@ -113,11 +110,8 @@ func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
 	err := q.Enqueue(context.Background(), run)
 	require.Error(t,
 		err)
-	require.False(t,
-		errors.Is(err,
-			domain.ErrIdempotencyConflict,
-		))
-
+	require.NotErrorIs(t,
+		err, domain.ErrIdempotencyConflict)
 }
 
 func TestPriority_IntMin(t *testing.T) {
@@ -167,7 +161,6 @@ func TestPriority_IntMax(t *testing.T) {
 		math.MaxInt32, run.
 			Priority,
 	)
-
 }
 
 func TestConcurrencyKey_SpecialChars(t *testing.T) {
@@ -193,7 +186,6 @@ func TestConcurrencyKey_SpecialChars(t *testing.T) {
 		err := q.Enqueue(context.Background(), run)
 		assert.NoError(
 			t, err)
-
 	}
 }
 
@@ -211,7 +203,6 @@ func TestConcurrencyKey_ExtremelyLong(t *testing.T) {
 
 	err := q.Enqueue(context.Background(), run)
 	require.NoError(t, err)
-
 }
 
 func TestConcurrencyKey_EmptyString(t *testing.T) {
@@ -227,7 +218,6 @@ func TestConcurrencyKey_EmptyString(t *testing.T) {
 
 	err := q.Enqueue(context.Background(), run)
 	require.NoError(t, err)
-
 }
 
 func FuzzEnqueuePriority(f *testing.F) {
@@ -256,7 +246,6 @@ func FuzzEnqueuePriority(f *testing.F) {
 		assert.Equal(t,
 			priority, run.Priority,
 		)
-
 	})
 }
 
@@ -305,10 +294,7 @@ func TestEnqueue_TagsMarshalError(t *testing.T) {
 
 	// Verify tags are marshalled correctly by confirming the run was accepted.
 	tagsJSON, _ := json.Marshal(run.Tags)
-	assert.Equal(t,
+	assert.JSONEq(t,
 		`{"key":"value"}`,
-		string(
-			tagsJSON,
-		))
-
+		string(tagsJSON))
 }

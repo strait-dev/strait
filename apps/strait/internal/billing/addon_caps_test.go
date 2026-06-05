@@ -45,7 +45,6 @@ func TestAddonCap_UnderLimit_Allows(t *testing.T) {
 	err := handler.handleAddonSubscriptionCreated(context.Background(), sub.ToStripe(), AddonConcurrency100, "")
 	require.NoError(t,
 		err)
-
 }
 
 func TestAddonCap_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -79,7 +78,6 @@ func TestAddonCap_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	require.Nil(t, store.
 		lastAddonCreated,
 	)
-
 }
 
 func TestAddonCap_CountErrorFailsClosed(t *testing.T) {
@@ -114,7 +112,6 @@ func TestAddonCap_CountErrorFailsClosed(t *testing.T) {
 	require.Nil(t, store.
 		lastAddonCreated,
 	)
-
 }
 
 func TestAddonCap_CapExceededDoesNotCreateActiveAddon(t *testing.T) {
@@ -157,7 +154,6 @@ func TestAddonCap_CapExceededDoesNotCreateActiveAddon(t *testing.T) {
 	require.Nil(t, store.
 		lastAddonCreated,
 	)
-
 }
 
 func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
@@ -183,7 +179,6 @@ func TestAddonCap_EnforcerNil_Allows(t *testing.T) {
 	require.NotNil(t,
 		store.lastAddonCreated,
 	)
-
 }
 
 func TestAddonCap_EnforcerNil_RoadmapAddonDoesNotCreateActiveAddon(t *testing.T) {
@@ -205,7 +200,6 @@ func TestAddonCap_EnforcerNil_RoadmapAddonDoesNotCreateActiveAddon(t *testing.T)
 	require.Nil(t, store.
 		lastAddonCreated,
 	)
-
 }
 
 func TestAddonCap_DisallowedAddonOnPlan_DoesNotCreateActiveAddon(t *testing.T) {
@@ -257,7 +251,6 @@ func TestAddonCap_DisallowedAddonOnPlan_DoesNotCreateActiveAddon(t *testing.T) {
 			require.Nil(t, store.
 				lastAddonCreated,
 			)
-
 		})
 	}
 }

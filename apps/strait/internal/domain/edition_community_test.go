@@ -31,7 +31,6 @@ func TestParseEdition_Community(t *testing.T) {
 				EditionCommunity,
 
 				got)
-
 		})
 	}
 }

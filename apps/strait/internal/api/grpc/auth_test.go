@@ -28,7 +28,6 @@ func TestHashGRPCAPIKey(t *testing.T) {
 	got := hashGRPCAPIKey(key)
 	assert.Equal(t,
 		expected, got)
-
 }
 
 // TestHashGRPCAPIKey_Deterministic verifies that the same key always hashes the same way.
@@ -38,7 +37,6 @@ func TestHashGRPCAPIKey_Deterministic(t *testing.T) {
 	h2 := hashGRPCAPIKey(key)
 	assert.Equal(t,
 		h2, h1)
-
 }
 
 // TestProjectIDFromContext_HappyPath verifies extraction after withAPIKeyContext.
@@ -55,7 +53,6 @@ func TestProjectIDFromContext_HappyPath(t *testing.T) {
 	assert.Equal(t,
 		"proj-abc", projectID,
 	)
-
 }
 
 // TestProjectIDFromContext_Missing verifies error when project ID is absent from context.
@@ -63,7 +60,6 @@ func TestProjectIDFromContext_Missing(t *testing.T) {
 	_, err := ProjectIDFromContext(context.Background())
 	require.Error(
 		t, err)
-
 }
 
 // TestOrgIDFromContext_Present verifies org ID is extracted correctly when set.
@@ -74,7 +70,6 @@ func TestOrgIDFromContext_Present(t *testing.T) {
 	orgID := OrgIDFromContext(ctx)
 	assert.Equal(t,
 		"org-1", orgID)
-
 }
 
 // TestOrgIDFromContext_Empty verifies empty string returned when org not set.
@@ -83,9 +78,8 @@ func TestOrgIDFromContext_Empty(t *testing.T) {
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 
 	orgID := OrgIDFromContext(ctx)
-	assert.Equal(t,
-		"", orgID)
-
+	assert.Empty(t,
+		orgID)
 }
 
 // TestAPIKeyFromContext_HappyPath verifies that the full APIKey is retrievable.
@@ -99,7 +93,6 @@ func TestAPIKeyFromContext_HappyPath(t *testing.T) {
 	assert.Equal(t,
 		"key-42", got.ID,
 	)
-
 }
 
 func TestEnvironmentIDFromContext_Present(t *testing.T) {
@@ -108,7 +101,6 @@ func TestEnvironmentIDFromContext_Present(t *testing.T) {
 	require.Equal(
 		t, "env-prod", EnvironmentIDFromContext(
 			ctx))
-
 }
 
 // TestAPIKeyFromContext_Missing verifies (nil, false) when context has no API key.
@@ -116,7 +108,6 @@ func TestAPIKeyFromContext_Missing(t *testing.T) {
 	_, ok := APIKeyFromContext(context.Background())
 	assert.False(t,
 		ok)
-
 }
 
 // resolveAPIKeyFromContext tests require a real store.Queries (DB-backed). We test the
@@ -138,7 +129,6 @@ func TestResolveAPIKey_MissingMetadata(t *testing.T) {
 		codes.Unauthenticated,
 		s.Code(),
 	)
-
 }
 
 // TestResolveAPIKey_MissingAuthorizationHeader verifies error for missing authorization header.
@@ -155,7 +145,6 @@ func TestResolveAPIKey_MissingAuthorizationHeader(t *testing.T) {
 		codes.Unauthenticated,
 		s.Code(),
 	)
-
 }
 
 // TestResolveAPIKey_InvalidAuthorizationFormat verifies error for non-Bearer prefix.
@@ -172,7 +161,6 @@ func TestResolveAPIKey_InvalidAuthorizationFormat(t *testing.T) {
 		codes.Unauthenticated,
 		s.Code(),
 	)
-
 }
 
 func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
@@ -200,7 +188,6 @@ func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
 				codes.Unauthenticated,
 				s.Code(),
 			)
-
 		})
 	}
 }
@@ -254,7 +241,6 @@ func TestResolveAPIKeyFromContextWithLimit_BlockedBeforeStoreLookup(t *testing.T
 			len(limiter.
 				resets,
 			) != 0)
-
 }
 
 func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testing.T) {
@@ -277,10 +263,8 @@ func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testin
 			limiter.
 				failures[0] != "198.51.100.7",
 	)
-	require.Len(t,
-		limiter.resets,
-		0)
-
+	require.Empty(t,
+		limiter.resets)
 }
 
 func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
@@ -289,7 +273,6 @@ func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
 	rawKey := "strait_" + strings.Repeat("a", 64)
 	require.True(t,
 		validGRPCAPIKeyFormat(rawKey))
-
 }
 
 // TestAPIKey_Expired verifies that an expired key fails lifecycle validation.
@@ -311,7 +294,6 @@ func TestAPIKey_Expired(t *testing.T) {
 	require.Equal(
 		t, codes.Unauthenticated,
 		s.Code())
-
 }
 
 // TestAPIKey_GraceExpired verifies grace period expiry detection.
@@ -332,7 +314,6 @@ func TestAPIKey_GraceExpired(t *testing.T) {
 	require.Equal(
 		t, codes.Unauthenticated,
 		s.Code())
-
 }
 
 // TestAPIKey_Revoked verifies revocation detection.
@@ -368,7 +349,6 @@ func TestValidateWorkerAPIKey_RequiresWorkersConnectScope(t *testing.T) {
 	require.Equal(
 		t, codes.PermissionDenied,
 		s.Code())
-
 }
 
 func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
@@ -378,7 +358,6 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 		Scopes:    []string{domain.ScopeWorkersConnect},
 	}
 	require.NoError(t, validateWorkerAPIKey(apiKey))
-
 }
 
 func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
@@ -398,7 +377,6 @@ func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
 		ok)
 	require.True(t,
 		got.Equal(graceExpiresAt))
-
 }
 
 func TestWorkerAPIKeyExpiresAt_StoresDeadlineInContext(t *testing.T) {
@@ -415,7 +393,6 @@ func TestWorkerAPIKeyExpiresAt_StoresDeadlineInContext(t *testing.T) {
 		ok)
 	require.True(t,
 		got.Equal(expiresAt))
-
 }
 
 func TestWorkerAPIKeyExpiresAt_NoDeadlineForNonExpiringKey(t *testing.T) {

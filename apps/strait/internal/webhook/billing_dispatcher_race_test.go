@@ -97,6 +97,5 @@ func TestBillingDispatcher_ConcurrentDispatch_NoRaces(t *testing.T) {
 			"sub-c-skip",
 			d.SubscriptionID,
 		)
-
 	}
 }

@@ -70,7 +70,6 @@ func TestStageNotification_OnStepCompleted(t *testing.T) {
 		"step.completed",
 		store.deliveries[0].EventType,
 	)
-
 }
 
 func TestStageNotification_OnStepFailed(t *testing.T) {
@@ -100,7 +99,6 @@ func TestStageNotification_OnStepFailed(t *testing.T) {
 		"step.failed",
 		store.deliveries[0].EventType,
 	)
-
 }
 
 func TestStageNotification_NoChannelsConfigured(t *testing.T) {
@@ -121,10 +119,8 @@ func TestStageNotification_NoChannelsConfigured(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Len(t, store.
-		deliveries,
-		0)
-
+	require.Empty(t, store.
+		deliveries)
 }
 
 func TestStageNotification_MultipleChannels(t *testing.T) {
@@ -151,7 +147,6 @@ func TestStageNotification_MultipleChannels(t *testing.T) {
 	require.Len(t, store.
 		deliveries,
 		2)
-
 }
 
 func TestStageNotification_NoNotificationsConfigured(t *testing.T) {
@@ -172,10 +167,8 @@ func TestStageNotification_NoNotificationsConfigured(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Len(t, store.
-		deliveries,
-		0)
-
+	require.Empty(t, store.
+		deliveries)
 }
 
 func TestStageNotification_CompletedNotConfiguredForFailure(t *testing.T) {
@@ -197,10 +190,8 @@ func TestStageNotification_CompletedNotConfiguredForFailure(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Len(t, store.
-		deliveries,
-		0)
-
+	require.Empty(t, store.
+		deliveries)
 }
 
 func TestStageNotification_InvalidJSON(t *testing.T) {
@@ -222,10 +213,8 @@ func TestStageNotification_InvalidJSON(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.Len(t, store.
-		deliveries,
-		0)
-
+	require.Empty(t, store.
+		deliveries)
 }
 
 func TestStageNotification_NonTerminalStatusSkipsInvalidConfig(t *testing.T) {
@@ -248,13 +237,11 @@ func TestStageNotification_NonTerminalStatusSkipsInvalidConfig(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	require.EqualValues(t, 0, store.listCalls)
-	require.Len(t, store.
-		deliveries,
-		0)
-	require.EqualValues(t, 0, logBuf.
+	require.Equal(t, 0, store.listCalls)
+	require.Empty(t, store.
+		deliveries)
+	require.Equal(t, 0, logBuf.
 		Len())
-
 }
 
 func TestStageNotification_NilStep(t *testing.T) {
@@ -294,7 +281,6 @@ func TestStageNotification_OnSkipped(t *testing.T) {
 		"step.skipped",
 		store.deliveries[0].EventType,
 	)
-
 }
 
 func TestStageNotification_PayloadContent(t *testing.T) {
@@ -335,7 +321,6 @@ func TestStageNotification_PayloadContent(t *testing.T) {
 	assert.Equal(t,
 		"completed",
 		payload["status"])
-
 }
 
 func BenchmarkStageNotification_NonTerminal(b *testing.B) {

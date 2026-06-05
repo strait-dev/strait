@@ -30,6 +30,5 @@ func TestValidWebhookEventTypes_BillingEventsRegistered(t *testing.T) {
 		assert.True(t,
 
 			validWebhookEventTypes[ev])
-
 	}
 }

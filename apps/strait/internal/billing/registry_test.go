@@ -18,7 +18,6 @@ func TestStaticRegistry_AllTiers(t *testing.T) {
 		assert.Equal(t, tier,
 
 			limits.PlanTier)
-
 	}
 }
 
@@ -33,7 +32,6 @@ func TestStaticRegistry_All(t *testing.T) {
 	expected := domain.AllPlanTiers()
 	for i, limits := range all {
 		assert.Equal(t, expected[i], limits.PlanTier)
-
 	}
 }
 
@@ -44,7 +42,6 @@ func TestStaticRegistry_UnknownTier_ReturnsFree(t *testing.T) {
 	assert.Equal(t, domain.
 		PlanFree, limits.PlanTier,
 	)
-
 }
 
 func TestStaticRegistry_AllowsFeature(t *testing.T) {
@@ -113,7 +110,6 @@ func TestStaticRegistry_AllowsFeature(t *testing.T) {
 			got := reg.AllowsFeature(tt.tier, tt.feature)
 			assert.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
@@ -125,7 +121,6 @@ func TestStaticRegistry_AllowsFeature_InvalidFeature(t *testing.T) {
 	for _, tier := range domain.AllPlanTiers() {
 		assert.False(t, reg.
 			AllowsFeature(tier, Feature("nonexistent_feature")))
-
 	}
 }
 
@@ -191,7 +186,6 @@ func TestStaticRegistry_MaxForLimit(t *testing.T) {
 			got := reg.MaxForLimit(tt.tier, tt.limit)
 			assert.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
@@ -202,10 +196,9 @@ func TestStaticRegistry_MaxForLimit_InvalidKey(t *testing.T) {
 
 	for _, tier := range domain.AllPlanTiers() {
 		got := reg.MaxForLimit(tier, LimitKey("nonexistent_limit"))
-		assert.EqualValues(t, 0,
+		assert.Equal(t, 0,
 
 			got)
-
 	}
 }
 
@@ -228,7 +221,6 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 			AllowsFeature(domain.PlanStarter,
 
 				f))
-
 	}
 
 	scaleFeatures := []Feature{FeatureCanaryDeployments, FeatureAuditLogs}
@@ -245,14 +237,12 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 			AllowsFeature(domain.PlanPro,
 
 				f))
-
 	}
 
 	for _, f := range roadmapEnterpriseFeatures {
 		for _, tier := range domain.AllPlanTiers() {
 			assert.False(t, reg.
 				AllowsFeature(tier, f))
-
 		}
 	}
 
@@ -261,7 +251,6 @@ func TestStaticRegistry_FeatureGating_Exhaustive(t *testing.T) {
 		for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter, domain.PlanPro, domain.PlanScale} {
 			assert.False(t, reg.
 				AllowsFeature(tier, f))
-
 		}
 	}
 }
@@ -295,7 +284,6 @@ func TestStaticRegistry_LimitsMonotonicallyIncrease(t *testing.T) {
 				continue
 			}
 			assert.GreaterOrEqual(t, curr, prev)
-
 		}
 	}
 }
@@ -337,7 +325,6 @@ func TestStaticRegistry_RequiredPlanForFeature(t *testing.T) {
 			got := reg.RequiredPlanForFeature(tt.feature)
 			assert.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }

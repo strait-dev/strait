@@ -50,7 +50,6 @@ func TestRBACInheritance_CreateRoleRequiresGrantOfInheritedParentPermissions(t *
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestRBACInheritance_UpdateRoleRequiresGrantOfInheritedParentPermissions(t *testing.T) {
@@ -96,7 +95,6 @@ func TestRBACInheritance_UpdateRoleRequiresGrantOfInheritedParentPermissions(t *
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestRBACInheritance_AssignMemberRequiresGrantOfInheritedParentPermissions(t *testing.T) {
@@ -139,7 +137,6 @@ func TestRBACInheritance_AssignMemberRequiresGrantOfInheritedParentPermissions(t
 		t, isHumaStatusError(err, http.
 			StatusForbidden,
 		))
-
 }
 
 func TestRBACInheritance_BulkAssignRejectsInheritedParentEscalation(t *testing.T) {
@@ -193,5 +190,4 @@ func TestRBACInheritance_BulkAssignRejectsInheritedParentEscalation(t *testing.T
 		"error" || results[0].
 		Error ==
 		"")
-
 }

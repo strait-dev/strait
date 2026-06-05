@@ -41,7 +41,6 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 		w.OrgID = "org-1"
 		require.NoError(t, r.
 			Register(w))
-
 	}
 
 	const attempts = 50
@@ -66,7 +65,6 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 		t, attempts,
 		blocked.
 			Load())
-
 }
 
 // TestStreamGating_ReconnectStorm verifies that when N existing connections
@@ -120,7 +118,7 @@ func TestStreamGating_ReconnectStorm(t *testing.T) {
 	// state: once the storm settles, the count is exactly 5 and a new
 	// connect is rejected.
 	wg.Wait()
-	require.EqualValues(t, 5, r.
+	require.Equal(t, 5, r.
 		CountByOrg("org-1"))
 
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
@@ -190,7 +188,7 @@ func TestStreamGating_EmptyOrgIDCannotBeUsedToBypass(t *testing.T) {
 	wEmpty := makeWorker("ghost", "proj-a", "k-ghost", []string{"q"}, 1)
 	require.NoError(t, r.
 		Register(wEmpty))
-	require.EqualValues(t, 0, r.
+	require.Equal(t, 0, r.
 		CountByOrg("org-1"))
 
 	// New connect for org-1: count is 0/1 → allowed (the ghost did not pad
@@ -220,16 +218,15 @@ func TestStreamGating_DowngradeMidSession(t *testing.T) {
 		w.OrgID = "org-1"
 		require.NoError(t, r.
 			Register(w))
-
 	}
-	require.EqualValues(t, 5, r.
+	require.Equal(t, 5, r.
 		CountByOrg("org-1"))
 
 	// Downgrade: cap drops to 1. Existing connections survive (we don't evict).
 	enforcer.mu.Lock()
 	enforcer.limit = 1
 	enforcer.mu.Unlock()
-	require.EqualValues(t, 5, r.
+	require.Equal(t, 5, r.
 		CountByOrg("org-1"))
 
 	// Existing connections still in the registry.

@@ -27,17 +27,15 @@ func TestResolveEventChannelSize(t *testing.T) {
 	for _, tc := range cases {
 		require.Equal(t,
 			tc.want, resolveEventChannelSize(tc.in))
-
 	}
 }
 
 func TestNewExecutor_AppliesEventChannelSize(t *testing.T) {
 	t.Parallel()
 	e := NewExecutor(ExecutorConfig{EventChannelSize: 2048})
-	require.EqualValues(t, 2048, cap(e.
+	require.Equal(t, 2048, cap(e.
 		eventCh))
-	require.EqualValues(t, 2048, e.eventChannelSize)
-
+	require.Equal(t, 2048, e.eventChannelSize)
 }
 
 func TestNewExecutor_DefaultEventChannelSize(t *testing.T) {
@@ -48,7 +46,6 @@ func TestNewExecutor_DefaultEventChannelSize(t *testing.T) {
 
 		cap(e.
 			eventCh))
-
 }
 
 // TestEmit_SaturationDropsAndNoDeadlock fills the channel, then emits enough
@@ -99,7 +96,6 @@ func TestShouldLogSaturation_Throttles(t *testing.T) {
 	require.True(t,
 		exec.shouldLogSaturation(eventChannelKind(EventCompleted)),
 	)
-
 }
 
 func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
@@ -109,9 +105,8 @@ func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
 
 	first := exec.resolveInstanceID()
 	second := exec.resolveInstanceID()
-	require.NotEqual(t, "", first)
+	require.NotEmpty(t, first)
 	require.Equal(t,
 		first, second,
 	)
-
 }

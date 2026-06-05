@@ -100,7 +100,6 @@ func TestAuditSIEMForward_BatchesEventsFromDrainer(t *testing.T) {
 	s.Close()
 	require.EqualValues(t, total, received.
 		Load())
-
 }
 
 // TestAuditSIEMForward_EmptyEndpoint_Noop verifies that when no SIEM endpoint
@@ -132,7 +131,6 @@ func TestAuditSIEMForward_EmptyEndpoint_Noop(t *testing.T) {
 	}
 	s.Close()
 	assert.EqualValues(t, 0, hits.Load())
-
 }
 
 // TestAuditSIEMForward_ShutdownFlushesPending ensures Server.Close drains
@@ -189,7 +187,6 @@ func TestAuditSIEMForward_ShutdownFlushesPending(t *testing.T) {
 	assert.Equal(
 		t, total, received,
 	)
-
 }
 
 // TestAuditSIEMForward_FlushNowOnCloseRunsBeforeStop verifies the explicit
@@ -240,5 +237,4 @@ func TestAuditSIEMForward_FlushNowOnCloseRunsBeforeStop(t *testing.T) {
 	s.Close()
 	require.EqualValues(t, total, received.
 		Load())
-
 }

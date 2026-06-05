@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -71,7 +70,7 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.EqualValues(t, 1, getCalls)
+	require.Equal(t, 1, getCalls)
 
 	// Find the self-audit row.
 	var found *domain.AuditEvent
@@ -99,7 +98,6 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 		&details))
 	assert.Equal(
 		t, eventID, details["target_id"])
-
 }
 
 // TestGetAuditEvent_RejectsCrossTenant verifies the store is called with
@@ -128,7 +126,6 @@ func TestGetAuditEvent_RejectsCrossTenant(t *testing.T) {
 	assert.Equal(
 		t, "proj-a", seenProject,
 	)
-
 }
 
 // TestGetSecret_EmitsSecretReadAudit verifies GET /v1/secrets/{id} returns
@@ -179,8 +176,8 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 
 	// Response body must not leak encrypted or plaintext values.
 	body := w.Body.String()
-	require.False(t, strings.Contains(body, "ciphertext-never-returned"))
-	require.False(t, strings.Contains(body, "encrypted_value"))
+	require.NotContains(t, body, "ciphertext-never-returned")
+	require.NotContains(t, body, "encrypted_value")
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -208,7 +205,6 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 		t, secretID, details["secret_id"])
 	assert.Equal(
 		t, keyName, details["name"])
-
 }
 
 // TestSecretReadAudit_NeverContainsKeyMaterial ensures the secret.read audit
@@ -282,8 +278,7 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 	// stuffing it under a renamed key.
 	raw := string(found.Details)
 	for _, needle := range []string{"super-secret-value", "ENC:super-secret-value"} {
-		assert.False(
-			t, strings.Contains(raw, needle))
-
+		assert.NotContains(
+			t, raw, needle)
 	}
 }

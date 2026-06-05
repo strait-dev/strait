@@ -46,9 +46,8 @@ func TestEnqueueWithRetry_SucceedsAfterThrottle(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 3, attempts)
-	require.EqualValues(t, 2, sleeps)
-
+	require.Equal(t, 3, attempts)
+	require.Equal(t, 2, sleeps)
 }
 
 func TestEnqueueWithRetry_StopsOnNonThrottle(t *testing.T) {
@@ -71,9 +70,8 @@ func TestEnqueueWithRetry_StopsOnNonThrottle(t *testing.T) {
 			return nil
 		},
 	})
-	require.True(t,
-		errors.Is(err, wantErr))
-
+	require.ErrorIs(t,
+		err, wantErr)
 }
 
 func TestEnqueueWithRetry_ReturnsThrottleWhenBudgetExceeded(t *testing.T) {
@@ -97,10 +95,9 @@ func TestEnqueueWithRetry_ReturnsThrottleWhenBudgetExceeded(t *testing.T) {
 			return nil
 		},
 	})
-	require.True(t,
-		errors.Is(err, ErrEnqueueThrottled))
-	require.EqualValues(t, 1, attempts)
-
+	require.ErrorIs(t,
+		err, ErrEnqueueThrottled)
+	require.Equal(t, 1, attempts)
 }
 
 func TestEnqueueWithRetry_StopsWhenContextCanceled(t *testing.T) {
@@ -127,13 +124,11 @@ func TestEnqueueWithRetry_StopsWhenContextCanceled(t *testing.T) {
 			return ctx.Err()
 		},
 	})
-	require.True(t,
-		errors.Is(err, context.
-			Canceled,
-		))
-	require.EqualValues(t, 1, attempts)
-	require.EqualValues(t, 1, sleeps)
-
+	require.ErrorIs(t,
+		err, context.
+			Canceled)
+	require.Equal(t, 1, attempts)
+	require.Equal(t, 1, sleeps)
 }
 
 func TestEnqueueWithRetry_StopsWhenContextDeadlineExceeded(t *testing.T) {
@@ -159,11 +154,9 @@ func TestEnqueueWithRetry_StopsWhenContextDeadlineExceeded(t *testing.T) {
 			return ctx.Err()
 		},
 	})
-	require.True(t,
-		errors.Is(err, context.
-			DeadlineExceeded,
-		))
-	require.EqualValues(t, 1, attempts)
-	require.EqualValues(t, 1, sleeps)
-
+	require.ErrorIs(t,
+		err, context.
+			DeadlineExceeded)
+	require.Equal(t, 1, attempts)
+	require.Equal(t, 1, sleeps)
 }

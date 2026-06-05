@@ -35,7 +35,7 @@ func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-	require.Equal(t, "", w.
+	require.Empty(t, w.
 		Header().Get("X-Test-Header"))
 	require.NotEqual(t, "success body",
 
@@ -43,7 +43,6 @@ func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
 	require.True(
 		t, tx.setProjectContext,
 	)
-
 }
 
 func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
@@ -69,7 +68,6 @@ func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
 	require.True(
 		t, tx.rollbackCalled,
 	)
-
 }
 
 func TestRLSTxMiddleware_AuditExportBypassesBufferedTransaction(t *testing.T) {
@@ -96,7 +94,6 @@ func TestRLSTxMiddleware_AuditExportBypassesBufferedTransaction(t *testing.T) {
 		w.Body.String())
 	require.EqualValues(t, 0, beginCount.
 		Load())
-
 }
 
 func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
@@ -123,7 +120,6 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 		w.Body.String())
 	require.EqualValues(t, 0, beginCount.
 		Load())
-
 }
 
 type fakeTxBeginner struct {

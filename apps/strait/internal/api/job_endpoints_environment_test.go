@@ -41,7 +41,6 @@ func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironme
 			http.
 				StatusNotFound,
 		))
-
 }
 
 func TestHandleVerifyJobEndpoint_EnvironmentScopedCallerCannotVerifyOtherEnvironmentEndpoint(t *testing.T) {
@@ -67,5 +66,4 @@ func TestHandleVerifyJobEndpoint_EnvironmentScopedCallerCannotVerifyOtherEnviron
 			http.
 				StatusNotFound,
 		))
-
 }

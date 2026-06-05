@@ -19,7 +19,6 @@ func TestRequireAdmin_InternalSecretCaller_Allowed(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	require.NoError(t, srv.requireAdmin(ctx))
-
 }
 
 // TestRequireAdmin_APIKeyCaller_Rejected verifies that a context carrying
@@ -52,7 +51,6 @@ func TestRequireAdmin_UnauthenticatedCaller_Rejected(t *testing.T) {
 	ctx := context.Background()
 	err := srv.requireAdmin(ctx)
 	require.Error(t, err)
-
 }
 
 // TestDLQAdminRoutes_NoInternalSecret_Rejected verifies that an HTTP request
@@ -76,7 +74,6 @@ func TestDLQAdminRoutes_NoInternalSecret_Rejected(t *testing.T) {
 	)
 
 	// The internalSecretAuth middleware should reject before the route handler.
-
 }
 
 // TestDLQAdminRoutes_WithInternalSecret_Passes verifies that an HTTP request
@@ -109,5 +106,4 @@ func TestDLQAdminRoutes_WithInternalSecret_Passes(t *testing.T) {
 	// The request should not be rejected by auth or the middleware layer.
 	// A 400 (missing project context) is acceptable — it means the handler
 	// was reached and auth passed. 200 is also fine.
-
 }

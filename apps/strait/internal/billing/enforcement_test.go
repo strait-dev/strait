@@ -39,7 +39,6 @@ func TestEnforcer_CheckDailyRunLimit_Free(t *testing.T) {
 					Background(),
 					"org_free",
 				))
-
 	}
 }
 
@@ -59,7 +58,6 @@ func TestEnforcer_CheckDailyRunLimit_Starter(t *testing.T) {
 					Background(),
 					"org_starter",
 				))
-
 	}
 }
 
@@ -79,7 +77,6 @@ func TestEnforcer_CheckDailyRunLimit_Enterprise(t *testing.T) {
 					Background(),
 					"org_ent",
 				))
-
 	}
 }
 
@@ -106,7 +103,6 @@ func TestEnforcer_Integration_FreeTierDailyRunUnlimited(t *testing.T) {
 				CheckDailyRunLimit(ctx,
 					"org_free_explicit",
 				))
-
 	}
 }
 
@@ -119,7 +115,6 @@ func TestEnforcer_CheckDailyRunLimit_EmptyOrgID(t *testing.T) {
 				Background(),
 				"",
 			))
-
 }
 
 func TestEnforcer_DecrRollback(t *testing.T) {
@@ -142,7 +137,6 @@ func TestEnforcer_DecrRollback(t *testing.T) {
 			))
 
 	// Should still allow runs (unlimited).
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
@@ -155,7 +149,6 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 		require.NoError(t,
 			enforcer.
 				CheckConcurrentRunLimit(ctx, "org_conc"))
-
 	}
 
 	// Next run should fail.
@@ -168,7 +161,6 @@ func TestEnforcer_CheckConcurrentRunLimit(t *testing.T) {
 	require.NoError(t,
 		enforcer.
 			CheckConcurrentRunLimit(ctx, "org_conc"))
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap(t *testing.T) {
@@ -191,21 +183,18 @@ func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap
 			enforcer.
 				CheckConcurrentRunLimit(ctx, "org_grace"),
 		)
-
 	}
 	err := enforcer.CheckConcurrentRunLimit(ctx, "org_grace")
 	require.Error(t,
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"org_concurrent_run_limit_exceeded",
 
 		le.Code,
 	)
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
@@ -228,7 +217,6 @@ func TestEnforcer_CheckConcurrentRunLimit_PaymentLookupErrorFailsClosed(t *testi
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_AddonLoadErrorFailsClosed(t *testing.T) {
@@ -253,7 +241,6 @@ func TestEnforcer_CheckConcurrentRunLimit_AddonLoadErrorFailsClosed(t *testing.T
 
 		le.Code,
 	)
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
@@ -275,7 +262,6 @@ func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
@@ -292,7 +278,6 @@ func TestEnforcer_CheckConcurrentRunLimit_RequiredNilRedisFailsClosed(t *testing
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckProjectLimit(t *testing.T) {
@@ -315,7 +300,6 @@ func TestEnforcer_CheckProjectLimit(t *testing.T) {
 			CheckProjectLimit(context.
 				Background(), "org_empty",
 			))
-
 }
 
 func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -337,7 +321,6 @@ func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T
 
 		le.Code,
 	)
-
 }
 
 func TestEnforcer_CheckProjectLimit_CountErrorFailsClosed(t *testing.T) {
@@ -356,7 +339,6 @@ func TestEnforcer_CheckProjectLimit_CountErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
@@ -372,7 +354,6 @@ func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 				Background(),
 				"org_free",
 			))
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierSpendReadErrorFailsClosed(t *testing.T) {
@@ -388,7 +369,6 @@ func TestEnforcer_CheckSpendingLimit_FreeTierSpendReadErrorFailsClosed(t *testin
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierAnySpend_Blocks(t *testing.T) {
@@ -404,7 +384,6 @@ func TestEnforcer_CheckSpendingLimit_FreeTierAnySpend_Blocks(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
 	require.Error(t,
 		err)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierOverBudget_Blocks(t *testing.T) {
@@ -427,7 +406,6 @@ func TestEnforcer_CheckSpendingLimit_FreeTierOverBudget_Blocks(t *testing.T) {
 		le.Code,
 	)
 	require.EqualValues(t, 0, le.Limit)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeSubscriptionOverIncludedCredit(t *testing.T) {
@@ -444,7 +422,6 @@ func TestEnforcer_CheckSpendingLimit_FreeSubscriptionOverIncludedCredit(t *testi
 	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
 	require.Error(t,
 		err)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_HardCapZeroBlocksAnySpend(t *testing.T) {
@@ -476,7 +453,6 @@ func TestEnforcer_CheckSpendingLimit_HardCapZeroBlocksAnySpend(t *testing.T) {
 	err := enforcer.CheckSpendingLimit(context.Background(), "org_starter")
 	require.Error(t,
 		err)
-
 }
 
 func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
@@ -515,7 +491,6 @@ func TestEnforcer_GetOrgPlanLimits_Cache(t *testing.T) {
 		PlanFree,
 		limits3.
 			PlanTier)
-
 }
 
 func TestReconcileConcurrentRunCount(t *testing.T) {
@@ -541,7 +516,6 @@ func TestReconcileConcurrentRunCount(t *testing.T) {
 		err)
 	assert.EqualValues(t, 3,
 		val)
-
 }
 
 func TestConcurrentCounter_CrashRecovery(t *testing.T) {
@@ -561,7 +535,6 @@ func TestConcurrentCounter_CrashRecovery(t *testing.T) {
 			enforcer.
 				CheckConcurrentRunLimit(ctx, "org_crash"),
 		)
-
 	}
 	require.NoError(t,
 		enforcer.
@@ -579,7 +552,6 @@ func TestConcurrentCounter_CrashRecovery(t *testing.T) {
 		err)
 	assert.EqualValues(t, 2,
 		val)
-
 }
 
 func isLimitError(err error, target **LimitError) bool {
@@ -634,7 +606,6 @@ func TestConcurrentCounterTTL_Is24Hours(t *testing.T) {
 		time.Hour,
 		concurrentCounterTTL,
 	)
-
 }
 
 func TestReconcileAll_RestoresExpiredKey(t *testing.T) {
@@ -661,7 +632,6 @@ func TestReconcileAll_RestoresExpiredKey(t *testing.T) {
 		err)
 	assert.EqualValues(t, 3,
 		val)
-
 }
 
 func TestReconcileAll_ResetsStaleKey(t *testing.T) {
@@ -690,7 +660,6 @@ func TestReconcileAll_ResetsStaleKey(t *testing.T) {
 		err)
 	assert.EqualValues(t, 0,
 		val)
-
 }
 
 func TestReconcileAll_HandlesDBAndRedisUnion(t *testing.T) {
@@ -723,7 +692,6 @@ func TestReconcileAll_HandlesDBAndRedisUnion(t *testing.T) {
 			err)
 		assert.Equal(t, want,
 			val)
-
 	}
 }
 
@@ -742,7 +710,6 @@ func TestReconcileAll_BulkQueryError_ReturnsError(t *testing.T) {
 	err := enforcer.ReconcileAllConcurrentCounts(ctx, counter)
 	require.Error(t,
 		err)
-
 }
 
 func TestReconcileAll_NilRedis(t *testing.T) {
@@ -755,7 +722,6 @@ func TestReconcileAll_NilRedis(t *testing.T) {
 		enforcer.
 			ReconcileAllConcurrentCounts(context.
 				Background(), counter))
-
 }
 
 func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
@@ -785,8 +751,7 @@ func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"worker_connections_reached",
 
@@ -825,7 +790,6 @@ func TestReserveWorkerConnection_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 
 		le.Code,
 	)
-
 }
 
 func TestReserveWorkerConnection_RedisErrorFailsClosed(t *testing.T) {
@@ -852,7 +816,6 @@ func TestReserveWorkerConnection_RedisErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestReserveWorkerConnection_NilRedisFailsClosed(t *testing.T) {
@@ -874,7 +837,6 @@ func TestReserveWorkerConnection_NilRedisFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -889,8 +851,7 @@ func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T
 	err := enforcer.CheckWorkerConnectionLimit(context.Background(), "org-plan-error", 0)
 	require.Error(t,
 		err)
-	require.True(t, strings.Contains(err.Error(), "resolve worker connection plan limit"))
-
+	require.Contains(t, err.Error(), "resolve worker connection plan limit")
 }
 
 // Member limit tests.
@@ -905,7 +866,6 @@ func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {
 			CheckMemberLimit(context.
 				Background(), "org_free",
 			))
-
 }
 
 func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
@@ -919,8 +879,7 @@ func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "member_limit_reached",
 
 		le.Code)
@@ -928,7 +887,6 @@ func TestCheckMemberLimit_FreeAtLimit_Blocked(t *testing.T) {
 		MaxMembersPerOrg,
 	),
 		le.Limit)
-
 }
 
 func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -950,7 +908,6 @@ func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 
 		le.Code,
 	)
-
 }
 
 func TestCheckMemberLimit_CountErrorFailsClosed(t *testing.T) {
@@ -969,7 +926,6 @@ func TestCheckMemberLimit_CountErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckMemberLimit_StarterUnderLimit_Passes(t *testing.T) {
@@ -985,7 +941,6 @@ func TestCheckMemberLimit_StarterUnderLimit_Passes(t *testing.T) {
 			CheckMemberLimit(context.
 				Background(), "org_starter",
 			))
-
 }
 
 func TestCheckMemberLimit_StarterAtLimit_Blocked(t *testing.T) {
@@ -1002,8 +957,7 @@ func TestCheckMemberLimit_StarterAtLimit_Blocked(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "member_limit_reached",
 
 		le.Code)
@@ -1011,7 +965,6 @@ func TestCheckMemberLimit_StarterAtLimit_Blocked(t *testing.T) {
 		MaxMembersPerOrg,
 	), le.Limit,
 	)
-
 }
 
 func TestCheckMemberLimit_ProUnlimited_AlwaysPasses(t *testing.T) {
@@ -1026,7 +979,6 @@ func TestCheckMemberLimit_ProUnlimited_AlwaysPasses(t *testing.T) {
 			CheckMemberLimit(context.
 				Background(), "org_ent",
 			))
-
 }
 
 // Org creation limit tests.
@@ -1042,7 +994,6 @@ func TestCheckOrgCreationLimit_FreeAt1_Passes(t *testing.T) {
 				"user1", domain.PlanFree,
 			),
 	)
-
 }
 
 func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
@@ -1055,8 +1006,7 @@ func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "org_limit_reached",
 
 		le.
@@ -1064,7 +1014,6 @@ func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
 	assert.EqualValues(t, 1,
 		le.Limit,
 	)
-
 }
 
 func TestCheckOrgCreationLimit_CountErrorFailsClosed(t *testing.T) {
@@ -1083,7 +1032,6 @@ func TestCheckOrgCreationLimit_CountErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckOrgCreationLimit_StarterAt2_Passes(t *testing.T) {
@@ -1096,7 +1044,6 @@ func TestCheckOrgCreationLimit_StarterAt2_Passes(t *testing.T) {
 				context.Background(),
 				"user2", domain.PlanStarter,
 			))
-
 }
 
 func TestCheckOrgCreationLimit_ProUnlimited(t *testing.T) {
@@ -1109,7 +1056,6 @@ func TestCheckOrgCreationLimit_ProUnlimited(t *testing.T) {
 				context.Background(),
 				"user3", domain.PlanEnterprise,
 			))
-
 }
 
 // 80% daily run warning tests.
@@ -1128,7 +1074,6 @@ func TestCheck80PercentWarning_UnlimitedAlwaysFalse(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, warned)
-
 }
 
 func TestCheck80PercentWarning_Unlimited_False(t *testing.T) {
@@ -1147,7 +1092,6 @@ func TestCheck80PercentWarning_Unlimited_False(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, warned)
-
 }
 
 func TestCheck80PercentWarning_ZeroUsage_False(t *testing.T) {
@@ -1158,7 +1102,6 @@ func TestCheck80PercentWarning_ZeroUsage_False(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, warned)
-
 }
 
 // Grace period enforcement tests.
@@ -1185,7 +1128,6 @@ func TestGracePeriod_InFlight_Allowed_DuringGrace(t *testing.T) {
 			))
 
 	// During active grace, daily run limit should be skipped (allowed).
-
 }
 
 func TestGracePeriod_InFlight_Rejected_AfterGrace(t *testing.T) {
@@ -1208,12 +1150,10 @@ func TestGracePeriod_InFlight_Rejected_AfterGrace(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "grace_period_expired",
 
 		le.Code)
-
 }
 
 func TestGracePeriod_PaymentOK_NoGraceCheck(t *testing.T) {
@@ -1236,7 +1176,6 @@ func TestGracePeriod_PaymentOK_NoGraceCheck(t *testing.T) {
 			))
 
 	// Normal limit checking: should succeed without grace period interference.
-
 }
 
 func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
@@ -1257,13 +1196,11 @@ func TestGracePeriod_PaymentRestricted_RejectedImmediately(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "payment_restricted",
 
 		le.
 			Code)
-
 }
 
 func TestDeepSecPaymentSuspendedRejectedImmediately(t *testing.T) {
@@ -1284,13 +1221,11 @@ func TestDeepSecPaymentSuspendedRejectedImmediately(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "payment_suspended",
 
 		le.
 			Code)
-
 }
 
 func TestGracePeriod_ConcurrentLimit_StillChecked_DuringGrace(t *testing.T) {
@@ -1325,13 +1260,11 @@ func TestGracePeriod_ConcurrentLimit_StillChecked_DuringGrace(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.Equal(t, "payment_restricted",
 
 		le.
 			Code)
-
 }
 
 // Org billing cache tests.
@@ -1350,17 +1283,16 @@ func TestOrgCache_CacheHitAvoidsDatabaseCall(t *testing.T) {
 
 	// First call: cache miss, hits DB.
 	_, err2 := enforcer.GetOrgPlanLimits(ctx, "org-cache-test")
-	require.Nil(t, err2)
+	require.NoError(t, err2)
 
 	firstDBCalls := dbCalls
 
 	// Second call: cache hit, no additional DB call.
 	_, err2 = enforcer.GetOrgPlanLimits(ctx, "org-cache-test")
-	require.Nil(t, err2)
+	require.NoError(t, err2)
 	require.Equal(t,
 		firstDBCalls,
 		dbCalls)
-
 }
 
 func TestOrgCache_InvalidateForcesRefresh(t *testing.T) {
@@ -1398,7 +1330,6 @@ func TestOrgCache_InvalidateForcesRefresh(t *testing.T) {
 		limits3.
 			PlanTier,
 	)
-
 }
 
 func TestOrgCache_EmptyOrgIDReturnsFree(t *testing.T) {
@@ -1406,12 +1337,11 @@ func TestOrgCache_EmptyOrgIDReturnsFree(t *testing.T) {
 	enforcer, _, _ := setupEnforcer(t)
 
 	limits, err2 := enforcer.GetOrgPlanLimits(context.Background(), "")
-	require.Nil(t, err2)
+	require.NoError(t, err2)
 	require.Equal(t,
 		domain.PlanFree,
 		limits.
 			PlanTier)
-
 }
 
 func TestOrgCache_SubscriptionNotFoundCachesFree(t *testing.T) {
@@ -1432,12 +1362,11 @@ func TestOrgCache_SubscriptionNotFoundCachesFree(t *testing.T) {
 		domain.PlanFree,
 		limits.
 			PlanTier)
-	require.EqualValues(t, 1, dbCalls)
+	require.Equal(t, 1, dbCalls)
 
 	// Second call: cache hit, no DB call.
 	_, _ = enforcer.GetOrgPlanLimits(ctx, "org-nosub")
-	require.EqualValues(t, 1, dbCalls)
-
+	require.Equal(t, 1, dbCalls)
 }
 
 func TestOrgCache_EnforcementModeFromCache(t *testing.T) {
@@ -1458,7 +1387,6 @@ func TestOrgCache_EnforcementModeFromCache(t *testing.T) {
 	require.Equal(t,
 		"warn", mode,
 	)
-
 }
 
 func TestOrgCache_EnforcementModeFallsBackToEnforce(t *testing.T) {
@@ -1470,7 +1398,6 @@ func TestOrgCache_EnforcementModeFallsBackToEnforce(t *testing.T) {
 	require.Equal(t,
 		"enforce",
 		mode)
-
 }
 
 func TestOrgCache_InvalidateNonexistentKey(t *testing.T) {
@@ -1526,7 +1453,6 @@ func TestEnforcer_GetStripeCustomerID(t *testing.T) {
 		assert.Equal(t, "cust_abc123",
 
 			got)
-
 	})
 
 	t.Run("returns_empty_when_nil", func(t *testing.T) {
@@ -1539,9 +1465,7 @@ func TestEnforcer_GetStripeCustomerID(t *testing.T) {
 		got, err := enforcer.GetStripeCustomerID(context.Background(), "org-nil")
 		require.NoError(t,
 			err)
-		assert.Equal(t, "",
-			got)
-
+		assert.Empty(t, got)
 	})
 
 	t.Run("returns_empty_when_empty_string", func(t *testing.T) {
@@ -1555,9 +1479,7 @@ func TestEnforcer_GetStripeCustomerID(t *testing.T) {
 		got, err := enforcer.GetStripeCustomerID(context.Background(), "org-empty")
 		require.NoError(t,
 			err)
-		assert.Equal(t, "",
-			got)
-
+		assert.Empty(t, got)
 	})
 
 	t.Run("returns_error_when_not_found", func(t *testing.T) {
@@ -1567,10 +1489,7 @@ func TestEnforcer_GetStripeCustomerID(t *testing.T) {
 		_, err := enforcer.GetStripeCustomerID(context.Background(), "org-nonexistent")
 		require.Error(t,
 			err)
-		assert.True(t, errors.Is(err,
-			ErrSubscriptionNotFound,
-		))
-
+		assert.ErrorIs(t, err, ErrSubscriptionNotFound)
 	})
 }
 
@@ -1590,14 +1509,12 @@ func TestEnforcer_CheckDailyRunLimit_ProOverageAllowed(t *testing.T) {
 					Background(),
 					"org_pro",
 				))
-
 	}
 
 	// Pro plans allow overage -- no error expected past the daily limit.
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org_pro")
 	require.NoError(t,
 		err)
-
 }
 
 func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
@@ -1631,7 +1548,6 @@ func TestEnforcer_GetOrgPlanLimits_AllowsHTTPMode(t *testing.T) {
 				want, limits.
 				AllowsHTTPMode,
 			)
-
 		})
 	}
 }
@@ -1651,7 +1567,6 @@ func TestEnforcer_GetOrgPlanLimits_NoSubscription_DefaultsFree(t *testing.T) {
 		PlanFree,
 		limits.
 			PlanTier)
-
 }
 
 func TestEnforcer_GetDailyRunCount_EmptyOrgID(t *testing.T) {
@@ -1662,7 +1577,6 @@ func TestEnforcer_GetDailyRunCount_EmptyOrgID(t *testing.T) {
 		err)
 	assert.EqualValues(t, 0,
 		count)
-
 }
 
 func TestEnforcer_GetDailyRunCount_NoKey(t *testing.T) {
@@ -1673,7 +1587,6 @@ func TestEnforcer_GetDailyRunCount_NoKey(t *testing.T) {
 		err)
 	assert.EqualValues(t, 0,
 		count)
-
 }
 
 func TestEnforcer_GetDailyRunCount_WithRuns(t *testing.T) {
@@ -1690,7 +1603,6 @@ func TestEnforcer_GetDailyRunCount_WithRuns(t *testing.T) {
 		err)
 	assert.EqualValues(t, 5,
 		count)
-
 }
 
 func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
@@ -1717,7 +1629,6 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 	)
 
 	// 2 packs x 100
-
 }
 
 func TestEnforcer_GetOrgPlanLimits_AddonLoadErrorFailsClosed(t *testing.T) {
@@ -1732,8 +1643,7 @@ func TestEnforcer_GetOrgPlanLimits_AddonLoadErrorFailsClosed(t *testing.T) {
 	_, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon-error")
 	require.Error(t,
 		err)
-	require.True(t, strings.Contains(err.Error(), "listing active add-ons"))
-
+	require.Contains(t, err.Error(), "listing active add-ons")
 }
 
 func TestEnforcer_CheckConcurrentRunLimit_UnlimitedEnterprise(t *testing.T) {
@@ -1750,7 +1660,6 @@ func TestEnforcer_CheckConcurrentRunLimit_UnlimitedEnterprise(t *testing.T) {
 	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-ent")
 	require.NoError(t,
 		err)
-
 }
 
 func TestEnforcer_NewEnforcer_CacheTTL(t *testing.T) {
@@ -1761,7 +1670,6 @@ func TestEnforcer_NewEnforcer_CacheTTL(t *testing.T) {
 		enforcer.
 			cacheTTL,
 	)
-
 }
 
 func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
@@ -1771,7 +1679,6 @@ func TestEnforcer_Check80PercentDailyRunWarning_EmptyOrgID(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, warned)
-
 }
 
 // CheckMaxDispatchPriority -- fail-closed on DB errors.
@@ -1801,7 +1708,6 @@ func TestCheckMaxDispatchPriority_DBError_FailsClosed(t *testing.T) {
 
 		le.
 			Code)
-
 }
 
 // TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed verifies that a DB
@@ -1826,7 +1732,6 @@ func TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed(t *testing.T) {
 
 	var le *LimitError
 	require.True(t, isLimitError(err, &le))
-
 }
 
 // TestCheckMaxDispatchPriority_WithinCap_Allows verifies that the shared
@@ -1851,7 +1756,6 @@ func TestCheckMaxDispatchPriority_WithinCap_Allows(t *testing.T) {
 		enforcer.
 			CheckMaxDispatchPriority(context.
 				Background(), "proj-free", 5))
-
 }
 
 // TestCheckMaxDispatchPriority_ExceedsCap_Blocks verifies that a priority
@@ -1878,7 +1782,6 @@ func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
 
 		le.
 			Code)
-
 }
 
 // TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed verifies that
@@ -1897,7 +1800,6 @@ func TestCheckMaxDispatchPriority_ZeroPriority_AlwaysAllowed(t *testing.T) {
 		enforcer.
 			CheckMaxDispatchPriority(context.
 				Background(), "proj-1", 0))
-
 }
 
 // DecrMonthlyRunCount -- mirrors DecrDailyRunCount behavior for monthly quota.
@@ -1933,7 +1835,6 @@ func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
 	after, _ := rdb.Get(ctx, key).Int64()
 	assert.EqualValues(t, 0,
 		after)
-
 }
 
 func TestCheckMonthlyRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
@@ -1957,7 +1858,6 @@ func TestCheckMonthlyRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckMonthlyRunLimit_RedisErrorFailsClosed(t *testing.T) {
@@ -1985,7 +1885,6 @@ func TestCheckMonthlyRunLimit_RedisErrorFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckMonthlyRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
@@ -2002,7 +1901,6 @@ func TestCheckMonthlyRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps(t *testing.T) {
@@ -2028,8 +1926,7 @@ func TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"plan_cap_reached",
 		le.
@@ -2041,7 +1938,6 @@ func TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps(t *testing.T) {
 				pausedReason !=
 				"quota_exceeded",
 	)
-
 }
 
 func TestCheckMonthlyRunLimit_PaidOverageEnabledAllowsPastAllowance(t *testing.T) {
@@ -2159,7 +2055,6 @@ func TestCheckMonthlyRunLimit_FreeCardOverageOptInAllowsPastAllowance(t *testing
 			CheckMonthlyRunLimitForRun(ctx, orgID,
 				"run-free-card",
 			))
-
 }
 
 // TestDecrMonthlyRunCount_FloorsAtZero verifies that decrementing from 0 does
@@ -2234,5 +2129,4 @@ func TestDecrMonthlyRunCount_Parallel(t *testing.T) {
 	assert.False(t, err ==
 		nil &&
 		val < 0)
-
 }

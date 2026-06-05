@@ -76,7 +76,6 @@ func TestLogBridge_NewlineInjection(t *testing.T) {
 	require.NoError(t,
 		shutdown(context.Background()),
 	)
-
 }
 
 // FuzzMetricValues fuzzes float64 histogram recording for panics.

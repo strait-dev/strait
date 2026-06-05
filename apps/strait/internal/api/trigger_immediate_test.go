@@ -49,7 +49,7 @@ func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
 		expiresAt:   expiresAt,
 		status:      domain.StatusDelayed,
 	})
-	require.NotEqual(t, "", run.ID)
+	require.NotEmpty(t, run.ID)
 	require.False(t, run.JobID !=
 		"job-1" ||
 		run.ProjectID !=
@@ -88,7 +88,7 @@ func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
 		nil ||
 		!run.ExpiresAt.
 			Equal(expiresAt))
-	require.Equal(t, `{"dependency_key":"payload-dep","ok":true}`,
+	require.JSONEq(t, `{"dependency_key":"payload-dep","ok":true}`,
 
 		string(run.Payload))
 	require.False(t, run.Tags["team"] != "platform" ||
@@ -109,7 +109,6 @@ func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
 	require.Equal(t, input.Baggage,
 		run.Metadata[domain.
 			RunMetadataSentryBaggage])
-
 }
 
 func TestExtractDependencyKey(t *testing.T) {
@@ -132,7 +131,6 @@ func TestExtractDependencyKey(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tt.want, extractDependencyKey(tt.
 				payload))
-
 		})
 	}
 }

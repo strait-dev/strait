@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -33,7 +32,6 @@ func TestCron_DSTBoundary_SpringForward(t *testing.T) {
 	_, err := c.AddFunc(expr, func() {})
 	require.NoError(t,
 		err)
-
 }
 
 func TestCron_DSTBoundary_FallBack(t *testing.T) {
@@ -46,7 +44,6 @@ func TestCron_DSTBoundary_FallBack(t *testing.T) {
 	_, err := c.AddFunc(expr, func() {})
 	require.NoError(t,
 		err)
-
 }
 
 func TestCron_Feb29_LeapYear(t *testing.T) {
@@ -67,7 +64,6 @@ func TestCron_Feb29_LeapYear(t *testing.T) {
 			2 || next.
 		Day() !=
 		29)
-
 }
 
 func TestCron_InvalidTimezone(t *testing.T) {
@@ -77,7 +73,6 @@ func TestCron_InvalidTimezone(t *testing.T) {
 	c := cron.New()
 	_, err := c.AddFunc(expr, func() {})
 	require.Error(t, err)
-
 }
 
 func TestCron_EverySecondDescriptor(t *testing.T) {
@@ -87,7 +82,6 @@ func TestCron_EverySecondDescriptor(t *testing.T) {
 	_, err := c.AddFunc("@every 1s", func() {})
 	require.NoError(t,
 		err)
-
 }
 
 func TestCron_OverflowFields(t *testing.T) {
@@ -107,7 +101,6 @@ func TestCron_OverflowFields(t *testing.T) {
 	for _, expr := range overflows {
 		_, err := parser.Parse(expr)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -119,7 +112,6 @@ func TestCron_EmptyExpression(t *testing.T) {
 	for _, expr := range empties {
 		_, err := parser.Parse(expr)
 		assert.Error(t, err)
-
 	}
 }
 
@@ -138,11 +130,8 @@ func TestCronScheduler_LoadJobs_InvalidCronExpression(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"register cron job",
-	))
-
+	require.Contains(t, err.
+		Error(), "register cron job")
 }
 
 func TestCronScheduler_LoadJobs_WorkflowListError(t *testing.T) {
@@ -156,11 +145,8 @@ func TestCronScheduler_LoadJobs_WorkflowListError(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"list cron workflows",
-	))
-
+	require.Contains(t, err.
+		Error(), "list cron workflows")
 }
 
 func TestCronScheduler_LoadJobs_InvalidWorkflowCron(t *testing.T) {
@@ -177,11 +163,8 @@ func TestCronScheduler_LoadJobs_InvalidWorkflowCron(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, wt)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"register cron workflow",
-	))
-
+	require.Contains(t, err.
+		Error(), "register cron workflow")
 }
 
 // Overlapping schedules / cron overlap policies
@@ -212,7 +195,6 @@ func TestCronScheduler_TriggerJob_SkipPolicy_ActiveRuns(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_TriggerJob_SkipPolicy_CountError(t *testing.T) {
@@ -241,7 +223,6 @@ func TestCronScheduler_TriggerJob_SkipPolicy_CountError(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_CancelErrorAfterEnqueue(t *testing.T) {
@@ -270,7 +251,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_CancelErrorAfterEnqueue(t *testi
 	cs.triggerJob(context.Background(), job)
 	require.EqualValues(t, 1,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
@@ -311,7 +291,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
 	defer mu.Unlock()
 	require.Len(t, callbackIDs,
 		2)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_CallbackError(t *testing.T) {
@@ -364,7 +343,6 @@ func TestCronScheduler_TriggerJob_AllowPolicy(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.EqualValues(t, 1,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_TriggerJob_UnknownPolicy(t *testing.T) {
@@ -389,7 +367,6 @@ func TestCronScheduler_TriggerJob_UnknownPolicy(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.EqualValues(t, 1,
 		enqueued.Load())
-
 }
 
 func TestCronScheduler_TriggerJob_EnqueueError(t *testing.T) {
@@ -445,7 +422,6 @@ func TestCronScheduler_TriggerJob_TTLFromJob(t *testing.T) {
 		delta >
 			6*time.
 				Minute)
-
 }
 
 func TestCronScheduler_TriggerJob_TTLFromDefault(t *testing.T) {
@@ -481,7 +457,6 @@ func TestCronScheduler_TriggerJob_TTLFromDefault(t *testing.T) {
 		delta >
 			11*time.
 				Minute)
-
 }
 
 // CronScheduler.triggerWorkflow edge cases
@@ -513,7 +488,6 @@ func TestCronScheduler_TriggerWorkflow_CountRunningError(t *testing.T) {
 	require.EqualValues(t, 0,
 		triggered.Load(),
 	)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_TriggerError(t *testing.T) {
@@ -559,7 +533,6 @@ func TestCronScheduler_TriggerWorkflow_NoSkipPolicy(t *testing.T) {
 	require.EqualValues(t, 1,
 		triggered.Load(),
 	)
-
 }
 
 // Batch operation abuse
@@ -570,7 +543,6 @@ func TestBatchFlusher_ZeroInterval_Clamped(t *testing.T) {
 	require.Equal(t, time.
 		Second, f.interval,
 	)
-
 }
 
 func TestBatchFlusher_NegativeInterval_Clamped(t *testing.T) {
@@ -579,7 +551,6 @@ func TestBatchFlusher_NegativeInterval_Clamped(t *testing.T) {
 	require.Equal(t, time.
 		Second, f.interval,
 	)
-
 }
 
 func TestBatchFlusher_SingleItemBatch(t *testing.T) {
@@ -618,7 +589,6 @@ func TestBatchFlusher_SingleItemBatch(t *testing.T) {
 	items := payload["items"].([]any)
 	require.Len(t, items,
 		1)
-
 }
 
 func TestBatchFlusher_ZeroBatchMaxSize_UsesItemCount(t *testing.T) {
@@ -647,7 +617,6 @@ func TestBatchFlusher_ZeroBatchMaxSize_UsesItemCount(t *testing.T) {
 	flusher.poll(context.Background())
 	require.Len(t, enqueued,
 		1)
-
 }
 
 func TestBatchFlusher_RunTTL_OverridesTimeout(t *testing.T) {
@@ -688,7 +657,6 @@ func TestBatchFlusher_RunTTL_OverridesTimeout(t *testing.T) {
 			65*
 				time.Minute,
 	)
-
 }
 
 func TestBatchFlusher_MultipleBatches(t *testing.T) {
@@ -720,7 +688,6 @@ func TestBatchFlusher_MultipleBatches(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 3,
 		enqueued.Load())
-
 }
 
 func TestBatchFlusher_AdvisoryLockError(t *testing.T) {
@@ -746,7 +713,6 @@ func TestBatchFlusher_AdvisoryLockError(t *testing.T) {
 	flusher.poll(context.Background())
 	require.EqualValues(t, 0,
 		enqueued.Load())
-
 }
 
 func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
@@ -793,7 +759,6 @@ func TestAnomalyMonitor_AdvisoryLockerNotAcquired(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
 	require.False(t, checked)
-
 }
 
 func TestAnomalyMonitor_AdvisoryLockerError(t *testing.T) {
@@ -814,7 +779,6 @@ func TestAnomalyMonitor_AdvisoryLockerError(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
 	require.False(t, checked)
-
 }
 
 func TestAnomalyMonitor_CooldownError_SkipsOrg(t *testing.T) {
@@ -840,7 +804,6 @@ func TestAnomalyMonitor_CooldownError_SkipsOrg(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cooldown)
 	am.check(context.Background())
 	require.False(t, subscriptionChecked)
-
 }
 
 func TestAnomalyMonitor_EmptyOrgList(t *testing.T) {
@@ -875,7 +838,6 @@ func TestRedisCooldown_ZeroTTL_ClampsToDefault(t *testing.T) {
 	require.Equal(t, 4*
 		time.Hour, rc.ttl,
 	)
-
 }
 
 func TestRedisCooldown_NegativeTTL_ClampsToDefault(t *testing.T) {
@@ -884,7 +846,6 @@ func TestRedisCooldown_NegativeTTL_ClampsToDefault(t *testing.T) {
 	require.Equal(t, 4*
 		time.Hour, rc.ttl,
 	)
-
 }
 
 func TestRedisCooldown_InCooldown_KeyNotFound(t *testing.T) {
@@ -899,7 +860,6 @@ func TestRedisCooldown_InCooldown_KeyNotFound(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.False(t, cooled)
-
 }
 
 func TestRedisCooldown_InCooldown_KeyExists(t *testing.T) {
@@ -914,7 +874,6 @@ func TestRedisCooldown_InCooldown_KeyExists(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, cooled)
-
 }
 
 func TestRedisCooldown_SetCooldown(t *testing.T) {
@@ -935,7 +894,6 @@ func TestRedisCooldown_SetCooldown(t *testing.T) {
 	expected := "strait:anomaly_cooldown:org-1"
 	require.Equal(t, expected,
 		setKey)
-
 }
 
 func TestCooldownKey_Format(t *testing.T) {
@@ -945,7 +903,6 @@ func TestCooldownKey_Format(t *testing.T) {
 
 		key,
 	)
-
 }
 
 // Budget monitor concurrency and edge cases
@@ -970,10 +927,7 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 
 	bm.alertedMu.Lock()
 	for k := range bm.alerted {
-		assert.False(t, strings.Contains(k,
-			"1970-01-01",
-		))
-
+		assert.NotContains(t, k, "1970-01-01")
 	}
 	bm.alertedMu.Unlock()
 }
@@ -1101,7 +1055,6 @@ func TestCalculateErrorBudget_InfInputs(t *testing.T) {
 			assert.False(t, budget <
 				0 || budget >
 				1)
-
 		})
 	}
 }
@@ -1110,31 +1063,28 @@ func TestCalculateErrorBudget_TargetOne_SuccessRate(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(1.0, 1.0, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 1.0,
-		budget)
+	assert.InDelta(t, 1.0,
+		budget, 1e-9)
 
 	budget = CalculateErrorBudget(0.99, 1.0, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		budget)
-
+	assert.InDelta(t, 0.0,
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_ZeroTarget_Latency(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(5.0, 0.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 1.0,
-		budget)
-
+	assert.InDelta(t, 1.0,
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_P99Latency(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(0.5, 1.0, domain.SLOMetricP99LatencySecs)
-	assert.EqualValues(t, 0.5,
-		budget)
-
+	assert.InDelta(t, 0.5,
+		budget, 1e-9)
 }
 
 // Maintenance loop edge cases
@@ -1155,7 +1105,6 @@ func TestMaintenanceLoop_ZeroInterval_Clamped(t *testing.T) {
 	require.Equal(t, time.
 		Second, loop.interval,
 	)
-
 }
 
 func TestMaintenanceLoop_NegativeInterval_Clamped(t *testing.T) {
@@ -1165,7 +1114,6 @@ func TestMaintenanceLoop_NegativeInterval_Clamped(t *testing.T) {
 	require.Equal(t, time.
 		Second, loop.interval,
 	)
-
 }
 
 // Index maintenance edge cases
@@ -1177,7 +1125,6 @@ func TestIndexMaintainer_ZeroInterval_Clamped(t *testing.T) {
 	require.Equal(t, 24*
 		time.Hour, im.
 		interval)
-
 }
 
 func TestIndexMaintainer_NegativeInterval_Clamped(t *testing.T) {
@@ -1187,7 +1134,6 @@ func TestIndexMaintainer_NegativeInterval_Clamped(t *testing.T) {
 	require.Equal(t, 24*
 		time.Hour, im.
 		interval)
-
 }
 
 // Memory cleanup edge cases
@@ -1199,7 +1145,6 @@ func TestMemoryCleanup_ZeroInterval_Clamped(t *testing.T) {
 	require.Equal(t, 5*
 		time.Minute, mc.
 		interval)
-
 }
 
 func TestMemoryCleanup_StoreError(t *testing.T) {
@@ -1233,7 +1178,6 @@ func TestUsageFlusher_ZeroInterval_Clamped(t *testing.T) {
 		time.Second, uf.
 		interval,
 	)
-
 }
 
 func TestUsageFlusher_NegativeInterval_Clamped(t *testing.T) {
@@ -1243,7 +1187,6 @@ func TestUsageFlusher_NegativeInterval_Clamped(t *testing.T) {
 		time.Second, uf.
 		interval,
 	)
-
 }
 
 func TestUsageFlusher_WithAdvisoryLocker(t *testing.T) {
@@ -1254,7 +1197,6 @@ func TestUsageFlusher_WithAdvisoryLocker(t *testing.T) {
 	require.NotNil(t, uf2.
 		advisoryLocker,
 	)
-
 }
 
 // Stale subscription checker edge cases
@@ -1266,7 +1208,6 @@ func TestStaleSubscriptionChecker_BasicConstruction(t *testing.T) {
 	require.Equal(t, time.
 		Minute, c.interval,
 	)
-
 }
 
 func TestStaleSubscriptionChecker_WithAdvisoryLocker(t *testing.T) {
@@ -1277,7 +1218,6 @@ func TestStaleSubscriptionChecker_WithAdvisoryLocker(t *testing.T) {
 	c2 := c.WithAdvisoryLocker(locker)
 	require.NotNil(t, c2.
 		advisoryLocker)
-
 }
 
 func TestStaleSubscriptionChecker_Check_NoSubs(t *testing.T) {
@@ -1333,7 +1273,6 @@ func TestStaleSubscriptionChecker_Check_LockerNotAcquired(t *testing.T) {
 	c := NewStaleSubscriptionChecker(s, time.Minute).WithAdvisoryLocker(locker)
 	c.check(context.Background())
 	require.False(t, checked)
-
 }
 
 func TestStaleSubscriptionChecker_Run_StopsOnCancel(t *testing.T) {
@@ -1411,7 +1350,6 @@ func TestDowngradeApplier_LockerNotAcquired(t *testing.T) {
 	d := NewDowngradeApplier(advStore, nil, time.Minute).WithAdvisoryLocker(locker)
 	d.apply(context.Background())
 	require.False(t, applied)
-
 }
 
 func TestDowngradeApplier_LockerError(t *testing.T) {
@@ -1431,7 +1369,6 @@ func TestDowngradeApplier_LockerError(t *testing.T) {
 	d := NewDowngradeApplier(advStore, nil, time.Minute).WithAdvisoryLocker(locker)
 	d.apply(context.Background())
 	require.False(t, applied)
-
 }
 
 func TestDowngradeApplier_StoreListError(t *testing.T) {
@@ -1481,7 +1418,6 @@ func TestConcurrentReconciler_Construction(t *testing.T) {
 	require.Equal(t, time.
 		Minute, r.interval,
 	)
-
 }
 
 // FormatBudgetAlertKey edge cases
@@ -1491,7 +1427,6 @@ func TestFormatBudgetAlertKey_EmptyProject(t *testing.T) {
 	key := FormatBudgetAlertKey("", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 	require.Equal(t, ":2026-01-01",
 		key)
-
 }
 
 func TestFormatBudgetAlertKey_FarFutureDate(t *testing.T) {
@@ -1500,7 +1435,6 @@ func TestFormatBudgetAlertKey_FarFutureDate(t *testing.T) {
 	require.Equal(t, "proj-1:9999-12-31",
 
 		key)
-
 }
 
 // Mock types used only by adversarial tests (prefixed with "adv" to avoid conflicts)

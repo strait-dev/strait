@@ -23,7 +23,6 @@ func TestRequiredConsumerTablesReturnsCopy(t *testing.T) {
 	tables[0] = "public.mutated"
 	require.Equal(t, firstTable,
 		RequiredConsumerTables()[0])
-
 }
 
 func TestSequinConfigCoversRequiredConsumerTables(t *testing.T) {
@@ -36,10 +35,7 @@ func TestSequinConfigCoversRequiredConsumerTables(t *testing.T) {
 	config := string(raw)
 	for _, table := range RequiredConsumerTables() {
 		table := tableName(t, table)
-		require.True(t, strings.Contains(config,
-
-			`table_name: "`+table+`"`))
-
+		require.Contains(t, config, `table_name: "`+table+`"`)
 	}
 }
 
@@ -53,11 +49,7 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 	config := string(raw)
 	for _, table := range RequiredConsumerTables() {
 		table := tableName(t, table)
-		require.True(t, strings.Contains(config,
-
-			"ALTER TABLE public."+table+" REPLICA IDENTITY FULL",
-		))
-
+		require.Contains(t, config, "ALTER TABLE public."+table+" REPLICA IDENTITY FULL")
 	}
 }
 
@@ -81,7 +73,6 @@ func TestRuntimeFanoutHandlersExcludeWorkflowStepRuns(t *testing.T) {
 			"workflow_step_runs",
 
 			handler.Table())
-
 	}
 }
 

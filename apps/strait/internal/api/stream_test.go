@@ -54,7 +54,6 @@ func TestHandleRunStream_CrossProjectReturns404(t *testing.T) {
 	require.False(t, strings.Contains(body,
 		"event: ") || strings.Contains(strings.ToLower(
 		body), "subscribe"))
-
 }
 
 func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
@@ -74,7 +73,6 @@ func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
@@ -110,7 +108,6 @@ func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
@@ -143,7 +140,6 @@ func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironmen
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleRunStream_RunNotFound(t *testing.T) {
@@ -160,7 +156,6 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleRunStream_StoreError(t *testing.T) {
@@ -177,7 +172,6 @@ func TestHandleRunStream_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleRunStream_TerminalRun(t *testing.T) {
@@ -200,7 +194,6 @@ func TestHandleRunStream_TerminalRun(t *testing.T) {
 	require.Equal(t, http.StatusGone,
 		w.
 			Code)
-
 }
 
 func TestHandleRunStream_NoPubSub(t *testing.T) {
@@ -231,10 +224,8 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	// When pubsub is nil, handler writes SSE headers then error event
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body,
-			"event: error"))
-
+	require.Contains(
+		t, body, "event: error")
 }
 
 func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
@@ -273,7 +264,6 @@ func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
@@ -312,7 +302,6 @@ func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 func TestHandleRunStream_SubscribeError(t *testing.T) {
@@ -344,10 +333,8 @@ func TestHandleRunStream_SubscribeError(t *testing.T) {
 	// Handler writes SSE headers then error event for subscribe failure
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body,
-			"event: error"))
-
+	require.Contains(
+		t, body, "event: error")
 }
 
 func TestHandleRunStream_ReceivesMessage(t *testing.T) {
@@ -385,11 +372,8 @@ func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 	)
 
 	body := w.Body.String()
-	require.True(
-		t, strings.Contains(body,
-			`data: {"status":"completed"}`,
-		))
-
+	require.Contains(
+		t, body, `data: {"status":"completed"}`)
 }
 
 func TestHandleRunStream_ClientDisconnect(t *testing.T) {
@@ -431,7 +415,6 @@ func TestHandleRunStream_ClientDisconnect(t *testing.T) {
 	)
 
 	// Handler should return after seeing cancelled context
-
 }
 
 func TestHandleRunStream_TerminalStatuses(t *testing.T) {
@@ -465,7 +448,6 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 			require.Equal(t, http.StatusGone,
 				w.
 					Code)
-
 		})
 	}
 }
@@ -509,7 +491,6 @@ func TestHandleRunStream_SSEHeaders(t *testing.T) {
 		w.Header().Get("Connection"))
 	require.Equal(t, "no",
 		w.Header().Get("X-Accel-Buffering"))
-
 }
 
 func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
@@ -555,7 +536,6 @@ func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
 				w.Code)
 
 			// Should NOT return 410 for non-terminal statuses
-
 		})
 	}
 }

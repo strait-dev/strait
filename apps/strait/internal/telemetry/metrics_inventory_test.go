@@ -18,7 +18,6 @@ func TestMetricsPolicy_NamingConvention(t *testing.T) {
 	for name := range registered {
 		assert.True(t,
 			metricNameRE.MatchString(name))
-
 	}
 }
 

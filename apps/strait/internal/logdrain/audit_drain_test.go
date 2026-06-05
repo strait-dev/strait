@@ -59,7 +59,6 @@ func TestAuditSIEMDrain_ForwardBatch_Success(t *testing.T) {
 		2)
 	assert.False(t, received[0].ID != "ev-1" ||
 		received[1].ID != "ev-2")
-
 }
 
 func TestAuditSIEMDrain_ForwardBatch_ServerError(t *testing.T) {
@@ -72,7 +71,6 @@ func TestAuditSIEMDrain_ForwardBatch_ServerError(t *testing.T) {
 	drain := NewAuditSIEMDrain(srv.URL, "token", 0, 0)
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{{ID: "ev-1"}})
 	require.Error(t, err)
-
 }
 
 func TestAuditSIEMDrain_ForwardBatch_EmptyBatch(t *testing.T) {
@@ -81,7 +79,6 @@ func TestAuditSIEMDrain_ForwardBatch_EmptyBatch(t *testing.T) {
 	require.NoError(t,
 		drain.ForwardBatch(context.
 			Background(), nil))
-
 }
 
 func TestNewAuditSIEMDrain_EmptyEndpoint(t *testing.T) {
@@ -92,8 +89,7 @@ func TestNewAuditSIEMDrain_EmptyEndpoint(t *testing.T) {
 func TestAuditSIEMDrain_ForwardBatch_NoAuth(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "",
-			r.Header.Get("Authorization"))
+		assert.Empty(t, r.Header.Get("Authorization"))
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -103,7 +99,6 @@ func TestAuditSIEMDrain_ForwardBatch_NoAuth(t *testing.T) {
 	require.NoError(t,
 		drain.ForwardBatch(context.
 			Background(), []domain.AuditEvent{{ID: "ev-1"}}))
-
 }
 
 func TestAuditSIEMDrain_SetDroppedCounter_NilReceiver(t *testing.T) {
@@ -198,7 +193,6 @@ func TestAuditSIEMDrain_SetMetrics_NilReceiver(t *testing.T) {
 		}
 	}
 	assert.True(t, foundFwd)
-
 }
 
 func TestAuditSIEMDrain_TunableConstants(t *testing.T) {
@@ -235,13 +229,12 @@ func TestAuditSIEMDrain_TunableConstants(t *testing.T) {
 
 		siemRetryMaxBackoff,
 	)
-	assert.Equal(t, 4.0,
-		siemRetryBackoffFactor,
+	assert.InDelta(t, 4.0,
+		siemRetryBackoffFactor, 1e-9,
 	)
 	assert.Equal(t, 30*
 		time.Second, siemBreakerOpenDuration,
 	)
-
 }
 
 func TestAuditSIEMDrain_StopNotStarted_NilChannel(t *testing.T) {

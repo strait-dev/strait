@@ -18,7 +18,6 @@ func TestClassifyOutboxEnqueueError_ContextDeadlineExceeded(t *testing.T) {
 
 		classifyOutboxEnqueueError(context.DeadlineExceeded),
 	)
-
 }
 
 func TestClassifyOutboxEnqueueError_IdempotencyConflictIsTerminal(t *testing.T) {
@@ -28,7 +27,6 @@ func TestClassifyOutboxEnqueueError_IdempotencyConflictIsTerminal(t *testing.T) 
 		classifyOutboxEnqueueError(
 			domain.ErrIdempotencyConflict,
 		))
-
 }
 
 func TestClassifyOutboxEnqueueError_BackpressureThrottleIsRetryable(t *testing.T) {
@@ -38,7 +36,6 @@ func TestClassifyOutboxEnqueueError_BackpressureThrottleIsRetryable(t *testing.T
 	require.Equal(t, outboxEnqueueRetryable,
 
 		classifyOutboxEnqueueError(err))
-
 }
 
 func TestClassifyOutboxEnqueueError_ForeignKeyViolationIsTerminal(t *testing.T) {
@@ -49,7 +46,6 @@ func TestClassifyOutboxEnqueueError_ForeignKeyViolationIsTerminal(t *testing.T) 
 
 		classifyOutboxEnqueueError(
 			err))
-
 }
 
 func TestClassifyOutboxEnqueueError_SerializationFailureIsRetryable(t *testing.T) {
@@ -59,7 +55,6 @@ func TestClassifyOutboxEnqueueError_SerializationFailureIsRetryable(t *testing.T
 	require.Equal(t, outboxEnqueueRetryable,
 
 		classifyOutboxEnqueueError(err))
-
 }
 
 func TestClassifyOutboxEnqueueError_UnknownErrorIsRetryable(t *testing.T) {
@@ -67,7 +62,6 @@ func TestClassifyOutboxEnqueueError_UnknownErrorIsRetryable(t *testing.T) {
 	require.Equal(t, outboxEnqueueRetryable,
 
 		classifyOutboxEnqueueError(errors.New("temporary unknown enqueue failure")))
-
 }
 
 func FuzzOutbox(f *testing.F) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -80,7 +79,6 @@ func TestNewPostgresRunWriter(t *testing.T) {
 	q := NewPostgresRunWriter(nil)
 	require.NotNil(
 		t, q)
-
 }
 
 func TestWorkerQueueRefArgs(t *testing.T) {
@@ -154,7 +152,6 @@ func TestWorkerQueueRefArgs(t *testing.T) {
 
 					tt.wantEnvironment,
 				))
-
 		})
 	}
 }
@@ -179,7 +176,6 @@ func TestNormalizePgQueWorkerQueueRefs(t *testing.T) {
 	}
 	require.True(t,
 		slices.Equal(got, want))
-
 }
 
 func TestEnqueue_SetsDefaults(t *testing.T) {
@@ -204,9 +200,9 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 	}
 	require.NoError(t, q.Enqueue(context.
 		Background(), run))
-	assert.NotEqual(t, "", run.
+	assert.NotEmpty(t, run.
 		ID)
-	assert.EqualValues(t, 1, run.Attempt)
+	assert.Equal(t, 1, run.Attempt)
 	assert.Equal(t,
 		domain.TriggerManual,
 
@@ -220,7 +216,6 @@ func TestEnqueue_SetsDefaults(t *testing.T) {
 	assert.False(t,
 		run.CreatedAt.
 			IsZero())
-
 }
 
 func TestEnqueue_PreservesExistingValues(t *testing.T) {
@@ -252,13 +247,12 @@ func TestEnqueue_PreservesExistingValues(t *testing.T) {
 		"custom-id",
 		run.ID,
 	)
-	assert.EqualValues(t, 3, run.Attempt)
+	assert.Equal(t, 3, run.Attempt)
 	assert.Equal(t,
 		domain.TriggerCron,
 
 		run.TriggeredBy,
 	)
-
 }
 
 func TestEnqueue_DelayedStatus(t *testing.T) {
@@ -290,7 +284,6 @@ func TestEnqueue_DelayedStatus(t *testing.T) {
 
 		run.Status,
 	)
-
 }
 
 func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
@@ -322,7 +315,6 @@ func TestEnqueue_PastScheduleIsQueued(t *testing.T) {
 
 		run.Status,
 	)
-
 }
 
 func TestEnqueue_DBError(t *testing.T) {
@@ -344,7 +336,6 @@ func TestEnqueue_DBError(t *testing.T) {
 	err := q.Enqueue(context.Background(), run)
 	require.Error(t,
 		err)
-
 }
 
 func TestLoad_DefaultStatementTimeout(t *testing.T) {
@@ -355,7 +346,6 @@ func TestLoad_DefaultStatementTimeout(t *testing.T) {
 			Second,
 		q.statementTimeout,
 	)
-
 }
 
 func TestCopyFromColumnsIncludesMetadata(t *testing.T) {
@@ -365,7 +355,6 @@ func TestCopyFromColumnsIncludesMetadata(t *testing.T) {
 
 			"metadata",
 		))
-
 }
 
 func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
@@ -399,9 +388,8 @@ func TestEnqueue_TagsJSON_NonEmpty(t *testing.T) {
 		ok)
 	assert.NotEqual(t, "{}",
 		string(tagsArg))
-	assert.True(t,
-		strings.Contains(string(tagsArg), "env"))
-
+	assert.Contains(t,
+		string(tagsArg), "env")
 }
 
 func TestEnqueue_TagsJSON_Empty(t *testing.T) {
@@ -434,7 +422,6 @@ func TestEnqueue_TagsJSON_Empty(t *testing.T) {
 		ok)
 	assert.Equal(t,
 		"{}", string(tagsArg))
-
 }
 
 func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
@@ -468,9 +455,8 @@ func TestEnqueue_MetadataJSON_NonEmpty(t *testing.T) {
 		ok)
 	assert.NotEqual(t, "{}",
 		string(metaArg))
-	assert.True(t,
-		strings.Contains(string(metaArg), "source"))
-
+	assert.Contains(t,
+		string(metaArg), "source")
 }
 
 func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
@@ -503,7 +489,6 @@ func TestEnqueue_MetadataJSON_Empty(t *testing.T) {
 		ok)
 	assert.Equal(t,
 		"{}", string(metaArg))
-
 }
 
 func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
@@ -539,7 +524,6 @@ func TestEnqueue_DefaultExecutionMode_HTTP(t *testing.T) {
 			ExecutionModeHTTP,
 		), execMode,
 	)
-
 }
 
 func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
@@ -576,7 +560,6 @@ func TestEnqueue_ExplicitExecutionMode_Preserved(t *testing.T) {
 			ExecutionModeWorker,
 		), execMode,
 	)
-
 }
 
 func TestBackoffDelay_ExactlyAtMaxDelay(t *testing.T) {
@@ -596,6 +579,5 @@ func TestBackoffDelay_ExactlyAtMaxDelay(t *testing.T) {
 		require.GreaterOrEqual(t,
 			delay, minWithJitter,
 		)
-
 	}
 }

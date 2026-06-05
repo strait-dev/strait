@@ -40,7 +40,6 @@ func TestApplyPayloadMapping_DeeplyNestedPaths(t *testing.T) {
 			&out))
 	assert.Equal(t,
 		"deep", out["deep_val"])
-
 }
 
 func TestApplyPayloadMapping_MissingPaths(t *testing.T) {
@@ -90,9 +89,8 @@ func TestApplyPayloadMapping_MixedExistingAndMissing(t *testing.T) {
 
 			"missing_field should not be present")
 	}
-	assert.Equal(t,
-		float64(2), out["version"])
-
+	assert.InDelta(t,
+		float64(2), out["version"], 1e-9)
 }
 
 func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
@@ -110,7 +108,6 @@ func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
 			&out))
 	assert.Equal(t,
 		"ok", out["s"])
-
 }
 
 func TestApplyPayloadMapping_InvalidMapping(t *testing.T) {
@@ -121,7 +118,6 @@ func TestApplyPayloadMapping_InvalidMapping(t *testing.T) {
 	_, err := applyPayloadMapping(result, mapping)
 	require.Error(t,
 		err)
-
 }
 
 func TestApplyPayloadMapping_EmptyMapping(t *testing.T) {
@@ -138,9 +134,7 @@ func TestApplyPayloadMapping_EmptyMapping(t *testing.T) {
 	require.NoError(
 		t, json.Unmarshal(mapped,
 			&out))
-	assert.Len(t, out,
-		0)
-
+	assert.Empty(t, out)
 }
 
 func TestApplyPayloadMapping_ArrayResult(t *testing.T) {
@@ -154,7 +148,6 @@ func TestApplyPayloadMapping_ArrayResult(t *testing.T) {
 		t, err)
 	assert.Equal(t,
 		string(result), string(mapped))
-
 }
 
 func TestApplyPayloadMapping_ScalarResult(t *testing.T) {
@@ -167,7 +160,6 @@ func TestApplyPayloadMapping_ScalarResult(t *testing.T) {
 		t, err)
 	assert.Equal(t,
 		string(result), string(mapped))
-
 }
 
 // extractPath edge cases.
@@ -180,7 +172,6 @@ func TestExtractPath_EmptyPath(t *testing.T) {
 		"empty_key", got)
 
 	// Empty path looks up empty string key.
-
 }
 
 func TestExtractPath_SingleLevel(t *testing.T) {
@@ -189,7 +180,6 @@ func TestExtractPath_SingleLevel(t *testing.T) {
 	got := extractPath(data, "key")
 	assert.Equal(t,
 		"value", got)
-
 }
 
 func TestExtractPath_NestedArray(t *testing.T) {
@@ -201,7 +191,6 @@ func TestExtractPath_NestedArray(t *testing.T) {
 		ok)
 	assert.Len(t, arr,
 		3)
-
 }
 
 func TestExtractPath_IntermediateNonMap(t *testing.T) {
@@ -209,7 +198,6 @@ func TestExtractPath_IntermediateNonMap(t *testing.T) {
 	data := map[string]any{"a": "string_value"}
 	got := extractPath(data, "a.b.c")
 	assert.Nil(t, got)
-
 }
 
 // OnCompleteTrigger advanced scenarios.
@@ -237,7 +225,6 @@ func TestOnCompleteTrigger_EmptyResult(t *testing.T) {
 	defer trigger.mu.Unlock()
 	require.Len(t, trigger.
 		calls, 1)
-
 }
 
 func TestOnCompleteTrigger_LargePayload(t *testing.T) {
@@ -272,7 +259,6 @@ func TestOnCompleteTrigger_LargePayload(t *testing.T) {
 	assert.GreaterOrEqual(t, len(trigger.
 		calls[0].payload,
 	), 1000)
-
 }
 
 func TestOnCompleteTrigger_PayloadMappingError(t *testing.T) {
@@ -305,7 +291,6 @@ func TestOnCompleteTrigger_PayloadMappingError(t *testing.T) {
 			calls[0].payload))
 
 	// Should have received the full result as fallback.
-
 }
 
 func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
@@ -338,7 +323,6 @@ func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
 	defer trigger.mu.Unlock()
 	assert.Len(t, trigger.
 		calls, 20)
-
 }
 
 func TestOnCompleteTrigger_AllNonCompletedStatuses(t *testing.T) {
@@ -372,9 +356,8 @@ func TestOnCompleteTrigger_AllNonCompletedStatuses(t *testing.T) {
 
 			trigger.mu.Lock()
 			defer trigger.mu.Unlock()
-			assert.Len(t, trigger.
-				calls, 0)
-
+			assert.Empty(t, trigger.
+				calls)
 		})
 	}
 }

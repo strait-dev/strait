@@ -35,7 +35,6 @@ func TestStatusReadModelHandler_PopulatesRedisAndRejectsOutOfOrder(t *testing.T)
 		Version !=
 		7 || got.Value.Status != domain.
 		StatusExecuting)
-
 }
 
 func TestStatusReadModelHandler_DeleteEvictsRedis(t *testing.T) {
@@ -89,7 +88,6 @@ func TestStatusReadModelHandler_OutOfOrderDeleteDoesNotRemoveNewerRun(t *testing
 		Version !=
 		7 || got.Value.Status != domain.
 		StatusExecuting)
-
 }
 
 func TestStatusReadModelHandler_DeleteBarrierSelfHealsOnEqualVersionUpdate(t *testing.T) {
@@ -130,7 +128,6 @@ func TestStatusReadModelHandler_DeleteBarrierSelfHealsOnEqualVersionUpdate(t *te
 		Version !=
 		8 || got.Value.Status != domain.
 		WfStatusRunning)
-
 }
 
 func TestStatusReadModelHandler_BadPayloadIsIgnored(t *testing.T) {
@@ -142,5 +139,4 @@ func TestStatusReadModelHandler_BadPayloadIsIgnored(t *testing.T) {
 	handlers := NewCacheReadModelHandlers(rdb, time.Minute, nil)
 	require.NoError(t, handlers.
 		JobRuns.Handle(t.Context(), Message{Action: ActionUpdate, Record: []byte(`{"id":`), Metadata: Metadata{TableName: "job_runs"}}))
-
 }

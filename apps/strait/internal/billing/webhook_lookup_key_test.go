@@ -62,7 +62,6 @@ func TestWebhookHandler_SubscriptionCreated_BusinessTier_ByLookupKey(t *testing.
 		*store.lastUpserted.
 			StripeLookupKey,
 	)
-
 }
 
 // TestWebhookHandler_SubscriptionCreated_FallbackPriceID confirms that when a
@@ -104,7 +103,6 @@ func TestWebhookHandler_SubscriptionCreated_FallbackPriceID(t *testing.T) {
 	assert.Nil(t, store.lastUpserted.
 		StripeLookupKey,
 	)
-
 }
 
 // TestWebhookHandler_AddonByLookupKey resolves an addon subscription via the
@@ -161,7 +159,6 @@ func TestWebhookHandler_AddonByLookupKey(t *testing.T) {
 		*store.lastAddonCreated.
 			StripeLookupKey,
 	)
-
 }
 
 func TestWebhookHandler_RoadmapAddonLookupKeyRejected(t *testing.T) {
@@ -202,7 +199,6 @@ func TestWebhookHandler_RoadmapAddonLookupKeyRejected(t *testing.T) {
 	)
 	require.Nil(t, store.lastAddonCreated)
 	require.Nil(t, store.lastUpserted)
-
 }
 
 func TestWebhookHandler_LegacyRoadmapAddonPriceDoesNotCreateEntitlement(t *testing.T) {
@@ -243,5 +239,4 @@ func TestWebhookHandler_LegacyRoadmapAddonPriceDoesNotCreateEntitlement(t *testi
 		rr.Code)
 	require.Nil(t, store.lastAddonCreated)
 	require.Nil(t, store.lastUpserted)
-
 }

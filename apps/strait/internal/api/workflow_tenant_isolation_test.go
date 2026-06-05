@@ -84,7 +84,6 @@ func TestTenantIsolation_CreateCanaryDeployment_OwnProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/canary-deployments", body, projectA))
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }
 
 func TestTenantIsolation_CreateCanaryDeployment_CrossProject(t *testing.T) {
@@ -98,7 +97,6 @@ func TestTenantIsolation_CreateCanaryDeployment_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/canary-deployments", body, projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_UpdateCanaryDeployment_OwnProject(t *testing.T) {
@@ -111,7 +109,6 @@ func TestTenantIsolation_UpdateCanaryDeployment_OwnProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-a/canary", body, projectA))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestTenantIsolation_UpdateCanaryDeployment_CrossProject(t *testing.T) {
@@ -124,7 +121,6 @@ func TestTenantIsolation_UpdateCanaryDeployment_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-a/canary", body, projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_RollbackCanaryDeployment_OwnProject(t *testing.T) {
@@ -136,7 +132,6 @@ func TestTenantIsolation_RollbackCanaryDeployment_OwnProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-a/canary/rollback", "", projectA))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestTenantIsolation_RollbackCanaryDeployment_CrossProject(t *testing.T) {
@@ -148,7 +143,6 @@ func TestTenantIsolation_RollbackCanaryDeployment_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-a/canary/rollback", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_GetCanaryStatus_OwnProject(t *testing.T) {
@@ -160,7 +154,6 @@ func TestTenantIsolation_GetCanaryStatus_OwnProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-a/canary", "", projectA))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestTenantIsolation_GetCanaryStatus_CrossProject(t *testing.T) {
@@ -172,7 +165,6 @@ func TestTenantIsolation_GetCanaryStatus_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-a/canary", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 // B2: Compensation handlers.
@@ -190,7 +182,6 @@ func TestTenantIsolation_CompensateWorkflowRun_OwnProject(t *testing.T) {
 
 	// May return 400 (no steps require compensation) since our mock has empty step runs.
 	// The key check: it must NOT be 404 for own-project.
-
 }
 
 func TestTenantIsolation_CompensateWorkflowRun_CrossProject(t *testing.T) {
@@ -202,7 +193,6 @@ func TestTenantIsolation_CompensateWorkflowRun_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/compensate", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_GetCompensationPlan_OwnProject(t *testing.T) {
@@ -218,7 +208,6 @@ func TestTenantIsolation_GetCompensationPlan_OwnProject(t *testing.T) {
 
 	// May return 404 "no compensation plan available" since mock has empty step runs.
 	// The important thing is it must not reject for project mismatch reasons.
-
 }
 
 func TestTenantIsolation_GetCompensationPlan_CrossProject(t *testing.T) {
@@ -230,7 +219,6 @@ func TestTenantIsolation_GetCompensationPlan_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/compensation-plan", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 // B3: Debug handlers.
@@ -245,7 +233,6 @@ func TestTenantIsolation_GetWorkflowRunDebug_OwnProject(t *testing.T) {
 	require.NotEqual(t, http.
 		StatusNotFound, w.Code,
 	)
-
 }
 
 func TestTenantIsolation_GetWorkflowRunDebug_CrossProject(t *testing.T) {
@@ -257,7 +244,6 @@ func TestTenantIsolation_GetWorkflowRunDebug_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/debug", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_CompareWorkflowRuns_OwnProject(t *testing.T) {
@@ -270,7 +256,6 @@ func TestTenantIsolation_CompareWorkflowRuns_OwnProject(t *testing.T) {
 	require.NotEqual(t, http.
 		StatusNotFound, w.Code,
 	)
-
 }
 
 func TestTenantIsolation_CompareWorkflowRuns_CrossProject_RunA(t *testing.T) {
@@ -283,7 +268,6 @@ func TestTenantIsolation_CompareWorkflowRuns_CrossProject_RunA(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/compare/wfr-b", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_CompareWorkflowRuns_CrossProject_RunB(t *testing.T) {
@@ -296,7 +280,6 @@ func TestTenantIsolation_CompareWorkflowRuns_CrossProject_RunB(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/compare/wfr-b", "", projectA))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserRequiresOtherRun(t *testing.T) {
@@ -334,7 +317,6 @@ func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserRequiresOtherRun(
 	})
 	require.True(
 		t, isHumaStatusError(err, http.StatusForbidden))
-
 }
 
 func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserWithBothRunsAllowed(t *testing.T) {
@@ -370,7 +352,6 @@ func TestTenantIsolation_CompareWorkflowRuns_ResourceScopedUserWithBothRunsAllow
 	require.False(t, out == nil ||
 		out.Body == nil,
 	)
-
 }
 
 // B4: Simulate workflow.
@@ -384,7 +365,6 @@ func TestTenantIsolation_SimulateWorkflow_OwnProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-a/simulate", "", projectA))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestTenantIsolation_SimulateWorkflow_CrossProject(t *testing.T) {
@@ -396,7 +376,6 @@ func TestTenantIsolation_SimulateWorkflow_CrossProject(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-a/simulate", "", projectB))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 // Adversarial: non-existent resource IDs return 404 regardless.
@@ -411,7 +390,6 @@ func TestTenantIsolation_Canary_NonexistentWorkflow(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/canary-deployments", body, projectA))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_Debug_NonexistentRun(t *testing.T) {
@@ -423,7 +401,6 @@ func TestTenantIsolation_Debug_NonexistentRun(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-nonexistent/debug", "", projectA))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }
 
 func TestTenantIsolation_Simulate_NonexistentWorkflow(t *testing.T) {
@@ -435,5 +412,4 @@ func TestTenantIsolation_Simulate_NonexistentWorkflow(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-nonexistent/simulate", "", projectA))
 	require.Equal(t, http.StatusNotFound,
 		w.Code)
-
 }

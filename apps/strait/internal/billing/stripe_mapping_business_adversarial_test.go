@@ -26,7 +26,6 @@ func TestWithBusinessPrices_NoSilentFallthroughToFree(t *testing.T) {
 	require.False(t,
 		!ok || tier != domain.PlanBusiness,
 	)
-
 }
 
 // When the Business env vars are empty but a Business price ID arrives
@@ -43,7 +42,6 @@ func TestWithBusinessPrices_EmptyEnvUnresolved(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, domain.
 		PlanFree, tier)
-
 }
 
 // Sandbox price IDs in a live-configured mapping (or vice versa) must
@@ -60,6 +58,5 @@ func TestWithBusinessPrices_EnvironmentMismatchDoesNotResolve(t *testing.T) {
 		assert.False(t, ok ||
 			tier != domain.PlanFree,
 		)
-
 	}
 }

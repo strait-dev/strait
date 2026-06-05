@@ -36,14 +36,14 @@ func TestOutboxArchiver_ArchiveOnceRecordsProgress(t *testing.T) {
 	require.NoError(t,
 		archiver.ArchiveOnceForTest(context.
 			Background()))
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		store.calls,
 	)
 	require.Equal(t, 2*
 		time.Second,
 		store.
 			older)
-	require.EqualValues(t, 7,
+	require.Equal(t, 7,
 		store.limit,
 	)
 	require.EqualValues(t, 3,
@@ -52,7 +52,6 @@ func TestOutboxArchiver_ArchiveOnceRecordsProgress(t *testing.T) {
 	require.EqualValues(t, 1,
 		archiver.
 			Iterations())
-
 }
 
 func TestOutboxArchiver_ArchiveOnceRecordsErrors(t *testing.T) {
@@ -61,13 +60,11 @@ func TestOutboxArchiver_ArchiveOnceRecordsErrors(t *testing.T) {
 	archiver := NewOutboxArchiver(store, OutboxArchiverConfig{})
 
 	err := archiver.ArchiveOnceForTest(context.Background())
-	require.True(t, errors.Is(err,
-		wantErr))
+	require.ErrorIs(t, err, wantErr)
 	require.EqualValues(t, 1,
 		archiver.
 			Errors())
 	require.EqualValues(t, 1,
 		archiver.
 			Iterations())
-
 }

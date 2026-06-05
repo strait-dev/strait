@@ -51,7 +51,6 @@ func TestCreateDeploymentVersion(t *testing.T) {
 	require.Equal(t, string(domain.
 		DeploymentVersionStatusDraft,
 	), response["status"])
-
 }
 
 func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
@@ -97,7 +96,6 @@ func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
 		Bytes(), &response,
 	))
 	require.Equal(t, "canary", response["strategy"])
-
 }
 
 func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
@@ -119,7 +117,6 @@ func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
@@ -159,7 +156,6 @@ func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
 		Bytes(), &response,
 	))
 	require.Equal(t, "direct", response["strategy"])
-
 }
 
 func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
@@ -181,7 +177,6 @@ func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
@@ -199,7 +194,6 @@ func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestPromoteDeploymentVersion(t *testing.T) {
@@ -234,5 +228,4 @@ func TestPromoteDeploymentVersion(t *testing.T) {
 	require.Equal(t, string(domain.
 		DeploymentVersionStatusPromoted,
 	), response["status"])
-
 }

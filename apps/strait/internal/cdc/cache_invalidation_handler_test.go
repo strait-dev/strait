@@ -122,7 +122,6 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 			tc.namespace ||
 			busMsg.
 				Key != tc.key)
-
 	}
 }
 
@@ -136,10 +135,8 @@ func TestCacheInvalidationHandler_SkipsRowsWithoutAddressableKey(t *testing.T) {
 		Context(),
 		Message{Action: ActionUpdate, Record: []byte(`{"id":"key-1"}`)}),
 	)
-	require.Len(t,
-		publisher.calls,
-		0)
-
+	require.Empty(t,
+		publisher.calls)
 }
 
 func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) {
@@ -172,7 +169,6 @@ func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) 
 	require.True(
 		t, gotWorkerJobBarrier,
 	)
-
 }
 
 func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
@@ -184,8 +180,6 @@ func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
 	require.NoError(t, h.Handle(t.
 		Context(),
 		Message{Action: ActionUpdate, Record: []byte(`{"key_hash":`)}))
-	require.Len(t,
-		publisher.calls,
-		0)
-
+	require.Empty(t,
+		publisher.calls)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,7 +45,6 @@ func TestCompensationPlan_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-1/compensation-plan", "", "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Compensating transactions"))
-
+	require.Contains(
+		t, w.Body.String(), "Compensating transactions")
 }

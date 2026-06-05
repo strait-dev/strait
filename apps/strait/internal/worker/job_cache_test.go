@@ -47,7 +47,6 @@ func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
 			cached.
 				Version !=
 				1)
-
 }
 
 func TestJobCache_MissReturnsError(t *testing.T) {
@@ -59,7 +58,6 @@ func TestJobCache_MissReturnsError(t *testing.T) {
 	_, err := jobCache.Get(ctx, "nonexistent")
 	require.Error(t,
 		err)
-
 }
 
 func TestJobCache_ExpiresAfterTTL(t *testing.T) {
@@ -80,7 +78,6 @@ func TestJobCache_ExpiresAfterTTL(t *testing.T) {
 	_, err := jobCache.Get(ctx, "job-ttl")
 	require.Error(t,
 		err)
-
 }
 
 func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
@@ -103,7 +100,6 @@ func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
 			2 || cached.Name !=
 			"new-name",
 	)
-
 }
 
 func TestJobCache_ConcurrentAccess(t *testing.T) {
@@ -137,7 +133,6 @@ func TestJobCache_ConcurrentAccess(t *testing.T) {
 	require.Equal(t,
 		"job-conc", cached.
 			ID)
-
 }
 
 func TestJobCache_Delete(t *testing.T) {
@@ -154,7 +149,6 @@ func TestJobCache_Delete(t *testing.T) {
 	_, err := jobCache.Get(ctx, "job-del")
 	require.Error(t,
 		err)
-
 }
 
 func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -219,7 +213,6 @@ func TestWorkerJobCache_UsesUpdatedAtVersionForRedisCAS(t *testing.T) {
 	require.Equal(t,
 		updatedAt.UnixNano(), envelope.
 			Version)
-
 }
 
 func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
@@ -249,7 +242,6 @@ func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
 	require.NoError(
 		t, json.Unmarshal(raw, &envelope))
 	require.EqualValues(t, 42, envelope.Version)
-
 }
 
 func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
@@ -271,7 +263,6 @@ func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
 	})
 	require.Error(t,
 		err)
-
 }
 
 func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T) {
@@ -298,7 +289,6 @@ func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T)
 		got == nil || got.
 			Name != "fresh",
 	)
-
 }
 
 func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
@@ -332,7 +322,6 @@ func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
 	require.Equal(t,
 		updatedAt.UnixNano(), envelope.
 			Version)
-
 }
 
 func TestJobCacheVersion(t *testing.T) {
@@ -372,7 +361,6 @@ func TestJobCacheVersion(t *testing.T) {
 			t.Parallel()
 			require.Equal(t,
 				tt.want, jobCacheVersion(tt.job))
-
 		})
 	}
 }
@@ -384,7 +372,6 @@ func TestWorkerJobVersionKeyString(t *testing.T) {
 	require.Equal(t,
 		"job-1\x007", got,
 	)
-
 }
 
 func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
@@ -402,7 +389,6 @@ func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
 			got.Version !=
 				4,
 	)
-
 }
 
 func TestJobCache_MultipleKeys(t *testing.T) {
@@ -424,7 +410,6 @@ func TestJobCache_MultipleKeys(t *testing.T) {
 		require.Equal(t,
 			i, cached.Version,
 		)
-
 	}
 }
 
@@ -473,7 +458,6 @@ func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
 	// Second call should also hit DB since cache is nil.
 	_, _ = e.resolveJobForRun(ctx, run)
 	require.EqualValues(t, 2, dbCalls.Load())
-
 }
 
 func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
@@ -504,9 +488,8 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 	require.NotNil(t,
 		exec.jobHealthCache,
 	)
-	require.EqualValues(t, 7, exec.maxDequeueBatchSize)
-	require.EqualValues(t, 3, exec.defaultJobMaxConcurrency)
-
+	require.Equal(t, 7, exec.maxDequeueBatchSize)
+	require.Equal(t, 3, exec.defaultJobMaxConcurrency)
 }
 
 func TestWorkerStrongCacheConstructorRegistersRuntimeNamespace(t *testing.T) {
@@ -578,13 +561,11 @@ func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
 		job, err := exec.resolveJobForRun(t.Context(), run)
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, job.Version)
-
+		require.Equal(t, 1, job.Version)
 	}
 	require.EqualValues(t, 1, getJobCalls.Load())
 	require.EqualValues(t, 1, getVersionCalls.
 		Load())
-
 }
 
 func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.T) {
@@ -632,7 +613,6 @@ func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.
 				8 || got.timeoutSecs !=
 				42 || got.
 				retryInitialSecs != 4)
-
 	}
 	require.EqualValues(t, 2, stepRunCalls.
 		Load())
@@ -640,7 +620,6 @@ func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.
 		Load())
 	require.EqualValues(t, 1, listStepsCalls.
 		Load())
-
 }
 
 func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
@@ -696,7 +675,6 @@ func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
 	require.True(t,
 		rawFieldsWereCloned,
 	)
-
 }
 
 func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
@@ -726,8 +704,7 @@ func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
 	require.NoError(
 		t, err)
 	require.EqualValues(t, 1, healthCalls.Load())
-	require.EqualValues(t, 10, second.TotalRuns)
-
+	require.Equal(t, 10, second.TotalRuns)
 }
 
 func TestJobCache_ResolveJobForRun_CacheHit(t *testing.T) {
@@ -762,7 +739,6 @@ func TestJobCache_ResolveJobForRun_CacheHit(t *testing.T) {
 	require.NoError(
 		t, err)
 	require.EqualValues(t, 1, dbCalls.Load())
-
 }
 
 func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
@@ -794,7 +770,6 @@ func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
 	// After TTL: cache miss, hits DB again.
 	_, _ = e.resolveJobForRun(ctx, run)
 	require.EqualValues(t, 2, dbCalls.Load())
-
 }
 
 func TestResolveJob_CacheHit(t *testing.T) {
@@ -831,7 +806,6 @@ func TestResolveJob_CacheHit(t *testing.T) {
 	require.NotNil(t,
 		job2)
 	assert.EqualValues(t, 1, getJobCalls.Load())
-
 }
 
 func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *testing.T) {
@@ -870,7 +844,6 @@ func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *t
 
 		again.EndpointURL,
 	)
-
 }
 
 func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
@@ -919,7 +892,6 @@ func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
 			EndpointURL !=
 			"https://fresh.example/run",
 	)
-
 }
 
 func TestResolveJob_CacheExpiry(t *testing.T) {
@@ -948,7 +920,6 @@ func TestResolveJob_CacheExpiry(t *testing.T) {
 	time.Sleep(3 * time.Second)
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 	assert.EqualValues(t, 2, getJobCalls.Load())
-
 }
 
 func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
@@ -975,5 +946,4 @@ func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 	assert.EqualValues(t, 2, getJobCalls.Load())
-
 }

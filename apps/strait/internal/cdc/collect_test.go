@@ -41,7 +41,6 @@ func TestJobRunHandler_Collect(t *testing.T) {
 	assert.Equal(
 		t, "cdc", event.Source,
 	)
-
 }
 
 func TestWorkflowRunHandler_Collect(t *testing.T) {
@@ -63,7 +62,6 @@ func TestWorkflowRunHandler_Collect(t *testing.T) {
 		t, "cdc:project:proj-2:workflow_runs",
 
 		pubMsg.Channel)
-
 }
 
 func TestWorkflowStepRunHandler_Collect(t *testing.T) {
@@ -85,7 +83,6 @@ func TestWorkflowStepRunHandler_Collect(t *testing.T) {
 		t, "cdc:workflow_run:wfr-1:steps",
 
 		pubMsg.Channel)
-
 }
 
 func TestEventTriggerHandler_Collect(t *testing.T) {
@@ -107,7 +104,6 @@ func TestEventTriggerHandler_Collect(t *testing.T) {
 		t, "cdc:project:proj-3:event_triggers",
 
 		pubMsg.Channel)
-
 }
 
 func TestCollect_InvalidRecord(t *testing.T) {
@@ -124,7 +120,6 @@ func TestCollect_InvalidRecord(t *testing.T) {
 
 	_, err := h.Collect(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestCollectableHandler_Interface(t *testing.T) {
@@ -140,8 +135,7 @@ func TestCollectableHandler_Interface(t *testing.T) {
 	}
 
 	for _, h := range handlers {
-		assert.NotEqual(t, "", h.Table())
-
+		assert.NotEmpty(t, h.Table())
 	}
 }
 
@@ -163,5 +157,4 @@ func TestCollectChangeEvent(t *testing.T) {
 		msg.
 			Channel)
 	assert.NotEmpty(t, msg.Data)
-
 }

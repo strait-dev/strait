@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +38,6 @@ func assertFloatApprox(t *testing.T, got, want float64) {
 	require.LessOrEqual(t, math.Abs(got-
 		want), 0.0001,
 	)
-
 }
 
 func TestUsageService_GetCurrentUsage(t *testing.T) {
@@ -102,7 +100,6 @@ func TestUsageService_GetCurrentUsage(t *testing.T) {
 		resp.Usage.
 			RetentionDays,
 	)
-
 }
 
 func TestUsageService_GetCurrentUsage_FiltersRoadmapAddons(t *testing.T) {
@@ -129,8 +126,7 @@ func TestUsageService_GetCurrentUsage_FiltersRoadmapAddons(t *testing.T) {
 			ActiveAddons[0].
 			Type,
 	)
-	require.EqualValues(t, 2, resp.ActiveAddons[0].Quantity)
-
+	require.Equal(t, 2, resp.ActiveAddons[0].Quantity)
 }
 
 func TestUsageService_NoAlertsForLowMonthlyRuns(t *testing.T) {
@@ -153,7 +149,6 @@ func TestUsageService_NoAlertsForLowMonthlyRuns(t *testing.T) {
 			alert.
 				Dimension,
 		)
-
 	}
 }
 
@@ -183,7 +178,6 @@ func TestUsageService_GetUsageHistory_IncludesRunAndCostUsage(t *testing.T) {
 		2)
 	require.EqualValues(t, 4, history[0].RunsCount)
 	require.EqualValues(t, 2_500_000, history[0].SpendMicro)
-
 }
 
 func TestUsageService_GetUsageForecast_UsesSpend(t *testing.T) {
@@ -286,7 +280,6 @@ func TestUsageService_SetSpendingLimit_FreeTierWithoutSubscription(t *testing.T)
 		"spending limits are not available on the Free plan",
 
 		err.Error())
-
 }
 
 func TestUsageService_SetSpendingLimit_NegativeValue_Rejected(t *testing.T) {
@@ -308,7 +301,6 @@ func TestUsageService_SetSpendingLimit_NegativeValue_Rejected(t *testing.T) {
 		err.
 			Error(),
 	)
-
 }
 
 func TestUsageService_SetSpendingLimit_NegativeLargeValue_Rejected(t *testing.T) {
@@ -324,7 +316,6 @@ func TestUsageService_SetSpendingLimit_NegativeLargeValue_Rejected(t *testing.T)
 	err := svc.SetSpendingLimit(context.Background(), "org-1", -999999999, "reject")
 	require.Error(t,
 		err)
-
 }
 
 func TestUsageService_SetSpendingLimit_ZeroValue_Allowed(t *testing.T) {
@@ -340,7 +331,6 @@ func TestUsageService_SetSpendingLimit_ZeroValue_Allowed(t *testing.T) {
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 0, "reject")
 	require.NoError(t,
 		err)
-
 }
 
 func TestUsageService_SetSpendingLimit_ValidPositive_Allowed(t *testing.T) {
@@ -356,7 +346,6 @@ func TestUsageService_SetSpendingLimit_ValidPositive_Allowed(t *testing.T) {
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 50_000_000, "notify")
 	require.NoError(t,
 		err)
-
 }
 
 func TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPausedJobs(t *testing.T) {
@@ -385,7 +374,6 @@ func TestUsageService_SetSpendingLimit_RaisedAboveCurrentSpendResumesQuotaPaused
 		store.
 			unpausedReason,
 	)
-
 }
 
 func TestUsageService_SetSpendingLimit_NotifyActionResumesQuotaPausedJobs(t *testing.T) {
@@ -413,7 +401,6 @@ func TestUsageService_SetSpendingLimit_NotifyActionResumesQuotaPausedJobs(t *tes
 		store.
 			unpausedReason,
 	)
-
 }
 
 func TestUsageService_SetSpendingLimit_StillAtRejectingCapDoesNotResume(t *testing.T) {
@@ -432,10 +419,9 @@ func TestUsageService_SetSpendingLimit_StillAtRejectingCapDoesNotResume(t *testi
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 20_000_000, "reject")
 	require.NoError(t,
 		err)
-	require.Equal(t,
-		"", store.unpausedOrgID,
+	require.Empty(t,
+		store.unpausedOrgID,
 	)
-
 }
 
 func TestUsageService_SetOverageEnabled_DisablePaidPlanStoresFlag(t *testing.T) {
@@ -458,7 +444,6 @@ func TestUsageService_SetOverageEnabled_DisablePaidPlanStoresFlag(t *testing.T) 
 	require.True(t, store.
 		lastOverageDisabled,
 	)
-
 }
 
 func TestUsageService_SetOverageEnabled_EnableResumesQuotaPausedJobs(t *testing.T) {
@@ -482,7 +467,6 @@ func TestUsageService_SetOverageEnabled_EnableResumesQuotaPausedJobs(t *testing.
 			"org-1" ||
 			store.unpausedReason !=
 				"quota_exceeded")
-
 }
 
 func TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod(t *testing.T) {
@@ -503,7 +487,6 @@ func TestUsageService_SetOverageEnabled_FreeRequiresPaymentMethod(t *testing.T) 
 
 		err.
 			Error())
-
 }
 
 func TestUsageService_SetOverageEnabled_FreeWithPaymentMethodAllowed(t *testing.T) {
@@ -523,7 +506,6 @@ func TestUsageService_SetOverageEnabled_FreeWithPaymentMethodAllowed(t *testing.
 	require.False(t,
 		store.lastOverageDisabled,
 	)
-
 }
 
 func TestUsageService_SetSpendingLimit_InvalidAction_Rejected(t *testing.T) {
@@ -539,7 +521,6 @@ func TestUsageService_SetSpendingLimit_InvalidAction_Rejected(t *testing.T) {
 	err := svc.SetSpendingLimit(context.Background(), "org-1", 10_000_000, "invalid")
 	require.Error(t,
 		err)
-
 }
 
 func TestRecommendPlan(t *testing.T) {
@@ -565,22 +546,20 @@ func TestRecommendPlan(t *testing.T) {
 			got := recommendPlan(tt.runs, tt.compute)
 			assert.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
 
 func TestSafePercent(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 50.0,
+	assert.InDelta(t, 50.0,
 		safePercent(50,
-			100))
-	assert.EqualValues(t, 0.0,
-		safePercent(0, 0))
-	assert.EqualValues(t, 0.0,
+			100), 1e-9)
+	assert.InDelta(t, 0.0,
+		safePercent(0, 0), 1e-9)
+	assert.InDelta(t, 0.0,
 		safePercent(100,
-			-1))
-
+			-1), 1e-9)
 }
 
 func TestUsageService_OverageCalculation(t *testing.T) {
@@ -605,7 +584,6 @@ func TestUsageService_OverageCalculation(t *testing.T) {
 			assert.Equal(t, tt.
 				wantOverage,
 				got)
-
 		})
 	}
 }
@@ -626,30 +604,24 @@ func TestUsageService_OverageAlertForPaidPlan(t *testing.T) {
 	resp, err := svc.GetCurrentUsage(context.Background(), "org_starter")
 	require.NoError(t,
 		err)
-	require.False(t,
-		resp.OverageMicro <=
-			0)
+	require.Positive(t,
+		resp.OverageMicro)
 
 	var foundOverageAlert bool
 	for _, alert := range resp.Alerts {
 		if alert.Dimension == "overage" {
 			foundOverageAlert = true
-			require.False(t,
-				strings.Contains(alert.
-					Message,
-					"included credit",
-				),
+			require.NotContains(t,
+				alert.
+					Message, "included credit",
 			)
-			require.True(t, strings.Contains(alert.
-				Message,
-				"included run allowance",
-			))
+			require.Contains(t, alert.
+				Message, "included run allowance")
 
 			break
 		}
 	}
 	assert.True(t, foundOverageAlert)
-
 }
 
 func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
@@ -671,7 +643,6 @@ func TestUsageService_NoOverageAlertForFreePlan(t *testing.T) {
 			"overage",
 			alert.Dimension,
 		)
-
 	}
 }
 
@@ -707,7 +678,6 @@ func TestUsageService_GetCurrentUsage_FreeTierSpendIsOverage(t *testing.T) {
 			t, "overage",
 			alert.
 				Dimension)
-
 	}
 }
 
@@ -731,7 +701,6 @@ func TestUsageService_GetCurrentUsage_FreeTierOverSpend_NoOvgAlert(t *testing.T)
 			t, "overage",
 			alert.
 				Dimension)
-
 	}
 }
 
@@ -748,10 +717,7 @@ func TestUsageService_GetEmailPreferences(t *testing.T) {
 	resp, err := svc.GetEmailPreferences(context.Background(), "org-email")
 	require.NoError(t,
 		err)
-	assert.Equal(t, false,
-		resp.MonthlyUsageEmail,
-	)
-
+	assert.False(t, resp.MonthlyUsageEmail)
 }
 
 func TestUsageService_GetEmailPreferences_NotFound(t *testing.T) {
@@ -762,10 +728,7 @@ func TestUsageService_GetEmailPreferences_NotFound(t *testing.T) {
 	resp, err := svc.GetEmailPreferences(context.Background(), "org-missing")
 	require.NoError(t,
 		err)
-	assert.Equal(t, true,
-		resp.MonthlyUsageEmail,
-	)
-
+	assert.True(t, resp.MonthlyUsageEmail)
 }
 
 func TestUsageService_UpdateEmailPreferences(t *testing.T) {
@@ -777,16 +740,14 @@ func TestUsageService_UpdateEmailPreferences(t *testing.T) {
 	err := svc.UpdateEmailPreferences(context.Background(), "org-update", true)
 	require.NoError(t,
 		err)
-
 }
 
 func TestStddev_Identical(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
+	assert.InDelta(t, 0,
 		stddev([]float64{5,
-			5, 5, 5}),
+			5, 5, 5}), 1e-9,
 	)
-
 }
 
 func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
@@ -820,7 +781,6 @@ func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
 						"monthly_runs",
 						a.
 							Dimension)
-
 				}
 			} else {
 				var found bool
@@ -834,11 +794,9 @@ func TestBuildAlerts_ExactThresholdBoundaries(t *testing.T) {
 						assert.Equal(t, tt.
 							wantType,
 							a.Type)
-
 					}
 				}
 				assert.True(t, found)
-
 			}
 		})
 	}
@@ -850,7 +808,6 @@ func TestUsageService_SetAnomalyConfig_Valid(t *testing.T) {
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 2.0, 8.0)
 	require.NoError(t,
 		err)
-
 }
 
 func TestUsageService_SetAnomalyConfig_WarningTooLow(t *testing.T) {
@@ -859,7 +816,6 @@ func TestUsageService_SetAnomalyConfig_WarningTooLow(t *testing.T) {
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 1.0, 5.0)
 	require.Error(t,
 		err)
-
 }
 
 func TestUsageService_SetAnomalyConfig_CriticalBelowWarning(t *testing.T) {
@@ -868,7 +824,6 @@ func TestUsageService_SetAnomalyConfig_CriticalBelowWarning(t *testing.T) {
 	err := svc.SetAnomalyConfig(context.Background(), "org-1", 3.0, 3.0)
 	require.Error(t,
 		err)
-
 }
 
 func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
@@ -877,7 +832,6 @@ func TestUsageService_SetProjectBudget_Valid(t *testing.T) {
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "reject")
 	require.NoError(t,
 		err)
-
 }
 
 func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
@@ -890,7 +844,6 @@ func TestUsageService_SetProjectBudget_AcceptsBlockAction(t *testing.T) {
 			Background(), "proj-1",
 
 			5_000_000, "block"))
-
 }
 
 func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
@@ -899,7 +852,6 @@ func TestUsageService_SetProjectBudget_InvalidAction(t *testing.T) {
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 5_000_000, "invalid")
 	require.Error(t,
 		err)
-
 }
 
 func TestUsageService_SetProjectBudget_NegativeNormalized(t *testing.T) {
@@ -908,7 +860,6 @@ func TestUsageService_SetProjectBudget_NegativeNormalized(t *testing.T) {
 	err := svc.SetProjectBudget(context.Background(), "proj-1", -5, "notify")
 	require.NoError(t,
 		err)
-
 }
 
 func TestUsageService_GetProjectBudget_DefaultNoBudget(t *testing.T) {
@@ -922,10 +873,9 @@ func TestUsageService_GetProjectBudget_DefaultNoBudget(t *testing.T) {
 			ProjectID,
 	)
 	assert.EqualValues(t, -1, resp.MonthlyBudgetMicro)
-	assert.EqualValues(t, 0,
-		resp.PercentUsed,
+	assert.InDelta(t, 0,
+		resp.PercentUsed, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetAnomalyConfig_DefaultsForMissingSubscription(t *testing.T) {
@@ -934,15 +884,14 @@ func TestUsageService_GetAnomalyConfig_DefaultsForMissingSubscription(t *testing
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-none")
 	require.NoError(t,
 		err)
-	assert.Equal(t, spikeWarning,
+	assert.InDelta(t, spikeWarning,
 
-		resp.WarningThreshold,
+		resp.WarningThreshold, 1e-9,
 	)
-	assert.Equal(t, spikeCritical,
+	assert.InDelta(t, spikeCritical,
 
-		resp.CriticalThreshold,
+		resp.CriticalThreshold, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetAnomalyConfig_WithSubscription_ZeroThresholds(t *testing.T) {
@@ -956,11 +905,10 @@ func TestUsageService_GetAnomalyConfig_WithSubscription_ZeroThresholds(t *testin
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
 	require.NoError(t,
 		err)
-	assert.Equal(t, spikeWarning,
+	assert.InDelta(t, spikeWarning,
 
-		resp.WarningThreshold,
+		resp.WarningThreshold, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetAnomalyConfig_CustomThresholdsFromSubscription(t *testing.T) {
@@ -980,13 +928,12 @@ func TestUsageService_GetAnomalyConfig_CustomThresholdsFromSubscription(t *testi
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 2.5,
-		resp.WarningThreshold,
+	assert.InDelta(t, 2.5,
+		resp.WarningThreshold, 1e-9,
 	)
-	assert.EqualValues(t, 8.0,
-		resp.CriticalThreshold,
+	assert.InDelta(t, 8.0,
+		resp.CriticalThreshold, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetCurrentUsage_PaymentStatus(t *testing.T) {
@@ -1014,11 +961,10 @@ func TestUsageService_GetCurrentUsage_PaymentStatus(t *testing.T) {
 	require.NotNil(t,
 		resp.GracePeriodEnd,
 	)
-	assert.NotEqual(t,
-		"", *resp.
+	assert.NotEmpty(t,
+		*resp.
 			GracePeriodEnd,
 	)
-
 }
 
 func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
@@ -1039,7 +985,6 @@ func TestUsageService_GetCurrentUsage_CreditBoundary(t *testing.T) {
 
 		resp.OverageMicro,
 	)
-
 }
 
 func TestUsageService_GetUsageForecast_ZeroHistory(t *testing.T) {
@@ -1051,10 +996,9 @@ func TestUsageService_GetUsageForecast_ZeroHistory(t *testing.T) {
 	assert.EqualValues(t, 0,
 		forecast.ProjectedMonthlyRuns,
 	)
-	assert.EqualValues(t, 0,
-		forecast.ProjectedMonthlySpendUsd,
+	assert.InDelta(t, 0,
+		forecast.ProjectedMonthlySpendUsd, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetUsageForecast_DaysUntilMonthlyRunLimit(t *testing.T) {
@@ -1080,8 +1024,7 @@ func TestUsageService_GetUsageForecast_DaysUntilMonthlyRunLimit(t *testing.T) {
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-monthly")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		forecast.DaysUntilLimit,
 	)
-
 }

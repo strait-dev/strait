@@ -47,7 +47,6 @@ func FuzzErrorHash(f *testing.F) {
 					c > '9') && (c <
 					'a' || c >
 					'f'))
-
 		}
 	})
 }
@@ -69,7 +68,6 @@ func FuzzErrorHashTruncation(f *testing.F) {
 		hb := errorHash(b)
 		assert.Equal(t,
 			hb, ha)
-
 	})
 }
 
@@ -103,7 +101,6 @@ func FuzzErrorHashRuneBoundary(f *testing.F) {
 			assert.Equal(t,
 				hTrunc,
 				h)
-
 		}
 	})
 }
@@ -195,23 +192,19 @@ func FuzzPoisonPillDetection(f *testing.F) {
 				attempt+
 					1, nextAttempt,
 			)
-
 		}
 
 		// Invariant: if metadata is present, hash and count must be valid.
 		if m, ok := last.fields["metadata"].(map[string]string); ok {
-			assert.NotEqual(
-				t, "",
-				m["_error_hash"])
+			assert.NotEmpty(
+				t, m["_error_hash"])
 			assert.Len(t, m["_error_hash"], 16)
-			assert.NotEqual(
-				t, "",
-				m["_error_hash_count"],
+			assert.NotEmpty(
+				t, m["_error_hash_count"],
 			)
 			assert.True(t, isValidInt(m["_error_hash_count"]))
 
 			// Count must be a valid integer.
-
 		}
 
 		// Invariant: if status is dead_letter, finished_at must be set.
@@ -281,7 +274,6 @@ func FuzzPoisonPillDifferentErrors(f *testing.F) {
 					to)
 
 			// Same hash: count should be 2, which hits threshold=2 -> DLQ.
-
 		} else {
 			assert.Equal(t,
 				domain.
@@ -293,7 +285,6 @@ func FuzzPoisonPillDifferentErrors(f *testing.F) {
 			meta2, _ := last.fields["metadata"].(map[string]string)
 			assert.Equal(t,
 				"1", meta2["_error_hash_count"])
-
 		}
 	})
 }
@@ -327,7 +318,6 @@ func FuzzErrorHashInvalidUTF8(f *testing.F) {
 				truncated := string(runes[:200])
 				assert.Equal(t,
 					h, errorHash(truncated))
-
 			}
 		}
 	})

@@ -313,7 +313,6 @@ func TestWebhookDispatchCoverage_AllEvents(t *testing.T) {
 				rr.Code)
 			require.GreaterOrEqual(
 				t, tc.sideEffectHits(store, audit), 1)
-
 		})
 	}
 }
@@ -334,7 +333,7 @@ func TestWebhookDispatchCoverage_UnknownEvent(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 
 		rr.Code)
-	require.EqualValues(t, 0, store.
+	require.Equal(t, 0, store.
 		upsertCount,
 	)
 	require.Nil(t, store.
@@ -343,10 +342,7 @@ func TestWebhookDispatchCoverage_UnknownEvent(t *testing.T) {
 	require.Nil(t, store.
 		lastPaymentStatusUpdate,
 	)
-	require.Len(t, audit.events,
-		0,
-	)
-
+	require.Empty(t, audit.events)
 }
 
 // TestWebhookIdempotency_ReplayThreeTimes verifies that for every dispatched
@@ -374,16 +370,14 @@ func TestWebhookIdempotency_ReplayThreeTimes(t *testing.T) {
 				require.Equal(t, http.StatusOK,
 
 					rr.Code)
-
 			}
 
 			hits := tc.sideEffectHits(store, audit)
-			require.EqualValues(t, 1, hits)
+			require.Equal(t, 1, hits)
 			require.LessOrEqual(t,
 				store.upsertCount,
 
 				1)
-
 		})
 	}
 }
@@ -412,10 +406,8 @@ func TestWebhookIdempotency_DistinctEventIDsAllProcess(t *testing.T) {
 		require.Equal(t, http.StatusOK,
 
 			rr.Code)
-
 	}
-	require.EqualValues(t, 3, store.
+	require.Equal(t, 3, store.
 		upsertCount,
 	)
-
 }

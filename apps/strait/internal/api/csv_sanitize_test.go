@@ -42,7 +42,6 @@ func TestSanitizeCSVCellHandlesFormatChars(t *testing.T) {
 				t, strings.HasPrefix(out,
 
 					"'"))
-
 		})
 	}
 }
@@ -72,7 +71,6 @@ func TestSanitizeCSVCellPreservesBenignText(t *testing.T) {
 
 				"'"))
 			require.Equal(t, in, out)
-
 		})
 	}
 }

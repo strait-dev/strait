@@ -47,7 +47,6 @@ func TestEventSource_FilterExpressionInjection(t *testing.T) {
 
 			// SQL-like strings used as literal comparison values should not
 			// match normal payload values.
-
 		})
 	}
 }
@@ -120,7 +119,6 @@ func TestEventSource_SchemaValidationBypass(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
 	require.Equal(t, http.StatusCreated,
 		w.Code)
-
 }
 
 func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
@@ -148,7 +146,6 @@ func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
@@ -178,7 +175,6 @@ func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
 		statusErr.GetStatus() != http.
 			StatusInternalServerError,
 	)
-
 }
 
 // TestEventSource_SignatureVerificationEmpty verifies that when the event source
@@ -212,7 +208,6 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 
 		w.Code)
 	require.False(t, subscriptionsCalled)
-
 }
 
 // TestEventSource_SignatureVerificationWrongAlgorithm verifies that unsupported
@@ -229,7 +224,6 @@ func TestEventSource_SignatureVerificationWrongAlgorithm(t *testing.T) {
 	unsupported := []string{"md5", "sha1", "rsa-sha256", "none", ""}
 	for _, algo := range unsupported {
 		require.False(t, supported[algo])
-
 	}
 }
 
@@ -257,7 +251,6 @@ func TestEventSource_SignatureVerificationReplay(t *testing.T) {
 	require.NotEqual(t, expectedForB,
 		actualFromHeader,
 	)
-
 }
 
 // TestEventSource_DispatchWithNullPayload verifies dispatching with a null payload
@@ -293,7 +286,6 @@ func TestEventSource_DispatchWithNullPayload(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestEventSource_DispatchWithHugePayload verifies that a 10MB payload is handled
@@ -317,7 +309,6 @@ func TestEventSource_DispatchWithHugePayload(t *testing.T) {
 	require.NotEqual(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // TestEventSource_SubscriptionFilterBypass verifies that a filter that should block
@@ -363,10 +354,9 @@ func TestEventSource_SubscriptionFilterBypass(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	dispatched := int(resp["dispatched"].(float64))
-	require.EqualValues(t, 0, dispatched)
+	require.Equal(t, 0, dispatched)
 	require.EqualValues(t, 0, enqueued.
 		Load())
-
 }
 
 // TestEventSource_ConcurrentDispatch verifies that 100 concurrent dispatches
@@ -410,13 +400,11 @@ func TestEventSource_ConcurrentDispatch(t *testing.T) {
 			assert.Equal(
 				t, http.StatusOK,
 				w.Code)
-
 		})
 	}
 	wg.Wait()
 	require.EqualValues(t, 100, enqueued.
 		Load())
-
 }
 
 // FuzzEventSourceFilter fuzzes the filter expression JSON to ensure the filter

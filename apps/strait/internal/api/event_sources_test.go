@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -48,7 +47,6 @@ func TestHandleCreateEventSource_Success(t *testing.T) {
 	)
 	require.True(
 		t, resp.Enabled)
-
 }
 
 func TestHandleCreateEventSource_MissingName(t *testing.T) {
@@ -61,10 +59,9 @@ func TestHandleCreateEventSource_MissingName(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "validation"),
+	require.Contains(
+		t, w.Body.String(), "validation",
 	)
-
 }
 
 // handleListEventSources.
@@ -91,7 +88,6 @@ func TestHandleListEventSources_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t,
 		resp, 2)
-
 }
 
 func TestHandleListEventSources_MissingProjectID(t *testing.T) {
@@ -103,7 +99,6 @@ func TestHandleListEventSources_MissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 // handleGetEventSource.
@@ -129,7 +124,6 @@ func TestHandleGetEventSource_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "src-1", resp.
 		ID)
-
 }
 
 func TestHandleGetEventSource_NotFound(t *testing.T) {
@@ -146,7 +140,6 @@ func TestHandleGetEventSource_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // handleUpdateEventSource.
@@ -166,7 +159,6 @@ func TestHandleUpdateEventSource_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
@@ -178,9 +170,8 @@ func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "no fields to update"))
-
+	require.Contains(
+		t, w.Body.String(), "no fields to update")
 }
 
 // handleDeleteEventSource.
@@ -199,7 +190,6 @@ func TestHandleDeleteEventSource_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestHandleDeleteEventSource_NotFound(t *testing.T) {
@@ -216,7 +206,6 @@ func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // handleSubscribeToEventSource.
@@ -255,7 +244,6 @@ func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 	require.Equal(t, "job", resp.TargetType)
 	require.Equal(t, "src-1", resp.
 		SourceID)
-
 }
 
 func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
@@ -268,7 +256,6 @@ func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 // handleListEventSourceSubscriptions.
@@ -296,7 +283,6 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t,
 		resp, 1)
-
 }
 
 // handleDeleteEventSubscription.
@@ -321,7 +307,6 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
@@ -341,7 +326,6 @@ func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // handleDispatchEvent.
@@ -385,8 +369,7 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.EqualValues(t, 1, int(resp["dispatched"].(float64)))
-
+	require.Equal(t, 1, int(resp["dispatched"].(float64)))
 }
 
 func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
@@ -404,7 +387,6 @@ func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
@@ -424,9 +406,8 @@ func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "disabled"))
-
+	require.Contains(
+		t, w.Body.String(), "disabled")
 }
 
 func TestHandleDispatchEvent_InvalidBody(t *testing.T) {
@@ -438,5 +419,4 @@ func TestHandleDispatchEvent_InvalidBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }

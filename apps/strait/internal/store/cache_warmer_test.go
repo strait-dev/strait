@@ -54,7 +54,6 @@ func TestCacheWarmer_WarmExecutesQueries(t *testing.T) {
 	require.Len(t,
 		fakeDB.queries,
 		4)
-
 }
 
 func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
@@ -64,7 +63,6 @@ func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: pgx.ErrNoRows}}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 	require.NoError(t, w.Warm(t.Context()))
-
 }
 
 func TestCacheWarmer_WarmReturnsError(t *testing.T) {
@@ -77,5 +75,4 @@ func TestCacheWarmer_WarmReturnsError(t *testing.T) {
 	err := w.Warm(t.Context())
 	require.Error(t,
 		err)
-
 }

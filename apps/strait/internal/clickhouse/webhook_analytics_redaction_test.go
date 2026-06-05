@@ -14,14 +14,11 @@ func TestRedactWebhookAnalyticsURL_RemovesSecrets(t *testing.T) {
 	got := redactWebhookAnalyticsURL(raw)
 
 	for _, secret := range []string{"user", "pass", "secret-token", "token=abc", "frag", "?"} {
-		require.False(t, strings.Contains(
-			got, secret))
-
+		require.NotContains(t, got, secret)
 	}
 	require.Equal(t, "https://hooks.example.com",
 
 		got)
-
 }
 
 func TestRedactWebhookAnalyticsURL_InvalidURLDoesNotEchoSecret(t *testing.T) {
@@ -33,5 +30,4 @@ func TestRedactWebhookAnalyticsURL_InvalidURLDoesNotEchoSecret(t *testing.T) {
 	require.Equal(t, "[invalid-url]",
 
 		got)
-
 }

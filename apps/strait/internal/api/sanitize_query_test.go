@@ -58,10 +58,9 @@ func TestSanitizeQueryRedactsExpandedKeys(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := sanitizeQuery(map[string][]string{tc.key: {tc.value}})
-			require.False(t, strings.Contains(out, tc.value))
-			require.True(t, strings.Contains(strings.ToLower(out), strings.ToLower(tc.key)))
-			require.True(t, strings.Contains(out, "[REDACTED]"))
-
+			require.NotContains(t, out, tc.value)
+			require.Contains(t, strings.ToLower(out), strings.ToLower(tc.key))
+			require.Contains(t, out, "[REDACTED]")
 		})
 	}
 }
@@ -80,11 +79,10 @@ func TestShouldLogRequest_AlwaysLogsErrorsAndSamplesSuccess(t *testing.T) {
 			break
 		}
 	}
-	require.NotEqual(t,
-		"", sampled,
+	require.NotEmpty(t,
+		sampled,
 	)
 	require.True(t, shouldLogRequest(200, sampled))
-
 }
 
 func BenchmarkShouldLogRequestSuccess(b *testing.B) {
@@ -114,9 +112,8 @@ func TestSanitizeQueryPreservesSafeParams(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
 			out := sanitizeQuery(map[string][]string{tc.key: {tc.value}})
-			require.True(t, strings.Contains(out, tc.value))
-			require.False(t, strings.Contains(out, "[REDACTED]"))
-
+			require.Contains(t, out, tc.value)
+			require.NotContains(t, out, "[REDACTED]")
 		})
 	}
 }
@@ -162,8 +159,7 @@ func FuzzSanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
 			return
 		}
 		out := sanitizeQuery(map[string][]string{key: {value}})
-		require.False(t, strings.Contains(out, value))
-
+		require.NotContains(t, out, value)
 	})
 }
 
@@ -185,5 +181,4 @@ func TestSanitizeQueryPropertyRedactsKeywordKeys(t *testing.T) {
 		Check(
 			prop, &quick.Config{
 				MaxCount: 200}))
-
 }

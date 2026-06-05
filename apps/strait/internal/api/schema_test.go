@@ -22,7 +22,6 @@ func TestHandleStraitJSONSchema_Returns200(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 // TestHandleStraitJSONSchema_ContentType verifies the response uses the
@@ -36,8 +35,7 @@ func TestHandleStraitJSONSchema_ContentType(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	ct := w.Header().Get("Content-Type")
-	require.True(t, strings.Contains(ct, "application/schema+json"))
-
+	require.Contains(t, ct, "application/schema+json")
 }
 
 // TestHandleStraitJSONSchema_CacheControl verifies a 24-hour public cache
@@ -55,7 +53,6 @@ func TestHandleStraitJSONSchema_CacheControl(t *testing.T) {
 		!strings.Contains(cc,
 			"max-age=86400",
 		))
-
 }
 
 // TestHandleStraitJSONSchema_IsValidJSON verifies the response body is valid JSON.
@@ -72,7 +69,6 @@ func TestHandleStraitJSONSchema_IsValidJSON(t *testing.T) {
 		json.Unmarshal(w.Body.Bytes(), &schema))
 	require.NotEmpty(t,
 		schema)
-
 }
 
 // TestHandleStraitJSONSchema_HasRequiredTopLevelKeys verifies the schema
@@ -117,7 +113,6 @@ func TestHandleStraitJSONSchema_SchemaIDMatchesRoute(t *testing.T) {
 	const want = "https://api.strait.dev/schemas/v1/strait.json"
 	assert.Equal(t, want,
 		id)
-
 }
 
 // TestHandleStraitJSONSchema_NoAuthRequired verifies the endpoint is public —
@@ -136,7 +131,6 @@ func TestHandleStraitJSONSchema_NoAuthRequired(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
-
 }
 
 func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.T) {
@@ -157,7 +151,6 @@ func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.
 		"COMPUTE_RUNTIME",
 		"strait build",
 	} {
-		require.False(t, strings.Contains(body, stale))
-
+		require.NotContains(t, body, stale)
 	}
 }

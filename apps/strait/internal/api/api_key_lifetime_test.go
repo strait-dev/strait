@@ -80,7 +80,6 @@ func TestCreateAPIKey_MaxLifetime_AutoCaps(t *testing.T) {
 			After(maxExpected))
 
 	// generous check
-
 }
 
 func TestCreateAPIKey_MaxLifetime_AcceptsWithinLimit(t *testing.T) {
@@ -91,7 +90,6 @@ func TestCreateAPIKey_MaxLifetime_AcceptsWithinLimit(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestCreateAPIKey_MaxLifetime_RejectsExceeding(t *testing.T) {
@@ -104,9 +102,8 @@ func TestCreateAPIKey_MaxLifetime_RejectsExceeding(t *testing.T) {
 		w.Code)
 
 	body := w.Body.String()
-	assert.True(t,
-		strings.Contains(body, "exceeds project maximum"))
-
+	assert.Contains(t,
+		body, "exceeds project maximum")
 }
 
 func TestCreateAPIKey_NoMaxLifetime_RequiresExplicitExpiry(t *testing.T) {
@@ -117,11 +114,9 @@ func TestCreateAPIKey_NoMaxLifetime_RequiresExplicitExpiry(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "expires_in_days is required",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "expires_in_days is required")
 }
 
 func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
@@ -132,7 +127,6 @@ func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
@@ -156,7 +150,6 @@ func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, createCalled)
-
 }
 
 func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
@@ -194,7 +187,6 @@ func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
 	require.False(t, created.ExpiresAt.
 		After(time.Now().
 			Add(31*24*time.Hour)))
-
 }
 
 func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {
@@ -227,7 +219,6 @@ func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {
 			StatusBadRequest,
 		))
 	require.False(t, createCalled)
-
 }
 
 func TestRotateAPIKey_MaxLifetime_RejectsOverlongLegacyExpiry(t *testing.T) {
@@ -262,7 +253,6 @@ func TestRotateAPIKey_MaxLifetime_RejectsOverlongLegacyExpiry(t *testing.T) {
 			StatusBadRequest,
 		))
 	require.False(t, createCalled)
-
 }
 
 func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
@@ -280,7 +270,6 @@ func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
 		"ExpiresIn") && !strings.Contains(w.Body.String(),
 		"expires_in_days",
 	))
-
 }
 
 func TestCreateAPIKey_Adversarial_ExpiresNegative_Rejected(t *testing.T) {
@@ -298,5 +287,4 @@ func TestCreateAPIKey_Adversarial_ExpiresNegative_Rejected(t *testing.T) {
 		"ExpiresIn") && !strings.Contains(w.Body.String(),
 		"expires_in_days",
 	))
-
 }

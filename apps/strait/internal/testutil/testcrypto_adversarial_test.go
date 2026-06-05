@@ -38,9 +38,7 @@ func TestAllGenerators_NeverEmpty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := gen()
-			assert.NotEqual(t, "",
-				s)
-
+			assert.NotEmpty(t, s)
 		})
 	}
 }
@@ -89,8 +87,7 @@ func TestGenerateTestSecret_ConcurrentSafe(t *testing.T) {
 
 	seen := make(map[string]bool)
 	for _, s := range results {
-		require.NotEqual(t, "",
-			s)
+		require.NotEmpty(t, s)
 		require.False(t, seen[s])
 
 		seen[s] = true
@@ -113,7 +110,6 @@ func TestGenerateTestUserCode_ConcurrentSafe(t *testing.T) {
 	for _, code := range results {
 		require.Len(t, code,
 			8)
-
 	}
 }
 
@@ -141,7 +137,6 @@ func TestGenerateTestEncryptionKey_ValidForAES256(t *testing.T) {
 	decrypted, err := gcm.Open(nil, nonce, ciphertext, nil)
 	require.NoError(t, err)
 	require.Equal(t, string(plaintext), string(decrypted))
-
 }
 
 // TestGenerateTestSignatureSecret_ValidForHMAC verifies the secret can be
@@ -171,7 +166,6 @@ func TestGenerateTestSignatureSecret_ValidForHMAC(t *testing.T) {
 		Equal(signature,
 			mac3.Sum(nil)),
 	)
-
 }
 
 // TestGenerateTestJWTKey_SignVerifyRoundtrip verifies the key works for
@@ -202,7 +196,6 @@ func TestGenerateTestJWTKey_SignVerifyRoundtrip(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "user-123",
 		mapClaims["sub"])
-
 }
 
 // TestGenerateTestRunToken_EmptyRunID verifies tokens work with edge-case IDs.
@@ -210,8 +203,7 @@ func TestGenerateTestRunToken_EmptyRunID(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestRunToken("", key)
-	require.NotEqual(t, "",
-		token)
+	require.NotEmpty(t, token)
 
 	claims := &jwt.RegisteredClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
@@ -220,9 +212,8 @@ func TestGenerateTestRunToken_EmptyRunID(t *testing.T) {
 	require.False(t, err !=
 		nil || !parsed.
 		Valid)
-	assert.Equal(t, "", claims.
+	assert.Empty(t, claims.
 		Subject)
-
 }
 
 // TestGenerateTestRunToken_SpecialCharsInRunID verifies tokens handle special
@@ -251,7 +242,6 @@ func TestGenerateTestRunToken_SpecialCharsInRunID(t *testing.T) {
 			Valid)
 		assert.Equal(t, id, claims.
 			Subject)
-
 	}
 }
 
@@ -262,9 +252,7 @@ func TestGenerateTestSSEToken_EmptyScopes(t *testing.T) {
 
 	for _, scopes := range [][]string{nil, {}, {"single"}} {
 		token := GenerateTestSSEToken("proj-1", scopes, key)
-		require.NotEqual(t, "",
-			token)
-
+		require.NotEmpty(t, token)
 	}
 }
 
@@ -280,7 +268,6 @@ func TestGenerateTestSSEToken_CrossKeyRejection(t *testing.T) {
 		return []byte(key2), nil
 	})
 	require.Error(t, err)
-
 }
 
 // TestGenerateTestUserCode_Distribution verifies that all alphabet characters
@@ -299,7 +286,6 @@ func TestGenerateTestUserCode_Distribution(t *testing.T) {
 
 	for i := range len(alphabet) {
 		assert.True(t, charSeen[alphabet[i]])
-
 	}
 }
 
@@ -310,11 +296,9 @@ func TestGenerateTestAPIKey_PrefixNotDuplicated(t *testing.T) {
 	for range 100 {
 		key := GenerateTestAPIKey()
 		after := key[7:]
-		require.False(t, strings.Contains(after,
-			"strait_"))
+		require.NotContains(t, after, "strait_")
 
 		// skip "strait_"
-
 	}
 }
 
@@ -346,8 +330,7 @@ func TestGenerateTestDatabaseURL_ContainsRequiredParts(t *testing.T) {
 
 	required := []string{"postgres://", "testuser", "testpass", "localhost", "5432", "test_", "sslmode=disable"}
 	for _, part := range required {
-		assert.True(t, strings.Contains(url, part))
-
+		assert.Contains(t, url, part)
 	}
 }
 
@@ -381,7 +364,6 @@ func FuzzGenerateTestSecret_NoPanic(f *testing.F) {
 		s := GenerateTestSecret(byteLen)
 		assert.Len(t, s, byteLen*
 			2)
-
 	})
 }
 
@@ -398,8 +380,6 @@ func FuzzGenerateTestRunToken_NoPanic(f *testing.F) {
 			return // empty key causes jwt library error
 		}
 		token := GenerateTestRunToken(runID, key)
-		assert.NotEqual(t, "",
-			token)
-
+		assert.NotEmpty(t, token)
 	})
 }

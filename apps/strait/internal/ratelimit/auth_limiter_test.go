@@ -2,7 +2,6 @@ package ratelimit
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +31,6 @@ func TestAuthLimiter_NotBlocked_BelowThreshold(t *testing.T) {
 
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
 	assert.False(t, blocked)
-
 }
 
 func TestAuthLimiter_Blocked_At10(t *testing.T) {
@@ -50,7 +48,6 @@ func TestAuthLimiter_Blocked_At10(t *testing.T) {
 	assert.Equal(t, 1*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At25(t *testing.T) {
@@ -68,7 +65,6 @@ func TestAuthLimiter_Blocked_At25(t *testing.T) {
 	assert.Equal(t, 5*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At50(t *testing.T) {
@@ -87,7 +83,6 @@ func TestAuthLimiter_Blocked_At50(t *testing.T) {
 		time.Minute,
 		lockout,
 	)
-
 }
 
 func TestDefaultAuthThresholds_Values(t *testing.T) {
@@ -109,7 +104,6 @@ func TestDefaultAuthThresholds_Values(t *testing.T) {
 		assert.Equal(t, w.Lockout,
 			got.
 				Lockout)
-
 	}
 }
 
@@ -117,11 +111,9 @@ func TestDefaultAuthThresholds_DescendingOrder(t *testing.T) {
 	t.Parallel()
 
 	for i := 1; i < len(DefaultAuthThresholds); i++ {
-		assert.False(t, DefaultAuthThresholds[i].
-			Failures >=
-			DefaultAuthThresholds[i-1].Failures,
+		assert.Less(t, DefaultAuthThresholds[i].
+			Failures, DefaultAuthThresholds[i-1].Failures,
 		)
-
 	}
 }
 
@@ -140,7 +132,6 @@ func TestAuthLimiter_Blocked_At11(t *testing.T) {
 	assert.Equal(t, 1*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
@@ -158,7 +149,6 @@ func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
 	assert.Equal(t, 1*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At26(t *testing.T) {
@@ -176,7 +166,6 @@ func TestAuthLimiter_Blocked_At26(t *testing.T) {
 	assert.Equal(t, 5*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
@@ -194,7 +183,6 @@ func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
 	assert.Equal(t, 5*
 		time.Minute,
 		lockout)
-
 }
 
 func TestAuthLimiter_Blocked_At51(t *testing.T) {
@@ -213,17 +201,15 @@ func TestAuthLimiter_Blocked_At51(t *testing.T) {
 		time.Minute,
 		lockout,
 	)
-
 }
 
 func TestBlockedError_Format(t *testing.T) {
 	t.Parallel()
 
 	msg := BlockedError(5 * time.Minute)
-	require.NotEqual(t,
-		"", msg)
-	assert.True(t, strings.Contains(msg, "5m0s"))
-
+	require.NotEmpty(t,
+		msg)
+	assert.Contains(t, msg, "5m0s")
 }
 
 func TestAuthLimiter_TTL_Expires(t *testing.T) {
@@ -243,7 +229,6 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 
 	blocked, _ = limiter.IsBlocked(ctx, "1.2.3.4")
 	assert.False(t, blocked)
-
 }
 
 // Regression: every RecordFailure must leave a TTL on the
@@ -260,10 +245,8 @@ func TestAuthLimiter_RecordFailure_AlwaysSetsTTL(t *testing.T) {
 	limiter.RecordFailure(ctx, "9.9.9.9")
 
 	ttl := mr.TTL(authFailKey(AuthScopeAPIKey, "9.9.9.9"))
-	require.False(t, ttl <=
-		0)
+	require.Positive(t, ttl)
 	require.LessOrEqual(t, ttl, authFailWindow())
-
 }
 
 func TestAuthLimiter_Reset(t *testing.T) {
@@ -279,7 +262,6 @@ func TestAuthLimiter_Reset(t *testing.T) {
 
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
 	assert.False(t, blocked)
-
 }
 
 func TestAuthLimiter_LockoutExpiresBeforeFailureWindow(t *testing.T) {
@@ -306,7 +288,6 @@ func TestAuthLimiter_LockoutExpiresBeforeFailureWindow(t *testing.T) {
 		Exists(authFailKey(AuthScopeAPIKey,
 
 			"1.2.3.4")))
-
 }
 
 func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
@@ -329,7 +310,6 @@ func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
 
 	apiBlocked, _ := limiter.IsBlockedScoped(ctx, ip, AuthScopeAPIKey)
 	require.False(t, apiBlocked)
-
 }
 
 func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
@@ -363,7 +343,6 @@ func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
 
 	internalBlocked, _ = limiter.IsBlockedScoped(ctx, ip, AuthScopeInternalSecret)
 	require.True(t, internalBlocked)
-
 }
 
 func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
@@ -388,7 +367,6 @@ func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
 		time.Minute,
 		retryAfter,
 	)
-
 }
 
 func TestAuthLimiter_IndependentIPs(t *testing.T) {
@@ -403,7 +381,6 @@ func TestAuthLimiter_IndependentIPs(t *testing.T) {
 
 	blocked, _ := limiter.IsBlocked(ctx, "5.6.7.8")
 	assert.False(t, blocked)
-
 }
 
 func TestAuthLimiter_Nil_FailsOpen(t *testing.T) {
@@ -424,7 +401,6 @@ func TestAuthLimiter_Disabled_FailsOpen(t *testing.T) {
 	limiter := NewAuthLimiter(nil, false)
 	blocked, _ := limiter.IsBlocked(context.Background(), "1.2.3.4")
 	assert.False(t, blocked)
-
 }
 
 func FuzzAuthLimiter_IP(f *testing.F) {

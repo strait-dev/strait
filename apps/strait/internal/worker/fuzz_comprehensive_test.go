@@ -45,7 +45,6 @@ func FuzzAdaptivePollBounds(f *testing.F) {
 			d < minD ||
 				d > maxD,
 		)
-
 	})
 }
 
@@ -82,7 +81,6 @@ func FuzzDLQCapInvariant(f *testing.F) {
 			perProject >
 				0 && depth >
 				perProject)
-
 	})
 }
 
@@ -100,6 +98,5 @@ func FuzzRetryBackoffNeverNegative(f *testing.F) {
 		delay := NextRetryDelayWithPolicy(attempt, domain.RetryBackoffExponential, initialSec, maxSec)
 		assert.GreaterOrEqual(t, delay,
 			time.Duration(0))
-
 	})
 }

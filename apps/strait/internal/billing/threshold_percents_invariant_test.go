@@ -28,8 +28,7 @@ func TestThresholdPercents_IsArrayNotSlice(t *testing.T) {
 func TestThresholdPercents_StrictlyAscending(t *testing.T) {
 	t.Parallel()
 	for i := 1; i < len(thresholdPercents); i++ {
-		assert.False(t, thresholdPercents[i] <= thresholdPercents[i-1])
-
+		assert.Greater(t, thresholdPercents[i], thresholdPercents[i-1])
 	}
 }
 
@@ -43,7 +42,6 @@ func TestThresholdPercents_AllInValidRange(t *testing.T) {
 		assert.False(t, p <=
 
 			0 || p > 100)
-
 	}
 }
 
@@ -57,5 +55,4 @@ func TestThresholdPercents_CanonicalValues(t *testing.T) {
 	assert.Equal(t, want,
 
 		thresholdPercents)
-
 }

@@ -65,7 +65,6 @@ func TestTenantIso_EventTrigger_Send_EmptyProjectCtx_Rejected(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusBadRequest))
-
 }
 
 func TestTenantIso_EventTrigger_Send_RejectsCrossProject(t *testing.T) {
@@ -85,7 +84,6 @@ func TestTenantIso_EventTrigger_Send_RejectsCrossProject(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Send_RejectsCrossEnv(t *testing.T) {
@@ -103,7 +101,6 @@ func TestTenantIso_EventTrigger_Send_RejectsCrossEnv(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Send_WorkflowStepRequiresWorkflowTrigger(t *testing.T) {
@@ -135,7 +132,6 @@ func TestTenantIso_EventTrigger_Send_WorkflowStepRequiresWorkflowTrigger(t *test
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestTenantIso_EventTrigger_Send_WorkflowTriggerAllowsWorkflowStep(t *testing.T) {
@@ -178,7 +174,6 @@ func TestTenantIso_EventTrigger_Send_WorkflowTriggerAllowsWorkflowStep(t *testin
 	require.False(t, !statusUpdated ||
 		!stepUpdated,
 	)
-
 }
 
 func TestTenantIso_EventTrigger_Get_EmptyProjectCtx_Rejected(t *testing.T) {
@@ -188,7 +183,6 @@ func TestTenantIso_EventTrigger_Get_EmptyProjectCtx_Rejected(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusBadRequest))
-
 }
 
 func TestTenantIso_EventTrigger_Get_RejectsCrossProject(t *testing.T) {
@@ -205,7 +199,6 @@ func TestTenantIso_EventTrigger_Get_RejectsCrossProject(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Get_RejectsCrossEnv(t *testing.T) {
@@ -223,7 +216,6 @@ func TestTenantIso_EventTrigger_Get_RejectsCrossEnv(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Cancel_EmptyProjectCtx_Rejected(t *testing.T) {
@@ -233,7 +225,6 @@ func TestTenantIso_EventTrigger_Cancel_EmptyProjectCtx_Rejected(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusBadRequest))
-
 }
 
 func TestTenantIso_EventTrigger_Cancel_RejectsCrossProject(t *testing.T) {
@@ -256,7 +247,6 @@ func TestTenantIso_EventTrigger_Cancel_RejectsCrossProject(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Cancel_RejectsCrossEnv(t *testing.T) {
@@ -280,7 +270,6 @@ func TestTenantIso_EventTrigger_Cancel_RejectsCrossEnv(t *testing.T) {
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusNotFound))
-
 }
 
 func TestTenantIso_EventTrigger_Cancel_WorkflowStepRequiresWorkflowWrite(t *testing.T) {
@@ -312,7 +301,6 @@ func TestTenantIso_EventTrigger_Cancel_WorkflowStepRequiresWorkflowWrite(t *test
 	require.True(
 		t, isHumaStatusError(err, http.
 			StatusForbidden))
-
 }
 
 func TestTenantIso_EventTrigger_Cancel_WorkflowWriteAllowsWorkflowStep(t *testing.T) {
@@ -355,7 +343,6 @@ func TestTenantIso_EventTrigger_Cancel_WorkflowWriteAllowsWorkflowStep(t *testin
 	require.False(t, !statusUpdated ||
 		!stepUpdated,
 	)
-
 }
 
 func TestTenantIso_EventTrigger_Stream_RejectsCrossProject(t *testing.T) {
@@ -379,7 +366,6 @@ func TestTenantIso_EventTrigger_Stream_RejectsCrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		rr.Code,
 	)
-
 }
 
 func TestTenantIso_EventTrigger_SendByPrefix_DropsForeignEnv(t *testing.T) {
@@ -417,7 +403,6 @@ func TestTenantIso_EventTrigger_SendByPrefix_DropsForeignEnv(t *testing.T) {
 	require.False(t, len(capturedIDs) != 1 ||
 		capturedIDs[0] != "evt-own",
 	)
-
 }
 
 func TestTenantIso_EventTrigger_SendByPrefix_FiltersBySourcePermission(t *testing.T) {
@@ -458,7 +443,6 @@ func TestTenantIso_EventTrigger_SendByPrefix_FiltersBySourcePermission(t *testin
 	require.False(t, len(capturedIDs) != 1 ||
 		capturedIDs[0] != "evt-job",
 	)
-
 }
 
 // TestEventTriggerHandlers_ProjectScopedResolution is the Phase 1 regression
@@ -515,7 +499,6 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 			out.Body.ProjectID !=
 				"proj-aaa",
 		)
-
 	})
 
 	t.Run("send", func(t *testing.T) {
@@ -530,7 +513,6 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		_, err := srv.handleSendEvent(apiKeyCtx(), &SendEventInput{EventKey: sharedKey})
 		require.NoError(t, err)
 		require.Equal(t, "evt-a", receivedID)
-
 	})
 
 	t.Run("cancel", func(t *testing.T) {
@@ -545,7 +527,6 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		_, err := srv.handleCancelEventTrigger(apiKeyCtx(), &CancelEventTriggerInput{EventKey: sharedKey})
 		require.NoError(t, err)
 		require.Equal(t, "evt-a", canceledID)
-
 	})
 
 	t.Run("stream", func(t *testing.T) {

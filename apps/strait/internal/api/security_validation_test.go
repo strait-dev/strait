@@ -33,8 +33,7 @@ func TestSecurityHeaders_HTTPResponse(t *testing.T) {
 		w.Header().Get("Content-Security-Policy"))
 	require.Equal(t, "no-referrer",
 		w.Header().Get("Referrer-Policy"))
-	require.Equal(t, "", w.Header().Get("Strict-Transport-Security"))
-
+	require.Empty(t, w.Header().Get("Strict-Transport-Security"))
 }
 
 func TestSecurityHeaders_HTTPSIncludesHSTS(t *testing.T) {
@@ -51,7 +50,6 @@ func TestSecurityHeaders_HTTPSIncludesHSTS(t *testing.T) {
 		w.Header().Get(
 			"Strict-Transport-Security",
 		))
-
 }
 
 func TestHandleCreateJob_RejectsLongNameAndSlug(t *testing.T) {
@@ -72,7 +70,6 @@ func TestHandleCreateJob_RejectsLongNameAndSlug(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w2.Code)
-
 }
 
 func TestHandleCreateJob_RejectsCGNATEndpointURL(t *testing.T) {
@@ -86,7 +83,6 @@ func TestHandleCreateJob_RejectsCGNATEndpointURL(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
@@ -114,11 +110,9 @@ func TestHandleTriggerJob_RejectsPayloadOver5MB(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "payload too large",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "payload too large")
 }
 
 func TestHandleSDKSpawn_RejectsEmptyResolvedJobID(t *testing.T) {
@@ -140,5 +134,4 @@ func TestHandleSDKSpawn_RejectsEmptyResolvedJobID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }

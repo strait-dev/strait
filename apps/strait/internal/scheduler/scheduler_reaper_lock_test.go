@@ -22,7 +22,6 @@ func TestWithReaperAdvisoryLocker_WiresReaper(t *testing.T) {
 			reaper.
 			advisoryLocker,
 	)
-
 }
 
 func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
@@ -62,7 +61,6 @@ func TestReaperRun_UsesPinnedAdvisoryLockRunner(t *testing.T) {
 	require.NotEqual(t,
 		0, runner.
 			fnCalls)
-
 }
 
 func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
@@ -96,10 +94,9 @@ func TestReaperRun_SkipsWhenPinnedRunnerDoesNotAcquire(t *testing.T) {
 	case <-time.After(time.Second):
 		require.Fail(t, "reaper did not stop after context cancellation")
 	}
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		runner.fnCalls,
 	)
-
 }
 
 type mockAdvisoryLockRunner struct {

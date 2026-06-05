@@ -85,11 +85,8 @@ func TestVerifyAuditChain_QueryHasIDTiebreaker(t *testing.T) {
 	q.SetAuditSigningKey(key)
 
 	_, _ = q.VerifyAuditChain(context.Background(), "proj-test")
-	assert.True(t,
-		strings.Contains(
-			lastQuery,
-			expected))
-
+	assert.Contains(t,
+		lastQuery, expected)
 }
 
 // TestVerifyAuditChainIncremental_QueryHasIDTiebreaker is the same guard for
@@ -108,11 +105,8 @@ func TestVerifyAuditChainIncremental_QueryHasIDTiebreaker(t *testing.T) {
 	q.SetAuditSigningKey(key)
 
 	_, _ = q.VerifyAuditChainIncremental(context.Background(), "proj-test")
-	assert.True(t,
-		strings.Contains(
-			lastQuery,
-			expected))
-
+	assert.Contains(t,
+		lastQuery, expected)
 }
 
 // TestCreateAuditEvent_TailReadHasIDTiebreaker verifies the tail-read
@@ -171,13 +165,9 @@ func TestListAuditEvents_QueryHasIDTiebreaker(t *testing.T) {
 			q := New(fake)
 
 			_, _ = q.ListAuditEvents(context.Background(), "proj-test", "", "", "", 50, nil, nil, nil, tc.ascending)
-			assert.True(t,
-				strings.Contains(
-					lastQuery,
-					tc.expected,
-				),
+			assert.Contains(t,
+				lastQuery, tc.expected,
 			)
-
 		})
 	}
 }

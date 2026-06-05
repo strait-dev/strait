@@ -13,7 +13,6 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -213,7 +212,6 @@ func TestWebhook_DuplicateSubscriptionCreated(t *testing.T) {
 
 	// Replay protection prevents the duplicate from reaching the handler,
 	// so the upsert count should remain unchanged.
-
 }
 
 func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
@@ -273,7 +271,6 @@ func TestWebhook_DuplicateSubscriptionUpdated(t *testing.T) {
 		string(domain.
 			PlanPro),
 		sub2.PlanTier)
-
 }
 
 // 2. Budget edge cases
@@ -303,7 +300,6 @@ func TestSpendingLimit_OverageComputeEdgeCases(t *testing.T) {
 			require.Equal(t,
 				tt.wantOverage,
 				got)
-
 		})
 	}
 }
@@ -334,7 +330,6 @@ func TestOverageLimitReached_EdgeCases(t *testing.T) {
 			require.Equal(t,
 				tt.wantReached,
 				got)
-
 		})
 	}
 }
@@ -352,7 +347,6 @@ func TestUsagePeriodWindow_NilSubscription(t *testing.T) {
 	)
 	assert.True(t,
 		end.Equal(expectedEnd))
-
 }
 
 func TestUsagePeriodWindow_PaidWithPeriodDates(t *testing.T) {
@@ -371,7 +365,6 @@ func TestUsagePeriodWindow_PaidWithPeriodDates(t *testing.T) {
 		start.Equal(ps))
 	assert.True(t,
 		end.Equal(pe))
-
 }
 
 func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
@@ -392,7 +385,6 @@ func TestUsagePeriodWindow_PaidWithNilPeriodDates(t *testing.T) {
 	)
 	assert.True(t,
 		end.Equal(expectedEnd))
-
 }
 
 // 3. State machine violations (invalid plan transitions)
@@ -404,7 +396,6 @@ func TestIsDowngrade_SameTier(t *testing.T) {
 	for _, tier := range tiers {
 		assert.False(t,
 			IsDowngrade(tier, tier))
-
 	}
 }
 
@@ -438,7 +429,6 @@ func TestIsDowngrade_AllTransitions(t *testing.T) {
 			assert.Equal(t,
 				tt.isDown,
 				got)
-
 		})
 	}
 }
@@ -454,7 +444,6 @@ func TestIsDowngrade_UnknownTier(t *testing.T) {
 	assert.True(t,
 		IsDowngrade(domain.PlanPro,
 			bogus))
-
 }
 
 func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
@@ -508,7 +497,6 @@ func TestWebhook_DowngradeDefersToEndOfPeriod(t *testing.T) {
 			nil ||
 			*sub.PendingPlanTier !=
 				string(domain.PlanStarter))
-
 }
 
 func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
@@ -551,7 +539,6 @@ func TestWebhook_CancelAlreadyFreeOrg(t *testing.T) {
 	)
 
 	// Should NOT set pending plan tier since already free.
-
 }
 
 func TestWebhook_RevokeSubscription(t *testing.T) {
@@ -599,7 +586,6 @@ func TestWebhook_RevokeSubscription(t *testing.T) {
 	)
 
 	// Pending plan tier should be cleared.
-
 }
 
 // 4. Nil/zero value paths
@@ -614,7 +600,6 @@ func TestGetPlanLimits_UnknownTierFallback(t *testing.T) {
 			MaxRunsPerDay,
 		limits.MaxRunsPerDay,
 	)
-
 }
 
 func TestEnforcer_NilEnforcerGetOrgPlanLimits(t *testing.T) {
@@ -630,7 +615,6 @@ func TestEnforcer_NilEnforcerGetOrgPlanLimits(t *testing.T) {
 			MaxRunsPerDay,
 		limits.MaxRunsPerDay,
 	)
-
 }
 
 func TestEnforcer_EmptyOrgID(t *testing.T) {
@@ -648,7 +632,6 @@ func TestEnforcer_EmptyOrgID(t *testing.T) {
 			MaxRunsPerDay,
 		limits.MaxRunsPerDay,
 	)
-
 }
 
 func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
@@ -670,11 +653,10 @@ func TestWebhook_NoOrgIDInMetadata(t *testing.T) {
 	require.NotEqual(t, http.StatusOK,
 		rr.Code,
 	)
-	require.EqualValues(t, 0, store.
+	require.Equal(t, 0, store.
 		upsertCount)
 
 	// Should return an error so Stripe retries the webhook until org_id is resolvable.
-
 }
 
 func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
@@ -704,7 +686,6 @@ func TestWebhook_OrgIDFromCustomerMetadata(t *testing.T) {
 
 	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-000000000025")
 	require.NoError(t, err)
-
 }
 
 func TestWebhook_EmptyPayload(t *testing.T) {
@@ -722,7 +703,6 @@ func TestWebhook_EmptyPayload(t *testing.T) {
 		http.StatusBadRequest,
 		rr.
 			Code)
-
 }
 
 func TestWebhook_MalformedJSON(t *testing.T) {
@@ -739,7 +719,6 @@ func TestWebhook_MalformedJSON(t *testing.T) {
 		http.StatusBadRequest,
 		rr.
 			Code)
-
 }
 
 func TestWebhook_UnknownEventType(t *testing.T) {
@@ -756,7 +735,6 @@ func TestWebhook_UnknownEventType(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 func TestWebhook_UnknownProductID(t *testing.T) {
@@ -781,7 +759,6 @@ func TestWebhook_UnknownProductID(t *testing.T) {
 		rr.Code)
 
 	// Should return 500 because ErrUnknownPrice is returned.
-
 }
 
 func TestWebhook_ProductFromNestedObject(t *testing.T) {
@@ -812,7 +789,6 @@ func TestWebhook_ProductFromNestedObject(t *testing.T) {
 		string(domain.
 			PlanPro),
 		sub.PlanTier)
-
 }
 
 func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
@@ -859,7 +835,6 @@ func TestWebhook_SubscriptionCreatedRejectsMetadataOrgRebinding(t *testing.T) {
 		string(domain.
 			PlanStarter,
 		), sub.PlanTier)
-
 }
 
 func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissing(t *testing.T) {
@@ -897,7 +872,6 @@ func TestWebhook_SubscriptionCreatedUsesExistingCustomerBindingWhenMetadataMissi
 		string(domain.
 			PlanPro),
 		sub.PlanTier)
-
 }
 
 func TestWebhook_SubscriptionCreatedRejectsUnboundMetadataOrg(t *testing.T) {
@@ -936,7 +910,6 @@ func TestWebhook_SubscriptionCreatedRejectsUnboundMetadataOrg(t *testing.T) {
 		string(domain.
 			PlanFree),
 		sub.PlanTier)
-
 }
 
 func TestWebhook_SubscriptionCreatedAllowsPendingPlanIntent(t *testing.T) {
@@ -979,7 +952,6 @@ func TestWebhook_SubscriptionCreatedAllowsPendingPlanIntent(t *testing.T) {
 			nil || *sub.StripeCustomerID !=
 			"cust_pending_intent",
 	)
-
 }
 
 func TestWebhook_InvoicePaymentFailedRejectsMetadataOrgWithoutBinding(t *testing.T) {
@@ -1016,7 +988,6 @@ func TestWebhook_InvoicePaymentFailedRejectsMetadataOrgWithoutBinding(t *testing
 	require.Equal(t,
 		"ok", sub.
 			PaymentStatus)
-
 }
 
 func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *testing.T) {
@@ -1078,7 +1049,6 @@ func TestWebhook_InvoicePaymentFailedUsesCustomerBindingAndRejectsConflict(t *te
 		"grace",
 		sub.PaymentStatus,
 	)
-
 }
 
 // 5. Concurrent operations on billing state
@@ -1189,7 +1159,6 @@ func TestWebhook_ConcurrentCreatedEvents(t *testing.T) {
 		string(domain.
 			PlanStarter,
 		), sub.PlanTier)
-
 }
 
 func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
@@ -1226,7 +1195,6 @@ func TestEnforcer_ConcurrentCheckSpendingLimit(t *testing.T) {
 		Load())
 
 	// Under limit, all should pass.
-
 }
 
 func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
@@ -1249,13 +1217,12 @@ func TestEnforcer_ConcurrentGetOrgPlanLimits(t *testing.T) {
 	for range 50 {
 		wg.Go(func() {
 			limits, err := e.GetOrgPlanLimits(context.Background(), "org-conc-limits")
-			assert.NoError(
+			require.NoError(
 				t, err)
 			assert.Equal(t,
 				domain.PlanPro,
 				limits.PlanTier,
 			)
-
 		})
 	}
 	wg.Wait()
@@ -1285,7 +1252,6 @@ func TestWebhook_UpsertErrorOnCreate(t *testing.T) {
 		http.StatusInternalServerError,
 
 		rr.Code)
-
 }
 
 func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
@@ -1311,7 +1277,6 @@ func TestWebhook_GetSubErrorOnUpdated(t *testing.T) {
 		http.StatusInternalServerError,
 
 		rr.Code)
-
 }
 
 func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
@@ -1351,7 +1316,6 @@ func TestWebhook_UpdateFullErrorFallsBackToUpsert(t *testing.T) {
 		Load())
 
 	// Verify fallback upsert was triggered.
-
 }
 
 func TestWebhook_AuditStoreError(t *testing.T) {
@@ -1380,7 +1344,6 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	// Subscription should still be created.
 	_, err := store.GetOrgSubscription(context.Background(), "00000000-0000-0000-0000-00000000002c")
 	require.NoError(t, err)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
@@ -1393,14 +1356,12 @@ func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
 
 	err := e.CheckSpendingLimit(context.Background(), "org-fail-open")
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	require.Equal(t,
 		"service_degraded",
 		le.Code,
 	)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierExceeded(t *testing.T) {
@@ -1425,14 +1386,12 @@ func TestEnforcer_CheckSpendingLimit_FreeTierExceeded(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	assert.Equal(t,
 		"spending_limit_reached",
 
 		le.Code)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_PaidNoLimit(t *testing.T) {
@@ -1455,7 +1414,6 @@ func TestEnforcer_CheckSpendingLimit_PaidNoLimit(t *testing.T) {
 
 	err := e.CheckSpendingLimit(context.Background(), "org-no-limit")
 	require.NoError(t, err)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_PaidLimitReached(t *testing.T) {
@@ -1483,10 +1441,8 @@ func TestEnforcer_CheckSpendingLimit_PaidLimitReached(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
-
+	require.ErrorAs(t,
+		err, &le)
 }
 
 func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
@@ -1504,7 +1460,6 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription(t *testing.T) {
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub")
 	require.Error(t,
 		err)
-
 }
 
 func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.T) {
@@ -1519,7 +1474,6 @@ func TestEnforcer_CheckSpendingLimit_NoSubscription_ZeroSpend_Passes(t *testing.
 
 	err := e.CheckSpendingLimit(context.Background(), "org-no-sub-zero")
 	require.NoError(t, err)
-
 }
 
 func TestEnforcer_CheckProjectLimit_AtLimit(t *testing.T) {
@@ -1544,14 +1498,12 @@ func TestEnforcer_CheckProjectLimit_AtLimit(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	assert.Equal(t,
 		"project_limit_reached",
 
 		le.Code)
-
 }
 
 func TestEnforcer_CheckMemberLimit_AtLimit(t *testing.T) {
@@ -1576,14 +1528,12 @@ func TestEnforcer_CheckMemberLimit_AtLimit(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	assert.Equal(t,
 		"member_limit_reached",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
@@ -1601,9 +1551,8 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	assert.Equal(t,
 		"org_limit_reached",
 		le.Code,
@@ -1612,7 +1561,6 @@ func TestEnforcer_CheckOrgCreationLimit(t *testing.T) {
 	// Unlimited enterprise should always pass.
 	err = e.CheckOrgCreationLimit(context.Background(), "user-max-orgs", domain.PlanEnterprise)
 	require.NoError(t, err)
-
 }
 
 // Payment status / grace period paths
@@ -1660,7 +1608,6 @@ func TestWebhook_PastDueSetsGracePeriod(t *testing.T) {
 	require.NotNil(
 		t, sub.GracePeriodEnd,
 	)
-
 }
 
 func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
@@ -1706,7 +1653,6 @@ func TestWebhook_ActiveSubscriptionUpdateDoesNotClearGracePeriod(t *testing.T) {
 		"grace",
 		sub.PaymentStatus,
 	)
-
 }
 
 func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
@@ -1749,7 +1695,6 @@ func TestWebhook_PaymentSucceededClearsGrace(t *testing.T) {
 	require.Equal(t,
 		"ok", sub.
 			PaymentStatus)
-
 }
 
 func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
@@ -1790,7 +1735,6 @@ func TestWebhook_PaymentSucceeded_AlreadyOk(t *testing.T) {
 	)
 
 	// Payment status should remain "ok" without unnecessary update.
-
 }
 
 // Signature verification edge cases
@@ -1828,7 +1772,6 @@ func TestWebhook_MultipleSignaturesInHeader(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 func TestWebhook_FutureTimestamp(t *testing.T) {
@@ -1855,7 +1798,6 @@ func TestWebhook_FutureTimestamp(t *testing.T) {
 		http.StatusUnauthorized,
 
 		rr.Code)
-
 }
 
 func TestWebhook_NonNumericTimestamp(t *testing.T) {
@@ -1876,7 +1818,6 @@ func TestWebhook_NonNumericTimestamp(t *testing.T) {
 		http.StatusUnauthorized,
 
 		rr.Code)
-
 }
 
 // Downgrade preview and build impact
@@ -1889,7 +1830,6 @@ func TestBuildImpact_UnlimitedToLimited(t *testing.T) {
 		ResourceActionReduce,
 		impact.
 			Action)
-
 }
 
 func TestBuildImpact_LimitedToUnlimited(t *testing.T) {
@@ -1900,7 +1840,6 @@ func TestBuildImpact_LimitedToUnlimited(t *testing.T) {
 		ResourceActionOK,
 		impact.
 			Action)
-
 }
 
 func TestBuildImpact_LimitedToZero(t *testing.T) {
@@ -1911,7 +1850,6 @@ func TestBuildImpact_LimitedToZero(t *testing.T) {
 		ResourceActionRemove,
 		impact.
 			Action)
-
 }
 
 func TestAutoDisableResources_Separation(t *testing.T) {
@@ -1933,7 +1871,6 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 		"log_drains",
 		auto[0].Resource,
 	)
-
 }
 
 // LimitError interface compliance
@@ -1955,14 +1892,11 @@ func TestLimitError_ErrorInterface(t *testing.T) {
 	// Verify errors.As works.
 	wrapped := fmt.Errorf("wrapping: %w", le)
 	var target *LimitError
-	require.True(t,
-		errors.As(
-			wrapped, &target,
-		))
+	require.ErrorAs(t,
+		wrapped, &target)
 	assert.Equal(t,
 		"test_code",
 		target.Code)
-
 }
 
 // Anomaly detection edge cases
@@ -1971,13 +1905,12 @@ func TestAnomalyConfig_HighThresholdAutoComputed(t *testing.T) {
 	t.Parallel()
 
 	cfg := AnomalyConfig{WarningThreshold: 3.0, CriticalThreshold: 10.0}
-	assert.EqualValues(t, 6.5, cfg.highThreshold())
+	assert.InDelta(t, 6.5, cfg.highThreshold(), 1e-9)
 
 	cfg2 := AnomalyConfig{WarningThreshold: 3.0, HighThreshold: 7.0, CriticalThreshold: 10.0}
-	assert.EqualValues(t, 7.0, cfg2.
-		highThreshold(),
+	assert.InDelta(t, 7.0, cfg2.
+		highThreshold(), 1e-9,
 	)
-
 }
 
 func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
@@ -1987,15 +1920,14 @@ func TestNewAnomalyDetectorWithConfig_DefaultsOnZero(t *testing.T) {
 		WarningThreshold:  0,
 		CriticalThreshold: 0,
 	})
-	assert.Equal(t,
+	assert.InDelta(t,
 		spikeWarning,
-		d.config.WarningThreshold,
+		d.config.WarningThreshold, 1e-9,
 	)
-	assert.Equal(t,
+	assert.InDelta(t,
 		spikeCritical,
-		d.config.CriticalThreshold,
+		d.config.CriticalThreshold, 1e-9,
 	)
-
 }
 
 // SafePercent edge cases
@@ -2020,10 +1952,9 @@ func TestSafePercent_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := safePercent(tt.used, tt.limit)
-			assert.Equal(t,
+			assert.InDelta(t,
 				tt.expected,
-				got)
-
+				got, 1e-9)
 		})
 	}
 }
@@ -2059,7 +1990,6 @@ func TestRecommendPlan_AllTiers(t *testing.T) {
 			assert.Equal(t,
 				tt.expected,
 				got)
-
 		})
 	}
 }
@@ -2085,7 +2015,6 @@ func TestMicroToUSDString_Adversarial(t *testing.T) {
 		assert.Equal(t,
 			tt.expected,
 			got)
-
 	}
 }
 
@@ -2211,7 +2140,6 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 	if a, ok := costMap["proj-a"]; ok {
 		assert.EqualValues(t, 15, a.Runs)
 		assert.EqualValues(t, 1600, a.TotalMicro)
-
 	} else {
 		require.Fail(t,
 
@@ -2246,7 +2174,6 @@ func TestUsageService_ExportCSV(t *testing.T) {
 		bytes.Contains(csv, []byte("date,project,runs")))
 
 	// Check header is present.
-
 }
 
 func TestUsageService_ExportPDF(t *testing.T) {
@@ -2282,7 +2209,6 @@ func TestUsageService_ExportPDF(t *testing.T) {
 		bytes.HasPrefix(pdf, []byte("%PDF")))
 
 	// PDF files start with %PDF.
-
 }
 
 func TestUsageService_GetProjectBudget(t *testing.T) {
@@ -2301,7 +2227,6 @@ func TestUsageService_GetProjectBudget(t *testing.T) {
 	assert.EqualValues(t, -1, resp.MonthlyBudgetMicro)
 
 	// Default mock returns -1, "notify".
-
 }
 
 func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T) {
@@ -2324,9 +2249,8 @@ func TestUsageService_GetSpendingLimit_ReturnsSpendAggregationError(t *testing.T
 	_, err := svc.GetSpendingLimit(context.Background(), "org-spend-error")
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(), "summing org period spend"))
-
+	require.Contains(t,
+		err.Error(), "summing org period spend")
 }
 
 func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
@@ -2342,9 +2266,8 @@ func TestUsageService_GetUsageForecast_ReturnsPlanLimitError(t *testing.T) {
 	_, err := svc.GetUsageForecast(context.Background(), "org-forecast-error")
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(), "getting org plan limits for forecast"))
-
+	require.Contains(t,
+		err.Error(), "getting org plan limits for forecast")
 }
 
 func TestUsageService_PreviewDowngrade(t *testing.T) {
@@ -2384,12 +2307,10 @@ func TestUsageService_PreviewDowngrade(t *testing.T) {
 				ResourceActionReduce,
 				ma.
 					Action)
-
 		}
 	}
 	require.True(t,
 		found)
-
 }
 
 func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
@@ -2417,7 +2338,6 @@ func TestPreviewDowngrade_UsesActualUsageNotCurrentPlanCaps(t *testing.T) {
 	}
 	require.EqualValues(t, 2, byResource["members_per_org"].Current)
 	require.EqualValues(t, 3, byResource["concurrent_runs"].Current)
-
 }
 
 func TestUsageService_DetectAnomalies(t *testing.T) {
@@ -2467,7 +2387,6 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 
 		alerts[0].Severity,
 	)
-
 }
 
 func TestUsageService_GetAnomalyConfig_NoSubscription(t *testing.T) {
@@ -2479,11 +2398,10 @@ func TestUsageService_GetAnomalyConfig_NoSubscription(t *testing.T) {
 
 	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-no-sub")
 	require.NoError(t, err)
-	assert.Equal(t,
+	assert.InDelta(t,
 		spikeWarning,
-		cfg.WarningThreshold,
+		cfg.WarningThreshold, 1e-9,
 	)
-
 }
 
 func TestUsageService_GetAnomalyConfig_WithCustomThresholds(t *testing.T) {
@@ -2504,11 +2422,10 @@ func TestUsageService_GetAnomalyConfig_WithCustomThresholds(t *testing.T) {
 
 	cfg, err := svc.GetAnomalyConfig(context.Background(), "org-custom-thresh")
 	require.NoError(t, err)
-	assert.EqualValues(t, 5.0, cfg.WarningThreshold)
-	assert.EqualValues(t, 15.0, cfg.
-		CriticalThreshold,
+	assert.InDelta(t, 5.0, cfg.WarningThreshold, 1e-9)
+	assert.InDelta(t, 15.0, cfg.
+		CriticalThreshold, 1e-9,
 	)
-
 }
 
 func TestUsageService_SetAnomalyConfig_Validation(t *testing.T) {
@@ -2531,7 +2448,6 @@ func TestUsageService_SetAnomalyConfig_Validation(t *testing.T) {
 	// Valid config should succeed.
 	err = svc.SetAnomalyConfig(context.Background(), "org-thresh", 3.0, 10.0)
 	require.NoError(t, err)
-
 }
 
 func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
@@ -2585,7 +2501,6 @@ func TestUsageService_SetSpendingLimit_Validation(t *testing.T) {
 	err = svc3.SetSpendingLimit(context.Background(), "org-no-sub", 100000, "reject")
 	require.Error(t,
 		err)
-
 }
 
 func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
@@ -2615,7 +2530,6 @@ func TestUsageService_GetEmailPreferences_Adversarial(t *testing.T) {
 	assert.True(t,
 		prefs2.MonthlyUsageEmail,
 	)
-
 }
 
 // Webhook: subscription.canceled with non-existent org
@@ -2639,7 +2553,6 @@ func TestWebhook_CancelNonExistentOrg(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 // Webhook: subscription.revoked with non-existent org
@@ -2663,7 +2576,6 @@ func TestWebhook_RevokeNonExistentOrg(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 // Webhook: payment succeeded with non-existent org
@@ -2687,7 +2599,6 @@ func TestWebhook_PaymentSucceededNonExistentOrg(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 // Webhook: subscription.updated with unknown product returns OK (logged)
@@ -2722,7 +2633,6 @@ func TestWebhook_UpdatedUnknownProduct(t *testing.T) {
 		rr.Code)
 
 	// Unknown product on update is a no-op (not an error).
-
 }
 
 // Webhook: subscription.updated with empty status defaults to "active"
@@ -2762,7 +2672,6 @@ func TestWebhook_UpdatedEmptyStatusDefaultsActive(t *testing.T) {
 	require.Equal(t,
 		http.StatusOK,
 		rr.Code)
-
 }
 
 func TestNewEnforcer_PanicsOnNilStore(t *testing.T) {
@@ -2770,7 +2679,6 @@ func TestNewEnforcer_PanicsOnNilStore(t *testing.T) {
 
 	defer func() {
 		require.NotNil(t, recover())
-
 	}()
 	NewEnforcer(nil, nil, slog.Default())
 }

@@ -59,7 +59,7 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 		}
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		require.Nil(t, parseErr)
+		require.NoError(t, parseErr)
 
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -161,6 +161,5 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 	for name := range runInTxHandlers {
 		assert.True(
 			t, found[name])
-
 	}
 }

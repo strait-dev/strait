@@ -76,7 +76,6 @@ func TestOIDC_ProjectHeaderValidUser(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestOIDC_ProjectHeaderNoAccess verifies that a user without project membership
@@ -107,7 +106,6 @@ func TestOIDC_ProjectHeaderNoAccess(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestOIDC_ProjectHeaderEmpty verifies that omitting the X-Project-Id header
@@ -151,7 +149,6 @@ func TestOIDC_ProjectHeaderEmpty(t *testing.T) {
 
 	// The request proceeds (stats endpoint may return 200 or 403 depending on
 	// permissions, but must not be 401 from missing token).
-
 }
 
 // TestOIDC_ProjectHeaderStoreError verifies that a store error during the access
@@ -182,7 +179,6 @@ func TestOIDC_ProjectHeaderStoreError(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestOIDC_ProjectHeaderNullBytes verifies that null bytes in the X-Project-Id
@@ -213,7 +209,6 @@ func TestOIDC_ProjectHeaderNullBytes(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestOIDC_ProjectHeaderSQLInjection verifies that SQL injection attempts in the
@@ -254,7 +249,6 @@ func TestOIDC_ProjectHeaderSQLInjection(t *testing.T) {
 			t, http.StatusForbidden,
 			w.Code,
 		)
-
 	}
 }
 

@@ -35,7 +35,6 @@ func TestCreateEnvironment_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateEnvironment_SameProjectAllowed verifies that creating an
@@ -59,7 +58,6 @@ func TestCreateEnvironment_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateWebhookSubscription_CrossProjectBlocked verifies that an API key
@@ -83,7 +81,6 @@ func TestCreateWebhookSubscription_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateDeploymentVersion_CrossProjectBlocked verifies that an API key
@@ -107,7 +104,6 @@ func TestCreateDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestFinalizeDeploymentVersion_CrossProjectBlocked verifies that finalize
@@ -131,7 +127,6 @@ func TestFinalizeDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestPromoteDeploymentVersion_CrossProjectBlocked verifies that promote
@@ -155,7 +150,6 @@ func TestPromoteDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestRollbackDeploymentVersion_CrossProjectBlocked verifies that rollback
@@ -179,7 +173,6 @@ func TestRollbackDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestUpsertWorkflowPolicy_CrossProjectBlocked verifies that an API key
@@ -203,7 +196,6 @@ func TestUpsertWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // TestGetWorkflowPolicy_CrossProjectBlocked verifies that an API key
@@ -226,7 +218,6 @@ func TestGetWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // TestDeleteEventSubscription_WrongSourceBlocked verifies that deleting an
@@ -258,7 +249,6 @@ func TestDeleteEventSubscription_WrongSourceBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // TestDeleteEventSubscription_CorrectSourceAllowed verifies that deleting an
@@ -287,7 +277,6 @@ func TestDeleteEventSubscription_CorrectSourceAllowed(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 // TestDeleteEventSubscription_NotFoundReturns404 verifies that deleting a
@@ -310,7 +299,6 @@ func TestDeleteEventSubscription_NotFoundReturns404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
@@ -344,7 +332,6 @@ func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
@@ -374,7 +361,6 @@ func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) {
@@ -404,7 +390,6 @@ func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) 
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
@@ -438,7 +423,6 @@ func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
 	)
 	require.True(
 		t, created)
-
 }
 
 // TestDeleteJobDependency_WrongJobBlocked verifies that deleting a job
@@ -473,7 +457,6 @@ func TestDeleteJobDependency_WrongJobBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // TestDeleteJobDependency_CorrectJobAllowed verifies that deleting a job
@@ -505,7 +488,6 @@ func TestDeleteJobDependency_CorrectJobAllowed(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 // TestCreateJob_CrossProjectBlocked verifies that an API key for project A
@@ -529,7 +511,6 @@ func TestCreateJob_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateJob_SameProjectAllowed verifies that creating a job with the
@@ -551,7 +532,6 @@ func TestCreateJob_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateJob_TimeoutSecsExceeds86400Rejected verifies that timeout_secs
@@ -575,7 +555,6 @@ func TestCreateJob_TimeoutSecsExceeds86400Rejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.
 			Code)
-
 }
 
 // TestCreateJob_TimeoutSecs86400Allowed verifies that timeout_secs at exactly
@@ -597,7 +576,6 @@ func TestCreateJob_TimeoutSecs86400Allowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateAPIKey_CrossProjectBlocked verifies that an API key for project A
@@ -621,7 +599,6 @@ func TestCreateAPIKey_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateAPIKey_SameProjectAllowed verifies that creating an API key with
@@ -644,7 +621,6 @@ func TestCreateAPIKey_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateEventSource_CrossProjectBlocked verifies that an API key for
@@ -668,7 +644,6 @@ func TestCreateEventSource_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateEventSource_SameProjectAllowed verifies that creating an event
@@ -690,7 +665,6 @@ func TestCreateEventSource_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateLogDrain_CrossProjectBlocked verifies that an API key for project A
@@ -714,7 +688,6 @@ func TestCreateLogDrain_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateLogDrain_SameProjectAllowed verifies that creating a log drain
@@ -735,7 +708,6 @@ func TestCreateLogDrain_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestCreateSecret_CrossProjectBlocked verifies that an API key for project A
@@ -759,7 +731,6 @@ func TestCreateSecret_CrossProjectBlocked(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 // TestCreateSecret_SameProjectAllowed verifies that creating a secret with
@@ -781,7 +752,6 @@ func TestCreateSecret_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestTestWebhook_ErrorSanitized verifies that the webhook test endpoint
@@ -810,7 +780,6 @@ func TestTestWebhook_ErrorSanitized(t *testing.T) {
 	require.Equal(t, "connection to webhook URL failed",
 
 		errMsg)
-
 }
 
 // TestDeleteJobDependency_NotFoundReturns404 verifies that deleting a
@@ -833,7 +802,6 @@ func TestDeleteJobDependency_NotFoundReturns404(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 // TestCreateDeploymentVersion_SameProjectAllowed verifies that creating a
@@ -857,7 +825,6 @@ func TestCreateDeploymentVersion_SameProjectAllowed(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-
 }
 
 // TestUpsertWorkflowPolicy_SameProjectAllowed verifies that upserting a
@@ -877,7 +844,6 @@ func TestUpsertWorkflowPolicy_SameProjectAllowed(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPut, "/v1/workflow-policies/proj-A", body, "proj-A"))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 // TestGetWorkflowPolicy_SameProjectAllowed verifies that reading a workflow
@@ -905,5 +871,4 @@ func TestGetWorkflowPolicy_SameProjectAllowed(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "proj-A", resp["project_id"])
-
 }

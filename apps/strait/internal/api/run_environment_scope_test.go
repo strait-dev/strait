@@ -39,7 +39,7 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 			require.Equal(t, "proj-1",
 				projectID,
 			)
-			require.EqualValues(t, 25, limit)
+			require.Equal(t, 25, limit)
 
 			listCalls++
 			switch listCalls {
@@ -93,7 +93,6 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 	require.False(t, jobLookups["job-prod"] !=
 
 		1 || jobLookups["job-staging"] != 1)
-
 }
 
 func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.T) {
@@ -103,7 +102,7 @@ func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.
 	jobLookups := make(map[string]int)
 	ms := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, _ string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-			require.EqualValues(t, 4, limit)
+			require.Equal(t, 4, limit)
 
 			if cursor != nil {
 				return nil, nil
@@ -150,7 +149,6 @@ func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.
 	require.False(t, jobLookups["job-prod"] !=
 
 		1 || jobLookups["job-staging"] != 1)
-
 }
 
 func TestBulkReplayDeadLetterRunsForEnvironment_NoMatchesSkipsReplay(t *testing.T) {
@@ -178,9 +176,8 @@ func TestBulkReplayDeadLetterRunsForEnvironment_NoMatchesSkipsReplay(t *testing.
 
 	runs, err := srv.bulkReplayDeadLetterRunsForEnvironment(envScopedRunCtx(), "proj-1", 10)
 	require.NoError(t, err)
-	require.Len(t,
-		runs, 0)
-
+	require.Empty(t,
+		runs)
 }
 
 func TestRunMatchesEnvironment_UnscopedContextSkipsJobLookup(t *testing.T) {
@@ -201,7 +198,6 @@ func TestRunMatchesEnvironment_UnscopedContextSkipsJobLookup(t *testing.T) {
 	require.True(
 		t, allowed,
 	)
-
 }
 
 func runIDs(runs []domain.JobRun) []string {

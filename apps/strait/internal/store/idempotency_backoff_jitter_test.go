@@ -12,7 +12,6 @@ import (
 func TestIdempotencyBackoffWithJitter_FirstAttemptIsZero(t *testing.T) {
 	t.Parallel()
 	require.EqualValues(t, 0, idempotencyBackoffWithJitter(0))
-
 }
 
 // TestIdempotencyBackoffWithJitter_OutOfRangeIsZero protects against
@@ -23,7 +22,6 @@ func TestIdempotencyBackoffWithJitter_OutOfRangeIsZero(t *testing.T) {
 	t.Parallel()
 	require.EqualValues(t, 0, idempotencyBackoffWithJitter(idempotencyMaxAttempts))
 	require.EqualValues(t, 0, idempotencyBackoffWithJitter(-1))
-
 }
 
 // TestIdempotencyBackoffWithJitter_StaysWithinBounds verifies the
@@ -44,7 +42,6 @@ func TestIdempotencyBackoffWithJitter_StaysWithinBounds(t *testing.T) {
 				got <
 					lo ||
 					got >= hi)
-
 		}
 	}
 }
@@ -76,5 +73,4 @@ func TestIdempotencyBackoffWithJitter_ProducesVariance(t *testing.T) {
 		t,
 
 		spread, minSpread)
-
 }

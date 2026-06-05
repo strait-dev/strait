@@ -38,5 +38,4 @@ func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
 	require.False(t,
 		!strings.Contains(err.Error(), "blocked private") &&
 			!strings.Contains(err.Error(), "resolves to private"))
-
 }

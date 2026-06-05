@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -47,9 +46,8 @@ func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
 	require.Nil(t, out)
 
 	var rawErr *rawStatusError
-	require.True(
-		t, errors.As(err,
-			&rawErr))
+	require.ErrorAs(
+		t, err, &rawErr)
 	require.Equal(t, http.StatusOK,
 		rawErr.status,
 	)
@@ -63,10 +61,9 @@ func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
 		"job-1")
 	require.Equal(t, `{"a":1,"b":2}`,
 		string(result.Payload))
-	require.NotEqual(t, "", result.
+	require.NotEmpty(t, result.
 		PayloadHash,
 	)
-
 }
 
 func TestHandleTriggerDryRunMapsValidationErrorToBadRequest(t *testing.T) {
@@ -80,16 +77,13 @@ func TestHandleTriggerDryRunMapsValidationErrorToBadRequest(t *testing.T) {
 
 	_, err := srv.handleTriggerDryRun(context.Background(), "job-1", TriggerRequest{})
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err,
-			&statusErr,
-		))
+	require.ErrorAs(
+		t, err, &statusErr)
 	require.Equal(t, http.StatusBadRequest,
 
 		statusErr.GetStatus())
-	require.True(
-		t, strings.Contains(err.Error(), "job is disabled"))
-
+	require.Contains(
+		t, err.Error(), "job is disabled")
 }
 
 func TestDryRunValidationWarningsReportsDedupRun(t *testing.T) {
@@ -112,7 +106,6 @@ func TestDryRunValidationWarningsReportsDedupRun(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, len(warnings) !=
 		1 || !strings.Contains(warnings[0], "run-existing"))
-
 }
 
 func TestDryRunValidationWarningsSkipsDedupWhenDisabled(t *testing.T) {
@@ -129,13 +122,11 @@ func TestDryRunValidationWarningsSkipsDedupWhenDisabled(t *testing.T) {
 
 	warnings, err := srv.dryRunValidationWarnings(context.Background(), &domain.Job{ID: "job-1"}, nil)
 	require.NoError(t, err)
-	require.Len(t,
-		warnings, 0)
-
+	require.Empty(t,
+		warnings)
 }
 
 func TestDryRunJobInfoNilSafe(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, dryRunJobInfo(nil))
-
 }

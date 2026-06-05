@@ -38,7 +38,6 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 				wins.Add(1)
 				assert.Equal(t, "solo", id)
 				assert.NotNil(t, sendCh)
-
 			}
 		})
 	}
@@ -49,7 +48,6 @@ func TestReserveWorkerForQueue_AtomicDecrement(t *testing.T) {
 	snap := r.Snapshot()
 	require.Len(t, snap, 1)
 	require.EqualValues(t, 0, snap[0].SlotsAvailable)
-
 }
 
 // TestReserveWorkerForQueue_NoneAvailable verifies the negative path: no
@@ -88,7 +86,6 @@ func TestReserveWorkerForQueue_PicksLeastLoaded(t *testing.T) {
 	id, _, ok := r.ReserveWorkerForQueue("proj-a", "q", "")
 	require.True(t, ok)
 	require.Equal(t, "idle", id)
-
 }
 
 // TestReserveWorkerForQueue_DrainingExcluded verifies that draining workers
@@ -129,5 +126,4 @@ func TestReserveWorkerForQueue_EnvironmentScopedWorkerOnlyMatchesSameEnvironment
 	id, _, ok = r.ReserveWorkerForQueue("proj-a", "q", "env-dev")
 	require.True(t, ok)
 	require.Equal(t, "wide", id)
-
 }

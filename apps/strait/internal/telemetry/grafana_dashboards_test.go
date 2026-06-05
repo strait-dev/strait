@@ -46,18 +46,18 @@ func TestGrafanaDashboards_JSONValidAndRegisteredMetrics(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(raw,
 			&doc))
-		assert.NotEqual(t, "", doc.
+		assert.NotEmpty(t, doc.
 			Dashboard.
 			UID,
 		)
-		assert.NotEqual(t, "", doc.
+		assert.NotEmpty(t, doc.
 			Dashboard.
 			Title,
 		)
-		assert.Equal(t, "", seenUIDs[doc.
+		assert.Empty(t, seenUIDs[doc.
 			Dashboard.
 			UID])
-		assert.Equal(t, "", seenTitles[doc.
+		assert.Empty(t, seenTitles[doc.
 			Dashboard.
 			Title])
 
@@ -97,13 +97,11 @@ func TestGrafanaDashboards_PromQLShape(t *testing.T) {
 				assert.Failf(t, "dashboard has an empty PromQL expression", "%s", filepath.Base(path))
 				continue
 			}
-			assert.NoError(t, validatePromQLShape(
+			require.NoError(t, validatePromQLShape(
 				expr))
-
 		}
 	}
 	require.NotEqual(t, 0, checked)
-
 }
 
 func TestGrafanaDashboards_DatasourceAndIntervalVariables(t *testing.T) {
@@ -146,7 +144,6 @@ func TestGrafanaDashboards_DatasourceAndIntervalVariables(t *testing.T) {
 				) || strings.Contains(target.
 					Expr,
 					"[1h]"))
-
 			}
 		}
 	}
@@ -180,7 +177,6 @@ func TestGrafanaDashboards_MetricRefsRegistered(t *testing.T) {
 				}
 			}
 			assert.True(t, found)
-
 		}
 	}
 }
@@ -199,7 +195,6 @@ func TestGrafanaProvisioningFiles(t *testing.T) {
 		require.NoError(t, yaml.Unmarshal(raw,
 			&parsed))
 		assert.NotNil(t, parsed["apiVersion"])
-
 	}
 }
 

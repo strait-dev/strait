@@ -37,7 +37,6 @@ func TestPauseAllJobsByGroup_Success(t *testing.T) {
 	require.True(
 		t, pauseCalled,
 	)
-
 }
 
 func TestResumeAllJobsByGroup_Success(t *testing.T) {
@@ -66,5 +65,4 @@ func TestResumeAllJobsByGroup_Success(t *testing.T) {
 	require.True(
 		t, resumeCalled,
 	)
-
 }

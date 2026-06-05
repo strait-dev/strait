@@ -48,7 +48,6 @@ func TestIndexMaintainer_MissingIndexDoesNotAbortCycle(t *testing.T) {
 			runLocked(context.
 				Background()))
 	require.Equal(t, len(defaultReindexTargets), s.callCount())
-
 }
 
 func TestIndexMaintainer_ReindexErrorStillContinues(t *testing.T) {
@@ -65,7 +64,6 @@ func TestIndexMaintainer_ReindexErrorStillContinues(t *testing.T) {
 			runLocked(context.
 				Background()))
 	require.Equal(t, len(defaultReindexTargets), s.callCount())
-
 }
 
 func TestIndexMaintainer_Run_RespectsInterval(t *testing.T) {
@@ -80,7 +78,6 @@ func TestIndexMaintainer_Run_RespectsInterval(t *testing.T) {
 	maintainer.Run(ctx)
 	require.GreaterOrEqual(t, store.
 		callCount(), len(defaultReindexTargets))
-
 }
 
 func TestIndexMaintainer_DefaultInterval(t *testing.T) {
@@ -91,7 +88,6 @@ func TestIndexMaintainer_DefaultInterval(t *testing.T) {
 
 		maintainer.
 			interval)
-
 }
 
 func TestIndexMaintainer_AdvisoryLock_Acquired(t *testing.T) {
@@ -136,7 +132,6 @@ func TestIndexMaintainer_AdvisoryLock_Acquired(t *testing.T) {
 	require.Equal(t, finalTry,
 		finalRelease,
 	)
-
 }
 
 func TestIndexMaintainer_AdvisoryLock_NotAcquired(t *testing.T) {
@@ -164,15 +159,14 @@ func TestIndexMaintainer_AdvisoryLock_NotAcquired(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 95*time.Millisecond)
 	defer cancel()
 	maintainer.Run(ctx)
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		store.callCount(),
 	)
 
 	mu.Lock()
 	finalRelease := releaseCalls
 	mu.Unlock()
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		finalRelease,
 	)
-
 }

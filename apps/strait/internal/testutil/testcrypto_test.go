@@ -16,7 +16,6 @@ func TestGenerateTestSecret_Length(t *testing.T) {
 		s := GenerateTestSecret(byteLen)
 		assert.Len(t, s, byteLen*
 			2)
-
 	}
 }
 
@@ -39,7 +38,6 @@ func TestGenerateTestSecret_ValidHex(t *testing.T) {
 			c > '9') &&
 			(c < 'a' ||
 				c > 'f'))
-
 	}
 }
 
@@ -66,7 +64,6 @@ func TestGenerateTestWebhookSecret_Format(t *testing.T) {
 	assert.Len(t, s, 6+32)
 
 	// "whsec_" + 16 bytes hex
-
 }
 
 func TestGenerateTestWebhookSecret_Unique(t *testing.T) {
@@ -74,7 +71,6 @@ func TestGenerateTestWebhookSecret_Unique(t *testing.T) {
 	a := GenerateTestWebhookSecret()
 	b := GenerateTestWebhookSecret()
 	assert.NotEqual(t, b, a)
-
 }
 
 func TestGenerateTestJWTKey_Length(t *testing.T) {
@@ -83,7 +79,6 @@ func TestGenerateTestJWTKey_Length(t *testing.T) {
 	assert.Len(t, s, 64)
 
 	// 32 bytes = 64 hex chars
-
 }
 
 func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
@@ -92,7 +87,7 @@ func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{Subject: "test"})
 	signed, err := token.SignedString([]byte(key))
 	require.NoError(t, err)
-	require.NotEqual(t, "", signed)
+	require.NotEmpty(t, signed)
 
 	// Verify it can be parsed back.
 	parsed, err := jwt.Parse(signed, func(_ *jwt.Token) (any, error) {
@@ -101,14 +96,12 @@ func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
 	require.False(t, err != nil ||
 		!parsed.
 			Valid)
-
 }
 
 func TestGenerateTestInternalSecret_MinLength(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestInternalSecret()
 	assert.GreaterOrEqual(t, len(s), 16)
-
 }
 
 func TestGenerateTestAPIKey_Format(t *testing.T) {
@@ -118,7 +111,6 @@ func TestGenerateTestAPIKey_Format(t *testing.T) {
 	assert.Len(t, s, 7+64)
 
 	// "strait_" + 32 bytes hex
-
 }
 
 func TestGenerateTestAPIKey_Unique(t *testing.T) {
@@ -126,7 +118,6 @@ func TestGenerateTestAPIKey_Unique(t *testing.T) {
 	a := GenerateTestAPIKey()
 	b := GenerateTestAPIKey()
 	assert.NotEqual(t, b, a)
-
 }
 
 func TestGenerateTestEncryptionKey_Length(t *testing.T) {
@@ -135,7 +126,6 @@ func TestGenerateTestEncryptionKey_Length(t *testing.T) {
 	assert.Len(t, s, 64)
 
 	// 32 bytes for AES-256
-
 }
 
 func TestGenerateTestDeviceCode_Length(t *testing.T) {
@@ -144,7 +134,6 @@ func TestGenerateTestDeviceCode_Length(t *testing.T) {
 	assert.Len(t, s, 64)
 
 	// 32 bytes hex
-
 }
 
 func TestGenerateTestDeviceCode_ValidHex(t *testing.T) {
@@ -155,7 +144,6 @@ func TestGenerateTestDeviceCode_ValidHex(t *testing.T) {
 			c > '9') &&
 			(c < 'a' ||
 				c > 'f'))
-
 	}
 }
 
@@ -163,7 +151,6 @@ func TestGenerateTestUserCode_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestUserCode()
 	assert.Len(t, s, 8)
-
 }
 
 func TestGenerateTestUserCode_ValidAlphabet(t *testing.T) {
@@ -176,7 +163,6 @@ func TestGenerateTestUserCode_ValidAlphabet(t *testing.T) {
 				alphabet, c,
 			),
 			)
-
 		}
 	}
 }
@@ -187,7 +173,6 @@ func TestGenerateTestUserCode_NoConfusingChars(t *testing.T) {
 		code := GenerateTestUserCode()
 		for _, c := range "01IO" {
 			require.False(t, strings.ContainsRune(code, c))
-
 		}
 	}
 }
@@ -209,7 +194,6 @@ func TestGenerateTestSignatureSecret_ValidBase64(t *testing.T) {
 	decoded, err := base64.StdEncoding.DecodeString(s)
 	require.NoError(t, err)
 	assert.Len(t, decoded, 32)
-
 }
 
 func TestGenerateTestSignatureSecret_Unique(t *testing.T) {
@@ -217,14 +201,13 @@ func TestGenerateTestSignatureSecret_Unique(t *testing.T) {
 	a := GenerateTestSignatureSecret()
 	b := GenerateTestSignatureSecret()
 	assert.NotEqual(t, b, a)
-
 }
 
 func TestGenerateTestRunToken_Valid(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestRunToken("run-123", key)
-	require.NotEqual(t, "", token)
+	require.NotEmpty(t, token)
 
 	claims := &jwt.RegisteredClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
@@ -236,7 +219,6 @@ func TestGenerateTestRunToken_Valid(t *testing.T) {
 	assert.Equal(t, "run-123",
 		claims.Subject,
 	)
-
 }
 
 func TestGenerateTestRunToken_WrongKey_Fails(t *testing.T) {
@@ -249,14 +231,13 @@ func TestGenerateTestRunToken_WrongKey_Fails(t *testing.T) {
 		return []byte(key2), nil
 	})
 	require.Error(t, err)
-
 }
 
 func TestGenerateTestSSEToken_Valid(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestSSEToken("proj-1", []string{"runs:read", "jobs:read"}, key)
-	require.NotEqual(t, "", token)
+	require.NotEmpty(t, token)
 
 	type sseClaims struct {
 		jwt.RegisteredClaims
@@ -278,7 +259,6 @@ func TestGenerateTestSSEToken_Valid(t *testing.T) {
 	)
 	assert.Len(t, claims.Scopes,
 		2)
-
 }
 
 func TestGenerateTestSSEToken_Expires(t *testing.T) {
@@ -292,7 +272,6 @@ func TestGenerateTestSSEToken_Expires(t *testing.T) {
 	})
 	require.True(t, parsed.Valid)
 	require.NotNil(t, claims.ExpiresAt)
-
 }
 
 func TestGenerateTestClaimToken_Length(t *testing.T) {
@@ -301,7 +280,6 @@ func TestGenerateTestClaimToken_Length(t *testing.T) {
 	assert.Len(t, s, 64)
 
 	// 32 bytes hex
-
 }
 
 func TestGenerateTestDatabaseURL_Format(t *testing.T) {
@@ -310,12 +288,8 @@ func TestGenerateTestDatabaseURL_Format(t *testing.T) {
 	assert.True(t, strings.HasPrefix(url,
 		"postgres://",
 	))
-	assert.True(t, strings.Contains(url,
-		"sslmode=disable",
-	))
-	assert.True(t, strings.Contains(url,
-		"test_"))
-
+	assert.Contains(t, url, "sslmode=disable")
+	assert.Contains(t, url, "test_")
 }
 
 func TestGenerateTestDatabaseURL_Unique(t *testing.T) {
@@ -323,7 +297,6 @@ func TestGenerateTestDatabaseURL_Unique(t *testing.T) {
 	a := GenerateTestDatabaseURL()
 	b := GenerateTestDatabaseURL()
 	assert.NotEqual(t, b, a)
-
 }
 
 func TestGenerateTestRedisURL_Format(t *testing.T) {
@@ -333,5 +306,4 @@ func TestGenerateTestRedisURL_Format(t *testing.T) {
 		"redis://",
 	),
 	)
-
 }

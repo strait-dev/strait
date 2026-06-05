@@ -26,7 +26,6 @@ func TestMockStore_WebhookIdempotency(t *testing.T) {
 	err = store.RecordProcessedWebhook(context.Background(), "msg_1")
 	require.NoError(t,
 		err)
-
 }
 
 func TestMockStore_CountActiveAddonsByType(t *testing.T) {
@@ -36,8 +35,7 @@ func TestMockStore_CountActiveAddonsByType(t *testing.T) {
 	count, err := store.CountActiveAddonsByType(context.Background(), "org-1", AddonConcurrency100)
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 0, count)
-
+	require.Equal(t, 0, count)
 }
 
 func TestWebhook_ReplayCacheClearedOnError(t *testing.T) {
@@ -78,7 +76,6 @@ func TestWebhook_ReplayCacheClearedOnError(t *testing.T) {
 	// blocked by the replay cache.
 
 	// This would mean first failed but retry was silently accepted -- that's the bug.
-
 }
 
 func TestWebhook_DBIdempotencyPreventsReprocessing(t *testing.T) {
@@ -124,7 +121,6 @@ func TestWebhook_DBClaimPreventsConcurrentReprocessing(t *testing.T) {
 	require.Nil(t, store.
 		lastUpserted,
 	)
-
 }
 
 func TestWebhook_DBClaimInProgressReturnsRetryableError(t *testing.T) {
@@ -145,12 +141,10 @@ func TestWebhook_DBClaimInProgressReturnsRetryableError(t *testing.T) {
 		http.StatusServiceUnavailable,
 
 		rec.Code)
-	require.NotEqual(
-		t, "",
-		rec.Header().
+	require.NotEmpty(
+		t, rec.Header().
 			Get("Retry-After"))
 	require.Nil(t, store.
 		lastUpserted,
 	)
-
 }

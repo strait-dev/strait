@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,15 +45,14 @@ func TestHandleGetApprovalStats_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var stats store.ApprovalStats
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &stats,
 	))
-	assert.EqualValues(t, 10, stats.TotalRequested)
-	assert.EqualValues(t, 7, stats.TotalApproved)
-
+	assert.Equal(t, 10, stats.TotalRequested)
+	assert.Equal(t, 7, stats.TotalApproved)
 }
 
 func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
@@ -80,11 +78,9 @@ func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "Approval gates",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "Approval gates")
 }
 
 func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
@@ -94,8 +90,7 @@ func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/approvals", "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
@@ -107,8 +102,7 @@ func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
@@ -120,8 +114,7 @@ func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_StoreError(t *testing.T) {
@@ -138,8 +131,7 @@ func TestHandleGetApprovalStats_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 500, w.Code)
-
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleGetApprovalStats_EmptyResults(t *testing.T) {
@@ -156,12 +148,11 @@ func TestHandleGetApprovalStats_EmptyResults(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-	require.EqualValues(t, 200, w.Code)
+	require.Equal(t, 200, w.Code)
 
 	var stats store.ApprovalStats
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &stats,
 	))
-	assert.EqualValues(t, 0, stats.TotalRequested)
-
+	assert.Equal(t, 0, stats.TotalRequested)
 }

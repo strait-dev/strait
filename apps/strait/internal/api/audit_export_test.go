@@ -47,10 +47,9 @@ func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 		w.Code)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	require.NotEqual(t, "", sig)
+	require.NotEmpty(t, sig)
 	require.True(
 		t, strings.HasPrefix(sig, "sha256="))
-
 }
 
 func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
@@ -92,8 +91,7 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	require.Equal(t, "", sig)
-
+	require.Empty(t, sig)
 }
 
 func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -123,11 +121,8 @@ func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
 		Format: "ndjson",
 	})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(),
-			"project-wide key",
-		))
-
+	require.Contains(
+		t, err.Error(), "project-wide key")
 }
 
 func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
@@ -163,7 +158,6 @@ func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
 	require.True(
 		t, auditCreated.
 			Load())
-
 }
 
 func TestAuditExport_AuditWriteFailurePreventsStreaming(t *testing.T) {
@@ -189,7 +183,6 @@ func TestAuditExport_AuditWriteFailurePreventsStreaming(t *testing.T) {
 		w.Code)
 	require.False(t, streamCalled.
 		Load())
-
 }
 
 func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
@@ -241,7 +234,6 @@ func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
 	for idx := range formulaColumns {
 		require.True(
 			t, strings.HasPrefix(row[idx], "'"))
-
 	}
 }
 
@@ -289,7 +281,6 @@ func TestSanitizeCSVCell_EscapesFormulaAfterLeadingWhitespace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, sanitizeCSVCell(tt.
 				value))
-
 		})
 	}
 }
@@ -337,5 +328,4 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 	require.Equal(t, expectedSig,
 		hexSig)
-
 }

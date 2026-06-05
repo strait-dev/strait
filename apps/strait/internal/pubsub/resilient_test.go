@@ -113,7 +113,6 @@ func TestResilientPublisher_PublishFailOpenAndDegrade(t *testing.T) {
 			[]byte("payload")))
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_SubscribeFailOpenReturnsClosedChannel(t *testing.T) {
@@ -141,7 +140,6 @@ func TestResilientPublisher_SubscribeFailOpenReturnsClosedChannel(t *testing.T) 
 	}
 	require.False(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_RecoveryAfterSuccessResetsFailures(t *testing.T) {
@@ -174,7 +172,6 @@ func TestResilientPublisher_RecoveryAfterSuccessResetsFailures(t *testing.T) {
 	_ = rp.Publish(t.Context(), "events", []byte("post-recovery"))
 	require.True(t,
 		rp.IsHealthy())
-
 }
 
 func TestResilientPublisher_PingDelegatesAndReturnsSentinel(t *testing.T) {
@@ -192,16 +189,11 @@ func TestResilientPublisher_PingDelegatesAndReturnsSentinel(t *testing.T) {
 	err := rp.Ping(t.Context())
 	require.Error(t,
 		err)
-	require.True(t,
-		errors.Is(
-			err, ErrRedisUnavailable,
-		),
+	require.ErrorIs(t,
+		err, ErrRedisUnavailable,
 	)
-	require.True(t,
-		errors.Is(
-			err, innerErr,
-		))
-
+	require.ErrorIs(t,
+		err, innerErr)
 }
 
 func TestResilientPublisher_PingWithoutUnderlyingSupport(t *testing.T) {
@@ -210,10 +202,7 @@ func TestResilientPublisher_PingWithoutUnderlyingSupport(t *testing.T) {
 	rp := NewResilientPublisher(&mockPublisherNoPing{}, slog.Default(), 3)
 
 	err := rp.Ping(t.Context())
-	require.True(t,
-		errors.Is(
-			err, ErrRedisUnavailable,
-		),
+	require.ErrorIs(t,
+		err, ErrRedisUnavailable,
 	)
-
 }

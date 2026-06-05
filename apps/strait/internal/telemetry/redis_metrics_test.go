@@ -27,7 +27,6 @@ func TestRedisMetricsHookRecordsCommandOutcomesAndPool(t *testing.T) {
 		require.NoError(t,
 			provider.Shutdown(context.
 				Background()))
-
 	})
 
 	hook := newRedisMetricsHook(
@@ -70,7 +69,6 @@ func TestRedisMetricsNormalization(t *testing.T) {
 		redisCommandOutcome(redis.Nil))
 	require.Equal(t, "error",
 		redisCommandOutcome(errors.New("boom")))
-
 }
 
 func collectRedisHistogram(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Histogram[float64] {

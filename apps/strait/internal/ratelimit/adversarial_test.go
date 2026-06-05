@@ -13,7 +13,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +37,6 @@ func TestRateLimit_ZeroWindow(t *testing.T) {
 	)
 
 	// Zero window should be handled gracefully (fail-open).
-
 }
 
 // TestRateLimit_NegativeWindow verifies behavior when window is negative.
@@ -62,7 +60,6 @@ func TestRateLimit_NegativeWindow(t *testing.T) {
 	)
 
 	// Negative window should be handled gracefully (fail-open).
-
 }
 
 // TestRateLimit_MaxIntRequests verifies behavior with math.MaxInt as the limit.
@@ -111,7 +108,6 @@ func TestRateLimit_MaxIntRequests(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 // TestRateLimit_ConcurrentAccess verifies thread safety with 100 goroutines hitting the same key.
@@ -164,7 +160,8 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			result, err := limiter.Allow(ctx, "concurrent-key", limit, time.Minute)
-			if !assert.NoError(t, err) {
+			if err != nil {
+				require.NoError(t, err)
 				return
 			}
 			if result.Allowed {
@@ -240,7 +237,6 @@ func TestRateLimit_EdgeTimestamps(t *testing.T) {
 	require.True(t, result.
 		Allowed,
 	)
-
 }
 
 // FuzzRateLimitWindow fuzzes the rate limiter with various window, request, and key values.
@@ -265,6 +261,5 @@ func FuzzRateLimitWindow(f *testing.F) {
 		)
 
 		// Nil client always fails open.
-
 	})
 }

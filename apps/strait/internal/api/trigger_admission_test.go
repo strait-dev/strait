@@ -31,21 +31,15 @@ func TestAcquireTriggerAdmissionLocks_UsesRowLocksWithoutAdvisoryLock(t *testing
 	require.NoError(t, acquireTriggerAdmissionLocks(context.Background(), tx, job, quota))
 
 	joined := strings.Join(append(tx.execSQL, tx.queryRowSQL...), "\n")
-	require.False(t, strings.Contains(joined,
-		"pg_advisory_xact_lock",
-	),
-	)
-	require.True(
-		t, strings.Contains(joined,
-			"SET LOCAL lock_timeout",
-		),
+	require.NotContains(t, joined, "pg_advisory_xact_lock")
+	require.Contains(
+		t, joined, "SET LOCAL lock_timeout",
 	)
 	require.False(t, !strings.Contains(
 		joined, "FROM project_quotas",
 	) ||
 		!strings.Contains(joined,
 			"FROM jobs"))
-
 }
 
 func TestAcquireTriggerAdmissionLocks_NoLimitsSkipsDatabaseWork(t *testing.T) {
@@ -60,7 +54,6 @@ func TestAcquireTriggerAdmissionLocks_NoLimitsSkipsDatabaseWork(t *testing.T) {
 		queryRowSQL,
 	) != 0,
 	)
-
 }
 
 func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
@@ -87,10 +80,9 @@ func TestCheckTriggerLimitsInTx_UsesTransactionalCounts(t *testing.T) {
 			tx, job, quota))
 
 	joined := strings.Join(tx.queryRowSQL, "\n")
-	require.EqualValues(t, 3, strings.Count(joined,
+	require.Equal(t, 3, strings.Count(joined,
 		"FROM job_runs",
 	))
-
 }
 
 func TestCheckTriggerDispatchPrioritySkipsZeroPriority(t *testing.T) {
@@ -108,7 +100,6 @@ func TestCheckTriggerDispatchPrioritySkipsZeroPriority(t *testing.T) {
 	require.NoError(t, srv.
 		checkTriggerDispatchPriority(context.
 			Background(), "project-1", 0))
-
 }
 
 func TestCheckTriggerDispatchPriorityMapsPlanErrorTo402(t *testing.T) {
@@ -119,7 +110,7 @@ func TestCheckTriggerDispatchPriorityMapsPlanErrorTo402(t *testing.T) {
 			require.Equal(t, "project-1",
 				projectID,
 			)
-			require.EqualValues(t, 9, priority)
+			require.Equal(t, 9, priority)
 
 			return errors.New("dispatch priority exceeds plan limit")
 		},
@@ -128,19 +119,16 @@ func TestCheckTriggerDispatchPriorityMapsPlanErrorTo402(t *testing.T) {
 
 	err := srv.checkTriggerDispatchPriority(context.Background(), "project-1", 9)
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
+	require.ErrorAs(
+		t, err, &statusErr)
 	require.Equal(t, http.StatusPaymentRequired,
 
 		statusErr.
 			GetStatus(),
 	)
-	require.True(
-		t, strings.Contains(err.
-			Error(),
-			"dispatch priority exceeds plan limit",
-		))
-
+	require.Contains(
+		t, err.
+			Error(), "dispatch priority exceeds plan limit")
 }
 
 func TestCheckTriggerDailyCostBudgetUsesUTCDefault(t *testing.T) {
@@ -163,7 +151,6 @@ func TestCheckTriggerDailyCostBudgetUsesUTCDefault(t *testing.T) {
 		MaxDailyCostMicrousd: 5000,
 	})
 	require.NoError(t, err)
-
 }
 
 func TestCheckTriggerDailyCostBudgetRejectsAtLimit(t *testing.T) {
@@ -185,14 +172,13 @@ func TestCheckTriggerDailyCostBudgetRejectsAtLimit(t *testing.T) {
 		Timezone:             "Europe/Madrid",
 	})
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(err, &statusErr))
+	require.ErrorAs(
+		t, err, &statusErr)
 	require.Equal(t, http.StatusTooManyRequests,
 
 		statusErr.
 			GetStatus(),
 	)
-
 }
 
 func TestTriggerAdmissionContentionMapsToRetryable429(t *testing.T) {
@@ -203,32 +189,29 @@ func TestTriggerAdmissionContentionMapsToRetryable429(t *testing.T) {
 	quota := &store.ProjectQuota{ProjectID: job.ProjectID, MaxQueuedRuns: 1}
 
 	err := acquireTriggerAdmissionLocks(context.Background(), tx, job, quota)
-	require.True(
-		t, errors.Is(err, errTriggerAdmissionContended))
+	require.ErrorIs(
+		t, err, errTriggerAdmissionContended)
 
 	apiErr := triggerLimitAPIError(err, "failed to trigger job")
 	var statusErr huma.StatusError
-	require.True(
-		t, errors.As(apiErr, &statusErr))
+	require.ErrorAs(
+		t, apiErr, &statusErr)
 	require.Equal(t, http.StatusTooManyRequests,
 
 		statusErr.
 			GetStatus(),
 	)
-	require.True(
-		t, strings.Contains(apiErr.
-			Error(), "trigger admission busy",
-		))
-
+	require.Contains(
+		t, apiErr.
+			Error(), "trigger admission busy")
 }
 
 func TestClassifyTriggerAdmissionLockError_DeadlockIsContention(t *testing.T) {
 	t.Parallel()
 
 	err := classifyTriggerAdmissionLockError(&pgconn.PgError{Code: "40P01"})
-	require.True(
-		t, errors.Is(err, errTriggerAdmissionContended))
-
+	require.ErrorIs(
+		t, err, errTriggerAdmissionContended)
 }
 
 func BenchmarkTriggerAdmissionRowLocks(b *testing.B) {
@@ -284,7 +267,6 @@ func FuzzTriggerAdmissionQuotaModel(f *testing.F) {
 			0 && accepted !=
 			batch,
 		)
-
 	})
 }
 

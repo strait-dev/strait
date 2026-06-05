@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -61,7 +60,6 @@ func TestFSM_ExhaustiveTransitionMatrix(t *testing.T) {
 					!allowed &&
 						err ==
 							nil)
-
 			})
 		}
 	}
@@ -75,14 +73,13 @@ func TestFSM_UnknownFromStatus(t *testing.T) {
 		err)
 
 	var unknownErr *UnknownStatusError
-	require.True(t,
-		errors.As(err, &unknownErr),
+	require.ErrorAs(t,
+		err, &unknownErr,
 	)
 	require.Equal(t,
 		RunStatus("bogus_status"),
 		unknownErr.
 			Status)
-
 }
 
 func TestFSM_UnknownToStatus(t *testing.T) {
@@ -93,9 +90,8 @@ func TestFSM_UnknownToStatus(t *testing.T) {
 		err)
 
 	var transErr *TransitionError
-	require.True(t,
-		errors.As(err, &transErr))
-
+	require.ErrorAs(t,
+		err, &transErr)
 }
 
 func TestFSM_EmptyStatus(t *testing.T) {
@@ -107,15 +103,14 @@ func TestFSM_EmptyStatus(t *testing.T) {
 		err)
 
 	var unknownErr *UnknownStatusError
-	require.True(t,
-		errors.As(err, &unknownErr),
+	require.ErrorAs(t,
+		err, &unknownErr,
 	)
 
 	// Empty to with valid from should return transition error.
 	err = ValidateTransition(StatusQueued, RunStatus(""))
 	require.Error(t,
 		err)
-
 }
 
 func TestFSM_NullByteStatus(t *testing.T) {
@@ -128,7 +123,6 @@ func TestFSM_NullByteStatus(t *testing.T) {
 	err = ValidateTransition(StatusQueued, RunStatus("\x00"))
 	require.Error(t,
 		err)
-
 }
 
 func FuzzFSMTransitionAdversarial(f *testing.F) {
@@ -171,7 +165,6 @@ func TestWorkflowFSM_ExhaustiveMatrix(t *testing.T) {
 					!allowed &&
 						err ==
 							nil)
-
 			})
 		}
 	}
@@ -185,8 +178,8 @@ func TestWorkflowFSM_UnknownStatus(t *testing.T) {
 		err)
 
 	var unknownErr *UnknownStatusError
-	require.True(t,
-		errors.As(err, &unknownErr),
+	require.ErrorAs(t,
+		err, &unknownErr,
 	)
 
 	err = ValidateWorkflowTransition(WfStatusPending, WorkflowRunStatus("imaginary"))
@@ -194,9 +187,8 @@ func TestWorkflowFSM_UnknownStatus(t *testing.T) {
 		err)
 
 	var transErr *TransitionError
-	require.True(t,
-		errors.As(err, &transErr))
-
+	require.ErrorAs(t,
+		err, &transErr)
 }
 
 func FuzzWorkflowFSMTransition(f *testing.F) {
@@ -222,7 +214,6 @@ func TestValidateScopes_EmptySlice(t *testing.T) {
 
 	err = ValidateScopes(nil)
 	require.NoError(t, err)
-
 }
 
 func TestValidateScopes_DuplicateScopes(t *testing.T) {
@@ -236,7 +227,6 @@ func TestValidateScopes_DuplicateScopes(t *testing.T) {
 	err = ValidateScopes([]string{"fake:scope", "fake:scope"})
 	require.Error(t,
 		err)
-
 }
 
 func FuzzValidateScopesAdversarial(f *testing.F) {

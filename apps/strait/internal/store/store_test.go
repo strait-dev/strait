@@ -23,7 +23,6 @@ func TestNew(t *testing.T) {
 	q := New(nil)
 	require.NotNil(
 		t, q)
-
 }
 
 func TestSentinelErrors(t *testing.T) {
@@ -47,7 +46,6 @@ func TestSentinelErrors(t *testing.T) {
 				tt.msg, tt.
 					err.Error(),
 			)
-
 		})
 	}
 }
@@ -67,20 +65,15 @@ func TestDeleteInactiveActiveClaims_UsesPrimaryKeyOrder(t *testing.T) {
 
 	_, err := New(db).DeleteInactiveActiveClaims(context.Background(), 250)
 	require.NoError(t, err)
-	require.True(t,
-		strings.Contains(capturedSQL,
-			"ORDER BY c.run_id ASC, c.ready_generation ASC",
-		))
-	require.False(t,
-		strings.Contains(capturedSQL,
-			"ORDER BY c.started_at",
-		),
+	require.Contains(t,
+		capturedSQL, "ORDER BY c.run_id ASC, c.ready_generation ASC")
+	require.NotContains(t,
+		capturedSQL, "ORDER BY c.started_at",
 	)
 	require.False(t,
 		len(capturedArgs) !=
 			1 || capturedArgs[0] !=
 			250)
-
 }
 
 func TestSentinelErrors_Wrapping(t *testing.T) {
@@ -89,34 +82,20 @@ func TestSentinelErrors_Wrapping(t *testing.T) {
 	for _, sentinel := range sentinels {
 		t.Run(sentinel.Error(), func(t *testing.T) {
 			wrapped := fmt.Errorf("outer: %w", sentinel)
-			assert.True(t,
-				errors.Is(
-					wrapped,
-					sentinel,
-				))
-
+			assert.ErrorIs(t,
+				wrapped, sentinel)
 		})
 	}
 }
 
 func TestSentinelErrors_NotEqual(t *testing.T) {
 	t.Parallel()
-	assert.False(t,
-		errors.Is(ErrJobNotFound,
-
-			ErrRunNotFound,
-		))
-	assert.False(t,
-		errors.Is(ErrRunNotFound,
-
-			ErrRunConflict,
-		))
-	assert.False(t,
-		errors.Is(ErrOutboxRowNotFound,
-
-			ErrOutboxRowConflict,
-		))
-
+	require.NotErrorIs(t,
+		ErrJobNotFound, ErrRunNotFound)
+	require.NotErrorIs(t,
+		ErrRunNotFound, ErrRunConflict)
+	assert.NotErrorIs(t,
+		ErrOutboxRowNotFound, ErrOutboxRowConflict)
 }
 
 // mockDBTX implements DBTX for unit testing store queries.
@@ -253,7 +232,6 @@ func TestQueriesWithTx_InheritsConfiguration(t *testing.T) {
 		"old-secret-key",
 
 		q.oldSecretEncryptionKeys[0])
-
 }
 
 func TestQueriesWithTxOptions_InheritsConfiguration(t *testing.T) {
@@ -294,7 +272,6 @@ func TestQueriesWithTxOptions_InheritsConfiguration(t *testing.T) {
 		!tx.committed ||
 			tx.rolledBack,
 	)
-
 }
 
 func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {
@@ -323,7 +300,6 @@ func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
 	require.NoError(t, err)
-
 }
 
 func TestUpdateRunStatus_ConflictDifferentTarget(t *testing.T) {
@@ -347,9 +323,8 @@ func TestUpdateRunStatus_ConflictDifferentTarget(t *testing.T) {
 
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
-	require.True(t,
-		errors.Is(err, ErrRunConflict))
-
+	require.ErrorIs(t,
+		err, ErrRunConflict)
 }
 
 func TestUpdateRunStatus_NotFound(t *testing.T) {
@@ -372,7 +347,6 @@ func TestUpdateRunStatus_NotFound(t *testing.T) {
 	err := q.UpdateRunStatus(context.Background(), "run-nonexistent", domain.StatusExecuting, domain.StatusCompleted, nil)
 	require.Error(t,
 		err)
-
 }
 
 func TestUpdateRunStatus_NormalTransition(t *testing.T) {
@@ -387,7 +361,6 @@ func TestUpdateRunStatus_NormalTransition(t *testing.T) {
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
 	require.NoError(t, err)
-
 }
 
 func TestQueueStats_Success(t *testing.T) {
@@ -408,15 +381,14 @@ func TestQueueStats_Success(t *testing.T) {
 	q := New(db)
 	stats, err := q.QueueStats(context.Background())
 	require.NoError(t, err)
-	assert.EqualValues(t, 5, stats.
+	assert.Equal(t, 5, stats.
 		Queued)
-	assert.EqualValues(t, 3, stats.
+	assert.Equal(t, 3, stats.
 		Executing,
 	)
-	assert.EqualValues(t, 2, stats.
+	assert.Equal(t, 2, stats.
 		Delayed,
 	)
-
 }
 
 func TestQueueStats_ZeroValues(t *testing.T) {
@@ -445,7 +417,6 @@ func TestQueueStats_ZeroValues(t *testing.T) {
 			stats.Delayed !=
 				0,
 	)
-
 }
 
 func TestQueueStats_DBError(t *testing.T) {
@@ -463,7 +434,6 @@ func TestQueueStats_DBError(t *testing.T) {
 	require.Error(t,
 		err)
 	assert.Nil(t, stats)
-
 }
 
 // Issue 10: ReplayDeadLetterRun does a single CAS UPDATE ... RETURNING and
@@ -494,10 +464,9 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 	_, err := q.ReplayDeadLetterRun(context.Background(), "run-1")
 	require.Error(t,
 		err)
-	require.True(t,
-		errors.Is(err, ErrRunConflict))
-	require.EqualValues(t, 1, calls)
-
+	require.ErrorIs(t,
+		err, ErrRunConflict)
+	require.Equal(t, 1, calls)
 }
 
 // Issue 11: ReceiveEventAndRequeueRun returns error when tx not supported.
@@ -512,9 +481,8 @@ func TestReceiveEventAndRequeueRun_NoTxSupport(t *testing.T) {
 		err)
 
 	want := "requires transaction support"
-	require.True(t,
-		strings.Contains(err.Error(), want))
-
+	require.Contains(t,
+		err.Error(), want)
 }
 
 // Issue 17: AreAllDescendantsTerminal CTE includes depth limiter.
@@ -540,11 +508,8 @@ func TestAreAllDescendantsTerminal_DepthLimiter(t *testing.T) {
 	require.True(t,
 		allTerminal,
 	)
-	require.True(t,
-		strings.Contains(capturedSQL,
-			"d.depth < 100",
-		))
-
+	require.Contains(t,
+		capturedSQL, "d.depth < 100")
 }
 
 // Issue 20: BulkCancelByFilter SQL contains LIMIT 10000.
@@ -561,12 +526,9 @@ func TestBulkCancelByFilter_HasLimit(t *testing.T) {
 
 	q := New(db)
 	_, _ = q.BulkCancelByFilter(context.Background(), "proj-1", BulkCancelFilter{}, time.Now(), "test")
-	require.True(t,
-		strings.Contains(capturedSQL,
-			"LIMIT 10000",
-		),
+	require.Contains(t,
+		capturedSQL, "LIMIT 10000",
 	)
-
 }
 
 // Issue 21: ResetRunIdempotencyKey requires transaction support.
@@ -581,9 +543,8 @@ func TestResetRunIdempotencyKey_NoTxSupport(t *testing.T) {
 		err)
 
 	want := "requires transaction support"
-	require.True(t,
-		strings.Contains(err.Error(), want))
-
+	require.Contains(t,
+		err.Error(), want)
 }
 
 // Unbounded query LIMIT tests.
@@ -599,12 +560,9 @@ func TestListCronJobs_QueryDoesNotSilentlyCapCronSchedules(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListCronJobs(context.Background())
-	assert.False(t,
-		strings.Contains(capturedSQL,
-			"LIMIT 10000",
-		),
+	assert.NotContains(t,
+		capturedSQL, "LIMIT 10000",
 	)
-
 }
 
 func TestListRunState_QueryContainsLimit(t *testing.T) {
@@ -618,12 +576,8 @@ func TestListRunState_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListRunState(context.Background(), "run-1")
-	assert.True(t,
-		strings.Contains(
-			capturedSQL,
-			"LIMIT 10000",
-		))
-
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestGetWorkflowRunsByParent_QueryContainsLimit(t *testing.T) {
@@ -637,12 +591,8 @@ func TestGetWorkflowRunsByParent_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.GetWorkflowRunsByParent(context.Background(), "parent-1")
-	assert.True(t,
-		strings.Contains(
-			capturedSQL,
-			"LIMIT 10000",
-		))
-
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestListJobMemory_QueryContainsLimit(t *testing.T) {
@@ -656,12 +606,8 @@ func TestListJobMemory_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListJobMemory(context.Background(), "job-1")
-	assert.True(t,
-		strings.Contains(
-			capturedSQL,
-			"LIMIT 10000",
-		))
-
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestDeleteExpiredJobMemory_BatchesWithLimit(t *testing.T) {
@@ -680,13 +626,9 @@ func TestDeleteExpiredJobMemory_BatchesWithLimit(t *testing.T) {
 	total, err := q.DeleteExpiredJobMemory(context.Background())
 	require.NoError(t, err)
 	assert.EqualValues(t, 42, total)
-	assert.EqualValues(t, 1, callCount)
-	assert.True(t,
-		strings.Contains(
-			capturedSQL,
-			"LIMIT 10000",
-		))
-
+	assert.Equal(t, 1, callCount)
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
@@ -707,8 +649,7 @@ func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
 	total, err := q.DeleteExpiredJobMemory(context.Background())
 	require.NoError(t, err)
 	assert.EqualValues(t, 10500, total)
-	assert.EqualValues(t, 2, callCount)
-
+	assert.Equal(t, 2, callCount)
 }
 
 func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
@@ -729,11 +670,8 @@ func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t,
 		ok)
-	assert.False(t,
-		strings.Contains(capturedSQL,
-			"FOR UPDATE",
-		))
-
+	assert.NotContains(t,
+		capturedSQL, "FOR UPDATE")
 }
 
 func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
@@ -761,11 +699,8 @@ func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
 	require.Len(t,
 		queries, 2,
 	)
-	assert.True(t,
-		strings.Contains(
-			queries[1], "FOR UPDATE",
-		))
-
+	assert.Contains(t,
+		queries[1], "FOR UPDATE")
 }
 
 func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
@@ -824,21 +759,16 @@ func TestGetJobHealthCounts_QueryExcludesPercentiles(t *testing.T) {
 	q := New(db)
 	stats, err := q.GetJobHealthCounts(context.Background(), "job-1", time.Now().Add(-time.Hour))
 	require.NoError(t, err)
-	require.False(t,
-		strings.Contains(capturedSQL,
-			"PERCENTILE_CONT",
-		))
-	require.False(t,
-		strings.Contains(capturedSQL,
-			"AVG(",
-		))
-	require.EqualValues(t, 80, stats.
-		SuccessRate,
+	require.NotContains(t,
+		capturedSQL, "PERCENTILE_CONT")
+	require.NotContains(t,
+		capturedSQL, "AVG(")
+	require.InDelta(t, 80, stats.
+		SuccessRate, 1e-9,
 	)
-	require.EqualValues(t, 56, stats.
-		HealthScore,
+	require.InDelta(t, 56, stats.
+		HealthScore, 1e-9,
 	)
-
 }
 
 func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
@@ -857,11 +787,8 @@ func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
 
 			"GetJobHealthStats() error = %v", err)
 	}
-	require.True(t,
-		strings.Contains(capturedSQL,
-			"PERCENTILE_CONT",
-		))
-
+	require.Contains(t,
+		capturedSQL, "PERCENTILE_CONT")
 }
 
 func BenchmarkGetJobHealthCounts(b *testing.B) {
@@ -964,5 +891,4 @@ func TestListReceivedEventTriggersWithStaleSteps_LIMITOnBothBranches(t *testing.
 	assert.True(t,
 		secondHasLimit,
 	)
-
 }

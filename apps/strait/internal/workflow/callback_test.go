@@ -79,7 +79,6 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 			wc))
 	require.True(t, skippedIDs["sr-b"])
 	require.False(t, skippedIDs["sr-c"])
-
 }
 
 func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
@@ -121,7 +120,6 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 			Background(), stepRun,
 			wc))
 	require.True(t, workflowChecked)
-
 }
 
 func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
@@ -160,7 +158,6 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 			Background(), stepRun,
 			wc))
 	require.True(t, workflowFailed)
-
 }
 
 func TestCancelRemainingSteps(t *testing.T) {
@@ -190,7 +187,6 @@ func TestCancelRemainingSteps(t *testing.T) {
 			"wr-1"))
 	require.False(t, !canceledIDs["sr-2"] || !canceledIDs["sr-3"])
 	require.False(t, canceledIDs["sr-1"] || canceledIDs["sr-4"])
-
 }
 
 func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
@@ -245,7 +241,6 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 		hookTo !=
 			domain.
 				WfStatusCompleted)
-
 }
 
 func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
@@ -274,7 +269,6 @@ func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
 			Background(), "wr-1",
 			wc))
 	require.False(t, wfUpdated)
-
 }
 
 func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
@@ -318,7 +312,6 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 		WfStatusCompleted,
 		wfStatus,
 	)
-
 }
 
 func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
@@ -362,7 +355,6 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 		WfStatusFailed,
 		wfStatus,
 	)
-
 }
 
 func TestHasBlockingFailedStep(t *testing.T) {
@@ -392,7 +384,6 @@ func TestHasBlockingFailedStep(t *testing.T) {
 			got := hasBlockingFailedStep(steps, tt.failedStepRefs)
 			require.Equal(t, tt.
 				want, got)
-
 		})
 	}
 }
@@ -497,7 +488,6 @@ func TestAggregateChildStepOutputs(t *testing.T) {
 		string(
 			parsed["step-b"]),
 	)
-
 }
 
 func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
@@ -507,7 +497,6 @@ func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
 		{StepRef: "b"},
 	})
 	require.Nil(t, output)
-
 }
 
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
@@ -559,7 +548,6 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 	require.True(t, skippedIDs["sr-b"])
 	require.True(t, skippedIDs["sr-c"])
 	require.False(t, skippedIDs["sr-d"])
-
 }
 
 func TestDependentStepRefs_OrderedChain(t *testing.T) {
@@ -574,7 +562,6 @@ func TestDependentStepRefs_OrderedChain(t *testing.T) {
 	require.Equal(t, "step-0999",
 		got[len(got)-1],
 	)
-
 }
 
 func TestDependentStepRefs_RootFanOut(t *testing.T) {
@@ -589,7 +576,6 @@ func TestDependentStepRefs_RootFanOut(t *testing.T) {
 	require.Equal(t, "step-0999",
 		got[len(got)-1],
 	)
-
 }
 
 func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
@@ -603,7 +589,6 @@ func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
 	want := []string{"child"}
 	require.True(t, slices.
 		Equal(got, want))
-
 }
 
 func BenchmarkSkipDependentSteps(b *testing.B) {
@@ -778,13 +763,10 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 	require.Equal(t, "evt-waiter",
 		resolvedTriggerID,
 	)
-	require.Equal(t, `{"data":"result"}`,
+	require.JSONEq(t, `{"data":"result"}`,
 
-		string(
-			resolvedPayload,
-		))
+		string(resolvedPayload))
 	require.True(t, targetStepCompleted)
-
 }
 
 func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
@@ -807,7 +789,6 @@ func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
 	cb := newTestCallback(ms)
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
 	require.Error(t, err)
-
 }
 
 func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
@@ -848,7 +829,6 @@ func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
 	require.Equal(t, "step-a",
 		incrementedRef,
 	)
-
 }
 
 func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
@@ -888,7 +868,6 @@ func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.True(t, lockCalled)
-
 }
 
 func TestOnStepCompleted_StepNotFound(t *testing.T) {
@@ -951,7 +930,6 @@ func TestOnStepFailed_RespectsOnFailureContinue(t *testing.T) {
 	cb := newTestCallback(ms)
 	cb.OnStepFailed(context.Background(), "wr-1", "sr-1")
 	require.False(t, workflowFailed)
-
 }
 
 func TestOnStepFailed_StepNotFound(t *testing.T) {
@@ -1018,7 +996,6 @@ func TestOnJobRunTerminal_ReleasesWaitingDependencyRuns(t *testing.T) {
 	require.Equal(t, "run-waiting",
 		queuedRunID,
 	)
-
 }
 
 // emitEventIfConfigured: nil step is a no-op.
@@ -1167,5 +1144,4 @@ func TestEmitEventIfConfigured_JobRunSource(t *testing.T) {
 	require.Equal(t, "run-99",
 		requeuedRunID,
 	)
-
 }

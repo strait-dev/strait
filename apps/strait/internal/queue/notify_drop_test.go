@@ -38,7 +38,6 @@ func TestQueueNotifier_DroppedNotifications_BufferFull(t *testing.T) {
 	}
 	assert.EqualValues(t, 256, n.
 		DroppedNotifications())
-
 }
 
 func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
@@ -76,5 +75,4 @@ func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
 	assert.LessOrEqual(t, accepted,
 		uint64(1))
 	assert.NotZero(t, dropped)
-
 }

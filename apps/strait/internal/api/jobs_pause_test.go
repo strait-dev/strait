@@ -49,7 +49,6 @@ func TestHandlePauseJob_Success(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, "job-1", body["id"])
 	require.Equal(t, true, body["paused"])
-
 }
 
 func TestHandlePauseJob_ReturnsFullJobWithEnabledField(t *testing.T) {
@@ -119,7 +118,6 @@ func TestHandlePauseJob_WithReason(t *testing.T) {
 
 		capturedReason,
 	)
-
 }
 
 func TestHandlePauseJob_NotFound(t *testing.T) {
@@ -135,7 +133,6 @@ func TestHandlePauseJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandlePauseJob_AlreadyPaused(t *testing.T) {
@@ -164,7 +161,6 @@ func TestHandlePauseJob_AlreadyPaused(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.
 		Body).Decode(&body))
 	require.Equal(t, false, body["enabled"])
-
 }
 
 func TestHandlePauseJob_StoreError(t *testing.T) {
@@ -183,7 +179,6 @@ func TestHandlePauseJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandlePauseJob_EmitsAuditEvent(t *testing.T) {
@@ -224,7 +219,6 @@ func TestHandlePauseJob_EmitsAuditEvent(t *testing.T) {
 		Details,
 		&details))
 	require.Equal(t, "incident", details["reason"])
-
 }
 
 // Resume endpoint tests.
@@ -259,7 +253,6 @@ func TestHandleResumeJob_Success(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, "job-1", body["id"])
 	require.Equal(t, false, body["paused"])
-
 }
 
 func TestHandleResumeJob_NotFound(t *testing.T) {
@@ -275,7 +268,6 @@ func TestHandleResumeJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestHandleResumeJob_NotPaused(t *testing.T) {
@@ -297,7 +289,6 @@ func TestHandleResumeJob_NotPaused(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, resumeCalled)
-
 }
 
 func TestHandleResumeJob_StoreError(t *testing.T) {
@@ -316,7 +307,6 @@ func TestHandleResumeJob_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 func TestHandleResumeJob_EmitsAuditEvent(t *testing.T) {
@@ -348,7 +338,6 @@ func TestHandleResumeJob_EmitsAuditEvent(t *testing.T) {
 	require.Equal(t, "job-1", capturedEvent.
 		ResourceID,
 	)
-
 }
 
 // GET includes pause state.
@@ -380,7 +369,6 @@ func TestGetJob_IncludesPauseState(t *testing.T) {
 	require.Equal(t, "incident investigation",
 
 		body["pause_reason"])
-
 }
 
 func TestGetJob_UnpausedOmitsPauseFields(t *testing.T) {
@@ -446,7 +434,6 @@ func TestListJobs_IncludesPauseState(t *testing.T) {
 	require.Equal(t, true, resp.Data[0]["paused"])
 	require.Equal(t, "deploy", resp.
 		Data[0]["pause_reason"])
-
 }
 
 // Edge case: trigger rejection for paused jobs.
@@ -467,7 +454,6 @@ func TestTriggerJob_RejectedWhenPaused(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 
 		w.Code)
-
 }
 
 func TestTriggerJob_AllowedWhenNotPaused(t *testing.T) {
@@ -500,7 +486,6 @@ func TestTriggerJob_AllowedWhenNotPaused(t *testing.T) {
 		w.Code)
 
 	// Should succeed (not 409) since the job is not paused.
-
 }
 
 func TestBulkTriggerJob_RejectedWhenPaused(t *testing.T) {
@@ -519,7 +504,6 @@ func TestBulkTriggerJob_RejectedWhenPaused(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 
 		w.Code)
-
 }
 
 // Edge case: enabled + paused double gate.
@@ -556,7 +540,6 @@ func TestResumeJob_ShowsDisabledState(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, false, body["paused"])
 	require.Equal(t, false, body["enabled"])
-
 }
 
 // Edge case: group pause + individual resume.
@@ -594,7 +577,6 @@ func TestGroupPause_IndividualResume(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.
 		Body).Decode(&body))
 	require.Equal(t, false, body["paused"])
-
 }
 
 // Adversarial tests.
@@ -618,7 +600,6 @@ func TestTriggerJob_DryRunRejectedWhenPaused(t *testing.T) {
 
 	// Dry-run must also reject paused jobs. If it returned 200, the user
 	// would think triggering is possible when it isn't.
-
 }
 
 func TestTriggerJob_DryRunAllowedWhenNotPaused(t *testing.T) {
@@ -649,7 +630,6 @@ func TestTriggerJob_DryRunAllowedWhenNotPaused(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestPauseJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
@@ -683,7 +663,6 @@ func TestPauseJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
 		body["pause_reason"])
 
 	// Verify the response has the fresh state.
-
 }
 
 func TestResumeJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
@@ -707,7 +686,6 @@ func TestResumeJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, false, body["paused"])
 	require.Equal(t, true, body["enabled"])
-
 }
 
 func TestPauseJob_NoAuditEventWhenAlreadyPaused(t *testing.T) {
@@ -729,7 +707,6 @@ func TestPauseJob_NoAuditEventWhenAlreadyPaused(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, auditCalled)
-
 }
 
 func TestResumeJob_NoAuditEventWhenNotPaused(t *testing.T) {
@@ -751,7 +728,6 @@ func TestResumeJob_NoAuditEventWhenNotPaused(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, auditCalled)
-
 }
 
 func TestPauseJob_DisabledJobCanBePaused(t *testing.T) {
@@ -785,7 +761,6 @@ func TestPauseJob_DisabledJobCanBePaused(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, false, body["enabled"])
 	require.Equal(t, true, body["paused"])
-
 }
 
 func TestPauseDisableResume_JobStillDisabled(t *testing.T) {
@@ -821,7 +796,6 @@ func TestPauseDisableResume_JobStillDisabled(t *testing.T) {
 		Body).Decode(&body))
 	require.Equal(t, false, body["paused"])
 	require.Equal(t, false, body["enabled"])
-
 }
 
 func TestTriggerJob_DisabledCheckBeforePausedCheck(t *testing.T) {
@@ -842,7 +816,6 @@ func TestTriggerJob_DisabledCheckBeforePausedCheck(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestPauseJob_EmptyReasonIsAccepted(t *testing.T) {
@@ -871,8 +844,7 @@ func TestPauseJob_EmptyReasonIsAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-	require.Equal(t, "", capturedReason)
-
+	require.Empty(t, capturedReason)
 }
 
 func TestPauseJob_EmptyBodyIsAccepted(t *testing.T) {
@@ -899,7 +871,6 @@ func TestPauseJob_EmptyBodyIsAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
@@ -927,7 +898,6 @@ func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // Reason length validation.
@@ -946,7 +916,6 @@ func TestPauseJob_ReasonTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestPauseJob_ReasonExactly500Chars(t *testing.T) {
@@ -974,7 +943,6 @@ func TestPauseJob_ReasonExactly500Chars(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestPauseJob_ReasonValidationBeforeGetJob(t *testing.T) {
@@ -993,7 +961,6 @@ func TestPauseJob_ReasonValidationBeforeGetJob(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 // Event source dispatch paused bypass.
@@ -1041,8 +1008,7 @@ func TestEventDispatch_SkipsPausedJob(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
-
+	require.Equal(t, 0, int(resp["dispatched"].(float64)))
 }
 
 func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
@@ -1084,5 +1050,4 @@ func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
 	)
 	require.True(
 		t, enqueueCalled)
-
 }

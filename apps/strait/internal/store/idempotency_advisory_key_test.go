@@ -15,7 +15,6 @@ func TestIdempotencyAdvisoryKey_Stable(t *testing.T) {
 	b := idempotencyAdvisoryKey("proj-1", "key-abc")
 	require.Equal(
 		t, b, a)
-
 }
 
 func TestIdempotencyAdvisoryKey_DifferentPairsDiffer(t *testing.T) {
@@ -45,7 +44,6 @@ func TestIdempotencyAdvisoryKey_NoSeparatorInjection(t *testing.T) {
 	a := idempotencyAdvisoryKey("a", "b:c")
 	b := idempotencyAdvisoryKey("a:b", "c")
 	require.NotEqual(t, b, a)
-
 }
 
 func TestIsIdempotencyTransientError(t *testing.T) {
@@ -70,7 +68,6 @@ func TestIsIdempotencyTransientError(t *testing.T) {
 				tt.want,
 				isIdempotencyTransientError(tt.err),
 			)
-
 		})
 	}
 }
@@ -80,5 +77,4 @@ func TestIsIdempotencyTransientError_WrappedPgError(t *testing.T) {
 	wrapped := errors.Join(errors.New("outer"), &pgconn.PgError{Code: "40001"})
 	require.True(t,
 		isIdempotencyTransientError(wrapped))
-
 }

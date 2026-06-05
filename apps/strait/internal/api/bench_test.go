@@ -352,13 +352,11 @@ func TestConcurrentTrigger(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 	assert.Equal(
 		t, int64(goroutines), enqueueCount.
 			Load())
-
 }
 
 func TestConcurrentBulkTrigger(t *testing.T) {
@@ -401,14 +399,12 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 	expected := int64(goroutines * itemsPerRequest)
 	assert.Equal(
 		t, expected, enqueueCount.
 			Load())
-
 }
 
 func TestConcurrentBulkCancel(t *testing.T) {
@@ -479,15 +475,13 @@ func TestConcurrentBulkCancel(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 	for runID := range runs {
 		assert.NotEqual(t, 0, cancelAttempts[runID])
-
 	}
 }
 
@@ -600,14 +594,12 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 	assert.Equal(
 		t, int64(goroutines/4),
 		enqueueCount.
 			Load())
-
 }
 
 func TestBurstTraffic(t *testing.T) {
@@ -638,11 +630,9 @@ func TestBurstTraffic(t *testing.T) {
 		require.Equal(t, http.StatusCreated,
 
 			w.Code)
-
 	}
 	require.EqualValues(t, requests, enqueueCount.
 		Load())
-
 }
 
 func TestSustainedLoad(t *testing.T) {
@@ -690,13 +680,11 @@ func TestSustainedLoad(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 	require.EqualValues(t, totalRequests,
 		enqueueCount.
 			Load())
-
 }
 
 func TestAPIKeyAuthConcurrent(t *testing.T) {
@@ -740,8 +728,7 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		assert.NoError(t, err)
-
+		require.NoError(t, err)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -753,5 +740,4 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	}
 	require.EqualValues(t, goroutines, touchCount.
 		Load())
-
 }

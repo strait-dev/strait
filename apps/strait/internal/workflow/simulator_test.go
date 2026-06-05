@@ -30,10 +30,9 @@ func TestSimulate_DryRun_LinearDAG(t *testing.T) {
 		ExecutionPlan[0].StepRef)
 	assert.Equal(t, "c", result.
 		ExecutionPlan[2].StepRef)
-	assert.EqualValues(t, 60, result.
+	assert.Equal(t, 60, result.
 		EstimatedDuration,
 	)
-
 }
 
 func TestSimulate_DryRun_ParallelBranches(t *testing.T) {
@@ -61,7 +60,6 @@ func TestSimulate_DryRun_ParallelBranches(t *testing.T) {
 	}
 	assert.Equal(t, cGroup,
 		bGroup)
-
 }
 
 func TestSimulate_DryRun_ConditionalBranch(t *testing.T) {
@@ -74,11 +72,10 @@ func TestSimulate_DryRun_ConditionalBranch(t *testing.T) {
 
 	result, err := SimulateWorkflow(steps, req, nil)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.
+	assert.True(t, result.
 		ConditionResults["b"])
 	assert.False(t, result.ExecutionPlan[1].ConditionMet ==
 		nil || !*result.ExecutionPlan[1].ConditionMet)
-
 }
 
 func TestSimulate_CostEstimation(t *testing.T) {
@@ -98,7 +95,6 @@ func TestSimulate_CostEstimation(t *testing.T) {
 	assert.EqualValues(t, 3500, result.
 		EstimatedCost,
 	)
-
 }
 
 func TestSimulate_FailureInjection_SingleStep(t *testing.T) {
@@ -124,7 +120,6 @@ func TestSimulate_FailureInjection_SingleStep(t *testing.T) {
 
 		result.
 			FailurePaths[0].InjectedFailure)
-
 }
 
 func TestSimulate_FailureInjection_WithCompensation(t *testing.T) {
@@ -147,7 +142,6 @@ func TestSimulate_FailureInjection_WithCompensation(t *testing.T) {
 			"a" &&
 			!s.WouldCompensate,
 		)
-
 	}
 }
 
@@ -168,7 +162,6 @@ func TestSimulate_DAGVisualizationData(t *testing.T) {
 	assert.Len(t, result.DAG.
 		Edges,
 		2)
-
 }
 
 func TestSimulate_EmptyPayload(t *testing.T) {
@@ -183,7 +176,6 @@ func TestSimulate_EmptyPayload(t *testing.T) {
 	require.Len(t, result.ExecutionPlan,
 
 		1)
-
 }
 
 func TestSimulate_NilRequest(t *testing.T) {
@@ -191,7 +183,6 @@ func TestSimulate_NilRequest(t *testing.T) {
 	steps := []domain.WorkflowStep{{StepRef: "a"}}
 	_, err := SimulateWorkflow(steps, nil, nil)
 	assert.Error(t, err)
-
 }
 
 func TestSimulate_NoSteps(t *testing.T) {
@@ -199,7 +190,6 @@ func TestSimulate_NoSteps(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 	_, err := SimulateWorkflow(nil, req, nil)
 	assert.Error(t, err)
-
 }
 
 func BenchmarkSimulateWorkflow_Chain100(b *testing.B) {
@@ -266,7 +256,6 @@ func TestValidateSimulateRequest_Valid(t *testing.T) {
 	assert.NoError(t, ValidateSimulateRequest(
 		req, steps),
 	)
-
 }
 
 func TestValidateSimulateRequest_InvalidMode(t *testing.T) {
@@ -274,7 +263,6 @@ func TestValidateSimulateRequest_InvalidMode(t *testing.T) {
 	req := &SimulateRequest{Mode: "invalid"}
 	err := ValidateSimulateRequest(req, nil)
 	assert.Error(t, err)
-
 }
 
 func TestValidateSimulateRequest_InvalidFailureInjection(t *testing.T) {
@@ -285,9 +273,8 @@ func TestValidateSimulateRequest_InvalidFailureInjection(t *testing.T) {
 		FailureInjection: map[string]string{"nonexistent": "boom"},
 	}
 	err := ValidateSimulateRequest(req, steps)
-	assert.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "nonexistent"))
-
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestValidateSimulateRequest_ValidFailureInjection(t *testing.T) {
@@ -301,7 +288,6 @@ func TestValidateSimulateRequest_ValidFailureInjection(t *testing.T) {
 		},
 	}
 	require.NoError(t, ValidateSimulateRequest(req, steps))
-
 }
 
 func TestValidateSimulateRequest_SingleInvalidFailureInjection(t *testing.T) {
@@ -313,15 +299,13 @@ func TestValidateSimulateRequest_SingleInvalidFailureInjection(t *testing.T) {
 	}
 	err := ValidateSimulateRequest(req, steps)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.Error(), "missing"))
-
+	assert.Contains(t, err.Error(), "missing")
 }
 
 func TestValidateSimulateRequest_NilRequest(t *testing.T) {
 	t.Parallel()
 	err := ValidateSimulateRequest(nil, nil)
 	assert.Error(t, err)
-
 }
 
 func BenchmarkValidateSimulateRequest(b *testing.B) {
@@ -417,7 +401,6 @@ func TestSimulate_100StepDAG(t *testing.T) {
 	assert.Len(t, result.ExecutionPlan,
 
 		100)
-
 }
 
 func TestSimulate_5MBPayload(t *testing.T) {
@@ -431,7 +414,6 @@ func TestSimulate_5MBPayload(t *testing.T) {
 	assert.Len(t, result.ExecutionPlan,
 
 		1)
-
 }
 
 func TestSimulate_FailureInjectionMultipleSteps(t *testing.T) {
@@ -455,7 +437,6 @@ func TestSimulate_FailureInjectionMultipleSteps(t *testing.T) {
 	assert.Len(t, result.FailurePaths,
 
 		2)
-
 }
 
 func TestSimulate_ModePreservedInResult(t *testing.T) {
@@ -470,7 +451,6 @@ func TestSimulate_ModePreservedInResult(t *testing.T) {
 			assert.Equal(t, mode, result.
 				Mode,
 			)
-
 		})
 	}
 }

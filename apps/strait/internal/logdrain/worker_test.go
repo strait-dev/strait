@@ -260,7 +260,6 @@ func TestWorker_Tick_DrainEventsDelivered(t *testing.T) {
 		2)
 	assert.Equal(t, "evt-1",
 		received[0].ID)
-
 }
 
 func TestWorker_Tick_MultipleRuns(t *testing.T) {
@@ -305,7 +304,6 @@ func TestWorker_Tick_MultipleRuns(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, 2,
 		deliveryCount)
-
 }
 
 func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
@@ -349,7 +347,6 @@ func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
 		f2))
 	assert.Equal(t, "run-2",
 		cp.RunID)
-
 }
 
 func TestWorker_Tick_DeliveryErrorContinuesToNextRun(t *testing.T) {
@@ -409,7 +406,6 @@ func TestWorker_Tick_DeliveryErrorContinuesToNextRun(t *testing.T) {
 	assert.True(t, cp.
 		FinishedAt.Equal(
 		f2))
-
 }
 
 func TestWorker_Tick_NoEventsSkipsDelivery(t *testing.T) {
@@ -451,7 +447,6 @@ func TestWorker_Tick_NoEventsSkipsDelivery(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, 0,
 		requestCount)
-
 }
 
 func TestWorker_Tick_NilStore(t *testing.T) {
@@ -587,7 +582,6 @@ func TestWorker_Tick_ListEventsError_DoesNotAdvanceCheckpoint(t *testing.T) {
 		f1))
 
 	// Checkpoint should be at run-1, not run-2 (which had a ListEvents error).
-
 }
 
 // Poison run skip after max retries.
@@ -642,7 +636,6 @@ func TestWorker_Tick_PoisonRunSkippedAfterMaxRetries(t *testing.T) {
 		FinishedAt.Equal(
 		finishedAt,
 	))
-
 }
 
 func TestWorker_Tick_SuccessResetsFailCount(t *testing.T) {
@@ -698,7 +691,6 @@ func TestWorker_Tick_SuccessResetsFailCount(t *testing.T) {
 	w.mu.Unlock()
 	assert.Equal(t, 0,
 		fc)
-
 }
 
 // Composite cursor handles timestamp collision.
@@ -753,7 +745,6 @@ func TestWorker_Tick_TimestampCollisionPagination(t *testing.T) {
 	defer mu.Unlock()
 	assert.Len(t, deliveredRuns,
 		3)
-
 }
 
 // Zero checkpoint and pagination on catch-up.
@@ -798,7 +789,6 @@ func TestWorker_Tick_FirstRunProcessesAllHistory(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, 1,
 		deliveredCount)
-
 }
 
 func TestWorker_Tick_PaginatesCatchUp(t *testing.T) {
@@ -852,7 +842,6 @@ func TestWorker_Tick_PaginatesCatchUp(t *testing.T) {
 	assert.Equal(t, 250,
 		deliveredCount,
 	)
-
 }
 
 // Event pagination across multiple pages.
@@ -912,7 +901,6 @@ func TestWorker_Tick_EventPagination(t *testing.T) {
 	defer mu.Unlock()
 	assert.Len(t, receivedEvents,
 		2500)
-
 }
 
 func TestWorker_Tick_EventPaginationError(t *testing.T) {
@@ -961,5 +949,4 @@ func TestWorker_Tick_EventPaginationError(t *testing.T) {
 	w.mu.Unlock()
 	assert.True(t, cp.
 		FinishedAt.IsZero())
-
 }

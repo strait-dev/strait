@@ -25,7 +25,6 @@ func TestComputeEntitlements_StrippedSubDefaultsToFree(t *testing.T) {
 	assert.True(t, reflect.
 		DeepEqual(got,
 			want))
-
 }
 
 func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t *testing.T) {
@@ -51,7 +50,6 @@ func TestComputeEntitlements_DisallowedActiveAddonsDoNotGrantFreePlanBenefits(t 
 		want.MaxEnvironments,
 		got.MaxEnvironments,
 	)
-
 }
 
 func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
@@ -59,8 +57,8 @@ func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 
 	base := GetPlanLimits(domain.PlanScale)
 	cap := base.MaxAddonPacks[AddonHistory30d]
-	require.False(t,
-		cap <= 0)
+	require.Positive(t,
+		cap)
 
 	sub := &OrgSubscription{PlanTier: string(domain.PlanScale)}
 	got := ComputeEntitlements(sub, []Addon{
@@ -72,7 +70,6 @@ func TestComputeEntitlements_ActiveAddonsAreClampedToPlanPackCap(t *testing.T) {
 	require.Equal(t,
 		want, got.RetentionDays,
 	)
-
 }
 
 func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *testing.T) {
@@ -91,7 +88,7 @@ func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *tes
 	deactivated, err := ReconcileActiveAddonsForPlan(context.Background(), store, "org-addons", base)
 	require.NoError(t,
 		err)
-	require.EqualValues(t, 2, deactivated)
+	require.Equal(t, 2, deactivated)
 
 	got := map[string]bool{}
 	for _, id := range store.deactivatedAddonIDs {
@@ -102,7 +99,6 @@ func TestReconcileActiveAddonsForPlan_DeactivatesDisallowedAndOverCapRows(t *tes
 	require.False(t,
 		!got["over-cap"] ||
 			!got["disallowed"])
-
 }
 
 // TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling runs
@@ -152,7 +148,7 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 		// shrink limits). Unlimited stays unlimited.
 		base := GetPlanLimits(tier)
 		if base.MaxConcurrentRuns == -1 {
-			require.EqualValues(t, -1, got.MaxConcurrentRuns)
+			require.Equal(t, -1, got.MaxConcurrentRuns)
 
 			continue
 		}
@@ -160,7 +156,6 @@ func TestComputeEntitlements_FuzzAddonsNeverPanicsAndStaysWithinPaidCeiling(t *t
 
 			base.MaxConcurrentRuns,
 		)
-
 	}
 }
 
@@ -206,7 +201,6 @@ func TestComputeEntitlements_LegacyJSONBAddOnsCannotLeak(t *testing.T) {
 
 	// Override fields must not bleed into the snapshot — those are loaded
 	// at read time inside Enforcer.GetOrgPlanLimits, not persisted.
-
 }
 
 // TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited covers the
@@ -225,11 +219,10 @@ func TestComputeEntitlements_EnterprisePacksCannotShrinkUnlimited(t *testing.T) 
 		{AddonType: AddonHistory30d, Quantity: 5, Active: true},
 		{AddonType: AddonEnvironments5, Quantity: 5, Active: true},
 	})
-	assert.EqualValues(t, -1, got.MaxConcurrentRuns)
-	assert.EqualValues(t, -1, got.MaxEnvironments)
-	assert.EqualValues(t, -1, got.WorkerConnections)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, -1, got.MaxConcurrentRuns)
+	assert.Equal(t, -1, got.MaxEnvironments)
+	assert.Equal(t, -1, got.WorkerConnections)
+	assert.Equal(t, 10,
 		got.MaxDispatchPriority,
 	)
-
 }

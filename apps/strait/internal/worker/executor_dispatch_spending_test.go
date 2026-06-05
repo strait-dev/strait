@@ -116,7 +116,6 @@ func TestDispatchSpendingLimit_NoLimitSet(t *testing.T) {
 	runDispatch(h, "run-no-limit")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }
 
 // TestDispatchSpendingLimit_BelowLimit_ProceedsAndIncrementsCounters
@@ -135,7 +134,6 @@ func TestDispatchSpendingLimit_BelowLimit_ProceedsAndIncrementsCounters(t *testi
 	runDispatch(h, "run-below-limit")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }
 
 // TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters verifies that
@@ -155,7 +153,6 @@ func TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters(t *testing.T) {
 
 	runDispatch(h, "run-over-limit")
 	assert.True(t, sawSystemFailed(h.store))
-
 }
 
 // TestDispatchSpendingLimit_AtLimitRejects locks in the existing
@@ -175,7 +172,6 @@ func TestDispatchSpendingLimit_AtLimitRejects(t *testing.T) {
 
 	runDispatch(h, "run-at-limit")
 	assert.True(t, sawSystemFailed(h.store))
-
 }
 
 // TestDispatchSpendingLimit_FreeTierZeroSpend_Proceeds confirms that
@@ -194,5 +190,4 @@ func TestDispatchSpendingLimit_FreeTierZeroSpend_Proceeds(t *testing.T) {
 	runDispatch(h, "run-free-zero")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }

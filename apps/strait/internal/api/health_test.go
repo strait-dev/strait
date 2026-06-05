@@ -96,7 +96,6 @@ func TestHandleHealth_InternalSecret_ShowsDetails(t *testing.T) {
 		t, "up", subsystems["database"])
 	assert.Equal(
 		t, "up", subsystems["redis"])
-
 }
 
 func TestHandleHealth_WrongSecret_NoDetails(t *testing.T) {
@@ -231,7 +230,6 @@ func TestHandleHealthReady_InternalSecretShowsDetails(t *testing.T) {
 		}
 		assert.True(t,
 			found)
-
 	}
 }
 
@@ -257,5 +255,4 @@ func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 	assert.NotEqual(t, "ok", resp["status"])
-
 }

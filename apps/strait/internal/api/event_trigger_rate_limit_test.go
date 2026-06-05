@@ -124,7 +124,6 @@ func TestEventTriggerStreamRateLimited(t *testing.T) {
 			Code)
 	require.Equal(t, "60", w2.
 		Header().Get("Retry-After"))
-
 }
 
 // TestEventTriggerStreamRateLimitIsolatedPerProject pins that
@@ -155,5 +154,4 @@ func TestEventTriggerStreamRateLimitIsolatedPerProject(t *testing.T) {
 	srv.ServeHTTP(w3, eventStreamRequest("evt-b", rawB))
 	require.Equal(t, http.StatusOK,
 		w3.Code)
-
 }

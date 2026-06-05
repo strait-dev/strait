@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -35,6 +34,5 @@ func TestCreateWebhookSubscription_DuplicateURLReturns409(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
 	require.Equal(t, http.StatusConflict,
 		w.Code)
-	require.False(t, strings.Contains(w.Body.String(), "whsec_"))
-
+	require.NotContains(t, w.Body.String(), "whsec_")
 }

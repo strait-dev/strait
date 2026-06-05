@@ -28,7 +28,6 @@ func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
 	}
 	require.True(t,
 		reflect.DeepEqual(got, want))
-
 }
 
 func TestStepRunStatus_IsTerminal(t *testing.T) {
@@ -54,7 +53,6 @@ func TestStepRunStatus_IsTerminal(t *testing.T) {
 	}
 	require.True(t,
 		reflect.DeepEqual(got, want))
-
 }
 
 func TestEventTriggerStatusConstants(t *testing.T) {
@@ -67,7 +65,6 @@ func TestEventTriggerStatusConstants(t *testing.T) {
 				"timed_out" ||
 			EventTriggerStatusCanceled !=
 				"canceled")
-
 }
 
 func TestWorkflowStepTypeWaitForEvent(t *testing.T) {
@@ -96,7 +93,6 @@ func TestDefaultEventTimeoutSecs(t *testing.T) {
 	require.Equal(t,
 		3600, DefaultEventTimeoutSecs,
 	)
-
 }
 
 func TestDeploymentStrategy_Valid(t *testing.T) {
@@ -126,6 +122,5 @@ func TestDeploymentStrategy_Invalid(t *testing.T) {
 		require.False(t,
 			tc.strategy.
 				IsValid())
-
 	}
 }

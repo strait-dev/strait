@@ -2,7 +2,6 @@ package worker
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -47,7 +46,6 @@ func TestSystemFailureTransition_PreservesSourceStatus(t *testing.T) {
 		ErrorClassServer,
 		transition.
 			fields["error_class"])
-
 }
 
 func TestSuccessfulRunTransition_WithResultTraceAndDuration(t *testing.T) {
@@ -91,7 +89,6 @@ func TestSuccessfulRunTransition_WithResultTraceAndDuration(t *testing.T) {
 	require.Equal(t, trace,
 		transition.
 			fields["execution_trace"])
-
 }
 
 func TestSuccessfulRunTransition_EmptyResultSkipsOptionalFields(t *testing.T) {
@@ -171,7 +168,6 @@ func TestTimeoutRunTransition_Retry(t *testing.T) {
 	)
 	require.Nil(t, transition.
 		fields["finished_at"])
-
 }
 
 func TestTimeoutRunTransition_Terminal(t *testing.T) {
@@ -282,7 +278,6 @@ func TestFailureRunTransition_RetryTracksPoisonMetadata(t *testing.T) {
 		meta["_error_hash"])
 	require.Equal(t, "1",
 		meta["_error_hash_count"])
-
 }
 
 func TestFailureRunTransition_PoisonPillTerminal(t *testing.T) {
@@ -315,7 +310,7 @@ func TestFailureRunTransition_PoisonPillTerminal(t *testing.T) {
 	require.NotNil(t, transition.
 		poisonPill,
 	)
-	require.EqualValues(t, 3, transition.
+	require.Equal(t, 3, transition.
 		poisonPill.
 		count,
 	)
@@ -324,11 +319,8 @@ func TestFailureRunTransition_PoisonPillTerminal(t *testing.T) {
 			poisonPill.
 			threshold,
 	)
-	require.True(t, strings.Contains(
-		transition.
-			errMsg,
-		"poison pill detected (same error 3 times)",
-	))
+	require.Contains(t, transition.
+		errMsg, "poison pill detected (same error 3 times)")
 	require.Equal(t, finishedAt,
 		transition.
 			fields["finished_at"])
@@ -347,7 +339,6 @@ func TestFailureRunTransition_PoisonPillTerminal(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "3",
 		meta["_error_hash_count"])
-
 }
 
 func TestFailureRunTransition_NonRetryableSkipsPoisonMetadata(t *testing.T) {
@@ -387,5 +378,4 @@ func TestFailureRunTransition_NonRetryableSkipsPoisonMetadata(t *testing.T) {
 		Error(),
 		transition.
 			fields["error"])
-
 }

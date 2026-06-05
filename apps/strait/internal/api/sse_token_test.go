@@ -44,7 +44,7 @@ func TestHandleCreateSSEToken_Success(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(w.Body).
 		Decode(&resp))
-	require.NotEqual(t, "", resp.Token)
+	require.NotEmpty(t, resp.Token)
 	assert.False(
 		t, resp.ExpiresAt.
 			Before(time.
@@ -59,7 +59,6 @@ func TestHandleCreateSSEToken_Success(t *testing.T) {
 	require.Equal(t, "proj-1", claims.
 		ProjectID,
 	)
-
 }
 
 func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
@@ -95,7 +94,6 @@ func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
 	require.Equal(t, "env-prod", claims.
 		EnvironmentID,
 	)
-
 }
 
 func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
@@ -154,7 +152,6 @@ func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		tokenW.
 			Code)
-
 }
 
 func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing.T) {
@@ -196,7 +193,6 @@ func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing
 		claims.Scopes[0] !=
 			domain.ScopeRunsRead,
 	)
-
 }
 
 func TestParseSSEToken_Valid(t *testing.T) {
@@ -238,7 +234,6 @@ func TestParseSSEToken_Valid(t *testing.T) {
 			parsed.Scopes[0] !=
 				domain.ScopeRunsRead,
 	)
-
 }
 
 func TestParseSSEToken_Expired(t *testing.T) {
@@ -269,7 +264,6 @@ func TestParseSSEToken_Expired(t *testing.T) {
 
 	parsed := srv.parseSSEToken(signed)
 	assert.Nil(t, parsed)
-
 }
 
 func TestParseSSEToken_WrongIssuer(t *testing.T) {
@@ -300,7 +294,6 @@ func TestParseSSEToken_WrongIssuer(t *testing.T) {
 
 	parsed := srv.parseSSEToken(signed)
 	assert.Nil(t, parsed)
-
 }
 
 func TestParseSSEToken_WrongKey(t *testing.T) {
@@ -330,7 +323,6 @@ func TestParseSSEToken_WrongKey(t *testing.T) {
 
 	parsed := srv.parseSSEToken(signed)
 	assert.Nil(t, parsed)
-
 }
 
 func TestParseSSEToken_GarbageInput(t *testing.T) {
@@ -350,7 +342,6 @@ func TestParseSSEToken_GarbageInput(t *testing.T) {
 	inputs := []string{"", "not-a-jwt", "a.b.c", "strait_realkey123", strings.Repeat("x", 1000)}
 	for _, input := range inputs {
 		assert.Nil(t, srv.parseSSEToken(input))
-
 	}
 }
 
@@ -393,7 +384,6 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 		w.Code)
 
 	// Should not be 401 (unauthenticated) -- the SSE token should have authenticated.
-
 }
 
 func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
@@ -426,11 +416,11 @@ func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
 	require.NoError(t, err)
 
 	handler := srv.sseTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "proj-1", projectIDFromContext(r.Context()))
-		require.Equal(t, "env-prod", environmentIDFromContext(r.Context()))
+		assert.Equal(t, "proj-1", projectIDFromContext(r.Context()))
+		assert.Equal(t, "env-prod", environmentIDFromContext(r.Context()))
 
 		if got := scopesFromContext(r.Context()); len(got) != 1 || got[0] != domain.ScopeJobsRead {
-			require.Failf(t, "test failure",
+			assert.Failf(t, "test failure",
 
 				"scopes = %v, want [%s]", got, domain.ScopeJobsRead)
 		}
@@ -443,7 +433,6 @@ func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
 	require.Equal(t, http.StatusNoContent,
 		w.Code,
 	)
-
 }
 
 func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
@@ -466,10 +455,8 @@ func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
 		t, http.StatusUnauthorized,
 		w.
 			Code)
-	require.Len(t,
-		ms.GetAPIKeyByHashCalls(),
-		0)
-
+	require.Empty(t,
+		ms.GetAPIKeyByHashCalls())
 }
 
 func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
@@ -492,7 +479,6 @@ func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
@@ -514,7 +500,6 @@ func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.Code,
 	)
-
 }
 
 func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
@@ -536,7 +521,6 @@ func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func FuzzParseSSEToken(f *testing.F) {

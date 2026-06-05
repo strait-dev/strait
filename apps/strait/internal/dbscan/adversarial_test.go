@@ -54,7 +54,7 @@ func TestNilIfEmptyRawMessage_Valid(t *testing.T) {
 
 	raw, ok := got.(json.RawMessage)
 	require.True(t, ok, "expected json.RawMessage, got %T", got)
-	assert.Equal(t, `{"key":"value"}`, string(raw))
+	assert.JSONEq(t, `{"key":"value"}`, string(raw))
 }
 
 // TestNilIfZeroInt_Zero verifies zero returns nil.

@@ -64,7 +64,7 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 	)
 
 	enterprise := byTier["enterprise"]
-	require.EqualValues(t, -1, enterprise.
+	require.Equal(t, -1, enterprise.
 		MaxRunsPerMonth,
 	)
 	require.Equal(t, billing.MaxSpendingEnterprise,
@@ -72,7 +72,7 @@ func TestHandleGetPlansLaunchCatalog(t *testing.T) {
 		enterprise.
 			DefaultSpendingCapMicrousd,
 	)
-	require.EqualValues(t, -1, enterprise.
+	require.Equal(t, -1, enterprise.
 		MaxNotificationChannels,
 	)
 
@@ -270,5 +270,4 @@ func assertPlanResponseMatchesGeneratedCatalog(t *testing.T, plan PlanResponse) 
 
 			catalog.
 				RoadmapFeatures))
-
 }

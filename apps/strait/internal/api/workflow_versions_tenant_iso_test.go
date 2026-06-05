@@ -34,7 +34,6 @@ func TestTenantIso_WorkflowVersions_List_RejectsCrossProject(t *testing.T) {
 		t, isHumaStatusError(err,
 
 			http.StatusNotFound))
-
 }
 
 // TestTenantIso_WorkflowVersions_Diff_RejectsCrossProject ensures the diff
@@ -65,7 +64,6 @@ func TestTenantIso_WorkflowVersions_Diff_RejectsCrossProject(t *testing.T) {
 		t, isHumaStatusError(err,
 
 			http.StatusNotFound))
-
 }
 
 // TestTenantIso_WorkflowVersions_Impact_RejectsCrossProject covers the
@@ -95,5 +93,4 @@ func TestTenantIso_WorkflowVersions_Impact_RejectsCrossProject(t *testing.T) {
 		t, isHumaStatusError(err,
 
 			http.StatusNotFound))
-
 }

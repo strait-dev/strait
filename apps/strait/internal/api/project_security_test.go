@@ -52,7 +52,6 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 			)
 
 			// Each request must return a valid HTTP status.
-
 		})
 	}
 	wg.Wait()
@@ -60,7 +59,6 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 		Load())
 
 	// Without txPool, all creates should succeed since there is no lock contention.
-
 }
 
 // TestProject_OrgLimitEnforcement verifies that the billing enforcer's
@@ -99,7 +97,6 @@ func TestProject_OrgLimitEnforcement(t *testing.T) {
 		w.Code)
 
 	// With the default mock enforcer (no limit), creation should succeed.
-
 }
 
 // TestProject_NameInjection verifies that SQL and HTML injection in project
@@ -150,7 +147,6 @@ func TestProject_NameInjection(t *testing.T) {
 				Bytes(),
 				&p))
 			require.Equal(t, name, p.Name)
-
 		})
 	}
 }
@@ -176,7 +172,6 @@ func TestProject_SlugCollision(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }
 
 // TestProject_QuotaManipulation verifies that the settings endpoint rejects
@@ -206,7 +201,6 @@ func TestProject_QuotaManipulation(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 // TestProject_SettingsUnknownField verifies that launch-inactive settings fields
@@ -227,7 +221,6 @@ func TestProject_SettingsUnknownField(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// The server must not panic. The response may be 400, 404, or 405.
-
 }
 
 // TestProject_SettingsArbitraryJSON verifies that deeply nested or oversized
@@ -250,7 +243,6 @@ func TestProject_SettingsArbitraryJSON(t *testing.T) {
 	require.NotEqual(t, 0, w.Code)
 
 	// Server must not panic; any HTTP status is acceptable.
-
 }
 
 // TestProject_DeleteWithActiveResources verifies that deleting a project
@@ -275,7 +267,6 @@ func TestProject_DeleteWithActiveResources(t *testing.T) {
 	require.Equal(t, "proj-active",
 		deletedID,
 	)
-
 }
 
 // FuzzProjectName fuzzes project names to verify that the API handles
@@ -344,6 +335,5 @@ func FuzzProjectSettings(f *testing.F) {
 		require.NotEqual(t, 0, w.Code)
 
 		// Must not panic. Any HTTP status is acceptable.
-
 	})
 }

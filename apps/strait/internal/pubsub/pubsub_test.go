@@ -18,7 +18,6 @@ func TestSubscription_Close(t *testing.T) {
 
 	sub.Close()
 	assert.True(t, called)
-
 }
 
 func TestSubscription_Close_Idempotent(t *testing.T) {
@@ -59,5 +58,4 @@ func TestSubscription_ChannelType(t *testing.T) {
 		"test-message",
 
 		string(got))
-
 }

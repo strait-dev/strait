@@ -104,7 +104,6 @@ func TestHandleSDKLog_Success(t *testing.T) {
 	)
 	require.True(
 		t, insertCalled.Load())
-
 }
 
 func TestHandleSDKLog_MissingMessage(t *testing.T) {
@@ -119,7 +118,6 @@ func TestHandleSDKLog_MissingMessage(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
@@ -148,7 +146,6 @@ func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 	)
 	require.True(
 		t, insertCalled.Load())
-
 }
 
 func TestHandleSDKLog_StoreError(t *testing.T) {
@@ -168,7 +165,6 @@ func TestHandleSDKLog_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKProgress_Success(t *testing.T) {
@@ -195,7 +191,6 @@ func TestHandleSDKProgress_Success(t *testing.T) {
 	)
 	require.True(
 		t, insertCalled.Load())
-
 }
 
 func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
@@ -210,7 +205,6 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKAnnotate_Success(t *testing.T) {
@@ -240,7 +234,6 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updated)
-
 }
 
 func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
@@ -259,7 +252,6 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
@@ -274,7 +266,6 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
@@ -304,11 +295,9 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "too many annotations (max 50)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "too many annotations (max 50)")
 }
 
 func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
@@ -337,11 +326,9 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "annotation key too long (max 128 characters)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "annotation key too long (max 128 characters)")
 }
 
 func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
@@ -370,11 +357,9 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "annotation value too long (max 1024 characters)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "annotation value too long (max 1024 characters)")
 }
 
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
@@ -405,7 +390,6 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	)
 	require.True(
 		t, created)
-
 }
 
 func TestSDKUsageRoute_NotRegistered(t *testing.T) {
@@ -418,7 +402,6 @@ func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
@@ -432,7 +415,6 @@ func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
@@ -456,7 +438,6 @@ func TestHandleSDKHeartbeat_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updateCalled.Load())
-
 }
 
 func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
@@ -476,7 +457,6 @@ func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
@@ -506,7 +486,6 @@ func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
 	)
 	require.EqualValues(t, 2, statusCalls.
 		Load())
-
 }
 
 func TestHandleSDKComplete_Success(t *testing.T) {
@@ -548,8 +527,7 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updateCalled.Load())
-	require.EqualValues(t, 2, getRunCalls)
-
+	require.Equal(t, 2, getRunCalls)
 }
 
 func TestHandleSDKComplete_WithResult(t *testing.T) {
@@ -581,7 +559,6 @@ func TestHandleSDKComplete_WithResult(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleSDKComplete_RunNotFound(t *testing.T) {
@@ -600,7 +577,6 @@ func TestHandleSDKComplete_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKComplete_Conflict(t *testing.T) {
@@ -622,7 +598,6 @@ func TestHandleSDKComplete_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKFail_Success(t *testing.T) {
@@ -659,8 +634,7 @@ func TestHandleSDKFail_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updateCalled.Load())
-	require.EqualValues(t, 2, getRunCalls)
-
+	require.Equal(t, 2, getRunCalls)
 }
 
 func TestHandleSDKFail_MissingError(t *testing.T) {
@@ -675,7 +649,6 @@ func TestHandleSDKFail_MissingError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKFail_RunNotFound(t *testing.T) {
@@ -694,7 +667,6 @@ func TestHandleSDKFail_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKFail_Conflict(t *testing.T) {
@@ -716,7 +688,6 @@ func TestHandleSDKFail_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSpawn_Success(t *testing.T) {
@@ -769,7 +740,6 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	require.True(
 		t, enqueueCalled.
 			Load())
-
 }
 
 func TestHandleSDKSpawn_MissingFields(t *testing.T) {
@@ -784,7 +754,6 @@ func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
@@ -803,7 +772,6 @@ func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
@@ -832,7 +800,6 @@ func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
@@ -886,7 +853,6 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updatedParent)
-
 }
 
 func TestSDKAuth_MissingToken(t *testing.T) {
@@ -901,7 +867,6 @@ func TestSDKAuth_MissingToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestSDKAuth_InvalidToken(t *testing.T) {
@@ -917,7 +882,6 @@ func TestSDKAuth_InvalidToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
@@ -936,7 +900,6 @@ func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		w.
 			Code)
-
 }
 
 func TestSDKAuth_ExpiredToken(t *testing.T) {
@@ -952,7 +915,6 @@ func TestSDKAuth_ExpiredToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 
 		w.Code)
-
 }
 
 func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
@@ -975,7 +937,6 @@ func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 	require.Equal(t, "progress,checkpoint",
 
 		w.Header().Get("X-SDK-Capabilities"))
-
 }
 
 func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
@@ -997,7 +958,6 @@ func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
 	require.Equal(t, "none", w.Header().Get(
 		"X-SDK-Capabilities",
 	))
-
 }
 
 func TestHandleHealthReady_Success(t *testing.T) {
@@ -1015,7 +975,6 @@ func TestHandleHealthReady_Success(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleHealthReady_StoreError(t *testing.T) {
@@ -1035,7 +994,6 @@ func TestHandleHealthReady_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleGetRun_Success(t *testing.T) {
@@ -1053,7 +1011,6 @@ func TestHandleGetRun_Success(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetRun_NotFound(t *testing.T) {
@@ -1072,7 +1029,6 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleListRuns_Success(t *testing.T) {
@@ -1089,7 +1045,7 @@ func TestHandleListRuns_Success(t *testing.T) {
 				*status !=
 					domain.
 						StatusExecuting)
-			require.EqualValues(t, 101, limit)
+			require.Equal(t, 101, limit)
 			require.NotNil(t, cursor)
 
 			// handler passes limit+1 for has_more detection
@@ -1108,7 +1064,6 @@ func TestHandleListRuns_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, listCalled.Load())
-
 }
 
 func TestHandleListRuns_MetadataFilter(t *testing.T) {
@@ -1126,7 +1081,7 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 				nil ||
 				*metadataValue !=
 					"prod")
-			require.EqualValues(t, 51, limit)
+			require.Equal(t, 51, limit)
 			require.Nil(t, cursor)
 
 			// handler passes limit+1 (default 50 + 1)
@@ -1144,7 +1099,6 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 		w.Code)
 	require.True(
 		t, listCalled.Load())
-
 }
 
 func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
@@ -1158,7 +1112,6 @@ func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListRuns_MissingProjectID(t *testing.T) {
@@ -1172,7 +1125,6 @@ func TestHandleListRuns_MissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListRuns_InvalidLimit(t *testing.T) {
@@ -1186,7 +1138,6 @@ func TestHandleListRuns_InvalidLimit(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListRuns_InvalidCursor(t *testing.T) {
@@ -1200,7 +1151,6 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListRuns_InvalidStatus(t *testing.T) {
@@ -1222,7 +1172,6 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 
 		w.Code)
 	require.False(t, called)
-
 }
 
 func TestHandleListChildRuns_Success(t *testing.T) {
@@ -1244,7 +1193,6 @@ func TestHandleListChildRuns_Success(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleSDKContinue_Success(t *testing.T) {
@@ -1287,17 +1235,16 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 		enqueuedRun.
 			ContinuationOf,
 	)
-	require.EqualValues(t, 3, enqueuedRun.
+	require.Equal(t, 3, enqueuedRun.
 		LineageDepth,
 	)
-	require.EqualValues(t, 5, enqueuedRun.
+	require.Equal(t, 5, enqueuedRun.
 		Priority,
 	)
 	require.Equal(t, `{"step":2}`,
 		string(enqueuedRun.
 			Payload,
 		))
-
 }
 
 func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
@@ -1336,7 +1283,6 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 	require.Equal(t, `{"inherited":true}`,
 		string(enqueuedRun.
 			Payload))
-
 }
 
 func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
@@ -1361,7 +1307,6 @@ func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
@@ -1384,7 +1329,6 @@ func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKContinue_RunNotFound(t *testing.T) {
@@ -1403,7 +1347,6 @@ func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSDKContinue_EnqueueError(t *testing.T) {
@@ -1437,5 +1380,4 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 
 		w.Code,
 	)
-
 }

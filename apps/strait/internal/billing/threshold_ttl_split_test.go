@@ -19,7 +19,6 @@ func TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL(t *testing.T) {
 	assert.Equal(t, usageThresholdDailyTTL,
 
 		usageThresholdTTLFor("2026-05-10"))
-
 }
 
 // TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL locks the monthly
@@ -30,7 +29,6 @@ func TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL(t *testing.T) {
 	assert.Equal(t, usageThresholdMonthlyTTL,
 
 		usageThresholdTTLFor("2026-05"))
-
 }
 
 // TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly proves a future
@@ -42,7 +40,6 @@ func TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly(t *testing.T) {
 		assert.Equal(t, usageThresholdMonthlyTTL,
 
 			usageThresholdTTLFor(p))
-
 	}
 }
 
@@ -56,7 +53,6 @@ func TestUsageThresholdTTLFor_DailyTTLNoLongerThan48h(t *testing.T) {
 
 		48*
 			time.Hour)
-
 }
 
 // TestUsageThresholdTTLFor_MonthlyTTLAtLeast31DaysPlusSkew is the correctness
@@ -68,7 +64,6 @@ func TestUsageThresholdTTLFor_MonthlyTTLAtLeast31DaysPlusSkew(t *testing.T) {
 	assert.GreaterOrEqual(t, usageThresholdMonthlyTTL,
 
 		32*24*time.Hour)
-
 }
 
 // TestMaybeEmitUsageThreshold_DailyKeyHasShortTTL proves the wiring: the
@@ -98,7 +93,6 @@ func TestMaybeEmitUsageThreshold_DailyKeyHasShortTTL(t *testing.T) {
 
 	// miniredis returns the *remaining* TTL on read; allow some slack but
 	// reject any value within an hour of the monthly TTL.
-
 }
 
 // TestMaybeEmitUsageThreshold_MonthlyKeyHasLongTTL is the symmetric guard
@@ -123,5 +117,4 @@ func TestMaybeEmitUsageThreshold_MonthlyKeyHasLongTTL(t *testing.T) {
 	assert.GreaterOrEqual(t, ttl,
 		usageThresholdMonthlyTTL-
 			time.Minute)
-
 }

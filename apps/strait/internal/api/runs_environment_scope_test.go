@@ -109,10 +109,10 @@ func TestRunEnvironmentScope_MutatingHandlersRejectEnvironmentMismatch(t *testin
 					return err
 				}
 				raw, marshalErr := json.Marshal(out.Body["results"])
-				require.Nil(t, marshalErr)
+				require.NoError(t, marshalErr)
 
 				var results []map[string]any
-				require.Nil(t, json.Unmarshal(raw,
+				require.NoError(t, json.Unmarshal(raw,
 					&results,
 				))
 				require.False(t, len(results) !=
@@ -131,7 +131,6 @@ func TestRunEnvironmentScope_MutatingHandlersRejectEnvironmentMismatch(t *testin
 			require.Error(t, err)
 			require.True(
 				t, isNotFound(err))
-
 		})
 	}
 }
@@ -169,7 +168,6 @@ func TestHandleListRuns_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
 		1 || runs[0].ID !=
 		"run-prod",
 	)
-
 }
 
 func TestHandleBulkReplayDeadLetterRuns_ProjectModeFiltersEnvironment(t *testing.T) {
@@ -207,7 +205,6 @@ func TestHandleBulkReplayDeadLetterRuns_ProjectModeFiltersEnvironment(t *testing
 	require.NotNil(t, out)
 	require.False(t, len(replayedRunIDs) != 1 ||
 		replayedRunIDs[0] != "run-prod")
-
 }
 
 func TestHandleListDeadLetterRuns_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -243,5 +240,4 @@ func TestHandleListDeadLetterRuns_EnvironmentScopeFiltersForeignRuns(t *testing.
 		1 || runs[0].ID !=
 		"run-prod",
 	)
-
 }

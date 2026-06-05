@@ -39,8 +39,8 @@ func TestHandleGetCostAnalytics_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&body))
-	require.Equal(t, float64(456),
-		body["total_spend_microusd"])
+	require.InDelta(t, float64(456),
+		body["total_spend_microusd"], 1e-9)
 
 	retiredCostField := strings.Join([]string{"total", "ai", "cost", "microusd"}, "_")
 	for _, stale := range []string{
@@ -89,8 +89,8 @@ func TestHandleGetCostTrends_SuccessUsesSpendFields(t *testing.T) {
 		&body))
 	require.Len(t,
 		body, 1)
-	require.Equal(t, float64(789),
-		body[0]["spend_microusd"])
+	require.InDelta(t, float64(789),
+		body[0]["spend_microusd"], 1e-9)
 
 	for _, stale := range []string{"usage_cost_microusd", "compute_cost_microusd"} {
 		if _, ok := body[0][stale]; ok {
@@ -109,7 +109,6 @@ func TestHandleGetCostAnalytics_MissingFrom(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostAnalytics_MissingTo(t *testing.T) {
@@ -120,7 +119,6 @@ func TestHandleGetCostAnalytics_MissingTo(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostAnalytics_InvalidFromFormat(t *testing.T) {
@@ -131,7 +129,6 @@ func TestHandleGetCostAnalytics_InvalidFromFormat(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostAnalytics_InvalidToFormat(t *testing.T) {
@@ -142,7 +139,6 @@ func TestHandleGetCostAnalytics_InvalidToFormat(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostAnalytics_ToBeforeFrom(t *testing.T) {
@@ -153,7 +149,6 @@ func TestHandleGetCostAnalytics_ToBeforeFrom(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostAnalytics_ExceedsMaxWindow(t *testing.T) {
@@ -164,11 +159,9 @@ func TestHandleGetCostAnalytics_ExceedsMaxWindow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(),
-			"90 days"))
-
+	require.Contains(
+		t, w.Body.
+			String(), "90 days")
 }
 
 func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
@@ -186,7 +179,6 @@ func TestHandleGetCostAnalytics_ExactlyMaxWindow(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestHandleGetCostTrends_ExceedsMaxWindow(t *testing.T) {
@@ -197,7 +189,6 @@ func TestHandleGetCostTrends_ExceedsMaxWindow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
@@ -208,7 +199,6 @@ func TestHandleGetTopCosts_ExceedsMaxWindow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
@@ -219,7 +209,6 @@ func TestHandleGetCostInsights_ExceedsMaxWindow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetTopCosts_ValidLimit(t *testing.T) {
@@ -238,7 +227,6 @@ func TestHandleGetTopCosts_ValidLimit(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 func TestHandleGetTopCosts_LimitTooHigh(t *testing.T) {
@@ -252,7 +240,6 @@ func TestHandleGetTopCosts_LimitTooHigh(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetTopCosts_StoreError(t *testing.T) {
@@ -271,5 +258,4 @@ func TestHandleGetTopCosts_StoreError(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError,
 
 		w.Code)
-
 }

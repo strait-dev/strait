@@ -125,7 +125,6 @@ func TestUsageFlusher_EmptyOrgs_NoFlush(t *testing.T) {
 	uf := NewUsageFlusher(s, time.Minute)
 	uf.flush(context.Background())
 	require.False(t, upsertCalled)
-
 }
 
 func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
@@ -172,10 +171,9 @@ func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.EqualValues(t, 2,
+	require.Equal(t, 2,
 		upsertCount,
 	)
-
 }
 
 func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
@@ -227,7 +225,6 @@ func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
 	assert.True(t, upsertedOrgs["org-1"])
 	assert.False(t, upsertedOrgs["org-2"])
 	assert.True(t, upsertedOrgs["org-3"])
-
 }
 
 func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
@@ -300,12 +297,10 @@ func TestUsageFlusher_FlushesSnapshotsAcrossLookback(t *testing.T) {
 
 	for i := 1; i < len(upserted); i++ {
 		require.True(t, upserted[i].After(upserted[i-1]))
-
 	}
 	for i := range requested {
 		require.True(t, requested[i].
 			Equal(upserted[i]))
-
 	}
 }
 
@@ -334,7 +329,6 @@ func TestUsageFlusher_ReconcilesFlatUsageCostsAcrossLookback(t *testing.T) {
 
 	for i := 1; i < len(reconciled["org-1"]); i++ {
 		require.True(t, reconciled["org-1"][i].After(reconciled["org-1"][i-1]))
-
 	}
 }
 
@@ -364,8 +358,8 @@ func TestUsageFlusher_NormalizesEmptySnapshotFields(t *testing.T) {
 
 	NewUsageFlusher(s, time.Minute).flush(context.Background())
 	require.NotNil(t, got)
-	require.NotEqual(t,
-		"", got.ID,
+	require.NotEmpty(t,
+		got.ID,
 	)
 	require.False(t, got.
 		PeriodDate.
@@ -374,5 +368,4 @@ func TestUsageFlusher_NormalizesEmptySnapshotFields(t *testing.T) {
 		CreatedAt.
 		IsZero() || got.UpdatedAt.
 		IsZero())
-
 }

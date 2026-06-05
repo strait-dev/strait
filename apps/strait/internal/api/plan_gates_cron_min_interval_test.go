@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -75,7 +74,6 @@ func TestCheckCronMinInterval_FreeRejectsEveryMinute(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-
 		})
 	}
 }
@@ -93,7 +91,6 @@ func TestCheckCronMinInterval_UnlimitedTiersAcceptAnyCron(t *testing.T) {
 			for _, expr := range []string{"* * * * *", "*/5 * * * *", "0 9 * * *", "0 9 * * MON,FRI"} {
 				assert.NoError(t, s.checkCronMinInterval(context.Background(),
 					"proj-1", expr))
-
 			}
 		})
 	}
@@ -107,7 +104,6 @@ func TestCheckCronMinInterval_EmptyCronIsNoop(t *testing.T) {
 	s := newCronIntervalServer(domain.PlanFree)
 	require.NoError(t, s.checkCronMinInterval(context.Background(),
 		"proj-1", ""))
-
 }
 
 func TestCheckCronMinInterval_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -120,7 +116,6 @@ func TestCheckCronMinInterval_CloudNilEnforcerFailsClosed(t *testing.T) {
 	err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "billing enforcement unavailable")
-
 }
 
 func TestCheckCronMinInterval_CommunityNilEnforcerFailsOpen(t *testing.T) {
@@ -132,7 +127,6 @@ func TestCheckCronMinInterval_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	}
 	require.NoError(t, s.checkCronMinInterval(context.Background(),
 		"proj-1", "* * * * *"))
-
 }
 
 func TestCheckCronMinInterval_CommunityEditionFailsOpen(t *testing.T) {
@@ -151,7 +145,6 @@ func TestCheckCronMinInterval_CommunityEditionFailsOpen(t *testing.T) {
 	}
 	require.NoError(t, s.checkCronMinInterval(context.Background(),
 		"proj-1", "* * * * *"))
-
 }
 
 func TestCheckCronMinInterval_MalformedCronFailsOpen(t *testing.T) {
@@ -164,7 +157,6 @@ func TestCheckCronMinInterval_MalformedCronFailsOpen(t *testing.T) {
 	for _, expr := range []string{"not a cron", "* * *", "@@@", "60 * * * *"} {
 		assert.NoError(t, s.checkCronMinInterval(context.Background(),
 			"proj-1", expr))
-
 	}
 }
 
@@ -179,13 +171,8 @@ func TestCheckCronMinInterval_ErrorMessageIsActionable(t *testing.T) {
 
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	msg := err.Error()
-	assert.True(t,
-		strings.Contains(msg,
-
-			limits.DisplayName))
-	assert.True(t,
-		strings.Contains(msg,
-
-			"/settings/billing"))
-
+	assert.Contains(t,
+		msg, limits.DisplayName)
+	assert.Contains(t,
+		msg, "/settings/billing")
 }

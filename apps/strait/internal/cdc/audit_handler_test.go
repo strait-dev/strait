@@ -43,7 +43,6 @@ func TestAuditHandler_TerminalUpdate_CreatesEvent(t *testing.T) {
 		t, "run.completed",
 		store.events[0].
 			Action)
-
 }
 
 func TestAuditHandler_RedeliveredTerminalUpdateCreatesAuditEventOnce(t *testing.T) {
@@ -64,7 +63,6 @@ func TestAuditHandler_RedeliveredTerminalUpdateCreatesAuditEventOnce(t *testing.
 	require.Len(t,
 		store.events, 1,
 	)
-
 }
 
 func TestAuditHandler_StoreErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
@@ -88,7 +86,6 @@ func TestAuditHandler_StoreErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
 	require.Len(t,
 		store.events, 1,
 	)
-
 }
 
 func TestAuditHandler_InsertAction_CreatesEvent(t *testing.T) {
@@ -118,7 +115,6 @@ func TestAuditHandler_InsertAction_CreatesEvent(t *testing.T) {
 		t, "run.created",
 		store.events[0].Action,
 	)
-
 }
 
 func TestAuditHandler_ActorIsSystemCDC(t *testing.T) {
@@ -139,7 +135,6 @@ func TestAuditHandler_ActorIsSystemCDC(t *testing.T) {
 		t, "system", store.
 			events[0].ActorType,
 	)
-
 }
 
 func TestDeepSecAuditHandler_DetailsExcludeSensitiveRecordFields(t *testing.T) {
@@ -196,7 +191,6 @@ func TestAuditHandler_ActionMatchesStatus(t *testing.T) {
 	for _, status := range statuses {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
 		require.NoError(t, err)
-
 	}
 
 	wantActions := []string{"run.completed", "run.failed", "run.timed_out"}
@@ -207,7 +201,6 @@ func TestAuditHandler_ActionMatchesStatus(t *testing.T) {
 		assert.Equal(
 			t, want, store.events[i].Action,
 		)
-
 	}
 }
 
@@ -250,7 +243,6 @@ func TestAuditHandler_GatesNonTerminalUpdates(t *testing.T) {
 			require.Len(t,
 				store.events, wantEvents,
 			)
-
 		})
 	}
 }
@@ -279,7 +271,6 @@ func TestAuditHandler_InsertAlwaysEmits(t *testing.T) {
 					events[0].
 					Action !=
 					"run.created")
-
 		})
 	}
 }
@@ -308,7 +299,6 @@ func TestAuditHandler_DeleteAlwaysEmits(t *testing.T) {
 					events[0].
 					Action !=
 					"run.deleted")
-
 		})
 	}
 }
@@ -328,12 +318,10 @@ func TestAuditHandler_HighHeartbeatVolume_NoWriteAmplification(t *testing.T) {
 			cdcUpdateMsg("executing", "p1", "run-hot",
 
 				"job-1")))
-
 	}
-	require.Len(t,
-		store.events, 0,
+	require.Empty(t,
+		store.events,
 	)
-
 }
 
 func TestDeepSecAuditHandler_IgnoresReadEmptyAndUnknownActions(t *testing.T) {
@@ -367,10 +355,9 @@ func TestDeepSecAuditHandler_IgnoresReadEmptyAndUnknownActions(t *testing.T) {
 				Metadata: Metadata{TableName: "job_runs"},
 			})
 			require.NoError(t, err)
-			require.Len(t,
-				store.events, 0,
+			require.Empty(t,
+				store.events,
 			)
-
 		})
 	}
 }
@@ -391,10 +378,9 @@ func TestAuditHandler_UnsupportedSnapshotActionsDoNotParseOrAudit(t *testing.T) 
 				Metadata: Metadata{TableName: "job_runs"},
 			})
 			require.NoError(t, err)
-			require.Len(t,
-				store.events, 0,
+			require.Empty(t,
+				store.events,
 			)
-
 		})
 	}
 }
@@ -408,5 +394,4 @@ func TestDeepSecAuditHandler_StoreErrorReturnsForRetry(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }

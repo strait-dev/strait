@@ -61,5 +61,4 @@ func TestReaper_ReapStale_TransientDBFailure_ContinuesOnNextTick(t *testing.T) {
 	require.EqualValues(t, 1,
 		transitioned.
 			Load())
-
 }

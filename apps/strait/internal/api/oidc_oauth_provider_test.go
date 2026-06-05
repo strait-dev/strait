@@ -61,7 +61,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 			"Test User",
 			claims.
 				Name)
-
 	})
 
 	t.Run("valid token with minimal claims (sub only)", func(t *testing.T) {
@@ -81,7 +80,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 			claims.
 				Subject,
 		)
-
 	})
 
 	t.Run("wrong issuer rejected", func(t *testing.T) {
@@ -96,7 +94,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		_, err := v.verify(token)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("wrong audience rejected", func(t *testing.T) {
@@ -111,7 +108,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		_, err := v.verify(token)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("expired token rejected", func(t *testing.T) {
@@ -126,7 +122,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		_, err := v.verify(token)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("missing subject rejected", func(t *testing.T) {
@@ -140,7 +135,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		_, err := v.verify(token)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("wrong signing key rejected", func(t *testing.T) {
@@ -160,7 +154,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		_, err = v.verify(token)
 		require.Error(t,
 			err)
-
 	})
 
 	t.Run("token within 30s leeway accepted", func(t *testing.T) {
@@ -180,7 +173,6 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 			claims.
 				Subject,
 		)
-
 	})
 }
 
@@ -195,13 +187,11 @@ func TestOIDCScopeFiltering(t *testing.T) {
 		scopes := c.Scopes()
 		for _, s := range scopes {
 			require.NotEqual(t, "*", s)
-
 		}
 		require.False(t,
 			len(scopes) != 1 ||
 
 				scopes[0] != "jobs:read")
-
 	})
 
 	t.Run("api-keys:manage stripped", func(t *testing.T) {
@@ -211,11 +201,9 @@ func TestOIDCScopeFiltering(t *testing.T) {
 			require.NotEqual(t, "api-keys:manage",
 
 				s)
-
 		}
 		require.Len(t, scopes,
 			2)
-
 	})
 
 	t.Run("rbac:manage stripped", func(t *testing.T) {
@@ -226,13 +214,11 @@ func TestOIDCScopeFiltering(t *testing.T) {
 
 				s,
 			)
-
 		}
 		require.False(t,
 			len(scopes) != 1 ||
 
 				scopes[0] != "stats:read")
-
 	})
 
 	t.Run("all privileged scopes stripped returns empty upper bound", func(t *testing.T) {
@@ -240,15 +226,12 @@ func TestOIDCScopeFiltering(t *testing.T) {
 		scopes := c.Scopes()
 		require.NotNil(t,
 			scopes)
-		require.Len(t, scopes,
-			0)
-
+		require.Empty(t, scopes)
 	})
 
 	t.Run("absent scope returns nil", func(t *testing.T) {
 		c := &oidcClaims{}
 		require.Nil(t, c.Scopes())
-
 	})
 
 	t.Run("normal scopes pass through", func(t *testing.T) {
@@ -256,7 +239,6 @@ func TestOIDCScopeFiltering(t *testing.T) {
 		scopes := c.Scopes()
 		require.Len(t, scopes,
 			4)
-
 	})
 
 	t.Run("OIDC scopes stripped", func(t *testing.T) {
@@ -266,7 +248,6 @@ func TestOIDCScopeFiltering(t *testing.T) {
 			len(scopes) != 1 ||
 
 				scopes[0] != "jobs:read")
-
 	})
 }
 

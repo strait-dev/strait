@@ -1,7 +1,6 @@
 package loadtest
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -10,38 +9,37 @@ import (
 
 func TestNewTransactionMetric(t *testing.T) {
 	metric := NewTransactionMetric("trigger", 10, 20, 250)
-	require.EqualValues(t, 2,
-		metric.TransactionsPerOp,
+	require.InDelta(t, 2,
+		metric.TransactionsPerOp, 1e-9,
 	)
-	require.EqualValues(t, 25,
-		metric.StatementsPerOp,
+	require.InDelta(t, 25,
+		metric.StatementsPerOp, 1e-9,
 	)
 
 	zero := NewTransactionMetric("empty", 0, 20, 250)
 	require.False(t, zero.
 		TransactionsPerOp !=
 		0 || zero.StatementsPerOp != 0)
-
 }
 
 func TestNewRuntimeMetric(t *testing.T) {
 	metric := NewRuntimeMetric("trigger", 10, 50, 4096, 20, 10, 5)
-	require.EqualValues(t, 5,
-		metric.AllocsPerOp,
+	require.InDelta(t, 5,
+		metric.AllocsPerOp, 1e-9,
 	)
-	require.EqualValues(t, 409.6,
+	require.InDelta(t, 409.6,
 		metric.
-			BytesPerOp,
+			BytesPerOp, 1e-9,
 	)
-	require.EqualValues(t, 2,
-		metric.SpansPerOp,
+	require.InDelta(t, 2,
+		metric.SpansPerOp, 1e-9,
 	)
-	require.EqualValues(t, 1,
-		metric.RedisOpsPerOp,
+	require.InDelta(t, 1,
+		metric.RedisOpsPerOp, 1e-9,
 	)
-	require.EqualValues(t, 0.5,
+	require.InDelta(t, 0.5,
 		metric.
-			LogLinesPerOp,
+			LogLinesPerOp, 1e-9,
 	)
 
 	zero := NewRuntimeMetric("empty", 0, 50, 4096, 20, 10, 5)
@@ -50,7 +48,6 @@ func TestNewRuntimeMetric(t *testing.T) {
 		0 ||
 		zero.BytesPerOp != 0 || zero.SpansPerOp != 0,
 	)
-
 }
 
 func TestPerformanceBaselineReportMarkdown(t *testing.T) {
@@ -98,10 +95,7 @@ func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 		"Complexity Ledger",
 		"O(job_history)",
 	} {
-		require.True(t, strings.Contains(md,
-			want,
-		))
-
+		require.Contains(t, md, want)
 	}
 }
 
@@ -114,15 +108,15 @@ func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 
 	byArea := make(map[string]ComplexityLedgerEntry, len(ledger))
 	for _, entry := range ledger {
-		require.NotEqual(t,
-			"", entry.
+		require.NotEmpty(t,
+			entry.
 				Area)
-		require.NotEqual(t,
-			"", entry.
+		require.NotEmpty(t,
+			entry.
 				Evidence,
 		)
-		require.NotEqual(t,
-			"", entry.
+		require.NotEmpty(t,
+			entry.
 				ImprovementReason,
 		)
 
@@ -154,7 +148,6 @@ func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 				target, entry.
 				Target,
 			)
-
 		})
 	}
 }
@@ -254,28 +247,25 @@ func TestComparePerformanceBaselineReports(t *testing.T) {
 		ScenarioDeltas,
 
 		1)
-	require.EqualValues(t, 30,
+	require.InDelta(t, 30,
 		comparison.
-			ScenarioDeltas[0].RPSDelta)
+			ScenarioDeltas[0].RPSDelta, 1e-9)
 	require.Equal(t, -640*time.
 		Millisecond,
 
 		comparison.ScenarioDeltas[0].P95Delta)
-	require.EqualValues(t, -100, comparison.
-		SQLDeltas[0].CallsDelta)
-	require.EqualValues(t, -19, comparison.
-		WaitDeltas[0].CountDelta)
-	require.EqualValues(t, -16, comparison.
-		TransactionDeltas[0].StatementsPerOpDelta)
-	require.EqualValues(t, -4, comparison.
-		RuntimeDeltas[0].AllocsPerOpDelta)
-	require.EqualValues(t, -1, comparison.
-		RuntimeDeltas[0].RedisOpsPerOpDelta)
-	require.Len(t, comparison.
-		ComplexityRegressions,
-
-		0)
-
+	require.InDelta(t, -100, comparison.
+		SQLDeltas[0].CallsDelta, 1e-9)
+	require.InDelta(t, -19, comparison.
+		WaitDeltas[0].CountDelta, 1e-9)
+	require.InDelta(t, -16, comparison.
+		TransactionDeltas[0].StatementsPerOpDelta, 1e-9)
+	require.InDelta(t, -4, comparison.
+		RuntimeDeltas[0].AllocsPerOpDelta, 1e-9)
+	require.InDelta(t, -1, comparison.
+		RuntimeDeltas[0].RedisOpsPerOpDelta, 1e-9)
+	require.Empty(t, comparison.
+		ComplexityRegressions)
 }
 
 func TestComparePerformanceBaselineReports_ComplexityRegression(t *testing.T) {
@@ -299,7 +289,6 @@ func TestComparePerformanceBaselineReports_ComplexityRegression(t *testing.T) {
 
 		comparison.
 			ComplexityRegressions[0].Area)
-
 }
 
 func BenchmarkPerformanceBaselineReportMarkdown(b *testing.B) {

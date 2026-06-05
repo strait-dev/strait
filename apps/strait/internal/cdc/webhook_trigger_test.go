@@ -82,12 +82,11 @@ func TestWebhookTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	require.Equal(t, "whsec", store.
 		deliveries[0].WebhookSecret,
 	)
-	require.NotEqual(t, "", store.
+	require.NotEmpty(t, store.
 		deliveries[0].DedupeKey,
 	)
 	require.NotEmpty(t, store.deliveries[0].
 		Payload)
-
 }
 
 func TestWebhookTrigger_FailedRun_CreatesDelivery(t *testing.T) {
@@ -104,7 +103,6 @@ func TestWebhookTrigger_FailedRun_CreatesDelivery(t *testing.T) {
 	require.Len(t,
 		store.deliveries,
 		1)
-
 }
 
 func TestWebhookTrigger_TimedOutRun_CreatesDelivery(t *testing.T) {
@@ -121,7 +119,6 @@ func TestWebhookTrigger_TimedOutRun_CreatesDelivery(t *testing.T) {
 	require.Len(t,
 		store.deliveries,
 		1)
-
 }
 
 func TestWebhookTrigger_NonTerminalStatus_Skipped(t *testing.T) {
@@ -136,12 +133,9 @@ func TestWebhookTrigger_NonTerminalStatus_Skipped(t *testing.T) {
 	for _, status := range []string{"queued", "executing", "dequeued", "delayed"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
 		require.NoError(t, err)
-
 	}
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_InsertAction_Skipped(t *testing.T) {
@@ -158,10 +152,8 @@ func TestWebhookTrigger_InsertAction_Skipped(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_NoSubscriptions_NoDelivery(t *testing.T) {
@@ -171,10 +163,8 @@ func TestWebhookTrigger_NoSubscriptions_NoDelivery(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_FilteredSubscription_Skipped(t *testing.T) {
@@ -189,10 +179,8 @@ func TestWebhookTrigger_FilteredSubscription_Skipped(t *testing.T) {
 	// Send a failed event but subscription only watches completed.
 	err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_MultipleSubscriptions_AllFired(t *testing.T) {
@@ -213,7 +201,6 @@ func TestWebhookTrigger_MultipleSubscriptions_AllFired(t *testing.T) {
 		2)
 
 	// sub-1 and sub-2 match (run.completed), sub-3 doesn't (run.failed).
-
 }
 
 func TestDeepSecWebhookTrigger_StoreErrorReturnsForRetry(t *testing.T) {
@@ -225,7 +212,6 @@ func TestDeepSecWebhookTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }
 
 func TestWebhookTrigger_InvalidJSON_ReturnsError(t *testing.T) {
@@ -241,7 +227,6 @@ func TestWebhookTrigger_InvalidJSON_ReturnsError(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestWebhookTrigger_MissingProjectID_Skipped(t *testing.T) {
@@ -255,10 +240,8 @@ func TestWebhookTrigger_MissingProjectID_Skipped(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_InactiveSubscription_Skipped(t *testing.T) {
@@ -272,10 +255,8 @@ func TestWebhookTrigger_InactiveSubscription_Skipped(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.Len(t,
-		store.deliveries,
-		0)
-
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
@@ -305,7 +286,6 @@ func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
 	assert.Equal(
 		t, "run.completed",
 		payload["event_type"])
-
 }
 
 func TestDeepSecWebhookTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
@@ -321,7 +301,6 @@ func TestDeepSecWebhookTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) 
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.Error(t, err)
-
 }
 
 func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
@@ -347,7 +326,6 @@ func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
 	assert.Equal(
 		t, "run.canceled",
 		payload["event_type"])
-
 }
 
 func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
@@ -370,7 +348,7 @@ func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T
 			require.Len(t,
 				store.deliveries,
 				1)
-			require.NotEqual(t, "", store.
+			require.NotEmpty(t, store.
 				deliveries[0].DedupeKey,
 			)
 
@@ -383,7 +361,6 @@ func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T
 
 				payload["event_type"])
 			require.Equal(t, status, payload["status"])
-
 		})
 	}
 }
@@ -414,5 +391,4 @@ func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 	require.Len(t,
 		store.deliveries,
 		10)
-
 }

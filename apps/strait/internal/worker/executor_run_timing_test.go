@@ -27,7 +27,6 @@ func TestRunTimingHelpers(t *testing.T) {
 	require.Equal(t,
 		175*time.
 			Millisecond, runDequeueDurationUntil(run, createdAt.Add(425*time.Millisecond)))
-
 }
 
 func TestRunTimingHelpersHandleMissingTimes(t *testing.T) {
@@ -42,7 +41,6 @@ func TestRunTimingHelpersHandleMissingTimes(t *testing.T) {
 	require.EqualValues(t, 0, runQueueWaitUntil(run, time.Now()))
 	require.EqualValues(t, 0, runDequeueDurationUntil(run, time.
 		Time{}))
-
 }
 
 func TestRunTimingHelpersClampClockSkew(t *testing.T) {
@@ -59,5 +57,4 @@ func TestRunTimingHelpersClampClockSkew(t *testing.T) {
 	require.EqualValues(t, 0, runStartedQueueWait(run))
 	require.EqualValues(t, 0, runDequeueDurationUntil(run, startedAt.
 		Add(-time.Millisecond)))
-
 }

@@ -42,7 +42,6 @@ func TestAnomalyMonitor_WithAdvisoryLock_NotAcquired(t *testing.T) {
 	am.check(context.Background())
 	require.False(t, checkCalled.
 		Load())
-
 }
 
 func TestAnomalyMonitor_WithAdvisoryLock_AcquireError(t *testing.T) {
@@ -66,7 +65,6 @@ func TestAnomalyMonitor_WithAdvisoryLock_AcquireError(t *testing.T) {
 	am.check(context.Background())
 	require.False(t, checkCalled.
 		Load())
-
 }
 
 func TestAnomalyMonitor_WithAdvisoryLock_Acquired_ReleasedAfter(t *testing.T) {
@@ -93,7 +91,6 @@ func TestAnomalyMonitor_WithAdvisoryLock_Acquired_ReleasedAfter(t *testing.T) {
 	am.check(context.Background())
 	require.True(t, lockReleased.
 		Load())
-
 }
 
 func TestAnomalyMonitor_DefaultInterval(t *testing.T) {
@@ -104,7 +101,6 @@ func TestAnomalyMonitor_DefaultInterval(t *testing.T) {
 		time.Minute,
 		am.
 			interval)
-
 }
 
 func TestAnomalyMonitor_NegativeInterval_DefaultsTo15Min(t *testing.T) {
@@ -115,7 +111,6 @@ func TestAnomalyMonitor_NegativeInterval_DefaultsTo15Min(t *testing.T) {
 		time.Minute,
 		am.
 			interval)
-
 }
 
 func TestAnomalyMonitor_CooldownCheckError_SkipsOrg(t *testing.T) {
@@ -142,7 +137,6 @@ func TestAnomalyMonitor_CooldownCheckError_SkipsOrg(t *testing.T) {
 	am.check(context.Background())
 	require.False(t, alertFired.
 		Load())
-
 }
 
 func TestAnomalyMonitor_SetCooldownError_ContinuesWithoutPanic(t *testing.T) {
@@ -197,13 +191,12 @@ func TestCalculateErrorBudget_NaNInput_ReturnsZero(t *testing.T) {
 
 	nan := math.NaN()
 	got := CalculateErrorBudget(nan, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		got)
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 
 	got = CalculateErrorBudget(0.95, nan, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		got)
-
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_InfInput_ReturnsZero(t *testing.T) {
@@ -211,9 +204,8 @@ func TestCalculateErrorBudget_InfInput_ReturnsZero(t *testing.T) {
 
 	inf := math.Inf(1)
 	got := CalculateErrorBudget(inf, 0.99, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		got)
-
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_P95Latency_HalfTarget(t *testing.T) {
@@ -224,16 +216,14 @@ func TestCalculateErrorBudget_P95Latency_HalfTarget(t *testing.T) {
 		0.49 ||
 		got > 0.51,
 	)
-
 }
 
 func TestCalculateErrorBudget_P99Latency_OverTarget(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(3.0, 2.0, domain.SLOMetricP99LatencySecs)
-	assert.EqualValues(t, 0.0,
-		got)
-
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_SuccessRate_995vs99(t *testing.T) {
@@ -244,34 +234,30 @@ func TestCalculateErrorBudget_SuccessRate_995vs99(t *testing.T) {
 		0.49 ||
 		got > 0.51,
 	)
-
 }
 
 func TestCalculateErrorBudget_SuccessRate_BothZero(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.0, 0.0, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		got)
-
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_ZeroCurrent(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.0, 1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 1.0,
-		got)
-
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_NegativeTarget(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.5, -1.0, domain.SLOMetricP95LatencySecs)
-	assert.EqualValues(t, 1.0,
-		got)
-
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 // Section separator.
@@ -301,7 +287,6 @@ func TestStatsAggregator_CostAggregation_Called(t *testing.T) {
 			time.Now()))
 	require.True(t, costCalled.
 		Load())
-
 }
 
 func TestStatsAggregator_AggregateError_NoPanic(t *testing.T) {
@@ -317,7 +302,6 @@ func TestStatsAggregator_AggregateError_NoPanic(t *testing.T) {
 	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
 	err := a.store.AggregateHourlyStats(context.Background(), previousHour)
 	require.Error(t, err)
-
 }
 
 func TestStatsAggregator_WithAdvisoryLocker_LockError(t *testing.T) {
@@ -339,7 +323,6 @@ func TestStatsAggregator_WithAdvisoryLocker_LockError(t *testing.T) {
 	require.NotNil(t, a.
 		advisoryLocker,
 	)
-
 }
 
 func TestStatsAggregator_HourTruncation(t *testing.T) {
@@ -351,7 +334,6 @@ func TestStatsAggregator_HourTruncation(t *testing.T) {
 		Second() !=
 
 		0)
-
 }
 
 // Section separator.

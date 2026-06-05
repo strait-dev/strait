@@ -35,7 +35,6 @@ func TestValidateTriggerJobInputAcceptsValidInput(t *testing.T) {
 	require.NoError(t,
 		srv.validateTriggerJobInput(input,
 			&req))
-
 }
 
 func TestValidateTriggerJobInputRejectsOversizeTraceHeader(t *testing.T) {
@@ -64,7 +63,6 @@ func TestMergedRunTagsOverlayWins(t *testing.T) {
 			"manual")
 	require.Equal(t, "prod",
 		base["env"])
-
 }
 
 func TestMergeRunMetadataDefaultsDoNotOverrideRequestMetadata(t *testing.T) {
@@ -81,14 +79,12 @@ func TestMergeRunMetadataDefaultsDoNotOverrideRequestMetadata(t *testing.T) {
 	)
 	require.Equal(t, "acme",
 		metadata["tenant"])
-
 }
 
 func TestMergeRunMetadataReturnsNilForEmptyInputs(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, mergeRunMetadata(nil,
 		nil))
-
 }
 
 func TestEnsureJobTriggerableRejectsDisabledJob(t *testing.T) {
@@ -96,8 +92,7 @@ func TestEnsureJobTriggerableRejectsDisabledJob(t *testing.T) {
 
 	err := ensureJobTriggerable(&domain.Job{Enabled: false})
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "job is disabled"))
-
+	require.Contains(t, err.Error(), "job is disabled")
 }
 
 func TestEnsureJobTriggerableRejectsPausedJob(t *testing.T) {
@@ -105,6 +100,5 @@ func TestEnsureJobTriggerableRejectsPausedJob(t *testing.T) {
 
 	err := ensureJobTriggerable(&domain.Job{Enabled: true, Paused: true})
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "job is paused"))
-
+	require.Contains(t, err.Error(), "job is paused")
 }

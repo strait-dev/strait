@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,9 +30,8 @@ func TestAuditLogs_FreeTierRejected(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/audit-events", "", "proj-1"))
 	require.Equal(t, http.StatusForbidden,
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.String(), "Audit logs"))
-
+	require.Contains(
+		t, w.Body.String(), "Audit logs")
 }
 
 func TestAuditLogs_ScaleTierAllowed(t *testing.T) {
@@ -54,5 +52,4 @@ func TestAuditLogs_ScaleTierAllowed(t *testing.T) {
 	require.NotEqual(t, http.
 		StatusForbidden, w.Code,
 	)
-
 }

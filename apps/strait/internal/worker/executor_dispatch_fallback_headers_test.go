@@ -73,16 +73,15 @@ func TestTryFallbackDispatch_CarriesSecretsTokenAndCheckpoint(t *testing.T) {
 	result, dispErr, used := exec.tryFallbackDispatch(context.Background(), job, run, context.DeadlineExceeded)
 	require.True(t,
 		used)
-	require.Nil(t, dispErr)
+	require.NoError(t, dispErr)
 	require.NotEmpty(t, result)
 
 	headers := <-captured
 	assert.Equal(t,
 		"super-secret", headers.
 			Get("X-Secret-API_KEY"))
-	assert.NotEqual(
-		t, "", headers.Get("X-Run-Token"))
-	assert.NotEqual(
-		t, "", headers.Get("X-Last-Checkpoint"))
-
+	assert.NotEmpty(
+		t, headers.Get("X-Run-Token"))
+	assert.NotEmpty(
+		t, headers.Get("X-Last-Checkpoint"))
 }

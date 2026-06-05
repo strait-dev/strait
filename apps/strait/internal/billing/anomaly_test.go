@@ -25,9 +25,7 @@ func TestAnomalyDetector_DetectAnomalies_NoHistory(t *testing.T) {
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
 	require.NoError(t,
 		err)
-	require.Len(t, alerts,
-		0)
-
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
@@ -72,10 +70,9 @@ func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
 
 		alert.
 			Severity)
-	assert.EqualValues(t, 5.0,
-		alert.SpikeRatio,
+	assert.InDelta(t, 5.0,
+		alert.SpikeRatio, 1e-9,
 	)
-
 }
 
 func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
@@ -105,9 +102,7 @@ func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
 	require.NoError(t,
 		err)
-	require.Len(t, alerts,
-		0)
-
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_DetectAnomalies_IgnoresUsageCost(t *testing.T) {
@@ -136,9 +131,7 @@ func TestAnomalyDetector_DetectAnomalies_IgnoresUsageCost(t *testing.T) {
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-usage"})
 	require.NoError(t,
 		err)
-	require.Len(t, alerts,
-		0)
-
+	require.Empty(t, alerts)
 }
 
 func TestClassifySeverity(t *testing.T) {
@@ -159,7 +152,6 @@ func TestClassifySeverity(t *testing.T) {
 		assert.Equal(t, tt.
 			expected,
 			got)
-
 	}
 }
 
@@ -198,10 +190,9 @@ func TestAnomalyDetector_CustomThresholds_Warning(t *testing.T) {
 	assert.Equal(t, AnomalySeverityWarning,
 
 		alerts[0].Severity)
-	assert.EqualValues(t, 2.5,
-		alerts[0].SpikeRatio,
+	assert.InDelta(t, 2.5,
+		alerts[0].SpikeRatio, 1e-9,
 	)
-
 }
 
 func TestAnomalyDetector_CustomThresholds_Critical(t *testing.T) {
@@ -239,10 +230,9 @@ func TestAnomalyDetector_CustomThresholds_Critical(t *testing.T) {
 	assert.Equal(t, AnomalySeverityCritical,
 
 		alerts[0].Severity)
-	assert.EqualValues(t, 7.0,
-		alerts[0].SpikeRatio,
+	assert.InDelta(t, 7.0,
+		alerts[0].SpikeRatio, 1e-9,
 	)
-
 }
 
 func TestAnomalyDetector_CustomThresholds_BelowWarning(t *testing.T) {
@@ -275,9 +265,7 @@ func TestAnomalyDetector_CustomThresholds_BelowWarning(t *testing.T) {
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
 	require.NoError(t,
 		err)
-	require.Len(t, alerts,
-		0)
-
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_CustomThresholds_HighAutoComputed(t *testing.T) {
@@ -317,10 +305,9 @@ func TestAnomalyDetector_CustomThresholds_HighAutoComputed(t *testing.T) {
 	assert.Equal(t, AnomalySeverityHigh,
 
 		alerts[0].Severity)
-	assert.EqualValues(t, 6.0,
-		alerts[0].SpikeRatio,
+	assert.InDelta(t, 6.0,
+		alerts[0].SpikeRatio, 1e-9,
 	)
-
 }
 
 func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
@@ -369,12 +356,11 @@ func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
 
 		alertsDefault[0].Severity,
 	)
-	assert.Equal(t, alertsWithConfig[0].
+	assert.InDelta(t, alertsWithConfig[0].
 		SpikeRatio,
 
-		alertsDefault[0].SpikeRatio,
+		alertsDefault[0].SpikeRatio, 1e-9,
 	)
-
 }
 
 func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) {
@@ -408,8 +394,8 @@ func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) 
 		err)
 	require.Len(t, alerts,
 		1)
-	assert.EqualValues(t, 6.0,
-		alerts[0].SpikeRatio,
+	assert.InDelta(t, 6.0,
+		alerts[0].SpikeRatio, 1e-9,
 	)
 	assert.EqualValues(t, 3000,
 		alerts[0].TodaySpend,
@@ -417,7 +403,6 @@ func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) 
 	assert.EqualValues(t, 500,
 		alerts[0].Avg7dSpend,
 	)
-
 }
 
 func TestAnomalyDetector_ExactWarningThreshold_Triggers(t *testing.T) {
@@ -455,7 +440,6 @@ func TestAnomalyDetector_ExactWarningThreshold_Triggers(t *testing.T) {
 
 	// spikeRatio == 3.0, threshold is 3.0. Condition is `<`, so 3.0 is NOT less
 	// than 3.0 — it should trigger.
-
 }
 
 func TestAnomalyDetector_TopContributor_MultipleRecords(t *testing.T) {
@@ -492,7 +476,6 @@ func TestAnomalyDetector_TopContributor_MultipleRecords(t *testing.T) {
 	assert.EqualValues(t, 7000,
 		alerts[0].TodaySpend,
 	)
-
 }
 
 func TestAnomalyDetector_ZeroThresholds_NoAlerts(t *testing.T) {
@@ -526,7 +509,5 @@ func TestAnomalyDetector_ZeroThresholds_NoAlerts(t *testing.T) {
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
 	require.NoError(t,
 		err)
-	require.Len(t, alerts,
-		0)
-
+	require.Empty(t, alerts)
 }

@@ -22,8 +22,7 @@ func TestValidateDAG_CycleDetection(t *testing.T) {
 	}
 	err := ValidateDAG(steps)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "cycle"))
-
+	require.Contains(t, err.Error(), "cycle")
 }
 
 func TestValidateDAG_SelfLoop(t *testing.T) {
@@ -34,8 +33,7 @@ func TestValidateDAG_SelfLoop(t *testing.T) {
 	}
 	err := ValidateDAG(steps)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "depends on itself"))
-
+	require.Contains(t, err.Error(), "depends on itself")
 }
 
 func TestValidateDAG_DisconnectedNodes(t *testing.T) {
@@ -49,7 +47,6 @@ func TestValidateDAG_DisconnectedNodes(t *testing.T) {
 	}
 	err := ValidateDAG(steps)
 	require.NoError(t, err)
-
 }
 
 func TestValidateDAG_DuplicateStepRefs(t *testing.T) {
@@ -61,8 +58,7 @@ func TestValidateDAG_DuplicateStepRefs(t *testing.T) {
 	}
 	err := ValidateDAG(steps)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "duplicate step_ref"))
-
+	require.Contains(t, err.Error(), "duplicate step_ref")
 }
 
 func TestValidateDAG_EmptySteps(t *testing.T) {
@@ -70,11 +66,10 @@ func TestValidateDAG_EmptySteps(t *testing.T) {
 
 	err := ValidateDAG(nil)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "at least one step"))
+	require.Contains(t, err.Error(), "at least one step")
 
 	err = ValidateDAG([]domain.WorkflowStep{})
 	require.Error(t, err)
-
 }
 
 func TestValidateDAG_LargeGraph(t *testing.T) {
@@ -92,7 +87,6 @@ func TestValidateDAG_LargeGraph(t *testing.T) {
 	}
 	err := ValidateDAG(steps)
 	require.NoError(t, err)
-
 }
 
 func TestEvaluateCondition_TypeCoercion(t *testing.T) {
@@ -109,7 +103,6 @@ func TestEvaluateCondition_TypeCoercion(t *testing.T) {
 	cond = json.RawMessage(`{"type":"gt","left":{"value":"42"},"right":{"value":10}}`)
 	_, err = EvaluateCondition(cond, statuses)
 	require.Error(t, err)
-
 }
 
 func TestEvaluateCondition_DeeplyNested(t *testing.T) {
@@ -134,7 +127,6 @@ func TestEvaluateCondition_DeeplyNested(t *testing.T) {
 	ok, err := EvaluateCondition(inner, statuses)
 	require.NoError(t, err)
 	require.True(t, ok)
-
 }
 
 func TestEvaluateCondition_UnknownType(t *testing.T) {
@@ -144,8 +136,7 @@ func TestEvaluateCondition_UnknownType(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{}
 	_, err := EvaluateCondition(cond, statuses)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "unknown condition type"))
-
+	require.Contains(t, err.Error(), "unknown condition type")
 }
 
 func TestRenderTemplateVars_DeeplyNested(t *testing.T) {
@@ -177,7 +168,6 @@ func TestRenderTemplateVars_DeeplyNested(t *testing.T) {
 
 		out["val"],
 	)
-
 }
 
 func TestRenderTemplateVars_HugePayload(t *testing.T) {
@@ -198,7 +188,6 @@ func TestRenderTemplateVars_HugePayload(t *testing.T) {
 	data, ok := out["data"].(string)
 	require.True(t, ok)
 	require.True(t, strings.HasSuffix(data, " world"))
-
 }
 
 func TestRenderTemplateVars_SpecialCharsInVarNames(t *testing.T) {
@@ -218,8 +207,7 @@ func TestRenderTemplateVars_SpecialCharsInVarNames(t *testing.T) {
 	// The bracket syntax should not be matched by the template regex.
 	val, ok := out["val"].(string)
 	require.True(t, ok)
-	require.True(t, strings.Contains(val, "{{"))
-
+	require.Contains(t, val, "{{")
 }
 
 func FuzzEvaluateConditionAdversarial(f *testing.F) {

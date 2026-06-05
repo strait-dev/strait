@@ -49,15 +49,14 @@ func TestSuccessfulDispatchSignals_WithEndpoint(t *testing.T) {
 		signals.result.
 			Success,
 	)
-	require.EqualValues(t, 1500, signals.
+	require.InDelta(t, 1500, signals.
 		result.
-		LatencyMs,
+		LatencyMs, 1e-9,
 	)
-	require.EqualValues(t, 30000, signals.
+	require.InDelta(t, 30000, signals.
 		result.
-		JobTimeoutMs,
+		JobTimeoutMs, 1e-9,
 	)
-
 }
 
 func TestSuccessfulDispatchSignals_SkipsCircuitSuccessWithoutEndpointOrFallback(t *testing.T) {
@@ -78,7 +77,6 @@ func TestSuccessfulDispatchSignals_SkipsCircuitSuccessWithoutEndpointOrFallback(
 	require.False(t,
 		withTx.recordCircuitSuccess,
 	)
-
 }
 
 func TestSuccessfulLatencyAnomaly_RecordsAboveDoubleP95(t *testing.T) {
@@ -103,7 +101,6 @@ func TestSuccessfulLatencyAnomaly_RecordsAboveDoubleP95(t *testing.T) {
 		2*time.Second,
 		anomaly.
 			p95)
-
 }
 
 func TestSuccessfulLatencyAnomaly_SkipsWithoutStartedStatsOrThreshold(t *testing.T) {
@@ -145,7 +142,6 @@ func TestSuccessfulLatencyAnomaly_SkipsWithoutStartedStatsOrThreshold(t *testing
 			require.False(t,
 				anomaly.record,
 			)
-
 		})
 	}
 }
@@ -195,14 +191,13 @@ func TestFailedDispatchSignalPayload_Failure(t *testing.T) {
 		payload.result.
 			TimedOut,
 	)
-	require.EqualValues(t, 0, payload.
-		result.LatencyMs,
+	require.InDelta(t, 0, payload.
+		result.LatencyMs, 1e-9,
 	)
-	require.EqualValues(t, 30000, payload.
+	require.InDelta(t, 30000, payload.
 		result.
-		JobTimeoutMs,
+		JobTimeoutMs, 1e-9,
 	)
-
 }
 
 func TestFailedDispatchSignalPayload_Timeout(t *testing.T) {
@@ -224,15 +219,14 @@ func TestFailedDispatchSignalPayload_Timeout(t *testing.T) {
 		payload.result.
 			TimedOut,
 	)
-	require.EqualValues(t, 45000, payload.
+	require.InDelta(t, 45000, payload.
 		result.
-		LatencyMs,
+		LatencyMs, 1e-9,
 	)
-	require.EqualValues(t, 45000, payload.
+	require.InDelta(t, 45000, payload.
 		result.
-		JobTimeoutMs,
+		JobTimeoutMs, 1e-9,
 	)
-
 }
 
 func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
@@ -254,7 +248,6 @@ func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
 		endpointStateKey("",
 
 			endpoint))
-
 }
 
 func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
@@ -285,7 +278,6 @@ func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[0].to)
-
 }
 
 func TestHandleSuccess_LatencyNormal(t *testing.T) {
@@ -316,7 +308,6 @@ func TestHandleSuccess_LatencyNormal(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[0].to)
-
 }
 
 func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
@@ -347,5 +338,4 @@ func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[0].to)
-
 }

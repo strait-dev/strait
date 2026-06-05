@@ -43,10 +43,7 @@ func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
 		"shutdown_completed_at",
 		"runs_drained",
 	} {
-		require.True(t, strings.Contains(
-			logs, field),
-		)
-
+		require.Contains(t, logs, field)
 	}
 }
 
@@ -80,13 +77,9 @@ func TestProfilingStartupLogDoesNotLeakSecrets(t *testing.T) {
 		"cpu_profile_max_seconds",
 		"management_bind_addr",
 	} {
-		require.True(t, strings.Contains(
-			logs, field),
-		)
-
+		require.Contains(t, logs, field)
 	}
-	require.False(t, strings.Contains(logs, "pprof-secret-value"))
-
+	require.NotContains(t, logs, "pprof-secret-value")
 }
 
 func TestProfilingManagementAddr(t *testing.T) {
@@ -99,7 +92,6 @@ func TestProfilingManagementAddr(t *testing.T) {
 	require.Equal(t, "[::1]:18080",
 		profilingManagementAddr(
 			cfg))
-
 }
 
 func TestShutdownReason(t *testing.T) {
@@ -112,7 +104,6 @@ func TestShutdownReason(t *testing.T) {
 		))
 	require.Equal(t, "forced",
 		shutdownReason(errors.New("forced")))
-
 }
 
 func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
@@ -130,7 +121,7 @@ func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 	requireTableCount(t, primary, "job_runs", 1)
 	requireTableCount(t, primary, "workflow_runs", 1)
 	requireTableCount(t, primary, "event_triggers", 1)
-	require.EqualValues(t, 0, primary["workflow_step_runs"])
+	require.Equal(t, 0, primary["workflow_step_runs"])
 
 	additional := tableCounts(registrar.additional)
 	requireTableCount(t, additional, "job_runs", 4)
@@ -173,7 +164,6 @@ func TestNotificationWorkerEnabled(t *testing.T) {
 	for _, tt := range tests {
 		require.Equal(t, tt.want,
 			notificationWorkerEnabled(tt.mode))
-
 	}
 }
 
@@ -188,12 +178,7 @@ func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
 	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
 	require.Error(t, err)
 	require.Nil(t, srv)
-	require.True(t, strings.Contains(
-		err.Error(),
-		"no pubsub publisher is configured",
-	),
-	)
-
+	require.Contains(t, err.Error(), "no pubsub publisher is configured")
 }
 
 func TestWaitForPubsubReady_RetriesUntilHealthy(t *testing.T) {
@@ -213,7 +198,6 @@ func TestWaitForPubsubReady_RetriesUntilHealthy(t *testing.T) {
 	))
 	require.EqualValues(t, 3, calls.
 		Load())
-
 }
 
 func TestWaitForPubsubReady_TimesOut(t *testing.T) {
@@ -222,11 +206,7 @@ func TestWaitForPubsubReady_TimesOut(t *testing.T) {
 	pub := flakyPingPub{pingFn: func(context.Context) error { return errors.New("redis down") }}
 	err := waitForPubsubReady(context.Background(), pub, 20*time.Millisecond)
 	require.Error(t, err)
-	require.True(t, strings.Contains(
-		err.Error(),
-		"pubsub readiness timeout",
-	))
-
+	require.Contains(t, err.Error(), "pubsub readiness timeout")
 }
 
 func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
@@ -240,7 +220,6 @@ func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
 	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
 	require.NoError(t, err)
 	require.Nil(t, srv)
-
 }
 
 func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testing.T) {
@@ -268,7 +247,6 @@ func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testi
 	require.Nil(t, execCfg.
 		QueueSnapshotter.
 		SnapshotWorkerQueues())
-
 }
 
 func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testing.T) {
@@ -282,7 +260,6 @@ func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testi
 	require.Nil(t, execCfg.
 		WorkerDispatcher,
 	)
-
 }
 
 func workerExecutorConfigForTest() worker.ExecutorConfig {
@@ -372,5 +349,4 @@ func requireTableCount(t *testing.T, counts map[string]int, table string, minCou
 	require.GreaterOrEqual(
 		t, counts[table], minCount,
 	)
-
 }

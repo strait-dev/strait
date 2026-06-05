@@ -37,7 +37,6 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 	assert.Equal(t,
 		"https://example.com",
 		origin)
-
 }
 
 func TestCORS_Preflight(t *testing.T) {
@@ -73,8 +72,7 @@ func TestCORS_Preflight(t *testing.T) {
 		origin)
 
 	methods := w.Header().Get("Access-Control-Allow-Methods")
-	assert.NotEqual(t, "", methods)
-
+	assert.NotEmpty(t, methods)
 }
 
 func TestCORS_WildcardOrigin(t *testing.T) {
@@ -100,7 +98,6 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 	origin := w.Header().Get("Access-Control-Allow-Origin")
 	assert.Equal(t,
 		"*", origin)
-
 }
 
 func TestCORS_Credentials(t *testing.T) {
@@ -127,7 +124,6 @@ func TestCORS_Credentials(t *testing.T) {
 	creds := w.Header().Get("Access-Control-Allow-Credentials")
 	assert.Equal(t,
 		"true", creds)
-
 }
 
 func TestCORS_NoOriginHeader(t *testing.T) {
@@ -150,9 +146,8 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	origin := w.Header().Get("Access-Control-Allow-Origin")
-	assert.Equal(t,
-		"", origin)
-
+	assert.Empty(t,
+		origin)
 }
 
 func TestCORS_ExposedHeaders(t *testing.T) {
@@ -176,6 +171,5 @@ func TestCORS_ExposedHeaders(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	exposed := w.Header().Get("Access-Control-Expose-Headers")
-	assert.NotEqual(t, "", exposed)
-
+	assert.NotEmpty(t, exposed)
 }

@@ -50,7 +50,6 @@ func TestRequireJSONAccept(t *testing.T) {
 			handler.ServeHTTP(w, req)
 			assert.Equal(t,
 				tc.want, w.Code)
-
 		})
 	}
 }
@@ -79,6 +78,5 @@ func FuzzRequireJSONAccept(f *testing.F) {
 					http.
 						StatusNotAcceptable,
 		)
-
 	})
 }

@@ -56,10 +56,8 @@ func TestAuditDashboard_JSONValid(t *testing.T) {
 	}
 	body := string(raw)
 	for _, m := range want {
-		assert.True(t,
-			strings.Contains(body,
-				m))
-
+		assert.Contains(t,
+			body, m)
 	}
 }
 
@@ -129,7 +127,6 @@ func TestAuditAlerts_PromQLParses(t *testing.T) {
 			}
 			assert.Equal(
 				t, 0, depth)
-
 		}
 	}
 }
@@ -154,6 +151,5 @@ func TestAuditAlerts_RequiredAlertsPresent(t *testing.T) {
 	for _, name := range required {
 		assert.True(t,
 			seen[name])
-
 	}
 }

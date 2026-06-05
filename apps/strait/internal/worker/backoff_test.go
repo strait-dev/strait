@@ -28,7 +28,6 @@ func TestNextRetryDelay(t *testing.T) {
 			assert.False(t, delay <
 				tt.expectedMin ||
 				delay > tt.expectedMax)
-
 		})
 	}
 }
@@ -40,7 +39,6 @@ func TestNextRetryDelay_Cap(t *testing.T) {
 	assert.LessOrEqual(t, delay,
 		maxAllowed,
 	)
-
 }
 
 func TestNextRetryDelay_ZeroAttempt(t *testing.T) {
@@ -51,7 +49,6 @@ func TestNextRetryDelay_ZeroAttempt(t *testing.T) {
 			Millisecond ||
 		delay > 1200*time.Millisecond,
 	)
-
 }
 
 func TestNextRetryDelay_Jitter(t *testing.T) {
@@ -64,7 +61,6 @@ func TestNextRetryDelay_Jitter(t *testing.T) {
 	assert.GreaterOrEqual(t,
 		len(seen),
 		5)
-
 }
 
 func TestNextRetryAt(t *testing.T) {
@@ -79,7 +75,6 @@ func TestNextRetryAt(t *testing.T) {
 		Before(
 			minExpected,
 		) || retryAt.After(maxExpected))
-
 }
 
 func TestNextRetryDelayWithStrategy_Linear(t *testing.T) {
@@ -101,7 +96,6 @@ func TestNextRetryDelayWithStrategy_Linear(t *testing.T) {
 			assert.False(t, delay <
 				tt.expectedMin ||
 				delay > tt.expectedMax)
-
 		})
 	}
 }
@@ -115,7 +109,6 @@ func TestNextRetryDelayWithStrategy_Fixed(t *testing.T) {
 				Millisecond ||
 			delay > 1200*time.Millisecond,
 		)
-
 	}
 }
 
@@ -150,7 +143,6 @@ func TestNextRetryDelayWithStrategy_Custom(t *testing.T) {
 		96*time.
 			Second ||
 		delay4 > 144*time.Second)
-
 }
 
 func TestNextRetryDelayWithStrategy_CustomEmpty(t *testing.T) {
@@ -162,7 +154,6 @@ func TestNextRetryDelayWithStrategy_CustomEmpty(t *testing.T) {
 			Millisecond ||
 		delay > 1200*time.Millisecond,
 	)
-
 }
 
 func TestNextRetryDelayWithStrategy_DefaultIsExponential(t *testing.T) {
@@ -173,7 +164,6 @@ func TestNextRetryDelayWithStrategy_DefaultIsExponential(t *testing.T) {
 		3200*time.
 			Millisecond || delay > 4800*time.Millisecond,
 	)
-
 }
 
 func TestNextRetryAtWithStrategy(t *testing.T) {
@@ -188,7 +178,6 @@ func TestNextRetryAtWithStrategy(t *testing.T) {
 		Before(
 			minExpected,
 		) || retryAt.After(maxExpected))
-
 }
 
 func TestNextRetryDelayWithStrategy_LinearCap(t *testing.T) {
@@ -201,7 +190,6 @@ func TestNextRetryDelayWithStrategy_LinearCap(t *testing.T) {
 	)
 
 	// 1h + 20% jitter
-
 }
 
 func TestNextRetryDelayWithStrategy_NegativeCustomDelays(t *testing.T) {
@@ -214,7 +202,6 @@ func TestNextRetryDelayWithStrategy_NegativeCustomDelays(t *testing.T) {
 			Millisecond ||
 		delay > 1200*time.Millisecond,
 	)
-
 }
 
 func TestNextRetryDelayWithStrategy_ZeroCustomDelay(t *testing.T) {
@@ -227,5 +214,4 @@ func TestNextRetryDelayWithStrategy_ZeroCustomDelay(t *testing.T) {
 			Millisecond ||
 		delay > 1200*time.Millisecond,
 	)
-
 }

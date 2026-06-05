@@ -172,7 +172,6 @@ func TestWorkerRunResultFromDispatch(t *testing.T) {
 		string(wantOutput), string(result.output))
 	require.True(t,
 		result.succeeded())
-
 }
 
 func TestWorkerRunResultFailureMessage(t *testing.T) {
@@ -210,7 +209,6 @@ func TestWorkerRunResultFailureMessage(t *testing.T) {
 			t.Parallel()
 			require.Equal(t,
 				tt.want, tt.in.failureMessage())
-
 		})
 	}
 }
@@ -258,7 +256,6 @@ func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T)
 			fields["result"].(json.
 			RawMessage),
 		))
-
 }
 
 func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
@@ -296,7 +293,6 @@ func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
 	require.EqualValues(t, 2, call.fields["attempt"])
 	require.Equal(t,
 		"boom", call.fields["error"])
-
 }
 
 // TestExecuteWorkerMode_SuccessRoutesToHandleSuccess verifies that a worker
@@ -377,7 +373,6 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 
 		timeoutUpdate.
 			fields["error"])
-
 }
 
 func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T) {
@@ -433,7 +428,6 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 	}
 	require.Nil(t, requeueUpdate.
 		fields["error"])
-
 }
 
 func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
@@ -462,7 +456,6 @@ func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 		ok)
 	require.Equal(t,
 		string(wantOutput), string(got))
-
 }
 
 func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.T) {
@@ -506,7 +499,6 @@ func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.
 		dispatcher.
 			completeStatus,
 	)
-
 }
 
 func TestExecuteWorkerMode_DoesNotCompleteWorkerTaskWhenRunPersistenceFails(t *testing.T) {
@@ -537,7 +529,6 @@ func TestExecuteWorkerMode_DoesNotCompleteWorkerTaskWhenRunPersistenceFails(t *t
 	time.Sleep(50 * time.Millisecond)
 	require.EqualValues(t, 0, dispatcher.completeCalls.
 		Load())
-
 }
 
 // TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure verifies that a
@@ -599,8 +590,7 @@ func TestExecuteWorkerMode_FailedWithEmptyErrorUsesDefault(t *testing.T) {
 
 	deadLetter := waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 	msg, _ := deadLetter.fields["error"].(string)
-	require.NotEqual(t, "", msg)
-
+	require.NotEmpty(t, msg)
 }
 
 // TestExecuteWorkerMode_NilResultTreatedAsFailure asserts the defensive path
@@ -718,9 +708,8 @@ func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T)
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "timed out waiting for worker dispatch to finish")
 	}
-	require.EqualValues(t, 0, exec.heartbeat.
+	require.Equal(t, 0, exec.heartbeat.
 		ActiveCount())
-
 }
 
 func TestExecuteWorkerMode_NilDispatcherRequeuesWithCleanQueuedFields(t *testing.T) {
@@ -812,6 +801,5 @@ func assertQueuedResetFields(t *testing.T, fields map[string]any) {
 		require.True(t,
 			ok)
 		require.Nil(t, value)
-
 	}
 }

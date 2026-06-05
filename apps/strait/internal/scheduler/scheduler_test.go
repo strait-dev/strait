@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -312,7 +311,6 @@ func TestScheduler_New(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	require.NotNil(t, s)
-
 }
 
 func TestScheduler_Components_RegistersRequiredLoops(t *testing.T) {
@@ -341,13 +339,11 @@ func TestScheduler_Components_RegistersRequiredLoops(t *testing.T) {
 	}
 	for _, name := range required {
 		require.True(t, names[name])
-
 	}
 	for i, name := range required {
 		require.Equal(t, name,
 			components[i].
 				name)
-
 	}
 }
 
@@ -370,7 +366,6 @@ func TestScheduler_Components_SkipsUnsetOptionalLoops(t *testing.T) {
 		"heartbeat_gc",
 	} {
 		require.False(t, names[name])
-
 	}
 }
 
@@ -438,7 +433,6 @@ func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
 		s.budgetMonitor.
 			spendingStore,
 	)
-
 }
 
 func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
@@ -451,7 +445,6 @@ func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
 	require.Equal(t, evaluator,
 		s.sloEvaluator,
 	)
-
 }
 
 func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
@@ -463,7 +456,6 @@ func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
 	WithHeartbeatGC(gc)(s)
 	require.Equal(t, gc,
 		s.heartbeatGC)
-
 }
 
 func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
@@ -476,7 +468,6 @@ func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
 	require.Equal(t, enforcer,
 		s.gracePeriodEnforcer,
 	)
-
 }
 
 func TestScheduler_Start_Success(t *testing.T) {
@@ -514,11 +505,8 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"load cron jobs",
-	))
-
+	require.Contains(t, err.
+		Error(), "load cron jobs")
 }
 
 func TestScheduler_Stop(t *testing.T) {
@@ -612,9 +600,7 @@ func TestScheduler_Start_LoadJobsError_Wrapped(t *testing.T) {
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(), "load cron jobs",
-	))
-	assert.True(t, errors.Is(err, storeErr))
-
+	assert.Contains(t, err.
+		Error(), "load cron jobs")
+	assert.ErrorIs(t, err, storeErr)
 }

@@ -99,13 +99,10 @@ func TestCreateLogDrain_FreeTier_RejectsZeroCap(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-	assert.True(t,
-		strings.Contains(
-			w.Body.String(), "not available",
-		))
+	assert.Contains(t,
+		w.Body.String(), "not available")
 	assert.EqualValues(t, 0, createCalls.
 		Load())
-
 }
 
 // TestCreateLogDrain_ProTier_BlocksAtCap verifies that on Pro (cap=5) the 6th
@@ -135,7 +132,6 @@ func TestCreateLogDrain_ProTier_BlocksAtCap(t *testing.T) {
 		t, !strings.Contains(body, "5 log drains") || !strings.Contains(body,
 			"have 5",
 		))
-
 }
 
 // TestCreateLogDrain_ProTier_BelowCap_Succeeds verifies that on Pro (cap=5)
@@ -160,7 +156,6 @@ func TestCreateLogDrain_ProTier_BelowCap_Succeeds(t *testing.T) {
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code)
-
 }
 
 // TestCreateLogDrain_EnterpriseUnlimited_NoCountLookup verifies that an
@@ -189,7 +184,6 @@ func TestCreateLogDrain_EnterpriseUnlimited_NoCountLookup(t *testing.T) {
 		w.Code)
 	assert.EqualValues(t, 0, countCalls.
 		Load())
-
 }
 
 // TestCreateLogDrain_NilEnforcer_FailsOpen confirms that community-edition
@@ -210,7 +204,6 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code)
-
 }
 
 func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
@@ -242,7 +235,6 @@ func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
 		StatusServiceUnavailable,
 		w.Code,
 	)
-
 }
 
 // TestCreateLogDrain_CountQueryFails_FailsClosed ensures a transient store
@@ -267,5 +259,4 @@ func TestCreateLogDrain_CountQueryFails_FailsClosed(t *testing.T) {
 		StatusServiceUnavailable,
 		w.Code,
 	)
-
 }

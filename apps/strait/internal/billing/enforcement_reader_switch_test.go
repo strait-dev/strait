@@ -47,10 +47,9 @@ func TestReaderSwitch_SnapshotPresent_ReadsDirectly(t *testing.T) {
 	got, err := e.GetOrgPlanLimits(ctx, "org-1")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 99999,
+	assert.Equal(t, 99999,
 		got.MaxConcurrentRuns,
 	)
-
 }
 
 func TestReaderSwitch_EmptySnapshot_FallsBackAndOpportunisticallyWrites(t *testing.T) {
@@ -78,7 +77,6 @@ func TestReaderSwitch_EmptySnapshot_FallsBackAndOpportunisticallyWrites(t *testi
 		nil || store.lastEntitlementsUpdates["org-2"].MaxConcurrentRuns != want.MaxConcurrentRuns)
 
 	// Opportunistic write must have fired.
-
 }
 
 func TestReaderSwitch_NilSnapshot_FallsBackAndOpportunisticallyWrites(t *testing.T) {
@@ -131,12 +129,9 @@ func TestReaderSwitch_AuthoritativeFalse_AlwaysRecomputes_NeverWrites(t *testing
 		MaxConcurrentRuns,
 		got.MaxConcurrentRuns,
 	)
-	assert.Len(t, store.
+	assert.Empty(t, store.
 		lastEntitlementsUpdates,
-
-		0,
 	)
-
 }
 
 func TestReaderSwitch_ConcurrentOverrideAppliesOnTopOfSnapshot(t *testing.T) {
@@ -162,7 +157,6 @@ func TestReaderSwitch_ConcurrentOverrideAppliesOnTopOfSnapshot(t *testing.T) {
 	assert.Equal(t, override,
 		got.MaxConcurrentRuns,
 	)
-
 }
 
 func TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch(t *testing.T) {
@@ -185,7 +179,6 @@ func TestReaderSwitch_LegacyDailyOverrideIgnoredForLaunch(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.EqualValues(t, -1, got.MaxRunsPerDay)
-
 }
 
 func TestHasPersistedEntitlements_BoundaryCases(t *testing.T) {
@@ -207,7 +200,6 @@ func TestHasPersistedEntitlements_BoundaryCases(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.
 				want, hasPersistedEntitlements(tc.raw))
-
 		})
 	}
 }

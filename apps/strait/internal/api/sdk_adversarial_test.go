@@ -34,7 +34,6 @@ func TestResolveSDKCapabilities_V1(t *testing.T) {
 	require.False(t, caps.
 		Progress ||
 		caps.Checkpoint)
-
 }
 
 func TestResolveSDKCapabilities_V2(t *testing.T) {
@@ -43,7 +42,6 @@ func TestResolveSDKCapabilities_V2(t *testing.T) {
 	require.False(t, !caps.
 		Progress ||
 		!caps.Checkpoint)
-
 }
 
 func TestResolveSDKCapabilities_Empty(t *testing.T) {
@@ -52,7 +50,6 @@ func TestResolveSDKCapabilities_Empty(t *testing.T) {
 	require.False(t, caps.
 		Progress ||
 		caps.Checkpoint)
-
 }
 
 func TestResolveSDKCapabilities_Malformed(t *testing.T) {
@@ -68,12 +65,10 @@ func TestResolveSDKCapabilities_Malformed(t *testing.T) {
 				!caps.Checkpoint)
 
 			// Major part before "." is "2", which parses to 2.
-
 		} else {
 			require.False(t, caps.
 				Progress ||
 				caps.Checkpoint)
-
 		}
 	}
 }
@@ -84,7 +79,6 @@ func TestResolveSDKCapabilities_LargeVersion(t *testing.T) {
 	require.False(t, !caps.
 		Progress ||
 		!caps.Checkpoint)
-
 }
 
 func FuzzResolveSDKCapabilities(f *testing.F) {
@@ -113,8 +107,7 @@ func TestSDKCapabilitiesHeader_AllCombinations(t *testing.T) {
 		for _, c := range bools {
 			caps := SDKCapabilities{Progress: p, Checkpoint: c}
 			header := sdkCapabilitiesHeader(caps)
-			require.NotEqual(t, "",
-				header)
+			require.NotEmpty(t, header)
 
 			if !p && !c {
 				require.Equal(t, "none",
@@ -130,7 +123,6 @@ func TestSDKCapabilitiesHeader_AllCombinations(t *testing.T) {
 				strings.Contains(header, "progress"))
 			require.False(t, !c &&
 				strings.Contains(header, "checkpoint"))
-
 		}
 	}
 }
@@ -306,7 +298,6 @@ func TestRunTokenAuth_MissingAuth(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_InvalidBearer(t *testing.T) {
@@ -325,7 +316,6 @@ func TestRunTokenAuth_InvalidBearer(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
@@ -345,7 +335,6 @@ func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 // Regression: a token without the "strait:run-token"
@@ -377,7 +366,6 @@ func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
@@ -414,7 +402,7 @@ func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
 	require.NoError(t, err)
 
 	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"next handler should not have been called")
 	}))
@@ -426,7 +414,6 @@ func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
 		StatusUnauthorized,
 		w.Code)
 	require.Nil(t, captured)
-
 }
 
 // Regression: a token without an `exp` claim must be
@@ -457,7 +444,6 @@ func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 // Regression: a token bound to a run that has already
@@ -506,7 +492,6 @@ func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
 				w.Code)
 			require.False(t, called.
 				Load())
-
 		})
 	}
 }
@@ -542,7 +527,6 @@ func TestRunTokenAuth_StaleAttemptRejected(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *testing.T) {
@@ -618,7 +602,6 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 			handler.ServeHTTP(w, r)
 			require.Equal(t, tt.want,
 				w.Code)
-
 		})
 	}
 }
@@ -654,7 +637,6 @@ func TestRunTokenAuth_RunNotFound_Rejected(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_SubjectMismatch(t *testing.T) {
@@ -675,7 +657,6 @@ func TestRunTokenAuth_SubjectMismatch(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func TestRunTokenAuth_EmptySubject(t *testing.T) {
@@ -695,7 +676,6 @@ func TestRunTokenAuth_EmptySubject(t *testing.T) {
 		w.Code)
 	require.False(t, called.
 		Load())
-
 }
 
 func FuzzRunTokenAuth_MalformedHeaders(f *testing.F) {
@@ -754,7 +734,6 @@ func TestSDKState_KeyAtMaxLength(t *testing.T) {
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKState_KeyOverMaxLength(t *testing.T) {
@@ -771,17 +750,15 @@ func TestSDKState_KeyOverMaxLength(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: key, Value: []byte(`"v"`)},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		require.Error(t, err)
-		require.True(
-			t, strings.Contains(
-				err.Error(), "256"))
+		assert.Error(t, err)
+		assert.Contains(
+			t, err.Error(), "256")
 
 		w.WriteHeader(http.StatusBadRequest)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestSDKState_ValueAtMaxSize(t *testing.T) {
@@ -811,14 +788,13 @@ func TestSDKState_ValueAtMaxSize(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: "mykey", Value: value},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKState_ValueOverMaxSize(t *testing.T) {
@@ -840,17 +816,15 @@ func TestSDKState_ValueOverMaxSize(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: "mykey", Value: value},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		require.Error(t, err)
-		require.True(
-			t, strings.Contains(
-				err.Error(), "64KB"))
+		assert.Error(t, err)
+		assert.Contains(
+			t, err.Error(), "64KB")
 
 		w.WriteHeader(http.StatusBadRequest)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestSDKState_NullByteInKey(t *testing.T) {
@@ -859,9 +833,9 @@ func TestSDKState_NullByteInKey(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{
 		UpsertRunStateFunc: func(_ context.Context, s *domain.RunState) error {
 			upsertCalled.Store(true)
-			assert.True(t,
-				strings.Contains(s.
-					StateKey, "\x00"))
+			assert.Contains(t,
+				s.
+					StateKey, "\x00")
 
 			// Verify the key with null byte was passed through.
 
@@ -891,7 +865,6 @@ func TestSDKState_NullByteInKey(t *testing.T) {
 	)
 
 	// Accept either 200 (passed through) or 400 (rejected).
-
 }
 
 // SDK memory TTL and key limit tests.
@@ -923,14 +896,13 @@ func TestSDKMemory_TTLZero(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKMemory_TTLNegative(t *testing.T) {
@@ -960,14 +932,13 @@ func TestSDKMemory_TTLNegative(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKMemory_TTLMaxInt(t *testing.T) {
@@ -999,14 +970,13 @@ func TestSDKMemory_TTLMaxInt(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
@@ -1034,14 +1004,13 @@ func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"val"`)},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
 	require.Equal(t, http.
 		StatusOK, w.
 		Code)
-
 }
 
 func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
@@ -1096,7 +1065,6 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 			require.Equal(t, http.
 				StatusGone,
 				w.Code)
-
 		})
 	}
 }

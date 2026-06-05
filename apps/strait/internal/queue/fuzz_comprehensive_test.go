@@ -40,7 +40,6 @@ func FuzzBackpressureTokenMath(f *testing.F) {
 		assert.LessOrEqual(t, refilled,
 			maxTokens,
 		)
-
 	})
 }
 
@@ -77,7 +76,6 @@ func FuzzCircuitBreakerStateAlwaysValid(f *testing.F) {
 					CircuitOpen &&
 				s !=
 					CircuitHalfOpen)
-
 	})
 }
 
@@ -100,7 +98,6 @@ func FuzzPriorityPromoterBounds(f *testing.F) {
 			result < 0 || result >
 				maxPri,
 		)
-
 	})
 }
 
@@ -138,7 +135,6 @@ func FuzzRetryBackoffBounds(f *testing.F) {
 			0)
 		assert.LessOrEqual(t, delaySec,
 			maxSec)
-
 	})
 }
 
@@ -156,7 +152,6 @@ func FuzzPartitionNameFormat(f *testing.F) {
 		ts := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		name := ts.Format("job_runs_p2006_01")
 		assert.NotEmpty(t, name)
-
 	})
 }
 
@@ -189,7 +184,6 @@ func FuzzRunStatusScanRoundTrip(f *testing.F) {
 			require.NoError(t, s2.Scan(v))
 			assert.Equal(t,
 				s2, s)
-
 		}
 	})
 }
@@ -217,7 +211,6 @@ func FuzzErrorClassRoundTrip(f *testing.F) {
 			require.NoError(t, e2.Scan(v))
 			assert.Equal(t,
 				e2, e)
-
 		}
 	})
 }
@@ -246,7 +239,6 @@ func FuzzSafeQuoteIdentNeverProducesInjection(f *testing.F) {
 		inner := quoted[1 : len(quoted)-1]
 		assert.NoError(
 			t, store.ValidateIdent(inner))
-
 	})
 }
 
@@ -284,7 +276,6 @@ func FuzzPayloadJSONRoundTrip(f *testing.F) {
 			string(resultB),
 			string(
 				origB))
-
 	})
 }
 
@@ -308,7 +299,6 @@ func FuzzConcurrencyKeyNormalization(f *testing.F) {
 		assert.LessOrEqual(t, len(normalized), 256)
 
 		// Invariant: normalized is always a non-nil string.
-
 	})
 }
 
@@ -329,7 +319,6 @@ func FuzzIdempotencyKeyNoFalseCollision(f *testing.F) {
 
 		// Today idempotency is a string compare in SQL. If we ever add
 		// hashing, this test catches false collisions.
-
 	})
 }
 
@@ -348,7 +337,6 @@ func FuzzMetricsPartitionStatsNoPanic(f *testing.F) {
 		}
 		defer func() {
 			require.Nil(t, recover())
-
 		}()
 		s := PartitionStats{
 			Relname:      name,

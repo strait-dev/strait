@@ -47,7 +47,6 @@ func TestProperty_FSM_NoTerminalToTerminal(t *testing.T) {
 
 		err := ValidateTransition(from, to)
 		require.Error(t, err)
-
 	}
 }
 
@@ -68,7 +67,6 @@ func TestProperty_HealthScore_AlwaysInRange(t *testing.T) {
 		h := &EndpointHealthScore{HealthScore: score}
 		level := h.HealthLevel()
 		require.True(t, validLevels[level])
-
 	}
 }
 
@@ -87,7 +85,6 @@ func TestProperty_Scope_WildcardAlwaysTrue(t *testing.T) {
 		}
 		required := string(buf)
 		require.True(t, HasScope([]string{ScopeAll}, required))
-
 	}
 }
 
@@ -125,7 +122,6 @@ func TestProperty_CronNextFireFuture(t *testing.T) {
 		now := time.Now()
 		next := schedule.Next(now)
 		require.True(t, next.After(now))
-
 	}
 }
 
@@ -138,7 +134,6 @@ func TestProperty_FSM_ValidTransitionsAreReflected(t *testing.T) {
 		for _, to := range targets {
 			require.NoError(t, ValidateTransition(
 				from, to))
-
 		}
 	}
 }
@@ -179,7 +174,6 @@ func TestProperty_Scope_EmptyScopesGrantAll(t *testing.T) {
 		}
 		required := string(buf)
 		require.True(t, HasScope([]string{}, required))
-
 	}
 }
 

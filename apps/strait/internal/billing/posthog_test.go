@@ -19,7 +19,6 @@ func TestNewPostHogClient_EmptyAPIKey_ReturnsNil(t *testing.T) {
 	t.Parallel()
 	assert.Nil(t, NewPostHogClient("",
 		"", nil))
-
 }
 
 func TestNewPostHogClient_DefaultHost(t *testing.T) {
@@ -30,7 +29,6 @@ func TestNewPostHogClient_DefaultHost(t *testing.T) {
 	assert.Equal(t, "https://us.i.posthog.com",
 
 		c.host)
-
 }
 
 func TestNewPostHogClient_CustomHost(t *testing.T) {
@@ -41,7 +39,6 @@ func TestNewPostHogClient_CustomHost(t *testing.T) {
 	assert.Equal(t, "https://eu.posthog.com",
 
 		c.host)
-
 }
 
 func TestNewPostHogClient_NilLogger(t *testing.T) {
@@ -51,7 +48,6 @@ func TestNewPostHogClient_NilLogger(t *testing.T) {
 		c)
 	assert.NotNil(t,
 		c.logger)
-
 }
 
 func TestPostHogCapture_NilReceiver(t *testing.T) {
@@ -92,7 +88,6 @@ func TestPostHogCapture_Success(t *testing.T) {
 			Event)
 	assert.Equal(t, "pro",
 		captured.Properties["plan"])
-
 }
 
 func TestPostHogCapture_ServerError_NoPropagate(t *testing.T) {
@@ -184,5 +179,4 @@ func TestPostHogCaptureRevenueEvent_SetsGroups(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "org-123",
 		groupMap["organization"])
-
 }

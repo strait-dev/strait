@@ -20,7 +20,6 @@ func TestWorkflow_TagsField(t *testing.T) {
 		t, "platform", wf.Tags["team"])
 	require.Equal(
 		t, "prod", wf.Tags["env"])
-
 }
 
 func TestJobRun_TagsField(t *testing.T) {
@@ -33,7 +32,6 @@ func TestJobRun_TagsField(t *testing.T) {
 	}
 	require.Equal(
 		t, "v2.1", run.Tags["release"])
-
 }
 
 func TestWorkflowRun_TagsField(t *testing.T) {
@@ -46,5 +44,4 @@ func TestWorkflowRun_TagsField(t *testing.T) {
 	}
 	require.Equal(
 		t, "canary", run.Tags["deploy"])
-
 }

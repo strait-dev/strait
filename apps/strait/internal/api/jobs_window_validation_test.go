@@ -43,7 +43,6 @@ func TestValidateWindowsAgainstRetention(t *testing.T) {
 				t, tt.wantErr,
 
 				(err != nil))
-
 		})
 	}
 }
@@ -54,5 +53,4 @@ func TestValidateWindowsAgainstRetention_NilConfig(t *testing.T) {
 	srv := &Server{config: nil}
 	assert.NoError(t, srv.
 		validateWindowsAgainstRetention(999999999, 999999999))
-
 }

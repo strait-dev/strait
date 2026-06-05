@@ -72,28 +72,22 @@ func readRepoFile(t *testing.T, path string) string {
 
 func requireContains(t *testing.T, source, want string) {
 	t.Helper()
-	require.True(t, strings.Contains(
-		source,
-		want))
-
+	require.Contains(t, source, want)
 }
 
 func requireServiceDependency(t *testing.T, source, service, dependency, condition string) {
 	t.Helper()
 
 	serviceBlock := indentedBlock(source, "  "+service, "  ")
-	require.NotEqual(t,
-		"", serviceBlock,
+	require.NotEmpty(t,
+		serviceBlock,
 	)
 
 	dependencyBlock := indentedBlock(serviceBlock, "      "+dependency, "      ")
-	require.NotEqual(t,
-		"", dependencyBlock,
-	)
-	require.True(t, strings.Contains(
+	require.NotEmpty(t,
 		dependencyBlock,
-		condition))
-
+	)
+	require.Contains(t, dependencyBlock, condition)
 }
 
 func indentedBlock(source, header, siblingIndent string) string {

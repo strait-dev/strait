@@ -84,7 +84,6 @@ func TestResolveJobForRun_SingleflightDedupes(t *testing.T) {
 				results[i].
 					ID != "job-x",
 		)
-
 	}
 }
 
@@ -130,7 +129,6 @@ func TestResolveJobForRun_DifferentJobIDs_NotDeduped(t *testing.T) {
 	require.Equal(t,
 		int64(jobs), dbCalls.
 			Load())
-
 }
 
 // TestResolveJobForRun_PropagatesError asserts that when the underlying
@@ -170,11 +168,8 @@ func TestResolveJobForRun_PropagatesError(t *testing.T) {
 	for _, err := range gotErrs {
 		require.Error(t,
 			err)
-		require.True(t,
-			errors.Is(
-				err, sentinel,
-			))
-
+		require.ErrorIs(t,
+			err, sentinel)
 	}
 
 	// Cache should not be poisoned: a subsequent successful call must hit
@@ -191,5 +186,4 @@ func TestResolveJobForRun_PropagatesError(t *testing.T) {
 			job.
 				ID != "job-err",
 	)
-
 }

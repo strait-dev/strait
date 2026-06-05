@@ -78,8 +78,7 @@ func TestCtxAwareDBTX_NoContext_RoutesToPool(t *testing.T) {
 
 			"Exec error = %v", err)
 	}
-	require.EqualValues(t, 1, poolCalls)
-
+	require.Equal(t, 1, poolCalls)
 }
 
 func TestCtxAwareDBTX_WithContext_RoutesToTx(t *testing.T) {
@@ -108,11 +107,10 @@ func TestCtxAwareDBTX_WithContext_RoutesToTx(t *testing.T) {
 		rows.Close()
 	}
 	_ = wrapper.QueryRow(ctx, "SELECT 3")
-	require.EqualValues(t, 1, tx.execCalls)
-	require.EqualValues(t, 1, tx.queryCalls)
-	require.EqualValues(t, 1, tx.queryRowCalls)
-	require.EqualValues(t, 0, poolCalls)
-
+	require.Equal(t, 1, tx.execCalls)
+	require.Equal(t, 1, tx.queryCalls)
+	require.Equal(t, 1, tx.queryRowCalls)
+	require.Equal(t, 0, poolCalls)
 }
 
 func TestCtxAwareDBTX_BeginWithContextUsesAmbientTxSavepoint(t *testing.T) {
@@ -132,9 +130,8 @@ func TestCtxAwareDBTX_BeginWithContextUsesAmbientTxSavepoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(
 		t, nested)
-	require.EqualValues(t, 1, tx.beginCalls)
-	require.EqualValues(t, 0, poolBeginCalls)
-
+	require.Equal(t, 1, tx.beginCalls)
+	require.Equal(t, 0, poolBeginCalls)
 }
 
 func TestCtxAwareDBTX_BeginTxWithContextRejectsCustomOptions(t *testing.T) {
@@ -146,7 +143,6 @@ func TestCtxAwareDBTX_BeginTxWithContextRejectsCustomOptions(t *testing.T) {
 	_, err := wrapper.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	require.Error(t,
 		err)
-
 }
 
 func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
@@ -191,7 +187,6 @@ func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
 		iters, txB.
 			execCalls,
 	)
-
 }
 
 func TestCtxAwareDBTX_TxErrorPropagates(t *testing.T) {
@@ -207,9 +202,8 @@ func TestCtxAwareDBTX_TxErrorPropagates(t *testing.T) {
 	ctx := ContextWithTx(context.Background(), tx)
 
 	_, err := wrapper.Exec(ctx, "SELECT 1")
-	require.True(t,
-		errors.Is(err, sentinel))
-
+	require.ErrorIs(t,
+		err, sentinel)
 }
 
 func TestNewWithContextRouting_FallsThroughToPoolWithoutTx(t *testing.T) {
@@ -225,7 +219,6 @@ func TestNewWithContextRouting_FallsThroughToPoolWithoutTx(t *testing.T) {
 
 	// Call a store method that issues q.db.Exec under the hood. Use a simple
 	// generic path: SetProjectContext runs q.db.Exec.
-
 }
 
 func TestTxFromContext_MissingReturnsFalse(t *testing.T) {
@@ -234,7 +227,6 @@ func TestTxFromContext_MissingReturnsFalse(t *testing.T) {
 	_, ok := TxFromContext(context.Background())
 	require.False(t,
 		ok)
-
 }
 
 func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
@@ -254,5 +246,4 @@ func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
 	require.Equal(t,
 		"kept",
 		ctx.Value(valueKey{}))
-
 }

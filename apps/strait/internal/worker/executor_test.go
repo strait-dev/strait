@@ -378,7 +378,6 @@ func requireNoStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.R
 
 	for _, call := range calls {
 		require.NotEqual(t, to, call.to)
-
 	}
 }
 

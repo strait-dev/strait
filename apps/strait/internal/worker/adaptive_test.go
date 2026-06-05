@@ -13,8 +13,7 @@ func TestAdaptiveConcurrency_TieredScaleUp_DeepQueue(t *testing.T) {
 	// Queue > 1000: doubles concurrency (factor = 1.0).
 	a := NewAdaptiveConcurrency(5, 200, 50)
 	next := a.Observe(1500, 0.85)
-	require.EqualValues(t, 100, next)
-
+	require.Equal(t, 100, next)
 }
 
 func TestAdaptiveConcurrency_TieredScaleUp_ModerateQueue(t *testing.T) {
@@ -23,8 +22,7 @@ func TestAdaptiveConcurrency_TieredScaleUp_ModerateQueue(t *testing.T) {
 	// Queue > 100: 50% increase.
 	a := NewAdaptiveConcurrency(5, 200, 40)
 	next := a.Observe(500, 0.85)
-	require.EqualValues(t, 60, next)
-
+	require.Equal(t, 60, next)
 }
 
 func TestAdaptiveConcurrency_TieredScaleUp_MildQueue(t *testing.T) {
@@ -33,8 +31,7 @@ func TestAdaptiveConcurrency_TieredScaleUp_MildQueue(t *testing.T) {
 	// Queue > 2*current but <= 100: 25% increase.
 	a := NewAdaptiveConcurrency(5, 200, 8)
 	next := a.Observe(17, 0.81)
-	require.EqualValues(t, 10, next)
-
+	require.Equal(t, 10, next)
 }
 
 func TestAdaptiveConcurrency_ScaleUp_UtilizationThreshold(t *testing.T) {
@@ -43,13 +40,12 @@ func TestAdaptiveConcurrency_ScaleUp_UtilizationThreshold(t *testing.T) {
 	// At 0.70 utilization (new threshold): should scale up.
 	a := NewAdaptiveConcurrency(5, 200, 20)
 	next := a.Observe(500, 0.71)
-	require.EqualValues(t, 30, next)
+	require.Equal(t, 30, next)
 
 	// At 0.69 utilization: should NOT scale up.
 	b := NewAdaptiveConcurrency(5, 200, 20)
 	next = b.Observe(500, 0.69)
-	require.EqualValues(t, 20, next)
-
+	require.Equal(t, 20, next)
 }
 
 func TestAdaptiveConcurrency_FasterScaleDown(t *testing.T) {
@@ -58,13 +54,12 @@ func TestAdaptiveConcurrency_FasterScaleDown(t *testing.T) {
 	// 33% decrease after 2 idle checks (was 25%).
 	a := NewAdaptiveConcurrency(5, 40, 30)
 	first := a.Observe(0, 0.10)
-	require.EqualValues(t, 30, first)
+	require.Equal(t, 30, first)
 
 	second := a.Observe(0, 0.10)
-	require.EqualValues(t, 20, second)
+	require.Equal(t, 20, second)
 
 	// 30 * 0.33 = 9.9 -> ceil = 10; 30 - 10 = 20
-
 }
 
 func TestAdaptiveConcurrency_DoesNotShedAtColdIdle(t *testing.T) {
@@ -73,8 +68,7 @@ func TestAdaptiveConcurrency_DoesNotShedAtColdIdle(t *testing.T) {
 	a := NewAdaptiveConcurrency(5, 40, 30)
 	for range 10 {
 		next := a.Observe(0, 0)
-		require.EqualValues(t, 30, next)
-
+		require.Equal(t, 30, next)
 	}
 }
 
@@ -84,10 +78,9 @@ func TestAdaptiveConcurrency_ScaleDownRespectsMin(t *testing.T) {
 	a := NewAdaptiveConcurrency(5, 12, 6)
 	_ = a.Observe(0, 0.10)
 	next := a.Observe(0, 0.10)
-	require.EqualValues(t, 5, next)
+	require.Equal(t, 5, next)
 
 	// 6 * 0.33 = 1.98 -> ceil = 2; 6 - 2 = 4 -> clamped to min 5
-
 }
 
 func TestAdaptiveConcurrency_ScaleUpRespectsMax(t *testing.T) {
@@ -96,8 +89,7 @@ func TestAdaptiveConcurrency_ScaleUpRespectsMax(t *testing.T) {
 	// Deep queue on a system near max: doubling would exceed max.
 	a := NewAdaptiveConcurrency(5, 80, 60)
 	next := a.Observe(2000, 0.90)
-	require.EqualValues(t, 80, next)
-
+	require.Equal(t, 80, next)
 }
 
 func TestAdaptiveConcurrency_NoFlapping(t *testing.T) {
@@ -110,17 +102,16 @@ func TestAdaptiveConcurrency_NoFlapping(t *testing.T) {
 	a.Observe(0, 0.10)
 	// Spike resets idle counter and scales up.
 	after := a.Observe(500, 0.85)
-	require.EqualValues(t, 30, after)
+	require.Equal(t, 30, after)
 
 	// One idle check: no scale-down because only 1 idle check since spike.
 	next := a.Observe(0, 0.10)
-	require.EqualValues(t, 30, next)
+	require.Equal(t, 30, next)
 
 	// Second idle: NOW scale down.
 	next = a.Observe(0, 0.10)
-	require.False(
-		t, next >= 30)
-
+	require.Less(
+		t, next, 30)
 }
 
 func TestAdaptiveConcurrency_RespectsBounds(t *testing.T) {
@@ -128,13 +119,12 @@ func TestAdaptiveConcurrency_RespectsBounds(t *testing.T) {
 
 	a := NewAdaptiveConcurrency(5, 12, 12)
 	next := a.Observe(2000, 1.0)
-	require.EqualValues(t, 12, next)
+	require.Equal(t, 12, next)
 
 	b := NewAdaptiveConcurrency(5, 12, 5)
 	_ = b.Observe(0, 0.10)
 	next = b.Observe(0, 0.10)
-	require.EqualValues(t, 5, next)
-
+	require.Equal(t, 5, next)
 }
 
 func TestAdaptiveConcurrency_Constructor_Clamps(t *testing.T) {
@@ -158,7 +148,6 @@ func TestAdaptiveConcurrency_Constructor_Clamps(t *testing.T) {
 			assert.Equal(
 				t,
 				tt.wantCurrent, a.CurrentLimit())
-
 		})
 	}
 }
@@ -169,10 +158,9 @@ func TestAdaptiveConcurrency_QueueNotDeepEnough(t *testing.T) {
 	// Queue depth <= 2*current: no scale-up even with high utilization.
 	a := NewAdaptiveConcurrency(5, 100, 20)
 	next := a.Observe(39, 0.90)
-	require.EqualValues(t, 20, next)
+	require.Equal(t, 20, next)
 
 	// 39 <= 20*2 = 40
-
 }
 
 func TestAdaptiveConcurrency_IdleCheckResetOnActivity(t *testing.T) {
@@ -188,10 +176,9 @@ func TestAdaptiveConcurrency_IdleCheckResetOnActivity(t *testing.T) {
 	a.Observe(0, 0.10)
 	// Second idle check: now should scale down.
 	next := a.Observe(0, 0.10)
-	require.EqualValues(t, 13, next)
+	require.Equal(t, 13, next)
 
 	// 20 * 0.33 = 6.6 -> ceil = 7; 20 - 7 = 13
-
 }
 
 func BenchmarkAdaptiveConcurrencyObserveIdle(b *testing.B) {

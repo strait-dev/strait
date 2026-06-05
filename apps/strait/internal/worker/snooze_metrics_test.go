@@ -37,7 +37,6 @@ func setupSnoozeSkippedMetrics(t *testing.T) *sdkmetric.ManualReader {
 				Shutdown(
 					context.
 						Background()))
-
 	})
 	return reader
 }
@@ -97,7 +96,6 @@ func TestSnoozeRun_LockedIncrementsCounter(t *testing.T) {
 		reader, string(domain.StatusDequeued), "conflict",
 	),
 	)
-
 }
 
 func TestSnoozeRun_ConflictIncrementsCounter(t *testing.T) {
@@ -118,7 +116,6 @@ func TestSnoozeRun_ConflictIncrementsCounter(t *testing.T) {
 		reader, string(domain.StatusDequeued), "conflict",
 	),
 	)
-
 }
 
 func TestSnoozeRunFromExecuting_LockedIncrementsCounter(t *testing.T) {
@@ -138,7 +135,6 @@ func TestSnoozeRunFromExecuting_LockedIncrementsCounter(t *testing.T) {
 		t,
 		reader, string(domain.StatusExecuting), "locked"),
 	)
-
 }
 
 func TestSnoozeRun_HappyPathDoesNotIncrementCounter(t *testing.T) {
@@ -162,5 +158,4 @@ func TestSnoozeRun_HappyPathDoesNotIncrementCounter(t *testing.T) {
 		reader, string(domain.StatusDequeued), "conflict",
 	),
 	)
-
 }

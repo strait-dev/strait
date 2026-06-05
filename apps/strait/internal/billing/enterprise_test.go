@@ -24,14 +24,12 @@ func TestEnterpriseTierConstants(t *testing.T) {
 	assert.Equal(t, EnterpriseTierLarge,
 
 		tiers[2])
-
 }
 
 func TestIsValidEnterpriseTier_ValidTiers(t *testing.T) {
 	t.Parallel()
 	for _, tier := range AllEnterpriseTiers() {
 		assert.True(t, IsValidEnterpriseTier(tier))
-
 	}
 }
 
@@ -44,7 +42,6 @@ func TestIsValidEnterpriseTier_InvalidTiers(t *testing.T) {
 	}
 	for _, tier := range invalid {
 		assert.False(t, IsValidEnterpriseTier(tier))
-
 	}
 }
 
@@ -59,30 +56,25 @@ func TestEnterpriseConfigCompleteness(t *testing.T) {
 			cfg.
 				Tier,
 		)
-		assert.NotEqual(t,
-			"", cfg.
+		assert.NotEmpty(t,
+			cfg.
 				DisplayName,
 		)
-		assert.False(t, cfg.
-			AnnualCommitmentCents <=
-			0)
-		assert.False(t, cfg.
-			MonthlyEquivalentCents <=
-			0)
-		assert.False(t, cfg.
-			OverageDiscountPct <=
-			0)
+		assert.Positive(t, cfg.
+			AnnualCommitmentCents)
+		assert.Positive(t, cfg.
+			MonthlyEquivalentCents)
+		assert.Positive(t, cfg.
+			OverageDiscountPct)
 		assert.GreaterOrEqual(t,
 			cfg.
 				UptimeSLAPct, 99.0)
-		assert.False(t, cfg.
-			MaxDowntimeMinutes <=
-			0)
+		assert.Positive(t, cfg.
+			MaxDowntimeMinutes)
 		assert.False(t, cfg.
 			SupportResponseP1 ==
 			"" || cfg.SupportResponseP2 ==
 			"" || cfg.SupportResponseP3 == "")
-
 	}
 }
 
@@ -100,18 +92,17 @@ func TestEnterpriseConfigValues_StarterTier(t *testing.T) {
 	assert.EqualValues(t, 1_500_000_000,
 
 		cfg.PlatformFeeMicrousd)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		cfg.OverageDiscountPct,
 	)
-	assert.EqualValues(t, 99.9,
+	assert.InDelta(t, 99.9,
 		cfg.
-			UptimeSLAPct,
+			UptimeSLAPct, 1e-9,
 	)
-	assert.EqualValues(t, 43.8,
+	assert.InDelta(t, 43.8,
 		cfg.
-			MaxDowntimeMinutes,
+			MaxDowntimeMinutes, 1e-9,
 	)
-
 }
 
 func TestEnterpriseConfigValues_GrowthTier(t *testing.T) {
@@ -128,18 +119,17 @@ func TestEnterpriseConfigValues_GrowthTier(t *testing.T) {
 	assert.EqualValues(t, 4_000_000_000,
 
 		cfg.PlatformFeeMicrousd)
-	assert.EqualValues(t, 15,
+	assert.Equal(t, 15,
 		cfg.OverageDiscountPct,
 	)
-	assert.EqualValues(t, 99.95,
+	assert.InDelta(t, 99.95,
 		cfg.
-			UptimeSLAPct,
+			UptimeSLAPct, 1e-9,
 	)
-	assert.EqualValues(t, 21.9,
+	assert.InDelta(t, 21.9,
 		cfg.
-			MaxDowntimeMinutes,
+			MaxDowntimeMinutes, 1e-9,
 	)
-
 }
 
 func TestEnterpriseConfigValues_LargeTier(t *testing.T) {
@@ -149,14 +139,13 @@ func TestEnterpriseConfigValues_LargeTier(t *testing.T) {
 
 		cfg.
 			AnnualCommitmentCents)
-	assert.EqualValues(t, 20,
+	assert.Equal(t, 20,
 		cfg.OverageDiscountPct,
 	)
-	assert.EqualValues(t, 99.95,
+	assert.InDelta(t, 99.95,
 		cfg.
-			UptimeSLAPct,
+			UptimeSLAPct, 1e-9,
 	)
-
 }
 
 func TestPlatformFee_ConsistentWithCommitment(t *testing.T) {
@@ -172,7 +161,6 @@ func TestPlatformFee_ConsistentWithCommitment(t *testing.T) {
 		MonthlyEquivalentCents/
 		100, growth.
 		PlatformFeeMicrousd/1_000_000)
-
 }
 
 func TestGetEnterpriseConfig_ValidTiers(t *testing.T) {
@@ -183,7 +171,6 @@ func TestGetEnterpriseConfig_ValidTiers(t *testing.T) {
 			cfg.
 				Tier,
 		)
-
 	}
 }
 
@@ -193,7 +180,6 @@ func TestGetEnterpriseConfig_UnknownTierReturnsFallback(t *testing.T) {
 	assert.Equal(t, EnterpriseTierStarter,
 
 		cfg.Tier)
-
 }
 
 // ApplyOverageDiscount tests.
@@ -219,7 +205,6 @@ func TestApplyOverageDiscount_AllTiers(t *testing.T) {
 				want,
 				got,
 			)
-
 		})
 	}
 }
@@ -228,7 +213,6 @@ func TestApplyOverageDiscount_ZeroCost(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(0, 10))
-
 }
 
 func TestApplyOverageDiscount_ZeroDiscount(t *testing.T) {
@@ -236,14 +220,12 @@ func TestApplyOverageDiscount_ZeroDiscount(t *testing.T) {
 	cost := int64(500_000)
 	assert.Equal(t, cost,
 		ApplyOverageDiscount(cost, 0))
-
 }
 
 func TestApplyOverageDiscount_FullDiscount(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(1_000_000, 100))
-
 }
 
 // Contract validation tests.
@@ -262,7 +244,6 @@ func TestValidateEnterpriseContract_Valid(t *testing.T) {
 	}
 	require.NoError(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_EmptyOrgID(t *testing.T) {
@@ -277,7 +258,6 @@ func TestValidateEnterpriseContract_EmptyOrgID(t *testing.T) {
 	}
 	require.Error(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_InvalidTier(t *testing.T) {
@@ -292,7 +272,6 @@ func TestValidateEnterpriseContract_InvalidTier(t *testing.T) {
 	}
 	require.Error(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_BelowMinCommitment(t *testing.T) {
@@ -307,7 +286,6 @@ func TestValidateEnterpriseContract_BelowMinCommitment(t *testing.T) {
 	}
 	require.Error(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_EndBeforeStart(t *testing.T) {
@@ -323,7 +301,6 @@ func TestValidateEnterpriseContract_EndBeforeStart(t *testing.T) {
 	}
 	require.Error(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_InvalidCadence(t *testing.T) {
@@ -338,7 +315,6 @@ func TestValidateEnterpriseContract_InvalidCadence(t *testing.T) {
 	}
 	require.Error(t,
 		ValidateEnterpriseContract(c))
-
 }
 
 func TestIsValidBillingCadence(t *testing.T) {
@@ -346,12 +322,10 @@ func TestIsValidBillingCadence(t *testing.T) {
 	valid := []string{"annual", "quarterly"}
 	for _, c := range valid {
 		assert.True(t, IsValidBillingCadence(c))
-
 	}
 	invalid := []string{"", "monthly", "weekly", "daily", "ANNUAL"}
 	for _, c := range invalid {
 		assert.False(t, IsValidBillingCadence(c))
-
 	}
 }
 
@@ -359,11 +333,10 @@ func TestIsValidBillingCadence(t *testing.T) {
 
 func TestCalculateSLACredit_AboveThreshold(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.95, EnterpriseStarterSLAPct))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(100.0, EnterpriseStarterSLAPct))
-
 }
 
 func TestCalculateSLACredit_AllTiers(t *testing.T) {
@@ -385,30 +358,28 @@ func TestCalculateSLACredit_AllTiers(t *testing.T) {
 		assert.Equal(t, tt.
 			want,
 			CalculateSLACredit(tt.uptime, EnterpriseStarterSLAPct))
-
 	}
 }
 
 func TestCalculateSLACredit_ExactBoundary999(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.9, EnterpriseStarterSLAPct))
 
 	// Exactly 99.9 is at the SLA threshold for Starter, so no credit.
-
 }
 
 func TestCalculateSLACredit_PerTierSLATarget(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		CalculateSLACredit(99.92, EnterpriseGrowthSLAPct))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.92, EnterpriseStarterSLAPct))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.95, EnterpriseGrowthSLAPct))
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		CalculateSLACredit(99.94, EnterpriseGrowthSLAPct))
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		CalculateSLACredit(99.93, EnterpriseLargeSLAPct))
 
 	// Growth/Large tiers have 99.95% SLA, so 99.92% is below target and should get credit.
@@ -420,25 +391,22 @@ func TestCalculateSLACredit_PerTierSLATarget(t *testing.T) {
 	// 99.94% just below Growth SLA -- should get credit.
 
 	// Large tier with same SLA as Growth.
-
 }
 
 func TestCalculateSLACredit_CustomSLATarget(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		CalculateSLACredit(99.98, 99.99))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.99, 99.99))
 
 	// Verify arbitrary SLA targets work (e.g. custom enterprise contracts).
-
 }
 
 func TestApplyOverageDiscount_NegativeCostReturnsZero(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(-100, 10))
-
 }
 
 func TestApplyOverageDiscount_BoundaryDiscount1(t *testing.T) {
@@ -446,7 +414,6 @@ func TestApplyOverageDiscount_BoundaryDiscount1(t *testing.T) {
 	got := ApplyOverageDiscount(1000, 1)
 	assert.EqualValues(t, 990,
 		got)
-
 }
 
 func TestApplyOverageDiscount_BoundaryDiscount99(t *testing.T) {
@@ -454,14 +421,12 @@ func TestApplyOverageDiscount_BoundaryDiscount99(t *testing.T) {
 	got := ApplyOverageDiscount(1000, 99)
 	assert.EqualValues(t, 10,
 		got)
-
 }
 
 func TestApplyOverageDiscount_Over100(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(1000, 150))
-
 }
 
 func TestValidateEnterpriseContract_DiscountBoundaries(t *testing.T) {
@@ -480,25 +445,24 @@ func TestValidateEnterpriseContract_DiscountBoundaries(t *testing.T) {
 	// Discount at 0 should pass.
 	c := base()
 	c.OverageDiscountPct = 0
-	assert.NoError(t,
+	require.NoError(t,
 		ValidateEnterpriseContract(c))
 
 	// Discount at 100 should pass.
 	c = base()
 	c.OverageDiscountPct = 100
-	assert.NoError(t,
+	require.NoError(t,
 		ValidateEnterpriseContract(c))
 
 	// Discount at -1 should fail.
 	c = base()
 	c.OverageDiscountPct = -1
-	assert.Error(t, ValidateEnterpriseContract(c))
+	require.Error(t, ValidateEnterpriseContract(c))
 
 	// Discount at 101 should fail.
 	c = base()
 	c.OverageDiscountPct = 101
 	assert.Error(t, ValidateEnterpriseContract(c))
-
 }
 
 func TestValidateEnterpriseContract_ExactMinCommitment(t *testing.T) {
@@ -513,5 +477,4 @@ func TestValidateEnterpriseContract_ExactMinCommitment(t *testing.T) {
 	}
 	assert.NoError(t,
 		ValidateEnterpriseContract(c))
-
 }

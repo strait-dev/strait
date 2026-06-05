@@ -72,7 +72,6 @@ func TestCalculateErrorBudget_SuccessRate(t *testing.T) {
 				tt.wantMin ||
 				got > tt.
 					wantMax)
-
 		})
 	}
 }
@@ -121,7 +120,6 @@ func TestCalculateErrorBudget_Latency(t *testing.T) {
 				tt.wantMin ||
 				got > tt.
 					wantMax)
-
 		})
 	}
 }
@@ -129,9 +127,8 @@ func TestCalculateErrorBudget_Latency(t *testing.T) {
 func TestCalculateErrorBudget_UnknownMetric(t *testing.T) {
 	t.Parallel()
 	got := CalculateErrorBudget(0.5, 0.99, "unknown_metric")
-	assert.EqualValues(t, 1.0,
-		got)
-
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_BudgetClamping(t *testing.T) {
@@ -146,7 +143,6 @@ func TestCalculateErrorBudget_BudgetClamping(t *testing.T) {
 					assert.False(t, budget <
 						0 || budget >
 						1)
-
 				}
 			}
 		})
@@ -166,9 +162,8 @@ func TestJobSLOStatus_Fields(t *testing.T) {
 	assert.Equal(t, "success_rate",
 		slo.
 			Metric)
-	assert.EqualValues(t, 24,
+	assert.Equal(t, 24,
 		slo.WindowHours)
-
 }
 
 func TestSLOMetricConstants(t *testing.T) {
@@ -188,7 +183,6 @@ func TestSLOMetricConstants(t *testing.T) {
 			assert.Equal(t, tt.
 				expected, tt.constant,
 			)
-
 		})
 	}
 }
@@ -216,8 +210,7 @@ func TestSLOEvaluator_WebhookFiredWhenBudgetLow(t *testing.T) {
 	notifier := &mockSLOWebhookNotifier{}
 
 	budget := CalculateErrorBudget(0.90, 0.99, domain.SLOMetricSuccessRate)
-	require.False(t, budget >=
-		0.2)
+	require.Less(t, budget, 0.2)
 
 	// Verify the notifier interface works by calling it directly
 	err := notifier.NotifySLOBudgetWarning(context.Background(), "proj-1", json.RawMessage(`{}`))
@@ -228,7 +221,6 @@ func TestSLOEvaluator_WebhookFiredWhenBudgetLow(t *testing.T) {
 	assert.Equal(t, "proj-1",
 		notifier.calls[0].
 			projectID)
-
 }
 
 func TestSLOEvaluator_WebhookNotFiredWhenBudgetHealthy(t *testing.T) {
@@ -237,7 +229,6 @@ func TestSLOEvaluator_WebhookNotFiredWhenBudgetHealthy(t *testing.T) {
 	// current=1.0, target=0.99 => budget=1.0 (fully within budget)
 	budget := CalculateErrorBudget(1.0, 0.99, domain.SLOMetricSuccessRate)
 	require.GreaterOrEqual(t, budget, 0.2)
-
 }
 
 func TestMetricValue(t *testing.T) {
@@ -263,9 +254,8 @@ func TestMetricValue(t *testing.T) {
 		t.Run(fmt.Sprintf("metric_%s", tt.metric), func(t *testing.T) {
 			t.Parallel()
 			got := metricValue(tt.metric, stats)
-			assert.Equal(t, tt.
-				expected, got)
-
+			assert.InDelta(t, tt.
+				expected, got, 1e-9)
 		})
 	}
 }
@@ -282,7 +272,6 @@ func TestHasSLOData_SkipsIdleWindows(t *testing.T) {
 	require.False(t, hasSLOData("unknown",
 		&store.
 			JobHealthStats{TotalRuns: 1}))
-
 }
 
 func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
@@ -295,10 +284,9 @@ func TestSLOEvaluator_AdvisoryLockerNotAcquiredSkipsEvaluation(t *testing.T) {
 	require.NoError(t,
 		err)
 	require.False(t, acquired)
-	require.EqualValues(t, 1,
+	require.Equal(t, 1,
 		locker.tryCalls)
-	require.EqualValues(t, 0,
+	require.Equal(t, 0,
 		locker.releaseCalls,
 	)
-
 }

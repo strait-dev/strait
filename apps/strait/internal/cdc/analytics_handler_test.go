@@ -47,8 +47,7 @@ func TestAnalyticsHandler_CompletedRun_Enqueues(t *testing.T) {
 	require.NoError(t, err)
 
 	pending := exp.PendingLen()
-	require.EqualValues(t, 1, pending)
-
+	require.Equal(t, 1, pending)
 }
 
 func TestAnalyticsHandler_RedeliveredTerminalUpdateEnqueuesOnce(t *testing.T) {
@@ -85,8 +84,7 @@ func TestAnalyticsHandler_RedeliveredTerminalUpdateEnqueuesOnce(t *testing.T) {
 		Background(),
 
 		msg))
-	require.EqualValues(t, 1, exp.PendingLen())
-
+	require.Equal(t, 1, exp.PendingLen())
 }
 
 func TestAnalyticsHandler_NonTerminal_Skipped(t *testing.T) {
@@ -96,8 +94,7 @@ func TestAnalyticsHandler_NonTerminal_Skipped(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("executing", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-	require.EqualValues(t, 0, exp.PendingLen())
-
+	require.Equal(t, 0, exp.PendingLen())
 }
 
 func TestAnalyticsHandler_NilExporter_NoError(t *testing.T) {
@@ -106,7 +103,6 @@ func TestAnalyticsHandler_NilExporter_NoError(t *testing.T) {
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
 	require.NoError(t, err)
-
 }
 
 func TestAnalyticsHandler_ComputesDuration(t *testing.T) {
@@ -136,13 +132,12 @@ func TestAnalyticsHandler_ComputesDuration(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, exp.PendingLen())
+	require.Equal(t, 1, exp.PendingLen())
 
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
 	require.True(
 		t, ok)
 	assert.EqualValues(t, 5000, rec.DurationMs)
-
 }
 
 func TestAnalyticsHandler_InvalidJSON_ReturnsError(t *testing.T) {
@@ -158,7 +153,6 @@ func TestAnalyticsHandler_InvalidJSON_ReturnsError(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.Error(t, err)
-
 }
 
 func TestAnalyticsHandler_ZeroDuration(t *testing.T) {
@@ -178,13 +172,12 @@ func TestAnalyticsHandler_ZeroDuration(t *testing.T) {
 		Background(),
 
 		msg))
-	require.EqualValues(t, 1, exp.PendingLen())
+	require.Equal(t, 1, exp.PendingLen())
 
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
 	require.True(
 		t, ok)
 	assert.EqualValues(t, 0, rec.DurationMs)
-
 }
 
 func TestAnalyticsHandler_NegativeDuration(t *testing.T) {
@@ -212,7 +205,6 @@ func TestAnalyticsHandler_NegativeDuration(t *testing.T) {
 	require.True(
 		t, ok)
 	assert.EqualValues(t, 0, rec.DurationMs)
-
 }
 
 func TestAnalyticsHandler_NilStartedAt(t *testing.T) {
@@ -236,7 +228,6 @@ func TestAnalyticsHandler_NilStartedAt(t *testing.T) {
 	require.True(
 		t, ok)
 	assert.EqualValues(t, 0, rec.DurationMs)
-
 }
 
 func TestAnalyticsHandler_NilFinishedAt(t *testing.T) {
@@ -260,7 +251,6 @@ func TestAnalyticsHandler_NilFinishedAt(t *testing.T) {
 	require.True(
 		t, ok)
 	assert.EqualValues(t, 0, rec.DurationMs)
-
 }
 
 func TestAnalyticsHandler_EnqueueFails(t *testing.T) {
@@ -279,6 +269,5 @@ func TestAnalyticsHandler_EnqueueFails(t *testing.T) {
 
 	err := h.Handle(context.Background(), msg)
 	require.NoError(t, err)
-	require.EqualValues(t, 0, exp.PendingLen())
-
+	require.Equal(t, 0, exp.PendingLen())
 }

@@ -98,8 +98,8 @@ func TestReaderDiscipline_JobRunsSelectsFilterVisibility(t *testing.T) {
 
 	// Most readers are still unmigrated. We do not want this test to
 	// fail the build before the migration is complete, so for now it is a
-		// reporting-only test with an explicit t.Log of the count. Flip to a
-		// failing assertion once readers are fully migrated.
+	// reporting-only test with an explicit t.Log of the count. Flip to a
+	// failing assertion once readers are fully migrated.
 	if len(violations) > 0 {
 		t.Logf("reader discipline: %d unfiltered SELECT FROM job_runs queries", len(violations))
 		for _, v := range violations[:min(10, len(violations))] {

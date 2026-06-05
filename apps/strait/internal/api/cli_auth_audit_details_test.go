@@ -71,7 +71,7 @@ func TestApproveDeviceCodeAuditCarriesAPIKeyID(t *testing.T) {
 
 			"handleApproveDeviceCode() error = %v", err)
 	}
-	require.NotEqual(t, "", persistedAPIKeyID)
+	require.NotEmpty(t, persistedAPIKeyID)
 	require.NotEqual(t, "store-assigned-id",
 
 		persistedAPIKeyID,
@@ -93,10 +93,9 @@ func TestApproveDeviceCodeAuditCarriesAPIKeyID(t *testing.T) {
 		&details))
 
 	got, _ := details["api_key_id"].(string)
-	require.NotEqual(t, "", got)
+	require.NotEmpty(t, got)
 	require.Equal(t, persistedAPIKeyID,
 		got)
-
 }
 
 // TestApproveDeviceCodeAuditAPIKeyIDIsValidUUIDv7 ensures the
@@ -153,5 +152,4 @@ func TestApproveDeviceCodeAuditAPIKeyIDIsValidUUIDv7(t *testing.T) {
 		ID[14])
 
 	// UUIDv7 layout: xxxxxxxx-xxxx-7xxx-xxxx-xxxxxxxxxxxx (version nibble at index 14).
-
 }

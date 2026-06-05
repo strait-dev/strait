@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +23,6 @@ func TestNewAnalyticsStore_NilBoth(t *testing.T) {
 	require.NotNil(t, s)
 	assert.Nil(t, s.client)
 	assert.Nil(t, s.pgFallback)
-
 }
 
 func TestNewPgHealthAdapter(t *testing.T) {
@@ -33,7 +31,6 @@ func TestNewPgHealthAdapter(t *testing.T) {
 	a := NewPgHealthAdapter(nil)
 	require.NotNil(t, a)
 	assert.Nil(t, a.pool)
-
 }
 
 // AnalyticsStore methods with nil client -- only for methods that call
@@ -175,7 +172,6 @@ func TestAnalyticsStore_NilClient_QueryMethods(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -226,7 +222,6 @@ func TestAnalyticsStore_ClosedDB_QueryRowMethods(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
 			require.Error(t, err)
-
 		})
 	}
 }
@@ -240,10 +235,8 @@ func TestAnalyticsStore_ClosedDB_GetPerformanceAnalytics(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", 24)
 	require.Error(t, err)
-	assert.True(t, strings.Contains(err.
-		Error(),
-		"slowest jobs"))
-
+	assert.Contains(t, err.
+		Error(), "slowest jobs")
 }
 
 func TestAnalyticsStore_ClosedDB_GetCostAnalytics(t *testing.T) {
@@ -254,7 +247,6 @@ func TestAnalyticsStore_ClosedDB_GetCostAnalytics(t *testing.T) {
 	now := time.Now()
 	_, err := s.GetCostAnalytics(context.Background(), "proj-1", now.Add(-24*time.Hour), now)
 	require.Error(t, err)
-
 }
 
 // AnalyticsStore with failing pgFallback
@@ -283,7 +275,6 @@ func TestAnalyticsStore_PgFallback_CountJobsError(t *testing.T) {
 	s := NewAnalyticsStore(nil, fallback)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", 24)
 	require.Error(t, err)
-
 }
 
 // isShortPeriod edge cases
@@ -295,7 +286,6 @@ func TestIsShortPeriod_Exact24Hours(t *testing.T) {
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
 	assert.True(t, isShortPeriod(from,
 		to))
-
 }
 
 func TestIsShortPeriod_OneNanosecondOver(t *testing.T) {
@@ -305,7 +295,6 @@ func TestIsShortPeriod_OneNanosecondOver(t *testing.T) {
 	to := from.Add(24*time.Hour + time.Nanosecond)
 	assert.False(t, isShortPeriod(from,
 		to))
-
 }
 
 func TestIsShortPeriod_ZeroDuration(t *testing.T) {
@@ -314,7 +303,6 @@ func TestIsShortPeriod_ZeroDuration(t *testing.T) {
 	now := time.Now()
 	assert.True(t, isShortPeriod(now,
 		now))
-
 }
 
 func TestIsShortPeriod_NegativeDuration(t *testing.T) {
@@ -326,7 +314,6 @@ func TestIsShortPeriod_NegativeDuration(t *testing.T) {
 			Hour)))
 
 	// from > to: negative duration should be "short" (less than 24h).
-
 }
 
 // Bucket parameter variations for timeline queries with closed db
@@ -340,7 +327,6 @@ func TestAnalyticsStore_CostTrends_ShortPeriod(t *testing.T) {
 	// Short period (< 24h) exercises the toStartOfHour branch.
 	_, err := s.GetCostTrends(context.Background(), "proj-1", now.Add(-time.Hour), now)
 	require.Error(t, err)
-
 }
 
 func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
@@ -352,7 +338,6 @@ func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
 	// Long period (> 24h) exercises the toStartOfDay branch.
 	_, err := s.GetCostTrends(context.Background(), "proj-1", now.Add(-7*24*time.Hour), now)
 	require.Error(t, err)
-
 }
 
 // Helpers

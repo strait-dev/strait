@@ -33,7 +33,6 @@ func FuzzIdempotencyAdvisoryKey_DeterministicAndDistinct(f *testing.F) {
 			require.NotEqual(
 				t,
 				a, swapped)
-
 		}
 	})
 }

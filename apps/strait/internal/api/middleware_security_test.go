@@ -35,7 +35,6 @@ func TestSecurityHeaders(t *testing.T) {
 			got := rec.Header().Get(header)
 			assert.Equal(t,
 				want, got)
-
 		}
 	})
 
@@ -43,9 +42,8 @@ func TestSecurityHeaders(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.Equal(t,
-			"", rec.Header().Get("Strict-Transport-Security"))
-
+		assert.Empty(t,
+			rec.Header().Get("Strict-Transport-Security"))
 	})
 
 	t.Run("HSTS set on TLS", func(t *testing.T) {
@@ -57,7 +55,6 @@ func TestSecurityHeaders(t *testing.T) {
 		want := "max-age=63072000; includeSubDomains"
 		assert.Equal(t,
 			want, rec.Header().Get("Strict-Transport-Security"))
-
 	})
 
 	t.Run("HSTS set via X-Forwarded-Proto", func(t *testing.T) {
@@ -65,9 +62,8 @@ func TestSecurityHeaders(t *testing.T) {
 		req.Header.Set("X-Forwarded-Proto", "https")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		assert.NotEqual(
-			t, "", rec.Header().Get("Strict-Transport-Security"))
-
+		assert.NotEmpty(
+			t, rec.Header().Get("Strict-Transport-Security"))
 	})
 }
 
@@ -81,9 +77,8 @@ func TestSecurityHeaders_StripsServerHeader(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	assert.Equal(t,
-		"", rec.Header().Get("Server"))
-
+	assert.Empty(t,
+		rec.Header().Get("Server"))
 }
 
 func TestSecurityHeaders_StripsServerHeaderOnImplicitWrite(t *testing.T) {
@@ -95,16 +90,15 @@ func TestSecurityHeaders_StripsServerHeaderOnImplicitWrite(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	assert.Equal(t,
-		"", rec.Header().Get("Server"))
-
+	assert.Empty(t,
+		rec.Header().Get("Server"))
 }
 
 func TestSecurityHeaders_StripsServerHeaderOnFlush(t *testing.T) {
 	handler := securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Server", "Fly/58128dbb4 (2026-03-25)")
 		flusher, ok := w.(http.Flusher)
-		require.True(t,
+		assert.True(t,
 			ok)
 
 		flusher.Flush()
@@ -113,11 +107,10 @@ func TestSecurityHeaders_StripsServerHeaderOnFlush(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	assert.Equal(t,
-		"", rec.Header().Get("Server"))
+	assert.Empty(t,
+		rec.Header().Get("Server"))
 	require.True(t,
 		rec.Flushed)
-
 }
 
 func TestRequestIsHTTPS(t *testing.T) {
@@ -149,7 +142,6 @@ func TestRequestIsHTTPS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t,
 				tt.want, requestIsHTTPS(tt.req))
-
 		})
 	}
 }
@@ -162,7 +154,7 @@ func TestSecureCookie_Defaults(t *testing.T) {
 	assert.Equal(t,
 		"abc123", cookie.
 			Value)
-	assert.EqualValues(t, 3600, cookie.
+	assert.Equal(t, 3600, cookie.
 		MaxAge)
 	assert.Equal(t,
 		"/", cookie.
@@ -177,5 +169,4 @@ func TestSecureCookie_Defaults(t *testing.T) {
 		http.SameSiteStrictMode,
 		cookie.SameSite,
 	)
-
 }

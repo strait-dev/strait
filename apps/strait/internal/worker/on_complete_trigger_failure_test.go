@@ -31,7 +31,6 @@ func TestExtractPath_FiveLevelDeep(t *testing.T) {
 	got := extractPath(data, "a.b.c.d.e")
 	assert.Equal(t,
 		"five-deep", got)
-
 }
 
 func TestExtractPath_SixLevelDeep(t *testing.T) {
@@ -50,8 +49,7 @@ func TestExtractPath_SixLevelDeep(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "l1.l2.l3.l4.l5.l6")
-	assert.EqualValues(t, 42.0, got)
-
+	assert.InDelta(t, 42.0, got, 1e-9)
 }
 
 func TestExtractPath_MissingIntermediateKey_Level2(t *testing.T) {
@@ -63,7 +61,6 @@ func TestExtractPath_MissingIntermediateKey_Level2(t *testing.T) {
 	}
 	got := extractPath(data, "a.missing.c.d")
 	assert.Nil(t, got)
-
 }
 
 func TestExtractPath_IntermediateIsArray(t *testing.T) {
@@ -75,7 +72,6 @@ func TestExtractPath_IntermediateIsArray(t *testing.T) {
 	}
 	got := extractPath(data, "a.b.c")
 	assert.Nil(t, got)
-
 }
 
 func TestExtractPath_IntermediateIsString(t *testing.T) {
@@ -87,7 +83,6 @@ func TestExtractPath_IntermediateIsString(t *testing.T) {
 	}
 	got := extractPath(data, "a.b.c")
 	assert.Nil(t, got)
-
 }
 
 func TestExtractPath_IntermediateIsNumber(t *testing.T) {
@@ -97,7 +92,6 @@ func TestExtractPath_IntermediateIsNumber(t *testing.T) {
 	}
 	got := extractPath(data, "a.b")
 	assert.Nil(t, got)
-
 }
 
 func TestExtractPath_IntermediateIsNil(t *testing.T) {
@@ -109,7 +103,6 @@ func TestExtractPath_IntermediateIsNil(t *testing.T) {
 	}
 	got := extractPath(data, "a.b.c")
 	assert.Nil(t, got)
-
 }
 
 func TestExtractPath_DeepValueIsMap(t *testing.T) {
@@ -129,7 +122,6 @@ func TestExtractPath_DeepValueIsMap(t *testing.T) {
 		ok)
 	assert.Equal(t,
 		"nested_val", m["nested_key"])
-
 }
 
 // MaybeTriggerOnFailure edge cases not covered by job_chaining_test.go.
@@ -159,9 +151,8 @@ func TestMaybeTriggerOnFailure_NoTriggerConfigured(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
-
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestMaybeTriggerOnFailure_TriggersJobAndWorkflow(t *testing.T) {
@@ -233,8 +224,8 @@ func TestMaybeTriggerOnFailure_WorkflowLookupError_ContinuesToJob(t *testing.T) 
 
 	// Workflow trigger should have been attempted but failed silently.
 	wfTrigger.mu.Lock()
-	assert.Len(t, wfTrigger.
-		calls, 0)
+	assert.Empty(t, wfTrigger.
+		calls)
 
 	wfTrigger.mu.Unlock()
 
@@ -272,9 +263,8 @@ func TestMaybeTriggerOnFailure_ChainDepthLimit(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	require.Len(t, enqueuer.
-		calls, 0)
-
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestMaybeTriggerOnFailure_JobEnqueueError_NoPanic(t *testing.T) {
@@ -443,5 +433,4 @@ func TestMaybeTrigger_ConcurrentCalls(t *testing.T) {
 	assert.Len(t, wfTrigger.
 		calls, 20,
 	)
-
 }

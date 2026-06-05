@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -28,14 +27,12 @@ func assertFieldError(t *testing.T, err error, wantField string) {
 		t, err)
 
 	var fe *domain.FieldError
-	require.True(t,
-		errors.As(err,
-			&fe))
+	require.ErrorAs(t,
+		err, &fe)
 	require.Equal(
 		t, wantField,
 		fe.
 			Field)
-
 }
 
 // TestRegression_LogDrainAllowlist verifies UpdateLogDrain rejects columns not
@@ -191,7 +188,7 @@ func TestRegression_NoRawSQLInterpolation(t *testing.T) {
 
 		filePath := filepath.Join(storeDir, name)
 		node, parseErr := parser.ParseFile(fset, filePath, nil, 0)
-		require.Nil(t, parseErr)
+		require.NoError(t, parseErr)
 
 		ast.Inspect(node, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -271,9 +268,8 @@ func TestRegression_NoRawSQLInterpolation(t *testing.T) {
 			return true
 		})
 	}
-	assert.LessOrEqual(t,
-		len(violations), 0)
-
+	assert.Empty(t,
+		violations)
 }
 
 // truncate shortens a string for display.

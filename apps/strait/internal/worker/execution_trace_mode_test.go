@@ -32,7 +32,6 @@ func TestNormalizeExecutionTraceMode(t *testing.T) {
 			t.Parallel()
 			require.Equal(t,
 				tt.want, normalizeExecutionTraceMode(tt.in))
-
 		})
 	}
 }
@@ -80,7 +79,6 @@ func TestExecutorExecutionTraceModeFieldSelection(t *testing.T) {
 			require.Equal(t,
 				tt.want, got,
 			)
-
 		})
 	}
 }
@@ -109,7 +107,6 @@ func TestPopulateExecutionTraceRunTimings(t *testing.T) {
 		DequeueMs,
 	)
 	require.EqualValues(t, 1, trace.TotalMs)
-
 }
 
 func TestPopulateExecutionTraceRunTimingsClampsNegativeDurations(t *testing.T) {
@@ -128,7 +125,6 @@ func TestPopulateExecutionTraceRunTimingsClampsNegativeDurations(t *testing.T) {
 	require.EqualValues(t, 0, trace.QueueWaitMs)
 	require.EqualValues(t, 0, trace.DequeueMs)
 	require.EqualValues(t, 0, trace.TotalMs)
-
 }
 
 func TestPopulateExecutionTraceRunTimingsHandlesNilInputs(t *testing.T) {
@@ -146,7 +142,6 @@ func TestPopulateExecutionTraceRunTimingsHandlesNilInputs(t *testing.T) {
 		trace.QueueWaitMs !=
 			0 || trace.DequeueMs !=
 			0)
-
 }
 
 func BenchmarkExecutionTraceModeFieldSelection(b *testing.B) {
@@ -200,5 +195,4 @@ func TestExecutorHandleSuccessWithStatsDoesNotReloadHealthStats(t *testing.T) {
 	require.Len(t, store.
 		statusUpdates(),
 		1)
-
 }

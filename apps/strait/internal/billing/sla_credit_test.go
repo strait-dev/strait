@@ -159,12 +159,10 @@ func TestSLACalculator_HealthyUptime_NoCredit(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		store.count())
-	assert.Len(t, issuer.
-		calls,
-		0)
-
+	assert.Empty(t, issuer.
+		calls)
 }
 
 // 99.5% uptime against Starter's 99.9% target → 10% credit band.
@@ -179,7 +177,7 @@ func TestSLACalculator_99_5_Pct_IssuesTenPercent(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 	require.Len(t, issuer.
 		calls,
 		1)
@@ -191,7 +189,6 @@ func TestSLACalculator_99_5_Pct_IssuesTenPercent(t *testing.T) {
 	)
 
 	// $1,500/mo monthly base × 10% = $150 = 150_000_000 micro-USD.
-
 }
 
 func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.T) {
@@ -208,11 +205,10 @@ func TestSLACalculator_IncludesContractThatLapsedDuringCreditedMonth(t *testing.
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 	require.Len(t, issuer.
 		calls,
 		1)
-
 }
 
 // 98% uptime → 25% credit band (band is 95.0 <= u < 99.0).
@@ -227,7 +223,7 @@ func TestSLACalculator_98_Pct_IssuesTwentyFivePercent(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 
 	got := issuer.calls[0]
 	assert.EqualValues(t, 375_000_000,
@@ -236,7 +232,6 @@ func TestSLACalculator_98_Pct_IssuesTwentyFivePercent(t *testing.T) {
 	)
 
 	// $1,500 × 25% = $375 = 375_000_000 micro-USD.
-
 }
 
 // 90% uptime → 50% credit band (capped).
@@ -251,7 +246,7 @@ func TestSLACalculator_DeepOutage_IssuesFiftyPercent(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 
 	got := issuer.calls[0]
 	assert.EqualValues(t, 750_000_000,
@@ -260,7 +255,6 @@ func TestSLACalculator_DeepOutage_IssuesFiftyPercent(t *testing.T) {
 	)
 
 	// $1,500 × 50% = $750 = 750_000_000 micro-USD.
-
 }
 
 // A second tick within the same billing period must not issue a duplicate credit.
@@ -278,12 +272,11 @@ func TestSLACalculator_Idempotent_AlreadyIssued(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		store.count())
 	assert.Len(t, issuer.
 		calls,
 		1)
-
 }
 
 // If the Stripe-side issuance fails, no credit row is persisted (atomic).
@@ -298,12 +291,11 @@ func TestSLACalculator_IssuerFailure_DoesNotPersist(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		store.count())
 	assert.Len(t, issuer.
 		calls,
 		1)
-
 }
 
 func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *testing.T) {
@@ -319,7 +311,7 @@ func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *te
 	ctx := context.Background()
 	require.NoError(t,
 		calc.Tick(ctx))
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 	assert.Len(t, dispatcher.
 		calls,
 		1)
@@ -344,7 +336,6 @@ func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *te
 				WebhookDispatchedAt ==
 
 				nil)
-
 }
 
 func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
@@ -355,13 +346,12 @@ func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
 	periodStart, periodEnd := previousCalendarMonth(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC))
 	dispatcher := &fakeDispatcher{
 		onDispatch: func() {
-			require.NotEqual(
-				t, nil, store.
+			require.NotNil(
+				t, store.
 					creditFor(orgID,
 						periodStart,
 
 						periodEnd))
-
 		},
 	}
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 95.0}, time.Hour, nil).
@@ -373,7 +363,6 @@ func TestSLACalculator_DispatchesOnlyAfterCreditIsPersisted(t *testing.T) {
 	require.Len(t, dispatcher.
 		calls,
 		1)
-
 }
 
 func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) {
@@ -392,11 +381,10 @@ func TestSLACalculator_ConcurrentTicksDispatchOnceAfterInsertWins(t *testing.T) 
 		})
 	}
 	wg.Wait()
-	require.EqualValues(t, 1, store.count())
+	require.Equal(t, 1, store.count())
 	require.Len(t, dispatcher.
 		calls,
 		1)
-
 }
 
 // Without an issuer wired, the calculator still records the credit row and
@@ -410,9 +398,8 @@ func TestSLACalculator_NoIssuer_PersistsRow(t *testing.T) {
 	require.NoError(t,
 		calc.Tick(context.
 			Background()))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		store.count())
-
 }
 
 // Out-of-range uptime readings (negative, > 100) get clamped before band lookup.
@@ -426,7 +413,7 @@ func TestSLACalculator_ClampsOutOfRangeUptime(t *testing.T) {
 	require.NoError(t,
 		calcA.Tick(context.
 			Background()))
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		storeA.count())
 
 	// >100 uptime clamps to 100 → above target → no credit.
@@ -436,9 +423,8 @@ func TestSLACalculator_ClampsOutOfRangeUptime(t *testing.T) {
 	require.NoError(t,
 		calcB.Tick(context.
 			Background()))
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		storeB.count())
-
 }
 
 // previousCalendarMonth returns the prior month's [start, end) window
@@ -484,7 +470,6 @@ func TestPreviousCalendarMonth(t *testing.T) {
 				Equal(tc.
 					wantEnd,
 				))
-
 		})
 	}
 }
@@ -496,7 +481,6 @@ func TestStaticUptimeSource(t *testing.T) {
 	got, err := src.MonthlyUptimePct(context.Background(), "any-org", time.Now(), time.Now())
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 99.95,
-		got)
-
+	assert.InDelta(t, 99.95,
+		got, 1e-9)
 }

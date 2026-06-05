@@ -69,5 +69,4 @@ func TestSLOWebhookAdapter_CreatesClaimableSubscriptionDelivery(t *testing.T) {
 			After(time.Now().UTC().Add(
 				time.
 					Second)))
-
 }

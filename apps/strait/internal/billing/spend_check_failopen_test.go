@@ -35,7 +35,6 @@ func TestSpendCheck_ContendedLock_FailsOpen(t *testing.T) {
 		100*time.
 			Millisecond,
 	)
-
 }
 
 // TestSpendCheck_NoBlockingSleep guards against re-introducing the sleep
@@ -59,7 +58,6 @@ func TestSpendCheck_NoBlockingSleep(t *testing.T) {
 		require.LessOrEqual(t, time.Since(start), 150*
 			time.
 				Millisecond)
-
 	}
 }
 
@@ -104,7 +102,6 @@ func TestSpendCheck_ConcurrentOrgUpdates(t *testing.T) {
 		Load()),
 
 		200*time.Millisecond)
-
 }
 
 // TestSpendCheck_OverLimit_StillBlocks ensures the cleanup did not weaken
@@ -128,5 +125,4 @@ func TestSpendCheck_OverLimit_StillBlocks(t *testing.T) {
 		"spending_limit_reached",
 
 		le.Code)
-
 }

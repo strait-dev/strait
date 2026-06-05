@@ -101,7 +101,6 @@ func TestRotateWebhookSecret_DefaultGracePeriod(t *testing.T) {
 	require.GreaterOrEqual(t, graceMins, 59.0)
 
 	// Default is 60 minutes.
-
 }
 
 func TestRotateWebhookSecret_MaxGracePeriodExceeded(t *testing.T) {
@@ -126,7 +125,6 @@ func TestRotateWebhookSecret_MaxGracePeriodExceeded(t *testing.T) {
 	require.Equal(t, http.
 		StatusBadRequest,
 		w.Code)
-
 }
 
 func TestRotateWebhookSecret_NotFound(t *testing.T) {
@@ -150,7 +148,6 @@ func TestRotateWebhookSecret_NotFound(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound, w.
 		Code)
-
 }
 
 func TestRotateWebhookSecret_WrongProject(t *testing.T) {
@@ -174,7 +171,6 @@ func TestRotateWebhookSecret_WrongProject(t *testing.T) {
 	require.Equal(t, http.
 		StatusNotFound, w.
 		Code)
-
 }
 
 func TestRotateWebhookSecret_StoreError(t *testing.T) {
@@ -202,5 +198,4 @@ func TestRotateWebhookSecret_StoreError(t *testing.T) {
 		StatusInternalServerError,
 
 		w.Code)
-
 }

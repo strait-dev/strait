@@ -54,7 +54,6 @@ func TestEvaluateQueueBloatGate_PassesBloatFirstCandidate(t *testing.T) {
 	require.True(t, result.
 		Passed,
 	)
-
 }
 
 func TestEvaluateQueueBloatGate_FailsWALAndBloatRegression(t *testing.T) {
@@ -85,7 +84,6 @@ func TestEvaluateQueueBloatGate_FailsWALAndBloatRegression(t *testing.T) {
 	)
 	require.GreaterOrEqual(t,
 		len(result.Failures), 4)
-
 }
 
 func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
@@ -127,7 +125,6 @@ func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 func TestEvaluateQueueBloatGate_FailsMissingRequiredRelation(t *testing.T) {
@@ -166,7 +163,6 @@ func TestEvaluateQueueBloatGate_FailsMissingRequiredRelation(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
@@ -205,5 +201,4 @@ func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }

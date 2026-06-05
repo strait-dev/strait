@@ -119,7 +119,6 @@ func TestHandleHealth(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.Equal(t, "ok", resp["status"])
-
 }
 
 func TestHandleHealth_PublicResponseFields(t *testing.T) {
@@ -179,7 +178,6 @@ func TestHandleAuth_MissingSecret(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleCreateJob_Success(t *testing.T) {
@@ -211,7 +209,6 @@ func TestHandleCreateJob_Success(t *testing.T) {
 	require.True(
 		t, created.Load(),
 	)
-
 }
 
 func TestHandleCreateJob_MissingFields(t *testing.T) {
@@ -246,7 +243,6 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	)
 	require.NotEmpty(t, resp.Error.
 		Details)
-
 }
 
 func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
@@ -272,11 +268,9 @@ func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "too many tags (max 20)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "too many tags (max 20)")
 }
 
 func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
@@ -299,11 +293,9 @@ func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "tag key too long (max 64 characters)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "tag key too long (max 64 characters)")
 }
 
 func TestHandleGetJob_Success(t *testing.T) {
@@ -332,7 +324,6 @@ func TestHandleGetJob_Success(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.Equal(t, "job-123", resp["id"])
-
 }
 
 func TestHandleGetJob_NotFound(t *testing.T) {
@@ -349,7 +340,6 @@ func TestHandleGetJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleListJobs_Success(t *testing.T) {
@@ -373,7 +363,6 @@ func TestHandleListJobs_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 2)
-
 }
 
 func TestHandleListJobs_MissingProjectID(t *testing.T) {
@@ -384,7 +373,6 @@ func TestHandleListJobs_MissingProjectID(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJobGroup_Success(t *testing.T) {
@@ -415,7 +403,6 @@ func TestHandleCreateJobGroup_Success(t *testing.T) {
 	require.True(
 		t, created.Load(),
 	)
-
 }
 
 func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
@@ -441,7 +428,6 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 		resp.
 			Error.
 			Code)
-
 }
 
 func TestHandleGetJobGroup_Success(t *testing.T) {
@@ -457,7 +443,6 @@ func TestHandleGetJobGroup_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleGetJobGroup_NotFound(t *testing.T) {
@@ -474,7 +459,6 @@ func TestHandleGetJobGroup_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleListJobGroups_Success(t *testing.T) {
@@ -498,7 +482,6 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 2)
-
 }
 
 func TestHandleDeleteJobGroup_Success(t *testing.T) {
@@ -522,7 +505,6 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 			Code)
 	require.Equal(t, "group-123",
 		deletedID)
-
 }
 
 func TestHandleListJobsByGroup_Success(t *testing.T) {
@@ -546,7 +528,6 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 1)
-
 }
 
 func TestHandleListJobs_FilterByTag(t *testing.T) {
@@ -574,7 +555,6 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 1)
-
 }
 
 func TestHandleCreateJobDependency_Success(t *testing.T) {
@@ -612,7 +592,6 @@ func TestHandleCreateJobDependency_Success(t *testing.T) {
 	))
 	require.Equal(t, "dep-1", resp.
 		ID)
-
 }
 
 func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
@@ -635,7 +614,6 @@ func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
@@ -653,7 +631,6 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleListJobDependencies_Success(t *testing.T) {
@@ -677,7 +654,6 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 1)
-
 }
 
 func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
@@ -691,7 +667,7 @@ func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
 	createdAt := time.Now().UTC()
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 		listCalls.Add(1)
-		require.EqualValues(t, 51, limit)
+		require.Equal(t, 51, limit)
 		require.Nil(t, cursor)
 
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
@@ -705,11 +681,9 @@ func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 	require.EqualValues(t, 1, listCalls.
 		Load())
-
 }
 
 func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
@@ -737,11 +711,9 @@ func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, url, ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 	require.EqualValues(t, 2, listCalls.
 		Load())
-
 }
 
 func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
@@ -755,7 +727,7 @@ func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
 	createdAt := time.Now().UTC()
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 		listCalls.Add(1)
-		require.EqualValues(t, 11, limit)
+		require.Equal(t, 11, limit)
 		require.Nil(t, cursor)
 
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
@@ -769,11 +741,9 @@ func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies?limit=10", ""))
 		require.Equal(t, http.StatusOK,
 			w.Code)
-
 	}
 	require.EqualValues(t, 2, listCalls.
 		Load())
-
 }
 
 func TestHandleDeleteJobDependency_Success(t *testing.T) {
@@ -799,7 +769,6 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 		w.
 			Code)
 	require.Equal(t, "dep-9", deletedID)
-
 }
 
 func TestHandleTriggerJob_Success(t *testing.T) {
@@ -846,7 +815,6 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 			"trigger response must not expose SDK run_token")
 	}
 	require.Equal(t, "queued", resp["status"])
-
 }
 
 func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
@@ -890,7 +858,6 @@ func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
 		createdRunStatus,
 	)
 	require.False(t, enqueueCalled)
-
 }
 
 func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testing.T) {
@@ -1007,11 +974,9 @@ func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
 
 		w.Code,
 	)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "internal server error",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "internal server error")
 }
 
 func TestHandleTriggerJob_QueuesWhenDependenciesSatisfied(t *testing.T) {
@@ -1054,7 +1019,6 @@ func TestHandleTriggerJob_QueuesWhenDependenciesSatisfied(t *testing.T) {
 	require.True(
 		t, enqueueCalled)
 	require.False(t, createRunCalled)
-
 }
 
 func TestHandleTriggerJob_DisabledJob(t *testing.T) {
@@ -1077,7 +1041,6 @@ func TestHandleTriggerJob_DisabledJob(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
@@ -1111,7 +1074,6 @@ func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.Equal(t, false, resp["dependencies_satisfied"])
-
 }
 
 func TestHandleStats_Success(t *testing.T) {
@@ -1132,8 +1094,7 @@ func TestHandleStats_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.Equal(t, float64(5), resp["queued"])
-
+	require.InDelta(t, float64(5), resp["queued"], 1e-9)
 }
 
 func TestHandleCancelRun_Success(t *testing.T) {
@@ -1175,7 +1136,6 @@ func TestHandleCancelRun_Success(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-123", ""))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleDeleteJob_Success(t *testing.T) {
@@ -1198,7 +1158,6 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 		w.
 			Code)
 	require.Equal(t, "job-123", deletedID)
-
 }
 
 func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
@@ -1218,7 +1177,6 @@ func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
@@ -1248,7 +1206,6 @@ func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updated)
-
 }
 
 func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
@@ -1287,7 +1244,6 @@ func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest,
 
 				w.Code)
-
 		})
 	}
 }
@@ -1317,7 +1273,6 @@ func TestHandleUpdateJob_SSRFBlocksLocalhost(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleUpdateJob_InvalidURL(t *testing.T) {
@@ -1356,7 +1311,6 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
 			require.Equal(t, tt.wantStatus,
 				w.Code)
-
 		})
 	}
 }
@@ -1389,7 +1343,6 @@ func TestHandleUpdateJob_NilEndpointURL_SkipsValidation(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updated)
-
 }
 
 func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
@@ -1420,11 +1373,9 @@ func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "tag value too long (max 256 characters)",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "tag value too long (max 256 characters)")
 }
 
 func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
@@ -1455,11 +1406,9 @@ func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "tag keys must be non-empty",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "tag keys must be non-empty")
 }
 
 func TestHandleReplayRun_Success(t *testing.T) {
@@ -1514,19 +1463,18 @@ func TestHandleReplayRun_Success(t *testing.T) {
 		enqueued.
 			ProjectID,
 	)
-	require.EqualValues(t, 1, enqueued.Attempt)
+	require.Equal(t, 1, enqueued.Attempt)
 	require.Equal(t, string(originalRun.
 		Payload,
 	), string(
 		enqueued.Payload,
 	))
-	require.Equal(t, "", enqueued.
+	require.Empty(t, enqueued.
 		IdempotencyKey,
 	)
 
 	// Replays should NOT carry the original idempotency key to avoid
 	// conflicts with active runs sharing the same key.
-
 }
 
 func TestHandleReplayRun_DisabledJob(t *testing.T) {
@@ -1546,11 +1494,9 @@ func TestHandleReplayRun_DisabledJob(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "job is disabled",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "job is disabled")
 }
 
 func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
@@ -1567,7 +1513,6 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListDeadLetterRuns_Success(t *testing.T) {
@@ -1575,7 +1520,7 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, projectID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
 			require.Equal(t, "proj-1", projectID)
-			require.EqualValues(t, 26, limit)
+			require.Equal(t, 26, limit)
 
 			// handler passes limit+1 for has_more detection
 
@@ -1598,7 +1543,6 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 
 		runs[0].Status,
 	)
-
 }
 
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
@@ -1639,7 +1583,6 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 		t, slices.Equal(enqueuedExisting,
 
 			[]string{"run-123"}))
-
 }
 
 func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
@@ -1660,7 +1603,6 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
@@ -1674,8 +1616,8 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 				2 || runIDs[0] !=
 				"run-1" ||
 				runIDs[1] != "run-2")
-			require.Equal(t, "", projectID)
-			require.EqualValues(t, 0, limit)
+			require.Empty(t, projectID)
+			require.Equal(t, 0, limit)
 
 			return []domain.JobRun{
 				{ID: "run-1", Status: domain.StatusQueued, Attempt: 1},
@@ -1704,7 +1646,7 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.EqualValues(t, 2, resp.Count)
+	require.Equal(t, 2, resp.Count)
 	require.Len(t,
 		resp.Replayed,
 		2)
@@ -1713,7 +1655,6 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 
 			[]string{"run-1",
 				"run-2"}))
-
 }
 
 func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t *testing.T) {
@@ -1728,8 +1669,8 @@ func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t 
 				1 || runIDs[0] !=
 				"run-1",
 			)
-			require.Equal(t, "", projectID)
-			require.EqualValues(t, 0, limit)
+			require.Empty(t, projectID)
+			require.Equal(t, 0, limit)
 
 			return []domain.JobRun{{ID: "run-1", Status: domain.StatusQueued, Attempt: 1}}, nil
 		},
@@ -1741,7 +1682,6 @@ func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t 
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1"],"limit":123}`))
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
@@ -1791,11 +1731,10 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 
 			"dry-run response leaked endpoint details: %s", raw)
 	}
-	require.NotEqual(t, "", resp.PayloadHash)
+	require.NotEmpty(t, resp.PayloadHash)
 	require.False(t, resp.ExpiresAt.
 		IsZero(),
 	)
-
 }
 
 func TestHandleCloneJob_Success(t *testing.T) {
@@ -1869,7 +1808,6 @@ func TestHandleCloneJob_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleCloneJob_MissingFields(t *testing.T) {
@@ -1885,7 +1823,6 @@ func TestHandleCloneJob_MissingFields(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 // Batch Job Definition Ops (2.38).
@@ -1913,7 +1850,7 @@ func TestHandleBatchCreateJobs_Success(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		w.Code,
 	)
-	require.EqualValues(t, 2, createdCount)
+	require.Equal(t, 2, createdCount)
 
 	var resp BatchCreateJobsResponse
 	require.NoError(t, json.Unmarshal(w.Body.
@@ -1922,9 +1859,8 @@ func TestHandleBatchCreateJobs_Success(t *testing.T) {
 	require.Len(t,
 		resp.Created, 2,
 	)
-	require.Len(t,
-		resp.Errors, 0)
-
+	require.Empty(t,
+		resp.Errors)
 }
 
 func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
@@ -1959,8 +1895,7 @@ func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
 	)
 	require.Len(t,
 		resp.Errors, 1)
-	require.EqualValues(t, 1, resp.Errors[0].Index)
-
+	require.Equal(t, 1, resp.Errors[0].Index)
 }
 
 func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
@@ -1977,7 +1912,6 @@ func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
@@ -1989,7 +1923,6 @@ func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
@@ -2011,11 +1944,9 @@ func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "too many jobs in batch",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "too many jobs in batch")
 }
 
 func TestHandleBatchEnableJobs_Success(t *testing.T) {
@@ -2049,7 +1980,6 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.EqualValues(t, 3, resp.Updated)
-
 }
 
 func TestHandleBatchDisableJobs_Success(t *testing.T) {
@@ -2074,7 +2004,6 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.EqualValues(t, 2, resp.Updated)
-
 }
 
 func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
@@ -2086,11 +2015,9 @@ func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "ids array is required",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "ids array is required")
 }
 
 func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
@@ -2107,11 +2034,9 @@ func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "too many ids in batch",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "too many ids in batch")
 }
 
 // Job Health Scoring (2.41).
@@ -2150,9 +2075,8 @@ func TestHandleGetJobHealth_Success(t *testing.T) {
 	require.Equal(t, "job-123", resp.
 		JobID)
 	require.Equal(t, "7d", resp.Window)
-	require.EqualValues(t, 100, resp.TotalRuns)
-	require.EqualValues(t, 85.0, resp.SuccessRate)
-
+	require.Equal(t, 100, resp.TotalRuns)
+	require.InDelta(t, 85.0, resp.SuccessRate, 1e-9)
 }
 
 func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
@@ -2177,7 +2101,6 @@ func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
 		Bytes(), &resp,
 	))
 	require.Equal(t, "7d", resp.Window)
-
 }
 
 func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
@@ -2194,11 +2117,9 @@ func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "invalid window",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "invalid window")
 }
 
 func TestHandleGetJobHealth_NotFound(t *testing.T) {
@@ -2215,7 +2136,6 @@ func TestHandleGetJobHealth_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateEnvironment_Success(t *testing.T) {
@@ -2247,7 +2167,6 @@ func TestHandleCreateEnvironment_Success(t *testing.T) {
 	require.True(
 		t, created.Load(),
 	)
-
 }
 
 func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
@@ -2260,7 +2179,6 @@ func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestHandleGetEnvironment_Success(t *testing.T) {
@@ -2302,7 +2220,6 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 			func(v any) bool {
 				return v == "REGION"
 			}))
-
 }
 
 func TestHandleListEnvironments_Success(t *testing.T) {
@@ -2326,7 +2243,6 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
 	require.Len(t,
 		resp, 2)
-
 }
 
 func TestHandleGetResolvedVariables_Success(t *testing.T) {
@@ -2355,7 +2271,6 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 	require.Equal(t, "https://api.example.com",
 
 		resp["variables"]["API_URL"])
-
 }
 
 func TestHandleGetDebugBundle_Success(t *testing.T) {
@@ -2392,7 +2307,6 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 	require.Len(t,
 		bundle.Checkpoints,
 		1)
-
 }
 
 func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
@@ -2410,7 +2324,6 @@ func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleSetDebugMode_Success(t *testing.T) {
@@ -2435,7 +2348,6 @@ func TestHandleSetDebugMode_Success(t *testing.T) {
 	require.True(
 		t, calledDebugMode,
 	)
-
 }
 
 func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
@@ -2453,7 +2365,6 @@ func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
@@ -2502,7 +2413,6 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 	require.True(
 		t, enqueuedRun.DebugMode,
 	)
-
 }
 
 func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
@@ -2533,7 +2443,6 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
@@ -2558,7 +2467,6 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleListRunLineage_Success(t *testing.T) {
@@ -2585,7 +2493,6 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 	require.Len(t,
 		runs, 2)
 	require.Equal(t, "run-root", runs[0].ID)
-
 }
 
 func TestHandleListRunLineage_StoreError(t *testing.T) {
@@ -2603,7 +2510,6 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 // mockPoolStatter is read concurrently by the background backpressure sampler
@@ -2655,7 +2561,6 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 		w.Code,
 	)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
-
 }
 
 func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
@@ -2680,7 +2585,6 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 		w.
 			Code)
-
 }
 
 func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
@@ -2715,7 +2619,6 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 		w.Code,
 	)
 	require.Equal(t, "1", w.Header().Get("Retry-After"))
-
 }
 
 func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
@@ -2746,7 +2649,6 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 
 		w.
 			Code)
-
 }
 
 func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
@@ -2775,7 +2677,6 @@ func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.
 			Code)
-
 }
 
 func TestValidateCronFieldCount(t *testing.T) {
@@ -2797,7 +2698,6 @@ func TestValidateCronFieldCount(t *testing.T) {
 			t, tt.wantErr, (err !=
 				nil),
 		)
-
 	}
 }
 
@@ -2822,7 +2722,6 @@ func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 
 		w.Code,
 	)
-
 }
 
 func TestMetrics_Authenticated_Returns200(t *testing.T) {
@@ -2846,7 +2745,6 @@ func TestMetrics_Authenticated_Returns200(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestMetrics_AuthorizationBearerInternalSecret_Returns200(t *testing.T) {
@@ -2870,7 +2768,6 @@ func TestMetrics_AuthorizationBearerInternalSecret_Returns200(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestNullByteStrippingReader(t *testing.T) {
@@ -2882,7 +2779,6 @@ func TestNullByteStrippingReader(t *testing.T) {
 
 	expected := "hello world"
 	require.Equal(t, expected, string(out))
-
 }
 
 func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
@@ -2914,7 +2810,6 @@ func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
 			Code)
 
 	// Should not return 500 -- 201 or 200 means null byte was stripped
-
 }
 
 func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
@@ -2933,11 +2828,9 @@ func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "past",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "past")
 }
 
 func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
@@ -2956,9 +2849,7 @@ func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-	require.True(
-		t, strings.Contains(w.Body.
-			String(), "30 days",
-		))
-
+	require.Contains(
+		t, w.Body.
+			String(), "30 days")
 }

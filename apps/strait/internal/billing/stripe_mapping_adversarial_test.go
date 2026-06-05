@@ -15,7 +15,7 @@ func TestStripeMapping_EmptyProductIDs(t *testing.T) {
 	t.Parallel()
 
 	m := NewStripeMapping("", "", "", "")
-	require.EqualValues(t, 0, m.PriceCount())
+	require.Equal(t, 0, m.PriceCount())
 
 	tier, ok := m.TierForPrice("")
 	require.False(t,
@@ -24,7 +24,6 @@ func TestStripeMapping_EmptyProductIDs(t *testing.T) {
 		domain.PlanFree,
 
 		tier)
-
 }
 
 // TestStripeMapping_DuplicateProductIDs verifies that the same product ID used
@@ -42,7 +41,6 @@ func TestStripeMapping_DuplicateProductIDs(t *testing.T) {
 		domain.PlanPro,
 
 		tier)
-
 }
 
 // TestTierForPrice_UnknownProduct verifies that an unknown product ID returns PlanFree and false.
@@ -58,7 +56,6 @@ func TestTierForPrice_UnknownProduct(t *testing.T) {
 		domain.PlanFree,
 
 		tier)
-
 }
 
 // TestTierForPrice_EmptyString verifies that an empty string product ID returns PlanFree and false.
@@ -74,7 +71,6 @@ func TestTierForPrice_EmptyString(t *testing.T) {
 		domain.PlanFree,
 
 		tier)
-
 }
 
 // TestTierForPrice_NullBytes verifies that null bytes in a product ID do not cause panics.
@@ -90,7 +86,6 @@ func TestTierForPrice_NullBytes(t *testing.T) {
 		domain.PlanFree,
 
 		tier)
-
 }
 
 // TestTierForPrice_AllTiers verifies that each tier product resolves correctly.
@@ -121,7 +116,6 @@ func TestTierForPrice_AllTiers(t *testing.T) {
 			wantTier,
 
 			tier)
-
 	}
 }
 
@@ -143,7 +137,6 @@ func FuzzTierForPrice(f *testing.F) {
 
 				domain.PlanStarter && tier !=
 			domain.PlanPro)
-
 	})
 }
 
@@ -169,5 +162,4 @@ func TestStripeMapping_CaseSensitivity(t *testing.T) {
 	_, ok = m.TierForPrice("STARTER-M")
 	require.False(t,
 		ok)
-
 }

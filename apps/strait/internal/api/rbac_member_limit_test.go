@@ -41,7 +41,6 @@ func TestAssignMemberRoleWithBillingLimit_CloudNilEnforcerFailsClosed(t *testing
 	)
 	require.EqualValues(t, 0, assignCalls.
 		Load())
-
 }
 
 func TestAssignMemberRoleWithBillingLimit_CommunityNilEnforcerAllows(t *testing.T) {
@@ -62,7 +61,6 @@ func TestAssignMemberRoleWithBillingLimit_CommunityNilEnforcerAllows(t *testing.
 			Background(), memberRoleFixture()))
 	require.EqualValues(t, 1, assignCalls.
 		Load())
-
 }
 
 func TestAssignMemberRoleWithBillingLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -87,7 +85,6 @@ func TestAssignMemberRoleWithBillingLimit_OrgLookupErrorFailsClosed(t *testing.T
 	)
 	require.EqualValues(t, 0, assignCalls.
 		Load())
-
 }
 
 type emptyOrgMemberLimitEnforcer struct {
@@ -120,7 +117,6 @@ func TestAssignMemberRoleWithBillingLimit_EmptyOrgFailsClosed(t *testing.T) {
 	)
 	require.EqualValues(t, 0, assignCalls.
 		Load())
-
 }
 
 func TestAssignMemberRoleWithBillingLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -147,5 +143,4 @@ func TestAssignMemberRoleWithBillingLimit_PlanLookupErrorFailsClosed(t *testing.
 	)
 	require.EqualValues(t, 0, assignCalls.
 		Load())
-
 }

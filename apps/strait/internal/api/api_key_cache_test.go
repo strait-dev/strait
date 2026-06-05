@@ -70,11 +70,8 @@ func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 	require.Equal(t, domain.ScopeRunsRead,
 		second.
 			Scopes[0])
-	require.Len(t,
-		second.RotationWebhookSecret,
-
-		0)
-
+	require.Empty(t,
+		second.RotationWebhookSecret)
 }
 
 func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
@@ -91,10 +88,8 @@ func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
 		key, err := cache.Get(t.Context(), "missing-hash", loader)
 		require.NoError(t, err)
 		require.Nil(t, key)
-
 	}
 	require.EqualValues(t, 1, loads.Load())
-
 }
 
 func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
@@ -123,7 +118,6 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 			"Get() second error = %v", err)
 	}
 	require.EqualValues(t, 2, loads.Load())
-
 }
 
 func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
@@ -145,7 +139,6 @@ func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 	require.EqualValues(t, 1, loads.Load())
-
 }
 
 func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -185,7 +178,6 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 	require.EqualValues(t, 1, loads.Load())
-
 }
 
 func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
@@ -221,7 +213,6 @@ func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(raw, &envelope))
 	require.EqualValues(t, 7, envelope.Version)
-
 }
 
 func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) {
@@ -257,5 +248,4 @@ func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) 
 	require.NoError(t, err)
 	require.Nil(t, got)
 	require.EqualValues(t, 1, loads.Load())
-
 }

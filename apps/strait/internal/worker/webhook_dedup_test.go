@@ -50,5 +50,4 @@ func TestSingleSendWebhookOnceImpl(t *testing.T) {
 		"sendWebhookOnceWith",
 
 		matches[0])
-
 }

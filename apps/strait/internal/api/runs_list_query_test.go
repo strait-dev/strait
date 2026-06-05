@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -60,14 +59,13 @@ func TestNewListRunsQuery_BuildsFilters(t *testing.T) {
 	)
 
 	assertStringPtr(t, "errorClass", query.errorClass, "timeout")
-	require.EqualValues(t, 17,
+	require.Equal(t, 17,
 		query.limit,
 	)
 	require.False(t, query.
 		cursor ==
 		nil || !query.cursor.
 		Equal(cursor))
-
 }
 
 func TestNewListRunsQuery_MetadataFilters(t *testing.T) {
@@ -126,10 +124,8 @@ func TestNewListRunsQuery_InvalidFilters(t *testing.T) {
 			t.Parallel()
 			_, err := newListRunsQuery(&tt.input)
 			require.Error(t, err)
-			require.True(t, strings.Contains(err.Error(), tt.
-				want,
-			))
-
+			require.Contains(t, err.Error(), tt.
+				want)
 		})
 	}
 }
@@ -143,7 +139,6 @@ func TestListRunsQuery_UsesFilteredStorePath(t *testing.T) {
 		RunStatus]struct{}{domain.
 		StatusFailed: {}, domain.StatusTimedOut: {}}}).usesFilteredStorePath(""),
 	)
-
 }
 
 func assertStringPtr(t *testing.T, name string, got *string, want string) {
@@ -152,5 +147,4 @@ func assertStringPtr(t *testing.T, name string, got *string, want string) {
 		nil ||
 		*got != want,
 	)
-
 }

@@ -21,7 +21,6 @@ func TestMaintenanceLoop_Run(t *testing.T) {
 
 	loop.Run(ctx)
 	require.GreaterOrEqual(t, ticks.Load(), int32(2))
-
 }
 
 func TestMaintenanceLoop_DefaultInterval(t *testing.T) {
@@ -30,5 +29,4 @@ func TestMaintenanceLoop_DefaultInterval(t *testing.T) {
 	require.Equal(t, time.
 		Second, loop.
 		interval)
-
 }

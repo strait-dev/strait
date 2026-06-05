@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
@@ -49,9 +48,8 @@ func TestCheckWebhookEventTypes_InternalSecretBypass_Blocked(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, createCalled)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "not available"))
-
+	assert.Contains(t,
+		w.Body.String(), "not available")
 }
 
 // TestCheckWebhookEventTypes_PremiumEvent_BypassAttempt simulates the smuggle
@@ -80,9 +78,8 @@ func TestCheckWebhookEventTypes_PremiumEvent_BypassAttempt(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-	assert.True(t,
-		strings.Contains(w.Body.String(), "run.timed_out"))
-
+	assert.Contains(t,
+		w.Body.String(), "run.timed_out")
 }
 
 // TestCheckWebhookEventTypes_LeadingValidEvent_StillRejectsTrailingPremium
@@ -98,7 +95,6 @@ func TestCheckWebhookEventTypes_LeadingValidEvent_StillRejectsTrailingPremium(t 
 	// First event passes; second must trip the gate.
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.completed", "run.timed_out"})
 	require.Error(t, err)
-	assert.True(t,
-		strings.Contains(err.Error(), "run.timed_out"))
-
+	assert.Contains(t,
+		err.Error(), "run.timed_out")
 }

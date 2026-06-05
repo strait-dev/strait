@@ -66,7 +66,6 @@ func TestAuditExportRateLimit_BlocksAfterThreshold(t *testing.T) {
 		require.NotEqual(t, http.
 			StatusTooManyRequests,
 			code)
-
 	}
 
 	// 11th export should be rate-limited.
@@ -75,7 +74,6 @@ func TestAuditExportRateLimit_BlocksAfterThreshold(t *testing.T) {
 		t, http.StatusTooManyRequests,
 		code,
 	)
-
 }
 
 func TestAuditExportRateLimit_DifferentProjectsIndependent(t *testing.T) {
@@ -127,7 +125,6 @@ func TestAuditExportRateLimit_DifferentProjectsIndependent(t *testing.T) {
 		require.NotEqual(t, http.
 			StatusTooManyRequests,
 			code)
-
 	}
 
 	// proj-a is now exhausted.
@@ -142,5 +139,4 @@ func TestAuditExportRateLimit_DifferentProjectsIndependent(t *testing.T) {
 	assert.NotEqual(t, http.StatusTooManyRequests,
 
 		code)
-
 }

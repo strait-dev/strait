@@ -58,7 +58,6 @@ func TestInitMetrics(t *testing.T) {
 	)
 
 	// Verify all metric fields are initialized.
-
 }
 
 func TestInitMetrics_EmptyEnvironment(t *testing.T) {
@@ -73,7 +72,6 @@ func TestInitMetrics_EmptyEnvironment(t *testing.T) {
 	defer func() { _ = shutdown(context.Background()) }()
 	require.NotNil(t, metrics)
 	require.NotNil(t, handler)
-
 }
 
 func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
@@ -90,7 +88,6 @@ func TestInitMetrics_ShutdownIdempotent(t *testing.T) {
 	for range 3 {
 		assert.NoError(t, shutdown(
 			ctx))
-
 	}
 }
 
@@ -140,7 +137,6 @@ func TestCounterRecording(t *testing.T) {
 	assert.EqualValues(t, 6,
 		sum.DataPoints[0].Value,
 	)
-
 }
 
 // TestHistogramRecording verifies Float64Histogram records values correctly.
@@ -192,10 +188,9 @@ func TestHistogramRecording(t *testing.T) {
 	assert.EqualValues(t, 3,
 		dp.Count,
 	)
-	assert.EqualValues(t, 4.0,
-		dp.Sum,
+	assert.InDelta(t, 4.0,
+		dp.Sum, 1e-9,
 	)
-
 }
 
 // TestStraitMetricInstruments verifies all production metric instruments
@@ -289,10 +284,7 @@ func TestStraitMetricInstruments(t *testing.T) {
 	require.NotEmpty(t,
 		rm.ScopeMetrics,
 	)
-	assert.EqualValues(t, 9,
-		len(rm.ScopeMetrics[0].Metrics),
-	)
-
+	assert.Len(t, rm.ScopeMetrics[0].Metrics, 9)
 }
 
 type mockBreakerStateProvider struct {
@@ -317,7 +309,6 @@ func TestObserveSIEMBreakerState_NilProvider(t *testing.T) {
 		m.ObserveSIEMBreakerState(meter,
 
 			nil))
-
 }
 
 func TestObserveSIEMBreakerState_NilGauge(t *testing.T) {
@@ -333,7 +324,6 @@ func TestObserveSIEMBreakerState_NilGauge(t *testing.T) {
 		m.ObserveSIEMBreakerState(meter,
 
 			bp))
-
 }
 
 func TestObserveSIEMBreakerState_RecordsValue(t *testing.T) {
@@ -377,7 +367,6 @@ func TestObserveSIEMBreakerState_RecordsValue(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 type mockPoolStats struct {
@@ -472,5 +461,4 @@ func TestObservePool_SaturateInt64_MaxUint64(t *testing.T) {
 		values["test.pool.failed"])
 	assert.EqualValues(t, 42,
 		values["test.pool.dropped"])
-
 }

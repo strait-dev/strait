@@ -169,7 +169,6 @@ func TestReclaimAuditDeadletter_UsesConfiguredBatchSize(t *testing.T) {
 	require.EqualValues(t, 137,
 		fake.listLimit.
 			Load())
-
 }
 
 func TestReclaimAuditDeadletter_DefaultBatchWhenUnset(t *testing.T) {
@@ -181,7 +180,6 @@ func TestReclaimAuditDeadletter_DefaultBatchWhenUnset(t *testing.T) {
 
 		fake.listLimit.
 			Load())
-
 }
 
 func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
@@ -209,7 +207,6 @@ func TestReclaimAuditDeadletter_DeletesFromDLQAfterChainInsert(t *testing.T) {
 			Load())
 
 	// Idempotency marker is written on every successful insert.
-
 }
 
 func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
@@ -243,7 +240,6 @@ func TestReclaimAuditDeadletter_ChainInsertFailure_SkipsDelete(t *testing.T) {
 
 	// And attempt count must be incremented for both rows so the
 	// max-attempts cap eventually fires.
-
 }
 
 func TestReclaimAuditDeadletter_ListError_RecordsOperation(t *testing.T) {
@@ -286,7 +282,6 @@ func TestReclaimAuditDeadletter_RespectsMaxAttempts(t *testing.T) {
 
 	// Only one row should be inserted (the fresh one); the other two
 	// should be abandoned and skipped.
-
 }
 
 // TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed asserts that
@@ -317,7 +312,6 @@ func TestReclaimAuditDeadletter_IdempotentWhenAlreadyReclaimed(t *testing.T) {
 
 	// Only the fresh row triggers a chain insert; the previously-reclaimed
 	// row only triggers a delete.
-
 }
 
 // TestReapDeadletter_DropsAgedRows_CallsDelete asserts the retention reaper
@@ -327,7 +321,7 @@ func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
 	ctx := context.Background()
 	fake := &fakeAuditReclaimerStore{}
 	fake.deleteAgedWithAuditFn = func(_ context.Context, _ time.Time, maxAgeDays int) (map[string]int64, error) {
-		require.EqualValues(t, 30,
+		require.Equal(t, 30,
 			maxAgeDays,
 		)
 
@@ -342,7 +336,6 @@ func TestReapDeadletter_DropsAgedRows_CallsDelete(t *testing.T) {
 	require.EqualValues(t, 0,
 		fake.createCalls.
 			Load())
-
 }
 
 // TestReapDeadletter_DisabledByZero asserts the sweep is opt-in.
@@ -355,7 +348,6 @@ func TestReapDeadletter_DisabledByZero(t *testing.T) {
 	require.EqualValues(t, 0,
 		fake.deleteAgedHits.
 			Load())
-
 }
 
 // fakeAuditRetentionStore captures DeleteAuditEventsBefore calls per project
@@ -404,9 +396,9 @@ func TestReapAuditEvents_CallsPerProjectOverrides(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		fake.perProjectCalls["proj-a"])
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		fake.perProjectCalls["proj-b"])
 	require.Len(t, fake.
 		excludingCalls,
@@ -415,7 +407,6 @@ func TestReapAuditEvents_CallsPerProjectOverrides(t *testing.T) {
 	excluded := fake.excludingCalls[0].excluded
 	require.Len(t, excluded,
 		2)
-
 }
 
 func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
@@ -428,9 +419,9 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		fake.perProjectCalls["proj-disabled"])
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		fake.perProjectCalls["proj-active"])
 	require.Len(t, fake.
 		excludingCalls,
@@ -446,7 +437,6 @@ func TestReapAuditEvents_ZeroDaysSkipsTrim(t *testing.T) {
 		}
 	}
 	assert.True(t, seenDisabled)
-
 }
 
 func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
@@ -458,12 +448,11 @@ func TestReapAuditEvents_RejectsOverflowRetentionDays(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.reapAuditEvents(ctx)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		fake.perProjectCalls["proj-overflow"])
 	require.Len(t, fake.
 		excludingCalls,
 		1)
-
 }
 
 func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
@@ -473,10 +462,8 @@ func TestReapAuditEvents_RejectsOverflowDefaultRetentionDays(t *testing.T) {
 	r := NewReaper(fake, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(domain.MaxAuditRetentionDays + 1)
 	r.reapAuditEvents(ctx)
-	require.Len(t, fake.
-		excludingCalls,
-		0)
-
+	require.Empty(t, fake.
+		excludingCalls)
 }
 
 // TestReclaimAuditDeadletter_PerEventTimeout asserts that a single wedged
@@ -525,5 +512,4 @@ func TestReclaimAuditDeadletter_PerEventTimeout(t *testing.T) {
 	// Generous upper bound catches regressions where the timeout is not
 	// applied per-event (would wedge indefinitely under any parent ctx
 	// longer than the bound).
-
 }

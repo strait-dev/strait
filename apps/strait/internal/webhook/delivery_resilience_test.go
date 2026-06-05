@@ -66,11 +66,8 @@ func TestWebhookResilience_ExactTimeoutBoundary(t *testing.T) {
 		domain.WebhookStatusDead,
 
 		got.Status)
-	require.True(t,
-		strings.Contains(got.LastError,
-			"http request:",
-		))
-
+	require.Contains(t,
+		got.LastError, "http request:")
 }
 
 // TestWebhookResilience_PartialResponseHang verifies that an endpoint which
@@ -128,7 +125,6 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 	// The body drain is limited by maxResponseBodyDrainBytes + LimitReader,
 	// but the client.Timeout on the Transport will cut off the read.
 	// Either outcome is acceptable: delivered (got 200) or dead (timeout draining body).
-
 }
 
 // TestWebhookResilience_RedirectToLocalhost verifies that a 301 redirect
@@ -184,9 +180,8 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 				http.
 					StatusMovedPermanently,
 	)
-	require.NotEqual(t, "", got.
+	require.NotEmpty(t, got.
 		LastError)
-
 }
 
 // TestWebhookResilience_ResponseBomb verifies that the delivery worker
@@ -241,7 +236,6 @@ func TestWebhookResilience_ResponseBomb(t *testing.T) {
 
 	// 200 is success; the response body drain is capped at maxResponseBodyDrainBytes (1 MB).
 	// The delivery should succeed because the status code was 200.
-
 }
 
 // TestWebhookResilience_ConnectionCloseMidTransfer verifies that the worker
@@ -298,7 +292,6 @@ func TestWebhookResilience_ConnectionCloseMidTransfer(t *testing.T) {
 	// The connection closed mid-transfer may result in either:
 	// - delivered (got 200 status before body drain failed, drain error is swallowed)
 	// - dead (HTTP client detected the broken connection)
-
 }
 
 // TestWebhookResilience_ValidHTTPThenGarbage verifies that the worker handles
@@ -372,7 +365,6 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 
 	// The HTTP client parsed the 200 status code. Body drain may hit an unexpected EOF
 	// but that error is discarded. The delivery should be marked as delivered.
-
 }
 
 // TestWebhookResilience_OKInvalidJSON verifies that a 200 response with
@@ -412,7 +404,6 @@ func TestWebhookResilience_OKInvalidJSON(t *testing.T) {
 
 		got.Status,
 	)
-
 }
 
 // TestWebhookResilience_HMACVerification verifies that the HMAC signature
@@ -509,7 +500,6 @@ func TestWebhookResilience_HMACVerification(t *testing.T) {
 		receivedBody,
 		computedSig,
 	))
-
 }
 
 // TestWebhookResilience_RetryExhaustion verifies that when the endpoint always
@@ -568,9 +558,8 @@ func TestWebhookResilience_RetryExhaustion(t *testing.T) {
 		domain.WebhookStatusDead,
 
 		got.Status)
-	require.NotEqual(t, "", got.
+	require.NotEmpty(t, got.
 		LastError)
-
 }
 
 // mockCircuitBreaker is a simple in-memory circuit breaker for testing.
@@ -715,7 +704,6 @@ func TestWebhookResilience_CircuitBreakerThreshold(t *testing.T) {
 				dd.Status !=
 					domain.WebhookStatusDelivered,
 		)
-
 	}
 }
 
@@ -749,7 +737,6 @@ func TestWebhookResilience_ConcurrentDeliverySameEndpoint(t *testing.T) {
 			LastError:   fmt.Sprintf(`{"index":%d}`, i),
 		}
 		require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
-
 	}
 
 	worker.processBatch(context.Background())
@@ -766,7 +753,6 @@ func TestWebhookResilience_ConcurrentDeliverySameEndpoint(t *testing.T) {
 	require.Equal(t,
 		count, deliveredCount,
 	)
-
 }
 
 // TestWebhookResilience_SelfSignedTLS verifies that delivering to an endpoint
@@ -805,10 +791,8 @@ func TestWebhookResilience_SelfSignedTLS(t *testing.T) {
 		domain.WebhookStatusDead,
 
 		got.Status)
-	require.True(t,
-		strings.Contains(got.LastError,
-			"http request:",
-		))
+	require.Contains(t,
+		got.LastError, "http request:")
 
 	// Verify the error mentions certificate-related issue.
 	if !strings.Contains(got.LastError, "certificate") && !strings.Contains(got.LastError, "tls") {

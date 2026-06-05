@@ -95,8 +95,7 @@ func FuzzSubjectForEvent(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, eventType string) {
 		result := subjectForEvent(eventType, nil)
-		assert.NotEqual(t, "", result)
-
+		assert.NotEmpty(t, result)
 	})
 }
 
@@ -118,8 +117,7 @@ func FuzzHTMLBodyForEvent(f *testing.F) {
 	f.Fuzz(func(t *testing.T, eventType string, payload []byte) {
 		// Must never panic regardless of input.
 		result := htmlBodyForEvent(eventType, json.RawMessage(payload))
-		assert.NotEqual(t, "", result)
-
+		assert.NotEmpty(t, result)
 	})
 }
 
@@ -224,6 +222,5 @@ func FuzzSlackPayloadConstruction(f *testing.F) {
 		body, err := json.Marshal(map[string]any{"text": text})
 		require.NoError(t, err)
 		assert.NotEmpty(t, body)
-
 	})
 }

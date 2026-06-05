@@ -97,7 +97,7 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 	require.Equal(t, "run-1", createdTrigger.
 		JobRunID,
 	)
-	require.EqualValues(t, 7200, createdTrigger.
+	require.Equal(t, 7200, createdTrigger.
 		TimeoutSecs,
 	)
 
@@ -106,7 +106,6 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 	require.Equal(t, "waiting", resp["status"])
 	require.Equal(t, "aml:app-123",
 		resp["event_key"])
-
 }
 
 func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
@@ -130,7 +129,6 @@ func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		rr.Code,
 	)
-
 }
 
 func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
@@ -148,7 +146,6 @@ func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		rr.Code)
-
 }
 
 func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
@@ -185,7 +182,6 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 		createdTrigger.
 			TimeoutSecs,
 	)
-
 }
 
 func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
@@ -217,7 +213,6 @@ func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		rr.
 			Code)
-
 }
 
 func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
@@ -241,5 +236,4 @@ func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		rr.Code,
 	)
-
 }

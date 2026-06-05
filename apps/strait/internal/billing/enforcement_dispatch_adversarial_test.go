@@ -37,11 +37,10 @@ func TestCheckSpendingLimit_ConcurrentWarningDispatchedOnce(t *testing.T) {
 	wg.Wait()
 
 	got := dispatchedEventTypes(d)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(got,
 			domain.WebhookEventBillingCapWarning,
 		))
-
 }
 
 // A clock-skew bounce (79% → 81% → 79%) must still produce exactly one
@@ -64,11 +63,10 @@ func TestCheckSpendingLimit_ClockSkewBounceDispatchesOnce(t *testing.T) {
 		_ = e.CheckSpendingLimit(ctx, sub.OrgID)
 	}
 	got := dispatchedEventTypes(d)
-	assert.EqualValues(t, 1,
+	assert.Equal(t, 1,
 		countEvent(got,
 			domain.WebhookEventBillingCapWarning,
 		))
-
 }
 
 // A webhook delivery failure must NOT block the enforcer's return path.
@@ -88,10 +86,7 @@ func TestCheckSpendingLimit_DispatchFailureDoesNotBlockReturn(t *testing.T) {
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	var limitErr *LimitError
-	require.True(t, errors.As(err,
-		&limitErr,
-	))
-
+	require.ErrorAs(t, err, &limitErr)
 }
 
 // Period-boundary race: at the millisecond a new billing period opens,
@@ -121,9 +116,8 @@ func TestCheckSpendingLimit_PeriodBoundaryRace(t *testing.T) {
 			Background(), sub.OrgID))
 
 	got := dispatchedEventTypes(d)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		countEvent(got,
 			domain.WebhookEventBillingCapWarning,
 		))
-
 }

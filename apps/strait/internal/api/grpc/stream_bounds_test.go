@@ -45,7 +45,6 @@ func TestBounds_Constants(t *testing.T) {
 		assert.Equal(t,
 			tc.want,
 			tc.got)
-
 	}
 }
 
@@ -57,5 +56,4 @@ func TestDeepSecHandleAck_OversizedRunIDRejectedBeforeStore(t *testing.T) {
 		Id: strings.Repeat("r", maxRunIDLen+1),
 	})
 	require.NoError(t, err)
-
 }

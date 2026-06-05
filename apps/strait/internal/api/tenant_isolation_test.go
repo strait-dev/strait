@@ -207,7 +207,7 @@ func TestTenantIsolation_JobsNeverCrossProject(t *testing.T) {
 	)
 
 	countA := decodeDataCount(t, w.Body.Bytes())
-	assert.EqualValues(t, 1, countA)
+	assert.Equal(t, 1, countA)
 
 	// List jobs for project B.
 	w = httptest.NewRecorder()
@@ -217,7 +217,7 @@ func TestTenantIsolation_JobsNeverCrossProject(t *testing.T) {
 	)
 
 	countB := decodeDataCount(t, w.Body.Bytes())
-	assert.EqualValues(t, 1, countB)
+	assert.Equal(t, 1, countB)
 
 	// Ensure project B does not see project A jobs (mock already guarantees
 	// different data per projectID, so we check the IDs).
@@ -227,7 +227,6 @@ func TestTenantIsolation_JobsNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, j.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -250,7 +249,6 @@ func TestTenantIsolation_RunsNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, r.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -273,7 +271,6 @@ func TestTenantIsolation_SecretsNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, s.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -296,7 +293,6 @@ func TestTenantIsolation_WorkflowsNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, wf.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -322,7 +318,6 @@ func TestTenantIsolation_WebhooksNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, s.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -345,7 +340,6 @@ func TestTenantIsolation_EventTriggersNeverCrossProject(t *testing.T) {
 		assert.NotEqual(t, projectA, et.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -387,7 +381,6 @@ func TestTenantIsolation_OIDCProjectHeaderSpoofing(t *testing.T) {
 		t, len(jobsB) !=
 			1 || jobsB[0].ID !=
 			"job-b")
-
 }
 
 // TestTenantIsolation_APIKeyProjectMismatch verifies that when project context
@@ -412,7 +405,6 @@ func TestTenantIsolation_APIKeyProjectMismatch(t *testing.T) {
 	assert.Equal(
 		t, projectB, runs[0].ProjectID,
 	)
-
 }
 
 // TestTenantIsolation_OrgScopedKeyProjectAccess verifies that org-scoped
@@ -435,7 +427,6 @@ func TestTenantIsolation_OrgScopedKeyProjectAccess(t *testing.T) {
 		assert.Equal(
 			t, projectA, j.ProjectID,
 		)
-
 	}
 }
 
@@ -459,7 +450,6 @@ func TestTenantIsolation_RunIDGuessing(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestTenantIsolation_CrossProjectJobAccess verifies that fetching a job by ID
@@ -482,7 +472,6 @@ func TestTenantIsolation_CrossProjectJobAccess(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestTenantIsolation_CrossProjectWorkflowAccess verifies that fetching a
@@ -505,7 +494,6 @@ func TestTenantIsolation_CrossProjectWorkflowAccess(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestTenantIsolation_CrossProjectEnvironmentAccess verifies that fetching an
@@ -528,7 +516,6 @@ func TestTenantIsolation_CrossProjectEnvironmentAccess(t *testing.T) {
 	require.Equal(t, http.StatusOK,
 		w.Code,
 	)
-
 }
 
 // TestTenantIsolation_CrossProjectDeleteBlocked verifies that deleting a
@@ -551,7 +538,6 @@ func TestTenantIsolation_CrossProjectDeleteBlocked(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 // TestTenantIsolation_EnvironmentsIsolated verifies that environments are
@@ -573,13 +559,11 @@ func TestTenantIsolation_EnvironmentsIsolated(t *testing.T) {
 		assert.NotEqual(t, projectA, e.
 			ProjectID,
 		)
-
 	}
 	assert.False(
 		t, len(envs) != 1 ||
 			envs[0].ID != "env-b",
 	)
-
 }
 
 // TestTenantIsolation_AuditEventsIsolated verifies that audit events are
@@ -601,7 +585,6 @@ func TestTenantIsolation_AuditEventsIsolated(t *testing.T) {
 		assert.NotEqual(t, projectA, ev.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -641,7 +624,6 @@ func TestTenantIsolation_AnalyticsIsolated(t *testing.T) {
 	for _, r := range runsB {
 		assert.False(
 			t, aIDs[r.ID])
-
 	}
 }
 
@@ -667,7 +649,6 @@ func TestTenantIsolation_LogDrainsIsolated(t *testing.T) {
 		assert.NotEqual(t, projectA, d.
 			ProjectID,
 		)
-
 	}
 }
 
@@ -692,7 +673,6 @@ func TestTenantIsolation_SDKTokenScopedToRun(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 
 		w.Code)
-
 }
 
 // TestTenantIsolation_RevokeAPIKey_CrossProject verifies that revoking an API
@@ -735,7 +715,6 @@ func TestTenantIsolation_RevokeAPIKey_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -783,7 +762,6 @@ func TestTenantIsolation_RotateAPIKey_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -816,7 +794,6 @@ func TestTenantIsolation_DeleteEnvironment_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -849,7 +826,6 @@ func TestTenantIsolation_GetResolvedVariables_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -891,7 +867,6 @@ func TestTenantIsolation_ListEventSourceSubscriptions_CrossProject(t *testing.T)
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -944,7 +919,6 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -983,7 +957,6 @@ func TestTenantIsolation_DispatchEvent_CrossProject(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 
 		w.Code)
-
 }
 
 func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
@@ -1025,7 +998,6 @@ func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
 	)
 	require.True(
 		t, enqueued)
-
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *testing.T) {
@@ -1065,8 +1037,7 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
-
+	require.Equal(t, 0, int(resp["dispatched"].(float64)))
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
@@ -1107,8 +1078,7 @@ func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
-
+	require.Equal(t, 0, int(resp["dispatched"].(float64)))
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscription(t *testing.T) {
@@ -1149,8 +1119,7 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscriptio
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(),
 		&resp))
-	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
-
+	require.Equal(t, 0, int(resp["dispatched"].(float64)))
 }
 
 // TestTenantIsolation_GetWebhookDelivery_CrossProject verifies that getting a
@@ -1189,7 +1158,6 @@ func TestTenantIsolation_GetWebhookDelivery_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -1232,7 +1200,6 @@ func TestTenantIsolation_RetryWebhookDelivery_CrossProject(t *testing.T) {
 			assert.Equal(
 				t, tt.wantCode, w.
 					Code)
-
 		})
 	}
 }
@@ -1265,6 +1232,5 @@ func FuzzTenantIsolation_CrossProjectAccess(f *testing.F) {
 						StatusNotFound)
 
 		// Should not panic. Valid project IDs get 200, missing project returns 400.
-
 	})
 }

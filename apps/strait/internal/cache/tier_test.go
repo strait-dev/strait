@@ -136,7 +136,6 @@ func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 	require.Equal(t,
 		0, l2.gets,
 	)
-
 }
 
 func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
@@ -171,7 +170,6 @@ func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
 	require.Equal(t,
 		0, l2.gets,
 	)
-
 }
 
 func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
@@ -201,7 +199,6 @@ func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 	require.Equal(t, int64(1), loads.Load())
-
 }
 
 func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
@@ -270,7 +267,6 @@ func TestNewCacheCore_FailOpenFallsThroughToLoader(t *testing.T) {
 	require.Equal(t,
 		"get", failOp,
 	)
-
 }
 
 func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
@@ -299,8 +295,8 @@ func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
 		return authDTO{Scopes: []string{"runs:read"}, Secret: "plaintext"}, nil
 	})
 	require.NoError(t, err)
-	require.Equal(t,
-		"", got.
+	require.Empty(t,
+		got.
 			Secret)
 
 	got.Scopes[0] = "mutated"
@@ -310,7 +306,6 @@ func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
 		"runs:read",
 		again.
 			Scopes[0])
-
 }
 
 func TestStrict_CASRejectsEqualAndLowerVersions(t *testing.T) {
@@ -338,7 +333,6 @@ func TestStrict_CASRejectsEqualAndLowerVersions(t *testing.T) {
 	require.Equal(t,
 		"v2", got,
 	)
-
 }
 
 func TestStrict_GetConsistentIgnoresStaleL1AndL2(t *testing.T) {
@@ -367,7 +361,6 @@ func TestStrict_GetConsistentIgnoresStaleL1AndL2(t *testing.T) {
 	l2.mu.Lock()
 	defer l2.mu.Unlock()
 	require.Equal(t, int64(5), l2.values["k"].Version)
-
 }
 
 func TestNewCacheCore_TTLJitterBounds(t *testing.T) {
@@ -382,7 +375,6 @@ func TestNewCacheCore_TTLJitterBounds(t *testing.T) {
 					base+
 						25*time.Millisecond,
 		)
-
 	}
 }
 

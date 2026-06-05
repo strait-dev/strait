@@ -57,14 +57,12 @@ func TestDunner_ConcurrentTicksAdvanceEachRowOnce(t *testing.T) {
 
 			row.DunningStep,
 		)
-
 	}
 	assert.Equal(t, n,
 		countEvent(dispatchedEventTypes(
 			disp), domain.
 			WebhookEventBillingDelinquent,
 		))
-
 }
 
 // A hand-edited row with dunning_entered_at in the future (clock skew or
@@ -89,15 +87,14 @@ func TestDunner_FutureEnteredAtIsSafeNoOp(t *testing.T) {
 		d.Tick(context.Background()))
 
 	row := store.get("org_future")
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 		row.DunningStep,
 	)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		countEvent(dispatchedEventTypes(
 			disp), domain.
 			WebhookEventBillingDelinquent,
 		))
-
 }
 
 // Stripe webhook replays: handlePaymentFailed delivered twice must only set
@@ -130,7 +127,6 @@ func TestDunner_StartDunningReplayPreservesEnteredAt(t *testing.T) {
 	assert.True(t, row.
 		DunningEnteredAt.
 		Equal(first))
-
 }
 
 // A failing dispatcher at step 6 must NOT prevent the payment_status flip to
@@ -164,7 +160,6 @@ func TestDunner_Step6FlipsPaymentStatusWhenDispatcherDown(t *testing.T) {
 
 		row.DunningStep,
 	)
-
 }
 
 // failingDispatcher counts attempts so the test asserts the dispatcher *was*

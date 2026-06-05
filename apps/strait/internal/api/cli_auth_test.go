@@ -34,26 +34,22 @@ func TestHandleDeviceCode_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.
 		Bytes(), &resp,
 	))
-	require.NotEqual(t, "", resp.DeviceCode)
+	require.NotEmpty(t, resp.DeviceCode)
 	require.Len(t,
 		resp.DeviceCode,
 		64)
-	require.NotEqual(t, "", resp.UserCode)
+	require.NotEmpty(t, resp.UserCode)
 	require.Len(t,
 		resp.UserCode,
 		8)
-	require.False(t, resp.ExpiresIn <=
-		0)
-	require.False(t, resp.Interval <=
-		0)
-	require.NotEqual(t, "", resp.VerificationURL)
-
+	require.Positive(t, resp.ExpiresIn)
+	require.Positive(t, resp.Interval)
+	require.NotEmpty(t, resp.VerificationURL)
 }
 
 func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
 	t.Parallel()
-	require.False(t, deviceCodePollInterval <=
-		0)
+	require.Positive(t, deviceCodePollInterval)
 
 	pollsPerWindow := 1 // the initial /device-code request shares the same public route bucket.
 	pollsPerWindow += int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
@@ -63,7 +59,6 @@ func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
 	require.LessOrEqual(t, pollsPerWindow,
 		cliAuthRateLimitRequests,
 	)
-
 }
 
 func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
@@ -84,7 +79,6 @@ func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 			w.Code)
 		require.NoError(t, json.Unmarshal(w.Body.
 			Bytes(), &codes[i]))
-
 	}
 	require.NotEqual(t, codes[1].DeviceCode,
 
@@ -93,7 +87,6 @@ func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 	require.NotEqual(t, codes[1].UserCode,
 		codes[0].UserCode,
 	)
-
 }
 
 func TestHandleDeviceCode_CleansExpiredCodesBeforeCreate(t *testing.T) {
@@ -124,7 +117,6 @@ func TestHandleDeviceCode_CleansExpiredCodesBeforeCreate(t *testing.T) {
 	require.True(
 		t, createSawCleanup,
 	)
-
 }
 
 func TestHandleDeviceCode_CleanupFailurePreventsCreate(t *testing.T) {
@@ -151,7 +143,6 @@ func TestHandleDeviceCode_CleanupFailurePreventsCreate(t *testing.T) {
 		w.Code,
 	)
 	require.False(t, createCalled)
-
 }
 
 func TestHandleDeviceToken_CleansExpiredCodesBeforeLookup(t *testing.T) {
@@ -188,7 +179,6 @@ func TestHandleDeviceToken_CleansExpiredCodesBeforeLookup(t *testing.T) {
 	require.True(
 		t, lookupSawCleanup,
 	)
-
 }
 
 func TestHandleDeviceToken_Pending(t *testing.T) {
@@ -227,7 +217,6 @@ func TestHandleDeviceToken_Pending(t *testing.T) {
 	require.Equal(t, "authorization_pending",
 
 		resp["error"])
-
 }
 
 func TestHandleDeviceToken_Approved(t *testing.T) {
@@ -272,7 +261,6 @@ func TestHandleDeviceToken_Approved(t *testing.T) {
 	require.Equal(t, "proj-1", resp.
 		ProjectID,
 	)
-
 }
 
 func TestHandleDeviceToken_Expired(t *testing.T) {
@@ -307,7 +295,6 @@ func TestHandleDeviceToken_Expired(t *testing.T) {
 	))
 	require.Equal(t, "expired_token",
 		resp["error"])
-
 }
 
 func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
@@ -343,7 +330,6 @@ func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
 	require.Equal(t, "token_already_exchanged",
 
 		resp["error"])
-
 }
 
 func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
@@ -361,7 +347,6 @@ func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleDeviceToken_MissingDeviceCode(t *testing.T) {
@@ -379,7 +364,6 @@ func TestHandleDeviceToken_MissingDeviceCode(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }
 
 func TestHandleApproveDeviceCode_Success(t *testing.T) {
@@ -434,7 +418,6 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	require.Equal(t, "key-generated",
 		approvedAPIKeyID,
 	)
-
 }
 
 func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScopedCLIKey(t *testing.T) {
@@ -481,7 +464,6 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 		createdKey.
 			EnvironmentID,
 	)
-
 }
 
 func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
@@ -527,7 +509,6 @@ func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
 	require.False(t, createdKey.ExpiresAt.
 		After(time.Now().Add(8*24*time.
 			Hour)))
-
 }
 
 func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
@@ -549,7 +530,6 @@ func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
@@ -576,7 +556,6 @@ func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
 		w.Code != http.
 			StatusBadRequest,
 	)
-
 }
 
 func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T) {
@@ -609,5 +588,4 @@ func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T)
 		ProjectID: "proj-1",
 	}})
 	require.Error(t, err)
-
 }

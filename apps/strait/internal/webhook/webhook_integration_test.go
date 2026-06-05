@@ -383,7 +383,7 @@ func TestRetryFlowWithRealPersistence(t *testing.T) {
 	require.GreaterOrEqual(t,
 
 		callCount.
-			Load(), 3)
+			Load(), int32(3))
 
 }
 
@@ -539,7 +539,7 @@ func TestConcurrentWebhookDeliveries(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	require.Equal(t, deliveryCount,
+	require.Equal(t, int32(deliveryCount),
 
 		totalRequests.
 			Load())

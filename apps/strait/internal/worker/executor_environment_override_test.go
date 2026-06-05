@@ -13,6 +13,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	defer overrideServer.Close()
 
 	originalServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"original server should not be called when override is active")
 	}))
@@ -77,7 +78,6 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	require.True(t,
 		overrideCalled,
 	)
-
 }
 
 func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing.T) {
@@ -183,7 +183,6 @@ func TestExecutor_EnvironmentOverride_ErrorFallsBackToOriginal(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }
 
 func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
@@ -221,7 +220,6 @@ func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
 		calls[1].to)
 
 	// Should complete using original endpoint, not the blocked override.
-
 }
 
 func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
@@ -256,5 +254,4 @@ func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
 		domain.StatusCompleted,
 
 		calls[1].to)
-
 }

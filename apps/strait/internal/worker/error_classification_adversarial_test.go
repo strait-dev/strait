@@ -21,7 +21,6 @@ func TestClassifyError_HTTP399(t *testing.T) {
 			domain.ErrorClassClient ||
 			got == domain.ErrorClassServer,
 	)
-
 }
 
 // TestClassifyError_HTTP400 verifies that status 400 is classified as client.
@@ -34,7 +33,6 @@ func TestClassifyError_HTTP400(t *testing.T) {
 			ErrorClassClient,
 		got,
 	)
-
 }
 
 // TestClassifyError_HTTP401 verifies that status 401 is classified as auth.
@@ -46,7 +44,6 @@ func TestClassifyError_HTTP401(t *testing.T) {
 		domain.
 			ErrorClassAuth,
 		got)
-
 }
 
 // TestClassifyError_HTTP403 verifies that status 403 is classified as auth.
@@ -58,7 +55,6 @@ func TestClassifyError_HTTP403(t *testing.T) {
 		domain.
 			ErrorClassAuth,
 		got)
-
 }
 
 // TestClassifyError_HTTP429 verifies that status 429 is classified as rate_limited.
@@ -71,7 +67,6 @@ func TestClassifyError_HTTP429(t *testing.T) {
 			ErrorClassRateLimited,
 
 		got)
-
 }
 
 // TestClassifyError_HTTP499 verifies that status 499 is classified as client.
@@ -84,7 +79,6 @@ func TestClassifyError_HTTP499(t *testing.T) {
 			ErrorClassClient,
 		got,
 	)
-
 }
 
 // TestClassifyError_HTTP500 verifies that status 500 is classified as server.
@@ -97,7 +91,6 @@ func TestClassifyError_HTTP500(t *testing.T) {
 			ErrorClassServer,
 		got,
 	)
-
 }
 
 // TestClassifyError_HTTP600 verifies that status 600 is classified as server.
@@ -110,7 +103,6 @@ func TestClassifyError_HTTP600(t *testing.T) {
 			ErrorClassServer,
 		got,
 	)
-
 }
 
 // TestClassifyError_ContextDeadline verifies that context.DeadlineExceeded is classified as timeout.
@@ -122,7 +114,6 @@ func TestClassifyError_ContextDeadline(t *testing.T) {
 			ErrorClassTimeout,
 		got,
 	)
-
 }
 
 // TestClassifyError_ContextCanceledAdversarial verifies that context.Canceled is classified as transient.
@@ -135,7 +126,6 @@ func TestClassifyError_ContextCanceledAdversarial(t *testing.T) {
 
 		got,
 	)
-
 }
 
 // TestClassifyError_ConnectionRefused verifies that connection refused errors are classified as connection.
@@ -148,7 +138,6 @@ func TestClassifyError_ConnectionRefused(t *testing.T) {
 			ErrorClassConnection,
 
 		got)
-
 }
 
 // TestClassifyError_OOM verifies that out of memory errors are classified as oom.
@@ -160,7 +149,6 @@ func TestClassifyError_OOM(t *testing.T) {
 		domain.
 			ErrorClassOOM,
 		got)
-
 }
 
 // TestClassifyError_BudgetExceeded verifies that budget exceeded errors are classified as budget.
@@ -173,7 +161,6 @@ func TestClassifyError_BudgetExceeded(t *testing.T) {
 			ErrorClassBudget,
 		got,
 	)
-
 }
 
 // TestClassifyError_DeeplyWrapped verifies classification through 10 levels of error wrapping.
@@ -189,7 +176,6 @@ func TestClassifyError_DeeplyWrapped(t *testing.T) {
 			ErrorClassRateLimited,
 
 		got)
-
 }
 
 // TestClassifyError_NilError verifies that nil errors return unknown.
@@ -201,7 +187,6 @@ func TestClassifyError_NilError(t *testing.T) {
 			ErrorClassUnknown,
 		got,
 	)
-
 }
 
 // FuzzClassifyError fuzz-tests classifyError with arbitrary error messages.
@@ -219,7 +204,6 @@ func FuzzClassifyError(f *testing.F) {
 			domain.
 				ValidErrorClasses[got],
 		)
-
 	})
 }
 
@@ -248,7 +232,6 @@ func TestShouldRetryForClass_AllClasses(t *testing.T) {
 			require.Equal(t,
 				tc.want,
 				got)
-
 		})
 	}
 }
@@ -278,7 +261,6 @@ func TestShouldUseFallbackForClass_AllClasses(t *testing.T) {
 			require.Equal(t,
 				tc.want,
 				got)
-
 		})
 	}
 }
@@ -299,7 +281,6 @@ func TestErrorHash_UTF8Truncation(t *testing.T) {
 	require.Equal(t,
 		h2, h1,
 	)
-
 }
 
 // TestErrorHash_EmptyMessage verifies that an empty string produces a valid hash.
@@ -308,7 +289,6 @@ func TestErrorHash_EmptyMessage(t *testing.T) {
 	h := errorHash("")
 	require.Len(t, h,
 		16)
-
 }
 
 // TestErrorHash_LongMessage verifies that a 10KB message produces a valid 16-char hash.
@@ -318,7 +298,6 @@ func TestErrorHash_LongMessage(t *testing.T) {
 	h := errorHash(msg)
 	require.Len(t, h,
 		16)
-
 }
 
 // TestErrorHash_Consistency verifies that the same message always produces the same hash.
@@ -335,7 +314,6 @@ func TestErrorHash_Consistency(t *testing.T) {
 	h3 := errorHash("a completely different error message")
 	require.NotEqual(t, h3,
 		h1)
-
 }
 
 // FuzzErrorHashAdversarial fuzz-tests that errorHash always returns a 16-char hex string
@@ -354,6 +332,5 @@ func FuzzErrorHashAdversarial(f *testing.F) {
 		require.Equal(t,
 			h2, h1,
 		)
-
 	})
 }

@@ -59,6 +59,5 @@ func TestSendWebhookWithClientUnexported(t *testing.T) {
 			f.mustHaveTestImpl &&
 				!sawTestHelper,
 		)
-
 	}
 }

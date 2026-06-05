@@ -61,7 +61,6 @@ func TestGenerateUserCode_Format(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t,
 		code, 8)
-
 }
 
 // TestGenerateUserCode_Alphabet verifies that all characters in the generated
@@ -78,7 +77,6 @@ func TestGenerateUserCode_Alphabet(t *testing.T) {
 				t, strings.ContainsRune(userCodeAlphabet,
 					ch),
 			)
-
 		}
 	}
 }
@@ -115,7 +113,6 @@ func TestDeviceToken_ExpiredCode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "expired_token",
 		resp["error"])
-
 }
 
 // TestDeviceToken_AlreadyUsedCode verifies that an already-used device code is
@@ -150,7 +147,6 @@ func TestDeviceToken_AlreadyUsedCode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Equal(t, "token_already_exchanged",
 		resp["error"])
-
 }
 
 // TestDeviceToken_InvalidGrantType verifies that a wrong grant_type value is
@@ -174,7 +170,6 @@ func TestDeviceToken_InvalidGrantType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 // TestDeviceToken_EmptyDeviceCode verifies that an empty device_code value is
@@ -198,7 +193,6 @@ func TestDeviceToken_EmptyDeviceCode(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 // FuzzGenerateUserCode_Alphabet fuzzes generateUserCode to verify that every
@@ -219,7 +213,6 @@ func FuzzGenerateUserCode_Alphabet(f *testing.F) {
 				t, strings.ContainsRune(userCodeAlphabet,
 					ch),
 			)
-
 		}
 	})
 }

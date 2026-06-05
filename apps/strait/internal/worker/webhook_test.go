@@ -68,7 +68,6 @@ func TestSendWebhook_Success(t *testing.T) {
 			StatusCode,
 	)
 	require.EqualValues(t, 1, hits.Load())
-
 }
 
 func TestSendWebhook_RetriesOn503(t *testing.T) {
@@ -95,7 +94,6 @@ func TestSendWebhook_RetriesOn503(t *testing.T) {
 	require.True(t,
 		result.Delivered)
 	require.EqualValues(t, 2, hits.Load())
-
 }
 
 func TestSendWebhook_NoRetryOn400(t *testing.T) {
@@ -119,7 +117,6 @@ func TestSendWebhook_NoRetryOn400(t *testing.T) {
 		result.Delivered,
 	)
 	require.EqualValues(t, 1, hits.Load())
-
 }
 
 func TestSendWebhook_MaxRetriesExhausted(t *testing.T) {
@@ -143,7 +140,6 @@ func TestSendWebhook_MaxRetriesExhausted(t *testing.T) {
 		result.Delivered,
 	)
 	require.EqualValues(t, 3, hits.Load())
-
 }
 
 func TestSendWebhook_EmptyWebhookURL(t *testing.T) {
@@ -152,7 +148,6 @@ func TestSendWebhook_EmptyWebhookURL(t *testing.T) {
 	result := SendWebhookWithRetry(context.Background(), &domain.Job{ID: "job-1"}, webhookTestRun(), 3)
 	require.True(t,
 		result.Delivered)
-
 }
 
 func TestRunForTerminalWebhook_IncludesFinalResultAndError(t *testing.T) {
@@ -199,7 +194,6 @@ func TestRunForTerminalWebhook_IncludesFinalResultAndError(t *testing.T) {
 		"endpoint returned 500",
 		failed.
 			Error)
-
 }
 
 func TestSendWebhookWithClient_Success(t *testing.T) {
@@ -227,7 +221,6 @@ func TestSendWebhookWithClient_Success(t *testing.T) {
 			StatusCode,
 	)
 	require.EqualValues(t, 1, hits.Load())
-
 }
 
 func TestSendWebhookWithClient_RetriesOn503(t *testing.T) {
@@ -255,5 +248,4 @@ func TestSendWebhookWithClient_RetriesOn503(t *testing.T) {
 	require.True(t,
 		result.Delivered)
 	require.EqualValues(t, 2, hits.Load())
-
 }

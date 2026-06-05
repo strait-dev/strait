@@ -408,9 +408,7 @@ func TestPubSubSubscriber_NilRun_NoPublish(t *testing.T) {
 	})
 
 	calls := pub.publishCalls()
-	require.Len(t, calls,
-		0)
-
+	require.Empty(t, calls)
 }
 
 func TestPubSubSubscriber_PublishError_NoPanic(t *testing.T) {
@@ -482,7 +480,6 @@ func TestPubSubSubscriber_ChannelFormat(t *testing.T) {
 	require.Equal(t,
 		"run:abc-123-def",
 		calls[0].channel)
-
 }
 
 // isTerminalStatus tests.
@@ -514,7 +511,6 @@ func TestIsTerminalStatus_AllCases(t *testing.T) {
 			require.Equal(t,
 				tc.terminal, got,
 			)
-
 		})
 	}
 }

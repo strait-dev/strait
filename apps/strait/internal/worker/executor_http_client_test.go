@@ -18,7 +18,6 @@ func TestResolveExecutorHTTPClient_PreservesConfiguredClient(t *testing.T) {
 	require.Equal(t,
 		configured,
 		got)
-
 }
 
 func TestResolveExecutorHTTPClient_Defaults(t *testing.T) {
@@ -43,10 +42,10 @@ func TestResolveExecutorHTTPClient_Defaults(t *testing.T) {
 	transport, ok := client.Transport.(*http.Transport)
 	require.True(t,
 		ok)
-	require.EqualValues(t, 100, transport.
+	require.Equal(t, 100, transport.
 		MaxIdleConns,
 	)
-	require.EqualValues(t, 10, transport.
+	require.Equal(t, 10, transport.
 		MaxIdleConnsPerHost,
 	)
 	require.Equal(t,
@@ -58,7 +57,6 @@ func TestResolveExecutorHTTPClient_Defaults(t *testing.T) {
 			Second, transport.
 			TLSHandshakeTimeout,
 	)
-
 }
 
 func TestResolveExecutorHTTPClient_OverridesTimeouts(t *testing.T) {
@@ -82,5 +80,4 @@ func TestResolveExecutorHTTPClient_OverridesTimeouts(t *testing.T) {
 			Second, transport.
 			IdleConnTimeout,
 	)
-
 }

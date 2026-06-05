@@ -62,5 +62,4 @@ func TestClaimDedupe_LostSharedClaimDoesNotPoisonLocalCache(t *testing.T) {
 	require.Equal(t, key, gotKey)
 	require.True(
 		t, claimed)
-
 }

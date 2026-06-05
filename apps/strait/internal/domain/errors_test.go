@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -13,19 +12,12 @@ func TestTransitionError_Error(t *testing.T) {
 	t.Parallel()
 	err := &TransitionError{From: StatusQueued, To: StatusCompleted}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"queued",
-		))
-	assert.True(t,
-		strings.Contains(got,
-			"completed",
-		))
-	assert.True(t,
-		strings.Contains(got,
-			"invalid transition",
-		))
-
+	assert.Contains(t,
+		got, "queued")
+	assert.Contains(t,
+		got, "completed")
+	assert.Contains(t,
+		got, "invalid transition")
 }
 
 func TestTransitionError_ImplementsError(t *testing.T) {
@@ -33,103 +25,72 @@ func TestTransitionError_ImplementsError(t *testing.T) {
 	_, ok := any(&TransitionError{From: StatusQueued, To: StatusCompleted}).(error)
 	require.True(t,
 		ok)
-
 }
 
 func TestUnknownStatusError_Error(t *testing.T) {
 	t.Parallel()
 	err := &UnknownStatusError{Status: RunStatus("bogus")}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"bogus",
-		))
-	assert.True(t,
-		strings.Contains(got,
-			"unknown status",
-		))
-
+	assert.Contains(t,
+		got, "bogus")
+	assert.Contains(t,
+		got, "unknown status")
 }
 
 func TestEndpointError_Error(t *testing.T) {
 	t.Parallel()
 	err := &EndpointError{StatusCode: 503, Body: "service unavailable with tenant secret"}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"503",
-		))
+	assert.Contains(t,
+		got, "503")
 	assert.False(t,
 		strings.Contains(got,
 			"tenant secret",
 		) || strings.Contains(got, "service unavailable"))
-
 }
 
 func TestEndpointError_EmptyBody(t *testing.T) {
 	t.Parallel()
 	err := &EndpointError{StatusCode: 500, Body: ""}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"500",
-		))
-
+	assert.Contains(t,
+		got, "500")
 }
 
 func TestFieldError_Error(t *testing.T) {
 	t.Parallel()
 	err := &FieldError{Field: "nonexistent_field"}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"nonexistent_field",
-		))
-	assert.True(t,
-		strings.Contains(got,
-			"unsupported update field",
-		))
-
+	assert.Contains(t,
+		got, "nonexistent_field")
+	assert.Contains(t,
+		got, "unsupported update field")
 }
 
 func TestConfigError_Error(t *testing.T) {
 	t.Parallel()
 	err := &ConfigError{Field: "DATABASE_URL", Message: "is required"}
 	got := err.Error()
-	assert.True(t,
-		strings.Contains(got,
-			"DATABASE_URL",
-		))
-	assert.True(t,
-		strings.Contains(got,
-			"is required",
-		))
-
+	assert.Contains(t,
+		got, "DATABASE_URL")
+	assert.Contains(t,
+		got, "is required")
 }
 
 func TestErrJobDisabled(t *testing.T) {
 	t.Parallel()
-	require.NotNil(
+	require.Error(
 		t, ErrJobDisabled,
 	)
 	assert.Equal(t,
 		"job is disabled",
 		ErrJobDisabled.
 			Error())
-
 }
 
 func TestErrJobDisabled_IsComparable(t *testing.T) {
 	t.Parallel()
-	wrapped := errors.New("outer: " + ErrJobDisabled.Error())
-	_ = wrapped
-	assert.True(t,
-		errors.Is(ErrJobDisabled,
-
-			ErrJobDisabled))
-
-	// just verifying sentinel doesn't panic
-
+	_ = ErrJobDisabled
 }
 
 func TestValidateTransition_ReturnsTransitionError(t *testing.T) {
@@ -139,9 +100,8 @@ func TestValidateTransition_ReturnsTransitionError(t *testing.T) {
 		err)
 
 	var te *TransitionError
-	require.True(t,
-		errors.As(
-			err, &te))
+	require.ErrorAs(t,
+		err, &te)
 	assert.Equal(t,
 		StatusQueued,
 		te.From,
@@ -150,7 +110,6 @@ func TestValidateTransition_ReturnsTransitionError(t *testing.T) {
 		StatusCompleted,
 		te.To,
 	)
-
 }
 
 func TestValidateTransition_ReturnsUnknownStatusError(t *testing.T) {
@@ -160,15 +119,13 @@ func TestValidateTransition_ReturnsUnknownStatusError(t *testing.T) {
 		err)
 
 	var ue *UnknownStatusError
-	require.True(t,
-		errors.As(
-			err, &ue))
+	require.ErrorAs(t,
+		err, &ue)
 	assert.Equal(t,
 		RunStatus(
 			"invalid"),
 		ue.
 			Status)
-
 }
 
 func TestTransition_ValidReturnsNil(t *testing.T) {
@@ -176,7 +133,6 @@ func TestTransition_ValidReturnsNil(t *testing.T) {
 	require.NoError(t, Transition(StatusQueued,
 
 		StatusDequeued))
-
 }
 
 func TestTransition_InvalidReturnsError(t *testing.T) {
@@ -184,7 +140,6 @@ func TestTransition_InvalidReturnsError(t *testing.T) {
 	err := Transition(StatusCompleted, StatusExecuting)
 	require.Error(t,
 		err)
-
 }
 
 func TestTransition_ErrorContainsStatus(t *testing.T) {
@@ -192,7 +147,6 @@ func TestTransition_ErrorContainsStatus(t *testing.T) {
 	err := Transition(StatusCompleted, StatusQueued)
 	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.Error(), "completed"))
-
+	assert.Contains(t,
+		err.Error(), "completed")
 }

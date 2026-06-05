@@ -85,7 +85,6 @@ func TestAdv_DowngradeApplier_ConcurrentApply(t *testing.T) {
 	// Advisory lock acquire should be called for each goroutine.
 
 	// At least some goroutines should have applied.
-
 }
 
 func TestAdv_DowngradeApplier_ApplyErrorContinues(t *testing.T) {
@@ -114,7 +113,6 @@ func TestAdv_DowngradeApplier_ApplyErrorContinues(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }
 
 func TestAdv_GracePeriod_ExpiredLongAgo(t *testing.T) {
@@ -133,7 +131,6 @@ func TestAdv_GracePeriod_ExpiredLongAgo(t *testing.T) {
 	assert.Equal(t, "restricted",
 
 		s.updatedStatuses["org-ancient"])
-
 }
 
 func TestAdv_GracePeriod_UpdateError_ContinuesOthers(t *testing.T) {
@@ -157,7 +154,6 @@ func TestAdv_GracePeriod_UpdateError_ContinuesOthers(t *testing.T) {
 		s.updatedStatuses["org-update-ok"])
 
 	// org-update-fail should have been skipped, org-update-ok should succeed.
-
 }
 
 func TestAdv_Reaper_ConcurrentReaping(t *testing.T) {
@@ -184,7 +180,6 @@ func TestAdv_Reaper_ConcurrentReaping(t *testing.T) {
 		Load(), int32(5))
 
 	// All goroutines ran ReapOnce without panic or data corruption.
-
 }
 
 func TestAdv_CronScheduler_MalformedCronExpression(t *testing.T) {
@@ -207,7 +202,6 @@ func TestAdv_CronScheduler_MalformedCronExpression(t *testing.T) {
 	require.Error(t, err)
 
 	// LoadJobs should return an error for malformed cron, not panic.
-
 }
 
 func TestAdv_AnomalyMonitor_AllZeroSpend(t *testing.T) {
@@ -268,7 +262,6 @@ func TestAdv_SLOEvaluator_ZeroTargetSLO(t *testing.T) {
 	assert.False(t, math.
 		IsNaN(got) || math.
 		IsInf(got, 0))
-
 }
 
 func TestAdv_SLOEvaluator_100PercentSLO(t *testing.T) {
@@ -276,14 +269,13 @@ func TestAdv_SLOEvaluator_100PercentSLO(t *testing.T) {
 
 	// SLO target = 100%: any failure triggers budget depletion.
 	got := CalculateErrorBudget(0.999, 1.0, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 0.0,
-		got)
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 
 	// Perfect 100% actual should preserve full budget.
 	got = CalculateErrorBudget(1.0, 1.0, domain.SLOMetricSuccessRate)
-	assert.EqualValues(t, 1.0,
-		got)
-
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
@@ -330,7 +322,6 @@ func TestAdv_UsageFlusher_ConcurrentFlush(t *testing.T) {
 
 		upsertCount,
 	)
-
 }
 
 func TestAdv_UsageReportEmailer_VeryLargeUsageValues(t *testing.T) {
@@ -346,9 +337,8 @@ func TestAdv_UsageReportEmailer_VeryLargeUsageValues(t *testing.T) {
 		999,
 		math.MaxInt64,
 	)
-	require.NotEqual(t,
-		"", html)
-
+	require.NotEmpty(t,
+		html)
 }
 
 // billingAdvMockDowngradeStore is a thread-safe mock for concurrent downgrade tests.

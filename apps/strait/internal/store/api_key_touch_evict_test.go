@@ -32,7 +32,6 @@ func TestEvictAPIKeyTouch_RemovesEntryAndDecrementsSize(t *testing.T) {
 	}
 	require.EqualValues(t, 1, apiKeyTouchSize.
 		Load())
-
 }
 
 // TestEvictAPIKeyTouch_MissIsNoOp guards against double-decrement: if
@@ -49,7 +48,6 @@ func TestEvictAPIKeyTouch_MissIsNoOp(t *testing.T) {
 	evictAPIKeyTouch("never-touched")
 	require.EqualValues(t, 1, apiKeyTouchSize.
 		Load())
-
 }
 
 // TestEvictAPIKeyTouch_DoubleEvictIsIdempotent verifies the size
@@ -63,5 +61,4 @@ func TestEvictAPIKeyTouch_DoubleEvictIsIdempotent(t *testing.T) {
 	evictAPIKeyTouch("hot-key")
 	require.EqualValues(t, 0, apiKeyTouchSize.
 		Load())
-
 }

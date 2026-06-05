@@ -77,7 +77,6 @@ func TestChunkStreamRespectsPerProjectCap(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 // TestChunkStreamReleasesOnHandlerReturn proves the handler defers the
@@ -104,7 +103,6 @@ func TestChunkStreamReleasesOnHandlerReturn(t *testing.T) {
 			"proj-1"))
 
 	// A second acquire on the same project must succeed now that the handler released its slot.
-
 }
 
 // TestChunkStreamReleasesOnEarlyError ensures the slot is released when
@@ -134,5 +132,4 @@ func TestChunkStreamReleasesOnEarlyError(t *testing.T) {
 	counter := srv.projectSSECounter("proj-1")
 	require.EqualValues(t, 0, counter.
 		Load())
-
 }

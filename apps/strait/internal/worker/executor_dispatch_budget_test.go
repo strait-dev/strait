@@ -27,7 +27,6 @@ func TestDispatchProjectBudget_NotifyDoesNotBlock(t *testing.T) {
 	runDispatch(h, "run-pb-notify")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }
 
 // TestDispatchProjectBudget_BlockUnderBudget_Proceeds confirms
@@ -46,7 +45,6 @@ func TestDispatchProjectBudget_BlockUnderBudget_Proceeds(t *testing.T) {
 	runDispatch(h, "run-pb-block-under")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }
 
 // TestDispatchProjectBudget_BlockOverBudget_Rejects verifies that spend over
@@ -63,7 +61,6 @@ func TestDispatchProjectBudget_BlockOverBudget_Rejects(t *testing.T) {
 
 	runDispatch(h, "run-pb-block-over")
 	assert.True(t, sawSystemFailed(h.store))
-
 }
 
 // TestDispatchProjectBudget_BlockAtBudget_Rejects locks in the
@@ -81,7 +78,6 @@ func TestDispatchProjectBudget_BlockAtBudget_Rejects(t *testing.T) {
 
 	runDispatch(h, "run-pb-block-at")
 	assert.True(t, sawSystemFailed(h.store))
-
 }
 
 // TestDispatchProjectBudget_NoQuotaRow_Proceeds: a project with no
@@ -101,5 +97,4 @@ func TestDispatchProjectBudget_NoQuotaRow_Proceeds(t *testing.T) {
 	runDispatch(h, "run-pb-noquota")
 	assert.False(t,
 		sawSystemFailed(h.store))
-
 }

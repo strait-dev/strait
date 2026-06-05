@@ -55,7 +55,6 @@ func FuzzApplyOverageDiscount(f *testing.F) {
 		// If discount >= 100, result should be 0 (for positive cost).
 
 		// If discount <= 0 and cost > 0, result should be original cost.
-
 	})
 }
 
@@ -70,6 +69,5 @@ func FuzzEnterpriseTierForPrice(f *testing.F) {
 		tier, ok := EnterpriseTierForPrice(priceID)
 		assert.False(t, ok &&
 			!IsValidEnterpriseTier(tier))
-
 	})
 }

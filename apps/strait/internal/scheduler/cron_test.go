@@ -30,7 +30,6 @@ func TestNewCronScheduler(t *testing.T) {
 	t.Parallel()
 	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil)
 	require.NotNil(t, cs)
-
 }
 
 func TestCronExpressionWithTimezone(t *testing.T) {
@@ -41,7 +40,6 @@ func TestCronExpressionWithTimezone(t *testing.T) {
 
 		got,
 	)
-
 }
 
 func TestCronFireKey_TruncatesToMinute(t *testing.T) {
@@ -54,7 +52,6 @@ func TestCronFireKey_TruncatesToMinute(t *testing.T) {
 		a)
 	require.NotEqual(t,
 		c, a)
-
 }
 
 func TestCronScheduler_LoadJobs_Success(t *testing.T) {
@@ -72,7 +69,6 @@ func TestCronScheduler_LoadJobs_Success(t *testing.T) {
 	err := cs.LoadJobs(context.Background())
 	require.NoError(t,
 		err)
-
 }
 
 func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
@@ -87,7 +83,6 @@ func TestCronScheduler_LoadJobs_NoJobs(t *testing.T) {
 	err := cs.LoadJobs(context.Background())
 	require.NoError(t,
 		err)
-
 }
 
 func TestCronScheduler_LoadJobs_CachesDriftSchedules(t *testing.T) {
@@ -112,14 +107,13 @@ func TestCronScheduler_LoadJobs_CachesDriftSchedules(t *testing.T) {
 		driftSchedules["*/5 * * * *"])
 	require.NotNil(t, cs.
 		driftSchedules["0 * * * *"])
-
 }
 
 func TestCronScheduler_GetDriftSchedule_CachesFallbackParse(t *testing.T) {
 	t.Parallel()
 	cs := NewCronScheduler(context.Background(), &mockCronStore{}, &mockQueue{}, nil)
-	require.NotEqual(t,
-		nil, cs.getDriftSchedule("*/10 * * * *"))
+	require.NotNil(t,
+		cs.getDriftSchedule("*/10 * * * *"))
 	require.Nil(t, cs.getDriftSchedule("not a cron"))
 
 	cs.driftMu.RLock()
@@ -127,7 +121,6 @@ func TestCronScheduler_GetDriftSchedule_CachesFallbackParse(t *testing.T) {
 	require.NotNil(t, cs.
 		driftSchedules["*/10 * * * *"])
 	require.Nil(t, cs.driftSchedules["not a cron"])
-
 }
 
 func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
@@ -148,8 +141,7 @@ func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
 	require.NoError(t,
 		cs.LoadJobs(context.
 			Background()))
-	require.EqualValues(t, 2,
-		len(cs.cron.Entries()))
+	require.Len(t, cs.cron.Entries(), 2)
 
 	jobs = []domain.Job{
 		{ID: "job-2", ProjectID: "proj-1", Cron: "*/10 * * * *"},
@@ -157,9 +149,7 @@ func TestDeepSecCronScheduler_LoadJobsReplacesStaleEntries(t *testing.T) {
 	require.NoError(t,
 		cs.LoadJobs(context.
 			Background()))
-	require.EqualValues(t, 1,
-		len(cs.cron.Entries()))
-
+	require.Len(t, cs.cron.Entries(), 1)
 }
 
 func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
@@ -174,11 +164,8 @@ func TestCronScheduler_LoadJobs_StoreError(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"list cron jobs",
-	))
-
+	require.Contains(t, err.
+		Error(), "list cron jobs")
 }
 
 func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
@@ -192,11 +179,8 @@ func TestCronScheduler_LoadJobs_InvalidCron(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), store, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"register cron job job-1",
-	))
-
+	require.Contains(t, err.
+		Error(), "register cron job job-1")
 }
 
 func TestCronScheduler_LoadJobs_SkipsInvalidJobTimezone(t *testing.T) {
@@ -214,9 +198,7 @@ func TestCronScheduler_LoadJobs_SkipsInvalidJobTimezone(t *testing.T) {
 	require.NoError(t,
 		cs.LoadJobs(context.
 			Background()))
-	require.EqualValues(t, 1,
-		len(cs.cron.Entries()))
-
+	require.Len(t, cs.cron.Entries(), 1)
 }
 
 func TestCronScheduler_LoadJobs_SkipsInvalidWorkflowTimezone(t *testing.T) {
@@ -234,9 +216,7 @@ func TestCronScheduler_LoadJobs_SkipsInvalidWorkflowTimezone(t *testing.T) {
 	require.NoError(t,
 		cs.LoadJobs(context.
 			Background()))
-	require.EqualValues(t, 1,
-		len(cs.cron.Entries()))
-
+	require.Len(t, cs.cron.Entries(), 1)
 }
 
 func TestCronScheduler_StartStop(t *testing.T) {
@@ -289,7 +269,6 @@ func TestCronScheduler_TriggerJob(t *testing.T) {
 		enqueued.
 			QueueName,
 	)
-
 }
 
 func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
@@ -321,7 +300,6 @@ func TestCronScheduler_TriggerJob_WithTTL(t *testing.T) {
 		diff >
 			5*time.Second,
 	)
-
 }
 
 func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
@@ -343,7 +321,6 @@ func TestCronScheduler_TriggerJob_NoTTL(t *testing.T) {
 	cs.triggerJob(context.Background(), job)
 	require.NotNil(t, capturedRun)
 	require.Nil(t, capturedRun.ExpiresAt)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
@@ -365,7 +342,6 @@ func TestCronScheduler_TriggerWorkflow_SkipIfRunning(t *testing.T) {
 
 	cs.triggerWorkflow(context.Background(), domain.Workflow{ID: "wf-1", ProjectID: "proj-1", SkipIfRunning: true})
 	require.False(t, triggered)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
@@ -391,7 +367,6 @@ func TestCronScheduler_TriggerWorkflow_Success(t *testing.T) {
 
 	cs.triggerWorkflow(context.Background(), domain.Workflow{ID: "wf-1", ProjectID: "proj-1"})
 	require.True(t, triggered)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicyAllow(t *testing.T) {
@@ -414,7 +389,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicyAllow(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyAllow}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicySkip_ActiveRuns(t *testing.T) {
@@ -439,7 +413,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicySkip_ActiveRuns(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
 	cs.triggerJob(context.Background(), job)
 	require.False(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicySkip_NoActive(t *testing.T) {
@@ -461,7 +434,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicySkip_NoActive(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicySkip_CountError(t *testing.T) {
@@ -483,7 +455,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicySkip_CountError(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicySkip}
 	cs.triggerJob(context.Background(), job)
 	require.False(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
@@ -532,14 +503,10 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning(t *testing.T) {
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, cancelCalled)
-	require.True(t, strings.Contains(cancelReason,
-
-		"cancel_running",
-	))
+	require.Contains(t, cancelReason, "cancel_running")
 	require.True(t, enqueued)
 	require.True(t, childCancelCalled)
 	require.True(t, wfCallbackCalled)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *testing.T) {
@@ -561,7 +528,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicyCancelRunning_CancelError(t *test
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_OverlapPolicyDefault(t *testing.T) {
@@ -586,7 +552,6 @@ func TestCronScheduler_TriggerJob_OverlapPolicyDefault(t *testing.T) {
 		"cron:job:job-1:",
 	),
 	)
-
 }
 
 func TestCronScheduler_TriggerJob_DuplicateFireIsSkipped(t *testing.T) {
@@ -624,7 +589,6 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaSkipsEnqueue(t *testing.T) {
 	cs := NewCronScheduler(context.Background(), s, q, nil)
 	cs.triggerJob(context.Background(), domain.Job{ID: "job-quota", ProjectID: "proj-quota"})
 	require.False(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_JobRateLimitSkipsEnqueue(t *testing.T) {
@@ -657,7 +621,6 @@ func TestCronScheduler_TriggerJob_JobRateLimitSkipsEnqueue(t *testing.T) {
 		RateLimitWindowSecs: 60,
 	})
 	require.False(t, enqueued)
-
 }
 
 func TestCronScheduler_ProcessCanceledRuns_PassesWorkflowStepRunID(t *testing.T) {
@@ -696,7 +659,6 @@ func TestCronScheduler_ProcessCanceledRuns_PassesWorkflowStepRunID(t *testing.T)
 		callbackRun.
 			ExecutionMode,
 	)
-
 }
 
 // Adversarial and edge-case tests for cron overlap policy.
@@ -720,7 +682,6 @@ func TestCronScheduler_TriggerJob_UnknownPolicyBehavesLikeAllow(t *testing.T) {
 	}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_EmptyResultStillEnqueues(t *testing.T) {
@@ -744,7 +705,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_EmptyResultStillEnqueues(t *test
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_NilResultStillEnqueues(t *testing.T) {
@@ -767,7 +727,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_NilResultStillEnqueues(t *testin
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelErrorDoesNotPreventEnqueue(t *testing.T) {
@@ -795,7 +754,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelErrorDoesNotPreventEn
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_DailyCostQuotaPreventsEnqueue(t *testing.T) {
@@ -837,7 +795,6 @@ func TestCronScheduler_TriggerJob_DailyCostQuotaPreventsEnqueue(t *testing.T) {
 		Enabled:   true,
 	})
 	require.False(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallbackErrorDoesNotPreventEnqueue(t *testing.T) {
@@ -867,7 +824,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallbackErrorDoesNotPrev
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_NilDependenciesAreGraceful(t *testing.T) {
@@ -893,7 +849,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_NilDependenciesAreGraceful(t *te
 	job := domain.Job{ID: "job-1", ProjectID: "proj-1", CronOverlapPolicy: domain.OverlapPolicyCancelRunning}
 	cs.triggerJob(context.Background(), job)
 	require.True(t, enqueued)
-
 }
 
 func TestCronScheduler_TriggerJob_Skip_EnqueueError(t *testing.T) {
@@ -938,7 +893,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_EnqueueError(t *testing.T) {
 	// Should not panic. Runs are already canceled but new run fails to enqueue.
 	cs.triggerJob(context.Background(), job)
 	require.False(t, cancelCalled)
-
 }
 
 func TestDeepSecCronScheduler_CancelRunningCancelsOnlyAfterReplacementEnqueue(t *testing.T) {
@@ -967,13 +921,12 @@ func TestDeepSecCronScheduler_CancelRunningCancelsOnlyAfterReplacementEnqueue(t 
 	cs.triggerJob(context.Background(), job)
 	require.Equal(t, "enqueue,cancel",
 		strings.Join(events, ","))
-	require.NotEqual(t,
-		"", replacementRunID,
+	require.NotEmpty(t,
+		replacementRunID,
 	)
 	require.Equal(t, replacementRunID,
 		excludedRunID,
 	)
-
 }
 
 func TestCronOverlapPolicy_IsValid(t *testing.T) {
@@ -996,7 +949,6 @@ func TestCronOverlapPolicy_IsValid(t *testing.T) {
 		assert.Equal(t, tt.
 			valid, tt.policy.
 			IsValid())
-
 	}
 }
 
@@ -1043,7 +995,7 @@ func TestCronScheduler_TriggerJob_CancelRunning_CorrectRunFields(t *testing.T) {
 		capturedRun.
 			CreatedBy,
 	)
-	assert.EqualValues(t, 3,
+	assert.Equal(t, 3,
 		capturedRun.JobVersion,
 	)
 	assert.Equal(t, "ver_abc",
@@ -1053,7 +1005,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_CorrectRunFields(t *testing.T) {
 	assert.Equal(t, "prod",
 		capturedRun.
 			Tags["env"])
-
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParentIDs(t *testing.T) {
@@ -1076,9 +1027,7 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParent
 		},
 		cancelChildRunsByParentIDFn: func(_ context.Context, parentIDs []string, _ time.Time, reason string) (int64, error) {
 			capturedParentIDs = parentIDs
-			assert.True(t, strings.Contains(reason,
-				"cron overlap policy",
-			))
+			assert.Contains(t, reason, "cron overlap policy")
 
 			return 2, nil
 		},
@@ -1094,7 +1043,6 @@ func TestCronScheduler_TriggerJob_CancelRunning_ChildCancelReceivesCorrectParent
 	expected := []string{"run-aaa", "run-bbb", "run-ccc"}
 	for i, id := range capturedParentIDs {
 		assert.Equal(t, expected[i], id)
-
 	}
 }
 

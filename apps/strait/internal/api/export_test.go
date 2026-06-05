@@ -40,7 +40,6 @@ func TestExportJobs_JSON_ReturnsArray(t *testing.T) {
 	require.False(t, !strings.HasPrefix(body, "[") ||
 		!strings.HasSuffix(body, "]"),
 	)
-
 }
 
 func TestExportJobs_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -65,7 +64,6 @@ func TestExportJobs_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
 	require.Len(t,
 		lines, 2)
-
 }
 
 func TestExportRuns_RequiresFromAndTo(t *testing.T) {
@@ -80,7 +78,6 @@ func TestExportRuns_RequiresFromAndTo(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExportRuns_CSV_HasHeader(t *testing.T) {
@@ -106,9 +103,8 @@ func TestExportRuns_CSV_HasHeader(t *testing.T) {
 
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
 	require.GreaterOrEqual(t, len(lines), 2)
-	require.True(
-		t, strings.Contains(lines[0], "id"))
-
+	require.Contains(
+		t, lines[0], "id")
 }
 
 func TestExportRuns_MaxWindow90Days(t *testing.T) {
@@ -125,7 +121,6 @@ func TestExportRuns_MaxWindow90Days(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExport_InvalidFormat_Returns400(t *testing.T) {
@@ -140,7 +135,6 @@ func TestExport_InvalidFormat_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExportWorkflows_EmptyProject_ReturnsEmptyArray(t *testing.T) {
@@ -160,7 +154,6 @@ func TestExportWorkflows_EmptyProject_ReturnsEmptyArray(t *testing.T) {
 
 	body := w.Body.String()
 	require.Equal(t, "[]", body)
-
 }
 
 func TestExportRuns_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -188,7 +181,6 @@ func TestExportRuns_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
 	require.Len(t,
 		lines, 2)
-
 }
 
 func TestExport_FromAfterTo_Returns400(t *testing.T) {
@@ -203,7 +195,6 @@ func TestExport_FromAfterTo_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExport_MalformedRFC3339_Returns400(t *testing.T) {
@@ -218,7 +209,6 @@ func TestExport_MalformedRFC3339_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExport_EmptyFormat_DefaultsJSON(t *testing.T) {
@@ -241,7 +231,6 @@ func TestExport_EmptyFormat_DefaultsJSON(t *testing.T) {
 
 	var arr []json.RawMessage
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &arr))
-
 }
 
 func TestExport_NoProjectID_Returns400(t *testing.T) {
@@ -256,7 +245,6 @@ func TestExport_NoProjectID_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestHandleExportWorkflows_JSON_ReturnsArray(t *testing.T) {
@@ -286,7 +274,6 @@ func TestHandleExportWorkflows_JSON_ReturnsArray(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &arr))
 	require.Len(t,
 		arr, 2)
-
 }
 
 func TestHandleExportWorkflows_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -317,7 +304,6 @@ func TestHandleExportWorkflows_NDJSON_ReturnsLineDelimited(t *testing.T) {
 		var obj map[string]any
 		require.NoError(t, json.Unmarshal([]byte(line),
 			&obj))
-
 	}
 }
 
@@ -333,7 +319,6 @@ func TestHandleExportWorkflows_InvalidFormat_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestHandleExportWorkflows_NoProjectID_Returns400(t *testing.T) {
@@ -347,7 +332,6 @@ func TestHandleExportWorkflows_NoProjectID_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 		w.Code,
 	)
-
 }
 
 func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
@@ -391,7 +375,6 @@ func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
 	require.Equal(t, "connection failed, retries exhausted, giving up",
 
 		errorField)
-
 }
 
 func TestExportJobs_WebhookSecretSanitized(t *testing.T) {
@@ -416,8 +399,7 @@ func TestExportJobs_WebhookSecretSanitized(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
 
 	body := w.Body.String()
-	require.False(t, strings.Contains(body, "supersecretvalue"))
-
+	require.NotContains(t, body, "supersecretvalue")
 }
 
 func TestExportJobs_NDJSON_WebhookSecretSanitized(t *testing.T) {
@@ -441,8 +423,7 @@ func TestExportJobs_NDJSON_WebhookSecretSanitized(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
 
 	body := w.Body.String()
-	require.False(t, strings.Contains(body, "anothersecret"))
-
+	require.NotContains(t, body, "anothersecret")
 }
 
 func TestExportJobs_JSON_ValidStructure(t *testing.T) {
@@ -496,5 +477,4 @@ func TestExport_SQLInjectionInParams(t *testing.T) {
 	)
 
 	// Should fail with 400 (invalid RFC3339), not succeed.
-
 }

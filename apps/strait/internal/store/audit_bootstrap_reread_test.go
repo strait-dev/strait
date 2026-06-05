@@ -76,12 +76,10 @@ func TestResolveSigningKeyForEpoch_InsertedButNotReadBack_Errors(t *testing.T) {
 	_, err := q.resolveSigningKeyForEpoch(context.Background(), "proj-ghost", 0)
 	require.Error(t,
 		err)
-	assert.True(t,
-		strings.Contains(err.
-			Error(), "refusing to sign under global key",
-		))
+	assert.Contains(t,
+		err.
+			Error(), "refusing to sign under global key")
 	assert.True(t,
 		fake.insertCalled,
 	)
-
 }

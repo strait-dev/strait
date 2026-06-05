@@ -55,7 +55,7 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 		string(
 			state.
 				payload))
-	require.NotEqual(t, "", state.
+	require.NotEmpty(t, state.
 		payloadHash,
 	)
 	require.NotNil(t, state.projectQuota)
@@ -64,7 +64,6 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 		quota.ProjectID ||
 		state.projectQuota.Timezone !=
 			quota.Timezone)
-
 }
 
 func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {

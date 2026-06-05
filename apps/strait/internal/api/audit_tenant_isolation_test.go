@@ -42,7 +42,6 @@ func TestAuditList_CrossTenantIsolation(t *testing.T) {
 
 	// The store must have been called with proj-a (from the context),
 	// not anything the URL might have attempted to inject.
-
 }
 
 // TestAuditList_InjectsFiltersParameterized verifies that resource_type
@@ -76,7 +75,6 @@ func TestAuditList_InjectsFiltersParameterized(t *testing.T) {
 	assert.Equal(
 		t, payload,
 		got)
-
 }
 
 // TestAuditExport_CrossTenantIsolation verifies the export path also
@@ -102,7 +100,6 @@ func TestAuditExport_CrossTenantIsolation(t *testing.T) {
 	assert.Equal(
 		t, "proj-export",
 		streamProject.Load().(string))
-
 }
 
 // TestAuditVerify_CrossTenantIsolation verifies the verify path uses
@@ -126,5 +123,4 @@ func TestAuditVerify_CrossTenantIsolation(t *testing.T) {
 	assert.Equal(
 		t, "proj-verify",
 		verifyProject.Load().(string))
-
 }

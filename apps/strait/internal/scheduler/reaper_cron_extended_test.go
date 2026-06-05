@@ -71,7 +71,6 @@ func TestReaper_OrgRetention_PrunesRunsByOrg(t *testing.T) {
 	assert.EqualValues(t, 1,
 		deleteWfRunsCalled.
 			Load())
-
 }
 
 func TestReaper_OrgRetention_ResolverError_Continues(t *testing.T) {
@@ -116,7 +115,6 @@ func TestReaper_OrgRetention_RetentionLookupErrorSkipsDeletes(t *testing.T) {
 		Load() || deleteWfRunsCalled.
 		Load(),
 	)
-
 }
 
 func TestReaper_OrgRetention_NilResolver_SkipsOrgRetention(t *testing.T) {
@@ -142,7 +140,6 @@ func TestReaper_DeleteTerminalRuns_RetentionDisabled(t *testing.T) {
 	r := NewReaper(ms, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
 	r.ReapOnce(context.Background())
 	require.False(t, retentionCalled)
-
 }
 
 func TestReaper_ReapOldEventTriggers_DeletesFinished(t *testing.T) {
@@ -161,7 +158,6 @@ func TestReaper_ReapOldEventTriggers_DeletesFinished(t *testing.T) {
 	r.ReapOnce(context.Background())
 	require.True(t, deleteCalled.
 		Load())
-
 }
 
 func TestReaper_ReapOldEventTriggers_DeleteError_NoPanic(t *testing.T) {
@@ -207,7 +203,6 @@ func TestReaper_ReapExpiredEventTriggers_MultipleExpired(t *testing.T) {
 	r.ReapOnce(context.Background())
 	require.EqualValues(t, 2,
 		updateCalls.Load())
-
 }
 
 func TestReaper_ReapExpiredEventTriggers_ListError(t *testing.T) {
@@ -284,7 +279,6 @@ func TestCronScheduler_TriggerJob_DefaultRunTTL(t *testing.T) {
 	assert.False(t, enqueuedRun.
 		ExpiresAt.
 		Before(expectedMin))
-
 }
 
 func TestCronScheduler_TriggerJob_JobTTLOverridesDefault(t *testing.T) {
@@ -320,7 +314,6 @@ func TestCronScheduler_TriggerJob_JobTTLOverridesDefault(t *testing.T) {
 		ExpiresAt.
 		After(maxExpiry),
 	)
-
 }
 
 func TestCronScheduler_TriggerWorkflow_AlreadyRunning_Skips(t *testing.T) {
@@ -352,7 +345,6 @@ func TestCronScheduler_TriggerWorkflow_AlreadyRunning_Skips(t *testing.T) {
 	cs.triggerWorkflow(ctx, wf)
 	require.False(t, triggerCalled.
 		Load())
-
 }
 
 func TestCronScheduler_TriggerWorkflow_CountError_Aborts(t *testing.T) {
@@ -384,7 +376,6 @@ func TestCronScheduler_TriggerWorkflow_CountError_Aborts(t *testing.T) {
 	cs.triggerWorkflow(ctx, wf)
 	require.False(t, triggerCalled.
 		Load())
-
 }
 
 func TestCronScheduler_TriggerWorkflow_TriggerError_NoPanic(t *testing.T) {
@@ -492,7 +483,6 @@ func TestUsageFlusher_WithAdvisoryLock_NotAcquired(t *testing.T) {
 	uf.flush(context.Background())
 	require.False(t, listCalled.
 		Load())
-
 }
 
 func TestUsageFlusher_WithAdvisoryLock_AcquireError(t *testing.T) {
@@ -516,7 +506,6 @@ func TestUsageFlusher_WithAdvisoryLock_AcquireError(t *testing.T) {
 	uf.flush(context.Background())
 	require.False(t, listCalled.
 		Load())
-
 }
 
 func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
@@ -538,7 +527,6 @@ func TestUsageFlusher_ListOrgsError_Ext(t *testing.T) {
 	require.False(t, upsertCalled.
 		Load(),
 	)
-
 }
 
 func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
@@ -580,7 +568,6 @@ func TestUsageFlusher_UpsertError_ContinuesOtherRecords_Ext(t *testing.T) {
 	require.Equal(t, wantCalls,
 		upsertCalls,
 	)
-
 }
 
 func TestUsageFlusher_DefaultInterval(t *testing.T) {
@@ -591,7 +578,6 @@ func TestUsageFlusher_DefaultInterval(t *testing.T) {
 		time.Second, uf.
 		interval,
 	)
-
 }
 
 func TestUsageFlusher_Run_StopsOnContextCancel(t *testing.T) {
@@ -653,7 +639,6 @@ func TestUsageReportEmailer_DefaultFromEmail(t *testing.T) {
 		emailer.
 			fromEmail,
 	)
-
 }
 
 func TestUsageReportEmailer_DefaultInterval(t *testing.T) {
@@ -663,7 +648,6 @@ func TestUsageReportEmailer_DefaultInterval(t *testing.T) {
 	require.Equal(t, time.
 		Hour, emailer.
 		interval)
-
 }
 
 func TestUsageReportEmailer_SameDayDedup(t *testing.T) {

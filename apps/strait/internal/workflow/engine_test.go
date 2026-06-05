@@ -318,13 +318,12 @@ func TestTriggerWorkflow(t *testing.T) {
 					Status != domain.
 					WfStatusRunning,
 		)
-		require.EqualValues(t, 1, enqueued)
+		require.Equal(t, 1, enqueued)
 		require.NotEqual(t, 0, updateStepCalls)
 		require.Equal(t,
 			domain.StepWaiting,
 			stepRunsCreated["b"].Status,
 		)
-
 	})
 
 	t.Run("root steps with same concurrency_key do not run in parallel", func(t *testing.T) {
@@ -364,7 +363,6 @@ func TestTriggerWorkflow(t *testing.T) {
 			t, err)
 		require.Len(t, started,
 			1)
-
 	})
 
 	t.Run("disabled workflow", func(t *testing.T) {
@@ -380,7 +378,6 @@ func TestTriggerWorkflow(t *testing.T) {
 			err)
 		assert.Contains(
 			t, err.Error(), "disabled")
-
 	})
 
 	t.Run("empty steps", func(t *testing.T) {
@@ -400,7 +397,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "at least one step",
 		)
-
 	})
 
 	t.Run("project mismatch", func(t *testing.T) {
@@ -417,7 +413,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "does not belong",
 		)
-
 	})
 
 	t.Run("inactive project", func(t *testing.T) {
@@ -449,7 +444,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		require.False(t,
 			listedSteps,
 		)
-
 	})
 
 	t.Run("GetWorkflow error", func(t *testing.T) {
@@ -466,7 +460,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "get workflow",
 		)
-
 	})
 
 	t.Run("ListStepsByWorkflowVersion error", func(t *testing.T) {
@@ -486,7 +479,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "list workflow steps by version",
 		)
-
 	})
 
 	t.Run("CreateWorkflowStepRun error", func(t *testing.T) {
@@ -516,7 +508,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "create step run",
 		)
-
 	})
 	t.Run("bootstrap path sets workflow_run_id on step runs", func(t *testing.T) {
 		t.Parallel()
@@ -534,7 +525,7 @@ func TestTriggerWorkflow(t *testing.T) {
 				}, nil
 			},
 			createWorkflowRunBootstrapFn: func(_ context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
-				require.NotEqual(t, "", run.
+				require.NotEmpty(t, run.
 					ID)
 				require.False(t,
 					startedAt.
@@ -546,9 +537,8 @@ func TestTriggerWorkflow(t *testing.T) {
 					require.Equal(t,
 						run.ID, sr.
 							WorkflowRunID)
-					require.NotEqual(t, "", sr.
+					require.NotEmpty(t, sr.
 						ID)
-
 				}
 				return nil
 			},
@@ -565,7 +555,7 @@ func TestTriggerWorkflow(t *testing.T) {
 		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "manual", nil, nil)
 		require.NoError(
 			t, err)
-		require.NotEqual(t, "", wfRun.
+		require.NotEmpty(t, wfRun.
 			ID)
 		require.Equal(t,
 			capturedRunID,
@@ -573,7 +563,6 @@ func TestTriggerWorkflow(t *testing.T) {
 		require.Len(t, capturedStepRuns,
 
 			2)
-
 	})
 }
 
@@ -647,7 +636,7 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
 	require.NoError(
 		t, err)
-	require.EqualValues(t, 2, listedVersion)
+	require.Equal(t, 2, listedVersion)
 	require.False(t,
 		createdVersion !=
 			2 || createdVersionID !=
@@ -658,7 +647,6 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 			2 ||
 			wfRun.WorkflowVersionID !=
 				"wf-v2")
-
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
@@ -706,7 +694,6 @@ func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
 			WorkflowSnapshotID !=
 			"snap-test",
 	)
-
 }
 
 func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
@@ -729,9 +716,7 @@ func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(),
-		"create workflow snapshot",
-	))
+	assert.Contains(t, err.Error(), "create workflow snapshot")
 
 	_ = snapshotCalled
 }
@@ -792,11 +777,8 @@ func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
 	_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "parent-run", "")
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(),
-			"nesting depth",
-		))
-
+	require.Contains(t,
+		err.Error(), "nesting depth")
 }
 
 func TestTriggerWorkflow_ConcurrencyLimitReached(t *testing.T) {
@@ -819,11 +801,8 @@ func TestTriggerWorkflow_ConcurrencyLimitReached(t *testing.T) {
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(),
-			"max concurrent runs",
-		))
-
+	require.Contains(t,
+		err.Error(), "max concurrent runs")
 }
 
 func TestMergePayloads(t *testing.T) {
@@ -860,7 +839,6 @@ func TestMergePayloads(t *testing.T) {
 		require.Equal(t,
 			`"step"`,
 			string(out))
-
 	})
 
 	t.Run("empty step payload keeps trigger payload", func(t *testing.T) {
@@ -869,7 +847,6 @@ func TestMergePayloads(t *testing.T) {
 		require.Equal(t,
 			`{"a":1}`,
 			string(out))
-
 	})
 
 	t.Run("empty trigger payload keeps step payload", func(t *testing.T) {
@@ -878,7 +855,6 @@ func TestMergePayloads(t *testing.T) {
 		require.Equal(t,
 			`{"step":true}`,
 			string(out))
-
 	})
 
 	t.Run("parent outputs added when trigger has payload and step is empty", func(t *testing.T) {
@@ -889,9 +865,9 @@ func TestMergePayloads(t *testing.T) {
 		require.NoError(
 			t, json.Unmarshal(out, &got),
 		)
-		require.Equal(t,
+		require.InDelta(t,
 			float64(1),
-			got["a"])
+			got["a"], 1e-9)
 
 		if _, ok := got["parent_outputs"]; !ok {
 			require.Failf(t, "test failure",
@@ -908,12 +884,11 @@ func TestMergePayloads(t *testing.T) {
 		require.NoError(
 			t, json.Unmarshal(out, &got),
 		)
-		require.Equal(t,
+		require.InDelta(t,
 			float64(2),
-			got["a"])
+			got["a"], 1e-9)
 		require.Equal(t,
 			true, got["keep"])
-
 	})
 
 	t.Run("duplicate keys keep last value within each payload", func(t *testing.T) {
@@ -924,13 +899,12 @@ func TestMergePayloads(t *testing.T) {
 		require.NoError(
 			t, json.Unmarshal(out, &got),
 		)
-		require.Equal(t,
+		require.InDelta(t,
 			float64(2),
-			got["a"])
-		require.Equal(t,
+			got["a"], 1e-9)
+		require.InDelta(t,
 			float64(2),
-			got["b"])
-
+			got["b"], 1e-9)
 	})
 
 	t.Run("escaped keys still merge", func(t *testing.T) {
@@ -943,7 +917,6 @@ func TestMergePayloads(t *testing.T) {
 		)
 		require.Equal(t,
 			"step", got["tenant-id"])
-
 	})
 }
 
@@ -1494,7 +1467,6 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			t, cb.OnJobRunTerminal(context.
 				Background(),
 				nil))
-
 	})
 
 	t.Run("missing workflow step run id no-op", func(t *testing.T) {
@@ -1503,7 +1475,6 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted})
 		require.NoError(
 			t, err)
-
 	})
 
 	t.Run("already terminal step no-op", func(t *testing.T) {
@@ -1519,8 +1490,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, getCalled)
-
+		require.Equal(t, 1, getCalled)
 	})
 
 	t.Run("completed run updates step and workflow", func(t *testing.T) {
@@ -1583,7 +1553,6 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			!stepUpdated ||
 				!progressionCreated,
 		)
-
 	})
 
 	t.Run("failed run applies fail_workflow policy", func(t *testing.T) {
@@ -1642,8 +1611,7 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 		require.True(t,
 			workflowFailed,
 		)
-		require.EqualValues(t, 1, canceledDependents)
-
+		require.Equal(t, 1, canceledDependents)
 	})
 
 	t.Run("canceled run maps to step canceled", func(t *testing.T) {
@@ -1679,7 +1647,6 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			domain.StepCanceled,
 			statusSeen,
 		)
-
 	})
 }
 
@@ -1728,7 +1695,6 @@ func TestStepCallback_OnJobRunTerminal_PausedWorkflowDoesNotScheduleChildren(t *
 	require.False(t,
 		enqueueCalled,
 	)
-
 }
 
 func TestMapRunStatusToStepStatus(t *testing.T) {
@@ -1756,7 +1722,6 @@ func TestMapRunStatusToStepStatus(t *testing.T) {
 			require.Equal(t,
 				tt.want, status,
 			)
-
 		})
 	}
 }
@@ -1782,7 +1747,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 		require.False(t,
 			!ok || string(raw) != `{"ok":true}`,
 		)
-
 	})
 
 	t.Run("StatusCompleted with empty result has no output", func(t *testing.T) {
@@ -1807,7 +1771,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 			domain.StepCanceled,
 			status,
 		)
-
 	})
 
 	t.Run("StatusFailed maps to StepFailed and sets error", func(t *testing.T) {
@@ -1822,7 +1785,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 			!ok || !strings.Contains(errVal,
 				"job run ended with status",
 			))
-
 	})
 
 	t.Run("StatusTimedOut maps to StepFailed and sets error", func(t *testing.T) {
@@ -1889,7 +1851,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 			status)
 		require.Equal(t,
 			"boom", fields["error"])
-
 	})
 
 	t.Run("StatusFailed with empty Error uses fallback message", func(t *testing.T) {
@@ -1904,7 +1865,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 			!ok || !strings.Contains(errVal,
 				"job run ended with status",
 			))
-
 	})
 
 	t.Run("unknown status defaults to StepFailed", func(t *testing.T) {
@@ -1913,7 +1873,6 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 		require.Equal(t,
 			domain.StepFailed,
 			status)
-
 	})
 }
 
@@ -1973,8 +1932,7 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 0, updateCalls)
-
+		require.Equal(t, 0, updateCalls)
 	})
 
 	t.Run("store list error", func(t *testing.T) {
@@ -1992,7 +1950,6 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cancel non-terminal step runs",
 		)
-
 	})
 
 	t.Run("store update error", func(t *testing.T) {
@@ -2013,7 +1970,6 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cancel non-terminal step runs",
 		)
-
 	})
 }
 
@@ -2031,7 +1987,6 @@ func TestStepCallback_OnJobRunTerminal_GetStepRunError(t *testing.T) {
 	assert.Contains(
 		t, err.Error(), "get step run by job run id",
 	)
-
 }
 
 func TestStepCallback_OnJobRunTerminal_UpdateStepRunStatusErrorWrapped(t *testing.T) {
@@ -2056,12 +2011,8 @@ func TestStepCallback_OnJobRunTerminal_UpdateStepRunStatusErrorWrapped(t *testin
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(),
-		"update step run terminal status",
-	))
-	assert.True(t, errors.Is(err,
-		baseErr))
-
+	assert.Contains(t, err.Error(), "update step run terminal status")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_CheckStepRetryErrorWrapped(t *testing.T) {
@@ -2083,12 +2034,8 @@ func TestStepCallback_OnJobRunTerminal_CheckStepRetryErrorWrapped(t *testing.T) 
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(),
-		"load workflow context",
-	))
-	assert.True(t, errors.Is(err,
-		baseErr))
-
+	assert.Contains(t, err.Error(), "load workflow context")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testing.T) {
@@ -2116,12 +2063,8 @@ func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testi
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(),
-		"create workflow progression event",
-	))
-	assert.True(t, errors.Is(err,
-		baseErr))
-
+	assert.Contains(t, err.Error(), "create workflow progression event")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.T) {
@@ -2149,12 +2092,8 @@ func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
 	require.Error(t,
 		err)
-	assert.True(t, strings.Contains(err.Error(),
-		"process failed step s1",
-	))
-	assert.True(t, errors.Is(err,
-		baseErr))
-
+	assert.Contains(t, err.Error(), "process failed step s1")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
@@ -2224,7 +2163,6 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 	require.True(t,
 		progressionCreated,
 	)
-
 }
 
 func TestStepCallback_checkStepRetry(t *testing.T) {
@@ -2284,7 +2222,6 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 					got.After(before))
 				require.True(t,
 					got.After(after))
-
 			},
 		},
 		{
@@ -2348,7 +2285,6 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 						25*
 							time.Second,
 				)
-
 			},
 		},
 		{
@@ -2381,7 +2317,6 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 						10*time.
 							Second,
 				)
-
 			},
 		},
 	}
@@ -2510,13 +2445,12 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 				assert.Contains(
 					t, err.Error(), tt.wantErrContains,
 				)
-
 			} else if err != nil {
 				require.Failf(t, "test failure",
 
 					"scheduleStepRetry() error = %v", err)
 			}
-			require.EqualValues(t, 1, incrementCalled)
+			require.Equal(t, 1, incrementCalled)
 			require.False(t,
 				tt.wantUpdateRunInvoked &&
 					updateRunCalled !=
@@ -2525,7 +2459,6 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 				!tt.wantUpdateRunInvoked &&
 					updateRunCalled !=
 						0)
-
 		})
 	}
 }
@@ -2614,9 +2547,8 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, incrementCalled)
-		require.EqualValues(t, 1, updateRunCalled)
-
+		require.Equal(t, 1, incrementCalled)
+		require.Equal(t, 1, updateRunCalled)
 	})
 
 	t.Run("failed_run_no_retry_falls_through", func(t *testing.T) {
@@ -2692,9 +2624,8 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-fail", Status: domain.StatusFailed, Error: "boom"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, workflowFailed)
-		require.EqualValues(t, 1, canceledDependents)
-
+		require.Equal(t, 1, workflowFailed)
+		require.Equal(t, 1, canceledDependents)
 	})
 }
 
@@ -2751,7 +2682,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			domain.StepSkipped,
 			skipCalls["sr-c"],
 		)
-
 	})
 
 	t.Run("diamond_A_BC_D", func(t *testing.T) {
@@ -2805,7 +2735,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			require.Equal(t,
 				domain.StepSkipped,
 				skipCalls[id])
-
 		}
 	})
 
@@ -2850,7 +2779,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 		require.False(t,
 			updateCalled,
 		)
-
 	})
 
 	t.Run("already_terminal_not_skipped", func(t *testing.T) {
@@ -2906,7 +2834,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			domain.StepSkipped,
 			skipCalls["sr-c"],
 		)
-
 	})
 
 	t.Run("skip_step_runs_by_refs_error", func(t *testing.T) {
@@ -2927,7 +2854,6 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "skip step runs by refs",
 		)
-
 	})
 }
 
@@ -2942,7 +2868,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "approver is required",
 		)
-
 	})
 
 	t.Run("get_step_run_error", func(t *testing.T) {
@@ -2959,7 +2884,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "get step run",
 		)
-
 	})
 
 	t.Run("step_not_found", func(t *testing.T) {
@@ -2976,7 +2900,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "step run not found",
 		)
-
 	})
 
 	t.Run("step_already_terminal", func(t *testing.T) {
@@ -2993,7 +2916,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "already in terminal state",
 		)
-
 	})
 
 	t.Run("approval_not_found", func(t *testing.T) {
@@ -3013,7 +2935,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "approval not found",
 		)
-
 	})
 
 	t.Run("approval_already_approved", func(t *testing.T) {
@@ -3033,7 +2954,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "already approved",
 		)
-
 	})
 
 	t.Run("unauthorized_approver", func(t *testing.T) {
@@ -3053,7 +2973,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "not allowed",
 		)
-
 	})
 
 	t.Run("update_approval_error", func(t *testing.T) {
@@ -3076,7 +2995,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "update approval",
 		)
-
 	})
 
 	t.Run("success", func(t *testing.T) {
@@ -3173,7 +3091,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			details["decision"])
 		require.Equal(t,
 			"sr-1", details["step_run_id"])
-
 	})
 
 	t.Run("audit failure is non-fatal", func(t *testing.T) {
@@ -3218,9 +3135,8 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 				"wr-1",
 				"s1", "alice",
 			))
-		require.True(t,
-			strings.Contains(logs.String(), "failed to create approval audit event"))
-
+		require.Contains(t,
+			logs.String(), "failed to create approval audit event")
 	})
 
 	t.Run("cost gate timeout approvals are audited as system decisions", func(t *testing.T) {
@@ -3275,7 +3191,6 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 					ActorType !=
 					"system",
 		)
-
 	})
 
 	t.Run("success emits approval completed notification with approved decision", func(t *testing.T) {
@@ -3410,7 +3325,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				""))
 		require.True(t,
 			updated)
-
 	})
 
 	t.Run("step in waiting status succeeds", func(t *testing.T) {
@@ -3446,7 +3360,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 
 				"s1", "", "",
 			))
-
 	})
 
 	t.Run("step in running status returns error", func(t *testing.T) {
@@ -3463,7 +3376,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cannot skip step in running status",
 		)
-
 	})
 
 	t.Run("step in completed status returns error", func(t *testing.T) {
@@ -3480,7 +3392,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cannot skip step in completed status",
 		)
-
 	})
 
 	t.Run("skip step with pending approval rejects the approval", func(t *testing.T) {
@@ -3552,7 +3463,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			approvalUpdateArgs.
 				errMsg,
 		)
-
 	})
 
 	t.Run("skip step with pending approval and empty reason", func(t *testing.T) {
@@ -3576,8 +3486,8 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, errMsg string) error {
 				updateCalled = true
-				require.Equal(t,
-					"", errMsg,
+				require.Empty(t,
+					errMsg,
 				)
 
 				return nil
@@ -3599,7 +3509,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.True(t,
 			updateCalled,
 		)
-
 	})
 
 	t.Run("skip step with pending approval — approval update fails returns error", func(t *testing.T) {
@@ -3637,7 +3546,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.False(t,
 			stepUpdated,
 		)
-
 	})
 
 	t.Run("skip step with pending approval — approval lookup failure aborts skip", func(t *testing.T) {
@@ -3686,7 +3594,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.False(t,
 			stepUpdated,
 		)
-
 	})
 
 	t.Run("skip step without approval skips normally", func(t *testing.T) {
@@ -3729,7 +3636,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.False(t,
 			updateCalled,
 		)
-
 	})
 
 	t.Run("skip step with already-approved approval does not re-reject", func(t *testing.T) {
@@ -3772,7 +3678,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.False(t,
 			updateCalled,
 		)
-
 	})
 
 	t.Run("skip step with already-rejected approval does not double-reject", func(t *testing.T) {
@@ -3815,7 +3720,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.False(t,
 			updateCalled,
 		)
-
 	})
 
 	t.Run("skip step with pending approval emits rejection notification", func(t *testing.T) {
@@ -3895,7 +3799,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			"rejected by admin",
 			payload["reason"],
 		)
-
 	})
 
 	t.Run("skip step emits approval rejection audit event", func(t *testing.T) {
@@ -3966,7 +3869,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.Equal(t,
 			"rejected by admin",
 			details["reason"])
-
 	})
 
 	t.Run("skip step falls back to skip actor on reject persistence", func(t *testing.T) {
@@ -4013,7 +3915,6 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		require.NotNil(t,
 			approvedAt,
 		)
-
 	})
 
 	t.Run("reject audit failure is non-fatal", func(t *testing.T) {
@@ -4056,9 +3957,8 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				"s1", "manual",
 				"user_admin",
 			))
-		require.True(t,
-			strings.Contains(logs.String(), "failed to create approval audit event"))
-
+		require.Contains(t,
+			logs.String(), "failed to create approval audit event")
 	})
 }
 
@@ -4120,7 +4020,6 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 				json.RawMessage(`{"ok":true}`)))
 		require.True(t,
 			updated)
-
 	})
 
 	t.Run("step in waiting status succeeds", func(t *testing.T) {
@@ -4157,7 +4056,6 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 				Background(),
 				"wr-1", "s1",
 				nil))
-
 	})
 
 	t.Run("step in running status returns error", func(t *testing.T) {
@@ -4174,7 +4072,6 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cannot force-complete step in running status",
 		)
-
 	})
 
 	t.Run("step in completed status returns error", func(t *testing.T) {
@@ -4191,7 +4088,6 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "cannot force-complete step in completed status",
 		)
-
 	})
 }
 
@@ -4211,7 +4107,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "workflow run not found",
 		)
-
 	})
 
 	t.Run("workflow_run_not_paused", func(t *testing.T) {
@@ -4228,7 +4123,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "not paused",
 		)
-
 	})
 
 	t.Run("get_workflow_run_error", func(t *testing.T) {
@@ -4245,7 +4139,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "get workflow run",
 		)
-
 	})
 
 	t.Run("update_workflow_run_status_error", func(t *testing.T) {
@@ -4265,7 +4158,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "resume workflow run",
 		)
-
 	})
 
 	t.Run("queue_requeue_preferred_when_available", func(t *testing.T) {
@@ -4304,7 +4196,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		require.False(t,
 			storeRequeueCalled,
 		)
-
 	})
 
 	t.Run("success_starts_ready_steps", func(t *testing.T) {
@@ -4355,7 +4246,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		require.True(t,
 			engStepUpdated,
 		)
-
 	})
 
 	t.Run("skips_terminal_steps", func(t *testing.T) {
@@ -4386,7 +4276,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		require.False(t,
 			enqueueCalled,
 		)
-
 	})
 
 	t.Run("skips_deps_not_met", func(t *testing.T) {
@@ -4417,7 +4306,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		require.False(t,
 			enqueueCalled,
 		)
-
 	})
 
 	t.Run("respects_max_parallel_steps", func(t *testing.T) {
@@ -4454,7 +4342,6 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		require.False(t,
 			enqueueCalled,
 		)
-
 	})
 }
 
@@ -4539,7 +4426,6 @@ func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
 	require.True(t,
 		stepRunningUpdated,
 	)
-
 }
 
 func TestRetryWorkflowRun(t *testing.T) {
@@ -4650,11 +4536,9 @@ func TestRetryWorkflowRun(t *testing.T) {
 				domain.StepCompleted,
 				sr.Status,
 			)
-			require.Equal(t,
+			require.JSONEq(t,
 				`{"result":"ok"}`,
-				string(sr.
-					Output))
-
+				string(sr.Output))
 		}
 
 		// Step b should be fresh (was failed, now re-executed).
@@ -4684,7 +4568,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 				"job-b")
 
 		// Only job-b should be enqueued (step a pre-completed, step c waiting).
-
 	})
 
 	t.Run("cannot retry non-terminal run", func(t *testing.T) {
@@ -4701,7 +4584,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "must be terminal",
 		)
-
 	})
 
 	t.Run("cannot retry when workflow is disabled", func(t *testing.T) {
@@ -4722,7 +4604,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 			err)
 		assert.Contains(
 			t, err.Error(), "disabled")
-
 	})
 
 	t.Run("retry run not found", func(t *testing.T) {
@@ -4738,7 +4619,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 			err)
 		assert.Contains(
 			t, err.Error(), "not found")
-
 	})
 
 	t.Run("retry all-completed run re-starts root steps", func(t *testing.T) {
@@ -4815,12 +4695,10 @@ func TestRetryWorkflowRun(t *testing.T) {
 				domain.StepCompleted,
 				sr.Status,
 			)
-
 		}
-		require.EqualValues(t, 0, enqueueCount)
+		require.Equal(t, 0, enqueueCount)
 
 		// No new jobs should be enqueued since all steps were pre-completed.
-
 	})
 
 	t.Run("retry respects max parallel steps", func(t *testing.T) {
@@ -4886,10 +4764,9 @@ func TestRetryWorkflowRun(t *testing.T) {
 			t, err)
 		require.NotNil(t,
 			newRun)
-		require.EqualValues(t, 1, enqueueCount)
+		require.Equal(t, 1, enqueueCount)
 
 		// With max_parallel_steps=1, only 1 step should be enqueued.
-
 	})
 
 	t.Run("retry with timeout sets expires_at", func(t *testing.T) {
@@ -4949,7 +4826,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 				nil || createdRun.
 				ExpiresAt ==
 				nil)
-
 	})
 
 	t.Run("retry preserves original payload", func(t *testing.T) {
@@ -5005,11 +4881,10 @@ func TestRetryWorkflowRun(t *testing.T) {
 		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
 		require.NoError(
 			t, err)
-		require.Equal(t,
+		require.JSONEq(t,
 			`{"env":"prod","batch_id":42}`,
 
 			string(capturedPayload))
-
 	})
 
 	t.Run("retry canceled run with all steps completed", func(t *testing.T) {
@@ -5094,7 +4969,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "database connection error",
 		)
-
 	})
 
 	t.Run("retry with fan-out DAG: a->{b,c} where c failed", func(t *testing.T) {
@@ -5173,7 +5047,6 @@ func TestRetryWorkflowRun(t *testing.T) {
 		// Step a: pre-completed. Step b: pre-completed. Step c: re-executed.
 
 		// Only step c should be enqueued.
-
 	})
 }
 
@@ -5227,7 +5100,6 @@ func TestTriggerSubWorkflow(t *testing.T) {
 			createdRun.
 				ParentWorkflowRunID,
 		)
-
 	})
 
 	t.Run("inherits project ID from parent", func(t *testing.T) {
@@ -5275,7 +5147,6 @@ func TestTriggerSubWorkflow(t *testing.T) {
 				ProjectID, createdRun.
 				ProjectID,
 		)
-
 	})
 }
 
@@ -5354,7 +5225,6 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		require.True(t,
 			childTriggered,
 		)
-
 	})
 
 	t.Run("fails when nesting depth exceeded", func(t *testing.T) {
@@ -5401,7 +5271,6 @@ func TestStartSubWorkflowStep(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "nesting depth",
 		)
-
 	})
 
 	t.Run("fails when sub-workflow is disabled", func(t *testing.T) {
@@ -5449,7 +5318,6 @@ func TestStartSubWorkflowStep(t *testing.T) {
 			err)
 		assert.Contains(
 			t, err.Error(), "disabled")
-
 	})
 }
 
@@ -5497,7 +5365,6 @@ func TestGetNestingDepth(t *testing.T) {
 		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
 		require.NoError(
 			t, err)
-
 	})
 
 	t.Run("depth 1 for single parent", func(t *testing.T) {
@@ -5548,7 +5415,6 @@ func TestGetNestingDepth(t *testing.T) {
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p1", "")
 		require.NoError(
 			t, err)
-
 	})
 
 	t.Run("depth 2 for nested chain", func(t *testing.T) {
@@ -5603,7 +5469,6 @@ func TestGetNestingDepth(t *testing.T) {
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p2", "")
 		require.NoError(
 			t, err)
-
 	})
 
 	t.Run("circular reference detected", func(t *testing.T) {
@@ -5652,7 +5517,6 @@ func TestGetNestingDepth(t *testing.T) {
 			err)
 		assert.Contains(
 			t, err.Error(), "circular")
-
 	})
 
 	t.Run("parent not found returns depth so far", func(t *testing.T) {
@@ -5699,7 +5563,6 @@ func TestGetNestingDepth(t *testing.T) {
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "missing-parent", "")
 		require.NoError(
 			t, err)
-
 	})
 }
 
@@ -5711,8 +5574,7 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "run-a"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 0, depth)
-
+		require.Equal(t, 0, depth)
 	})
 
 	t.Run("single parent", func(t *testing.T) {
@@ -5729,8 +5591,7 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, depth)
-
+		require.Equal(t, 1, depth)
 	})
 
 	t.Run("three levels deep", func(t *testing.T) {
@@ -5751,8 +5612,7 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 2, depth)
-
+		require.Equal(t, 2, depth)
 	})
 
 	t.Run("circular reference", func(t *testing.T) {
@@ -5776,7 +5636,6 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "circular parent reference",
 		)
-
 	})
 
 	t.Run("parent not found", func(t *testing.T) {
@@ -5790,8 +5649,7 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "missing"})
 		require.NoError(
 			t, err)
-		require.EqualValues(t, 1, depth)
-
+		require.Equal(t, 1, depth)
 	})
 
 	t.Run("store error", func(t *testing.T) {
@@ -5805,7 +5663,6 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		_, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
 		require.Error(t,
 			err)
-
 	})
 }
 
@@ -5937,7 +5794,6 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 	require.True(t,
 		progressionCreated,
 	)
-
 }
 
 func TestPropagateToParent_ChildFailed(t *testing.T) {
@@ -6061,7 +5917,6 @@ func TestPropagateToParent_ChildFailed(t *testing.T) {
 	require.True(t,
 		parentWfMarkedFailed,
 	)
-
 }
 
 func TestPropagateToParent_NoParent(t *testing.T) {
@@ -6132,7 +5987,6 @@ func TestPropagateToParent_NoParent(t *testing.T) {
 	require.False(t,
 		parentLookedUp,
 	)
-
 }
 
 func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
@@ -6212,7 +6066,6 @@ func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
 	require.False(t,
 		stepRunLookedUp,
 	)
-
 }
 
 func TestApplyStepOverrides(t *testing.T) {
@@ -6255,7 +6108,6 @@ func TestApplyStepOverrides(t *testing.T) {
 			len(gotEmpty[1].DependsOn) !=
 				1 || gotEmpty[1].DependsOn[0] != "a",
 		)
-
 	})
 
 	t.Run("disable one step", func(t *testing.T) {
@@ -6276,9 +6128,7 @@ func TestApplyStepOverrides(t *testing.T) {
 				"a" || got[1].StepRef !=
 				"c",
 		)
-		require.Len(t, got[1].DependsOn,
-			0)
-
+		require.Empty(t, got[1].DependsOn)
 	})
 
 	t.Run("unknown step_ref returns error", func(t *testing.T) {
@@ -6293,7 +6143,6 @@ func TestApplyStepOverrides(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "unknown step_ref",
 		)
-
 	})
 
 	t.Run("unknown enabled step_ref returns error", func(t *testing.T) {
@@ -6308,7 +6157,6 @@ func TestApplyStepOverrides(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "unknown step_ref",
 		)
-
 	})
 
 	t.Run("all steps disabled returns error", func(t *testing.T) {
@@ -6327,7 +6175,6 @@ func TestApplyStepOverrides(t *testing.T) {
 		assert.Contains(
 			t, err.Error(), "all steps disabled",
 		)
-
 	})
 
 	t.Run("prunes depends_on for disabled step", func(t *testing.T) {
@@ -6351,7 +6198,6 @@ func TestApplyStepOverrides(t *testing.T) {
 				got[1].
 					DependsOn[0] != "a",
 		)
-
 	})
 }
 
@@ -6451,7 +6297,6 @@ func TestApplyStepOverrides_DoesNotMutateInputDependsOn(t *testing.T) {
 			2 || steps[2].DependsOn[0] !=
 			"a" || steps[2].DependsOn[1] !=
 			"b")
-
 }
 
 func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
@@ -6531,8 +6376,7 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 		require.False(t,
 			len(createdStepRefs) != 1 ||
 				createdStepRefs[0] != "a")
-		require.EqualValues(t, 1, enqueueCount)
-
+		require.Equal(t, 1, enqueueCount)
 	})
 
 	t.Run("unknown override step_ref returns error", func(t *testing.T) {
@@ -6564,14 +6408,11 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 		)
 		require.Error(t,
 			err)
-		require.True(t,
-			strings.Contains(err.Error(),
-				"unknown step_ref",
-			))
+		require.Contains(t,
+			err.Error(), "unknown step_ref")
 		require.False(t,
 			createWorkflowRunCalled,
 		)
-
 	})
 }
 
@@ -6655,14 +6496,13 @@ func TestStartStep_WaitForEvent_CreatesEventTrigger(t *testing.T) {
 		capturedTrigger.
 			Status,
 	)
-	require.EqualValues(t, 7200, capturedTrigger.
+	require.Equal(t, 7200, capturedTrigger.
 		TimeoutSecs,
 	)
 	require.Equal(t,
 		"proj-1",
 		capturedTrigger.ProjectID,
 	)
-
 }
 
 func TestStartStep_WaitForEvent_RendersTemplateKey(t *testing.T) {
@@ -6708,7 +6548,6 @@ func TestStartStep_WaitForEvent_RendersTemplateKey(t *testing.T) {
 		capturedTrigger.
 			EventKey,
 	)
-
 }
 
 func TestStartStep_WaitForEvent_DefaultTimeout(t *testing.T) {
@@ -6748,7 +6587,6 @@ func TestStartStep_WaitForEvent_DefaultTimeout(t *testing.T) {
 		capturedTrigger.
 			TimeoutSecs,
 	)
-
 }
 
 func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
@@ -6776,11 +6614,8 @@ func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(),
-			"create event trigger",
-		))
-
+	require.Contains(t,
+		err.Error(), "create event trigger")
 }
 
 func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
@@ -6807,16 +6642,13 @@ func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(),
-			"event_key is empty",
-		))
+	require.Contains(t,
+		err.Error(), "event_key is empty")
 	require.False(t,
 		stepStatusUpdated,
 	)
 
 	// Step status should NOT have been updated — fail fast before DB writes.
-
 }
 
 func TestTriggerWorkflow_WaitForEventStep_RootStep(t *testing.T) {
@@ -6880,10 +6712,9 @@ func TestTriggerWorkflow_WaitForEventStep_RootStep(t *testing.T) {
 		capturedTrigger.
 			EventKey,
 	)
-	require.EqualValues(t, 86400, capturedTrigger.
+	require.Equal(t, 86400, capturedTrigger.
 		TimeoutSecs,
 	)
-
 }
 
 func TestStartStep_Approval_CreatesParallelEventTrigger(t *testing.T) {
@@ -6947,10 +6778,9 @@ func TestStartStep_Approval_CreatesParallelEventTrigger(t *testing.T) {
 		capturedTrigger.
 			SourceType,
 	)
-	require.EqualValues(t, 86400, capturedTrigger.
+	require.Equal(t, 86400, capturedTrigger.
 		TimeoutSecs,
 	)
-
 }
 
 func TestStartStep_Approval_EventTriggerFailureNonFatal(t *testing.T) {
@@ -7004,7 +6834,6 @@ func TestStartStep_Approval_EventTriggerFailureNonFatal(t *testing.T) {
 			Status)
 
 	// Should not error even though event trigger creation fails.
-
 }
 
 func TestApproveStep_SyncsEventTrigger(t *testing.T) {
@@ -7086,7 +6915,6 @@ func TestApproveStep_SyncsEventTrigger(t *testing.T) {
 	require.True(t,
 		triggerSynced,
 	)
-
 }
 
 func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
@@ -7148,7 +6976,6 @@ func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
 	err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com")
 	require.NoError(
 		t, err)
-
 }
 
 func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
@@ -7186,13 +7013,12 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 		captured.
 			TriggerType,
 	)
-	require.EqualValues(t, 300, captured.
+	require.Equal(t, 300, captured.
 		TimeoutSecs)
 	require.Equal(t,
 		domain.StepWaiting,
 		stepRun.
 			Status)
-
 }
 
 func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
@@ -7225,11 +7051,8 @@ func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.Error(),
-			"exceeds maximum",
-		))
-
+	require.Contains(t,
+		err.Error(), "exceeds maximum")
 }
 
 // Scheduling semantics regression tests.
@@ -7250,7 +7073,6 @@ func TestEffectiveResourceClass(t *testing.T) {
 		assert.Equal(t,
 			tt.want, got,
 		)
-
 	}
 }
 
@@ -7264,7 +7086,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 			assert.True(t, hasResourceClassCapacity(running,
 				class,
 			))
-
 		}
 	})
 
@@ -7280,7 +7101,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 			hasResourceClassCapacity(running,
 				"small",
 			))
-
 	})
 
 	t.Run("medium limit 20", func(t *testing.T) {
@@ -7295,7 +7115,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 			hasResourceClassCapacity(running,
 				"medium",
 			))
-
 	})
 
 	t.Run("large limit 5", func(t *testing.T) {
@@ -7310,7 +7129,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 			hasResourceClassCapacity(running,
 				"large",
 			))
-
 	})
 
 	t.Run("unknown class falls back to small limit", func(t *testing.T) {
@@ -7320,7 +7138,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 			hasResourceClassCapacity(running,
 				"unknown",
 			))
-
 	})
 
 	t.Run("classes are independent", func(t *testing.T) {
@@ -7336,7 +7153,6 @@ func TestHasResourceClassCapacity(t *testing.T) {
 		assert.True(t, hasResourceClassCapacity(running,
 			"large",
 		))
-
 	})
 }
 
@@ -7435,7 +7251,6 @@ func TestScheduleRunnableSteps_ConcurrencyKeySerialization(t *testing.T) {
 	}
 	require.LessOrEqual(t, runningCount,
 		1)
-
 }
 
 func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
@@ -7501,7 +7316,6 @@ func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
 	}
 	require.LessOrEqual(t, runningCount,
 		1)
-
 }
 
 func TestEnqueueApprovalNotification_CreatesDeliveries(t *testing.T) {
@@ -7537,7 +7351,6 @@ func TestEnqueueApprovalNotification_CreatesDeliveries(t *testing.T) {
 		assert.Equal(t,
 			"proj-1", d.
 				ProjectID)
-
 	}
 }
 
@@ -7559,7 +7372,6 @@ func TestEnqueueApprovalNotification_NoChannels(t *testing.T) {
 	require.False(t,
 		deliveryCalled,
 	)
-
 }
 
 func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
@@ -7580,7 +7392,6 @@ func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
 	require.False(t,
 		deliveryCalled,
 	)
-
 }
 
 // 4f. Workflow engine trace capture.
@@ -7656,9 +7467,8 @@ func TestTriggerWorkflow_CapturesTraceContext(t *testing.T) {
 	tp, ok := capturedRun.TraceContext["traceparent"]
 	require.True(t,
 		ok)
-	require.True(t,
-		strings.Contains(tp, inputTraceID))
-
+	require.Contains(t,
+		tp, inputTraceID)
 }
 
 func TestTriggerWorkflow_CapturesTraceState(t *testing.T) {
@@ -7701,7 +7511,6 @@ func TestTriggerWorkflow_CapturesTraceState(t *testing.T) {
 	require.Equal(t,
 		"vendor=opaque",
 		tsVal)
-
 }
 
 func TestTriggerWorkflow_NoActiveSpan(t *testing.T) {
@@ -7729,7 +7538,6 @@ func TestTriggerWorkflow_NoActiveSpan(t *testing.T) {
 	require.Nil(t, capturedRun.
 		TraceContext,
 	)
-
 }
 
 func TestTriggerWorkflow_TraceparentFormat(t *testing.T) {
@@ -7762,7 +7570,6 @@ func TestTriggerWorkflow_TraceparentFormat(t *testing.T) {
 	matched, _ := regexp.MatchString(pattern, tp)
 	require.True(t,
 		matched)
-
 }
 
 func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
@@ -7789,9 +7596,9 @@ func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
 	}
 	tsStr := strings.Join(parts, ",")
 	ts, tsErr := otelTrace.ParseTraceState(tsStr)
-	require.Nil(t, tsErr)
-	require.False(t,
-		len(ts.String()) <= 512)
+	require.NoError(t, tsErr)
+	require.Greater(t,
+		len(ts.String()), 512)
 
 	traceID := otelTrace.TraceID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
 	spanID := otelTrace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18}
@@ -7836,7 +7643,7 @@ func TestTriggerWorkflow_TraceStateExactly512(t *testing.T) {
 	// Use two members: "aa=<v1>,bb=<v2>" -- "aa=" (3) + v1(250) + "," (1) + "bb=" (3) + v2(255) = 512.
 	tsStr := fmt.Sprintf("aa=%s,bb=%s", strings.Repeat("x", 250), strings.Repeat("y", 255))
 	ts, tsErr := otelTrace.ParseTraceState(tsStr)
-	require.Nil(t, tsErr)
+	require.NoError(t, tsErr)
 	require.Len(t, ts.
 		String(),
 		512)
@@ -7864,7 +7671,6 @@ func TestTriggerWorkflow_TraceStateExactly512(t *testing.T) {
 		ok)
 	require.Len(t, tsVal,
 		512)
-
 }
 
 // 4g. Workflow step trace propagation.
@@ -7924,7 +7730,6 @@ func TestStartStep_PropagatesTraceContext(t *testing.T) {
 	require.Equal(t,
 		wfTS, tsVal,
 	)
-
 }
 
 func TestStartStep_NoTraceContext(t *testing.T) {
@@ -8059,13 +7864,12 @@ func TestStartStep_MultipleSteps_SameTraceID(t *testing.T) {
 		3)
 
 	firstTP := capturedJobRuns[0].Metadata["_trace_parent"]
-	require.NotEqual(t, "", firstTP)
+	require.NotEmpty(t, firstTP)
 
 	for _, jr := range capturedJobRuns[1:] {
 		tp := jr.Metadata["_trace_parent"]
 		require.Equal(t,
 			firstTP, tp,
 		)
-
 	}
 }

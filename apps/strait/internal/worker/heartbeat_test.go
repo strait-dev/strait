@@ -90,10 +90,8 @@ func TestNewHeartbeatSender_PrefersSideTableStore(t *testing.T) {
 	h.flush(context.Background())
 
 	legacyCalls, sideCalls, singleCalls := store.snapshot()
-	require.EqualValues(t, 0, legacyCalls)
-	require.Len(t, singleCalls,
-
-		0)
+	require.Equal(t, 0, legacyCalls)
+	require.Empty(t, singleCalls)
 	require.Len(t, sideCalls,
 
 		1)
@@ -151,7 +149,6 @@ func TestHeartbeatManager_RegisterDeregister(t *testing.T) {
 			require.Equal(t,
 				tt.want,
 				h.ActiveCount())
-
 		})
 	}
 }
@@ -223,9 +220,7 @@ func TestHeartbeatManager_Run_Batching(t *testing.T) {
 			)
 
 			if len(tt.wantFirstCallID) == 0 {
-				require.Len(t, calls,
-					0,
-				)
+				require.Empty(t, calls)
 
 				return
 			}
@@ -282,8 +277,7 @@ func TestHeartbeatManager_ConcurrentRegisterDeregister(t *testing.T) {
 			}
 
 			wg.Wait()
-			require.EqualValues(t, 0, h.ActiveCount())
-
+			require.Equal(t, 0, h.ActiveCount())
 		})
 	}
 }

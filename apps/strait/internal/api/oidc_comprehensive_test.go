@@ -45,7 +45,6 @@ func TestNewOIDCVerifier_WhitespacePEM(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, v.publicKey)
-
 }
 
 // TestNewOIDCVerifier_ECDSAKeyRejected verifies that an ECDSA public key
@@ -68,7 +67,6 @@ func TestNewOIDCVerifier_ECDSAKeyRejected(t *testing.T) {
 		OIDCPublicKeyPEM: string(ecPEM),
 	})
 	require.Error(t, err)
-
 }
 
 // TestNewOIDCVerifier_WeakKeySize verifies that an RSA key smaller than the
@@ -100,7 +98,6 @@ func TestNewOIDCVerifier_SmallRSAKey(t *testing.T) {
 		return
 	}
 	require.NotNil(t, v.publicKey)
-
 }
 
 // TestNewOIDCVerifier_DisabledSkipsValidation verifies that a disabled
@@ -114,7 +111,6 @@ func TestNewOIDCVerifier_DisabledSkipsValidation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, v.enabled)
-
 }
 
 // TestOIDCVerifier_DisabledRejectsAll verifies that a disabled verifier
@@ -125,9 +121,8 @@ func TestOIDCVerifier_DisabledRejectsAll(t *testing.T) {
 	v := &oidcVerifier{enabled: false}
 	_, err := v.verify("any-token-string")
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "disabled"))
-
+	require.Contains(
+		t, err.Error(), "disabled")
 }
 
 // Unit tests: signing algorithm enforcement
@@ -152,7 +147,6 @@ func TestOIDCVerify_RejectsHS256Token(t *testing.T) {
 
 	_, err = v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_RejectsES256Token verifies that ECDSA-signed tokens are
@@ -177,7 +171,6 @@ func TestOIDCVerify_RejectsES256Token(t *testing.T) {
 
 	_, err = v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_RejectsEdDSAToken verifies that EdDSA-signed tokens are
@@ -202,7 +195,6 @@ func TestOIDCVerify_RejectsEdDSAToken(t *testing.T) {
 
 	_, err = v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_RejectsAlgNoneToken verifies that the "alg: none" attack
@@ -220,7 +212,6 @@ func TestOIDCVerify_RejectsAlgNoneToken(t *testing.T) {
 
 	_, err := v.verify(noneToken)
 	require.Error(t, err)
-
 }
 
 // Unit tests: claim validation edge cases
@@ -246,7 +237,6 @@ func TestOIDCVerify_MultipleAudiences(t *testing.T) {
 		t, "user-multi-aud",
 		claims.Subject,
 	)
-
 }
 
 // TestOIDCVerify_NoExpiryRejected verifies that a token without an exp claim
@@ -299,7 +289,6 @@ func TestOIDCVerify_FutureIssuedAt(t *testing.T) {
 		t, "user-future-iat",
 		claims.Subject,
 	)
-
 }
 
 // TestOIDCVerify_NotBeforeInFuture verifies that a token with a future nbf
@@ -320,7 +309,6 @@ func TestOIDCVerify_NotBeforeInFuture(t *testing.T) {
 
 	_, err := v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_EmptyEmailAndName verifies that tokens with empty email/name
@@ -342,13 +330,12 @@ func TestOIDCVerify_EmptyEmailAndName(t *testing.T) {
 
 	claims, err := v.verify(signed)
 	require.NoError(t, err)
-	assert.Equal(
-		t, "", claims.Email,
+	assert.Empty(
+		t, claims.Email,
 	)
-	assert.Equal(
-		t, "", claims.Name,
+	assert.Empty(
+		t, claims.Name,
 	)
-
 }
 
 // TestOIDCVerify_VeryLongSubject verifies that extremely long subject values
@@ -372,7 +359,6 @@ func TestOIDCVerify_VeryLongSubject(t *testing.T) {
 	assert.Equal(
 		t, longSub, claims.
 			Subject)
-
 }
 
 // Unit tests: JWT structure attacks
@@ -412,7 +398,6 @@ func TestOIDCVerify_TruncatedJWT(t *testing.T) {
 			_, err := v.verify(tc.token)
 			assert.Error(
 				t, err)
-
 		})
 	}
 }
@@ -439,7 +424,6 @@ func TestOIDCVerify_HeaderManipulation(t *testing.T) {
 
 	_, err := v.verify(swapped)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_InvalidBase64InPayload verifies that invalid base64 in the
@@ -456,7 +440,6 @@ func TestOIDCVerify_InvalidBase64InPayload(t *testing.T) {
 
 	_, err := v.verify(header + "." + invalidPayload + "." + sig)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_InvalidJSONInPayload verifies that valid base64 but invalid
@@ -473,7 +456,6 @@ func TestOIDCVerify_InvalidJSONInPayload(t *testing.T) {
 
 	_, err := v.verify(header + "." + badJSON + "." + sig)
 	require.Error(t, err)
-
 }
 
 // Integration tests: middleware auth routing
@@ -495,7 +477,6 @@ func TestOIDCAuth_MissingBearerToken(t *testing.T) {
 	)
 
 	// Should hit internal secret auth and get 401 (no secret either)
-
 }
 
 // TestOIDCAuth_EmptyBearerValue verifies that "Bearer " with no token
@@ -513,7 +494,6 @@ func TestOIDCAuth_EmptyBearerValue(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized,
 		w.Code,
 	)
-
 }
 
 // TestOIDCAuth_BearerWithExtraSpaces verifies that extra whitespace around
@@ -548,7 +528,6 @@ func TestOIDCAuth_BearerWithExtraSpaces(t *testing.T) {
 			Code)
 
 	// Should succeed — whitespace is trimmed
-
 }
 
 // TestOIDCAuth_StraitPrefixRoutesToAPIKey verifies that tokens starting with
@@ -574,7 +553,6 @@ func TestOIDCAuth_StraitPrefixRoutesToAPIKey(t *testing.T) {
 	)
 
 	// Should hit API key auth (not OIDC), get 401 for invalid key
-
 }
 
 // TestOIDCAuth_NilStoreReturns503 verifies that if the store is nil and
@@ -611,7 +589,6 @@ func TestOIDCAuth_NilStoreReturns503(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable,
 
 		w.Code)
-
 }
 
 // Integration tests: response body validation
@@ -635,7 +612,6 @@ func TestOIDCAuth_ErrorResponseIsJSON(t *testing.T) {
 	// Verify error response is valid JSON
 	var errResp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errResp))
-
 }
 
 // TestOIDCAuth_DoesNotLeakTokenDetails verifies that 401 error responses
@@ -652,10 +628,9 @@ func TestOIDCAuth_DoesNotLeakTokenDetails(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	body := w.Body.String()
-	require.False(t, strings.Contains(body, "some-secret-looking-token"))
+	require.NotContains(t, body, "some-secret-looking-token")
 	require.False(t, strings.Contains(body, "RSA") ||
 		strings.Contains(body, "signature"))
-
 }
 
 // Adversarial: token replay and key confusion
@@ -679,7 +654,6 @@ func TestOIDCVerify_DifferentKeyPairRejected(t *testing.T) {
 
 	_, err := v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // TestOIDCVerify_KeyConfusionAttack verifies that using the RSA public key
@@ -704,7 +678,6 @@ func TestOIDCVerify_KeyConfusionAttack(t *testing.T) {
 
 	_, err = v.verify(signed)
 	require.Error(t, err)
-
 }
 
 // Fuzz tests

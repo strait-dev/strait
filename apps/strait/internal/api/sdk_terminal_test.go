@@ -61,7 +61,6 @@ func TestSDKTerminal_Complete_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updateCalled.Load())
-
 }
 
 func TestSDKTerminal_Complete_EmptyResult(t *testing.T) {
@@ -98,7 +97,6 @@ func TestSDKTerminal_Complete_EmptyResult(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }
 
 func TestSDKTerminal_Complete_ResultExceedsMaxSize(t *testing.T) {
@@ -137,7 +135,6 @@ func TestSDKTerminal_Complete_ResultExceedsMaxSize(t *testing.T) {
 	require.Equal(t, http.StatusRequestEntityTooLarge,
 
 		w.Code)
-
 }
 
 func TestSDKTerminal_Complete_RunNotFound(t *testing.T) {
@@ -155,7 +152,6 @@ func TestSDKTerminal_Complete_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSDKTerminal_Complete_Conflict(t *testing.T) {
@@ -182,7 +178,6 @@ func TestSDKTerminal_Complete_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.Code,
 	)
-
 }
 
 func TestSDKTerminal_Complete_SchemaValidationFailure(t *testing.T) {
@@ -214,7 +209,6 @@ func TestSDKTerminal_Complete_SchemaValidationFailure(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestSDKTerminal_Complete_PublishesPubSubEvent(t *testing.T) {
@@ -265,7 +259,6 @@ func TestSDKTerminal_Complete_PublishesPubSubEvent(t *testing.T) {
 	require.True(
 		t, publishCalled.
 			Load())
-
 }
 
 func TestSDKTerminal_Fail_Success(t *testing.T) {
@@ -311,7 +304,6 @@ func TestSDKTerminal_Fail_Success(t *testing.T) {
 		w.Code)
 	require.True(
 		t, updateCalled.Load())
-
 }
 
 func TestSDKTerminal_Fail_MissingError(t *testing.T) {
@@ -324,7 +316,6 @@ func TestSDKTerminal_Fail_MissingError(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity,
 
 		w.Code)
-
 }
 
 func TestSDKTerminal_Fail_RunNotFound(t *testing.T) {
@@ -342,7 +333,6 @@ func TestSDKTerminal_Fail_RunNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestSDKTerminal_Fail_Conflict(t *testing.T) {
@@ -369,7 +359,6 @@ func TestSDKTerminal_Fail_Conflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict,
 		w.Code,
 	)
-
 }
 
 func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
@@ -411,7 +400,6 @@ func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
 			if err := json.Unmarshal(data, &payload); err == nil {
 				assert.Equal(
 					t, "failed", payload["to"])
-
 			}
 			return nil
 		},
@@ -426,7 +414,6 @@ func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
 	require.True(
 		t, publishCalled.
 			Load())
-
 }
 
 func TestSDKTerminal_Complete_ResumesWaitingParent(t *testing.T) {
@@ -483,7 +470,6 @@ func TestSDKTerminal_Complete_ResumesWaitingParent(t *testing.T) {
 	require.True(
 		t, parentResumed.
 			Load())
-
 }
 
 func TestSDKTerminal_Complete_VeryLargePayloadWithinLimit(t *testing.T) {
@@ -536,5 +522,4 @@ func TestSDKTerminal_Complete_VeryLargePayloadWithinLimit(t *testing.T) {
 	srv.ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK,
 		w.Code)
-
 }

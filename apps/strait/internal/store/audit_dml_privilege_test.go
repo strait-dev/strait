@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -34,19 +33,14 @@ func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
 			q := New(&mockDBTX{
 				queryRowFn: func(_ context.Context, sql string, _ ...any) pgx.Row {
 					for _, privilege := range []string{"UPDATE", "DELETE", "TRUNCATE"} {
-						require.True(t,
-							strings.Contains(sql,
-								privilege,
-							),
+						require.Contains(t,
+							sql, privilege,
 						)
-
 					}
 					for _, required := range []string{"has_column_privilege", "attname != 'signature'"} {
-						require.True(t,
-							strings.Contains(sql,
-								required),
+						require.Contains(t,
+							sql, required,
 						)
-
 					}
 					return &mockRow{
 						scanFn: func(dest ...any) error {
@@ -65,7 +59,6 @@ func TestAuditEventsDMLRestricted_ChecksTableAndColumnPrivileges(t *testing.T) {
 			require.Equal(t,
 				tc.want,
 				got)
-
 		})
 	}
 }
@@ -82,9 +75,7 @@ func TestAuditEventsDMLRestricted_PropagatesProbeErrors(t *testing.T) {
 	_, err := q.AuditEventsDMLRestricted(context.Background())
 	require.Error(t,
 		err)
-	require.True(t,
-		strings.Contains(err.
-			Error(), "audit dml privilege check",
-		))
-
+	require.Contains(t,
+		err.
+			Error(), "audit dml privilege check")
 }

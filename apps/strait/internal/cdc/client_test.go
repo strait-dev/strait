@@ -19,25 +19,25 @@ import (
 func TestClientReceiveSuccess(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-1/receive",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-1/receive",
 
 			r.URL.Path,
 		)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-1",
+		assert.Equal(t, "Bearer token-1",
 			r.Header.
 				Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
-		require.Equal(t, float64(2), reqBody["batch_size"])
-		require.Equal(t, float64(1000),
-			reqBody["wait_for"])
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.InDelta(t, float64(2), reqBody["batch_size"], 1e-9)
+		assert.InDelta(t, float64(1000),
+			reqBody["wait_for"], 1e-9)
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"insert","metadata":{"table_schema":"public","table_name":"job_runs","commit_timestamp":"2025-01-01T00:00:00Z","idempotency_key":"key-1"}},{"ack_id":"a2","record":{"id":2},"action":"update","metadata":{"table_schema":"public","table_name":"jobs","commit_timestamp":"2025-01-01T00:00:01Z","idempotency_key":"key-2"}}]}`))
@@ -47,39 +47,38 @@ func TestClientReceiveSuccess(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-1", "token-1")
 	messages, err := client.Receive(context.Background(), 2, 1000)
 	require.NoError(t, err)
-	require.Len(t,
+	assert.Len(t,
 		messages, 2)
-	require.Equal(t, "a1", messages[0].AckID)
-	require.Equal(t, "consumer-1",
+	assert.Equal(t, "a1", messages[0].AckID)
+	assert.Equal(t, "consumer-1",
 		messages[1].Metadata.
 			ConsumerName)
-
 }
 
 func TestClientReceiveEmptyBatch(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-2/receive",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-2/receive",
 
 			r.URL.Path,
 		)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-2",
+		assert.Equal(t, "Bearer token-2",
 			r.Header.
 				Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
-		require.Equal(t, float64(10),
-			reqBody["batch_size"])
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.InDelta(t, float64(10),
+			reqBody["batch_size"], 1e-9)
 
 		if _, ok := reqBody["wait_for"]; ok {
-			require.Failf(t, "test failure",
+			assert.Failf(t, "test failure",
 
 				"wait_for should be omitted, got %v", reqBody["wait_for"])
 		}
@@ -92,30 +91,29 @@ func TestClientReceiveEmptyBatch(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-2", "token-2")
 	messages, err := client.Receive(context.Background(), 10, 0)
 	require.NoError(t, err)
-	require.Len(t,
-		messages, 0)
-
+	assert.Empty(t,
+		messages)
 }
 
 func TestClientReceiveServerError(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-err/receive",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-err/receive",
 
 			r.URL.Path,
 		)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-err",
+		assert.Equal(t, "Bearer token-err",
 			r.Header.
 				Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("boom"))
@@ -125,31 +123,30 @@ func TestClientReceiveServerError(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-err", "token-err")
 	_, err := client.Receive(context.Background(), 1, 1)
 	require.Error(t, err)
-	require.False(t, !strings.Contains(err.Error(), "status 500") || !strings.Contains(err.
+	assert.False(t, !strings.Contains(err.Error(), "status 500") || !strings.Contains(err.
 		Error(), "boom",
 	))
-
 }
 
 func TestClientReceiveInvalidJSON(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-json/receive",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-json/receive",
 
 			r.URL.
 				Path)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-json",
+		assert.Equal(t, "Bearer token-json",
 			r.
 				Header.Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		_, _ = w.Write([]byte("{"))
 	}))
@@ -158,30 +155,29 @@ func TestClientReceiveInvalidJSON(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-json", "token-json")
 	_, err := client.Receive(context.Background(), 1, 1)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "decode receive response"))
-
+	assert.Contains(
+		t, err.Error(), "decode receive response")
 }
 
 func TestClientReceiveContextCancellation(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-cancel/receive",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-cancel/receive",
 
 			r.URL.
 				Path)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-cancel",
+		assert.Equal(t, "Bearer token-cancel",
 
 			r.Header.Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		select {
 		case <-time.After(300 * time.Millisecond):
@@ -197,17 +193,14 @@ func TestClientReceiveContextCancellation(t *testing.T) {
 
 	_, err := client.Receive(ctx, 1, 1000)
 	require.Error(t, err)
-	require.True(
-		t, errors.Is(err,
-			context.DeadlineExceeded,
-		))
-
+	assert.ErrorIs(
+		t, err, context.DeadlineExceeded)
 }
 
 func TestClientReceiveAuthHeaderSent(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "Bearer auth-token",
+		assert.Equal(t, "Bearer auth-token",
 			r.
 				Header.Get("Authorization"))
 
@@ -217,7 +210,7 @@ func TestClientReceiveAuthHeaderSent(t *testing.T) {
 
 	client := NewClient(ts.URL, "consumer-auth", "auth-token")
 	if _, err := client.Receive(context.Background(), 1, 1); err != nil {
-		require.Failf(t, "test failure",
+		assert.Failf(t, "test failure",
 
 			"Receive returned error: %v", err)
 	}
@@ -226,35 +219,34 @@ func TestClientReceiveAuthHeaderSent(t *testing.T) {
 func TestClientAckSuccess(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-ack/ack",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-ack/ack",
 
 			r.URL.Path)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-ack",
+		assert.Equal(t, "Bearer token-ack",
 			r.Header.
 				Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		ackIDs, ok := reqBody["ack_ids"].([]any)
-		require.False(t, !ok || len(ackIDs) != 2)
+		assert.False(t, !ok || len(ackIDs) != 2)
 
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "consumer-ack", "token-ack")
-	require.NoError(t, client.Ack(
+	assert.NoError(t, client.Ack(
 		context.Background(),
 		[]string{"a1", "a2"}),
 	)
-
 }
 
 func TestClientAckEmptyIDsNoop(t *testing.T) {
@@ -270,29 +262,28 @@ func TestClientAckEmptyIDsNoop(t *testing.T) {
 	require.NoError(t, client.Ack(
 		context.Background(),
 		nil))
-	require.EqualValues(t, 0, calls.Load())
-
+	assert.EqualValues(t, 0, calls.Load())
 }
 
 func TestClientAckServerError(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-ack-err/ack",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-ack-err/ack",
 
 			r.URL.Path,
 		)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-ack-err",
+		assert.Equal(t, "Bearer token-ack-err",
 
 			r.Header.Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("bad gateway"))
@@ -302,15 +293,14 @@ func TestClientAckServerError(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-ack-err", "token-ack-err")
 	err := client.Ack(context.Background(), []string{"a1"})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "status 502"))
-
+	assert.Contains(
+		t, err.Error(), "status 502")
 }
 
 func TestClientAckAuthHeaderSent(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "Bearer ack-auth-token",
+		assert.Equal(t, "Bearer ack-auth-token",
 
 			r.Header.Get("Authorization"))
 
@@ -319,10 +309,9 @@ func TestClientAckAuthHeaderSent(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "consumer-ack-auth", "ack-auth-token")
-	require.NoError(t, client.Ack(
+	assert.NoError(t, client.Ack(
 		context.Background(),
 		[]string{"a1"}))
-
 }
 
 func TestClientNackSuccess(t *testing.T) {
@@ -373,7 +362,7 @@ func TestClientNackSuccess(t *testing.T) {
 
 	select {
 	case msg := <-handlerErr:
-		require.Failf(t, "test failure", "handler error: %s", msg)
+		assert.Failf(t, "test failure", "handler error: %s", msg)
 	default:
 	}
 }
@@ -390,29 +379,28 @@ func TestClientNackEmptyIDsNoop(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-nack-noop", "token")
 	require.NoError(t, client.Nack(context.Background(),
 		[]string{}))
-	require.EqualValues(t, 0, calls.Load())
-
+	assert.EqualValues(t, 0, calls.Load())
 }
 
 func TestClientNackServerError(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/http_pull_consumers/consumer-nack-err/nack",
+		assert.Equal(t, "/api/http_pull_consumers/consumer-nack-err/nack",
 
 			r.URL.
 				Path)
-		require.Equal(t, http.MethodPost,
+		assert.Equal(t, http.MethodPost,
 			r.Method,
 		)
-		require.Equal(t, "application/json",
+		assert.Equal(t, "application/json",
 			r.Header.
 				Get("Content-Type"))
-		require.Equal(t, "Bearer token-nack-err",
+		assert.Equal(t, "Bearer token-nack-err",
 
 			r.Header.Get("Authorization"))
 
 		var reqBody map[string]any
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&reqBody))
 
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write([]byte("unavailable"))
@@ -422,51 +410,45 @@ func TestClientNackServerError(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-nack-err", "token-nack-err")
 	err := client.Nack(context.Background(), []string{"n1"})
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "status 503"))
-
+	assert.Contains(
+		t, err.Error(), "status 503")
 }
 
 func TestIsServerErrorOrNetworkFailure_Status500_True(t *testing.T) {
 	t.Parallel()
 	resp := &http.Response{StatusCode: 500}
-	require.True(
+	assert.True(
 		t, isServerErrorOrNetworkFailure(resp,
 			nil))
-
 }
 
 func TestIsServerErrorOrNetworkFailure_Status499_False(t *testing.T) {
 	t.Parallel()
 	resp := &http.Response{StatusCode: 499}
-	require.False(t, isServerErrorOrNetworkFailure(resp,
+	assert.False(t, isServerErrorOrNetworkFailure(resp,
 		nil))
-
 }
 
 func TestIsServerErrorOrNetworkFailure_Status501_True(t *testing.T) {
 	t.Parallel()
 	resp := &http.Response{StatusCode: 501}
-	require.True(
+	assert.True(
 		t, isServerErrorOrNetworkFailure(resp,
 			nil))
-
 }
 
 func TestIsServerErrorOrNetworkFailure_NetworkError_True(t *testing.T) {
 	t.Parallel()
-	require.True(
+	assert.True(
 		t, isServerErrorOrNetworkFailure(nil, errors.New("connection refused")),
 	)
-
 }
 
 func TestIsServerErrorOrNetworkFailure_Status200_False(t *testing.T) {
 	t.Parallel()
 	resp := &http.Response{StatusCode: 200}
-	require.False(t, isServerErrorOrNetworkFailure(resp,
+	assert.False(t, isServerErrorOrNetworkFailure(resp,
 		nil))
-
 }
 
 func TestNewClient_DefaultRetryPolicy_RetriesTwice(t *testing.T) {
@@ -482,10 +464,9 @@ func TestNewClient_DefaultRetryPolicy_RetriesTwice(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-default", "token")
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.Error(t, err)
-	require.EqualValues(t, 3, hits.Load())
+	assert.EqualValues(t, 3, hits.Load())
 
 	// Default MaxRetries=2 means 1 initial + 2 retries = 3 total hits.
-
 }
 
 func TestNewClient_InvalidBaseURL_FallsBackToEmptyURL(t *testing.T) {
@@ -493,15 +474,14 @@ func TestNewClient_InvalidBaseURL_FallsBackToEmptyURL(t *testing.T) {
 	client := NewClient("://invalid", "consumer-1", "token")
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "invalid base url"))
-
+	assert.Contains(
+		t, err.Error(), "invalid base url")
 }
 
 func TestNewClient_NoAuthToken_OmitsHeader(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "", r.Header.
+		assert.Empty(t, r.Header.
 			Get("Authorization"))
 
 		_, _ = w.Write([]byte(`{"data":[]}`))
@@ -510,8 +490,7 @@ func TestNewClient_NoAuthToken_OmitsHeader(t *testing.T) {
 
 	client := NewClient(ts.URL, "consumer-1", "")
 	_, err := client.Receive(context.Background(), 1, 0)
-	require.NoError(t, err)
-
+	assert.NoError(t, err)
 }
 
 func TestClientSinkConsumerHealth(t *testing.T) {
@@ -563,14 +542,14 @@ func TestClientSinkConsumerHealth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "/api/sinks/consumer-1",
+				assert.Equal(t, "/api/sinks/consumer-1",
 
 					r.URL.Path,
 				)
-				require.Equal(t, http.MethodGet,
+				assert.Equal(t, http.MethodGet,
 					r.Method,
 				)
-				require.Equal(t, "Bearer token-1",
+				assert.Equal(t, "Bearer token-1",
 					r.Header.
 						Get("Authorization"))
 
@@ -582,7 +561,7 @@ func TestClientSinkConsumerHealth(t *testing.T) {
 			client := NewClient(ts.URL, "consumer-1", "token-1")
 			err := client.SinkConsumerHealth(context.Background())
 			if tt.wantErrPart == "" {
-				require.NoError(t, err)
+				assert.NoError(t, err)
 
 				return
 			}
@@ -590,7 +569,6 @@ func TestClientSinkConsumerHealth(t *testing.T) {
 			assert.Contains(t, err.Error(),
 				tt.wantErrPart,
 			)
-
 		})
 	}
 }
@@ -598,7 +576,7 @@ func TestClientSinkConsumerHealth(t *testing.T) {
 func TestClientSinkConsumerHealth_NoAuthTokenOmitsHeader(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "", r.Header.
+		assert.Empty(t, r.Header.
 			Get("Authorization"))
 
 		_, _ = w.Write([]byte(`{"name":"consumer-1","status":"active","health":{"status":"healthy"}}`))
@@ -606,9 +584,8 @@ func TestClientSinkConsumerHealth_NoAuthTokenOmitsHeader(t *testing.T) {
 	defer ts.Close()
 
 	client := NewClient(ts.URL, "consumer-1", "")
-	require.NoError(t, client.SinkConsumerHealth(context.
+	assert.NoError(t, client.SinkConsumerHealth(context.
 		Background()))
-
 }
 
 func newTestRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
@@ -643,10 +620,9 @@ func TestClient_Receive_RetriesOn503(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
 	messages, err := client.Receive(context.Background(), 1, 0)
 	require.NoError(t, err)
-	require.Len(t,
+	assert.Len(t,
 		messages, 1)
-	require.EqualValues(t, 2, hits.Load())
-
+	assert.EqualValues(t, 2, hits.Load())
 }
 
 func TestClient_Receive_NoRetryOn400(t *testing.T) {
@@ -662,10 +638,9 @@ func TestClient_Receive_NoRetryOn400(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "status 400"))
-	require.EqualValues(t, 1, hits.Load())
-
+	assert.Contains(
+		t, err.Error(), "status 400")
+	assert.EqualValues(t, 1, hits.Load())
 }
 
 func TestClient_Receive_ExhaustsRetries(t *testing.T) {
@@ -681,10 +656,9 @@ func TestClient_Receive_ExhaustsRetries(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
 	require.Error(t, err)
-	require.True(
-		t, strings.Contains(err.Error(), "status 503"))
-	require.EqualValues(t, 3, hits.Load())
-
+	assert.Contains(
+		t, err.Error(), "status 503")
+	assert.EqualValues(t, 3, hits.Load())
 }
 
 func TestClient_Ack_RetriesOn503(t *testing.T) {
@@ -704,6 +678,5 @@ func TestClient_Ack_RetriesOn503(t *testing.T) {
 	client := NewClient(ts.URL, "consumer-1", "token-1", WithRetryPolicy(newTestRetryPolicy()), WithCircuitBreaker(nil))
 	err := client.Ack(context.Background(), []string{"a1"})
 	require.NoError(t, err)
-	require.EqualValues(t, 2, hits.Load())
-
+	assert.EqualValues(t, 2, hits.Load())
 }

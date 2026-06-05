@@ -22,7 +22,6 @@ func TestLaunchInactiveRegionsEndpointNotRouted(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.Code,
 	)
-
 }
 
 func TestHandleGetProjectSettingsDoesNotExposeDefaultRegion(t *testing.T) {
@@ -53,9 +52,8 @@ func TestHandleGetProjectSettingsDoesNotExposeDefaultRegion(t *testing.T) {
 			"project settings exposed launch-inactive default_region: %#v", body)
 	}
 	require.Equal(t, "starter", body["plan_tier"])
-	require.Equal(t, float64(30),
-		body["max_key_lifetime_days"])
-
+	require.InDelta(t, float64(30),
+		body["max_key_lifetime_days"], 1e-9)
 }
 
 func TestHandleCreateJobDoesNotPersistOrReturnPreferredRegions(t *testing.T) {
@@ -63,9 +61,8 @@ func TestHandleCreateJobDoesNotPersistOrReturnPreferredRegions(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
-			require.Len(t,
-				job.PreferredRegions,
-				0)
+			require.Empty(t,
+				job.PreferredRegions)
 
 			job.ID = "job-123"
 			return nil

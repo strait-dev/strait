@@ -57,7 +57,6 @@ func TestSnoozeTransitionState(t *testing.T) {
 				tt.want,
 				state.count,
 			)
-
 		})
 	}
 }
@@ -98,7 +97,6 @@ func TestSnoozeTransitionStateExceeds(t *testing.T) {
 		(snoozeTransitionState{count: 3}).exceeds(3))
 	require.False(t,
 		(snoozeTransitionState{count: 100}).exceeds(0))
-
 }
 
 // collectEvents subscribes a test subscriber that collects events into a slice.
@@ -173,7 +171,6 @@ func TestSnoozeRun_IncrementsSnoozeCount(t *testing.T) {
 		ok)
 	require.Equal(t,
 		"1", meta["snooze_count"])
-
 }
 
 func TestSnoozeRun_IncrementsExistingSnoozeCount(t *testing.T) {
@@ -193,7 +190,6 @@ func TestSnoozeRun_IncrementsExistingSnoozeCount(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	require.Equal(t,
 		"6", meta["snooze_count"])
-
 }
 
 func TestSnoozeRun_DoesNotIncrementAttempt(t *testing.T) {
@@ -238,7 +234,6 @@ func TestSnoozeRun_SetsRetryAt(t *testing.T) {
 		1)
 	require.True(t,
 		scheduled[0].at.Equal(retryAt))
-
 }
 
 func TestSnoozeRun_EmitsReadyEventOnlyForImmediateRequeue(t *testing.T) {
@@ -262,14 +257,13 @@ func TestSnoozeRun_EmitsReadyEventOnlyForImmediateRequeue(t *testing.T) {
 	immediate := testRun(1)
 	immediate.Status = domain.StatusDequeued
 	exec.snoozeRun(context.Background(), immediate, "circuit breaker open", nil)
-	require.EqualValues(t, 1, readyEvents)
+	require.Equal(t, 1, readyEvents)
 
 	scheduled := testRun(2)
 	scheduled.Status = domain.StatusDequeued
 	retryAt := time.Now().Add(time.Minute)
 	exec.snoozeRun(context.Background(), scheduled, "health score low", &retryAt)
-	require.EqualValues(t, 1, readyEvents)
-
+	require.Equal(t, 1, readyEvents)
 }
 
 func TestSnoozeRun_FieldsMap(t *testing.T) {
@@ -290,22 +284,18 @@ func TestSnoozeRun_FieldsMap(t *testing.T) {
 
 	t.Run("ClearsStartedAt", func(t *testing.T) {
 		require.Nil(t, f["started_at"])
-
 	})
 	t.Run("ClearsFinishedAt", func(t *testing.T) {
 		require.Nil(t, f["finished_at"])
-
 	})
 	t.Run("SetsTransientErrorClass", func(t *testing.T) {
 		require.Equal(t,
 			"transient",
 			f["error_class"])
-
 	})
 	t.Run("SetsErrorReason", func(t *testing.T) {
 		require.Equal(t,
 			reason, f["error"])
-
 	})
 	t.Run("NoNextRetryAtInFields", func(t *testing.T) {
 		if _, ok := f["next_retry_at"]; ok {
@@ -347,7 +337,6 @@ func TestSnoozeRun_MaxSnoozeExceeded_SystemFails(t *testing.T) {
 
 		last.
 			to)
-
 }
 
 func TestSnoozeRun_MaxSnoozeAtBoundary_StillSnoozes(t *testing.T) {
@@ -368,7 +357,6 @@ func TestSnoozeRun_MaxSnoozeAtBoundary_StillSnoozes(t *testing.T) {
 		domain.StatusQueued,
 
 		calls[0].to)
-
 }
 
 func TestSnoozeRun_MaxSnoozeZero_Disabled(t *testing.T) {
@@ -389,7 +377,6 @@ func TestSnoozeRun_MaxSnoozeZero_Disabled(t *testing.T) {
 		domain.StatusQueued,
 
 		calls[0].to)
-
 }
 
 func TestSnoozeRun_MalformedMetadata_TreatsAsZero(t *testing.T) {
@@ -407,7 +394,6 @@ func TestSnoozeRun_MalformedMetadata_TreatsAsZero(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	require.Equal(t,
 		"1", meta["snooze_count"])
-
 }
 
 func TestSnoozeRun_EmitsEventSnoozed(t *testing.T) {
@@ -440,8 +426,7 @@ func TestSnoozeRun_EmitsEventSnoozed(t *testing.T) {
 
 		ev.ToStatus,
 	)
-	require.EqualValues(t, 2, ev.Attempt)
-
+	require.Equal(t, 2, ev.Attempt)
 }
 
 func TestSnoozeRun_UpdateStatusError_NoEmit(t *testing.T) {
@@ -460,9 +445,7 @@ func TestSnoozeRun_UpdateStatusError_NoEmit(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "circuit breaker open", nil)
 
 	events := getEvents()
-	require.Len(t, events,
-		0)
-
+	require.Empty(t, events)
 }
 
 // snoozeRunFromExecuting tests (StatusExecuting -> StatusQueued).
@@ -485,7 +468,6 @@ func TestSnoozeRunFromExecuting_TransitionsCorrectly(t *testing.T) {
 			StatusExecuting ||
 			calls[0].to != domain.StatusQueued,
 	)
-
 }
 
 func TestSnoozeRunFromExecuting_IncrementsSnoozeCount(t *testing.T) {
@@ -502,7 +484,6 @@ func TestSnoozeRunFromExecuting_IncrementsSnoozeCount(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	require.Equal(t,
 		"4", meta["snooze_count"])
-
 }
 
 func TestSnoozeRunFromExecuting_MaxSnoozeExceeded(t *testing.T) {
@@ -525,7 +506,6 @@ func TestSnoozeRunFromExecuting_MaxSnoozeExceeded(t *testing.T) {
 
 		last.
 			to)
-
 }
 
 func TestSnoozeRunFromExecuting_EmitsEventSnoozed(t *testing.T) {
@@ -558,7 +538,6 @@ func TestSnoozeRunFromExecuting_EmitsEventSnoozed(t *testing.T) {
 
 		ev.ToStatus,
 	)
-
 }
 
 // errForcedFailure is a sentinel error for tests that need store operations to fail.

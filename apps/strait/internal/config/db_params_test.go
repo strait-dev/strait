@@ -30,9 +30,7 @@ func TestApplyDBRuntimeParams_ZeroSkips(t *testing.T) {
 	cfg := &Config{} // all zero
 	params := map[string]string{}
 	ApplyDBRuntimeParams(params, cfg)
-	assert.Len(t, params,
-		0)
-
+	assert.Empty(t, params)
 }
 
 func TestApplyDBRuntimeParams_NilSafe(t *testing.T) {
@@ -53,7 +51,6 @@ func TestApplyDBRuntimeParams_DoesNotOverwriteUnrelated(t *testing.T) {
 	assert.Equal(t,
 		"1000",
 		params["statement_timeout"])
-
 }
 
 func TestApplyDBRuntimeParams_MillisecondPrecision(t *testing.T) {
@@ -71,5 +68,4 @@ func TestApplyDBRuntimeParams_MillisecondPrecision(t *testing.T) {
 		"750", params["idle_in_transaction_session_timeout"])
 	assert.Equal(t,
 		"100", params["lock_timeout"])
-
 }

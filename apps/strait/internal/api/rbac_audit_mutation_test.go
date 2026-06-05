@@ -63,7 +63,6 @@ func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 	require.Equal(t, "user-1", captured.
 		ActorID,
 	)
-
 }
 
 func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.T) {
@@ -110,5 +109,4 @@ func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.
 	require.NoError(t, json.Unmarshal(captured.
 		Details, &details))
 	require.Equal(t, "user-2", details["user_id"])
-
 }

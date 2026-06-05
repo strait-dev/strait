@@ -44,7 +44,6 @@ func TestPercentReached(t *testing.T) {
 				tc.current,
 
 				tc.limit, tc.pct))
-
 		})
 	}
 }
@@ -80,7 +79,6 @@ func TestMaybeEmitUsageThreshold_DedupesWithinPeriod(t *testing.T) {
 	key90 := usageThresholdKey("org-A", "monthly_runs", 90, "2026-05")
 	require.True(t, mr.
 		Exists(key90))
-
 }
 
 // TestMaybeEmitUsageThreshold_HighestBucketWins ensures that when a single
@@ -103,14 +101,12 @@ func TestMaybeEmitUsageThreshold_HighestBucketWins(t *testing.T) {
 		k := usageThresholdKey("org-jump", "monthly_runs", pct, "2026-05")
 		assert.False(t, mr.
 			Exists(k))
-
 	}
 	assert.True(t, mr.
 		Exists(usageThresholdKey("org-jump",
 
 			"monthly_runs", 100, "2026-05",
 		)))
-
 }
 
 // TestMaybeEmitUsageThreshold_BelowAllBucketsNoOp verifies that callers below
@@ -156,7 +152,6 @@ func TestMaybeEmitUsageThreshold_DistinctPeriodsEmitIndependently(t *testing.T) 
 			Exists(usageThresholdKey("org-month",
 
 				"monthly_runs", 80, period)))
-
 	}
 }
 
@@ -196,7 +191,6 @@ func TestMaybeEmitUsageThreshold_RaceSingleEmission(t *testing.T) {
 
 			"monthly_runs", 80, "2026-05",
 		)))
-
 }
 
 // TestCheckMonthlyRunLimit_EmitsThresholdAtBoundary wires the threshold
@@ -233,7 +227,6 @@ func TestCheckMonthlyRunLimit_EmitsThresholdAtBoundary(t *testing.T) {
 		k := usageThresholdKey(orgID, "monthly_runs", pct, period)
 		assert.False(t, mr.
 			Exists(k))
-
 	}
 }
 

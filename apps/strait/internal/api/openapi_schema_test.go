@@ -146,12 +146,10 @@ func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 		"stream-deployment-logs",
 		"machine_id",
 	} {
-		require.False(t, strings.Contains(raw, stale))
-
+		require.NotContains(t, raw, stale)
 	}
 	for _, stale := range retiredCostFields {
-		require.False(t, strings.Contains(raw, stale))
-
+		require.NotContains(t, raw, stale)
 	}
 }
 
@@ -220,7 +218,6 @@ func TestOpenAPISchema_TriggerJobIncludesTraceHeaders(t *testing.T) {
 	}
 	for _, found := range want {
 		require.True(t, found)
-
 	}
 }
 
@@ -297,7 +294,7 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 		w.Code)
 
 	raw := w.Body.Bytes()
-	require.False(t, strings.Contains(string(raw), "ErrorModel"))
+	require.NotContains(t, string(raw), "ErrorModel")
 
 	var spec struct {
 		Components struct {
@@ -347,7 +344,6 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 	}
 	for _, c := range wantCodes {
 		assert.True(t, got[c])
-
 	}
 
 	if _, ok := spec.Components.Schemas["ErrorResponse"]; !ok {
@@ -377,5 +373,4 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-
 }

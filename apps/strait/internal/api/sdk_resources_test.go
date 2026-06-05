@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestHandleSDKResources_ValidPayload_InfoLevel(t *testing.T) {
 		`{"memory_mb":100,"memory_percent":40,"cpu_percent":20}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 
 	ev := captured.Load().(*domain.RunEvent)
 	assert.Equal(
@@ -42,7 +41,6 @@ func TestHandleSDKResources_ValidPayload_InfoLevel(t *testing.T) {
 	assert.Equal(
 		t, "info", ev.Level,
 	)
-
 }
 
 func TestHandleSDKResources_MemoryWarn80(t *testing.T) {
@@ -61,17 +59,14 @@ func TestHandleSDKResources_MemoryWarn80(t *testing.T) {
 		`{"memory_mb":200,"memory_percent":85,"cpu_percent":10}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 
 	ev := captured.Load().(*domain.RunEvent)
 	assert.Equal(
 		t, "warn", ev.Level,
 	)
-	assert.True(t,
-		strings.Contains(ev.Message,
-			"warning",
-		))
-
+	assert.Contains(t,
+		ev.Message, "warning")
 }
 
 func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
@@ -90,17 +85,14 @@ func TestHandleSDKResources_MemoryCritical90(t *testing.T) {
 		`{"memory_mb":230,"memory_percent":95,"cpu_percent":50}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 201, w.Code)
+	require.Equal(t, 201, w.Code)
 
 	ev := captured.Load().(*domain.RunEvent)
 	assert.Equal(
 		t, "error", ev.Level,
 	)
-	assert.True(t,
-		strings.Contains(ev.Message,
-			"critical",
-		))
-
+	assert.Contains(t,
+		ev.Message, "critical")
 }
 
 func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
@@ -112,8 +104,7 @@ func TestHandleSDKResources_NegativeMemoryMB(t *testing.T) {
 		`{"memory_mb":-1}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
@@ -125,8 +116,7 @@ func TestHandleSDKResources_MemoryPercentOver100(t *testing.T) {
 		`{"memory_percent":150}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
@@ -138,8 +128,7 @@ func TestHandleSDKResources_CPUPercentOver100(t *testing.T) {
 		`{"cpu_percent":200}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleSDKResources_InvalidJSON(t *testing.T) {
@@ -151,8 +140,7 @@ func TestHandleSDKResources_InvalidJSON(t *testing.T) {
 		`{not json`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 400, w.Code)
-
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleSDKResources_InsertEventFailure(t *testing.T) {
@@ -169,12 +157,11 @@ func TestHandleSDKResources_InsertEventFailure(t *testing.T) {
 		`{"memory_mb":100,"memory_percent":40,"cpu_percent":20}`)
 	w := httptest.NewRecorder()
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResources)(w, req)
-	require.EqualValues(t, 500, w.Code)
+	require.Equal(t, 500, w.Code)
 
 	var resp map[string]string
 	if err := json.NewDecoder(w.Body).Decode(&resp); err == nil {
-		assert.True(t,
-			strings.Contains(resp["error"], "failed to store"))
-
+		assert.Contains(t,
+			resp["error"], "failed to store")
 	}
 }

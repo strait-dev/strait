@@ -36,7 +36,6 @@ func TestGetCurrentUsage_DailyRunErrorSilenced(t *testing.T) {
 		resp.Usage.
 			RunsToday.
 			Used)
-
 }
 
 func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
@@ -52,7 +51,6 @@ func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
 		resp.Usage.
 			RetentionDays,
 	)
-
 }
 
 func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
@@ -85,14 +83,13 @@ func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 
 		resp.PeriodSpendMicro,
 	)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		resp.OverageDiscountPct,
 	)
 	assert.EqualValues(t, 90_000_000,
 
 		resp.OverageMicro,
 	)
-
 }
 
 func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
@@ -116,7 +113,6 @@ func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
 		resp.
 			OverageMicro,
 	)
-
 }
 
 func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
@@ -138,7 +134,6 @@ func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
 
 		resp.OverageMicro,
 	)
-
 }
 
 func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
@@ -160,7 +155,6 @@ func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
 		1, resp.
 		OverageMicro,
 	)
-
 }
 
 func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
@@ -178,11 +172,10 @@ func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
 	require.Len(t, resp.
 		ActiveAddons,
 		1)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		resp.ActiveAddons[0].
 			Quantity,
 	)
-
 }
 
 func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
@@ -215,7 +208,6 @@ func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-
 }
 
 // GetUsageForecast LIVED mutants.
@@ -266,11 +258,10 @@ func TestGetUsageForecast_DaysUntilLimit_UsesMonthlyRunAllowance(t *testing.T) {
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 2,
+	assert.Equal(t, 2,
 		forecast.
 			DaysUntilLimit,
 	)
-
 }
 
 func TestGetUsageForecast_ProjectedOverage(t *testing.T) {
@@ -299,7 +290,6 @@ func TestGetUsageForecast_ProjectedOverage(t *testing.T) {
 		forecast.
 			ProjectedOverageMicro,
 	)
-
 }
 
 func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
@@ -329,7 +319,6 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 		forecast.
 			AddonSpendMicro,
 	)
-
 }
 
 func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
@@ -352,7 +341,6 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 		forecast.
 			AddonSpendMicro,
 	)
-
 }
 
 func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
@@ -376,7 +364,6 @@ func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
 		forecast.
 			AddonSpendMicro,
 	)
-
 }
 
 func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
@@ -407,7 +394,6 @@ func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 		forecast.
 			ScaleBreakeven,
 	)
-
 }
 
 func TestGetUsageForecast_ScaleBreakeven_NonPro_AlwaysFalse(t *testing.T) {
@@ -429,7 +415,6 @@ func TestGetUsageForecast_ScaleBreakeven_NonPro_AlwaysFalse(t *testing.T) {
 	assert.False(t, forecast.
 		ScaleBreakeven,
 	)
-
 }
 
 func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
@@ -447,25 +432,22 @@ func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-ci")
 	require.NoError(t,
 		err)
-	assert.False(t, forecast.
-		ProjectedMonthlySpendLowUsd >=
-		forecast.
-			ProjectedMonthlySpendUsd,
+	assert.Less(t, forecast.
+		ProjectedMonthlySpendLowUsd, forecast.
+		ProjectedMonthlySpendUsd,
 	)
-	assert.False(t, forecast.
-		ProjectedMonthlySpendHighUsd <=
-		forecast.
-			ProjectedMonthlySpendUsd,
+	assert.Greater(t, forecast.
+		ProjectedMonthlySpendHighUsd, forecast.
+		ProjectedMonthlySpendUsd,
 	)
 	assert.GreaterOrEqual(t, forecast.
 		ProjectedMonthlySpendLowUsd,
 
 		0.0)
-	assert.EqualValues(t, 87,
+	assert.Equal(t, 87,
 		forecast.
 			ConfidencePct,
 	)
-
 }
 
 func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
@@ -482,13 +464,12 @@ func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-id")
 	require.NoError(t,
 		err)
-	assert.Equal(t, forecast.
+	assert.InDelta(t, forecast.
 		ProjectedMonthlySpendHighUsd,
 
 		forecast.
-			ProjectedMonthlySpendLowUsd,
+			ProjectedMonthlySpendLowUsd, 1e-9,
 	)
-
 }
 
 // DetectAnomalies LIVED mutants.
@@ -523,7 +504,6 @@ func TestDetectAnomalies_WithSpendingLimitAndForecast(t *testing.T) {
 			assert.Equal(t, "org-a",
 				a.
 					OrgID)
-
 		}
 	}
 	projectedMicro := int64(5_000_000) * 30
@@ -531,7 +511,6 @@ func TestDetectAnomalies_WithSpendingLimitAndForecast(t *testing.T) {
 		10_000_000 &&
 		!foundBudgetAlert,
 	)
-
 }
 
 func TestDetectAnomalies_CustomThresholdsFromSubscription(t *testing.T) {
@@ -552,7 +531,6 @@ func TestDetectAnomalies_CustomThresholdsFromSubscription(t *testing.T) {
 	_, err := svc.DetectAnomalies(context.Background(), "org-c")
 	require.NoError(t,
 		err)
-
 }
 
 func TestDetectAnomalies_NoSpendingLimit_NoBudgetAlert(t *testing.T) {
@@ -579,7 +557,6 @@ func TestDetectAnomalies_NoSpendingLimit_NoBudgetAlert(t *testing.T) {
 			a.TodaySpend ==
 				0 && a.Avg7dSpend ==
 			0)
-
 	}
 }
 
@@ -597,15 +574,14 @@ func TestGetAnomalyConfig_ZeroWarning_FallsBackToDefault(t *testing.T) {
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
 	require.NoError(t,
 		err)
-	assert.Equal(t, spikeWarning,
+	assert.InDelta(t, spikeWarning,
 
-		resp.WarningThreshold,
+		resp.WarningThreshold, 1e-9,
 	)
-	assert.EqualValues(t, 12.0,
+	assert.InDelta(t, 12.0,
 		resp.
-			CriticalThreshold,
+			CriticalThreshold, 1e-9,
 	)
-
 }
 
 func TestGetAnomalyConfig_ZeroCritical_FallsBackToDefault(t *testing.T) {
@@ -620,14 +596,13 @@ func TestGetAnomalyConfig_ZeroCritical_FallsBackToDefault(t *testing.T) {
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 2.5,
-		resp.WarningThreshold,
+	assert.InDelta(t, 2.5,
+		resp.WarningThreshold, 1e-9,
 	)
-	assert.Equal(t, spikeCritical,
+	assert.InDelta(t, spikeCritical,
 
-		resp.CriticalThreshold,
+		resp.CriticalThreshold, 1e-9,
 	)
-
 }
 
 // GetProjectBudget LIVED mutant.
@@ -670,10 +645,9 @@ func TestGetProjectBudget_ZeroBudget_ZeroPercent(t *testing.T) {
 	resp, err := svc.GetProjectBudget(context.Background(), "proj-1")
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 0,
-		resp.PercentUsed,
+	assert.InDelta(t, 0,
+		resp.PercentUsed, 1e-9,
 	)
-
 }
 
 // SetSpendingLimit LIVED mutants.
@@ -691,7 +665,6 @@ func TestSetSpendingLimit_ExactMaxLimit(t *testing.T) {
 	err := svc.SetSpendingLimit(context.Background(), "org-1", maxLimit, "notify")
 	require.NoError(t,
 		err)
-
 }
 
 func TestSetSpendingLimit_AboveMaxLimit(t *testing.T) {
@@ -707,7 +680,6 @@ func TestSetSpendingLimit_AboveMaxLimit(t *testing.T) {
 	err := svc.SetSpendingLimit(context.Background(), "org-1", maxLimit+1, "notify")
 	require.Error(t,
 		err)
-
 }
 
 // stddev LIVED mutant.
@@ -719,16 +691,14 @@ func TestStddev_KnownVariance(t *testing.T) {
 		Abs(result-
 			2.0), 0.01,
 	)
-
 }
 
 func TestStddev_SingleAndEmpty(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
-		stddev(nil))
-	assert.EqualValues(t, 0,
-		stddev([]float64{42}))
-
+	assert.InDelta(t, 0,
+		stddev(nil), 1e-9)
+	assert.InDelta(t, 0,
+		stddev([]float64{42}), 1e-9)
 }
 
 // Export LIVED mutants.
@@ -760,7 +730,6 @@ func TestExportPDF_SubscriptionAffectsOutput(t *testing.T) {
 	require.NoError(t,
 		err)
 	assert.False(t, len(noSubData) == len(withSubData) && string(noSubData) == string(withSubData))
-
 }
 
 func TestExportCSV_ArithmeticTotals(t *testing.T) {
@@ -781,13 +750,8 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 		err)
 
 	content := string(data)
-	assert.True(t, strings.Contains(content,
-		"7.000000",
-	))
-	assert.True(t, strings.Contains(content,
-		"3.000000",
-	))
-
+	assert.Contains(t, content, "7.000000")
+	assert.Contains(t, content, "3.000000")
 }
 
 // PostHog LIVED mutants.
@@ -817,15 +781,13 @@ func TestPostHogCapture_StatusBoundary_399_NoWarn(t *testing.T) {
 func TestPostHogClient_Timeout_Positive(t *testing.T) {
 	t.Parallel()
 	c := NewPostHogClient("key", "http://localhost:1", nil)
-	assert.False(t, c.
-		client.Timeout <=
-		0)
+	assert.Positive(t, c.
+		client.Timeout)
 	assert.Equal(t, 5*
 		time.Second,
 		c.client.
 			Timeout,
 	)
-
 }
 
 func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
@@ -849,10 +811,9 @@ func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 		err)
 
 	val, getErr := rdb.Get(context.Background(), "strait:org_concurrent:org-1").Int()
-	require.Nil(t, getErr)
-	assert.EqualValues(t, 7,
+	require.NoError(t, getErr)
+	assert.Equal(t, 7,
 		val)
-
 }
 
 // Enterprise LIVED mutant.
@@ -863,7 +824,6 @@ func TestApplyOverageDiscount_ZeroDiscountReturnsCost(t *testing.T) {
 	assert.EqualValues(t, 1_000_000,
 
 		cost)
-
 }
 
 func TestApplyOverageDiscount_OnePercentDiscount(t *testing.T) {
@@ -873,7 +833,6 @@ func TestApplyOverageDiscount_OnePercentDiscount(t *testing.T) {
 	assert.Equal(t, expected,
 		cost,
 	)
-
 }
 
 // Plans LIVED mutant.
@@ -885,7 +844,6 @@ func TestIsDowngrade_ScaleToPro_IsDowngrade(t *testing.T) {
 		domain.
 			PlanPro,
 	))
-
 }
 
 func TestIsDowngrade_ProToStarter_IsDowngrade(t *testing.T) {
@@ -895,7 +853,6 @@ func TestIsDowngrade_ProToStarter_IsDowngrade(t *testing.T) {
 		domain.
 			PlanStarter,
 	))
-
 }
 
 // EffectiveLimits boundary mutants.
@@ -913,7 +870,6 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 		result.
 			MaxConcurrentRuns,
 	)
-
 }
 
 func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
@@ -929,7 +885,6 @@ func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 		result.
 			RetentionDays,
 	)
-
 }
 
 // Downgrade boundary mutants.
@@ -954,7 +909,6 @@ func TestPreviewDowngrade_ZeroHTTPJobs_NoImpact(t *testing.T) {
 			imp.
 				Resource,
 		)
-
 	}
 }
 
@@ -970,9 +924,8 @@ func TestEnforcer_SuspendExcessProjects_UnlimitedSkips(t *testing.T) {
 	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", -1)
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		n)
-
 }
 
 func TestEnforcer_SuspendExcessProjects_PositiveLimit(t *testing.T) {
@@ -985,9 +938,8 @@ func TestEnforcer_SuspendExcessProjects_PositiveLimit(t *testing.T) {
 	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", 2)
 	require.NoError(t,
 		err)
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		n)
-
 }
 
 func TestEnforcer_CheckProjectSuspended_EmptyProjectID(t *testing.T) {
@@ -999,7 +951,6 @@ func TestEnforcer_CheckProjectSuspended_EmptyProjectID(t *testing.T) {
 	require.NoError(t,
 		enforcer.
 			CheckProjectSuspended(context.Background(), ""))
-
 }
 
 func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
@@ -1016,7 +967,6 @@ func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
 			CheckProjectSuspended(context.Background(), "proj-1"))
 
 	// Second call should hit the cache.
-
 }
 
 func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
@@ -1033,13 +983,11 @@ func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	require.Equal(t,
 		"service_degraded",
 		le.
 			Code)
-
 }
 
 func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
@@ -1057,7 +1005,6 @@ func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 	require.NoError(t,
 		enforcer.
 			CheckProjectSuspended(context.Background(), "proj-flush"))
-
 }
 
 // Enterprise boundary LIVED mutants.
@@ -1066,14 +1013,12 @@ func TestApplyOverageDiscount_NegativeCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(-100, 10))
-
 }
 
 func TestApplyOverageDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(0, 10))
-
 }
 
 func TestApplyOverageDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
@@ -1081,7 +1026,6 @@ func TestApplyOverageDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(1_000_000,
 			100))
-
 }
 
 func TestApplyOverageDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
@@ -1089,7 +1033,6 @@ func TestApplyOverageDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
 	assert.EqualValues(t, 0,
 		ApplyOverageDiscount(1_000_000,
 			150))
-
 }
 
 func TestApplyOverageDiscount_OneCost_OnePct(t *testing.T) {
@@ -1098,50 +1041,44 @@ func TestApplyOverageDiscount_OneCost_OnePct(t *testing.T) {
 	assert.False(t, got <
 		0 ||
 		got > 1)
-
 }
 
 func TestCalculateSLACredit_AtTarget_ZeroCredit(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.9,
 			99.9,
 		))
-
 }
 
 func TestCalculateSLACredit_AboveTarget_ZeroCredit(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 0,
+	assert.Equal(t, 0,
 		CalculateSLACredit(99.95,
 			99.9,
 		))
-
 }
 
 func TestCalculateSLACredit_JustBelowTarget_TenPct(t *testing.T) {
 	t.Parallel()
 	got := CalculateSLACredit(99.89, 99.9)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		got)
-
 }
 
 func TestCalculateSLACredit_BelowNinety_FiftyPct(t *testing.T) {
 	t.Parallel()
-	assert.EqualValues(t, 50,
+	assert.Equal(t, 50,
 		CalculateSLACredit(
 			89.9, 99.9,
 		))
-
 }
 
 func TestCalculateSLACredit_HigherTarget_ExtendedRange(t *testing.T) {
 	t.Parallel()
 	got := CalculateSLACredit(99.91, 99.95)
-	assert.EqualValues(t, 10,
+	assert.Equal(t, 10,
 		got)
-
 }
 
 func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
@@ -1163,7 +1100,6 @@ func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
 		assert.Equal(t, tt.
 			expected,
 			got)
-
 	}
 }
 
@@ -1194,12 +1130,8 @@ func TestEnforcer_CheckSpendingLimit_MessageContainsDollarAmount(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
-	assert.True(t, strings.Contains(le.Message,
-		"$50.00",
-	))
-
+	require.ErrorAs(t, err, &le)
+	assert.Contains(t, le.Message, "$50.00")
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T) {
@@ -1219,8 +1151,7 @@ func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T)
 		err)
 
 	var le *LimitError
-	require.True(t, errors.As(err,
-		&le))
+	require.ErrorAs(t, err, &le)
 	assert.False(t, !strings.Contains(le.Message,
 		"budget",
 	) &&
@@ -1229,7 +1160,6 @@ func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T)
 		))
 
 	// Message should reference budget being reached (no dollar amount for $0 credit).
-
 }
 
 // DecrDailyRunCount and DecrConcurrentRunCount nil guards.
@@ -1290,6 +1220,5 @@ func TestPreviewDowngrade_NoRegionImpactInRegressionSuite(t *testing.T) {
 			t, "regions",
 			imp.Resource,
 		)
-
 	}
 }

@@ -17,7 +17,6 @@ func TestValidateSubscriptionData_Valid(t *testing.T) {
 	}.ToStripe())
 	require.NoError(t,
 		err)
-
 }
 
 func TestValidateSubscriptionData_EmptyID(t *testing.T) {
@@ -28,7 +27,6 @@ func TestValidateSubscriptionData_EmptyID(t *testing.T) {
 		CustomerID: "cust_1",
 	}.ToStripe())
 	require.Error(t, err)
-
 }
 
 func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
@@ -39,7 +37,6 @@ func TestValidateSubscriptionData_EmptyProductID(t *testing.T) {
 		CustomerID: "cust_1",
 	}.ToStripe())
 	require.Error(t, err)
-
 }
 
 func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
@@ -52,7 +49,6 @@ func TestValidateSubscriptionData_ProductFromNested(t *testing.T) {
 	}.ToStripe())
 	require.NoError(t,
 		err)
-
 }
 
 func TestValidateSubscriptionData_EmptyCustomerID(t *testing.T) {
@@ -63,13 +59,11 @@ func TestValidateSubscriptionData_EmptyCustomerID(t *testing.T) {
 		CustomerID: "",
 	}.ToStripe())
 	require.Error(t, err)
-
 }
 
 func TestIsValidUUID_Valid(t *testing.T) {
 	t.Parallel()
 	require.True(t, isValidUUID("550e8400-e29b-41d4-a716-446655440000"))
-
 }
 
 func TestIsValidUUID_Invalid(t *testing.T) {
@@ -84,7 +78,6 @@ func TestIsValidUUID_Invalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		assert.False(t, isValidUUID(c))
-
 	}
 }
 
@@ -100,7 +93,6 @@ func TestResolveOrgID_ValidUUID(t *testing.T) {
 	require.Equal(t, "550e8400-e29b-41d4-a716-446655440000",
 
 		orgID)
-
 }
 
 func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
@@ -112,9 +104,7 @@ func TestResolveOrgID_InvalidUUID_ReturnsEmpty(t *testing.T) {
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "not-a-uuid"},
 	}.ToStripe())
-	require.Equal(t, "",
-		orgID)
-
+	require.Empty(t, orgID)
 }
 
 func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
@@ -126,9 +116,7 @@ func TestResolveOrgID_SQLInjection_ReturnsEmpty(t *testing.T) {
 	orgID := h.resolveOrgID(testSubscriptionData{
 		Metadata: map[string]string{"org_id": "'; DROP TABLE organizations; --"},
 	}.ToStripe())
-	require.Equal(t, "",
-		orgID)
-
+	require.Empty(t, orgID)
 }
 
 func TestIsValidEmail_Valid(t *testing.T) {
@@ -140,7 +128,6 @@ func TestIsValidEmail_Valid(t *testing.T) {
 	}
 	for _, c := range cases {
 		assert.True(t, isValidEmail(c))
-
 	}
 }
 
@@ -155,7 +142,6 @@ func TestIsValidEmail_Invalid(t *testing.T) {
 		assert.False(t, isValidEmail(
 			c),
 		)
-
 	}
 }
 
@@ -177,6 +163,5 @@ func FuzzResolveOrgID(f *testing.F) {
 			"" &&
 
 			!isValidUUID(result))
-
 	})
 }

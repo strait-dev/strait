@@ -46,10 +46,9 @@ func TestAuditExport_StreamError_OmitsHMACTrailer(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	assert.Equal(
-		t, "", sig,
+	assert.Empty(
+		t, sig,
 	)
-
 }
 
 // TestAuditExport_CleanStream_IncludesHMACTrailer is the positive control:
@@ -75,7 +74,5 @@ func TestAuditExport_CleanStream_IncludesHMACTrailer(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	assert.NotEqual(t, "",
-		sig)
-
+	assert.NotEmpty(t, sig)
 }

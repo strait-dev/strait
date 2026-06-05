@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -130,9 +131,8 @@ func TestCompleteSnapshotsHeadersAtWriteHeader(t *testing.T) {
 	defer mu.Unlock()
 	require.Equal(t, "before",
 		gotHeaders.Get("X-Snapshot-State"))
-	require.Equal(t, "", gotHeaders.
+	require.Empty(t, gotHeaders.
 		Get("X-Late"))
-
 }
 
 // TestReplayWritesCachedHeadersVerbatim verifies that a "completed"
@@ -159,7 +159,7 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler must not run on replay")
 	})
@@ -191,7 +191,6 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 		w.Header().Get("Idempotency-Replayed"))
 	require.Equal(t, "<replay/>",
 		w.Body.String())
-
 }
 
 // TestReplayLegacyRowFallsBackToJSON regresses the migration safety
@@ -210,7 +209,7 @@ func TestReplayLegacyRowFallsBackToJSON(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler must not run on replay")
 	}))
@@ -228,7 +227,6 @@ func TestReplayLegacyRowFallsBackToJSON(t *testing.T) {
 		w.Header().Get("Idempotency-Replayed"))
 	require.Equal(t, `{"legacy":true}`,
 		w.Body.String())
-
 }
 
 // TestReplayDoesNotEmitContentTypeWhenCachedHasNone is the adversarial
@@ -249,7 +247,7 @@ func TestReplayDoesNotEmitContentTypeWhenCachedHasNone(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		require.Fail(t,
+		assert.Fail(t,
 
 			"handler must not run on replay")
 	}))
@@ -261,10 +259,9 @@ func TestReplayDoesNotEmitContentTypeWhenCachedHasNone(t *testing.T) {
 	wrapped.ServeHTTP(w, r)
 	require.Equal(t, http.StatusNoContent,
 		w.Code)
-	require.Equal(t, "", w.Header().Get("Content-Type"))
+	require.Empty(t, w.Header().Get("Content-Type"))
 	require.Equal(t, "yes", w.
 		Header().Get("X-Custom"))
 	require.Equal(t, "true",
 		w.Header().Get("Idempotency-Replayed"))
-
 }

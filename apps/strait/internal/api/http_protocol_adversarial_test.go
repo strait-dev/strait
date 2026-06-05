@@ -23,15 +23,13 @@ func TestHTTPProtocol_CRLFInjectionInHeaders(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-	require.Equal(t, "",
-		rec.Header().Get("Evil-Header"))
+	require.Empty(t, rec.Header().Get("Evil-Header"))
 
 	// The response must never contain an Evil-Header that was injected via CRLF.
 
 	// Also scan raw header keys for the injected header.
 	for key := range rec.Header() {
 		require.False(t, strings.EqualFold(key, "Evil-Header"))
-
 	}
 }
 
@@ -75,7 +73,6 @@ func TestHTTPProtocol_ExtremelyLargeHeaderValue(t *testing.T) {
 		rec.Code)
 
 	// Any non-panic response is a pass.
-
 }
 
 // TestHTTPProtocol_ContentLengthMismatch sends a request where Content-Length
@@ -97,7 +94,6 @@ func TestHTTPProtocol_ContentLengthMismatch(t *testing.T) {
 		rec.Code)
 
 	// The server should respond with an error or handle it gracefully.
-
 }
 
 // TestHTTPProtocol_DuplicateContentType sends a request with two Content-Type
@@ -116,7 +112,6 @@ func TestHTTPProtocol_DuplicateContentType(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	require.NotEqual(t, 0,
 		rec.Code)
-
 }
 
 // TestHTTPProtocol_MissingContentTypeOnPOST sends a POST request with a JSON
@@ -136,7 +131,6 @@ func TestHTTPProtocol_MissingContentTypeOnPOST(t *testing.T) {
 		rec.Code)
 
 	// The server should return a client error or handle gracefully.
-
 }
 
 // TestHTTPProtocol_ChunkedZeroLength sends a request with Transfer-Encoding
@@ -155,7 +149,6 @@ func TestHTTPProtocol_ChunkedZeroLength(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	require.NotEqual(t, 0,
 		rec.Code)
-
 }
 
 // TestHTTPProtocol_UnexpectedMethods sends OPTIONS, TRACE, and CONNECT to
@@ -180,7 +173,6 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 			)
 
 			// TRACE and CONNECT should not return 200 OK.
-
 		})
 	}
 
@@ -196,7 +188,6 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 		srv.ServeHTTP(rec, req)
 		require.NotEqual(t, 0,
 			rec.Code)
-
 	})
 }
 
@@ -217,7 +208,6 @@ func TestHTTPProtocol_VeryLongURLPath(t *testing.T) {
 		rec.Code)
 
 	// Any status is acceptable as long as the server did not panic.
-
 }
 
 // TestHTTPProtocol_MassiveQueryParameters sends a GET request with 10000 query
@@ -243,7 +233,6 @@ func TestHTTPProtocol_MassiveQueryParameters(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	require.NotEqual(t, 0,
 		rec.Code)
-
 }
 
 // TestHTTPProtocol_BodyOnGETRequest sends a GET request with a body and
@@ -263,7 +252,6 @@ func TestHTTPProtocol_BodyOnGETRequest(t *testing.T) {
 		rec.Code)
 
 	// The server should process the GET normally and ignore the body.
-
 }
 
 // TestHTTPProtocol_KeepAliveAbuse sends 100 sequential requests to the same
@@ -283,7 +271,6 @@ func TestHTTPProtocol_KeepAliveAbuse(t *testing.T) {
 		srv.ServeHTTP(rec, req)
 		require.NotEqual(t, 0,
 			rec.Code)
-
 	}
 
 	runtime.GC()
@@ -295,5 +282,4 @@ func TestHTTPProtocol_KeepAliveAbuse(t *testing.T) {
 	growth := after - baseline
 	require.LessOrEqual(t,
 		growth, 50)
-
 }

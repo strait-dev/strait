@@ -87,7 +87,6 @@ func TestCallback_StepOutputInjection(t *testing.T) {
 					Background(), run))
 			require.Equal(t, payload,
 				string(storedOutput))
-
 		})
 	}
 }
@@ -155,7 +154,6 @@ func TestCallback_ConcurrentCallbacks(t *testing.T) {
 	require.GreaterOrEqual(t, updateCalls.
 		Load(),
 		int32(3))
-
 }
 
 // TestCallback_OrphanedCallback verifies that a callback for a non-existent
@@ -186,11 +184,8 @@ func TestCallback_OrphanedCallback(t *testing.T) {
 	}
 	err := cb.OnJobRunTerminal(context.Background(), run)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.
-		Error(),
-		"not found",
-	))
-
+	require.Contains(t, err.
+		Error(), "not found")
 }
 
 // TestCallback_TerminalWorkflowCallback verifies that a callback for a step in
@@ -221,7 +216,6 @@ func TestCallback_TerminalWorkflowCallback(t *testing.T) {
 			Background(), run))
 
 	// Should return nil since step is already terminal.
-
 }
 
 func TestEmitEventIfConfigured_DoesNotResolveForeignProjectEventKey(t *testing.T) {
@@ -276,7 +270,6 @@ func TestEmitEventIfConfigured_DoesNotResolveForeignProjectEventKey(t *testing.T
 	)
 	require.False(t, updateCalled.
 		Load())
-
 }
 
 // TestCallback_HugeStepOutput verifies that a 10MB step output is handled
@@ -340,7 +333,6 @@ func TestCallback_HugeStepOutput(t *testing.T) {
 	require.GreaterOrEqual(t, storedSize,
 		10*1024*
 			1024)
-
 }
 
 // FuzzCallbackOutput fuzzes the step output JSON to ensure the callback

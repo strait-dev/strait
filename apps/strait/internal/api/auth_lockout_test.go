@@ -103,7 +103,6 @@ func TestRealIP_XForwardedFor(t *testing.T) {
 			got := realIP(r, tc.trusted)
 			assert.Equal(t, tc.want,
 				got)
-
 		})
 	}
 }
@@ -145,7 +144,6 @@ func TestAuthLockout_429AfterThreshold(t *testing.T) {
 		require.Equal(t, http.
 			StatusUnauthorized,
 			w.Code)
-
 	}
 
 	// 11th request should be rate limited.
@@ -157,9 +155,7 @@ func TestAuthLockout_429AfterThreshold(t *testing.T) {
 	assert.Equal(t, http.
 		StatusTooManyRequests,
 		w.Code)
-	assert.NotEqual(t, "",
-		w.Header().Get("Retry-After"))
-
+	assert.NotEmpty(t, w.Header().Get("Retry-After"))
 }
 
 func TestAuthLockout_DifferentIP_NotBlocked(t *testing.T) {
@@ -186,7 +182,6 @@ func TestAuthLockout_DifferentIP_NotBlocked(t *testing.T) {
 		StatusTooManyRequests,
 		w.Code,
 	)
-
 }
 
 func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.T) {
@@ -204,7 +199,6 @@ func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.
 		require.Equal(t, http.
 			StatusUnauthorized,
 			w.Code)
-
 	}
 
 	internalReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
@@ -226,7 +220,6 @@ func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.
 	require.Equal(t, http.
 		StatusTooManyRequests,
 		w.Code)
-
 }
 
 func TestAuthLockout_NoRedis_FailsOpen(t *testing.T) {
@@ -246,6 +239,5 @@ func TestAuthLockout_NoRedis_FailsOpen(t *testing.T) {
 			StatusTooManyRequests,
 			w.Code,
 		)
-
 	}
 }

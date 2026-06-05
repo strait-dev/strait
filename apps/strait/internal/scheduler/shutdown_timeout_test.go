@@ -100,7 +100,6 @@ func TestComponentTracker_TrackCountsInvocations(t *testing.T) {
 	tracker.mu.Lock()
 	items := len(tracker.items)
 	tracker.mu.Unlock()
-	require.EqualValues(t, 5,
+	require.Equal(t, 5,
 		items)
-
 }

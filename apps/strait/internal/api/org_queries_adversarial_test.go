@@ -21,7 +21,7 @@ func TestOrgQuery_EmptyOrgID(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			require.NotEqual(t, "", orgID)
+			require.NotEmpty(t, orgID)
 
 			return nil, nil
 		},
@@ -36,7 +36,6 @@ func TestOrgQuery_EmptyOrgID(t *testing.T) {
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, path, ""))
 		require.NotEqual(t, http.
 			StatusOK, w.Code)
-
 	}
 }
 
@@ -67,7 +66,6 @@ func TestOrgQuery_NullByteOrgID(t *testing.T) {
 			Code)
 
 		// The server must not panic. Any HTTP status is acceptable.
-
 	}
 }
 
@@ -99,7 +97,6 @@ func TestOrgQuery_PathTraversalOrgID(t *testing.T) {
 
 		// Path traversal must not produce 200 with real data; either the
 		// router rejects it or the handler sees a garbled orgID.
-
 	}
 }
 
@@ -134,7 +131,6 @@ func TestOrgQuery_CrossOrgAccess(t *testing.T) {
 		srv.ServeHTTP(w, req)
 		require.Equal(t, http.StatusForbidden,
 			w.Code)
-
 	}
 }
 
@@ -170,7 +166,6 @@ func TestOrgQuery_ProjectScopedKeyRejectsOrg(t *testing.T) {
 		srv.ServeHTTP(w, req)
 		require.Equal(t, http.StatusForbidden,
 			w.Code)
-
 	}
 }
 
@@ -200,7 +195,6 @@ func TestOrgQuery_PaginationOverflow(t *testing.T) {
 
 	// The handler adds 1 to the limit before passing to store; maxPageLimit
 	// is 100, so we expect 101 at most.
-
 }
 
 // FuzzOrgQueryIDs fuzzes the org ID path parameter through the list-org-runs
@@ -229,7 +223,6 @@ func FuzzOrgQueryIDs(f *testing.F) {
 			Code)
 
 		// We only care that the server does not panic.
-
 	})
 }
 
@@ -258,6 +251,5 @@ func TestOrgQuery_LongOrgID(t *testing.T) {
 			Code)
 
 		// Must not panic; any status code is fine.
-
 	}
 }

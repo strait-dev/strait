@@ -195,7 +195,6 @@ func TestAuditNegativePath_NoEmitOnStoreFailure(t *testing.T) {
 				Load())
 
 			// Any failure status is acceptable — the key assertion is "no audit".
-
 		})
 	}
 }

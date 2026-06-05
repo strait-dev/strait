@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,7 +38,6 @@ func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
 	)
 	require.True(
 		t, called)
-
 }
 
 func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
@@ -66,7 +64,6 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 	))
 	require.Len(t,
 		subs, 1)
-
 }
 
 func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -144,14 +141,11 @@ func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
 			var statusErr huma.StatusError
-			require.True(
-				t, errors.As(err,
-					&statusErr,
-				))
+			require.ErrorAs(
+				t, err, &statusErr)
 			require.Equal(t, http.StatusForbidden,
 				statusErr.
 					GetStatus())
-
 		})
 	}
 }
@@ -175,7 +169,6 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound,
 		w.
 			Code)
-
 }
 
 func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
@@ -188,5 +181,4 @@ func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest,
 
 		w.Code)
-
 }

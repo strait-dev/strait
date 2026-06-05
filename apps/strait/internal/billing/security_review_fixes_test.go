@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -54,14 +53,12 @@ func TestCheckSpendingLimit_SumSpendError_FailsClosed(t *testing.T) {
 		err)
 
 	var le *LimitError
-	require.True(t,
-		errors.As(
-			err, &le))
+	require.ErrorAs(t,
+		err, &le)
 	require.Equal(t,
 		"service_degraded",
 		le.Code,
 	)
-
 }
 
 func TestCheckSpendingLimit_SumSpendError_SuccessAfterRecovery(t *testing.T) {
@@ -100,7 +97,6 @@ func TestCheckSpendingLimit_SumSpendError_SuccessAfterRecovery(t *testing.T) {
 
 	err = enforcer.CheckSpendingLimit(ctx, "org-reset")
 	require.NoError(t, err)
-
 }
 
 func TestCheckSpendingLimit_SumSpendError_CrossOrgFailsClosed(t *testing.T) {
@@ -124,14 +120,12 @@ func TestCheckSpendingLimit_SumSpendError_CrossOrgFailsClosed(t *testing.T) {
 	for _, orgID := range []string{"org-A", "org-B"} {
 		err := enforcer.CheckSpendingLimit(ctx, orgID)
 		var le *LimitError
-		require.True(t,
-			errors.As(
-				err, &le))
+		require.ErrorAs(t,
+			err, &le)
 		require.Equal(t,
 			"service_degraded",
 			le.Code,
 		)
-
 	}
 }
 
@@ -168,7 +162,6 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 	// Verify the webhook was processed (subscription upserted).
 
 	// Verify the record was attempted using the Stripe event ID.
-
 }
 
 func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
@@ -204,7 +197,6 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 		))
 
 	// Verify the Stripe event ID was recorded.
-
 }
 
 func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
@@ -243,6 +235,5 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 	for _, id := range store.recordedWebhookIDs {
 		require.NotEqual(t, "evt-handler-err",
 			id)
-
 	}
 }

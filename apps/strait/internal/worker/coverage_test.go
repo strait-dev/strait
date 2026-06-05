@@ -115,7 +115,6 @@ func TestPublishEvent_Success(t *testing.T) {
 			event["to"] !=
 				"completed",
 	)
-
 }
 
 func TestPublishEvent_PublishError(t *testing.T) {
@@ -131,7 +130,6 @@ func TestPublishEvent_PublishError(t *testing.T) {
 	// Should not panic, should log error.
 	e.publishEvent(context.Background(), run, map[string]any{"from": "executing", "to": "failed"})
 	require.EqualValues(t, 1, pub.calls.Load())
-
 }
 
 // notifyWorkflowCallback tests.
@@ -162,7 +160,6 @@ func TestNotifyWorkflowCallback_Success(t *testing.T) {
 	require.Equal(t,
 		"run-99", capturedRunID,
 	)
-
 }
 
 func TestNotifyWorkflowCallback_Error(t *testing.T) {
@@ -179,7 +176,6 @@ func TestNotifyWorkflowCallback_Error(t *testing.T) {
 	e.notifyWorkflowCallback(context.Background(), run)
 	e.callbackWG.Wait()
 	require.EqualValues(t, 1, cb.calls.Load())
-
 }
 
 // resolveExecutionPolicy tests.
@@ -201,7 +197,6 @@ func TestResolveExecutionPolicy_NoWorkflowStep(t *testing.T) {
 			timeoutSecs !=
 			30,
 	)
-
 }
 
 func TestResolveExecutionPolicy_StepRunNotFound(t *testing.T) {
@@ -217,11 +212,9 @@ func TestResolveExecutionPolicy_StepRunNotFound(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	require.True(t,
-		errors.Is(err, orcstore.
-			ErrWorkflowStepRunNotFound,
-		))
-
+	require.ErrorIs(t,
+		err, orcstore.
+			ErrWorkflowStepRunNotFound)
 }
 
 func TestResolveExecutionPolicy_StepRunError(t *testing.T) {
@@ -239,7 +232,6 @@ func TestResolveExecutionPolicy_StepRunError(t *testing.T) {
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
 	require.Error(t,
 		err)
-
 }
 
 func TestResolveExecutionPolicy_WorkflowRunNotFound(t *testing.T) {
@@ -260,8 +252,7 @@ func TestResolveExecutionPolicy_WorkflowRunNotFound(t *testing.T) {
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
 	require.NoError(
 		t, err)
-	require.EqualValues(t, 3, got.maxAttempts)
-
+	require.Equal(t, 3, got.maxAttempts)
 }
 
 func TestResolveExecutionPolicy_WorkflowRunError(t *testing.T) {
@@ -282,7 +273,6 @@ func TestResolveExecutionPolicy_WorkflowRunError(t *testing.T) {
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
 	require.Error(t,
 		err)
-
 }
 
 func TestResolveExecutionPolicy_OverridesFromStep(t *testing.T) {
@@ -363,10 +353,9 @@ func TestResolveExecutionPolicy_StepNotFoundInList(t *testing.T) {
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
 	require.NoError(
 		t, err)
-	require.EqualValues(t, 3, got.maxAttempts)
+	require.Equal(t, 3, got.maxAttempts)
 
 	// Step not found → returns fallback unchanged.
-
 }
 
 func TestResolveExecutionPolicy_ListStepsError(t *testing.T) {
@@ -390,7 +379,6 @@ func TestResolveExecutionPolicy_ListStepsError(t *testing.T) {
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
 	require.Error(t,
 		err)
-
 }
 
 func TestResolveExecutionPolicy_PartialOverrides(t *testing.T) {
@@ -446,7 +434,6 @@ func TestSendWebhookWithClient_EmptyURL(t *testing.T) {
 	result := sendWebhookWithClientForTest(context.Background(), http.DefaultClient, job, run, 3)
 	require.True(t,
 		result.Delivered)
-
 }
 
 func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
@@ -472,9 +459,8 @@ func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 3)
 	require.True(t,
 		result.Delivered)
-	require.EqualValues(t, 200, result.StatusCode)
+	require.Equal(t, 200, result.StatusCode)
 	require.EqualValues(t, 1, called.Load())
-
 }
 
 func TestSendWebhookWithClient_ClientErrorNoRetry(t *testing.T) {
@@ -493,9 +479,8 @@ func TestSendWebhookWithClient_ClientErrorNoRetry(t *testing.T) {
 	require.False(t,
 		result.Delivered,
 	)
-	require.EqualValues(t, 400, result.StatusCode)
+	require.Equal(t, 400, result.StatusCode)
 	require.EqualValues(t, 1, called.Load())
-
 }
 
 func TestSendWebhookWithClient_ServerErrorRetries(t *testing.T) {
@@ -522,7 +507,6 @@ func TestSendWebhookWithClient_ServerErrorRetries(t *testing.T) {
 	require.True(t,
 		result.Delivered)
 	require.EqualValues(t, 2, called.Load())
-
 }
 
 func TestSendWebhookWithClient_ContextCanceled(t *testing.T) {
@@ -543,7 +527,6 @@ func TestSendWebhookWithClient_ContextCanceled(t *testing.T) {
 	require.False(t,
 		result.Delivered,
 	)
-
 }
 
 func TestSendWebhookWithClient_DefaultMaxAttempts(t *testing.T) {
@@ -562,7 +545,6 @@ func TestSendWebhookWithClient_DefaultMaxAttempts(t *testing.T) {
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 0)
 	require.True(t,
 		result.Delivered)
-
 }
 
 func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
@@ -580,12 +562,11 @@ func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
 	require.True(t,
 		result.Delivered)
-	require.NotEqual(t, "", gotSig)
+	require.NotEmpty(t, gotSig)
 	require.False(t,
 		len(gotSig) < 5 ||
 			gotSig[:3] !=
 				"v1=")
-
 }
 
 func TestSendWebhookWithClient_NoSignatureWithoutSecret(t *testing.T) {
@@ -603,9 +584,8 @@ func TestSendWebhookWithClient_NoSignatureWithoutSecret(t *testing.T) {
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
 	require.True(t,
 		result.Delivered)
-	require.Equal(t,
-		"", gotSig)
-
+	require.Empty(t,
+		gotSig)
 }
 
 func TestSendWebhookWithClient_PayloadContent(t *testing.T) {
@@ -647,12 +627,11 @@ func TestSendWebhookWithClient_PayloadContent(t *testing.T) {
 		"completed", received.
 			Status,
 	)
-	require.EqualValues(t, 3, received.Attempt)
+	require.Equal(t, 3, received.Attempt)
 	require.Equal(t,
 		"some error", received.
 			Error,
 	)
-
 }
 
 func TestSendWebhookWithClient_NetworkError(t *testing.T) {
@@ -669,8 +648,7 @@ func TestSendWebhookWithClient_NetworkError(t *testing.T) {
 	require.False(t,
 		result.Delivered,
 	)
-	require.NotEqual(t, "", result.Error)
-
+	require.NotEmpty(t, result.Error)
 }
 
 // dispatchToEndpoint tests.
@@ -698,12 +676,10 @@ func TestDispatchToEndpoint_Success(t *testing.T) {
 	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
 	require.NoError(
 		t, err)
-	require.Equal(t,
+	require.JSONEq(t,
 		`{"result":"ok"}`,
-		string(
-			result),
+		string(result),
 	)
-
 }
 
 func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
@@ -725,7 +701,6 @@ func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
 		json.Valid(result))
 	require.Equal(t,
 		`"ok"`, string(result))
-
 }
 
 func TestDispatchToEndpoint_WithExtraHeaders(t *testing.T) {
@@ -746,7 +721,6 @@ func TestDispatchToEndpoint_WithExtraHeaders(t *testing.T) {
 	_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, headers)
 	require.NoError(
 		t, err)
-
 }
 
 func TestDispatchToEndpoint_NonOKStatus(t *testing.T) {
@@ -765,15 +739,14 @@ func TestDispatchToEndpoint_NonOKStatus(t *testing.T) {
 		err)
 
 	var endpointErr *domain.EndpointError
-	require.True(t,
-		errors.As(err, &endpointErr))
+	require.ErrorAs(t,
+		err, &endpointErr)
 	require.Equal(t,
 		http.StatusServiceUnavailable,
 
 		endpointErr.
 			StatusCode,
 	)
-
 }
 
 func TestDispatchToEndpoint_EmptyBody(t *testing.T) {
@@ -790,7 +763,6 @@ func TestDispatchToEndpoint_EmptyBody(t *testing.T) {
 	require.NoError(
 		t, err)
 	require.Nil(t, result)
-
 }
 
 func TestDispatchToEndpoint_InvalidURL(t *testing.T) {
@@ -801,7 +773,6 @@ func TestDispatchToEndpoint_InvalidURL(t *testing.T) {
 	_, err := e.dispatchToEndpoint(context.Background(), "://invalid", run, nil)
 	require.Error(t,
 		err)
-
 }
 
 // handleSuccess integration (through execute) — with publish + callback.
@@ -857,7 +828,6 @@ func TestExecutor_HandleSuccess_PublishesAndCallsBack(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // handleFailure with publish + callback.
@@ -913,7 +883,6 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // Workflow step run → execution policy override through execute.
@@ -972,7 +941,6 @@ func TestExecutor_Execute_WithWorkflowPolicyOverride(t *testing.T) {
 	}
 	require.True(t,
 		found)
-
 }
 
 // noopLogger returns a logger that discards all output.

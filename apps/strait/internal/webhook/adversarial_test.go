@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +39,6 @@ func TestSignature_NullBytesInPayload(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
 	require.NoError(t, err)
-
 }
 
 // TestSignature_EmptyPayload verifies that an empty payload validates correctly.
@@ -53,7 +51,6 @@ func TestSignature_EmptyPayload(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
 	require.NoError(t, err)
-
 }
 
 // TestSignature_HugePayload verifies that a 10MB payload validates correctly.
@@ -69,7 +66,6 @@ func TestSignature_HugePayload(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
 	require.NoError(t, err)
-
 }
 
 // TestStripeSignature_FutureTimestamp verifies that a far-future timestamp (year 2100) is rejected.
@@ -84,8 +80,7 @@ func TestStripeSignature_FutureTimestamp(t *testing.T) {
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "timestamp too old"))
-
+	require.Contains(t, err.Error(), "timestamp too old")
 }
 
 // TestStripeSignature_NegativeTimestamp verifies that timestamp=-1 is rejected.
@@ -98,10 +93,9 @@ func TestStripeSignature_NegativeTimestamp(t *testing.T) {
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "timestamp too old"))
+	require.Contains(t, err.Error(), "timestamp too old")
 
 	// The age will be very large, so it should be rejected as too old.
-
 }
 
 // TestStripeSignature_ZeroTimestamp verifies that timestamp=0 is rejected as too old.
@@ -114,8 +108,7 @@ func TestStripeSignature_ZeroTimestamp(t *testing.T) {
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
 	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "timestamp too old"))
-
+	require.Contains(t, err.Error(), "timestamp too old")
 }
 
 // TestStripeSignature_MaxIntTimestamp verifies that MaxInt64 timestamp is rejected.
@@ -128,7 +121,6 @@ func TestStripeSignature_MaxIntTimestamp(t *testing.T) {
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
 	require.Error(t, err)
-
 }
 
 // FuzzHMACSHA256Adversarial fuzzes HMAC-SHA256 validation with arbitrary secrets, payloads, and signatures.
@@ -165,7 +157,6 @@ func TestSigning_NullBytesInBody(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", "secret", body, "sha256="+sig)
 	require.NoError(t, err)
-
 }
 
 // TestSigning_HugeBody_10MB verifies signing a 10MB payload.
@@ -180,7 +171,6 @@ func TestSigning_HugeBody_10MB(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", "test-secret", body, "sha256="+sig)
 	require.NoError(t, err)
-
 }
 
 // TestSigning_UnicodeSecret verifies that Unicode secrets produce valid signatures.
@@ -193,7 +183,6 @@ func TestSigning_UnicodeSecret(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
 	require.NoError(t, err)
-
 }
 
 // TestSigning_BinaryPayload verifies signing of non-JSON binary data.
@@ -208,7 +197,6 @@ func TestSigning_BinaryPayload(t *testing.T) {
 
 	err := ValidateSignature("hmac-sha256", "binary-secret", body, "sha256="+sig)
 	require.NoError(t, err)
-
 }
 
 // TestSigning_Deterministic verifies that signing the same input twice gives the same result.
@@ -219,5 +207,4 @@ func TestSigning_Deterministic(t *testing.T) {
 	sig2 := ComputeHMACSHA256("stable-key", body)
 	require.Equal(t, sig2,
 		sig1)
-
 }

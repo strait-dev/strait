@@ -38,7 +38,7 @@ func TestCreateWebhookSubscription_ServerGeneratesSecret(t *testing.T) {
 		SigningSecret string                      `json:"signing_secret"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.NotEqual(t, "", resp.SigningSecret)
+	require.NotEmpty(t, resp.SigningSecret)
 	require.False(t, len(resp.SigningSecret) !=
 		len("whsec_")+64 ||
 		resp.SigningSecret[:6] != "whsec_")
@@ -49,7 +49,6 @@ func TestCreateWebhookSubscription_ServerGeneratesSecret(t *testing.T) {
 		resp.Subscription.
 			ID != "sub-1",
 	)
-
 }
 
 func TestCreateWebhookSubscription_ClientSecretIgnored(t *testing.T) {
@@ -89,5 +88,4 @@ func TestCreateWebhookSubscription_ClientSecretIgnored(t *testing.T) {
 	require.Len(t,
 		resp.SigningSecret,
 		len("whsec_")+64)
-
 }
