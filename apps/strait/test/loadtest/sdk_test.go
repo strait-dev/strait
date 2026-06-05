@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -27,14 +28,15 @@ func seedExecutingRun(t *testing.T, jobID string) (runID, runToken string) {
 	err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("seedExecutingRun dequeued: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	err = testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{})
-	if err != nil {
-		t.Fatalf("seedExecutingRun executing: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	return runID, runToken
 }
 
