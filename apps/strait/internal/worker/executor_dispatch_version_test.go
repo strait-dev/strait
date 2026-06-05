@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecute_UsesVersionedJobConfig(t *testing.T) {
@@ -24,7 +27,9 @@ func TestExecute_UsesVersionedJobConfig(t *testing.T) {
 
 	// v2 endpoint (the current/live endpoint -- should not be used)
 	v2Server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("v2 endpoint was called -- executor should have used v1")
+		assert.Fail(t,
+
+			"v2 endpoint was called -- executor should have used v1")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer v2Server.Close()
@@ -52,12 +57,13 @@ func TestExecute_UsesVersionedJobConfig(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }
 
 func TestExecute_FallsBackToLiveJob(t *testing.T) {
@@ -89,12 +95,13 @@ func TestExecute_FallsBackToLiveJob(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }
 
 func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
@@ -127,12 +134,13 @@ func TestExecute_VersionedConfig_PreservesTimeout(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s (v1 timeout should be 300s not 1s)", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }
 
 func TestResolveJobForRun_Pin(t *testing.T) {
@@ -155,15 +163,14 @@ func TestResolveJobForRun_Pin(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v1.example.com" {
-		t.Fatalf("expected v1 endpoint, got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 1 {
-		t.Fatalf("expected run version to stay 1, got %d", run.JobVersion)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://v1.example.com",
+
+		job.EndpointURL)
+	require.EqualValues(t, 1, run.JobVersion)
+
 }
 
 func TestResolveJobForRun_Latest(t *testing.T) {
@@ -180,18 +187,18 @@ func TestResolveJobForRun_Latest(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v3.example.com" {
-		t.Fatalf("expected v3 endpoint, got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 3 {
-		t.Fatalf("expected run version upgraded to 3, got %d", run.JobVersion)
-	}
-	if run.JobVersionID != "ver_v3" {
-		t.Fatalf("expected run version_id upgraded to ver_v3, got %s", run.JobVersionID)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://v3.example.com",
+
+		job.EndpointURL)
+	require.EqualValues(t, 3, run.JobVersion)
+	require.Equal(t,
+		"ver_v3",
+		run.JobVersionID,
+	)
+
 }
 
 func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
@@ -209,15 +216,14 @@ func TestResolveJobForRun_Minor_Compatible(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v3.example.com" {
-		t.Fatalf("expected v3 endpoint, got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 3 {
-		t.Fatalf("expected run version upgraded to 3, got %d", run.JobVersion)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://v3.example.com",
+
+		job.EndpointURL)
+	require.EqualValues(t, 3, run.JobVersion)
+
 }
 
 func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
@@ -241,15 +247,14 @@ func TestResolveJobForRun_Minor_Incompatible(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v1.example.com" {
-		t.Fatalf("expected v1 endpoint (no upgrade), got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 1 {
-		t.Fatalf("expected run version to stay 1, got %d", run.JobVersion)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://v1.example.com",
+
+		job.EndpointURL)
+	require.EqualValues(t, 1, run.JobVersion)
+
 }
 
 func TestResolveJobForRun_SameVersion(t *testing.T) {
@@ -266,12 +271,13 @@ func TestResolveJobForRun_SameVersion(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 2, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v2.example.com" {
-		t.Fatalf("expected current endpoint, got %s", job.EndpointURL)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://v2.example.com",
+
+		job.EndpointURL)
+
 }
 
 func TestResolveJobForRun_EmptyPolicyFallsToPin(t *testing.T) {
@@ -297,15 +303,14 @@ func TestResolveJobForRun_EmptyPolicyFallsToPin(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 2, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if job.EndpointURL != "https://v2.example.com" {
-		t.Errorf("expected v2 endpoint (pin behavior), got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 2 {
-		t.Errorf("expected run version to stay 2, got %d", run.JobVersion)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		"https://v2.example.com",
+
+		job.EndpointURL)
+	assert.EqualValues(t, 2, run.JobVersion)
+
 }
 
 func TestResolveJobForRun_Latest_UpdatesVersionID(t *testing.T) {
@@ -328,15 +333,14 @@ func TestResolveJobForRun_Latest_UpdatesVersionID(t *testing.T) {
 	}
 
 	_, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if run.JobVersion != 4 {
-		t.Errorf("expected run version = 4, got %d", run.JobVersion)
-	}
-	if run.JobVersionID != "ver_v4" {
-		t.Errorf("expected run version_id = ver_v4, got %s", run.JobVersionID)
-	}
+	require.NoError(
+		t, err)
+	assert.EqualValues(t, 4, run.JobVersion)
+	assert.Equal(t,
+		"ver_v4",
+		run.JobVersionID,
+	)
+
 }
 
 func TestResolveJobForRun_Minor_Compatible_UpdatesVersionID(t *testing.T) {
@@ -360,15 +364,14 @@ func TestResolveJobForRun_Minor_Compatible_UpdatesVersionID(t *testing.T) {
 	}
 
 	_, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if run.JobVersion != 3 {
-		t.Errorf("expected version upgrade to 3, got %d", run.JobVersion)
-	}
-	if run.JobVersionID != "ver_v3" {
-		t.Errorf("expected version_id upgrade to ver_v3, got %s", run.JobVersionID)
-	}
+	require.NoError(
+		t, err)
+	assert.EqualValues(t, 3, run.JobVersion)
+	assert.Equal(t,
+		"ver_v3",
+		run.JobVersionID,
+	)
+
 }
 
 func TestResolveJobForRun_GetJobError(t *testing.T) {
@@ -382,9 +385,9 @@ func TestResolveJobForRun_GetJobError(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	_, err := e.resolveJobForRun(context.Background(), run)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
@@ -406,9 +409,9 @@ func TestResolveJobForRun_GetJobAtVersionError(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 2, Status: domain.StatusDequeued}
 
 	_, err := e.resolveJobForRun(context.Background(), run)
-	if err == nil {
-		t.Fatal("expected error when versioned job not found")
-	}
+	require.Error(t,
+		err)
+
 }
 
 func TestResolveJobForRun_Pin_MultipleVersionGap(t *testing.T) {
@@ -437,15 +440,14 @@ func TestResolveJobForRun_Pin_MultipleVersionGap(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if requestedVersion != 1 {
-		t.Errorf("expected GetJobAtVersion called with version 1, got %d", requestedVersion)
-	}
-	if job.EndpointURL != "https://v1.example.com" {
-		t.Errorf("expected v1 endpoint, got %s", job.EndpointURL)
-	}
+	require.NoError(
+		t, err)
+	assert.EqualValues(t, 1, requestedVersion)
+	assert.Equal(t,
+		"https://v1.example.com",
+
+		job.EndpointURL)
+
 }
 
 func TestResolveJobForRun_Minor_NotBackwardsCompatible_FallsToPin(t *testing.T) {
@@ -475,16 +477,15 @@ func TestResolveJobForRun_Minor_NotBackwardsCompatible_FallsToPin(t *testing.T) 
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1, Status: domain.StatusDequeued}
 
 	job, err := e.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !getJobAtVersionCalled {
-		t.Fatal("expected GetJobAtVersion to be called for incompatible minor policy")
-	}
-	if job.EndpointURL != "https://v1.example.com" {
-		t.Errorf("expected pinned v1 endpoint, got %s", job.EndpointURL)
-	}
-	if run.JobVersion != 1 {
-		t.Errorf("expected version to remain 1, got %d", run.JobVersion)
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		getJobAtVersionCalled,
+	)
+	assert.Equal(t,
+		"https://v1.example.com",
+
+		job.EndpointURL)
+	assert.EqualValues(t, 1, run.JobVersion)
+
 }

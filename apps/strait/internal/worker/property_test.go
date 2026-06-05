@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestProperty_RetryDelay_Bounded verifies that for any attempt number and any
@@ -34,15 +36,11 @@ func TestProperty_RetryDelay_Bounded(t *testing.T) {
 		}
 
 		delay := NextRetryDelayWithStrategy(attempt, strategy, customDelays)
+		require.GreaterOrEqual(t, delay, lowerBound)
+		require.LessOrEqual(t,
+			delay, upperBound,
+		)
 
-		if delay < lowerBound {
-			t.Fatalf("strategy=%q attempt=%d: delay %v < lower bound %v",
-				strategy, attempt, delay, lowerBound)
-		}
-		if delay > upperBound {
-			t.Fatalf("strategy=%q attempt=%d: delay %v > upper bound %v",
-				strategy, attempt, delay, upperBound)
-		}
 	}
 }
 
@@ -62,10 +60,8 @@ func TestProperty_Backoff_MonotonicallyNonDecreasing(t *testing.T) {
 
 		for attempt := startAttempt + 1; attempt <= startAttempt+20; attempt++ {
 			curr := exponentialDelay(attempt, base, maxDelay)
-			if curr < prev {
-				t.Fatalf("exponentialDelay decreased: attempt %d=%v > attempt %d=%v",
-					attempt-1, prev, attempt, curr)
-			}
+			require.GreaterOrEqual(t, curr, prev)
+
 			prev = curr
 		}
 	}
@@ -99,12 +95,10 @@ func TestProperty_Concurrency_NeverExceedsMax(t *testing.T) {
 			}
 
 			count := bh.ActiveCount(jobID)
-			if count > maxConc {
-				t.Fatalf("ActiveCount %d exceeds max %d", count, maxConc)
-			}
-			if count < 0 {
-				t.Fatalf("ActiveCount %d is negative", count)
-			}
+			require.LessOrEqual(t,
+				count, maxConc)
+			require.GreaterOrEqual(t, count, 0)
+
 		}
 	}
 }
@@ -125,16 +119,15 @@ func TestProperty_ErrorHash_Deterministic(t *testing.T) {
 
 		h1 := errorHash(msg)
 		h2 := errorHash(msg)
-		if h1 != h2 {
-			t.Fatalf("errorHash not deterministic for len=%d: %q != %q", length, h1, h2)
-		}
+		require.Equal(t, h2, h1)
+		require.Len(t, h1, 16)
 
 		// Verify it is a valid 16-char hex string.
-		if len(h1) != 16 {
-			t.Fatalf("errorHash returned %d chars, want 16", len(h1))
-		}
+
 		if _, err := hex.DecodeString(h1); err != nil {
-			t.Fatalf("errorHash returned non-hex: %q", h1)
+			require.Failf(t, "test failure",
+
+				"errorHash returned non-hex: %q", h1)
 		}
 	}
 }
@@ -155,8 +148,8 @@ func TestProperty_ErrorHash_MatchesReference(t *testing.T) {
 		got := errorHash(msg)
 		h := sha256.Sum256([]byte(msg))
 		want := hex.EncodeToString(h[:8])
-		if got != want {
-			t.Fatalf("errorHash(%q) = %q, want %q", msg, got, want)
-		}
+		require.Equal(t, want,
+			got)
+
 	}
 }

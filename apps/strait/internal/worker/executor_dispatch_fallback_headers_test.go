@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestTryFallbackDispatch_CarriesSecretsTokenAndCheckpoint locks in that failover
@@ -31,15 +34,17 @@ func TestTryFallbackDispatch_CarriesSecretsTokenAndCheckpoint(t *testing.T) {
 
 	store := &mockExecutorStore{}
 	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "env-secret" {
-			t.Fatalf("unexpected secret args: %q %q", jobID, environment)
-		}
+		require.False(t,
+			jobID != "job-1" ||
+				environment !=
+					"env-secret")
+
 		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
 	}
 	store.getLatestCheckpointFn = func(_ context.Context, runID string) (*domain.RunCheckpoint, error) {
-		if runID != "run-1" {
-			t.Fatalf("unexpected checkpoint run id: %q", runID)
-		}
+		require.Equal(t,
+			"run-1", runID)
+
 		return &domain.RunCheckpoint{
 			RunID:     runID,
 			State:     json.RawMessage(`{"step":"charge"}`),
@@ -66,24 +71,18 @@ func TestTryFallbackDispatch_CarriesSecretsTokenAndCheckpoint(t *testing.T) {
 
 	// A timeout-class primary error qualifies for fallback dispatch.
 	result, dispErr, used := exec.tryFallbackDispatch(context.Background(), job, run, context.DeadlineExceeded)
-	if !used {
-		t.Fatalf("expected fallback to be used, got used=false err=%v", dispErr)
-	}
-	if dispErr != nil {
-		t.Fatalf("fallback dispatch error: %v", dispErr)
-	}
-	if len(result) == 0 {
-		t.Fatal("expected a fallback result body")
-	}
+	require.True(t,
+		used)
+	require.Nil(t, dispErr)
+	require.NotEmpty(t, result)
 
 	headers := <-captured
-	if got := headers.Get("X-Secret-API_KEY"); got != "super-secret" {
-		t.Errorf("fallback X-Secret-API_KEY = %q, want %q", got, "super-secret")
-	}
-	if headers.Get("X-Run-Token") == "" {
-		t.Error("fallback request missing X-Run-Token")
-	}
-	if headers.Get("X-Last-Checkpoint") == "" {
-		t.Error("fallback request missing X-Last-Checkpoint on retry")
-	}
+	assert.Equal(t,
+		"super-secret", headers.
+			Get("X-Secret-API_KEY"))
+	assert.NotEqual(
+		t, "", headers.Get("X-Run-Token"))
+	assert.NotEqual(
+		t, "", headers.Get("X-Last-Checkpoint"))
+
 }

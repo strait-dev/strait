@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDispatch_IncludesRunTokenIssuer(t *testing.T) {
@@ -22,10 +23,10 @@ func TestDispatch_IncludesRunTokenIssuer(t *testing.T) {
 
 	exec := newTestExecutor(t, &mockExecutorStore{}, &mockExecQueue{}, time.Hour, srv.Client())
 	exec.jwtSigningKey = "0123456789abcdef0123456789abcdef"
+	require.NoError(
+		t, exec.dispatch(context.Background(), testJob(srv.URL,
 
-	if err := exec.dispatch(context.Background(), testJob(srv.URL, 1, 5), testRun(1)); err != nil {
-		t.Fatalf("dispatch: %v", err)
-	}
+			1, 5), testRun(1)))
 
 	assertRunTokenIssuer(t, token, exec.jwtSigningKey)
 }
@@ -44,7 +45,9 @@ func TestTracedDispatch_IncludesRunTokenIssuer(t *testing.T) {
 	exec.jwtSigningKey = "abcdef0123456789abcdef0123456789"
 
 	if _, _, err := exec.tracedDispatch(context.Background(), testJob(srv.URL, 1, 5), testRun(1)); err != nil {
-		t.Fatalf("tracedDispatch: %v", err)
+		require.Failf(t, "test failure",
+
+			"tracedDispatch: %v", err)
 	}
 
 	assertRunTokenIssuer(t, token, exec.jwtSigningKey)
@@ -52,9 +55,7 @@ func TestTracedDispatch_IncludesRunTokenIssuer(t *testing.T) {
 
 func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 	t.Helper()
-	if token == "" {
-		t.Fatal("expected X-Run-Token header")
-	}
+	require.NotEqual(t, "", token)
 
 	claims := struct {
 		Attempt int `json:"attempt,omitempty"`
@@ -63,16 +64,15 @@ func assertRunTokenIssuer(t *testing.T, token, signingKey string) {
 	parsed, err := jwt.ParseWithClaims(token, &claims, func(*jwt.Token) (any, error) {
 		return []byte(signingKey), nil
 	})
-	if err != nil {
-		t.Fatalf("parse run token: %v", err)
-	}
-	if !parsed.Valid {
-		t.Fatal("parsed run token invalid")
-	}
-	if claims.Issuer != "strait:run-token" {
-		t.Fatalf("claims.Issuer = %q, want %q", claims.Issuer, "strait:run-token")
-	}
-	if claims.Attempt != 1 {
-		t.Fatalf("claims.Attempt = %d, want 1", claims.Attempt)
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		parsed.Valid,
+	)
+	require.Equal(t,
+		"strait:run-token",
+		claims.Issuer,
+	)
+	require.EqualValues(t, 1, claims.Attempt)
+
 }

@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCloneJob_Nil(t *testing.T) {
 	t.Parallel()
+	require.Nil(t, cloneJob(nil))
 
-	if cloneJob(nil) != nil {
-		t.Fatal("cloneJob(nil) returned non-nil")
-	}
 }
 
 func TestCloneJob_CopiesScalars(t *testing.T) {
@@ -32,22 +32,26 @@ func TestCloneJob_CopiesScalars(t *testing.T) {
 	}
 
 	clone := cloneJob(job)
-
-	if clone == job {
-		t.Fatal("cloneJob returned original pointer")
-	}
-	if clone.ID != job.ID ||
-		clone.ProjectID != job.ProjectID ||
+	require.NotSame(t, job,
+		clone)
+	require.False(t, clone.
+		ID != job.
+		ID ||
+		clone.ProjectID != job.
+			ProjectID ||
 		clone.Version != job.Version ||
-		clone.VersionID != job.VersionID ||
-		clone.EndpointURL != job.EndpointURL ||
-		clone.ExecutionMode != job.ExecutionMode ||
-		clone.MaxAttempts != job.MaxAttempts ||
-		clone.TimeoutSecs != job.TimeoutSecs ||
-		clone.CacheVersion != job.CacheVersion ||
-		clone.EndpointSigningSecret != job.EndpointSigningSecret {
-		t.Fatalf("scalar fields not preserved: got %+v want %+v", clone, job)
-	}
+		clone.VersionID !=
+			job.VersionID ||
+		clone.EndpointURL != job.EndpointURL || clone.
+		ExecutionMode !=
+		job.ExecutionMode || clone.MaxAttempts !=
+		job.MaxAttempts ||
+		clone.TimeoutSecs !=
+			job.TimeoutSecs || clone.
+		CacheVersion != job.CacheVersion ||
+		clone.EndpointSigningSecret !=
+			job.EndpointSigningSecret)
+
 }
 
 func TestCloneJob_IsolatesMutableFields(t *testing.T) {
@@ -74,29 +78,26 @@ func TestCloneJob_IsolatesMutableFields(t *testing.T) {
 	clone.ResultSchema[0] = '['
 	clone.OnCompletePayloadMapping[0] = '['
 	clone.OnFailurePayloadMapping[0] = '['
+	require.Equal(t, "ops",
+		job.Tags["team"])
+	require.Equal(t, "on",
+		job.DefaultRunMetadata["trace"])
+	require.EqualValues(t, 1, job.
+		RetryDelaysSecs[0])
+	require.Equal(t, "customer",
+		job.
+			RateLimitKeys[0].Name)
+	require.Equal(t, "iad",
+		job.PreferredRegions[0])
+	require.Equal(t, `{"type":"object"}`,
 
-	if job.Tags["team"] != "ops" {
-		t.Fatalf("original Tags mutated: %v", job.Tags)
-	}
-	if job.DefaultRunMetadata["trace"] != "on" {
-		t.Fatalf("original DefaultRunMetadata mutated: %v", job.DefaultRunMetadata)
-	}
-	if job.RetryDelaysSecs[0] != 1 {
-		t.Fatalf("original RetryDelaysSecs mutated: %v", job.RetryDelaysSecs)
-	}
-	if job.RateLimitKeys[0].Name != "customer" {
-		t.Fatalf("original RateLimitKeys mutated: %v", job.RateLimitKeys)
-	}
-	if job.PreferredRegions[0] != "iad" {
-		t.Fatalf("original PreferredRegions mutated: %v", job.PreferredRegions)
-	}
-	if string(job.ResultSchema) != `{"type":"object"}` {
-		t.Fatalf("original ResultSchema mutated: %s", job.ResultSchema)
-	}
-	if string(job.OnCompletePayloadMapping) != `{"result":"$.output"}` {
-		t.Fatalf("original OnCompletePayloadMapping mutated: %s", job.OnCompletePayloadMapping)
-	}
-	if string(job.OnFailurePayloadMapping) != `{"error":"$.error"}` {
-		t.Fatalf("original OnFailurePayloadMapping mutated: %s", job.OnFailurePayloadMapping)
-	}
+		string(job.ResultSchema),
+	)
+	require.Equal(t, `{"result":"$.output"}`,
+
+		string(job.OnCompletePayloadMapping))
+	require.Equal(t, `{"error":"$.error"}`,
+
+		string(job.OnFailurePayloadMapping))
+
 }

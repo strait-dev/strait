@@ -13,14 +13,18 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_Dispatch_Success(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Run-ID") != "run-1" {
-			t.Fatalf("X-Run-ID = %q, want %q", r.Header.Get("X-Run-ID"), "run-1")
-		}
+		require.Equal(t,
+			"run-1", r.Header.
+				Get("X-Run-ID"),
+		)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -38,9 +42,8 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
+	require.Len(t, calls,
+		2)
 
 	gotTransitions := []string{
 		fmt.Sprintf("%s->%s", calls[0].from, calls[0].to),
@@ -52,23 +55,25 @@ func TestExecutor_Dispatch_Success(t *testing.T) {
 	})
 
 	gotResult, ok := calls[1].fields["result"].(json.RawMessage)
-	if !ok {
-		t.Fatalf("result field type = %T, want json.RawMessage", calls[1].fields["result"])
-	}
-	if string(gotResult) != `{"ok":true}` {
-		t.Fatalf("result = %s, want %s", string(gotResult), `{"ok":true}`)
-	}
-	if run.Status != domain.StatusCompleted {
-		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusCompleted)
-	}
+	require.True(t,
+		ok)
+	require.Equal(t,
+		`{"ok":true}`, string(gotResult))
+	require.Equal(t,
+		domain.StatusCompleted,
+		run.
+			Status,
+	)
+
 }
 
 func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Secret-API_KEY") != "super-secret" {
-			t.Fatalf("X-Secret-API_KEY = %q, want %q", r.Header.Get("X-Secret-API_KEY"), "super-secret")
-		}
+		require.Equal(t,
+			"super-secret",
+			r.Header.Get("X-Secret-API_KEY"))
+
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -81,9 +86,12 @@ func TestExecutor_Dispatch_IncludesSecretHeadersWhenEnabled(t *testing.T) {
 		return job, nil
 	}
 	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "env-secret" {
-			t.Fatalf("unexpected args: %q %q", jobID, environment)
-		}
+		require.False(t,
+			jobID != "job-1" ||
+				environment !=
+					"env-secret",
+		)
+
 		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
 	}
 
@@ -107,21 +115,22 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	run := testRun(1)
 
 	err := exec.dispatch(context.Background(), job, run)
-	if err == nil {
-		t.Fatal("dispatch error = nil, want EndpointError")
-		return
-	}
+	require.Error(t,
+		err)
 
 	var endpointErr *domain.EndpointError
-	if !errors.As(err, &endpointErr) {
-		t.Fatalf("dispatch error type = %T, want *domain.EndpointError", err)
-	}
-	if endpointErr.StatusCode != http.StatusInternalServerError {
-		t.Fatalf("endpoint status = %d, want %d", endpointErr.StatusCode, http.StatusInternalServerError)
-	}
-	if endpointErr.Body != "upstream exploded" {
-		t.Fatalf("endpoint body = %q, want %q", endpointErr.Body, "upstream exploded")
-	}
+	require.True(t,
+		errors.As(err, &endpointErr))
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		endpointErr.
+			StatusCode,
+	)
+	require.Equal(t,
+		"upstream exploded",
+		endpointErr.
+			Body)
 
 	store.getJobFn = func(context.Context, string) (*domain.Job, error) {
 		return job, nil
@@ -129,12 +138,13 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].
+			to)
+
 }
 
 func TestExecutor_Dispatch_Timeout(t *testing.T) {
@@ -169,12 +179,12 @@ func TestExecutor_Dispatch_Timeout(t *testing.T) {
 			exec.execute(context.Background(), run)
 
 			calls := store.statusUpdates()
-			if len(calls) != 2 {
-				t.Fatalf("status update calls = %d, want 2", len(calls))
-			}
-			if calls[1].to != tt.wantStatus {
-				t.Fatalf("final status = %s, want %s", calls[1].to, tt.wantStatus)
-			}
+			require.Len(t, calls,
+				2)
+			require.Equal(t,
+				tt.wantStatus, calls[1].to,
+			)
+
 		})
 	}
 }
@@ -197,19 +207,17 @@ func TestExecutor_Dispatch_RetryOnFailure(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusQueued {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusQueued,
+		calls[1].to)
+
 	attempt, ok := calls[1].fields["attempt"].(int)
-	if !ok {
-		t.Fatalf("attempt field type = %T, want int", calls[1].fields["attempt"])
-	}
-	if attempt != 2 {
-		t.Fatalf("attempt field = %d, want 2", attempt)
-	}
+	require.True(t,
+		ok)
+	require.EqualValues(t, 2, attempt)
+
 }
 
 func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
@@ -230,12 +238,13 @@ func TestExecutor_SmartRetry_ClientErrorSkipsRetry(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].
+			to)
+
 }
 
 func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
@@ -256,12 +265,12 @@ func TestExecutor_SmartRetry_ServerErrorRetries(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusQueued {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusQueued)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusQueued,
+		calls[1].to)
+
 }
 
 func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
@@ -290,18 +299,17 @@ func TestExecutor_Fallback_TransientErrorUsesFallbackEndpoint(t *testing.T) {
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, primary.Client())
 	run := testRun(1)
 	exec.execute(context.Background(), run)
-
-	if fallbackCalled.Load() != 1 {
-		t.Fatalf("fallback call count = %d, want 1", fallbackCalled.Load())
-	}
+	require.EqualValues(t, 1, fallbackCalled.
+		Load())
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+		calls[1].
+			to)
+
 }
 
 func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
@@ -330,18 +338,17 @@ func TestExecutor_Fallback_ClientErrorDoesNotUseFallback(t *testing.T) {
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, primary.Client())
 	run := testRun(1)
 	exec.execute(context.Background(), run)
-
-	if fallbackCalled.Load() != 0 {
-		t.Fatalf("fallback call count = %d, want 0", fallbackCalled.Load())
-	}
+	require.EqualValues(t, 0, fallbackCalled.
+		Load())
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].
+			to)
+
 }
 
 func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
@@ -362,15 +369,18 @@ func TestExecutor_Dispatch_FinalFailure(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
-	if run.Status != domain.StatusDeadLetter {
-		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].
+			to)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		run.
+			Status,
+	)
+
 }
 
 func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
@@ -392,15 +402,18 @@ func TestExecutor_DLQ_TransitionsToDeadLetterOnExhaustedRetries(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
-	if run.Status != domain.StatusDeadLetter {
-		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].
+			to)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		run.
+			Status,
+	)
+
 }
 
 func TestExecutor_Dispatch_EmptyResponse(t *testing.T) {
@@ -420,13 +433,16 @@ func TestExecutor_Dispatch_EmptyResponse(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+		calls[1].
+			to)
+
 	if _, ok := calls[1].fields["result"]; ok {
-		t.Fatal("result field present for empty response, want absent")
+		require.Fail(t,
+
+			"result field present for empty response, want absent")
 	}
 }

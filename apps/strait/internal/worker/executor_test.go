@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 type statusUpdateCall struct {
@@ -321,17 +323,17 @@ func requireStatusTransition(t *testing.T, calls []statusUpdateCall, from, to do
 			return call
 		}
 	}
+	require.Failf(t, "test failure",
 
-	t.Fatalf("expected status transition %s -> %s; got %+v", from, to, calls)
+		"expected status transition %s -> %s; got %+v", from, to, calls)
 	return statusUpdateCall{}
 }
 
 func requireOnlyStatusTransition(t *testing.T, calls []statusUpdateCall, from, to domain.RunStatus) statusUpdateCall {
 	t.Helper()
+	require.Len(t, calls,
+		1)
 
-	if len(calls) != 1 {
-		t.Fatalf("status calls = %d, want 1; calls=%+v", len(calls), calls)
-	}
 	return requireStatusTransition(t, calls, from, to)
 }
 
@@ -340,9 +342,9 @@ func requireRetryPriority(t *testing.T, calls []statusUpdateCall) int {
 
 	retryCall := requireRetryTransition(t, calls)
 	priority, ok := retryCall.fields["priority"].(int)
-	if !ok {
-		t.Fatalf("expected priority field in retry transition, got %v", retryCall.fields["priority"])
-	}
+	require.True(t,
+		ok)
+
 	return priority
 }
 
@@ -351,7 +353,9 @@ func requireRetryWithoutPriority(t *testing.T, calls []statusUpdateCall) {
 
 	retryCall := requireRetryTransition(t, calls)
 	if _, ok := retryCall.fields["priority"]; ok {
-		t.Fatalf("expected retry transition without priority field, got %+v", retryCall.fields)
+		require.Failf(t, "test failure",
+
+			"expected retry transition without priority field, got %+v", retryCall.fields)
 	}
 }
 
@@ -363,8 +367,9 @@ func requireStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.Run
 			return call
 		}
 	}
+	require.Failf(t, "test failure",
 
-	t.Fatalf("expected status update to %s; got %+v", to, calls)
+		"expected status update to %s; got %+v", to, calls)
 	return statusUpdateCall{}
 }
 
@@ -372,24 +377,19 @@ func requireNoStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.R
 	t.Helper()
 
 	for _, call := range calls {
-		if call.to == to {
-			t.Fatalf("expected no status update to %s; got %+v", to, calls)
-		}
+		require.NotEqual(t, to, call.to)
+
 	}
 }
 
 func requireLastStatusUpdateTo(t *testing.T, calls []statusUpdateCall, to domain.RunStatus) statusUpdateCall {
 	t.Helper()
-
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-		return statusUpdateCall{}
-	}
+	require.NotEmpty(t, calls)
 
 	last := calls[len(calls)-1]
-	if last.to != to {
-		t.Fatalf("last status update = %s, want %s; calls=%+v", last.to, to, calls)
-	}
+	require.Equal(t,
+		to, last.to)
+
 	return last
 }
 
@@ -495,7 +495,7 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
 	select {
 	case <-ch:
 	case <-time.After(2 * time.Second):
-		t.Fatal(msg)
+		require.Fail(t, msg)
 	}
 }
 

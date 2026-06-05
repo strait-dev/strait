@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
@@ -32,26 +34,26 @@ func TestExecutor_ExecutionTracing_Enabled_CapturesTrace(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
+	require.Len(t, calls,
+		2)
+
 	traceValue, ok := calls[1].fields["execution_trace"]
-	if !ok {
-		t.Fatal("execution_trace missing from terminal update fields")
-	}
+	require.True(t,
+		ok)
+
 	trace, ok := traceValue.(*domain.ExecutionTrace)
-	if !ok {
-		t.Fatalf("execution_trace type = %T, want *domain.ExecutionTrace", traceValue)
-	}
-	if trace.QueueWaitMs <= 0 {
-		t.Fatalf("QueueWaitMs = %d, want > 0", trace.QueueWaitMs)
-	}
-	if trace.DispatchMs <= 0 {
-		t.Fatalf("DispatchMs = %d, want > 0", trace.DispatchMs)
-	}
-	if trace.TotalMs <= 0 {
-		t.Fatalf("TotalMs = %d, want > 0", trace.TotalMs)
-	}
+	require.True(t,
+		ok)
+	require.False(t,
+		trace.QueueWaitMs <=
+			0)
+	require.False(t,
+		trace.DispatchMs <=
+			0)
+	require.False(t,
+		trace.TotalMs <=
+			0)
+
 }
 
 func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
@@ -76,29 +78,29 @@ func TestExecutor_ExecutionTracing_OnFailure_CapturesTrace(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusDeadLetter {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusDeadLetter)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		calls[1].to)
+
 	traceValue, ok := calls[1].fields["execution_trace"]
-	if !ok {
-		t.Fatal("execution_trace missing from failure terminal update")
-	}
+	require.True(t,
+		ok)
+
 	trace, ok := traceValue.(*domain.ExecutionTrace)
-	if !ok {
-		t.Fatalf("execution_trace type = %T, want *domain.ExecutionTrace", traceValue)
-	}
-	if trace.QueueWaitMs <= 0 {
-		t.Fatalf("QueueWaitMs = %d, want > 0", trace.QueueWaitMs)
-	}
-	if trace.DispatchMs <= 0 {
-		t.Fatalf("DispatchMs = %d, want > 0", trace.DispatchMs)
-	}
-	if trace.TotalMs <= 0 {
-		t.Fatalf("TotalMs = %d, want > 0", trace.TotalMs)
-	}
+	require.True(t,
+		ok)
+	require.False(t,
+		trace.QueueWaitMs <=
+			0)
+	require.False(t,
+		trace.DispatchMs <=
+			0)
+	require.False(t,
+		trace.TotalMs <=
+			0)
+
 }
 
 func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
@@ -123,24 +125,25 @@ func TestExecutor_ExecutionTracing_OnTimeout_CapturesTrace(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusTimedOut {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusTimedOut)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusTimedOut,
+		calls[1].
+			to)
+
 	traceValue, ok := calls[1].fields["execution_trace"]
-	if !ok {
-		t.Fatal("execution_trace missing from timeout terminal update")
-	}
+	require.True(t,
+		ok)
+
 	trace, ok := traceValue.(*domain.ExecutionTrace)
-	if !ok {
-		t.Fatalf("execution_trace type = %T, want *domain.ExecutionTrace", traceValue)
-	}
-	if trace.QueueWaitMs <= 0 {
-		t.Fatalf("QueueWaitMs = %d, want > 0", trace.QueueWaitMs)
-	}
-	if trace.TotalMs <= 0 {
-		t.Fatalf("TotalMs = %d, want > 0", trace.TotalMs)
-	}
+	require.True(t,
+		ok)
+	require.False(t,
+		trace.QueueWaitMs <=
+			0)
+	require.False(t,
+		trace.TotalMs <=
+			0)
+
 }

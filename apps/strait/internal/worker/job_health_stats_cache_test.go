@@ -9,6 +9,9 @@ import (
 	"time"
 
 	orcstore "strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newExecutorWithHealthStatsCache(t *testing.T, ttl time.Duration, store ExecutorStore) *Executor {
@@ -32,18 +35,17 @@ func TestGetJobHealthStats_DisabledPassesThrough(t *testing.T) {
 	}
 	e := newExecutorWithHealthStatsCache(t, 0, store)
 
-	for i := range 5 {
+	for range 5 {
 		got, err := e.getJobHealthStats(t.Context(), "job-1", time.Now())
-		if err != nil {
-			t.Fatalf("call %d: unexpected error: %v", i, err)
-		}
-		if !sameJobHealthStats(got, want) {
-			t.Fatalf("call %d: got %#v, want %#v", i, got, want)
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			sameJobHealthStats(got, want))
+
 	}
-	if calls.Load() != 5 {
-		t.Fatalf("store calls = %d, want 5 (cache disabled)", calls.Load())
-	}
+	require.EqualValues(t, 5, calls.
+		Load())
+
 }
 
 // With TTL set, repeated calls for the same jobID should hit the store once.
@@ -58,18 +60,17 @@ func TestGetJobHealthStats_TTLServesFromCache(t *testing.T) {
 	}
 	e := newExecutorWithHealthStatsCache(t, 5*time.Second, store)
 
-	for i := range 20 {
+	for range 20 {
 		got, err := e.getJobHealthStats(t.Context(), "job-7", time.Now())
-		if err != nil {
-			t.Fatalf("call %d: unexpected error: %v", i, err)
-		}
-		if !sameJobHealthStats(got, want) {
-			t.Fatalf("call %d: got %#v, want %#v", i, got, want)
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			sameJobHealthStats(got, want))
+
 	}
-	if c := calls.Load(); c != 1 {
-		t.Fatalf("store calls = %d, want 1 (TTL holds across calls)", c)
-	}
+	require.EqualValues(t, 1, calls.
+		Load())
+
 }
 
 // Concurrent misses for the same jobID must collapse into a single store call
@@ -95,7 +96,9 @@ func TestGetJobHealthStats_SingleflightCoalescesMisses(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			if _, err := e.getJobHealthStats(t.Context(), "job-x", time.Now()); err != nil {
-				t.Errorf("unexpected error: %v", err)
+				assert.Failf(t, "test failure",
+
+					"unexpected error: %v", err)
 			}
 		}()
 	}
@@ -103,10 +106,9 @@ func TestGetJobHealthStats_SingleflightCoalescesMisses(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	close(release)
 	wg.Wait()
+	require.EqualValues(t, 1, calls.
+		Load())
 
-	if c := calls.Load(); c != 1 {
-		t.Fatalf("store calls = %d, want 1 (singleflight should coalesce %d concurrent misses)", c, fanout)
-	}
 }
 
 // Errors must propagate (and not poison the cache: a follow-up successful call
@@ -126,18 +128,18 @@ func TestGetJobHealthStats_ErrorIsNotCached(t *testing.T) {
 	e := newExecutorWithHealthStatsCache(t, time.Minute, store)
 
 	if _, err := e.getJobHealthStats(t.Context(), "job-err", time.Now()); !errors.Is(err, storeErr) {
-		t.Fatalf("first call: err = %v, want %v", err, storeErr)
+		require.Failf(t, "test failure",
+
+			"first call: err = %v, want %v", err, storeErr)
 	}
 	got, err := e.getJobHealthStats(t.Context(), "job-err", time.Now())
-	if err != nil {
-		t.Fatalf("second call: unexpected error: %v", err)
-	}
-	if !sameJobHealthStats(got, want) {
-		t.Fatalf("second call: got %#v, want %#v", got, want)
-	}
-	if c := calls.Load(); c != 2 {
-		t.Fatalf("store calls = %d, want 2 (error must not be cached)", c)
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		sameJobHealthStats(got, want))
+	require.EqualValues(t, 2, calls.
+		Load())
+
 }
 
 func sameJobHealthStats(got, want *orcstore.JobHealthStats) bool {

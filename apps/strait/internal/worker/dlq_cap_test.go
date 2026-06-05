@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Unit tests for the DLQ cap enforcer.
@@ -46,9 +48,11 @@ func (f *fakeDLQStore) MaskOldestDLQRow(_ context.Context, projectID, jobID stri
 func TestDLQCapEnforcer_NoCapProceeds(t *testing.T) {
 	e := NewDLQCapEnforcer(newFakeDLQStore(), DLQCapConfig{}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed || err != nil {
-		t.Errorf("expected (true, nil), got (%v, %v)", proceed, err)
-	}
+	assert.False(t,
+		!proceed ||
+			err != nil,
+	)
+
 }
 
 func TestDLQCapEnforcer_UnderCapProceeds(t *testing.T) {
@@ -57,9 +61,11 @@ func TestDLQCapEnforcer_UnderCapProceeds(t *testing.T) {
 	s.perProject["p"] = 5
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, MaxPerProject: 100, Policy: DLQOverflowReject}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed || err != nil {
-		t.Errorf("expected proceed under cap, got (%v, %v)", proceed, err)
-	}
+	assert.False(t,
+		!proceed ||
+			err != nil,
+	)
+
 }
 
 func TestDLQCapEnforcer_PerJobRejectAtCap(t *testing.T) {
@@ -67,15 +73,13 @@ func TestDLQCapEnforcer_PerJobRejectAtCap(t *testing.T) {
 	s.perJob["p:j"] = 10
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, Policy: DLQOverflowReject}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if proceed {
-		t.Error("expected rejection")
-	}
-	if !errors.Is(err, ErrDLQOverflow) {
-		t.Errorf("err = %v, want ErrDLQOverflow", err)
-	}
-	if e.OverflowCount() != 1 {
-		t.Errorf("overflow count = %d, want 1", e.OverflowCount())
-	}
+	assert.False(t,
+		proceed)
+	assert.True(t, errors.Is(err,
+		ErrDLQOverflow,
+	))
+	assert.EqualValues(t, 1, e.OverflowCount())
+
 }
 
 func TestDLQCapEnforcer_PerProjectRejectAtCap(t *testing.T) {
@@ -83,9 +87,12 @@ func TestDLQCapEnforcer_PerProjectRejectAtCap(t *testing.T) {
 	s.perProject["p"] = 100
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerProject: 100, Policy: DLQOverflowReject}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if proceed || !errors.Is(err, ErrDLQOverflow) {
-		t.Errorf("expected reject, got (%v, %v)", proceed, err)
-	}
+	assert.False(t,
+		proceed ||
+			!errors.Is(err,
+
+				ErrDLQOverflow))
+
 }
 
 func TestDLQCapEnforcer_DropOldestMasksAndProceeds(t *testing.T) {
@@ -93,15 +100,14 @@ func TestDLQCapEnforcer_DropOldestMasksAndProceeds(t *testing.T) {
 	s.perJob["p:j"] = 10
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, Policy: DLQOverflowDropOldest}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed || err != nil {
-		t.Errorf("expected proceed after drop, got (%v, %v)", proceed, err)
-	}
-	if e.DroppedCount() != 1 {
-		t.Errorf("dropped count = %d, want 1", e.DroppedCount())
-	}
-	if len(s.masked) != 1 {
-		t.Errorf("masked = %v, want 1", s.masked)
-	}
+	assert.False(t,
+		!proceed ||
+			err != nil,
+	)
+	assert.EqualValues(t, 1, e.DroppedCount())
+	assert.Len(t, s.
+		masked, 1)
+
 }
 
 func TestDLQCapEnforcer_StoreErrorFailsOpen(t *testing.T) {
@@ -109,20 +115,20 @@ func TestDLQCapEnforcer_StoreErrorFailsOpen(t *testing.T) {
 	s.err = errors.New("pg down")
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, Policy: DLQOverflowReject}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed {
-		t.Error("expected fail-open on store error")
-	}
-	if err == nil {
-		t.Error("expected error propagation")
-	}
+	assert.True(t, proceed)
+	assert.Error(t,
+		err)
+
 }
 
 func TestDLQCapEnforcer_NilReceiverSafe(t *testing.T) {
 	var e *DLQCapEnforcer
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed || err != nil {
-		t.Errorf("nil enforcer should proceed, got (%v, %v)", proceed, err)
-	}
+	assert.False(t,
+		!proceed ||
+			err != nil,
+	)
+
 }
 
 func TestDLQCapEnforcer_DefaultPolicyIsDropOldest(t *testing.T) {
@@ -131,12 +137,13 @@ func TestDLQCapEnforcer_DefaultPolicyIsDropOldest(t *testing.T) {
 	// Deliberately omit Policy.
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10}, nil)
 	proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed || err != nil {
-		t.Errorf("default policy should drop_oldest and proceed, got (%v, %v)", proceed, err)
-	}
-	if len(s.masked) != 1 {
-		t.Errorf("default policy should mask; masked=%v", s.masked)
-	}
+	assert.False(t,
+		!proceed ||
+			err != nil,
+	)
+	assert.Len(t, s.
+		masked, 1)
+
 }
 
 func TestDLQCapEnforcer_InvalidPolicyNormalizes(t *testing.T) {
@@ -144,9 +151,8 @@ func TestDLQCapEnforcer_InvalidPolicyNormalizes(t *testing.T) {
 	s.perJob["p:j"] = 10
 	e := NewDLQCapEnforcer(s, DLQCapConfig{MaxPerJob: 10, Policy: "nonsense"}, nil)
 	proceed, _ := e.EnforceBeforeTransition(context.Background(), "p", "j")
-	if !proceed {
-		t.Error("invalid policy should normalize to drop_oldest")
-	}
+	assert.True(t, proceed)
+
 }
 
 // FuzzDLQDepthBounds feeds random depth/cap pairs to the enforcer and
@@ -166,13 +172,17 @@ func FuzzDLQDepthBounds(f *testing.F) {
 		proceed, err := e.EnforceBeforeTransition(context.Background(), "p", "j")
 		atCap := cap > 0 && depth >= cap
 		if atCap {
-			if proceed || err == nil {
-				t.Errorf("depth=%d cap=%d expected reject, got (%v, %v)", depth, cap, proceed, err)
-			}
+			assert.False(t,
+				proceed ||
+					err == nil,
+			)
+
 		} else {
-			if !proceed || err != nil {
-				t.Errorf("depth=%d cap=%d expected proceed, got (%v, %v)", depth, cap, proceed, err)
-			}
+			assert.False(t,
+				!proceed ||
+					err != nil,
+			)
+
 		}
 	})
 }

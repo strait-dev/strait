@@ -5,6 +5,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestDispatchProjectBudget_NotifyDoesNotBlock confirms that the
@@ -23,9 +25,9 @@ func TestDispatchProjectBudget_NotifyDoesNotBlock(t *testing.T) {
 	h := newDispatchHarnessWithBudget(t, sub, 0, 100_000, "notify", 200_000)
 
 	runDispatch(h, "run-pb-notify")
-	if sawSystemFailed(h.store) {
-		t.Errorf("dispatch was rejected for notify-action project budget; expected pass-through")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
+
 }
 
 // TestDispatchProjectBudget_BlockUnderBudget_Proceeds confirms
@@ -42,9 +44,9 @@ func TestDispatchProjectBudget_BlockUnderBudget_Proceeds(t *testing.T) {
 	h := newDispatchHarnessWithBudget(t, sub, 0, 1_000_000, "block", 100_000)
 
 	runDispatch(h, "run-pb-block-under")
-	if sawSystemFailed(h.store) {
-		t.Errorf("dispatch was rejected with project spend below the budget")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
+
 }
 
 // TestDispatchProjectBudget_BlockOverBudget_Rejects verifies that spend over
@@ -60,9 +62,8 @@ func TestDispatchProjectBudget_BlockOverBudget_Rejects(t *testing.T) {
 	h := newDispatchHarnessWithBudget(t, sub, 0, 1_000_000, "block", 5_000_000)
 
 	runDispatch(h, "run-pb-block-over")
-	if !sawSystemFailed(h.store) {
-		t.Errorf("expected system_failed when project budget exceeded")
-	}
+	assert.True(t, sawSystemFailed(h.store))
+
 }
 
 // TestDispatchProjectBudget_BlockAtBudget_Rejects locks in the
@@ -79,9 +80,8 @@ func TestDispatchProjectBudget_BlockAtBudget_Rejects(t *testing.T) {
 	h := newDispatchHarnessWithBudget(t, sub, 0, 2_500_000, "block", 2_500_000)
 
 	runDispatch(h, "run-pb-block-at")
-	if !sawSystemFailed(h.store) {
-		t.Errorf("expected rejection at exact-equal project budget; isOverageLimitReached uses >=")
-	}
+	assert.True(t, sawSystemFailed(h.store))
+
 }
 
 // TestDispatchProjectBudget_NoQuotaRow_Proceeds: a project with no
@@ -99,7 +99,7 @@ func TestDispatchProjectBudget_NoQuotaRow_Proceeds(t *testing.T) {
 	h := newDispatchHarnessWithBudget(t, sub, 0, -1, "notify", 0)
 
 	runDispatch(h, "run-pb-noquota")
-	if sawSystemFailed(h.store) {
-		t.Errorf("project without quota row should not be blocked by project budget check")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
+
 }

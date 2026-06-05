@@ -15,6 +15,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/worker"
+
+	"github.com/stretchr/testify/require"
 )
 
 type noWorkerAvailableDispatcher struct{}
@@ -86,9 +88,9 @@ func mustCreateWorkerModeJob(t *testing.T, ctx context.Context, st *store.Querie
 		ExecutionMode: domain.ExecutionModeWorker,
 		Queue:         "default",
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -109,9 +111,8 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 		ExecutionMode: domain.ExecutionModeWorker,
 		QueueName:     "default",
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	dispatcher := &successfulWorkerDispatcher{}
 	pool := worker.NewPool(1)
@@ -141,28 +142,27 @@ func TestWorkerModePollClaimsAndDispatchesWithWorkerPlane(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for worker-mode run to complete")
+			require.Fail(t, "timed out waiting for worker-mode run to complete")
 		default:
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if got.Status != domain.StatusCompleted {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		if dispatcher.calls.Load() == 0 {
-			t.Fatal("worker dispatcher was not called")
-		}
+		require.NotEqual(t, 0, dispatcher.
+			calls.Load())
+
 		var result map[string]bool
-		if err := json.Unmarshal(got.Result, &result); err != nil {
-			t.Fatalf("worker result is not valid JSON: %s: %v", got.Result, err)
-		}
-		if !result["ok"] {
-			t.Fatalf("worker result = %s, want persisted output_json", got.Result)
-		}
+		require.NoError(t, json.
+			Unmarshal(
+				got.Result,
+				&result))
+		require.True(t, result["ok"])
+
 		cancel()
 		return
 	}
@@ -184,9 +184,8 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 		Priority:      1,
 		ExecutionMode: domain.ExecutionModeWorker,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	pgQueue := newWorkerQueue(t, env)
 	pool := worker.NewPool(1)
@@ -215,24 +214,28 @@ func TestWorkerModeNoWorkerAvailableRequeuesWithCleanQueuedFields(t *testing.T) 
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for worker-mode run to requeue")
+			require.Fail(t, "timed out waiting for worker-mode run to requeue")
 		default:
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if got.Status != domain.StatusQueued {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		if got.StartedAt != nil || got.HeartbeatAt != nil || got.FinishedAt != nil || got.NextRetryAt != nil {
-			t.Fatalf("queued run retained execution timestamps: started_at=%v heartbeat_at=%v finished_at=%v next_retry_at=%v", got.StartedAt, got.HeartbeatAt, got.FinishedAt, got.NextRetryAt)
-		}
-		if got.Error != "" || got.ErrorClass != "" {
-			t.Fatalf("queued run retained error fields: error=%q error_class=%q", got.Error, got.ErrorClass)
-		}
+		require.False(t, got.StartedAt !=
+			nil || got.
+			HeartbeatAt != nil ||
+			got.FinishedAt !=
+				nil || got.NextRetryAt !=
+			nil)
+		require.False(t, got.Error !=
+			"" ||
+			got.ErrorClass !=
+				"")
+
 		cancel()
 		return
 	}
@@ -247,9 +250,8 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	q := newWorkerQueue(t, env)
 	job := mustCreateWorkerModeJob(t, ctx, st, "project-worker-mode-timeout")
 	job.TimeoutSecs = 1
-	if err := st.UpdateJob(ctx, job); err != nil {
-		t.Fatalf("UpdateJob(timeout_secs) error = %v", err)
-	}
+	require.NoError(t, st.UpdateJob(ctx,
+		job))
 
 	run := &domain.JobRun{
 		ID:            newID(),
@@ -259,9 +261,8 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 		ExecutionMode: domain.ExecutionModeWorker,
 		QueueName:     "default",
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	dispatcher := &timeoutWorkerDispatcher{}
 	pool := worker.NewPool(1)
@@ -294,7 +295,7 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatalf(
+			require.Failf(t, "test failure",
 				"timed out waiting for worker-mode timeout requeue; last status/attempt/error = %q/%d/%q",
 				lastStatus,
 				lastAttempt,
@@ -304,9 +305,8 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		lastStatus = got.Status
 		lastAttempt = got.Attempt
 		lastError = got.Error
@@ -315,27 +315,26 @@ func TestWorkerModeDispatchHonorsJobTimeoutAndRequeues(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 				continue
 			}
-			if dispatcher.calls.Load() == 0 {
-				t.Fatal("worker dispatcher was not called")
-			}
-			if dispatcher.cancellations.Load() == 0 {
-				t.Fatal("worker dispatch context was not cancelled by timeout")
-			}
+			require.NotEqual(t, 0, dispatcher.
+				calls.Load())
+			require.NotEqual(t, 0, dispatcher.
+				cancellations.
+				Load())
+
 			// Retry schedule lives in the job_retries side table now;
 			// job_runs.next_retry_at is no longer written by the worker.
 			var nextRetryAt *time.Time
-			if err := env.DB.Pool.QueryRow(ctx,
+			require.NoError(t, env.DB.
+				Pool.QueryRow(ctx,
 				`SELECT next_retry_at
 				 FROM job_retries
 				 WHERE run_id = $1 AND cleared = FALSE
 				 ORDER BY id DESC
-				 LIMIT 1`, run.ID,
-			).Scan(&nextRetryAt); err != nil {
-				t.Fatalf("timed-out worker run missing job_retries row: %v", err)
-			}
-			if nextRetryAt == nil {
-				t.Fatal("timed-out worker run was requeued without next_retry_at in job_retries")
-			}
+				 LIMIT 1`,
+
+				run.ID).Scan(&nextRetryAt))
+			require.NotNil(t, nextRetryAt)
+
 			cancel()
 			return
 		}

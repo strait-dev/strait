@@ -14,6 +14,7 @@ import (
 	"strait/internal/telemetry"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Adversarial snooze tests.
@@ -30,16 +31,16 @@ func TestSnoozeRun_IntMaxSnoozeCount_NoOverflow(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "circuit breaker open", nil)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		1)
+
 	meta := calls[0].fields["metadata"].(map[string]string)
 	// MaxInt + 1 overflows to MinInt in Go. The string will be negative.
 	// This is a known edge case — verify it doesn't panic.
 	count, err := strconv.Atoi(meta["snooze_count"])
-	if err != nil {
-		t.Fatalf("snooze_count not parseable after overflow: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	// On overflow, count wraps negative. Document this behavior.
 	t.Logf("snooze_count after MaxInt+1: %d (overflow expected)", count)
 }
@@ -59,9 +60,8 @@ func TestSnoozeRun_NegativeSnoozeCount_TreatsAsZero(t *testing.T) {
 	meta := calls[0].fields["metadata"].(map[string]string)
 	// -5 + 1 = -4. The code does not guard against negative values.
 	count, _ := strconv.Atoi(meta["snooze_count"])
-	if count != -4 {
-		t.Fatalf("expected -4 (parsed negative + 1), got %d", count)
-	}
+	require.EqualValues(t, -4, count)
+
 }
 
 func TestSnoozeRun_EmptyMetadataMap(t *testing.T) {
@@ -77,9 +77,9 @@ func TestSnoozeRun_EmptyMetadataMap(t *testing.T) {
 
 	calls := store.statusUpdates()
 	meta := calls[0].fields["metadata"].(map[string]string)
-	if meta["snooze_count"] != "1" {
-		t.Fatalf("expected snooze_count=1 from empty map, got %q", meta["snooze_count"])
-	}
+	require.Equal(t,
+		"1", meta["snooze_count"])
+
 }
 
 func TestSnoozeRun_EmptyReason(t *testing.T) {
@@ -92,9 +92,9 @@ func TestSnoozeRun_EmptyReason(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "", nil)
 
 	calls := store.statusUpdates()
-	if calls[0].fields["error"] != "" {
-		t.Fatalf("expected empty error string, got %q", calls[0].fields["error"])
-	}
+	require.Equal(t,
+		"", calls[0].fields["error"])
+
 }
 
 func TestSnoozeRun_MaxExceeded_HandleSystemFailureFails(t *testing.T) {
@@ -117,11 +117,10 @@ func TestSnoozeRun_MaxExceeded_HandleSystemFailureFails(t *testing.T) {
 
 	// Should not panic even when handleSystemFailure fails.
 	exec.snoozeRun(context.Background(), run, "circuit breaker open", nil)
+	require.NotEqual(t, 0, callCount)
 
 	// handleSystemFailure was attempted but failed — verify it was called.
-	if callCount == 0 {
-		t.Fatal("expected at least one store call")
-	}
+
 }
 
 func TestSnoozeRun_CancelledContext(t *testing.T) {
@@ -152,15 +151,16 @@ func TestSnoozeRun_SequentialSnoozes_CountIncrementsMonotonically(t *testing.T) 
 	}
 
 	calls := store.statusUpdates()
-	if len(calls) != 5 {
-		t.Fatalf("expected 5 status updates, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		5)
+
 	for i, c := range calls {
 		meta := c.fields["metadata"].(map[string]string)
 		expected := strconv.Itoa(i + 1)
-		if meta["snooze_count"] != expected {
-			t.Fatalf("call %d: expected snooze_count=%s, got %s", i, expected, meta["snooze_count"])
-		}
+		require.Equal(t,
+			expected,
+			meta["snooze_count"])
+
 	}
 }
 
@@ -174,12 +174,11 @@ func TestSnoozeRunFromExecuting_EmptyReason(t *testing.T) {
 	exec.snoozeRunFromExecuting(context.Background(), run, "", nil)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
-	if calls[0].fields["error"] != "" {
-		t.Fatalf("expected empty error, got %q", calls[0].fields["error"])
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		"", calls[0].fields["error"])
+
 }
 
 // Adversarial handler tests.
@@ -203,16 +202,15 @@ func TestHandleFailure_Retry_NotAtMaxAttempts(t *testing.T) {
 	for _, c := range calls {
 		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
 			found = true
+			require.EqualValues(t, 2, c.fields["attempt"])
+
 			// Verify attempt was incremented.
-			if c.fields["attempt"] != 2 {
-				t.Fatalf("expected attempt=2, got %v", c.fields["attempt"])
-			}
+
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected Executing->Queued retry transition")
-	}
+	require.True(t,
+		found)
 
 	events := getEvents()
 	foundRetry := false
@@ -222,9 +220,10 @@ func TestHandleFailure_Retry_NotAtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !foundRetry {
-		t.Fatal("expected EventRetried")
-	}
+	require.True(t,
+		foundRetry,
+	)
+
 }
 
 func TestHandleFailure_ZeroAttempt(t *testing.T) {
@@ -241,19 +240,19 @@ func TestHandleFailure_ZeroAttempt(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, errors.New("server error"), nil)
 
 	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+	require.NotEmpty(t, calls)
+
 	// attempt 0 < maxAttempts 3, so it should retry with attempt=1.
 	for _, c := range calls {
 		if c.to == domain.StatusQueued {
-			if c.fields["attempt"] != 1 {
-				t.Fatalf("expected attempt=1 after retry from 0, got %v", c.fields["attempt"])
-			}
+			require.EqualValues(t, 1, c.fields["attempt"])
+
 			return
 		}
 	}
-	t.Fatal("expected retry transition to Queued")
+	require.Fail(t,
+
+		"expected retry transition to Queued")
 }
 
 func TestHandleFailure_ClientError_NoRetry(t *testing.T) {
@@ -272,9 +271,10 @@ func TestHandleFailure_ClientError_NoRetry(t *testing.T) {
 	calls := store.statusUpdates()
 	// Client errors should NOT retry — should go straight to dead letter.
 	for _, c := range calls {
-		if c.to == domain.StatusQueued {
-			t.Fatal("client error should not retry")
-		}
+		require.NotEqual(t, domain.
+			StatusQueued,
+			c.to)
+
 	}
 	found := false
 	for _, c := range calls {
@@ -283,9 +283,9 @@ func TestHandleFailure_ClientError_NoRetry(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected dead_letter for client error")
-	}
+	require.True(t,
+		found)
+
 }
 
 func TestHandleTimeout_Retry_NotAtMaxAttempts(t *testing.T) {
@@ -310,9 +310,8 @@ func TestHandleTimeout_Retry_NotAtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected Executing->Queued retry on timeout with remaining attempts")
-	}
+	require.True(t,
+		found)
 
 	events := getEvents()
 	foundRetry := false
@@ -322,9 +321,10 @@ func TestHandleTimeout_Retry_NotAtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !foundRetry {
-		t.Fatal("expected EventRetried on timeout retry")
-	}
+	require.True(t,
+		foundRetry,
+	)
+
 }
 
 func TestHandleSuccess_CircuitBreakerFailure_StillCompletes(t *testing.T) {
@@ -353,9 +353,9 @@ func TestHandleSuccess_CircuitBreakerFailure_StillCompletes(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("run should still be completed even when circuit breaker store fails")
-	}
+	require.True(t,
+		found)
+
 }
 
 func TestHandleSuccess_CompleteRunFails_NoEvent(t *testing.T) {
@@ -381,9 +381,10 @@ func TestHandleSuccess_CompleteRunFails_NoEvent(t *testing.T) {
 	events := getEvents()
 	// When completeRunWithWebhook fails, handleSuccess returns early before emitting.
 	for _, ev := range events {
-		if ev.Type == EventCompleted {
-			t.Fatal("should not emit EventCompleted when store update fails")
-		}
+		require.NotEqual(t, EventCompleted,
+			ev.
+				Type)
+
 	}
 }
 
@@ -400,12 +401,13 @@ func TestChain_MiddlewarePanic_Propagates(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic to propagate from middleware")
-		}
-		if r != "middleware exploded" {
-			t.Fatalf("expected 'middleware exploded', got %v", r)
-		}
+		require.NotNil(t,
+			r)
+		require.Equal(t,
+			"middleware exploded",
+
+			r)
+
 	}()
 
 	Chain(panicMW)(handler)(context.Background(), &ExecutionContext{
@@ -428,13 +430,14 @@ func TestChain_HandlerPanic_PropagatesThroughMiddleware(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic to propagate from handler")
-		}
+		require.NotNil(t,
+			r)
+		require.True(t,
+			afterCalled,
+		)
+
 		// The defer in middleware should have run despite the panic.
-		if !afterCalled {
-			t.Fatal("middleware defer should execute even on handler panic")
-		}
+
 	}()
 
 	Chain(mw)(handler)(context.Background(), &ExecutionContext{
@@ -477,7 +480,7 @@ func TestRunEventLoop_SubscriberPanic_CrashesLoop(t *testing.T) {
 		// Loop crashed due to subscriber panic — this documents current behavior.
 		// Subscriber 2 never received the event.
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected event loop to crash from subscriber panic")
+		require.Fail(t, "expected event loop to crash from subscriber panic")
 	}
 }
 
@@ -506,9 +509,8 @@ func TestEmit_ConcurrentEmits_NoRace(t *testing.T) {
 	for range exec.eventCh {
 		count++
 	}
-	if count != 50 {
-		t.Fatalf("expected 50 events, got %d", count)
-	}
+	require.EqualValues(t, 50, count)
+
 }
 
 // Adversarial isTerminalStatus tests — catches the bug where
@@ -540,9 +542,10 @@ func TestIsTerminalStatus_MatchesDomainIsTerminal(t *testing.T) {
 		t.Run(string(s), func(t *testing.T) {
 			got := isTerminalStatus(s)
 			want := s.IsTerminal()
-			if got != want {
-				t.Fatalf("isTerminalStatus(%s) = %v, domain.IsTerminal() = %v — mismatch", s, got, want)
-			}
+			require.Equal(t,
+				want, got,
+			)
+
 		})
 	}
 }
@@ -674,13 +677,14 @@ func TestPubSubSubscriber_EmptyRunID(t *testing.T) {
 	})
 
 	calls := pub.publishCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 publish call, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		"run:", calls[0].channel,
+	)
+
 	// Channel should be "run:" with empty ID.
-	if calls[0].channel != "run:" {
-		t.Fatalf("expected channel 'run:', got %q", calls[0].channel)
-	}
+
 }
 
 // Adversarial completeRunWithWebhook tests.
@@ -699,9 +703,9 @@ func TestCompleteRunWithWebhook_CancelledContext(t *testing.T) {
 	// Should not panic with cancelled context. The store mock will still succeed.
 	err := exec.completeRunWithWebhook(ctx, run, job,
 		domain.StatusCompleted, map[string]any{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 }
 
 func TestCompleteRunWithWebhook_NilFields(t *testing.T) {
@@ -715,9 +719,9 @@ func TestCompleteRunWithWebhook_NilFields(t *testing.T) {
 	// nil fields map should not panic.
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 }
 
 // slogDiscard returns a logger that discards all output.

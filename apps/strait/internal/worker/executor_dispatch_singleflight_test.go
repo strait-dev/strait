@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -70,17 +72,19 @@ func TestResolveJobForRun_SingleflightDedupes(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	close(gate)
 	wg.Wait()
+	require.EqualValues(t, 1, dbCalls.
+		Load(),
+	)
 
-	if got := dbCalls.Load(); got != 1 {
-		t.Fatalf("DB calls = %d, want exactly 1 (singleflight dedupe)", got)
-	}
 	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("goroutine %d: unexpected error: %v", i, err)
-		}
-		if results[i] == nil || results[i].ID != "job-x" {
-			t.Fatalf("goroutine %d: got %+v, want job-x", i, results[i])
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			results[i] == nil ||
+				results[i].
+					ID != "job-x",
+		)
+
 	}
 }
 
@@ -116,15 +120,17 @@ func TestResolveJobForRun_DifferentJobIDs_NotDeduped(t *testing.T) {
 				JobVersion: 1,
 			}
 			if _, err := e.resolveJobForRun(ctx, run); err != nil {
-				t.Errorf("resolveJobForRun: %v", err)
+				assert.Failf(t, "test failure",
+
+					"resolveJobForRun: %v", err)
 			}
 		})
 	}
 	wg.Wait()
+	require.Equal(t,
+		int64(jobs), dbCalls.
+			Load())
 
-	if got := dbCalls.Load(); got != int64(jobs) {
-		t.Fatalf("DB calls = %d, want %d (one per distinct job)", got, jobs)
-	}
 }
 
 // TestResolveJobForRun_PropagatesError asserts that when the underlying
@@ -161,13 +167,14 @@ func TestResolveJobForRun_PropagatesError(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i, err := range gotErrs {
-		if err == nil {
-			t.Fatalf("goroutine %d: expected error, got nil", i)
-		}
-		if !errors.Is(err, sentinel) {
-			t.Fatalf("goroutine %d: error = %v, want wraps %v", i, err, sentinel)
-		}
+	for _, err := range gotErrs {
+		require.Error(t,
+			err)
+		require.True(t,
+			errors.Is(
+				err, sentinel,
+			))
+
 	}
 
 	// Cache should not be poisoned: a subsequent successful call must hit
@@ -177,10 +184,12 @@ func TestResolveJobForRun_PropagatesError(t *testing.T) {
 		return &domain.Job{ID: id, Version: 1}, nil
 	}
 	job, err := e.resolveJobForRun(ctx, run)
-	if err != nil {
-		t.Fatalf("post-recovery resolve: %v", err)
-	}
-	if job == nil || job.ID != "job-err" {
-		t.Fatalf("post-recovery job = %+v", job)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		job == nil ||
+			job.
+				ID != "job-err",
+	)
+
 }

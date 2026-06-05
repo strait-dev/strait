@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -87,7 +89,7 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	select {
 	case <-jobStarted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for job to start")
+		require.Fail(t, "timed out waiting for job to start")
 	}
 
 	cancel()
@@ -95,7 +97,7 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	select {
 	case <-runDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("Run() did not exit after context cancellation")
+		require.Fail(t, "Run() did not exit after context cancellation")
 	}
 
 	close(jobCanProceed)
@@ -109,22 +111,25 @@ func TestExecutor_GracefulShutdown(t *testing.T) {
 	select {
 	case <-shutdownDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("pool.Shutdown() did not return")
+		require.Fail(t, "pool.Shutdown() did not return")
 	}
 
 	transitionsMu.Lock()
 	defer transitionsMu.Unlock()
+	require.GreaterOrEqual(t,
+		len(transitions), 2,
+	)
+	assert.Equal(t,
+		"dequeued->executing",
 
-	if len(transitions) < 2 {
-		t.Fatalf("expected at least 2 transitions, got %d: %v", len(transitions), transitions)
-	}
-	if transitions[0] != "dequeued->executing" {
-		t.Errorf("first transition = %s, want dequeued->executing", transitions[0])
-	}
+		transitions[0])
+
 	last := transitions[len(transitions)-1]
-	if last != "executing->completed" {
-		t.Errorf("last transition = %s, want executing->completed", last)
-	}
+	assert.Equal(t,
+		"executing->completed",
+
+		last)
+
 }
 
 func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
@@ -169,14 +174,14 @@ func TestExecutor_Run_PollsOnWakeSignal(t *testing.T) {
 	select {
 	case <-polled:
 	case <-time.After(time.Second):
-		t.Fatal("expected poll to run after wake signal")
+		require.Fail(t, "expected poll to run after wake signal")
 	}
 
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("executor did not stop after context cancel")
+		require.Fail(t, "executor did not stop after context cancel")
 	}
 }
 
@@ -229,7 +234,7 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 		case <-pollCount:
 			polls++
 		case <-deadline:
-			t.Fatalf("expected at least 3 degraded polls, got %d", polls)
+			require.Failf(t, "test failure", "expected at least 3 degraded polls, got %d", polls)
 		}
 	}
 
@@ -237,7 +242,7 @@ func TestExecutor_Run_DegradedModeShortensPollInterval(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("executor did not stop after context cancel")
+		require.Fail(t, "executor did not stop after context cancel")
 	}
 }
 
@@ -310,16 +315,15 @@ func TestExecutor_DegradedRecoveryDoesNotReenterOnStaleChannel(t *testing.T) {
 	baseline := pollCount.Load()
 	time.Sleep(300 * time.Millisecond)
 	final := pollCount.Load()
-
-	if final-baseline > 2 {
-		t.Errorf("executor re-entered degraded fast-poll: %d polls after recovery, want <= 2", final-baseline)
-	}
+	assert.LessOrEqual(t, final-
+		baseline,
+		int64(2))
 
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("executor did not stop after context cancel")
+		require.Fail(t, "executor did not stop after context cancel")
 	}
 }
 
@@ -340,15 +344,15 @@ func TestExecutor_Shutdown_NoInFlight(t *testing.T) {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
-
-	if err := exec.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v, want nil", err)
-	}
+	require.NoError(
+		t, exec.Shutdown(
+			shutdownCtx),
+	)
 
 	select {
 	case <-runDone:
 	case <-time.After(time.Second):
-		t.Fatal("executor Run did not stop after shutdown")
+		require.Fail(t, "executor Run did not stop after shutdown")
 	}
 }
 
@@ -409,7 +413,7 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 
 	select {
 	case err := <-shutdownDone:
-		t.Fatalf("Shutdown returned early with err=%v", err)
+		require.Failf(t, "test failure", "Shutdown returned early with err=%v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -418,16 +422,18 @@ func TestExecutor_Shutdown_WaitsForInFlight(t *testing.T) {
 	select {
 	case err := <-shutdownDone:
 		if err != nil {
-			t.Fatalf("Shutdown() error = %v, want nil", err)
+			require.Failf(t, "test failure",
+
+				"Shutdown() error = %v, want nil", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Shutdown did not return after poll completed")
+		require.Fail(t, "Shutdown did not return after poll completed")
 	}
 
 	select {
 	case <-runDone:
 	case <-time.After(time.Second):
-		t.Fatal("executor Run did not stop after shutdown")
+		require.Fail(t, "executor Run did not stop after shutdown")
 	}
 }
 
@@ -481,16 +487,18 @@ func TestExecutor_Shutdown_Timeout(t *testing.T) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shutdownCancel()
 	err := exec.Shutdown(shutdownCtx)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Shutdown() error = %v, want %v", err, context.DeadlineExceeded)
-	}
+	require.True(t,
+		errors.Is(
+			err, context.
+				DeadlineExceeded,
+		))
 
 	runCancel()
 	close(allowPollExit)
 	select {
 	case <-runDone:
 	case <-time.After(time.Second):
-		t.Fatal("executor Run did not stop after cancel")
+		require.Fail(t, "executor Run did not stop after cancel")
 	}
 }
 
@@ -552,14 +560,16 @@ func TestShutdown_WaitsForCallbacks(t *testing.T) {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	if err := exec.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-	_ = pool.Shutdown(context.Background())
+	require.NoError(
+		t, exec.Shutdown(
+			shutdownCtx),
+	)
 
-	if !callbackCalled.Load() {
-		t.Fatal("expected callback to complete before shutdown returned")
-	}
+	_ = pool.Shutdown(context.Background())
+	require.True(t,
+		callbackCalled.
+			Load())
+
 }
 
 func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
@@ -585,13 +595,17 @@ func TestShutdown_NoCallbacksNoDelay(t *testing.T) {
 	start := time.Now()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
-	if err := exec.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
+	require.NoError(
+		t, exec.Shutdown(
+			shutdownCtx),
+	)
+
 	_ = pool.Shutdown(context.Background())
 
 	elapsed := time.Since(start)
-	if elapsed > 2*time.Second {
-		t.Fatalf("shutdown took %v, expected near-instant with no callbacks", elapsed)
-	}
+	require.LessOrEqual(t, elapsed,
+		2*
+			time.Second,
+	)
+
 }

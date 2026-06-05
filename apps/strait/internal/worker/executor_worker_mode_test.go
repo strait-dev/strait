@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeWorkerDispatcher is a test double for WorkerRunDispatcher. It returns
@@ -158,18 +159,20 @@ func TestWorkerRunResultFromDispatch(t *testing.T) {
 	exec, _, _ := newWorkerModeExecutor(t, &mockExecutorStore{}, dispatcher)
 
 	result := exec.workerRunResultFromDispatch(opaque)
-	if result.status != "success" {
-		t.Fatalf("status = %q, want success", result.status)
-	}
-	if result.errorMessage != "ignored warning" {
-		t.Fatalf("errorMessage = %q, want ignored warning", result.errorMessage)
-	}
-	if string(result.output) != string(wantOutput) {
-		t.Fatalf("output = %s, want %s", result.output, wantOutput)
-	}
-	if !result.succeeded() {
-		t.Fatal("success status should be marked succeeded")
-	}
+	require.Equal(t,
+		"success", result.
+			status,
+	)
+	require.Equal(t,
+		"ignored warning",
+		result.
+			errorMessage,
+	)
+	require.Equal(t,
+		string(wantOutput), string(result.output))
+	require.True(t,
+		result.succeeded())
+
 }
 
 func TestWorkerRunResultFailureMessage(t *testing.T) {
@@ -205,10 +208,9 @@ func TestWorkerRunResultFailureMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			require.Equal(t,
+				tt.want, tt.in.failureMessage())
 
-			if got := tt.in.failureMessage(); got != tt.want {
-				t.Fatalf("failureMessage() = %q, want %q", got, tt.want)
-			}
 		})
 	}
 }
@@ -227,31 +229,36 @@ func TestFinalizeWorkerRunResult_SuccessUsesExecutorCompletionPath(t *testing.T)
 	job := workerModeJob(3)
 	ms := &mockExecutorStore{
 		getRunFn: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if id != run.ID {
-				t.Fatalf("GetRun id = %q, want %q", id, run.ID)
-			}
+			require.Equal(t,
+				run.ID, id)
+
 			return run, nil
 		},
 		getJobFn: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != job.ID {
-				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
-			}
+			require.Equal(t,
+				job.ID, id)
+
 			return job, nil
 		},
 	}
 	exec, _, _ := newWorkerModeExecutor(t, ms, &fakeWorkerDispatcher{})
 
 	taskStatus, err := exec.FinalizeWorkerRunResult(context.Background(), run.ID, "success", "", json.RawMessage(`{"ok":true}`))
-	if err != nil {
-		t.Fatalf("FinalizeWorkerRunResult: %v", err)
-	}
-	if taskStatus != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("task status = %q, want completed", taskStatus)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		domain.WorkerTaskStatusCompleted,
+
+		taskStatus,
+	)
+
 	call := requireOnlyStatusTransition(t, ms.statusUpdates(), domain.StatusExecuting, domain.StatusCompleted)
-	if string(call.fields["result"].(json.RawMessage)) != `{"ok":true}` {
-		t.Fatalf("result field = %v, want worker output", call.fields["result"])
-	}
+	require.Equal(t,
+		`{"ok":true}`, string(call.
+			fields["result"].(json.
+			RawMessage),
+		))
+
 }
 
 func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
@@ -277,19 +284,19 @@ func TestFinalizeWorkerRunResult_FailureUsesExecutorRetryPath(t *testing.T) {
 	exec, _, _ := newWorkerModeExecutor(t, ms, &fakeWorkerDispatcher{})
 
 	taskStatus, err := exec.FinalizeWorkerRunResult(context.Background(), run.ID, "failed", "boom", nil)
-	if err != nil {
-		t.Fatalf("FinalizeWorkerRunResult: %v", err)
-	}
-	if taskStatus != domain.WorkerTaskStatusFailed {
-		t.Fatalf("task status = %q, want failed", taskStatus)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		domain.WorkerTaskStatusFailed,
+
+		taskStatus,
+	)
+
 	call := requireOnlyStatusTransition(t, ms.statusUpdates(), domain.StatusExecuting, domain.StatusQueued)
-	if call.fields["attempt"] != 2 {
-		t.Fatalf("attempt field = %v, want 2", call.fields["attempt"])
-	}
-	if call.fields["error"] != "boom" {
-		t.Fatalf("error field = %v, want boom", call.fields["error"])
-	}
+	require.EqualValues(t, 2, call.fields["attempt"])
+	require.Equal(t,
+		"boom", call.fields["error"])
+
 }
 
 // TestExecuteWorkerMode_SuccessRoutesToHandleSuccess verifies that a worker
@@ -345,28 +352,32 @@ func TestExecuteWorkerMode_TimesOutWorkerDispatchUsingExecutionPolicy(t *testing
 	select {
 	case <-dispatcher.started:
 	case <-time.After(time.Second):
-		t.Fatal("worker dispatch did not start")
+		require.Fail(t, "worker dispatch did not start")
 	}
-	if !dispatcher.hasDeadline.Load() {
-		t.Fatal("worker dispatch context did not include a deadline")
-	}
+	require.True(t,
+		dispatcher.hasDeadline.
+			Load())
 
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
-		t.Fatal("worker-mode dispatch did not return after policy timeout")
+		require.Fail(t, "worker-mode dispatch did not return after policy timeout")
 	}
 	if elapsed := time.Since(start); elapsed < time.Second || elapsed > 2500*time.Millisecond {
-		t.Fatalf("worker-mode timeout elapsed = %s, want about 1s", elapsed)
+		require.Failf(t, "test failure",
+
+			"worker-mode timeout elapsed = %s, want about 1s", elapsed)
 	}
 
 	timeoutUpdate := requireRetryTransition(t, ms.statusUpdates())
-	if timeoutUpdate.fields["attempt"] != 2 {
-		t.Fatalf("attempt field = %v, want 2", timeoutUpdate.fields["attempt"])
-	}
-	if timeoutUpdate.fields["error"] != "execution timed out" {
-		t.Fatalf("error field = %v, want execution timed out", timeoutUpdate.fields["error"])
-	}
+	require.EqualValues(t, 2, timeoutUpdate.
+		fields["attempt"])
+	require.Equal(t,
+		"execution timed out",
+
+		timeoutUpdate.
+			fields["error"])
+
 }
 
 func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T) {
@@ -380,9 +391,10 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 			return workerModeJob(3), nil
 		},
 		updateRunStatusFn: func(ctx context.Context, _ string, _, to domain.RunStatus, _ map[string]any) error {
-			if to == domain.StatusQueued && ctx.Err() != nil {
-				t.Fatalf("requeue used cancelled context: %v", ctx.Err())
-			}
+			require.False(t,
+				to == domain.StatusQueued &&
+					ctx.Err() != nil)
+
 			return nil
 		},
 	}
@@ -403,23 +415,25 @@ func TestExecuteWorkerMode_ParentCancellationRequeuesWithoutTimeout(t *testing.T
 	select {
 	case <-dispatcher.started:
 	case <-time.After(time.Second):
-		t.Fatal("worker dispatch did not start")
+		require.Fail(t, "worker dispatch did not start")
 	}
 	cancel()
 
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("worker-mode dispatch did not return after parent cancellation")
+		require.Fail(t, "worker-mode dispatch did not return after parent cancellation")
 	}
 
 	requeueUpdate := requireRetryTransition(t, ms.statusUpdates())
 	if _, ok := requeueUpdate.fields["attempt"]; ok {
-		t.Fatalf("cancellation requeue should not increment attempt: %+v", requeueUpdate.fields)
+		require.Failf(t, "test failure",
+
+			"cancellation requeue should not increment attempt: %+v", requeueUpdate.fields)
 	}
-	if requeueUpdate.fields["error"] != nil {
-		t.Fatalf("cancellation requeue should clear error, got: %+v", requeueUpdate.fields)
-	}
+	require.Nil(t, requeueUpdate.
+		fields["error"])
+
 }
 
 func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
@@ -444,12 +458,11 @@ func TestExecuteWorkerMode_SuccessPersistsWorkerOutput(t *testing.T) {
 
 	completed := waitForStatusUpdate(t, ms, domain.StatusCompleted)
 	got, ok := completed.fields["result"].(json.RawMessage)
-	if !ok {
-		t.Fatalf("completed fields missing json result: %+v", completed.fields)
-	}
-	if string(got) != string(wantOutput) {
-		t.Fatalf("result = %s, want %s", got, wantOutput)
-	}
+	require.True(t,
+		ok)
+	require.Equal(t,
+		string(wantOutput), string(got))
+
 }
 
 func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.T) {
@@ -467,11 +480,13 @@ func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, _, to domain.RunStatus, fields map[string]any) error {
 			if to == domain.StatusCompleted {
-				if dispatcher.completeCalls.Load() != 0 {
-					t.Fatal("worker task completed before run result persistence")
-				}
+				require.EqualValues(t, 0, dispatcher.completeCalls.
+					Load())
+
 				if got, ok := fields["result"].(json.RawMessage); !ok || string(got) != `{"ok":true}` {
-					t.Fatalf("completed run fields result = %v, want worker output", fields["result"])
+					require.Failf(t, "test failure",
+
+						"completed run fields result = %v, want worker output", fields["result"])
 				}
 			}
 			return nil
@@ -485,9 +500,13 @@ func TestExecuteWorkerMode_CompletesWorkerTaskAfterRunResultPersists(t *testing.
 	waitForCondition(t, 2*time.Second, func() bool {
 		return dispatcher.completeCalls.Load() == 1
 	}, "worker task completion")
-	if dispatcher.completeStatus != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker task status = %q, want completed", dispatcher.completeStatus)
-	}
+	require.Equal(t,
+		domain.WorkerTaskStatusCompleted,
+
+		dispatcher.
+			completeStatus,
+	)
+
 }
 
 func TestExecuteWorkerMode_DoesNotCompleteWorkerTaskWhenRunPersistenceFails(t *testing.T) {
@@ -516,9 +535,9 @@ func TestExecuteWorkerMode_DoesNotCompleteWorkerTaskWhenRunPersistenceFails(t *t
 	exec.executeWorkerMode(context.Background(), run, workerModeJob(3))
 
 	time.Sleep(50 * time.Millisecond)
-	if dispatcher.completeCalls.Load() != 0 {
-		t.Fatalf("worker task completed %d times despite failed run persistence", dispatcher.completeCalls.Load())
-	}
+	require.EqualValues(t, 0, dispatcher.completeCalls.
+		Load())
+
 }
 
 // TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure verifies that a
@@ -550,7 +569,9 @@ func TestExecuteWorkerMode_FailedStatusRoutesToHandleFailure(t *testing.T) {
 	requireNoStatusUpdateTo(t, updates, domain.StatusCompleted)
 	deadLetter := requireStatusUpdateTo(t, updates, domain.StatusDeadLetter)
 	if msg, ok := deadLetter.fields["error"].(string); !ok || msg == "" {
-		t.Fatalf("expected error message in failure fields, got: %+v", deadLetter.fields)
+		require.Failf(t, "test failure",
+
+			"expected error message in failure fields, got: %+v", deadLetter.fields)
 	}
 }
 
@@ -578,9 +599,8 @@ func TestExecuteWorkerMode_FailedWithEmptyErrorUsesDefault(t *testing.T) {
 
 	deadLetter := waitForStatusUpdate(t, ms, domain.StatusDeadLetter)
 	msg, _ := deadLetter.fields["error"].(string)
-	if msg == "" {
-		t.Fatalf("expected default error message, got empty")
-	}
+	require.NotEqual(t, "", msg)
+
 }
 
 // TestExecuteWorkerMode_NilResultTreatedAsFailure asserts the defensive path
@@ -684,7 +704,7 @@ func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T)
 	select {
 	case <-dispatcher.started:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for worker dispatch to start")
+		require.Fail(t, "timed out waiting for worker dispatch to start")
 	}
 
 	waitForCondition(t, 2*time.Second, func() bool {
@@ -696,12 +716,11 @@ func TestExecuteWorkerMode_RegistersHeartbeatWhileDispatchInFlight(t *testing.T)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for worker dispatch to finish")
+		require.Fail(t, "timed out waiting for worker dispatch to finish")
 	}
+	require.EqualValues(t, 0, exec.heartbeat.
+		ActiveCount())
 
-	if got := exec.heartbeat.ActiveCount(); got != 0 {
-		t.Fatalf("heartbeat active count = %d, want 0 after worker completion", got)
-	}
 }
 
 func TestExecuteWorkerMode_NilDispatcherRequeuesWithCleanQueuedFields(t *testing.T) {
@@ -777,11 +796,8 @@ func waitForStatusUpdate(t *testing.T, store *mockExecutorStore, status domain.R
 
 func assertQueuedResetFields(t *testing.T, fields map[string]any) {
 	t.Helper()
-
-	if fields == nil {
-		t.Fatal("expected queued reset fields, got nil")
-		return
-	}
+	require.NotNil(t,
+		fields)
 
 	wantNil := []string{
 		"error",
@@ -793,11 +809,9 @@ func assertQueuedResetFields(t *testing.T, fields map[string]any) {
 	}
 	for _, key := range wantNil {
 		value, ok := fields[key]
-		if !ok {
-			t.Fatalf("expected field %q in queued reset fields: %+v", key, fields)
-		}
-		if value != nil {
-			t.Fatalf("expected field %q to be cleared, got %#v", key, value)
-		}
+		require.True(t,
+			ok)
+		require.Nil(t, value)
+
 	}
 }

@@ -7,6 +7,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSnoozeRun_LockedRowSkipsCleanly(t *testing.T) {
@@ -24,10 +26,9 @@ func TestSnoozeRun_LockedRowSkipsCleanly(t *testing.T) {
 	// Must not panic, must not propagate the locked error to the caller. The
 	// only observable effect is the appended statusUpdate call from the mock.
 	exec.snoozeRun(context.Background(), run, "raced with reaper", nil)
+	require.EqualValues(t, 1, len(st.
+		statusUpdates()))
 
-	if got := len(st.statusUpdates()); got != 1 {
-		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", got)
-	}
 }
 
 func TestSnoozeRun_ConflictRowSkipsCleanly(t *testing.T) {
@@ -42,10 +43,9 @@ func TestSnoozeRun_ConflictRowSkipsCleanly(t *testing.T) {
 	run := testRun(1)
 	run.Status = domain.StatusDequeued
 	exec.snoozeRun(context.Background(), run, "raced with completion", nil)
+	require.EqualValues(t, 1, len(st.
+		statusUpdates()))
 
-	if got := len(st.statusUpdates()); got != 1 {
-		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", got)
-	}
 }
 
 func TestSnoozeRunFromExecuting_LockedRowSkipsCleanly(t *testing.T) {
@@ -60,10 +60,9 @@ func TestSnoozeRunFromExecuting_LockedRowSkipsCleanly(t *testing.T) {
 	run := testRun(1)
 	run.Status = domain.StatusExecuting
 	exec.snoozeRunFromExecuting(context.Background(), run, "watchdog tick", nil)
+	require.EqualValues(t, 1, len(st.
+		statusUpdates()))
 
-	if got := len(st.statusUpdates()); got != 1 {
-		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", got)
-	}
 }
 
 func TestSnoozeRun_GenuineErrorStillLogged(t *testing.T) {
@@ -79,10 +78,9 @@ func TestSnoozeRun_GenuineErrorStillLogged(t *testing.T) {
 	run.Status = domain.StatusDequeued
 	// Must not panic. The path logs an error and returns; no emit.
 	exec.snoozeRun(context.Background(), run, "snooze under failure", nil)
+	require.EqualValues(t, 1, len(st.
+		statusUpdates()))
 
-	if got := len(st.statusUpdates()); got != 1 {
-		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", got)
-	}
 }
 
 func TestDeepSecSnoozeRun_ExecutingClaimTableRunUsesExecutingSource(t *testing.T) {
@@ -96,10 +94,11 @@ func TestDeepSecSnoozeRun_ExecutingClaimTableRunUsesExecutingSource(t *testing.T
 	exec.snoozeRun(context.Background(), run, "endpoint circuit breaker open", nil)
 
 	calls := st.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 SnoozeRunWithLock call, got %d", len(calls))
-	}
-	if calls[0].from != domain.StatusExecuting {
-		t.Fatalf("snooze from = %q, want executing", calls[0].from)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusExecuting,
+
+		calls[0].from)
+
 }

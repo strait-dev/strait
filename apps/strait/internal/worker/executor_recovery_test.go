@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_HandleSystemFailure(t *testing.T) {
@@ -22,12 +24,17 @@ func TestExecutor_HandleSystemFailure(t *testing.T) {
 	exec.handleSystemFailure(context.Background(), run, "db unavailable")
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].from != domain.StatusExecuting || calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusExecuting, domain.StatusSystemFailed)
-	}
+	require.Len(t, calls,
+		1)
+	require.False(t,
+		calls[0].
+			from != domain.
+			StatusExecuting ||
+			calls[0].to !=
+				domain.
+					StatusSystemFailed,
+	)
+
 }
 
 func TestExecutor_Execute_JobLookupFails(t *testing.T) {
@@ -43,12 +50,13 @@ func TestExecutor_Execute_JobLookupFails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("final status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
+
 }
 
 func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
@@ -75,13 +83,12 @@ func TestExecutor_Execute_StatusTransitionFails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
+	require.Len(t, calls,
+		1)
 
 	select {
 	case <-hit:
-		t.Fatal("dispatch was called after transition failure")
+		require.Fail(t, "dispatch was called after transition failure")
 	case <-time.After(100 * time.Millisecond):
 	}
 }
@@ -106,15 +113,14 @@ func TestExecutor_NilMetrics(t *testing.T) {
 	run := testRun(1)
 
 	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("dispatch panicked with nil metrics: %v", r)
-		}
-	}()
+		require.Nil(t, recover())
 
-	if err := exec.dispatch(context.Background(), job, run); err == nil {
-		t.Fatal("dispatch error = nil, want non-nil")
-		return
-	}
+	}()
+	require.Error(t,
+		exec.dispatch(context.
+			Background(), job, run,
+		))
+
 }
 
 func TestExecutor_PanicRecovery(t *testing.T) {
@@ -145,19 +151,20 @@ func TestExecutor_PanicRecovery(t *testing.T) {
 	_ = pool.Shutdown(context.Background())
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
+
 	errMsg, ok := calls[0].fields["error"].(string)
-	if !ok {
-		t.Fatal("expected error field in status update")
-	}
-	if !strings.Contains(errMsg, "panic:") {
-		t.Fatalf("error = %q, want to contain 'panic:'", errMsg)
-	}
+	require.True(t,
+		ok)
+	require.True(t,
+		strings.Contains(errMsg,
+			"panic:"))
+
 }
 
 func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
@@ -188,10 +195,11 @@ func TestExecutor_PanicRecovery_ErrorValue(t *testing.T) {
 	_ = pool.Shutdown(context.Background())
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
+
 }

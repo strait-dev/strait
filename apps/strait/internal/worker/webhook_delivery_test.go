@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -18,15 +20,17 @@ import (
 func TestSendWebhookOnce_Success(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Error("missing Content-Type header")
-		}
-		if r.Header.Get("X-Run-ID") == "" {
-			t.Error("missing X-Run-ID header")
-		}
+		assert.Equal(t,
+			http.MethodPost,
+			r.Method,
+		)
+		assert.Equal(t,
+			"application/json",
+			r.Header.
+				Get("Content-Type"))
+		assert.NotEqual(
+			t, "", r.Header.Get("X-Run-ID"))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -35,12 +39,10 @@ func TestSendWebhookOnce_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
 
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
-	if !result.Delivered {
-		t.Errorf("Delivered = false, want true")
-	}
-	if result.StatusCode != 200 {
-		t.Errorf("StatusCode = %d, want 200", result.StatusCode)
-	}
+	assert.True(t, result.
+		Delivered)
+	assert.EqualValues(t, 200, result.StatusCode)
+
 }
 
 func TestSendWebhookOnce_ServerError(t *testing.T) {
@@ -54,12 +56,10 @@ func TestSendWebhookOnce_ServerError(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if result.StatusCode != 500 {
-		t.Errorf("StatusCode = %d, want 500", result.StatusCode)
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.EqualValues(t, 500, result.StatusCode)
+
 }
 
 func TestSendWebhookOnce_ClientError(t *testing.T) {
@@ -73,12 +73,10 @@ func TestSendWebhookOnce_ClientError(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if result.StatusCode != 400 {
-		t.Errorf("StatusCode = %d, want 400", result.StatusCode)
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.EqualValues(t, 400, result.StatusCode)
+
 }
 
 func TestSendWebhookOnce_WithSignature(t *testing.T) {
@@ -98,21 +96,21 @@ func TestSendWebhookOnce_WithSignature(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
-	if !result.Delivered {
-		t.Fatal("Delivered = false")
-	}
-	if gotSig == "" {
-		t.Error("expected X-Webhook-Signature header")
-	}
-	if len(gotSig) < 5 || gotSig[:3] != "v1=" {
-		t.Errorf("signature format wrong: %s", gotSig)
-	}
-	if gotStraitSig == "" {
-		t.Error("expected X-Strait-Signature header")
-	}
-	if gotTimestamp == "" {
-		t.Error("expected X-Strait-Timestamp header")
-	}
+	require.True(t,
+		result.Delivered)
+	assert.NotEqual(
+		t, "", gotSig)
+	assert.False(t,
+		len(gotSig) < 5 ||
+			gotSig[:3] != "v1=",
+	)
+	assert.NotEqual(
+		t, "", gotStraitSig,
+	)
+	assert.NotEqual(
+		t, "", gotTimestamp,
+	)
+
 }
 
 func TestSendWebhookOnce_PayloadContent(t *testing.T) {
@@ -120,9 +118,11 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 	var gotPayload WebhookPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if err := json.Unmarshal(body, &gotPayload); err != nil {
-			t.Fatalf("unmarshal payload: %v", err)
-		}
+		require.NoError(
+			t, json.Unmarshal(body,
+				&gotPayload,
+			))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -137,22 +137,22 @@ func TestSendWebhookOnce_PayloadContent(t *testing.T) {
 	}
 
 	sendWebhookOnceWith(t.Context(), webhookClient, job, run)
+	assert.Equal(t,
+		"run-123", gotPayload.
+			RunID,
+	)
+	assert.Equal(t,
+		"job-456", gotPayload.
+			JobID,
+	)
+	assert.Equal(t,
+		"proj-789", gotPayload.
+			ProjectID)
+	assert.Equal(t,
+		"completed", gotPayload.
+			Status)
+	assert.EqualValues(t, 2, gotPayload.Attempt)
 
-	if gotPayload.RunID != "run-123" {
-		t.Errorf("RunID = %s, want run-123", gotPayload.RunID)
-	}
-	if gotPayload.JobID != "job-456" {
-		t.Errorf("JobID = %s, want job-456", gotPayload.JobID)
-	}
-	if gotPayload.ProjectID != "proj-789" {
-		t.Errorf("ProjectID = %s, want proj-789", gotPayload.ProjectID)
-	}
-	if gotPayload.Status != "completed" {
-		t.Errorf("Status = %s, want completed", gotPayload.Status)
-	}
-	if gotPayload.Attempt != 2 {
-		t.Errorf("Attempt = %d, want 2", gotPayload.Attempt)
-	}
 }
 
 func TestSendWebhookOnce_NetworkError(t *testing.T) {
@@ -161,12 +161,12 @@ func TestSendWebhookOnce_NetworkError(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	result := sendWebhookOnceWith(t.Context(), webhookClient, job, run)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if result.Error == "" {
-		t.Error("expected error message")
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.NotEqual(
+		t, "", result.Error,
+	)
+
 }
 
 func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
@@ -175,9 +175,9 @@ func TestSendWebhookWithRetry_EmptyURL(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1"}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 3)
-	if !result.Delivered {
-		t.Error("Delivered = false, want true for empty URL")
-	}
+	assert.True(t, result.
+		Delivered)
+
 }
 
 func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
@@ -193,12 +193,10 @@ func TestSendWebhookWithRetry_SuccessFirstAttempt(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 3)
-	if !result.Delivered {
-		t.Error("Delivered = false")
-	}
-	if got := attempts.Load(); got != 1 {
-		t.Errorf("attempts = %d, want 1", got)
-	}
+	assert.True(t, result.
+		Delivered)
+	assert.EqualValues(t, 1, attempts.Load())
+
 }
 
 func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
@@ -214,15 +212,11 @@ func TestSendWebhookWithRetry_ClientErrorNoRetry(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 3)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if got := attempts.Load(); got != 1 {
-		t.Errorf("attempts = %d, want 1 (should not retry 4xx)", got)
-	}
-	if result.StatusCode != 400 {
-		t.Errorf("StatusCode = %d, want 400", result.StatusCode)
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.EqualValues(t, 1, attempts.Load())
+	assert.EqualValues(t, 400, result.StatusCode)
+
 }
 
 func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
@@ -231,9 +225,9 @@ func TestSendWebhookWithRetry_DefaultMaxAttempts(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1"}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 0)
-	if !result.Delivered {
-		t.Error("Delivered = false")
-	}
+	assert.True(t, result.
+		Delivered)
+
 }
 
 func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
@@ -263,12 +257,11 @@ func TestSendWebhookWithRetry_ContextCanceled(t *testing.T) {
 	})
 
 	result := SendWebhookWithRetry(ctx, job, run, 3)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if got := attempts.Load(); got < 1 {
-		t.Errorf("attempts = %d, want >= 1", got)
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.GreaterOrEqual(t, attempts.
+		Load(), int32(1))
+
 }
 
 func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
@@ -288,12 +281,10 @@ func TestSendWebhookWithRetry_SuccessOnSecondAttempt(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 3)
-	if !result.Delivered {
-		t.Error("Delivered = false, want true")
-	}
-	if got := attempts.Load(); got != 2 {
-		t.Errorf("attempts = %d, want 2", got)
-	}
+	assert.True(t, result.
+		Delivered)
+	assert.EqualValues(t, 2, attempts.Load())
+
 }
 
 func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
@@ -309,10 +300,8 @@ func TestSendWebhookWithRetry_ExhaustsAllRetries(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusFailed}
 
 	result := SendWebhookWithRetry(t.Context(), job, run, 2)
-	if result.Delivered {
-		t.Error("Delivered = true, want false")
-	}
-	if got := attempts.Load(); got != 2 {
-		t.Errorf("attempts = %d, want 2", got)
-	}
+	assert.False(t,
+		result.Delivered)
+	assert.EqualValues(t, 2, attempts.Load())
+
 }

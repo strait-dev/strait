@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBoostPriority_TableDriven(t *testing.T) {
@@ -38,9 +41,10 @@ func TestBoostPriority_TableDriven(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := boostPriority(tc.current, tc.boost)
-			if got != tc.expected {
-				t.Fatalf("boostPriority(%d, %d) = %d, want %d", tc.current, tc.boost, got, tc.expected)
-			}
+			require.Equal(t,
+				tc.expected,
+				got)
+
 		})
 	}
 }
@@ -49,9 +53,8 @@ func TestBoostPriority_TableDriven(t *testing.T) {
 func TestBoostPriority_Overflow(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(9, 5)
-	if got != 10 {
-		t.Fatalf("boostPriority(9, 5) = %d, want 10", got)
-	}
+	require.EqualValues(t, 10, got)
+
 }
 
 // TestBoostPriority_NegativeBoost verifies that a negative boost triggers the
@@ -59,20 +62,19 @@ func TestBoostPriority_Overflow(t *testing.T) {
 func TestBoostPriority_NegativeBoost(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(5, -3)
+	require.EqualValues(t, 10, got)
+
 	// boosted = 5 + (-3) = 2, which is < current (5), so the overflow guard
 	// activates and returns 10.
-	if got != 10 {
-		t.Fatalf("boostPriority(5, -3) = %d, want 10", got)
-	}
+
 }
 
 // TestBoostPriority_ZeroCurrent verifies boosting from zero priority.
 func TestBoostPriority_ZeroCurrent(t *testing.T) {
 	t.Parallel()
 	got := boostPriority(0, 3)
-	if got != 3 {
-		t.Fatalf("boostPriority(0, 3) = %d, want 3", got)
-	}
+	require.EqualValues(t, 3, got)
+
 }
 
 func FuzzBoostPriority(f *testing.F) {
@@ -102,27 +104,30 @@ func FuzzBoostPriority(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, current, boost int) {
 		result := boostPriority(current, boost)
+		assert.LessOrEqual(t, result,
+			10)
+		assert.False(t,
+			current >=
+				0 && boost >
+				0 && result <
+				current && result != 10)
 
 		// Invariant 1: result must never exceed 10.
-		if result > 10 {
-			t.Errorf("boostPriority(%d, %d) = %d, exceeds max priority 10", current, boost, result)
-		}
 
 		// Invariant 2: if both inputs are non-negative and boost > 0,
 		// the result should be >= current (monotonically increasing).
-		if current >= 0 && boost > 0 && result < current && result != 10 {
-			// The only valid reason result < current is if we hit the cap.
-			// But if result != 10, it means we went down -- that's a bug.
-			t.Errorf("boostPriority(%d, %d) = %d, decreased without hitting cap", current, boost, result)
-		}
+
+		// The only valid reason result < current is if we hit the cap.
+		// But if result != 10, it means we went down -- that's a bug.
 
 		// Invariant 3: if both inputs are in valid range [0,10],
 		// result must equal min(current+boost, 10).
 		if current >= 0 && current <= 10 && boost >= 0 && boost <= 10 {
 			expected := min(current+boost, 10)
-			if result != expected {
-				t.Errorf("boostPriority(%d, %d) = %d, want %d (both inputs in [0,10])", current, boost, result, expected)
-			}
+			assert.Equal(t,
+				expected,
+				result)
+
 		}
 	})
 }
@@ -142,16 +147,15 @@ func FuzzBoostPriorityOverflow(f *testing.F) {
 		}
 
 		result := boostPriority(current, boost)
+		assert.GreaterOrEqual(t,
+			result, 0)
+		assert.LessOrEqual(t, result,
+			10)
 
 		// Must never overflow to negative.
-		if result < 0 {
-			t.Errorf("boostPriority(%d, %d) = %d, overflowed to negative", current, boost, result)
-		}
 
 		// Must never exceed 10.
-		if result > 10 {
-			t.Errorf("boostPriority(%d, %d) = %d, exceeds max priority 10", current, boost, result)
-		}
+
 	})
 }
 
@@ -165,12 +169,12 @@ func TestProperty_Priority_HigherFirst(t *testing.T) {
 		boost := rand.IntN(20)   // 0-19.
 
 		result := boostPriority(current, boost)
-		if result < current {
-			t.Fatalf("boostPriority(%d, %d) = %d, lower than current", current, boost, result)
-		}
-		if result > 10 {
-			t.Fatalf("boostPriority(%d, %d) = %d, exceeds cap of 10", current, boost, result)
-		}
+		require.GreaterOrEqual(t,
+			result, current,
+		)
+		require.LessOrEqual(t, result,
+			10)
+
 	}
 }
 
@@ -217,19 +221,22 @@ func FuzzHandleFailureRetryPriority(f *testing.F) {
 				if p, ok := c.fields["priority"]; ok {
 					pInt, isInt := p.(int)
 					if !isInt {
-						t.Errorf("priority field is not int: %T", p)
+						assert.Failf(t, "test failure",
+
+							"priority field is not int: %T", p)
 						continue
 					}
-					if pInt > 10 {
-						t.Errorf("retry priority %d exceeds cap of 10 (input: priority=%d, boost=%d)", pInt, priority, boost)
-					}
+					assert.LessOrEqual(t, pInt,
+						10)
+
 				}
 			}
 		}
+		assert.Equal(t,
+			priority,
+			run.Priority)
 
 		// Original run must not be mutated.
-		if run.Priority != priority {
-			t.Errorf("run.Priority mutated from %d to %d", priority, run.Priority)
-		}
+
 	})
 }

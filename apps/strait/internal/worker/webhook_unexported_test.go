@@ -6,6 +6,8 @@ import (
 	"go/token"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSendWebhookWithClientUnexported pins the SSRF-safe-transport
@@ -30,9 +32,7 @@ func TestSendWebhookWithClientUnexported(t *testing.T) {
 	for _, f := range files {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, f.path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatalf("parse %s: %v", f.path, err)
-		}
+		require.NoError(t, err)
 
 		var sawTestHelper bool
 		for _, decl := range file.Decls {
@@ -44,21 +44,21 @@ func TestSendWebhookWithClientUnexported(t *testing.T) {
 			if !strings.Contains(name, "WithClient") {
 				continue
 			}
-			if ast.IsExported(name) {
-				t.Fatalf("%s: top-level function %q is exported. BYOC webhook senders MUST stay "+
-					"package-private to keep newSafeWebhookTransport on the only public delivery path.",
-					f.path, name)
-			}
+			require.False(t,
+				ast.IsExported(name))
+
 			if name == "sendWebhookWithClientForTest" {
-				if !f.allowTestHelper {
-					t.Fatalf("%s: sendWebhookWithClientForTest must live in webhook_client_test.go, "+
-						"not in a production .go file (it bypasses the SSRF-safe transport).", f.path)
-				}
+				require.True(t,
+					f.allowTestHelper,
+				)
+
 				sawTestHelper = true
 			}
 		}
-		if f.mustHaveTestImpl && !sawTestHelper {
-			t.Fatalf("%s: expected sendWebhookWithClientForTest definition", f.path)
-		}
+		require.False(t,
+			f.mustHaveTestImpl &&
+				!sawTestHelper,
+		)
+
 	}
 }

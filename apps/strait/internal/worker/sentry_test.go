@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/telemetry"
@@ -38,9 +39,8 @@ func TestWorkerSentryScopeAttachesDispatchRequestContext(t *testing.T) {
 		"execution_mode": string(domain.ExecutionModeHTTP),
 	})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-	}
+	require.NotNil(t,
+		event)
 
 	wantTags := map[string]string{
 		string(telemetry.TagSubsystem): "worker",
@@ -56,16 +56,19 @@ func TestWorkerSentryScopeAttachesDispatchRequestContext(t *testing.T) {
 		string(telemetry.TagRoute):     "POST /v1/jobs/{jobID}/trigger",
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(t,
+			want, event.
+				Tags[key])
+
 	}
-	if event.User.ID != "user-1" {
-		t.Fatalf("user id = %q, want user-1", event.User.ID)
-	}
-	if got := event.Contexts["dispatch.request"]["request_id"]; got != "req-1" {
-		t.Fatalf("dispatch request context request_id = %v, want req-1", got)
-	}
+	require.Equal(t,
+		"user-1",
+		event.User.
+			ID)
+	require.Equal(t,
+		"req-1",
+		event.Contexts["dispatch.request"]["request_id"])
+
 }
 
 func TestWorkerSentryCaptureContract(t *testing.T) {
@@ -79,9 +82,8 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 	}, 0)
 	opts.Transport = transport
 	client, err := sentry.NewClient(opts)
-	if err != nil {
-		t.Fatalf("new Sentry client: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	hub := sentry.NewHub(client, sentry.NewScope())
 	ctx := sentry.SetHubOnContext(context.Background(), hub)
@@ -120,9 +122,12 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 	})
 
 	event := transport.singleEvent(t)
-	if event.Release != "test-release" {
-		t.Fatalf("release = %q, want test-release", event.Release)
-	}
+	require.Equal(t,
+		"test-release",
+		event.
+			Release,
+	)
+
 	wantTags := map[string]string{
 		string(telemetry.TagSubsystem): "worker",
 		string(telemetry.TagMode):      "worker",
@@ -137,37 +142,50 @@ func TestWorkerSentryCaptureContract(t *testing.T) {
 		string(telemetry.TagRoute):     "POST /v1/jobs/{jobID}/trigger",
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(t,
+			want, event.
+				Tags[key])
+
 	}
-	if event.User.ID != "user-1" {
-		t.Fatalf("user id = %q, want user-1", event.User.ID)
-	}
-	if got := event.Contexts["dispatch.request"]["request_id"]; got != "req-1" {
-		t.Fatalf("dispatch request context request_id = %v, want req-1", got)
-	}
+	require.Equal(t,
+		"user-1",
+		event.User.
+			ID)
+	require.Equal(t,
+		"req-1",
+		event.Contexts["dispatch.request"]["request_id"])
+
 	if got, want := strings.Join(event.Fingerprint, "/"), "endpoint/5xx"; got != want {
-		t.Fatalf("fingerprint = %q, want %q", got, want)
+		require.Failf(t, "test failure",
+
+			"fingerprint = %q, want %q", got, want)
 	}
-	if len(event.Breadcrumbs) != 2 {
-		t.Fatalf("breadcrumbs = %d, want 2", len(event.Breadcrumbs))
-	}
+	require.Len(t, event.
+		Breadcrumbs,
+		2)
+
 	for _, breadcrumb := range event.Breadcrumbs {
-		if strings.Contains(breadcrumb.Message, "secret-token") {
-			t.Fatalf("breadcrumb leaked bearer token: %q", breadcrumb.Message)
-		}
+		require.False(t,
+			strings.Contains(breadcrumb.
+				Message, "secret-token",
+			))
+
 		if _, ok := breadcrumb.Data["authorization"]; ok {
-			t.Fatal("breadcrumb authorization data was not dropped")
+			require.Fail(t,
+
+				"breadcrumb authorization data was not dropped")
 		}
 	}
-	if len(event.Exception) == 0 {
-		t.Fatal("expected exception")
-	}
+	require.NotEmpty(t, event.
+		Exception)
+
 	for _, exception := range event.Exception {
-		if strings.Contains(exception.Value, "secret-token") {
-			t.Fatalf("exception was not redacted: %+v", event.Exception)
-		}
+		require.False(t,
+			strings.Contains(exception.
+				Value,
+				"secret-token",
+			))
+
 	}
 }
 

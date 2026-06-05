@@ -9,6 +9,9 @@ import (
 	"unicode/utf8"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzErrorHash verifies that errorHash never panics on arbitrary input and
@@ -28,22 +31,23 @@ func FuzzErrorHash(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		h1 := errorHash(input)
 		h2 := errorHash(input)
+		assert.Equal(t,
+			h2, h1)
+		assert.Len(t, h1,
+			16)
 
 		// Must be deterministic.
-		if h1 != h2 {
-			t.Errorf("non-deterministic: %q -> %q vs %q", input, h1, h2)
-		}
 
 		// Must always be 16 hex chars.
-		if len(h1) != 16 {
-			t.Errorf("expected 16-char hash, got %d: %q", len(h1), h1)
-		}
 
 		// Must be valid hex.
 		for _, c := range h1 {
-			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-				t.Errorf("non-hex char %q in hash %q", string(c), h1)
-			}
+			assert.False(t,
+				(c < '0' ||
+					c > '9') && (c <
+					'a' || c >
+					'f'))
+
 		}
 	})
 }
@@ -63,10 +67,9 @@ func FuzzErrorHashTruncation(f *testing.F) {
 
 		ha := errorHash(a)
 		hb := errorHash(b)
-		if ha != hb {
-			t.Errorf("same 200-char prefix but different hashes: suffixA=%q suffixB=%q hash=%q vs %q",
-				suffixA, suffixB, ha, hb)
-		}
+		assert.Equal(t,
+			hb, ha)
+
 	})
 }
 
@@ -89,19 +92,18 @@ func FuzzErrorHashRuneBoundary(f *testing.F) {
 		// Build a string of prefixLen runes + extra runes, then hash it.
 		input := strings.Repeat(runeStr, prefixLen+10)
 		h := errorHash(input)
-
-		if len(h) != 16 {
-			t.Errorf("expected 16-char hash, got %d for prefixLen=%d rune=%q", len(h), prefixLen, runeStr)
-		}
+		assert.Len(t, h,
+			16)
 
 		// If the input has > 200 runes, the hash should match the first-200-runes hash.
 		runes := []rune(input)
 		if len(runes) > 200 {
 			truncated := string(runes[:200])
 			hTrunc := errorHash(truncated)
-			if h != hTrunc {
-				t.Errorf("hash of full string != hash of first 200 runes: full=%q trunc=%q", h, hTrunc)
-			}
+			assert.Equal(t,
+				hTrunc,
+				h)
+
 		}
 	})
 }
@@ -171,49 +173,53 @@ func FuzzPoisonPillDetection(f *testing.F) {
 		exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 
 		calls := st.statusUpdates()
-		if len(calls) == 0 {
-			t.Fatal("expected at least one status update")
-		}
+		require.NotEmpty(t, calls)
+
 		last := calls[len(calls)-1]
+		assert.False(t,
+			last.to !=
+				domain.
+					StatusQueued &&
+				last.
+					to != domain.StatusDeadLetter,
+		)
 
 		// Invariant: status must be queued (retry) or dead_letter (terminal).
-		if last.to != domain.StatusQueued && last.to != domain.StatusDeadLetter {
-			t.Errorf("unexpected status %s for threshold=%d attempt=%d max=%d prevCount=%q",
-				last.to, threshold, attempt, maxAttempts, prevCount)
-		}
 
 		// Invariant: if retrying, attempt must be incremented.
 		if last.to == domain.StatusQueued {
 			nextAttempt, ok := last.fields["attempt"].(int)
-			if !ok {
-				t.Fatal("retry missing attempt field")
-			}
-			if nextAttempt != attempt+1 {
-				t.Errorf("expected next attempt %d, got %d", attempt+1, nextAttempt)
-			}
+			require.True(t,
+				ok)
+			assert.Equal(t,
+				attempt+
+					1, nextAttempt,
+			)
+
 		}
 
 		// Invariant: if metadata is present, hash and count must be valid.
 		if m, ok := last.fields["metadata"].(map[string]string); ok {
-			if m["_error_hash"] == "" {
-				t.Error("metadata present but _error_hash is empty")
-			}
-			if len(m["_error_hash"]) != 16 {
-				t.Errorf("_error_hash has wrong length: %d", len(m["_error_hash"]))
-			}
-			if m["_error_hash_count"] == "" {
-				t.Error("metadata present but _error_hash_count is empty")
-			}
+			assert.NotEqual(
+				t, "",
+				m["_error_hash"])
+			assert.Len(t, m["_error_hash"], 16)
+			assert.NotEqual(
+				t, "",
+				m["_error_hash_count"],
+			)
+			assert.True(t, isValidInt(m["_error_hash_count"]))
+
 			// Count must be a valid integer.
-			if !isValidInt(m["_error_hash_count"]) {
-				t.Errorf("_error_hash_count is not a valid integer: %q", m["_error_hash_count"])
-			}
+
 		}
 
 		// Invariant: if status is dead_letter, finished_at must be set.
 		if last.to == domain.StatusDeadLetter {
 			if _, ok := last.fields["finished_at"]; !ok {
-				t.Error("dead_letter missing finished_at")
+				assert.Fail(t,
+
+					"dead_letter missing finished_at")
 			}
 		}
 	})
@@ -268,19 +274,26 @@ func FuzzPoisonPillDifferentErrors(f *testing.F) {
 		hashB := errorHashForError(endpointB)
 
 		if hashA == hashB {
+			assert.Equal(t,
+				domain.
+					StatusDeadLetter,
+				last.
+					to)
+
 			// Same hash: count should be 2, which hits threshold=2 -> DLQ.
-			if last.to != domain.StatusDeadLetter {
-				t.Errorf("same hash but not DLQ: errA=%q errB=%q status=%s", errA, errB, last.to)
-			}
+
 		} else {
+			assert.Equal(t,
+				domain.
+					StatusQueued,
+				last.to)
+
 			// Different hash: count resets to 1, should retry.
-			if last.to != domain.StatusQueued {
-				t.Errorf("different hash but not retried: errA=%q errB=%q status=%s", errA, errB, last.to)
-			}
+
 			meta2, _ := last.fields["metadata"].(map[string]string)
-			if meta2["_error_hash_count"] != "1" {
-				t.Errorf("expected count reset to 1, got %q", meta2["_error_hash_count"])
-			}
+			assert.Equal(t,
+				"1", meta2["_error_hash_count"])
+
 		}
 	})
 }
@@ -299,24 +312,22 @@ func FuzzErrorHashInvalidUTF8(f *testing.F) {
 
 		// Must not panic.
 		h := errorHash(input)
-
-		if len(h) != 16 {
-			t.Errorf("expected 16-char hash, got %d for input bytes len=%d", len(h), len(raw))
-		}
+		assert.Len(t, h,
+			16)
+		assert.Equal(t,
+			errorHash(input),
+			h)
 
 		// Deterministic.
-		if h != errorHash(input) {
-			t.Error("non-deterministic hash for same input")
-		}
 
 		// If the string is valid UTF-8 and has > 200 runes, verify truncation.
 		if utf8.ValidString(input) {
 			runes := []rune(input)
 			if len(runes) > 200 {
 				truncated := string(runes[:200])
-				if errorHash(truncated) != h {
-					t.Error("valid UTF-8: hash of full string != hash of first 200 runes")
-				}
+				assert.Equal(t,
+					h, errorHash(truncated))
+
 			}
 		}
 	})

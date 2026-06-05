@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunTimingHelpers(t *testing.T) {
@@ -16,39 +18,31 @@ func TestRunTimingHelpers(t *testing.T) {
 		CreatedAt: createdAt,
 		StartedAt: &startedAt,
 	}
+	require.Equal(t,
+		400*time.
+			Millisecond, runQueueWaitUntil(run, createdAt.Add(400*time.Millisecond)))
+	require.Equal(t,
+		250*time.
+			Millisecond, runStartedQueueWait(run))
+	require.Equal(t,
+		175*time.
+			Millisecond, runDequeueDurationUntil(run, createdAt.Add(425*time.Millisecond)))
 
-	if got := runQueueWaitUntil(run, createdAt.Add(400*time.Millisecond)); got != 400*time.Millisecond {
-		t.Fatalf("runQueueWaitUntil() = %s, want 400ms", got)
-	}
-	if got := runStartedQueueWait(run); got != 250*time.Millisecond {
-		t.Fatalf("runStartedQueueWait() = %s, want 250ms", got)
-	}
-	if got := runDequeueDurationUntil(run, createdAt.Add(425*time.Millisecond)); got != 175*time.Millisecond {
-		t.Fatalf("runDequeueDurationUntil() = %s, want 175ms", got)
-	}
 }
 
 func TestRunTimingHelpersHandleMissingTimes(t *testing.T) {
 	t.Parallel()
-
-	if got := runQueueWaitUntil(nil, time.Now()); got != 0 {
-		t.Fatalf("nil run queue wait = %s, want 0", got)
-	}
-	if got := runStartedQueueWait(&domain.JobRun{}); got != 0 {
-		t.Fatalf("missing started_at queue wait = %s, want 0", got)
-	}
-	if got := runDequeueDurationUntil(&domain.JobRun{}, time.Now()); got != 0 {
-		t.Fatalf("missing started_at dequeue = %s, want 0", got)
-	}
+	require.EqualValues(t, 0, runQueueWaitUntil(nil, time.Now()))
+	require.EqualValues(t, 0, runStartedQueueWait(&domain.JobRun{}))
+	require.EqualValues(t, 0, runDequeueDurationUntil(&domain.
+		JobRun{}, time.Now()))
 
 	startedAt := time.Now()
 	run := &domain.JobRun{StartedAt: &startedAt}
-	if got := runQueueWaitUntil(run, time.Now()); got != 0 {
-		t.Fatalf("zero created_at queue wait = %s, want 0", got)
-	}
-	if got := runDequeueDurationUntil(run, time.Time{}); got != 0 {
-		t.Fatalf("zero end dequeue = %s, want 0", got)
-	}
+	require.EqualValues(t, 0, runQueueWaitUntil(run, time.Now()))
+	require.EqualValues(t, 0, runDequeueDurationUntil(run, time.
+		Time{}))
+
 }
 
 func TestRunTimingHelpersClampClockSkew(t *testing.T) {
@@ -60,14 +54,10 @@ func TestRunTimingHelpersClampClockSkew(t *testing.T) {
 		CreatedAt: createdAt,
 		StartedAt: &startedAt,
 	}
+	require.EqualValues(t, 0, runQueueWaitUntil(run, createdAt.
+		Add(-time.Millisecond)))
+	require.EqualValues(t, 0, runStartedQueueWait(run))
+	require.EqualValues(t, 0, runDequeueDurationUntil(run, startedAt.
+		Add(-time.Millisecond)))
 
-	if got := runQueueWaitUntil(run, createdAt.Add(-time.Millisecond)); got != 0 {
-		t.Fatalf("negative queue wait = %s, want 0", got)
-	}
-	if got := runStartedQueueWait(run); got != 0 {
-		t.Fatalf("negative started queue wait = %s, want 0", got)
-	}
-	if got := runDequeueDurationUntil(run, startedAt.Add(-time.Millisecond)); got != 0 {
-		t.Fatalf("negative dequeue = %s, want 0", got)
-	}
 }

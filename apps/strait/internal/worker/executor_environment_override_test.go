@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
@@ -27,14 +29,16 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	defer overrideServer.Close()
 
 	originalServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("original server should not be called when override is active")
+		require.Fail(t,
+
+			"original server should not be called when override is active")
 	}))
 	defer originalServer.Close()
 
 	overrideParsed, err := url.Parse(overrideServer.URL)
-	if err != nil {
-		t.Fatalf("parse override server url: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	overrideURL := "http://example.com" + ":" + overrideParsed.Port()
 
 	transport := overrideServer.Client().Transport.(*http.Transport).Clone()
@@ -51,9 +55,10 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 		return job, nil
 	}
 	store.getResolvedEnvVarsFn = func(_ context.Context, id string) (map[string]string, error) {
-		if id != "env-1" {
-			t.Fatalf("unexpected environment ID: %q", id)
-		}
+		require.Equal(t,
+			"env-1",
+			id)
+
 		return map[string]string{"ENDPOINT_URL": overrideURL}, nil
 	}
 
@@ -63,15 +68,16 @@ func TestExecutor_EnvironmentOverride_Success(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-	if !overrideCalled {
-		t.Fatal("override server should have been called")
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+	require.True(t,
+		overrideCalled,
+	)
+
 }
 
 func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing.T) {
@@ -94,9 +100,9 @@ func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing
 	defer originalServer.Close()
 
 	overrideParsed, err := url.Parse(overrideServer.URL)
-	if err != nil {
-		t.Fatalf("parse override server url: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	overrideURL := "http://example.com" + ":" + overrideParsed.Port()
 
 	store := &mockExecutorStore{}
@@ -106,15 +112,19 @@ func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing
 		return job, nil
 	}
 	store.getResolvedEnvVarsFn = func(_ context.Context, id string) (map[string]string, error) {
-		if id != "env-1" {
-			t.Fatalf("unexpected environment ID: %q", id)
-		}
+		require.Equal(t,
+			"env-1",
+			id)
+
 		return map[string]string{"ENDPOINT_URL": overrideURL}, nil
 	}
 	store.listSecretsFn = func(_ context.Context, jobID, environment string) ([]domain.JobSecret, error) {
-		if jobID != "job-1" || environment != "env-1" {
-			t.Fatalf("unexpected secret scope: job_id=%q environment=%q", jobID, environment)
-		}
+		require.False(t,
+			jobID !=
+				"job-1" ||
+				environment !=
+					"env-1")
+
 		return []domain.JobSecret{{SecretKey: "API_KEY", EncryptedValue: "super-secret"}}, nil
 	}
 
@@ -124,17 +134,20 @@ func TestExecutor_EnvironmentOverride_WithSecretsUsesOriginalEndpoint(t *testing
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-	if overrideCalled.Load() {
-		t.Fatal("override endpoint received dispatch despite job secrets")
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+	require.False(t,
+		overrideCalled.
+			Load())
+
 	if got, _ := originalSecretHeader.Load().(string); got != "super-secret" {
-		t.Fatalf("original endpoint secret header = %q, want super-secret", got)
+		require.Failf(t, "test failure",
+
+			"original endpoint secret header = %q, want super-secret", got)
 	}
 }
 
@@ -164,12 +177,13 @@ func TestExecutor_EnvironmentOverride_ErrorFallsBackToOriginal(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }
 
 func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
@@ -199,13 +213,15 @@ func TestExecutor_EnvironmentOverride_SSRFBlocked(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 	// Should complete using original endpoint, not the blocked override.
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+
 }
 
 func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
@@ -234,10 +250,11 @@ func TestExecutor_EnvironmentOverride_EmptyValueKeepsOriginal(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }

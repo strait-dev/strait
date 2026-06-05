@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
@@ -39,14 +40,11 @@ func TestCompletion_HugeResultPayload(t *testing.T) {
 	exec.handleSuccess(context.Background(), run, job, bigResult)
 
 	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+	require.NotEmpty(t, calls)
 
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
+	require.NotEmpty(t, events)
+
 }
 
 // TestCompletion_NullResultPayload verifies that handleSuccess handles a nil
@@ -70,17 +68,14 @@ func TestCompletion_NullResultPayload(t *testing.T) {
 	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+	require.NotEmpty(t, calls)
 
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
-	if events[0].Type != EventCompleted {
-		t.Fatalf("expected EventCompleted, got %s", events[0].Type)
-	}
+	require.NotEmpty(t, events)
+	require.Equal(t,
+		EventCompleted,
+		events[0].Type)
+
 }
 
 // TestCompletion_ResultWithNullBytes verifies that result payloads containing
@@ -105,14 +100,11 @@ func TestCompletion_ResultWithNullBytes(t *testing.T) {
 	exec.handleSuccess(context.Background(), run, job, result)
 
 	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+	require.NotEmpty(t, calls)
 
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
+	require.NotEmpty(t, events)
+
 }
 
 // TestCompletion_ConcurrentCompletionAndTimeout verifies that concurrent
@@ -151,9 +143,8 @@ func TestCompletion_ConcurrentCompletionAndTimeout(t *testing.T) {
 
 	// Must not panic. At least one event should be emitted.
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event from concurrent completion/timeout")
-	}
+	require.NotEmpty(t, events)
+
 }
 
 // TestCompletion_WebhookCallbackFailure verifies that when the webhook path
@@ -173,16 +164,14 @@ func TestCompletion_WebhookCallbackFailure(t *testing.T) {
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{"finished_at": time.Now()})
-
-	if err == nil {
-		t.Fatal("expected error from tx begin failure")
-	}
+	require.Error(t,
+		err)
 
 	// The plain store path should not have been used.
 	calls := store.statusUpdates()
-	if len(calls) != 0 {
-		t.Fatalf("expected 0 plain store calls, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		0)
+
 }
 
 // TestCompletion_MetricsOverflow verifies that handleSuccess does not panic
@@ -209,9 +198,7 @@ func TestCompletion_MetricsOverflow(t *testing.T) {
 	exec.handleSuccess(context.Background(), run, job, nil)
 
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
+	require.NotEmpty(t, events)
 
 	// Verify no NaN or Inf leaked out.
 	_ = math.MaxFloat64
@@ -231,12 +218,16 @@ func TestSnooze_NegativeDuration(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "negative duration test", &pastTime)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
-	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
-		t.Fatalf("expected Dequeued->Queued, got %s->%s", calls[0].from, calls[0].to)
-	}
+	require.Len(t, calls,
+		1)
+	require.False(t,
+		calls[0].from !=
+			domain.
+				StatusDequeued ||
+			calls[0].to !=
+				domain.
+					StatusQueued)
+
 }
 
 // TestSnooze_PastTimestamp verifies that a snooze with an explicitly past
@@ -253,9 +244,9 @@ func TestSnooze_PastTimestamp(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "past timestamp test", &pastTime)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		1)
+
 }
 
 // TestSnooze_MaxTimestamp verifies that snoozing with a year-9999 timestamp
@@ -272,20 +263,20 @@ func TestSnooze_MaxTimestamp(t *testing.T) {
 	exec.snoozeRun(context.Background(), run, "max timestamp test", &farFuture)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		1)
 
 	if _, ok := calls[0].fields["next_retry_at"]; ok {
-		t.Fatalf("next_retry_at must not be in fields map; retry schedule lives in job_retries")
+		require.Failf(t, "test failure",
+
+			"next_retry_at must not be in fields map; retry schedule lives in job_retries")
 	}
 	scheduled := store.scheduleRetries()
-	if len(scheduled) != 1 {
-		t.Fatalf("expected 1 ScheduleRetry call, got %d", len(scheduled))
-	}
-	if !scheduled[0].at.Equal(farFuture) {
-		t.Fatalf("expected ScheduleRetry at = %v, got %v", farFuture, scheduled[0].at)
-	}
+	require.Len(t, scheduled,
+		1)
+	require.True(t,
+		scheduled[0].at.Equal(farFuture))
+
 }
 
 // TestSnooze_ConcurrentSnoozeAndResume verifies that concurrent snooze and
@@ -309,9 +300,9 @@ func TestSnooze_ConcurrentSnoozeAndResume(t *testing.T) {
 	wg.Wait()
 
 	calls := store.statusUpdates()
-	if len(calls) != 20 {
-		t.Fatalf("expected 20 status updates, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		20)
+
 }
 
 // TestMiddleware_EmptyChain verifies that Chain with an empty middleware slice
@@ -323,10 +314,9 @@ func TestMiddleware_EmptyChain(t *testing.T) {
 	handler := func(_ context.Context, _ *ExecutionContext) { called = true }
 
 	Chain()(handler)(context.Background(), &ExecutionContext{})
+	require.True(t,
+		called)
 
-	if !called {
-		t.Fatal("handler was not called with empty chain")
-	}
 }
 
 // TestMiddleware_PanicInHandler verifies that a panic in a middleware is
@@ -342,18 +332,21 @@ func TestMiddleware_PanicInHandler(t *testing.T) {
 	}
 
 	handler := func(_ context.Context, _ *ExecutionContext) {
-		t.Fatal("handler should not be reached after panic")
+		require.Fail(t,
+
+			"handler should not be reached after panic")
 	}
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic to propagate")
-		}
+		require.NotNil(t,
+			r)
+
 		msg, ok := r.(string)
-		if !ok || msg != "middleware exploded" {
-			t.Fatalf("unexpected panic value: %v", r)
-		}
+		require.False(t,
+			!ok || msg != "middleware exploded",
+		)
+
 	}()
 
 	Chain(panicMW)(handler)(context.Background(), &ExecutionContext{
@@ -370,9 +363,9 @@ func TestMiddleware_NilMiddleware(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic from nil middleware")
-		}
+		require.NotNil(t,
+			r)
+
 	}()
 
 	// A nil ExecutionMiddleware will panic when called.
@@ -415,9 +408,8 @@ func TestMiddleware_ConcurrentExecution(t *testing.T) {
 		seen++
 		return true
 	})
-	if seen == 0 {
-		t.Fatal("expected at least one run to be recorded")
-	}
+	require.NotEqual(t, 0, seen)
+
 }
 
 // FuzzMiddlewareChain fuzzes the number and ordering of middleware to verify
@@ -460,9 +452,11 @@ func FuzzMiddlewareChain(f *testing.F) {
 			Run:   &domain.JobRun{ID: "fuzz-run"},
 			Start: time.Now(),
 		})
+		require.False(t,
+			!shortCircuit &&
+				count ==
+					0 && !handlerCalled,
+		)
 
-		if !shortCircuit && count == 0 && !handlerCalled {
-			t.Fatal("handler should be called with empty chain and no short-circuit")
-		}
 	})
 }

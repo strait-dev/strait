@@ -5,17 +5,19 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCircuitBreaker_StartsInClosedState(t *testing.T) {
 	t.Parallel()
 	cb := NewCircuitBreaker(CircuitBreakerConfig{FailureThreshold: 3, OpenDuration: time.Minute})
-	if cb.State() != circuitClosed {
-		t.Fatalf("initial state = %q, want %q", cb.State(), circuitClosed)
-	}
-	if !cb.Allow() {
-		t.Fatal("Allow() = false in closed state, want true")
-	}
+	require.Equal(t,
+		circuitClosed,
+
+		cb.State())
+	require.True(t,
+		cb.Allow())
+
 }
 
 func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
@@ -24,17 +26,19 @@ func TestCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 
 	cb.RecordFailure()
 	cb.RecordFailure()
-	if cb.State() != circuitClosed {
-		t.Fatalf("state after 2 failures = %q, want %q", cb.State(), circuitClosed)
-	}
+	require.Equal(t,
+		circuitClosed,
+
+		cb.State())
 
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("state after 3 failures = %q, want %q", cb.State(), circuitOpen)
-	}
-	if cb.Allow() {
-		t.Fatal("Allow() = true in open state, want false")
-	}
+	require.Equal(t,
+		circuitOpen,
+
+		cb.State())
+	require.False(t,
+		cb.Allow())
+
 }
 
 func TestCircuitBreaker_SuccessResetsFailureCount(t *testing.T) {
@@ -44,15 +48,15 @@ func TestCircuitBreaker_SuccessResetsFailureCount(t *testing.T) {
 	cb.RecordFailure()
 	cb.RecordFailure()
 	cb.RecordSuccess()
-	if cb.ConsecutiveFailures() != 0 {
-		t.Fatalf("consecutive failures after success = %d, want 0", cb.ConsecutiveFailures())
-	}
+	require.EqualValues(t, 0, cb.ConsecutiveFailures())
 
 	cb.RecordFailure()
 	cb.RecordFailure()
-	if cb.State() != circuitClosed {
-		t.Fatalf("state after reset+2 = %q, want %q", cb.State(), circuitClosed)
-	}
+	require.Equal(t,
+		circuitClosed,
+
+		cb.State())
+
 }
 
 func TestCircuitBreaker_TransitionsToHalfOpenAfterCooldown(t *testing.T) {
@@ -62,22 +66,23 @@ func TestCircuitBreaker_TransitionsToHalfOpenAfterCooldown(t *testing.T) {
 	cb.now = func() time.Time { return now }
 
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("state = %q, want %q", cb.State(), circuitOpen)
-	}
+	require.Equal(t,
+		circuitOpen,
+
+		cb.State())
 
 	cb.now = func() time.Time { return now.Add(30 * time.Second) }
-	if cb.Allow() {
-		t.Fatal("Allow() = true before cooldown elapsed, want false")
-	}
+	require.False(t,
+		cb.Allow())
 
 	cb.now = func() time.Time { return now.Add(61 * time.Second) }
-	if !cb.Allow() {
-		t.Fatal("Allow() = false after cooldown elapsed, want true")
-	}
-	if cb.State() != circuitHalfOpen {
-		t.Fatalf("state = %q, want %q", cb.State(), circuitHalfOpen)
-	}
+	require.True(t,
+		cb.Allow())
+	require.Equal(t,
+		circuitHalfOpen,
+
+		cb.State())
+
 }
 
 func TestCircuitBreaker_HalfOpenClosesOnSuccess(t *testing.T) {
@@ -91,9 +96,11 @@ func TestCircuitBreaker_HalfOpenClosesOnSuccess(t *testing.T) {
 	cb.Allow()
 
 	cb.RecordSuccess()
-	if cb.State() != circuitClosed {
-		t.Fatalf("state after half-open success = %q, want %q", cb.State(), circuitClosed)
-	}
+	require.Equal(t,
+		circuitClosed,
+
+		cb.State())
+
 }
 
 func TestCircuitBreaker_HalfOpenReopensOnFailure(t *testing.T) {
@@ -107,37 +114,45 @@ func TestCircuitBreaker_HalfOpenReopensOnFailure(t *testing.T) {
 	cb.Allow()
 
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("state after half-open failure = %q, want %q", cb.State(), circuitOpen)
-	}
+	require.Equal(t,
+		circuitOpen,
+
+		cb.State())
+
 }
 
 func TestCircuitBreaker_Reset(t *testing.T) {
 	t.Parallel()
 	cb := NewCircuitBreaker(CircuitBreakerConfig{FailureThreshold: 1, OpenDuration: time.Minute})
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("state = %q, want %q", cb.State(), circuitOpen)
-	}
+	require.Equal(t,
+		circuitOpen,
+
+		cb.State())
 
 	cb.Reset()
-	if cb.State() != circuitClosed {
-		t.Fatalf("state after reset = %q, want %q", cb.State(), circuitClosed)
-	}
-	if cb.ConsecutiveFailures() != 0 {
-		t.Fatalf("failures after reset = %d, want 0", cb.ConsecutiveFailures())
-	}
+	require.Equal(t,
+		circuitClosed,
+
+		cb.State())
+	require.EqualValues(t, 0, cb.ConsecutiveFailures())
+
 }
 
 func TestCircuitBreaker_DefaultConfig(t *testing.T) {
 	t.Parallel()
 	cb := NewCircuitBreaker(CircuitBreakerConfig{})
-	if cb.threshold != defaultCircuitFailureThreshold {
-		t.Fatalf("threshold = %d, want %d", cb.threshold, defaultCircuitFailureThreshold)
-	}
-	if cb.openDuration != defaultCircuitOpenDuration {
-		t.Fatalf("openDuration = %v, want %v", cb.openDuration, defaultCircuitOpenDuration)
-	}
+	require.Equal(t,
+		defaultCircuitFailureThreshold,
+
+		cb.threshold,
+	)
+	require.Equal(t,
+		defaultCircuitOpenDuration,
+
+		cb.openDuration,
+	)
+
 }
 
 func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
@@ -159,7 +174,10 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	state := cb.State()
-	if state != circuitClosed && state != circuitOpen && state != circuitHalfOpen {
-		t.Fatalf("invalid state %q after concurrent access", state)
-	}
+	require.False(t,
+		state !=
+
+			circuitClosed && state != circuitOpen &&
+			state != circuitHalfOpen)
+
 }

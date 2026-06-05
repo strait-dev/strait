@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -63,19 +65,19 @@ func TestTraceChain(t *testing.T) {
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least one span from middleware")
-		}
+		require.NotEmpty(t, spans)
+
 		mwSpan := spans[len(spans)-1]
-		if mwSpan.SpanContext.TraceID().String() != traceID {
-			t.Errorf("middleware span trace ID = %s, want %s", mwSpan.SpanContext.TraceID().String(), traceID)
-		}
+		assert.Equal(t,
+			traceID,
+			mwSpan.SpanContext.
+				TraceID().String())
 
 		// Verify that the inner context carries the correct trace.
 		innerSC := otelTrace.SpanFromContext(innerCtx).SpanContext()
-		if innerSC.TraceID().String() != traceID {
-			t.Errorf("inner context trace ID = %s, want %s", innerSC.TraceID().String(), traceID)
-		}
+		assert.Equal(t,
+			traceID,
+			innerSC.TraceID().String())
 
 		// Verify dispatchToEndpoint sets the Traceparent header with the same trace ID.
 		var mu sync.Mutex
@@ -91,17 +93,15 @@ func TestTraceChain(t *testing.T) {
 
 		e := &Executor{httpClient: srv.Client()}
 		_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-		if err != nil {
-			t.Fatalf("dispatchToEndpoint error: %v", err)
-		}
+		require.NoError(
+			t, err)
 
 		mu.Lock()
 		gotTP := capturedHeaders.Get("Traceparent")
 		mu.Unlock()
+		assert.True(t, strings.Contains(gotTP,
+			traceID))
 
-		if !strings.Contains(gotTP, traceID) {
-			t.Errorf("HTTP Traceparent = %q, want it to contain trace ID %s", gotTP, traceID)
-		}
 	})
 
 	t.Run("NoTraceContext_NoLeaks", func(t *testing.T) {
@@ -122,15 +122,15 @@ func TestTraceChain(t *testing.T) {
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected middleware to create a span even without trace context")
-		}
+		require.NotEmpty(t, spans)
 
 		// The span should be a root (no remote parent).
 		mwSpan := spans[len(spans)-1]
-		if mwSpan.Parent.IsValid() && mwSpan.Parent.IsRemote() {
-			t.Error("expected root span when no _trace_parent is set, but got a remote parent")
-		}
+		assert.False(t,
+			mwSpan.
+				Parent.IsValid() && mwSpan.Parent.
+				IsRemote(),
+		)
 
 		// dispatchToEndpoint should NOT set Traceparent header when metadata has no _trace_parent.
 		var mu sync.Mutex
@@ -146,17 +146,16 @@ func TestTraceChain(t *testing.T) {
 
 		e := &Executor{httpClient: srv.Client()}
 		_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-		if err != nil {
-			t.Fatalf("dispatchToEndpoint error: %v", err)
-		}
+		require.NoError(
+			t, err)
 
 		mu.Lock()
 		gotTP := capturedHeaders.Get("Traceparent")
 		mu.Unlock()
+		assert.Equal(t,
+			"", gotTP,
+		)
 
-		if gotTP != "" {
-			t.Errorf("expected no Traceparent header, got %q", gotTP)
-		}
 	})
 
 	t.Run("SpanParentChild", func(t *testing.T) {
@@ -186,19 +185,22 @@ func TestTraceChain(t *testing.T) {
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least one span")
-		}
+		require.NotEmpty(t, spans)
+
 		mwSpan := spans[len(spans)-1]
+		assert.Equal(t,
+			parentSpanID,
+			mwSpan.
+				Parent.SpanID().String())
+		assert.Equal(t,
+			traceID,
+			mwSpan.SpanContext.
+				TraceID().String())
 
 		// The created span's parent should have the span ID from the traceparent.
-		if mwSpan.Parent.SpanID().String() != parentSpanID {
-			t.Errorf("span parent span ID = %s, want %s", mwSpan.Parent.SpanID().String(), parentSpanID)
-		}
+
 		// The span should share the same trace ID.
-		if mwSpan.SpanContext.TraceID().String() != traceID {
-			t.Errorf("span trace ID = %s, want %s", mwSpan.SpanContext.TraceID().String(), traceID)
-		}
+
 	})
 
 	t.Run("MultipleWorkflowSteps", func(t *testing.T) {
@@ -227,24 +229,26 @@ func TestTraceChain(t *testing.T) {
 		}
 
 		spans := exporter.GetSpans()
-		if len(spans) != 3 {
-			t.Fatalf("expected 3 spans, got %d", len(spans))
-		}
+		require.Len(t, spans,
+			3,
+		)
 
 		// All 3 spans should have the same trace ID.
-		for i, s := range spans {
-			if s.SpanContext.TraceID().String() != traceID {
-				t.Errorf("span[%d] trace ID = %s, want %s", i, s.SpanContext.TraceID().String(), traceID)
-			}
+		for _, s := range spans {
+			assert.Equal(t,
+				traceID,
+				s.SpanContext.
+					TraceID().String())
+
 		}
 
 		// All 3 spans should have DIFFERENT span IDs.
 		seen := make(map[string]bool)
-		for i, s := range spans {
+		for _, s := range spans {
 			sid := s.SpanContext.SpanID().String()
-			if seen[sid] {
-				t.Errorf("span[%d] has duplicate span ID %s", i, sid)
-			}
+			assert.False(t,
+				seen[sid])
+
 			seen[sid] = true
 		}
 	})
@@ -293,20 +297,24 @@ func TestTraceAdversarial(t *testing.T) {
 		// Go's net/http rejects header values containing \r\n entirely,
 		// so either the request fails (safe) or the header is sanitized (also safe).
 		if err != nil {
+			require.True(t,
+				strings.Contains(err.
+					Error(), "invalid header",
+				))
+
 			// The request was rejected before being sent -- CRLF injection prevented.
-			if !strings.Contains(err.Error(), "invalid header") {
-				t.Fatalf("unexpected error (expected header rejection): %v", err)
-			}
+
 			return
 		}
 
 		mu.Lock()
 		defer mu.Unlock()
+		assert.Equal(t,
+			"", capturedHeaders.
+				Get("X-Evil"))
 
 		// If the request somehow went through, X-Evil must NOT appear.
-		if capturedHeaders.Get("X-Evil") != "" {
-			t.Error("X-Evil header was injected via CRLF in Traceparent value")
-		}
+
 	})
 
 	t.Run("OverlongTraceparent", func(t *testing.T) {
@@ -332,15 +340,15 @@ func TestTraceAdversarial(t *testing.T) {
 		handler(context.Background(), &ExecutionContext{Run: run, Job: &domain.Job{EndpointURL: "http://example.com"}})
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected middleware to create a span even with overlong traceparent")
-		}
+		require.NotEmpty(t, spans)
 
 		// The span should be a root (OTel should reject the invalid traceparent).
 		mwSpan := spans[len(spans)-1]
-		if mwSpan.Parent.IsValid() && mwSpan.Parent.IsRemote() {
-			t.Error("expected root span with overlong traceparent, but got a remote parent")
-		}
+		assert.False(t,
+			mwSpan.
+				Parent.IsValid() && mwSpan.Parent.
+				IsRemote(),
+		)
 
 		// dispatchToEndpoint should not panic with overlong value.
 		var mu sync.Mutex
@@ -356,18 +364,18 @@ func TestTraceAdversarial(t *testing.T) {
 
 		e := &Executor{httpClient: srv.Client()}
 		_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-		if err != nil {
-			t.Fatalf("dispatchToEndpoint error: %v", err)
-		}
+		require.NoError(
+			t, err)
 
 		mu.Lock()
 		gotTP := capturedHeaders.Get("Traceparent")
 		mu.Unlock()
+		assert.Equal(t,
+			overlong,
+			gotTP)
 
 		// The header is set (HTTP allows long headers); just verify no panic occurred.
-		if gotTP != overlong {
-			t.Errorf("expected Traceparent to be the overlong value (len %d), got len %d", len(overlong), len(gotTP))
-		}
+
 	})
 
 	t.Run("NullBytesInMetadata", func(t *testing.T) {
@@ -427,28 +435,36 @@ func TestTraceAdversarial(t *testing.T) {
 
 		e := &Executor{httpClient: srv.Client()}
 		_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-		if err != nil {
-			t.Fatalf("dispatchToEndpoint error: %v", err)
-		}
+		require.NoError(
+			t, err)
 
 		mu.Lock()
 		defer mu.Unlock()
+		assert.NotEqual(
+			t, "",
+			capturedHeaders.
+				Get("Traceparent"))
+		assert.NotEqual(
+			t, "",
+			capturedHeaders.
+				Get("Tracestate"),
+		)
 
 		// Traceparent and Tracestate should be present.
-		if capturedHeaders.Get("Traceparent") == "" {
-			t.Error("expected Traceparent header to be set")
-		}
-		if capturedHeaders.Get("Tracestate") == "" {
-			t.Error("expected Tracestate header to be set")
-		}
 
 		// No other metadata keys should appear as headers.
 		// Check that _internal_key and user_key did not leak.
 		for key := range capturedHeaders {
 			lower := strings.ToLower(key)
-			if lower == "_internal_key" || lower == "user_key" || lower == "x-internal-key" || lower == "x-user-key" {
-				t.Errorf("metadata key leaked as HTTP header: %s = %s", key, capturedHeaders.Get(key))
-			}
+			assert.False(t,
+				lower ==
+					"_internal_key" ||
+					lower == "user_key" ||
+					lower ==
+						"x-internal-key" ||
+					lower == "x-user-key",
+			)
+
 		}
 
 		// Verify only expected headers are present (Content-Type, X-Run-ID, X-Job-ID,
@@ -466,9 +482,8 @@ func TestTraceAdversarial(t *testing.T) {
 			"Host":            true,
 		}
 		for key := range capturedHeaders {
-			if !allowedHeaders[key] {
-				t.Errorf("unexpected header in dispatch request: %s = %s", key, capturedHeaders.Get(key))
-			}
+			assert.True(t, allowedHeaders[key])
+
 		}
 	})
 }

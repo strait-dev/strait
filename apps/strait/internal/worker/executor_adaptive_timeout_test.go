@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
@@ -35,15 +37,16 @@ func TestExecutor_AdaptiveTimeout_UsesP95WhenHigherThanStatic(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
-	if calls[1].to == domain.StatusTimedOut {
-		t.Fatal("run timed out with adaptive timeout enabled, want completed")
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+	require.NotEqual(t, domain.
+		StatusTimedOut,
+		calls[1].to)
+
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
@@ -69,12 +72,13 @@ func TestExecutor_AdaptiveTimeout_FallsBackToStaticWhenP95Lower(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }
 
 func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
@@ -100,10 +104,11 @@ func TestExecutor_AdaptiveTimeout_FallsBackOnError(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[1].to != domain.StatusCompleted {
-		t.Fatalf("final status = %s, want %s", calls[1].to, domain.StatusCompleted)
-	}
+	require.Len(t, calls,
+		2)
+	require.Equal(t,
+		domain.StatusCompleted,
+
+		calls[1].to)
+
 }

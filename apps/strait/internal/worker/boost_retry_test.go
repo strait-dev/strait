@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -38,9 +40,8 @@ func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 5 {
-		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
-	}
+	require.EqualValues(t, 5, gotPriority)
+
 }
 
 func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
@@ -66,9 +67,8 @@ func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
@@ -119,9 +119,8 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 1 {
-		t.Fatalf("expected priority=1 (0+1 default boost), got %d", gotPriority)
-	}
+	require.EqualValues(t, 1, gotPriority)
+
 }
 
 func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
@@ -147,9 +146,8 @@ func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
@@ -175,9 +173,8 @@ func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority=10 (8+2 exactly at max), got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleFailure_LargeBoostValue(t *testing.T) {
@@ -203,9 +200,8 @@ func TestHandleFailure_LargeBoostValue(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority=10 (0+10 capped at max), got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
@@ -231,9 +227,8 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 3 {
-		t.Fatalf("expected priority=3 (2+1), got %d", gotPriority)
-	}
+	require.EqualValues(t, 3, gotPriority)
+
 }
 
 func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
@@ -259,7 +254,9 @@ func TestHandleFailure_BoostNotAppliedWhenPoisonPill(t *testing.T) {
 
 	last := requireLastStatusUpdateTo(t, store.statusUpdates(), domain.StatusDeadLetter)
 	if _, ok := last.fields["priority"]; ok {
-		t.Error("expected no priority field when poison pill triggers")
+		assert.Fail(t,
+
+			"expected no priority field when poison pill triggers")
 	}
 }
 
@@ -280,9 +277,8 @@ func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 5 {
-		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
-	}
+	require.EqualValues(t, 5, gotPriority)
+
 }
 
 func TestHandleFailure_BoostNotAppliedOnLastAttempt(t *testing.T) {
@@ -358,9 +354,8 @@ func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 5 {
-		t.Fatalf("expected priority=5 (3+2), got %d", gotPriority)
-	}
+	require.EqualValues(t, 5, gotPriority)
+
 }
 
 func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
@@ -379,9 +374,8 @@ func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority capped at 10, got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleTimeout_ZeroBoostNoChange(t *testing.T) {
@@ -418,9 +412,8 @@ func TestHandleTimeout_BoostFromMaxPriority(t *testing.T) {
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority=10 (already at max), got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleTimeout_BoostNotAppliedOnLastAttempt(t *testing.T) {
@@ -470,9 +463,11 @@ func TestHandleFailure_CumulativeBoostAcrossRetries(t *testing.T) {
 		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 		gotPriority := requireRetryPriority(t, store.statusUpdates())
-		if gotPriority != expected {
-			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
-		}
+		require.Equal(t,
+			expected,
+			gotPriority,
+		)
+
 		priority = gotPriority
 	}
 }
@@ -502,9 +497,11 @@ func TestHandleFailure_CumulativeBoostWithBoostOne(t *testing.T) {
 		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 		gotPriority := requireRetryPriority(t, store.statusUpdates())
-		if gotPriority != expected {
-			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
-		}
+		require.Equal(t,
+			expected,
+			gotPriority,
+		)
+
 		priority = gotPriority
 	}
 }
@@ -534,9 +531,11 @@ func TestHandleTimeout_CumulativeBoostAcrossRetries(t *testing.T) {
 		exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 		gotPriority := requireRetryPriority(t, store.statusUpdates())
-		if gotPriority != expected {
-			t.Fatalf("attempt %d: expected priority=%d, got %d", i+1, expected, gotPriority)
-		}
+		require.Equal(t,
+			expected,
+			gotPriority,
+		)
+
 		priority = gotPriority
 	}
 }
@@ -560,9 +559,8 @@ func TestHandleFailure_BoostWithMaxIntPriority(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
-	if gotPriority != 10 {
-		t.Fatalf("expected priority capped at 10 even with MaxInt input, got %d", gotPriority)
-	}
+	require.EqualValues(t, 10, gotPriority)
+
 }
 
 func TestHandleFailure_BoostDoesNotMutateOriginalRun(t *testing.T) {
@@ -580,11 +578,10 @@ func TestHandleFailure_BoostDoesNotMutateOriginalRun(t *testing.T) {
 	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com", RetryPriorityBoost: 5, MaxAttempts: 3}
 	policy := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+	require.EqualValues(t, 3, run.Priority)
 
 	// The in-memory run struct should NOT be mutated
-	if run.Priority != 3 {
-		t.Fatalf("expected run.Priority to remain 3 (not mutated), got %d", run.Priority)
-	}
+
 }
 
 func TestHandleTimeout_BoostFieldsMapIsolation(t *testing.T) {
@@ -617,15 +614,12 @@ func TestHandleTimeout_BoostFieldsMapIsolation(t *testing.T) {
 			}
 		}
 	}
-	if len(priorities) != 2 {
-		t.Fatalf("expected 2 retry calls with priority, got %d", len(priorities))
-	}
-	if priorities[0] != 2 {
-		t.Fatalf("first retry: expected priority=2 (0+2), got %d", priorities[0])
-	}
-	if priorities[1] != 7 {
-		t.Fatalf("second retry: expected priority=7 (5+2), got %d", priorities[1])
-	}
+	require.Len(t, priorities,
+
+		2)
+	require.EqualValues(t, 2, priorities[0])
+	require.EqualValues(t, 7, priorities[1])
+
 }
 
 func TestHandleFailure_NegativePriorityWithBoost(t *testing.T) {
@@ -646,10 +640,10 @@ func TestHandleFailure_NegativePriorityWithBoost(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 	gotPriority := requireRetryPriority(t, store.statusUpdates())
+	require.EqualValues(t, -2, gotPriority)
+
 	// -5 + 3 = -2, which is < 10 so min returns -2.
-	if gotPriority != -2 {
-		t.Fatalf("expected priority=-2 (-5+3), got %d", gotPriority)
-	}
+
 }
 
 func TestHandleFailure_BoostWithStoreError(t *testing.T) {
@@ -674,11 +668,10 @@ func TestHandleFailure_BoostWithStoreError(t *testing.T) {
 
 	// Should not panic even when store fails.
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
+	require.EqualValues(t, 3, run.Priority)
 
 	// Verify the original run struct is not mutated despite error.
-	if run.Priority != 3 {
-		t.Fatalf("expected run.Priority to remain 3 after store error, got %d", run.Priority)
-	}
+
 }
 
 func TestHandleTimeout_BoostWithStoreError(t *testing.T) {
@@ -702,10 +695,8 @@ func TestHandleTimeout_BoostWithStoreError(t *testing.T) {
 
 	// Should not panic.
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
+	require.EqualValues(t, 3, run.Priority)
 
-	if run.Priority != 3 {
-		t.Fatalf("expected run.Priority to remain 3 after store error, got %d", run.Priority)
-	}
 }
 
 func TestHandleFailure_BoostConsistencyBetweenFailureAndTimeout(t *testing.T) {
@@ -745,13 +736,13 @@ func TestHandleFailure_BoostConsistencyBetweenFailureAndTimeout(t *testing.T) {
 			break
 		}
 	}
+	require.Equal(t,
+		timeoutPriority,
 
-	if failurePriority != timeoutPriority {
-		t.Fatalf("failure and timeout produced different priorities: failure=%d, timeout=%d", failurePriority, timeoutPriority)
-	}
-	if failurePriority != 7 {
-		t.Fatalf("expected priority=7 (4+3), got %d", failurePriority)
-	}
+		failurePriority,
+	)
+	require.EqualValues(t, 7, failurePriority)
+
 }
 
 func TestHandleFailure_RapidSequentialRetriesNoDataRace(t *testing.T) {
@@ -788,12 +779,12 @@ func TestHandleFailure_RapidSequentialRetriesNoDataRace(t *testing.T) {
 		if c.from == domain.StatusExecuting && c.to == domain.StatusQueued {
 			retryCount++
 			priority := c.fields["priority"].(int)
-			if priority > 10 {
-				t.Fatalf("priority %d exceeds cap of 10", priority)
-			}
+			require.LessOrEqual(t, priority,
+
+				10)
+
 		}
 	}
-	if retryCount != 20 {
-		t.Fatalf("expected 20 retry transitions, got %d", retryCount)
-	}
+	require.EqualValues(t, 20, retryCount)
+
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -26,29 +28,35 @@ func TestOnComplete_PayloadMappingPathTraversal(t *testing.T) {
 	}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
 
 	// Traversal paths should not resolve to any value since ".." and "../../secret"
 	// are not valid map keys in the result.
 	if _, ok := out["traversal1"]; ok {
-		t.Error("path traversal should not resolve a value for ../../secret")
+		assert.Fail(t,
+
+			"path traversal should not resolve a value for ../../secret")
 	}
 	if _, ok := out["traversal2"]; ok {
-		t.Error("path traversal should not resolve a value for ../secret")
+		assert.Fail(t,
+
+			"path traversal should not resolve a value for ../secret")
 	}
 	if _, ok := out["traversal3"]; ok {
-		t.Error("path traversal should not resolve a value for ..")
+		assert.Fail(t,
+
+			"path traversal should not resolve a value for ..")
 	}
-	if out["normal"] != "visible" {
-		t.Errorf("normal path = %v, want %q", out["normal"], "visible")
-	}
+	assert.Equal(t,
+		"visible", out["normal"],
+	)
+
 }
 
 // TestOnComplete_PayloadMappingDeepPath verifies that a 100-level deep path
@@ -77,17 +85,16 @@ func TestOnComplete_PayloadMappingDeepPath(t *testing.T) {
 	mapping := json.RawMessage(fmt.Sprintf(`{"deep": %q}`, deepPath))
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["deep"] != "leaf" {
-		t.Errorf("deep path = %v, want %q", out["deep"], "leaf")
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"leaf", out["deep"])
+
 }
 
 // TestOnComplete_PayloadMappingEmptyPath verifies that an empty path string
@@ -99,14 +106,13 @@ func TestOnComplete_PayloadMappingEmptyPath(t *testing.T) {
 	mapping := json.RawMessage(`{"empty": ""}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
 
 	// An empty path lookup should produce the value at key "" (which does not exist).
 	if _, ok := out["empty"]; ok {
@@ -129,14 +135,15 @@ func TestOnComplete_PayloadMappingTrailingDots(t *testing.T) {
 			t.Parallel()
 			mapping := json.RawMessage(fmt.Sprintf(`{"out": %q}`, path))
 			mapped, err := applyPayloadMapping(result, mapping)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(
+				t, err)
+
 			// Just verify no panic; the value may or may not resolve.
 			var out map[string]any
-			if err := json.Unmarshal(mapped, &out); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
+			require.NoError(
+				t, json.Unmarshal(mapped,
+					&out))
+
 		})
 	}
 }
@@ -150,17 +157,16 @@ func TestOnComplete_PayloadMappingNumericKeys(t *testing.T) {
 	mapping := json.RawMessage(`{"val": "0.1.2"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["val"] != "found" {
-		t.Errorf("numeric key path = %v, want %q", out["val"], "found")
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"found", out["val"])
+
 }
 
 // TestOnComplete_PayloadMappingNullSource verifies that a nil/empty result
@@ -183,9 +189,9 @@ func TestOnComplete_PayloadMappingNullSource(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			mapped, err := applyPayloadMapping(tc.result, mapping)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(
+				t, err)
+
 			// For nil/empty result, applyPayloadMapping returns result as-is.
 			_ = mapped
 		})
@@ -201,20 +207,18 @@ func TestOnComplete_PayloadMappingCircularRef(t *testing.T) {
 	mapping := json.RawMessage(`{"self": "self", "nested": "nested.self"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["self"] != "value" {
-		t.Errorf("self = %v, want %q", out["self"], "value")
-	}
-	if out["nested"] != "deep" {
-		t.Errorf("nested = %v, want %q", out["nested"], "deep")
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"value", out["self"])
+	assert.Equal(t,
+		"deep", out["nested"])
+
 }
 
 // TestOnComplete_PayloadMappingHugeOutput verifies that a mapping that maps
@@ -232,22 +236,19 @@ func TestOnComplete_PayloadMappingHugeOutput(t *testing.T) {
 		pathMap[fmt.Sprintf("out_%d", i)] = "big"
 	}
 	mapping, err := json.Marshal(pathMap)
-	if err != nil {
-		t.Fatalf("marshal mapping: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	mapped, mapErr := applyPayloadMapping(result, mapping)
-	if mapErr != nil {
-		t.Fatalf("unexpected error: %v", mapErr)
-	}
+	require.Nil(t, mapErr)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(out) != 10 {
-		t.Fatalf("output keys = %d, want 10", len(out))
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	require.Len(t, out,
+		10)
+
 }
 
 // TestOnComplete_TriggerDisabledJob verifies that MaybeTrigger logs a warning
@@ -273,9 +274,9 @@ func TestOnComplete_TriggerDisabledJob(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 0 {
-		t.Fatalf("expected no trigger calls, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 0)
+
 }
 
 // TestOnComplete_TriggerDeletedJob verifies that MaybeTrigger handles a nil
@@ -302,9 +303,9 @@ func TestOnComplete_TriggerDeletedJob(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 0 {
-		t.Fatalf("expected no trigger calls, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 0)
+
 }
 
 // TestOnComplete_ConcurrentCompletionTrigger fires two concurrent MaybeTrigger
@@ -340,9 +341,9 @@ func TestOnComplete_ConcurrentCompletionTrigger(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 10 {
-		t.Fatalf("expected 10 trigger calls, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 10)
+
 }
 
 // FuzzPayloadMappingPath fuzzes dot-notation paths against a fixed result

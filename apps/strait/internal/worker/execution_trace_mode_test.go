@@ -7,6 +7,8 @@ import (
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeExecutionTraceMode(t *testing.T) {
@@ -28,9 +30,9 @@ func TestNormalizeExecutionTraceMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := normalizeExecutionTraceMode(tt.in); got != tt.want {
-				t.Fatalf("normalizeExecutionTraceMode(%q) = %q, want %q", tt.in, got, tt.want)
-			}
+			require.Equal(t,
+				tt.want, normalizeExecutionTraceMode(tt.in))
+
 		})
 	}
 }
@@ -45,7 +47,7 @@ func FuzzNormalizeExecutionTraceMode(f *testing.F) {
 		switch got {
 		case executionTraceOff, executionTraceErrors, executionTraceFull:
 		default:
-			t.Fatalf("normalizeExecutionTraceMode(%q) returned invalid mode %q", in, got)
+			require.Failf(t, "test failure", "normalizeExecutionTraceMode(%q) returned invalid mode %q", in, got)
 		}
 	})
 }
@@ -75,9 +77,10 @@ func TestExecutorExecutionTraceModeFieldSelection(t *testing.T) {
 			fields := map[string]any{}
 			exec.addExecutionTraceField(fields, tt.status, trace)
 			_, got := fields["execution_trace"]
-			if got != tt.want {
-				t.Fatalf("execution_trace present = %v, want %v", got, tt.want)
-			}
+			require.Equal(t,
+				tt.want, got,
+			)
+
 		})
 	}
 }
@@ -96,19 +99,17 @@ func TestPopulateExecutionTraceRunTimings(t *testing.T) {
 	}
 
 	populateExecutionTraceRunTimings(trace, run, executeStart, traceEnd)
+	require.EqualValues(t, 12, trace.
+		DispatchMs,
+	)
+	require.EqualValues(t, 425, trace.
+		QueueWaitMs,
+	)
+	require.EqualValues(t, 275, trace.
+		DequeueMs,
+	)
+	require.EqualValues(t, 1, trace.TotalMs)
 
-	if trace.DispatchMs != 12 {
-		t.Fatalf("DispatchMs = %d, want preserved 12", trace.DispatchMs)
-	}
-	if trace.QueueWaitMs != 425 {
-		t.Fatalf("QueueWaitMs = %d, want 425", trace.QueueWaitMs)
-	}
-	if trace.DequeueMs != 275 {
-		t.Fatalf("DequeueMs = %d, want 275", trace.DequeueMs)
-	}
-	if trace.TotalMs != 1 {
-		t.Fatalf("TotalMs = %d, want sub-millisecond floor 1", trace.TotalMs)
-	}
 }
 
 func TestPopulateExecutionTraceRunTimingsClampsNegativeDurations(t *testing.T) {
@@ -124,16 +125,10 @@ func TestPopulateExecutionTraceRunTimingsClampsNegativeDurations(t *testing.T) {
 	}
 
 	populateExecutionTraceRunTimings(trace, run, executeStart, executeStart.Add(-time.Millisecond))
+	require.EqualValues(t, 0, trace.QueueWaitMs)
+	require.EqualValues(t, 0, trace.DequeueMs)
+	require.EqualValues(t, 0, trace.TotalMs)
 
-	if trace.QueueWaitMs != 0 {
-		t.Fatalf("QueueWaitMs = %d, want 0", trace.QueueWaitMs)
-	}
-	if trace.DequeueMs != 0 {
-		t.Fatalf("DequeueMs = %d, want 0", trace.DequeueMs)
-	}
-	if trace.TotalMs != 0 {
-		t.Fatalf("TotalMs = %d, want 0", trace.TotalMs)
-	}
 }
 
 func TestPopulateExecutionTraceRunTimingsHandlesNilInputs(t *testing.T) {
@@ -144,16 +139,14 @@ func TestPopulateExecutionTraceRunTimingsHandlesNilInputs(t *testing.T) {
 	trace := &domain.ExecutionTrace{DispatchMs: 5}
 	start := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	populateExecutionTraceRunTimings(trace, nil, start, start.Add(10*time.Millisecond))
+	require.EqualValues(t, 5, trace.DispatchMs)
+	require.EqualValues(t, 10, trace.
+		TotalMs)
+	require.False(t,
+		trace.QueueWaitMs !=
+			0 || trace.DequeueMs !=
+			0)
 
-	if trace.DispatchMs != 5 {
-		t.Fatalf("DispatchMs = %d, want preserved 5", trace.DispatchMs)
-	}
-	if trace.TotalMs != 10 {
-		t.Fatalf("TotalMs = %d, want 10", trace.TotalMs)
-	}
-	if trace.QueueWaitMs != 0 || trace.DequeueMs != 0 {
-		t.Fatalf("run timings = queue %d dequeue %d, want zeroes", trace.QueueWaitMs, trace.DequeueMs)
-	}
 }
 
 func BenchmarkExecutionTraceModeFieldSelection(b *testing.B) {
@@ -194,17 +187,18 @@ func TestExecutorHandleSuccessWithStatsDoesNotReloadHealthStats(t *testing.T) {
 	job := testJob("https://example.com", 1, 5)
 	store := &mockExecutorStore{
 		getJobHealthStatsFn: func(context.Context, string, time.Time) (*orcstore.JobHealthStats, error) {
-			t.Fatal("GetJobHealthStats should not be called when prefetched stats are provided")
+			require.Fail(t,
+
+				"GetJobHealthStats should not be called when prefetched stats are provided")
 			return nil, nil
 		},
 	}
 	exec := NewExecutor(ExecutorConfig{Store: store})
 	stats := &orcstore.JobHealthStats{P95DurationSecs: 10}
+	require.True(t,
+		exec.handleSuccessWithStats(context.Background(), run, job, nil, nil, stats))
+	require.Len(t, store.
+		statusUpdates(),
+		1)
 
-	if !exec.handleSuccessWithStats(context.Background(), run, job, nil, nil, stats) {
-		t.Fatal("handleSuccessWithStats() = false, want true")
-	}
-	if len(store.statusUpdates()) != 1 {
-		t.Fatalf("status updates = %d, want 1", len(store.statusUpdates()))
-	}
 }

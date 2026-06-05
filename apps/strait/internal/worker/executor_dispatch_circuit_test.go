@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
@@ -41,28 +43,30 @@ func TestExecutor_CircuitOpen_RequeuesBeforeExecuting(t *testing.T) {
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
-
-	if called.Load() != 0 {
-		t.Fatalf("dispatch called %d times, want 0", called.Load())
-	}
+	require.EqualValues(t, 0, called.Load())
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
-		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
-	}
+	require.Len(t, calls,
+		1)
+	require.False(t,
+		calls[0].from !=
+			domain.StatusDequeued ||
+			calls[0].to != domain.
+				StatusQueued,
+	)
+
 	if _, ok := calls[0].fields["next_retry_at"]; ok {
-		t.Fatalf("next_retry_at must not be in job_runs UPDATE fields; lives in job_retries side table now")
+		require.Failf(t, "test failure",
+
+			"next_retry_at must not be in job_runs UPDATE fields; lives in job_retries side table now")
 	}
 	scheduled := store.scheduleRetries()
-	if len(scheduled) != 1 {
-		t.Fatalf("ScheduleRetry calls = %d, want 1", len(scheduled))
-	}
-	if !scheduled[0].at.Equal(retryAt) {
-		t.Fatalf("ScheduleRetry at = %v, want %v", scheduled[0].at, retryAt)
-	}
+	require.Len(t, scheduled,
+		1)
+	require.True(t,
+		scheduled[0].
+			at.Equal(retryAt))
+
 }
 
 func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
@@ -86,10 +90,9 @@ func TestExecutor_CircuitBreaker_RecordsFailure(t *testing.T) {
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
 	run := testRun(1)
 	exec.execute(context.Background(), run)
+	require.EqualValues(t, 1, failureCalled.
+		Load())
 
-	if failureCalled.Load() != 1 {
-		t.Fatalf("record failure called = %d, want 1", failureCalled.Load())
-	}
 }
 
 func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T) {
@@ -120,19 +123,19 @@ func TestExecutor_CircuitBreakerFailureUsesProjectScopedEndpointKey(t *testing.T
 	exec.execute(context.Background(), run)
 
 	want := endpointStateKey("proj-1", server.URL)
-	if precheckKey != want {
-		t.Fatalf("precheck endpoint key = %q, want %q", precheckKey, want)
-	}
-	if failureKey != want {
-		t.Fatalf("failure endpoint key = %q, want %q", failureKey, want)
-	}
+	require.Equal(t,
+		want, precheckKey,
+	)
+	require.Equal(t,
+		want, failureKey,
+	)
+
 	healthKeys := store.healthResults()
-	if len(healthKeys) == 0 {
-		t.Fatal("expected health failure to be recorded")
-	}
-	if healthKeys[len(healthKeys)-1] != want {
-		t.Fatalf("health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
-	}
+	require.NotEmpty(t, healthKeys)
+	require.Equal(t,
+		want, healthKeys[len(healthKeys)-
+			1])
+
 }
 
 func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
@@ -154,16 +157,16 @@ func TestExecutor_TimeoutFailureUsesProjectScopedEndpointKey(t *testing.T) {
 	exec.handleTimeout(context.Background(), run, job, policy, nil)
 
 	want := endpointStateKey("proj-1", job.EndpointURL)
-	if failureKey != want {
-		t.Fatalf("timeout failure endpoint key = %q, want %q", failureKey, want)
-	}
+	require.Equal(t,
+		want, failureKey,
+	)
+
 	healthKeys := store.healthResults()
-	if len(healthKeys) == 0 {
-		t.Fatal("expected timeout health result to be recorded")
-	}
-	if healthKeys[len(healthKeys)-1] != want {
-		t.Fatalf("timeout health endpoint key = %q, want %q", healthKeys[len(healthKeys)-1], want)
-	}
+	require.NotEmpty(t, healthKeys)
+	require.Equal(t,
+		want, healthKeys[len(healthKeys)-
+			1])
+
 }
 
 func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
@@ -187,8 +190,7 @@ func TestExecutor_CircuitBreaker_RecordsSuccess(t *testing.T) {
 	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, server.Client())
 	run := testRun(1)
 	exec.execute(context.Background(), run)
+	require.EqualValues(t, 1, successCalled.
+		Load())
 
-	if successCalled.Load() != 1 {
-		t.Fatalf("record success called = %d, want 1", successCalled.Load())
-	}
 }

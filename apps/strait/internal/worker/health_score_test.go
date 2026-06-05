@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -107,9 +109,12 @@ func TestEWMA(t *testing.T) {
 		t.Run(fmt.Sprintf("prev=%.1f_cur=%.1f_alpha=%.1f", tt.prev, tt.current, tt.alpha), func(t *testing.T) {
 			t.Parallel()
 			result := ewma(tt.prev, tt.current, tt.alpha)
-			if math.Abs(result-tt.expected) > 1e-9 {
-				t.Errorf("ewma(%v, %v, %v) = %v, want %v", tt.prev, tt.current, tt.alpha, result, tt.expected)
-			}
+			assert.LessOrEqual(t, math.
+				Abs(
+					result-
+						tt.expected,
+				), 1e-9)
+
 		})
 	}
 }
@@ -121,15 +126,13 @@ func TestHealthScorer_NewEndpoint_StartsHealthy(t *testing.T) {
 	ctx := context.Background()
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://example.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Error("new endpoint should be allowed")
-	}
-	if score.HealthScore != 100.0 {
-		t.Errorf("new endpoint score = %v, want 100.0", score.HealthScore)
-	}
+	require.NoError(
+		t, err)
+	assert.True(t, allowed)
+	assert.EqualValues(t, 100.0,
+		score.HealthScore,
+	)
+
 }
 
 func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
@@ -138,28 +141,27 @@ func TestHealthScorer_SuccessSequence_StaysHealthy(t *testing.T) {
 	hs := NewHealthScorer(store)
 	ctx := context.Background()
 
-	for i := range 20 {
+	for range 20 {
 		_, err := hs.RecordResult(ctx, DispatchResult{
 			EndpointURL:  "https://example.com/api",
 			Success:      true,
 			LatencyMs:    50,
 			JobTimeoutMs: 5000,
 		})
-		if err != nil {
-			t.Fatalf("iteration %d: unexpected error: %v", i, err)
-		}
+		require.NoError(
+			t, err)
+
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://example.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Error("consistently successful endpoint should be allowed")
-	}
-	if score.HealthScore < 90.0 {
-		t.Errorf("score = %v, want > 90.0 for consistent success", score.HealthScore)
-	}
+	require.NoError(
+		t, err)
+	assert.True(t, allowed)
+	assert.GreaterOrEqual(t,
+		score.
+			HealthScore,
+		90.0)
+
 }
 
 func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
@@ -169,28 +171,29 @@ func TestHealthScorer_FailureSequence_BecomesUnhealthy(t *testing.T) {
 	ctx := context.Background()
 
 	// Send many failures to drive score below the unhealthy threshold.
-	for i := range 100 {
+	for range 100 {
 		_, err := hs.RecordResult(ctx, DispatchResult{
 			EndpointURL:  "https://failing.com/api",
 			Success:      false,
 			LatencyMs:    0,
 			JobTimeoutMs: 5000,
 		})
-		if err != nil {
-			t.Fatalf("iteration %d: unexpected error: %v", i, err)
-		}
+		require.NoError(
+			t, err)
+
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://failing.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if allowed {
-		t.Errorf("consistently failing endpoint should be blocked, score = %v", score.HealthScore)
-	}
-	if score.HealthScore >= healthScoreUnhealthy {
-		t.Errorf("score = %v, want < %v for consistent failures", score.HealthScore, healthScoreUnhealthy)
-	}
+	require.NoError(
+		t, err)
+	assert.False(t,
+		allowed,
+	)
+	assert.False(t,
+		score.HealthScore >=
+			healthScoreUnhealthy,
+	)
+
 }
 
 func TestHealthScorer_DegradedEndpoint(t *testing.T) {
@@ -207,22 +210,23 @@ func TestHealthScorer_DegradedEndpoint(t *testing.T) {
 			LatencyMs:    100,
 			JobTimeoutMs: 5000,
 		})
-		if err != nil {
-			t.Fatalf("iteration %d: unexpected error: %v", i, err)
-		}
+		require.NoError(
+			t, err)
+
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://flaky.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	assert.True(t, allowed)
+	assert.False(t,
+		score.HealthScore <
+			healthScoreUnhealthy ||
+			score.HealthScore > healthScoreDegraded+
+				10)
+
 	// With 50% success rate, the composite score should be in the degraded range.
-	if !allowed {
-		t.Errorf("degraded endpoint should still be allowed (throttled), score = %v", score.HealthScore)
-	}
-	if score.HealthScore < healthScoreUnhealthy || score.HealthScore > healthScoreDegraded+10 {
-		t.Errorf("score = %v, want in degraded range [%v, %v]", score.HealthScore, healthScoreUnhealthy, healthScoreDegraded)
-	}
+
 }
 
 func TestHealthScorer_Recovery(t *testing.T) {
@@ -241,9 +245,9 @@ func TestHealthScorer_Recovery(t *testing.T) {
 	}
 
 	score, allowed, _ := hs.CheckHealth(ctx, "https://recovering.com/api")
-	if allowed {
-		t.Fatalf("should be blocked after failures, score = %v", score.HealthScore)
-	}
+	require.False(t,
+		allowed,
+	)
 
 	// Recover with consistent successes.
 	for range 200 {
@@ -256,15 +260,15 @@ func TestHealthScorer_Recovery(t *testing.T) {
 	}
 
 	score, allowed, err := hs.CheckHealth(ctx, "https://recovering.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Errorf("recovered endpoint should be allowed, score = %v", score.HealthScore)
-	}
-	if score.HealthScore < healthScoreDegraded {
-		t.Errorf("recovered endpoint score = %v, want > %v", score.HealthScore, healthScoreDegraded)
-	}
+	require.NoError(
+		t, err)
+	assert.True(t, allowed)
+	assert.GreaterOrEqual(t,
+		score.
+			HealthScore,
+		healthScoreDegraded,
+	)
+
 }
 
 func TestHealthScorer_TimeoutAffectsScore(t *testing.T) {
@@ -284,13 +288,13 @@ func TestHealthScorer_TimeoutAffectsScore(t *testing.T) {
 		})
 	}
 
-	score, allowed, err := hs.CheckHealth(ctx, "https://timeout.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if allowed {
-		t.Errorf("timeout endpoint should be blocked, score = %v", score.HealthScore)
-	}
+	_, allowed, err := hs.CheckHealth(ctx, "https://timeout.com/api")
+	require.NoError(
+		t, err)
+	assert.False(t,
+		allowed,
+	)
+
 }
 
 func TestHealthScorer_HighLatencyReducesScore(t *testing.T) {
@@ -310,15 +314,17 @@ func TestHealthScorer_HighLatencyReducesScore(t *testing.T) {
 	}
 
 	score, _, err := hs.CheckHealth(ctx, "https://slow.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	assert.False(t,
+		score.HealthScore >=
+			100,
+	)
+
 	// Success rate is 1.0 but latency score should be low (4500/5000 = 0.9, so latency_score = 0.1).
 	// Composite = 0.5*1.0 + 0.3*1.0 + 0.2*0.1 = 0.82 * 100 = 82.
 	// With EWMA decay from initial 1.0, should still be lower than a fast endpoint.
-	if score.HealthScore >= 100 {
-		t.Errorf("high latency endpoint score = %v, should be reduced from max", score.HealthScore)
-	}
+
 }
 
 func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
@@ -337,12 +343,12 @@ func TestHealthScorer_TotalRequestsIncrement(t *testing.T) {
 	}
 
 	score, _, err := hs.CheckHealth(ctx, "https://counter.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if score.TotalRequests != 10 {
-		t.Errorf("total_requests = %d, want 10", score.TotalRequests)
-	}
+	require.NoError(
+		t, err)
+	assert.EqualValues(t, 10, score.
+		TotalRequests,
+	)
+
 }
 
 func TestThrottledConcurrency(t *testing.T) {
@@ -402,10 +408,13 @@ func TestThrottledConcurrency(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := ThrottledConcurrency(tt.score, tt.maxConcurrency)
-			if got < tt.wantMin || got > tt.wantMax {
-				t.Errorf("ThrottledConcurrency(score=%v, max=%d) = %d, want [%d, %d]",
-					tt.score, tt.maxConcurrency, got, tt.wantMin, tt.wantMax)
-			}
+			assert.False(t,
+				got < tt.
+					wantMin ||
+					got >
+						tt.wantMax,
+			)
+
 		})
 	}
 }
@@ -431,9 +440,11 @@ func TestEndpointHealthScore_HealthLevel(t *testing.T) {
 		t.Run(fmt.Sprintf("score_%.1f", tt.score), func(t *testing.T) {
 			t.Parallel()
 			h := &domain.EndpointHealthScore{HealthScore: tt.score}
-			if got := h.HealthLevel(); got != tt.expected {
-				t.Errorf("HealthLevel() = %q, want %q for score %v", got, tt.expected, tt.score)
-			}
+			assert.Equal(t,
+				tt.expected,
+				h.
+					HealthLevel())
+
 		})
 	}
 }
@@ -462,15 +473,18 @@ func TestHealthScorer_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	score, _, err := hs.CheckHealth(ctx, "https://concurrent.com/api")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if score.TotalRequests < 1 {
-		t.Errorf("total_requests = %d, want at least 1", score.TotalRequests)
-	}
-	if score.HealthScore < 0 || score.HealthScore > 100 {
-		t.Errorf("score = %v out of [0, 100] range", score.HealthScore)
-	}
+	require.NoError(
+		t, err)
+	assert.GreaterOrEqual(t,
+		score.
+			TotalRequests,
+		int64(1))
+	assert.False(t,
+		score.HealthScore <
+			0 ||
+			score.HealthScore >
+				100)
+
 }
 
 func TestHealthScorer_ZeroJobTimeout(t *testing.T) {
@@ -486,12 +500,12 @@ func TestHealthScorer_ZeroJobTimeout(t *testing.T) {
 		LatencyMs:    500,
 		JobTimeoutMs: 0,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if score.LatencyScore != 1.0 {
-		t.Errorf("latency score = %v, want 1.0 when job timeout is 0", score.LatencyScore)
-	}
+	require.NoError(
+		t, err)
+	assert.EqualValues(t, 1.0, score.
+		LatencyScore,
+	)
+
 }
 
 func TestHealthScorer_ScoreClampedToRange(t *testing.T) {
@@ -508,11 +522,14 @@ func TestHealthScorer_ScoreClampedToRange(t *testing.T) {
 			LatencyMs:    float64(i * 100),
 			JobTimeoutMs: 5000,
 		})
-		if err != nil {
-			t.Fatalf("iteration %d: unexpected error: %v", i, err)
-		}
-		if score.HealthScore < 0 || score.HealthScore > 100 {
-			t.Fatalf("score %v out of [0, 100] range at iteration %d", score.HealthScore, i)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			score.
+				HealthScore <
+				0 ||
+				score.HealthScore >
+					100)
+
 	}
 }

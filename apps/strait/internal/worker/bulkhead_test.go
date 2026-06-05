@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -18,10 +19,11 @@ import (
 func TestShardedBulkhead_AcquireUpToLimit(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(0)
-	for i := range 5 {
-		if !b.TryAcquire("job-1", 5) {
-			t.Fatalf("slot %d should be acquired", i+1)
-		}
+	for range 5 {
+		require.True(t,
+			b.TryAcquire("job-1",
+				5))
+
 	}
 }
 
@@ -31,9 +33,10 @@ func TestShardedBulkhead_RejectsOverLimit(t *testing.T) {
 	for range 3 {
 		b.TryAcquire("job-1", 3)
 	}
-	if b.TryAcquire("job-1", 3) {
-		t.Fatal("should reject over limit")
-	}
+	require.False(t,
+		b.TryAcquire("job-1",
+			3))
+
 }
 
 func TestShardedBulkhead_ReleaseAllowsReacquire(t *testing.T) {
@@ -43,9 +46,10 @@ func TestShardedBulkhead_ReleaseAllowsReacquire(t *testing.T) {
 		b.TryAcquire("job-1", 3)
 	}
 	b.Release("job-1", 3)
-	if !b.TryAcquire("job-1", 3) {
-		t.Fatal("should acquire after release")
-	}
+	require.True(t,
+		b.TryAcquire("job-1",
+			3))
+
 }
 
 func TestShardedBulkhead_ReleaseAll(t *testing.T) {
@@ -57,9 +61,8 @@ func TestShardedBulkhead_ReleaseAll(t *testing.T) {
 	for range 5 {
 		b.Release("job-1", 10)
 	}
-	if count := b.ActiveCount("job-1"); count != 0 {
-		t.Fatalf("ActiveCount = %d, want 0", count)
-	}
+	require.EqualValues(t, 0, b.ActiveCount("job-1"))
+
 }
 
 func TestShardedBulkhead_MultipleJobs_Independent(t *testing.T) {
@@ -68,9 +71,10 @@ func TestShardedBulkhead_MultipleJobs_Independent(t *testing.T) {
 	for range 3 {
 		b.TryAcquire("job-A", 3)
 	}
-	if !b.TryAcquire("job-B", 3) {
-		t.Fatal("job-B should be independent of job-A")
-	}
+	require.True(t,
+		b.TryAcquire("job-B",
+			3))
+
 }
 
 func TestShardedBulkhead_MultipleJobs_EachHasOwnLimit(t *testing.T) {
@@ -82,12 +86,13 @@ func TestShardedBulkhead_MultipleJobs_EachHasOwnLimit(t *testing.T) {
 	for range 5 {
 		b.TryAcquire("job-B", 5)
 	}
-	if b.TryAcquire("job-A", 3) {
-		t.Fatal("job-A should be at limit 3")
-	}
-	if b.TryAcquire("job-B", 5) {
-		t.Fatal("job-B should be at limit 5")
-	}
+	require.False(t,
+		b.TryAcquire("job-A",
+			3))
+	require.False(t,
+		b.TryAcquire("job-B",
+			5))
+
 }
 
 func TestShardedBulkhead_DefaultLimitApplied(t *testing.T) {
@@ -96,31 +101,35 @@ func TestShardedBulkhead_DefaultLimitApplied(t *testing.T) {
 	for range 3 {
 		b.TryAcquire("job-1", 0)
 	}
-	if b.TryAcquire("job-1", 0) {
-		t.Fatal("default limit 3 should reject 4th acquire")
-	}
+	require.False(t,
+		b.TryAcquire("job-1",
+			0))
+
 }
 
 func TestShardedBulkhead_ExplicitOverridesDefault(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(3)
 	for range 5 {
-		if !b.TryAcquire("job-1", 5) {
-			t.Fatal("explicit limit 5 should allow up to 5")
-		}
+		require.True(t,
+			b.TryAcquire("job-1",
+				5))
+
 	}
-	if b.TryAcquire("job-1", 5) {
-		t.Fatal("should reject at explicit limit 5")
-	}
+	require.False(t,
+		b.TryAcquire("job-1",
+			5))
+
 }
 
 func TestShardedBulkhead_DefaultZeroUnlimited(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(0)
-	for i := range 1000 {
-		if !b.TryAcquire("job-1", 0) {
-			t.Fatalf("slot %d should succeed with no limit", i+1)
-		}
+	for range 1000 {
+		require.True(t,
+			b.TryAcquire("job-1",
+				0))
+
 	}
 }
 
@@ -129,9 +138,8 @@ func TestShardedBulkhead_CleanupOnFullRelease(t *testing.T) {
 	b := NewShardedBulkhead(0)
 	b.TryAcquire("job-1", 5)
 	b.Release("job-1", 5)
-	if count := b.ActiveCount("job-1"); count != 0 {
-		t.Fatalf("ActiveCount = %d after full release, want 0", count)
-	}
+	require.EqualValues(t, 0, b.ActiveCount("job-1"))
+
 }
 
 func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
@@ -155,10 +163,10 @@ func TestShardedBulkhead_ConcurrentSameJob(t *testing.T) {
 
 	close(start)
 	wg.Wait()
+	require.EqualValues(t,
+		limit,
+		successes.Load())
 
-	if got := successes.Load(); got != limit {
-		t.Fatalf("successes = %d, want %d", got, limit)
-	}
 }
 
 func TestShardedBulkhead_ConcurrentMultipleJobs(t *testing.T) {
@@ -185,9 +193,10 @@ func TestShardedBulkhead_ConcurrentMultipleJobs(t *testing.T) {
 	wg.Wait()
 
 	for j := range jobCount {
-		if got := results[j].Load(); got > limit {
-			t.Fatalf("job-%d: acquired %d slots, max should be %d", j, got, limit)
-		}
+		require.LessOrEqual(t,
+			results[j].Load(), int32(limit),
+		)
+
 	}
 }
 
@@ -210,10 +219,8 @@ func TestShardedBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 	}
 
 	wg.Wait()
+	require.EqualValues(t, 0, b.ActiveCount("job-1"))
 
-	if count := b.ActiveCount("job-1"); count != 0 {
-		t.Fatalf("ActiveCount = %d after all releases, want 0", count)
-	}
 }
 
 func TestShardedBulkhead_ShardDistribution(t *testing.T) {
@@ -229,10 +236,9 @@ func TestShardedBulkhead_ShardDistribution(t *testing.T) {
 		_, _ = h.Write([]byte(jobID))
 		shardsSeen[h.Sum32()%numShards] = true
 	}
+	require.GreaterOrEqual(
+		t, len(shardsSeen), 10)
 
-	if len(shardsSeen) < 10 {
-		t.Fatalf("only %d shards used across 100 jobs, want at least 10", len(shardsSeen))
-	}
 }
 
 func TestShardedBulkhead_ReleaseWithoutAcquire(t *testing.T) {
@@ -240,24 +246,25 @@ func TestShardedBulkhead_ReleaseWithoutAcquire(t *testing.T) {
 	b := NewShardedBulkhead(0)
 	// Should not panic.
 	b.Release("never-acquired", 5)
-	if count := b.ActiveCount("never-acquired"); count != 0 {
-		t.Fatalf("ActiveCount = %d, want 0", count)
-	}
+	require.EqualValues(t, 0, b.ActiveCount("never-acquired"))
+
 }
 
 func TestShardedBulkhead_ExplicitLimitOne(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(0)
-	if !b.TryAcquire("job-1", 1) {
-		t.Fatal("first acquire should succeed")
-	}
-	if b.TryAcquire("job-1", 1) {
-		t.Fatal("second acquire should fail with limit 1")
-	}
+	require.True(t,
+		b.TryAcquire("job-1",
+			1))
+	require.False(t,
+		b.TryAcquire("job-1",
+			1))
+
 	b.Release("job-1", 1)
-	if !b.TryAcquire("job-1", 1) {
-		t.Fatal("acquire after release should succeed")
-	}
+	require.True(t,
+		b.TryAcquire("job-1",
+			1))
+
 }
 
 func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
@@ -265,14 +272,16 @@ func TestExecutorBulkhead_DefaultAppliedWhenJobHasNoLimit(t *testing.T) {
 
 	exec := newBulkheadTestExecutor(t, 3)
 
-	for i := range 3 {
-		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
-			t.Fatalf("slot %d should be acquired", i+1)
-		}
+	for range 3 {
+		require.True(t,
+			exec.tryAcquireBulkheadSlot("job-1",
+				0))
+
 	}
-	if exec.tryAcquireBulkheadSlot("job-1", 0) {
-		t.Fatal("4th slot should be rejected with default concurrency 3")
-	}
+	require.False(t,
+		exec.tryAcquireBulkheadSlot("job-1",
+			0))
+
 }
 
 func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
@@ -280,14 +289,16 @@ func TestExecutorBulkhead_ExplicitOverridesDefault(t *testing.T) {
 
 	exec := newBulkheadTestExecutor(t, 3)
 
-	for i := range 5 {
-		if !exec.tryAcquireBulkheadSlot("job-1", 5) {
-			t.Fatalf("slot %d should be acquired with explicit limit 5", i+1)
-		}
+	for range 5 {
+		require.True(t,
+			exec.tryAcquireBulkheadSlot("job-1",
+				5))
+
 	}
-	if exec.tryAcquireBulkheadSlot("job-1", 5) {
-		t.Fatal("6th slot should be rejected with explicit limit 5")
-	}
+	require.False(t,
+		exec.tryAcquireBulkheadSlot("job-1",
+			5))
+
 }
 
 func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
@@ -295,10 +306,11 @@ func TestExecutorBulkhead_DefaultZeroDisabled(t *testing.T) {
 
 	exec := newBulkheadTestExecutor(t, 0)
 
-	for i := range 100 {
-		if !exec.tryAcquireBulkheadSlot("job-1", 0) {
-			t.Fatalf("slot %d should be acquired with no limit", i+1)
-		}
+	for range 100 {
+		require.True(t,
+			exec.tryAcquireBulkheadSlot("job-1",
+				0))
+
 	}
 }
 
@@ -324,21 +336,24 @@ func TestExecutor_Bulkheads_AtCapacityRequeues(t *testing.T) {
 
 	run := testRun(1)
 	exec.execute(context.Background(), run)
-
-	if called.Load() != 0 {
-		t.Fatalf("dispatch called %d times, want 0", called.Load())
-	}
+	require.EqualValues(t, 0, called.
+		Load())
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status update calls = %d, want 1", len(calls))
-	}
-	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusQueued {
-		t.Fatalf("transition = %s->%s, want %s->%s", calls[0].from, calls[0].to, domain.StatusDequeued, domain.StatusQueued)
-	}
-	if calls[0].fields["error"] != "job bulkhead at capacity" {
-		t.Fatalf("error field = %v, want %q", calls[0].fields["error"], "job bulkhead at capacity")
-	}
+	require.Len(t, calls,
+		1,
+	)
+	require.False(t,
+		calls[0].from != domain.
+			StatusDequeued ||
+			calls[0].
+				to != domain.StatusQueued,
+	)
+	require.Equal(t,
+		"job bulkhead at capacity",
+
+		calls[0].fields["error"])
+
 }
 
 func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
@@ -362,16 +377,18 @@ func TestExecutor_Bulkheads_EnabledUnderLimitExecutes(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := store.statusUpdates()
-	if len(calls) != 2 {
-		t.Fatalf("status update calls = %d, want 2", len(calls))
-	}
-	if calls[0].to != domain.StatusExecuting || calls[1].to != domain.StatusCompleted {
-		t.Fatalf("transitions = %s then %s, want executing then completed", calls[0].to, calls[1].to)
-	}
+	require.Len(t, calls,
+		2,
+	)
+	require.False(t,
+		calls[0].to != domain.
+			StatusExecuting ||
+			calls[1].to !=
+				domain.StatusCompleted,
+	)
+	require.EqualValues(t, 0, exec.
+		bulkhead.ActiveCount("job-1"))
 
-	if count := exec.bulkhead.ActiveCount("job-1"); count != 0 {
-		t.Fatalf("bulkhead active count = %d, want 0 (released)", count)
-	}
 }
 
 func newBulkheadTestExecutor(t *testing.T, defaultLimit int) *Executor {
