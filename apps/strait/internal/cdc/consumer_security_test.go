@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCDC_MalformedChangeEvent verifies that garbage CDC data results in
@@ -77,13 +79,13 @@ func TestCDC_EventWithWrongProjectID(t *testing.T) {
 			CommitTimestamp: time.Now().Format(time.RFC3339),
 		},
 	}
+	require.NoError(t, handler.Handle(context.
+		Background(), msg))
+	require.Equal(t, "cdc:project:proj-nonexistent:job_runs",
 
-	if err := handler.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if publishedChannel != "cdc:project:proj-nonexistent:job_runs" {
-		t.Fatalf("unexpected channel: %s", publishedChannel)
-	}
+		publishedChannel,
+	)
+
 }
 
 // TestCDC_ConsumerReconnection verifies that the consumer retries polling
@@ -120,15 +122,12 @@ func TestCDC_ConsumerReconnection(t *testing.T) {
 
 	// First poll should return an error.
 	err := consumer.poll(context.Background())
-	if err == nil {
-		t.Fatal("expected error from first poll")
-	}
+	require.Error(t, err)
 
 	// Second poll should succeed.
 	err = consumer.poll(context.Background())
-	if err != nil {
-		t.Fatalf("expected success on retry, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 // TestCDC_MessageOrderingGuarantee verifies that messages within a single
@@ -173,19 +172,17 @@ func TestCDC_MessageOrderingGuarantee(t *testing.T) {
 			return nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(order) != 3 {
-		t.Fatalf("expected 3 handled messages, got %d", len(order))
-	}
-	if order[0] != "a1" || order[1] != "a2" || order[2] != "a3" {
-		t.Fatalf("messages out of order: %v", order)
-	}
+	require.Len(t,
+		order, 3)
+	require.False(t, order[0] != "a1" ||
+		order[1] != "a2" ||
+		order[2] != "a3")
+
 }
 
 // TestCDC_DuplicateEvent verifies that the same event delivered twice
@@ -225,14 +222,11 @@ func TestCDC_DuplicateEvent(t *testing.T) {
 			return nil
 		},
 	})
+	require.NoError(t, consumer.poll(context.
+		Background()))
+	require.EqualValues(t, 2, handleCount.
+		Load())
 
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
-
-	if handleCount.Load() != 2 {
-		t.Fatalf("expected 2 handle calls for duplicates, got %d", handleCount.Load())
-	}
 }
 
 // TestCDC_BackpressureHandling verifies that when a handler returns errors,
@@ -283,16 +277,14 @@ func TestCDC_BackpressureHandling(t *testing.T) {
 			return errors.New("consumer overwhelmed")
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(nackIDs) != 3 {
-		t.Fatalf("expected 3 nacked messages, got %d: %v", len(nackIDs), nackIDs)
-	}
+	require.Len(t,
+		nackIDs, 3)
+
 }
 
 // FuzzCDCEvent fuzzes CDC payloads to ensure the handler does not panic.

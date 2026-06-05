@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSLOStore struct {
@@ -46,24 +49,20 @@ func TestSLOHandler_TerminalRun_InsertsEvaluation(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.evaluations) != 1 {
-		t.Fatalf("expected 1 evaluation, got %d", len(store.evaluations))
-	}
-	if store.evaluations[0].SLOID != "slo-1" {
-		t.Errorf("expected slo_id=slo-1, got %s", store.evaluations[0].SLOID)
-	}
-	if store.evaluations[0].ID == "" {
-		t.Fatal("expected evaluation id to be set")
-	}
-	if store.evaluations[0].EvaluatedAt.IsZero() {
-		t.Fatal("expected evaluated_at to be set")
-	}
-	if store.evaluations[0].CurrentValue != 1.0 {
-		t.Errorf("expected current_value=1.0 for completed, got %f", store.evaluations[0].CurrentValue)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.evaluations,
+		1)
+	assert.Equal(
+		t, "slo-1", store.
+			evaluations[0].SLOID,
+	)
+	require.NotEqual(t, "", store.
+		evaluations[0].ID)
+	require.False(t, store.evaluations[0].EvaluatedAt.
+		IsZero())
+	assert.EqualValues(t, 1.0, store.evaluations[0].CurrentValue)
+
 }
 
 func TestSLOHandler_NonTerminal_Skipped(t *testing.T) {
@@ -77,13 +76,13 @@ func TestSLOHandler_NonTerminal_Skipped(t *testing.T) {
 
 	for _, status := range []string{"queued", "executing", "dequeued"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
-		if err != nil {
-			t.Fatalf("unexpected error for status %s: %v", status, err)
-		}
+		require.NoError(t, err)
+
 	}
-	if len(store.evaluations) != 0 {
-		t.Fatalf("expected 0 evaluations for non-terminal, got %d", len(store.evaluations))
-	}
+	require.Len(t,
+		store.evaluations,
+		0)
+
 }
 
 func TestSLOHandler_NoSLOs_NoEvaluation(t *testing.T) {
@@ -92,12 +91,11 @@ func TestSLOHandler_NoSLOs_NoEvaluation(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.evaluations) != 0 {
-		t.Fatal("expected no evaluations when no SLOs")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.evaluations,
+		0)
+
 }
 
 func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
@@ -112,16 +110,14 @@ func TestSLOHandler_MultipleSLOs_AllEvaluated(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.evaluations) != 3 {
-		t.Fatalf("expected 3 evaluations, got %d", len(store.evaluations))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.evaluations,
+		3)
+
 	for _, eval := range store.evaluations {
-		if eval.CurrentValue != 0.0 {
-			t.Errorf("expected current_value=0.0 for failed, got %f", eval.CurrentValue)
-		}
+		assert.EqualValues(t, 0.0, eval.CurrentValue)
+
 	}
 }
 
@@ -142,17 +138,20 @@ func TestSLOHandler_DoesNotOverwriteExistingSLOEvaluationWithPlaceholder(t *test
 		},
 	}
 	h := NewSLOHandler(store, nil)
+	require.NoError(t, h.Handle(context.
+		Background(),
+		cdcUpdateMsg("failed",
 
-	if err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1")); err != nil {
-		t.Fatalf("Handle: %v", err)
-	}
+			"p1", "run-1", "job-1",
+		),
+	),
+	)
+	require.Len(t,
+		store.evaluations,
+		1)
+	require.Equal(t, "slo-empty",
+		store.evaluations[0].SLOID)
 
-	if len(store.evaluations) != 1 {
-		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
-	}
-	if store.evaluations[0].SLOID != "slo-empty" {
-		t.Fatalf("inserted SLOID = %q, want slo-empty", store.evaluations[0].SLOID)
-	}
 }
 
 func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T) {
@@ -166,17 +165,18 @@ func TestSLOHandler_RedeliveredTerminalUpdateInsertsEvaluationOnce(t *testing.T)
 
 	msg := cdcUpdateMsg("completed", "p1", "run-redelivered", "job-1")
 	msg.Metadata.IdempotencyKey = "wal:job_runs:run-redelivered:completed"
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("first delivery: %v", err)
-	}
-	msg.AckID = "ack-redelivery"
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("redelivery: %v", err)
-	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
 
-	if len(store.evaluations) != 1 {
-		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
-	}
+	msg.AckID = "ack-redelivery"
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
+	require.Len(t,
+		store.evaluations,
+		1)
+
 }
 
 func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *testing.T) {
@@ -190,18 +190,19 @@ func TestSLOHandler_MultipleTerminalUpdatesForSameRunInsertEvaluationOnce(t *tes
 
 	first := cdcUpdateMsg("failed", "p1", "run-terminal", "job-1")
 	first.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:failed"
-	if err := h.Handle(context.Background(), first); err != nil {
-		t.Fatalf("first terminal update: %v", err)
-	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		first))
+
 	second := cdcUpdateMsg("dead_letter", "p1", "run-terminal", "job-1")
 	second.Metadata.IdempotencyKey = "wal:job_runs:run-terminal:dead-letter"
-	if err := h.Handle(context.Background(), second); err != nil {
-		t.Fatalf("second terminal update: %v", err)
-	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		second))
+	require.Len(t,
+		store.evaluations,
+		1)
 
-	if len(store.evaluations) != 1 {
-		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
-	}
 }
 
 func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
@@ -216,21 +217,21 @@ func TestSLOHandler_InsertErrorDoesNotConsumeRedeliveryDedupe(t *testing.T) {
 
 	msg := cdcUpdateMsg("completed", "p1", "run-retry", "job-1")
 	msg.Metadata.IdempotencyKey = "wal:job_runs:run-retry:completed"
-	if err := h.Handle(context.Background(), msg); err == nil {
-		t.Fatal("first delivery error = nil, want insert failure")
-	}
+	require.Error(t, h.Handle(context.
+		Background(),
+		msg))
 
 	store.mu.Lock()
 	store.evalErr = nil
 	store.mu.Unlock()
 	msg.AckID = "ack-redelivery"
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("redelivery after insert recovery: %v", err)
-	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
+	require.Len(t,
+		store.evaluations,
+		1)
 
-	if len(store.evaluations) != 1 {
-		t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
-	}
 }
 
 func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
@@ -241,9 +242,8 @@ func TestDeepSecSLOHandler_StoreErrorReturnsForRetry(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on store failure")
-	}
+	require.Error(t, err)
+
 }
 
 func TestSLOHandler_InvalidJSON(t *testing.T) {
@@ -257,9 +257,8 @@ func TestSLOHandler_InvalidJSON(t *testing.T) {
 		Metadata: Metadata{TableName: "job_runs"},
 	}
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
+
 }
 
 func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
@@ -274,9 +273,8 @@ func TestDeepSecSLOHandler_InsertEvaluationErrorReturnsForRetry(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on insert failure")
-	}
+	require.Error(t, err)
+
 }
 
 func TestSLOHandler_TimedOutStatus(t *testing.T) {
@@ -289,15 +287,12 @@ func TestSLOHandler_TimedOutStatus(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("timed_out", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.evaluations) != 1 {
-		t.Fatalf("expected 1 evaluation, got %d", len(store.evaluations))
-	}
-	if store.evaluations[0].CurrentValue != 0.0 {
-		t.Errorf("expected current_value=0.0 for timed_out, got %f", store.evaluations[0].CurrentValue)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.evaluations,
+		1)
+	assert.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
+
 }
 
 func TestSLOHandler_CanceledStatus(t *testing.T) {
@@ -310,15 +305,12 @@ func TestSLOHandler_CanceledStatus(t *testing.T) {
 	h := NewSLOHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("canceled", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.evaluations) != 1 {
-		t.Fatalf("expected 1 evaluation, got %d", len(store.evaluations))
-	}
-	if store.evaluations[0].CurrentValue != 0.0 {
-		t.Errorf("expected current_value=0.0 for canceled, got %f", store.evaluations[0].CurrentValue)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.evaluations,
+		1)
+	assert.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
+
 }
 
 func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T) {
@@ -343,22 +335,19 @@ func TestDeepSecSLOHandler_TerminalFailureStatesEvaluateAsFailures(t *testing.T)
 			h := NewSLOHandler(store, nil)
 
 			err := h.Handle(context.Background(), cdcUpdateMsg(string(status), "p1", "run-1", "job-1"))
-			if err != nil {
-				t.Fatalf("Handle error = %v", err)
-			}
-			if len(store.evaluations) != 1 {
-				t.Fatalf("evaluations = %d, want 1", len(store.evaluations))
-			}
-			if store.evaluations[0].CurrentValue != 0.0 {
-				t.Fatalf("status %s current value = %f, want 0.0", status, store.evaluations[0].CurrentValue)
-			}
+			require.NoError(t, err)
+			require.Len(t,
+				store.evaluations,
+				1)
+			require.EqualValues(t, 0.0, store.evaluations[0].CurrentValue)
+
 		})
 	}
 }
 
 func TestDeepSecSLOCurrentValue_FailsClosedForUnknownStatus(t *testing.T) {
 	t.Parallel()
-	if got := sloCurrentValue(domain.RunStatus("future_terminal")); got != 0.0 {
-		t.Fatalf("unknown status current value = %f, want 0.0", got)
-	}
+	require.EqualValues(t, 0.0, sloCurrentValue(domain.
+		RunStatus("future_terminal")))
+
 }

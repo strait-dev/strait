@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T) {
@@ -29,9 +31,9 @@ func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T)
 			ackIDs = append(ackIDs, ids...)
 			mu.Unlock()
 		case "/api/http_pull_consumers/deepsec/nack":
-			t.Fatal("unexpected nack")
+			require.Fail(t, "unexpected nack")
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -42,19 +44,16 @@ func TestDeepSecConsumerPoll_RunsAdditionalHandlersForPullConsumer(t *testing.T)
 		sideEffects++
 		return nil
 	}})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll: %v", err)
-	}
+	require.NoError(t, consumer.
+		poll(context.
+			Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if sideEffects != 1 {
-		t.Fatalf("sideEffects = %d, want 1", sideEffects)
-	}
-	if len(ackIDs) != 1 || ackIDs[0] != "a1" {
-		t.Fatalf("ackIDs = %v, want [a1]", ackIDs)
-	}
+	require.EqualValues(t, 1, sideEffects)
+	require.False(t, len(ackIDs) != 1 ||
+		ackIDs[0] != "a1")
+
 }
 
 func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
@@ -78,7 +77,7 @@ func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
 			nackIDs = append(nackIDs, ids...)
 			mu.Unlock()
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -88,19 +87,17 @@ func TestDeepSecConsumerPoll_NacksAdditionalHandlerFailure(t *testing.T) {
 	consumer.RegisterAdditionalHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error {
 		return errors.New("durable side effect failed")
 	}})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll: %v", err)
-	}
+	require.NoError(t, consumer.
+		poll(context.
+			Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if ackCalls != 0 {
-		t.Fatalf("ackCalls = %d, want 0", ackCalls)
-	}
-	if len(nackIDs) != 1 || nackIDs[0] != "a1" {
-		t.Fatalf("nackIDs = %v, want [a1]", nackIDs)
-	}
+	require.EqualValues(t, 0, ackCalls)
+	require.False(t, len(nackIDs) != 1 ||
+		nackIDs[0] != "a1",
+	)
+
 }
 
 func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.T) {
@@ -125,7 +122,7 @@ func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.
 			nackIDs = append(nackIDs, ids...)
 			mu.Unlock()
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			require.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -141,22 +138,19 @@ func TestDeepSecConsumerPoll_BatchAdditionalFailureNacksAfterPublish(t *testing.
 	consumer.RegisterAdditionalHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error {
 		return errors.New("durable side effect failed")
 	}})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll: %v", err)
-	}
+	require.NoError(t, consumer.
+		poll(context.
+			Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if pub.batchCalls != 1 {
-		t.Fatalf("PublishBatch calls = %d, want 1", pub.batchCalls)
-	}
-	if ackCalls != 0 {
-		t.Fatalf("ackCalls = %d, want 0", ackCalls)
-	}
-	if len(nackIDs) != 1 || nackIDs[0] != "a1" {
-		t.Fatalf("nackIDs = %v, want [a1]", nackIDs)
-	}
+	require.EqualValues(t, 1, pub.
+		batchCalls)
+	require.EqualValues(t, 0, ackCalls)
+	require.False(t, len(nackIDs) != 1 ||
+		nackIDs[0] != "a1",
+	)
+
 }
 
 func TestDeepSecAnalyticsHandler_AcceptsJSONBTags(t *testing.T) {
@@ -180,17 +174,16 @@ func TestDeepSecAnalyticsHandler_AcceptsJSONBTags(t *testing.T) {
 		}`),
 		Metadata: Metadata{TableName: "job_runs"},
 	}
+	require.NoError(t, h.Handle(context.
+		Background(), msg))
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle: %v", err)
-	}
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord")
-	}
-	if rec.Tags != `{"team":"platform","risk":["billing","cdc"]}` {
-		t.Fatalf("Tags = %q", rec.Tags)
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, `{"team":"platform","risk":["billing","cdc"]}`,
+
+		rec.Tags)
+
 }
 
 type deepSecTrackingPublisher struct {

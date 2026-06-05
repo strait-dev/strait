@@ -8,14 +8,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAnalyticsHandler_Table(t *testing.T) {
 	t.Parallel()
 	h := NewAnalyticsHandler(nil, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs", h.
+		Table())
+
 }
 
 func TestAnalyticsHandler_InsertAction_Skipped(t *testing.T) {
@@ -35,40 +38,37 @@ func TestAnalyticsHandler_InsertAction_Skipped(t *testing.T) {
 		Record:   record,
 		Metadata: Metadata{TableName: "job_runs"},
 	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
+	require.EqualValues(t, 0, exp.PendingLen())
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exp.PendingLen() != 0 {
-		t.Fatal("expected no enqueued records for insert action")
-	}
 }
 
 func TestAuditHandler_Table(t *testing.T) {
 	t.Parallel()
 	h := NewAuditHandler(&mockAuditStore{}, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs", h.
+		Table())
+
 }
 
 func TestAuditAction_Delete(t *testing.T) {
 	t.Parallel()
 	got, ok := auditAction(ActionDelete, "whatever")
-	if !ok {
-		t.Fatal("auditAction(delete) ok = false, want true")
-	}
-	if got != "run.deleted" {
-		t.Fatalf("auditAction(delete) = %q, want %q", got, "run.deleted")
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, "run.deleted",
+		got)
+
 }
 
 func TestAuditAction_ReadIsIgnored(t *testing.T) {
 	t.Parallel()
 	got, ok := auditAction(ActionRead, "executing")
-	if ok || got != "" {
-		t.Fatalf("auditAction(read) = %q, %v; want empty false", got, ok)
-	}
+	require.False(t, ok || got !=
+		"")
+
 }
 
 func TestAuditHandler_EmptyProjectID_Skipped(t *testing.T) {
@@ -87,13 +87,13 @@ func TestAuditHandler_EmptyProjectID_Skipped(t *testing.T) {
 		Record:   record,
 		Metadata: Metadata{TableName: "job_runs"},
 	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
+	require.Len(t,
+		store.events, 0,
+	)
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.events) != 0 {
-		t.Fatal("expected no audit events for empty project_id")
-	}
 }
 
 func TestAuditHandler_InvalidJSON_ReturnsError(t *testing.T) {
@@ -109,9 +109,8 @@ func TestAuditHandler_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
+
 }
 
 func TestAuditHandler_DeleteAction(t *testing.T) {
@@ -130,16 +129,18 @@ func TestAuditHandler_DeleteAction(t *testing.T) {
 		Record:   record,
 		Metadata: Metadata{TableName: "job_runs"},
 	}
+	require.NoError(t, h.Handle(context.
+		Background(),
+		msg))
+	require.Len(t,
+		store.events, 1,
+	)
+	assert.Equal(
+		t, "run.deleted",
+		store.
+			events[0].Action,
+	)
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(store.events))
-	}
-	if store.events[0].Action != "run.deleted" {
-		t.Errorf("expected action=run.deleted, got %s", store.events[0].Action)
-	}
 }
 
 func TestEnsureConsumer_AlreadyExists(t *testing.T) {
@@ -147,12 +148,10 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Respond OK to the probe receive call.
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode receive body: %v", err)
-		}
-		if body["batch_size"] != float64(1) {
-			t.Fatalf("batch_size = %v, want 1", body["batch_size"])
-		}
+		require.NoError(t, json.NewDecoder(r.
+			Body).Decode(&body))
+		require.Equal(t, float64(1), body["batch_size"])
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
@@ -160,9 +159,8 @@ func TestEnsureConsumer_AlreadyExists(t *testing.T) {
 
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err != nil {
-		t.Fatalf("EnsureConsumer error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
@@ -185,18 +183,16 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 		}
 		if strings.Contains(r.URL.Path, "/api/sinks") {
 			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode sink body: %v", err)
-			}
-			if body["name"] != "test-consumer" {
-				t.Fatalf("sink name = %v, want test-consumer", body["name"])
-			}
-			if body["database"] != "strait-db" {
-				t.Fatalf("database = %v, want strait-db", body["database"])
-			}
-			if r.Header.Get("Authorization") != "Bearer token" {
-				t.Fatalf("auth = %q, want Bearer token", r.Header.Get("Authorization"))
-			}
+			require.NoError(t, json.NewDecoder(r.
+				Body).Decode(&body))
+			require.Equal(t, "test-consumer",
+				body["name"])
+			require.Equal(t, "strait-db",
+				body["database"])
+			require.Equal(t, "Bearer token",
+				r.Header.
+					Get("Authorization"))
+
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"id":"sink-1"}`))
 			return
@@ -207,9 +203,8 @@ func TestEnsureConsumer_CreatesOnFailedProbe(t *testing.T) {
 
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err != nil {
-		t.Fatalf("EnsureConsumer error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnsureConsumer_CreateFails(t *testing.T) {
@@ -231,12 +226,12 @@ func TestEnsureConsumer_CreateFails(t *testing.T) {
 
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err == nil {
-		t.Fatal("expected error when sink creation fails")
-	}
-	if !strings.Contains(err.Error(), "status 400") {
-		t.Fatalf("error = %q, want status 400", err.Error())
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.
+			Error(), "status 400",
+		))
+
 }
 
 func TestDoRequest_InvalidBaseURL(t *testing.T) {
@@ -244,12 +239,12 @@ func TestDoRequest_InvalidBaseURL(t *testing.T) {
 	// Create a client with an empty/invalid base URL by passing empty string.
 	client := NewClient("", "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
-	if err == nil {
-		t.Fatal("expected error for invalid base URL")
-	}
-	if !strings.Contains(err.Error(), "invalid base url") {
-		t.Fatalf("error = %q, want 'invalid base url'", err.Error())
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.
+			Error(), "invalid base url",
+		))
+
 }
 
 func TestDoRequest_NoPolicies(t *testing.T) {
@@ -262,12 +257,10 @@ func TestDoRequest_NoPolicies(t *testing.T) {
 
 	client := NewClient(ts.URL, "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	msgs, err := client.Receive(context.Background(), 1, 0)
-	if err != nil {
-		t.Fatalf("Receive error: %v", err)
-	}
-	if len(msgs) != 0 {
-		t.Fatalf("len(msgs) = %d, want 0", len(msgs))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		msgs, 0)
+
 }
 
 func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
@@ -296,17 +289,16 @@ func TestEnsureConsumer_DuplicateNameWaitsForConsumer(t *testing.T) {
 
 	client := NewClient(ts.URL, "test-consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err != nil {
-		t.Fatalf("EnsureConsumer error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestDoRequest_NoAuthToken(t *testing.T) {
 	t.Parallel()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" {
-			t.Fatalf("expected no Authorization header, got %q", r.Header.Get("Authorization"))
-		}
+		require.Equal(t, "", r.Header.
+			Get("Authorization"))
+
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
@@ -314,9 +306,8 @@ func TestDoRequest_NoAuthToken(t *testing.T) {
 
 	client := NewClient(ts.URL, "consumer", "", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	_, err := client.Receive(context.Background(), 1, 0)
-	if err != nil {
-		t.Fatalf("Receive error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnsureConsumer_NoAuthToken(t *testing.T) {
@@ -334,9 +325,9 @@ func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[]}`))
 			return
 		}
-		if r.Header.Get("Authorization") != "" {
-			t.Fatalf("expected no Authorization header, got %q", r.Header.Get("Authorization"))
-		}
+		require.Equal(t, "", r.Header.
+			Get("Authorization"))
+
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -344,9 +335,8 @@ func TestEnsureConsumer_NoAuthToken(t *testing.T) {
 
 	client := NewClient(ts.URL, "consumer", "", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err != nil {
-		t.Fatalf("EnsureConsumer error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestEnsureConsumer_NetworkError(t *testing.T) {
@@ -365,18 +355,16 @@ func TestEnsureConsumer_NetworkError(t *testing.T) {
 
 	client := NewClient(serverURL, "consumer", "token", WithRetryPolicy(nil), WithCircuitBreaker(nil))
 	err := client.EnsureConsumer(context.Background(), []string{"job_runs"})
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
+	require.Error(t, err)
+
 }
 
 func TestNewClient_InvalidBaseURL(t *testing.T) {
 	t.Parallel()
 	// Should not panic on invalid URL; silently falls back to empty URL.
 	client := NewClient("://invalid", "consumer", "token")
-	if client == nil {
-		t.Fatal("expected non-nil client")
-	}
+	require.NotNil(t, client)
+
 	// Attempting a request should fail gracefully.
 	_, err := client.Receive(context.Background(), 1, 0)
 	if err == nil {
@@ -387,25 +375,25 @@ func TestNewClient_InvalidBaseURL(t *testing.T) {
 func TestNotificationTriggerHandler_Table(t *testing.T) {
 	t.Parallel()
 	h := NewNotificationTriggerHandler(nil, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs", h.
+		Table())
+
 }
 
 func TestSLOHandler_Table(t *testing.T) {
 	t.Parallel()
 	h := NewSLOHandler(nil, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs", h.
+		Table())
+
 }
 
 func TestWebhookTriggerHandler_Table(t *testing.T) {
 	t.Parallel()
 	h := NewWebhookTriggerHandler(nil, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs", h.
+		Table())
+
 }
 
 func TestWebhookReceiver_RegisterAdditionalHandler(t *testing.T) {
@@ -414,15 +402,14 @@ func TestWebhookReceiver_RegisterAdditionalHandler(t *testing.T) {
 
 	h := &HandlerFunc{TableName: "job_runs", Fn: func(_ context.Context, _ Message) error { return nil }}
 	wr.RegisterAdditionalHandler(h)
-
-	if len(wr.additionalHandlers["job_runs"]) != 1 {
-		t.Fatalf("expected 1 additional handler, got %d", len(wr.additionalHandlers["job_runs"]))
-	}
+	require.Len(t,
+		wr.additionalHandlers["job_runs"],
+		1)
 
 	h2 := &HandlerFunc{TableName: "job_runs", Fn: func(_ context.Context, _ Message) error { return nil }}
 	wr.RegisterAdditionalHandler(h2)
+	require.Len(t,
+		wr.additionalHandlers["job_runs"],
+		2)
 
-	if len(wr.additionalHandlers["job_runs"]) != 2 {
-		t.Fatalf("expected 2 additional handlers, got %d", len(wr.additionalHandlers["job_runs"]))
-	}
 }

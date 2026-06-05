@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCollect_AllActions(t *testing.T) {
@@ -22,20 +25,18 @@ func TestCollect_AllActions(t *testing.T) {
 				Metadata: Metadata{TableName: "job_runs", CommitTimestamp: "2026-03-18T00:00:00Z"},
 			}
 			pubMsg, err := h.Collect(context.Background(), msg)
-			if err != nil {
-				t.Fatalf("Collect() error = %v", err)
-			}
-			if pubMsg == nil {
-				t.Fatal("expected non-nil message")
-				return
-			}
+			require.NoError(t, err)
+			require.NotNil(t, pubMsg)
+
 			var event ChangeEvent
-			if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			if event.Action != action {
-				t.Errorf("action = %q, want %q", event.Action, action)
-			}
+			require.NoError(t, json.Unmarshal(pubMsg.
+				Data,
+
+				&event))
+			assert.Equal(
+				t, action, event.
+					Action)
+
 		})
 	}
 }
@@ -54,17 +55,17 @@ func TestCollect_PreservesChangesField(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if string(event.Changes) != string(changes) {
-		t.Errorf("changes not preserved: got %s, want %s", event.Changes, changes)
-	}
+	require.NoError(t, json.Unmarshal(pubMsg.
+		Data,
+
+		&event))
+	assert.Equal(
+		t, string(changes), string(event.
+			Changes))
+
 }
 
 func TestCollect_PreservesTimestamp(t *testing.T) {
@@ -80,17 +81,17 @@ func TestCollect_PreservesTimestamp(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if event.Timestamp != ts {
-		t.Errorf("timestamp = %q, want %q", event.Timestamp, ts)
-	}
+	require.NoError(t, json.Unmarshal(pubMsg.
+		Data,
+
+		&event))
+	assert.Equal(
+		t, ts, event.Timestamp,
+	)
+
 }
 
 func TestCollect_InvalidRecord_AllHandlers(t *testing.T) {
@@ -114,9 +115,9 @@ func TestCollect_InvalidRecord_AllHandlers(t *testing.T) {
 				Metadata: Metadata{TableName: h.Table()},
 			}
 			_, err := h.Collect(context.Background(), msg)
-			if err == nil {
-				t.Errorf("handler %s: expected error for invalid record", h.Table())
-			}
+			assert.Error(
+				t, err)
+
 		})
 	}
 }
@@ -133,13 +134,15 @@ func TestCollect_EmptyProjectID(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "cdc:project::job_runs",
+
+		pubMsg.
+			Channel)
+
 	// Channel should still be formed, even with empty project ID.
-	if pubMsg.Channel != "cdc:project::job_runs" {
-		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project::job_runs")
-	}
+
 }
 
 func TestCollect_LargeRecord(t *testing.T) {
@@ -167,12 +170,13 @@ func TestCollect_LargeRecord(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if len(pubMsg.Data) < 100000 {
-		t.Errorf("large record should produce large message, got %d bytes", len(pubMsg.Data))
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(pubMsg.
+		Data),
+
+		100000,
+	)
+
 }
 
 func TestCollectChangeEvent_EmptyRecord(t *testing.T) {
@@ -185,12 +189,11 @@ func TestCollectChangeEvent_EmptyRecord(t *testing.T) {
 	}
 
 	msg, err := collectChangeEvent(event, "ch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if msg.Channel != "ch" {
-		t.Errorf("Channel = %q, want %q", msg.Channel, "ch")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "ch", msg.Channel,
+	)
+
 }
 
 func TestCollectChangeEvent_NilRecord(t *testing.T) {
@@ -203,10 +206,7 @@ func TestCollectChangeEvent_NilRecord(t *testing.T) {
 	}
 
 	msg, err := collectChangeEvent(event, "ch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if msg == nil {
-		t.Fatal("expected non-nil message")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+
 }

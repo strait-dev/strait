@@ -8,6 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 // TestClaimDedupe_LostSharedClaimDoesNotPoisonLocalCache locks in the contract
@@ -40,37 +41,26 @@ func TestClaimDedupe_LostSharedClaimDoesNotPoisonLocalCache(t *testing.T) {
 
 	// Another node wins the authoritative claim first.
 	won, err := shared.Claim(ctx, sharedKey)
-	if err != nil {
-		t.Fatalf("seeding shared claim: %v", err)
-	}
-	if !won {
-		t.Fatal("expected the seeding node to win the shared claim")
-	}
+	require.NoError(t, err)
+	require.True(
+		t, won)
 
 	// This node loses the shared claim.
 	gotKey, claimed := wr.claimDedupe(ctx, msg)
-	if gotKey != key {
-		t.Fatalf("claimDedupe key = %q, want %q", gotKey, key)
-	}
-	if claimed {
-		t.Fatal("expected claimed=false when another node holds the shared claim")
-	}
+	require.Equal(t, key, gotKey)
+	require.False(t, claimed)
 
 	// The local cache must not retain a key this node never committed to process.
 	wr.seenMu.Lock()
 	_, poisoned := wr.seen[key]
 	wr.seenMu.Unlock()
-	if poisoned {
-		t.Fatal("losing node poisoned its local dedupe cache with an unprocessed key")
-	}
+	require.False(t, poisoned)
 
 	// Winning node fails and releases; a redelivery routed here must still win.
 	shared.Release(ctx, sharedKey)
 	gotKey, claimed = wr.claimDedupe(ctx, msg)
-	if gotKey != key {
-		t.Fatalf("redelivery claimDedupe key = %q, want %q", gotKey, key)
-	}
-	if !claimed {
-		t.Fatal("redelivery after release must be processed, but local cache suppressed it")
-	}
+	require.Equal(t, key, gotKey)
+	require.True(
+		t, claimed)
+
 }

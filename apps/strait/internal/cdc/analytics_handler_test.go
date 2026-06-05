@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/clickhouse"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testExporter creates a non-nil Exporter for testing by using an exported
@@ -41,14 +44,11 @@ func TestAnalyticsHandler_CompletedRun_Enqueues(t *testing.T) {
 	}
 
 	err := h.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	pending := exp.PendingLen()
-	if pending != 1 {
-		t.Fatalf("expected 1 enqueued record, got %d", pending)
-	}
+	require.EqualValues(t, 1, pending)
+
 }
 
 func TestAnalyticsHandler_RedeliveredTerminalUpdateEnqueuesOnce(t *testing.T) {
@@ -75,18 +75,18 @@ func TestAnalyticsHandler_RedeliveredTerminalUpdateEnqueuesOnce(t *testing.T) {
 			IdempotencyKey: "wal:job_runs:run-redelivered:terminal",
 		},
 	}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("first delivery: %v", err)
-	}
+		msg))
+
 	msg.AckID = "ack-redelivery"
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("redelivery: %v", err)
-	}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if pending := exp.PendingLen(); pending != 1 {
-		t.Fatalf("pending analytics records = %d, want 1", pending)
-	}
+		msg))
+	require.EqualValues(t, 1, exp.PendingLen())
+
 }
 
 func TestAnalyticsHandler_NonTerminal_Skipped(t *testing.T) {
@@ -95,13 +95,9 @@ func TestAnalyticsHandler_NonTerminal_Skipped(t *testing.T) {
 	h := NewAnalyticsHandler(exp, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("executing", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, exp.PendingLen())
 
-	if exp.PendingLen() != 0 {
-		t.Fatal("expected no enqueued records for non-terminal status")
-	}
 }
 
 func TestAnalyticsHandler_NilExporter_NoError(t *testing.T) {
@@ -109,9 +105,8 @@ func TestAnalyticsHandler_NilExporter_NoError(t *testing.T) {
 	h := NewAnalyticsHandler(nil, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestAnalyticsHandler_ComputesDuration(t *testing.T) {
@@ -140,21 +135,14 @@ func TestAnalyticsHandler_ComputesDuration(t *testing.T) {
 	}
 
 	err := h.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if exp.PendingLen() != 1 {
-		t.Fatal("expected 1 enqueued record")
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, exp.PendingLen())
 
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord type")
-	}
-	if rec.DurationMs != 5000 {
-		t.Errorf("expected DurationMs=5000, got %d", rec.DurationMs)
-	}
+	require.True(
+		t, ok)
+	assert.EqualValues(t, 5000, rec.DurationMs)
+
 }
 
 func TestAnalyticsHandler_InvalidJSON_ReturnsError(t *testing.T) {
@@ -169,9 +157,8 @@ func TestAnalyticsHandler_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
+
 }
 
 func TestAnalyticsHandler_ZeroDuration(t *testing.T) {
@@ -187,20 +174,17 @@ func TestAnalyticsHandler_ZeroDuration(t *testing.T) {
 		"created_at": ts,
 	})
 	msg := Message{AckID: "ack-1", Action: ActionUpdate, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if exp.PendingLen() != 1 {
-		t.Fatal("expected 1 enqueued record")
-	}
+		msg))
+	require.EqualValues(t, 1, exp.PendingLen())
+
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord type")
-	}
-	if rec.DurationMs != 0 {
-		t.Errorf("expected DurationMs=0 when started_at == finished_at, got %d", rec.DurationMs)
-	}
+	require.True(
+		t, ok)
+	assert.EqualValues(t, 0, rec.DurationMs)
+
 }
 
 func TestAnalyticsHandler_NegativeDuration(t *testing.T) {
@@ -219,17 +203,16 @@ func TestAnalyticsHandler_NegativeDuration(t *testing.T) {
 		"created_at":  started.Add(-time.Minute).Format(time.RFC3339),
 	})
 	msg := Message{AckID: "ack-1", Action: ActionUpdate, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		msg))
+
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord type")
-	}
-	if rec.DurationMs != 0 {
-		t.Errorf("expected DurationMs=0 for negative duration (clock skew), got %d", rec.DurationMs)
-	}
+	require.True(
+		t, ok)
+	assert.EqualValues(t, 0, rec.DurationMs)
+
 }
 
 func TestAnalyticsHandler_NilStartedAt(t *testing.T) {
@@ -244,17 +227,16 @@ func TestAnalyticsHandler_NilStartedAt(t *testing.T) {
 		"created_at": "2026-03-26T09:59:00Z",
 	})
 	msg := Message{AckID: "ack-1", Action: ActionUpdate, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		msg))
+
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord type")
-	}
-	if rec.DurationMs != 0 {
-		t.Errorf("expected DurationMs=0 when started_at is empty, got %d", rec.DurationMs)
-	}
+	require.True(
+		t, ok)
+	assert.EqualValues(t, 0, rec.DurationMs)
+
 }
 
 func TestAnalyticsHandler_NilFinishedAt(t *testing.T) {
@@ -269,17 +251,16 @@ func TestAnalyticsHandler_NilFinishedAt(t *testing.T) {
 		"created_at": "2026-03-26T09:59:00Z",
 	})
 	msg := Message{AckID: "ack-1", Action: ActionUpdate, Record: record, Metadata: Metadata{TableName: "job_runs"}}
+	require.NoError(t, h.Handle(context.
+		Background(),
 
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		msg))
+
 	rec, ok := exp.PendingAt(0).(clickhouse.RunAnalyticsRecord)
-	if !ok {
-		t.Fatal("expected RunAnalyticsRecord type")
-	}
-	if rec.DurationMs != 0 {
-		t.Errorf("expected DurationMs=0 when finished_at is empty, got %d", rec.DurationMs)
-	}
+	require.True(
+		t, ok)
+	assert.EqualValues(t, 0, rec.DurationMs)
+
 }
 
 func TestAnalyticsHandler_EnqueueFails(t *testing.T) {
@@ -297,10 +278,7 @@ func TestAnalyticsHandler_EnqueueFails(t *testing.T) {
 	msg := Message{AckID: "ack-1", Action: ActionUpdate, Record: record, Metadata: Metadata{TableName: "job_runs"}}
 
 	err := h.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("expected no error when enqueue fails (warn only), got %v", err)
-	}
-	if exp.PendingLen() != 0 {
-		t.Fatal("expected no buffered records in stopping exporter")
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, exp.PendingLen())
+
 }

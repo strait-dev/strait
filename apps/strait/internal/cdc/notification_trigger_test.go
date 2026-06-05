@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockNotificationStore struct {
@@ -45,21 +48,22 @@ func TestNotificationTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
-	}
-	if store.deliveries[0].ChannelID != "ch-1" {
-		t.Errorf("expected channel_id=ch-1, got %s", store.deliveries[0].ChannelID)
-	}
-	if store.deliveries[0].EventType != "run.completed" {
-		t.Errorf("expected event_type=run.completed, got %s", store.deliveries[0].EventType)
-	}
-	if store.deliveries[0].DedupeKey == "" {
-		t.Fatal("expected dedupe key to be set")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
+	assert.Equal(
+		t, "ch-1", store.
+			deliveries[0].ChannelID,
+	)
+	assert.Equal(
+		t, "run.completed",
+		store.deliveries[0].EventType,
+	)
+	require.NotEqual(t, "", store.
+		deliveries[0].DedupeKey,
+	)
+
 }
 
 func TestNotificationTrigger_NonTerminalStatus_Skipped(t *testing.T) {
@@ -73,13 +77,13 @@ func TestNotificationTrigger_NonTerminalStatus_Skipped(t *testing.T) {
 
 	for _, status := range []string{"queued", "executing", "dequeued", "delayed"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
-		if err != nil {
-			t.Fatalf("unexpected error for status %s: %v", status, err)
-		}
+		require.NoError(t, err)
+
 	}
-	if len(store.deliveries) != 0 {
-		t.Fatalf("expected 0 deliveries for non-terminal statuses, got %d", len(store.deliveries))
-	}
+	require.Len(t,
+		store.deliveries,
+		0)
+
 }
 
 func TestNotificationTrigger_DisabledChannel_Skipped(t *testing.T) {
@@ -92,12 +96,11 @@ func TestNotificationTrigger_DisabledChannel_Skipped(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries for disabled channel")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		0)
+
 }
 
 func TestNotificationTrigger_NoChannels(t *testing.T) {
@@ -106,12 +109,11 @@ func TestNotificationTrigger_NoChannels(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries when no channels")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		0)
+
 }
 
 func TestNotificationTrigger_MultipleChannels(t *testing.T) {
@@ -126,12 +128,11 @@ func TestNotificationTrigger_MultipleChannels(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 3 {
-		t.Fatalf("expected 3 deliveries, got %d", len(store.deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		3)
+
 }
 
 func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
@@ -146,26 +147,29 @@ func TestNotificationTrigger_FailureTerminalStatusesCreateFailedDelivery(t *test
 				},
 			}
 			h := NewNotificationTriggerHandler(store, nil)
+			require.NoError(t, h.Handle(context.
+				Background(),
+				cdcUpdateMsg(status, "p1", "run-"+status,
 
-			if err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+status, "job-1")); err != nil {
-				t.Fatalf("Handle() error = %v", err)
-			}
-			if len(store.deliveries) != 1 {
-				t.Fatalf("deliveries len = %d, want 1", len(store.deliveries))
-			}
-			if store.deliveries[0].EventType != domain.WebhookEventRunFailed {
-				t.Fatalf("EventType = %q, want %q", store.deliveries[0].EventType, domain.WebhookEventRunFailed)
-			}
-			if store.deliveries[0].DedupeKey == "" {
-				t.Fatal("expected dedupe key")
-			}
+					"job-1")))
+			require.Len(t,
+				store.deliveries,
+				1)
+			require.Equal(t, domain.WebhookEventRunFailed,
+
+				store.
+					deliveries[0].EventType)
+			require.NotEqual(t, "", store.
+				deliveries[0].DedupeKey,
+			)
+
 			var payload map[string]any
-			if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
-				t.Fatalf("payload is not valid JSON: %v", err)
-			}
-			if payload["status"] != status {
-				t.Fatalf("status = %v, want original status %s", payload["status"], status)
-			}
+			require.NoError(t, json.Unmarshal(store.
+				deliveries[0].Payload,
+
+				&payload))
+			require.Equal(t, status, payload["status"])
+
 		})
 	}
 }
@@ -178,9 +182,8 @@ func TestDeepSecNotificationTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on store failure")
-	}
+	require.Error(t, err)
+
 }
 
 func TestNotificationTrigger_PayloadHasRunData(t *testing.T) {
@@ -193,26 +196,24 @@ func TestNotificationTrigger_PayloadHasRunData(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-42", "job-7"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatal("expected 1 delivery")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("payload is not valid JSON: %v", err)
-	}
-	if payload["run_id"] != "run-42" {
-		t.Errorf("expected run_id=run-42, got %v", payload["run_id"])
-	}
-	if payload["job_id"] != "job-7" {
-		t.Errorf("expected job_id=job-7, got %v", payload["job_id"])
-	}
-	if payload["event_type"] != "run.completed" {
-		t.Errorf("expected event_type=run.completed, got %v", payload["event_type"])
-	}
+	require.NoError(t, json.Unmarshal(store.
+		deliveries[0].Payload,
+
+		&payload))
+	assert.Equal(
+		t, "run-42", payload["run_id"])
+	assert.Equal(
+		t, "job-7", payload["job_id"])
+	assert.Equal(
+		t, "run.completed",
+		payload["event_type"])
+
 }
 
 func TestNotificationTrigger_InvalidJSON(t *testing.T) {
@@ -226,9 +227,8 @@ func TestNotificationTrigger_InvalidJSON(t *testing.T) {
 		Metadata: Metadata{TableName: "job_runs"},
 	}
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
+
 }
 
 func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
@@ -241,12 +241,11 @@ func TestNotificationTrigger_EmptyProjectID(t *testing.T) {
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries for empty project_id")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		0)
+
 }
 
 func TestDeepSecNotificationTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
@@ -261,7 +260,6 @@ func TestDeepSecNotificationTrigger_CreateDeliveryErrorReturnsForRetry(t *testin
 	h := NewNotificationTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on delivery creation failure")
-	}
+	require.Error(t, err)
+
 }
