@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCheckWebhookEventTypes_InternalSecretBypass_Blocked is the canonical
@@ -42,16 +45,13 @@ func TestCheckWebhookEventTypes_InternalSecretBypass_Blocked(t *testing.T) {
 	w := httptest.NewRecorder()
 	// authedRequest already sets X-Internal-Secret — this is the leak scenario.
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.False(t, createCalled)
+	assert.True(t,
+		strings.Contains(w.Body.String(), "not available"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 from event-type gate; got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("CreateWebhookSubscription must not run when the gate rejects")
-	}
-	if !strings.Contains(w.Body.String(), "not available") {
-		t.Errorf("error must mention plan unavailability, got: %s", w.Body.String())
-	}
 }
 
 // TestCheckWebhookEventTypes_PremiumEvent_BypassAttempt simulates the smuggle
@@ -63,7 +63,9 @@ func TestCheckWebhookEventTypes_PremiumEvent_BypassAttempt(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateWebhookSubscriptionFunc: func(_ context.Context, _ *domain.WebhookSubscription) error {
-			t.Fatal("CreateWebhookSubscription must not be reached")
+			require.Fail(t,
+
+				"CreateWebhookSubscription must not be reached")
 			return nil
 		},
 	}
@@ -75,13 +77,12 @@ func TestCheckWebhookEventTypes_PremiumEvent_BypassAttempt(t *testing.T) {
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed","run.timed_out"],"secret":"sekret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	assert.True(t,
+		strings.Contains(w.Body.String(), "run.timed_out"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "run.timed_out") {
-		t.Errorf("response must name the offending event type, got: %s", w.Body.String())
-	}
 }
 
 // TestCheckWebhookEventTypes_LeadingValidEvent_StillRejectsTrailingPremium
@@ -96,10 +97,8 @@ func TestCheckWebhookEventTypes_LeadingValidEvent_StillRejectsTrailingPremium(t 
 
 	// First event passes; second must trip the gate.
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.completed", "run.timed_out"})
-	if err == nil {
-		t.Fatal("gate must inspect every event in the slice, not short-circuit on the first allowed one")
-	}
-	if !strings.Contains(err.Error(), "run.timed_out") {
-		t.Errorf("error must name the trailing offender, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "run.timed_out"))
+
 }

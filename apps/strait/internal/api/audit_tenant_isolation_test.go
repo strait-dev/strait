@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestAuditList_CrossTenantIsolation verifies that a caller querying
@@ -34,12 +36,13 @@ func TestAuditList_CrossTenantIsolation(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/audit-events?limit=10", "", "proj-a")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, "proj-a",
+		storeProjectID.Load().(string))
 
 	// The store must have been called with proj-a (from the context),
 	// not anything the URL might have attempted to inject.
-	if got := storeProjectID.Load().(string); got != "proj-a" {
-		t.Errorf("store called with project_id = %q, want %q", got, "proj-a")
-	}
+
 }
 
 // TestAuditList_InjectsFiltersParameterized verifies that resource_type
@@ -70,9 +73,10 @@ func TestAuditList_InjectsFiltersParameterized(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	got := storeResourceID.Load().(string)
-	if got != payload {
-		t.Errorf("store received resource_id = %q, want literal payload", got)
-	}
+	assert.Equal(
+		t, payload,
+		got)
+
 }
 
 // TestAuditExport_CrossTenantIsolation verifies the export path also
@@ -95,10 +99,10 @@ func TestAuditExport_CrossTenantIsolation(t *testing.T) {
 		"", "proj-export")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, "proj-export",
+		streamProject.Load().(string))
 
-	if got := streamProject.Load().(string); got != "proj-export" {
-		t.Errorf("stream called with project_id = %q, want %q", got, "proj-export")
-	}
 }
 
 // TestAuditVerify_CrossTenantIsolation verifies the verify path uses
@@ -119,8 +123,8 @@ func TestAuditVerify_CrossTenantIsolation(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/audit-events/verify", "", "proj-verify")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, "proj-verify",
+		verifyProject.Load().(string))
 
-	if got := verifyProject.Load().(string); got != "proj-verify" {
-		t.Errorf("VerifyAuditChain called with project_id = %q, want %q", got, "proj-verify")
-	}
 }

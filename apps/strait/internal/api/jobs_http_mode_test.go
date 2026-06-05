@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockHTTPModeEnforcer implements BillingEnforcer with configurable plan limits.
@@ -49,9 +52,8 @@ func TestCheckHTTPModeAllowed_FreePlanAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for free plan HTTP mode, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_StarterPlanAllowed(t *testing.T) {
@@ -71,9 +73,8 @@ func TestCheckHTTPModeAllowed_StarterPlanAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for starter plan HTTP mode, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_ProPlanAllowed(t *testing.T) {
@@ -92,9 +93,8 @@ func TestCheckHTTPModeAllowed_ProPlanAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for pro plan, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_CommunityEditionAllowed(t *testing.T) {
@@ -106,9 +106,8 @@ func TestCheckHTTPModeAllowed_CommunityEditionAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for community edition, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
@@ -120,9 +119,8 @@ func TestCheckHTTPModeAllowed_WorkerModeSkipped(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeWorker, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for worker mode, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -134,9 +132,11 @@ func TestCheckHTTPModeAllowed_CloudNilEnforcerFailsClosed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+
 }
 
 func TestCheckHTTPModeAllowed_CommunityNilEnforcerAllowed(t *testing.T) {
@@ -148,9 +148,8 @@ func TestCheckHTTPModeAllowed_CommunityNilEnforcerAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error with community nil enforcer, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -168,12 +167,14 @@ func TestCheckHTTPModeAllowed_OrgLookupErrorFailsClosed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil {
-		t.Fatal("expected org lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.
+			Error(),
+
+			"billing enforcement unavailable",
+		))
+
 }
 
 func TestCheckHTTPModeAllowed_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -191,12 +192,14 @@ func TestCheckHTTPModeAllowed_PlanLookupErrorFailsClosed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil {
-		t.Fatal("expected plan lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.
+			Error(),
+
+			"billing enforcement unavailable",
+		))
+
 }
 
 func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
@@ -215,9 +218,8 @@ func TestCheckHTTPModeAllowed_EnterprisePlanAllowed(t *testing.T) {
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for enterprise plan, got: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestCheckHTTPModeAllowed_UnavailablePlanDoesNotAdvertiseUpgrade(t *testing.T) {
@@ -238,13 +240,13 @@ func TestCheckHTTPModeAllowed_UnavailablePlanDoesNotAdvertiseUpgrade(t *testing.
 	}
 
 	err := s.checkHTTPModeAllowed(context.Background(), domain.ExecutionModeHTTP, "proj-1")
-	if err == nil {
-		t.Fatal("expected error for corrupted plan limits that disable HTTP mode")
-	}
+	require.Error(t, err)
+
 	msg := err.Error()
 	for _, forbidden := range []string{"Pro plan", "$49.99", "Upgrade"} {
-		if strings.Contains(msg, forbidden) {
-			t.Fatalf("HTTP mode fallback error advertises stale upgrade copy %q in %q", forbidden, msg)
-		}
+		require.False(t, strings.Contains(
+			msg, forbidden,
+		))
+
 	}
 }

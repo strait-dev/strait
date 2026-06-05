@@ -7,6 +7,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestApproveDeviceCodeRollsBackOnApproveFailure pins the atomicity
@@ -90,21 +92,16 @@ func TestApproveDeviceCodeRollsBackOnApproveFailure(t *testing.T) {
 		UserCode:  "ROLL1234",
 		ProjectID: "proj-rollback",
 	}})
-	if err == nil {
-		t.Fatal("expected handleApproveDeviceCode to fail when approve step errors")
-	}
-	if createAPIKeyHits != 1 {
-		t.Fatalf("CreateAPIKey hits = %d, want 1 (called inside the tx)", createAPIKeyHits)
-	}
-	if approveHits != 1 {
-		t.Fatalf("ApproveDeviceCodeByUserCode hits = %d, want 1", approveHits)
-	}
-	if len(persistedKeyIDs) != 0 {
-		t.Fatalf("expected zero persisted api_keys after rollback, got %v", persistedKeyIDs)
-	}
-	if auditHits != 0 {
-		t.Fatalf("audit event was emitted on rollback path: hits=%d, want 0", auditHits)
-	}
+	require.Error(t, err)
+	require.EqualValues(t, 1, createAPIKeyHits)
+	require.EqualValues(t, 1, approveHits)
+	require.Len(t,
+		persistedKeyIDs,
+
+		0,
+	)
+	require.EqualValues(t, 0, auditHits)
+
 }
 
 // TestApproveDeviceCodeCommitsOnSuccess regression-tests the happy
@@ -179,22 +176,12 @@ func TestApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 		UserCode:  "GOOD1234",
 		ProjectID: "proj-commit",
 	}})
-	if err != nil {
-		t.Fatalf("handleApproveDeviceCode() error = %v", err)
-	}
-	if createAPIKeyHits != 1 {
-		t.Fatalf("CreateAPIKey hits = %d, want 1", createAPIKeyHits)
-	}
-	if approveHits != 1 {
-		t.Fatalf("ApproveDeviceCodeByUserCode hits = %d, want 1", approveHits)
-	}
-	if len(persistedKeyIDs) != 1 || persistedKeyIDs[0] != "key-committed" {
-		t.Fatalf("expected exactly one committed key 'key-committed', got %v", persistedKeyIDs)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, createAPIKeyHits)
+	require.EqualValues(t, 1, approveHits)
+	require.False(t, len(persistedKeyIDs) != 1 || persistedKeyIDs[0] != "key-committed")
+	require.NotEmpty(t, auditEvents)
 
-	if len(auditEvents) == 0 {
-		t.Fatal("expected audit event to be emitted on success path")
-	}
 	var sawApproved bool
 	for _, ev := range auditEvents {
 		if ev.Action == domain.AuditActionDeviceCodeApproved {
@@ -202,9 +189,10 @@ func TestApproveDeviceCodeCommitsOnSuccess(t *testing.T) {
 			break
 		}
 	}
-	if !sawApproved {
-		t.Fatalf("expected audit event with action %q, got %d events", domain.AuditActionDeviceCodeApproved, len(auditEvents))
-	}
+	require.True(
+		t, sawApproved,
+	)
+
 }
 
 // TestApproveDeviceCodePropagatesNotFound checks that the
@@ -246,7 +234,6 @@ func TestApproveDeviceCodePropagatesNotFound(t *testing.T) {
 		UserCode:  "RACE1234",
 		ProjectID: "proj-race",
 	}})
-	if err == nil {
-		t.Fatal("expected error when ApproveDeviceCodeByUserCode returns ErrDeviceCodeNotFound")
-	}
+	require.Error(t, err)
+
 }

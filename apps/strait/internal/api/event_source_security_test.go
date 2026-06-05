@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
@@ -40,14 +42,12 @@ func TestEventSource_FilterExpressionInjection(t *testing.T) {
 		t.Run(fmt.Sprintf("injection_%d", i), func(t *testing.T) {
 			t.Parallel()
 			match, err := eventfilter.Eval(filter, payload)
-			if err != nil {
-				t.Fatalf("filter eval should not error on SQL-like strings: %v", err)
-			}
+			require.NoError(t, err)
+			require.False(t, match)
+
 			// SQL-like strings used as literal comparison values should not
 			// match normal payload values.
-			if match {
-				t.Fatal("malicious filter should not match normal payload")
-			}
+
 		})
 	}
 }
@@ -63,14 +63,14 @@ func TestEventSource_FilterExpressionDoS(t *testing.T) {
 	}
 	expr := eventfilter.FilterExpr{Eq: conditions}
 	filterJSON, err := json.Marshal(expr)
-	if err != nil {
-		t.Fatalf("failed to marshal filter: %v", err)
-	}
+	require.NoError(t, err)
 
 	payload := json.RawMessage(`{"field":"no_match"}`)
 
 	if _, err := eventfilter.Eval(filterJSON, payload); err == nil {
-		t.Fatal("expected oversized filter expression to be rejected")
+		require.Fail(t,
+
+			"expected oversized filter expression to be rejected")
 	}
 }
 
@@ -89,7 +89,9 @@ func TestEventSource_FilterExpressionNestedPaths(t *testing.T) {
 	payload := json.RawMessage(`{"a":{"b":"c"}}`)
 
 	if _, err := eventfilter.Eval(filter, payload); err == nil {
-		t.Fatal("expected deeply nested filter path to be rejected")
+		require.Fail(t,
+
+			"expected deeply nested filter path to be rejected")
 	}
 }
 
@@ -116,10 +118,9 @@ func TestEventSource_SchemaValidationBypass(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
@@ -127,7 +128,9 @@ func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateEventSourceFunc: func(_ context.Context, _ *domain.EventSource) error {
-			t.Fatal("CreateEventSource should not be called when signature secret encryption is unavailable")
+			require.Fail(t,
+
+				"CreateEventSource should not be called when signature secret encryption is unavailable")
 			return nil
 		},
 	}
@@ -142,10 +145,10 @@ func TestEventSource_CreateSignatureSecretRequiresEncryptor(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
@@ -153,7 +156,9 @@ func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
 
 	ms := &APIStoreMock{
 		UpdateEventSourceFunc: func(_ context.Context, _, _ string, _ map[string]any) error {
-			t.Fatal("UpdateEventSource should not be called when signature secret encryption is unavailable")
+			require.Fail(t,
+
+				"UpdateEventSource should not be called when signature secret encryption is unavailable")
 			return nil
 		},
 	}
@@ -168,9 +173,12 @@ func TestEventSource_UpdateSignatureSecretRequiresEncryptor(t *testing.T) {
 		},
 	})
 	var statusErr interface{ GetStatus() int }
-	if !errors.As(err, &statusErr) || statusErr.GetStatus() != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when signature secret encryption is unavailable, got %v", err)
-	}
+	require.False(t, !errors.As(
+		err, &statusErr) ||
+		statusErr.GetStatus() != http.
+			StatusInternalServerError,
+	)
+
 }
 
 // TestEventSource_SignatureVerificationEmpty verifies that when the event source
@@ -200,13 +208,11 @@ func TestEventSource_SignatureVerificationEmpty(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/events/dispatch", body)
 
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when signature verification is misconfigured, got %d: %s", w.Code, w.Body.String())
-	}
-	if subscriptionsCalled {
-		t.Fatal("subscriptions should not be listed when signature verification is misconfigured")
-	}
+		w.Code)
+	require.False(t, subscriptionsCalled)
+
 }
 
 // TestEventSource_SignatureVerificationWrongAlgorithm verifies that unsupported
@@ -222,9 +228,8 @@ func TestEventSource_SignatureVerificationWrongAlgorithm(t *testing.T) {
 
 	unsupported := []string{"md5", "sha1", "rsa-sha256", "none", ""}
 	for _, algo := range unsupported {
-		if supported[algo] {
-			t.Fatalf("algorithm %q should not be supported", algo)
-		}
+		require.False(t, supported[algo])
+
 	}
 }
 
@@ -249,9 +254,10 @@ func TestEventSource_SignatureVerificationReplay(t *testing.T) {
 
 	// The signature from A should not match the HMAC for B.
 	actualFromHeader := strings.TrimPrefix(sigForA, "sha256=")
-	if actualFromHeader == expectedForB {
-		t.Fatal("different payloads should produce different HMAC signatures")
-	}
+	require.NotEqual(t, expectedForB,
+		actualFromHeader,
+	)
+
 }
 
 // TestEventSource_DispatchWithNullPayload verifies dispatching with a null payload
@@ -285,10 +291,9 @@ func TestEventSource_DispatchWithNullPayload(t *testing.T) {
 	body := `{"source":"my-source","project_id":"proj-1","payload":null}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestEventSource_DispatchWithHugePayload verifies that a 10MB payload is handled
@@ -309,10 +314,10 @@ func TestEventSource_DispatchWithHugePayload(t *testing.T) {
 	body := fmt.Sprintf(`{"source":"my-source","project_id":"proj-1","payload":{"data":%q}}`, bigValue)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+	require.NotEqual(t, http.StatusInternalServerError,
 
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("huge payload should not cause 500: %s", w.Body.String())
-	}
+		w.Code)
+
 }
 
 // TestEventSource_SubscriptionFilterBypass verifies that a filter that should block
@@ -351,22 +356,17 @@ func TestEventSource_SubscriptionFilterBypass(t *testing.T) {
 	body := `{"source":"my-source","project_id":"proj-1","payload":{"env":"staging"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
 	dispatched := int(resp["dispatched"].(float64))
-	if dispatched != 0 {
-		t.Fatalf("expected 0 dispatched (filter should block), got %d", dispatched)
-	}
-	if enqueued.Load() != 0 {
-		t.Fatalf("expected 0 enqueued, got %d", enqueued.Load())
-	}
+	require.EqualValues(t, 0, dispatched)
+	require.EqualValues(t, 0, enqueued.
+		Load())
+
 }
 
 // TestEventSource_ConcurrentDispatch verifies that 100 concurrent dispatches
@@ -407,16 +407,16 @@ func TestEventSource_ConcurrentDispatch(t *testing.T) {
 			body := fmt.Sprintf(`{"source":"my-source","project_id":"proj-1","payload":{"idx":%d}}`, idx)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
-			if w.Code != http.StatusOK {
-				t.Errorf("dispatch %d: expected 200, got %d", idx, w.Code)
-			}
+			assert.Equal(
+				t, http.StatusOK,
+				w.Code)
+
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 100, enqueued.
+		Load())
 
-	if enqueued.Load() != 100 {
-		t.Fatalf("expected 100 enqueued, got %d", enqueued.Load())
-	}
 }
 
 // FuzzEventSourceFilter fuzzes the filter expression JSON to ensure the filter

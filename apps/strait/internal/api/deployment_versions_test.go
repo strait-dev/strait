@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateDeploymentVersion(t *testing.T) {
@@ -37,21 +39,19 @@ func TestCreateDeploymentVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var response map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response["id"] != "dep-1" {
-		t.Fatalf("id = %v, want dep-1", response["id"])
-	}
-	if response["status"] != string(domain.DeploymentVersionStatusDraft) {
-		t.Fatalf("status = %v, want draft", response["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &response,
+	))
+	require.Equal(t, "dep-1", response["id"])
+	require.Equal(t, string(domain.
+		DeploymentVersionStatusDraft,
+	), response["status"])
+
 }
 
 func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
@@ -88,18 +88,16 @@ func TestCreateDeploymentVersion_WithCanaryStrategy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var response map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response["strategy"] != "canary" {
-		t.Fatalf("strategy = %v, want canary", response["strategy"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &response,
+	))
+	require.Equal(t, "canary", response["strategy"])
+
 }
 
 func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
@@ -118,10 +116,10 @@ func TestCreateDeploymentVersion_CanaryRequiresPercent(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
@@ -148,21 +146,20 @@ func TestCreateDeploymentVersion_DirectDefault(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, domain.DeploymentStrategyDirect,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured.Strategy != domain.DeploymentStrategyDirect {
-		t.Fatalf("strategy = %v, want direct", captured.Strategy)
-	}
+		captured.
+			Strategy)
 
 	var response map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response["strategy"] != "direct" {
-		t.Fatalf("strategy = %v, want direct", response["strategy"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &response,
+	))
+	require.Equal(t, "direct", response["strategy"])
+
 }
 
 func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
@@ -181,10 +178,10 @@ func TestCreateDeploymentVersion_InvalidStrategy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
@@ -199,10 +196,10 @@ func TestFinalizeDeploymentVersion_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-404/finalize", `{"project_id":"proj-1","environment":"production"}`))
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestPromoteDeploymentVersion(t *testing.T) {
@@ -227,16 +224,15 @@ func TestPromoteDeploymentVersion(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-2/promote", `{"project_id":"proj-1","environment":"production"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var response map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response["status"] != string(domain.DeploymentVersionStatusPromoted) {
-		t.Fatalf("status = %v, want promoted", response["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &response,
+	))
+	require.Equal(t, string(domain.
+		DeploymentVersionStatusPromoted,
+	), response["status"])
+
 }

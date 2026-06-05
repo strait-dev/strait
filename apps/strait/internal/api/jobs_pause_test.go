@@ -12,6 +12,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Pause endpoint tests.
@@ -38,20 +40,16 @@ func TestHandlePauseJob_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"investigating timeout spike"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["id"] != "job-1" {
-		t.Fatalf("expected id=job-1, got %v", body["id"])
-	}
-	if body["paused"] != true {
-		t.Fatalf("expected paused=true in response, got %v", body["paused"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, "job-1", body["id"])
+	require.Equal(t, true, body["paused"])
+
 }
 
 func TestHandlePauseJob_ReturnsFullJobWithEnabledField(t *testing.T) {
@@ -75,20 +73,24 @@ func TestHandlePauseJob_ReturnsFullJobWithEnabledField(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"test"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+
 	// The response must include both enabled and paused so the user can see the full state.
 	if _, ok := body["enabled"]; !ok {
-		t.Fatal("expected 'enabled' field in pause response")
+		require.Fail(t,
+
+			"expected 'enabled' field in pause response")
 	}
 	if _, ok := body["paused"]; !ok {
-		t.Fatal("expected 'paused' field in pause response")
+		require.Fail(t,
+
+			"expected 'paused' field in pause response")
 	}
 }
 
@@ -110,13 +112,14 @@ func TestHandlePauseJob_WithReason(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"deploy in progress"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "deploy in progress",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedReason != "deploy in progress" {
-		t.Fatalf("expected reason 'deploy in progress', got %q", capturedReason)
-	}
+		capturedReason,
+	)
+
 }
 
 func TestHandlePauseJob_NotFound(t *testing.T) {
@@ -129,10 +132,10 @@ func TestHandlePauseJob_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/nonexistent/pause", `{}`))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandlePauseJob_AlreadyPaused(t *testing.T) {
@@ -150,23 +153,18 @@ func TestHandlePauseJob_AlreadyPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotent), got %d: %s", w.Code, w.Body.String())
-	}
-	if pauseCalled {
-		t.Fatal("PauseJob should not be called when already paused")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, pauseCalled)
 
 	// Even when idempotent, the response should return the full job
 	// so the caller can see that enabled=false.
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["enabled"] != false {
-		t.Fatalf("expected enabled=false in idempotent response, got %v", body["enabled"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["enabled"])
+
 }
 
 func TestHandlePauseJob_StoreError(t *testing.T) {
@@ -182,10 +180,10 @@ func TestHandlePauseJob_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandlePauseJob_EmitsAuditEvent(t *testing.T) {
@@ -206,29 +204,27 @@ func TestHandlePauseJob_EmitsAuditEvent(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"incident"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotNil(t, capturedEvent)
+	require.Equal(t, "job.paused",
+		capturedEvent.
+			Action,
+	)
+	require.Equal(t, "job", capturedEvent.
+		ResourceType,
+	)
+	require.Equal(t, "job-1", capturedEvent.
+		ResourceID,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedEvent == nil {
-		t.Fatal("expected audit event to be created")
-	}
-	if capturedEvent.Action != "job.paused" {
-		t.Fatalf("expected action job.paused, got %s", capturedEvent.Action)
-	}
-	if capturedEvent.ResourceType != "job" {
-		t.Fatalf("expected resource_type job, got %s", capturedEvent.ResourceType)
-	}
-	if capturedEvent.ResourceID != "job-1" {
-		t.Fatalf("expected resource_id job-1, got %s", capturedEvent.ResourceID)
-	}
 	var details map[string]any
-	if err := json.Unmarshal(capturedEvent.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
-	if details["reason"] != "incident" {
-		t.Fatalf("expected reason=incident in details, got %v", details["reason"])
-	}
+	require.NoError(t, json.Unmarshal(capturedEvent.
+		Details,
+		&details))
+	require.Equal(t, "incident", details["reason"])
+
 }
 
 // Resume endpoint tests.
@@ -254,20 +250,16 @@ func TestHandleResumeJob_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["id"] != "job-1" {
-		t.Fatalf("expected id=job-1, got %v", body["id"])
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false in response, got %v", body["paused"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, "job-1", body["id"])
+	require.Equal(t, false, body["paused"])
+
 }
 
 func TestHandleResumeJob_NotFound(t *testing.T) {
@@ -280,10 +272,10 @@ func TestHandleResumeJob_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/nonexistent/resume", ""))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleResumeJob_NotPaused(t *testing.T) {
@@ -301,13 +293,11 @@ func TestHandleResumeJob_NotPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, resumeCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotent), got %d: %s", w.Code, w.Body.String())
-	}
-	if resumeCalled {
-		t.Fatal("ResumeJob should not be called when not paused")
-	}
 }
 
 func TestHandleResumeJob_StoreError(t *testing.T) {
@@ -323,10 +313,10 @@ func TestHandleResumeJob_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleResumeJob_EmitsAuditEvent(t *testing.T) {
@@ -347,19 +337,18 @@ func TestHandleResumeJob_EmitsAuditEvent(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotNil(t, capturedEvent)
+	require.Equal(t, "job.resumed",
+		capturedEvent.
+			Action,
+	)
+	require.Equal(t, "job-1", capturedEvent.
+		ResourceID,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedEvent == nil {
-		t.Fatal("expected audit event to be created")
-	}
-	if capturedEvent.Action != "job.resumed" {
-		t.Fatalf("expected action job.resumed, got %s", capturedEvent.Action)
-	}
-	if capturedEvent.ResourceID != "job-1" {
-		t.Fatalf("expected resource_id job-1, got %s", capturedEvent.ResourceID)
-	}
 }
 
 // GET includes pause state.
@@ -379,23 +368,19 @@ func TestGetJob_IncludesPauseState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != true {
-		t.Fatalf("expected paused=true, got %v", body["paused"])
-	}
-	if body["paused_at"] == nil {
-		t.Fatal("expected paused_at to be present")
-	}
-	if body["pause_reason"] != "incident investigation" {
-		t.Fatalf("expected pause_reason='incident investigation', got %v", body["pause_reason"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, true, body["paused"])
+	require.NotNil(t, body["paused_at"])
+	require.Equal(t, "incident investigation",
+
+		body["pause_reason"])
+
 }
 
 func TestGetJob_UnpausedOmitsPauseFields(t *testing.T) {
@@ -412,22 +397,24 @@ func TestGetJob_UnpausedOmitsPauseFields(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false, got %v", body["paused"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["paused"])
+
 	if _, ok := body["paused_at"]; ok {
-		t.Fatal("expected paused_at to be omitted for unpaused job")
+		require.Fail(t,
+
+			"expected paused_at to be omitted for unpaused job")
 	}
 	if _, ok := body["pause_reason"]; ok {
-		t.Fatal("expected pause_reason to be omitted for unpaused job")
+		require.Fail(t,
+
+			"expected pause_reason to be omitted for unpaused job")
 	}
 }
 
@@ -446,25 +433,20 @@ func TestListJobs_IncludesPauseState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if len(resp.Data) == 0 {
-		t.Fatal("expected at least one job in response")
-	}
-	if resp.Data[0]["paused"] != true {
-		t.Fatalf("expected paused=true in list response, got %v", resp.Data[0]["paused"])
-	}
-	if resp.Data[0]["pause_reason"] != "deploy" {
-		t.Fatalf("expected pause_reason=deploy, got %v", resp.Data[0]["pause_reason"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&resp))
+	require.NotEmpty(t, resp.Data)
+	require.Equal(t, true, resp.Data[0]["paused"])
+	require.Equal(t, "deploy", resp.
+		Data[0]["pause_reason"])
+
 }
 
 // Edge case: trigger rejection for paused jobs.
@@ -482,10 +464,10 @@ func TestTriggerJob_RejectedWhenPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`))
+	require.Equal(t, http.StatusConflict,
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestTriggerJob_AllowedWhenNotPaused(t *testing.T) {
@@ -513,11 +495,12 @@ func TestTriggerJob_AllowedWhenNotPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`))
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	// Should succeed (not 409) since the job is not paused.
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+
 }
 
 func TestBulkTriggerJob_RejectedWhenPaused(t *testing.T) {
@@ -533,10 +516,10 @@ func TestBulkTriggerJob_RejectedWhenPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", `{"items":[{}]}`))
+	require.Equal(t, http.StatusConflict,
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 // Edge case: enabled + paused double gate.
@@ -564,20 +547,16 @@ func TestResumeJob_ShowsDisabledState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false after resume, got %v", body["paused"])
-	}
-	if body["enabled"] != false {
-		t.Fatalf("expected enabled=false to be visible in resume response, got %v", body["enabled"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["paused"])
+	require.Equal(t, false, body["enabled"])
+
 }
 
 // Edge case: group pause + individual resume.
@@ -607,17 +586,15 @@ func TestGroupPause_IndividualResume(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false after individual resume, got %v", body["paused"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["paused"])
+
 }
 
 // Adversarial tests.
@@ -635,12 +612,13 @@ func TestTriggerJob_DryRunRejectedWhenPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run":true}`))
+	require.NotEqual(t, http.StatusOK,
+		w.
+			Code)
 
 	// Dry-run must also reject paused jobs. If it returned 200, the user
 	// would think triggering is possible when it isn't.
-	if w.Code == http.StatusOK {
-		t.Fatal("dry-run on paused job should NOT return 200 — must reject like real trigger")
-	}
+
 }
 
 func TestTriggerJob_DryRunAllowedWhenNotPaused(t *testing.T) {
@@ -668,10 +646,10 @@ func TestTriggerJob_DryRunAllowedWhenNotPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run":true}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("dry-run on active job should return 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestPauseJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
@@ -694,18 +672,18 @@ func TestPauseJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, "latest reason",
+		body["pause_reason"])
+
 	// Verify the response has the fresh state.
-	if body["pause_reason"] != "latest reason" {
-		t.Fatalf("expected fresh pause_reason, got %v", body["pause_reason"])
-	}
+
 }
 
 func TestResumeJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
@@ -720,20 +698,16 @@ func TestResumeJob_IdempotentAlwaysReturnsFreshState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false, got %v", body["paused"])
-	}
-	if body["enabled"] != true {
-		t.Fatalf("expected enabled=true, got %v", body["enabled"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["paused"])
+	require.Equal(t, true, body["enabled"])
+
 }
 
 func TestPauseJob_NoAuditEventWhenAlreadyPaused(t *testing.T) {
@@ -751,13 +725,11 @@ func TestPauseJob_NoAuditEventWhenAlreadyPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"duplicate"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, auditCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if auditCalled {
-		t.Fatal("audit event should NOT be emitted when job is already paused")
-	}
 }
 
 func TestResumeJob_NoAuditEventWhenNotPaused(t *testing.T) {
@@ -775,13 +747,11 @@ func TestResumeJob_NoAuditEventWhenNotPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, auditCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if auditCalled {
-		t.Fatal("audit event should NOT be emitted when job is not paused")
-	}
 }
 
 func TestPauseJob_DisabledJobCanBePaused(t *testing.T) {
@@ -806,20 +776,16 @@ func TestPauseJob_DisabledJobCanBePaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{"reason":"maintenance"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["enabled"] != false {
-		t.Fatalf("expected enabled=false, got %v", body["enabled"])
-	}
-	if body["paused"] != true {
-		t.Fatalf("expected paused=true, got %v", body["paused"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["enabled"])
+	require.Equal(t, true, body["paused"])
+
 }
 
 func TestPauseDisableResume_JobStillDisabled(t *testing.T) {
@@ -846,20 +812,16 @@ func TestPauseDisableResume_JobStillDisabled(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/resume", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var body map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["paused"] != false {
-		t.Fatalf("expected paused=false after resume, got %v", body["paused"])
-	}
-	if body["enabled"] != false {
-		t.Fatalf("expected enabled=false (still disabled), got %v", body["enabled"])
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&body))
+	require.Equal(t, false, body["paused"])
+	require.Equal(t, false, body["enabled"])
+
 }
 
 func TestTriggerJob_DisabledCheckBeforePausedCheck(t *testing.T) {
@@ -877,10 +839,10 @@ func TestTriggerJob_DisabledCheckBeforePausedCheck(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 (disabled takes precedence), got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestPauseJob_EmptyReasonIsAccepted(t *testing.T) {
@@ -906,13 +868,11 @@ func TestPauseJob_EmptyReasonIsAccepted(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "", capturedReason)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedReason != "" {
-		t.Fatalf("expected empty reason, got %q", capturedReason)
-	}
 }
 
 func TestPauseJob_EmptyBodyIsAccepted(t *testing.T) {
@@ -936,10 +896,10 @@ func TestPauseJob_EmptyBodyIsAccepted(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with empty body, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
@@ -964,10 +924,10 @@ func TestPauseJob_GetJobFailsAfterPause(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", `{}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when re-fetch fails, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 // Reason length validation.
@@ -983,10 +943,10 @@ func TestPauseJob_ReasonTooLong(t *testing.T) {
 	w := httptest.NewRecorder()
 	longReason := strings.Repeat("a", 501)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", fmt.Sprintf(`{"reason":%q}`, longReason)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for reason >500 chars, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestPauseJob_ReasonExactly500Chars(t *testing.T) {
@@ -1011,10 +971,10 @@ func TestPauseJob_ReasonExactly500Chars(t *testing.T) {
 	w := httptest.NewRecorder()
 	reason500 := strings.Repeat("b", 500)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/pause", fmt.Sprintf(`{"reason":%q}`, reason500)))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for reason at exactly 500 chars, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestPauseJob_ReasonValidationBeforeGetJob(t *testing.T) {
@@ -1030,10 +990,10 @@ func TestPauseJob_ReasonValidationBeforeGetJob(t *testing.T) {
 	w := httptest.NewRecorder()
 	longReason := strings.Repeat("x", 501)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/nonexistent/pause", fmt.Sprintf(`{"reason":%q}`, longReason)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 (validation first), got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 // Event source dispatch paused bypass.
@@ -1072,20 +1032,17 @@ func TestEventDispatch_SkipsPausedJob(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, enqueueCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueueCalled {
-		t.Fatal("event dispatch should NOT enqueue runs for paused jobs")
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["dispatched"].(float64)) != 0 {
-		t.Fatalf("expected dispatched=0 for paused job, got %v", resp["dispatched"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
+
 }
 
 func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
@@ -1122,11 +1079,10 @@ func TestEventDispatch_EnqueuesWhenNotPaused(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.True(
+		t, enqueueCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !enqueueCalled {
-		t.Fatal("event dispatch should enqueue runs for non-paused jobs")
-	}
 }

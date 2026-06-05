@@ -12,6 +12,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSDKTerminal_Complete_Success(t *testing.T) {
@@ -38,12 +41,11 @@ func TestSDKTerminal_Complete_Success(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
 			updateCalled.Store(true)
-			if id != "run-1" {
-				t.Fatalf("unexpected run id: %s", id)
-			}
-			if to != domain.StatusCompleted {
-				t.Fatalf("expected completed status, got %s", to)
-			}
+			require.Equal(t, "run-1", id)
+			require.Equal(t, domain.StatusCompleted,
+				to,
+			)
+
 			return nil
 		},
 		AreAllDescendantsTerminalFunc: func(_ context.Context, _ string) (bool, error) {
@@ -55,13 +57,11 @@ func TestSDKTerminal_Complete_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", `{"result":{"ok":true}}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updateCalled.Load())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updateCalled.Load() {
-		t.Fatal("expected UpdateRunStatus to be called")
-	}
 }
 
 func TestSDKTerminal_Complete_EmptyResult(t *testing.T) {
@@ -96,10 +96,9 @@ func TestSDKTerminal_Complete_EmptyResult(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestSDKTerminal_Complete_ResultExceedsMaxSize(t *testing.T) {
@@ -135,10 +134,10 @@ func TestSDKTerminal_Complete_ResultExceedsMaxSize(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", bigResult)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusRequestEntityTooLarge,
 
-	if w.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestSDKTerminal_Complete_RunNotFound(t *testing.T) {
@@ -153,10 +152,10 @@ func TestSDKTerminal_Complete_RunNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-999/complete", "run-999", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestSDKTerminal_Complete_Conflict(t *testing.T) {
@@ -180,10 +179,10 @@ func TestSDKTerminal_Complete_Conflict(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusConflict,
+		w.Code,
+	)
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestSDKTerminal_Complete_SchemaValidationFailure(t *testing.T) {
@@ -212,10 +211,10 @@ func TestSDKTerminal_Complete_SchemaValidationFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", `{"result":{"name":"test"}}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestSDKTerminal_Complete_PublishesPubSubEvent(t *testing.T) {
@@ -249,9 +248,10 @@ func TestSDKTerminal_Complete_PublishesPubSubEvent(t *testing.T) {
 	pub := &mockPublisher{
 		publishFn: func(_ context.Context, channel string, _ []byte) error {
 			publishCalled.Store(true)
-			if channel != "run:run-1" {
-				t.Errorf("unexpected channel: %s", channel)
-			}
+			assert.Equal(
+				t, "run:run-1", channel,
+			)
+
 			return nil
 		},
 	}
@@ -260,13 +260,12 @@ func TestSDKTerminal_Complete_PublishesPubSubEvent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, publishCalled.
+			Load())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !publishCalled.Load() {
-		t.Fatal("expected pubsub Publish to be called")
-	}
 }
 
 func TestSDKTerminal_Fail_Success(t *testing.T) {
@@ -291,15 +290,12 @@ func TestSDKTerminal_Fail_Success(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, id string, _, to domain.RunStatus, fields map[string]any) error {
 			updateCalled.Store(true)
-			if id != "run-1" {
-				t.Fatalf("unexpected run id: %s", id)
-			}
-			if to != domain.StatusFailed {
-				t.Fatalf("expected failed status, got %s", to)
-			}
-			if fields["error"] != "something broke" {
-				t.Fatalf("expected error field, got %v", fields["error"])
-			}
+			require.Equal(t, "run-1", id)
+			require.Equal(t, domain.StatusFailed,
+				to)
+			require.Equal(t, "something broke",
+				fields["error"])
+
 			return nil
 		},
 		AreAllDescendantsTerminalFunc: func(_ context.Context, _ string) (bool, error) {
@@ -311,13 +307,11 @@ func TestSDKTerminal_Fail_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/fail", "run-1", `{"error":"something broke"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updateCalled.Load())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updateCalled.Load() {
-		t.Fatal("expected UpdateRunStatus to be called")
-	}
 }
 
 func TestSDKTerminal_Fail_MissingError(t *testing.T) {
@@ -327,10 +321,10 @@ func TestSDKTerminal_Fail_MissingError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/fail", "run-1", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing error field, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestSDKTerminal_Fail_RunNotFound(t *testing.T) {
@@ -345,10 +339,10 @@ func TestSDKTerminal_Fail_RunNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-999/fail", "run-999", `{"error":"fail"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestSDKTerminal_Fail_Conflict(t *testing.T) {
@@ -372,10 +366,10 @@ func TestSDKTerminal_Fail_Conflict(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/fail", "run-1", `{"error":"oops"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusConflict,
+		w.Code,
+	)
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
@@ -409,14 +403,15 @@ func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
 	pub := &mockPublisher{
 		publishFn: func(_ context.Context, channel string, data []byte) error {
 			publishCalled.Store(true)
-			if channel != "run:run-1" {
-				t.Errorf("unexpected channel: %s", channel)
-			}
+			assert.Equal(
+				t, "run:run-1", channel,
+			)
+
 			var payload map[string]any
 			if err := json.Unmarshal(data, &payload); err == nil {
-				if payload["to"] != "failed" {
-					t.Errorf("expected to=failed, got %v", payload["to"])
-				}
+				assert.Equal(
+					t, "failed", payload["to"])
+
 			}
 			return nil
 		},
@@ -426,13 +421,12 @@ func TestSDKTerminal_Fail_PublishesPubSubEvent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/fail", "run-1", `{"error":"boom"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, publishCalled.
+			Load())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !publishCalled.Load() {
-		t.Fatal("expected pubsub Publish to be called")
-	}
 }
 
 func TestSDKTerminal_Complete_ResumesWaitingParent(t *testing.T) {
@@ -484,13 +478,12 @@ func TestSDKTerminal_Complete_ResumesWaitingParent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/child-1/complete", "child-1", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, parentResumed.
+			Load())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !parentResumed.Load() {
-		t.Fatal("expected parent run to be resumed from waiting to queued")
-	}
 }
 
 func TestSDKTerminal_Complete_VeryLargePayloadWithinLimit(t *testing.T) {
@@ -541,8 +534,7 @@ func TestSDKTerminal_Complete_VeryLargePayloadWithinLimit(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/complete", "run-1", largeResult)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }

@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // scanForSecrets is the test-facing helper that surfaces shape hits as
@@ -96,19 +99,23 @@ func TestAuditDetails_NoSecretLeakage(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(captured) != len(domain.KnownAuditActions()) {
-		t.Fatalf("captured %d events, want %d", len(captured), len(domain.KnownAuditActions()))
-	}
+	require.Len(t,
+		captured, len(domain.
+			KnownAuditActions()),
+	)
 
 	for _, ev := range captured {
 		var details any
 		if len(ev.Details) > 0 {
-			if err := json.Unmarshal(ev.Details, &details); err != nil {
-				t.Fatalf("action %q: details unmarshal: %v", ev.Action, err)
-			}
+			require.NoError(t, json.Unmarshal(ev.
+				Details, &details,
+			))
+
 		}
 		if hits := scanForSecrets(details); len(hits) > 0 {
-			t.Errorf("action %q leaked secret shapes: %v", ev.Action, hits)
+			assert.Failf(t, "test failure",
+
+				"action %q leaked secret shapes: %v", ev.Action, hits)
 		}
 	}
 }
@@ -140,9 +147,8 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			hits := scanForSecrets(map[string]any{"leak": tc.value})
 			if tc.want == "" {
-				if len(hits) > 0 {
-					t.Errorf("expected clean, got hits: %v", hits)
-				}
+				assert.LessOrEqual(t, len(hits), 0)
+
 				return
 			}
 			found := false
@@ -152,18 +158,17 @@ func TestAuditDetails_SecretScannerCatchesInjected(t *testing.T) {
 					break
 				}
 			}
-			if !found {
-				t.Errorf("expected hit with prefix %q, got %v", tc.want, hits)
-			}
+			assert.True(t,
+				found)
+
 		})
 	}
 
 	// Build the strait key case properly (40 hex chars).
 	hex := "abcdef0123456789abcdef0123456789abcdef01"
 	hits := scanForSecrets(fmt.Sprintf("strait_%s", hex))
-	if len(hits) == 0 {
-		t.Error("expected strait_<hex> to be detected")
-	}
+	assert.NotEmpty(t, hits)
+
 }
 
 // TestAuditDetails_ScannerIgnoresBenign asserts the scanner does not flag
@@ -192,7 +197,9 @@ func TestAuditDetails_ScannerIgnoresBenign(t *testing.T) {
 
 	for i, v := range benign {
 		if hits := scanForSecrets(v); len(hits) > 0 {
-			t.Errorf("case %d (%v): unexpected hits: %v", i, v, hits)
+			assert.Failf(t, "test failure",
+
+				"case %d (%v): unexpected hits: %v", i, v, hits)
 		}
 	}
 }
@@ -204,15 +211,20 @@ func TestScanAndRedact_RedactsStripeKey(t *testing.T) {
 	in := map[string]any{"leak": "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"}
 	out, shapes := scanAndRedact(in)
 	m, ok := out.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map, got %T", out)
-	}
+	require.True(
+		t, ok)
+
 	if got, _ := m["leak"].(string); got != "[redacted:stripe_secret_key]" {
-		t.Errorf("leak = %q, want [redacted:stripe_secret_key]", got)
+		assert.Failf(t, "test failure",
+
+			"leak = %q, want [redacted:stripe_secret_key]", got)
 	}
-	if len(shapes) != 1 || shapes[0] != "stripe_secret_key" {
-		t.Errorf("shapes = %v, want [stripe_secret_key]", shapes)
-	}
+	assert.False(
+		t, len(shapes) !=
+			1 || shapes[0] !=
+			"stripe_secret_key",
+	)
+
 }
 
 // TestScanAndRedact_RedactsJWT asserts a JWT-shaped token is redacted.
@@ -224,11 +236,16 @@ func TestScanAndRedact_RedactsJWT(t *testing.T) {
 	out, shapes := scanAndRedact(in)
 	m := out.(map[string]any)
 	if got, _ := m["token"].(string); got != "[redacted:jwt_like]" {
-		t.Errorf("token = %q, want [redacted:jwt_like]", got)
+		assert.Failf(t, "test failure",
+
+			"token = %q, want [redacted:jwt_like]", got)
 	}
-	if len(shapes) != 1 || shapes[0] != "jwt_like" {
-		t.Errorf("shapes = %v, want [jwt_like]", shapes)
-	}
+	assert.False(
+		t, len(shapes) !=
+			1 || shapes[0] !=
+			"jwt_like",
+	)
+
 }
 
 // TestScanAndRedact_RedactsPEM asserts a PEM private-key header substring
@@ -241,12 +258,14 @@ func TestScanAndRedact_RedactsPEM(t *testing.T) {
 	out, shapes := scanAndRedact(in)
 	m := out.(map[string]any)
 	got, _ := m["note"].(string)
-	if got == in["note"] {
-		t.Errorf("PEM header was not redacted: %q", got)
-	}
-	if len(shapes) != 1 || shapes[0] != "private_key_block" {
-		t.Errorf("shapes = %v, want [private_key_block]", shapes)
-	}
+	assert.NotEqual(t, in["note"],
+		got)
+	assert.False(
+		t, len(shapes) !=
+			1 || shapes[0] !=
+			"private_key_block",
+	)
+
 }
 
 func TestScanAndRedact_RedactsNestedWithoutMutatingInput(t *testing.T) {
@@ -260,16 +279,18 @@ func TestScanAndRedact_RedactsNestedWithoutMutatingInput(t *testing.T) {
 	}
 
 	out, shapes := scanAndRedact(in)
-	if len(shapes) != 1 || shapes[0] != "bearer_token" {
-		t.Fatalf("shapes = %v, want [bearer_token]", shapes)
-	}
-	if got := in["meta"].(map[string]any)["nested"].([]any)[1]; got != secret {
-		t.Fatalf("input was mutated: got %q, want %q", got, secret)
-	}
+	require.False(t, len(shapes) !=
+		1 ||
+		shapes[0] !=
+			"bearer_token",
+	)
+	require.Equal(t, secret, in["meta"].(map[string]any)["nested"].([]any)[1])
+
 	got := out.(map[string]any)["meta"].(map[string]any)["nested"].([]any)[1]
-	if got != "[redacted:bearer_token]" {
-		t.Fatalf("redacted value = %q, want [redacted:bearer_token]", got)
-	}
+	require.Equal(t, "[redacted:bearer_token]",
+
+		got)
+
 }
 
 // TestScanAndRedact_NoFalsePositivesOnBenignContent asserts realistic
@@ -289,10 +310,9 @@ func TestScanAndRedact_NoFalsePositivesOnBenignContent(t *testing.T) {
 		"nested":    map[string]any{"k": "v"},
 		"proj_slug": "proj_abc123",
 	}
-	out, shapes := scanAndRedact(in)
-	if len(shapes) > 0 {
-		t.Errorf("unexpected shapes reported on benign input: %v\nout=%#v", shapes, out)
-	}
+	_, shapes := scanAndRedact(in)
+	assert.LessOrEqual(t, len(shapes), 0)
+
 }
 
 // TestMarshalAndCapDetails_EmitsRedactedMetric asserts the production emit
@@ -313,33 +333,31 @@ func TestMarshalAndCapDetails_EmitsRedactedMetric(t *testing.T) {
 	}
 
 	raw, err := srv.marshalAndCapDetails(context.Background(), domain.AuditActionRoleCreated, details)
-	if err != nil {
-		t.Fatalf("marshalAndCapDetails: %v", err)
-	}
+	require.NoError(t, err)
 
 	s := string(raw)
-	if strings.Contains(s, "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX") {
-		t.Errorf("marshaled JSON still contains Stripe key: %s", s)
-	}
-	if strings.Contains(s, "Bearer abcdef1234567890ABCDEF") {
-		t.Errorf("marshaled JSON still contains Bearer token: %s", s)
-	}
+	assert.False(
+		t, strings.Contains(s, "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"))
+	assert.False(
+		t, strings.Contains(s, "Bearer abcdef1234567890ABCDEF"),
+	)
 
 	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal redacted details: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&decoded),
+	)
+
 	shapes, ok := decoded["_redacted"].([]any)
-	if !ok || len(shapes) == 0 {
-		t.Fatalf("_redacted missing or empty: %#v", decoded)
-	}
+	require.False(t, !ok || len(shapes) ==
+		0)
+
 	// Must include both shapes, deduped and sorted alphabetically
 	// (bearer_token, stripe_secret_key).
 	wantShapes := map[string]bool{"bearer_token": true, "stripe_secret_key": true}
 	for _, sh := range shapes {
 		delete(wantShapes, sh.(string))
 	}
-	if len(wantShapes) > 0 {
-		t.Errorf("missing shapes in _redacted: %v", wantShapes)
-	}
+	assert.LessOrEqual(t, len(wantShapes),
+		0)
+
 }

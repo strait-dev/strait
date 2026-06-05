@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCanaryDeploymentUpdate_FreeTierRejected(t *testing.T) {
@@ -20,7 +22,9 @@ func TestCanaryDeploymentUpdate_FreeTierRejected(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Workflow", Slug: "workflow", Version: 1}, nil
 		},
 		UpdateCanaryDeploymentTrafficFunc: func(context.Context, string, int) error {
-			t.Fatal("UpdateCanaryDeploymentTraffic must not be called when canary gate rejects")
+			require.Fail(t,
+
+				"UpdateCanaryDeploymentTraffic must not be called when canary gate rejects")
 			return nil
 		},
 	}
@@ -28,13 +32,11 @@ func TestCanaryDeploymentUpdate_FreeTierRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/workflows/wf-1/canary", `{"traffic_pct":50}`, "proj-1"))
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "Canary deployments"))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier canary update must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Canary deployments") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
 }
 
 func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
@@ -45,11 +47,15 @@ func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Workflow", Slug: "workflow", Version: 1}, nil
 		},
 		UpdateCanaryDeploymentTrafficFunc: func(context.Context, string, int) error {
-			t.Fatal("UpdateCanaryDeploymentTraffic must not be called when canary rollback gate rejects")
+			require.Fail(t,
+
+				"UpdateCanaryDeploymentTraffic must not be called when canary rollback gate rejects")
 			return nil
 		},
 		CompleteCanaryDeploymentFunc: func(context.Context, string, string) error {
-			t.Fatal("CompleteCanaryDeployment must not be called when canary rollback gate rejects")
+			require.Fail(t,
+
+				"CompleteCanaryDeployment must not be called when canary rollback gate rejects")
 			return nil
 		},
 	}
@@ -57,13 +63,11 @@ func TestCanaryDeploymentRollback_FreeTierRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflows/wf-1/canary/rollback", "", "proj-1"))
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "Canary deployments"))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier canary rollback must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Canary deployments") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
 }
 
 func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
@@ -74,7 +78,9 @@ func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-1", Name: "Workflow", Slug: "workflow", Version: 1}, nil
 		},
 		GetActiveCanaryDeploymentFunc: func(context.Context, string) (*domain.CanaryDeployment, error) {
-			t.Fatal("GetActiveCanaryDeployment must not be called when canary status gate rejects")
+			require.Fail(t,
+
+				"GetActiveCanaryDeployment must not be called when canary status gate rejects")
 			return nil, nil
 		},
 	}
@@ -82,13 +88,11 @@ func TestCanaryDeploymentStatus_FreeTierRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-1/canary", "", "proj-1"))
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "Canary deployments"))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier canary status must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Canary deployments") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
 }
 
 func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
@@ -96,7 +100,9 @@ func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateDeploymentVersionFunc: func(context.Context, *domain.DeploymentVersion) error {
-			t.Fatal("CreateDeploymentVersion must not be called when canary gate rejects")
+			require.Fail(t,
+
+				"CreateDeploymentVersion must not be called when canary gate rejects")
 			return nil
 		},
 	}
@@ -112,13 +118,11 @@ func TestDeploymentVersionCanaryStrategy_FreeTierRejected(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-1"))
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "Canary deployments"))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier canary deployment strategy must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Canary deployments") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
 }
 
 func TestDeploymentVersionCanaryStrategy_ScaleTierAllowed(t *testing.T) {
@@ -144,8 +148,7 @@ func TestDeploymentVersionCanaryStrategy_ScaleTierAllowed(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-1"))
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("scale-tier canary deployment strategy must pass, got %d: %s", w.Code, w.Body.String())
-	}
 }

@@ -6,33 +6,37 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // requireEnvironmentMatch unit tests.
 
 func TestRequireEnvironmentMatch_NoCallerEnv(t *testing.T) {
 	t.Parallel()
-	if err := requireEnvironmentMatch(context.Background(), "env-prod"); err != nil {
-		t.Fatalf("project-wide caller (no env in ctx) must pass through, got %v", err)
-	}
-	if err := requireEnvironmentMatch(context.Background(), ""); err != nil {
-		t.Fatalf("project-wide caller against env-less resource must pass, got %v", err)
-	}
+	require.NoError(t, requireEnvironmentMatch(context.Background(),
+
+		"env-prod"))
+	require.NoError(t, requireEnvironmentMatch(context.Background(),
+
+		""))
+
 }
 
 func TestRequireEnvironmentMatch_Match(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxEnvironmentIDKey, "env-prod")
-	if err := requireEnvironmentMatch(ctx, "env-prod"); err != nil {
-		t.Fatalf("matching envs must pass, got %v", err)
-	}
+	require.NoError(t, requireEnvironmentMatch(ctx, "env-prod"))
+
 }
 
 func TestRequireEnvironmentMatch_Mismatch(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxEnvironmentIDKey, "env-prod")
 	if err := requireEnvironmentMatch(ctx, "env-staging"); !errors.Is(err, errEnvironmentMismatch) {
-		t.Fatalf("mismatch must return errEnvironmentMismatch, got %v", err)
+		require.Failf(t, "test failure",
+
+			"mismatch must return errEnvironmentMismatch, got %v", err)
 	}
 }
 
@@ -42,7 +46,9 @@ func TestRequireEnvironmentMatch_EnvScopedKeyVsEnvlessResource(t *testing.T) {
 	// otherwise an env-prod key could reach legacy/unset jobs.
 	ctx := context.WithValue(context.Background(), ctxEnvironmentIDKey, "env-prod")
 	if err := requireEnvironmentMatch(ctx, ""); !errors.Is(err, errEnvironmentMismatch) {
-		t.Fatalf("env-bound key against env-less resource must reject, got %v", err)
+		require.Failf(t, "test failure",
+
+			"env-bound key against env-less resource must reject, got %v", err)
 	}
 }
 
@@ -61,12 +67,10 @@ func TestHandleGetJob_EnvironmentMismatch_Returns404(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleGetJob(ctx, &GetJobInput{JobID: "job-1"})
-	if err == nil {
-		t.Fatal("expected error for env mismatch")
-	}
-	if !isNotFound(err) {
-		t.Fatalf("expected 404 not found, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isNotFound(err))
+
 }
 
 func TestHandleGetJob_EnvironmentMatch_Allowed(t *testing.T) {
@@ -81,12 +85,13 @@ func TestHandleGetJob_EnvironmentMatch_Allowed(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	out, err := srv.handleGetJob(ctx, &GetJobInput{JobID: "job-1"})
-	if err != nil {
-		t.Fatalf("expected success, got %v", err)
-	}
-	if out == nil || out.Body == nil || out.Body.ID != "job-1" {
-		t.Fatalf("unexpected output: %+v", out)
-	}
+	require.NoError(t, err)
+	require.False(t, out ==
+		nil || out.
+		Body == nil || out.Body.ID !=
+
+		"job-1")
+
 }
 
 func TestHandleGetRun_EnvironmentMismatch_Returns404(t *testing.T) {
@@ -104,12 +109,10 @@ func TestHandleGetRun_EnvironmentMismatch_Returns404(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleGetRun(ctx, &GetRunInput{RunID: "run-1"})
-	if err == nil {
-		t.Fatal("expected error for env mismatch via run.JobID")
-	}
-	if !isNotFound(err) {
-		t.Fatalf("expected 404 not found, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isNotFound(err))
+
 }
 
 func isNotFound(err error) bool {

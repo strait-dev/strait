@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -30,9 +32,8 @@ func TestIdempotency_XHeader_ReturnsExistingRun(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if key != "my-key-1" {
-				t.Fatalf("unexpected key: %s", key)
-			}
+			require.Equal(t, "my-key-1", key)
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 		},
 	}
@@ -47,19 +48,15 @@ func TestIdempotency_XHeader_ReturnsExistingRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "my-key-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected enqueue to be skipped for idempotency hit")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, enqueued)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-existing" {
-		t.Fatalf("expected existing run id, got %v", resp["id"])
-	}
+	require.Equal(t, "run-existing",
+		resp["id"])
+
 }
 
 func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
@@ -71,9 +68,9 @@ func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
 		},
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, _, key string) (*domain.JobRun, error) {
 			lookupCalled = true
-			if key != "standard-key" {
-				t.Fatalf("expected key 'standard-key', got %q", key)
-			}
+			require.Equal(t, "standard-key",
+				key)
+
 			return &domain.JobRun{ID: "run-std", Status: domain.StatusExecuting}, nil
 		},
 	}
@@ -83,19 +80,15 @@ func TestIdempotency_StandardHeader_ReturnsExistingRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("Idempotency-Key", "standard-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !lookupCalled {
-		t.Fatal("expected idempotency lookup to be called via standard header")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, lookupCalled)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-std" {
-		t.Fatalf("expected run-std, got %v", resp["id"])
-	}
+	require.Equal(t, "run-std", resp["id"])
+
 }
 
 func TestIdempotency_XHeaderTakesPrecedenceOverStandard(t *testing.T) {
@@ -117,13 +110,10 @@ func TestIdempotency_XHeaderTakesPrecedenceOverStandard(t *testing.T) {
 	r.Header.Set("X-Idempotency-Key", "x-key")
 	r.Header.Set("Idempotency-Key", "standard-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "x-key", capturedKey)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedKey != "x-key" {
-		t.Fatalf("expected X-Idempotency-Key to take precedence, got key=%q", capturedKey)
-	}
 }
 
 func TestIdempotency_NoHeaderSkipsLookup(t *testing.T) {
@@ -146,13 +136,11 @@ func TestIdempotency_NoHeaderSkipsLookup(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	// No idempotency header
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, lookupCalled)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCalled {
-		t.Fatal("expected idempotency lookup to be skipped when no header present")
-	}
 }
 
 func TestIdempotency_EmptyHeaderSkipsLookup(t *testing.T) {
@@ -175,13 +163,11 @@ func TestIdempotency_EmptyHeaderSkipsLookup(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, lookupCalled)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCalled {
-		t.Fatal("expected idempotency lookup to be skipped for empty header value")
-	}
 }
 
 func TestIdempotency_MissCreatesNewRun(t *testing.T) {
@@ -206,16 +192,14 @@ func TestIdempotency_MissCreatesNewRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"data":"test"}}`)
 	r.Header.Set("X-Idempotency-Key", "new-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, "new-key", enqueued.
+		IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected run to be enqueued on idempotency miss")
-	}
-	if enqueued.IdempotencyKey != "new-key" {
-		t.Fatalf("expected idempotency key 'new-key' on enqueued run, got %q", enqueued.IdempotencyKey)
-	}
 }
 
 // Response shape verification.
@@ -239,26 +223,30 @@ func TestIdempotency_HitResponseShape(t *testing.T) {
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	require.Equal(t, "run-cached",
+		resp["id"])
+	require.Equal(t, "executing",
+		resp["status"])
 
 	// Hit response should have id and status
-	if resp["id"] != "run-cached" {
-		t.Fatalf("expected id=run-cached, got %v", resp["id"])
-	}
-	if resp["status"] != "executing" {
-		t.Fatalf("expected status=executing, got %v", resp["status"])
-	}
 
 	// Hit response should NOT have run_token or payload_hash
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("idempotency hit response should NOT contain run_token")
+		require.Fail(t,
+
+			"idempotency hit response should NOT contain run_token")
 	}
 	if _, ok := resp["payload_hash"]; ok {
-		t.Fatal("idempotency hit response should NOT contain payload_hash")
+		require.Fail(t,
+
+			"idempotency hit response should NOT contain payload_hash")
 	}
 
 	// Hit response must have idempotency_hit=true
 	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
-		t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
+		require.Failf(t, "test failure",
+
+			"expected idempotency_hit=true, got %v", resp["idempotency_hit"])
 	}
 }
 
@@ -283,24 +271,26 @@ func TestIdempotency_MissResponseShape(t *testing.T) {
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
+	require.False(t, resp["id"] ==
+		nil || resp["id"] == "")
+	require.NotNil(t, resp["status"])
 
 	// Miss response should have id, status, and payload_hash without exposing SDK run credentials.
-	if resp["id"] == nil || resp["id"] == "" {
-		t.Fatal("miss response should contain id")
-	}
-	if resp["status"] == nil {
-		t.Fatal("miss response should contain status")
-	}
+
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("miss response should not contain run_token")
+		require.Fail(t,
+
+			"miss response should not contain run_token")
 	}
-	if resp["payload_hash"] == nil || resp["payload_hash"] == "" {
-		t.Fatal("miss response should contain payload_hash")
-	}
+	require.False(t, resp["payload_hash"] ==
+		nil ||
+		resp["payload_hash"] == "")
 
 	// Miss response must have idempotency_hit=false
 	if hit, ok := resp["idempotency_hit"].(bool); !ok || hit {
-		t.Fatalf("expected idempotency_hit=false, got %v", resp["idempotency_hit"])
+		require.Failf(t, "test failure",
+
+			"expected idempotency_hit=false, got %v", resp["idempotency_hit"])
 	}
 }
 
@@ -333,16 +323,13 @@ func TestIdempotency_HitReturnsCurrentStatus(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", "key-"+string(status))
 			srv.ServeHTTP(w, r)
-
-			if w.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-			}
+			require.Equal(t, http.StatusOK,
+				w.Code)
 
 			var resp map[string]any
 			mustUnmarshal(t, w.Body.Bytes(), &resp)
-			if resp["status"] != string(status) {
-				t.Fatalf("expected status=%s, got %v", status, resp["status"])
-			}
+			require.Equal(t, string(status), resp["status"])
+
 		})
 	}
 }
@@ -384,24 +371,24 @@ func TestIdempotency_ScopedPerJob(t *testing.T) {
 	r2 := authedRequest(http.MethodPost, "/v1/jobs/job-B/trigger", `{}`)
 	r2.Header.Set("X-Idempotency-Key", "shared-key")
 	srv.ServeHTTP(w2, r2)
-
-	if w1.Code != http.StatusOK || w2.Code != http.StatusCreated {
-		t.Fatalf("expected 200 (hit) and 201 (new), got %d and %d", w1.Code, w2.Code)
-	}
+	require.False(t, w1.Code != http.
+		StatusOK ||
+		w2.
+			Code != http.
+			StatusCreated)
 
 	var resp1, resp2 map[string]any
 	mustUnmarshal(t, w1.Body.Bytes(), &resp1)
 	mustUnmarshal(t, w2.Body.Bytes(), &resp2)
+	require.Equal(t, "run-A", resp1["id"])
+	require.NotEqual(t, "run-A", resp2["id"])
 
-	if resp1["id"] != "run-A" {
-		t.Fatalf("expected job-A hit to return run-A, got %v", resp1["id"])
-	}
 	// job-B should create a new run (different ID)
-	if resp2["id"] == "run-A" {
-		t.Fatal("expected job-B to create a different run, but got same as job-A")
-	}
+
 	if _, ok := resp2["run_token"]; ok {
-		t.Fatal("job-B miss should not expose run_token")
+		require.Fail(t,
+
+			"job-B miss should not expose run_token")
 	}
 }
 
@@ -423,13 +410,14 @@ func TestIdempotency_StoreLookupError_Returns500(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "err-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "internal server error") {
-		t.Fatalf("expected sanitized internal error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(), "internal server error",
+		))
+
 }
 
 func TestIdempotency_StoreLookupError_DoesNotEnqueue(t *testing.T) {
@@ -454,10 +442,8 @@ func TestIdempotency_StoreLookupError_DoesNotEnqueue(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "err-key")
 	srv.ServeHTTP(w, r)
+	require.False(t, enqueued)
 
-	if enqueued {
-		t.Fatal("should NOT enqueue when idempotency lookup fails")
-	}
 }
 
 // Idempotency key stored on the enqueued run.
@@ -484,16 +470,15 @@ func TestIdempotency_KeyStoredOnEnqueuedRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "persist-key-123")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, "persist-key-123",
+		capturedRun.
+			IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected run to be captured")
-	}
-	if capturedRun.IdempotencyKey != "persist-key-123" {
-		t.Fatalf("expected idempotency key on run, got %q", capturedRun.IdempotencyKey)
-	}
 }
 
 func TestIdempotency_NoKeyStoresEmptyOnRun(t *testing.T) {
@@ -513,16 +498,14 @@ func TestIdempotency_NoKeyStoresEmptyOnRun(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, "", capturedRun.
+		IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected run to be captured")
-	}
-	if capturedRun.IdempotencyKey != "" {
-		t.Fatalf("expected empty idempotency key when no header, got %q", capturedRun.IdempotencyKey)
-	}
 }
 
 // Interaction with other features.
@@ -553,19 +536,17 @@ func TestIdempotency_HitBypassesRateLimitCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "rate-limit-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, rateLimitCalled)
 
 	// Idempotency hit returns cached run; rate limit is never checked
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotency before rate limit), got %d: %s", w.Code, w.Body.String())
-	}
-	if rateLimitCalled {
-		t.Fatal("rate limit should not be checked when idempotency hits")
-	}
+
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-cached" {
-		t.Fatalf("expected cached run, got %v", resp["id"])
-	}
+	require.Equal(t, "run-cached",
+		resp["id"])
+
 }
 
 func TestIdempotency_HitBeforeDedupCheck(t *testing.T) {
@@ -593,13 +574,10 @@ func TestIdempotency_HitBeforeDedupCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"x":1}}`)
 	r.Header.Set("X-Idempotency-Key", "idem-before-dedup")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, dedupCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if dedupCalled {
-		t.Fatal("expected dedup to be skipped when idempotency hits")
-	}
 }
 
 func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
@@ -629,19 +607,17 @@ func TestIdempotency_HitBypassesProjectQuotaCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "quota-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, quotaCalled)
 
 	// Idempotency hit returns cached run; quota is never checked
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotency before quota), got %d: %s", w.Code, w.Body.String())
-	}
-	if quotaCalled {
-		t.Fatal("quota should not be checked when idempotency hits")
-	}
+
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-cached" {
-		t.Fatalf("expected cached run, got %v", resp["id"])
-	}
+	require.Equal(t, "run-cached",
+		resp["id"])
+
 }
 
 func TestIdempotency_WithScheduledRun(t *testing.T) {
@@ -665,19 +641,15 @@ func TestIdempotency_WithScheduledRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "delayed-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-delayed" {
-		t.Fatalf("expected run-delayed, got %v", resp["id"])
-	}
-	if resp["status"] != "delayed" {
-		t.Fatalf("expected delayed status, got %v", resp["status"])
-	}
+	require.Equal(t, "run-delayed",
+		resp["id"])
+	require.Equal(t, "delayed", resp["status"])
+
 }
 
 func TestIdempotency_WithDifferentPayloads(t *testing.T) {
@@ -702,16 +674,14 @@ func TestIdempotency_WithDifferentPayloads(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"completely":"different"}}`)
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-original" {
-		t.Fatalf("expected original run even with different payload, got %v", resp["id"])
-	}
+	require.Equal(t, "run-original",
+		resp["id"])
+
 }
 
 // Edge cases.
@@ -732,10 +702,10 @@ func TestIdempotency_VeryLongKey_Rejected(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", longKey)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for very long key, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestIdempotency_SpecialCharactersInKey(t *testing.T) {
@@ -776,13 +746,11 @@ func TestIdempotency_SpecialCharactersInKey(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", key)
 			srv.ServeHTTP(w, r)
+			require.Equal(t, http.StatusCreated,
+				w.Code,
+			)
+			require.Equal(t, key, capturedKey)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201 for key %q, got %d: %s", key, w.Code, w.Body.String())
-			}
-			if capturedKey != key {
-				t.Fatalf("expected key %q, got %q", key, capturedKey)
-			}
 		})
 	}
 }
@@ -808,13 +776,12 @@ func TestIdempotency_WhitespaceOnlyKey(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "   ")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, lookupCalled)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if !lookupCalled {
-		t.Fatal("expected whitespace-only key to trigger idempotency lookup")
-	}
 }
 
 func TestIdempotency_DisabledJobStillRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -835,13 +802,11 @@ func TestIdempotency_DisabledJobStillRejectsBeforeIdempotencyCheck(t *testing.T)
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "disabled-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for disabled job, got %d", w.Code)
-	}
-	if lookupCalled {
-		t.Fatal("idempotency lookup should not be called for disabled job")
-	}
+		w.Code)
+	require.False(t, lookupCalled)
+
 }
 
 func TestIdempotency_JobNotFoundRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -862,13 +827,11 @@ func TestIdempotency_JobNotFoundRejectsBeforeIdempotencyCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/nonexistent/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "not-found-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
+	require.False(t, lookupCalled)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
-	if lookupCalled {
-		t.Fatal("idempotency lookup should not be called when job not found")
-	}
 }
 
 func TestIdempotency_InvalidBodyRejectsBeforeIdempotencyCheck(t *testing.T) {
@@ -889,13 +852,11 @@ func TestIdempotency_InvalidBodyRejectsBeforeIdempotencyCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{invalid json`)
 	r.Header.Set("X-Idempotency-Key", "bad-body-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-	if lookupCalled {
-		t.Fatal("idempotency lookup should not be called with invalid body")
-	}
+		w.Code)
+	require.False(t, lookupCalled)
+
 }
 
 // Concurrent requests with same idempotency key.
@@ -939,16 +900,18 @@ func TestIdempotency_ConcurrentRequestsSameKey(t *testing.T) {
 	wg.Wait()
 
 	// All should succeed (201) at the application level
-	for i, w := range results {
-		if w.Code != http.StatusCreated {
-			t.Errorf("request %d: expected 201, got %d: %s", i, w.Code, w.Body.String())
-		}
+	for _, w := range results {
+		assert.Equal(
+			t, http.StatusCreated,
+			w.Code,
+		)
+
 	}
+	assert.Equal(
+		t, int32(concurrency), lookupCount.
+			Load())
 
 	// All should have been looked up
-	if lookupCount.Load() != int32(concurrency) {
-		t.Errorf("expected %d lookups, got %d", concurrency, lookupCount.Load())
-	}
 
 	// NOTE: Without DB-level uniqueness, all would enqueue. The DB unique
 	// partial index prevents duplicates at the database level. This test
@@ -999,12 +962,16 @@ func TestIdempotency_ConcurrentRequestsMixedHitMiss(t *testing.T) {
 	// Verify all got 201 responses
 	for i, resp := range responses {
 		if resp == nil {
-			t.Errorf("request %d: nil response", i)
+			assert.Failf(t, "test failure",
+
+				"request %d: nil response", i)
 			continue
 		}
-		if resp["id"] == nil || resp["id"] == "" {
-			t.Errorf("request %d: missing id in response", i)
-		}
+		assert.False(
+			t, resp["id"] ==
+				nil || resp["id"] ==
+				"")
+
 	}
 }
 
@@ -1042,16 +1009,14 @@ func TestIdempotency_ReplayDoesNotCopyIdempotencyKey(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-original/replay", ""))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, "", enqueued.
+		IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueued.IdempotencyKey != "" {
-		t.Fatalf("expected replay to NOT carry idempotency key, got %q", enqueued.IdempotencyKey)
-	}
 }
 
 // Idempotency + payload validation.
@@ -1081,13 +1046,11 @@ func TestIdempotency_PayloadValidationFailsBeforeIdempotencyCheck(t *testing.T) 
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"age":12}}`)
 	r.Header.Set("X-Idempotency-Key", "schema-fail-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCalled {
-		t.Fatal("idempotency lookup should not be called when payload validation fails")
-	}
+		w.Code)
+	require.False(t, lookupCalled)
+
 }
 
 // Multiple sequential triggers with same key.
@@ -1123,45 +1086,34 @@ func TestIdempotency_SequentialTriggersReturnSameRun(t *testing.T) {
 	r1 := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r1.Header.Set("X-Idempotency-Key", "seq-key")
 	srv.ServeHTTP(w1, r1)
-
-	if w1.Code != http.StatusCreated {
-		t.Fatalf("first trigger: expected 201, got %d", w1.Code)
-	}
-	if enqueueCount != 1 {
-		t.Fatalf("expected 1 enqueue after first trigger, got %d", enqueueCount)
-	}
+	require.Equal(t, http.StatusCreated,
+		w1.
+			Code)
+	require.EqualValues(t, 1, enqueueCount)
 
 	// Second trigger: should return cached
 	w2 := httptest.NewRecorder()
 	r2 := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r2.Header.Set("X-Idempotency-Key", "seq-key")
 	srv.ServeHTTP(w2, r2)
-
-	if w2.Code != http.StatusOK {
-		t.Fatalf("second trigger: expected 200, got %d", w2.Code)
-	}
-	if enqueueCount != 1 {
-		t.Fatalf("expected still 1 enqueue after second trigger, got %d", enqueueCount)
-	}
+	require.Equal(t, http.StatusOK,
+		w2.Code)
+	require.EqualValues(t, 1, enqueueCount)
 
 	var resp2 map[string]any
 	mustUnmarshal(t, w2.Body.Bytes(), &resp2)
-	if resp2["id"] != "run-first" {
-		t.Fatalf("expected cached run ID, got %v", resp2["id"])
-	}
+	require.Equal(t, "run-first",
+		resp2["id"])
 
 	// Third trigger: should also return cached
 	w3 := httptest.NewRecorder()
 	r3 := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"different":"data"}}`)
 	r3.Header.Set("X-Idempotency-Key", "seq-key")
 	srv.ServeHTTP(w3, r3)
+	require.Equal(t, http.StatusOK,
+		w3.Code)
+	require.EqualValues(t, 1, enqueueCount)
 
-	if w3.Code != http.StatusOK {
-		t.Fatalf("third trigger: expected 200, got %d", w3.Code)
-	}
-	if enqueueCount != 1 {
-		t.Fatalf("expected still 1 enqueue after third trigger, got %d", enqueueCount)
-	}
 }
 
 // Idempotency + execution window.
@@ -1190,16 +1142,14 @@ func TestIdempotency_ExecutionWindowDoesNotApplyOnHit(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "window-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-windowed" {
-		t.Fatalf("expected cached run, got %v", resp["id"])
-	}
+	require.Equal(t, "run-windowed",
+		resp["id"])
+
 }
 
 // Idempotency + dry run.
@@ -1223,13 +1173,10 @@ func TestIdempotency_DryRunDoesNotCheckIdempotency(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"dry_run": true}`)
 	r.Header.Set("X-Idempotency-Key", "dry-run-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, lookupCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCalled {
-		t.Fatal("dry run should not check idempotency key")
-	}
 }
 
 // Cost budget + idempotency ordering.
@@ -1264,19 +1211,17 @@ func TestIdempotency_HitBypassesCostBudgetCheck(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "budget-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, costCalled)
 
 	// Idempotency hit returns cached run; cost budget is never checked
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotency before cost budget), got %d: %s", w.Code, w.Body.String())
-	}
-	if costCalled {
-		t.Fatal("cost budget should not be checked when idempotency hits")
-	}
+
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-cached" {
-		t.Fatalf("expected cached run, got %v", resp["id"])
-	}
+	require.Equal(t, "run-cached",
+		resp["id"])
+
 }
 
 // Idempotency key with different HTTP status scenarios.
@@ -1301,10 +1246,10 @@ func TestIdempotency_EnqueueFailureAfterMiss(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "enqueue-fail-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on enqueue failure, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestIdempotency_MultipleJobsSameKeyIndependent(t *testing.T) {
@@ -1345,10 +1290,9 @@ func TestIdempotency_MultipleJobsSameKeyIndependent(t *testing.T) {
 		r := authedRequest(http.MethodPost, fmt.Sprintf("/v1/jobs/%s/trigger", jobID), `{}`)
 		r.Header.Set("X-Idempotency-Key", "universal-key")
 		srv.ServeHTTP(w, r)
-
-		if w.Code != http.StatusCreated {
-			t.Fatalf("job %s: expected 201, got %d", jobID, w.Code)
-		}
+		require.Equal(t, http.StatusCreated,
+			w.Code,
+		)
 
 		var resp map[string]any
 		mustUnmarshal(t, w.Body.Bytes(), &resp)
@@ -1357,10 +1301,9 @@ func TestIdempotency_MultipleJobsSameKeyIndependent(t *testing.T) {
 
 	// Each job should have a unique run ID
 	seen := make(map[string]bool)
-	for jobID, runID := range responseIDs {
-		if seen[runID] {
-			t.Fatalf("job %s shares run ID %s with another job", jobID, runID)
-		}
+	for _, runID := range responseIDs {
+		require.False(t, seen[runID])
+
 		seen[runID] = true
 	}
 }
@@ -1398,21 +1341,20 @@ func TestIdempotency_EnqueueUniqueViolation_RetriesLookup(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "race-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.EqualValues(t, 2, lookupCount)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 after conflict retry, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCount != 2 {
-		t.Fatalf("expected 2 lookups (initial miss + retry), got %d", lookupCount)
-	}
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-winner" {
-		t.Fatalf("expected winner run from retry, got %v", resp["id"])
-	}
+	require.Equal(t, "run-winner",
+		resp["id"])
+
 	// Conflict-retry response must also have idempotency_hit=true
 	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
-		t.Fatalf("expected idempotency_hit=true on conflict retry, got %v", resp["idempotency_hit"])
+		require.Failf(t, "test failure",
+
+			"expected idempotency_hit=true on conflict retry, got %v", resp["idempotency_hit"])
 	}
 }
 
@@ -1440,22 +1382,24 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyKey(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{"payload":{"a":1},"idempotency_key":"key-a"},{"payload":{"b":2},"idempotency_key":"key-b"},{"payload":{"c":3}}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Len(t,
+		capturedRuns, 3,
+	)
+	assert.Equal(
+		t, "key-a", capturedRuns[0].
+			IdempotencyKey,
+	)
+	assert.Equal(
+		t, "key-b", capturedRuns[1].
+			IdempotencyKey,
+	)
+	assert.Equal(
+		t, "", capturedRuns[2].IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(capturedRuns) != 3 {
-		t.Fatalf("expected 3 enqueued runs, got %d", len(capturedRuns))
-	}
-	if capturedRuns[0].IdempotencyKey != "key-a" {
-		t.Errorf("item 0: expected idempotency key 'key-a', got %q", capturedRuns[0].IdempotencyKey)
-	}
-	if capturedRuns[1].IdempotencyKey != "key-b" {
-		t.Errorf("item 1: expected idempotency key 'key-b', got %q", capturedRuns[1].IdempotencyKey)
-	}
-	if capturedRuns[2].IdempotencyKey != "" {
-		t.Errorf("item 2: expected empty idempotency key, got %q", capturedRuns[2].IdempotencyKey)
-	}
 }
 
 func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
@@ -1484,37 +1428,41 @@ func TestIdempotency_BulkTriggerPerItemIdempotencyHit(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{"payload":{"a":1},"idempotency_key":"existing-key"},{"payload":{"b":2},"idempotency_key":"new-key"}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, len(enqueuedKeys) != 1 ||
+		enqueuedKeys[0] !=
+			"new-key")
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 	// Only the new-key item should have been enqueued
-	if len(enqueuedKeys) != 1 || enqueuedKeys[0] != "new-key" {
-		t.Fatalf("expected only 'new-key' enqueued, got %v", enqueuedKeys)
-	}
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	results := resp["results"].([]any)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
+	require.Len(t,
+		results, 2)
+
 	// First item: idempotency hit returns cached run
 	first := results[0].(map[string]any)
-	if first["id"] != "run-existing" {
-		t.Errorf("first item: expected cached run ID, got %v", first["id"])
-	}
-	if first["status"] != "queued" {
-		t.Errorf("first item: expected queued status, got %v", first["status"])
-	}
+	assert.Equal(
+		t, "run-existing",
+		first["id"])
+	assert.Equal(
+		t, "queued", first["status"])
+
 	// First item (hit) should have idempotency_hit=true
 	if hit, ok := first["idempotency_hit"].(bool); !ok || !hit {
-		t.Errorf("first item: expected idempotency_hit=true, got %v", first["idempotency_hit"])
+		assert.Failf(t, "test failure",
+
+			"first item: expected idempotency_hit=true, got %v", first["idempotency_hit"])
 	}
 	// Second item (miss/new) should have idempotency_hit=false
 	second := results[1].(map[string]any)
 	if hit, ok := second["idempotency_hit"].(bool); !ok || hit {
-		t.Errorf("second item: expected idempotency_hit=false, got %v", second["idempotency_hit"])
+		assert.Failf(t, "test failure",
+
+			"second item: expected idempotency_hit=false, got %v", second["idempotency_hit"])
 	}
 }
 
@@ -1544,17 +1492,18 @@ func TestIdempotency_BulkTriggerConflictRetry(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{"payload":{},"idempotency_key":"conflict-key"}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 after bulk conflict retry, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	results := resp["results"].([]any)
 	first := results[0].(map[string]any)
-	if first["id"] != "run-winner" {
-		t.Errorf("expected winner run from retry, got %v", first["id"])
-	}
+	assert.Equal(
+		t, "run-winner",
+		first["id"])
+
 }
 
 func TestIdempotency_BulkTriggerHeaderIgnored(t *testing.T) {
@@ -1578,17 +1527,18 @@ func TestIdempotency_BulkTriggerHeaderIgnored(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", `{"items":[{"payload":{"a":1}}]}`)
 	r.Header.Set("X-Idempotency-Key", "header-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Len(t,
+		capturedRuns, 1,
+	)
+	assert.Equal(
+		t, "", capturedRuns[0].IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(capturedRuns) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(capturedRuns))
-	}
 	// The HTTP header should NOT be applied to bulk items
-	if capturedRuns[0].IdempotencyKey != "" {
-		t.Errorf("expected empty idempotency key (header ignored), got %q", capturedRuns[0].IdempotencyKey)
-	}
+
 }
 
 // Replay with idempotency key that already has an active run should fail
@@ -1625,19 +1575,17 @@ func TestIdempotency_ReplayGeneratesNewRunID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-active/replay", ""))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, "", enqueued.
+		IdempotencyKey,
+	)
+	require.NotEqual(t, "run-active",
+		enqueued.
+			ID)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected enqueued run")
-	}
-	if enqueued.IdempotencyKey != "" {
-		t.Fatalf("expected replay to NOT carry idempotency key, got %q", enqueued.IdempotencyKey)
-	}
-	if enqueued.ID == "run-active" {
-		t.Fatal("replay should generate a new run ID")
-	}
 }
 
 // Idempotency key with all terminal statuses should still return the cached
@@ -1683,15 +1631,15 @@ func TestIdempotency_TerminalRunAllowsKeyReuse(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", "terminal-"+string(status))
 			srv.ServeHTTP(w, r)
+			require.Equal(t, http.StatusCreated,
+				w.Code,
+			)
+			require.True(
+				t, enqueued)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d", w.Code)
-			}
 			// A new run should be enqueued since the terminal run is no
 			// longer returned by the idempotency lookup.
-			if !enqueued {
-				t.Fatal("should enqueue new run when previous run is terminal")
-			}
+
 		})
 	}
 }
@@ -1730,21 +1678,19 @@ func TestIdempotency_NonTerminalRunStillReturnsHit(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", "active-"+string(status))
 			srv.ServeHTTP(w, r)
-
-			if w.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d", w.Code)
-			}
-			if enqueued {
-				t.Fatal("should NOT enqueue when store returns a non-terminal run")
-			}
+			require.Equal(t, http.StatusOK,
+				w.Code)
+			require.False(t, enqueued)
 
 			var resp map[string]any
 			mustUnmarshal(t, w.Body.Bytes(), &resp)
-			if resp["id"] != "run-active" {
-				t.Fatalf("expected cached active run, got %v", resp["id"])
-			}
+			require.Equal(t, "run-active",
+				resp["id"])
+
 			if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
-				t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
+				require.Failf(t, "test failure",
+
+					"expected idempotency_hit=true, got %v", resp["idempotency_hit"])
 			}
 		})
 	}
@@ -1774,13 +1720,11 @@ func TestIdempotency_LookupPassesJobIDNotProjectID(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-xyz/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "proj-test-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, "job-xyz", capturedJobID)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedJobID != "job-xyz" {
-		t.Fatalf("expected lookup to use job ID from URL, got %q", capturedJobID)
-	}
 }
 
 // Verify the timing: idempotency hit returns immediately without computing
@@ -1822,21 +1766,18 @@ func TestIdempotency_HitSkipsAllDownstreamWork(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"x":1}}`)
 	r.Header.Set("X-Idempotency-Key", "fast-path-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.False(
+		t, dedupCalled)
+	assert.False(
+		t, enqueueCalled)
+	assert.False(
+		t, quotaCalled)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if dedupCalled {
-		t.Error("dedup should be skipped on idempotency hit")
-	}
-	if enqueueCalled {
-		t.Error("enqueue should be skipped on idempotency hit")
-	}
 	// Quota/cost checks happen AFTER idempotency, so quotaCalled should
 	// be false when idempotency hits (FF is disabled by default anyway).
-	if quotaCalled {
-		t.Error("quota should be skipped on idempotency hit")
-	}
+
 }
 
 // Idempotency key + context cancellation: verify the handler respects context.
@@ -1857,11 +1798,12 @@ func TestIdempotency_ContextCanceledDuringLookup(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "ctx-cancel-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
+
+		w.Code)
 
 	// Context cancellation during idempotency lookup should return 500.
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for context canceled, got %d: %s", w.Code, w.Body.String())
-	}
+
 }
 
 func TestIdempotency_ContextDeadlineExceededDuringLookup(t *testing.T) {
@@ -1880,10 +1822,10 @@ func TestIdempotency_ContextDeadlineExceededDuringLookup(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "deadline-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for deadline exceeded, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 // Verify that idempotency key on trigger sets the correct triggered_by value.
@@ -1910,13 +1852,14 @@ func TestIdempotency_MissSetsTriggeredByManual(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "trigger-by-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, domain.TriggerManual,
+		capturedRun.
+			TriggeredBy,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedRun.TriggeredBy != domain.TriggerManual {
-		t.Fatalf("expected triggered_by=manual, got %q", capturedRun.TriggeredBy)
-	}
 }
 
 // Idempotency key with priority: verify priority is set on miss but ignored on hit.
@@ -1943,16 +1886,17 @@ func TestIdempotency_MissPreservesPriority(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"priority":7}`)
 	r.Header.Set("X-Idempotency-Key", "priority-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.EqualValues(t, 7, capturedRun.
+		Priority,
+	)
+	require.Equal(t, "priority-key",
+		capturedRun.
+			IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedRun.Priority != 7 {
-		t.Fatalf("expected priority=7, got %d", capturedRun.Priority)
-	}
-	if capturedRun.IdempotencyKey != "priority-key" {
-		t.Fatalf("expected idempotency key, got %q", capturedRun.IdempotencyKey)
-	}
 }
 
 func TestIdempotency_HitIgnoresNewPriority(t *testing.T) {
@@ -1973,16 +1917,13 @@ func TestIdempotency_HitIgnoresNewPriority(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"priority":9}`)
 	r.Header.Set("X-Idempotency-Key", "priority-hit-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-p3" {
-		t.Fatalf("expected original run, got %v", resp["id"])
-	}
+	require.Equal(t, "run-p3", resp["id"])
+
 	// The response only includes id and status, not priority — but the key
 	// point is the original run was returned, not a new one with priority 9.
 }
@@ -2014,22 +1955,21 @@ func TestIdempotency_MissWithScheduledAt(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
 	r.Header.Set("X-Idempotency-Key", "scheduled-miss-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, domain.StatusDelayed,
+		capturedRun.
+			Status)
+	require.NotNil(t, capturedRun.
+		ScheduledAt,
+	)
+	require.Equal(t, "scheduled-miss-key",
+		capturedRun.
+			IdempotencyKey,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected enqueued run")
-	}
-	if capturedRun.Status != domain.StatusDelayed {
-		t.Fatalf("expected delayed status, got %s", capturedRun.Status)
-	}
-	if capturedRun.ScheduledAt == nil {
-		t.Fatal("expected scheduled_at to be set")
-	}
-	if capturedRun.IdempotencyKey != "scheduled-miss-key" {
-		t.Fatalf("expected idempotency key on scheduled run, got %q", capturedRun.IdempotencyKey)
-	}
 }
 
 // Idempotency with job_version: verify the correct version is captured.
@@ -2056,13 +1996,13 @@ func TestIdempotency_MissStoresJobVersion(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "version-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.EqualValues(t, 42, capturedRun.
+		JobVersion,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if capturedRun.JobVersion != 42 {
-		t.Fatalf("expected job_version=42, got %d", capturedRun.JobVersion)
-	}
 }
 
 // Verify idempotency key is NOT trimmed or normalized — stored exactly as sent.
@@ -2101,13 +2041,13 @@ func TestIdempotency_KeyNotNormalized(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", tt.input)
 			srv.ServeHTTP(w, r)
+			require.Equal(t, http.StatusCreated,
+				w.Code,
+			)
+			require.Equal(t, tt.expected,
+				capturedKey,
+			)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d", w.Code)
-			}
-			if capturedKey != tt.expected {
-				t.Fatalf("expected key %q, got %q", tt.expected, capturedKey)
-			}
 		})
 	}
 }
@@ -2143,16 +2083,17 @@ func TestIdempotency_ManyUniqueKeysConcurrently(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 			r.Header.Set("X-Idempotency-Key", fmt.Sprintf("unique-key-%d", idx))
 			srv.ServeHTTP(w, r)
-			if w.Code != http.StatusCreated {
-				t.Errorf("key %d: expected 201, got %d", idx, w.Code)
-			}
+			assert.Equal(
+				t, http.StatusCreated,
+				w.Code,
+			)
+
 		})
 	}
 	wg.Wait()
+	require.Equal(t, int32(n), enqueueCount.
+		Load())
 
-	if enqueueCount.Load() != int32(n) {
-		t.Fatalf("expected %d enqueues for %d unique keys, got %d", n, n, enqueueCount.Load())
-	}
 }
 
 // Verify idempotency hit returns HTTP 201 (not 200 or 409) consistently.
@@ -2170,15 +2111,14 @@ func TestIdempotency_HitAlwaysReturns201(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	for i := range 5 {
+	for range 5 {
 		w := httptest.NewRecorder()
 		r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 		r.Header.Set("X-Idempotency-Key", "consistent-key")
 		srv.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK,
+			w.Code)
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("attempt %d: expected 200, got %d", i, w.Code)
-		}
 	}
 }
 
@@ -2201,15 +2141,14 @@ func TestIdempotency_WorksWithAPIKeyAuth(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "api-key-auth-test")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-api-key" {
-		t.Fatalf("expected run-api-key, got %v", resp["id"])
-	}
+	require.Equal(t, "run-api-key",
+		resp["id"])
+
 }
 
 // Key length validation.
@@ -2227,13 +2166,14 @@ func TestIdempotency_KeyTooLong_Returns400(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", strings.Repeat("a", 257))
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for key too long, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "256 characters") {
-		t.Fatalf("expected error about 256 characters, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(), "256 characters",
+		))
+
 }
 
 func TestIdempotency_KeyExactlyMaxLength_Succeeds(t *testing.T) {
@@ -2257,13 +2197,11 @@ func TestIdempotency_KeyExactlyMaxLength_Succeeds(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", exactKey)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, exactKey, capturedKey)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 for key at max length, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedKey != exactKey {
-		t.Fatalf("expected key of length 256, got length %d", len(capturedKey))
-	}
 }
 
 func TestIdempotency_BulkKeyTooLong_Returns400(t *testing.T) {
@@ -2279,13 +2217,14 @@ func TestIdempotency_BulkKeyTooLong_Returns400(t *testing.T) {
 	longKey := strings.Repeat("c", 257)
 	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"}]}`, longKey)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for bulk key too long, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "256 characters") {
-		t.Fatalf("expected error about 256 characters, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(), "256 characters",
+		))
+
 }
 
 func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
@@ -2306,10 +2245,10 @@ func TestIdempotency_BulkKeyExactlyMaxLength_Succeeds(t *testing.T) {
 	exactKey := strings.Repeat("d", 256)
 	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"}]}`, exactKey)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 for bulk key at max length, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // Dedup response shape consistency.
@@ -2333,14 +2272,16 @@ func TestIdempotency_DedupResponseIncludesIdempotencyHitFalse(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{"x":1}}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	if hit, ok := resp["idempotency_hit"].(bool); !ok || hit {
-		t.Fatalf("expected idempotency_hit=false on dedup response, got %v", resp["idempotency_hit"])
+		require.Failf(t, "test failure",
+
+			"expected idempotency_hit=false on dedup response, got %v", resp["idempotency_hit"])
 	}
 }
 
@@ -2363,10 +2304,10 @@ func TestIdempotency_BodyFieldIdempotencyKeyRejected(t *testing.T) {
 	// Body has idempotency_key — this field is unknown but TypedHandler
 	// silently ignores unknown fields (idempotency_key must be sent via header).
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"idempotency_key":"body-key"}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 (unknown body field ignored), got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
@@ -2385,22 +2326,21 @@ func TestIdempotency_BodyFieldOmittedNoHeader_NoLookup(t *testing.T) {
 	}
 	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
-		if run.IdempotencyKey != "" {
-			t.Errorf("expected empty idempotency key on run, got %q", run.IdempotencyKey)
-		}
+		assert.Equal(
+			t, "", run.IdempotencyKey,
+		)
+
 		return nil
 	}}
 
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{}}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, lookupCalled)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if lookupCalled {
-		t.Fatal("idempotency lookup should NOT be called when no header is set")
-	}
 }
 
 // Intra-request bulk dedup (same key twice in one request).
@@ -2435,34 +2375,34 @@ func TestIdempotency_BulkSameKeyTwiceInOneRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{"payload":{},"idempotency_key":"dupe-key"},{"payload":{},"idempotency_key":"dupe-key"}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueueCount != 1 {
-		t.Fatalf("expected 1 enqueue (second item should hit), got %d", enqueueCount)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.EqualValues(t, 1, enqueueCount)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
 	results := resp["results"].([]any)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(results))
-	}
+	require.Len(t,
+		results, 2)
 
 	first := results[0].(map[string]any)
 	second := results[1].(map[string]any)
+	require.Equal(t, second["id"],
+		first["id"])
 
 	// Both should return the same run ID.
-	if first["id"] != second["id"] {
-		t.Fatalf("expected same run ID for duplicate key, got %v vs %v", first["id"], second["id"])
-	}
+
 	// First should be miss, second should be hit.
 	if hit, ok := first["idempotency_hit"].(bool); !ok || hit {
-		t.Errorf("first item: expected idempotency_hit=false, got %v", first["idempotency_hit"])
+		assert.Failf(t, "test failure",
+
+			"first item: expected idempotency_hit=false, got %v", first["idempotency_hit"])
 	}
 	if hit, ok := second["idempotency_hit"].(bool); !ok || !hit {
-		t.Errorf("second item: expected idempotency_hit=true, got %v", second["idempotency_hit"])
+		assert.Failf(t, "test failure",
+
+			"second item: expected idempotency_hit=true, got %v", second["idempotency_hit"])
 	}
 }
 
@@ -2534,11 +2474,10 @@ func TestIdempotency_WorkflowTriggerIgnoresIdempotencyHeader(t *testing.T) {
 	r2 := authedRequest(http.MethodPost, "/v1/workflows/"+wfID+"/trigger", `{"payload":{}}`)
 	r2.Header.Set("X-Idempotency-Key", "wf-key-1")
 	srv.ServeHTTP(w2, r2)
+	require.EqualValues(t, 2, triggerCount)
 
 	// Both should trigger (header is ignored, no dedup).
-	if triggerCount != 2 {
-		t.Fatalf("expected 2 workflow triggers (idempotency not supported), got %d", triggerCount)
-	}
+
 }
 
 func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
@@ -2549,9 +2488,9 @@ func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, _, key string) (*domain.JobRun, error) {
-			if key != "terminal-key" {
-				t.Fatalf("unexpected key: %s", key)
-			}
+			require.Equal(t, "terminal-key",
+				key)
+
 			return &domain.JobRun{ID: "run-terminal", Status: domain.StatusCompleted}, nil
 		},
 	}
@@ -2565,22 +2504,16 @@ func TestIdempotency_TerminalRunWithin24Hours_ReturnsExistingRun(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "terminal-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected enqueue to be skipped for terminal idempotency hit")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, enqueued)
 
 	var resp map[string]any
 	mustUnmarshal(t, w.Body.Bytes(), &resp)
-	if resp["id"] != "run-terminal" {
-		t.Fatalf("expected run-terminal, got %v", resp["id"])
-	}
-	if resp["idempotency_hit"] != true {
-		t.Fatal("expected idempotency_hit to be true")
-	}
+	require.Equal(t, "run-terminal",
+		resp["id"])
+	require.Equal(t, true, resp["idempotency_hit"])
+
 }
 
 // Helper.

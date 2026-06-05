@@ -13,6 +13,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestRedisCacheDeps(t *testing.T, registry *straitcache.Registry) (apiCacheDeps, func()) {
@@ -35,9 +36,8 @@ func publishTestInvalidate(t *testing.T, registry *straitcache.Registry, namespa
 		Origin:    "peer",
 		SentAt:    time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("marshal invalidate: %v", err)
-	}
+	require.NoError(t, err)
+
 	registry.Handle(t.Context(), data)
 }
 
@@ -60,24 +60,21 @@ func TestAPIKeyCache_ServesValidKeyAndSanitizesSecrets(t *testing.T) {
 	}
 
 	first, err := cache.Get(t.Context(), "hash-1", loader)
-	if err != nil {
-		t.Fatalf("Get() first error = %v", err)
-	}
+	require.NoError(t, err)
+
 	first.Scopes[0] = domain.ScopeRunsWrite
 
 	second, err := cache.Get(t.Context(), "hash-1", loader)
-	if err != nil {
-		t.Fatalf("Get() second error = %v", err)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
-	if second.Scopes[0] != domain.ScopeRunsRead {
-		t.Fatalf("cached scopes were mutated: %+v", second.Scopes)
-	}
-	if len(second.RotationWebhookSecret) != 0 {
-		t.Fatalf("cached key includes rotation webhook secret: %q", second.RotationWebhookSecret)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, loads.Load())
+	require.Equal(t, domain.ScopeRunsRead,
+		second.
+			Scopes[0])
+	require.Len(t,
+		second.RotationWebhookSecret,
+
+		0)
+
 }
 
 func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
@@ -92,16 +89,12 @@ func TestAPIKeyCache_NegativeCachesInvalidKey(t *testing.T) {
 
 	for range 2 {
 		key, err := cache.Get(t.Context(), "missing-hash", loader)
-		if err != nil {
-			t.Fatalf("Get() error = %v", err)
-		}
-		if key != nil {
-			t.Fatalf("Get() key = %+v, want nil", key)
-		}
+		require.NoError(t, err)
+		require.Nil(t, key)
+
 	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.EqualValues(t, 1, loads.Load())
+
 }
 
 func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
@@ -115,7 +108,9 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 	}
 
 	if _, err := cache.Get(t.Context(), "hash-1", loader); err != nil {
-		t.Fatalf("Get() first error = %v", err)
+		require.Failf(t, "test failure",
+
+			"Get() first error = %v", err)
 	}
 	cache.InvalidateWithVersion(t.Context(), "hash-1", 2)
 	loader = func(_ context.Context, _ string) (*domain.APIKey, error) {
@@ -123,11 +118,12 @@ func TestAPIKeyCache_InvalidateForcesReload(t *testing.T) {
 		return &domain.APIKey{ID: "key", KeyHash: "hash-1", CacheVersion: 3}, nil
 	}
 	if _, err := cache.Get(t.Context(), "hash-1", loader); err != nil {
-		t.Fatalf("Get() second error = %v", err)
+		require.Failf(t, "test failure",
+
+			"Get() second error = %v", err)
 	}
-	if loads.Load() != 2 {
-		t.Fatalf("loader calls = %d, want 2", loads.Load())
-	}
+	require.EqualValues(t, 2, loads.Load())
+
 }
 
 func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
@@ -146,15 +142,10 @@ func TestStrongAPIKeyCache_BarrierAllowsNegativeDBConfirmation(t *testing.T) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() = %+v, want nil after DB-confirmed revoke", got)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.EqualValues(t, 1, loads.Load())
+
 }
 
 func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -180,30 +171,21 @@ func TestAPIKeyCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got == nil || got.ID != "key-1" {
-		t.Fatalf("Get() = %+v, want key-1 from Redis L2", got)
-	}
-	if loads.Load() != 0 {
-		t.Fatalf("loader calls = %d, want 0 on L2 hit", loads.Load())
-	}
+	require.NoError(t, err)
+	require.False(t, got == nil ||
+		got.ID != "key-1",
+	)
+	require.EqualValues(t, 0, loads.Load())
 
 	publishTestInvalidate(t, registryB, apiKeyAuthCacheNamespace, "hash-1")
 	got, err = cacheB.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
-	if err != nil {
-		t.Fatalf("Get() after invalidate error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() after invalidate = %+v, want nil from DB loader", got)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls after invalidate = %d, want 1", loads.Load())
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.EqualValues(t, 1, loads.Load())
+
 }
 
 func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
@@ -223,29 +205,23 @@ func TestAPIKeyCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 			CacheVersion: 7,
 		}, nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got == nil || got.CacheVersion != 7 {
-		t.Fatalf("Get() CacheVersion = %v, want 7", got)
-	}
+	require.NoError(t, err)
+	require.False(t, got == nil ||
+		got.CacheVersion !=
+			7)
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-versioned").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 		Value   struct {
 			RotationWebhookSecret []byte `json:"-"`
 		} `json:"value"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 7 {
-		t.Fatalf("redis version = %d, want 7", envelope.Version)
-	}
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	require.EqualValues(t, 7, envelope.Version)
+
 }
 
 func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) {
@@ -258,27 +234,28 @@ func TestAPIKeyCache_StrongModeFallsBackToDBWhenRedisEntryMissing(t *testing.T) 
 	cache.Set(t.Context(), &domain.APIKey{ID: "key-1", ProjectID: "proj-1", KeyHash: "hash-1"})
 
 	if _, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
-		t.Fatal("loader should not run while Redis L2 is warm")
+		require.Fail(t,
+
+			"loader should not run while Redis L2 is warm")
 		return nil, nil
 	}); err != nil {
-		t.Fatalf("Get() warm error = %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if err := deps.Redis.Del(t.Context(), "strait:cache:"+apiKeyAuthCacheNamespace+":hash-1").Err(); err != nil {
-		t.Fatalf("delete redis cache entry: %v", err)
+			"Get() warm error = %v", err)
 	}
+	require.NoError(t, deps.Redis.
+		Del(t.Context(),
+			"strait:cache:"+
+				apiKeyAuthCacheNamespace+
+				":hash-1").Err())
+
 	var loads atomic.Int64
 	got, err := cache.Get(t.Context(), "hash-1", func(context.Context, string) (*domain.APIKey, error) {
 		loads.Add(1)
 		return nil, store.ErrAPIKeyNotFound
 	})
-	if err != nil {
-		t.Fatalf("Get() after Redis delete error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() after Redis delete = %+v, want DB-confirmed nil", got)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.EqualValues(t, 1, loads.Load())
+
 }

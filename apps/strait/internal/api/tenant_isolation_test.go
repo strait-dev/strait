@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -199,33 +202,32 @@ func TestTenantIsolation_JobsNeverCrossProject(t *testing.T) {
 	// List jobs for project A.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("project A list jobs: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 	countA := decodeDataCount(t, w.Body.Bytes())
-	if countA != 1 {
-		t.Errorf("project A jobs: expected 1, got %d", countA)
-	}
+	assert.EqualValues(t, 1, countA)
 
 	// List jobs for project B.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("project B list jobs: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 	countB := decodeDataCount(t, w.Body.Bytes())
-	if countB != 1 {
-		t.Errorf("project B jobs: expected 1, got %d", countB)
-	}
+	assert.EqualValues(t, 1, countB)
 
 	// Ensure project B does not see project A jobs (mock already guarantees
 	// different data per projectID, so we check the IDs).
 	var jobsB []domain.Job
 	decodePaginatedList(t, w.Body.Bytes(), &jobsB)
 	for _, j := range jobsB {
-		if j.ProjectID == projectA {
-			t.Errorf("project B listing returned job from project A: %s", j.ID)
-		}
+		assert.NotEqual(t, projectA, j.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -238,16 +240,17 @@ func TestTenantIsolation_RunsNeverCrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
 	for _, r := range runs {
-		if r.ProjectID == projectA {
-			t.Errorf("project B listing returned run from project A: %s", r.ID)
-		}
+		assert.NotEqual(t, projectA, r.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -260,16 +263,17 @@ func TestTenantIsolation_SecretsNeverCrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/secrets/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var secrets []domain.JobSecret
 	decodePaginatedList(t, w.Body.Bytes(), &secrets)
 	for _, s := range secrets {
-		if s.ProjectID == projectA {
-			t.Errorf("project B listing returned secret from project A: %s", s.ID)
-		}
+		assert.NotEqual(t, projectA, s.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -282,16 +286,17 @@ func TestTenantIsolation_WorkflowsNeverCrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var workflows []domain.Workflow
 	decodePaginatedList(t, w.Body.Bytes(), &workflows)
 	for _, wf := range workflows {
-		if wf.ProjectID == projectA {
-			t.Errorf("project B listing returned workflow from project A: %s", wf.ID)
-		}
+		assert.NotEqual(t, projectA, wf.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -304,9 +309,9 @@ func TestTenantIsolation_WebhooksNeverCrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/webhooks/subscriptions/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var subs []domain.WebhookSubscription
 	if err := json.Unmarshal(w.Body.Bytes(), &subs); err != nil {
@@ -314,9 +319,10 @@ func TestTenantIsolation_WebhooksNeverCrossProject(t *testing.T) {
 		decodePaginatedList(t, w.Body.Bytes(), &subs)
 	}
 	for _, s := range subs {
-		if s.ProjectID == projectA {
-			t.Errorf("project B listing returned webhook subscription from project A: %s", s.ID)
-		}
+		assert.NotEqual(t, projectA, s.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -329,16 +335,17 @@ func TestTenantIsolation_EventTriggersNeverCrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/events/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var triggers []domain.EventTrigger
 	decodePaginatedList(t, w.Body.Bytes(), &triggers)
 	for _, et := range triggers {
-		if et.ProjectID == projectA {
-			t.Errorf("project B listing returned event trigger from project A: %s", et.ID)
-		}
+		assert.NotEqual(t, projectA, et.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -356,28 +363,31 @@ func TestTenantIsolation_OIDCProjectHeaderSpoofing(t *testing.T) {
 	// Set X-Project-Id to project A and list jobs.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var jobsA []domain.Job
 	decodePaginatedList(t, w.Body.Bytes(), &jobsA)
-	if len(jobsA) != 1 || jobsA[0].ID != "job-a" {
-		t.Errorf("expected job-a, got %v", jobsA)
-	}
+	assert.False(
+		t, len(jobsA) !=
+			1 || jobsA[0].ID !=
+			"job-a")
 
 	// Now set X-Project-Id to project B and verify we only see project B.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var jobsB []domain.Job
 	decodePaginatedList(t, w.Body.Bytes(), &jobsB)
-	if len(jobsB) != 1 || jobsB[0].ID != "job-b" {
-		t.Errorf("expected job-b, got %v", jobsB)
-	}
+	assert.False(
+		t, len(jobsB) !=
+			1 || jobsB[0].ID !=
+			"job-b")
+
 }
 
 // TestTenantIsolation_APIKeyProjectMismatch verifies that when project context
@@ -391,18 +401,18 @@ func TestTenantIsolation_APIKeyProjectMismatch(t *testing.T) {
 	// Request runs for project B.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runs))
-	}
-	if runs[0].ProjectID != projectB {
-		t.Errorf("run project_id = %q, want %q", runs[0].ProjectID, projectB)
-	}
+	require.Len(t,
+		runs, 1)
+	assert.Equal(
+		t, projectB, runs[0].ProjectID,
+	)
+
 }
 
 // TestTenantIsolation_OrgScopedKeyProjectAccess verifies that org-scoped
@@ -415,16 +425,17 @@ func TestTenantIsolation_OrgScopedKeyProjectAccess(t *testing.T) {
 	// Even with an org context, listing for project A only returns A data.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var jobs []domain.Job
 	decodePaginatedList(t, w.Body.Bytes(), &jobs)
 	for _, j := range jobs {
-		if j.ProjectID != projectA {
-			t.Errorf("org-scoped request for project A returned job from %q", j.ProjectID)
-		}
+		assert.Equal(
+			t, projectA, j.ProjectID,
+		)
+
 	}
 }
 
@@ -438,16 +449,17 @@ func TestTenantIsolation_RunIDGuessing(t *testing.T) {
 	// Try to get run-a (project A run) with project B context -- must return 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/run-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project run access: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
 
 	// Accessing own run should work.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/run-b", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for own project run, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 // TestTenantIsolation_CrossProjectJobAccess verifies that fetching a job by ID
@@ -460,16 +472,17 @@ func TestTenantIsolation_CrossProjectJobAccess(t *testing.T) {
 	// Project B tries to get project A's job by ID -- must be 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/job-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project job GET: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
 
 	// Own job should return 200.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/job-b", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own project job GET: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 // TestTenantIsolation_CrossProjectWorkflowAccess verifies that fetching a
@@ -482,16 +495,17 @@ func TestTenantIsolation_CrossProjectWorkflowAccess(t *testing.T) {
 	// Project B tries to get project A's workflow by ID -- must be 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/wf-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project workflow GET: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
 
 	// Own workflow should return 200.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/wf-b", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own project workflow GET: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 // TestTenantIsolation_CrossProjectEnvironmentAccess verifies that fetching an
@@ -504,16 +518,17 @@ func TestTenantIsolation_CrossProjectEnvironmentAccess(t *testing.T) {
 	// Project B tries to get project A's environment by ID -- must be 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/env-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project environment GET: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
 
 	// Own environment should return 200.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/env-b", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own project environment GET: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 // TestTenantIsolation_CrossProjectDeleteBlocked verifies that deleting a
@@ -526,16 +541,17 @@ func TestTenantIsolation_CrossProjectDeleteBlocked(t *testing.T) {
 	// Project B tries to delete project A's job -- must be 404.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodDelete, "/v1/jobs/job-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project job DELETE: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
 
 	// Project B tries to delete project A's webhook subscription -- must be 404.
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodDelete, "/v1/webhooks/subscriptions/wh-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project webhook DELETE: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // TestTenantIsolation_EnvironmentsIsolated verifies that environments are
@@ -547,20 +563,23 @@ func TestTenantIsolation_EnvironmentsIsolated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var envs []domain.Environment
 	decodePaginatedList(t, w.Body.Bytes(), &envs)
 	for _, e := range envs {
-		if e.ProjectID == projectA {
-			t.Errorf("project B listing returned environment from project A: %s", e.ID)
-		}
+		assert.NotEqual(t, projectA, e.
+			ProjectID,
+		)
+
 	}
-	if len(envs) != 1 || envs[0].ID != "env-b" {
-		t.Errorf("expected env-b, got %v", envs)
-	}
+	assert.False(
+		t, len(envs) != 1 ||
+			envs[0].ID != "env-b",
+	)
+
 }
 
 // TestTenantIsolation_AuditEventsIsolated verifies that audit events are
@@ -572,16 +591,17 @@ func TestTenantIsolation_AuditEventsIsolated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/audit-events/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var events []domain.AuditEvent
 	decodePaginatedList(t, w.Body.Bytes(), &events)
 	for _, ev := range events {
-		if ev.ProjectID == projectA {
-			t.Errorf("project B listing returned audit event from project A: %s", ev.ID)
-		}
+		assert.NotEqual(t, projectA, ev.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -596,9 +616,9 @@ func TestTenantIsolation_AnalyticsIsolated(t *testing.T) {
 	// List runs for project A.
 	wA := httptest.NewRecorder()
 	srv.ServeHTTP(wA, requestForProject(http.MethodGet, "/v1/runs/", "", projectA))
-	if wA.Code != http.StatusOK {
-		t.Fatalf("project A: expected 200, got %d", wA.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		wA.Code,
+	)
 
 	var runsA []domain.JobRun
 	decodePaginatedList(t, wA.Body.Bytes(), &runsA)
@@ -606,9 +626,9 @@ func TestTenantIsolation_AnalyticsIsolated(t *testing.T) {
 	// List runs for project B.
 	wB := httptest.NewRecorder()
 	srv.ServeHTTP(wB, requestForProject(http.MethodGet, "/v1/runs/", "", projectB))
-	if wB.Code != http.StatusOK {
-		t.Fatalf("project B: expected 200, got %d", wB.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		wB.Code,
+	)
 
 	var runsB []domain.JobRun
 	decodePaginatedList(t, wB.Body.Bytes(), &runsB)
@@ -619,9 +639,9 @@ func TestTenantIsolation_AnalyticsIsolated(t *testing.T) {
 		aIDs[r.ID] = true
 	}
 	for _, r := range runsB {
-		if aIDs[r.ID] {
-			t.Errorf("run %q appears in both project A and B listings", r.ID)
-		}
+		assert.False(
+			t, aIDs[r.ID])
+
 	}
 }
 
@@ -634,9 +654,9 @@ func TestTenantIsolation_LogDrainsIsolated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/log-drains/", "", projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var drains []domain.LogDrain
 	// Log drains may return a direct array or paginated.
@@ -644,9 +664,10 @@ func TestTenantIsolation_LogDrainsIsolated(t *testing.T) {
 		decodePaginatedList(t, w.Body.Bytes(), &drains)
 	}
 	for _, d := range drains {
-		if d.ProjectID == projectA {
-			t.Errorf("project B listing returned log drain from project A: %s", d.ID)
-		}
+		assert.NotEqual(t, projectA, d.
+			ProjectID,
+		)
+
 	}
 }
 
@@ -668,10 +689,10 @@ func TestTenantIsolation_SDKTokenScopedToRun(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tokenA)
 	req.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden,
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("cross-run SDK token: expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 // TestTenantIsolation_RevokeAPIKey_CrossProject verifies that revoking an API
@@ -711,10 +732,10 @@ func TestTenantIsolation_RevokeAPIKey_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/api-keys/"+tt.keyID, "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("DELETE /v1/api-keys/%s with project %q: got %d, want %d: %s",
-					tt.keyID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -759,10 +780,10 @@ func TestTenantIsolation_RotateAPIKey_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys/"+tt.keyID+"/rotate", `{}`, tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("POST /v1/api-keys/%s/rotate with project %q: got %d, want %d: %s",
-					tt.keyID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -792,10 +813,10 @@ func TestTenantIsolation_DeleteEnvironment_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/environments/"+tt.envID, "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("DELETE /v1/environments/%s with project %q: got %d, want %d: %s",
-					tt.envID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -825,10 +846,10 @@ func TestTenantIsolation_GetResolvedVariables_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/environments/"+tt.envID+"/variables", "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("GET /v1/environments/%s/variables with project %q: got %d, want %d: %s",
-					tt.envID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -867,10 +888,10 @@ func TestTenantIsolation_ListEventSourceSubscriptions_CrossProject(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/"+tt.sourceID+"/subscriptions", "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("GET /v1/event-sources/%s/subscriptions with project %q: got %d, want %d: %s",
-					tt.sourceID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -920,10 +941,10 @@ func TestTenantIsolation_DeleteEventSubscription_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/"+tt.sourceID+"/subscriptions/"+tt.subID, "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("DELETE /v1/event-sources/%s/subscriptions/%s with project %q: got %d, want %d: %s",
-					tt.sourceID, tt.subID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -936,16 +957,22 @@ func TestTenantIsolation_DispatchEvent_CrossProject(t *testing.T) {
 
 	ms := newIsolationStore()
 	ms.GetEventSourceByNameFunc = func(_ context.Context, _, _ string) (*domain.EventSource, error) {
-		t.Fatal("GetEventSourceByName must not be called for mismatched project_id")
+		require.Fail(t,
+
+			"GetEventSourceByName must not be called for mismatched project_id")
 		return nil, nil
 	}
 	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, _ string) ([]domain.EventSubscription, error) {
-		t.Fatal("ListEventSubscriptionsBySource must not be called for mismatched project_id")
+		require.Fail(t,
+
+			"ListEventSubscriptionsBySource must not be called for mismatched project_id")
 		return nil, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			t.Fatal("queue.Enqueue must not be called for mismatched project_id")
+			require.Fail(t,
+
+				"queue.Enqueue must not be called for mismatched project_id")
 			return nil
 		},
 	}, nil)
@@ -953,10 +980,10 @@ func TestTenantIsolation_DispatchEvent_CrossProject(t *testing.T) {
 	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
@@ -964,18 +991,14 @@ func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
 
 	ms := newIsolationStore()
 	ms.GetEventSourceByNameFunc = func(_ context.Context, projectID, name string) (*domain.EventSource, error) {
-		if projectID != projectB {
-			t.Fatalf("projectID = %q, want %q", projectID, projectB)
-		}
-		if name != "source-b" {
-			t.Fatalf("name = %q, want source-b", name)
-		}
+		require.Equal(t, projectB, projectID)
+		require.Equal(t, "source-b", name)
+
 		return &domain.EventSource{ID: "src-b", ProjectID: projectB, Name: "source-b", Enabled: true}, nil
 	}
 	ms.ListEventSubscriptionsBySourceFunc = func(_ context.Context, sourceID string) ([]domain.EventSubscription, error) {
-		if sourceID != "src-b" {
-			t.Fatalf("sourceID = %q, want src-b", sourceID)
-		}
+		require.Equal(t, "src-b", sourceID)
+
 		return []domain.EventSubscription{
 			{ID: "sub-b", SourceID: "src-b", TargetType: "job", TargetID: "job-b", FilterExpr: json.RawMessage(`{"eq":[["type","deploy"]]}`), Enabled: true},
 		}, nil
@@ -984,12 +1007,12 @@ func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueued = true
-			if run.ProjectID != projectB {
-				t.Fatalf("run.ProjectID = %q, want %q", run.ProjectID, projectB)
-			}
-			if run.JobID != "job-b" {
-				t.Fatalf("run.JobID = %q, want job-b", run.JobID)
-			}
+			require.Equal(t, projectB, run.
+				ProjectID,
+			)
+			require.Equal(t, "job-b", run.
+				JobID)
+
 			return nil
 		},
 	}, nil)
@@ -997,13 +1020,12 @@ func TestTenantIsolation_DispatchEvent_OwnProjectAllowed(t *testing.T) {
 	body := `{"source":"source-b","project_id":"` + projectB + `","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectB))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.True(
+		t, enqueued)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !enqueued {
-		t.Fatal("expected own-project dispatch to enqueue one run")
-	}
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *testing.T) {
@@ -1019,14 +1041,15 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *
 		}, nil
 	}
 	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
-		if id != "job-b" {
-			t.Fatalf("id = %q, want job-b", id)
-		}
+		require.Equal(t, "job-b", id)
+
 		return &domain.Job{ID: "job-b", ProjectID: projectB, Enabled: true}, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			t.Fatal("queue.Enqueue must not be called for stale cross-project job subscription")
+			require.Fail(t,
+
+				"queue.Enqueue must not be called for stale cross-project job subscription")
 			return nil
 		},
 	}, nil)
@@ -1034,17 +1057,16 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectJobSubscription(t *
 	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got := int(resp["dispatched"].(float64)); got != 0 {
-		t.Fatalf("dispatched = %d, want 0", got)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
+
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
@@ -1060,14 +1082,16 @@ func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
 		}, nil
 	}
 	ms.GetJobFunc = func(_ context.Context, id string) (*domain.Job, error) {
-		if id != "job-missing" {
-			t.Fatalf("id = %q, want job-missing", id)
-		}
+		require.Equal(t, "job-missing",
+			id)
+
 		return nil, nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			t.Fatal("queue.Enqueue must not be called for nil job subscription")
+			require.Fail(t,
+
+				"queue.Enqueue must not be called for nil job subscription")
 			return nil
 		},
 	}, nil)
@@ -1075,17 +1099,16 @@ func TestTenantIsolation_DispatchEvent_SkipsNilJobSubscription(t *testing.T) {
 	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got := int(resp["dispatched"].(float64)); got != 0 {
-		t.Fatalf("dispatched = %d, want 0", got)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
+
 }
 
 func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscription(t *testing.T) {
@@ -1101,14 +1124,15 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscriptio
 		}, nil
 	}
 	ms.GetWorkflowFunc = func(_ context.Context, id string) (*domain.Workflow, error) {
-		if id != "wf-b" {
-			t.Fatalf("id = %q, want wf-b", id)
-		}
+		require.Equal(t, "wf-b", id)
+
 		return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Enabled: true}, nil
 	}
 	wfEngine := &mockWorkflowTrigger{
 		triggerWorkflowFn: func(context.Context, string, string, json.RawMessage, string, []domain.StepOverride) (*domain.WorkflowRun, error) {
-			t.Fatal("workflow trigger must not be called for stale cross-project workflow subscription")
+			require.Fail(t,
+
+				"workflow trigger must not be called for stale cross-project workflow subscription")
 			return nil, nil
 		},
 	}
@@ -1117,17 +1141,16 @@ func TestTenantIsolation_DispatchEvent_SkipsStaleCrossProjectWorkflowSubscriptio
 	body := `{"source":"source-a","project_id":"` + projectA + `","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/events/dispatch", body, projectA))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got := int(resp["dispatched"].(float64)); got != 0 {
-		t.Fatalf("dispatched = %d, want 0", got)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 0, int(resp["dispatched"].(float64)))
+
 }
 
 // TestTenantIsolation_GetWebhookDelivery_CrossProject verifies that getting a
@@ -1163,10 +1186,10 @@ func TestTenantIsolation_GetWebhookDelivery_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/webhooks/deliveries/"+tt.deliveryID, "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("GET /v1/webhooks/deliveries/%s with project %q: got %d, want %d: %s",
-					tt.deliveryID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -1206,10 +1229,10 @@ func TestTenantIsolation_RetryWebhookDelivery_CrossProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/deliveries/"+tt.deliveryID+"/retry", "", tt.projectID))
-			if w.Code != tt.wantCode {
-				t.Errorf("POST /v1/webhooks/deliveries/%s/retry with project %q: got %d, want %d: %s",
-					tt.deliveryID, tt.projectID, w.Code, tt.wantCode, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantCode, w.
+					Code)
+
 		})
 	}
 }
@@ -1232,10 +1255,16 @@ func FuzzTenantIsolation_CrossProjectAccess(f *testing.F) {
 		req := authedRequest(http.MethodGet, "/v1/jobs/", "")
 		req.Header.Set("X-Project-Id", projectID)
 		srv.ServeHTTP(w, req)
+		assert.False(
+			t, w.Code != http.
+				StatusOK &&
+				w.Code !=
+					http.StatusBadRequest &&
+				w.Code !=
+					http.
+						StatusNotFound)
 
 		// Should not panic. Valid project IDs get 200, missing project returns 400.
-		if w.Code != http.StatusOK && w.Code != http.StatusBadRequest && w.Code != http.StatusNotFound {
-			t.Errorf("unexpected status %d for project_id=%q", w.Code, projectID)
-		}
+
 	})
 }

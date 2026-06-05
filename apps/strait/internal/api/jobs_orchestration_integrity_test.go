@@ -7,6 +7,8 @@ import (
 
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
@@ -32,15 +34,12 @@ func TestHandleCreateJob_WorkerModeDefaultsQueueName(t *testing.T) {
 		Slug:          "worker-job",
 		ExecutionMode: string(domain.ExecutionModeWorker),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
-	if captured.Queue != defaultJobQueueName {
-		t.Fatalf("captured.Queue = %q, want %q", captured.Queue, defaultJobQueueName)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Equal(t, defaultJobQueueName,
+		captured.
+			Queue)
+
 }
 
 func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
@@ -68,12 +67,9 @@ func TestHandleCreateJob_PersistsEndpointSigningSecret(t *testing.T) {
 		EndpointSigningSecret: "loadtest-secret-32-bytes-long",
 		ExecutionMode:         string(domain.ExecutionModeHTTP),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "loadtest-secret-32-bytes-long")
 }
 
@@ -102,25 +98,21 @@ func TestHandleCreateJob_EncryptsEndpointSigningSecretAtRest(t *testing.T) {
 		EndpointSigningSecret: "loadtest-secret-32-bytes-long",
 		ExecutionMode:         string(domain.ExecutionModeHTTP),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
-	if captured.EndpointSigningSecret == "loadtest-secret-32-bytes-long" {
-		t.Fatal("endpoint signing secret was stored in plaintext")
-	}
-	if !straitcrypto.IsEncryptedField(captured.EndpointSigningSecret) {
-		t.Fatalf("endpoint signing secret = %q, want encrypted field prefix", captured.EndpointSigningSecret)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.NotEqual(t, "loadtest-secret-32-bytes-long",
+
+		captured.EndpointSigningSecret,
+	)
+	require.True(
+		t, straitcrypto.IsEncryptedField(captured.EndpointSigningSecret))
+
 	plaintext, err := straitcrypto.DecryptField(enc, captured.EndpointSigningSecret)
-	if err != nil {
-		t.Fatalf("decrypt stored endpoint signing secret: %v", err)
-	}
-	if plaintext != "loadtest-secret-32-bytes-long" {
-		t.Fatalf("decrypted endpoint signing secret = %q", plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "loadtest-secret-32-bytes-long",
+
+		plaintext)
+
 }
 
 func TestHandleUpdateJob_HTTPModeRequiresEndpoint(t *testing.T) {
@@ -146,12 +138,10 @@ func TestHandleUpdateJob_HTTPModeRequiresEndpoint(t *testing.T) {
 		JobID: "job-worker",
 		Body:  UpdateJobRequest{ExecutionMode: &mode},
 	})
-	if err == nil {
-		t.Fatal("expected missing endpoint to reject http mode update")
-	}
-	if !isBadRequest(err) {
-		t.Fatalf("expected 400 bad request, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isBadRequest(err))
+
 }
 
 func TestHandleCloneJob_EnvironmentMismatchReturns404(t *testing.T) {
@@ -171,12 +161,10 @@ func TestHandleCloneJob_EnvironmentMismatchReturns404(t *testing.T) {
 		JobID: "job-1",
 		Body:  CloneJobRequest{Name: "Clone", Slug: "clone"},
 	})
-	if err == nil {
-		t.Fatal("expected environment mismatch")
-	}
-	if !isNotFound(err) {
-		t.Fatalf("expected 404 not found, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isNotFound(err))
+
 }
 
 func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
@@ -226,34 +214,35 @@ func TestHandleCloneJob_PreservesOrchestrationFields(t *testing.T) {
 		JobID: "job-source",
 		Body:  CloneJobRequest{Name: "Clone", Slug: "clone"},
 	})
-	if err != nil {
-		t.Fatalf("handleCloneJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Equal(t, sourceJob.Queue,
+		captured.
+			Queue)
+	require.Equal(t, sourceJob.PoisonPillThreshold,
 
-	if captured.Queue != sourceJob.Queue {
-		t.Fatalf("captured.Queue = %q, want %q", captured.Queue, sourceJob.Queue)
-	}
-	if captured.PoisonPillThreshold != sourceJob.PoisonPillThreshold {
-		t.Fatalf("captured.PoisonPillThreshold = %v, want %v", captured.PoisonPillThreshold, sourceJob.PoisonPillThreshold)
-	}
-	if captured.DLQAlertThreshold != sourceJob.DLQAlertThreshold || captured.QueueDepthAlertThreshold != sourceJob.QueueDepthAlertThreshold {
-		t.Fatalf("captured alert thresholds = (%v,%v), want (%v,%v)", captured.DLQAlertThreshold, captured.QueueDepthAlertThreshold, sourceJob.DLQAlertThreshold, sourceJob.QueueDepthAlertThreshold)
-	}
-	if string(captured.OnCompletePayloadMapping) != string(sourceJob.OnCompletePayloadMapping) || string(captured.OnFailurePayloadMapping) != string(sourceJob.OnFailurePayloadMapping) {
-		t.Fatalf("captured payload mappings = (%s,%s), want (%s,%s)", captured.OnCompletePayloadMapping, captured.OnFailurePayloadMapping, sourceJob.OnCompletePayloadMapping, sourceJob.OnFailurePayloadMapping)
-	}
-	if captured.OnCompleteTriggerWorkflow != sourceJob.OnCompleteTriggerWorkflow || captured.OnCompleteTriggerJob != sourceJob.OnCompleteTriggerJob {
-		t.Fatalf("captured on_complete triggers = (%q,%q), want (%q,%q)", captured.OnCompleteTriggerWorkflow, captured.OnCompleteTriggerJob, sourceJob.OnCompleteTriggerWorkflow, sourceJob.OnCompleteTriggerJob)
-	}
-	if captured.OnFailureTriggerWorkflow != sourceJob.OnFailureTriggerWorkflow || captured.OnFailureTriggerJob != sourceJob.OnFailureTriggerJob {
-		t.Fatalf("captured on_failure triggers = (%q,%q), want (%q,%q)", captured.OnFailureTriggerWorkflow, captured.OnFailureTriggerJob, sourceJob.OnFailureTriggerWorkflow, sourceJob.OnFailureTriggerJob)
-	}
-	if captured.EndpointSigningSecret != sourceJob.EndpointSigningSecret {
-		t.Fatalf("captured.EndpointSigningSecret = %q, want %q", captured.EndpointSigningSecret, sourceJob.EndpointSigningSecret)
-	}
+		captured.PoisonPillThreshold)
+	require.False(t, captured.DLQAlertThreshold !=
+		sourceJob.DLQAlertThreshold || captured.
+		QueueDepthAlertThreshold !=
+		sourceJob.QueueDepthAlertThreshold)
+	require.False(t, string(captured.
+		OnCompletePayloadMapping,
+	) != string(sourceJob.OnCompletePayloadMapping) ||
+		string(captured.OnFailurePayloadMapping) != string(sourceJob.OnFailurePayloadMapping),
+	)
+	require.False(t, captured.OnCompleteTriggerWorkflow !=
+		sourceJob.OnCompleteTriggerWorkflow ||
+		captured.OnCompleteTriggerJob !=
+			sourceJob.OnCompleteTriggerJob)
+	require.False(t, captured.OnFailureTriggerWorkflow !=
+		sourceJob.OnFailureTriggerWorkflow ||
+		captured.OnFailureTriggerJob !=
+			sourceJob.OnFailureTriggerJob)
+	require.Equal(t, sourceJob.EndpointSigningSecret,
+
+		captured.EndpointSigningSecret)
+
 }
 
 func isBadRequest(err error) bool {

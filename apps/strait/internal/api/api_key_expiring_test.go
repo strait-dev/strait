@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListExpiringKeys_ReturnsNoExpiryKeys(t *testing.T) {
@@ -36,24 +39,20 @@ func TestListExpiringKeys_ReturnsNoExpiryKeys(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var result []ExpiringKeyInfo
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("expected 1 key, got %d", len(result))
-	}
-	if !result[0].NoExpiry {
-		t.Error("expected no_expiry=true for key without expiration")
-	}
-	if result[0].DaysLeft != nil {
-		t.Error("expected days_left=nil for no-expiry key")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&result))
+	require.Len(t,
+		result, 1)
+	assert.True(t,
+		result[0].NoExpiry,
+	)
+	assert.Nil(t, result[0].
+		DaysLeft)
+
 }
 
 func TestListExpiringKeys_ReturnsDaysLeft(t *testing.T) {
@@ -82,24 +81,24 @@ func TestListExpiringKeys_ReturnsDaysLeft(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var result []ExpiringKeyInfo
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("expected 1 key, got %d", len(result))
-	}
-	if result[0].NoExpiry {
-		t.Error("expected no_expiry=false for key with expiration")
-	}
-	if result[0].DaysLeft == nil || *result[0].DaysLeft < 9 || *result[0].DaysLeft > 11 {
-		t.Errorf("expected days_left ~10, got %v", result[0].DaysLeft)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&result))
+	require.Len(t,
+		result, 1)
+	assert.False(
+		t, result[0].NoExpiry,
+	)
+	assert.False(
+		t, result[0].DaysLeft ==
+			nil ||
+			*result[0].DaysLeft <
+				9 || *result[0].
+			DaysLeft > 11)
+
 }
 
 func TestListExpiringKeys_DefaultWithinDays(t *testing.T) {
@@ -128,13 +127,10 @@ func TestListExpiringKeys_DefaultWithinDays(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.EqualValues(t, 30, capturedDays)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if capturedDays != 30 {
-		t.Errorf("within_days = %d, want default 30", capturedDays)
-	}
 }
 
 func TestListExpiringKeys_CapsAt365(t *testing.T) {
@@ -162,10 +158,8 @@ func TestListExpiringKeys_CapsAt365(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	assert.EqualValues(t, 365, capturedDays)
 
-	if capturedDays != 365 {
-		t.Errorf("within_days = %d, want capped at 365", capturedDays)
-	}
 }
 
 func TestListExpiringKeys_RequiresPermission(t *testing.T) {
@@ -185,8 +179,9 @@ func TestListExpiringKeys_RequiresPermission(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusForbidden,
+		w.Code,
+	)
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
 }

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditActionRegistryCoverage walks every .go file under internal/api/
@@ -26,13 +28,10 @@ func TestAuditActionRegistryCoverage(t *testing.T) {
 	t.Parallel()
 
 	dir, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
+
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
-	}
+	require.NoError(t, err)
 
 	fset := token.NewFileSet()
 
@@ -57,9 +56,7 @@ func TestAuditActionRegistryCoverage(t *testing.T) {
 
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if parseErr != nil {
-			t.Fatalf("parse %s: %v", name, parseErr)
-		}
+		require.Nil(t, parseErr)
 
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -115,6 +112,7 @@ func TestAuditActionRegistryCoverage(t *testing.T) {
 	}
 	b.WriteString("\nadd a new const in internal/domain/audit_actions.go and use it at the call site.\n")
 	b.WriteString("this keeps the action taxonomy centralized and prevents typos like \"job.delted\".\n")
+	require.Fail(t,
 
-	t.Fatal(b.String())
+		b.String())
 }

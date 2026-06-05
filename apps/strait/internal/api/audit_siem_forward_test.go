@@ -15,6 +15,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/logdrain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newServerWithSIEM constructs a minimal server wired with a live SIEM drain.
@@ -95,10 +98,9 @@ func TestAuditSIEMForward_BatchesEventsFromDrainer(t *testing.T) {
 	}
 	// Close triggers Stop, which flushes any pending batch.
 	s.Close()
+	require.EqualValues(t, total, received.
+		Load())
 
-	if got := received.Load(); got != total {
-		t.Fatalf("SIEM received %d events, want %d", got, total)
-	}
 }
 
 // TestAuditSIEMForward_EmptyEndpoint_Noop verifies that when no SIEM endpoint
@@ -119,9 +121,7 @@ func TestAuditSIEMForward_EmptyEndpoint_Noop(t *testing.T) {
 	}
 	// Pass empty endpoint -> drain is nil.
 	s := newServerWithSIEM(t, ms, "", 10, 50*time.Millisecond)
-	if s.siemDrain != nil {
-		t.Fatal("siemDrain should be nil when endpoint is empty")
-	}
+	require.Nil(t, s.siemDrain)
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "actor-1")
@@ -131,10 +131,8 @@ func TestAuditSIEMForward_EmptyEndpoint_Noop(t *testing.T) {
 		s.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-x", nil)
 	}
 	s.Close()
+	assert.EqualValues(t, 0, hits.Load())
 
-	if hits.Load() != 0 {
-		t.Errorf("test server was hit %d times, want 0", hits.Load())
-	}
 }
 
 // TestAuditSIEMForward_ShutdownFlushesPending ensures Server.Close drains
@@ -188,9 +186,10 @@ func TestAuditSIEMForward_ShutdownFlushesPending(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if received != total {
-		t.Errorf("received %d events after shutdown, want %d (FlushNow path must drain trailing events)", received, total)
-	}
+	assert.Equal(
+		t, total, received,
+	)
+
 }
 
 // TestAuditSIEMForward_FlushNowOnCloseRunsBeforeStop verifies the explicit
@@ -239,8 +238,7 @@ func TestAuditSIEMForward_FlushNowOnCloseRunsBeforeStop(t *testing.T) {
 	}
 
 	s.Close()
+	require.EqualValues(t, total, received.
+		Load())
 
-	if got := received.Load(); got != total {
-		t.Fatalf("FlushNow did not deliver trailing events: got %d, want %d", got, total)
-	}
 }

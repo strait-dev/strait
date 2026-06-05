@@ -9,6 +9,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
 	"strait/internal/domain"
@@ -44,10 +45,7 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 		version: "test-version",
 	})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return
-	}
+	require.NotNil(t, event)
 
 	wantTags := map[string]string{
 		"project_id":     "proj-1",
@@ -67,16 +65,15 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 		"span_id":        spanID.String(),
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(t, want, event.
+			Tags[key])
+
 	}
-	if event.User.ID != "user-1" {
-		t.Fatalf("user id = %q, want user-1", event.User.ID)
-	}
-	if event.Contexts["http.request"]["route"] != "/v1/runs/{runID}" {
-		t.Fatalf("http.request route = %v, want /v1/runs/{runID}", event.Contexts["http.request"]["route"])
-	}
+	require.Equal(t, "user-1",
+		event.User.ID)
+	require.Equal(t, "/v1/runs/{runID}",
+		event.Contexts["http.request"]["route"])
+
 }
 
 func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
@@ -90,20 +87,14 @@ func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
 	scope := sentry.NewScope()
 	applyHTTPSentryScope(scope, req, sentryHTTPMetadata{edition: string(domain.EditionCommunity)})
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return
-	}
+	require.NotNil(t, event)
+	require.Equal(t, http.MethodGet,
+		event.Tags["method"])
+	require.Equal(t, "/health",
+		event.Tags["route"])
+	require.Equal(t, "", event.
+		User.ID)
 
-	if event.Tags["method"] != http.MethodGet {
-		t.Fatalf("method = %q, want GET", event.Tags["method"])
-	}
-	if event.Tags["route"] != "/health" {
-		t.Fatalf("route = %q, want /health", event.Tags["route"])
-	}
-	if event.User.ID != "" {
-		t.Fatalf("anonymous request user id = %q, want empty", event.User.ID)
-	}
 }
 
 func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
@@ -114,9 +105,8 @@ func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
 	var firstHub, secondHub *sentry.Hub
 	handler := sentryHandler.Handle(srv.sentryScope(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		hub := sentry.GetHubFromContext(r.Context())
-		if hub == nil {
-			t.Fatal("expected request hub")
-		}
+		require.NotNil(t, hub)
+
 		if firstHub == nil {
 			firstHub = hub
 			return
@@ -126,11 +116,10 @@ func TestSentryHTTPMiddlewareCreatesIsolatedHub(t *testing.T) {
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/a", nil))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/b", nil))
+	require.False(t, firstHub ==
+		nil || secondHub ==
+		nil)
+	require.NotEqual(t, secondHub,
+		firstHub)
 
-	if firstHub == nil || secondHub == nil {
-		t.Fatal("expected both request hubs")
-	}
-	if firstHub == secondHub {
-		t.Fatal("request hubs must be isolated")
-	}
 }

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -58,38 +60,42 @@ func TestEmitAuditEventAsync_OrderingAndContextSnapshot(t *testing.T) {
 		if got >= n {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timeout waiting for events: got %d/%d", got, n)
-		}
+		require.False(t, time.Now().After(deadline))
+
 		time.Sleep(5 * time.Millisecond)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(events) != n {
-		t.Fatalf("events len = %d, want %d", len(events), n)
-	}
+	require.Len(t,
+		events, n)
+
 	for i, ev := range events {
-		if ev.ProjectID != "proj-async" {
-			t.Errorf("event %d project_id = %q, want proj-async", i, ev.ProjectID)
-		}
-		if ev.ActorID != "actor-async" {
-			t.Errorf("event %d actor_id = %q, want actor-async", i, ev.ActorID)
-		}
-		if ev.ActorType != "user" {
-			t.Errorf("event %d actor_type = %q, want user", i, ev.ActorType)
-		}
-		if ev.Action != "job.triggered" {
-			t.Errorf("event %d action = %q", i, ev.Action)
-		}
+		assert.Equal(
+			t, "proj-async",
+			ev.ProjectID,
+		)
+		assert.Equal(
+			t, "actor-async",
+			ev.ActorID,
+		)
+		assert.Equal(
+			t, "user", ev.ActorType,
+		)
+		assert.Equal(
+			t, "job.triggered",
+			ev.Action,
+		)
+
 		var details map[string]any
-		if err := json.Unmarshal(ev.Details, &details); err != nil {
-			t.Fatalf("event %d details unmarshal: %v", i, err)
-		}
+		require.NoError(t, json.Unmarshal(ev.Details,
+			&details,
+		))
+
 		got, _ := details["i"].(float64)
-		if int(got) != i {
-			t.Errorf("event %d details.i = %v, want %d (FIFO ordering)", i, details["i"], i)
-		}
+		assert.Equal(
+			t, i, int(got))
+
 	}
 }
 
@@ -116,10 +122,8 @@ func TestEmitAuditEventAsync_ShutdownFlush(t *testing.T) {
 	}
 
 	srv.Close()
+	require.EqualValues(t, 25, written.Load())
 
-	if got := written.Load(); got != 25 {
-		t.Fatalf("written = %d after Close, want 25", got)
-	}
 }
 
 // TestEmitAuditEventAsync_BufferFullDropsEvents verifies that when the buffer
@@ -167,7 +171,7 @@ func TestEmitAuditEventAsync_BufferFullDropsEvents(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("emitAuditEventAsync blocked beyond 5s")
+		require.Fail(t, "emitAuditEventAsync blocked beyond 5s")
 	}
 }
 
@@ -198,10 +202,8 @@ func TestEmitAuditEventAsync_DrainerErrorContinues(t *testing.T) {
 	srv.emitAuditEventAsync(ctx, "job.triggered", "job", "ok-2", nil)
 
 	srv.Close()
+	require.EqualValues(t, 2, written.Load())
 
-	if got := written.Load(); got != 2 {
-		t.Fatalf("written = %d, want 2 (ok-1 and ok-2)", got)
-	}
 }
 
 // TestEmitAuditEventAsync_StopsAcceptingAfterClose verifies events submitted
@@ -258,20 +260,21 @@ func TestShutdown_CancelsInFlightDBWrites(t *testing.T) {
 	select {
 	case <-storeReady:
 	case <-time.After(2 * time.Second):
-		t.Fatal("store call did not start within 2s")
+		require.Fail(t, "store call did not start within 2s")
 	}
 
 	start := time.Now()
 	srv.Close()
 	elapsed := time.Since(start)
+	require.LessOrEqual(t, elapsed,
+		6*time.
+			Second)
 
 	// Budget: shutdown timeout (5s) + brief cancellation grace (500ms).
 	// Without context propagation we would see ~10s per the per-event
 	// timeout. A multi-attempt retry sequence with short delays could
 	// also push past 5s without proper cancellation.
-	if elapsed > 6*time.Second {
-		t.Fatalf("Close took %v, want <= 6s (drainCtx propagation should cancel in-flight DB calls)", elapsed)
-	}
+
 }
 
 // TestStartAuditAsyncDrain_PopulatesDrainCtx verifies the new drain
@@ -282,9 +285,8 @@ func TestStartAuditAsyncDrain_PopulatesDrainCtx(t *testing.T) {
 		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error { return nil },
 	}
 	srv := newTestServer(t, ms, nil, nil)
-	if got := srv.drainContext(); got == nil {
-		t.Fatal("drainContext() returned nil after startAuditAsyncDrain")
-	}
+	require.NotNil(t, srv.drainContext())
+
 }
 
 // TestAuditDrainer_FieldAssignmentNoDataRace exercises concurrent depth
@@ -348,8 +350,7 @@ func TestEmitAuditEventAsync_BackpressureFallsBackToSync(t *testing.T) {
 	// Unblock the mock store so in-flight async writes can complete.
 	close(release)
 	srv.Close()
+	assert.NotEqual(t, 0, syncWrites.
+		Load())
 
-	if syncWrites.Load() == 0 {
-		t.Error("expected at least one sync write from backpressure fallback")
-	}
 }

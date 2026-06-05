@@ -13,6 +13,7 @@ import (
 	"strait/internal/pubsub"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func waitingTrigger(projectID, envID string) *domain.EventTrigger {
@@ -42,7 +43,9 @@ func eventTriggerAPIKeyCtx(scopes ...string) context.Context {
 func failIfUnscopedLookupUsed(t *testing.T) func(context.Context, string) (*domain.EventTrigger, error) {
 	t.Helper()
 	return func(_ context.Context, _ string) (*domain.EventTrigger, error) {
-		t.Fatal("project-scoped caller must not use the unscoped GetEventTriggerByEventKey")
+		require.Fail(t,
+
+			"project-scoped caller must not use the unscoped GetEventTriggerByEventKey")
 		return nil, nil
 	}
 }
@@ -51,15 +54,18 @@ func TestTenantIso_EventTrigger_Send_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetEventTriggerByEventKeyFunc: func(_ context.Context, _ string) (*domain.EventTrigger, error) {
-			t.Fatal("store must not be called when project ctx is empty")
+			require.Fail(t,
+
+				"store must not be called when project ctx is empty")
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	_, err := srv.handleSendEvent(context.Background(), &SendEventInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusBadRequest))
+
 }
 
 func TestTenantIso_EventTrigger_Send_RejectsCrossProject(t *testing.T) {
@@ -76,9 +82,10 @@ func TestTenantIso_EventTrigger_Send_RejectsCrossProject(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleSendEvent(ctx, &SendEventInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Send_RejectsCrossEnv(t *testing.T) {
@@ -93,9 +100,10 @@ func TestTenantIso_EventTrigger_Send_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleSendEvent(ctx, &SendEventInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Send_WorkflowStepRequiresWorkflowTrigger(t *testing.T) {
@@ -110,19 +118,24 @@ func TestTenantIso_EventTrigger_Send_WorkflowStepRequiresWorkflowTrigger(t *test
 			return trigger, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			t.Fatal("UpdateEventTriggerStatusFrom must not be called when caller only has jobs:trigger")
+			require.Fail(t,
+
+				"UpdateEventTriggerStatusFrom must not be called when caller only has jobs:trigger")
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-			t.Fatal("UpdateStepRunStatus must not be called when caller only has jobs:trigger")
+			require.Fail(t,
+
+				"UpdateStepRunStatus must not be called when caller only has jobs:trigger")
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	_, err := srv.handleSendEvent(eventTriggerAPIKeyCtx(domain.ScopeJobsTrigger), &SendEventInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
+
 }
 
 func TestTenantIso_EventTrigger_Send_WorkflowTriggerAllowsWorkflowStep(t *testing.T) {
@@ -140,36 +153,42 @@ func TestTenantIso_EventTrigger_Send_WorkflowTriggerAllowsWorkflowStep(t *testin
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
 			statusUpdated = true
-			if from != domain.EventTriggerStatusWaiting || status != domain.EventTriggerStatusReceived {
-				t.Fatalf("status transition = %s -> %s", from, status)
-			}
+			require.False(t, from != domain.
+				EventTriggerStatusWaiting ||
+				status !=
+					domain.
+						EventTriggerStatusReceived,
+			)
+
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
 			stepUpdated = true
-			if id != "wsr-1" || status != domain.StepCompleted {
-				t.Fatalf("step update = %s %s", id, status)
-			}
+			require.False(t, id != "wsr-1" ||
+				status !=
+					domain.StepCompleted,
+			)
+
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	_, err := srv.handleSendEvent(eventTriggerAPIKeyCtx(domain.ScopeWorkflowsTrigger), &SendEventInput{EventKey: "user.signup"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !statusUpdated || !stepUpdated {
-		t.Fatalf("expected workflow trigger status and step updates, statusUpdated=%v stepUpdated=%v", statusUpdated, stepUpdated)
-	}
+	require.NoError(t, err)
+	require.False(t, !statusUpdated ||
+		!stepUpdated,
+	)
+
 }
 
 func TestTenantIso_EventTrigger_Get_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	_, err := srv.handleGetEventTrigger(context.Background(), &GetEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusBadRequest))
+
 }
 
 func TestTenantIso_EventTrigger_Get_RejectsCrossProject(t *testing.T) {
@@ -183,9 +202,10 @@ func TestTenantIso_EventTrigger_Get_RejectsCrossProject(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleGetEventTrigger(ctx, &GetEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Get_RejectsCrossEnv(t *testing.T) {
@@ -200,18 +220,20 @@ func TestTenantIso_EventTrigger_Get_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleGetEventTrigger(ctx, &GetEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Cancel_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	_, err := srv.handleCancelEventTrigger(context.Background(), &CancelEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusBadRequest))
+
 }
 
 func TestTenantIso_EventTrigger_Cancel_RejectsCrossProject(t *testing.T) {
@@ -222,16 +244,19 @@ func TestTenantIso_EventTrigger_Cancel_RejectsCrossProject(t *testing.T) {
 			return nil, nil
 		},
 		UpdateEventTriggerStatusFunc: func(_ context.Context, _, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			t.Fatal("UpdateEventTriggerStatus must not be called for cross-project cancel")
+			require.Fail(t,
+
+				"UpdateEventTriggerStatus must not be called for cross-project cancel")
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleCancelEventTrigger(ctx, &CancelEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Cancel_RejectsCrossEnv(t *testing.T) {
@@ -242,7 +267,9 @@ func TestTenantIso_EventTrigger_Cancel_RejectsCrossEnv(t *testing.T) {
 			return waitingTrigger("proj-aaa", "env-staging"), nil
 		},
 		UpdateEventTriggerStatusFunc: func(_ context.Context, _, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			t.Fatal("UpdateEventTriggerStatus must not be called for cross-env cancel")
+			require.Fail(t,
+
+				"UpdateEventTriggerStatus must not be called for cross-env cancel")
 			return nil
 		},
 	}
@@ -250,9 +277,10 @@ func TestTenantIso_EventTrigger_Cancel_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleCancelEventTrigger(ctx, &CancelEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_EventTrigger_Cancel_WorkflowStepRequiresWorkflowWrite(t *testing.T) {
@@ -267,19 +295,24 @@ func TestTenantIso_EventTrigger_Cancel_WorkflowStepRequiresWorkflowWrite(t *test
 			return trigger, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, _ string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			t.Fatal("UpdateEventTriggerStatusFrom must not be called when caller only has jobs:write")
+			require.Fail(t,
+
+				"UpdateEventTriggerStatusFrom must not be called when caller only has jobs:write")
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-			t.Fatal("UpdateStepRunStatus must not be called when caller only has jobs:write")
+			require.Fail(t,
+
+				"UpdateStepRunStatus must not be called when caller only has jobs:write")
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	_, err := srv.handleCancelEventTrigger(eventTriggerAPIKeyCtx(domain.ScopeJobsWrite), &CancelEventTriggerInput{EventKey: "user.signup"})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
+
 }
 
 func TestTenantIso_EventTrigger_Cancel_WorkflowWriteAllowsWorkflowStep(t *testing.T) {
@@ -297,27 +330,32 @@ func TestTenantIso_EventTrigger_Cancel_WorkflowWriteAllowsWorkflowStep(t *testin
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, _ json.RawMessage, _ *time.Time, errMsg string) error {
 			statusUpdated = true
-			if from != domain.EventTriggerStatusWaiting || status != domain.EventTriggerStatusCanceled || errMsg == "" {
-				t.Fatalf("status transition = %s -> %s err=%q", from, status, errMsg)
-			}
+			require.False(t, from != domain.
+				EventTriggerStatusWaiting ||
+				status !=
+					domain.
+						EventTriggerStatusCanceled ||
+				errMsg == "",
+			)
+
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
 			stepUpdated = true
-			if id != "wsr-1" || status != domain.StepFailed {
-				t.Fatalf("step update = %s %s", id, status)
-			}
+			require.False(t, id != "wsr-1" ||
+				status !=
+					domain.StepFailed)
+
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	_, err := srv.handleCancelEventTrigger(eventTriggerAPIKeyCtx(domain.ScopeWorkflowsWrite), &CancelEventTriggerInput{EventKey: "user.signup"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !statusUpdated || !stepUpdated {
-		t.Fatalf("expected workflow cancel status and step updates, statusUpdated=%v stepUpdated=%v", statusUpdated, stepUpdated)
-	}
+	require.NoError(t, err)
+	require.False(t, !statusUpdated ||
+		!stepUpdated,
+	)
+
 }
 
 func TestTenantIso_EventTrigger_Stream_RejectsCrossProject(t *testing.T) {
@@ -338,9 +376,10 @@ func TestTenantIso_EventTrigger_Stream_RejectsCrossProject(t *testing.T) {
 	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
 	srv.handleEventTriggerStream(rr, req)
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d body=%s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.Code,
+	)
+
 }
 
 func TestTenantIso_EventTrigger_SendByPrefix_DropsForeignEnv(t *testing.T) {
@@ -374,12 +413,11 @@ func TestTenantIso_EventTrigger_SendByPrefix_DropsForeignEnv(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ctx = context.WithValue(ctx, ctxActorIDKey, "apikey:test")
 	_, err := srv.handleSendEventByPrefix(ctx, &SendEventByPrefixInput{Prefix: "user.signup"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(capturedIDs) != 1 || capturedIDs[0] != "evt-own" {
-		t.Fatalf("expected only evt-own to be batched, got %v", capturedIDs)
-	}
+	require.NoError(t, err)
+	require.False(t, len(capturedIDs) != 1 ||
+		capturedIDs[0] != "evt-own",
+	)
+
 }
 
 func TestTenantIso_EventTrigger_SendByPrefix_FiltersBySourcePermission(t *testing.T) {
@@ -416,12 +454,11 @@ func TestTenantIso_EventTrigger_SendByPrefix_FiltersBySourcePermission(t *testin
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	_, err := srv.handleSendEventByPrefix(eventTriggerAPIKeyCtx(domain.ScopeJobsTrigger), &SendEventByPrefixInput{Prefix: "user.signup"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(capturedIDs) != 1 || capturedIDs[0] != "evt-job" {
-		t.Fatalf("expected only job trigger to be resolved, got %v", capturedIDs)
-	}
+	require.NoError(t, err)
+	require.False(t, len(capturedIDs) != 1 ||
+		capturedIDs[0] != "evt-job",
+	)
+
 }
 
 // TestEventTriggerHandlers_ProjectScopedResolution is the Phase 1 regression
@@ -450,9 +487,8 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		return &APIStoreMock{
 			GetEventTriggerByEventKeyFunc: failIfUnscopedLookupUsed(t),
 			GetEventTriggerByEventKeyForProjectFunc: func(_ context.Context, key, projectID string) (*domain.EventTrigger, error) {
-				if key != sharedKey {
-					t.Fatalf("unexpected key %q", key)
-				}
+				require.Equal(t, sharedKey, key)
+
 				if projectID != "proj-aaa" {
 					return nil, nil
 				}
@@ -473,12 +509,13 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		t.Parallel()
 		srv := newTestServer(t, newStore(t), &mockQueue{}, nil)
 		out, err := srv.handleGetEventTrigger(apiKeyCtx(), &GetEventTriggerInput{EventKey: sharedKey})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if out.Body.ID != "evt-a" || out.Body.ProjectID != "proj-aaa" {
-			t.Fatalf("resolved wrong trigger: %+v", out.Body)
-		}
+		require.NoError(t, err)
+		require.False(t, out.Body.ID !=
+			"evt-a" ||
+			out.Body.ProjectID !=
+				"proj-aaa",
+		)
+
 	})
 
 	t.Run("send", func(t *testing.T) {
@@ -491,12 +528,9 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		}
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		_, err := srv.handleSendEvent(apiKeyCtx(), &SendEventInput{EventKey: sharedKey})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if receivedID != "evt-a" {
-			t.Fatalf("send resolved wrong trigger id %q", receivedID)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "evt-a", receivedID)
+
 	})
 
 	t.Run("cancel", func(t *testing.T) {
@@ -509,12 +543,9 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 		}
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		_, err := srv.handleCancelEventTrigger(apiKeyCtx(), &CancelEventTriggerInput{EventKey: sharedKey})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if canceledID != "evt-a" {
-			t.Fatalf("cancel resolved wrong trigger id %q", canceledID)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "evt-a", canceledID)
+
 	})
 
 	t.Run("stream", func(t *testing.T) {
@@ -544,16 +575,18 @@ func TestEventTriggerHandlers_ProjectScopedResolution(t *testing.T) {
 
 		rr := httptest.NewRecorder()
 		srv.handleEventTriggerStream(rr, req)
+		require.Equal(t, http.StatusOK,
+			rr.Code)
 
 		// proj-aaa owns a waiting trigger with this colliding key, so the stream
 		// must resolve it (HTTP 200 with evt-a in the body) and never 404 -- the
 		// pre-fix unscoped lookup could resolve proj-bbb's row and trip the
 		// tenant guard.
-		if rr.Code != http.StatusOK {
-			t.Fatalf("stream status = %d, want 200; body=%s", rr.Code, rr.Body.String())
-		}
+
 		if body := rr.Body.String(); !strings.Contains(body, `"id":"evt-a"`) {
-			t.Fatalf("stream did not resolve proj-aaa's own trigger; body=%s", body)
+			require.Failf(t, "test failure",
+
+				"stream did not resolve proj-aaa's own trigger; body=%s", body)
 		}
 	})
 }

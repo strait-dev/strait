@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -42,18 +44,23 @@ func TestProject_ConcurrentCreationSameOrg(t *testing.T) {
 			body := fmt.Sprintf(`{"id":"proj-%d","org_id":"org-race","name":"Project %d"}`, n, n)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+			assert.False(
+				t, w.Code != http.
+					StatusCreated &&
+					w.
+						Code != http.StatusInternalServerError,
+			)
+
 			// Each request must return a valid HTTP status.
-			if w.Code != http.StatusCreated && w.Code != http.StatusInternalServerError {
-				t.Errorf("goroutine %d: unexpected status %d", n, w.Code)
-			}
+
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, goroutines, createCount.
+		Load())
 
 	// Without txPool, all creates should succeed since there is no lock contention.
-	if createCount.Load() != goroutines {
-		t.Fatalf("expected %d creates, got %d", goroutines, createCount.Load())
-	}
+
 }
 
 // TestProject_OrgLimitEnforcement verifies that the billing enforcer's
@@ -87,11 +94,12 @@ func TestProject_OrgLimitEnforcement(t *testing.T) {
 	body := `{"id":"proj-new","org_id":"org-limited","name":"Second Project"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	// With the default mock enforcer (no limit), creation should succeed.
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+
 }
 
 // TestProject_NameInjection verifies that SQL and HTML injection in project
@@ -132,21 +140,17 @@ func TestProject_NameInjection(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", string(bodyBytes)))
+			require.Equal(t, http.StatusCreated,
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-			}
-			if storedName != name {
-				t.Fatalf("stored name = %q, want %q", storedName, name)
-			}
+				w.Code)
+			require.Equal(t, name, storedName)
 
 			var p domain.Project
-			if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
-				t.Fatalf("invalid JSON response: %v", err)
-			}
-			if p.Name != name {
-				t.Fatalf("response name = %q, want %q", p.Name, name)
-			}
+			require.NoError(t, json.Unmarshal(w.Body.
+				Bytes(),
+				&p))
+			require.Equal(t, name, p.Name)
+
 		})
 	}
 }
@@ -166,13 +170,13 @@ func TestProject_SlugCollision(t *testing.T) {
 	body := `{"id":"proj-dup","org_id":"org-1","name":"Duplicate"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.NotEqual(t, http.StatusCreated,
 
-	if w.Code == http.StatusCreated {
-		t.Fatal("expected creation to fail for duplicate project")
-	}
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
+	require.Equal(t, http.StatusInternalServerError,
+
+		w.Code)
+
 }
 
 // TestProject_QuotaManipulation verifies that the settings endpoint rejects
@@ -199,9 +203,10 @@ func TestProject_QuotaManipulation(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-project settings access, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 // TestProject_SettingsUnknownField verifies that launch-inactive settings fields
@@ -219,11 +224,10 @@ func TestProject_SettingsUnknownField(t *testing.T) {
 	body := `{"default_region":"nonexistent-region-99"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/projects/proj-1/settings", body))
+	require.NotEqual(t, 0, w.Code)
 
 	// The server must not panic. The response may be 400, 404, or 405.
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
+
 }
 
 // TestProject_SettingsArbitraryJSON verifies that deeply nested or oversized
@@ -243,11 +247,10 @@ func TestProject_SettingsArbitraryJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/projects/proj-1/settings", nested))
+	require.NotEqual(t, 0, w.Code)
 
 	// Server must not panic; any HTTP status is acceptable.
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
+
 }
 
 // TestProject_DeleteWithActiveResources verifies that deleting a project
@@ -266,13 +269,13 @@ func TestProject_DeleteWithActiveResources(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/projects/proj-active", ""))
+	require.Equal(t, http.StatusNoContent,
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedID != "proj-active" {
-		t.Fatalf("expected project ID %q, got %q", "proj-active", deletedID)
-	}
+		w.Code)
+	require.Equal(t, "proj-active",
+		deletedID,
+	)
+
 }
 
 // FuzzProjectName fuzzes project names to verify that the API handles
@@ -338,10 +341,9 @@ func FuzzProjectSettings(f *testing.F) {
 
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/projects/proj-1/settings", settings))
+		require.NotEqual(t, 0, w.Code)
 
 		// Must not panic. Any HTTP status is acceptable.
-		if w.Code == 0 {
-			t.Fatal("no response from server")
-		}
+
 	})
 }

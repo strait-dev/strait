@@ -13,6 +13,7 @@ import (
 	"strait/internal/pubsub"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func newChunkStreamServerWithDuration(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxDuration time.Duration) *Server {
@@ -74,15 +75,16 @@ func TestChunkStreamClosesAfterMaxDuration(t *testing.T) {
 	case <-done:
 		// Allow generous slack for slow CI; the point is "doesn't hang forever".
 		if d := time.Since(start); d > 5*time.Second {
-			t.Fatalf("handler took %s to honor SSEMaxConnDuration=100ms", d)
+			require.Failf(t, "test failure",
+
+				"handler took %s to honor SSEMaxConnDuration=100ms", d)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("handler did not return within 5s; SSEMaxConnDuration not enforced")
+		require.Fail(t, "handler did not return within 5s; SSEMaxConnDuration not enforced")
 	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 streaming response, got %d", w.Code)
-	}
 }
 
 // TestChunkStreamFallsBackToDefaultDurationWhenZero pins the
@@ -120,14 +122,14 @@ func TestChunkStreamFallsBackToDefaultDurationWhenZero(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	require.True(
+		t, subCalled,
+	)
+	require.True(
+		t, hasDdl)
+	require.GreaterOrEqual(t,
+		time.Until(deadline),
+		25*time.
+			Minute)
 
-	if !subCalled {
-		t.Fatal("Subscribe was never called; cannot inspect deadline")
-	}
-	if !hasDdl {
-		t.Fatal("expected pubsub context to carry a deadline; got none")
-	}
-	if remaining := time.Until(deadline); remaining < 25*time.Minute {
-		t.Fatalf("deadline only %s away; default 30m fallback not applied", remaining)
-	}
 }

@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -33,13 +35,11 @@ func newBackpressureMetricsHarness(t *testing.T) *backpressureMetricsHarness {
 	meter := provider.Meter("backpressure-metrics-harness")
 
 	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
-	if err != nil {
-		t.Fatalf("create dropped counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	syncFallback, err := meter.Int64Counter("strait_audit_events_sync_fallback_total")
-	if err != nil {
-		t.Fatalf("create sync_fallback counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	return &backpressureMetricsHarness{
 		metrics: &telemetry.Metrics{
 			AuditEventsDropped:      dropped,
@@ -54,9 +54,11 @@ func newBackpressureMetricsHarness(t *testing.T) *backpressureMetricsHarness {
 func (h *backpressureMetricsHarness) sumCounterByAttr(t *testing.T, name, attrKey, attrVal string) int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := h.reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, h.reader.
+		Collect(context.
+			Background(),
+			&rm))
+
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, inst := range sm.Metrics {
@@ -124,13 +126,12 @@ func TestDrainer_RetriesTransientErrors(t *testing.T) {
 
 	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", map[string]any{"run_id": "r1"})
 	srv.Close()
+	assert.EqualValues(t, 1, writes.
+		Load())
+	assert.EqualValues(t, 0, dlqCalls.
+		Load(),
+	)
 
-	if writes.Load() != 1 {
-		t.Errorf("writes = %d, want 1", writes.Load())
-	}
-	if dlqCalls.Load() != 0 {
-		t.Errorf("deadletter calls = %d, want 0", dlqCalls.Load())
-	}
 }
 
 // TestDrainer_DeadlettersAfterExhaustingRetries: store always fails.
@@ -169,18 +170,24 @@ func TestDrainer_DeadlettersAfterExhaustingRetries(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured.ev == nil {
-		t.Fatal("expected deadletter write")
-	}
-	if captured.ev.Action != domain.AuditActionJobTriggered {
-		t.Errorf("deadletter action = %q", captured.ev.Action)
-	}
-	if captured.lastErr != "db down" {
-		t.Errorf("last_error = %q, want 'db down'", captured.lastErr)
-	}
-	if captured.retryCount != len(auditRetryDelays) {
-		t.Errorf("retry_count = %d, want %d", captured.retryCount, len(auditRetryDelays))
-	}
+	require.NotNil(t, captured.
+		ev)
+	assert.Equal(
+		t, domain.
+			AuditActionJobTriggered,
+
+		captured.
+			ev.Action)
+	assert.Equal(
+		t, "db down",
+		captured.
+			lastErr,
+	)
+	assert.Equal(
+		t, len(auditRetryDelays), captured.
+			retryCount,
+	)
+
 }
 
 // TestDrainer_LogsIfDeadletterAlsoFails: both primary and DLQ fail.
@@ -206,10 +213,10 @@ func TestDrainer_LogsIfDeadletterAlsoFails(t *testing.T) {
 
 	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "job-1", nil)
 	srv.Close()
+	assert.EqualValues(t, 1, dlqCalls.
+		Load(),
+	)
 
-	if dlqCalls.Load() != 1 {
-		t.Errorf("deadletter calls = %d, want 1", dlqCalls.Load())
-	}
 }
 
 // TestDrainer_RetriesDoNotReorderEvents: submit 5 events, first one
@@ -249,13 +256,14 @@ func TestDrainer_RetriesDoNotReorderEvents(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(writeOrder) != 5 {
-		t.Fatalf("wrote %d, want 5: %v", len(writeOrder), writeOrder)
-	}
+	require.Len(t,
+		writeOrder,
+		5)
+
 	for i, id := range ids {
-		if writeOrder[i] != id {
-			t.Errorf("order[%d] = %q, want %q (full order: %v)", i, writeOrder[i], id, writeOrder)
-		}
+		assert.Equal(
+			t, id, writeOrder[i])
+
 	}
 }
 
@@ -329,19 +337,27 @@ func TestBackpressure_MetricSplit_SuccessOutcome(t *testing.T) {
 	for range 249 {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
+	assert.NotEqual(t, 0, h.
+		sumCounterByAttr(t,
+			"strait_audit_events_dropped_total",
 
-	if got := h.sumCounterByAttr(t, "strait_audit_events_dropped_total", "reason", "backpressure_degraded"); got == 0 {
-		t.Errorf("AuditEventsDropped{reason=backpressure_degraded} = 0, want > 0")
-	}
-	if got := h.sumCounterByAttr(t, "strait_audit_events_dropped_total", "reason", "backpressure_sync_fallback"); got != 0 {
-		t.Errorf("legacy reason backpressure_sync_fallback fired %d times, want 0 (renamed to backpressure_degraded)", got)
-	}
-	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "success"); got == 0 {
-		t.Errorf("AuditEventsSyncFallback{outcome=success} = 0, want > 0")
-	}
-	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "failure"); got != 0 {
-		t.Errorf("AuditEventsSyncFallback{outcome=failure} = %d, want 0 (sync writes succeeded)", got)
-	}
+			"reason", "backpressure_degraded",
+		))
+	assert.EqualValues(t, 0, h.sumCounterByAttr(t, "strait_audit_events_dropped_total",
+
+		"reason", "backpressure_sync_fallback",
+	))
+	assert.NotEqual(t, 0, h.
+		sumCounterByAttr(t,
+			"strait_audit_events_sync_fallback_total",
+
+			"outcome", "success",
+		))
+	assert.EqualValues(t, 0, h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total",
+
+		"outcome", "failure",
+	))
+
 }
 
 // TestBackpressure_MetricSplit_FailureOutcome forces the sync-fallback
@@ -391,10 +407,13 @@ func TestBackpressure_MetricSplit_FailureOutcome(t *testing.T) {
 	for range 249 {
 		srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
 	}
+	assert.NotEqual(t, 0, h.
+		sumCounterByAttr(t,
+			"strait_audit_events_sync_fallback_total",
 
-	if got := h.sumCounterByAttr(t, "strait_audit_events_sync_fallback_total", "outcome", "failure"); got == 0 {
-		t.Errorf("AuditEventsSyncFallback{outcome=failure} = 0, want > 0 (sync writes always error)")
-	}
+			"outcome", "failure",
+		))
+
 }
 
 // TestDrainer_RetryMetricIncremented: store fails twice then succeeds on 3rd
@@ -408,13 +427,10 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 	meter := provider.Meter("retry-metric-harness")
 
 	retryAttempts, err := meter.Int64Counter("strait_audit_retry_attempts_total")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	emitted, err := meter.Int64Counter("strait_audit_events_emitted_total")
-	if err != nil {
-		t.Fatalf("create emitted counter: %v", err)
-	}
+	require.NoError(t, err)
 
 	var attempts atomic.Int32
 	ms := &APIStoreMock{
@@ -444,11 +460,7 @@ func TestDrainer_RetryMetricIncremented(t *testing.T) {
 
 	successCount := h.sumCounterByAttr(t, "strait_audit_retry_attempts_total", "outcome", "success")
 	failedCount := h.sumCounterByAttr(t, "strait_audit_retry_attempts_total", "outcome", "failed")
+	assert.EqualValues(t, 1, successCount)
+	assert.EqualValues(t, 1, failedCount)
 
-	if successCount != 1 {
-		t.Errorf("retry_attempts{outcome=success} = %d, want 1", successCount)
-	}
-	if failedCount != 1 {
-		t.Errorf("retry_attempts{outcome=failed} = %d, want 1", failedCount)
-	}
 }

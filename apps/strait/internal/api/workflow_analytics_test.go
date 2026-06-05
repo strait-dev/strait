@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func mockAPIStoreWithWorkflow(projectID string) *APIStoreMock {
@@ -23,9 +25,9 @@ func TestHandleWorkflowStepDurations_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetWorkflowStepDurationsFunc: func(_ context.Context, _, workflowID string, _, _ time.Time) ([]store.StepDuration, error) {
-			if workflowID != "wf-1" {
-				t.Fatalf("expected wf-1, got %s", workflowID)
-			}
+			require.Equal(t, "wf-1",
+				workflowID)
+
 			return []store.StepDuration{
 				{StepRef: "step-a", AvgMs: 500, P95Ms: 1200, Count: 50, FailureRate: 0.02},
 			}, nil
@@ -34,9 +36,9 @@ func TestHandleWorkflowStepDurations_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 200, w.
+		Code)
+
 }
 
 func TestHandleWorkflowStepDurations_MissingParams(t *testing.T) {
@@ -44,9 +46,9 @@ func TestHandleWorkflowStepDurations_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/workflows/wf-1/step-durations", "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.EqualValues(t, 400, w.
+		Code)
+
 }
 
 func TestHandleWorkflowStepDurations_StoreError(t *testing.T) {
@@ -59,18 +61,18 @@ func TestHandleWorkflowStepDurations_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, mockAPIStoreWithWorkflow("proj-1"), ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/wf-1/step-durations", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.EqualValues(t, 500, w.
+		Code)
+
 }
 
 func TestHandleWorkflowCompletionRates_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetWorkflowCompletionRatesFunc: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.WorkflowCompletionBucket, error) {
-			if bucket != "day" {
-				t.Fatalf("expected default bucket 'day', got %q", bucket)
-			}
+			require.Equal(t, "day",
+				bucket)
+
 			return []store.WorkflowCompletionBucket{
 				{Period: "2026-01-01T00:00:00Z", Completed: 10, Failed: 2, TimedOut: 1},
 			}, nil
@@ -79,9 +81,9 @@ func TestHandleWorkflowCompletionRates_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/completion-rates", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 200, w.
+		Code)
+
 }
 
 func TestHandleWorkflowCompletionRates_InvalidBucket(t *testing.T) {
@@ -89,9 +91,9 @@ func TestHandleWorkflowCompletionRates_InvalidBucket(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/completion-rates", validFrom(), validTo(), "bucket", "month"), "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.EqualValues(t, 400, w.
+		Code)
+
 }
 
 func TestHandleWorkflowAnalyticsSummary_Success(t *testing.T) {
@@ -106,9 +108,9 @@ func TestHandleWorkflowAnalyticsSummary_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/summary", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 200, w.
+		Code)
+
 }
 
 func TestHandleWorkflowAnalyticsSummary_StoreError(t *testing.T) {
@@ -121,7 +123,7 @@ func TestHandleWorkflowAnalyticsSummary_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("workflows/summary", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.EqualValues(t, 500, w.
+		Code)
+
 }

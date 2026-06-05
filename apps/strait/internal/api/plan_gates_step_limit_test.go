@@ -7,6 +7,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // stepLimitCase exercises checkWorkflowStepLimit at and around the plan's
@@ -61,20 +64,18 @@ func TestCheckWorkflowStepLimit_TierBoundaries(t *testing.T) {
 			s := newStepLimitServer(tc.tier)
 
 			gotLimits := billing.GetPlanLimits(tc.tier)
-			if gotLimits.MaxWorkflowDAGSteps != tc.limit {
-				t.Fatalf("plan %q: expected MaxWorkflowDAGSteps=%d, got %d (catalog drift)", tc.tier, tc.limit, gotLimits.MaxWorkflowDAGSteps)
-			}
+			require.Equal(t, tc.limit,
+				gotLimits.
+					MaxWorkflowDAGSteps)
 
 			err := s.checkWorkflowStepLimit(context.Background(), "proj-1", tc.stepCount)
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error for %d steps on %s plan, got nil", tc.stepCount, tc.tier)
-				}
+				require.Error(t, err)
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected no error for %d steps on %s plan (limit %d), got: %v", tc.stepCount, tc.tier, tc.limit, err)
-			}
+			require.NoError(t, err)
+
 		})
 	}
 }
@@ -88,16 +89,16 @@ func TestCheckWorkflowStepLimit_UnlimitedTiers(t *testing.T) {
 			t.Parallel()
 
 			limits := billing.GetPlanLimits(tier)
-			if limits.MaxWorkflowDAGSteps != -1 {
-				t.Fatalf("plan %q: expected MaxWorkflowDAGSteps=-1 (unlimited), got %d", tier, limits.MaxWorkflowDAGSteps)
-			}
+			require.EqualValues(t, -1, limits.
+				MaxWorkflowDAGSteps,
+			)
 
 			s := newStepLimitServer(tier)
+			require.NoError(t, s.checkWorkflowStepLimit(context.Background(), "proj-1", billing.MaxDAGStepsScale*
+				100))
 
 			// A step count well above any tiered limit must be accepted.
-			if err := s.checkWorkflowStepLimit(context.Background(), "proj-1", billing.MaxDAGStepsScale*100); err != nil {
-				t.Fatalf("expected no error for unlimited %s plan, got: %v", tier, err)
-			}
+
 		})
 	}
 }
@@ -114,9 +115,13 @@ func TestCheckWorkflowStepLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 		if strings.Contains(err.Error(), "billing enforcement unavailable") {
 			return
 		}
-		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
+		require.Failf(t, "test failure",
+
+			"expected billing enforcement unavailable, got: %v", err)
 	}
-	t.Fatal("expected cloud nil enforcer to fail closed")
+	require.Fail(t,
+
+		"expected cloud nil enforcer to fail closed")
 }
 
 func TestCheckWorkflowStepLimit_CloudEmptyOrgFailsClosed(t *testing.T) {
@@ -131,12 +136,12 @@ func TestCheckWorkflowStepLimit_CloudEmptyOrgFailsClosed(t *testing.T) {
 	}
 
 	err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000)
-	if err == nil {
-		t.Fatal("expected cloud empty org lookup to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.
+			Error(), "billing enforcement unavailable",
+		))
+
 }
 
 func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
@@ -146,10 +151,8 @@ func TestCheckWorkflowStepLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 		edition:         domain.EditionCommunity,
 		billingEnforcer: nil,
 	}
+	require.NoError(t, s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000))
 
-	if err := s.checkWorkflowStepLimit(context.Background(), "proj-1", 1_000_000); err != nil {
-		t.Fatalf("expected community nil enforcer to fail open, got: %v", err)
-	}
 }
 
 func TestCheckWorkflowStepLimit_CommunityEditionFailsOpen(t *testing.T) {
@@ -166,11 +169,11 @@ func TestCheckWorkflowStepLimit_CommunityEditionFailsOpen(t *testing.T) {
 			planLimits: billing.GetPlanLimits(domain.PlanFree),
 		},
 	}
+	require.NoError(t, s.checkWorkflowStepLimit(context.Background(), "proj-1", billing.MaxDAGStepsFree*
+		1000))
 
 	// Far above the free-plan cap; community edition must allow it.
-	if err := s.checkWorkflowStepLimit(context.Background(), "proj-1", billing.MaxDAGStepsFree*1000); err != nil {
-		t.Fatalf("expected community edition to fail open, got: %v", err)
-	}
+
 }
 
 func TestCheckWorkflowStepLimit_ErrorMessageMentionsPlanAndCounts(t *testing.T) {
@@ -183,16 +186,17 @@ func TestCheckWorkflowStepLimit_ErrorMessageMentionsPlanAndCounts(t *testing.T) 
 
 	requested := billing.MaxDAGStepsFree + 7
 	err := s.checkWorkflowStepLimit(context.Background(), "proj-1", requested)
-	if err == nil {
-		t.Fatalf("expected error for over-limit step count, got nil")
-	}
+	require.Error(t, err)
 
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	msg := err.Error()
-	if !strings.Contains(msg, limits.DisplayName) {
-		t.Errorf("expected error to contain plan name %q, got: %s", limits.DisplayName, msg)
-	}
-	if !strings.Contains(msg, "/settings/billing") {
-		t.Errorf("expected error to point to /settings/billing, got: %s", msg)
-	}
+	assert.True(t,
+		strings.Contains(msg,
+
+			limits.DisplayName))
+	assert.True(t,
+		strings.Contains(msg,
+
+			"/settings/billing"))
+
 }

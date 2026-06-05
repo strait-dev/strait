@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_JobVersions_List_RejectsCrossProject ensures listing
@@ -19,7 +21,9 @@ func TestTenantIso_JobVersions_List_RejectsCrossProject(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
-			t.Fatal("ListJobVersionsByJob must not be called for cross-project access")
+			require.Fail(t,
+
+				"ListJobVersionsByJob must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -27,9 +31,12 @@ func TestTenantIso_JobVersions_List_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleListJobVersions(ctx, &ListJobVersionsInput{JobID: "job-foreign"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_JobVersions_List_RejectsCrossEnv covers an env-scoped
@@ -42,7 +49,9 @@ func TestTenantIso_JobVersions_List_RejectsCrossEnv(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-aaa", EnvironmentID: "env-staging"}, nil
 		},
 		ListJobVersionsByJobFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobVersion, error) {
-			t.Fatal("ListJobVersionsByJob must not be called for cross-env access")
+			require.Fail(t,
+
+				"ListJobVersionsByJob must not be called for cross-env access")
 			return nil, nil
 		},
 	}
@@ -51,9 +60,12 @@ func TestTenantIso_JobVersions_List_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleListJobVersions(ctx, &ListJobVersionsInput{JobID: "job-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_JobVersions_Get_RejectsCrossProject ensures the per-version
@@ -73,9 +85,12 @@ func TestTenantIso_JobVersions_Get_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleGetJobVersion(ctx, &GetJobVersionInput{JobID: "job-foreign", VersionID: "ver-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_JobVersions_Get_RejectsCrossEnv covers env scoping on the
@@ -95,7 +110,10 @@ func TestTenantIso_JobVersions_Get_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleGetJobVersion(ctx, &GetJobVersionInput{JobID: "job-1", VersionID: "ver-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }

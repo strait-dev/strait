@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // orderingExempt is the list of handlers that intentionally call emit in a
@@ -145,13 +147,10 @@ func TestAuditEmitOrdering_AfterMutation(t *testing.T) {
 	t.Parallel()
 
 	dir, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
+
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
-	}
+	require.NoError(t, err)
 
 	fset := token.NewFileSet()
 
@@ -173,9 +172,7 @@ func TestAuditEmitOrdering_AfterMutation(t *testing.T) {
 		}
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if parseErr != nil {
-			t.Fatalf("parse %s: %v", name, parseErr)
-		}
+		require.Nil(t, parseErr)
 
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -268,6 +265,7 @@ func TestAuditEmitOrdering_AfterMutation(t *testing.T) {
 	b.WriteString("\naudit events must only fire AFTER the store mutation has succeeded.\n")
 	b.WriteString("move the emitAuditEvent call to just before the return statement, after the store call.\n")
 	b.WriteString("if the handler has an unusual structure, add it to orderingExempt with a reason.\n")
+	require.Fail(t,
 
-	t.Fatal(b.String())
+		b.String())
 }

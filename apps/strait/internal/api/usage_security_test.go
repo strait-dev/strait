@@ -13,6 +13,8 @@ import (
 	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestUsage_DateRangeInjection verifies that adversarial date strings
@@ -38,9 +40,8 @@ func TestUsage_DateRangeInjection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, _, err := parseDateRangeTyped(tc.from, tc.to)
-			if err == nil {
-				t.Fatal("expected error for adversarial date input")
-			}
+			require.Error(t, err)
+
 		})
 	}
 }
@@ -64,10 +65,9 @@ func TestUsage_FutureProjection(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/forecast?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
 }
 
 // TestUsage_CrossProjectUsage verifies that project A cannot query project B's
@@ -89,10 +89,10 @@ func TestUsage_CrossProjectUsage(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/current?org_id=org-b", "", "proj-a")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusForbidden,
+		rr.
+			Code)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
-	}
 }
 
 func TestUsage_ProjectScopedAPIKeyCannotReadOrgBillingState(t *testing.T) {
@@ -107,13 +107,17 @@ func TestUsage_ProjectScopedAPIKeyCannotReadOrgBillingState(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 
 	_, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("current usage error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 	_, err = srv.handleGetProjectCosts(ctx, &GetProjectCostsInput{OrgID: "org-A", From: "2026-01-01", To: "2026-01-02"})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("project costs error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestUsage_OrgScopedAPIKeyCanReadOrgBillingState(t *testing.T) {
@@ -129,10 +133,14 @@ func TestUsage_OrgScopedAPIKeyCanReadOrgBillingState(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 
 	if _, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"}); err != nil {
-		t.Fatalf("current usage error = %v, want nil", err)
+		require.Failf(t, "test failure",
+
+			"current usage error = %v, want nil", err)
 	}
 	if _, err := srv.handleGetProjectCosts(ctx, &GetProjectCostsInput{OrgID: "org-A", From: "2026-01-01", To: "2026-01-02"}); err != nil {
-		t.Fatalf("project costs error = %v, want nil", err)
+		require.Failf(t, "test failure",
+
+			"project costs error = %v, want nil", err)
 	}
 }
 
@@ -149,13 +157,17 @@ func TestUsage_ProjectScopedUserCannotReadOrgBillingControls(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorIDKey, "user-project-scoped")
 
 	_, err := srv.handleGetCurrentUsage(ctx, &GetCurrentUsageInput{OrgID: "org-A"})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("current usage error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 	_, err = srv.handleGetDowngradePreview(ctx, &GetDowngradePreviewInput{OrgID: "org-A", TargetTier: string(domain.PlanFree)})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("downgrade preview error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
@@ -174,16 +186,20 @@ func TestUsage_ProjectScopedUserCannotMutateOrgBillingControls(t *testing.T) {
 		OrgID: "org-A",
 		Body:  updateSpendingLimitRequest{LimitMicrousd: 1000, Action: "notify"},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("spending limit update error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 	_, err = srv.handleUpdateEmailPreferences(ctx, &UpdateEmailPreferencesInput{
 		OrgID: "org-A",
 		Body:  updateEmailPreferencesRequest{MonthlyUsageEmail: false},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("email preferences update error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T) {
@@ -205,9 +221,11 @@ func TestUsage_ProjectScopedAPIKeyCannotMutateSiblingProjectBudget(t *testing.T)
 		BudgetMicro: 100,
 		Action:      "notify",
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("update sibling project budget error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
@@ -230,9 +248,11 @@ func TestUsage_ProjectScopedUserCannotMutateSiblingProjectBudget(t *testing.T) {
 		BudgetMicro: 100,
 		Action:      "notify",
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("update sibling project budget error = %v, want 403", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestUsage_OrgScopedUserCanMutateSiblingProjectBudget(t *testing.T) {
@@ -256,7 +276,9 @@ func TestUsage_OrgScopedUserCanMutateSiblingProjectBudget(t *testing.T) {
 		BudgetMicro: 100,
 		Action:      "notify",
 	}}); err != nil {
-		t.Fatalf("update sibling project budget error = %v, want nil", err)
+		require.Failf(t, "test failure",
+
+			"update sibling project budget error = %v, want nil", err)
 	}
 }
 
@@ -286,12 +308,11 @@ func TestUsage_ExportCSVInjection(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/export?org_id=org-1&from=2024-01-01&to=2024-12-31&format=csv", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.False(t, rr.Code >= 500)
 
 	// The handler writes directly to the response writer, so we may get
 	// 200 or the huma framework status. Just verify no panic.
-	if rr.Code >= 500 {
-		t.Fatalf("expected non-5xx, got %d: %s", rr.Code, rr.Body.String())
-	}
+
 }
 
 // TestUsage_CostAnomalyFalsePositive verifies that a legitimate usage spike
@@ -316,18 +337,14 @@ func TestUsage_CostAnomalyFalsePositive(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/anomalies?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var alerts []billing.AnomalyAlert
-	if err := json.NewDecoder(rr.Body).Decode(&alerts); err != nil {
-		t.Fatalf("failed to decode: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&alerts))
+	require.Len(t,
+		alerts, 1)
+
 }
 
 // TestSilentError_JSONMarshalFailure verifies that the usage handler returns
@@ -346,10 +363,11 @@ func TestSilentError_JSONMarshalFailure(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/current?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
+
 }
 
 // TestSilentError_DecryptFailure verifies that a decrypt error in the
@@ -362,11 +380,12 @@ func TestSilentError_DecryptFailure(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/current?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
 
 	// Without billing enforcer, the server returns a 403 or 501.
-	if rr.Code == http.StatusOK {
-		t.Fatal("expected non-200 when billing enforcer is nil")
-	}
+
 }
 
 // TestSilentError_WebhookCallbackFailure verifies that a failed spending
@@ -382,11 +401,12 @@ func TestSilentError_WebhookCallbackFailure(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/spending-limit?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusNotImplemented,
+
+		rr.Code)
 
 	// usageService is nil, so should return 501.
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", rr.Code, rr.Body.String())
-	}
+
 }
 
 // TestSilentError_PaginationInvalidCursor verifies that an invalid pagination
@@ -405,10 +425,10 @@ func TestSilentError_PaginationInvalidCursor(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/history?org_id=org-1&from=invalid&to=2024-12-31", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
 
-	if rr.Code == http.StatusOK {
-		t.Fatal("expected error for invalid date cursor, got 200")
-	}
 }
 
 // TestSilentError_StoreConnectionFailure verifies that a store failure
@@ -427,10 +447,10 @@ func TestSilentError_StoreConnectionFailure(t *testing.T) {
 	req := apiKeyRequest("GET", "/v1/usage/current?org_id=org-1", "", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.NotEqual(t, http.StatusOK,
+		rr.Code,
+	)
 
-	if rr.Code == http.StatusOK {
-		t.Fatal("expected non-200 for store connection failure")
-	}
 	if rr.Code != http.StatusInternalServerError {
 		t.Logf("got status %d (expected 500)", rr.Code)
 	}

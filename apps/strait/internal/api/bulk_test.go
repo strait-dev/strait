@@ -12,6 +12,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testEnabledJob(id string) *domain.Job {
@@ -39,48 +42,47 @@ func TestHandleBulkTrigger_Success(t *testing.T) {
 	body := `{"items":[{},{},{}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp BulkTriggerResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Total != 3 {
-		t.Fatalf("expected total=3, got %d", resp.Total)
-	}
-	if resp.Created != 3 {
-		t.Fatalf("expected created=3, got %d", resp.Created)
-	}
-	if len(resp.Results) != 3 {
-		t.Fatalf("expected 3 results, got %d", len(resp.Results))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 3, resp.Total)
+	require.EqualValues(t, 3, resp.Created)
+	require.Len(t,
+		resp.Results, 3,
+	)
+
 	var rawResp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &rawResp); err != nil {
-		t.Fatalf("invalid raw JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&rawResp))
+
 	rawResults, ok := rawResp["results"].([]any)
-	if !ok || len(rawResults) != 3 {
-		t.Fatalf("expected 3 raw results, got %#v", rawResp["results"])
-	}
+	require.False(t, !ok || len(rawResults) != 3)
+
 	for idx, rawResult := range rawResults {
 		result, ok := rawResult.(map[string]any)
-		if !ok {
-			t.Fatalf("result %d was not an object: %#v", idx, rawResult)
-		}
+		require.True(
+			t, ok)
+
 		if _, ok := result["run_token"]; ok {
-			t.Fatalf("bulk trigger result %d must not expose SDK run_token", idx)
+			require.Failf(t, "test failure",
+
+				"bulk trigger result %d must not expose SDK run_token", idx)
 		}
 	}
 	for _, r := range resp.Results {
-		if r.ID == "" {
-			t.Error("expected non-empty id")
-		}
-		if r.Status != string(domain.StatusQueued) {
-			t.Errorf("expected queued, got %s", r.Status)
-		}
+		assert.NotEqual(t, "", r.ID)
+		assert.Equal(
+			t, string(domain.
+				StatusQueued,
+			), r.Status,
+		)
+
 	}
 }
 
@@ -94,9 +96,8 @@ func TestHandleTriggerJob_WorkerModePropagatesExecutionModeAndQueue(t *testing.T
 
 	ms := &APIStoreMock{
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != job.ID {
-				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
-			}
+			require.Equal(t, job.ID, id)
+
 			return job, nil
 		},
 		AreJobDependenciesSatisfiedFunc: func(_ context.Context, _ *domain.JobRun) (bool, error) {
@@ -114,18 +115,17 @@ func TestHandleTriggerJob_WorkerModePropagatesExecutionModeAndQueue(t *testing.T
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-worker/trigger", `{"payload":{"ok":true}}`))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if captured.ExecutionMode != domain.ExecutionModeWorker {
-		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
-	}
-	if captured.QueueName != "priority" {
-		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
-	}
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, domain.ExecutionModeWorker,
+
+		captured.
+			ExecutionMode)
+	require.Equal(t, "priority", captured.
+		QueueName)
+
 }
 
 func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.T) {
@@ -138,9 +138,8 @@ func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.
 
 	ms := &APIStoreMock{
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != job.ID {
-				t.Fatalf("GetJob id = %q, want %q", id, job.ID)
-			}
+			require.Equal(t, job.ID, id)
+
 			return job, nil
 		},
 	}
@@ -155,19 +154,21 @@ func TestHandleBulkTrigger_WorkerModePropagatesExecutionModeAndQueue(t *testing.
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-worker/trigger/bulk", `{"items":[{"payload":{"n":1}},{"payload":{"n":2}}]}`))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(captured) != 2 {
-		t.Fatalf("captured runs = %d, want 2", len(captured))
-	}
-	for i, run := range captured {
-		if run.ExecutionMode != domain.ExecutionModeWorker {
-			t.Fatalf("run %d ExecutionMode = %q, want %q", i, run.ExecutionMode, domain.ExecutionModeWorker)
-		}
-		if run.QueueName != "priority" {
-			t.Fatalf("run %d QueueName = %q, want priority", i, run.QueueName)
-		}
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
+	require.Len(t,
+		captured, 2)
+
+	for _, run := range captured {
+		require.Equal(t, domain.ExecutionModeWorker,
+
+			run.
+				ExecutionMode)
+		require.Equal(t, "priority", run.
+			QueueName,
+		)
+
 	}
 }
 
@@ -190,23 +191,20 @@ func TestHandleBulkTrigger_WithPayloads(t *testing.T) {
 	body := `{"items":[{"payload":{"key":"value1"}},{"payload":{"key":"value2"}},{"payload":{"key":"value3"}}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(received) != 3 {
-		t.Fatalf("expected 3 enqueued payloads, got %d", len(received))
-	}
+		w.Code)
+	require.Len(t,
+		received, 3)
 
 	expected := []string{"value1", "value2", "value3"}
 	for i, payload := range received {
 		var got map[string]string
-		if err := json.Unmarshal(payload, &got); err != nil {
-			t.Fatalf("payload %d is invalid JSON: %v", i, err)
-		}
-		if got["key"] != expected[i] {
-			t.Fatalf("payload %d key mismatch: got %q want %q", i, got["key"], expected[i])
-		}
+		require.NoError(t, json.Unmarshal(payload,
+			&got))
+		require.Equal(t, expected[i],
+			got["key"])
+
 	}
 }
 
@@ -224,24 +222,26 @@ func TestHandleBulkTrigger_WithScheduledAt(t *testing.T) {
 	body := fmt.Sprintf(`{"items":[{"scheduled_at":"%s"},{}]}`, future)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp BulkTriggerResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp.Results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(resp.Results))
-	}
-	if resp.Results[0].Status != string(domain.StatusDelayed) {
-		t.Fatalf("expected first item status=delayed, got %s", resp.Results[0].Status)
-	}
-	if resp.Results[1].Status != string(domain.StatusQueued) {
-		t.Fatalf("expected second item status=queued, got %s", resp.Results[1].Status)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.Len(t,
+		resp.Results, 2,
+	)
+	require.Equal(t, string(domain.
+		StatusDelayed,
+	), resp.
+		Results[0].Status)
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), resp.
+		Results[1].Status)
+
 }
 
 func TestHandleBulkTrigger_RejectsOutOfRangeScheduledAtAndTTL(t *testing.T) {
@@ -283,20 +283,24 @@ func TestHandleBulkTrigger_RejectsOutOfRangeScheduledAtAndTTL(t *testing.T) {
 				},
 			}
 			mq := &mockQueue{enqueueFn: func(context.Context, *domain.JobRun) error {
-				t.Fatal("bulk trigger must not enqueue invalid item")
+				require.Fail(t,
+
+					"bulk trigger must not enqueue invalid item")
 				return nil
 			}}
 			srv := newTestServer(t, ms, mq, nil)
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", tc.body))
+			require.False(t, w.Code != http.
+				StatusBadRequest &&
+				w.Code != http.StatusUnprocessableEntity,
+			)
+			require.True(
+				t, strings.Contains(w.Body.
+					String(),
+					tc.want))
 
-			if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("status = %d, want 400/422: %s", w.Code, w.Body.String())
-			}
-			if !strings.Contains(w.Body.String(), tc.want) {
-				t.Fatalf("response = %s, want fragment %q", w.Body.String(), tc.want)
-			}
 		})
 	}
 }
@@ -308,10 +312,10 @@ func TestHandleBulkTrigger_EmptyItems(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[]}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
@@ -324,19 +328,19 @@ func TestHandleBulkTrigger_TooManyItems(t *testing.T) {
 		items[i] = map[string]any{}
 	}
 	body, err := json.Marshal(map[string]any{"items": items})
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "maximum 500 items") {
-		t.Fatalf("expected maximum items error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(),
+			"maximum 500 items"),
+	)
+
 }
 
 func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
@@ -350,10 +354,10 @@ func TestHandleBulkTrigger_JobNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[{}]}`))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
@@ -369,10 +373,10 @@ func TestHandleBulkTrigger_JobDisabled(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[{}]}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
@@ -382,10 +386,10 @@ func TestHandleBulkTrigger_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
@@ -405,13 +409,13 @@ func TestHandleBulkTrigger_EnqueueError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[{},{},{}]}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
-	if strings.Contains(w.Body.String(), "results") {
-		t.Fatalf("expected no partial results in error response, got %s", w.Body.String())
-	}
+		w.Code)
+	require.False(t, strings.Contains(w.Body.
+		String(),
+		"results"))
+
 }
 
 func TestHandleBulkTrigger_SingleItem(t *testing.T) {
@@ -422,21 +426,23 @@ func TestHandleBulkTrigger_SingleItem(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", `{"items":[{}]}`))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp BulkTriggerResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Total != 1 || resp.Created != 1 || len(resp.Results) != 1 {
-		t.Fatalf("unexpected response counts: total=%d created=%d results=%d", resp.Total, resp.Created, len(resp.Results))
-	}
-	if resp.Results[0].Status != string(domain.StatusQueued) {
-		t.Fatalf("expected status=queued, got %s", resp.Results[0].Status)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, resp.Total !=
+		1 || resp.
+		Created !=
+		1 || len(resp.Results) != 1)
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), resp.
+		Results[0].Status)
+
 }
 
 func TestHandleBulkCancel_Success(t *testing.T) {
@@ -471,18 +477,20 @@ func TestHandleBulkCancel_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":["run-1","run-2","run-3"]}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp BulkCancelResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Canceled != 3 || resp.Failed != 0 || resp.Total != 3 {
-		t.Fatalf("unexpected counters: canceled=%d failed=%d total=%d", resp.Canceled, resp.Failed, resp.Total)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, resp.Canceled !=
+		3 ||
+		resp.Failed !=
+			0 || resp.Total !=
+		3)
+
 }
 
 func TestHandleBulkCancel_PartialFailure(t *testing.T) {
@@ -516,29 +524,30 @@ func TestHandleBulkCancel_PartialFailure(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":["run-1","run-2","run-3"]}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp BulkCancelResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Canceled != 1 || resp.Failed != 2 {
-		t.Fatalf("expected canceled=1 failed=2, got canceled=%d failed=%d", resp.Canceled, resp.Failed)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, resp.Canceled !=
+		1 ||
+		resp.Failed !=
+			2)
 
 	byID := make(map[string]BulkCancelResult, len(resp.Results))
 	for _, item := range resp.Results {
 		byID[item.ID] = item
 	}
-	if byID["run-2"].Error != "run not found" {
-		t.Fatalf("expected run-2 error run not found, got %q", byID["run-2"].Error)
-	}
-	if byID["run-3"].Error != "run already in terminal state" {
-		t.Fatalf("expected run-3 terminal error, got %q", byID["run-3"].Error)
-	}
+	require.Equal(t, "run not found",
+		byID["run-2"].Error,
+	)
+	require.Equal(t, "run already in terminal state",
+
+		byID["run-3"].Error)
+
 }
 
 func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
@@ -547,10 +556,10 @@ func TestHandleBulkCancel_EmptyRunIDs(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":[]}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
@@ -562,19 +571,19 @@ func TestHandleBulkCancel_TooManyRunIDs(t *testing.T) {
 		runIDs[i] = fmt.Sprintf("run-%d", i)
 	}
 	body, err := json.Marshal(map[string]any{"run_ids": runIDs})
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "maximum 100 run IDs") {
-		t.Fatalf("expected max run IDs error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(),
+			"maximum 100 run IDs",
+		))
+
 }
 
 func TestHandleBulkCancel_InvalidBody(t *testing.T) {
@@ -583,10 +592,10 @@ func TestHandleBulkCancel_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":[`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleBulkCancel_AllTerminal(t *testing.T) {
@@ -611,18 +620,19 @@ func TestHandleBulkCancel_AllTerminal(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":["run-1","run-2","run-3"]}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp BulkCancelResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Canceled != 0 || resp.Failed != 3 {
-		t.Fatalf("expected canceled=0 failed=3, got canceled=%d failed=%d", resp.Canceled, resp.Failed)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, resp.Canceled !=
+		0 ||
+		resp.Failed !=
+			3)
+
 }
 
 func TestHandleBulkCancel_WithChildren(t *testing.T) {
@@ -649,9 +659,9 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 			return results, nil
 		},
 		CancelChildRunsByParentIDsFunc: func(_ context.Context, parentIDs []string, _ time.Time, _ string) (int64, error) {
-			if len(parentIDs) != 1 || parentIDs[0] != "run-parent" {
-				t.Fatalf("expected parent ID run-parent, got %v", parentIDs)
-			}
+			require.False(t, len(parentIDs) != 1 ||
+				parentIDs[0] != "run-parent")
+
 			childCancelCalled = true
 			return 1, nil
 		},
@@ -660,19 +670,20 @@ func TestHandleBulkCancel_WithChildren(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-cancel", `{"run_ids":["run-parent"]}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp BulkCancelResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Canceled != 1 || resp.Failed != 0 {
-		t.Fatalf("expected canceled=1 failed=0, got canceled=%d failed=%d", resp.Canceled, resp.Failed)
-	}
-	if !childCancelCalled {
-		t.Fatal("expected CancelChildRunsByParentIDs to be called")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, resp.Canceled !=
+		1 ||
+		resp.Failed !=
+			0)
+	require.True(
+		t, childCancelCalled,
+	)
+
 }

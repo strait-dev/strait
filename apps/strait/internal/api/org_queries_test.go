@@ -11,6 +11,8 @@ import (
 	"context"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
@@ -20,9 +22,10 @@ func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if orgID != orgUUID {
-				t.Fatalf("expected %s, got %q", orgUUID, orgID)
-			}
+			require.Equal(t, orgUUID,
+				orgID,
+			)
+
 			return []domain.JobRun{
 				{ID: "run-1", ProjectID: "proj-1", JobID: "job-1", CreatedAt: now},
 				{ID: "run-2", ProjectID: "proj-2", JobID: "job-2", CreatedAt: now.Add(-time.Second)},
@@ -35,25 +38,23 @@ func TestListOrgRuns_ReturnsRunsFromAllProjects(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	if len(runs) != 3 {
-		t.Fatalf("expected 3 runs, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		3)
 
 	// Verify runs come from different projects.
 	projectIDs := map[string]bool{}
 	for _, r := range runs {
 		projectIDs[r.ProjectID] = true
 	}
-	if len(projectIDs) != 2 {
-		t.Fatalf("expected runs from 2 different projects, got %d", len(projectIDs))
-	}
+	require.Len(t, projectIDs,
+		2)
+
 }
 
 func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
@@ -73,18 +74,19 @@ func TestListOrgRuns_CrossOrg_Forbidden(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		w.Code)
 
 	var resp ErrorResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Error == nil || resp.Error.Message != "api key does not belong to this organization" {
-		t.Fatalf("expected org mismatch error, got %+v", resp.Error)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &resp))
+	require.False(t, resp.
+		Error ==
+		nil || resp.Error.Message !=
+		"api key does not belong to this organization",
+	)
+
 }
 
 func TestListOrgRuns_RequiresAuth(t *testing.T) {
@@ -94,10 +96,10 @@ func TestListOrgRuns_RequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/org-1/runs", nil)
 
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
@@ -107,9 +109,10 @@ func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListJobsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.Job, error) {
-			if orgID != orgUUID {
-				t.Fatalf("expected %s, got %q", orgUUID, orgID)
-			}
+			require.Equal(t, orgUUID,
+				orgID,
+			)
+
 			return []domain.Job{
 				{ID: "job-1", ProjectID: "proj-1", Name: "Job One", CreatedAt: now},
 				{ID: "job-2", ProjectID: "proj-2", Name: "Job Two", CreatedAt: now.Add(-time.Second)},
@@ -121,19 +124,19 @@ func TestListOrgJobs_ReturnsJobsFromAllProjects(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/jobs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var jobs []domain.Job
 	decodePaginatedList(t, w.Body.Bytes(), &jobs)
-	if len(jobs) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(jobs))
-	}
-	if jobs[0].ProjectID != "proj-1" || jobs[1].ProjectID != "proj-2" {
-		t.Fatalf("expected jobs from proj-1 and proj-2, got %q and %q", jobs[0].ProjectID, jobs[1].ProjectID)
-	}
+	require.Len(t, jobs,
+		2)
+	require.False(t, jobs[0].ProjectID !=
+		"proj-1" || jobs[1].ProjectID !=
+		"proj-2",
+	)
+
 }
 
 func TestListOrgRuns_Pagination_Works(t *testing.T) {
@@ -165,27 +168,24 @@ func TestListOrgRuns_Pagination_Works(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs?limit=2", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var envelope struct {
 		Data       json.RawMessage `json:"data"`
 		HasMore    bool            `json:"has_more"`
 		NextCursor *string         `json:"next_cursor,omitempty"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &envelope))
 
 	var runs []domain.JobRun
-	if err := json.Unmarshal(envelope.Data, &runs); err != nil {
-		t.Fatalf("invalid data JSON: %v", err)
-	}
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(runs))
-	}
+	require.NoError(t,
+		json.Unmarshal(envelope.Data, &runs))
+	require.Len(t, runs,
+		2)
+
 }
 
 func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
@@ -202,14 +202,13 @@ func TestListOrgRuns_EmptyOrg_ReturnsEmpty(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	if len(runs) != 0 {
-		t.Fatalf("expected 0 runs, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		0)
+
 }

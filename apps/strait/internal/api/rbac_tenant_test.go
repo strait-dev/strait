@@ -8,6 +8,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleGetRole_CrossProjectBlocked(t *testing.T) {
@@ -26,10 +28,9 @@ func TestHandleGetRole_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/roles/role_other", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project role access, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleGetRole_SameProjectAllowed(t *testing.T) {
@@ -45,10 +46,9 @@ func TestHandleGetRole_SameProjectAllowed(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/roles/role_1", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for same-project role access, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleUpdateRole_CrossProjectBlocked(t *testing.T) {
@@ -65,10 +65,9 @@ func TestHandleUpdateRole_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodPatch, "/v1/roles/role_other", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project role update, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleDeleteRole_CrossProjectBlocked(t *testing.T) {
@@ -89,13 +88,10 @@ func TestHandleDeleteRole_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodDelete, "/v1/roles/role_other", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, deleteCalled)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project role delete, got %d: %s", w.Code, w.Body.String())
-	}
-	if deleteCalled {
-		t.Fatal("DeleteProjectRole should not have been called for cross-project access")
-	}
 }
 
 func TestHandleDeleteSecret_CrossProjectBlocked(t *testing.T) {
@@ -116,13 +112,10 @@ func TestHandleDeleteSecret_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodDelete, "/v1/secrets/sec_1", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, deleteCalled)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project secret delete, got %d: %s", w.Code, w.Body.String())
-	}
-	if deleteCalled {
-		t.Fatal("DeleteJobSecret should not have been called for cross-project access")
-	}
 }
 
 func TestHandleDeleteSecret_SameProjectAllowed(t *testing.T) {
@@ -141,8 +134,9 @@ func TestHandleDeleteSecret_SameProjectAllowed(t *testing.T) {
 	req := authedProjectRequest(http.MethodDelete, "/v1/secrets/sec_1", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.False(t, w.Code !=
+		http.StatusNoContent &&
+		w.Code !=
+			http.StatusOK)
 
-	if w.Code != http.StatusNoContent && w.Code != http.StatusOK {
-		t.Fatalf("expected 200 or 204 for same-project secret delete, got %d: %s", w.Code, w.Body.String())
-	}
 }

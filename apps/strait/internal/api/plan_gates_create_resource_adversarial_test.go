@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateLogDrain_UpdateBypass_NotPossible confirms that the update path
@@ -42,12 +44,12 @@ func TestCreateLogDrain_UpdateBypass_NotPossible(t *testing.T) {
 	body := `{"name":"renamed"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/log-drains/drain-1", body))
+	assert.EqualValues(t, 0, countCalls.
+		Load())
 
 	// Update either succeeds or 4xx for unrelated reasons; the key invariant
 	// is that the cap gate is NOT consulted (update doesn't add a row).
-	if got := countCalls.Load(); got != 0 {
-		t.Errorf("Update path consulted CountLogDrainsByOrg %d times; updates must not exercise the create cap", got)
-	}
+
 }
 
 // TestCreateLogDrain_RaceAtCap simulates 50 concurrent creates against an
@@ -104,14 +106,16 @@ func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 			rejected++
 		}
 	}
+	require.False(t, created ==
+		0 && rejected == 0,
+	)
+
 	// Boundary: the gate's snapshot read can let multiple creates through
 	// before any of them increment the count, so created can exceed 1.
 	// We assert only that the gate IS invoked and at least one create
 	// happens — the real over-cap protection comes from a store-level check
 	// or distributed lock in production.
-	if created == 0 && rejected == 0 {
-		t.Fatal("no responses recorded")
-	}
+
 	if rejected == 0 {
 		t.Logf("note: 0 rejected at near-cap with 50 concurrent attempts; documented TOCTOU window; the Postgres store method is the authoritative gate")
 	}
@@ -126,9 +130,10 @@ func TestCreateLogDrain_OrgScopedCount(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CountLogDrainsByOrgFunc: func(_ context.Context, orgID string) (int, error) {
-			if orgID != "org-1" {
-				t.Errorf("count called with unexpected orgID %q", orgID)
-			}
+			assert.Equal(
+				t, "org-1",
+				orgID)
+
 			return 5, nil // already at Pro cap across the org
 		},
 		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
@@ -150,10 +155,10 @@ func TestCreateLogDrain_OrgScopedCount(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("creating from a different project of the same org must reject; got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU mirrors the
@@ -204,9 +209,9 @@ func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 			saw4xx = true
 		}
 	}
-	if !saw201 && !saw4xx {
-		t.Fatal("no responses recorded")
-	}
+	require.False(t, !saw201 &&
+		!saw4xx)
+
 	// We don't assert exact counts — the gate's snapshot semantics permit a
 	// TOCTOU window. The Postgres store method is the enforcement boundary.
 	_ = saw201
@@ -240,10 +245,9 @@ func TestPlanGate_TamperedEntitlements_TrustsDB(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("tampered entitlements claim unlimited; gate trusts DB → must accept; got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestPlanGate_MaxLogDrainsPerOrg_ValuesPerTier locks in the per-tier values
@@ -265,9 +269,10 @@ func TestPlanGate_MaxLogDrainsPerOrg_ValuesPerTier(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := billing.GetPlanLimits(tc.tier).MaxLogDrainsPerOrg
-		if got != tc.want {
-			t.Errorf("MaxLogDrainsPerOrg[%s] = %d, want %d", tc.tier, got, tc.want)
-		}
+		assert.Equal(
+			t, tc.want,
+			got)
+
 	}
 }
 
@@ -289,9 +294,10 @@ func TestPlanGate_MaxNotificationChannels_ValuesPerTier(t *testing.T) {
 	}
 	for _, tc := range cases {
 		got := billing.GetPlanLimits(tc.tier).MaxNotificationChannels
-		if got != tc.want {
-			t.Errorf("MaxNotificationChannels[%s] = %d, want %d", tc.tier, got, tc.want)
-		}
+		assert.Equal(
+			t, tc.want,
+			got)
+
 	}
 }
 
@@ -313,10 +319,9 @@ func TestPlanGate_FreeMessageStable(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 
 	body := w.Body.String()
-	if !strings.Contains(body, "Log drains are not available") {
-		t.Errorf("free-tier rejection must say 'Log drains are not available', got: %s", body)
-	}
-	if !strings.Contains(body, "/settings/billing") {
-		t.Errorf("free-tier rejection must include upgrade URL, got: %s", body)
-	}
+	assert.True(t,
+		strings.Contains(body, "Log drains are not available"))
+	assert.True(t,
+		strings.Contains(body, "/settings/billing"))
+
 }

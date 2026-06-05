@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateJob_EndpointRequireTLS locks in the ENDPOINT_REQUIRE_TLS gate: job
@@ -53,12 +55,11 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 		var created atomic.Bool
 		srv := newServer(t, true, &created)
 		w := post(t, srv, "http://example.com/callback")
-		if w.Code < 400 {
-			t.Fatalf("expected 4xx when ENDPOINT_REQUIRE_TLS rejects http endpoint, got %d: %s", w.Code, w.Body.String())
-		}
-		if created.Load() {
-			t.Fatal("CreateJob must not be called when the http endpoint is rejected")
-		}
+		require.GreaterOrEqual(t,
+			w.Code, 400)
+		require.False(t, created.
+			Load())
+
 	})
 
 	t.Run("require tls accepts https endpoint", func(t *testing.T) {
@@ -66,12 +67,11 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 		var created atomic.Bool
 		srv := newServer(t, true, &created)
 		w := post(t, srv, "https://example.com/callback")
-		if w.Code != http.StatusCreated {
-			t.Fatalf("expected 201 for https endpoint under ENDPOINT_REQUIRE_TLS, got %d: %s", w.Code, w.Body.String())
-		}
-		if !created.Load() {
-			t.Fatal("CreateJob was not called for accepted https endpoint")
-		}
+		require.Equal(t, http.StatusCreated,
+			w.Code)
+		require.True(
+			t, created.Load())
+
 	})
 
 	t.Run("knob off permits http endpoint", func(t *testing.T) {
@@ -79,11 +79,10 @@ func TestCreateJob_EndpointRequireTLS(t *testing.T) {
 		var created atomic.Bool
 		srv := newServer(t, false, &created)
 		w := post(t, srv, "http://example.com/callback")
-		if w.Code != http.StatusCreated {
-			t.Fatalf("expected 201 for http endpoint with ENDPOINT_REQUIRE_TLS off, got %d: %s", w.Code, w.Body.String())
-		}
-		if !created.Load() {
-			t.Fatal("CreateJob was not called when the knob is off")
-		}
+		require.Equal(t, http.StatusCreated,
+			w.Code)
+		require.True(
+			t, created.Load())
+
 	})
 }

@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_RBAC_UpdateRole_RejectsCrossProject verifies that callers
@@ -36,13 +38,11 @@ func TestTenantIso_RBAC_UpdateRole_RejectsCrossProject(t *testing.T) {
 	req := authedProjectRequest(http.MethodPatch, "/v1/roles/role_other", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project update, got %d: %s", w.Code, w.Body.String())
-	}
-	if updated {
-		t.Fatal("UpdateProjectRole must not run on cross-project access")
-	}
+		w.Code)
+	require.False(t, updated)
+
 }
 
 // TestTenantIso_RBAC_UpdateRole_RejectsStoreError verifies that an
@@ -69,13 +69,11 @@ func TestTenantIso_RBAC_UpdateRole_RejectsStoreError(t *testing.T) {
 	req := authedProjectRequest(http.MethodPatch, "/v1/roles/role_x", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 on transient store error, got %d: %s", w.Code, w.Body.String())
-	}
-	if updated {
-		t.Fatal("UpdateProjectRole must not run when guard load fails")
-	}
+		w.Code)
+	require.False(t, updated)
+
 }
 
 // TestTenantIso_RBAC_GetRole_LineageStopsAtForeignParent verifies that the
@@ -107,27 +105,34 @@ func TestTenantIso_RBAC_GetRole_LineageStopsAtForeignParent(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/roles/role_child?include_lineage=true", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 	body := w.Body.String()
+	require.True(
+		t, strings.Contains(body,
+			`"id":"role_p1"`),
+	)
+	require.False(t, strings.Contains(body,
+		`"id":"role_p2"`,
+	) || strings.Contains(
+		body,
+		`"id":"role_p3"`))
+
 	// role_p1 is in the caller project and must appear; role_p2 / role_p3
 	// belong to a different project and must be truncated.
-	if !strings.Contains(body, `"id":"role_p1"`) {
-		t.Fatalf("expected role_p1 in lineage, body: %s", body)
-	}
-	if strings.Contains(body, `"id":"role_p2"`) || strings.Contains(body, `"id":"role_p3"`) {
-		t.Fatalf("foreign-project lineage leaked into response: %s", body)
-	}
 
 	// System roles stay visible from a same-project descendant.
 	req2 := authedProjectRequest(http.MethodGet, "/v1/roles/role_sys_child?include_lineage=true", "", "proj-mine")
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, req2)
-	if w2.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w2.Code, w2.Body.String())
-	}
-	if !strings.Contains(w2.Body.String(), `"id":"role_sys"`) {
-		t.Fatalf("expected system role in lineage, body: %s", w2.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w2.
+			Code)
+	require.True(
+		t, strings.Contains(w2.
+			Body.String(), `"id":"role_sys"`,
+		))
+
 }

@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // auditCapture is a tiny recorder for audit events produced via the API
@@ -46,9 +48,9 @@ func (c *auditCapture) findByAction(action string) []*domain.AuditEvent {
 func detailString(t *testing.T, ev *domain.AuditEvent, key string) string {
 	t.Helper()
 	var details map[string]any
-	if err := json.Unmarshal(ev.Details, &details); err != nil {
-		t.Fatalf("decode audit details: %v\nraw: %s", err, string(ev.Details))
-	}
+	require.NoError(t, json.Unmarshal(ev.Details,
+		&details))
+
 	v, _ := details[key].(string)
 	return v
 }
@@ -56,25 +58,26 @@ func detailString(t *testing.T, ev *domain.AuditEvent, key string) string {
 func requireBypassAudit(t *testing.T, cap *auditCapture, gate, handler, resourceType, resourceID string) {
 	t.Helper()
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d (all=%d)", len(bypass), len(cap.events))
-	}
+	require.Len(t,
+		bypass, 1)
+
 	ev := bypass[0]
-	if got := detailString(t, ev, "gate"); got != gate {
-		t.Errorf("gate = %q, want %s", got, gate)
-	}
-	if got := detailString(t, ev, "handler"); got != handler {
-		t.Errorf("handler = %q, want %s", got, handler)
-	}
-	if got := ev.ResourceType; got != resourceType {
-		t.Errorf("resource_type = %q, want %s", got, resourceType)
-	}
-	if got := ev.ResourceID; got != resourceID {
-		t.Errorf("resource_id = %q, want %s", got, resourceID)
-	}
-	if got := detailString(t, ev, "caller"); got == "" {
-		t.Error("caller must be populated")
-	}
+	assert.Equal(
+		t, gate, detailString(t, ev,
+			"gate"))
+	assert.Equal(
+		t, handler, detailString(t, ev,
+			"handler"))
+	assert.Equal(
+		t, resourceType,
+		ev.ResourceType,
+	)
+	assert.Equal(
+		t, resourceID, ev.
+			ResourceID)
+	assert.NotEqual(t, "", detailString(t, ev,
+		"caller"))
+
 }
 
 // TestBatchEnableJobs_InternalSecretBypass_EmitsAudit walks the documented
@@ -96,24 +99,24 @@ func TestBatchEnableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"ids":["job-1","job-2"]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
-	}
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d (all=%d)", len(bypass), len(cap.events))
-	}
+	require.Len(t,
+		bypass, 1)
+
 	ev := bypass[0]
-	if got := detailString(t, ev, "gate"); got != "batch_enable_jobs.project_match" {
-		t.Errorf("gate = %q, want batch_enable_jobs.project_match", got)
-	}
-	if got := detailString(t, ev, "handler"); got != "handleBatchEnableJobs" {
-		t.Errorf("handler = %q, want handleBatchEnableJobs", got)
-	}
-	if got := detailString(t, ev, "caller"); got == "" {
-		t.Error("caller must be populated")
-	}
+	assert.Equal(
+		t, "batch_enable_jobs.project_match",
+
+		detailString(t, ev, "gate"))
+	assert.Equal(
+		t, "handleBatchEnableJobs",
+		detailString(t, ev, "handler"))
+	assert.NotEqual(t, "", detailString(t, ev,
+		"caller"))
+
 }
 
 // TestBatchDisableJobs_InternalSecretBypass_EmitsAudit mirrors the enable
@@ -133,17 +136,17 @@ func TestBatchDisableJobs_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"ids":["job-1"]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
-	}
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d", len(bypass))
-	}
-	if got := detailString(t, bypass[0], "gate"); got != "batch_disable_jobs.project_match" {
-		t.Errorf("gate = %q, want batch_disable_jobs.project_match", got)
-	}
+	require.Len(t,
+		bypass, 1)
+	assert.Equal(
+		t, "batch_disable_jobs.project_match",
+
+		detailString(t, bypass[0], "gate"))
+
 }
 
 // TestBatchEnableJobs_ProjectScopedCaller_NoBypassAudit confirms a normal
@@ -164,12 +167,13 @@ func TestBatchEnableJobs_ProjectScopedCaller_NoBypassAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"ids":["job-1"]}`
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-enable", body, "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
-	}
 	if got := cap.findByAction(domain.AuditActionInternalSecretBypass); len(got) != 0 {
-		t.Errorf("project-scoped caller must not produce bypass audit; got %d", len(got))
+		assert.Failf(t, "test failure",
+
+			"project-scoped caller must not produce bypass audit; got %d", len(got))
 	}
 }
 
@@ -209,15 +213,16 @@ func TestSendEvent_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	// bypass audit must fire BEFORE the body of the handler runs the resume
 	// logic. So regardless of exit code, the bypass row must be present.
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d (status=%d body=%s)", len(bypass), w.Code, w.Body.String())
-	}
-	if got := bypass[0].ResourceID; got != "trig-1" {
-		t.Errorf("resource_id = %q, want trig-1", got)
-	}
-	if got := detailString(t, bypass[0], "gate"); got != "send_event.project_match" {
-		t.Errorf("gate = %q, want send_event.project_match", got)
-	}
+	require.Len(t,
+		bypass, 1)
+	assert.Equal(
+		t, "trig-1", bypass[0].ResourceID,
+	)
+	assert.Equal(
+		t, "send_event.project_match",
+
+		detailString(t, bypass[0], "gate"))
+
 }
 
 // TestGetEventTrigger_InternalSecretBypass_EmitsAudit covers the read path.
@@ -239,17 +244,16 @@ func TestGetEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/events/evt-read", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
-	}
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d", len(bypass))
-	}
-	if got := detailString(t, bypass[0], "handler"); got != "handleGetEventTrigger" {
-		t.Errorf("handler = %q", got)
-	}
+	require.Len(t,
+		bypass, 1)
+	assert.Equal(
+		t, "handleGetEventTrigger",
+		detailString(t, bypass[0], "handler"))
+
 }
 
 // TestCancelEventTrigger_InternalSecretBypass_EmitsAudit covers the
@@ -277,12 +281,13 @@ func TestCancelEventTrigger_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/events/evt-cancel", ""))
 
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d (status=%d)", len(bypass), w.Code)
-	}
-	if got := detailString(t, bypass[0], "gate"); got != "cancel_event_trigger.project_match" {
-		t.Errorf("gate = %q", got)
-	}
+	require.Len(t,
+		bypass, 1)
+	assert.Equal(
+		t, "cancel_event_trigger.project_match",
+
+		detailString(t, bypass[0], "gate"))
+
 }
 
 func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
@@ -300,10 +305,10 @@ func TestTriggerJob_InternalSecretBypass_EmitsAudit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201; got %d: %s", w.Code, w.Body.String())
-	}
 	requireBypassAudit(t, cap, "trigger_job.project_match", "handleTriggerJob", "job", "job-123")
 }
 
@@ -332,9 +337,8 @@ func TestSetJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
 		JobID: job.ID,
 		Body:  SetJobEndpointRequest{EndpointURL: job.EndpointURL},
 	})
-	if err != nil {
-		t.Fatalf("handleSetJobEndpoint: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireBypassAudit(t, cap, "set_job_endpoint.project_match", "handleSetJobEndpoint", "job", job.ID)
 }
 
@@ -353,7 +357,9 @@ func TestVerifyJobEndpoint_InternalSecretBypass_EmitsAudit(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	if _, err := srv.handleVerifyJobEndpoint(ctx, &VerifyJobEndpointInput{JobID: job.ID}); err == nil {
-		t.Fatal("expected missing endpoint error")
+		require.Fail(t,
+
+			"expected missing endpoint error")
 	}
 	requireBypassAudit(t, cap, "verify_job_endpoint.project_match", "handleVerifyJobEndpoint", "job", job.ID)
 }
@@ -385,10 +391,9 @@ func TestEventTriggerStream_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	srv.handleEventTriggerStream(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200; got %d: %s", w.Code, w.Body.String())
-	}
 	requireBypassAudit(t, cap, "event_trigger_stream.project_match", "handleEventTriggerStream", "event_trigger", trigger.ID)
 }
 
@@ -413,10 +418,9 @@ func TestStreamSSE_InternalSecretBypass_EmitsAudit(t *testing.T) {
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	srv.streamSSE(w, r, sseStreamOptions{channel: "run:%s", rejectIfTerminal: true})
+	require.Equal(t, http.StatusGone,
+		w.Code)
 
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410; got %d: %s", w.Code, w.Body.String())
-	}
 	requireBypassAudit(t, cap, "stream_sse.project_match", "streamSSE", "run", run.ID)
 }
 
@@ -439,9 +443,8 @@ func TestCreateWebhookSubscription_InternalSecretBypass_EmitsAudit(t *testing.T)
 		WebhookURL: "https://example.com/hook",
 		EventTypes: []string{domain.WebhookEventRunCompleted},
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateWebhookSubscription: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireBypassAudit(t, cap, "create_webhook_subscription.project_match", "handleCreateWebhookSubscription", "project", "proj-1")
 }
 
@@ -465,7 +468,9 @@ func TestDeleteWebhookSubscription_InternalSecretBypass_EmitsAudit(t *testing.T)
 
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	if _, err := srv.handleDeleteWebhookSubscription(ctx, &DeleteWebhookSubscriptionInput{ID: "sub-delete"}); err != nil {
-		t.Fatalf("handleDeleteWebhookSubscription: %v", err)
+		require.Failf(t, "test failure",
+
+			"handleDeleteWebhookSubscription: %v", err)
 	}
 	requireBypassAudit(t, cap, "delete_webhook_subscription.project_match", "handleDeleteWebhookSubscription", "webhook_subscription", "sub-delete")
 }
@@ -485,7 +490,9 @@ func TestRotateWebhookSecret_InternalSecretBypass_EmitsAudit(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	if _, err := srv.handleRotateWebhookSecret(ctx, &RotateWebhookSecretInput{ID: "sub-rotate"}); err != nil {
-		t.Fatalf("handleRotateWebhookSecret: %v", err)
+		require.Failf(t, "test failure",
+
+			"handleRotateWebhookSecret: %v", err)
 	}
 	requireBypassAudit(t, cap, "rotate_webhook_secret.project_match", "handleRotateWebhookSecret", "webhook_subscription", "sub-rotate")
 }
@@ -497,9 +504,8 @@ func TestRotateWebhookSecret_InternalSecretBypass_EmitsAudit(t *testing.T) {
 func TestBypassCallerLabel_NoPrincipal(t *testing.T) {
 	t.Parallel()
 	got := bypassCallerLabel(context.Background())
-	if got != "unknown" {
-		t.Fatalf("bypassCallerLabel(empty ctx) = %q, want unknown", got)
-	}
+	require.Equal(t, "unknown", got)
+
 }
 
 // TestBypassCallerLabel_InternalOnly pins the normal internal-secret call:
@@ -510,9 +516,9 @@ func TestBypassCallerLabel_InternalOnly(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
 	got := bypassCallerLabel(ctx)
-	if got != "internal_secret" {
-		t.Fatalf("bypassCallerLabel(internal-only) = %q, want internal_secret", got)
-	}
+	require.Equal(t, "internal_secret",
+		got)
+
 }
 
 // TestBypassCallerLabel_PrefersActorID pins the precedence: when an actor
@@ -523,9 +529,8 @@ func TestBypassCallerLabel_PrefersActorID(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxActorIDKey, "user_42")
 	ctx = context.WithValue(ctx, ctxInternalCallerKey, true)
 	got := bypassCallerLabel(ctx)
-	if got != "user_42" {
-		t.Fatalf("bypassCallerLabel(actor+internal) = %q, want user_42", got)
-	}
+	require.Equal(t, "user_42", got)
+
 }
 
 // TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal walks the
@@ -548,18 +553,19 @@ func TestEmitInternalSecretBypassAudit_LeakedSecret_NoPrincipal(t *testing.T) {
 		"hypothetical_gate", "hypothetical_handler", "thing", "thing-1")
 
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d", len(bypass))
-	}
-	if got := detailString(t, bypass[0], "caller"); got != "unknown" {
-		t.Errorf("caller = %q, want unknown", got)
-	}
-	if got := bypass[0].ResourceType; got != "thing" {
-		t.Errorf("resource_type = %q", got)
-	}
-	if got := bypass[0].ResourceID; got != "thing-1" {
-		t.Errorf("resource_id = %q", got)
-	}
+	require.Len(t,
+		bypass, 1)
+	assert.Equal(
+		t, "unknown", detailString(t,
+			bypass[0], "caller"),
+	)
+	assert.Equal(
+		t, "thing", bypass[0].ResourceType,
+	)
+	assert.Equal(
+		t, "thing-1", bypass[0].ResourceID,
+	)
+
 }
 
 // TestEmitInternalSecretBypassAudit_DetailKeysMatchSchema is a tight
@@ -579,17 +585,16 @@ func TestEmitInternalSecretBypassAudit_DetailKeysMatchSchema(t *testing.T) {
 	srv.emitInternalSecretBypassAudit(ctx, "g", "h", "r", "")
 
 	bypass := cap.findByAction(domain.AuditActionInternalSecretBypass)
-	if len(bypass) != 1 {
-		t.Fatalf("expected 1 bypass audit row; got %d", len(bypass))
-	}
+	require.Len(t,
+		bypass, 1)
+
 	var details map[string]any
-	if err := json.Unmarshal(bypass[0].Details, &details); err != nil {
-		t.Fatalf("decode details: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(bypass[0].Details, &details))
+
 	for _, key := range []string{"gate", "caller", "handler"} {
 		v, ok := details[key].(string)
-		if !ok || strings.TrimSpace(v) == "" {
-			t.Errorf("details[%q] missing/empty: %#v", key, details[key])
-		}
+		assert.False(
+			t, !ok || strings.TrimSpace(v) == "")
+
 	}
 }

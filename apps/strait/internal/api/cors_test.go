@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"strait/internal/config"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCORS_AllowedOrigin(t *testing.T) {
@@ -27,15 +29,15 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
-	}
+	assert.Equal(t,
+		http.StatusOK, w.Code,
+	)
 
 	origin := w.Header().Get("Access-Control-Allow-Origin")
-	if origin != "https://example.com" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", origin, "https://example.com")
-	}
+	assert.Equal(t,
+		"https://example.com",
+		origin)
+
 }
 
 func TestCORS_Preflight(t *testing.T) {
@@ -59,20 +61,20 @@ func TestCORS_Preflight(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
-		t.Errorf("preflight status = %d, want 200 or 204", w.Code)
-	}
+	assert.False(t,
+		w.Code != http.StatusOK &&
+			w.Code !=
+				http.StatusNoContent,
+	)
 
 	origin := w.Header().Get("Access-Control-Allow-Origin")
-	if origin != "https://example.com" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", origin, "https://example.com")
-	}
+	assert.Equal(t,
+		"https://example.com",
+		origin)
 
 	methods := w.Header().Get("Access-Control-Allow-Methods")
-	if methods == "" {
-		t.Error("Access-Control-Allow-Methods header missing")
-	}
+	assert.NotEqual(t, "", methods)
+
 }
 
 func TestCORS_WildcardOrigin(t *testing.T) {
@@ -96,9 +98,9 @@ func TestCORS_WildcardOrigin(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	origin := w.Header().Get("Access-Control-Allow-Origin")
-	if origin != "*" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want %q", origin, "*")
-	}
+	assert.Equal(t,
+		"*", origin)
+
 }
 
 func TestCORS_Credentials(t *testing.T) {
@@ -123,9 +125,9 @@ func TestCORS_Credentials(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	creds := w.Header().Get("Access-Control-Allow-Credentials")
-	if creds != "true" {
-		t.Errorf("Access-Control-Allow-Credentials = %q, want %q", creds, "true")
-	}
+	assert.Equal(t,
+		"true", creds)
+
 }
 
 func TestCORS_NoOriginHeader(t *testing.T) {
@@ -148,9 +150,9 @@ func TestCORS_NoOriginHeader(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	origin := w.Header().Get("Access-Control-Allow-Origin")
-	if origin != "" {
-		t.Errorf("Access-Control-Allow-Origin = %q, want empty (no Origin sent)", origin)
-	}
+	assert.Equal(t,
+		"", origin)
+
 }
 
 func TestCORS_ExposedHeaders(t *testing.T) {
@@ -174,7 +176,6 @@ func TestCORS_ExposedHeaders(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	exposed := w.Header().Get("Access-Control-Expose-Headers")
-	if exposed == "" {
-		t.Error("Access-Control-Expose-Headers header missing")
-	}
+	assert.NotEqual(t, "", exposed)
+
 }

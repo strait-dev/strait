@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_WorkflowVersions_List_RejectsCrossProject ensures listing
@@ -18,7 +20,9 @@ func TestTenantIso_WorkflowVersions_List_RejectsCrossProject(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		ListWorkflowVersionsFunc: func(_ context.Context, _ string, _ int) ([]domain.WorkflowVersion, error) {
-			t.Fatal("ListWorkflowVersions must not be called for cross-project access")
+			require.Fail(t,
+
+				"ListWorkflowVersions must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -26,9 +30,11 @@ func TestTenantIso_WorkflowVersions_List_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleListWorkflowVersions(ctx, &ListWorkflowVersionsInput{WorkflowID: "wf-foreign"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+
+			http.StatusNotFound))
+
 }
 
 // TestTenantIso_WorkflowVersions_Diff_RejectsCrossProject ensures the diff
@@ -41,7 +47,9 @@ func TestTenantIso_WorkflowVersions_Diff_RejectsCrossProject(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
-			t.Fatal("GetWorkflowVersionByVersionID must not be called for cross-project access")
+			require.Fail(t,
+
+				"GetWorkflowVersionByVersionID must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -53,9 +61,11 @@ func TestTenantIso_WorkflowVersions_Diff_RejectsCrossProject(t *testing.T) {
 		FromVersionID: "v1",
 		ToVersionID:   "v2",
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+
+			http.StatusNotFound))
+
 }
 
 // TestTenantIso_WorkflowVersions_Impact_RejectsCrossProject covers the
@@ -68,7 +78,9 @@ func TestTenantIso_WorkflowVersions_Impact_RejectsCrossProject(t *testing.T) {
 			return &domain.Workflow{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		GetWorkflowVersionByVersionIDFunc: func(_ context.Context, _ string, _ string) (*domain.WorkflowVersion, error) {
-			t.Fatal("GetWorkflowVersionByVersionID must not be called for cross-project access")
+			require.Fail(t,
+
+				"GetWorkflowVersionByVersionID must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -79,7 +91,9 @@ func TestTenantIso_WorkflowVersions_Impact_RejectsCrossProject(t *testing.T) {
 		WorkflowID: "wf-foreign",
 		VersionID:  "v1",
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+
+			http.StatusNotFound))
+
 }

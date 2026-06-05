@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // idempotencyTestCtx populates the project + actor context the
@@ -59,13 +61,11 @@ func TestIdempotencyMiddleware_NoHeader_PassThrough(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.True(t, called)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
 
-	if !called {
-		t.Fatal("expected handler to be called without idempotency header")
-	}
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
 }
 
 func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
@@ -80,21 +80,20 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, projectID, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("unexpected project: %s", projectID)
-			}
-			if !isHexDigest(key) {
-				t.Fatalf("expected hashed composite key, got %q", key)
-			}
+			require.Equal(t, "proj-1",
+				projectID)
+			require.True(t, isHexDigest(key))
+
 			return "acquired", 0, nil, nil, nil
 		},
 		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, status int, _ http.Header, body []byte) error {
-			if status != http.StatusCreated {
-				t.Fatalf("expected status 201, got %d", status)
-			}
-			if string(body) != `{"id":"job-123"}` {
-				t.Fatalf("unexpected body: %s", body)
-			}
+			require.Equal(t, http.
+				StatusCreated, status,
+			)
+			require.Equal(t, `{"id":"job-123"}`,
+				string(body),
+			)
+
 			return nil
 		},
 	}
@@ -108,16 +107,13 @@ func TestIdempotencyMiddleware_NewKey_ExecutesHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.EqualValues(t, 1, handlerCalls)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.Len(t, ms.CompleteIdempotencyKeyCalls(),
+		1)
 
-	if handlerCalls != 1 {
-		t.Fatalf("expected handler to be called once, got %d", handlerCalls)
-	}
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if len(ms.CompleteIdempotencyKeyCalls()) != 1 {
-		t.Fatal("expected CompleteIdempotencyKey to be called")
-	}
 }
 
 func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
@@ -143,24 +139,21 @@ func TestIdempotencyMiddleware_DuplicateKey_ReplaysResponse(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
-
-	if handlerCalls != 0 {
-		t.Fatal("handler should not be called for replayed response")
-	}
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
-	if w.Header().Get("Idempotency-Replayed") != "true" {
-		t.Fatal("expected Idempotency-Replayed header")
-	}
+	require.EqualValues(t, 0, handlerCalls)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
 
 	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("failed to unmarshal response: %v", err)
-	}
-	if body["id"] != "job-123" {
-		t.Fatalf("expected id=job-123, got %v", body["id"])
-	}
+	require.NoError(t, json.
+		Unmarshal(w.Body.
+			Bytes(),
+			&body))
+	require.Equal(t, "job-123",
+		body["id"])
+
 }
 
 func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
@@ -168,14 +161,18 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
-			t.Fatal("idempotency store must not be consulted before permission checks")
+			require.Fail(t,
+
+				"idempotency store must not be consulted before permission checks")
 			return "", 0, nil, nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	inner := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler must not run when caller lacks the route permission")
+		require.Fail(t,
+
+			"handler must not run when caller lacks the route permission")
 	})
 	handler := srv.requirePermission(domain.ScopeJobsWrite)(srv.idempotencyMiddleware(inner))
 
@@ -189,13 +186,12 @@ func TestIdempotencyMiddleware_AuthorizationRunsBeforeReplay(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusForbidden,
+		w.Code)
+	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
+		0)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 before idempotency replay, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
-		t.Fatal("idempotency store was consulted before authorization")
-	}
 }
 
 func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
@@ -204,7 +200,9 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 	createCalls := 0
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
-			t.Fatal("api key creation responses contain raw secrets and must not be idempotency-cached")
+			require.Fail(t,
+
+				"api key creation responses contain raw secrets and must not be idempotency-cached")
 			return "", 0, nil, nil, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
@@ -220,16 +218,13 @@ func TestCreateAPIKeyRoute_DoesNotCacheRawSecretResponses(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "create-api-key")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.EqualValues(t, 1, createCalls)
+	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
+		0)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalls != 1 {
-		t.Fatalf("expected api key creation to run once, got %d", createCalls)
-	}
-	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
-		t.Fatal("api key creation unexpectedly used idempotency cache")
-	}
 }
 
 func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *testing.T) {
@@ -238,7 +233,9 @@ func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *te
 	createCalls := 0
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(context.Context, string, string, time.Duration) (string, int, http.Header, []byte, error) {
-			t.Fatal("webhook subscription creation responses contain raw signing secrets and must not be idempotency-cached")
+			require.Fail(t,
+
+				"webhook subscription creation responses contain raw signing secrets and must not be idempotency-cached")
 			return "", 0, nil, nil, nil
 		},
 		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
@@ -254,16 +251,13 @@ func TestCreateWebhookSubscriptionRoute_DoesNotCacheSigningSecretResponses(t *te
 	req.Header.Set("Idempotency-Key", "create-webhook-subscription")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.EqualValues(t, 1, createCalls)
+	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
+		0)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalls != 1 {
-		t.Fatalf("expected webhook subscription creation to run once, got %d", createCalls)
-	}
-	if len(ms.TryAcquireIdempotencyKeyCalls()) != 0 {
-		t.Fatal("webhook subscription creation unexpectedly used idempotency cache")
-	}
 }
 
 func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
@@ -276,7 +270,9 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("handler should not be called when key is pending")
+		require.Fail(t,
+
+			"handler should not be called when key is pending")
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
@@ -286,17 +282,19 @@ func TestIdempotencyMiddleware_PendingKey_Returns409(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusConflict, w.
+		Code)
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", w.Code)
-	}
 }
 
 func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	handler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("handler should not be called for oversized key")
+		require.Fail(t,
+
+			"handler should not be called for oversized key")
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
@@ -307,19 +305,18 @@ func TestIdempotencyMiddleware_KeyTooLong_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
 }
 
 func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		TryAcquireIdempotencyKeyFunc: func(_ context.Context, _, key string, _ time.Duration) (string, int, http.Header, []byte, error) {
-			if !isHexDigest(key) {
-				t.Fatalf("expected hashed composite key, got %q", key)
-			}
+			require.True(t, isHexDigest(key))
+
 			return "acquired", 0, nil, nil, nil
 		},
 		CompleteIdempotencyKeyFunc: func(_ context.Context, _, _ string, _ int, _ http.Header, _ []byte) error {
@@ -339,10 +336,10 @@ func TestIdempotencyMiddleware_XHeader_Works(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
 }
 
 func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
@@ -371,16 +368,14 @@ func TestIdempotencyMiddleware_ErrorResponse_DeletesPendingKey(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
-	if !deleteCalled {
-		t.Fatal("expected DeleteIdempotencyKey to be called for error response")
-	}
-	if len(ms.CompleteIdempotencyKeyCalls()) != 0 {
-		t.Fatal("CompleteIdempotencyKey should NOT be called for error response")
-	}
+		w.Code)
+	require.True(t, deleteCalled)
+	require.Len(t, ms.CompleteIdempotencyKeyCalls(),
+		0)
+
 }
 
 func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
@@ -409,18 +404,15 @@ func TestIdempotencyMiddleware_KeyScopedToPath(t *testing.T) {
 		w := httptest.NewRecorder()
 		wrapped.ServeHTTP(w, r)
 	}
+	require.Len(t, captured,
+		2)
 
-	if len(captured) != 2 {
-		t.Fatalf("captured = %d, want 2", len(captured))
+	for _, k := range captured {
+		require.True(t, isHexDigest(k))
+
 	}
-	for i, k := range captured {
-		if !isHexDigest(k) {
-			t.Fatalf("captured[%d] = %q, want hashed digest", i, k)
-		}
-	}
-	if captured[0] == captured[1] {
-		t.Fatalf("path-scoped requests reused composite key %q", captured[0])
-	}
+	require.NotEqual(t, captured[1], captured[0])
+
 }
 
 func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
@@ -451,22 +443,20 @@ func TestIdempotencyMiddleware_KeyScopedToEnvironment(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		wrapped.ServeHTTP(w, req)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("environment %s status = %d, want %d", environmentID, w.Code, http.StatusCreated)
-		}
-	}
+		require.Equal(t, http.
+			StatusCreated, w.
+			Code)
 
-	if len(capturedKeys) != 2 {
-		t.Fatalf("captured keys = %d, want 2", len(capturedKeys))
 	}
-	for i, k := range capturedKeys {
-		if !isHexDigest(k) {
-			t.Fatalf("capturedKeys[%d] = %q, want hashed digest", i, k)
-		}
+	require.Len(t, capturedKeys,
+		2)
+
+	for _, k := range capturedKeys {
+		require.True(t, isHexDigest(k))
+
 	}
-	if capturedKeys[0] == capturedKeys[1] {
-		t.Fatalf("environment-scoped requests reused idempotency key %q", capturedKeys[0])
-	}
+	require.NotEqual(t, capturedKeys[1], capturedKeys[0])
+
 }
 
 func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
@@ -496,12 +486,13 @@ func TestIdempotencyMiddleware_LogsHashInsteadOfRawKey(t *testing.T) {
 	wrapped.ServeHTTP(httptest.NewRecorder(), req)
 
 	logText := logs.String()
-	if strings.Contains(logText, rawKey) {
-		t.Fatalf("log output leaked raw idempotency key: %s", logText)
-	}
-	if !strings.Contains(logText, "idempotency_key_hash") {
-		t.Fatalf("log output did not include idempotency hash: %s", logText)
-	}
+	require.False(t, strings.Contains(logText,
+		rawKey,
+	))
+	require.True(t, strings.Contains(logText,
+		"idempotency_key_hash",
+	))
+
 }
 
 func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
@@ -512,7 +503,9 @@ func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
 			return "completed", http.StatusCreated, nil, []byte(`{"debounced":true,"idempotency_hit":true}`), nil
 		},
 		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
-			t.Fatal("debounce mutation must not run for idempotency replay")
+			require.Fail(t,
+
+				"debounce mutation must not run for idempotency replay")
 			return nil
 		},
 	}
@@ -522,16 +515,14 @@ func TestTriggerRoute_IdempotencyReplaySkipsDebounceMutation(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "debounce-key")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
+	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
+		1)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected cached 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Header().Get("Idempotency-Replayed") != "true" {
-		t.Fatal("expected replay header")
-	}
-	if len(ms.TryAcquireIdempotencyKeyCalls()) != 1 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
-	}
 }
 
 func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
@@ -542,7 +533,9 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 			return "completed", http.StatusCreated, nil, []byte(`{"buffered":true,"idempotency_hit":true}`), nil
 		},
 		InsertBatchBufferItemFunc: func(context.Context, *domain.BatchBufferItem) error {
-			t.Fatal("batch buffer mutation must not run for idempotency replay")
+			require.Fail(t,
+
+				"batch buffer mutation must not run for idempotency replay")
 			return nil
 		},
 	}
@@ -552,16 +545,14 @@ func TestTriggerRoute_IdempotencyReplaySkipsBatchMutation(t *testing.T) {
 	req.Header.Set("Idempotency-Key", "batch-key")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusCreated, w.
+		Code)
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
+	require.Len(t, ms.TryAcquireIdempotencyKeyCalls(),
+		1)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected cached 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Header().Get("Idempotency-Replayed") != "true" {
-		t.Fatal("expected replay header")
-	}
-	if len(ms.TryAcquireIdempotencyKeyCalls()) != 1 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 1", len(ms.TryAcquireIdempotencyKeyCalls()))
-	}
 }
 
 // TestIdempotencyMiddleware_LogsUnknownStoreStatus pins the visibility
@@ -595,22 +586,20 @@ func TestIdempotencyMiddleware_LogsUnknownStoreStatus(t *testing.T) {
 	req = req.WithContext(idempotencyTestCtx(req.Context(), "proj-1"))
 	rec := httptest.NewRecorder()
 	wrapped.ServeHTTP(rec, req)
-
-	if handlerCalls != 1 {
-		t.Fatalf("handler invoked %d times, want 1 (default branch must fall through)", handlerCalls)
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("response code = %d, want 200", rec.Code)
-	}
+	require.EqualValues(t, 1, handlerCalls)
+	require.Equal(t, http.
+		StatusOK, rec.Code,
+	)
 
 	logText := logs.String()
-	if !strings.Contains(logText, "unrecognized status") {
-		t.Fatalf("expected unrecognized-status log line, got: %s", logText)
-	}
-	if !strings.Contains(logText, bogusStatus) {
-		t.Fatalf("log line did not include status value %q: %s", bogusStatus, logText)
-	}
-	if !strings.Contains(logText, "level=ERROR") {
-		t.Fatalf("expected ERROR level log, got: %s", logText)
-	}
+	require.True(t, strings.Contains(logText,
+		"unrecognized status",
+	))
+	require.True(t, strings.Contains(logText,
+		bogusStatus,
+	))
+	require.True(t, strings.Contains(logText,
+		"level=ERROR",
+	))
+
 }

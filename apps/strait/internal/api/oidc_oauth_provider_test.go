@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestOIDCVerifierWithOAuthProviderToken verifies that tokens signed by
@@ -17,10 +19,10 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 	// Generate a fresh RSA key pair for the test (same as the real flow,
 	// just not reading from env to keep the test self-contained).
 	privateKey, err := rsa.GenerateKey(nil, 2048)
-	if err != nil {
-		// Use crypto/rand properly
-		t.Fatalf("generate key: %v", err)
-	}
+	require.NoError(
+		t, err)
+
+	// Use crypto/rand properly
 
 	issuer := "http://localhost:5173/api/auth"
 	audience := "http://localhost:8080"
@@ -44,18 +46,22 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		claims, err := v.verify(token)
-		if err != nil {
-			t.Fatalf("verify: %v", err)
-		}
-		if claims.Subject != "user-123" {
-			t.Errorf("subject = %q, want %q", claims.Subject, "user-123")
-		}
-		if claims.Email != "user@example.com" {
-			t.Errorf("email = %q, want %q", claims.Email, "user@example.com")
-		}
-		if claims.Name != "Test User" {
-			t.Errorf("name = %q, want %q", claims.Name, "Test User")
-		}
+		require.NoError(
+			t, err)
+		assert.Equal(t,
+			"user-123",
+			claims.
+				Subject,
+		)
+		assert.Equal(t,
+			"user@example.com",
+
+			claims.Email)
+		assert.Equal(t,
+			"Test User",
+			claims.
+				Name)
+
 	})
 
 	t.Run("valid token with minimal claims (sub only)", func(t *testing.T) {
@@ -68,12 +74,14 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		claims, err := v.verify(token)
-		if err != nil {
-			t.Fatalf("verify: %v", err)
-		}
-		if claims.Subject != "user-456" {
-			t.Errorf("subject = %q, want %q", claims.Subject, "user-456")
-		}
+		require.NoError(
+			t, err)
+		assert.Equal(t,
+			"user-456",
+			claims.
+				Subject,
+		)
+
 	})
 
 	t.Run("wrong issuer rejected", func(t *testing.T) {
@@ -86,9 +94,9 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		_, err := v.verify(token)
-		if err == nil {
-			t.Fatal("expected error for wrong issuer")
-		}
+		require.Error(t,
+			err)
+
 	})
 
 	t.Run("wrong audience rejected", func(t *testing.T) {
@@ -101,9 +109,9 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		_, err := v.verify(token)
-		if err == nil {
-			t.Fatal("expected error for wrong audience")
-		}
+		require.Error(t,
+			err)
+
 	})
 
 	t.Run("expired token rejected", func(t *testing.T) {
@@ -116,9 +124,9 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		_, err := v.verify(token)
-		if err == nil {
-			t.Fatal("expected error for expired token")
-		}
+		require.Error(t,
+			err)
+
 	})
 
 	t.Run("missing subject rejected", func(t *testing.T) {
@@ -130,17 +138,17 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		_, err := v.verify(token)
-		if err == nil {
-			t.Fatal("expected error for missing subject")
-		}
+		require.Error(t,
+			err)
+
 	})
 
 	t.Run("wrong signing key rejected", func(t *testing.T) {
 		// Sign with a different key
 		wrongKey, err := rsa.GenerateKey(nil, 2048)
-		if err != nil {
-			t.Fatalf("generate wrong key: %v", err)
-		}
+		require.NoError(
+			t, err)
+
 		token := signTestToken(t, wrongKey, jwt.MapClaims{
 			"iss": issuer,
 			"aud": audience,
@@ -150,9 +158,9 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		_, err = v.verify(token)
-		if err == nil {
-			t.Fatal("expected error for wrong signing key")
-		}
+		require.Error(t,
+			err)
+
 	})
 
 	t.Run("token within 30s leeway accepted", func(t *testing.T) {
@@ -165,12 +173,14 @@ func TestOIDCVerifierWithOAuthProviderToken(t *testing.T) {
 		})
 
 		claims, err := v.verify(token)
-		if err != nil {
-			t.Fatalf("verify: %v (token within 30s leeway should be accepted)", err)
-		}
-		if claims.Subject != "user-123" {
-			t.Errorf("subject = %q, want %q", claims.Subject, "user-123")
-		}
+		require.NoError(
+			t, err)
+		assert.Equal(t,
+			"user-123",
+			claims.
+				Subject,
+		)
+
 	})
 }
 
@@ -184,73 +194,79 @@ func TestOIDCScopeFiltering(t *testing.T) {
 		c := &oidcClaims{Scope: "* jobs:read"}
 		scopes := c.Scopes()
 		for _, s := range scopes {
-			if s == "*" {
-				t.Fatal("wildcard scope must not pass through OIDC token filter")
-			}
+			require.NotEqual(t, "*", s)
+
 		}
-		if len(scopes) != 1 || scopes[0] != "jobs:read" {
-			t.Fatalf("scopes = %v, want [jobs:read]", scopes)
-		}
+		require.False(t,
+			len(scopes) != 1 ||
+
+				scopes[0] != "jobs:read")
+
 	})
 
 	t.Run("api-keys:manage stripped", func(t *testing.T) {
 		c := &oidcClaims{Scope: "jobs:read api-keys:manage runs:read"}
 		scopes := c.Scopes()
 		for _, s := range scopes {
-			if s == "api-keys:manage" {
-				t.Fatal("api-keys:manage must not pass through OIDC token filter")
-			}
+			require.NotEqual(t, "api-keys:manage",
+
+				s)
+
 		}
-		if len(scopes) != 2 {
-			t.Fatalf("scopes = %v, want [jobs:read runs:read]", scopes)
-		}
+		require.Len(t, scopes,
+			2)
+
 	})
 
 	t.Run("rbac:manage stripped", func(t *testing.T) {
 		c := &oidcClaims{Scope: "rbac:manage stats:read"}
 		scopes := c.Scopes()
 		for _, s := range scopes {
-			if s == "rbac:manage" {
-				t.Fatal("rbac:manage must not pass through OIDC token filter")
-			}
+			require.NotEqual(t, "rbac:manage",
+
+				s,
+			)
+
 		}
-		if len(scopes) != 1 || scopes[0] != "stats:read" {
-			t.Fatalf("scopes = %v, want [stats:read]", scopes)
-		}
+		require.False(t,
+			len(scopes) != 1 ||
+
+				scopes[0] != "stats:read")
+
 	})
 
 	t.Run("all privileged scopes stripped returns empty upper bound", func(t *testing.T) {
 		c := &oidcClaims{Scope: "* api-keys:manage rbac:manage"}
 		scopes := c.Scopes()
-		if scopes == nil {
-			t.Fatal("scopes = nil, want explicit empty upper bound")
-		}
-		if len(scopes) != 0 {
-			t.Fatalf("scopes = %v, want empty upper bound", scopes)
-		}
+		require.NotNil(t,
+			scopes)
+		require.Len(t, scopes,
+			0)
+
 	})
 
 	t.Run("absent scope returns nil", func(t *testing.T) {
 		c := &oidcClaims{}
-		if scopes := c.Scopes(); scopes != nil {
-			t.Fatalf("scopes = %v, want nil for absent claim", scopes)
-		}
+		require.Nil(t, c.Scopes())
+
 	})
 
 	t.Run("normal scopes pass through", func(t *testing.T) {
 		c := &oidcClaims{Scope: "jobs:read jobs:write runs:read workflows:trigger"}
 		scopes := c.Scopes()
-		if len(scopes) != 4 {
-			t.Fatalf("scopes = %v, want 4 scopes", scopes)
-		}
+		require.Len(t, scopes,
+			4)
+
 	})
 
 	t.Run("OIDC scopes stripped", func(t *testing.T) {
 		c := &oidcClaims{Scope: "openid profile email jobs:read"}
 		scopes := c.Scopes()
-		if len(scopes) != 1 || scopes[0] != "jobs:read" {
-			t.Fatalf("scopes = %v, want [jobs:read] (OIDC scopes filtered out)", scopes)
-		}
+		require.False(t,
+			len(scopes) != 1 ||
+
+				scopes[0] != "jobs:read")
+
 	})
 }
 
@@ -258,8 +274,8 @@ func signTestToken(t *testing.T, key *rsa.PrivateKey, claims jwt.MapClaims) stri
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	return signed
 }

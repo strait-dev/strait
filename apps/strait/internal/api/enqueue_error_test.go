@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleReplayRun_EnqueueThrottledReturns429(t *testing.T) {
@@ -47,23 +49,19 @@ func TestHandleReplayRun_EnqueueThrottledReturns429(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/runs/run-1/replay", `{}`, "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := w.Header().Get("Retry-After"); got != "2" {
-		t.Fatalf("Retry-After = %q, want %q", got, "2")
-	}
+		w.Code)
+	require.Equal(t, "2", w.Header().Get("Retry-After"))
 
 	var body struct {
 		Error APIError `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	if body.Error.Code != ErrorCodeEnqueueThrottled {
-		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeEnqueueThrottled,
+
+		body.Error.Code)
+
 }
 
 func TestHandleTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
@@ -94,23 +92,19 @@ func TestHandleTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{}`, "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := w.Header().Get("Retry-After"); got != "3" {
-		t.Fatalf("Retry-After = %q, want %q", got, "3")
-	}
+		w.Code)
+	require.Equal(t, "3", w.Header().Get("Retry-After"))
 
 	var body struct {
 		Error APIError `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	if body.Error.Code != ErrorCodeEnqueueThrottled {
-		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeEnqueueThrottled,
+
+		body.Error.Code)
+
 }
 
 func TestHandleBulkTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
@@ -138,21 +132,17 @@ func TestHandleBulkTriggerJob_EnqueueThrottledReturns429(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", `{"items":[{"payload":{"n":1}}]}`, "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := w.Header().Get("Retry-After"); got != "2" {
-		t.Fatalf("Retry-After = %q, want %q", got, "2")
-	}
+		w.Code)
+	require.Equal(t, "2", w.Header().Get("Retry-After"))
 
 	var body struct {
 		Error APIError `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	if body.Error.Code != ErrorCodeEnqueueThrottled {
-		t.Fatalf("error code = %q, want %q", body.Error.Code, ErrorCodeEnqueueThrottled)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, ErrorCodeEnqueueThrottled,
+
+		body.Error.Code)
+
 }

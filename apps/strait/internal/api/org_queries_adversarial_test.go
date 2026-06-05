@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestOrgQuery_EmptyOrgID verifies that an empty org ID in the URL path
@@ -19,9 +21,8 @@ func TestOrgQuery_EmptyOrgID(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListRunsByOrgFunc: func(_ context.Context, orgID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if orgID == "" {
-				t.Fatal("empty org ID should not reach the store")
-			}
+			require.NotEqual(t, "", orgID)
+
 			return nil, nil
 		},
 	}
@@ -33,10 +34,9 @@ func TestOrgQuery_EmptyOrgID(t *testing.T) {
 	for _, path := range []string{"/v1/organizations//runs", "/v1/organizations//jobs"} {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, path, ""))
+		require.NotEqual(t, http.
+			StatusOK, w.Code)
 
-		if w.Code == http.StatusOK {
-			t.Fatalf("expected non-200 for empty orgID on %s, got %d", path, w.Code)
-		}
 	}
 }
 
@@ -63,11 +63,11 @@ func TestOrgQuery_NullByteOrgID(t *testing.T) {
 	} {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, path, ""))
+		require.NotEqual(t, 0, w.
+			Code)
 
 		// The server must not panic. Any HTTP status is acceptable.
-		if w.Code == 0 {
-			t.Fatalf("expected non-zero status for null-byte orgID on %s", path)
-		}
+
 	}
 }
 
@@ -94,12 +94,12 @@ func TestOrgQuery_PathTraversalOrgID(t *testing.T) {
 	for _, orgID := range traversalIDs {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgID+"/runs", ""))
+		require.NotEqual(t, 0, w.
+			Code)
 
 		// Path traversal must not produce 200 with real data; either the
 		// router rejects it or the handler sees a garbled orgID.
-		if w.Code == 0 {
-			t.Fatalf("expected non-zero status for path-traversal orgID %q", orgID)
-		}
+
 	}
 }
 
@@ -132,10 +132,9 @@ func TestOrgQuery_CrossOrgAccess(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden,
+			w.Code)
 
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 for cross-org access on %s, got %d: %s", path, w.Code, w.Body.String())
-		}
 	}
 }
 
@@ -169,10 +168,9 @@ func TestOrgQuery_ProjectScopedKeyRejectsOrg(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusForbidden,
+			w.Code)
 
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403 for project-scoped key on %s, got %d: %s", path, w.Code, w.Body.String())
-		}
 	}
 }
 
@@ -194,16 +192,15 @@ func TestOrgQuery_PaginationOverflow(t *testing.T) {
 
 	const orgUUID = "00000000-0000-4000-8000-0000000000aa"
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs?limit=999999", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.LessOrEqual(t, capturedLimit,
+		maxPageLimit+
+			1)
 
 	// The handler adds 1 to the limit before passing to store; maxPageLimit
 	// is 100, so we expect 101 at most.
-	if capturedLimit > maxPageLimit+1 {
-		t.Fatalf("limit should be clamped to %d, but store received %d", maxPageLimit+1, capturedLimit)
-	}
+
 }
 
 // FuzzOrgQueryIDs fuzzes the org ID path parameter through the list-org-runs
@@ -228,11 +225,11 @@ func FuzzOrgQueryIDs(f *testing.F) {
 		w := httptest.NewRecorder()
 		path := "/v1/organizations/" + url.PathEscape(orgID) + "/runs"
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, path, ""))
+		require.NotEqual(t, 0, w.
+			Code)
 
 		// We only care that the server does not panic.
-		if w.Code == 0 {
-			t.Fatal("expected non-zero status code")
-		}
+
 	})
 }
 
@@ -257,10 +254,10 @@ func TestOrgQuery_LongOrgID(t *testing.T) {
 	for _, suffix := range []string{"/runs", "/jobs"} {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+longOrgID+suffix, ""))
+		require.NotEqual(t, 0, w.
+			Code)
 
 		// Must not panic; any status code is fine.
-		if w.Code == 0 {
-			t.Fatalf("expected non-zero status for 10KB orgID on %s", suffix)
-		}
+
 	}
 }

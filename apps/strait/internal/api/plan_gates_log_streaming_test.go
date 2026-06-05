@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRunLogStream_FreeTier_Rejected proves that a Free-plan org cannot open
@@ -30,13 +33,11 @@ func TestRunLogStream_FreeTier_Rejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream/logs", "", "proj-1"))
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	assert.True(t,
+		strings.Contains(w.Body.String(), "Log streaming"))
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier log stream must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Log streaming") {
-		t.Errorf("rejection message must name the feature, got: %s", w.Body.String())
-	}
 }
 
 // TestRunLogStream_StarterTier_Allowed confirms the gate passes on the
@@ -60,10 +61,10 @@ func TestRunLogStream_StarterTier_Allowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream/logs", "", "proj-1"))
+	require.NotEqual(t, http.
+		StatusForbidden, w.Code,
+	)
 
-	if w.Code == http.StatusForbidden {
-		t.Fatalf("starter-tier must pass the log streaming gate, got 403: %s", w.Body.String())
-	}
 }
 
 // TestRunLogStream_NilEnforcer_FailsOpen confirms community builds do not
@@ -84,8 +85,8 @@ func TestRunLogStream_NilEnforcer_FailsOpen(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream/logs", "", "proj-1"))
+	require.NotEqual(t, http.
+		StatusForbidden, w.Code,
+	)
 
-	if w.Code == http.StatusForbidden {
-		t.Fatalf("nil enforcer must fail open; got 403")
-	}
 }

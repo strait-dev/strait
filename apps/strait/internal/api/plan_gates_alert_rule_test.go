@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The alert-rule HTTP handler does not exist yet (rules currently live in the
@@ -22,12 +25,11 @@ func TestCheckAlertRuleLimit_FreeTier_RejectsZeroCap(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
-	if err == nil {
-		t.Fatal("expected free-tier rejection, got nil")
-	}
-	if !strings.Contains(err.Error(), "not available") {
-		t.Errorf("error must mention feature is not available, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.
+			Error(), "not available"))
+
 }
 
 // TestCheckAlertRuleLimit_ProTier_RejectsZeroCap verifies alert rules are not
@@ -39,12 +41,11 @@ func TestCheckAlertRuleLimit_ProTier_RejectsZeroCap(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
-	if err == nil {
-		t.Fatal("expected pro-tier rejection, got nil")
-	}
-	if !strings.Contains(err.Error(), "not available") {
-		t.Errorf("error must mention feature is not available, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.
+			Error(), "not available"))
+
 }
 
 // TestCheckAlertRuleLimit_Enterprise_RejectsUntilLaunchActive verifies
@@ -56,9 +57,8 @@ func TestCheckAlertRuleLimit_Enterprise_RejectsUntilLaunchActive(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 0)
-	if err == nil {
-		t.Fatal("expected enterprise-tier rejection, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestCheckAlertRuleLimit_NilEnforcer_FailsOpen confirms that the
@@ -68,7 +68,8 @@ func TestCheckAlertRuleLimit_NilEnforcer_FailsOpen(t *testing.T) {
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	srv.edition = domain.EditionCommunity
-	if err := srv.checkAlertRuleLimit(context.Background(), "proj-1", 9999); err != nil {
-		t.Fatalf("nil enforcer must fail open; got %v", err)
-	}
+	require.NoError(t, srv.checkAlertRuleLimit(context.Background(),
+
+		"proj-1", 9999))
+
 }

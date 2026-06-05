@@ -14,6 +14,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 // mockRateLimiter wraps a real RedisRateLimiter or provides deterministic behavior.
@@ -100,13 +101,11 @@ func TestSetUsageHeaders_UsesMonthlyRunAllowance(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	srv.setUsageHeaders(context.Background(), rr, &limits, "proj-1")
+	require.Equal(t, "50000",
+		rr.Header().Get("X-Strait-Usage-Limit"))
+	require.Equal(t, "48766",
+		rr.Header().Get("X-Strait-Usage-Remaining"))
 
-	if got := rr.Header().Get("X-Strait-Usage-Limit"); got != "50000" {
-		t.Fatalf("usage limit header = %q, want monthly allowance 50000", got)
-	}
-	if got := rr.Header().Get("X-Strait-Usage-Remaining"); got != "48766" {
-		t.Fatalf("usage remaining header = %q, want 48766", got)
-	}
 }
 
 func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
@@ -115,10 +114,10 @@ func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-1", nil))
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 with no Redis, got %d", rr.Code)
-	}
 }
 
 func TestProjectRateLimit_APIKeyOverride(t *testing.T) {
@@ -133,11 +132,12 @@ func TestProjectRateLimit_APIKeyOverride(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-1", apiKey))
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
 	// With disabled Redis, it fails open (allowed).
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+
 }
 
 func TestProjectRateLimit_DefaultFallback_UsesConfig(t *testing.T) {
@@ -156,11 +156,12 @@ func TestProjectRateLimit_DefaultFallback_UsesConfig(t *testing.T) {
 	// Request with API key but no custom limits.
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-no-limits", &domain.APIKey{}))
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
 	// Fail-open: should be 200.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+
 }
 
 func TestProjectRateLimit_InternalSecret_NoRateLimit(t *testing.T) {
@@ -177,16 +178,16 @@ func TestProjectRateLimit_InternalSecret_NoRateLimit(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
+	require.Equal(t, "", rr.
+		Header().Get("X-RateLimit-Limit"))
 
 	// No API key ID and no project ID means limit stays 0 -> pass through.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for internal secret (no key/project), got %d", rr.Code)
-	}
 
 	// No rate limit headers should be set.
-	if rr.Header().Get("X-RateLimit-Limit") != "" {
-		t.Fatal("expected no X-RateLimit-Limit header for internal secret requests")
-	}
+
 }
 
 func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
@@ -203,11 +204,12 @@ func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-1", &domain.APIKey{}))
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
 	// Disabled limiter -> fail open -> 200.
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+
 }
 
 func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
@@ -227,10 +229,10 @@ func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-redis-down", &domain.APIKey{}))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
-	}
+		rr.Code)
+
 }
 
 func TestProjectRateLimit_ZeroDefaultConfig_SkipsRateLimit(t *testing.T) {
@@ -244,15 +246,14 @@ func TestProjectRateLimit_ZeroDefaultConfig_SkipsRateLimit(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-1", &domain.APIKey{}))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
+	require.Equal(t, "", rr.
+		Header().Get("X-RateLimit-Limit"))
 
 	// No headers when rate limiting is completely disabled.
-	if rr.Header().Get("X-RateLimit-Limit") != "" {
-		t.Fatal("expected no rate limit headers when config is zero")
-	}
+
 }
 
 func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
@@ -276,10 +277,10 @@ func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
 }
 
 func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
@@ -299,15 +300,15 @@ func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
-	if rl.limit != billing.APIRateFree {
-		t.Fatalf("limit = %d, want free plan limit %d", rl.limit, billing.APIRateFree)
-	}
-	if rl.windowSecs != 60 {
-		t.Fatalf("windowSecs = %d, want 60", rl.windowSecs)
-	}
-	if rl.key != "rl:plan:org-free" {
-		t.Fatalf("key = %q, want rl:plan:org-free", rl.key)
-	}
+	require.Equal(t, billing.
+		APIRateFree,
+		rl.limit)
+	require.EqualValues(t, 60, rl.
+		windowSecs)
+	require.Equal(t, "rl:plan:org-free",
+
+		rl.key)
+
 }
 
 func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing.T) {
@@ -327,9 +328,12 @@ func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-business", "")
-	if rl.limit != 0 || rl.windowSecs != 0 || rl.key != "" {
-		t.Fatalf("unlimited plan resolved rate limit = %+v, want zero-value no limit", rl)
-	}
+	require.False(t, rl.limit !=
+		0 || rl.
+		windowSecs != 0 ||
+		rl.key != "",
+	)
+
 }
 
 func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
@@ -351,12 +355,13 @@ func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
 	})
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "key-1")
-	if rl.limit != billing.APIRateFree {
-		t.Fatalf("limit = %d, want key override capped to free plan limit %d", rl.limit, billing.APIRateFree)
-	}
-	if rl.key != "rl:apikey:key-1" {
-		t.Fatalf("key = %q, want rl:apikey:key-1", rl.key)
-	}
+	require.Equal(t, billing.
+		APIRateFree,
+		rl.limit)
+	require.Equal(t, "rl:apikey:key-1",
+
+		rl.key)
+
 }
 
 func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
@@ -374,12 +379,11 @@ func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
-	if rl.err == nil {
-		t.Fatal("expected project org lookup error to fail closed")
-	}
-	if rl.limit != 0 || rl.key != "" {
-		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
-	}
+	require.NotNil(t, rl.err)
+	require.False(t, rl.limit !=
+		0 || rl.
+		key != "")
+
 }
 
 func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
@@ -398,12 +402,11 @@ func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 
 	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
-	if rl.err == nil {
-		t.Fatal("expected plan limit lookup error to fail closed")
-	}
-	if rl.limit != 0 || rl.key != "" {
-		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
-	}
+	require.NotNil(t, rl.err)
+	require.False(t, rl.limit !=
+		0 || rl.
+		key != "")
+
 }
 
 func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T) {
@@ -429,10 +432,10 @@ func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
-	}
+		rr.Code)
+
 }
 
 func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
@@ -446,8 +449,8 @@ func TestProjectRateLimit_InternalSecretAuth_Bypasses(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	ts.handler.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for internal secret auth, got %d", rr.Code)
-	}
 }

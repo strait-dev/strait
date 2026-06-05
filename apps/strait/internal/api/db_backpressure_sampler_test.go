@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fakePoolStatter lets tests drive the sampler with deterministic counters.
@@ -66,10 +68,11 @@ func TestPoolBackpressureSampler_NoDeltaAdmits(t *testing.T) {
 	s.lastCount = ps.EmptyAcquireCount()
 	s.lastWait = ps.EmptyAcquireWaitTime()
 
-	s.sampleOnce() // counters unchanged → no signal
-	if s.Shedding() {
-		t.Fatal("sampler reports shedding with no delta")
-	}
+	s.sampleOnce()
+	require.False(t, s.Shedding())
+
+	// counters unchanged → no signal
+
 }
 
 // Avg wait below threshold keeps shedding false; at or above the threshold
@@ -83,23 +86,18 @@ func TestPoolBackpressureSampler_ThresholdGate(t *testing.T) {
 	// 10 acquires, total wait 400ms → avg 40ms (below threshold).
 	ps.set(10, 400*time.Millisecond)
 	s.sampleOnce()
-	if s.Shedding() {
-		t.Fatal("sampler should admit at avg 40ms (< 50ms threshold)")
-	}
+	require.False(t, s.Shedding())
 
 	// 5 more acquires, +300ms wait → avg 60ms in window (≥ threshold).
 	ps.set(15, 700*time.Millisecond)
 	s.sampleOnce()
-	if !s.Shedding() {
-		t.Fatal("sampler should shed at avg 60ms (≥ 50ms threshold)")
-	}
+	require.True(t, s.Shedding())
 
 	// Wait subsides: next window adds counts but no extra wait → reset.
 	ps.set(20, 700*time.Millisecond)
 	s.sampleOnce()
-	if s.Shedding() {
-		t.Fatal("sampler should admit once wait stops growing")
-	}
+	require.False(t, s.Shedding())
+
 }
 
 // All concurrent readers must observe the same verdict — this is the property
@@ -113,9 +111,7 @@ func TestPoolBackpressureSampler_ConcurrentReadsAreConsistent(t *testing.T) {
 	// Force shedding state.
 	ps.set(10, 1*time.Second) // avg = 100ms
 	s.sampleOnce()
-	if !s.Shedding() {
-		t.Fatal("setup: expected shedding")
-	}
+	require.True(t, s.Shedding())
 
 	const fanout = 200
 	var sheds atomic.Int32
@@ -130,9 +126,9 @@ func TestPoolBackpressureSampler_ConcurrentReadsAreConsistent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if got := sheds.Load(); got != fanout {
-		t.Fatalf("concurrent readers saw shedding %d/%d times, want all %d", got, fanout, fanout)
-	}
+	require.EqualValues(t, fanout,
+		sheds.Load())
+
 }
 
 // Stop must release the goroutine and not block on a second call.
@@ -152,7 +148,7 @@ func waitForEmptyAcquireCountReads(t *testing.T, ch <-chan struct{}, want int) {
 		select {
 		case <-ch:
 		case <-timeout:
-			t.Fatalf("timed out waiting for %d EmptyAcquireCount reads, got %d", want, got)
+			require.Failf(t, "test failure", "timed out waiting for %d EmptyAcquireCount reads, got %d", want, got)
 		}
 	}
 }
@@ -172,9 +168,9 @@ func TestShouldApplyDBBackpressure_AllConcurrentRequestsAgreeUnderPressure(t *te
 	srv.poolBackpressure.lastWait = 0
 	ps.set(10, 1*time.Second) // avg 100ms wait
 	srv.poolBackpressure.sampleOnce()
-	if !srv.poolBackpressure.Shedding() {
-		t.Fatal("setup: expected sampler to be in shedding state")
-	}
+	require.True(t, srv.poolBackpressure.
+		Shedding(),
+	)
 
 	const fanout = 200
 	var admitted atomic.Int32
@@ -189,9 +185,9 @@ func TestShouldApplyDBBackpressure_AllConcurrentRequestsAgreeUnderPressure(t *te
 		}()
 	}
 	wg.Wait()
-	if admitted.Load() != 0 {
-		t.Fatalf("admitted %d/%d requests while sampler was shedding; old delta-in-middleware would admit ~all-but-one", admitted.Load(), fanout)
-	}
+	require.EqualValues(t, 0, admitted.
+		Load())
+
 }
 
 // Occupancy >90% should shed regardless of sampler verdict — the snapshot
@@ -201,8 +197,8 @@ func TestShouldApplyDBBackpressure_HighOccupancyShortCircuits(t *testing.T) {
 	ps.setOccupancy(91, 100)
 	srv := &Server{poolStatter: ps}
 	srv.poolBackpressure = newPoolBackpressureSampler(ps, time.Second, 50*time.Millisecond)
+	require.True(t, srv.shouldApplyDBBackpressure())
+
 	// Sampler is in admit state (no data) but occupancy alone should shed.
-	if !srv.shouldApplyDBBackpressure() {
-		t.Fatal("expected shedding when acquired conns > 90% of max")
-	}
+
 }

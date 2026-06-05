@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
@@ -34,22 +36,25 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 	jobLookups := make(map[string]int)
 	ms := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, projectID string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
-			if limit != 25 {
-				t.Fatalf("limit = %d, want minimum fetch limit 25", limit)
-			}
+			require.Equal(t, "proj-1",
+				projectID,
+			)
+			require.EqualValues(t, 25, limit)
+
 			listCalls++
 			switch listCalls {
 			case 1:
 				if cursor != nil {
-					t.Fatalf("first cursor = %v, want nil", cursor)
+					require.Failf(t, "test failure",
+
+						"first cursor = %v, want nil", cursor)
 				}
 				return firstPage, nil
 			case 2:
 				if cursor == nil || !cursor.Equal(secondPageCursor) {
-					t.Fatalf("second cursor = %v, want %v", cursor, secondPageCursor)
+					require.Failf(t, "test failure",
+
+						"second cursor = %v, want %v", cursor, secondPageCursor)
 				}
 				return []domain.JobRun{{
 					ID:        "prod-run-2",
@@ -58,7 +63,7 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 					CreatedAt: base.Add(-25 * time.Second),
 				}}, nil
 			default:
-				t.Fatalf("unexpected list call %d", listCalls)
+				require.Failf(t, "test failure", "unexpected list call %d", listCalls)
 				return nil, nil
 			}
 		},
@@ -70,7 +75,7 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 			case "job-staging":
 				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 			default:
-				t.Fatalf("unexpected job lookup %q", jobID)
+				require.Failf(t, "test failure", "unexpected job lookup %q", jobID)
 				return nil, nil
 			}
 		},
@@ -78,17 +83,17 @@ func TestListDeadLetterRunsForEnvironment_PaginatesUntilLimit(t *testing.T) {
 	srv := &Server{store: ms}
 
 	runs, err := srv.listDeadLetterRunsForEnvironment(envScopedRunCtx(), "proj-1", 2, nil)
-	if err != nil {
-		t.Fatalf("listDeadLetterRunsForEnvironment: %v", err)
-	}
+	require.NoError(t, err)
 
 	gotIDs := runIDs(runs)
-	if !slices.Equal(gotIDs, []string{"prod-run-1", "prod-run-2"}) {
-		t.Fatalf("runs = %v, want prod runs from both pages", gotIDs)
-	}
-	if jobLookups["job-prod"] != 1 || jobLookups["job-staging"] != 1 {
-		t.Fatalf("job lookups = %#v, want one lookup per job due cache", jobLookups)
-	}
+	require.True(
+		t, slices.
+			Equal(gotIDs,
+				[]string{"prod-run-1", "prod-run-2"}))
+	require.False(t, jobLookups["job-prod"] !=
+
+		1 || jobLookups["job-staging"] != 1)
+
 }
 
 func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.T) {
@@ -98,9 +103,8 @@ func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.
 	jobLookups := make(map[string]int)
 	ms := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, _ string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
-			if limit != 4 {
-				t.Fatalf("limit = %d, want replay limit plus one", limit)
-			}
+			require.EqualValues(t, 4, limit)
+
 			if cursor != nil {
 				return nil, nil
 			}
@@ -118,14 +122,16 @@ func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.
 			case "job-staging":
 				return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 			default:
-				t.Fatalf("unexpected job lookup %q", jobID)
+				require.Failf(t, "test failure", "unexpected job lookup %q", jobID)
 				return nil, nil
 			}
 		},
 		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
-			if projectID != "" || limit != 0 {
-				t.Fatalf("projectID = %q, limit = %d, want explicit run-id replay", projectID, limit)
-			}
+			require.False(t, projectID !=
+				"" ||
+				limit !=
+					0)
+
 			replayedRunIDs = slices.Clone(runIDs)
 			return []domain.JobRun{{ID: "replayed-1"}, {ID: "replayed-2"}}, nil
 		},
@@ -133,19 +139,18 @@ func TestBulkReplayDeadLetterRunsForEnvironment_ReplaysAllowedRunIDs(t *testing.
 	srv := &Server{store: ms}
 
 	runs, err := srv.bulkReplayDeadLetterRunsForEnvironment(envScopedRunCtx(), "proj-1", 3)
-	if err != nil {
-		t.Fatalf("bulkReplayDeadLetterRunsForEnvironment: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		runs, 2)
+	require.True(
+		t, slices.
+			Equal(replayedRunIDs,
 
-	if len(runs) != 2 {
-		t.Fatalf("replayed runs = %d, want 2", len(runs))
-	}
-	if !slices.Equal(replayedRunIDs, []string{"run-prod-1", "run-prod-2"}) {
-		t.Fatalf("replayed run IDs = %v, want only env-prod runs", replayedRunIDs)
-	}
-	if jobLookups["job-prod"] != 1 || jobLookups["job-staging"] != 1 {
-		t.Fatalf("job lookups = %#v, want one lookup per job due cache", jobLookups)
-	}
+				[]string{"run-prod-1", "run-prod-2"}))
+	require.False(t, jobLookups["job-prod"] !=
+
+		1 || jobLookups["job-staging"] != 1)
+
 }
 
 func TestBulkReplayDeadLetterRunsForEnvironment_NoMatchesSkipsReplay(t *testing.T) {
@@ -156,25 +161,26 @@ func TestBulkReplayDeadLetterRunsForEnvironment_NoMatchesSkipsReplay(t *testing.
 			return []domain.JobRun{{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", CreatedAt: time.Now()}}, nil
 		},
 		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
-			if jobID != "job-staging" {
-				t.Fatalf("jobID = %q, want job-staging", jobID)
-			}
+			require.Equal(t, "job-staging",
+				jobID,
+			)
+
 			return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 		BulkReplayDeadLetterRunsFunc: func(context.Context, []string, string, int) ([]domain.JobRun, error) {
-			t.Fatal("BulkReplayDeadLetterRuns must not be called when no runs match the environment")
+			require.Fail(t,
+
+				"BulkReplayDeadLetterRuns must not be called when no runs match the environment")
 			return nil, nil
 		},
 	}
 	srv := &Server{store: ms}
 
 	runs, err := srv.bulkReplayDeadLetterRunsForEnvironment(envScopedRunCtx(), "proj-1", 10)
-	if err != nil {
-		t.Fatalf("bulkReplayDeadLetterRunsForEnvironment: %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("runs = %v, want empty result", runs)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		runs, 0)
+
 }
 
 func TestRunMatchesEnvironment_UnscopedContextSkipsJobLookup(t *testing.T) {
@@ -182,19 +188,20 @@ func TestRunMatchesEnvironment_UnscopedContextSkipsJobLookup(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
-			t.Fatal("GetJob must not be called without an environment scope")
+			require.Fail(t,
+
+				"GetJob must not be called without an environment scope")
 			return nil, nil
 		},
 	}
 	srv := &Server{store: ms}
 
 	allowed, err := srv.runMatchesEnvironment(context.Background(), domain.JobRun{ID: "run-1", JobID: "job-1"}, map[string]bool{})
-	if err != nil {
-		t.Fatalf("runMatchesEnvironment: %v", err)
-	}
-	if !allowed {
-		t.Fatal("unscoped context should allow the run")
-	}
+	require.NoError(t, err)
+	require.True(
+		t, allowed,
+	)
+
 }
 
 func runIDs(runs []domain.JobRun) []string {

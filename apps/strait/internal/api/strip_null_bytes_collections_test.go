@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestStripNullBytesFromStruct_Collections locks in that NUL bytes decoded from
@@ -47,9 +49,11 @@ func TestStripNullBytesFromStruct_Collections(t *testing.T) {
 
 	assertNoNul := func(label, s string) {
 		t.Helper()
-		if strings.ContainsRune(s, 0) {
-			t.Errorf("%s still contains a NUL byte: %q", label, s)
-		}
+		assert.False(
+			t, strings.ContainsRune(
+				s,
+				0))
+
 	}
 
 	for i, tag := range p.Tags {
@@ -71,22 +75,30 @@ func TestStripNullBytesFromStruct_Collections(t *testing.T) {
 	if s, ok := p.Any["s"].(string); ok {
 		assertNoNul("Any.s", s)
 	} else {
-		t.Error("Any[\"s\"] missing or not a string after sanitization")
+		assert.Fail(t,
+
+			"Any[\"s\"] missing or not a string after sanitization")
 	}
 	if list, ok := p.Any["list"].([]string); ok {
 		for _, s := range list {
 			assertNoNul("Any.list", s)
 		}
 	} else {
-		t.Error("Any[\"list\"] missing or not a []string after sanitization")
+		assert.Fail(t,
+
+			"Any[\"list\"] missing or not a []string after sanitization")
 	}
 	assertNoNul("Top", p.Top)
 
 	// Sanitizing the key must not leave the original NUL-bearing key behind.
 	if _, ok := p.Metadata["k\x00ey"]; ok {
-		t.Error("original NUL-bearing map key was not removed")
+		assert.Fail(t,
+
+			"original NUL-bearing map key was not removed")
 	}
 	if _, ok := p.Metadata["key"]; !ok {
-		t.Error("sanitized map key \"key\" not present")
+		assert.Fail(t,
+
+			"sanitized map key \"key\" not present")
 	}
 }

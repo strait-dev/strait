@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRespondError_AlwaysAPIError verifies respondError emits the canonical
@@ -39,23 +41,25 @@ func TestRespondError_AlwaysAPIError(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
 			respondError(w, nil, tc.status, tc.input)
+			require.Equal(t, tc.
+				status, w.
+				Code)
 
-			if w.Code != tc.status {
-				t.Fatalf("status = %d, want %d", w.Code, tc.status)
-			}
 			var resp ErrorResponse
-			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-				t.Fatalf("unmarshal: %v body=%s", err, w.Body.String())
-			}
-			if resp.Error == nil {
-				t.Fatalf("error field is nil; body=%s", w.Body.String())
-			}
-			if resp.Error.Code != tc.wantCode {
-				t.Errorf("code = %q, want %q", resp.Error.Code, tc.wantCode)
-			}
-			if resp.Error.Message != tc.wantMsg {
-				t.Errorf("message = %q, want %q", resp.Error.Message, tc.wantMsg)
-			}
+			require.NoError(t,
+				json.Unmarshal(w.Body.
+					Bytes(), &resp))
+			require.NotNil(t, resp.
+				Error)
+			assert.Equal(t, tc.
+				wantCode,
+				resp.Error.Code,
+			)
+			assert.Equal(t, tc.
+				wantMsg, resp.
+				Error.Message,
+			)
+
 		})
 	}
 }
@@ -70,12 +74,12 @@ func TestRespondError_NeverBareString(t *testing.T) {
 	var raw struct {
 		Error json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(raw.Error) == 0 || raw.Error[0] != '{' {
-		t.Fatalf("error field must be a JSON object, got %s", string(raw.Error))
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.
+			Bytes(), &raw))
+	require.False(t, len(raw.Error) == 0 || raw.
+		Error[0] != '{')
+
 }
 
 // TestHumaNewError_OverrideShape verifies the Huma override produces the
@@ -90,27 +94,31 @@ func TestHumaNewError_OverrideShape(t *testing.T) {
 	// built, this returns a humaStatusError that JSON-marshals to the
 	// canonical envelope.
 	se := huma.NewError(http.StatusUnprocessableEntity, "validation failed", errors.New("field x is required"))
-	if se.GetStatus() != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422", se.GetStatus())
-	}
+	require.Equal(t, http.
+		StatusUnprocessableEntity,
+
+		se.GetStatus())
+
 	body, err := json.Marshal(se)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	var resp ErrorResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		t.Fatalf("unmarshal envelope: %v body=%s", err, string(body))
-	}
-	if resp.Error == nil {
-		t.Fatalf("error nil; body=%s", string(body))
-	}
-	if resp.Error.Code != ErrorCodeValidationFailed {
-		t.Errorf("code = %q, want %q", resp.Error.Code, ErrorCodeValidationFailed)
-	}
-	if resp.Error.Message != "validation failed" {
-		t.Errorf("message = %q, want %q", resp.Error.Message, "validation failed")
-	}
-	if len(resp.Error.Details) != 1 || resp.Error.Details[0] != "field x is required" {
-		t.Errorf("details = %v, want [field x is required]", resp.Error.Details)
-	}
+	require.NoError(t,
+		json.Unmarshal(body, &resp))
+	require.NotNil(t, resp.
+		Error)
+	assert.Equal(t, ErrorCodeValidationFailed,
+
+		resp.Error.Code)
+	assert.Equal(t, "validation failed",
+
+		resp.
+			Error.Message)
+	assert.False(t, len(resp.Error.
+		Details) !=
+		1 || resp.Error.Details[0] !=
+		"field x is required",
+	)
+
 }

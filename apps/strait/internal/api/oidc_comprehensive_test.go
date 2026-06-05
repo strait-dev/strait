@@ -23,6 +23,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests: verifier construction
@@ -41,12 +43,9 @@ func TestNewOIDCVerifier_WhitespacePEM(t *testing.T) {
 		OIDCAudience:     "aud-test",
 		OIDCPublicKeyPEM: padded,
 	})
-	if err != nil {
-		t.Fatalf("expected whitespace-padded PEM to parse, got: %v", err)
-	}
-	if v.publicKey == nil {
-		t.Fatal("public key should not be nil after parsing whitespace-padded PEM")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, v.publicKey)
+
 }
 
 // TestNewOIDCVerifier_ECDSAKeyRejected verifies that an ECDSA public key
@@ -55,13 +54,11 @@ func TestNewOIDCVerifier_ECDSAKeyRejected(t *testing.T) {
 	t.Parallel()
 
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate ecdsa key: %v", err)
-	}
+	require.NoError(t, err)
+
 	pubDER, err := x509.MarshalPKIXPublicKey(&ecKey.PublicKey)
-	if err != nil {
-		t.Fatalf("marshal ecdsa pub key: %v", err)
-	}
+	require.NoError(t, err)
+
 	ecPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 
 	_, err = newOIDCVerifier(&config.Config{
@@ -70,9 +67,8 @@ func TestNewOIDCVerifier_ECDSAKeyRejected(t *testing.T) {
 		OIDCAudience:     "aud-test",
 		OIDCPublicKeyPEM: string(ecPEM),
 	})
-	if err == nil {
-		t.Fatal("expected error for ECDSA key, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestNewOIDCVerifier_WeakKeySize verifies that an RSA key smaller than the
@@ -83,13 +79,11 @@ func TestNewOIDCVerifier_SmallRSAKey(t *testing.T) {
 
 	// 1024-bit RSA key — weaker than recommended but library may still parse it
 	smallKey, err := rsa.GenerateKey(rand.Reader, 1024)
-	if err != nil {
-		t.Fatalf("generate small key: %v", err)
-	}
+	require.NoError(t, err)
+
 	pubDER, err := x509.MarshalPKIXPublicKey(&smallKey.PublicKey)
-	if err != nil {
-		t.Fatalf("marshal pub key: %v", err)
-	}
+	require.NoError(t, err)
+
 	smallPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 
 	v, err := newOIDCVerifier(&config.Config{
@@ -105,9 +99,8 @@ func TestNewOIDCVerifier_SmallRSAKey(t *testing.T) {
 		// Rejected is acceptable for security reasons
 		return
 	}
-	if v.publicKey == nil {
-		t.Fatal("verifier created but public key is nil")
-	}
+	require.NotNil(t, v.publicKey)
+
 }
 
 // TestNewOIDCVerifier_DisabledSkipsValidation verifies that a disabled
@@ -119,12 +112,9 @@ func TestNewOIDCVerifier_DisabledSkipsValidation(t *testing.T) {
 		OIDCEnabled:      false,
 		OIDCPublicKeyPEM: "this-is-not-valid-pem",
 	})
-	if err != nil {
-		t.Fatalf("disabled verifier should not validate PEM: %v", err)
-	}
-	if v.enabled {
-		t.Fatal("verifier should be disabled")
-	}
+	require.NoError(t, err)
+	require.False(t, v.enabled)
+
 }
 
 // TestOIDCVerifier_DisabledRejectsAll verifies that a disabled verifier
@@ -134,12 +124,10 @@ func TestOIDCVerifier_DisabledRejectsAll(t *testing.T) {
 
 	v := &oidcVerifier{enabled: false}
 	_, err := v.verify("any-token-string")
-	if err == nil {
-		t.Fatal("disabled verifier should reject all tokens")
-	}
-	if !strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("error should mention disabled, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, strings.Contains(err.Error(), "disabled"))
+
 }
 
 // Unit tests: signing algorithm enforcement
@@ -160,14 +148,11 @@ func TestOIDCVerify_RejectsHS256Token(t *testing.T) {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	signed, err := token.SignedString([]byte("some-hmac-secret"))
-	if err != nil {
-		t.Fatalf("sign HS256 token: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for HS256 token, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_RejectsES256Token verifies that ECDSA-signed tokens are
@@ -179,9 +164,7 @@ func TestOIDCVerify_RejectsES256Token(t *testing.T) {
 	v := mustOIDCVerifier(t, pubPEM, "https://issuer.test", "aud-test")
 
 	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate ecdsa key: %v", err)
-	}
+	require.NoError(t, err)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.RegisteredClaims{
 		Subject:   "user-ecdsa",
@@ -190,14 +173,11 @@ func TestOIDCVerify_RejectsES256Token(t *testing.T) {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	signed, err := token.SignedString(ecKey)
-	if err != nil {
-		t.Fatalf("sign ES256 token: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for ES256 token, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_RejectsEdDSAToken verifies that EdDSA-signed tokens are
@@ -209,9 +189,7 @@ func TestOIDCVerify_RejectsEdDSAToken(t *testing.T) {
 	v := mustOIDCVerifier(t, pubPEM, "https://issuer.test", "aud-test")
 
 	_, edKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate ed25519 key: %v", err)
-	}
+	require.NoError(t, err)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, jwt.RegisteredClaims{
 		Subject:   "user-eddsa",
@@ -220,14 +198,11 @@ func TestOIDCVerify_RejectsEdDSAToken(t *testing.T) {
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	signed, err := token.SignedString(edKey)
-	if err != nil {
-		t.Fatalf("sign EdDSA token: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for EdDSA token, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_RejectsAlgNoneToken verifies that the "alg: none" attack
@@ -244,9 +219,8 @@ func TestOIDCVerify_RejectsAlgNoneToken(t *testing.T) {
 	noneToken := header + "." + payload + "."
 
 	_, err := v.verify(noneToken)
-	if err == nil {
-		t.Fatal("expected error for alg:none token, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // Unit tests: claim validation edge cases
@@ -267,12 +241,12 @@ func TestOIDCVerify_MultipleAudiences(t *testing.T) {
 	})
 
 	claims, err := v.verify(signed)
-	if err != nil {
-		t.Fatalf("expected multi-audience token to pass: %v", err)
-	}
-	if claims.Subject != "user-multi-aud" {
-		t.Errorf("subject = %q, want %q", claims.Subject, "user-multi-aud")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "user-multi-aud",
+		claims.Subject,
+	)
+
 }
 
 // TestOIDCVerify_NoExpiryRejected verifies that a token without an exp claim
@@ -291,12 +265,12 @@ func TestOIDCVerify_NoExpiryRejected(t *testing.T) {
 		"iat": time.Now().Unix(),
 	})
 	signed, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
 
 	if _, err := v.verify(signed); err == nil {
-		t.Fatal("expected token without exp to be rejected")
+		require.Fail(t,
+
+			"expected token without exp to be rejected")
 	}
 }
 
@@ -321,9 +295,11 @@ func TestOIDCVerify_FutureIssuedAt(t *testing.T) {
 		// Rejected is also acceptable (stricter check)
 		return
 	}
-	if claims.Subject != "user-future-iat" {
-		t.Errorf("subject = %q, want %q", claims.Subject, "user-future-iat")
-	}
+	assert.Equal(
+		t, "user-future-iat",
+		claims.Subject,
+	)
+
 }
 
 // TestOIDCVerify_NotBeforeInFuture verifies that a token with a future nbf
@@ -343,9 +319,8 @@ func TestOIDCVerify_NotBeforeInFuture(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for token with future nbf, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_EmptyEmailAndName verifies that tokens with empty email/name
@@ -363,20 +338,17 @@ func TestOIDCVerify_EmptyEmailAndName(t *testing.T) {
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 	signed, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
 
 	claims, err := v.verify(signed)
-	if err != nil {
-		t.Fatalf("expected valid token without email/name: %v", err)
-	}
-	if claims.Email != "" {
-		t.Errorf("email = %q, want empty", claims.Email)
-	}
-	if claims.Name != "" {
-		t.Errorf("name = %q, want empty", claims.Name)
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "", claims.Email,
+	)
+	assert.Equal(
+		t, "", claims.Name,
+	)
+
 }
 
 // TestOIDCVerify_VeryLongSubject verifies that extremely long subject values
@@ -396,12 +368,11 @@ func TestOIDCVerify_VeryLongSubject(t *testing.T) {
 	})
 
 	claims, err := v.verify(signed)
-	if err != nil {
-		t.Fatalf("expected valid token with long subject: %v", err)
-	}
-	if claims.Subject != longSub {
-		t.Error("subject was truncated or modified")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, longSub, claims.
+			Subject)
+
 }
 
 // Unit tests: JWT structure attacks
@@ -439,9 +410,9 @@ func TestOIDCVerify_TruncatedJWT(t *testing.T) {
 	for _, tc := range truncations {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := v.verify(tc.token)
-			if err == nil {
-				t.Errorf("expected error for truncated token %q, got nil", tc.name)
-			}
+			assert.Error(
+				t, err)
+
 		})
 	}
 }
@@ -467,9 +438,8 @@ func TestOIDCVerify_HeaderManipulation(t *testing.T) {
 	swapped := fakeHeader + "." + parts[1] + "." + parts[2]
 
 	_, err := v.verify(swapped)
-	if err == nil {
-		t.Fatal("expected error for header-swapped token, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_InvalidBase64InPayload verifies that invalid base64 in the
@@ -485,9 +455,8 @@ func TestOIDCVerify_InvalidBase64InPayload(t *testing.T) {
 	sig := base64.RawURLEncoding.EncodeToString([]byte("fake-sig"))
 
 	_, err := v.verify(header + "." + invalidPayload + "." + sig)
-	if err == nil {
-		t.Fatal("expected error for invalid base64 payload")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_InvalidJSONInPayload verifies that valid base64 but invalid
@@ -503,9 +472,8 @@ func TestOIDCVerify_InvalidJSONInPayload(t *testing.T) {
 	sig := base64.RawURLEncoding.EncodeToString([]byte("fake-sig"))
 
 	_, err := v.verify(header + "." + badJSON + "." + sig)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON payload")
-	}
+	require.Error(t, err)
+
 }
 
 // Integration tests: middleware auth routing
@@ -522,11 +490,12 @@ func TestOIDCAuth_MissingBearerToken(t *testing.T) {
 	// No Authorization header
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 
 	// Should hit internal secret auth and get 401 (no secret either)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
+
 }
 
 // TestOIDCAuth_EmptyBearerValue verifies that "Bearer " with no token
@@ -541,10 +510,10 @@ func TestOIDCAuth_EmptyBearerValue(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer ")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
 }
 
 // TestOIDCAuth_BearerWithExtraSpaces verifies that extra whitespace around
@@ -574,11 +543,12 @@ func TestOIDCAuth_BearerWithExtraSpaces(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer   "+signed+"  ")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.NotEqual(t, http.StatusUnauthorized,
+		w.
+			Code)
 
 	// Should succeed — whitespace is trimmed
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("status = %d, token with extra spaces should be trimmed", w.Code)
-	}
+
 }
 
 // TestOIDCAuth_StraitPrefixRoutesToAPIKey verifies that tokens starting with
@@ -599,11 +569,12 @@ func TestOIDCAuth_StraitPrefixRoutesToAPIKey(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer strait_fake_key_123")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 
 	// Should hit API key auth (not OIDC), get 401 for invalid key
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d (routed to API key auth)", w.Code, http.StatusUnauthorized)
-	}
+
 }
 
 // TestOIDCAuth_NilStoreReturns503 verifies that if the store is nil and
@@ -637,10 +608,10 @@ func TestOIDCAuth_NilStoreReturns503(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-123")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d for nil store with project header", w.Code, http.StatusServiceUnavailable)
-	}
+		w.Code)
+
 }
 
 // Integration tests: response body validation
@@ -657,16 +628,14 @@ func TestOIDCAuth_ErrorResponseIsJSON(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 
 	// Verify error response is valid JSON
 	var errResp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
-		t.Fatalf("error response is not valid JSON: %v, body: %s", err, w.Body.String())
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errResp))
+
 }
 
 // TestOIDCAuth_DoesNotLeakTokenDetails verifies that 401 error responses
@@ -683,12 +652,10 @@ func TestOIDCAuth_DoesNotLeakTokenDetails(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	body := w.Body.String()
-	if strings.Contains(body, "some-secret-looking-token") {
-		t.Fatal("error response should not contain the token value")
-	}
-	if strings.Contains(body, "RSA") || strings.Contains(body, "signature") {
-		t.Fatal("error response should not contain crypto implementation details")
-	}
+	require.False(t, strings.Contains(body, "some-secret-looking-token"))
+	require.False(t, strings.Contains(body, "RSA") ||
+		strings.Contains(body, "signature"))
+
 }
 
 // Adversarial: token replay and key confusion
@@ -711,9 +678,8 @@ func TestOIDCVerify_DifferentKeyPairRejected(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for token signed with different key pair")
-	}
+	require.Error(t, err)
+
 }
 
 // TestOIDCVerify_KeyConfusionAttack verifies that using the RSA public key
@@ -731,15 +697,14 @@ func TestOIDCVerify_KeyConfusionAttack(t *testing.T) {
 		Audience:  []string{"aud-test"},
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
-	signed, err := token.SignedString(pubPEM) // use public key as HMAC secret
-	if err != nil {
-		t.Fatalf("sign with pub key as HMAC secret: %v", err)
-	}
+	signed, err := token.SignedString(pubPEM)
+	require.NoError(t, err)
+
+	// use public key as HMAC secret
 
 	_, err = v.verify(signed)
-	if err == nil {
-		t.Fatal("key confusion attack should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 // Fuzz tests

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -36,9 +38,7 @@ func TestAuditReadAccess_ListAuditEvents(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleListAuditEvents(adminCtx("proj-1"), &ListAuditEventsInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -46,14 +46,15 @@ func TestAuditReadAccess_ListAuditEvents(t *testing.T) {
 	for _, ev := range captured {
 		if ev.Action == domain.AuditActionAuditListRead {
 			found = true
-			if ev.ProjectID != "proj-1" {
-				t.Errorf("project_id = %q, want %q", ev.ProjectID, "proj-1")
-			}
+			assert.Equal(
+				t, "proj-1", ev.ProjectID,
+			)
+
 		}
 	}
-	if !found {
-		t.Error("expected audit.list_read event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func TestAuditReadAccess_GetAuditEvent(t *testing.T) {
@@ -76,9 +77,7 @@ func TestAuditReadAccess_GetAuditEvent(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleGetAuditEvent(adminCtx("proj-1"), &GetAuditEventInput{ID: "ev-target"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -89,9 +88,9 @@ func TestAuditReadAccess_GetAuditEvent(t *testing.T) {
 			assertDetailContains(t, ev, "target_id", "ev-target")
 		}
 	}
-	if !found {
-		t.Error("expected audit.single_read event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func TestAuditReadAccess_VerifyChain(t *testing.T) {
@@ -114,9 +113,7 @@ func TestAuditReadAccess_VerifyChain(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleVerifyAuditChain(adminCtx("proj-1"), &VerifyAuditChainInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -128,9 +125,9 @@ func TestAuditReadAccess_VerifyChain(t *testing.T) {
 			assertDetailContains(t, ev, "events_checked", float64(42))
 		}
 	}
-	if !found {
-		t.Error("expected audit.chain_verified event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -141,15 +138,21 @@ func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
 
 	srv := newTestServer(t, &APIStoreMock{
 		ListAuditEventsFunc: func(context.Context, string, string, string, string, int, *time.Time, *time.Time, *time.Time, bool) ([]domain.AuditEvent, error) {
-			t.Fatal("ListAuditEvents must not be called for environment-scoped audit access")
+			require.Fail(t,
+
+				"ListAuditEvents must not be called for environment-scoped audit access")
 			return nil, nil
 		},
 		GetAuditEventFunc: func(context.Context, string, string) (*domain.AuditEvent, error) {
-			t.Fatal("GetAuditEvent must not be called for environment-scoped audit access")
+			require.Fail(t,
+
+				"GetAuditEvent must not be called for environment-scoped audit access")
 			return nil, nil
 		},
 		VerifyAuditChainFunc: func(context.Context, string) (*domain.AuditChainVerification, error) {
-			t.Fatal("VerifyAuditChain must not be called for environment-scoped audit access")
+			require.Fail(t,
+
+				"VerifyAuditChain must not be called for environment-scoped audit access")
 			return nil, nil
 		},
 	}, nil, nil)
@@ -185,12 +188,15 @@ func TestAuditReadAccess_EnvironmentScopedKeyRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
 			var statusErr huma.StatusError
-			if !errors.As(err, &statusErr) {
-				t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-			}
-			if statusErr.GetStatus() != http.StatusForbidden {
-				t.Fatalf("status = %d, want 403", statusErr.GetStatus())
-			}
+			require.True(
+				t, errors.As(err,
+					&statusErr,
+				))
+			require.Equal(t, http.StatusForbidden,
+				statusErr.
+					GetStatus(),
+			)
+
 		})
 	}
 }
@@ -217,9 +223,7 @@ func TestAuditReadAccess_ListSecrets(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleListSecrets(adminCtx("proj-1"), &ListSecretsInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -231,9 +235,9 @@ func TestAuditReadAccess_ListSecrets(t *testing.T) {
 			assertDetailNotContains(t, ev, "secret_value")
 		}
 	}
-	if !found {
-		t.Error("expected secret.list_read event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func TestAuditReadAccess_GetSecret(t *testing.T) {
@@ -260,9 +264,7 @@ func TestAuditReadAccess_GetSecret(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleGetSecret(adminCtx("proj-1"), &GetSecretInput{SecretID: "sec-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -275,9 +277,9 @@ func TestAuditReadAccess_GetSecret(t *testing.T) {
 			assertDetailNotContains(t, ev, "secret_value")
 		}
 	}
-	if !found {
-		t.Error("expected secret.read event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func TestAuditReadAccess_ListAPIKeys(t *testing.T) {
@@ -302,9 +304,7 @@ func TestAuditReadAccess_ListAPIKeys(t *testing.T) {
 
 	srv := newTestServer(t, ms, nil, nil)
 	_, err := srv.handleListAPIKeys(adminCtx("proj-1"), &ListAPIKeysInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -314,40 +314,39 @@ func TestAuditReadAccess_ListAPIKeys(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected api_key.list_read event to be emitted")
-	}
+	assert.True(t,
+		found)
+
 }
 
 func assertDetailContains(t *testing.T, ev domain.AuditEvent, key string, want any) {
 	t.Helper()
 	details := parseDetails(t, ev)
 	got, ok := details[key]
-	if !ok {
-		t.Errorf("event %s details missing key %q; details=%v", ev.Action, key, details)
-		return
-	}
-	if got != want {
-		t.Errorf("event %s details[%q] = %v (%T), want %v (%T)", ev.Action, key, got, got, want, want)
-	}
+	assert.True(t,
+		ok)
+	assert.Equal(
+		t, want, got)
+
 }
 
 func assertDetailNotContains(t *testing.T, ev domain.AuditEvent, key string) {
 	t.Helper()
 	details := parseDetails(t, ev)
 	if _, ok := details[key]; ok {
-		t.Errorf("event %s details should NOT contain key %q but it does; details=%v", ev.Action, key, details)
+		assert.Failf(t, "test failure",
+
+			"event %s details should NOT contain key %q but it does; details=%v", ev.Action, key, details)
 	}
 }
 
 func parseDetails(t *testing.T, ev domain.AuditEvent) map[string]any {
 	t.Helper()
-	if len(ev.Details) == 0 {
-		t.Fatalf("event %s has nil/empty details", ev.Action)
-	}
+	require.NotEmpty(t, ev.Details)
+
 	var m map[string]any
-	if err := json.Unmarshal(ev.Details, &m); err != nil {
-		t.Fatalf("event %s details not valid JSON: %v", ev.Action, err)
-	}
+	require.NoError(t, json.Unmarshal(ev.Details,
+		&m))
+
 	return m
 }

@@ -13,6 +13,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleVerifyAuditChain_ValidChain(t *testing.T) {
@@ -44,21 +46,16 @@ func TestHandleVerifyAuditChain_ValidChain(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var result domain.AuditChainVerification
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if !result.Valid {
-		t.Error("expected valid chain")
-	}
-	if result.EventsChecked != 5 {
-		t.Errorf("events_checked = %d, want 5", result.EventsChecked)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&result))
+	assert.True(t,
+		result.Valid)
+	assert.EqualValues(t, 5, result.EventsChecked)
+
 }
 
 func TestHandleVerifyAuditChain_BrokenChain(t *testing.T) {
@@ -92,21 +89,18 @@ func TestHandleVerifyAuditChain_BrokenChain(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var result domain.AuditChainVerification
-	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if result.Valid {
-		t.Error("expected invalid chain")
-	}
-	if result.BrokenAtID != "ev-3" {
-		t.Errorf("broken_at_id = %q, want %q", result.BrokenAtID, "ev-3")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&result))
+	assert.False(
+		t, result.Valid)
+	assert.Equal(
+		t, "ev-3", result.
+			BrokenAtID)
+
 }
 
 func TestHandleVerifyAuditChain_Adversarial_WrongScope(t *testing.T) {
@@ -126,10 +120,11 @@ func TestHandleVerifyAuditChain_Adversarial_WrongScope(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusForbidden,
+		w.Code,
+	)
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", w.Code)
-	}
 }
 
 // TestVerifyAuditChain_RateLimited asserts the per-project rate limit on
@@ -173,27 +168,25 @@ func TestVerifyAuditChain_RateLimited(t *testing.T) {
 
 	// First call: 200, with rate-limit headers indicating zero remaining.
 	w1 := makeRequest("proj-rl-1")
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first call status = %d, want 200; body: %s", w1.Code, w1.Body.String())
-	}
-	if got := w1.Header().Get("X-RateLimit-Limit"); got != "1" {
-		t.Errorf("X-RateLimit-Limit = %q, want 1", got)
-	}
+	require.Equal(t, http.StatusOK,
+		w1.Code)
+	assert.Equal(
+		t, "1", w1.Header().Get("X-RateLimit-Limit"))
 
 	// Second call within window: 429 with Retry-After.
 	w2 := makeRequest("proj-rl-1")
-	if w2.Code != http.StatusTooManyRequests {
-		t.Fatalf("second call status = %d, want 429; body: %s", w2.Code, w2.Body.String())
-	}
-	if got := w2.Header().Get("Retry-After"); got != "60" {
-		t.Errorf("Retry-After = %q, want 60", got)
-	}
+	require.Equal(t, http.StatusTooManyRequests,
+
+		w2.Code)
+	assert.Equal(
+		t, "60", w2.Header().Get("Retry-After"))
 
 	// Different project is unaffected — the limit is per-project.
 	w3 := makeRequest("proj-rl-2")
-	if w3.Code != http.StatusOK {
-		t.Errorf("different project status = %d, want 200 (rate limit must be per-project)", w3.Code)
-	}
+	assert.Equal(
+		t, http.StatusOK,
+		w3.Code)
+
 }
 
 // TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen verifies the
@@ -220,7 +213,7 @@ func TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen(t *testing.T) {
 		),
 	)
 
-	for i := range 10 {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
 		ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-noredis")
 		ctx = context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeRBACManage})
@@ -229,9 +222,9 @@ func TestVerifyAuditChain_RateLimit_NoLimiter_FailsOpen(t *testing.T) {
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("call %d status = %d, want 200 (no limiter -> no limit)", i, w.Code)
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
+
 	}
 }
 
@@ -257,7 +250,7 @@ func TestVerifyAuditChain_RateLimit_InternalSecretBypass(t *testing.T) {
 		TypedHandler(srv, http.StatusOK, srv.handleVerifyAuditChain),
 	)
 
-	for i := range 5 {
+	for range 5 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/audit-events/verify", nil)
 		// Validated internal callers are identified by ctxInternalCallerKey,
 		// set after ConstantTimeCompare passes in internalSecretAuth.
@@ -267,9 +260,9 @@ func TestVerifyAuditChain_RateLimit_InternalSecretBypass(t *testing.T) {
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("internal call %d status = %d, want 200 (internal bypass)", i, w.Code)
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
+
 	}
 }
 
@@ -277,9 +270,7 @@ func TestComputeAuditSignature_ConsistentWithStore(t *testing.T) {
 	t.Parallel()
 
 	key, err := store.DeriveAuditSigningKey("consistency-test")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	ev := &domain.AuditEvent{
 		ID:           "ev-1",
@@ -294,7 +285,7 @@ func TestComputeAuditSignature_ConsistentWithStore(t *testing.T) {
 	}
 
 	sig := store.ComputeAuditSignature(ev, key)
-	if len(sig) != 64 {
-		t.Errorf("signature length = %d, want 64", len(sig))
-	}
+	assert.Len(t,
+		sig, 64)
+
 }

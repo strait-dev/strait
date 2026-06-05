@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func rbacGrantCtx(scopes ...string) context.Context {
@@ -21,9 +23,9 @@ func TestRBACInheritance_CreateRoleRequiresGrantOfInheritedParentPermissions(t *
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetProjectRoleFunc: func(_ context.Context, id string) (*domain.ProjectRole, error) {
-			if id != "role-parent" {
-				t.Fatalf("unexpected role lookup %q", id)
-			}
+			require.Equal(t, "role-parent",
+				id)
+
 			return &domain.ProjectRole{
 				ID:          "role-parent",
 				ProjectID:   "proj-rbac",
@@ -31,7 +33,9 @@ func TestRBACInheritance_CreateRoleRequiresGrantOfInheritedParentPermissions(t *
 			}, nil
 		},
 		CreateProjectRoleFunc: func(_ context.Context, _ *domain.ProjectRole) error {
-			t.Fatal("CreateProjectRole must not run when parent grants permissions the caller lacks")
+			require.Fail(t,
+
+				"CreateProjectRole must not run when parent grants permissions the caller lacks")
 			return nil
 		},
 	}
@@ -42,9 +46,11 @@ func TestRBACInheritance_CreateRoleRequiresGrantOfInheritedParentPermissions(t *
 		Permissions:  []string{domain.ScopeJobsRead},
 		ParentRoleID: "role-parent",
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestRBACInheritance_UpdateRoleRequiresGrantOfInheritedParentPermissions(t *testing.T) {
@@ -65,12 +71,14 @@ func TestRBACInheritance_UpdateRoleRequiresGrantOfInheritedParentPermissions(t *
 					Permissions: []string{domain.ScopeJobsWrite},
 				}, nil
 			default:
-				t.Fatalf("unexpected role lookup %q", id)
+				require.Failf(t, "test failure", "unexpected role lookup %q", id)
 				return nil, nil
 			}
 		},
 		UpdateProjectRoleFunc: func(_ context.Context, _ *domain.ProjectRole) error {
-			t.Fatal("UpdateProjectRole must not run when parent grants permissions the caller lacks")
+			require.Fail(t,
+
+				"UpdateProjectRole must not run when parent grants permissions the caller lacks")
 			return nil
 		},
 	}
@@ -84,9 +92,11 @@ func TestRBACInheritance_UpdateRoleRequiresGrantOfInheritedParentPermissions(t *
 			ParentRoleID: "role-parent",
 		},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestRBACInheritance_AssignMemberRequiresGrantOfInheritedParentPermissions(t *testing.T) {
@@ -108,12 +118,14 @@ func TestRBACInheritance_AssignMemberRequiresGrantOfInheritedParentPermissions(t
 					Permissions: []string{domain.ScopeJobsWrite},
 				}, nil
 			default:
-				t.Fatalf("unexpected role lookup %q", id)
+				require.Failf(t, "test failure", "unexpected role lookup %q", id)
 				return nil, nil
 			}
 		},
 		AssignMemberRoleFunc: func(_ context.Context, _ *domain.ProjectMemberRole) error {
-			t.Fatal("AssignMemberRole must not run when parent grants permissions the caller lacks")
+			require.Fail(t,
+
+				"AssignMemberRole must not run when parent grants permissions the caller lacks")
 			return nil
 		},
 	}
@@ -123,9 +135,11 @@ func TestRBACInheritance_AssignMemberRequiresGrantOfInheritedParentPermissions(t
 		UserID: "user-target",
 		RoleID: "role-child",
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden,
+		))
+
 }
 
 func TestRBACInheritance_BulkAssignRejectsInheritedParentEscalation(t *testing.T) {
@@ -147,12 +161,14 @@ func TestRBACInheritance_BulkAssignRejectsInheritedParentEscalation(t *testing.T
 					Permissions: []string{domain.ScopeJobsWrite},
 				}, nil
 			default:
-				t.Fatalf("unexpected role lookup %q", id)
+				require.Failf(t, "test failure", "unexpected role lookup %q", id)
 				return nil, nil
 			}
 		},
 		AssignMemberRoleFunc: func(_ context.Context, _ *domain.ProjectMemberRole) error {
-			t.Fatal("AssignMemberRole must not run when parent grants permissions the caller lacks")
+			require.Fail(t,
+
+				"AssignMemberRole must not run when parent grants permissions the caller lacks")
 			return nil
 		},
 	}
@@ -161,22 +177,21 @@ func TestRBACInheritance_BulkAssignRejectsInheritedParentEscalation(t *testing.T
 	out, err := srv.handleBulkAssignMembers(rbacGrantCtx(domain.ScopeJobsRead), &BulkAssignMembersInput{Body: bulkAssignMembersRequest{
 		Items: []assignMemberRequest{{UserID: "user-target", RoleID: "role-child"}},
 	}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	body, ok := out.Body.(map[string]any)
-	if !ok {
-		t.Fatalf("body type = %T", out.Body)
-	}
+	require.True(
+		t, ok)
+
 	raw, err := json.Marshal(body["results"])
-	if err != nil {
-		t.Fatalf("marshal results: %v", err)
-	}
+	require.NoError(t, err)
+
 	var results []bulkAssignMemberResult
-	if err := json.Unmarshal(raw, &results); err != nil {
-		t.Fatalf("unmarshal results: %v", err)
-	}
-	if len(results) != 1 || results[0].Status != "error" || results[0].Error == "" {
-		t.Fatalf("results = %+v, want inherited permission error", results)
-	}
+	require.NoError(t, json.Unmarshal(raw, &results))
+	require.False(t, len(results) !=
+		1 || results[0].Status !=
+		"error" || results[0].
+		Error ==
+		"")
+
 }

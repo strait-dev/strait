@@ -9,6 +9,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/telemetry"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -26,9 +28,7 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 	meter := provider.Meter("sync-dropped-harness")
 
 	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t, err)
 
 	var calls atomic.Int32
 	ms := &APIStoreMock{
@@ -48,15 +48,13 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 	srv.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", "job-1", map[string]any{
 		"name": "x", "slug": "x", "execution_mode": "http",
 	})
-
-	if calls.Load() != 1 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 1", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.
+		Load())
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.
+			Background(), &rm))
 
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
@@ -76,9 +74,8 @@ func TestEmitAuditEvent_SyncWriteFailure_IncrementsDroppedMetric(t *testing.T) {
 			}
 		}
 	}
-	if total != 1 {
-		t.Errorf("AuditEventsDropped{reason=sync_write_failed} = %d, want 1", total)
-	}
+	assert.EqualValues(t, 1, total)
+
 }
 
 // TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric verifies that a
@@ -91,9 +88,7 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 	meter := provider.Meter("sync-success-harness")
 
 	dropped, err := meter.Int64Counter("strait_audit_events_dropped_total")
-	if err != nil {
-		t.Fatalf("create counter: %v", err)
-	}
+	require.NoError(t, err)
 
 	ms := &APIStoreMock{
 		CreateAuditEventFunc: func(_ context.Context, _ *domain.AuditEvent) error {
@@ -112,9 +107,9 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 	})
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.
+			Background(), &rm))
 
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
@@ -131,7 +126,6 @@ func TestEmitAuditEvent_SyncWriteSuccess_NoDroppedMetric(t *testing.T) {
 			}
 		}
 	}
-	if total != 0 {
-		t.Errorf("AuditEventsDropped = %d, want 0 on successful write", total)
-	}
+	assert.EqualValues(t, 0, total)
+
 }

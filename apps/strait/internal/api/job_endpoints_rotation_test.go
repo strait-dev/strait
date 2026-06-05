@@ -9,6 +9,8 @@ import (
 
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newJobEndpointTestServer(t *testing.T, job *domain.Job, capture *atomic.Pointer[capturedEndpointUpdate]) *Server {
@@ -56,19 +58,18 @@ func TestSetJobEndpoint_SSRFErrorIsSanitized(t *testing.T) {
 		JobID: "job-1",
 		Body:  SetJobEndpointRequest{EndpointURL: "http://127.0.0.1:8080/run"},
 	})
-	if err == nil {
-		t.Fatal("expected SSRF rejection, got nil")
-	}
+	require.Error(t, err)
+
 	msg := err.Error()
-	if !strings.Contains(msg, "endpoint_url failed validation") {
-		t.Fatalf("error should use sanitized message, got %q", msg)
-	}
-	if strings.Contains(msg, "127.0.0.1") || strings.Contains(msg, "private") || strings.Contains(msg, "loopback") {
-		t.Fatalf("sanitized error must not leak IP / classification, got %q", msg)
-	}
-	if capture.Load() != nil {
-		t.Fatal("UpdateJobEndpoint must not be called when SSRF validation fails")
-	}
+	require.True(
+		t, strings.Contains(msg, "endpoint_url failed validation"))
+	require.False(t, strings.Contains(msg,
+		"127.0.0.1",
+	) || strings.Contains(msg, "private") || strings.Contains(msg, "loopback"),
+	)
+	require.Nil(t, capture.
+		Load())
+
 }
 
 func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
@@ -88,23 +89,24 @@ func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
 		JobID: "job-1",
 		Body:  SetJobEndpointRequest{EndpointURL: "https://new.example.com/run"},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	cap := capture.Load()
-	if cap == nil {
-		t.Fatal("expected UpdateJobEndpoint to be invoked")
-		return
-	}
-	if cap.SigningSecret == "esec_preexisting_secret" {
-		t.Fatalf("signing secret persisted in plaintext")
-	}
-	if !straitcrypto.IsEncryptedField(cap.SigningSecret) {
-		t.Fatalf("signing secret = %q, want encrypted field", cap.SigningSecret)
-	}
-	if out.Body.SigningSecret != "" {
-		t.Fatalf("response signing_secret should be empty when not rotating, got %q", out.Body.SigningSecret)
-	}
+	require.NotNil(t, cap)
+	require.NotEqual(t, "esec_preexisting_secret",
+
+		cap.
+			SigningSecret,
+	)
+	require.True(
+		t, straitcrypto.
+			IsEncryptedField(cap.
+				SigningSecret,
+			))
+	require.Equal(t, "", out.
+		Body.SigningSecret,
+	)
+
 }
 
 func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
@@ -127,29 +129,34 @@ func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
 			RotateSigningSecret: true,
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	cap := capture.Load()
-	if cap == nil {
-		t.Fatal("expected UpdateJobEndpoint to be invoked")
-		return
-	}
-	if cap.SigningSecret == "esec_preexisting_secret" {
-		t.Fatal("rotation requested but signing secret was not rotated")
-	}
-	if !straitcrypto.IsEncryptedField(cap.SigningSecret) {
-		t.Fatalf("stored signing secret = %q, want encrypted field", cap.SigningSecret)
-	}
-	if out.Body.SigningSecret == "" {
-		t.Fatal("response signing_secret must be populated when rotating")
-	}
-	if !strings.HasPrefix(out.Body.SigningSecret, "esec_") {
-		t.Fatalf("response signing secret missing esec_ prefix: %q", out.Body.SigningSecret)
-	}
-	if out.Body.SigningSecret == cap.SigningSecret {
-		t.Fatalf("response signing_secret must be plaintext once, not stored ciphertext")
-	}
+	require.NotNil(t, cap)
+	require.NotEqual(t, "esec_preexisting_secret",
+
+		cap.
+			SigningSecret,
+	)
+	require.True(
+		t, straitcrypto.
+			IsEncryptedField(cap.
+				SigningSecret,
+			))
+	require.NotEqual(t, "",
+		out.Body.SigningSecret,
+	)
+	require.True(
+		t, strings.HasPrefix(out.Body.
+			SigningSecret,
+
+			"esec_",
+		))
+	require.NotEqual(t, cap.
+		SigningSecret,
+		out.Body.SigningSecret,
+	)
+
 }
 
 func TestSetJobEndpoint_RotateFalseDoesNotReturnSecret(t *testing.T) {
@@ -171,10 +178,9 @@ func TestSetJobEndpoint_RotateFalseDoesNotReturnSecret(t *testing.T) {
 			RotateSigningSecret: false,
 		},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.SigningSecret != "" {
-		t.Fatalf("response signing_secret must be empty when rotate_signing_secret=false, got %q", out.Body.SigningSecret)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "", out.
+		Body.SigningSecret,
+	)
+
 }

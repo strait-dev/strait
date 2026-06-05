@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
 	"strait/internal/pubsub"
@@ -56,7 +57,7 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 		select {
 		case <-subscribed:
 		case <-time.After(2 * time.Second):
-			t.Fatal("timed out waiting for activity stream to subscribe")
+			require.Fail(t, "timed out waiting for activity stream to subscribe")
 		}
 	}
 
@@ -66,7 +67,7 @@ func TestProjectActivityStream_FanoutDrains(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not return after client disconnect: fanout barrier missing or deadlocked")
+		require.Fail(t, "handler did not return after client disconnect: fanout barrier missing or deadlocked")
 	}
 	srv.Close()
 

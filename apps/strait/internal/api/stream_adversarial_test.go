@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 // streamTestStore returns an APIStoreMock that yields a non-terminal run.
@@ -55,13 +57,16 @@ func TestSSE_NewlineInMessage(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	body := w.Body.String()
+	require.False(t, !strings.Contains(body, "line1") ||
+		!strings.Contains(body,
+
+			"line2"))
+
 	// The raw format is "data: line1\nline2\n\n". Because the SSE spec says
 	// newlines inside a data field split the field into multiple data: lines,
 	// the presence of a bare newline between "line1" and "line2" is a protocol
 	// concern. We verify the message bytes appear in the output.
-	if !strings.Contains(body, "line1") || !strings.Contains(body, "line2") {
-		t.Fatalf("expected message content in body, got: %s", body)
-	}
+
 }
 
 // TestSSE_DoubleNewlineInjection verifies that a message containing \n\n does
@@ -77,13 +82,13 @@ func TestSSE_DoubleNewlineInjection(t *testing.T) {
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
 
 	body := w.Body.String()
+	require.True(
+		t, strings.Contains(body, "before"))
+	require.True(
+		t, strings.Contains(body, "after"))
+
 	// Both halves of the payload must appear somewhere in the response.
-	if !strings.Contains(body, "before") {
-		t.Fatalf("expected 'before' in body, got: %s", body)
-	}
-	if !strings.Contains(body, "after") {
-		t.Fatalf("expected 'after' in body, got: %s", body)
-	}
+
 }
 
 // TestSSE_NullBytesInMessage ensures the handler does not panic or drop the
@@ -96,14 +101,14 @@ func TestSSE_NullBytesInMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "data:") {
-		t.Fatalf("expected data frame in body, got: %s", body)
-	}
+	require.True(
+		t, strings.Contains(body, "data:"))
+
 }
 
 // TestSSE_HugeMessage sends a 10 MB message through the SSE handler and
@@ -119,14 +124,15 @@ func TestSSE_HugeMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.GreaterOrEqual(t, w.Body.
+		Len(), 10*1024*1024,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	// The body must contain at least 10MB of 'A' characters.
-	if w.Body.Len() < 10*1024*1024 {
-		t.Fatalf("expected body >= 10MB, got %d bytes", w.Body.Len())
-	}
+
 }
 
 // TestSSE_EmptyMessage verifies the handler writes a valid SSE frame even when
@@ -138,15 +144,16 @@ func TestSSE_EmptyMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
+	require.True(
+		t, strings.Contains(body, "data: \n\n"))
+
 	// Even an empty message should produce "data: \n\n".
-	if !strings.Contains(body, "data: \n\n") {
-		t.Fatalf("expected empty data frame, got: %q", body)
-	}
+
 }
 
 // TestSSE_ControlCharsInMessage verifies that carriage return and tab
@@ -159,14 +166,14 @@ func TestSSE_ControlCharsInMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "col1") {
-		t.Fatalf("expected message content in body, got: %s", body)
-	}
+	require.True(
+		t, strings.Contains(body, "col1"))
+
 }
 
 // TestSSE_UnicodeInMessage verifies multi-byte UTF-8 characters survive the
@@ -179,14 +186,14 @@ func TestSSE_UnicodeInMessage(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Hola") {
-		t.Fatalf("expected unicode content in body, got: %s", body)
-	}
+	require.True(
+		t, strings.Contains(body, "Hola"))
+
 }
 
 // TestSSE_KeepaliveFormat verifies that the keepalive message uses the SSE
@@ -201,18 +208,17 @@ func TestSSE_KeepaliveFormat(t *testing.T) {
 	// simple string check against the known format.
 	expected := ": keepalive\n\n"
 	formatted := ": keepalive\n\n"
-	if formatted != expected {
-		t.Fatalf("keepalive format = %q, want %q", formatted, expected)
-	}
+	require.Equal(t, expected,
+		formatted,
+	)
 
 	// Also confirm the data frame format.
 	dataFrame := fmt.Sprintf("data: %s\n\n", "test-payload")
-	if !strings.HasPrefix(dataFrame, "data: ") {
-		t.Fatalf("data frame must start with 'data: ', got: %q", dataFrame)
-	}
-	if !strings.HasSuffix(dataFrame, "\n\n") {
-		t.Fatalf("data frame must end with double newline, got: %q", dataFrame)
-	}
+	require.True(
+		t, strings.HasPrefix(dataFrame, "data: "))
+	require.True(
+		t, strings.HasSuffix(dataFrame, "\n\n"))
+
 }
 
 // FuzzSSEMessageFormat fuzzes the content passed through the SSE data frame
@@ -234,9 +240,9 @@ func FuzzSSEMessageFormat(f *testing.F) {
 		_, _ = fmt.Fprintf(&buf, "data: %s\n\n", data)
 
 		result := buf.String()
-		if !strings.HasPrefix(result, "data: ") {
-			t.Fatalf("formatted SSE must start with 'data: ', got: %q", result)
-		}
+		require.True(
+			t, strings.HasPrefix(result, "data: "))
+
 	})
 }
 
@@ -255,16 +261,16 @@ func TestSSE_RapidMessages(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
 	// Verify first, last, and a middle message.
 	for _, idx := range []int{0, count / 2, count - 1} {
 		needle := fmt.Sprintf(`"seq":%d`, idx)
-		if !strings.Contains(body, needle) {
-			t.Fatalf("missing message seq=%d in body (body len=%d)", idx, len(body))
-		}
+		require.True(
+			t, strings.Contains(body, needle))
+
 	}
 }

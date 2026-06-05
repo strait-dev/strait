@@ -6,44 +6,51 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRotateAuditSigningKey_RequiresAdmin(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		RotateAuditSigningKeyFunc: func(_ context.Context, _, _ string) (int, error) {
-			t.Error("store must not be called when caller is not admin")
+			assert.Fail(t,
+
+				"store must not be called when caller is not admin")
 			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleRotateAuditSigningKey(nonAdminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-a"})
-	if err == nil {
-		t.Fatal("expected 403 for non-admin caller, got nil")
-	}
-	if !strings.Contains(err.Error(), "admin") {
-		t.Errorf("expected admin-required error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.
+			Error(), "admin",
+		))
+
 }
 
 func TestRotateAuditSigningKey_RejectsCrossTenant(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		RotateAuditSigningKeyFunc: func(_ context.Context, _, _ string) (int, error) {
-			t.Error("store must not be called on cross-tenant request")
+			assert.Fail(t,
+
+				"store must not be called on cross-tenant request")
 			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-b"})
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant request, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.
+			Error(), "not found",
+		))
+
 }
 
 func TestRotateAuditSigningKey_ReturnsEpochs(t *testing.T) {
@@ -64,24 +71,24 @@ func TestRotateAuditSigningKey_ReturnsEpochs(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	out, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-a"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out == nil {
-		t.Fatal("nil output")
-		return
-	}
-	if out.Body.NewEpoch != 1 {
-		t.Errorf("new_epoch = %d, want 1", out.Body.NewEpoch)
-	}
-	if out.Body.PreviousEpoch != 0 {
-		t.Errorf("previous_epoch = %d, want 0", out.Body.PreviousEpoch)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	assert.EqualValues(t, 1, out.
+		Body.NewEpoch,
+	)
+	assert.EqualValues(t, 0, out.
+		Body.PreviousEpoch,
+	)
+
 	if got, _ := seenProject.Load().(string); got != "proj-a" {
-		t.Errorf("store called with project %q, want proj-a", got)
+		assert.Failf(t, "test failure",
+
+			"store called with project %q, want proj-a", got)
 	}
 	if got, _ := seenActor.Load().(string); got != "internal:admin" {
-		t.Errorf("store called with actor %q, want internal:admin", got)
+		assert.Failf(t, "test failure",
+
+			"store called with actor %q, want internal:admin", got)
 	}
 }
 
@@ -100,10 +107,10 @@ func TestRotateAuditSigningKey_StorePropagatesError(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleRotateAuditSigningKey(adminCtx("proj-a"), &RotateAuditSigningKeyInput{ID: "proj-a"})
-	if err == nil {
-		t.Fatal("expected error from store failure, got nil")
-	}
-	if strings.Contains(err.Error(), "pq:") || strings.Contains(err.Error(), "audit_events_pkey") {
-		t.Errorf("handler leaked SQL-layer error text: %v", err)
-	}
+	require.Error(t, err)
+	assert.False(
+		t, strings.Contains(err.
+			Error(), "pq:",
+		) || strings.Contains(err.Error(), "audit_events_pkey"))
+
 }

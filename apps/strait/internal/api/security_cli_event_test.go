@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Issue 1: CLI device-code keys must have explicit scopes, not wildcard.
@@ -48,28 +51,23 @@ func TestHandleApproveDeviceCode_ExplicitScopes(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if createdKey == nil {
-		t.Fatal("expected API key to be created")
-	}
-	if len(createdKey.Scopes) == 0 {
-		t.Fatal("CLI key must have explicit scopes, got empty (wildcard)")
-	}
-	if createdKey.ExpiresAt == nil {
-		t.Fatal("CLI key must expire")
-	}
-	if createdKey.ExpiresAt.After(time.Now().Add(time.Duration(defaultCLIKeyLifetimeDays+1) * 24 * time.Hour)) {
-		t.Fatalf("CLI key expiry = %v, want default lifetime cap", createdKey.ExpiresAt)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, createdKey)
+	require.NotEmpty(t, createdKey.
+		Scopes)
+	require.NotNil(t, createdKey.ExpiresAt)
+	require.False(t, createdKey.ExpiresAt.
+		After(time.Now().Add(time.
+			Duration(defaultCLIKeyLifetimeDays+
+				1)*24*time.Hour)),
+	)
 
 	// Verify all scopes are valid.
 	for _, s := range createdKey.Scopes {
-		if !domain.ValidScopes[s] {
-			t.Errorf("CLI key has unknown scope: %q", s)
-		}
+		assert.True(t,
+			domain.ValidScopes[s])
+
 	}
 }
 
@@ -106,13 +104,9 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if createdKey == nil {
-		t.Fatal("expected API key to be created")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, createdKey)
 
 	adminScopes := map[string]bool{
 		domain.ScopeAPIKeysManage:  true,
@@ -121,9 +115,10 @@ func TestHandleApproveDeviceCode_ExcludesAdminScopes(t *testing.T) {
 		domain.ScopeAll:            true,
 	}
 	for _, s := range createdKey.Scopes {
-		if adminScopes[s] {
-			t.Errorf("CLI key must not have admin scope %q", s)
-		}
+		assert.False(
+			t, adminScopes[s],
+		)
+
 	}
 }
 
@@ -160,25 +155,22 @@ func TestHandleApproveDeviceCode_ScopesMatchCLIDefaults(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, createdKey)
+	require.Len(t,
+		createdKey.Scopes,
+		len(domain.
+			CLIDefaultScopes))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if createdKey == nil {
-		t.Fatal("expected API key to be created")
-	}
-
-	if len(createdKey.Scopes) != len(domain.CLIDefaultScopes) {
-		t.Fatalf("expected %d scopes, got %d", len(domain.CLIDefaultScopes), len(createdKey.Scopes))
-	}
 	scopeSet := make(map[string]bool, len(createdKey.Scopes))
 	for _, s := range createdKey.Scopes {
 		scopeSet[s] = true
 	}
 	for _, s := range domain.CLIDefaultScopes {
-		if !scopeSet[s] {
-			t.Errorf("expected CLI key to have scope %q", s)
-		}
+		assert.True(t,
+			scopeSet[s])
+
 	}
 }
 
@@ -212,18 +204,17 @@ func TestHandleSendEvent_CrossProject_Returns404(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("cross-project send event: status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.Code,
+	)
 
 	// Verify the error message does not leak resource existence.
 	var errResp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &errResp); err == nil {
 		detail, _ := errResp["detail"].(string)
-		if strings.Contains(strings.ToLower(detail), "does not belong") {
-			t.Error("error message should not reveal that the trigger exists in another project")
-		}
+		assert.False(
+			t, strings.Contains(strings.ToLower(detail), "does not belong"))
+
 	}
 }
 
@@ -263,10 +254,9 @@ func TestHandleSendEvent_SameProject_Succeeds(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("same-project send event: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 }
 
 func TestHandleCancelEventTrigger_CrossProject_Returns404(t *testing.T) {
@@ -294,17 +284,16 @@ func TestHandleCancelEventTrigger_CrossProject_Returns404(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("cross-project cancel trigger: status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.Code,
+	)
 
 	var errResp map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &errResp); err == nil {
 		detail, _ := errResp["detail"].(string)
-		if strings.Contains(strings.ToLower(detail), "does not belong") {
-			t.Error("error message should not reveal that the trigger exists in another project")
-		}
+		assert.False(
+			t, strings.Contains(strings.ToLower(detail), "does not belong"))
+
 	}
 }
 
@@ -337,8 +326,7 @@ func TestHandleCancelEventTrigger_SameProject_Succeeds(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("same-project cancel trigger: status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 }

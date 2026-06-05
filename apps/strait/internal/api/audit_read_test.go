@@ -12,6 +12,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestGetAuditEvent_EmitsSingleReadAudit verifies GET /v1/audit-events/{id}
@@ -35,12 +38,13 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 			mu.Lock()
 			getCalls++
 			mu.Unlock()
-			if gotProject != projectID {
-				t.Errorf("GetAuditEvent project = %q, want %q", gotProject, projectID)
-			}
-			if gotID != eventID {
-				t.Errorf("GetAuditEvent id = %q, want %q", gotID, eventID)
-			}
+			assert.Equal(
+				t, projectID, gotProject,
+			)
+			assert.Equal(
+				t, eventID, gotID,
+			)
+
 			return &domain.AuditEvent{
 				ID:        eventID,
 				ProjectID: projectID,
@@ -62,16 +66,12 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/audit-events/"+eventID, "", projectID)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if getCalls != 1 {
-		t.Fatalf("GetAuditEvent called %d times, want 1", getCalls)
-	}
+	require.EqualValues(t, 1, getCalls)
 
 	// Find the self-audit row.
 	var found *domain.AuditEvent
@@ -81,28 +81,25 @@ func TestGetAuditEvent_EmitsSingleReadAudit(t *testing.T) {
 			break
 		}
 	}
-	if found == nil {
-		t.Fatalf("no audit.single_read event emitted; got %d events", len(emitted))
-		return
-	}
-
-	if found.ProjectID != projectID {
-		t.Errorf("emitted project_id = %q, want %q", found.ProjectID, projectID)
-	}
-	if found.ResourceType != "audit" {
-		t.Errorf("emitted resource_type = %q, want 'audit'", found.ResourceType)
-	}
-	if found.ResourceID != eventID {
-		t.Errorf("emitted resource_id = %q, want %q", found.ResourceID, eventID)
-	}
+	require.NotNil(t, found)
+	assert.Equal(
+		t, projectID, found.
+			ProjectID,
+	)
+	assert.Equal(
+		t, "audit", found.
+			ResourceType,
+	)
+	assert.Equal(
+		t, eventID, found.
+			ResourceID)
 
 	var details map[string]any
-	if err := json.Unmarshal(found.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
-	if details["target_id"] != eventID {
-		t.Errorf("details.target_id = %v, want %q", details["target_id"], eventID)
-	}
+	require.NoError(t, json.Unmarshal(found.Details,
+		&details))
+	assert.Equal(
+		t, eventID, details["target_id"])
+
 }
 
 // TestGetAuditEvent_RejectsCrossTenant verifies the store is called with
@@ -125,13 +122,13 @@ func TestGetAuditEvent_RejectsCrossTenant(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/audit-events/ev-owned-by-b", "", "proj-a")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
+	assert.Equal(
+		t, "proj-a", seenProject,
+	)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404, body = %s", w.Code, w.Body.String())
-	}
-	if seenProject != "proj-a" {
-		t.Errorf("store called with project = %q, want %q (must use ctx, not URL)", seenProject, "proj-a")
-	}
 }
 
 // TestGetSecret_EmitsSecretReadAudit verifies GET /v1/secrets/{id} returns
@@ -151,9 +148,9 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 	)
 	ms := &APIStoreMock{
 		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
-			if id != secretID {
-				t.Errorf("GetJobSecret id = %q, want %q", id, secretID)
-			}
+			assert.Equal(
+				t, secretID, id)
+
 			return &domain.JobSecret{
 				ID:             secretID,
 				ProjectID:      projectID,
@@ -177,19 +174,13 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/secrets/"+secretID, "", projectID)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	// Response body must not leak encrypted or plaintext values.
 	body := w.Body.String()
-	if strings.Contains(body, "ciphertext-never-returned") {
-		t.Fatalf("response body leaked encrypted value: %s", body)
-	}
-	if strings.Contains(body, "encrypted_value") {
-		t.Fatalf("response body contained encrypted_value key: %s", body)
-	}
+	require.False(t, strings.Contains(body, "ciphertext-never-returned"))
+	require.False(t, strings.Contains(body, "encrypted_value"))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -200,28 +191,24 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 			break
 		}
 	}
-	if found == nil {
-		t.Fatalf("no secret.read event emitted; got %d events", len(emitted))
-		return
-	}
-
-	if found.ResourceType != "secret" {
-		t.Errorf("resource_type = %q, want 'secret'", found.ResourceType)
-	}
-	if found.ResourceID != secretID {
-		t.Errorf("resource_id = %q, want %q", found.ResourceID, secretID)
-	}
+	require.NotNil(t, found)
+	assert.Equal(
+		t, "secret", found.
+			ResourceType,
+	)
+	assert.Equal(
+		t, secretID, found.
+			ResourceID,
+	)
 
 	var details map[string]any
-	if err := json.Unmarshal(found.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
-	if details["secret_id"] != secretID {
-		t.Errorf("details.secret_id = %v, want %q", details["secret_id"], secretID)
-	}
-	if details["name"] != keyName {
-		t.Errorf("details.name = %v, want %q", details["name"], keyName)
-	}
+	require.NoError(t, json.Unmarshal(found.Details,
+		&details))
+	assert.Equal(
+		t, secretID, details["secret_id"])
+	assert.Equal(
+		t, keyName, details["name"])
+
 }
 
 // TestSecretReadAudit_NeverContainsKeyMaterial ensures the secret.read audit
@@ -262,10 +249,8 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/secrets/"+secretID, "", projectID)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -276,21 +261,19 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 			break
 		}
 	}
-	if found == nil {
-		t.Fatal("secret.read audit not emitted")
-		return
-	}
+	require.NotNil(t, found)
 
 	var details map[string]any
-	if err := json.Unmarshal(found.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(found.Details,
+		&details))
 
 	// None of these keys may ever appear.
 	forbidden := []string{"key", "value", "secret", "key_material", "encrypted_value", "plaintext", "password", "token", "bearer"}
 	for _, k := range forbidden {
 		if _, ok := details[k]; ok {
-			t.Errorf("secret.read details contains forbidden key %q: %v", k, details)
+			assert.Failf(t, "test failure",
+
+				"secret.read details contains forbidden key %q: %v", k, details)
 		}
 	}
 
@@ -299,8 +282,8 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 	// stuffing it under a renamed key.
 	raw := string(found.Details)
 	for _, needle := range []string{"super-secret-value", "ENC:super-secret-value"} {
-		if strings.Contains(raw, needle) {
-			t.Errorf("secret.read details leaked secret material %q: %s", needle, raw)
-		}
+		assert.False(
+			t, strings.Contains(raw, needle))
+
 	}
 }

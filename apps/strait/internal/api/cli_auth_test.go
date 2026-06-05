@@ -12,6 +12,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleDeviceCode_Success(t *testing.T) {
@@ -25,53 +27,43 @@ func TestHandleDeviceCode_Success(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp deviceCodeResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.NotEqual(t, "", resp.DeviceCode)
+	require.Len(t,
+		resp.DeviceCode,
+		64)
+	require.NotEqual(t, "", resp.UserCode)
+	require.Len(t,
+		resp.UserCode,
+		8)
+	require.False(t, resp.ExpiresIn <=
+		0)
+	require.False(t, resp.Interval <=
+		0)
+	require.NotEqual(t, "", resp.VerificationURL)
 
-	if resp.DeviceCode == "" {
-		t.Fatal("expected non-empty device_code")
-	}
-	if len(resp.DeviceCode) != 64 {
-		t.Fatalf("expected 64-char hex device_code, got %d chars", len(resp.DeviceCode))
-	}
-	if resp.UserCode == "" {
-		t.Fatal("expected non-empty user_code")
-	}
-	if len(resp.UserCode) != 8 {
-		t.Fatalf("expected 8-char user_code, got %d chars", len(resp.UserCode))
-	}
-	if resp.ExpiresIn <= 0 {
-		t.Fatal("expected positive expires_in")
-	}
-	if resp.Interval <= 0 {
-		t.Fatal("expected positive interval")
-	}
-	if resp.VerificationURL == "" {
-		t.Fatal("expected non-empty verification_url")
-	}
 }
 
 func TestDeviceCodePollIntervalFitsPublicRouteRateLimit(t *testing.T) {
 	t.Parallel()
+	require.False(t, deviceCodePollInterval <=
+		0)
 
-	if deviceCodePollInterval <= 0 {
-		t.Fatal("deviceCodePollInterval must be positive")
-	}
 	pollsPerWindow := 1 // the initial /device-code request shares the same public route bucket.
 	pollsPerWindow += int(cliAuthRateLimitWindow / (time.Duration(deviceCodePollInterval) * time.Second))
 	if cliAuthRateLimitWindow%(time.Duration(deviceCodePollInterval)*time.Second) != 0 {
 		pollsPerWindow++
 	}
-	if pollsPerWindow > cliAuthRateLimitRequests {
-		t.Fatalf("advertised polling interval allows %d polls per window, route limit is %d", pollsPerWindow, cliAuthRateLimitRequests)
-	}
+	require.LessOrEqual(t, pollsPerWindow,
+		cliAuthRateLimitRequests,
+	)
+
 }
 
 func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
@@ -88,21 +80,20 @@ func TestHandleDeviceCode_CodesAreUnique(t *testing.T) {
 		r.Header.Set("Content-Type", "application/json")
 
 		srv.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK,
+			w.Code)
+		require.NoError(t, json.Unmarshal(w.Body.
+			Bytes(), &codes[i]))
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("request %d: expected 200, got %d", i, w.Code)
-		}
-		if err := json.Unmarshal(w.Body.Bytes(), &codes[i]); err != nil {
-			t.Fatalf("request %d: invalid JSON: %v", i, err)
-		}
 	}
+	require.NotEqual(t, codes[1].DeviceCode,
 
-	if codes[0].DeviceCode == codes[1].DeviceCode {
-		t.Fatal("expected different device_codes")
-	}
-	if codes[0].UserCode == codes[1].UserCode {
-		t.Fatal("expected different user_codes")
-	}
+		codes[0].DeviceCode,
+	)
+	require.NotEqual(t, codes[1].UserCode,
+		codes[0].UserCode,
+	)
+
 }
 
 func TestHandleDeviceCode_CleansExpiredCodesBeforeCreate(t *testing.T) {
@@ -126,16 +117,14 @@ func TestHandleDeviceCode_CleansExpiredCodesBeforeCreate(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/device-code", nil)
 	r.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, cleanupCalled)
+	require.True(
+		t, createSawCleanup,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !cleanupCalled {
-		t.Fatal("CleanupExpiredDeviceCodes was not called")
-	}
-	if !createSawCleanup {
-		t.Fatal("CreateDeviceCode ran before expired code cleanup")
-	}
 }
 
 func TestHandleDeviceCode_CleanupFailurePreventsCreate(t *testing.T) {
@@ -157,13 +146,12 @@ func TestHandleDeviceCode_CleanupFailurePreventsCreate(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/device-code", nil)
 	r.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("CreateDeviceCode must not run when expired code cleanup fails")
-	}
+		w.Code,
+	)
+	require.False(t, createCalled)
+
 }
 
 func TestHandleDeviceToken_CleansExpiredCodesBeforeLookup(t *testing.T) {
@@ -192,16 +180,15 @@ func TestHandleDeviceToken_CleansExpiredCodesBeforeLookup(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/v1/cli/auth/token", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected authorization_pending 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !cleanupCalled {
-		t.Fatal("CleanupExpiredDeviceCodes was not called")
-	}
-	if !lookupSawCleanup {
-		t.Fatal("GetDeviceCodeByDeviceCode ran before expired code cleanup")
-	}
+		w.Code)
+	require.True(
+		t, cleanupCalled)
+	require.True(
+		t, lookupSawCleanup,
+	)
+
 }
 
 func TestHandleDeviceToken_Pending(t *testing.T) {
@@ -229,18 +216,18 @@ func TestHandleDeviceToken_Pending(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["error"] != "authorization_pending" {
-		t.Fatalf("expected authorization_pending error, got %q", resp["error"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "authorization_pending",
+
+		resp["error"])
+
 }
 
 func TestHandleDeviceToken_Approved(t *testing.T) {
@@ -272,21 +259,20 @@ func TestHandleDeviceToken_Approved(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp deviceTokenResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.APIKey != "strait_testapikey1234567890abcdef" {
-		t.Fatalf("expected raw api key, got %q", resp.APIKey)
-	}
-	if resp.ProjectID != "proj-1" {
-		t.Fatalf("expected project_id proj-1, got %q", resp.ProjectID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "strait_testapikey1234567890abcdef",
+
+		resp.APIKey)
+	require.Equal(t, "proj-1", resp.
+		ProjectID,
+	)
+
 }
 
 func TestHandleDeviceToken_Expired(t *testing.T) {
@@ -311,18 +297,17 @@ func TestHandleDeviceToken_Expired(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["error"] != "expired_token" {
-		t.Fatalf("expected expired_token error, got %q", resp["error"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "expired_token",
+		resp["error"])
+
 }
 
 func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
@@ -347,18 +332,18 @@ func TestHandleDeviceToken_AlreadyUsed(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["error"] != "token_already_exchanged" {
-		t.Fatalf("expected token_already_exchanged error, got %q", resp["error"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "token_already_exchanged",
+
+		resp["error"])
+
 }
 
 func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
@@ -373,10 +358,10 @@ func TestHandleDeviceToken_InvalidGrantType(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleDeviceToken_MissingDeviceCode(t *testing.T) {
@@ -391,10 +376,10 @@ func TestHandleDeviceToken_MissingDeviceCode(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleApproveDeviceCode_Success(t *testing.T) {
@@ -406,9 +391,8 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetDeviceCodeByUserCodeFunc: func(_ context.Context, userCode string) (*store.DeviceCodeRow, error) {
-			if userCode != "ABCD1234" {
-				t.Fatalf("lookup user_code = %q, want ABCD1234", userCode)
-			}
+			require.Equal(t, "ABCD1234", userCode)
+
 			return &store.DeviceCodeRow{
 				ID:         "dc-1",
 				DeviceCode: "test-device-code",
@@ -426,12 +410,9 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 		ApproveDeviceCodeByUserCodeFunc: func(_ context.Context, userCode, apiKeyID, _ string, projectID string, scopes []string) error {
 			approvedUserCode = userCode
 			approvedAPIKeyID = apiKeyID
-			if projectID != "proj-1" {
-				t.Fatalf("approved project_id = %q, want proj-1", projectID)
-			}
-			if len(scopes) == 0 {
-				t.Fatal("approved scopes should not be empty")
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.NotEmpty(t, scopes)
+
 			return nil
 		},
 	}
@@ -443,23 +424,17 @@ func TestHandleApproveDeviceCode_Success(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, createdKey)
+	require.Equal(t, "proj-1", createdKey.
+		ProjectID,
+	)
+	require.Equal(t, "ABCD1234", approvedUserCode)
+	require.Equal(t, "key-generated",
+		approvedAPIKeyID,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if createdKey == nil {
-		t.Fatal("expected API key to be created")
-	}
-	if createdKey.ProjectID != "proj-1" {
-		t.Fatalf("expected project_id proj-1, got %q", createdKey.ProjectID)
-	}
-	if approvedUserCode != "ABCD1234" {
-		t.Fatalf("expected user code to be approved, got %q", approvedUserCode)
-	}
-	if approvedAPIKeyID != "key-generated" {
-		t.Fatalf("expected api key id key-generated, got %q", approvedAPIKeyID)
-	}
 }
 
 func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScopedCLIKey(t *testing.T) {
@@ -477,9 +452,8 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 			}, nil
 		},
 		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("quota project_id = %q, want proj-1", projectID)
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return &store.ProjectQuota{ProjectID: projectID}, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, key *domain.APIKey) error {
@@ -501,15 +475,13 @@ func TestHandleApproveDeviceCode_EnvironmentScopedCallerCreatesEnvironmentScoped
 		UserCode:  "ABCD1234",
 		ProjectID: "proj-1",
 	}})
-	if err != nil {
-		t.Fatalf("handleApproveDeviceCode() error = %v", err)
-	}
-	if createdKey == nil {
-		t.Fatal("expected API key to be created")
-	}
-	if createdKey.EnvironmentID != "env-staging" {
-		t.Fatalf("created key environment_id = %q, want env-staging", createdKey.EnvironmentID)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, createdKey)
+	require.Equal(t, "env-staging",
+		createdKey.
+			EnvironmentID,
+	)
+
 }
 
 func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
@@ -547,15 +519,15 @@ func TestHandleApproveDeviceCode_AppliesProjectMaxKeyLifetime(t *testing.T) {
 		UserCode:  "ABCD1234",
 		ProjectID: "proj-1",
 	}})
-	if err != nil {
-		t.Fatalf("handleApproveDeviceCode() error = %v", err)
-	}
-	if createdKey == nil || createdKey.ExpiresAt == nil {
-		t.Fatal("expected CLI key to be created with an expiry")
-	}
-	if createdKey.ExpiresAt.After(time.Now().Add(8 * 24 * time.Hour)) {
-		t.Fatalf("created key expiry = %v, want capped near 7 days", createdKey.ExpiresAt)
-	}
+	require.NoError(t, err)
+	require.False(t, createdKey ==
+		nil || createdKey.
+		ExpiresAt ==
+		nil)
+	require.False(t, createdKey.ExpiresAt.
+		After(time.Now().Add(8*24*time.
+			Hour)))
+
 }
 
 func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
@@ -574,10 +546,10 @@ func TestHandleApproveDeviceCode_NotFound(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
@@ -585,7 +557,9 @@ func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetDeviceCodeByUserCodeFunc: func(context.Context, string) (*store.DeviceCodeRow, error) {
-			t.Fatal("device-code-only approval must not reach the store")
+			require.Fail(t,
+
+				"device-code-only approval must not reach the store")
 			return nil, nil
 		},
 	}
@@ -597,10 +571,12 @@ func TestHandleApproveDeviceCode_RejectsDeviceCodeOnly(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.False(t, w.Code != http.
+		StatusUnprocessableEntity &&
+		w.Code != http.
+			StatusBadRequest,
+	)
 
-	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
-		t.Fatalf("expected validation error, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T) {
@@ -617,7 +593,9 @@ func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T)
 			}, nil
 		},
 		CreateAPIKeyFunc: func(context.Context, *domain.APIKey) error {
-			t.Fatal("api key should not be created when caller cannot grant CLI scopes")
+			require.Fail(t,
+
+				"api key should not be created when caller cannot grant CLI scopes")
 			return nil
 		},
 	}
@@ -630,7 +608,6 @@ func TestHandleApproveDeviceCode_LimitedCallerCannotGrantCLIScopes(t *testing.T)
 		UserCode:  "ABCD1234",
 		ProjectID: "proj-1",
 	}})
-	if err == nil {
-		t.Fatal("expected approval to fail when caller cannot grant CLI scopes")
-	}
+	require.Error(t, err)
+
 }

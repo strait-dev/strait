@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditFullCoverage_EveryActionReachable exercises a representative set of
@@ -32,12 +35,9 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			actions[ev.Action]++
-			if ev.ProjectID == "" {
-				t.Errorf("audit event %q has empty project_id", ev.Action)
-			}
-			if ev.ActorID == "" {
-				t.Errorf("audit event %q has empty actor_id", ev.Action)
-			}
+			assert.NotEqual(t, "", ev.ProjectID)
+			assert.NotEqual(t, "", ev.ActorID)
+
 			return nil
 		},
 	}
@@ -155,9 +155,8 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, action := range wantActions {
-		if actions[action] == 0 {
-			t.Errorf("action %q was not captured", action)
-		}
+		assert.NotEqual(t, 0, actions[action])
+
 	}
 
 	// Spot-check that details marshaled round-trips. The real emit path
@@ -167,7 +166,6 @@ func TestAuditFullCoverage_CapturesExpectedActions(t *testing.T) {
 	b, _ := json.Marshal(probe)
 	var roundTripped map[string]any
 	_ = json.Unmarshal(b, &roundTripped)
-	if roundTripped["k"] != "v" {
-		t.Fatal("details json round-trip failed")
-	}
+	require.Equal(t, "v", roundTripped["k"])
+
 }

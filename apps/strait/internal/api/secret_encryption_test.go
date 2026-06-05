@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateSecret_DelegatesValueEncryptionToStore(t *testing.T) {
@@ -31,21 +33,16 @@ func TestHandleCreateSecret_DelegatesValueEncryptionToStore(t *testing.T) {
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"DB_PASSWORD","value":"super-secret-value"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.NotNil(t, storedSecret)
+	require.Equal(t, "super-secret-value",
+		storedSecret.
+			EncryptedValue,
+	)
+	require.EqualValues(t, 0, apiEncryptor.
+		calls)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if storedSecret == nil {
-		t.Fatal("CreateJobSecret was not called")
-	}
-
-	if storedSecret.EncryptedValue != "super-secret-value" {
-		t.Fatalf("API should pass plaintext to store for single encryption, got %q", storedSecret.EncryptedValue)
-	}
-	if apiEncryptor.calls != 0 {
-		t.Fatalf("API encryptor calls = %d, want 0; store owns job secret encryption", apiEncryptor.calls)
-	}
 }
 
 func TestHandleCreateSecret_WithoutEncryptor_StoresRaw(t *testing.T) {
@@ -69,19 +66,15 @@ func TestHandleCreateSecret_WithoutEncryptor_StoresRaw(t *testing.T) {
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"plain-value"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if storedSecret == nil {
-		t.Fatal("CreateJobSecret was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.NotNil(t, storedSecret)
+	require.Equal(t, "plain-value",
+		storedSecret.EncryptedValue,
+	)
 
 	// Without encryptor, value is stored as-is (backward compatible fallback).
-	if storedSecret.EncryptedValue != "plain-value" {
-		t.Fatalf("without encryptor, value should be stored raw, got %q", storedSecret.EncryptedValue)
-	}
+
 }
 
 func TestHandleCreateSecret_PassesPlaintextValuesToStore(t *testing.T) {
@@ -114,21 +107,15 @@ func TestHandleCreateSecret_PassesPlaintextValuesToStore(t *testing.T) {
 			body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"KEY","value":"` + pt + `"}`
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
+			require.Equal(t, http.StatusCreated,
+				w.Code)
+			require.NotNil(t, storedSecret)
+			require.Equal(t, pt, storedSecret.
+				EncryptedValue,
+			)
+			require.EqualValues(t, 0, apiEncryptor.
+				calls)
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-			}
-
-			if storedSecret == nil {
-				t.Fatal("CreateJobSecret was not called")
-			}
-
-			if storedSecret.EncryptedValue != pt {
-				t.Fatalf("EncryptedValue passed to store = %q, want plaintext %q", storedSecret.EncryptedValue, pt)
-			}
-			if apiEncryptor.calls != 0 {
-				t.Fatalf("API encryptor calls = %d, want 0; store owns job secret encryption", apiEncryptor.calls)
-			}
 		})
 	}
 }

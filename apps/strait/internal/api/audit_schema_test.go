@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditSchemaGeneratedIsFresh re-runs the cmd/gen-audit-schema
@@ -31,15 +34,11 @@ func TestAuditSchemaGeneratedIsFresh(t *testing.T) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("go run gen-audit-schema: %v\noutput: %s", err, out.String())
-	}
+	require.NoError(t, cmd.Run())
 
 	committedPath := filepath.Join(repoRoot, "internal/api/audit_schema_generated.json")
 	committed, err := os.ReadFile(committedPath)
-	if err != nil {
-		t.Fatalf("read committed schema: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Normalize trailing newlines.
 	generated := bytes.TrimRight(out.Bytes(), "\n")
@@ -50,17 +49,19 @@ func TestAuditSchemaGeneratedIsFresh(t *testing.T) {
 	// the generator already sorts action keys, so this is belt-and-
 	// braces).
 	var g, c any
-	if err := json.Unmarshal(generated, &g); err != nil {
-		t.Fatalf("unmarshal generated: %v", err)
-	}
-	if err := json.Unmarshal(committed, &c); err != nil {
-		t.Fatalf("unmarshal committed: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(
+		generated,
+		&g))
+	require.NoError(t, json.Unmarshal(
+		committed,
+		&c))
+
 	gBytes, _ := json.Marshal(g)
 	cBytes, _ := json.Marshal(c)
-	if !bytes.Equal(gBytes, cBytes) {
-		t.Errorf("committed audit_schema_generated.json is stale.\nRun:\n  go run ./cmd/gen-audit-schema > internal/api/audit_schema_generated.json\nand commit the result.")
-	}
+	assert.True(t, bytes.Equal(gBytes,
+
+		cBytes))
+
 }
 
 // findRepoRoot walks up from the test's cwd looking for go.mod. Tests

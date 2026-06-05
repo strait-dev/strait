@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_Jobs_GetJobHealth_RejectsCrossProject verifies that a caller
@@ -22,7 +24,9 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossProject(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		GetJobHealthStatsFunc: func(_ context.Context, _ string, _ time.Time) (*store.JobHealthStats, error) {
-			t.Fatal("GetJobHealthStats must not be called for cross-project access")
+			require.Fail(t,
+
+				"GetJobHealthStats must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -30,9 +34,11 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleGetJobHealth(ctx, &GetJobHealthInput{JobID: "job-foreign", Window: "1h"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_Jobs_GetJobHealth_RejectsCrossEnv verifies that an
@@ -45,7 +51,9 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossEnv(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-aaa", EnvironmentID: "env-staging"}, nil
 		},
 		GetJobHealthStatsFunc: func(_ context.Context, _ string, _ time.Time) (*store.JobHealthStats, error) {
-			t.Fatal("GetJobHealthStats must not be called for cross-env access")
+			require.Fail(t,
+
+				"GetJobHealthStats must not be called for cross-env access")
 			return nil, nil
 		},
 	}
@@ -54,9 +62,11 @@ func TestTenantIso_Jobs_GetJobHealth_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleGetJobHealth(ctx, &GetJobHealthInput{JobID: "job-1", Window: "1h"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_Jobs_BatchEnable_RejectsForeignIDs ensures that the project_id
@@ -76,15 +86,14 @@ func TestTenantIso_Jobs_BatchEnable_RejectsForeignIDs(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	out, err := srv.handleBatchEnableJobs(ctx, &BatchEnableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"foreign-1", "foreign-2"}}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Updated != 0 {
-		t.Fatalf("expected updated=0 for foreign-only batch, got %d", out.Body.Updated)
-	}
-	if capturedProjectID != "proj-aaa" {
-		t.Fatalf("expected project-aaa filter, got %q", capturedProjectID)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, out.
+		Body.Updated,
+	)
+	require.Equal(t, "proj-aaa",
+		capturedProjectID,
+	)
+
 }
 
 // TestTenantIso_Jobs_BatchEnable_MixedIDs_OnlyOwnUpdated checks that when a
@@ -96,9 +105,10 @@ func TestTenantIso_Jobs_BatchEnable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 	ownProject := "proj-aaa"
 	ms := &APIStoreMock{
 		BatchUpdateJobsEnabledFunc: func(_ context.Context, ids []string, _ bool, projectID string) (int64, error) {
-			if projectID != ownProject {
-				t.Fatalf("expected projectID %q, got %q", ownProject, projectID)
-			}
+			require.Equal(t, ownProject,
+				projectID,
+			)
+
 			// Simulated DB: only the first id belongs to ownProject.
 			_ = ids
 			return 1, nil
@@ -108,12 +118,11 @@ func TestTenantIso_Jobs_BatchEnable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, ownProject)
 	out, err := srv.handleBatchEnableJobs(ctx, &BatchEnableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"own-1", "foreign-1"}}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Updated != 1 {
-		t.Fatalf("expected updated=1, got %d", out.Body.Updated)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, out.
+		Body.Updated,
+	)
+
 }
 
 // TestTenantIso_Jobs_BatchDisable_RejectsForeignIDs mirrors the enable case.
@@ -121,9 +130,8 @@ func TestTenantIso_Jobs_BatchDisable_RejectsForeignIDs(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		BatchUpdateJobsEnabledFunc: func(_ context.Context, _ []string, enabled bool, _ string) (int64, error) {
-			if enabled {
-				t.Fatalf("expected enabled=false")
-			}
+			require.False(t, enabled)
+
 			return 0, nil
 		},
 	}
@@ -131,12 +139,11 @@ func TestTenantIso_Jobs_BatchDisable_RejectsForeignIDs(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	out, err := srv.handleBatchDisableJobs(ctx, &BatchDisableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"foreign-1"}}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Updated != 0 {
-		t.Fatalf("expected updated=0, got %d", out.Body.Updated)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, out.
+		Body.Updated,
+	)
+
 }
 
 // TestTenantIso_Jobs_BatchDisable_MixedIDs_OnlyOwnUpdated symmetric to enable.
@@ -144,9 +151,10 @@ func TestTenantIso_Jobs_BatchDisable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		BatchUpdateJobsEnabledFunc: func(_ context.Context, _ []string, _ bool, projectID string) (int64, error) {
-			if projectID != "proj-aaa" {
-				t.Fatalf("expected projectID proj-aaa, got %q", projectID)
-			}
+			require.Equal(t, "proj-aaa",
+				projectID,
+			)
+
 			return 1, nil
 		},
 	}
@@ -154,12 +162,11 @@ func TestTenantIso_Jobs_BatchDisable_MixedIDs_OnlyOwnUpdated(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	out, err := srv.handleBatchDisableJobs(ctx, &BatchDisableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"own-1", "foreign-1"}}})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Updated != 1 {
-		t.Fatalf("expected updated=1, got %d", out.Body.Updated)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, out.
+		Body.Updated,
+	)
+
 }
 
 // TestTenantIso_Jobs_BatchEnable_EmptyProjectCtx_Rejected ensures that a
@@ -170,16 +177,20 @@ func TestTenantIso_Jobs_BatchEnable_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		BatchUpdateJobsEnabledFunc: func(_ context.Context, _ []string, _ bool, _ string) (int64, error) {
-			t.Fatal("BatchUpdateJobsEnabled must not be called without project context")
+			require.Fail(t,
+
+				"BatchUpdateJobsEnabled must not be called without project context")
 			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	_, err := srv.handleBatchEnableJobs(context.Background(), &BatchEnableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"job-1"}}})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusBadRequest,
+		))
+
 }
 
 // TestTenantIso_Jobs_BatchDisable_EmptyProjectCtx_Rejected symmetric to enable.
@@ -187,16 +198,20 @@ func TestTenantIso_Jobs_BatchDisable_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		BatchUpdateJobsEnabledFunc: func(_ context.Context, _ []string, _ bool, _ string) (int64, error) {
-			t.Fatal("BatchUpdateJobsEnabled must not be called without project context")
+			require.Fail(t,
+
+				"BatchUpdateJobsEnabled must not be called without project context")
 			return 0, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	_, err := srv.handleBatchDisableJobs(context.Background(), &BatchDisableJobsInput{Body: BatchJobIDsRequest{IDs: []string{"job-1"}}})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusBadRequest,
+		))
+
 }
 
 // TestTenantIso_Jobs_BatchCreate_RejectsForeignProjectID checks that a
@@ -207,7 +222,9 @@ func TestTenantIso_Jobs_BatchCreate_RejectsForeignProjectID(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, _ *domain.Job) error {
-			t.Fatal("CreateJob must not be called for foreign project ID")
+			require.Fail(t,
+
+				"CreateJob must not be called for foreign project ID")
 			return nil
 		},
 	}
@@ -224,15 +241,16 @@ func TestTenantIso_Jobs_BatchCreate_RejectsForeignProjectID(t *testing.T) {
 			},
 		},
 	}})
+	require.Error(t, err)
+
 	// The handler returns rawStatusError (400) when no items succeed.
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
+
 	var rse *rawStatusError
-	if !errors.As(err, &rse) {
-		t.Fatalf("expected *rawStatusError, got %T: %v", err, err)
-	}
-	if rse.status != http.StatusBadRequest {
-		t.Fatalf("expected 400, got status=%d", rse.status)
-	}
+	require.True(
+		t, errors.As(err, &rse))
+	require.Equal(t, http.StatusBadRequest,
+
+		rse.status,
+	)
+
 }

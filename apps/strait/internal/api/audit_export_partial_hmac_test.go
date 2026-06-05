@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestAuditExport_StreamError_OmitsHMACTrailer verifies that when the DB
@@ -44,9 +46,10 @@ func TestAuditExport_StreamError_OmitsHMACTrailer(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	if sig != "" {
-		t.Errorf("X-Audit-Signature should be empty on stream error, got %q", sig)
-	}
+	assert.Equal(
+		t, "", sig,
+	)
+
 }
 
 // TestAuditExport_CleanStream_IncludesHMACTrailer is the positive control:
@@ -72,7 +75,7 @@ func TestAuditExport_CleanStream_IncludesHMACTrailer(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	if sig == "" {
-		t.Error("expected X-Audit-Signature header on clean stream, got empty")
-	}
+	assert.NotEqual(t, "",
+		sig)
+
 }

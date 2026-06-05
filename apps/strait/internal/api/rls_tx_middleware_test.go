@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
@@ -31,19 +32,18 @@ func TestRLSTxMiddleware_CommitFailureDoesNotLeakSuccessResponse(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
-	if w.Header().Get("X-Test-Header") != "" {
-		t.Fatalf("success header leaked after failed commit: %q", w.Header().Get("X-Test-Header"))
-	}
-	if got := w.Body.String(); got == "success body" {
-		t.Fatal("success body leaked after failed commit")
-	}
-	if !tx.setProjectContext {
-		t.Fatal("RLS project context was not set")
-	}
+		w.Code)
+	require.Equal(t, "", w.
+		Header().Get("X-Test-Header"))
+	require.NotEqual(t, "success body",
+
+		w.Body.String())
+	require.True(
+		t, tx.setProjectContext,
+	)
+
 }
 
 func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
@@ -61,16 +61,15 @@ func TestRLSTxMiddleware_ResponseBufferLimitRollsBack(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusRequestEntityTooLarge,
 
-	if w.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
-	}
-	if tx.commitCalled {
-		t.Fatal("transaction committed after response buffer overflow")
-	}
-	if !tx.rollbackCalled {
-		t.Fatal("transaction was not rolled back after response buffer overflow")
-	}
+		w.Code,
+	)
+	require.False(t, tx.commitCalled)
+	require.True(
+		t, tx.rollbackCalled,
+	)
+
 }
 
 func TestRLSTxMiddleware_AuditExportBypassesBufferedTransaction(t *testing.T) {
@@ -89,16 +88,15 @@ func TestRLSTxMiddleware_AuditExportBypassesBufferedTransaction(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "streamed audit export",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
-	if got := w.Body.String(); got != "streamed audit export" {
-		t.Fatalf("body = %q", got)
-	}
-	if beginCount.Load() != 0 {
-		t.Fatalf("RLS tx began %d times for audit export, want 0", beginCount.Load())
-	}
+		w.Body.String())
+	require.EqualValues(t, 0, beginCount.
+		Load())
+
 }
 
 func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
@@ -117,16 +115,15 @@ func TestRLSTxMiddleware_WebhookTestBypassesBufferedTransaction(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "webhook tested",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
-	if got := w.Body.String(); got != "webhook tested" {
-		t.Fatalf("body = %q", got)
-	}
-	if beginCount.Load() != 0 {
-		t.Fatalf("RLS tx began %d times for webhook test, want 0", beginCount.Load())
-	}
+		w.Body.String())
+	require.EqualValues(t, 0, beginCount.
+		Load())
+
 }
 
 type fakeTxBeginner struct {

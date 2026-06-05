@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteTypedError_SanitizesRawError(t *testing.T) {
@@ -56,19 +58,17 @@ func TestWriteTypedError_SanitizesRawError(t *testing.T) {
 			r := httptest.NewRequest(http.MethodGet, "/test", nil)
 
 			writeTypedError(w, r, tc.err)
-
-			if w.Code != tc.wantCode {
-				t.Errorf("status = %d, want %d", w.Code, tc.wantCode)
-			}
+			assert.Equal(t, tc.wantCode,
+				w.Code)
 
 			body := w.Body.String()
-			if strings.Contains(body, tc.leaked) {
-				t.Errorf("response body leaks internal detail %q:\n%s", tc.leaked, body)
-			}
+			assert.False(t, strings.Contains(body,
+				tc.leaked,
+			))
+			assert.True(t, strings.Contains(body,
+				"internal server error",
+			))
 
-			if !strings.Contains(body, "internal server error") {
-				t.Errorf("response body should contain generic error message, got:\n%s", body)
-			}
 		})
 	}
 }
@@ -88,10 +88,10 @@ func TestWriteTypedError_PreservesKnownErrorTypes(t *testing.T) {
 	}
 
 	writeTypedError(w, r, apiErr)
+	assert.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code,
+	)
 
 	var resp struct {
 		Error struct {
@@ -99,12 +99,12 @@ func TestWriteTypedError_PreservesKnownErrorTypes(t *testing.T) {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if resp.Error.Message != "name is required" {
-		t.Errorf("message = %q, want %q", resp.Error.Message, "name is required")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "name is required",
+		resp.
+			Error.
+			Message)
+
 }
 
 func TestWriteTypedError_WrappedError_NoLeak(t *testing.T) {
@@ -119,12 +119,13 @@ func TestWriteTypedError_WrappedError_NoLeak(t *testing.T) {
 	writeTypedError(w, r, wrapped)
 
 	body := w.Body.String()
-	if strings.Contains(body, "password") {
-		t.Errorf("response leaks password-related error: %s", body)
-	}
-	if strings.Contains(body, "admin") {
-		t.Errorf("response leaks username: %s", body)
-	}
+	assert.False(t, strings.Contains(body,
+		"password",
+	))
+	assert.False(t, strings.Contains(body,
+		"admin",
+	))
+
 }
 
 func TestWriteTypedError_Huma5xxDoesNotLeakMessage(t *testing.T) {
@@ -134,17 +135,21 @@ func TestWriteTypedError_Huma5xxDoesNotLeakMessage(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 
 	writeTypedError(w, r, huma.Error500InternalServerError("failed to retry workflow run: pq: relation workflow_runs missing"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 	body := w.Body.String()
-	if strings.Contains(body, "workflow_runs") || strings.Contains(body, "pq:") || strings.Contains(body, "failed to retry") {
-		t.Fatalf("response leaked internal 5xx detail: %s", body)
-	}
-	if !strings.Contains(body, "internal server error") {
-		t.Fatalf("response = %s, want generic internal server error", body)
-	}
+	require.False(t, strings.Contains(body,
+		"workflow_runs",
+	) ||
+		strings.Contains(body,
+			"pq:") ||
+		strings.Contains(body, "failed to retry"))
+	require.True(t, strings.Contains(body,
+		"internal server error",
+	))
+
 }
 
 func TestWriteTypedError_Huma4xxKeepsPublicMessage(t *testing.T) {
@@ -154,13 +159,13 @@ func TestWriteTypedError_Huma4xxKeepsPublicMessage(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 
 	writeTypedError(w, r, huma.Error404NotFound("job not found"))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-	if !strings.Contains(w.Body.String(), "job not found") {
-		t.Fatalf("response = %s, want public 4xx message", w.Body.String())
-	}
+		w.Code)
+	require.True(t, strings.Contains(w.Body.
+		String(), "job not found",
+	))
+
 }
 
 func FuzzWriteTypedError(f *testing.F) {
@@ -178,14 +183,16 @@ func FuzzWriteTypedError(f *testing.F) {
 		r := httptest.NewRequest(http.MethodGet, "/fuzz", bytes.NewReader(nil))
 
 		writeTypedError(w, r, errors.New(errMsg))
+		assert.Equal(t, http.StatusInternalServerError,
 
-		if w.Code != http.StatusInternalServerError {
-			t.Errorf("status = %d, want 500", w.Code)
-		}
+			w.Code)
 
 		body := w.Body.String()
-		if errMsg != "" && errMsg != "internal server error" && strings.Contains(body, errMsg) {
-			t.Errorf("response leaks raw error message: %q", errMsg)
-		}
+		assert.False(t, errMsg != "" &&
+			errMsg !=
+				"internal server error" &&
+			strings.Contains(body,
+				errMsg))
+
 	})
 }

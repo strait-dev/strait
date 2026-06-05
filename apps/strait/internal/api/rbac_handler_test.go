@@ -13,6 +13,9 @@ import (
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateRole(t *testing.T) {
@@ -29,18 +32,16 @@ func TestHandleCreateRole(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+		w.Code)
 
 	var role domain.ProjectRole
-	if err := json.NewDecoder(w.Body).Decode(&role); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if role.ID != "role_1" {
-		t.Fatalf("role.ID = %q, want %q", role.ID, "role_1")
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&role))
+	require.Equal(t, "role_1", role.
+		ID)
+
 }
 
 func TestHandleCreateRole_InvalidScope(t *testing.T) {
@@ -53,10 +54,10 @@ func TestHandleCreateRole_InvalidScope(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
@@ -64,7 +65,9 @@ func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
 
 	ms := &APIStoreMock{}
 	ms.CreateProjectRoleFunc = func(_ context.Context, _ *domain.ProjectRole) error {
-		t.Fatal("CreateProjectRole must not run when RBAC level gate rejects")
+		require.Fail(t,
+
+			"CreateProjectRole must not run when RBAC level gate rejects")
 		return nil
 	}
 	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanStarter)}
@@ -74,13 +77,15 @@ func TestHandleCreateRole_StarterBasicRBACRejectsCustomRole(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden,
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "requires full RBAC") {
-		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(),
+			"requires full RBAC",
+		))
+
 }
 
 func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -88,7 +93,9 @@ func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.
 
 	ms := &APIStoreMock{}
 	ms.CreateResourcePolicyFunc = func(context.Context, *domain.ResourcePolicy) error {
-		t.Fatal("CreateResourcePolicy must not run below Advanced RBAC")
+		require.Fail(t,
+
+			"CreateResourcePolicy must not run below Advanced RBAC")
 		return nil
 	}
 	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
@@ -98,13 +105,15 @@ func TestHandleCreateResourcePolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.
 	req := authedProjectRequest(http.MethodPost, "/v1/resource-policies", body, "test-project")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden,
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "requires advanced RBAC") {
-		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(),
+			"requires advanced RBAC",
+		))
+
 }
 
 func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
@@ -112,7 +121,9 @@ func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
 
 	ms := &APIStoreMock{}
 	ms.CreateTagPolicyFunc = func(context.Context, *domain.TagPolicy) error {
-		t.Fatal("CreateTagPolicy must not run below Advanced RBAC")
+		require.Fail(t,
+
+			"CreateTagPolicy must not run below Advanced RBAC")
 		return nil
 	}
 	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
@@ -122,13 +133,15 @@ func TestHandleCreateTagPolicy_ProFullRBACRejectsAdvancedPolicy(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/tag-policies", body, "test-project")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden,
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "requires advanced RBAC") {
-		t.Fatalf("response must explain RBAC level gate, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.
+			String(),
+			"requires advanced RBAC",
+		))
+
 }
 
 func TestHandleListRoles(t *testing.T) {
@@ -143,10 +156,10 @@ func TestHandleListRoles(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
 }
 
 func TestHandleGetRole(t *testing.T) {
@@ -161,18 +174,16 @@ func TestHandleGetRole(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles/role_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var role domain.ProjectRole
-	if err := json.NewDecoder(w.Body).Decode(&role); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if role.Name != "admin" {
-		t.Fatalf("role.Name = %q, want %q", role.Name, "admin")
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&role))
+	require.Equal(t, "admin", role.
+		Name)
+
 }
 
 func TestHandleGetRole_WithLineage(t *testing.T) {
@@ -194,24 +205,23 @@ func TestHandleGetRole_WithLineage(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles/role_child?include_lineage=true", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp struct {
 		Role    domain.ProjectRole   `json:"role"`
 		Lineage []domain.ProjectRole `json:"lineage"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.Role.ID != "role_child" {
-		t.Fatalf("role.id = %q, want role_child", resp.Role.ID)
-	}
-	if len(resp.Lineage) != 1 || resp.Lineage[0].ID != "role_parent" {
-		t.Fatalf("lineage = %+v, want [role_parent]", resp.Lineage)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&resp))
+	require.Equal(t, "role_child",
+		resp.Role.
+			ID)
+	require.False(t, len(resp.Lineage) !=
+		1 || resp.Lineage[0].ID != "role_parent",
+	)
+
 }
 
 func TestHandleGetRole_NotFound(t *testing.T) {
@@ -226,10 +236,10 @@ func TestHandleGetRole_NotFound(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles/nonexistent", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+		w.Code)
+
 }
 
 func TestHandleUpdateRole(t *testing.T) {
@@ -248,10 +258,10 @@ func TestHandleUpdateRole(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
 }
 
 func TestHandleUpdateRole_NotFound(t *testing.T) {
@@ -270,10 +280,10 @@ func TestHandleUpdateRole_NotFound(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/nonexistent", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+		w.Code)
+
 }
 
 func TestHandleUpdateRole_InvalidScope(t *testing.T) {
@@ -286,10 +296,10 @@ func TestHandleUpdateRole_InvalidScope(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
+
 }
 
 func TestHandleDeleteRole_NotFound(t *testing.T) {
@@ -307,10 +317,10 @@ func TestHandleDeleteRole_NotFound(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/roles/nonexistent", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember(t *testing.T) {
@@ -330,10 +340,10 @@ func TestHandleAssignMember(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_RoleNotFound(t *testing.T) {
@@ -349,10 +359,10 @@ func TestHandleAssignMember_RoleNotFound(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleListMembers(t *testing.T) {
@@ -370,16 +380,15 @@ func TestHandleListMembers(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/members", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var members []domain.ProjectMemberRole
 	decodePaginatedList(t, w.Body.Bytes(), &members)
-	if len(members) != 2 {
-		t.Fatalf("len(members) = %d, want 2", len(members))
-	}
+	require.Len(t,
+		members, 2)
+
 }
 
 func TestHandleRemoveMember_InvalidatesCache(t *testing.T) {
@@ -394,17 +403,15 @@ func TestHandleRemoveMember_InvalidatesCache(t *testing.T) {
 	// Pre-populate cache.
 	srv.permCache.Set("test-project", "user-to-remove", []string{"jobs:read"})
 	_, ok := srv.permCache.Get("test-project", "user-to-remove")
-	if !ok {
-		t.Fatal("expected cache hit before remove")
-	}
+	require.True(
+		t, ok)
 
 	req := authedRequest(http.MethodDelete, "/v1/members/user-to-remove", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent,
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusNoContent, w.Body.String())
-	}
+		w.Code)
 
 	// Cache should be invalidated — but the handler uses projectIDFromContext
 	// which returns "" for internal secret auth. So the cache key is "":user-to-remove.
@@ -431,16 +438,14 @@ func TestHandleAssignMember_InvalidatesCache(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+		w.Code)
 
 	// Cache should be invalidated.
 	_, ok := srv.permCache.Get("", "user-reassign")
-	if ok {
-		t.Fatal("expected cache miss after assign — should be invalidated")
-	}
+	require.False(t, ok)
+
 }
 
 func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *testing.T) {
@@ -462,9 +467,8 @@ func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		return &domain.ProjectRole{ID: roleID, ProjectID: projectID, Name: "operator", Permissions: []string{domain.ScopeJobsWrite}}, nil
 	}
 	ms.ListProjectRolesFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
-		if gotProjectID != projectID {
-			t.Fatalf("ListProjectRoles project = %q, want %q", gotProjectID, projectID)
-		}
+		require.Equal(t, projectID, gotProjectID)
+
 		return []domain.ProjectRole{
 			{ID: roleID, ProjectID: projectID},
 			{ID: childRoleID, ProjectID: projectID, ParentRoleID: roleID},
@@ -472,9 +476,8 @@ func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		}, nil
 	}
 	ms.ListProjectMembersFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
-		if gotProjectID != projectID {
-			t.Fatalf("ListProjectMembers project = %q, want %q", gotProjectID, projectID)
-		}
+		require.Equal(t, projectID, gotProjectID)
+
 		return []domain.ProjectMemberRole{
 			{ProjectID: projectID, UserID: "user-direct", RoleID: roleID},
 			{ProjectID: projectID, UserID: "user-child", RoleID: childRoleID},
@@ -482,9 +485,9 @@ func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		}, nil
 	}
 	ms.UpdateProjectRoleFunc = func(_ context.Context, role *domain.ProjectRole) error {
-		if role.ID != roleID {
-			t.Fatalf("UpdateProjectRole ID = %q, want %q", role.ID, roleID)
-		}
+		require.Equal(t, roleID, role.
+			ID)
+
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -500,18 +503,22 @@ func TestHandleUpdateRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 			Permissions: []string{domain.ScopeJobsWrite},
 		},
 	})
-	if err != nil {
-		t.Fatalf("handleUpdateRole: %v", err)
-	}
+	require.NoError(t, err)
 
 	if _, ok := srv.permCache.Get(projectID, "user-direct"); ok {
-		t.Fatal("direct assignee cache remained after role update")
+		require.Fail(t,
+
+			"direct assignee cache remained after role update")
 	}
 	if _, ok := srv.permCache.Get(projectID, "user-child"); ok {
-		t.Fatal("child role assignee cache remained after parent role update")
+		require.Fail(t,
+
+			"child role assignee cache remained after parent role update")
 	}
 	if _, ok := srv.permCache.Get(projectID, "user-other"); !ok {
-		t.Fatal("unrelated role assignee cache was invalidated")
+		require.Fail(t,
+
+			"unrelated role assignee cache was invalidated")
 	}
 }
 
@@ -529,9 +536,8 @@ func TestHandleDeleteRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		return &domain.ProjectRole{ID: roleID, ProjectID: projectID, Name: "operator", Permissions: []string{domain.ScopeJobsRead}}, nil
 	}
 	ms.ListProjectRolesFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectRole, error) {
-		if gotProjectID != projectID {
-			t.Fatalf("ListProjectRoles project = %q, want %q", gotProjectID, projectID)
-		}
+		require.Equal(t, projectID, gotProjectID)
+
 		return []domain.ProjectRole{
 			{ID: roleID, ProjectID: projectID},
 			{ID: childRoleID, ProjectID: projectID, ParentRoleID: roleID},
@@ -539,9 +545,8 @@ func TestHandleDeleteRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		}, nil
 	}
 	ms.ListProjectMembersFunc = func(_ context.Context, gotProjectID string, _ int, _ *time.Time) ([]domain.ProjectMemberRole, error) {
-		if gotProjectID != projectID {
-			t.Fatalf("ListProjectMembers project = %q, want %q", gotProjectID, projectID)
-		}
+		require.Equal(t, projectID, gotProjectID)
+
 		return []domain.ProjectMemberRole{
 			{ProjectID: projectID, UserID: "user-direct", RoleID: roleID},
 			{ProjectID: projectID, UserID: "user-child", RoleID: childRoleID},
@@ -549,9 +554,8 @@ func TestHandleDeleteRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 		}, nil
 	}
 	ms.DeleteProjectRoleFunc = func(_ context.Context, id string) error {
-		if id != roleID {
-			t.Fatalf("DeleteProjectRole ID = %q, want %q", id, roleID)
-		}
+		require.Equal(t, roleID, id)
+
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -561,18 +565,22 @@ func TestHandleDeleteRole_InvalidatesAssignedAndInheritedPermissionCache(t *test
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, projectID)
 	_, err := srv.handleDeleteRole(ctx, &DeleteRoleInput{RoleID: roleID})
-	if err != nil {
-		t.Fatalf("handleDeleteRole: %v", err)
-	}
+	require.NoError(t, err)
 
 	if _, ok := srv.permCache.Get(projectID, "user-direct"); ok {
-		t.Fatal("direct assignee cache remained after role delete")
+		require.Fail(t,
+
+			"direct assignee cache remained after role delete")
 	}
 	if _, ok := srv.permCache.Get(projectID, "user-child"); ok {
-		t.Fatal("child role assignee cache remained after parent role delete")
+		require.Fail(t,
+
+			"child role assignee cache remained after parent role delete")
 	}
 	if _, ok := srv.permCache.Get(projectID, "user-other"); !ok {
-		t.Fatal("unrelated role assignee cache was invalidated")
+		require.Fail(t,
+
+			"unrelated role assignee cache was invalidated")
 	}
 }
 
@@ -588,10 +596,10 @@ func TestHandleRemoveMember_NotFound(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/members/unknown_user", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+		w.Code)
+
 }
 
 // Additional handler tests.
@@ -603,10 +611,10 @@ func TestHandleCreateRole_EmptyBody(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
@@ -617,10 +625,10 @@ func TestHandleCreateRole_EmptyPermissions(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateRole_MalformedJSON(t *testing.T) {
@@ -630,10 +638,10 @@ func TestHandleCreateRole_MalformedJSON(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", "{invalid json")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateRole_StoreError(t *testing.T) {
@@ -649,10 +657,10 @@ func TestHandleCreateRole_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateRole_ResponseShape(t *testing.T) {
@@ -669,27 +677,27 @@ func TestHandleCreateRole_ResponseShape(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/roles", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+		w.Code)
 
 	var resp map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&resp))
 
 	for _, field := range []string{"id", "name", "description", "permissions"} {
 		if _, ok := resp[field]; !ok {
-			t.Errorf("response missing field %q", field)
+			assert.Failf(t, "test failure",
+
+				"response missing field %q", field)
 		}
 	}
-	if resp["name"] != "deployer" {
-		t.Errorf("name = %v, want deployer", resp["name"])
-	}
-	if resp["description"] != "Deploy stuff" {
-		t.Errorf("description = %v, want 'Deploy stuff'", resp["description"])
-	}
+	assert.Equal(
+		t, "deployer", resp["name"])
+	assert.Equal(
+		t, "Deploy stuff",
+		resp["description"])
+
 }
 
 func TestHandleDeleteRole_Success(t *testing.T) {
@@ -707,10 +715,10 @@ func TestHandleDeleteRole_Success(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/roles/role_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent,
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
-	}
+		w.Code)
+
 }
 
 func TestHandleDeleteRole_StoreError(t *testing.T) {
@@ -728,10 +736,10 @@ func TestHandleDeleteRole_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/roles/role_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleGetRole_StoreError(t *testing.T) {
@@ -746,10 +754,10 @@ func TestHandleGetRole_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles/role_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleListRoles_Empty(t *testing.T) {
@@ -764,16 +772,15 @@ func TestHandleListRoles_Empty(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var roles []domain.ProjectRole
 	decodePaginatedList(t, w.Body.Bytes(), &roles)
-	if len(roles) != 0 {
-		t.Fatalf("expected empty roles list, got %d", len(roles))
-	}
+	require.Len(t,
+		roles, 0)
+
 }
 
 func TestHandleListRoles_StoreError(t *testing.T) {
@@ -788,10 +795,10 @@ func TestHandleListRoles_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/roles", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleUpdateRole_EmptyBody(t *testing.T) {
@@ -801,10 +808,10 @@ func TestHandleUpdateRole_EmptyBody(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleUpdateRole_StoreError(t *testing.T) {
@@ -823,10 +830,10 @@ func TestHandleUpdateRole_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_EmptyBody(t *testing.T) {
@@ -836,10 +843,10 @@ func TestHandleAssignMember_EmptyBody(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", "{}")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_MissingUserID(t *testing.T) {
@@ -850,10 +857,10 @@ func TestHandleAssignMember_MissingUserID(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_MissingRoleID(t *testing.T) {
@@ -864,10 +871,10 @@ func TestHandleAssignMember_MissingRoleID(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnprocessableEntity)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_StoreError(t *testing.T) {
@@ -886,10 +893,10 @@ func TestHandleAssignMember_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
@@ -905,10 +912,10 @@ func TestHandleAssignMember_GetRoleStoreError(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_ResponseShape(t *testing.T) {
@@ -928,23 +935,24 @@ func TestHandleAssignMember_ResponseShape(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+		w.Code)
 
 	var resp map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&resp))
+
 	for _, field := range []string{"id", "user_id", "role_id"} {
 		if _, ok := resp[field]; !ok {
-			t.Errorf("response missing field %q", field)
+			assert.Failf(t, "test failure",
+
+				"response missing field %q", field)
 		}
 	}
-	if resp["user_id"] != "user_1" {
-		t.Errorf("user_id = %v, want user_1", resp["user_id"])
-	}
+	assert.Equal(
+		t, "user_1", resp["user_id"])
+
 }
 
 func TestHandleListMembers_Empty(t *testing.T) {
@@ -959,16 +967,15 @@ func TestHandleListMembers_Empty(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/members", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var members []domain.ProjectMemberRole
 	decodePaginatedList(t, w.Body.Bytes(), &members)
-	if len(members) != 0 {
-		t.Fatalf("expected empty members list, got %d", len(members))
-	}
+	require.Len(t,
+		members, 0)
+
 }
 
 func TestHandleListMembers_StoreError(t *testing.T) {
@@ -983,10 +990,10 @@ func TestHandleListMembers_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/members", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleRemoveMember_Success(t *testing.T) {
@@ -1001,10 +1008,10 @@ func TestHandleRemoveMember_Success(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/members/user_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNoContent,
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNoContent)
-	}
+		w.Code)
+
 }
 
 func TestHandleRemoveMember_StoreError(t *testing.T) {
@@ -1019,10 +1026,10 @@ func TestHandleRemoveMember_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodDelete, "/v1/members/user_1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
+
 }
 
 func TestHandleAssignMember_MalformedJSON(t *testing.T) {
@@ -1032,10 +1039,10 @@ func TestHandleAssignMember_MalformedJSON(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/members", "{broken")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
+
 }
 
 func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
@@ -1045,8 +1052,8 @@ func TestHandleUpdateRole_MalformedJSON(t *testing.T) {
 	req := authedRequest(http.MethodPatch, "/v1/roles/role_1", "{broken")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
+
 }

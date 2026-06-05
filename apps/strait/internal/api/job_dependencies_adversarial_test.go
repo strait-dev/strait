@@ -12,6 +12,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDependencyCondition_Valid verifies that the three allowed condition
@@ -20,9 +23,10 @@ func TestDependencyCondition_Valid(t *testing.T) {
 	t.Parallel()
 
 	for _, cond := range []string{"completed", "failed", "any"} {
-		if !isValidDependencyCondition(cond) {
-			t.Errorf("expected %q to be valid", cond)
-		}
+		assert.True(t,
+			isValidDependencyCondition(
+				cond))
+
 	}
 }
 
@@ -44,9 +48,9 @@ func TestDependencyCondition_Invalid(t *testing.T) {
 	}
 
 	for _, cond := range cases {
-		if isValidDependencyCondition(cond) {
-			t.Errorf("expected %q to be invalid", cond)
-		}
+		assert.False(
+			t, isValidDependencyCondition(cond))
+
 	}
 }
 
@@ -64,9 +68,9 @@ func TestDependencyCondition_SQLInjection(t *testing.T) {
 	}
 
 	for _, payload := range payloads {
-		if isValidDependencyCondition(payload) {
-			t.Errorf("SQL injection payload should be rejected: %q", payload)
-		}
+		assert.False(
+			t, isValidDependencyCondition(payload))
+
 	}
 }
 
@@ -84,9 +88,9 @@ func TestDependencyCondition_NullBytes(t *testing.T) {
 	}
 
 	for _, payload := range payloads {
-		if isValidDependencyCondition(payload) {
-			t.Errorf("null-byte payload should be rejected: %q", payload)
-		}
+		assert.False(
+			t, isValidDependencyCondition(payload))
+
 	}
 }
 
@@ -106,9 +110,9 @@ func TestDependencyCondition_CaseSensitive(t *testing.T) {
 	}
 
 	for _, cond := range cases {
-		if isValidDependencyCondition(cond) {
-			t.Errorf("case-sensitive check failed: %q should be rejected", cond)
-		}
+		assert.False(
+			t, isValidDependencyCondition(cond))
+
 	}
 }
 
@@ -132,15 +136,13 @@ func TestDependency_SelfReference(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for self-reference, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
 }
 
 // TestDependency_EmptyDependsOnID verifies that an empty depends_on_job_id is
@@ -160,11 +162,13 @@ func TestDependency_EmptyDependsOnID(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
+	require.False(t, w.Code == http.
+		StatusOK ||
+		w.Code == http.StatusCreated,
+	)
 
 	// Empty depends_on_job_id should fail validation (required field).
-	if w.Code == http.StatusOK || w.Code == http.StatusCreated {
-		t.Fatalf("expected error for empty depends_on_job_id, got %d", w.Code)
-	}
+
 }
 
 // TestDependency_CrossProject verifies that creating a dependency between jobs
@@ -191,10 +195,10 @@ func TestDependency_CrossProject(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for cross-project dependency, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // FuzzDependencyCondition fuzzes the isValidDependencyCondition function with
@@ -218,12 +222,11 @@ func FuzzDependencyCondition(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, cond string) {
 		result := isValidDependencyCondition(cond)
-		if result && !valid[cond] {
-			t.Errorf("unexpected valid condition: %q", cond)
-		}
-		if !result && valid[cond] {
-			t.Errorf("expected valid condition rejected: %q", cond)
-		}
+		assert.False(
+			t, result && !valid[cond])
+		assert.False(
+			t, !result && valid[cond])
+
 	})
 }
 
@@ -261,10 +264,9 @@ func FuzzDependencyIDs(f *testing.F) {
 		w := httptest.NewRecorder()
 
 		srv.ServeHTTP(w, req)
+		require.NotEqual(t, 0, w.Code)
 
 		// We only care that the server does not panic; any status is fine.
-		if w.Code == 0 {
-			t.Fatal("expected a non-zero status code")
-		}
+
 	})
 }

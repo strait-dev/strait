@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestDifferentActorsHaveSeparateCacheEntries pins the new
@@ -60,23 +62,23 @@ func TestDifferentActorsHaveSeparateCacheEntries(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(acquireKeys) != 2 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 2", len(acquireKeys))
+	require.Len(t,
+		acquireKeys,
+		2)
+	require.NotEqual(t, acquireKeys[1], acquireKeys[0])
+
+	for _, k := range acquireKeys {
+		require.True(
+			t, isHexDigest(k))
+
 	}
-	if acquireKeys[0] == acquireKeys[1] {
-		t.Fatalf("expected per-actor composite keys to differ, both = %q", acquireKeys[0])
-	}
-	for i, k := range acquireKeys {
-		if !isHexDigest(k) {
-			t.Fatalf("acquireKeys[%d] = %q, want hashed digest", i, k)
-		}
-	}
-	if len(completeKeys) != 2 {
-		t.Fatalf("CompleteIdempotencyKey calls = %d, want 2", len(completeKeys))
-	}
-	if completeKeys[0] != acquireKeys[0] || completeKeys[1] != acquireKeys[1] {
-		t.Fatal("Complete must use the same actor-scoped composite key as Acquire")
-	}
+	require.Len(t,
+		completeKeys,
+		2)
+	require.False(t, completeKeys[0] != acquireKeys[0] ||
+		completeKeys[1] !=
+			acquireKeys[1])
+
 }
 
 // TestSameActorReplaysCache regresses the happy path: the same
@@ -114,7 +116,7 @@ func TestSameActorReplaysCache(t *testing.T) {
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
-	for i := range 2 {
+	for range 2 {
 		r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
 		r.Header.Set("Idempotency-Key", "same-actor-key")
 		ctx := context.WithValue(r.Context(), ctxProjectIDKey, "proj-1")
@@ -122,22 +124,19 @@ func TestSameActorReplaysCache(t *testing.T) {
 		r = r.WithContext(ctx)
 		w := httptest.NewRecorder()
 		wrapped.ServeHTTP(w, r)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("iteration %d: status = %d, want 201", i, w.Code)
-		}
-		if w.Body.String() != string(cachedBody) {
-			t.Fatalf("iteration %d: body = %q, want %q", i, w.Body.String(), cachedBody)
-		}
+		require.Equal(t, http.StatusCreated,
+			w.Code)
+		require.Equal(t, string(cachedBody), w.Body.String())
+
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(acquireKeys) != 2 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 2", len(acquireKeys))
-	}
-	if acquireKeys[0] != acquireKeys[1] {
-		t.Fatalf("same actor + key must produce identical composite keys; got %q vs %q", acquireKeys[0], acquireKeys[1])
-	}
+	require.Len(t,
+		acquireKeys,
+		2)
+	require.Equal(t, acquireKeys[1], acquireKeys[0])
+
 }
 
 // TestOIDCAndAPIKeyActorsAreDistinct is the adversarial guard:
@@ -183,12 +182,11 @@ func TestOIDCAndAPIKeyActorsAreDistinct(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(acquireKeys) != 2 {
-		t.Fatalf("TryAcquireIdempotencyKey calls = %d, want 2", len(acquireKeys))
-	}
-	if acquireKeys[0] == acquireKeys[1] {
-		t.Fatalf("OIDC user and API key must produce distinct composite keys; both = %q", acquireKeys[0])
-	}
+	require.Len(t,
+		acquireKeys,
+		2)
+	require.NotEqual(t, acquireKeys[1], acquireKeys[0])
+
 }
 
 // TestAnonymousActorBypassesIdempotency pins the bypass behavior: when
@@ -242,11 +240,9 @@ func TestAnonymousActorBypassesIdempotency(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(acquireKeys) != 0 {
-		t.Fatalf("anonymous request must skip dedupe entirely; got %d acquire calls: %v",
-			len(acquireKeys), acquireKeys)
-	}
-	if handled != 2 {
-		t.Fatalf("handler invocations = %d, want 2 (both anonymous requests should pass through)", handled)
-	}
+	require.Len(t,
+		acquireKeys,
+		0)
+	require.EqualValues(t, 2, handled)
+
 }

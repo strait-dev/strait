@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // -- JSON decoding adversarial tests.
@@ -33,9 +35,8 @@ func TestDecodeJSON_InvalidUTF8(t *testing.T) {
 	srv := &Server{maxRequestBodySize: 1048576}
 	var target map[string]any
 	err := srv.decodeJSON(r, &target)
-	if err == nil {
-		t.Fatal("expected error for invalid UTF-8")
-	}
+	require.Error(t, err)
+
 }
 
 func TestDecodeJSON_NullBytes(t *testing.T) {
@@ -83,9 +84,8 @@ func TestDecodeJSON_BodyExceedsMaxSize(t *testing.T) {
 	srv := &Server{maxRequestBodySize: 1024}
 	var target map[string]any
 	err := srv.decodeJSON(r, &target)
-	if err == nil {
-		t.Fatal("expected error for body exceeding max size")
-	}
+	require.Error(t, err)
+
 }
 
 func FuzzDecodeJSONAdversarial(f *testing.F) {
@@ -109,50 +109,41 @@ func FuzzDecodeJSONAdversarial(f *testing.F) {
 func TestPagination_NegativeLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("-1", "")
-	if err == nil {
-		t.Fatal("expected error for negative limit")
-	}
+	require.Error(t, err)
+
 }
 
 func TestPagination_OverflowLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings(fmt.Sprintf("%d", math.MaxInt64), "")
-	if err != nil {
-		t.Fatalf("overflow limit should be silently capped, got error: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestPagination_ExtremeDateCursor(t *testing.T) {
 	t.Parallel()
 	_, cursor, err := parsePaginationFromStrings("10", "9999-12-31T23:59:59.999999999Z")
-	if err != nil {
-		t.Fatalf("extreme date cursor should parse: %v", err)
-	}
-	if cursor == nil {
-		t.Fatal("cursor should not be nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, cursor)
+
 }
 
 func TestPagination_EmptyCursor(t *testing.T) {
 	t.Parallel()
 	limit, cursor, err := parsePaginationFromStrings("", "")
-	if err != nil {
-		t.Fatalf("empty cursor should succeed: %v", err)
-	}
-	if cursor != nil {
-		t.Fatal("empty cursor should be nil")
-	}
-	if limit != defaultPageLimit {
-		t.Fatalf("expected default limit %d, got %d", defaultPageLimit, limit)
-	}
+	require.NoError(t, err)
+	require.Nil(t, cursor)
+	require.Equal(t, defaultPageLimit,
+
+		limit)
+
 }
 
 func TestPagination_MalformedCursor(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("10", "not-a-date")
-	if err == nil {
-		t.Fatal("expected error for malformed cursor")
-	}
+	require.Error(t, err)
+
 }
 
 func FuzzPaginationParams(f *testing.F) {
@@ -174,18 +165,16 @@ func TestValidateTags_ControlCharacters(t *testing.T) {
 	tags := map[string]string{"\x01\x02\x03": "val"}
 	// Control characters are currently accepted by validateTags.
 	err := validateTags(tags)
-	if err != nil {
-		t.Fatalf("control chars in tag key should be accepted (no char validation): %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateTags_NullByteInKey(t *testing.T) {
 	t.Parallel()
 	tags := map[string]string{"key\x00injected": "val"}
 	err := validateTags(tags)
-	if err != nil {
-		t.Fatalf("null byte in key should be accepted (no char validation): %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateTags_CombiningChars(t *testing.T) {
@@ -193,9 +182,8 @@ func TestValidateTags_CombiningChars(t *testing.T) {
 	// Combining character: e + combining acute accent.
 	tags := map[string]string{"e\u0301": "val"}
 	err := validateTags(tags)
-	if err != nil {
-		t.Fatalf("combining chars should be accepted: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateTags_BoundaryKeyLength(t *testing.T) {
@@ -204,17 +192,15 @@ func TestValidateTags_BoundaryKeyLength(t *testing.T) {
 		t.Parallel()
 		key := strings.Repeat("a", 64)
 		err := validateTags(map[string]string{key: "val"})
-		if err != nil {
-			t.Fatalf("64-char key should be accepted: %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 	t.Run("65_chars", func(t *testing.T) {
 		t.Parallel()
 		key := strings.Repeat("a", 65)
 		err := validateTags(map[string]string{key: "val"})
-		if err == nil {
-			t.Fatal("65-char key should be rejected")
-		}
+		require.Error(t, err)
+
 	})
 }
 
@@ -224,17 +210,15 @@ func TestValidateTags_BoundaryValueLength(t *testing.T) {
 		t.Parallel()
 		val := strings.Repeat("b", 256)
 		err := validateTags(map[string]string{"key": val})
-		if err != nil {
-			t.Fatalf("256-char value should be accepted: %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 	t.Run("257_chars", func(t *testing.T) {
 		t.Parallel()
 		val := strings.Repeat("b", 257)
 		err := validateTags(map[string]string{"key": val})
-		if err == nil {
-			t.Fatal("257-char value should be rejected")
-		}
+		require.Error(t, err)
+
 	})
 }
 
@@ -274,12 +258,11 @@ func TestPayloadSchema_RecursionDepthLimit(t *testing.T) {
 	schema := buildNestedSchema(50)
 	payload := buildNestedPayload(50)
 	err := validatePayloadAgainstSchema(payload, schema)
-	if err == nil {
-		t.Fatal("expected error for 50-level schema (exceeds maxSchemaDepth)")
-	}
-	if !strings.Contains(err.Error(), "maximum schema nesting depth") {
-		t.Fatalf("expected depth-limit error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.
+		Error(), "maximum schema nesting depth",
+	))
+
 }
 
 func TestPayloadSchema_AtExactLimit(t *testing.T) {
@@ -288,9 +271,8 @@ func TestPayloadSchema_AtExactLimit(t *testing.T) {
 	schema := buildNestedSchema(maxSchemaDepth)
 	payload := buildNestedPayload(maxSchemaDepth)
 	err := validatePayloadAgainstSchema(payload, schema)
-	if err != nil {
-		t.Fatalf("schema at maxSchemaDepth should pass: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestPayloadSchema_OneOverLimit(t *testing.T) {
@@ -298,12 +280,11 @@ func TestPayloadSchema_OneOverLimit(t *testing.T) {
 	schema := buildNestedSchema(maxSchemaDepth + 1)
 	payload := buildNestedPayload(maxSchemaDepth + 1)
 	err := validatePayloadAgainstSchema(payload, schema)
-	if err == nil {
-		t.Fatal("schema one over maxSchemaDepth should be rejected")
-	}
-	if !strings.Contains(err.Error(), "maximum schema nesting depth") {
-		t.Fatalf("expected depth-limit error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.
+		Error(), "maximum schema nesting depth",
+	))
+
 }
 
 func TestPayloadSchema_LargeArray(t *testing.T) {
@@ -315,9 +296,8 @@ func TestPayloadSchema_LargeArray(t *testing.T) {
 	payload, _ := json.Marshal(items)
 	schema := json.RawMessage(`{"type":"array","items":{"type":"number"}}`)
 	err := validatePayloadAgainstSchema(payload, schema)
-	if err != nil {
-		t.Fatalf("large array should validate: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func FuzzPayloadSchemaDepth(f *testing.F) {
@@ -342,65 +322,57 @@ func FuzzPayloadSchemaDepth(f *testing.F) {
 func TestValidateIDFormat_PathTraversal(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("../../etc/passwd")
-	if err == nil {
-		t.Fatal("path traversal ID should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateIDFormat_EmptyID(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("")
-	if err == nil {
-		t.Fatal("empty ID should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateIDFormat_ExtremelyLong(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", 10000))
-	if err == nil {
-		t.Fatal("extremely long ID should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateIDFormat_NullByte(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("job\x00-123")
-	if err == nil {
-		t.Fatal("ID with null byte should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateIDFormat_ValidNanoid(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("abc123def456")
-	if err != nil {
-		t.Fatalf("valid nanoid should be accepted: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateIDFormat_SlashInID(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat("job/123")
-	if err == nil {
-		t.Fatal("ID with slash should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateIDFormat_ExactMaxLength(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", maxIDLength))
-	if err != nil {
-		t.Fatalf("ID at max length should be accepted: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateIDFormat_OneOverMaxLength(t *testing.T) {
 	t.Parallel()
 	err := validateIDFormat(strings.Repeat("a", maxIDLength+1))
-	if err == nil {
-		t.Fatal("ID over max length should be rejected")
-	}
+	require.Error(t, err)
+
 }
 
 // -- decodeJSON with various time.Time parsing edge cases (via cursor).
@@ -408,18 +380,17 @@ func TestValidateIDFormat_OneOverMaxLength(t *testing.T) {
 func TestPagination_UnixEpochCursor(t *testing.T) {
 	t.Parallel()
 	_, cursor, err := parsePaginationFromStrings("10", "1970-01-01T00:00:00Z")
-	if err != nil {
-		t.Fatalf("Unix epoch cursor should parse: %v", err)
-	}
-	if cursor == nil || !cursor.Equal(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("unexpected cursor: %v", cursor)
-	}
+	require.NoError(t, err)
+	require.False(t, cursor == nil ||
+		!cursor.Equal(time.Date(1970, 1, 1, 0, 0,
+			0, 0, time.
+				UTC)))
+
 }
 
 func TestPagination_ZeroLimit(t *testing.T) {
 	t.Parallel()
 	_, _, err := parsePaginationFromStrings("0", "")
-	if err == nil {
-		t.Fatal("zero limit should be rejected")
-	}
+	require.Error(t, err)
+
 }

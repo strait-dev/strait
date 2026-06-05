@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"sync/atomic"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func memberRoleFixture() *domain.ProjectMemberRole {
@@ -33,12 +35,13 @@ func TestAssignMemberRoleWithBillingLimit_CloudNilEnforcerFailsClosed(t *testing
 	}
 
 	err := srv.assignMemberRoleWithBillingLimit(context.Background(), memberRoleFixture())
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
-	if got := assignCalls.Load(); got != 0 {
-		t.Fatalf("AssignMemberRole calls = %d, want 0", got)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+	require.EqualValues(t, 0, assignCalls.
+		Load())
+
 }
 
 func TestAssignMemberRoleWithBillingLimit_CommunityNilEnforcerAllows(t *testing.T) {
@@ -54,13 +57,12 @@ func TestAssignMemberRoleWithBillingLimit_CommunityNilEnforcerAllows(t *testing.
 			},
 		},
 	}
+	require.NoError(t, srv.
+		assignMemberRoleWithBillingLimit(context.
+			Background(), memberRoleFixture()))
+	require.EqualValues(t, 1, assignCalls.
+		Load())
 
-	if err := srv.assignMemberRoleWithBillingLimit(context.Background(), memberRoleFixture()); err != nil {
-		t.Fatalf("expected community nil enforcer to allow assignment, got %v", err)
-	}
-	if got := assignCalls.Load(); got != 1 {
-		t.Fatalf("AssignMemberRole calls = %d, want 1", got)
-	}
 }
 
 func TestAssignMemberRoleWithBillingLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -79,12 +81,13 @@ func TestAssignMemberRoleWithBillingLimit_OrgLookupErrorFailsClosed(t *testing.T
 	}
 
 	err := srv.assignMemberRoleWithBillingLimit(context.Background(), memberRoleFixture())
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
-	if got := assignCalls.Load(); got != 0 {
-		t.Fatalf("AssignMemberRole calls = %d, want 0", got)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+	require.EqualValues(t, 0, assignCalls.
+		Load())
+
 }
 
 type emptyOrgMemberLimitEnforcer struct {
@@ -111,12 +114,13 @@ func TestAssignMemberRoleWithBillingLimit_EmptyOrgFailsClosed(t *testing.T) {
 	}
 
 	err := srv.assignMemberRoleWithBillingLimit(context.Background(), memberRoleFixture())
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
-	if got := assignCalls.Load(); got != 0 {
-		t.Fatalf("AssignMemberRole calls = %d, want 0", got)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+	require.EqualValues(t, 0, assignCalls.
+		Load())
+
 }
 
 func TestAssignMemberRoleWithBillingLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -137,10 +141,11 @@ func TestAssignMemberRoleWithBillingLimit_PlanLookupErrorFailsClosed(t *testing.
 	}
 
 	err := srv.assignMemberRoleWithBillingLimit(context.Background(), memberRoleFixture())
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
-	if got := assignCalls.Load(); got != 0 {
-		t.Fatalf("AssignMemberRole calls = %d, want 0", got)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
+	require.EqualValues(t, 0, assignCalls.
+		Load())
+
 }

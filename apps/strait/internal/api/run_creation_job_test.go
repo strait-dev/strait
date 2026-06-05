@@ -11,6 +11,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadRunCreationJobRejectsBlankID(t *testing.T) {
@@ -18,7 +19,9 @@ func TestLoadRunCreationJobRejectsBlankID(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
-			t.Fatal("GetJob must not run for blank job ID")
+			require.Fail(t,
+
+				"GetJob must not run for blank job ID")
 			return nil, nil
 		},
 	}}
@@ -32,9 +35,10 @@ func TestLoadRunCreationJobMapsMissingJobToNotFound(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
-			if jobID != "job-missing" {
-				t.Fatalf("jobID = %q, want job-missing", jobID)
-			}
+			require.Equal(t, "job-missing",
+				jobID,
+			)
+
 			return nil, store.ErrJobNotFound
 		},
 	}}
@@ -63,9 +67,9 @@ func TestLoadRunCreationJobReturnsScopedJob(t *testing.T) {
 	want := &domain.Job{ID: "job-1", ProjectID: "project-1", EnvironmentID: "env-1"}
 	srv := newTestServer(t, &APIStoreMock{
 		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
-			if jobID != want.ID {
-				t.Fatalf("jobID = %q, want %q", jobID, want.ID)
-			}
+			require.Equal(t, want.ID,
+				jobID)
+
 			return want, nil
 		},
 	}, &mockQueue{}, nil)
@@ -73,25 +77,25 @@ func TestLoadRunCreationJobReturnsScopedJob(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, want.EnvironmentID)
 
 	got, err := srv.loadRunCreationJob(ctx, want.ID, "test.project_match", "testHandler")
-	if err != nil {
-		t.Fatalf("loadRunCreationJob() error = %v", err)
-	}
-	if got != want {
-		t.Fatalf("loadRunCreationJob() = %p, want %p", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want,
+		got)
+
 }
 
 func assertStatusError(t *testing.T, err error, status int, contains string) {
 	t.Helper()
 
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("error = %T, want huma.StatusError", err)
-	}
-	if statusErr.GetStatus() != status {
-		t.Fatalf("status = %d, want %d", statusErr.GetStatus(), status)
-	}
-	if contains != "" && !strings.Contains(err.Error(), contains) {
-		t.Fatalf("error = %q, want %q", err.Error(), contains)
-	}
+	require.True(
+		t, errors.As(err, &statusErr))
+	require.Equal(t, status,
+		statusErr.
+			GetStatus(),
+	)
+	require.False(t, contains !=
+		"" &&
+		!strings.Contains(err.
+			Error(), contains))
+
 }

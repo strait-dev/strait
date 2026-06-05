@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExportJobs_JSON_ReturnsArray(t *testing.T) {
@@ -28,17 +30,17 @@ func TestExportJobs_JSON_ReturnsArray(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
+	require.Equal(t, "application/json",
+		w.Header().Get("Content-Type"))
+	require.Equal(t, "attachment; filename=jobs.json",
 
-	if w.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("expected application/json, got %s", w.Header().Get("Content-Type"))
-	}
-	if w.Header().Get("Content-Disposition") != "attachment; filename=jobs.json" {
-		t.Fatalf("expected jobs.json disposition, got %s", w.Header().Get("Content-Disposition"))
-	}
+		w.Header().Get("Content-Disposition"))
+
 	body := w.Body.String()
-	if !strings.HasPrefix(body, "[") || !strings.HasSuffix(body, "]") {
-		t.Fatalf("expected JSON array, got: %s", body)
-	}
+	require.False(t, !strings.HasPrefix(body, "[") ||
+		!strings.HasSuffix(body, "]"),
+	)
+
 }
 
 func TestExportJobs_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -57,14 +59,13 @@ func TestExportJobs_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
+	require.Equal(t, "application/x-ndjson",
+		w.Header().Get("Content-Type"))
 
-	if w.Header().Get("Content-Type") != "application/x-ndjson" {
-		t.Fatalf("expected ndjson content type, got %s", w.Header().Get("Content-Type"))
-	}
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("expected 2 NDJSON lines, got %d", len(lines))
-	}
+	require.Len(t,
+		lines, 2)
+
 }
 
 func TestExportRuns_RequiresFromAndTo(t *testing.T) {
@@ -76,10 +77,10 @@ func TestExportRuns_RequiresFromAndTo(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
 }
 
 func TestExportRuns_CSV_HasHeader(t *testing.T) {
@@ -100,17 +101,14 @@ func TestExportRuns_CSV_HasHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, "text/csv",
+		w.Header().Get("Content-Type"))
 
-	if w.Header().Get("Content-Type") != "text/csv" {
-		t.Fatalf("expected text/csv, got %s", w.Header().Get("Content-Type"))
-	}
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected header + data rows, got %d lines", len(lines))
-	}
-	if !strings.Contains(lines[0], "id") {
-		t.Fatal("CSV header should contain 'id'")
-	}
+	require.GreaterOrEqual(t, len(lines), 2)
+	require.True(
+		t, strings.Contains(lines[0], "id"))
+
 }
 
 func TestExportRuns_MaxWindow90Days(t *testing.T) {
@@ -124,10 +122,10 @@ func TestExportRuns_MaxWindow90Days(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for exceeded window, got %d", w.Code)
-	}
 }
 
 func TestExport_InvalidFormat_Returns400(t *testing.T) {
@@ -139,10 +137,10 @@ func TestExport_InvalidFormat_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid format, got %d", w.Code)
-	}
 }
 
 func TestExportWorkflows_EmptyProject_ReturnsEmptyArray(t *testing.T) {
@@ -161,9 +159,8 @@ func TestExportWorkflows_EmptyProject_ReturnsEmptyArray(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportWorkflows)(w, r)
 
 	body := w.Body.String()
-	if body != "[]" {
-		t.Fatalf("expected empty JSON array, got: %s", body)
-	}
+	require.Equal(t, "[]", body)
+
 }
 
 func TestExportRuns_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -185,14 +182,13 @@ func TestExportRuns_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, "application/x-ndjson",
+		w.Header().Get("Content-Type"))
 
-	if w.Header().Get("Content-Type") != "application/x-ndjson" {
-		t.Fatalf("expected ndjson, got %s", w.Header().Get("Content-Type"))
-	}
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("expected 2 NDJSON lines, got %d", len(lines))
-	}
+	require.Len(t,
+		lines, 2)
+
 }
 
 func TestExport_FromAfterTo_Returns400(t *testing.T) {
@@ -204,10 +200,10 @@ func TestExport_FromAfterTo_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for from > to, got %d", w.Code)
-	}
 }
 
 func TestExport_MalformedRFC3339_Returns400(t *testing.T) {
@@ -219,10 +215,10 @@ func TestExport_MalformedRFC3339_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for malformed date, got %d", w.Code)
-	}
 }
 
 func TestExport_EmptyFormat_DefaultsJSON(t *testing.T) {
@@ -240,14 +236,12 @@ func TestExport_EmptyFormat_DefaultsJSON(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
+	require.Equal(t, "application/json",
+		w.Header().Get("Content-Type"))
 
-	if w.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("expected default json, got %s", w.Header().Get("Content-Type"))
-	}
 	var arr []json.RawMessage
-	if err := json.Unmarshal(w.Body.Bytes(), &arr); err != nil {
-		t.Fatalf("response should be valid JSON array: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &arr))
+
 }
 
 func TestExport_NoProjectID_Returns400(t *testing.T) {
@@ -259,10 +253,10 @@ func TestExport_NoProjectID_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing project ID, got %d", w.Code)
-	}
 }
 
 func TestHandleExportWorkflows_JSON_ReturnsArray(t *testing.T) {
@@ -281,21 +275,18 @@ func TestHandleExportWorkflows_JSON_ReturnsArray(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportWorkflows)(w, r)
+	require.Equal(t, "application/json",
+		w.Header().Get("Content-Type"))
+	require.Equal(t, "attachment; filename=workflows.json",
 
-	if w.Header().Get("Content-Type") != "application/json" {
-		t.Fatalf("expected application/json, got %s", w.Header().Get("Content-Type"))
-	}
-	if w.Header().Get("Content-Disposition") != "attachment; filename=workflows.json" {
-		t.Fatalf("expected workflows.json disposition, got %s", w.Header().Get("Content-Disposition"))
-	}
+		w.
+			Header().Get("Content-Disposition"))
 
 	var arr []json.RawMessage
-	if err := json.Unmarshal(w.Body.Bytes(), &arr); err != nil {
-		t.Fatalf("response should be valid JSON array: %v", err)
-	}
-	if len(arr) != 2 {
-		t.Fatalf("expected 2 workflows in array, got %d", len(arr))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &arr))
+	require.Len(t,
+		arr, 2)
+
 }
 
 func TestHandleExportWorkflows_NDJSON_ReturnsLineDelimited(t *testing.T) {
@@ -315,19 +306,18 @@ func TestHandleExportWorkflows_NDJSON_ReturnsLineDelimited(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportWorkflows)(w, r)
+	require.Equal(t, "application/x-ndjson",
+		w.Header().Get("Content-Type"))
 
-	if w.Header().Get("Content-Type") != "application/x-ndjson" {
-		t.Fatalf("expected ndjson content type, got %s", w.Header().Get("Content-Type"))
-	}
 	lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 NDJSON lines, got %d", len(lines))
-	}
-	for i, line := range lines {
+	require.Len(t,
+		lines, 3)
+
+	for _, line := range lines {
 		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			t.Fatalf("line %d is not valid JSON: %v", i, err)
-		}
+		require.NoError(t, json.Unmarshal([]byte(line),
+			&obj))
+
 	}
 }
 
@@ -340,10 +330,10 @@ func TestHandleExportWorkflows_InvalidFormat_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportWorkflows)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for csv format on workflows, got %d", w.Code)
-	}
 }
 
 func TestHandleExportWorkflows_NoProjectID_Returns400(t *testing.T) {
@@ -354,10 +344,10 @@ func TestHandleExportWorkflows_NoProjectID_Returns400(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportWorkflows)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing project ID, got %d", w.Code)
-	}
 }
 
 func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
@@ -384,25 +374,24 @@ func TestExportRuns_CSV_CommaInErrorMessage(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
-
-	if w.Header().Get("Content-Type") != "text/csv" {
-		t.Fatalf("expected text/csv, got %s", w.Header().Get("Content-Type"))
-	}
+	require.Equal(t, "text/csv",
+		w.Header().Get("Content-Type"))
 
 	// Parse as CSV to verify the comma-containing error is properly escaped.
 	csvReader := csv.NewReader(strings.NewReader(w.Body.String()))
 	records, err := csvReader.ReadAll()
-	if err != nil {
-		t.Fatalf("CSV parsing failed (commas not properly escaped): %v", err)
-	}
-	if len(records) != 2 { // header + 1 data row
-		t.Fatalf("expected 2 CSV records (header + data), got %d", len(records))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		records, 2)
+
+	// header + 1 data row
+
 	// The error column is the last field (index 8).
 	errorField := records[1][8]
-	if errorField != "connection failed, retries exhausted, giving up" {
-		t.Fatalf("error field not properly preserved: %s", errorField)
-	}
+	require.Equal(t, "connection failed, retries exhausted, giving up",
+
+		errorField)
+
 }
 
 func TestExportJobs_WebhookSecretSanitized(t *testing.T) {
@@ -427,9 +416,8 @@ func TestExportJobs_WebhookSecretSanitized(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
 
 	body := w.Body.String()
-	if strings.Contains(body, "supersecretvalue") {
-		t.Fatal("webhook_secret should be sanitized from export output")
-	}
+	require.False(t, strings.Contains(body, "supersecretvalue"))
+
 }
 
 func TestExportJobs_NDJSON_WebhookSecretSanitized(t *testing.T) {
@@ -453,9 +441,8 @@ func TestExportJobs_NDJSON_WebhookSecretSanitized(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
 
 	body := w.Body.String()
-	if strings.Contains(body, "anothersecret") {
-		t.Fatal("webhook_secret should be sanitized from NDJSON export output")
-	}
+	require.False(t, strings.Contains(body, "anothersecret"))
+
 }
 
 func TestExportJobs_JSON_ValidStructure(t *testing.T) {
@@ -477,21 +464,19 @@ func TestExportJobs_JSON_ValidStructure(t *testing.T) {
 	TypedHandler(srv, http.StatusOK, srv.handleExportJobs)(w, r)
 
 	var arr []json.RawMessage
-	if err := json.Unmarshal(w.Body.Bytes(), &arr); err != nil {
-		t.Fatalf("response is not a valid JSON array: %v", err)
-	}
-	if len(arr) != 3 {
-		t.Fatalf("expected 3 items in JSON array, got %d", len(arr))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &arr))
+	require.Len(t,
+		arr, 3)
 
 	// Each item should be a valid JSON object with an id field.
 	for i, raw := range arr {
 		var obj map[string]any
-		if err := json.Unmarshal(raw, &obj); err != nil {
-			t.Fatalf("item %d is not valid JSON object: %v", i, err)
-		}
+		require.NoError(t, json.Unmarshal(raw, &obj))
+
 		if _, ok := obj["id"]; !ok {
-			t.Fatalf("item %d missing 'id' field", i)
+			require.Failf(t, "test failure",
+
+				"item %d missing 'id' field", i)
 		}
 	}
 }
@@ -506,9 +491,10 @@ func TestExport_SQLInjectionInParams(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleExportRuns)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
 	// Should fail with 400 (invalid RFC3339), not succeed.
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for SQL injection attempt, got %d", w.Code)
-	}
+
 }

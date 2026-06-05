@@ -12,6 +12,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestExportRateLimit_FailsClosed_OnRedisError verifies that handleExportAuditEvents
@@ -61,13 +63,13 @@ func TestExportRateLimit_FailsClosed_OnRedisError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, http.StatusServiceUnavailable,
 
-	if w.Code == http.StatusOK {
-		t.Errorf("expected non-200 response when Redis is down (fail-closed), got 200")
-	}
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503 (ServiceUnavailable) when Redis is down", w.Code)
-	}
+		w.Code)
+
 }
 
 // TestListAuditEvents_TimeWindowCap_Rejects91Days verifies that handleListAuditEvents
@@ -89,18 +91,17 @@ func TestListAuditEvents_TimeWindowCap_Rejects91Days(t *testing.T) {
 		From: from.Format(time.RFC3339Nano),
 		To:   to.Format(time.RFC3339Nano),
 	})
-	if err == nil {
-		t.Fatal("expected error for 91-day window, got nil")
-	}
+	require.Error(t, err)
 
 	// The error must be a 400 Bad Request.
 	humaErr, ok := err.(interface{ GetStatus() int })
-	if !ok {
-		t.Fatalf("expected huma error with GetStatus(), got %T: %v", err, err)
-	}
-	if humaErr.GetStatus() != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", humaErr.GetStatus())
-	}
+	require.True(
+		t, ok)
+	assert.Equal(
+		t, http.StatusBadRequest,
+		humaErr.
+			GetStatus())
+
 }
 
 // TestListAuditEvents_TimeWindowCap_Accepts89Days verifies that handleListAuditEvents
@@ -125,7 +126,6 @@ func TestListAuditEvents_TimeWindowCap_Accepts89Days(t *testing.T) {
 		From: from.Format(time.RFC3339Nano),
 		To:   to.Format(time.RFC3339Nano),
 	})
-	if err != nil {
-		t.Errorf("unexpected error for 89-day window: %v", err)
-	}
+	assert.NoError(t, err)
+
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationSentryRunMetadataCarriesRequestScope(t *testing.T) {
@@ -18,17 +20,23 @@ func TestIntegrationSentryRunMetadataCarriesRequestScope(t *testing.T) {
 	got := sentryRunMetadata(ctx, "POST /v1/jobs/{jobID}/trigger", map[string]string{
 		"dependency_key": "dep-1",
 	})
+	require.Equal(t,
 
-	if got["dependency_key"] != "dep-1" {
-		t.Fatalf("dependency_key = %q, want dep-1", got["dependency_key"])
-	}
-	if got[domain.RunMetadataSentryActorType] != "api_key" {
-		t.Fatalf("actor type metadata = %q, want api_key", got[domain.RunMetadataSentryActorType])
-	}
-	if got[domain.RunMetadataSentryRequestID] != "req-integration" {
-		t.Fatalf("request id metadata = %q, want req-integration", got[domain.RunMetadataSentryRequestID])
-	}
-	if got[domain.RunMetadataSentryRoute] != "POST /v1/jobs/{jobID}/trigger" {
-		t.Fatalf("route metadata = %q, want trigger route", got[domain.RunMetadataSentryRoute])
-	}
+		"dep-1",
+		got["dependency_key"])
+	require.Equal(t,
+
+		"api_key",
+		got[domain.
+			RunMetadataSentryActorType])
+	require.Equal(t,
+
+		"req-integration",
+		got[domain.RunMetadataSentryRequestID])
+	require.Equal(t,
+
+		"POST /v1/jobs/{jobID}/trigger",
+
+		got[domain.RunMetadataSentryRoute])
+
 }

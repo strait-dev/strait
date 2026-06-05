@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestServerWithCapConfig(t *testing.T, s APIStore, defaultCap int64) *Server {
@@ -37,12 +40,10 @@ func TestUpdateAuditExportCap_RequiresAdmin(t *testing.T) {
 	in := &UpdateAuditExportCapInput{ID: "proj-a"}
 	in.Body.RowCap = 500
 	_, err := srv.handleUpdateAuditExportCap(nonAdminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 403 for non-admin caller, got nil")
-	}
-	if !strings.Contains(err.Error(), "admin") {
-		t.Errorf("expected admin-required error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "admin"))
+
 }
 
 func TestUpdateAuditExportCap_RejectsCrossTenant(t *testing.T) {
@@ -55,19 +56,19 @@ func TestUpdateAuditExportCap_RejectsCrossTenant(t *testing.T) {
 	in := &UpdateAuditExportCapInput{ID: "proj-b"}
 	in.Body.RowCap = 1
 	_, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant request, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "not found"))
+
 }
 
 func TestUpdateAuditExportCap_RejectsNegative(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{
 		SetAuditExportRowCapFunc: func(_ context.Context, _ string, _ int64) error {
-			t.Error("Set must not be called when input is invalid")
+			assert.Fail(t,
+
+				"Set must not be called when input is invalid")
 			return nil
 		},
 	}, nil, nil)
@@ -75,12 +76,10 @@ func TestUpdateAuditExportCap_RejectsNegative(t *testing.T) {
 	in := &UpdateAuditExportCapInput{ID: "proj-a"}
 	in.Body.RowCap = -1
 	_, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 400 for negative cap, got nil")
-	}
-	if !strings.Contains(err.Error(), ">= 0") {
-		t.Errorf("expected >=0 error message, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), ">= 0"))
+
 }
 
 func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
@@ -88,7 +87,6 @@ func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
 
 	var (
 		mu               sync.Mutex
-		storedProjectID  string
 		storedCap        int64
 		storedCapProject string
 		selfAuditHit     bool
@@ -108,7 +106,6 @@ func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			storedCapProject = projectID
-			storedProjectID = projectID
 			storedCap = cap
 			return nil
 		},
@@ -134,30 +131,25 @@ func TestUpdateAuditExportCap_PersistsAndEmitsAudit(t *testing.T) {
 	in := &UpdateAuditExportCapInput{ID: "proj-a"}
 	in.Body.RowCap = 500
 	out, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out == nil || out.Body.ProjectID != "proj-a" || out.Body.RowCap != 500 {
-		t.Fatalf("unexpected response: %+v", out)
-	}
+	require.NoError(t, err)
+	require.False(t, out == nil ||
+		out.Body.ProjectID !=
+			"proj-a" ||
+		out.Body.RowCap !=
+
+			500)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if storedCapProject != "proj-a" {
-		t.Errorf("Set called with project %q, want proj-a", storedProjectID)
-	}
-	if storedCap != 500 {
-		t.Errorf("persisted cap = %d, want 500", storedCap)
-	}
-	if !selfAuditHit {
-		t.Fatal("audit.export_cap_updated self-audit was not emitted")
-	}
-	if seenOldCap != 42 {
-		t.Errorf("self-audit old_cap = %v, want 42", seenOldCap)
-	}
-	if seenNewCap != 500 {
-		t.Errorf("self-audit new_cap = %v, want 500", seenNewCap)
-	}
+	assert.Equal(
+		t, "proj-a", storedCapProject,
+	)
+	assert.EqualValues(t, 500, storedCap)
+	require.True(
+		t, selfAuditHit)
+	assert.EqualValues(t, 42, seenOldCap)
+	assert.EqualValues(t, 500, seenNewCap)
+
 }
 
 func TestUpdateAuditExportCap_ZeroReinheritsDefault(t *testing.T) {
@@ -189,17 +181,17 @@ func TestUpdateAuditExportCap_ZeroReinheritsDefault(t *testing.T) {
 	in := &UpdateAuditExportCapInput{ID: "proj-a"}
 	in.Body.RowCap = 0
 	if _, err := srv.handleUpdateAuditExportCap(adminCtx("proj-a"), in); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		require.Failf(t, "test failure",
+
+			"unexpected error: %v", err)
 	}
-	if storedCap.Load() != 0 {
-		t.Fatalf("cap was not persisted as 0, got %d", storedCap.Load())
-	}
+	require.EqualValues(t, 0, storedCap.
+		Load())
 
 	// After re-inheriting, resolveExportRowCap returns the config default.
 	effective := srv.resolveExportRowCap(context.Background(), "proj-a")
-	if effective != 7777 {
-		t.Errorf("resolveExportRowCap = %d, want config default 7777", effective)
-	}
+	assert.EqualValues(t, 7777, effective)
+
 }
 
 func TestExportAuditEvents_PerProjectCap(t *testing.T) {
@@ -243,21 +235,21 @@ func TestExportAuditEvents_PerProjectCap(t *testing.T) {
 		time.Unix(0, 0), time.Now().Add(time.Hour),
 		cap,
 	)
-	if err != nil {
-		t.Fatalf("unexpected stream error: %v", err)
-	}
-	if !capped {
-		t.Fatal("expected stream to cap, it did not")
-	}
-	if exported != int(cap) {
-		t.Errorf("exported = %d, want %d", exported, cap)
-	}
+	require.NoError(t, err)
+	require.True(
+		t, capped)
+	assert.Equal(
+		t, int(cap), exported,
+	)
+
 	body := buf.String()
-	if !strings.Contains(body, `"_capped":true`) {
-		t.Errorf("body missing _capped sentinel: %q", body)
-	}
+	assert.True(t,
+		strings.Contains(body, `"_capped":true`))
+	assert.Equal(
+		t, cap, streamedCount.
+			Load(),
+	)
+
 	// StreamAuditEvents short-circuits via errExportCapReached after cap rows.
-	if got := streamedCount.Load(); got != cap {
-		t.Errorf("stream delivered %d events, want %d before short-circuit", got, cap)
-	}
+
 }

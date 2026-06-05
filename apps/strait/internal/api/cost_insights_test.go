@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func costInsightsURL(from, to string, extras ...string) string {
@@ -26,9 +28,8 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			if threshold != 2.0 {
-				t.Fatalf("expected threshold 2.0, got %f", threshold)
-			}
+			require.EqualValues(t, 2.0, threshold)
+
 			return []store.CostOutlier{
 				{RunID: "run-1", JobID: "job-1", CostMicrousd: 50000, AvgCostMicrousd: 10000, StddevMicrousd: 5000, DeviationsAbove: 8.0},
 				{RunID: "run-2", JobID: "job-1", CostMicrousd: 40000, AvgCostMicrousd: 10000, StddevMicrousd: 5000, DeviationsAbove: 6.0},
@@ -40,32 +41,27 @@ func TestHandleGetCostInsights_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp struct {
 		Outliers  []store.CostOutlier `json:"outliers"`
 		Threshold float64             `json:"threshold"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp.Outliers) != 3 {
-		t.Fatalf("expected 3 outliers, got %d", len(resp.Outliers))
-	}
-	if resp.Threshold != 2.0 {
-		t.Fatalf("expected threshold 2.0, got %f", resp.Threshold)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Len(t,
+		resp.Outliers,
+		3)
+	require.EqualValues(t, 2.0, resp.Threshold)
+
 }
 
 func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			if threshold != 3.0 {
-				t.Fatalf("expected threshold 3.0, got %f", threshold)
-			}
+			require.EqualValues(t, 3.0, threshold)
+
 			return nil, nil
 		},
 	}
@@ -73,19 +69,16 @@ func TestHandleGetCostInsights_CustomThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z", "threshold", "3.0"), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetCostOutliersFunc: func(_ context.Context, _ string, _, _ time.Time, threshold float64) ([]store.CostOutlier, error) {
-			if threshold != 2.0 {
-				t.Fatalf("expected default threshold 2.0, got %f", threshold)
-			}
+			require.EqualValues(t, 2.0, threshold)
+
 			return nil, nil
 		},
 	}
@@ -93,10 +86,8 @@ func TestHandleGetCostInsights_DefaultThreshold(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleGetCostInsights_MissingParams(t *testing.T) {
@@ -105,10 +96,8 @@ func TestHandleGetCostInsights_MissingParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/cost-insights", "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 400, w.Code)
 
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
 }
 
 func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
@@ -122,19 +111,17 @@ func TestHandleGetCostInsights_NoOutliers(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp struct {
 		Outliers []store.CostOutlier `json:"outliers"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp.Outliers) != 0 {
-		t.Fatalf("expected 0 outliers, got %d", len(resp.Outliers))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Len(t,
+		resp.Outliers,
+		0)
+
 }
 
 func TestHandleGetCostInsights_StoreError(t *testing.T) {
@@ -148,8 +135,6 @@ func TestHandleGetCostInsights_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", costInsightsURL("2025-01-01T00:00:00Z", "2025-01-31T00:00:00Z"), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.EqualValues(t, 500, w.Code)
 
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
 }

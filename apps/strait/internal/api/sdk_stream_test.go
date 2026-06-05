@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleSDKStreamChunk_PublishesChunk(t *testing.T) {
@@ -30,31 +32,23 @@ func TestHandleSDKStreamChunk_PublishesChunk(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"Hello ","stream_id":"default","done":false}`)
 	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	mu.Lock()
 	defer mu.Unlock()
-
-	if publishedChannel != "run_stream:run-1" {
-		t.Fatalf("expected channel run_stream:run-1, got %s", publishedChannel)
-	}
+	require.Equal(t, "run_stream:run-1",
+		publishedChannel,
+	)
 
 	var msg map[string]any
-	if err := json.Unmarshal(publishedPayload, &msg); err != nil {
-		t.Fatalf("invalid published JSON: %v", err)
-	}
-	if msg["type"] != "stream_chunk" {
-		t.Fatalf("expected type=stream_chunk, got %v", msg["type"])
-	}
-	if msg["chunk"] != "Hello " {
-		t.Fatalf("expected chunk='Hello ', got %v", msg["chunk"])
-	}
-	if msg["stream_id"] != "default" {
-		t.Fatalf("expected stream_id=default, got %v", msg["stream_id"])
-	}
+	require.NoError(t, json.Unmarshal(publishedPayload,
+		&msg))
+	require.Equal(t, "stream_chunk",
+		msg["type"])
+	require.Equal(t, "Hello ", msg["chunk"])
+	require.Equal(t, "default", msg["stream_id"])
+
 }
 
 func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
@@ -72,15 +66,13 @@ func TestHandleSDKStreamChunk_DefaultStreamID(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"token"}`)
 	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	var msg map[string]any
 	_ = json.Unmarshal(publishedPayload, &msg)
-	if msg["stream_id"] != "default" {
-		t.Fatalf("expected default stream_id, got %v", msg["stream_id"])
-	}
+	require.Equal(t, "default", msg["stream_id"])
+
 }
 
 func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
@@ -91,10 +83,9 @@ func TestHandleSDKStreamChunk_NoPubSub(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1",
 		`{"chunk":"token"}`)
 	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 even without pubsub, got %d", w.Code)
-	}
 }
 
 func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
@@ -104,8 +95,8 @@ func TestHandleSDKStreamChunk_InvalidBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/stream", "run-1", "not json")
 	TypedHandler(srv, http.StatusOK, srv.handleSDKStreamChunk)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
 }

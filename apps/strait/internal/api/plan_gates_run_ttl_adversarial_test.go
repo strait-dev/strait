@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUpdateJob_RunTTLBypass_AfterDowngrade simulates the scenario where a job
@@ -44,16 +47,13 @@ func TestUpdateJob_RunTTLBypass_AfterDowngrade(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"run_ttl_secs":2592000}` // 30 days
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.False(t, updateCalled)
+	assert.True(t,
+		strings.Contains(w.Body.String(), "run_ttl_secs"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 from run_ttl_secs cap; got %d: %s", w.Code, w.Body.String())
-	}
-	if updateCalled {
-		t.Fatal("UpdateJob must not be called when the gate rejects")
-	}
-	if !strings.Contains(w.Body.String(), "run_ttl_secs") {
-		t.Errorf("response should mention run_ttl_secs; got %s", w.Body.String())
-	}
 }
 
 // TestUpdateJob_NoRunTTLChange_NotGated documents the deliberate carve-out: a
@@ -87,10 +87,9 @@ func TestUpdateJob_NoRunTTLChange_NotGated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"renamed"}`))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 when run_ttl_secs is unchanged; got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestCloneJob_RunTTLBypass_FromHighTTLSource walks the clone vector: a Pro-era
@@ -127,13 +126,11 @@ func TestCloneJob_RunTTLBypass_FromHighTTLSource(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"name":"Cloned","slug":"cloned"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", body))
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.False(t, createCalled)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 from run_ttl_secs cap on clone; got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("CreateJob must not be called when the gate rejects the clone")
-	}
 }
 
 // TestCloneJob_RunTTLAtLimit_Allows verifies the clone gate is inclusive at
@@ -169,11 +166,9 @@ func TestCloneJob_RunTTLAtLimit_Allows(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", `{"name":"Cloned","slug":"cloned"}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.True(
+		t, created)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 at exact retention boundary; got %d: %s", w.Code, w.Body.String())
-	}
-	if !created {
-		t.Fatal("CreateJob should be called when the gate allows the clone")
-	}
 }

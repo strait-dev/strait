@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompensateWorkflowRun_EnqueuesCompensationJobs(t *testing.T) {
@@ -42,27 +44,32 @@ func TestCompensateWorkflowRun_EnqueuesCompensationJobs(t *testing.T) {
 
 	store := &APIStoreMock{
 		GetWorkflowRunFunc: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			if id != wfRun.ID {
-				t.Fatalf("GetWorkflowRun id = %q, want %q", id, wfRun.ID)
-			}
+			require.Equal(t, wfRun.ID, id)
+
 			return wfRun, nil
 		},
 		ListStepsByWorkflowVersionFunc: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
-			if workflowID != wfRun.WorkflowID || version != wfRun.WorkflowVersion {
-				t.Fatalf("ListStepsByWorkflowVersion(%q, %d), want (%q, %d)", workflowID, version, wfRun.WorkflowID, wfRun.WorkflowVersion)
-			}
+			require.False(t, workflowID !=
+				wfRun.WorkflowID ||
+				version != wfRun.
+					WorkflowVersion,
+			)
+
 			return steps, nil
 		},
 		ListStepRunsByWorkflowRunFunc: func(_ context.Context, workflowRunID string, limit int, cursor *time.Time) ([]domain.WorkflowStepRun, error) {
-			if workflowRunID != wfRun.ID {
-				t.Fatalf("ListStepRunsByWorkflowRun id = %q, want %q", workflowRunID, wfRun.ID)
-			}
+			require.Equal(t, wfRun.ID, workflowRunID)
+
 			return stepRuns, nil
 		},
 		UpdateWorkflowRunStatusFunc: func(_ context.Context, id string, from, to domain.WorkflowRunStatus, fields map[string]any) error {
-			if id != wfRun.ID || from != domain.WfStatusFailed || to != domain.WfStatusCompensating {
-				t.Fatalf("UpdateWorkflowRunStatus(%q, %q, %q), want failed -> compensating", id, from, to)
-			}
+			require.False(t, id != wfRun.ID ||
+				from !=
+					domain.WfStatusFailed ||
+				to !=
+					domain.WfStatusCompensating,
+			)
+
 			return nil
 		},
 		CreateAuditEventFunc: func(context.Context, *domain.AuditEvent) error { return nil },
@@ -80,36 +87,36 @@ func TestCompensateWorkflowRun_EnqueuesCompensationJobs(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-compensate/compensate", "", "proj-compensate"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Len(t,
+		enqueued, 1)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
-	}
-	if len(enqueued) != 1 {
-		t.Fatalf("enqueued compensation jobs = %d, want 1", len(enqueued))
-	}
 	got := enqueued[0]
-	if got.JobID != "job-refund" || got.ProjectID != "proj-compensate" {
-		t.Fatalf("enqueued job = (%q, %q), want compensation job in project", got.JobID, got.ProjectID)
-	}
-	if got.TriggeredBy != domain.TriggerWorkflow || got.CreatedBy != "system:workflow-compensation" {
-		t.Fatalf("enqueued provenance = (%q, %q), want workflow compensation", got.TriggeredBy, got.CreatedBy)
-	}
-	if got.Metadata[domain.RunMetadataCompensationRunID] == "" ||
-		got.Metadata[domain.RunMetadataCompensationWorkflowRunID] != wfRun.ID ||
-		got.Metadata[domain.RunMetadataCompensationStepRef] != "charge-card" {
-		t.Fatalf("missing compensation metadata: %#v", got.Metadata)
-	}
-	if got.Tags["env"] != "prod" {
-		t.Fatalf("tags = %#v, want workflow tags copied", got.Tags)
-	}
-	if got.TimeoutSecsOverride != 45 {
-		t.Fatalf("timeout override = %d, want 45", got.TimeoutSecsOverride)
-	}
+	require.False(t, got.JobID !=
+		"job-refund" ||
+		got.ProjectID !=
+			"proj-compensate",
+	)
+	require.False(t, got.TriggeredBy !=
+		domain.
+			TriggerWorkflow || got.
+		CreatedBy !=
+		"system:workflow-compensation",
+	)
+	require.False(t, got.Metadata[domain.RunMetadataCompensationRunID] == "" ||
+		got.Metadata[domain.RunMetadataCompensationWorkflowRunID] !=
+
+			wfRun.ID || got.Metadata[domain.RunMetadataCompensationStepRef] != "charge-card",
+	)
+	require.Equal(t, "prod", got.Tags["env"])
+	require.EqualValues(t, 45, got.TimeoutSecsOverride)
+
 	var payload map[string]any
-	if err := json.Unmarshal(got.Payload, &payload); err != nil {
-		t.Fatalf("invalid compensation payload: %v", err)
-	}
-	if payload["workflow_run_id"] != wfRun.ID || payload["step_ref"] != "charge-card" {
-		t.Fatalf("payload missing compensation context: %#v", payload)
-	}
+	require.NoError(t, json.Unmarshal(got.Payload,
+		&payload))
+	require.False(t, payload["workflow_run_id"] != wfRun.ID || payload["step_ref"] !=
+		"charge-card",
+	)
+
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -49,9 +51,9 @@ func TestStopAuditAsyncDrain_ConcurrentAccess(t *testing.T) {
 
 	// All events should have been written (either async or via sync fallback).
 	total := written.Load()
-	if total == 0 {
-		t.Errorf("expected at least some events written; got 0")
-	}
+	assert.NotEqual(t, 0,
+		total)
+
 }
 
 // TestEmitAuditEventAsync_NilChannelFallsBackSync verifies that when the async
@@ -85,10 +87,10 @@ func TestEmitAuditEventAsync_NilChannelFallsBackSync(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "user")
 
 	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "j1", nil)
+	assert.EqualValues(t, 1, syncWrites.
+		Load(),
+	)
 
-	if got := syncWrites.Load(); got != 1 {
-		t.Errorf("sync fallback writes = %d, want 1 when channel is nil", got)
-	}
 }
 
 // TestRetryInterruptedByShutdown verifies that a long retry sleep is
@@ -141,7 +143,7 @@ func TestRetryInterruptedByShutdown(t *testing.T) {
 	select {
 	case <-storeReady:
 	case <-time.After(2 * time.Second):
-		t.Fatal("store call did not start within 2s")
+		require.Fail(t, "store call did not start within 2s")
 	}
 
 	// Close: shutdown timeout (5s) + drainCancel + 500ms grace window.
@@ -151,13 +153,15 @@ func TestRetryInterruptedByShutdown(t *testing.T) {
 	start := time.Now()
 	srv.Close()
 	elapsed := time.Since(start)
+	require.LessOrEqual(t,
+		elapsed, 6*
+			time.Second,
+	)
 
 	// Budget: 5s timeout + 500ms grace + small scheduling slack.
 	// If the sleep were NOT interrupted, Close would return after 5.5s but
 	// the drainer goroutine would still be alive sleeping for 10s — that
 	// goroutine leak is the primary hazard fixed here. We assert timing to
 	// confirm Close does not block beyond the expected budget.
-	if elapsed > 6*time.Second {
-		t.Fatalf("Close took %v, want <= 6s (retry sleep must be interruptible by shutdown context cancellation)", elapsed)
-	}
+
 }

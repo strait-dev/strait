@@ -8,20 +8,19 @@ import (
 
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func requireEncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypted, want string) {
 	t.Helper()
-	if !straitcrypto.IsEncryptedField(encrypted) {
-		t.Fatalf("secret = %q, want encrypted field", encrypted)
-	}
+	require.True(
+		t, straitcrypto.IsEncryptedField(encrypted))
+
 	got, err := straitcrypto.DecryptField(enc, encrypted)
-	if err != nil {
-		t.Fatalf("decrypt secret: %v", err)
-	}
-	if got != want {
-		t.Fatalf("decrypted secret = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
 }
 
 func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
@@ -49,12 +48,9 @@ func TestHandleCreateJob_WebhookSecretAliasPersisted(t *testing.T) {
 		WebhookSecret: "sdk-supplied-secret-32b-long",
 		ExecutionMode: string(domain.ExecutionModeHTTP),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "sdk-supplied-secret-32b-long")
 }
 
@@ -84,9 +80,8 @@ func TestHandleCreateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 		WebhookSecret:         "sdk-supplied-secret-32b-long",
 		ExecutionMode:         string(domain.ExecutionModeHTTP),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "sdk-supplied-secret-32b-long")
 }
 
@@ -115,9 +110,8 @@ func TestHandleCreateJob_EndpointSigningSecretAloneStillPersisted(t *testing.T) 
 		EndpointSigningSecret: "legacy-platform-secret-32b-long",
 		ExecutionMode:         string(domain.ExecutionModeHTTP),
 	}})
-	if err != nil {
-		t.Fatalf("handleCreateJob: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, "legacy-platform-secret-32b-long")
 }
 
@@ -154,12 +148,9 @@ func TestHandleUpdateJob_WebhookSecretAliasApplied(t *testing.T) {
 		JobID: "job-1",
 		Body:  UpdateJobRequest{WebhookSecret: &newSecret},
 	})
-	if err != nil {
-		t.Fatalf("handleUpdateJob: %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected UpdateJob to be called")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, newSecret)
 }
 
@@ -196,9 +187,8 @@ func TestHandleUpdateJob_EndpointSigningSecretFieldApplied(t *testing.T) {
 		JobID: "job-1",
 		Body:  UpdateJobRequest{EndpointSigningSecret: &newSecret},
 	})
-	if err != nil {
-		t.Fatalf("handleUpdateJob: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, newSecret)
 }
 
@@ -238,9 +228,8 @@ func TestHandleUpdateJob_WebhookSecretWinsOverEndpointSigningSecret(t *testing.T
 			EndpointSigningSecret: &endpointSecret,
 		},
 	})
-	if err != nil {
-		t.Fatalf("handleUpdateJob: %v", err)
-	}
+	require.NoError(t, err)
+
 	requireEncryptedSecretPlaintext(t, enc, captured.EndpointSigningSecret, webhookSecret)
 }
 
@@ -287,33 +276,29 @@ func TestHandleUpdateJob_AuditDetailsDoNotLeakSigningSecrets(t *testing.T) {
 			EndpointSigningSecret: &endpointSecret,
 		},
 	})
-	if err != nil {
-		t.Fatalf("handleUpdateJob: %v", err)
-	}
-	if capturedAudit == nil {
-		t.Fatal("expected audit event")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, capturedAudit)
+
 	rawDetails := string(capturedAudit.Details)
 	for _, forbidden := range []string{webhookSecret, endpointSecret, "webhook_secret", "endpoint_signing_secret"} {
-		if strings.Contains(rawDetails, forbidden) {
-			t.Fatalf("audit details leaked %q: %s", forbidden, rawDetails)
-		}
+		require.False(t, strings.Contains(rawDetails,
+			forbidden,
+		))
+
 	}
 
 	var details map[string]any
-	if err := json.Unmarshal(capturedAudit.Details, &details); err != nil {
-		t.Fatalf("unmarshal audit details: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(capturedAudit.
+		Details,
+
+		&details))
+
 	changes, ok := details["changes"].(map[string]any)
-	if !ok {
-		t.Fatalf("changes = %#v, want object", details["changes"])
-	}
-	if changes["name"] != name {
-		t.Fatalf("changes.name = %v, want %q", changes["name"], name)
-	}
-	if changes["signing_credential_changed"] != true {
-		t.Fatalf("signing_credential_changed = %v, want true", changes["signing_credential_changed"])
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, name, changes["name"])
+	require.Equal(t, true, changes["signing_credential_changed"])
+
 }
 
 func TestHandleBatchCreateJobs_EncryptsEndpointSigningSecrets(t *testing.T) {
@@ -354,12 +339,10 @@ func TestHandleBatchCreateJobs_EncryptsEndpointSigningSecrets(t *testing.T) {
 			},
 		},
 	}})
-	if err != nil {
-		t.Fatalf("handleBatchCreateJobs: %v", err)
-	}
-	if len(captured) != 2 {
-		t.Fatalf("captured jobs = %d, want 2", len(captured))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		captured, 2)
+
 	requireEncryptedSecretPlaintext(t, enc, captured[0].EndpointSigningSecret, "batch-endpoint-secret-32-bytes")
 	requireEncryptedSecretPlaintext(t, enc, captured[1].EndpointSigningSecret, "batch-webhook-secret-32-bytes-ok")
 }

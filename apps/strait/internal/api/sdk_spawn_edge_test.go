@@ -12,6 +12,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Await completion tests.
@@ -50,26 +53,24 @@ func TestHandleSDKSpawn_AwaitCompletion_TransitionsParent(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-1","await_completion":true,"await_timeout_secs":300}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !statusUpdated.Load() {
-		t.Error("parent run should have been transitioned to waiting")
-	}
-	if !createdTrigger.Load() {
-		t.Error("event trigger should have been created for await")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	assert.True(t,
+		statusUpdated.Load())
+	assert.True(t,
+		createdTrigger.
+			Load())
 
 	var resp map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp["await_completion"] != true {
-		t.Error("response should include await_completion: true")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(
+		t, true, resp["await_completion"])
+
 	if _, ok := resp["await_event_key"]; !ok {
-		t.Error("response should include await_event_key")
+		assert.Fail(t,
+
+			"response should include await_event_key")
 	}
 }
 
@@ -108,13 +109,13 @@ func TestHandleSDKSpawn_AwaitCompletion_RejectsTimeoutAboveMaximum(t *testing.T)
 		`{"job_slug":"child","project_id":"proj-1","await_completion":true,"await_timeout_secs":2592001}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued.Load() || statusUpdated.Load() || createdTrigger.Load() {
-		t.Fatal("invalid await timeout must be rejected before enqueue, parent transition, or trigger creation")
-	}
+		w.Code)
+	require.False(t, enqueued.Load() || statusUpdated.
+		Load() || createdTrigger.
+		Load())
+
 }
 
 func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
@@ -144,13 +145,13 @@ func TestHandleSDKSpawn_NoAwait_DoesNotTransitionParent(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	assert.False(
+		t, statusUpdated.
+			Load())
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if statusUpdated.Load() {
-		t.Error("parent should NOT be transitioned when await_completion is not set")
-	}
 }
 
 func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
@@ -164,7 +165,9 @@ func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: "child"}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-			t.Error("should not update status when parent is not executing")
+			assert.Fail(t,
+
+				"should not update status when parent is not executing")
 			return nil
 		},
 	}
@@ -179,11 +182,12 @@ func TestHandleSDKSpawn_AwaitCompletion_ParentNotExecuting(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-1","await_completion":true}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	// Should still create the child run, but not transition parent.
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+
 }
 
 // Cross-project spawn tests.
@@ -203,10 +207,10 @@ func TestHandleSDKSpawn_CrossProject_RequiresTargetKey(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
@@ -226,10 +230,10 @@ func TestHandleSDKSpawn_CrossProject_InvalidKey(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_invalid123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
@@ -250,10 +254,10 @@ func TestHandleSDKSpawn_CrossProject_RevokedKey(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_revoked123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
@@ -274,10 +278,10 @@ func TestHandleSDKSpawn_CrossProject_ExpiredKey(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_expired123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
@@ -298,10 +302,10 @@ func TestHandleSDKSpawn_CrossProject_WrongProject(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_wrong123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T) {
@@ -314,7 +318,9 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T)
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target", Scopes: []string{domain.ScopeJobsRead}}, nil
 		},
 		GetJobBySlugFunc: func(_ context.Context, _, _ string) (*domain.Job, error) {
-			t.Fatal("job lookup should not run when target key lacks jobs:trigger")
+			require.Fail(t,
+
+				"job lookup should not run when target key lacks jobs:trigger")
 			return nil, nil
 		},
 	}
@@ -325,10 +331,10 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyRequiresTriggerScope(t *testing.T)
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_readonly123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing.T) {
@@ -352,7 +358,9 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing
 	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			t.Fatal("enqueue should not run for a target-key environment mismatch")
+			require.Fail(t,
+
+				"enqueue should not run for a target-key environment mismatch")
 			return nil
 		},
 	}
@@ -363,10 +371,10 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyEnvironmentMustMatchJob(t *testing
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_env123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
@@ -379,18 +387,20 @@ func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 			return &domain.APIKey{ID: "key-1", ProjectID: "proj-target"}, nil
 		},
 		GetJobBySlugFunc: func(_ context.Context, projectID, _ string) (*domain.Job, error) {
-			if projectID != "proj-target" {
-				t.Fatalf("job lookup should use target project, got %s", projectID)
-			}
+			require.Equal(t, "proj-target",
+				projectID,
+			)
+
 			return &domain.Job{ID: "job-target", ProjectID: projectID, Slug: "child"}, nil
 		},
 	}
 	ms.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) { return true, nil }
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
-			if run.ProjectID != "proj-target" {
-				t.Fatalf("child should be in target project, got %s", run.ProjectID)
-			}
+			require.Equal(t, "proj-target",
+				run.ProjectID,
+			)
+
 			return nil
 		},
 	}
@@ -401,10 +411,10 @@ func TestHandleSDKSpawn_CrossProject_ValidKey(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_valid123"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleSDKSpawn_CrossProject_TargetKeyUsesAuthCache(t *testing.T) {
@@ -438,13 +448,14 @@ func TestHandleSDKSpawn_CrossProject_TargetKeyUsesAuthCache(t *testing.T) {
 		r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent",
 			`{"job_slug":"child","project_id":"proj-target","target_api_key":"strait_cached123"}`)
 		srv.ServeHTTP(w, r)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.StatusCreated,
+			w.Code,
+		)
+
 	}
-	if keyLookups.Load() != 1 {
-		t.Fatalf("GetAPIKeyByHash calls = %d, want 1", keyLookups.Load())
-	}
+	require.EqualValues(t, 1, keyLookups.
+		Load())
+
 }
 
 func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
@@ -468,10 +479,10 @@ func TestHandleSDKSpawn_SameProject_NoKeyNeeded(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleSDKSpawn_ParentRunNotFound(t *testing.T) {
@@ -488,8 +499,8 @@ func TestHandleSDKSpawn_ParentRunNotFound(t *testing.T) {
 		`{"job_slug":"child","project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }

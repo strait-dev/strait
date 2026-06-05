@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestBulkTriggerStateAppendRunResultsUpdatesCounters(t *testing.T) {
@@ -20,22 +22,26 @@ func TestBulkTriggerStateAppendRunResultsUpdatesCounters(t *testing.T) {
 		ID:     "run-new",
 		Status: domain.StatusQueued,
 	})
+	require.Len(t,
+		state.results,
 
-	if len(state.results) != 2 {
-		t.Fatalf("results = %d, want 2", len(state.results))
-	}
+		2)
+
 	if got := state.results[0]; got.ID != "run-existing" || got.Status != string(domain.StatusCompleted) || !got.IdempotencyHit {
-		t.Fatalf("existing result = %#v", got)
+		require.Failf(t, "test failure",
+
+			"existing result = %#v", got)
 	}
 	if got := state.results[1]; got.ID != "run-new" || got.Status != string(domain.StatusQueued) || got.IdempotencyHit {
-		t.Fatalf("created result = %#v", got)
+		require.Failf(t, "test failure",
+
+			"created result = %#v", got)
 	}
-	if state.created != 1 {
-		t.Fatalf("created = %d, want 1", state.created)
-	}
-	if state.enqueuedInBatch != 1 {
-		t.Fatalf("enqueuedInBatch = %d, want 1", state.enqueuedInBatch)
-	}
+	require.EqualValues(t, 1, state.
+		created)
+	require.EqualValues(t, 1, state.
+		enqueuedInBatch)
+
 }
 
 func TestBulkTriggerStateBuffersRunWhenBatchCanUseEnqueueBatch(t *testing.T) {
@@ -46,7 +52,9 @@ func TestBulkTriggerStateBuffersRunWhenBatchCanUseEnqueueBatch(t *testing.T) {
 		server: &Server{
 			queue: &mockQueue{
 				enqueueFn: func(context.Context, *domain.JobRun) error {
-					t.Fatal("Enqueue must not be called for non-idempotent runs outside a transaction")
+					require.Fail(t,
+
+						"Enqueue must not be called for non-idempotent runs outside a transaction")
 					return nil
 				},
 			},
@@ -56,15 +64,12 @@ func TestBulkTriggerStateBuffersRunWhenBatchCanUseEnqueueBatch(t *testing.T) {
 	}
 
 	handled, err := state.enqueueOrBufferRun(run, BulkTriggerItem{}, 0)
-	if err != nil {
-		t.Fatalf("enqueueOrBufferRun() error = %v", err)
-	}
-	if handled {
-		t.Fatal("handled = true, want false")
-	}
-	if len(state.pendingRuns) != 1 || state.pendingRuns[0] != run {
-		t.Fatalf("pendingRuns = %#v, want buffered run", state.pendingRuns)
-	}
+	require.NoError(t, err)
+	require.False(t, handled)
+	require.False(t, len(state.
+		pendingRuns) != 1 || state.
+		pendingRuns[0] != run)
+
 }
 
 func TestBulkTriggerStateEnqueuesImmediatelyWhenIdempotencyPresent(t *testing.T) {
@@ -86,18 +91,14 @@ func TestBulkTriggerStateEnqueuesImmediatelyWhenIdempotencyPresent(t *testing.T)
 	}
 
 	handled, err := state.enqueueOrBufferRun(run, BulkTriggerItem{IdempotencyKey: "idem-1"}, 0)
-	if err != nil {
-		t.Fatalf("enqueueOrBufferRun() error = %v", err)
-	}
-	if handled {
-		t.Fatal("handled = true, want false")
-	}
-	if captured != run {
-		t.Fatalf("captured run = %#v, want %#v", captured, run)
-	}
-	if len(state.pendingRuns) != 0 {
-		t.Fatalf("pendingRuns = %d, want 0", len(state.pendingRuns))
-	}
+	require.NoError(t, err)
+	require.False(t, handled)
+	require.Equal(t, run, captured)
+	require.Len(t,
+		state.pendingRuns,
+
+		0)
+
 }
 
 func TestBulkTriggerStateEnqueuePendingRunsUsesBatch(t *testing.T) {
@@ -113,7 +114,9 @@ func TestBulkTriggerStateEnqueuePendingRunsUsesBatch(t *testing.T) {
 					return int64(len(got)), nil
 				},
 				enqueueFn: func(context.Context, *domain.JobRun) error {
-					t.Fatal("Enqueue must not be called when EnqueueBatch is available")
+					require.Fail(t,
+
+						"Enqueue must not be called when EnqueueBatch is available")
 					return nil
 				},
 			},
@@ -121,16 +124,17 @@ func TestBulkTriggerStateEnqueuePendingRunsUsesBatch(t *testing.T) {
 		ctx:         context.Background(),
 		pendingRuns: runs,
 	}
+	require.NoError(t, state.
+		enqueuePendingRuns())
+	require.Len(t,
+		captured,
 
-	if err := state.enqueuePendingRuns(); err != nil {
-		t.Fatalf("enqueuePendingRuns() error = %v", err)
-	}
-	if len(captured) != len(runs) {
-		t.Fatalf("captured runs = %d, want %d", len(captured), len(runs))
-	}
+		len(runs))
+
 	for i := range runs {
-		if captured[i] != runs[i] {
-			t.Fatalf("captured[%d] = %#v, want %#v", i, captured[i], runs[i])
-		}
+		require.Equal(t, runs[i],
+
+			captured[i])
+
 	}
 }

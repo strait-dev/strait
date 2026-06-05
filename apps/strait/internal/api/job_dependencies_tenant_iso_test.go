@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_JobDeps_List_RejectsCrossProject verifies that a caller
@@ -18,7 +20,9 @@ func TestTenantIso_JobDeps_List_RejectsCrossProject(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		ListJobDependenciesFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
-			t.Fatal("ListJobDependencies must not be called for cross-project access")
+			require.Fail(t,
+
+				"ListJobDependencies must not be called for cross-project access")
 			return nil, nil
 		},
 	}
@@ -26,9 +30,12 @@ func TestTenantIso_JobDeps_List_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleListJobDependencies(ctx, &ListJobDependenciesInput{JobID: "job-foreign"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_JobDeps_List_RejectsCrossEnv ensures env scoping is honored
@@ -40,7 +47,9 @@ func TestTenantIso_JobDeps_List_RejectsCrossEnv(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-aaa", EnvironmentID: "env-staging"}, nil
 		},
 		ListJobDependenciesFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
-			t.Fatal("ListJobDependencies must not be called for cross-env access")
+			require.Fail(t,
+
+				"ListJobDependencies must not be called for cross-env access")
 			return nil, nil
 		},
 	}
@@ -49,9 +58,12 @@ func TestTenantIso_JobDeps_List_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleListJobDependencies(ctx, &ListJobDependenciesInput{JobID: "job-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }
 
 // TestTenantIso_JobDeps_Delete_RejectsCrossProject ensures that the delete
@@ -67,7 +79,9 @@ func TestTenantIso_JobDeps_Delete_RejectsCrossProject(t *testing.T) {
 			return &domain.JobDependency{ID: id, JobID: "job-foreign"}, nil
 		},
 		DeleteJobDependencyFunc: func(_ context.Context, _ string) error {
-			t.Fatal("DeleteJobDependency must not be called for cross-project access")
+			require.Fail(t,
+
+				"DeleteJobDependency must not be called for cross-project access")
 			return nil
 		},
 	}
@@ -75,7 +89,10 @@ func TestTenantIso_JobDeps_Delete_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleDeleteJobDependency(ctx, &DeleteJobDependencyInput{JobID: "job-foreign", DepID: "dep-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
+
 }

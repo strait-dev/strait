@@ -13,6 +13,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
@@ -33,13 +34,12 @@ func TestHandleCreateWebhookSubscription_Success(t *testing.T) {
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"secret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, called)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !called {
-		t.Fatal("CreateWebhookSubscription was not called")
-	}
 }
 
 func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
@@ -47,9 +47,8 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListWebhookSubscriptionsFunc: func(_ context.Context, projectID string) ([]domain.WebhookSubscription, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want %q", projectID, "proj-1")
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return []domain.WebhookSubscription{{ID: "sub-1", ProjectID: projectID, WebhookURL: "https://example.com/hook", EventTypes: []string{"run.failed"}, Active: true}}, nil
 		},
 	}
@@ -58,18 +57,16 @@ func TestHandleListWebhookSubscriptions_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/webhooks/subscriptions", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var subs []domain.WebhookSubscription
-	if err := json.Unmarshal(w.Body.Bytes(), &subs); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(subs) != 1 {
-		t.Fatalf("len(subs) = %d, want 1", len(subs))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &subs,
+	))
+	require.Len(t,
+		subs, 1)
+
 }
 
 func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -80,19 +77,27 @@ func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
 
 	srv := newTestServer(t, &APIStoreMock{
 		CreateWebhookSubscriptionFunc: func(context.Context, *domain.WebhookSubscription) error {
-			t.Fatal("CreateWebhookSubscription must not be called for environment-scoped caller")
+			require.Fail(t,
+
+				"CreateWebhookSubscription must not be called for environment-scoped caller")
 			return nil
 		},
 		ListWebhookSubscriptionsFunc: func(context.Context, string) ([]domain.WebhookSubscription, error) {
-			t.Fatal("ListWebhookSubscriptions must not be called for environment-scoped caller")
+			require.Fail(t,
+
+				"ListWebhookSubscriptions must not be called for environment-scoped caller")
 			return nil, nil
 		},
 		GetWebhookSubscriptionFunc: func(context.Context, string) (*domain.WebhookSubscription, error) {
-			t.Fatal("GetWebhookSubscription must not be called for environment-scoped caller")
+			require.Fail(t,
+
+				"GetWebhookSubscription must not be called for environment-scoped caller")
 			return nil, nil
 		},
 		RotateWebhookSecretFunc: func(context.Context, string, string, time.Time) error {
-			t.Fatal("RotateWebhookSecret must not be called for environment-scoped caller")
+			require.Fail(t,
+
+				"RotateWebhookSecret must not be called for environment-scoped caller")
 			return nil
 		},
 	}, &mockQueue{}, nil)
@@ -139,12 +144,14 @@ func TestWebhookSubscriptions_EnvironmentScopedKeyRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
 			var statusErr huma.StatusError
-			if !errors.As(err, &statusErr) {
-				t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-			}
-			if statusErr.GetStatus() != http.StatusForbidden {
-				t.Fatalf("status = %d, want 403", statusErr.GetStatus())
-			}
+			require.True(
+				t, errors.As(err,
+					&statusErr,
+				))
+			require.Equal(t, http.StatusForbidden,
+				statusErr.
+					GetStatus())
+
 		})
 	}
 }
@@ -165,10 +172,10 @@ func TestHandleDeleteWebhookSubscription_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/webhooks/subscriptions/sub-missing", ""))
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
 }
 
 func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
@@ -178,8 +185,8 @@ func TestHandleCreateWebhookSubscription_InvalidEventType(t *testing.T) {
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["invalid.event"],"secret":"secret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid event type, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }

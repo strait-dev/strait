@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditNegativePath_NoEmitOnStoreFailure verifies that when a store
@@ -185,14 +188,14 @@ func TestAuditNegativePath_NoEmitOnStoreFailure(t *testing.T) {
 			req := authedProjectRequest(tc.method, tc.path, tc.body, "proj-1")
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
+			require.False(t, w.Code >=
+				200 && w.
+				Code < 300)
+			assert.EqualValues(t, 0, auditCalls.
+				Load())
 
 			// Any failure status is acceptable — the key assertion is "no audit".
-			if w.Code >= 200 && w.Code < 300 {
-				t.Fatalf("handler did not fail as expected: status=%d body=%s", w.Code, w.Body.String())
-			}
-			if got := auditCalls.Load(); got != 0 {
-				t.Errorf("audit event emitted %d times on failure path (want 0)", got)
-			}
+
 		})
 	}
 }

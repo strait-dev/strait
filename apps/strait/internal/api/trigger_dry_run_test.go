@@ -13,6 +13,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
@@ -20,9 +21,8 @@ func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
 
 	srv := newTestServer(t, &APIStoreMock{
 		GetJobFunc: func(_ context.Context, jobID string) (*domain.Job, error) {
-			if jobID != "job-1" {
-				t.Fatalf("jobID = %q, want job-1", jobID)
-			}
+			require.Equal(t, "job-1", jobID)
+
 			return &domain.Job{
 				ID:          jobID,
 				ProjectID:   "project-1",
@@ -34,9 +34,9 @@ func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
 			}, nil
 		},
 		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
-			if projectID != "project-1" {
-				t.Fatalf("projectID = %q, want project-1", projectID)
-			}
+			require.Equal(t, "project-1",
+				projectID)
+
 			return &store.ProjectQuota{ProjectID: projectID}, nil
 		},
 	}, &mockQueue{}, nil)
@@ -44,29 +44,29 @@ func TestHandleTriggerDryRunReturnsValidationResult(t *testing.T) {
 	out, err := srv.handleTriggerDryRun(context.Background(), "job-1", TriggerRequest{
 		Payload: json.RawMessage(`{"b":2,"a":1}`),
 	})
-	if out != nil {
-		t.Fatalf("output = %+v, want nil raw-status output", out)
-	}
+	require.Nil(t, out)
+
 	var rawErr *rawStatusError
-	if !errors.As(err, &rawErr) {
-		t.Fatalf("error = %T, want rawStatusError", err)
-	}
-	if rawErr.status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rawErr.status)
-	}
+	require.True(
+		t, errors.As(err,
+			&rawErr))
+	require.Equal(t, http.StatusOK,
+		rawErr.status,
+	)
+
 	result, ok := rawErr.body.(*DryRunValidationResult)
-	if !ok {
-		t.Fatalf("body = %T, want *DryRunValidationResult", rawErr.body)
-	}
-	if result.Job == nil || result.Job.ID != "job-1" {
-		t.Fatalf("result.Job = %+v, want job-1", result.Job)
-	}
-	if string(result.Payload) != `{"a":1,"b":2}` {
-		t.Fatalf("payload = %s, want canonical JSON", result.Payload)
-	}
-	if result.PayloadHash == "" {
-		t.Fatal("payload hash is empty")
-	}
+	require.True(
+		t, ok)
+	require.False(t, result.Job ==
+		nil || result.
+		Job.ID !=
+		"job-1")
+	require.Equal(t, `{"a":1,"b":2}`,
+		string(result.Payload))
+	require.NotEqual(t, "", result.
+		PayloadHash,
+	)
+
 }
 
 func TestHandleTriggerDryRunMapsValidationErrorToBadRequest(t *testing.T) {
@@ -80,15 +80,16 @@ func TestHandleTriggerDryRunMapsValidationErrorToBadRequest(t *testing.T) {
 
 	_, err := srv.handleTriggerDryRun(context.Background(), "job-1", TriggerRequest{})
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("error = %T, want huma.StatusError", err)
-	}
-	if statusErr.GetStatus() != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", statusErr.GetStatus())
-	}
-	if !strings.Contains(err.Error(), "job is disabled") {
-		t.Fatalf("error = %q, want disabled job message", err.Error())
-	}
+	require.True(
+		t, errors.As(err,
+			&statusErr,
+		))
+	require.Equal(t, http.StatusBadRequest,
+
+		statusErr.GetStatus())
+	require.True(
+		t, strings.Contains(err.Error(), "job is disabled"))
+
 }
 
 func TestDryRunValidationWarningsReportsDedupRun(t *testing.T) {
@@ -98,27 +99,20 @@ func TestDryRunValidationWarningsReportsDedupRun(t *testing.T) {
 	job := &domain.Job{ID: "job-1", DedupWindowSecs: 60}
 	ms := &APIStoreMock{
 		FindRecentRunByPayloadFunc: func(_ context.Context, jobID string, gotPayload json.RawMessage, since time.Time) (*domain.JobRun, error) {
-			if jobID != job.ID {
-				t.Fatalf("jobID = %q, want %q", jobID, job.ID)
-			}
-			if string(gotPayload) != string(payload) {
-				t.Fatalf("payload = %s, want %s", gotPayload, payload)
-			}
-			if since.IsZero() {
-				t.Fatal("since must be set for dedup lookup")
-			}
+			require.Equal(t, job.ID, jobID)
+			require.Equal(t, string(payload), string(gotPayload))
+			require.False(t, since.IsZero())
+
 			return &domain.JobRun{ID: "run-existing"}, nil
 		},
 	}
 	srv := &Server{store: ms}
 
 	warnings, err := srv.dryRunValidationWarnings(context.Background(), job, payload)
-	if err != nil {
-		t.Fatalf("dryRunValidationWarnings: %v", err)
-	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "run-existing") {
-		t.Fatalf("warnings = %#v, want dedup warning with run ID", warnings)
-	}
+	require.NoError(t, err)
+	require.False(t, len(warnings) !=
+		1 || !strings.Contains(warnings[0], "run-existing"))
+
 }
 
 func TestDryRunValidationWarningsSkipsDedupWhenDisabled(t *testing.T) {
@@ -126,24 +120,22 @@ func TestDryRunValidationWarningsSkipsDedupWhenDisabled(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		FindRecentRunByPayloadFunc: func(context.Context, string, json.RawMessage, time.Time) (*domain.JobRun, error) {
-			t.Fatal("dedup lookup must not run when dedup window is disabled")
+			require.Fail(t,
+
+				"dedup lookup must not run when dedup window is disabled")
 			return nil, nil
 		},
 	}}
 
 	warnings, err := srv.dryRunValidationWarnings(context.Background(), &domain.Job{ID: "job-1"}, nil)
-	if err != nil {
-		t.Fatalf("dryRunValidationWarnings: %v", err)
-	}
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %#v, want none", warnings)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		warnings, 0)
+
 }
 
 func TestDryRunJobInfoNilSafe(t *testing.T) {
 	t.Parallel()
+	require.Nil(t, dryRunJobInfo(nil))
 
-	if got := dryRunJobInfo(nil); got != nil {
-		t.Fatalf("dryRunJobInfo(nil) = %#v, want nil", got)
-	}
 }

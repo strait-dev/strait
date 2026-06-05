@@ -13,6 +13,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateProject_Success(t *testing.T) {
@@ -31,27 +33,23 @@ func TestHandleCreateProject_Success(t *testing.T) {
 	body := `{"id":"proj-1","org_id":"org-1","name":"My Project"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created.Load() {
-		t.Fatal("CreateProject was not called")
-	}
+		w.Code)
+	require.True(
+		t, created.Load(),
+	)
 
 	var p domain.Project
-	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if p.ID != "proj-1" {
-		t.Fatalf("expected id=proj-1, got %q", p.ID)
-	}
-	if p.OrgID != "org-1" {
-		t.Fatalf("expected org_id=org-1, got %q", p.OrgID)
-	}
-	if p.Name != "My Project" {
-		t.Fatalf("expected name=My Project, got %q", p.Name)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&p))
+	require.Equal(t, "proj-1", p.ID)
+	require.Equal(t, "org-1", p.OrgID)
+	require.Equal(t, "My Project",
+		p.Name,
+	)
+
 }
 
 func TestHandleCreateProject_MissingFields(t *testing.T) {
@@ -71,9 +69,10 @@ func TestHandleCreateProject_MissingFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", tc.body))
-			if w.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-			}
+			require.Equal(t, http.StatusUnprocessableEntity,
+
+				w.Code)
+
 		})
 	}
 }
@@ -85,10 +84,10 @@ func TestHandleCreateProject_NameTooShort(t *testing.T) {
 	body := `{"id":"proj-1","org_id":"org-1","name":"X"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleCreateProject_Idempotent(t *testing.T) {
@@ -105,16 +104,17 @@ func TestHandleCreateProject_Idempotent(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	body := `{"id":"proj-1","org_id":"org-1","name":"My Project"}`
-	for i := range 2 {
+	for range 2 {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
-		if w.Code != http.StatusCreated {
-			t.Fatalf("attempt %d: expected 201, got %d", i+1, w.Code)
-		}
+		require.Equal(t, http.StatusCreated,
+
+			w.Code)
+
 	}
-	if callCount.Load() != 2 {
-		t.Fatalf("expected 2 calls, got %d", callCount.Load())
-	}
+	require.EqualValues(t, 2, callCount.
+		Load())
+
 }
 
 func TestHandleCreateProject_StoreError(t *testing.T) {
@@ -129,10 +129,10 @@ func TestHandleCreateProject_StoreError(t *testing.T) {
 	body := `{"id":"proj-1","org_id":"org-1","name":"My Project"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestHandleGetProject_Success(t *testing.T) {
@@ -150,18 +150,16 @@ func TestHandleGetProject_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/proj-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var p domain.Project
-	if err := json.Unmarshal(w.Body.Bytes(), &p); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if p.ID != "proj-1" {
-		t.Fatalf("expected id=proj-1, got %q", p.ID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&p))
+	require.Equal(t, "proj-1", p.ID)
+
 }
 
 func TestHandleGetProject_NotFound(t *testing.T) {
@@ -175,10 +173,10 @@ func TestHandleGetProject_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/nonexistent", ""))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleGetProject_StoreError(t *testing.T) {
@@ -192,10 +190,10 @@ func TestHandleGetProject_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/proj-1", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleListProjects_Success(t *testing.T) {
@@ -213,18 +211,17 @@ func TestHandleListProjects_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/?org_id=org-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var projects []domain.Project
-	if err := json.Unmarshal(w.Body.Bytes(), &projects); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(projects) != 2 {
-		t.Fatalf("expected 2 projects, got %d", len(projects))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&projects))
+	require.Len(t,
+		projects, 2)
+
 }
 
 func TestHandleListProjects_MissingOrgID(t *testing.T) {
@@ -233,10 +230,10 @@ func TestHandleListProjects_MissingOrgID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleListProjects_Empty(t *testing.T) {
@@ -250,18 +247,17 @@ func TestHandleListProjects_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/?org_id=org-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var projects []domain.Project
-	if err := json.Unmarshal(w.Body.Bytes(), &projects); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(projects) != 0 {
-		t.Fatalf("expected 0 projects, got %d", len(projects))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&projects))
+	require.Len(t,
+		projects, 0)
+
 }
 
 func TestHandleDeleteProject_Success(t *testing.T) {
@@ -280,13 +276,13 @@ func TestHandleDeleteProject_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/projects/proj-1", ""))
+	require.Equal(t, http.StatusNoContent,
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if !deleted.Load() {
-		t.Fatal("DeleteProject was not called")
-	}
+		w.Code)
+	require.True(
+		t, deleted.Load(),
+	)
+
 }
 
 func TestHandleDeleteProject_NotFound(t *testing.T) {
@@ -300,10 +296,10 @@ func TestHandleDeleteProject_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/projects/nonexistent", ""))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleDeleteProject_StoreError(t *testing.T) {
@@ -317,10 +313,10 @@ func TestHandleDeleteProject_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/projects/proj-1", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestProjectEndpoints_RequireAuth(t *testing.T) {
@@ -343,9 +339,10 @@ func TestProjectEndpoints_RequireAuth(t *testing.T) {
 			r := httptest.NewRequest(ep.method, ep.path, nil)
 			// No auth header
 			srv.ServeHTTP(w, r)
-			if w.Code != http.StatusUnauthorized {
-				t.Fatalf("expected 401, got %d", w.Code)
-			}
+			require.Equal(t, http.StatusUnauthorized,
+
+				w.Code)
+
 		})
 	}
 }
@@ -371,9 +368,10 @@ func TestProjectEndpoints_APIKey_CreateForbidden(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
@@ -395,9 +393,10 @@ func TestProjectEndpoints_APIKey_ListForbidden(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
@@ -423,9 +422,10 @@ func TestProjectEndpoints_APIKey_GetOwnProject(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testkey")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for own project, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
@@ -447,9 +447,10 @@ func TestProjectEndpoints_APIKey_GetCrossProjectForbidden(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testkey")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-project access, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
@@ -470,9 +471,10 @@ func TestProjectEndpoints_APIKey_DeleteCrossProjectForbidden(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testkey")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-project delete, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestProjectEndpoints_InternalSecret(t *testing.T) {
@@ -499,30 +501,31 @@ func TestProjectEndpoints_InternalSecret(t *testing.T) {
 	// POST create
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", `{"id":"p1","org_id":"o1","name":"Test"}`))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("POST create: expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	// GET list
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/?org_id=o1", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET list: expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	// GET single
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/p1", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET single: expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	// DELETE
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/projects/p1", ""))
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("DELETE: expected 204, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNoContent,
+
+		w.Code)
+
 }
 
 func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -545,9 +548,10 @@ func TestGetProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-B", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -571,9 +575,10 @@ func TestGetProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-A2", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -586,7 +591,9 @@ func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	}
 	ms := &APIStoreMock{
 		DeleteProjectFunc: func(_ context.Context, _ string) error {
-			t.Fatal("delete should not be called for cross-org access")
+			require.Fail(t,
+
+				"delete should not be called for cross-org access")
 			return nil
 		},
 	}
@@ -597,9 +604,10 @@ func TestDeleteProject_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodDelete, "/v1/projects/proj-B", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+
+		w.Code)
+
 }
 
 func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -622,7 +630,8 @@ func TestDeleteProject_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodDelete, "/v1/projects/proj-A2", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+
+		w.Code)
+
 }

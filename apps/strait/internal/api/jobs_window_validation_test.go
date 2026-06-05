@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"strait/internal/config"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestValidateWindowsAgainstRetention(t *testing.T) {
@@ -37,9 +39,11 @@ func TestValidateWindowsAgainstRetention(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := srv.validateWindowsAgainstRetention(tt.rlw, tt.dw)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateWindowsAgainstRetention(%d, %d) error = %v, wantErr %v", tt.rlw, tt.dw, err, tt.wantErr)
-			}
+			assert.Equal(
+				t, tt.wantErr,
+
+				(err != nil))
+
 		})
 	}
 }
@@ -48,7 +52,7 @@ func TestValidateWindowsAgainstRetention_NilConfig(t *testing.T) {
 	t.Parallel()
 
 	srv := &Server{config: nil}
-	if err := srv.validateWindowsAgainstRetention(999999999, 999999999); err != nil {
-		t.Errorf("nil config should skip validation, got error: %v", err)
-	}
+	assert.NoError(t, srv.
+		validateWindowsAgainstRetention(999999999, 999999999))
+
 }

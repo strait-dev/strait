@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // adminCtx returns a context that satisfies requireAdmin (isInternalCaller
@@ -48,12 +51,10 @@ func TestListDeadletter_RequiresAdmin(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	_, err := srv.handleListDeadletter(nonAdminCtx("proj-a"), &ListDeadletterInput{})
-	if err == nil {
-		t.Fatal("expected 403 for non-admin caller, got nil")
-	}
-	if !strings.Contains(err.Error(), "admin") {
-		t.Errorf("expected admin-required error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "admin"))
+
 }
 
 func TestListDeadletter_ReturnsEntriesForOwnProject(t *testing.T) {
@@ -74,15 +75,14 @@ func TestListDeadletter_ReturnsEntriesForOwnProject(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	out, err := srv.handleListDeadletter(adminCtx("proj-a"), &ListDeadletterInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := listProject.Load().(string); got != "proj-a" {
-		t.Errorf("store called with project_id = %q, want %q", got, "proj-a")
-	}
-	if len(out.Body.Entries) != 2 {
-		t.Errorf("Entries len = %d, want 2", len(out.Body.Entries))
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "proj-a", listProject.
+			Load().(string))
+	assert.Len(t,
+		out.Body.Entries,
+		2)
+
 }
 
 func TestListDeadletter_RejectsCrossTenantProjectID(t *testing.T) {
@@ -93,12 +93,10 @@ func TestListDeadletter_RejectsCrossTenantProjectID(t *testing.T) {
 	// Cross-tenant must surface as 404 (not 403) so a probing admin
 	// cannot enumerate other projects by watching error codes.
 	_, err := srv.handleListDeadletter(adminCtx("proj-a"), &ListDeadletterInput{ProjectID: "proj-b"})
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant request, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "not found"))
+
 }
 
 func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
@@ -153,42 +151,40 @@ func TestReplayDeadletter_MovesEventToChain(t *testing.T) {
 			return nil
 		},
 		MarkAuditDeadletterReclaimedFunc: func(_ context.Context, dlqID, newEventID string) error {
-			if dlqID != seed.ID {
-				t.Fatalf("MarkAuditDeadletterReclaimed dlqID = %q, want %q", dlqID, seed.ID)
-			}
-			if newEventID == "" || newEventID == seed.ID {
-				t.Fatalf("MarkAuditDeadletterReclaimed newEventID = %q", newEventID)
-			}
+			require.Equal(t, seed.ID, dlqID)
+			require.False(t, newEventID ==
+				"" || newEventID ==
+				seed.ID)
+
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
 
 	out, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deletedDLQID != "dlq-1" {
-		t.Errorf("DeleteAuditEventDeadletter called with %q, want %q", deletedDLQID, "dlq-1")
-	}
-	if len(createdEvents) < 2 {
-		t.Fatalf("expected at least 2 CreateAuditEvent calls (replay + self-audit), got %d", len(createdEvents))
-	}
-	if !selfAuditFound {
-		t.Error("self-audit audit.deadletter_replayed event never emitted")
-	}
-	if selfAuditDLQID != "dlq-1" {
-		t.Errorf("self-audit deadletter_id = %q, want %q", selfAuditDLQID, "dlq-1")
-	}
-	if selfAuditEventID != out.Body.NewEventID {
-		t.Errorf("self-audit new_event_id = %q, want %q", selfAuditEventID, out.Body.NewEventID)
-	}
-	if out.Body.NewEventID == seed.ID {
-		t.Error("replayed event must have a fresh id, not the DLQ id")
-	}
+	assert.Equal(
+		t, "dlq-1", deletedDLQID,
+	)
+	require.GreaterOrEqual(t, len(
+		createdEvents,
+	), 2)
+	assert.True(t,
+		selfAuditFound)
+	assert.Equal(
+		t, "dlq-1", selfAuditDLQID,
+	)
+	assert.Equal(
+		t, out.Body.NewEventID,
+		selfAuditEventID,
+	)
+	assert.NotEqual(t, seed.ID, out.
+		Body.NewEventID,
+	)
+
 }
 
 func TestReplayDeadletter_NotFound_404(t *testing.T) {
@@ -202,12 +198,10 @@ func TestReplayDeadletter_NotFound_404(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "missing"})
-	if err == nil {
-		t.Fatal("expected 404 for missing id, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "not found"))
+
 }
 
 func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
@@ -242,23 +236,23 @@ func TestDropDeadletter_EmitsAuditAndRemoves(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleDropDeadletter(adminCtx("proj-a"), &DropDeadletterInput{ID: "dlq-1", Reason: "corrupt_payload"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	mu.Lock()
 	defer mu.Unlock()
-	if droppedID != "dlq-1" {
-		t.Errorf("DropAuditEventDeadletterWithAudit called with id %q, want %q", droppedID, "dlq-1")
-	}
-	if droppedProject != "proj-a" {
-		t.Errorf("DropAuditEventDeadletterWithAudit project = %q, want %q", droppedProject, "proj-a")
-	}
-	if !selfAuditHit {
-		t.Error("expected audit.deadletter_dropped event to be persisted with the drop")
-	}
-	if seenReason != "corrupt_payload" {
-		t.Errorf("self-audit reason = %q, want %q", seenReason, "corrupt_payload")
-	}
+	assert.Equal(
+		t, "dlq-1", droppedID,
+	)
+	assert.Equal(
+		t, "proj-a", droppedProject,
+	)
+	assert.True(t,
+		selfAuditHit)
+	assert.Equal(
+		t, "corrupt_payload",
+		seenReason,
+	)
+
 }
 
 func TestDropDeadletter_CrossTenant_404(t *testing.T) {
@@ -267,21 +261,18 @@ func TestDropDeadletter_CrossTenant_404(t *testing.T) {
 	ms := &atomicDropAPIStore{
 		APIStoreMock: &APIStoreMock{},
 		drop: func(_ context.Context, _, projectID string, _ *domain.AuditEvent) (bool, error) {
-			if projectID != "proj-a" {
-				t.Fatalf("drop project = %q, want proj-a", projectID)
-			}
+			require.Equal(t, "proj-a", projectID)
+
 			return false, nil
 		},
 	}
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleDropDeadletter(adminCtx("proj-a"), &DropDeadletterInput{ID: "dlq-1", Reason: "x"})
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant drop, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected 404 not-found, got %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "not found"))
+
 }
 
 func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
@@ -322,18 +313,15 @@ func TestReplayDeadletter_ChainInsertFailure_LeavesInDLQ(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
-	if err == nil {
-		t.Fatal("expected error on chain insert failure, got nil")
-	}
+	require.Error(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deleteCalled {
-		t.Error("DeleteAuditEventDeadletter must not be called when chain insert fails")
-	}
-	if selfAuditHit {
-		t.Error("audit.deadletter_replayed must not be emitted when replay fails")
-	}
+	assert.False(
+		t, deleteCalled)
+	assert.False(
+		t, selfAuditHit)
+
 }
 
 func TestReplayDeadletter_MarkFailureFailsClosed(t *testing.T) {
@@ -367,15 +355,10 @@ func TestReplayDeadletter_MarkFailureFailsClosed(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
-	if err == nil {
-		t.Fatal("expected error when reclaim marker fails")
-	}
-	if deleteCalled {
-		t.Fatal("DeleteAuditEventDeadletter must not run after reclaim marker failure")
-	}
-	if selfAuditHit {
-		t.Fatal("self-audit must not be emitted when replay finalization fails")
-	}
+	require.Error(t, err)
+	require.False(t, deleteCalled)
+	require.False(t, selfAuditHit)
+
 }
 
 func TestReplayDeadletter_DeleteFailureFailsClosed(t *testing.T) {
@@ -407,12 +390,9 @@ func TestReplayDeadletter_DeleteFailureFailsClosed(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 
 	_, err := srv.handleReplayDeadletter(adminCtx("proj-a"), &ReplayDeadletterInput{ID: "dlq-1"})
-	if err == nil {
-		t.Fatal("expected error when deadletter delete fails")
-	}
-	if selfAuditHit {
-		t.Fatal("self-audit must not be emitted when replay finalization fails")
-	}
+	require.Error(t, err)
+	require.False(t, selfAuditHit)
+
 }
 
 // TestRedactDeadletterFilter_StripsSecretShapes asserts the filter now
@@ -437,12 +417,12 @@ func TestRedactDeadletterFilter_StripsSecretShapes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			out := redactDeadletterFilter(tc.projectID, tc.limit, tc.cursor)
-			if strings.Contains(out, tc.mustHide) {
-				t.Errorf("redactDeadletterFilter(%q,%q,%q) = %q; must not contain %q", tc.projectID, tc.limit, tc.cursor, out, tc.mustHide)
-			}
-			if !strings.Contains(out, "[redacted:") {
-				t.Errorf("redactDeadletterFilter(%q,%q,%q) = %q; missing redacted marker", tc.projectID, tc.limit, tc.cursor, out)
-			}
+			assert.False(
+				t, strings.Contains(out, tc.
+					mustHide))
+			assert.True(t,
+				strings.Contains(out, "[redacted:"))
+
 		})
 	}
 }
@@ -455,7 +435,7 @@ func TestRedactDeadletterFilter_PassesThroughPlainValues(t *testing.T) {
 
 	out := redactDeadletterFilter("proj-a", "50", "2026-04-01T00:00:00Z")
 	want := "project_id=proj-a&limit=50&cursor=2026-04-01T00:00:00Z"
-	if out != want {
-		t.Errorf("filter = %q, want %q", out, want)
-	}
+	assert.Equal(
+		t, want, out)
+
 }

@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // newWorkflowRunIsolationStore creates a mock store with workflow runs scoped
@@ -122,9 +124,10 @@ func TestTenantIsolation_ListWorkflowRuns_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-a/runs", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project list workflow runs: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_ListWorkflowRuns_CrossProject(t *testing.T) {
@@ -134,9 +137,10 @@ func TestTenantIsolation_ListWorkflowRuns_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflows/wf-a/runs", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project list workflow runs: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleGetWorkflowRun tenant isolation.
@@ -148,9 +152,10 @@ func TestTenantIsolation_GetWorkflowRun_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project get workflow run: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_GetWorkflowRun_CrossProject(t *testing.T) {
@@ -160,9 +165,10 @@ func TestTenantIsolation_GetWorkflowRun_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project get workflow run: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleCancelWorkflowRun tenant isolation.
@@ -174,9 +180,10 @@ func TestTenantIsolation_CancelWorkflowRun_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/workflow-runs/wfr-a", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project cancel workflow run: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_CancelWorkflowRun_CrossProject(t *testing.T) {
@@ -186,9 +193,10 @@ func TestTenantIsolation_CancelWorkflowRun_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/workflow-runs/wfr-a", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project cancel workflow run: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handlePauseWorkflowRun tenant isolation.
@@ -200,9 +208,10 @@ func TestTenantIsolation_PauseWorkflowRun_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/pause", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project pause workflow run: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_PauseWorkflowRun_CrossProject(t *testing.T) {
@@ -212,9 +221,10 @@ func TestTenantIsolation_PauseWorkflowRun_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/pause", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project pause workflow run: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleResumeWorkflowRun tenant isolation.
@@ -226,9 +236,10 @@ func TestTenantIsolation_ResumeWorkflowRun_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a-paused/resume", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project resume workflow run: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_ResumeWorkflowRun_CrossProject(t *testing.T) {
@@ -238,9 +249,10 @@ func TestTenantIsolation_ResumeWorkflowRun_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a-paused/resume", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project resume workflow run: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleGetWorkflowRunLabels tenant isolation.
@@ -252,9 +264,10 @@ func TestTenantIsolation_GetWorkflowRunLabels_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/labels", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project get workflow run labels: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_GetWorkflowRunLabels_CrossProject(t *testing.T) {
@@ -264,9 +277,10 @@ func TestTenantIsolation_GetWorkflowRunLabels_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/labels", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project get workflow run labels: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleListWorkflowStepRuns tenant isolation.
@@ -278,9 +292,10 @@ func TestTenantIsolation_ListWorkflowStepRuns_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/steps", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project list workflow step runs: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_ListWorkflowStepRuns_CrossProject(t *testing.T) {
@@ -290,9 +305,10 @@ func TestTenantIsolation_ListWorkflowStepRuns_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/steps", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project list workflow step runs: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleGetWorkflowRunGraph tenant isolation.
@@ -304,9 +320,10 @@ func TestTenantIsolation_GetWorkflowRunGraph_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/graph", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project get workflow run graph: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_GetWorkflowRunGraph_CrossProject(t *testing.T) {
@@ -316,9 +333,10 @@ func TestTenantIsolation_GetWorkflowRunGraph_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/graph", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project get workflow run graph: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleGetWorkflowRunExplain tenant isolation.
@@ -330,9 +348,10 @@ func TestTenantIsolation_GetWorkflowRunExplain_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/explain", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project get workflow run explain: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_GetWorkflowRunExplain_CrossProject(t *testing.T) {
@@ -342,9 +361,10 @@ func TestTenantIsolation_GetWorkflowRunExplain_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/explain", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project get workflow run explain: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleGetWorkflowRunTimeline tenant isolation.
@@ -356,9 +376,10 @@ func TestTenantIsolation_GetWorkflowRunTimeline_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/timeline", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project get workflow run timeline: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_GetWorkflowRunTimeline_CrossProject(t *testing.T) {
@@ -368,9 +389,10 @@ func TestTenantIsolation_GetWorkflowRunTimeline_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-a/timeline", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project get workflow run timeline: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleRetryWorkflowRun tenant isolation.
@@ -382,9 +404,10 @@ func TestTenantIsolation_RetryWorkflowRun_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a-failed/retry", "", projectA))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("own-project retry workflow run: expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
+
 }
 
 func TestTenantIsolation_RetryWorkflowRun_CrossProject(t *testing.T) {
@@ -394,9 +417,10 @@ func TestTenantIsolation_RetryWorkflowRun_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a-failed/retry", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project retry workflow run: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleRetryWorkflowStep tenant isolation.
@@ -408,9 +432,10 @@ func TestTenantIsolation_RetryWorkflowStep_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/retry", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project retry workflow step: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_RetryWorkflowStep_CrossProject(t *testing.T) {
@@ -420,9 +445,10 @@ func TestTenantIsolation_RetryWorkflowStep_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/retry", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project retry workflow step: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleReplayWorkflowSubtree tenant isolation.
@@ -434,9 +460,10 @@ func TestTenantIsolation_ReplayWorkflowSubtree_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/replay-subtree", "", projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project replay workflow subtree: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_ReplayWorkflowSubtree_CrossProject(t *testing.T) {
@@ -446,9 +473,10 @@ func TestTenantIsolation_ReplayWorkflowSubtree_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/replay-subtree", "", projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project replay workflow subtree: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleForceCompleteWorkflowStep tenant isolation.
@@ -460,9 +488,10 @@ func TestTenantIsolation_ForceCompleteWorkflowStep_OwnProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/force-complete", `{"result":{}}`, projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project force-complete workflow step: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 }
 
 func TestTenantIsolation_ForceCompleteWorkflowStep_CrossProject(t *testing.T) {
@@ -472,9 +501,10 @@ func TestTenantIsolation_ForceCompleteWorkflowStep_CrossProject(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/wfr-a/steps/step-one/force-complete", `{"result":{}}`, projectB))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("cross-project force-complete workflow step: expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+
+		w.Code)
+
 }
 
 // handleBulkReplayWorkflowRuns tenant isolation.
@@ -487,16 +517,16 @@ func TestTenantIsolation_BulkReplayWorkflowRuns_OwnProject(t *testing.T) {
 	body := `{"workflow_run_ids":["wfr-a-failed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, projectA))
-	if w.Code != http.StatusOK {
-		t.Fatalf("own-project bulk replay: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["replayed"].(float64)) != 1 {
-		t.Fatalf("expected 1 replayed, got %v", resp["replayed"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 1, int(resp["replayed"].(float64)))
+
 }
 
 func TestTenantIsolation_BulkReplayWorkflowRuns_CrossProject(t *testing.T) {
@@ -508,15 +538,16 @@ func TestTenantIsolation_BulkReplayWorkflowRuns_CrossProject(t *testing.T) {
 	body := `{"workflow_run_ids":["wfr-a-failed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, projectB))
-	if w.Code != http.StatusOK {
-		t.Fatalf("bulk replay returns 200 with per-item failures: expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.EqualValues(t, 0, int(resp["replayed"].(float64)))
+
 	// Cross-project run should NOT be replayed.
-	if int(resp["replayed"].(float64)) != 0 {
-		t.Fatalf("cross-project bulk replay: expected 0 replayed, got %v", resp["replayed"])
-	}
+
 }

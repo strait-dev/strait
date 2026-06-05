@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"sync"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditActionSchemas_CompleteCoverage asserts every registered audit
@@ -22,10 +24,7 @@ func TestAuditActionSchemas_CompleteCoverage(t *testing.T) {
 			missing = append(missing, action)
 		}
 	}
-	if len(missing) > 0 {
-		t.Fatalf("the following actions have no schema entry:\n  %s\n\nadd them to domain.AuditActionSchemas in audit_schema.go.",
-			strings.Join(missing, "\n  "))
-	}
+	require.LessOrEqual(t, len(missing), 0)
 
 	// And the reverse: no stale schema entries.
 	stale := []string{}
@@ -34,10 +33,8 @@ func TestAuditActionSchemas_CompleteCoverage(t *testing.T) {
 			stale = append(stale, action)
 		}
 	}
-	if len(stale) > 0 {
-		t.Fatalf("schema entries for unknown actions:\n  %s",
-			strings.Join(stale, "\n  "))
-	}
+	require.LessOrEqual(t, len(stale), 0)
+
 }
 
 // handlerActionPayloads maps every action to a realistic detail payload
@@ -224,7 +221,9 @@ func TestAuditDetailSchema_RequiredKeysPresent(t *testing.T) {
 	for _, action := range domain.KnownAuditActions() {
 		ev, ok := captured[action]
 		if !ok {
-			t.Errorf("action %q did not produce a captured event", action)
+			assert.Failf(t, "test failure",
+
+				"action %q did not produce a captured event", action)
 			continue
 		}
 		schema := domain.AuditActionSchemas[action]
@@ -232,7 +231,9 @@ func TestAuditDetailSchema_RequiredKeysPresent(t *testing.T) {
 		var details map[string]any
 		if len(ev.Details) > 0 {
 			if err := json.Unmarshal(ev.Details, &details); err != nil {
-				t.Errorf("action %q: details unmarshal: %v", action, err)
+				assert.Failf(t, "test failure",
+
+					"action %q: details unmarshal: %v", action, err)
 				continue
 			}
 		}
@@ -241,20 +242,23 @@ func TestAuditDetailSchema_RequiredKeysPresent(t *testing.T) {
 		for _, key := range schema.Required {
 			v, present := details[key]
 			if !present {
-				t.Errorf("action %q: missing required details key %q (have: %v)",
+				assert.Failf(t, "test failure",
+
+					"action %q: missing required details key %q (have: %v)",
 					action, key, keysOf(details))
 				continue
 			}
-			if isZero(v) {
-				t.Errorf("action %q: required details key %q is zero (%v)",
-					action, key, v)
-			}
+			assert.False(
+				t, isZero(v))
+
 		}
 
 		// Forbidden keys must be absent.
 		for _, key := range domain.ForbiddenKeysFor(action) {
 			if _, present := details[key]; present {
-				t.Errorf("action %q: forbidden details key %q is present (defense-in-depth violation)",
+				assert.Failf(t, "test failure",
+
+					"action %q: forbidden details key %q is present (defense-in-depth violation)",
 					action, key)
 			}
 		}

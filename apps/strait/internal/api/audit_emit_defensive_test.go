@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestEmitAuditEvent_DetailsSizeCap verifies that oversize details are
@@ -45,25 +48,27 @@ func TestEmitAuditEvent_DetailsSizeCap(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected captured event")
-	}
+	require.NotNil(t, captured)
 
 	var details map[string]any
-	if err := json.Unmarshal(captured.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(captured.
+		Details,
+		&details))
+
 	if truncated, _ := details["_truncated"].(bool); !truncated {
-		t.Errorf("expected _truncated=true, got %v", details)
+		assert.Failf(t, "test failure",
+
+			"expected _truncated=true, got %v", details)
 	}
 	origBytes, _ := details["original_bytes"].(float64)
-	if int(origBytes) < 32*1024 {
-		t.Errorf("original_bytes = %v, want >= 32KiB", origBytes)
-	}
-	if len(captured.Details) > auditMaxDetailsBytes {
-		t.Errorf("captured details size %d exceeds cap %d after truncation",
-			len(captured.Details), auditMaxDetailsBytes)
-	}
+	assert.GreaterOrEqual(t, int(origBytes),
+		32*1024,
+	)
+	assert.LessOrEqual(t, len(captured.
+		Details,
+	), auditMaxDetailsBytes,
+	)
+
 }
 
 // TestEmitAuditEvent_RejectsMissingActorOnUserRequest verifies emit is
@@ -90,10 +95,8 @@ func TestEmitAuditEvent_RejectsMissingActorOnUserRequest(t *testing.T) {
 			srv.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", "job-1", map[string]any{
 				"name": "x", "slug": "x", "execution_mode": "http",
 			})
+			assert.EqualValues(t, 0, called.Load())
 
-			if got := called.Load(); got != 0 {
-				t.Errorf("CreateAuditEvent called %d times, want 0 (actor missing on %s request)", got, actorType)
-			}
 		})
 	}
 }
@@ -118,10 +121,8 @@ func TestEmitAuditEvent_AllowsEmptyActorForInternal(t *testing.T) {
 	srv.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", "job-1", map[string]any{
 		"name": "x", "slug": "x", "execution_mode": "http",
 	})
+	assert.EqualValues(t, 1, called.Load())
 
-	if got := called.Load(); got != 1 {
-		t.Errorf("CreateAuditEvent called %d times, want 1 (internal caller allowed)", got)
-	}
 }
 
 // TestEmitAuditEvent_AllowsInternalActor verifies that an empty actor with
@@ -144,10 +145,8 @@ func TestEmitAuditEvent_AllowsInternalActor(t *testing.T) {
 	srv.emitAuditEvent(ctx, domain.AuditActionJobCreated, "job", "job-1", map[string]any{
 		"name": "x", "slug": "x", "execution_mode": "http",
 	})
+	assert.EqualValues(t, 1, called.Load())
 
-	if got := called.Load(); got != 1 {
-		t.Errorf("CreateAuditEvent called %d times, want 1 (internal actor allowed)", got)
-	}
 }
 
 // TestEmitAuditEventAsync_DrainerPanicIsContained verifies a panic in one
@@ -176,10 +175,9 @@ func TestEmitAuditEventAsync_DrainerPanicIsContained(t *testing.T) {
 	srv.emitAuditEventAsync(ctx, domain.AuditActionJobTriggered, "job", "ok-2", map[string]any{"run_id": "r3"})
 
 	srv.Close()
+	assert.EqualValues(t, 2, goodWrites.
+		Load())
 
-	if got := goodWrites.Load(); got != 2 {
-		t.Errorf("good writes = %d, want 2 (panic should be contained)", got)
-	}
 }
 
 // TestEmitAuditEventAsync_DetailsImmutableAfterSend verifies the marshaled
@@ -216,18 +214,19 @@ func TestEmitAuditEventAsync_DetailsImmutableAfterSend(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected captured event")
-	}
+	require.NotNil(t, captured)
+
 	var parsed map[string]any
-	if err := json.Unmarshal(captured.Details, &parsed); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if parsed["run_id"] != "original" {
-		t.Errorf("run_id = %v, want 'original' (details not snapshotted)", parsed["run_id"])
-	}
+	require.NoError(t, json.Unmarshal(captured.
+		Details,
+		&parsed))
+	assert.Equal(
+		t, "original", parsed["run_id"])
+
 	if _, ok := parsed["extra"]; ok {
-		t.Errorf("extra key leaked into captured event (post-send mutation visible)")
+		assert.Failf(t, "test failure",
+
+			"extra key leaked into captured event (post-send mutation visible)")
 	}
 }
 
@@ -255,8 +254,6 @@ func TestEmitAuditEvent_RejectsUnknownAction(t *testing.T) {
 	// Give the async path a chance.
 	time.Sleep(10 * time.Millisecond)
 	srv.Close()
+	assert.EqualValues(t, 0, called.Load())
 
-	if got := called.Load(); got != 0 {
-		t.Errorf("CreateAuditEvent called %d times, want 0 (unknown actions rejected)", got)
-	}
 }

@@ -3,6 +3,9 @@ package api
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzParsePagination_Additional(f *testing.F) {
@@ -29,10 +32,13 @@ func FuzzParsePagination_Additional(f *testing.F) {
 		limit, cursor, err := parsePaginationFromStrings(limitStr, cursorStr)
 
 		if err == nil {
+			assert.False(
+				t, limit <=
+					0,
+			)
+
 			// When successful, limit must be positive and bounded.
-			if limit <= 0 {
-				t.Errorf("limit=%d should be positive on success", limit)
-			}
+
 			// cursor can be nil (no cursor provided) or a valid time pointer.
 			_ = cursor
 		}
@@ -58,23 +64,22 @@ func FuzzValidateIDFormat_Additional(f *testing.F) {
 	f.Fuzz(func(t *testing.T, id string) {
 		// validateIDFormat must never panic regardless of input.
 		err := validateIDFormat(id)
+		require.False(t, id == "" &&
+			err == nil)
+		require.False(t, strings.ContainsRune(id, '\x00') && err == nil)
+		require.False(t, len(id) >
+
+			maxIDLength && err == nil)
+		require.False(t, strings.Contains(id, "..") && err == nil)
 
 		// Invariant: empty IDs are always rejected.
-		if id == "" && err == nil {
-			t.Fatal("empty ID should always be rejected")
-		}
+
 		// Invariant: IDs with null bytes are rejected.
-		if strings.ContainsRune(id, '\x00') && err == nil {
-			t.Fatal("ID with null byte should be rejected")
-		}
+
 		// Invariant: IDs over max length are rejected.
-		if len(id) > maxIDLength && err == nil {
-			t.Fatal("ID over max length should be rejected")
-		}
+
 		// Invariant: path traversal patterns are rejected.
-		if strings.Contains(id, "..") && err == nil {
-			t.Fatal("ID with path traversal should be rejected")
-		}
+
 	})
 }
 

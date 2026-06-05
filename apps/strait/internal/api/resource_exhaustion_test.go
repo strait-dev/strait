@@ -18,6 +18,7 @@ import (
 	"strait/internal/pubsub"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDoS_HTTPRequestTimeout verifies that a handler that takes too long
@@ -91,18 +92,18 @@ func TestDoS_BatchOperationMaxItems(t *testing.T) {
 		items[i] = map[string]any{"payload": map[string]int{"i": i}}
 	}
 	body, err := json.Marshal(map[string]any{"items": items})
-	if err != nil {
-		t.Fatalf("marshal body: %v", err)
-	}
+	require.NoError(t, err)
 
 	req := authedRequest(http.MethodPost, "/v1/jobs/some-job-id/trigger/bulk", string(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.False(t, w.Code != http.
+		StatusBadRequest &&
+		w.Code != http.StatusUnprocessableEntity,
+	)
 
 	// Expect a 400 or 422 for exceeding the limit.
-	if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 400 or 422 for oversized batch, got %d: %s", w.Code, w.Body.String())
-	}
+
 }
 
 // TestDoS_MemoryBombPayload sends 1000 concurrent requests, each containing a
@@ -214,9 +215,9 @@ func TestDoS_GoroutineLeakSSE(t *testing.T) {
 
 	current := runtime.NumGoroutine()
 	leaked := current - baseline
-	if leaked > 10 {
-		t.Fatalf("possible goroutine leak: baseline=%d, current=%d, leaked=%d", baseline, current, leaked)
-	}
+	require.LessOrEqual(t, leaked,
+		10)
+
 }
 
 // TestDoS_WorkerPoolSaturation submits many tasks to the server concurrently
@@ -265,11 +266,12 @@ func TestDoS_WorkerPoolSaturation(t *testing.T) {
 			errors++
 		}
 	}
+	require.Equal(t, concurrency,
+		ok+errors,
+	)
 
 	// All requests should have completed (either success or error, no hang).
-	if ok+errors != concurrency {
-		t.Fatalf("expected %d total responses, got ok=%d, errors=%d", concurrency, ok, errors)
-	}
+
 }
 
 // TestDoS_SSEConnectionLimitGlobal verifies that the SSE connection limiter
@@ -291,28 +293,23 @@ func TestDoS_SSEConnectionLimitGlobal(t *testing.T) {
 		Edition: domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
+	require.True(
+		t, srv.acquireSSEConn("proj-a"))
+	require.True(
+		t, srv.acquireSSEConn("proj-b"))
+	require.True(
+		t, srv.acquireSSEConn("proj-c"))
+	require.False(t, srv.acquireSSEConn("proj-d"))
 
 	// Acquire up to the global limit across different projects.
-	if !srv.acquireSSEConn("proj-a") {
-		t.Fatal("first acquire should succeed")
-	}
-	if !srv.acquireSSEConn("proj-b") {
-		t.Fatal("second acquire should succeed")
-	}
-	if !srv.acquireSSEConn("proj-c") {
-		t.Fatal("third acquire should succeed")
-	}
 
 	// Fourth should be rejected (global limit = 3).
-	if srv.acquireSSEConn("proj-d") {
-		t.Fatal("fourth acquire should be rejected (global limit exceeded)")
-	}
 
 	// Release one and try again.
 	srv.releaseSSEConn("proj-a")
-	if !srv.acquireSSEConn("proj-d") {
-		t.Fatal("acquire after release should succeed")
-	}
+	require.True(
+		t, srv.acquireSSEConn("proj-d"))
+
 }
 
 // TestDoS_SSEConnectionLimitPerProject verifies the per-project SSE limit.
@@ -333,23 +330,18 @@ func TestDoS_SSEConnectionLimitPerProject(t *testing.T) {
 		Edition: domain.EditionCloud,
 	})
 	t.Cleanup(srv.Close)
-
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("first acquire should succeed")
-	}
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("second acquire should succeed")
-	}
+	require.True(
+		t, srv.acquireSSEConn("proj-1"))
+	require.True(
+		t, srv.acquireSSEConn("proj-1"))
+	require.False(t, srv.acquireSSEConn("proj-1"))
+	require.True(
+		t, srv.acquireSSEConn("proj-2"))
 
 	// Third for same project should be rejected.
-	if srv.acquireSSEConn("proj-1") {
-		t.Fatal("third acquire for same project should be rejected")
-	}
 
 	// Different project should still work.
-	if !srv.acquireSSEConn("proj-2") {
-		t.Fatal("acquire for different project should succeed")
-	}
+
 }
 
 func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
@@ -384,10 +376,8 @@ func TestDoS_SSEConnectionLimitPerProjectConcurrent(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	require.EqualValues(t, 1, acquired.Load())
 
-	if got := acquired.Load(); got != 1 {
-		t.Fatalf("acquired = %d, want exactly 1", got)
-	}
 }
 
 // TestDoS_SSEConnectionLimit503Response verifies that the activity stream
@@ -426,8 +416,9 @@ func TestDoS_SSEConnectionLimit503Response(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/projects/proj-1/activity/stream/", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.
+			Code)
+
 }

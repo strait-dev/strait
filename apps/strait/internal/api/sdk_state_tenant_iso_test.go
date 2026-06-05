@@ -12,6 +12,8 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // activeRunReadMock implements activeRunMutationStore plus runTokenStateGetter.
@@ -109,7 +111,9 @@ func TestTenantIso_ListRunState_RejectsCrossProject(t *testing.T) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-bbb"}, nil
 		},
 		ListRunStateFunc: func(context.Context, string) ([]domain.RunState, error) {
-			t.Fatal("ListRunState should not be reached when project guard rejects")
+			require.Fail(t,
+
+				"ListRunState should not be reached when project guard rejects")
 			return nil, nil
 		},
 	}
@@ -117,12 +121,11 @@ func TestTenantIso_ListRunState_RejectsCrossProject(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleListRunState(ctx, &ListRunStateInput{RunID: "run-x"})
-	if err == nil {
-		t.Fatal("expected error for cross-project list")
-	}
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 cross-project, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_ListRunState_RejectsCrossEnv(t *testing.T) {
@@ -135,7 +138,9 @@ func TestTenantIso_ListRunState_RejectsCrossEnv(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-aaa", EnvironmentID: "env-prod"}, nil
 		},
 		ListRunStateFunc: func(context.Context, string) ([]domain.RunState, error) {
-			t.Fatal("ListRunState should not be reached when env guard rejects")
+			require.Fail(t,
+
+				"ListRunState should not be reached when env guard rejects")
 			return nil, nil
 		},
 	}
@@ -144,12 +149,11 @@ func TestTenantIso_ListRunState_RejectsCrossEnv(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
 	_, err := srv.handleListRunState(ctx, &ListRunStateInput{RunID: "run-x"})
-	if err == nil {
-		t.Fatal("expected error for cross-env list")
-	}
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 cross-env, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
+
 }
 
 func TestTenantIso_SDKGetState_RejectsTerminalRun(t *testing.T) {
@@ -163,12 +167,11 @@ func TestTenantIso_SDKGetState_RejectsTerminalRun(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKGetState(ctx, &SDKGetStateInput{RunID: "run-1", Key: "k"})
-	if err == nil {
-		t.Fatal("expected error for terminal run")
-	}
-	if !isHumaStatusError(err, http.StatusGone) {
-		t.Fatalf("expected 410 Gone, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusGone))
+
 }
 
 func TestTenantIso_SDKListState_RejectsTerminalRun(t *testing.T) {
@@ -182,12 +185,11 @@ func TestTenantIso_SDKListState_RejectsTerminalRun(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKListState(ctx, &SDKRunIDInput{RunID: "run-1"})
-	if err == nil {
-		t.Fatal("expected error for terminal run")
-	}
-	if !isHumaStatusError(err, http.StatusGone) {
-		t.Fatalf("expected 410 Gone, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusGone))
+
 }
 
 func TestTenantIso_SDKGetMemory_RejectsTerminalRun(t *testing.T) {
@@ -205,12 +207,11 @@ func TestTenantIso_SDKGetMemory_RejectsTerminalRun(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKGetMemory(ctx, &SDKGetMemoryInput{RunID: "run-1", Key: "cache"})
-	if err == nil {
-		t.Fatal("expected error for terminal run")
-	}
-	if !isHumaStatusError(err, http.StatusGone) {
-		t.Fatalf("expected 410 Gone, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusGone))
+
 }
 
 func TestTenantIso_SDKListMemory_RejectsTerminalRun(t *testing.T) {
@@ -228,12 +229,11 @@ func TestTenantIso_SDKListMemory_RejectsTerminalRun(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKListMemory(ctx, &SDKRunIDInput{RunID: "run-1"})
-	if err == nil {
-		t.Fatal("expected error for terminal run")
-	}
-	if !isHumaStatusError(err, http.StatusGone) {
-		t.Fatalf("expected 410 Gone, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusGone))
+
 }
 
 func TestTenantIso_SDKComplete_RejectsStaleAttempt(t *testing.T) {
@@ -251,12 +251,12 @@ func TestTenantIso_SDKComplete_RejectsStaleAttempt(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKComplete(ctx, &SDKCompleteInput{RunID: "run-1", Body: SDKCompleteRequest{Result: json.RawMessage(`{"ok":true}`)}})
-	if err == nil {
-		t.Fatal("expected error when token attempt is stale")
-	}
-	if !isHumaStatusError(err, http.StatusUnauthorized) {
-		t.Fatalf("expected 401 stale attempt, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusUnauthorized),
+	)
+
 }
 
 func TestTenantIso_SDKFail_RejectsStaleAttempt(t *testing.T) {
@@ -274,12 +274,12 @@ func TestTenantIso_SDKFail_RejectsStaleAttempt(t *testing.T) {
 
 	ctx := sdkCtxForRun("run-1", 1)
 	_, err := srv.handleSDKFail(ctx, &SDKFailInput{RunID: "run-1", Body: SDKFailRequest{Error: "boom"}})
-	if err == nil {
-		t.Fatal("expected error when token attempt is stale")
-	}
-	if !isHumaStatusError(err, http.StatusUnauthorized) {
-		t.Fatalf("expected 401 stale attempt, got %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusUnauthorized),
+	)
+
 }
 
 // noRunTokenStateStore wraps APIStoreMock but explicitly does NOT implement
@@ -318,11 +318,9 @@ func TestTenantIso_SDKAuth_FallbackAttemptDoesNotBypass(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 fail-closed fallback, got %d: %s", w.Code, w.Body.String())
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+		w.Code)
+	require.False(t, called.Load())
+
 }

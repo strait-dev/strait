@@ -3,6 +3,8 @@ package api
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTagKeysSortedAndValueFree(t *testing.T) {
@@ -14,26 +16,23 @@ func TestTagKeysSortedAndValueFree(t *testing.T) {
 		"region": "eu",
 	})
 	want := []string{"env", "region", "team"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("tagKeys() = %#v, want %#v", got, want)
-	}
+	require.True(
+		t, reflect.
+			DeepEqual(got, want))
+
 }
 
 func TestTagKeysEmpty(t *testing.T) {
 	t.Parallel()
+	require.Nil(t, tagKeys(nil))
 
-	if got := tagKeys(nil); got != nil {
-		t.Fatalf("tagKeys(nil) = %#v, want nil", got)
-	}
 }
 
 func TestHashIdempotencyKey(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, "", hashIdempotencyKey(""))
+	require.Equal(t, "f6fdb32bfd0ba473",
 
-	if got := hashIdempotencyKey(""); got != "" {
-		t.Fatalf("hashIdempotencyKey(\"\") = %q, want empty", got)
-	}
-	if got := hashIdempotencyKey("idem-123"); got != "f6fdb32bfd0ba473" {
-		t.Fatalf("hashIdempotencyKey() = %q, want stable SHA-256 prefix", got)
-	}
+		hashIdempotencyKey("idem-123"))
+
 }

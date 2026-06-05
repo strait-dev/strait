@@ -14,6 +14,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleGetWorkflowRunTimeline_Success(t *testing.T) {
@@ -55,34 +57,30 @@ func TestHandleGetWorkflowRunTimeline_Success(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/timeline", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp domain.TimelineResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.Equal(t, "wr-1", resp.
+		WorkflowRunID,
+	)
+	require.Equal(t, "completed",
+		resp.Status,
+	)
+	require.Len(t,
+		resp.Steps, 2)
+	require.Equal(t, "step-a", resp.
+		Steps[0].StepRef)
+	require.False(t, resp.Steps[0].
+		DurationMs <=
+		0)
+	require.False(t, resp.TotalMs <=
+		0)
 
-	if resp.WorkflowRunID != "wr-1" {
-		t.Fatalf("workflow_run_id = %q, want wr-1", resp.WorkflowRunID)
-	}
-	if resp.Status != "completed" {
-		t.Fatalf("status = %q, want completed", resp.Status)
-	}
-	if len(resp.Steps) != 2 {
-		t.Fatalf("steps count = %d, want 2", len(resp.Steps))
-	}
-	if resp.Steps[0].StepRef != "step-a" {
-		t.Fatalf("first step ref = %q, want step-a", resp.Steps[0].StepRef)
-	}
-	if resp.Steps[0].DurationMs <= 0 {
-		t.Fatalf("first step duration_ms = %d, want > 0", resp.Steps[0].DurationMs)
-	}
-	if resp.TotalMs <= 0 {
-		t.Fatalf("total_ms = %d, want > 0", resp.TotalMs)
-	}
 }
 
 func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
@@ -125,23 +123,27 @@ func TestHandleGetWorkflowRunTimeline_ParallelDetection(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/timeline", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp domain.TimelineResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, len(resp.Steps[0].ParallelWith) !=
+		1 || resp.Steps[0].
+		ParallelWith[0] !=
+		"step-b",
+	)
+	require.False(t, len(resp.Steps[1].ParallelWith) !=
+		1 || resp.Steps[1].
+		ParallelWith[0] !=
+		"step-a",
+	)
 
 	// Both steps should be parallel with each other.
-	if len(resp.Steps[0].ParallelWith) != 1 || resp.Steps[0].ParallelWith[0] != "step-b" {
-		t.Fatalf("step-a parallel_with = %v, want [step-b]", resp.Steps[0].ParallelWith)
-	}
-	if len(resp.Steps[1].ParallelWith) != 1 || resp.Steps[1].ParallelWith[0] != "step-a" {
-		t.Fatalf("step-b parallel_with = %v, want [step-a]", resp.Steps[1].ParallelWith)
-	}
+
 }
 
 func TestHandleGetWorkflowRunTimeline_NotFound(t *testing.T) {
@@ -155,10 +157,10 @@ func TestHandleGetWorkflowRunTimeline_NotFound(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-missing/timeline", ""))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestHandleGetWorkflowRunTimeline_EmptySteps(t *testing.T) {
@@ -181,18 +183,17 @@ func TestHandleGetWorkflowRunTimeline_EmptySteps(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/wr-1/timeline", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp domain.TimelineResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if len(resp.Steps) != 0 {
-		t.Fatalf("steps count = %d, want 0", len(resp.Steps))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.Len(t,
+		resp.Steps, 0)
+
 }
 
 func TestBuildWorkflowRunTimeline_WaitUsesMostRecentFinishedStepBeforeStart(t *testing.T) {
@@ -213,9 +214,12 @@ func TestBuildWorkflowRunTimeline_WaitUsesMostRecentFinishedStepBeforeStart(t *t
 	}, base.Add(2*time.Minute))
 
 	step := timelineStepByRef(t, resp.Steps, "waiting")
-	if step.WaitMs != int64(30*time.Second/time.Millisecond) {
-		t.Fatalf("waiting wait_ms = %d, want 30000", step.WaitMs)
-	}
+	require.Equal(t, int64(30*time.
+		Second/
+		time.Millisecond,
+	), step.WaitMs,
+	)
+
 }
 
 func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
@@ -232,16 +236,17 @@ func TestBuildWorkflowRunTimeline_CriticalRefsDenseOverlap(t *testing.T) {
 		{ID: "sr-b", StepRef: "b", Status: domain.StepCompleted, StartedAt: &start, FinishedAt: &endB},
 		{ID: "sr-c", StepRef: "c", Status: domain.StepCompleted, StartedAt: &start, FinishedAt: &endC},
 	}, base.Add(time.Minute))
+	require.False(t, timelineStepByRef(t,
+		resp.Steps,
+		"a").OnCriticalPath)
+	require.False(t, timelineStepByRef(t,
+		resp.Steps,
+		"b").OnCriticalPath)
+	require.True(
+		t, timelineStepByRef(t,
+			resp.Steps,
+			"c").OnCriticalPath)
 
-	if timelineStepByRef(t, resp.Steps, "a").OnCriticalPath {
-		t.Fatal("step a marked critical, want false")
-	}
-	if timelineStepByRef(t, resp.Steps, "b").OnCriticalPath {
-		t.Fatal("step b marked critical, want false")
-	}
-	if !timelineStepByRef(t, resp.Steps, "c").OnCriticalPath {
-		t.Fatal("step c marked non-critical, want true")
-	}
 }
 
 func TestBuildWorkflowTimelineRelationships_NoBoundaryOverlap(t *testing.T) {
@@ -256,12 +261,11 @@ func TestBuildWorkflowTimelineRelationships_NoBoundaryOverlap(t *testing.T) {
 	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
 
 	for _, ref := range []string{"a", "b", "c"} {
-		if len(parallelMap[ref]) != 0 {
-			t.Fatalf("%s parallel refs = %v, want none", ref, parallelMap[ref])
-		}
-		if !criticalRefs[ref] {
-			t.Fatalf("%s critical = false, want true", ref)
-		}
+		require.Len(t,
+			parallelMap[ref], 0)
+		require.True(
+			t, criticalRefs[ref])
+
 	}
 }
 
@@ -276,22 +280,22 @@ func TestBuildWorkflowTimelineRelationships_NestedOverlapOrdering(t *testing.T) 
 	}
 
 	parallelMap, criticalRefs := buildWorkflowTimelineRelationships(windows)
+	require.True(
+		t, slices.Equal(parallelMap["outer"],
+			[]string{"inner-a",
+				"inner-b",
+			}))
+	require.True(
+		t, slices.Equal(parallelMap["inner-a"], []string{"outer"}))
+	require.True(
+		t, slices.Equal(parallelMap["inner-b"], []string{"outer"}))
+	require.Len(t,
+		parallelMap["tail"], 0,
+	)
+	require.False(t, !criticalRefs["outer"] || criticalRefs["inner-a"] ||
+		criticalRefs["inner-b"] ||
+		!criticalRefs["tail"])
 
-	if !slices.Equal(parallelMap["outer"], []string{"inner-a", "inner-b"}) {
-		t.Fatalf("outer parallel refs = %v, want [inner-a inner-b]", parallelMap["outer"])
-	}
-	if !slices.Equal(parallelMap["inner-a"], []string{"outer"}) {
-		t.Fatalf("inner-a parallel refs = %v, want [outer]", parallelMap["inner-a"])
-	}
-	if !slices.Equal(parallelMap["inner-b"], []string{"outer"}) {
-		t.Fatalf("inner-b parallel refs = %v, want [outer]", parallelMap["inner-b"])
-	}
-	if len(parallelMap["tail"]) != 0 {
-		t.Fatalf("tail parallel refs = %v, want none", parallelMap["tail"])
-	}
-	if !criticalRefs["outer"] || criticalRefs["inner-a"] || criticalRefs["inner-b"] || !criticalRefs["tail"] {
-		t.Fatalf("critical refs = %v", criticalRefs)
-	}
 }
 
 func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) {
@@ -305,16 +309,13 @@ func TestEstimateWorkflowCriticalPath_DeterministicWideReadyQueue(t *testing.T) 
 	}
 
 	path, estimateMS, remainingMS := estimateWorkflowCriticalPath(steps, nil, now)
+	require.True(
+		t, slices.Equal(path,
+			[]string{"root-b",
+				"join"}))
+	require.EqualValues(t, 6_000, estimateMS)
+	require.EqualValues(t, 6_000, remainingMS)
 
-	if !slices.Equal(path, []string{"root-b", "join"}) {
-		t.Fatalf("path = %v, want [root-b join]", path)
-	}
-	if estimateMS != 6_000 {
-		t.Fatalf("estimateMS = %d, want 6000", estimateMS)
-	}
-	if remainingMS != 6_000 {
-		t.Fatalf("remainingMS = %d, want 6000", remainingMS)
-	}
 }
 
 func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
@@ -326,16 +327,13 @@ func TestEstimateWorkflowCriticalPath_IgnoresUnknownDependencies(t *testing.T) {
 	}
 
 	path, estimateMS, remainingMS := estimateWorkflowCriticalPath(steps, nil, now)
+	require.True(
+		t, slices.Equal(path,
+			[]string{"a",
+				"b"}))
+	require.EqualValues(t, 5_000, estimateMS)
+	require.EqualValues(t, 5_000, remainingMS)
 
-	if !slices.Equal(path, []string{"a", "b"}) {
-		t.Fatalf("path = %v, want [a b]", path)
-	}
-	if estimateMS != 5_000 {
-		t.Fatalf("estimateMS = %d, want 5000", estimateMS)
-	}
-	if remainingMS != 5_000 {
-		t.Fatalf("remainingMS = %d, want 5000", remainingMS)
-	}
 }
 
 func TestEstimateStepTiming_RunningPastTimeoutClampsRemaining(t *testing.T) {
@@ -348,13 +346,9 @@ func TestEstimateStepTiming_RunningPastTimeoutClampsRemaining(t *testing.T) {
 		domain.WorkflowStepRun{StepRef: "slow", Status: domain.StepRunning, StartedAt: &startedAt},
 		now,
 	)
+	require.EqualValues(t, 2_000, estimateMS)
+	require.EqualValues(t, 0, remainingMS)
 
-	if estimateMS != 2_000 {
-		t.Fatalf("estimateMS = %d, want 2000", estimateMS)
-	}
-	if remainingMS != 0 {
-		t.Fatalf("remainingMS = %d, want 0", remainingMS)
-	}
 }
 
 func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) domain.TimelineStep {
@@ -364,7 +358,9 @@ func timelineStepByRef(t *testing.T, steps []domain.TimelineStep, ref string) do
 			return step
 		}
 	}
-	t.Fatalf("step %q not found", ref)
+	require.Failf(t, "test failure",
+
+		"step %q not found", ref)
 	return domain.TimelineStep{}
 }
 

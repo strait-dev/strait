@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_Webhooks_ReplayDelivery_RejectsEmptyProjectID verifies that
@@ -18,7 +20,9 @@ func TestTenantIso_Webhooks_ReplayDelivery_RejectsEmptyProjectID(t *testing.T) {
 			return &domain.WebhookDelivery{ID: id, JobID: "", ProjectID: ""}, nil
 		},
 		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
-			t.Fatal("ReplayWebhookDelivery must not be called for empty-project delivery")
+			require.Fail(t,
+
+				"ReplayWebhookDelivery must not be called for empty-project delivery")
 			return nil, nil
 		},
 	}
@@ -26,7 +30,9 @@ func TestTenantIso_Webhooks_ReplayDelivery_RejectsEmptyProjectID(t *testing.T) {
 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "wd-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+
+			http.StatusNotFound))
+
 }

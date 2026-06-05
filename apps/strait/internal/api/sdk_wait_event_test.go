@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func newSDKWaitEventTestServer(t *testing.T, s APIStore) *Server {
@@ -44,9 +45,8 @@ func makeSDKRunToken(t *testing.T, runID string) string {
 		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -80,41 +80,33 @@ func TestHandleSDKWaitForEvent_Success(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-
-	if statusFrom != domain.StatusExecuting || statusTo != domain.StatusWaiting {
-		t.Fatalf("status transition = %s→%s, want executing→waiting", statusFrom, statusTo)
-	}
-
-	if createdTrigger == nil {
-		t.Fatal("expected event trigger to be created")
-	}
-	if createdTrigger.EventKey != "aml:app-123" {
-		t.Fatalf("event_key = %q, want %q", createdTrigger.EventKey, "aml:app-123")
-	}
-	if createdTrigger.SourceType != "job_run" {
-		t.Fatalf("source_type = %q, want %q", createdTrigger.SourceType, "job_run")
-	}
-	if createdTrigger.JobRunID != "run-1" {
-		t.Fatalf("job_run_id = %q, want %q", createdTrigger.JobRunID, "run-1")
-	}
-	if createdTrigger.TimeoutSecs != 7200 {
-		t.Fatalf("timeout_secs = %d, want 7200", createdTrigger.TimeoutSecs)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.False(t, statusFrom !=
+		domain.StatusExecuting ||
+		statusTo !=
+			domain.
+				StatusWaiting,
+	)
+	require.NotNil(t, createdTrigger)
+	require.Equal(t, "aml:app-123",
+		createdTrigger.
+			EventKey)
+	require.Equal(t, "job_run", createdTrigger.
+		SourceType)
+	require.Equal(t, "run-1", createdTrigger.
+		JobRunID,
+	)
+	require.EqualValues(t, 7200, createdTrigger.
+		TimeoutSecs,
+	)
 
 	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["status"] != "waiting" {
-		t.Fatalf("response status = %v, want waiting", resp["status"])
-	}
-	if resp["event_key"] != "aml:app-123" {
-		t.Fatalf("response event_key = %v, want aml:app-123", resp["event_key"])
-	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	require.Equal(t, "waiting", resp["status"])
+	require.Equal(t, "aml:app-123",
+		resp["event_key"])
+
 }
 
 func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
@@ -135,10 +127,10 @@ func TestHandleSDKWaitForEvent_RunNotExecuting(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusConflict,
+		rr.Code,
+	)
 
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusConflict, rr.Body.String())
-	}
 }
 
 func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
@@ -153,10 +145,10 @@ func TestHandleSDKWaitForEvent_MissingEventKey(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if rr.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusUnprocessableEntity, rr.Body.String())
-	}
+		rr.Code)
+
 }
 
 func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
@@ -186,14 +178,14 @@ func TestHandleSDKWaitForEvent_DefaultTimeout(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, domain.DefaultEventTimeoutSecs,
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
+		createdTrigger.
+			TimeoutSecs,
+	)
 
-	if createdTrigger.TimeoutSecs != domain.DefaultEventTimeoutSecs {
-		t.Fatalf("timeout_secs = %d, want %d", createdTrigger.TimeoutSecs, domain.DefaultEventTimeoutSecs)
-	}
 }
 
 func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
@@ -201,11 +193,15 @@ func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(context.Context, string) (*domain.JobRun, error) {
-			t.Fatal("timeout must be rejected before loading run")
+			require.Fail(t,
+
+				"timeout must be rejected before loading run")
 			return nil, nil
 		},
 		CreateEventTriggerFunc: func(context.Context, *domain.EventTrigger) error {
-			t.Fatal("timeout above maximum must not create an event trigger")
+			require.Fail(t,
+
+				"timeout above maximum must not create an event trigger")
 			return nil
 		},
 	}
@@ -218,10 +214,10 @@ func TestHandleSDKWaitForEvent_RejectsTimeoutAboveMaximum(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusBadRequest,
+		rr.
+			Code)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusBadRequest, rr.Body.String())
-	}
 }
 
 func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
@@ -242,8 +238,8 @@ func TestHandleSDKWaitForEvent_RunNotFound(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusNotFound,
+		rr.Code,
+	)
 
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
-	}
 }

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCompleteIdempotencyKeyUsesDetachedContext is the regression guard
@@ -65,15 +67,14 @@ func TestCompleteIdempotencyKeyUsesDetachedContext(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !completeCalled {
-		t.Fatal("expected CompleteIdempotencyKey to run on the 2xx success path")
-	}
-	if completeCtxErr != nil {
-		t.Fatalf("CompleteIdempotencyKey received canceled context: ctx.Err() = %v", completeCtxErr)
-	}
-	if !completeDeadline {
-		t.Fatal("CompleteIdempotencyKey context must carry a deadline so the cache write cannot block forever")
-	}
+	require.True(
+		t, completeCalled,
+	)
+	require.Nil(t, completeCtxErr)
+	require.True(
+		t, completeDeadline,
+	)
+
 }
 
 // TestCompleteIdempotencyKeyTimeoutBudgetEnforced is the adversarial
@@ -121,18 +122,19 @@ func TestCompleteIdempotencyKeyTimeoutBudgetEnforced(t *testing.T) {
 	start := time.Now()
 	wrapped.ServeHTTP(w, r)
 	elapsed := time.Since(start)
-
-	if elapsed > 10*time.Second {
-		t.Fatalf("middleware blocked %v on Complete; expected ≤ ~5s", elapsed)
-	}
+	require.LessOrEqual(t, elapsed,
+		10*time.Second,
+	)
 
 	select {
 	case d := <-deadlineCh:
 		if d <= 0 || d > 6*time.Second {
-			t.Fatalf("Complete deadline = %v, want a finite positive value ≤ 5s", d)
+			require.Failf(t, "test failure",
+
+				"Complete deadline = %v, want a finite positive value ≤ 5s", d)
 		}
 	default:
-		t.Fatal("Complete ctx had no deadline")
+		require.Fail(t, "Complete ctx had no deadline")
 	}
 }
 
@@ -178,10 +180,10 @@ func TestCompleteIdempotencyKeyHappyPathStillCommits(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if completeStatus != http.StatusCreated {
-		t.Fatalf("complete status = %d, want %d", completeStatus, http.StatusCreated)
-	}
-	if string(completeBody) != `{"created":true}` {
-		t.Fatalf("complete body = %q, want %q", string(completeBody), `{"created":true}`)
-	}
+	require.Equal(t, http.StatusCreated,
+		completeStatus,
+	)
+	require.Equal(t, `{"created":true}`,
+		string(completeBody))
+
 }

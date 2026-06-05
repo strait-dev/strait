@@ -7,6 +7,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // cronIntervalCase walks a single (tier, cron expression) pair through
@@ -67,14 +70,12 @@ func TestCheckCronMinInterval_FreeRejectsEveryMinute(t *testing.T) {
 			s := newCronIntervalServer(tc.tier)
 			err := s.checkCronMinInterval(context.Background(), "proj-1", tc.cronExpr)
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error for %q on %s plan, got nil", tc.cronExpr, tc.tier)
-				}
+				require.Error(t, err)
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected no error for %q on %s plan, got: %v", tc.cronExpr, tc.tier, err)
-			}
+			require.NoError(t, err)
+
 		})
 	}
 }
@@ -90,9 +91,9 @@ func TestCheckCronMinInterval_UnlimitedTiersAcceptAnyCron(t *testing.T) {
 
 			s := newCronIntervalServer(tier)
 			for _, expr := range []string{"* * * * *", "*/5 * * * *", "0 9 * * *", "0 9 * * MON,FRI"} {
-				if err := s.checkCronMinInterval(context.Background(), "proj-1", expr); err != nil {
-					t.Errorf("expected %s plan to accept %q, got: %v", tier, expr, err)
-				}
+				assert.NoError(t, s.checkCronMinInterval(context.Background(),
+					"proj-1", expr))
+
 			}
 		})
 	}
@@ -104,9 +105,9 @@ func TestCheckCronMinInterval_EmptyCronIsNoop(t *testing.T) {
 	// Job records may carry an empty cron (one-shot or webhook-only); the
 	// gate must treat that as nothing to check.
 	s := newCronIntervalServer(domain.PlanFree)
-	if err := s.checkCronMinInterval(context.Background(), "proj-1", ""); err != nil {
-		t.Fatalf("expected empty cron to be a no-op, got: %v", err)
-	}
+	require.NoError(t, s.checkCronMinInterval(context.Background(),
+		"proj-1", ""))
+
 }
 
 func TestCheckCronMinInterval_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -117,9 +118,9 @@ func TestCheckCronMinInterval_CloudNilEnforcerFailsClosed(t *testing.T) {
 		billingEnforcer: nil,
 	}
 	err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *")
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "billing enforcement unavailable")
+
 }
 
 func TestCheckCronMinInterval_CommunityNilEnforcerFailsOpen(t *testing.T) {
@@ -129,9 +130,9 @@ func TestCheckCronMinInterval_CommunityNilEnforcerFailsOpen(t *testing.T) {
 		edition:         domain.EditionCommunity,
 		billingEnforcer: nil,
 	}
-	if err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *"); err != nil {
-		t.Fatalf("expected community nil enforcer to fail open, got: %v", err)
-	}
+	require.NoError(t, s.checkCronMinInterval(context.Background(),
+		"proj-1", "* * * * *"))
+
 }
 
 func TestCheckCronMinInterval_CommunityEditionFailsOpen(t *testing.T) {
@@ -148,9 +149,9 @@ func TestCheckCronMinInterval_CommunityEditionFailsOpen(t *testing.T) {
 			planLimits: billing.GetPlanLimits(domain.PlanFree),
 		},
 	}
-	if err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *"); err != nil {
-		t.Fatalf("expected community edition to fail open, got: %v", err)
-	}
+	require.NoError(t, s.checkCronMinInterval(context.Background(),
+		"proj-1", "* * * * *"))
+
 }
 
 func TestCheckCronMinInterval_MalformedCronFailsOpen(t *testing.T) {
@@ -161,9 +162,9 @@ func TestCheckCronMinInterval_MalformedCronFailsOpen(t *testing.T) {
 	// not panic or block -- the prior layer is the source of truth.
 	s := newCronIntervalServer(domain.PlanFree)
 	for _, expr := range []string{"not a cron", "* * *", "@@@", "60 * * * *"} {
-		if err := s.checkCronMinInterval(context.Background(), "proj-1", expr); err != nil {
-			t.Errorf("expected gate to fail open for malformed %q, got: %v", expr, err)
-		}
+		assert.NoError(t, s.checkCronMinInterval(context.Background(),
+			"proj-1", expr))
+
 	}
 }
 
@@ -174,16 +175,17 @@ func TestCheckCronMinInterval_ErrorMessageIsActionable(t *testing.T) {
 	// required minimum, and the requested gap so they know which knob to turn.
 	s := newCronIntervalServer(domain.PlanFree)
 	err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *")
-	if err == nil {
-		t.Fatalf("expected error for sub-minimum schedule, got nil")
-	}
+	require.Error(t, err)
 
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	msg := err.Error()
-	if !strings.Contains(msg, limits.DisplayName) {
-		t.Errorf("expected message to include plan name %q, got: %s", limits.DisplayName, msg)
-	}
-	if !strings.Contains(msg, "/settings/billing") {
-		t.Errorf("expected message to point to /settings/billing, got: %s", msg)
-	}
+	assert.True(t,
+		strings.Contains(msg,
+
+			limits.DisplayName))
+	assert.True(t,
+		strings.Contains(msg,
+
+			"/settings/billing"))
+
 }

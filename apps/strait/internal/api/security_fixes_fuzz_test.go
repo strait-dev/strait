@@ -17,6 +17,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // safePathEscape escapes a fuzzed string so it is safe for use in a URL path.
@@ -88,9 +90,11 @@ func FuzzCrossProjectJobAccess(f *testing.F) {
 		srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/jobs/"+safePathEscape(jobID), "", projectB))
 		if w.Code == http.StatusOK {
 			var job domain.Job
-			if json.Unmarshal(w.Body.Bytes(), &job) == nil && job.ProjectID == projectA {
-				t.Errorf("cross-project access: got project A job %q via project B", job.ID)
-			}
+			assert.False(t, json.Unmarshal(w.Body.Bytes(),
+				&job) == nil &&
+				job.ProjectID ==
+					projectA)
+
 		}
 	})
 }
@@ -112,9 +116,11 @@ func FuzzCrossProjectRunAccess(f *testing.F) {
 		srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/runs/"+safePathEscape(runID), "", projectB))
 		if w.Code == http.StatusOK {
 			var run domain.JobRun
-			if json.Unmarshal(w.Body.Bytes(), &run) == nil && run.ProjectID == projectA {
-				t.Errorf("cross-project access: got project A run %q via project B", run.ID)
-			}
+			assert.False(t, json.Unmarshal(w.Body.Bytes(),
+				&run) == nil &&
+				run.ProjectID ==
+					projectA)
+
 		}
 	})
 }
@@ -136,9 +142,11 @@ func FuzzCrossProjectWorkflowAccess(f *testing.F) {
 		srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/workflows/"+safePathEscape(workflowID), "", projectB))
 		if w.Code == http.StatusOK {
 			var wf domain.Workflow
-			if json.Unmarshal(w.Body.Bytes(), &wf) == nil && wf.ProjectID == projectA {
-				t.Errorf("cross-project access: got project A workflow %q via project B", wf.ID)
-			}
+			assert.False(t, json.Unmarshal(w.Body.Bytes(),
+				&wf) == nil &&
+				wf.ProjectID ==
+					projectA)
+
 		}
 	})
 }
@@ -160,9 +168,11 @@ func FuzzCrossProjectEnvironmentAccess(f *testing.F) {
 		srv.ServeHTTP(w, requestForProject(http.MethodGet, "/v1/environments/"+safePathEscape(envID), "", projectB))
 		if w.Code == http.StatusOK {
 			var env domain.Environment
-			if json.Unmarshal(w.Body.Bytes(), &env) == nil && env.ProjectID == projectA {
-				t.Errorf("cross-project access: got project A environment %q via project B", env.ID)
-			}
+			assert.False(t, json.Unmarshal(w.Body.Bytes(),
+				&env) == nil &&
+				env.ProjectID ==
+					projectA)
+
 		}
 	})
 }
@@ -201,10 +211,10 @@ func FuzzSDKTokenRunIDMismatch(f *testing.F) {
 		req.Header.Set("Authorization", "Bearer "+signed)
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, req)
+		assert.NotEqual(t, http.
+			StatusOK, w.Code,
+		)
 
-		if w.Code == http.StatusOK {
-			t.Errorf("mismatched token (sub=%q) used on run %q returned 200", tokenRunID, pathRunID)
-		}
 	})
 }
 
@@ -227,9 +237,8 @@ func FuzzURLValidationErrorCasing(f *testing.F) {
 		err := validateURL(rawURL)
 		if err != nil {
 			msg := err.Error()
-			if strings.Contains(msg, "uRL") {
-				t.Errorf("error message contains malformed casing 'uRL': %s", msg)
-			}
+			assert.False(t, strings.Contains(msg, "uRL"))
+
 		}
 	})
 }
@@ -254,13 +263,13 @@ func FuzzNullByteStripping(f *testing.F) {
 		s := testStruct{Name: name, Value: value}
 		v := reflect.ValueOf(&s).Elem()
 		stripNullBytesFromStruct(v)
+		assert.False(t, strings.ContainsRune(s.
+			Name,
+			0))
+		assert.False(t, strings.ContainsRune(s.
+			Value,
+			0))
 
-		if strings.ContainsRune(s.Name, 0) {
-			t.Errorf("Name still contains null byte after stripping: %q", s.Name)
-		}
-		if strings.ContainsRune(s.Value, 0) {
-			t.Errorf("Value still contains null byte after stripping: %q", s.Value)
-		}
 	})
 }
 
@@ -286,13 +295,11 @@ func FuzzCronFieldCount(f *testing.F) {
 		fieldCount := len(fields)
 
 		if fieldCount == 5 {
-			if err != nil {
-				t.Errorf("valid field count %d rejected: %v", fieldCount, err)
-			}
+			assert.NoError(t, err)
+
 		} else {
-			if err == nil {
-				t.Errorf("invalid field count %d accepted for expr: %q", fieldCount, expr)
-			}
+			assert.Error(t, err)
+
 		}
 	})
 }
@@ -327,13 +334,11 @@ func FuzzWebhookEventTypes(f *testing.F) {
 			domain.WebhookEventWorkflowFailed:    true,
 			domain.WebhookEventSLOBudgetWarning:  true,
 		}
+		assert.False(t, isValid &&
+			!knownTypes[eventType])
+		assert.False(t, !isValid &&
+			knownTypes[eventType])
 
-		if isValid && !knownTypes[eventType] {
-			t.Errorf("unknown event type %q was accepted", eventType)
-		}
-		if !isValid && knownTypes[eventType] {
-			t.Errorf("known event type %q was rejected", eventType)
-		}
 	})
 }
 
@@ -383,15 +388,17 @@ func FuzzTriggerScheduledAt(f *testing.F) {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, requestForProject(http.MethodPost, "/v1/jobs/test-job/trigger", string(body), projectA))
 
-		now := time.Now()
 		delay := time.Until(parsed)
+		assert.False(t, delay <
+			0 && w.Code ==
+			http.StatusCreated,
+		)
+		assert.False(t, delay >
+			30*24*time.Hour &&
+			w.
+				Code == http.
+				StatusCreated)
 
-		if delay < 0 && w.Code == http.StatusCreated {
-			t.Errorf("past scheduled_at %v was accepted (status %d)", parsed, w.Code)
-		}
-		if delay > 30*24*time.Hour && w.Code == http.StatusCreated {
-			t.Errorf("scheduled_at %v (>30 days from %v) was accepted", parsed, now)
-		}
 	})
 }
 
@@ -415,16 +422,19 @@ func FuzzProjectMatchHelper(f *testing.F) {
 		}
 
 		err := requireProjectMatch(ctx, resourceProjectID)
+		assert.False(t, ctxProjectID !=
+			"" && ctxProjectID !=
+			resourceProjectID &&
+			err ==
+				nil)
+		assert.False(t, ctxProjectID ==
+			"" && err !=
+			nil)
+		assert.False(t, ctxProjectID ==
+			resourceProjectID &&
+			err !=
+				nil)
 
-		if ctxProjectID != "" && ctxProjectID != resourceProjectID && err == nil {
-			t.Errorf("requireProjectMatch returned nil for ctx=%q resource=%q", ctxProjectID, resourceProjectID)
-		}
-		if ctxProjectID == "" && err != nil {
-			t.Errorf("requireProjectMatch returned error for empty context project: %v", err)
-		}
-		if ctxProjectID == resourceProjectID && err != nil {
-			t.Errorf("requireProjectMatch returned error for matching projects: %v", err)
-		}
 	})
 }
 
@@ -443,15 +453,16 @@ func FuzzNullByteReader(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input []byte) {
 		reader := &nullByteStrippingReader{r: bytes.NewReader(input)}
 		output, err := io.ReadAll(reader)
-		if err != nil {
-			t.Fatalf("unexpected read error: %v", err)
-		}
-		if bytes.ContainsRune(output, 0) {
-			t.Errorf("output still contains null byte: %q", output)
-		}
+		require.NoError(t, err)
+		assert.False(t, bytes.
+			ContainsRune(output,
+				0),
+		)
+		assert.Len(
+			t, output,
+			len(input))
+
 		// Verify length is preserved (null bytes become spaces, not removed).
-		if len(output) != len(input) {
-			t.Errorf("length changed: input=%d output=%d", len(input), len(output))
-		}
+
 	})
 }

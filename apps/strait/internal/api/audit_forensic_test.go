@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditEvent_PopulatesForensicFields verifies that the emit path
@@ -42,24 +45,33 @@ func TestAuditEvent_PopulatesForensicFields(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected captured event")
-	}
-	if captured.RemoteIP != "203.0.113.42" {
-		t.Errorf("RemoteIP = %q", captured.RemoteIP)
-	}
-	if captured.UserAgent != "Mozilla/5.0 (test)" {
-		t.Errorf("UserAgent = %q", captured.UserAgent)
-	}
-	if captured.RequestID != "req-abc-123" {
-		t.Errorf("RequestID = %q", captured.RequestID)
-	}
-	if captured.TraceID != "trace-xyz-789" {
-		t.Errorf("TraceID = %q", captured.TraceID)
-	}
-	if captured.SchemaVersion != domain.AuditEventSchemaVersionCurrent {
-		t.Errorf("SchemaVersion = %d, want %d", captured.SchemaVersion, domain.AuditEventSchemaVersionCurrent)
-	}
+	require.NotNil(t, captured)
+	assert.Equal(
+		t, "203.0.113.42",
+
+		captured.RemoteIP,
+	)
+	assert.Equal(
+		t, "Mozilla/5.0 (test)",
+
+		captured.
+			UserAgent)
+	assert.Equal(
+		t, "req-abc-123",
+		captured.
+			RequestID,
+	)
+	assert.Equal(
+		t, "trace-xyz-789",
+
+		captured.TraceID,
+	)
+	assert.Equal(
+		t, domain.AuditEventSchemaVersionCurrent,
+
+		captured.SchemaVersion,
+	)
+
 }
 
 // TestAuditEvent_EmptyForensicFieldsAreTolerated verifies that missing
@@ -89,16 +101,21 @@ func TestAuditEvent_EmptyForensicFieldsAreTolerated(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected captured event (internal caller should succeed)")
-	}
-	if captured.RemoteIP != "" || captured.UserAgent != "" || captured.RequestID != "" {
-		t.Errorf("expected empty forensic fields, got ip=%q ua=%q req=%q",
-			captured.RemoteIP, captured.UserAgent, captured.RequestID)
-	}
-	if captured.SchemaVersion != domain.AuditEventSchemaVersionCurrent {
-		t.Errorf("SchemaVersion = %d, want %d", captured.SchemaVersion, domain.AuditEventSchemaVersionCurrent)
-	}
+	require.NotNil(t, captured)
+	assert.False(
+		t, captured.
+			RemoteIP !=
+			"" ||
+			captured.
+				UserAgent != "" ||
+			captured.
+				RequestID != "")
+	assert.Equal(
+		t, domain.AuditEventSchemaVersionCurrent,
+
+		captured.SchemaVersion,
+	)
+
 }
 
 // TestAttachAuditContext_TruncatesOversizeUserAgent verifies the
@@ -106,24 +123,23 @@ func TestAuditEvent_EmptyForensicFieldsAreTolerated(t *testing.T) {
 // malicious client from ballooning the audit log.
 func TestAttachAuditContext_TruncatesOversizeUserAgent(t *testing.T) {
 	t.Parallel()
+	assert.EqualValues(t, 2048, auditUserAgentMaxBytes)
 
 	// Assert the constant matches the plan's 2048 bytes.
-	if auditUserAgentMaxBytes != 2048 {
-		t.Errorf("auditUserAgentMaxBytes = %d, want 2048", auditUserAgentMaxBytes)
-	}
 
 	// Use a sentinel that proves truncation.
 	longUA := strings.Repeat("X", auditUserAgentMaxBytes*2)
-	if len(longUA) <= auditUserAgentMaxBytes {
-		t.Fatal("test data error")
-	}
+	require.False(t, len(longUA) <=
+		auditUserAgentMaxBytes,
+	)
 
 	// Simulate what attachAuditContext does to the UA string.
 	ua := longUA
 	if len(ua) > auditUserAgentMaxBytes {
 		ua = ua[:auditUserAgentMaxBytes]
 	}
-	if len(ua) != auditUserAgentMaxBytes {
-		t.Errorf("truncated UA length = %d, want %d", len(ua), auditUserAgentMaxBytes)
-	}
+	assert.Len(t,
+		ua, auditUserAgentMaxBytes,
+	)
+
 }

@@ -11,6 +11,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestServerWithRedis(t *testing.T, s APIStore) *Server {
@@ -99,9 +101,9 @@ func TestRealIP_XForwardedFor(t *testing.T) {
 				r.Header.Set("X-Forwarded-For", tc.xff)
 			}
 			got := realIP(r, tc.trusted)
-			if got != tc.want {
-				t.Errorf("realIP = %q, want %q", got, tc.want)
-			}
+			assert.Equal(t, tc.want,
+				got)
+
 		})
 	}
 }
@@ -122,7 +124,9 @@ func TestRealIP_LockoutSpoofingRegression(t *testing.T) {
 	r2.Header.Set("X-Forwarded-For", "10.0.0.2")
 
 	if got1, got2 := realIP(r1, nil), realIP(r2, nil); got1 != got2 {
-		t.Fatalf("IP changed under XFF rotation: %q vs %q (lockout bypass possible)", got1, got2)
+		require.Failf(t, "test failure",
+
+			"IP changed under XFF rotation: %q vs %q (lockout bypass possible)", got1, got2)
 	}
 }
 
@@ -132,16 +136,16 @@ func TestAuthLockout_429AfterThreshold(t *testing.T) {
 	srv := newTestServerWithRedis(t, &APIStoreMock{})
 
 	// Send 10 failed auth requests (bad API key).
-	for i := range 10 {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 		req.Header.Set("Authorization", "Bearer strait_invalid_key_attempt")
 		req.RemoteAddr = "10.0.0.99:1234"
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.
+			StatusUnauthorized,
+			w.Code)
 
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("request %d: status = %d, want 401", i+1, w.Code)
-		}
 	}
 
 	// 11th request should be rate limited.
@@ -150,13 +154,12 @@ func TestAuthLockout_429AfterThreshold(t *testing.T) {
 	req.RemoteAddr = "10.0.0.99:1234"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(t, http.
+		StatusTooManyRequests,
+		w.Code)
+	assert.NotEqual(t, "",
+		w.Header().Get("Retry-After"))
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("11th request: status = %d, want 429", w.Code)
-	}
-	if w.Header().Get("Retry-After") == "" {
-		t.Error("missing Retry-After header on 429 response")
-	}
 }
 
 func TestAuthLockout_DifferentIP_NotBlocked(t *testing.T) {
@@ -179,10 +182,11 @@ func TestAuthLockout_DifferentIP_NotBlocked(t *testing.T) {
 	req.RemoteAddr = "10.0.0.2:1234"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.NotEqual(t, http.
+		StatusTooManyRequests,
+		w.Code,
+	)
 
-	if w.Code == http.StatusTooManyRequests {
-		t.Error("different IP should not be rate limited")
-	}
 }
 
 func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.T) {
@@ -197,9 +201,10 @@ func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.
 		req.RemoteAddr = remoteAddr
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("bad API key status = %d, want 401", w.Code)
-		}
+		require.Equal(t, http.
+			StatusUnauthorized,
+			w.Code)
+
 	}
 
 	internalReq := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
@@ -207,18 +212,21 @@ func TestAuthLockout_InternalSecretSuccessDoesNotClearAPIKeyFailures(t *testing.
 	internalReq.RemoteAddr = remoteAddr
 	internalW := httptest.NewRecorder()
 	srv.ServeHTTP(internalW, internalReq)
-	if internalW.Code == http.StatusUnauthorized || internalW.Code == http.StatusTooManyRequests {
-		t.Fatalf("internal-secret auth status = %d, want authenticated handler response", internalW.Code)
-	}
+	require.False(t, internalW.
+		Code == http.StatusUnauthorized ||
+		internalW.Code ==
+			http.StatusTooManyRequests,
+	)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 	req.Header.Set("Authorization", "Bearer strait_bad_key")
 	req.RemoteAddr = remoteAddr
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("API-key failures were cleared by internal-secret success: status = %d, want 429", w.Code)
-	}
+	require.Equal(t, http.
+		StatusTooManyRequests,
+		w.Code)
+
 }
 
 func TestAuthLockout_NoRedis_FailsOpen(t *testing.T) {
@@ -228,15 +236,16 @@ func TestAuthLockout_NoRedis_FailsOpen(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	// Even after many failed attempts, should get 401 not 429.
-	for i := range 20 {
+	for range 20 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 		req.Header.Set("Authorization", "Bearer strait_bad_key")
 		req.RemoteAddr = "10.0.0.99:1234"
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
+		require.NotEqual(t, http.
+			StatusTooManyRequests,
+			w.Code,
+		)
 
-		if w.Code == http.StatusTooManyRequests {
-			t.Fatalf("request %d: got 429, want 401 (no Redis = fail open)", i+1)
-		}
 	}
 }

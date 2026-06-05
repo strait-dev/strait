@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestRequireAdmin_InternalSecretCaller_Allowed verifies that a context
@@ -16,9 +18,8 @@ func TestRequireAdmin_InternalSecretCaller_Allowed(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	ctx := context.WithValue(context.Background(), ctxInternalCallerKey, true)
-	if err := srv.requireAdmin(ctx); err != nil {
-		t.Fatalf("expected nil error for internal caller, got %v", err)
-	}
+	require.NoError(t, srv.requireAdmin(ctx))
+
 }
 
 // TestRequireAdmin_APIKeyCaller_Rejected verifies that a context carrying
@@ -33,9 +34,8 @@ func TestRequireAdmin_APIKeyCaller_Rejected(t *testing.T) {
 	// ctxInternalCallerKey is intentionally absent.
 
 	err := srv.requireAdmin(ctx)
-	if err == nil {
-		t.Fatal("expected 403 for API key caller, got nil")
-	}
+	require.Error(t, err)
+
 	if got, want := http.StatusForbidden, 403; got != want {
 		_ = want // suppress unused variable if status extraction differs
 	}
@@ -51,9 +51,8 @@ func TestRequireAdmin_UnauthenticatedCaller_Rejected(t *testing.T) {
 
 	ctx := context.Background()
 	err := srv.requireAdmin(ctx)
-	if err == nil {
-		t.Fatal("expected 403 for unauthenticated caller (bare context), got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestDLQAdminRoutes_NoInternalSecret_Rejected verifies that an HTTP request
@@ -70,11 +69,14 @@ func TestDLQAdminRoutes_NoInternalSecret_Rejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.False(t, w.Code !=
+		http.StatusUnauthorized &&
+		w.Code !=
+			http.StatusForbidden,
+	)
 
 	// The internalSecretAuth middleware should reject before the route handler.
-	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
-		t.Fatalf("expected 401 or 403 for missing internal secret, got %d", w.Code)
-	}
+
 }
 
 // TestDLQAdminRoutes_WithInternalSecret_Passes verifies that an HTTP request
@@ -98,11 +100,14 @@ func TestDLQAdminRoutes_WithInternalSecret_Passes(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.False(t, w.Code ==
+		http.StatusUnauthorized ||
+		w.Code ==
+			http.StatusForbidden,
+	)
 
 	// The request should not be rejected by auth or the middleware layer.
 	// A 400 (missing project context) is acceptable — it means the handler
 	// was reached and auth passed. 200 is also fine.
-	if w.Code == http.StatusUnauthorized || w.Code == http.StatusForbidden {
-		t.Fatalf("expected request with correct internal secret to pass auth, got %d: %s", w.Code, w.Body.String())
-	}
+
 }

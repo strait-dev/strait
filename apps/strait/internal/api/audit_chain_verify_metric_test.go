@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -21,9 +23,11 @@ import (
 func countByReason(t *testing.T, reader *sdkmetric.ManualReader, name string) map[string]int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.
+			Background(),
+			&rm))
+
 	out := map[string]int64{}
 	for _, sm := range rm.ScopeMetrics {
 		for _, inst := range sm.Metrics {
@@ -89,26 +93,24 @@ func TestHandleVerifyAuditChain_CountsValid(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	totals := countByReason(t, h.reader, "strait_audit_chain_verify_total")
 	var sum int64
 	for _, v := range totals {
 		sum += v
 	}
-	if sum != 1 {
-		t.Errorf("chain_verify_total = %d, want 1", sum)
-	}
+	assert.EqualValues(t, 1, sum)
+
 	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
 	var failedSum int64
 	for _, v := range failed {
 		failedSum += v
 	}
-	if failedSum != 0 {
-		t.Errorf("chain_verify_failed_total = %d, want 0 on valid chain", failedSum)
-	}
+	assert.EqualValues(t, 0, failedSum)
+
 }
 
 // TestHandleVerifyAuditChain_CountsBroken asserts a non-Valid result
@@ -145,9 +147,8 @@ func TestHandleVerifyAuditChain_CountsBroken(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
-	if got := failed["chain_broken"]; got != 1 {
-		t.Errorf("chain_verify_failed_total{reason=chain_broken} = %d, want 1; full map: %+v", got, failed)
-	}
+	assert.EqualValues(t, 1, failed["chain_broken"])
+
 }
 
 // TestHandleVerifyAuditChain_CountsVerifierError asserts a verifier
@@ -181,18 +182,15 @@ func TestHandleVerifyAuditChain_CountsVerifierError(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	failed := countByReason(t, h.reader, "strait_audit_chain_verify_failed_total")
-	if got := failed["verifier_error"]; got != 1 {
-		t.Errorf("chain_verify_failed_total{reason=verifier_error} = %d, want 1; map=%+v", got, failed)
-	}
+	assert.EqualValues(t, 1, failed["verifier_error"])
 
 	totals := countByReason(t, h.reader, "strait_audit_chain_verify_total")
 	var sum int64
 	for _, v := range totals {
 		sum += v
 	}
-	if sum != 1 {
-		t.Errorf("chain_verify_total = %d, want 1 (every attempt counted, pass or fail)", sum)
-	}
+	assert.EqualValues(t, 1, sum)
+
 }
 
 // TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore asserts
@@ -240,19 +238,19 @@ func TestHandleVerifyAuditChain_IncrementalRoutesToIncrementalStore(t *testing.T
 		req = req.WithContext(ctx)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d for %s: %s", w.Code, url, w.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code,
+		)
+
 	}
 
 	dispatch("/v1/audit-events/verify")
 	dispatch("/v1/audit-events/verify?incremental=false")
 	dispatch("/v1/audit-events/verify?incremental=true")
+	assert.EqualValues(t, 2, fullCalls.
+		Load(),
+	)
+	assert.EqualValues(t, 1, incCalls.
+		Load())
 
-	if got := fullCalls.Load(); got != 2 {
-		t.Errorf("VerifyAuditChain calls = %d, want 2 (default + explicit false)", got)
-	}
-	if got := incCalls.Load(); got != 1 {
-		t.Errorf("VerifyAuditChainIncremental calls = %d, want 1 (incremental=true)", got)
-	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter is the regression
@@ -30,27 +31,26 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := triggerLimitAPIError(tc.sent, "fallback")
 			var tae *typedAPIError
-			if !errors.As(err, &tae) {
-				t.Fatalf("expected *typedAPIError, got %T: %v", err, err)
-			}
-			if tae.status != http.StatusTooManyRequests {
-				t.Fatalf("status = %d, want 429", tae.status)
-			}
-			if tae.apiError.Code != tc.wantC {
-				t.Fatalf("code = %q, want %q", tae.apiError.Code, tc.wantC)
-			}
+			require.True(t, errors.As(err, &tae))
+			require.Equal(t, http.StatusTooManyRequests,
+
+				tae.status)
+			require.Equal(t, tc.wantC,
+				tae.apiError.
+					Code)
+
 			gotRetry, ok := tae.headers["Retry-After"]
-			if !ok {
-				t.Fatal("missing Retry-After header")
-			}
-			if gotRetry != wantRetryAfter {
-				t.Fatalf("Retry-After = %q, want %q", gotRetry, wantRetryAfter)
-			}
+			require.True(t, ok)
+			require.Equal(t, wantRetryAfter,
+				gotRetry,
+			)
+			require.True(t, slices.Contains(tae.
+				apiError.
+				Details, "retry_after_seconds="+
+				wantRetryAfter))
+
 			// Details must echo the same number for body-only clients.
-			if !slices.Contains(tae.apiError.Details, "retry_after_seconds="+wantRetryAfter) {
-				t.Fatalf("details did not include retry_after_seconds=%s: %+v",
-					wantRetryAfter, tae.apiError.Details)
-			}
+
 		})
 	}
 }
@@ -66,9 +66,10 @@ func TestTriggerLimitAPIError_QuotaErrorsCarryRetryAfter(t *testing.T) {
 func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
-	if out != in { //nolint:errorlint // intentional identity check; see comment above
-		t.Fatalf("got %v (%T), want identical passthrough of input %v (%T)", out, out, in, in)
-	}
+	require.Equal(t, in, out)
+
+	//nolint:errorlint // intentional identity check; see comment above
+
 }
 
 // TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors is the negative
@@ -79,13 +80,12 @@ func TestTriggerLimitAPIError_PassesThroughHumaStatusErrors(t *testing.T) {
 func TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors(t *testing.T) {
 	in := huma.Error429TooManyRequests("project daily cost budget exceeded")
 	out := triggerLimitAPIError(in, "fallback")
+	require.Nil(t, errors.Unwrap(out))
 
 	// errors.Unwrap on a passthrough must return nil — the helper hasn't
 	// added a layer. A wrapper that satisfies errors.Is(out, in) would
 	// expose `in` via Unwrap.
-	if unwrapped := errors.Unwrap(out); unwrapped != nil {
-		t.Fatalf("errors.Unwrap(out) = %v, want nil (helper must not wrap)", unwrapped)
-	}
+
 }
 
 // TestTriggerLimitAPIError_UnknownErrorBecomes500 verifies the fallback
@@ -94,12 +94,11 @@ func TestTriggerLimitAPIError_DoesNotWrapHumaStatusErrors(t *testing.T) {
 func TestTriggerLimitAPIError_UnknownErrorBecomes500(t *testing.T) {
 	out := triggerLimitAPIError(errors.New("unknown"), "fallback msg")
 	var se huma.StatusError
-	if !errors.As(out, &se) {
-		t.Fatalf("expected huma.StatusError, got %T", out)
-	}
-	if se.GetStatus() != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", se.GetStatus())
-	}
+	require.True(t, errors.As(out, &se))
+	require.Equal(t, http.StatusInternalServerError,
+
+		se.GetStatus())
+
 }
 
 // TestNewTriggerLimit429_ResponseShape directly exercises the helper so
@@ -108,13 +107,13 @@ func TestTriggerLimitAPIError_UnknownErrorBecomes500(t *testing.T) {
 func TestNewTriggerLimit429_ResponseShape(t *testing.T) {
 	err := newTriggerLimit429("queued quota exceeded")
 	var tae *typedAPIError
-	if !errors.As(err, &tae) {
-		t.Fatalf("expected *typedAPIError, got %T", err)
-	}
-	if tae.headers["Retry-After"] == "" {
-		t.Fatal("Retry-After header must be set")
-	}
+	require.True(t, errors.As(err, &tae))
+	require.NotEqual(t, "",
+		tae.headers["Retry-After"])
+
 	if n, err := strconv.Atoi(tae.headers["Retry-After"]); err != nil || n <= 0 {
-		t.Fatalf("Retry-After must be a positive integer, got %q (err=%v)", tae.headers["Retry-After"], err)
+		require.Failf(t, "test failure",
+
+			"Retry-After must be a positive integer, got %q (err=%v)", tae.headers["Retry-After"], err)
 	}
 }

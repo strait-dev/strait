@@ -12,6 +12,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/health"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleHealth_PublicFields(t *testing.T) {
@@ -25,32 +28,35 @@ func TestHandleHealth_PublicFields(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	s.handleHealth(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %v", resp["status"])
-	}
-	if resp["version"] != "v1.2.3" {
-		t.Errorf("expected version=v1.2.3, got %v", resp["version"])
-	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(
+		t, "ok", resp["status"])
+	assert.Equal(
+		t, "v1.2.3", resp["version"])
+
 	if _, exists := resp["timestamp"]; !exists {
-		t.Error("expected timestamp in public health response")
+		assert.Fail(t,
+
+			"expected timestamp in public health response")
 	}
 	if _, exists := resp["edition"]; exists {
-		t.Error("public health should not expose edition (internal only)")
+		assert.Fail(t,
+
+			"public health should not expose edition (internal only)")
 	}
 	if _, exists := resp["uptime_seconds"]; exists {
-		t.Error("public health should not expose uptime_seconds")
+		assert.Fail(t,
+
+			"public health should not expose uptime_seconds")
 	}
 	if _, exists := resp["subsystems"]; exists {
-		t.Error("public health should not expose subsystems")
+		assert.Fail(t,
+
+			"public health should not expose subsystems")
 	}
 }
 
@@ -75,25 +81,22 @@ func TestHandleHealth_InternalSecret_ShowsDetails(t *testing.T) {
 
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	assert.Equal(
+		t, "community", resp["edition"])
 
-	if resp["edition"] != "community" {
-		t.Errorf("expected edition=community in internal response, got %v", resp["edition"])
-	}
 	uptime, ok := resp["uptime_seconds"].(float64)
-	if !ok || uptime < 10 {
-		t.Errorf("expected uptime_seconds >= 10 with internal secret, got %v", resp["uptime_seconds"])
-	}
+	assert.False(
+		t, !ok || uptime <
+			10)
 
 	subsystems, ok := resp["subsystems"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected subsystems map with internal secret, got %T", resp["subsystems"])
-	}
-	if subsystems["database"] != "up" {
-		t.Errorf("expected database=up, got %v", subsystems["database"])
-	}
-	if subsystems["redis"] != "up" {
-		t.Errorf("expected redis=up, got %v", subsystems["redis"])
-	}
+	require.True(
+		t, ok)
+	assert.Equal(
+		t, "up", subsystems["database"])
+	assert.Equal(
+		t, "up", subsystems["redis"])
+
 }
 
 func TestHandleHealth_WrongSecret_NoDetails(t *testing.T) {
@@ -118,10 +121,14 @@ func TestHandleHealth_WrongSecret_NoDetails(t *testing.T) {
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
 	if _, exists := resp["subsystems"]; exists {
-		t.Error("wrong secret should not expose subsystems")
+		assert.Fail(t,
+
+			"wrong secret should not expose subsystems")
 	}
 	if _, exists := resp["uptime_seconds"]; exists {
-		t.Error("wrong secret should not expose uptime")
+		assert.Fail(t,
+
+			"wrong secret should not expose uptime")
 	}
 }
 
@@ -141,7 +148,9 @@ func TestHandleHealth_NoRegistry_NoSubsystems(t *testing.T) {
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
 
 	if _, exists := resp["subsystems"]; exists {
-		t.Error("expected no subsystems key when registry is nil")
+		assert.Fail(t,
+
+			"expected no subsystems key when registry is nil")
 	}
 }
 
@@ -169,9 +178,12 @@ func TestHandleHealthReady_PublicHidesSubsystems(t *testing.T) {
 	s.handleHealthReady(rr, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
 
 	body := rr.Body.String()
-	if rr.Code != http.StatusServiceUnavailable && rr.Code != http.StatusOK {
-		t.Fatalf("unexpected status %d: %s", rr.Code, body)
-	}
+	require.False(t, rr.Code != http.
+		StatusServiceUnavailable &&
+		rr.Code != http.
+			StatusOK,
+	)
+
 	for _, leak := range []string{"database", "redis", "components", "redis is down", "connection refused"} {
 		if contains := func() bool {
 			for i := 0; i+len(leak) <= len(body); i++ {
@@ -181,7 +193,9 @@ func TestHandleHealthReady_PublicHidesSubsystems(t *testing.T) {
 			}
 			return false
 		}(); contains {
-			t.Errorf("/health/ready leaked %q to unauthenticated caller: %s", leak, body)
+			assert.Failf(t, "test failure",
+
+				"/health/ready leaked %q to unauthenticated caller: %s", leak, body)
 		}
 	}
 }
@@ -215,9 +229,9 @@ func TestHandleHealthReady_InternalSecretShowsDetails(t *testing.T) {
 				break
 			}
 		}
-		if !found {
-			t.Errorf("internal /health/ready missing %q: %s", want, body)
-		}
+		assert.True(t,
+			found)
+
 	}
 }
 
@@ -237,15 +251,11 @@ func TestHandleHealth_DegradedSubsystem(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	s.handleHealth(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 even when degraded, got %d", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var resp map[string]any
 	_ = json.NewDecoder(rr.Body).Decode(&resp)
+	assert.NotEqual(t, "ok", resp["status"])
 
-	if resp["status"] == "ok" {
-		t.Error("expected non-ok status when a subsystem is down")
-	}
 }

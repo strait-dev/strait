@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // handleCreateLogDrain.
@@ -39,18 +41,15 @@ func TestHandleCreateLogDrain_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp domain.LogDrain
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Name != "my-drain" {
-		t.Fatalf("expected name=my-drain, got %q", resp.Name)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "my-drain", resp.
+		Name)
+
 }
 
 func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
@@ -59,10 +58,10 @@ func TestHandleCreateLogDrain_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", "not json"))
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
@@ -73,13 +72,13 @@ func TestHandleCreateLogDrain_MissingRequired(t *testing.T) {
 	body := `{"project_id": "proj-1"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "validation") {
-		t.Fatalf("expected validation error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "validation"),
+	)
+
 }
 
 // handleListLogDrains.
@@ -99,18 +98,14 @@ func TestHandleListLogDrains_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []domain.LogDrain
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 drains, got %d", len(resp))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t,
+		resp, 2)
+
 }
 
 // handleGetLogDrain.
@@ -129,18 +124,14 @@ func TestHandleGetLogDrain_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-1", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp domain.LogDrain
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.ID != "drain-1" {
-		t.Fatalf("expected id=drain-1, got %q", resp.ID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "drain-1", resp.
+		ID)
+
 }
 
 func TestHandleGetLogDrain_NotFound(t *testing.T) {
@@ -154,10 +145,10 @@ func TestHandleGetLogDrain_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-999", "", "proj-1"))
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // handleUpdateLogDrain.
@@ -180,18 +171,15 @@ func TestHandleUpdateLogDrain_Success(t *testing.T) {
 	body := `{"name": "updated-drain"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/log-drains/drain-1", body, "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp domain.LogDrain
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Name != "updated-drain" {
-		t.Fatalf("expected name=updated-drain, got %q", resp.Name)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "updated-drain",
+		resp.Name,
+	)
+
 }
 
 func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
@@ -200,13 +188,12 @@ func TestHandleUpdateLogDrain_EmptyPatch(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/log-drains/drain-1", `{}`, "proj-1"))
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
+	require.True(
+		t, strings.Contains(w.Body.String(), "no fields to update"))
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "no fields to update") {
-		t.Fatalf("expected 'no fields to update' error, got %s", w.Body.String())
-	}
 }
 
 // handleDeleteLogDrain.
@@ -222,10 +209,10 @@ func TestHandleDeleteLogDrain_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/log-drains/drain-1", "", "proj-1"))
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
@@ -239,10 +226,10 @@ func TestHandleDeleteLogDrain_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/log-drains/drain-999", "", "proj-1"))
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // Regression: auth_config secrets must never be returned in API responses.
@@ -269,19 +256,15 @@ func TestHandleLogDrain_AuthConfigRedactedOnCreate(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "super-secret-bearer-token") {
-		t.Fatalf("auth_config secret leaked in create response: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, strings.Contains(w.Body.String(), "super-secret-bearer-token"))
+
 	var resp domain.LogDrain
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if got := resp.AuthConfig["token"]; got != "***" {
-		t.Fatalf("expected auth_config.token=***, got %q", got)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "***", resp.AuthConfig["token"])
+
 }
 
 func TestHandleLogDrain_AuthConfigRedactedOnGet(t *testing.T) {
@@ -299,12 +282,10 @@ func TestHandleLogDrain_AuthConfigRedactedOnGet(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains/drain-1", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "stored-secret-from-db") {
-		t.Fatalf("auth_config secret leaked in get response: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, strings.Contains(w.Body.String(), "stored-secret-from-db"))
+
 }
 
 func TestHandleLogDrain_AuthConfigRedactedOnList(t *testing.T) {
@@ -322,12 +303,10 @@ func TestHandleLogDrain_AuthConfigRedactedOnList(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/log-drains", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "list-leak-secret") {
-		t.Fatalf("auth_config secret leaked in list response: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, strings.Contains(w.Body.String(), "list-leak-secret"))
+
 }
 
 // handleBulkReplayRuns.
@@ -359,18 +338,13 @@ func TestHandleBulkReplayRuns_Success(t *testing.T) {
 	body := `{"run_ids": ["run-1"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["replayed"].(float64)) != 1 {
-		t.Fatalf("expected replayed=1, got %v", resp["replayed"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.EqualValues(t, 1, int(resp["replayed"].(float64)))
+
 }
 
 func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
@@ -388,21 +362,16 @@ func TestHandleBulkReplayRuns_NotReplayable(t *testing.T) {
 	body := `{"run_ids": ["run-1"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	results := resp["results"].([]any)
 	first := results[0].(map[string]any)
-	if first["status"] != "skipped" {
-		t.Fatalf("expected status=skipped, got %v", first["status"])
-	}
+	require.Equal(t, "skipped", first["status"])
+
 }
 
 func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
@@ -415,15 +384,17 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 			}, nil
 		},
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != "job-missing" {
-				t.Fatalf("GetJob id = %q, want job-missing", id)
-			}
+			require.Equal(t, "job-missing",
+				id)
+
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-			t.Fatal("queue.Enqueue must not be called when replay job is nil")
+			require.Fail(t,
+
+				"queue.Enqueue must not be called when replay job is nil")
 			return nil
 		},
 	}, nil)
@@ -431,26 +402,22 @@ func TestHandleBulkReplayRuns_NilJobReturnsItemFailure(t *testing.T) {
 	body := `{"run_ids": ["run-1"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["replayed"].(float64)) != 0 {
-		t.Fatalf("expected replayed=0, got %v", resp["replayed"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.EqualValues(t, 0, int(resp["replayed"].(float64)))
+
 	results := resp["results"].([]any)
-	if len(results) != 1 {
-		t.Fatalf("results len = %d, want 1", len(results))
-	}
+	require.Len(t,
+		results, 1)
+
 	result := results[0].(map[string]any)
-	if result["status"] != "failed" || result["error"] != "job not found or disabled" {
-		t.Fatalf("unexpected result: %#v", result)
-	}
+	require.False(t, result["status"] != "failed" ||
+		result["error"] != "job not found or disabled",
+	)
+
 }
 
 func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
@@ -460,8 +427,8 @@ func TestHandleBulkReplayRuns_EmptyRunIDs(t *testing.T) {
 	body := `{"run_ids": []}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-replay", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }

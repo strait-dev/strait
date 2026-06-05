@@ -13,6 +13,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzDecodeJSON(f *testing.F) {
@@ -108,18 +111,18 @@ func FuzzUpdateWorkflowRequest(f *testing.F) {
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+		require.NotEqual(t, 0,
+			w.Code)
 
 		// Handler must never panic. Any status code is acceptable.
-		if w.Code == 0 {
-			t.Fatal("expected a response status code")
-		}
 
 		// If 200, the response must be valid JSON.
 		if w.Code == http.StatusOK {
 			var resp map[string]any
-			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-				t.Fatalf("200 response is not valid JSON: %v", err)
-			}
+			require.NoError(t, json.
+				Unmarshal(w.Body.
+					Bytes(), &resp))
+
 		}
 	})
 }
@@ -143,20 +146,22 @@ func FuzzActiveVersionsResponse(f *testing.F) {
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflows/"+url.PathEscape(workflowID)+"/active-versions", ""))
+		require.NotEqual(t, 0,
+			w.Code)
 
 		// Handler must never panic.
-		if w.Code == 0 {
-			t.Fatal("expected a response status code")
-		}
 
 		// If 200, the response must be valid JSON with a versions array.
 		if w.Code == http.StatusOK {
 			var resp map[string]any
-			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-				t.Fatalf("200 response is not valid JSON: %v", err)
-			}
+			require.NoError(t, json.
+				Unmarshal(w.Body.
+					Bytes(), &resp))
+
 			if _, ok := resp["versions"]; !ok {
-				t.Fatal("200 response missing versions field")
+				require.Fail(t,
+
+					"200 response missing versions field")
 			}
 		}
 	})
@@ -211,27 +216,25 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 		srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/workflows/wf-1", body))
+		require.Equal(t, http.
+			StatusOK, w.Code)
 
 		// Must never panic and must return 200.
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
 
 		// Verify invariants:
 		var resp map[string]any
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("response is not valid JSON: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(w.Body.
+				Bytes(), &resp))
 
 		hasCount := resp["active_runs_on_previous_version"] != nil
 
 		// active_runs_on_previous_version should only appear when:
 		// versionID != "" AND version >= 1 AND activeCount > 0
 		shouldHaveCount := versionID != "" && version >= 1 && activeCount > 0
-		if hasCount != shouldHaveCount {
-			t.Fatalf("active_runs_on_previous_version present=%v, want=%v (versionID=%q version=%d count=%d)",
-				hasCount, shouldHaveCount, versionID, version, activeCount)
-		}
+		require.Equal(t, shouldHaveCount,
+			hasCount,
+		)
 
 		// Every successful workflow update emits an audit event. The action is
 		// workflow.updated_breaking only when breaking_change=true AND the
@@ -242,10 +245,10 @@ func FuzzBreakingChangeDetectionLogic(f *testing.F) {
 		if shouldBeBreaking {
 			wantAction = "workflow.updated_breaking"
 		}
-		if capturedAction != wantAction {
-			t.Fatalf("audit action = %q, want %q (breaking=%v versionID=%q version=%d count=%d)",
-				capturedAction, wantAction, breakingChange, versionID, version, activeCount)
-		}
+		require.Equal(t, wantAction,
+			capturedAction,
+		)
+
 	})
 }
 
@@ -339,11 +342,14 @@ func FuzzCreateJobRetryPriorityBoost(f *testing.F) {
 	f.Fuzz(func(t *testing.T, boost int) {
 		ms := &APIStoreMock{
 			CreateJobFunc: func(_ context.Context, job *domain.Job) error {
+				assert.False(t, job.RetryPriorityBoost <
+					0 ||
+					job.RetryPriorityBoost >
+						10)
+
 				// Verify invariant: if validation passed, boost must be in [1,10].
 				// (0 is defaulted to 1 before reaching the store.)
-				if job.RetryPriorityBoost < 0 || job.RetryPriorityBoost > 10 {
-					t.Errorf("invalid retry_priority_boost %d reached store", job.RetryPriorityBoost)
-				}
+
 				job.ID = "job-fuzz"
 				job.Version = 1
 				return nil
@@ -363,13 +369,15 @@ func FuzzCreateJobRetryPriorityBoost(f *testing.F) {
 
 		// Must never panic. Valid range [0,10] should succeed, others should 400.
 		if boost >= 0 && boost <= 10 {
-			if w.Code != http.StatusCreated {
-				t.Errorf("boost=%d: expected 201, got %d", boost, w.Code)
-			}
+			assert.Equal(t, http.StatusCreated,
+				w.Code,
+			)
+
 		} else {
-			if w.Code != http.StatusUnprocessableEntity {
-				t.Errorf("boost=%d: expected 422, got %d", boost, w.Code)
-			}
+			assert.Equal(t, http.StatusUnprocessableEntity,
+
+				w.Code)
+
 		}
 	})
 }

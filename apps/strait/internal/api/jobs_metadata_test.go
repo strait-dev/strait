@@ -6,6 +6,8 @@ import (
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEnqueueJobMetadata_WithExporter(t *testing.T) {
@@ -24,10 +26,9 @@ func TestEnqueueJobMetadata_WithExporter(t *testing.T) {
 	}
 
 	srv.enqueueJobMetadata(job)
+	assert.EqualValues(t, 1, exporter.
+		PendingCount())
 
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending job metadata record, got %d", exporter.PendingCount())
-	}
 }
 
 func TestEnqueueJobMetadata_NilExporter(t *testing.T) {
@@ -53,10 +54,9 @@ func TestEnqueueJobMetadata_NilJob(t *testing.T) {
 
 	// Should not panic with nil job.
 	srv.enqueueJobMetadata(nil)
+	assert.EqualValues(t, 0, exporter.
+		PendingCount())
 
-	if exporter.PendingCount() != 0 {
-		t.Errorf("expected 0 pending for nil job, got %d", exporter.PendingCount())
-	}
 }
 
 func TestEnqueueJobMetadata_MultipleJobs(t *testing.T) {
@@ -75,8 +75,7 @@ func TestEnqueueJobMetadata_MultipleJobs(t *testing.T) {
 			Slug:      slug,
 		})
 	}
+	assert.EqualValues(t, 3, exporter.
+		PendingCount())
 
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending job metadata records, got %d", exporter.PendingCount())
-	}
 }
