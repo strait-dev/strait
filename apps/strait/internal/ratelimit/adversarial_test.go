@@ -13,6 +13,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRateLimit_ZeroWindow verifies behavior when window is zero.
@@ -20,7 +22,7 @@ func TestRateLimit_ZeroWindow(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
-		t.Fatal("redis should not be called for zero window")
+		require.Fail(t, "redis should not be called for zero window")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -29,13 +31,14 @@ func TestRateLimit_ZeroWindow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 10, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+
 	// Zero window should be handled gracefully (fail-open).
-	if !result.Allowed {
-		t.Fatal("expected allowed for zero window (fail-open)")
-	}
+
 }
 
 // TestRateLimit_NegativeWindow verifies behavior when window is negative.
@@ -43,7 +46,7 @@ func TestRateLimit_NegativeWindow(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
-		t.Fatal("redis should not be called for negative window")
+		require.Fail(t, "redis should not be called for negative window")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -52,13 +55,14 @@ func TestRateLimit_NegativeWindow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 10, -1*time.Second)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+
 	// Negative window should be handled gracefully (fail-open).
-	if !result.Allowed {
-		t.Fatal("expected allowed for negative window (fail-open)")
-	}
+
 }
 
 // TestRateLimit_MaxIntRequests verifies behavior with math.MaxInt as the limit.
@@ -102,12 +106,12 @@ func TestRateLimit_MaxIntRequests(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "maxint-key", math.MaxInt, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed with MaxInt limit")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+
 }
 
 // TestRateLimit_ConcurrentAccess verifies thread safety with 100 goroutines hitting the same key.
@@ -160,8 +164,7 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			result, err := limiter.Allow(ctx, "concurrent-key", limit, time.Minute)
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
+			if !assert.NoError(t, err) {
 				return
 			}
 			if result.Allowed {
@@ -176,15 +179,9 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 
 	totalAllowed := allowed.Load()
 	totalDenied := denied.Load()
-	if totalAllowed+totalDenied != goroutines {
-		t.Fatalf("total requests = %d, want %d", totalAllowed+totalDenied, goroutines)
-	}
-	if totalAllowed > limit {
-		t.Fatalf("allowed = %d, exceeds limit %d", totalAllowed, limit)
-	}
-	if totalDenied < goroutines-int64(limit) {
-		t.Fatalf("denied = %d, expected at least %d", totalDenied, goroutines-limit)
-	}
+	require.Equal(t, int64(goroutines), totalAllowed+totalDenied)
+	require.LessOrEqual(t, totalAllowed, int64(limit))
+	require.GreaterOrEqual(t, totalDenied, int64(goroutines-limit))
 }
 
 // TestRateLimit_EdgeTimestamps verifies behavior with Unix epoch and far-future timestamps.
@@ -230,21 +227,20 @@ func TestRateLimit_EdgeTimestamps(t *testing.T) {
 
 	// Very small positive window (1 nanosecond).
 	result, err := limiter.Allow(ctx, "epoch-key", 10, time.Nanosecond)
-	if err != nil {
-		t.Fatalf("unexpected error with nanosecond window: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed with nanosecond window")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 
 	// Very large window (approaching max duration).
 	result, err = limiter.Allow(ctx, "future-key", 10, 24*365*100*time.Hour)
-	if err != nil {
-		t.Fatalf("unexpected error with huge window: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed with huge window")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+
 }
 
 // FuzzRateLimitWindow fuzzes the rate limiter with various window, request, and key values.
@@ -262,12 +258,13 @@ func FuzzRateLimitWindow(f *testing.F) {
 		// Must not panic regardless of input.
 		window := time.Duration(windowMs) * time.Millisecond
 		result, err := limiter.Allow(context.Background(), key, limit, window)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t,
+			err)
+		require.True(t, result.
+			Allowed,
+		)
+
 		// Nil client always fails open.
-		if !result.Allowed {
-			t.Fatal("nil client should always allow")
-		}
+
 	})
 }

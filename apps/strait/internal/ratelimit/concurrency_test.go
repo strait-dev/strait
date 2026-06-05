@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRedisConcurrencyLimiterAcquire_NilClientFailOpen(t *testing.T) {
@@ -17,26 +18,23 @@ func TestRedisConcurrencyLimiterAcquire_NilClientFailOpen(t *testing.T) {
 
 	limiter := NewRedisConcurrencyLimiter(nil, true)
 	token, allowed, err := limiter.Acquire(t.Context(), "job", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Fatal("expected allowed when redis client is nil")
-	}
-	if token != "" {
-		t.Fatalf("expected empty token for fail-open path, got %q", token)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, allowed)
+	require.Equal(t, "",
+		token)
+	require.NoError(t,
+		limiter.Release(t.Context(), "job",
+			"0:any-token",
+		))
 
-	if err := limiter.Release(t.Context(), "job", "0:any-token"); err != nil {
-		t.Fatalf("unexpected error releasing with nil client: %v", err)
-	}
 }
 
 func TestRedisConcurrencyLimiterAcquire_DisabledBypassesRedis(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when limiter is disabled")
+		require.Fail(t, "redis should not be called when limiter is disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -45,15 +43,12 @@ func TestRedisConcurrencyLimiterAcquire_DisabledBypassesRedis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	token, allowed, err := limiter.Acquire(ctx, "job", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Fatal("expected allowed when limiter is disabled")
-	}
-	if token != "" {
-		t.Fatalf("expected empty token, got %q", token)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, allowed)
+	require.Equal(t, "",
+		token)
+
 }
 
 func TestRedisConcurrencyLimiterAcquireRelease_EnforcesSlots(t *testing.T) {
@@ -110,36 +105,29 @@ func TestRedisConcurrencyLimiterAcquireRelease_EnforcesSlots(t *testing.T) {
 	defer cancel()
 
 	tok1, allowed, err := limiter.Acquire(ctx, "queue:alpha", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed || tok1 == "" {
-		t.Fatal("expected first acquire to be allowed with token")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, !allowed ||
+		tok1 == "")
 
 	tok2, allowed, err := limiter.Acquire(ctx, "queue:alpha", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed || tok2 == "" {
-		t.Fatal("expected second acquire to be allowed with token")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, !allowed ||
+		tok2 == "")
 
-	if _, allowed, err = limiter.Acquire(ctx, "queue:alpha", 2, time.Minute); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if allowed {
-		t.Fatal("expected third acquire to be rejected")
-	}
+	_, allowed, err = limiter.Acquire(ctx, "queue:alpha", 2, time.Minute)
+	require.NoError(t, err)
+	require.False(t, allowed)
+	require.NoError(t,
+		limiter.Release(ctx,
+			"queue:alpha",
+			tok1,
+		))
 
-	if err := limiter.Release(ctx, "queue:alpha", tok1); err != nil {
-		t.Fatalf("unexpected release error: %v", err)
-	}
-
-	if _, allowed, err = limiter.Acquire(ctx, "queue:alpha", 2, time.Minute); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if !allowed {
-		t.Fatal("expected acquire to succeed after release")
-	}
+	_, allowed, err = limiter.Acquire(ctx, "queue:alpha", 2, time.Minute)
+	require.NoError(t, err)
+	require.True(t, allowed)
 }
 
 func TestRedisConcurrencyLimiterAcquire_RedisErrorFailsOpen(t *testing.T) {
@@ -154,15 +142,12 @@ func TestRedisConcurrencyLimiterAcquire_RedisErrorFailsOpen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	token, allowed, err := limiter.Acquire(ctx, "job", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allowed {
-		t.Fatal("expected fail-open behavior")
-	}
-	if token != "" {
-		t.Fatalf("expected empty token in fail-open path, got %q", token)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, allowed)
+	require.Equal(t, "",
+		token)
+
 }
 
 func TestRedisConcurrencyLimiterRelease_InvalidToken(t *testing.T) {
@@ -176,24 +161,26 @@ func TestRedisConcurrencyLimiterRelease_InvalidToken(t *testing.T) {
 	limiter := NewRedisConcurrencyLimiter(client, true)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if err := limiter.Release(ctx, "job", "invalid"); err == nil {
-		t.Fatal("expected error for invalid token")
-	}
+	require.Error(t, limiter.
+		Release(ctx, "job",
+			"invalid",
+		))
+
 }
 
 func TestParseRedisConcurrencyToken(t *testing.T) {
 	t.Parallel()
 
 	slot, id, err := parseRedisConcurrencyToken("3:abc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if slot != 3 || id != "abc" {
-		t.Fatalf("unexpected token parse result slot=%d id=%q", slot, id)
-	}
+	require.NoError(t,
+		err)
+	require.False(t, slot !=
+		3 ||
+		id != "abc",
+	)
 
 	if _, _, err := parseRedisConcurrencyToken("x:abc"); err == nil {
-		t.Fatal("expected parse error for non-numeric slot")
+		require.Fail(t, "expected parse error for non-numeric slot")
 	}
 }
 
@@ -201,7 +188,7 @@ func TestRedisConcurrencyLimiterAcquire_ZeroConcurrency_Error(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero concurrency")
+		require.Fail(t, "redis should not be called for zero concurrency")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -210,16 +197,15 @@ func TestRedisConcurrencyLimiterAcquire_ZeroConcurrency_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 0, time.Minute)
-	if err == nil {
-		t.Fatal("expected error for zero maxConcurrent")
-	}
+	require.Error(t, err)
+
 }
 
 func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for negative concurrency")
+		require.Fail(t, "redis should not be called for negative concurrency")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -228,16 +214,15 @@ func TestRedisConcurrencyLimiterAcquire_NegativeConcurrency_Error(t *testing.T) 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", -1, time.Minute)
-	if err == nil {
-		t.Fatal("expected error for negative maxConcurrent")
-	}
+	require.Error(t, err)
+
 }
 
 func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero TTL")
+		require.Fail(t, "redis should not be called for zero TTL")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -246,16 +231,15 @@ func TestRedisConcurrencyLimiterAcquire_ZeroTTL_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 1, 0)
-	if err == nil {
-		t.Fatal("expected error for zero TTL")
-	}
+	require.Error(t, err)
+
 }
 
 func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for negative TTL")
+		require.Fail(t, "redis should not be called for negative TTL")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -264,9 +248,8 @@ func TestRedisConcurrencyLimiterAcquire_NegativeTTL_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, _, err := limiter.Acquire(ctx, "key", 1, -time.Second)
-	if err == nil {
-		t.Fatal("expected error for negative TTL")
-	}
+	require.Error(t, err)
+
 }
 
 func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
@@ -280,15 +263,17 @@ func TestRedisConcurrencyLimiterRelease_EmptyToken(t *testing.T) {
 	limiter := NewRedisConcurrencyLimiter(client, true)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	if err := limiter.Release(ctx, "job", "0:"); err == nil {
-		t.Fatal("expected error for token with empty ID part")
-	}
-	if err := limiter.Release(ctx, "job", ":abc"); err == nil {
-		t.Fatal("expected error for token with empty slot part")
-	}
-	if err := limiter.Release(ctx, "job", ""); err == nil {
-		t.Fatal("expected error for empty token")
-	}
+	require.Error(t, limiter.
+		Release(ctx, "job",
+			"0:"))
+	require.Error(t, limiter.
+		Release(ctx, "job",
+			":abc",
+		))
+	require.Error(t, limiter.
+		Release(ctx, "job",
+			""))
+
 }
 
 func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
@@ -303,9 +288,9 @@ func TestRedisConcurrencyLimiterRelease_RedisErrorFailsOpen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	err := limiter.Release(ctx, "job", "0:some-id")
-	if err != nil {
-		t.Fatalf("expected nil (fail-open) on Redis error, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestRedisConcurrencySlotKey(t *testing.T) {
@@ -313,13 +298,13 @@ func TestRedisConcurrencySlotKey(t *testing.T) {
 
 	key := redisConcurrencySlotKey("group", 7)
 	parts := strings.Split(key, ":")
-	if len(parts) != 3 {
-		t.Fatalf("unexpected key format: %q", key)
-	}
-	if parts[0] != "concurrency" || parts[1] != "group" {
-		t.Fatalf("unexpected key prefix: %q", key)
-	}
-	if _, err := strconv.Atoi(parts[2]); err != nil {
-		t.Fatalf("unexpected slot segment %q: %v", parts[2], err)
-	}
+	require.Len(t, parts,
+		3)
+	require.False(t, parts[0] !=
+		"concurrency" ||
+		parts[1] != "group",
+	)
+
+	_, err := strconv.Atoi(parts[2])
+	require.NoError(t, err)
 }
