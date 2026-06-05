@@ -1,9 +1,9 @@
 package crypto
 
 import (
-	"bytes"
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSecrets_SurviveKeyRotation verifies that data encrypted with an old key can
@@ -21,30 +21,19 @@ func TestSecrets_SurviveKeyRotation(t *testing.T) {
 	}
 
 	encA, err := newEncryptorFromBytes(keyA)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes(keyA) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("rotate-me-please")
 	ciphertext, err := encA.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Create rotator with keyB as primary and keyA as old key.
 	rotator, err := NewKeyRotator(keyB, keyA)
-	if err != nil {
-		t.Fatalf("NewKeyRotator() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := rotator.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("rotator.Decrypt() error = %v", err)
-	}
-
-	if !bytes.Equal(decrypted, plaintext) {
-		t.Fatalf("rotator.Decrypt() = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(t, plaintext, decrypted)
 }
 
 // TestSecrets_DifferentNoncePerEncryption verifies that encrypting the same plaintext
@@ -58,28 +47,20 @@ func TestSecrets_DifferentNoncePerEncryption(t *testing.T) {
 	}
 
 	enc, err := newEncryptorFromBytes(key)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("identical-plaintext")
 	seen := make(map[string]struct{}, 100)
 
 	for i := range 100 {
 		ct, encErr := enc.Encrypt(plaintext)
-		if encErr != nil {
-			t.Fatalf("Encrypt() iteration %d error = %v", i, encErr)
-		}
+		require.NoError(t, encErr)
+
 		key := string(ct)
-		if _, dup := seen[key]; dup {
-			t.Fatalf("duplicate ciphertext at iteration %d out of 100", i)
-		}
+		require.NotContains(t, seen, key, "iteration %d", i)
 		seen[key] = struct{}{}
 	}
-
-	if len(seen) != 100 {
-		t.Fatalf("expected 100 unique ciphertexts, got %d", len(seen))
-	}
+	require.Len(t, seen, 100)
 }
 
 // TestSecrets_EncryptedFieldsNeverPlaintext verifies that the ciphertext bytes do not
@@ -93,29 +74,17 @@ func TestSecrets_EncryptedFieldsNeverPlaintext(t *testing.T) {
 	}
 
 	enc, err := newEncryptorFromBytes(key)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("super-secret-database-password-that-must-not-leak")
 	ciphertext, err := enc.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
-
-	if bytes.Contains(ciphertext, plaintext) {
-		t.Fatal("ciphertext contains plaintext bytes verbatim")
-	}
+	require.NoError(t, err)
+	require.NotContains(t, ciphertext, plaintext)
 
 	// Also verify via the string variant.
 	ctStr, err := enc.EncryptString(string(plaintext))
-	if err != nil {
-		t.Fatalf("EncryptString() error = %v", err)
-	}
-
-	if bytes.Contains([]byte(ctStr), plaintext) {
-		t.Fatal("base64 ciphertext string contains plaintext bytes verbatim")
-	}
+	require.NoError(t, err)
+	require.NotContains(t, []byte(ctStr), plaintext)
 }
 
 // TestSecrets_EmptyPlaintextRoundTrip verifies that encrypting and decrypting an
@@ -129,39 +98,23 @@ func TestSecrets_EmptyPlaintextRoundTrip(t *testing.T) {
 	}
 
 	enc, err := newEncryptorFromBytes(key)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Byte-level round-trip.
 	ciphertext, err := enc.Encrypt([]byte{})
-	if err != nil {
-		t.Fatalf("Encrypt(empty) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt(empty ciphertext) error = %v", err)
-	}
-
-	if len(decrypted) != 0 {
-		t.Fatalf("Decrypt(empty) = %q, want empty", decrypted)
-	}
+	require.NoError(t, err)
+	require.Empty(t, decrypted)
 
 	// String-level round-trip.
 	ctStr, err := enc.EncryptString("")
-	if err != nil {
-		t.Fatalf("EncryptString(empty) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ptStr, err := enc.DecryptString(ctStr)
-	if err != nil {
-		t.Fatalf("DecryptString(empty ciphertext) error = %v", err)
-	}
-
-	if ptStr != "" {
-		t.Fatalf("DecryptString(empty) = %q, want empty", ptStr)
-	}
+	require.NoError(t, err)
+	require.Empty(t, ptStr)
 }
 
 // TestSecrets_KeyLengthValidation verifies that creating an encryptor with invalid
@@ -178,13 +131,6 @@ func TestSecrets_KeyLengthValidation(t *testing.T) {
 		}
 
 		_, err := newEncryptorFromBytes(key)
-		if err == nil {
-			t.Errorf("newEncryptorFromBytes(len=%d) expected error, got nil", length)
-			continue
-		}
-
-		if !errors.Is(err, errInvalidKeyLength) {
-			t.Errorf("newEncryptorFromBytes(len=%d) error = %v, want %v", length, err, errInvalidKeyLength)
-		}
+		require.ErrorIs(t, err, errInvalidKeyLength)
 	}
 }
