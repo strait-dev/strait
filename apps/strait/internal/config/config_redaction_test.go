@@ -3,6 +3,9 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_Redacted_MasksSecrets(t *testing.T) {
@@ -23,9 +26,15 @@ func TestConfig_Redacted_MasksSecrets(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if str == "super-secret-key" || str == "pprof-secret-key" || str == "jwt-key" || str == "sk_test_123" || str == "whsec_test" || str == "re_test" || str == "phc_test" {
-			t.Errorf("secret leaked in Redacted() for key %q: %v", key, val)
-		}
+		assert.NotContains(t, []string{
+			"super-secret-key",
+			"pprof-secret-key",
+			"jwt-key",
+			"sk_test_123",
+			"whsec_test",
+			"re_test",
+			"phc_test",
+		}, str, "key %q", key)
 	}
 }
 
@@ -38,15 +47,9 @@ func TestConfig_Redacted_PreservesPublicFields(t *testing.T) {
 	}
 
 	r := cfg.Redacted()
-	if r["Mode"] != "all" {
-		t.Errorf("Mode = %v, want 'all'", r["Mode"])
-	}
-	if r["Port"] != 8080 {
-		t.Errorf("Port = %v, want 8080", r["Port"])
-	}
-	if r["Edition"] != "cloud" {
-		t.Errorf("Edition = %v, want 'cloud'", r["Edition"])
-	}
+	assert.Equal(t, "all", r["Mode"])
+	assert.Equal(t, 8080, r["Port"])
+	assert.Equal(t, "cloud", r["Edition"])
 }
 
 func TestConfig_String_NoSecrets(t *testing.T) {
@@ -65,9 +68,7 @@ func TestConfig_String_NoSecrets(t *testing.T) {
 	str := cfg.String()
 	secrets := []string{"my-secret-value", "pprof-secret-value", "jwt-secret-123", "sk_test_secret456", "whsec_secret789", "re_secret"}
 	for _, secret := range secrets {
-		if strings.Contains(str, secret) {
-			t.Errorf("Config.String() contains secret: %q", secret)
-		}
+		assert.NotContains(t, str, secret)
 	}
 }
 
@@ -78,12 +79,8 @@ func TestConfig_String_NoLeadingSpace(t *testing.T) {
 		Port: 8080,
 	}
 	str := cfg.String()
-	if strings.HasPrefix(str, " ") {
-		t.Errorf("Config.String() has leading space: %q", str[:20])
-	}
-	if str == "" {
-		t.Fatal("Config.String() is empty")
-	}
+	assert.False(t, strings.HasPrefix(str, " "))
+	require.NotEmpty(t, str)
 }
 
 func FuzzConfig_String(f *testing.F) {
@@ -96,14 +93,14 @@ func FuzzConfig_String(f *testing.F) {
 			StripeSecretKey: s3,
 		}
 		str := cfg.String()
-		if s1 != "" && strings.Contains(str, s1) {
-			t.Errorf("String() leaks InternalSecret: %q", s1)
+		if s1 != "" {
+			assert.NotContains(t, str, s1)
 		}
-		if s2 != "" && strings.Contains(str, s2) {
-			t.Errorf("String() leaks JWTSigningKey: %q", s2)
+		if s2 != "" {
+			assert.NotContains(t, str, s2)
 		}
-		if s3 != "" && strings.Contains(str, s3) {
-			t.Errorf("String() leaks StripeSecretKey: %q", s3)
+		if s3 != "" {
+			assert.NotContains(t, str, s3)
 		}
 	})
 }

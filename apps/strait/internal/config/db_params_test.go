@@ -3,6 +3,8 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestApplyDBRuntimeParams_Defaults(t *testing.T) {
@@ -20,9 +22,7 @@ func TestApplyDBRuntimeParams_Defaults(t *testing.T) {
 		"lock_timeout":                        "5000",
 	}
 	for k, want := range tests {
-		if got := params[k]; got != want {
-			t.Errorf("params[%q] = %q, want %q", k, got, want)
-		}
+		assert.Equal(t, want, params[k], "params[%q]", k)
 	}
 }
 
@@ -30,9 +30,9 @@ func TestApplyDBRuntimeParams_ZeroSkips(t *testing.T) {
 	cfg := &Config{} // all zero
 	params := map[string]string{}
 	ApplyDBRuntimeParams(params, cfg)
-	if len(params) != 0 {
-		t.Errorf("expected no params for zero config, got %v", params)
-	}
+	assert.Len(t, params,
+		0)
+
 }
 
 func TestApplyDBRuntimeParams_NilSafe(t *testing.T) {
@@ -46,13 +46,14 @@ func TestApplyDBRuntimeParams_DoesNotOverwriteUnrelated(t *testing.T) {
 	cfg := &Config{DBStatementTimeout: 1 * time.Second}
 	params := map[string]string{"application_name": "strait-test"}
 	ApplyDBRuntimeParams(params, cfg)
+	assert.Equal(t,
+		"strait-test",
 
-	if params["application_name"] != "strait-test" {
-		t.Errorf("application_name was overwritten: %v", params)
-	}
-	if params["statement_timeout"] != "1000" {
-		t.Errorf("statement_timeout = %q", params["statement_timeout"])
-	}
+		params["application_name"])
+	assert.Equal(t,
+		"1000",
+		params["statement_timeout"])
+
 }
 
 func TestApplyDBRuntimeParams_MillisecondPrecision(t *testing.T) {
@@ -63,14 +64,12 @@ func TestApplyDBRuntimeParams_MillisecondPrecision(t *testing.T) {
 	}
 	params := map[string]string{}
 	ApplyDBRuntimeParams(params, cfg)
+	assert.Equal(t,
+		"2500",
+		params["statement_timeout"])
+	assert.Equal(t,
+		"750", params["idle_in_transaction_session_timeout"])
+	assert.Equal(t,
+		"100", params["lock_timeout"])
 
-	if params["statement_timeout"] != "2500" {
-		t.Errorf("statement_timeout = %q", params["statement_timeout"])
-	}
-	if params["idle_in_transaction_session_timeout"] != "750" {
-		t.Errorf("idle_in_transaction_session_timeout = %q", params["idle_in_transaction_session_timeout"])
-	}
-	if params["lock_timeout"] != "100" {
-		t.Errorf("lock_timeout = %q", params["lock_timeout"])
-	}
 }

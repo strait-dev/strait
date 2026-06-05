@@ -3,6 +3,9 @@ package config
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // MVCC horizon guardrail config tests. These only exercise env parsing
@@ -13,9 +16,8 @@ func TestLoad_MVCCGuardrailDefaults(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	tests := []struct {
 		name string
@@ -30,9 +32,11 @@ func TestLoad_MVCCGuardrailDefaults(t *testing.T) {
 		{"DBWatchdogEnabled", cfg.DBWatchdogEnabled, true},
 	}
 	for _, tt := range tests {
-		if tt.got != tt.want {
-			t.Errorf("%s = %v, want %v", tt.name, tt.got, tt.want)
-		}
+		assert.Equal(t,
+			tt.want,
+			tt.
+				got)
+
 	}
 }
 
@@ -46,28 +50,32 @@ func TestLoad_MVCCGuardrailOverrides(t *testing.T) {
 	t.Setenv("DB_WATCHDOG_ENABLED", "false")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		2*time.
+			Minute,
 
-	if cfg.DBIdleInTransactionTimeout != 2*time.Minute {
-		t.Errorf("DBIdleInTransactionTimeout = %v", cfg.DBIdleInTransactionTimeout)
-	}
-	if cfg.DBLockTimeout != 2500*time.Millisecond {
-		t.Errorf("DBLockTimeout = %v", cfg.DBLockTimeout)
-	}
-	if cfg.DBTransactionTimeout != 10*time.Minute {
-		t.Errorf("DBTransactionTimeout = %v", cfg.DBTransactionTimeout)
-	}
-	if cfg.DBLongTxnAlertThreshold != 90*time.Second {
-		t.Errorf("DBLongTxnAlertThreshold = %v", cfg.DBLongTxnAlertThreshold)
-	}
-	if cfg.DBWatchdogInterval != 45*time.Second {
-		t.Errorf("DBWatchdogInterval = %v", cfg.DBWatchdogInterval)
-	}
-	if cfg.DBWatchdogEnabled {
-		t.Error("DBWatchdogEnabled should be false")
-	}
+		cfg.DBIdleInTransactionTimeout)
+	assert.Equal(t,
+		2500*time.
+			Millisecond, cfg.DBLockTimeout)
+	assert.Equal(t,
+		10*time.
+			Minute,
+		cfg.DBTransactionTimeout)
+	assert.Equal(t,
+		90*time.
+			Second,
+		cfg.DBLongTxnAlertThreshold)
+	assert.Equal(t,
+		45*time.
+			Second,
+		cfg.DBWatchdogInterval)
+	assert.False(t,
+		cfg.DBWatchdogEnabled,
+	)
+
 }
 
 func TestLoad_MVCCGuardrailZeroRejected(t *testing.T) {
@@ -79,9 +87,9 @@ func TestLoad_MVCCGuardrailZeroRejected(t *testing.T) {
 	t.Setenv("DB_TRANSACTION_TIMEOUT", "0")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected validation error for zero MVCC guardrail durations")
-	}
+	require.Error(t,
+		err)
+
 }
 
 // FuzzDurationParsing asserts that arbitrary duration-ish strings fed to the
@@ -108,7 +116,7 @@ func FuzzDurationParsing(f *testing.F) {
 		t.Setenv("DB_IDLE_IN_TRANSACTION_TIMEOUT", raw)
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Load panicked on %q: %v", raw, r)
+				require.Failf(t, "Load panicked", "%q: %v", raw, r)
 			}
 		}()
 		cfg, err := Load()
@@ -120,13 +128,9 @@ func FuzzDurationParsing(f *testing.F) {
 		params := map[string]string{}
 		ApplyDBRuntimeParams(params, cfg)
 		if cfg.DBIdleInTransactionTimeout <= 0 {
-			if _, ok := params["idle_in_transaction_session_timeout"]; ok {
-				t.Errorf("non-positive duration %v leaked into params from %q", cfg.DBIdleInTransactionTimeout, raw)
-			}
+			assert.NotContains(t, params, "idle_in_transaction_session_timeout", "raw duration %q", raw)
 		} else {
-			if _, ok := params["idle_in_transaction_session_timeout"]; !ok {
-				t.Errorf("positive duration %v missing from params for %q", cfg.DBIdleInTransactionTimeout, raw)
-			}
+			assert.Contains(t, params, "idle_in_transaction_session_timeout", "raw duration %q", raw)
 		}
 	})
 }

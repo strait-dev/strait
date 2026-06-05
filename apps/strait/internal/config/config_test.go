@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // skipIfCommunity skips the test when running in a community build.
@@ -35,9 +38,7 @@ func TestLoad_Defaults(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	tests := []struct {
 		name string
@@ -129,9 +130,7 @@ func TestLoad_Defaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Fatalf("%s = %v (%T), want %v (%T)", tt.name, tt.got, tt.got, tt.want, tt.want)
-			}
+			require.Equal(t, tt.want, tt.got)
 		})
 	}
 }
@@ -140,9 +139,7 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	falseFields := []struct {
 		name string
@@ -166,27 +163,22 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 
 	for _, tt := range falseFields {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got {
-				t.Fatalf("%s = true, want false", tt.name)
-			}
+			require.False(t, tt.got)
+
 		})
 	}
+	require.True(t, cfg.ProfilingAPIEnabled)
+	require.Equal(t, "127.0.0.1",
+		cfg.ProfilingManagementBindAddr,
+	)
+	require.Equal(t, 18080, cfg.
+		ProfilingManagementPort,
+	)
+	require.Equal(t, 100, cfg.ProfilingMutexFraction)
+	require.Equal(t, 100000, cfg.
+		ProfilingBlockRate,
+	)
 
-	if !cfg.ProfilingAPIEnabled {
-		t.Fatal("ProfilingAPIEnabled = false, want true")
-	}
-	if cfg.ProfilingManagementBindAddr != "127.0.0.1" {
-		t.Fatalf("ProfilingManagementBindAddr = %q, want 127.0.0.1", cfg.ProfilingManagementBindAddr)
-	}
-	if cfg.ProfilingManagementPort != 18080 {
-		t.Fatalf("ProfilingManagementPort = %d, want 18080", cfg.ProfilingManagementPort)
-	}
-	if cfg.ProfilingMutexFraction != 100 {
-		t.Fatalf("ProfilingMutexFraction = %d, want 100", cfg.ProfilingMutexFraction)
-	}
-	if cfg.ProfilingBlockRate != 100000 {
-		t.Fatalf("ProfilingBlockRate = %d, want 100000", cfg.ProfilingBlockRate)
-	}
 }
 
 func TestLoad_RequiredFields(t *testing.T) {
@@ -232,12 +224,9 @@ func TestLoad_RequiredFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setEnv(t)
 			_, err := Load()
-			if err == nil {
-				t.Fatalf("expected error containing %q, got nil", tt.errorSub)
-			}
-			if !strings.Contains(err.Error(), tt.errorSub) {
-				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errorSub)
-			}
+			require.Error(t, err)
+			require.True(t, strings.Contains(err.Error(), tt.errorSub))
+
 		})
 	}
 }
@@ -253,31 +242,19 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("ADAPTIVE_CONCURRENCY_MAX", "30")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 9090, cfg.Port)
+	require.Equal(t, 20, cfg.WorkerConcurrency)
+	require.Equal(t, "worker", cfg.
+		Mode)
+	require.Equal(t, "debug", cfg.
+		LogLevel)
+	require.Equal(t, 12*time.Hour,
+		cfg.IndexMaintenanceInterval,
+	)
+	require.Equal(t, 3, cfg.AdaptiveConcurrencyMin)
+	require.Equal(t, 30, cfg.AdaptiveConcurrencyMax)
 
-	if cfg.Port != 9090 {
-		t.Fatalf("Port = %d, want %d", cfg.Port, 9090)
-	}
-	if cfg.WorkerConcurrency != 20 {
-		t.Fatalf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, 20)
-	}
-	if cfg.Mode != "worker" {
-		t.Fatalf("Mode = %q, want %q", cfg.Mode, "worker")
-	}
-	if cfg.LogLevel != "debug" {
-		t.Fatalf("LogLevel = %q, want %q", cfg.LogLevel, "debug")
-	}
-	if cfg.IndexMaintenanceInterval != 12*time.Hour {
-		t.Fatalf("IndexMaintenanceInterval = %v, want %v", cfg.IndexMaintenanceInterval, 12*time.Hour)
-	}
-	if cfg.AdaptiveConcurrencyMin != 3 {
-		t.Fatalf("AdaptiveConcurrencyMin = %d, want %d", cfg.AdaptiveConcurrencyMin, 3)
-	}
-	if cfg.AdaptiveConcurrencyMax != 30 {
-		t.Fatalf("AdaptiveConcurrencyMax = %d, want %d", cfg.AdaptiveConcurrencyMax, 30)
-	}
 }
 
 func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
@@ -286,22 +263,21 @@ func TestLoad_EncryptionKeyRotationConfig(t *testing.T) {
 	t.Setenv("ENCRYPTION_KEY_OLD", "old-key-1, old-key-2 , ,old-key-3")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "primary-key",
+		cfg.EncryptionKey,
+	)
+	require.Equal(t, "primary-key",
+		cfg.SecretEncryptionKey,
+	)
+	require.Len(t, cfg.EncryptionKeyOld,
+		3)
+	require.False(t, cfg.EncryptionKeyOld[0] != "old-key-1" ||
 
-	if cfg.EncryptionKey != "primary-key" {
-		t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "primary-key")
-	}
-	if cfg.SecretEncryptionKey != "primary-key" {
-		t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "primary-key")
-	}
-	if len(cfg.EncryptionKeyOld) != 3 {
-		t.Fatalf("len(EncryptionKeyOld) = %d, want 3", len(cfg.EncryptionKeyOld))
-	}
-	if cfg.EncryptionKeyOld[0] != "old-key-1" || cfg.EncryptionKeyOld[1] != "old-key-2" || cfg.EncryptionKeyOld[2] != "old-key-3" {
-		t.Fatalf("EncryptionKeyOld = %#v, want [old-key-1 old-key-2 old-key-3]", cfg.EncryptionKeyOld)
-	}
+		cfg.EncryptionKeyOld[1] !=
+			"old-key-2" ||
+		cfg.EncryptionKeyOld[2] != "old-key-3")
+
 }
 
 func TestLoad_EncryptionKeyMirroring(t *testing.T) {
@@ -310,12 +286,11 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		t.Setenv("ENCRYPTION_KEY", "my-key")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.SecretEncryptionKey != "my-key" {
-			t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "my-key")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "my-key", cfg.
+			SecretEncryptionKey,
+		)
+
 	})
 
 	t.Run("secret encryption key fills encryption key", func(t *testing.T) {
@@ -323,12 +298,11 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		t.Setenv("SECRET_ENCRYPTION_KEY", "my-secret-key")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.EncryptionKey != "my-secret-key" {
-			t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "my-secret-key")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "my-secret-key",
+			cfg.EncryptionKey,
+		)
+
 	})
 
 	t.Run("both set independently", func(t *testing.T) {
@@ -337,15 +311,14 @@ func TestLoad_EncryptionKeyMirroring(t *testing.T) {
 		t.Setenv("SECRET_ENCRYPTION_KEY", "secret-key")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.EncryptionKey != "enc-key" {
-			t.Fatalf("EncryptionKey = %q, want %q", cfg.EncryptionKey, "enc-key")
-		}
-		if cfg.SecretEncryptionKey != "secret-key" {
-			t.Fatalf("SecretEncryptionKey = %q, want %q", cfg.SecretEncryptionKey, "secret-key")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "enc-key",
+			cfg.EncryptionKey,
+		)
+		require.Equal(t, "secret-key",
+			cfg.SecretEncryptionKey,
+		)
+
 	})
 }
 
@@ -354,12 +327,9 @@ func TestLoad_InvalidSequinBaseURL(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "not-a-url")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for invalid SEQUIN_BASE_URL, got nil")
-	}
-	if !strings.Contains(err.Error(), "SEQUIN_BASE_URL") {
-		t.Fatalf("error = %q, want substring SEQUIN_BASE_URL", err.Error())
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "SEQUIN_BASE_URL"))
+
 }
 
 func TestLoad_ValidConfig(t *testing.T) {
@@ -368,24 +338,21 @@ func TestLoad_ValidConfig(t *testing.T) {
 	t.Setenv("SEQUIN_BASE_URL", "https://sequin.example.com")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.RedisURL != "redis://localhost:6379" {
-		t.Fatalf("RedisURL = %q, want redis://localhost:6379", cfg.RedisURL)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "redis://localhost:6379",
+
+		cfg.RedisURL,
+	)
+
 }
 
 func TestLoad_WebhookConcurrencyDefault(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.WebhookConcurrency != 50 {
-		t.Errorf("WebhookConcurrency = %d, want 50", cfg.WebhookConcurrency)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 50, cfg.WebhookConcurrency)
+
 }
 
 func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
@@ -393,24 +360,18 @@ func TestLoad_WebhookConcurrencyFromEnv(t *testing.T) {
 	t.Setenv("WEBHOOK_CONCURRENCY", "100")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.WebhookConcurrency != 100 {
-		t.Errorf("WebhookConcurrency = %d, want 100", cfg.WebhookConcurrency)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 100, cfg.WebhookConcurrency)
+
 }
 
 func TestLoad_MaxBulkTriggerItemsDefault(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.MaxBulkTriggerItems != 500 {
-		t.Errorf("MaxBulkTriggerItems = %d, want 500", cfg.MaxBulkTriggerItems)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 500, cfg.MaxBulkTriggerItems)
+
 }
 
 func TestLoad_DurationOverrides(t *testing.T) {
@@ -427,9 +388,7 @@ func TestLoad_DurationOverrides(t *testing.T) {
 	t.Setenv("SSE_KEEPALIVE_INTERVAL", "30s")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	tests := []struct {
 		name string
@@ -450,9 +409,9 @@ func TestLoad_DurationOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got != tt.want {
-				t.Fatalf("%s = %v, want %v", tt.name, tt.got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.
+				got)
+
 		})
 	}
 }
@@ -466,25 +425,12 @@ func TestLoad_Int32AndInt64Overrides(t *testing.T) {
 	t.Setenv("MAX_RESULT_SIZE", "4194304")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if cfg.DBMaxConns != 100 {
-		t.Fatalf("DBMaxConns = %d, want 100", cfg.DBMaxConns)
-	}
-	if cfg.DBMinConns != 20 {
-		t.Fatalf("DBMinConns = %d, want 20", cfg.DBMinConns)
-	}
-	if cfg.MaxRequestBodySize != 2097152 {
-		t.Fatalf("MaxRequestBodySize = %d, want 2097152", cfg.MaxRequestBodySize)
-	}
-	if cfg.WebhookMaxPayloadBytes != 5242880 {
-		t.Fatalf("WebhookMaxPayloadBytes = %d, want 5242880", cfg.WebhookMaxPayloadBytes)
-	}
-	if cfg.MaxResultSize != 4194304 {
-		t.Fatalf("MaxResultSize = %d, want 4194304", cfg.MaxResultSize)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(100), cfg.DBMaxConns)
+	require.Equal(t, int32(20), cfg.DBMinConns)
+	require.Equal(t, int64(2097152), cfg.MaxRequestBodySize)
+	require.Equal(t, int64(5242880), cfg.WebhookMaxPayloadBytes)
+	require.Equal(t, int64(4194304), cfg.MaxResultSize)
 }
 
 func TestLoad_BoolOverrides(t *testing.T) {
@@ -507,58 +453,33 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("STRAIT_PROFILING_SECRET", "pprof-secret-value")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, cfg.DBPgBouncerMode)
+	require.True(t, cfg.DBPgBouncerPrepared)
+	require.True(t, cfg.DBTraceStatements)
+	require.True(t, cfg.WebhookRequireTLS)
+	require.True(t, cfg.AllowPrivateEndpoints)
+	require.True(t, cfg.GRPCAllowPlaintext)
+	require.True(t, cfg.OTLPMetricEnabled)
+	require.True(t, cfg.CORSAllowCredentials)
+	require.True(t, cfg.ProfilingEnabled)
+	require.False(t, cfg.ProfilingAPIEnabled)
+	require.True(t, cfg.ProfilingManagementEnabled)
+	require.Equal(t, "127.0.0.2",
+		cfg.ProfilingManagementBindAddr,
+	)
+	require.Equal(t, 28080, cfg.
+		ProfilingManagementPort,
+	)
+	require.Equal(t, 50, cfg.ProfilingMutexFraction)
+	require.Equal(t, 250000, cfg.
+		ProfilingBlockRate,
+	)
+	require.Equal(t, "pprof-secret-value",
 
-	if !cfg.DBPgBouncerMode {
-		t.Fatal("DBPgBouncerMode = false, want true")
-	}
-	if !cfg.DBPgBouncerPrepared {
-		t.Fatal("DBPgBouncerPrepared = false, want true")
-	}
-	if !cfg.DBTraceStatements {
-		t.Fatal("DBTraceStatements = false, want true")
-	}
-	if !cfg.WebhookRequireTLS {
-		t.Fatal("WebhookRequireTLS = false, want true")
-	}
-	if !cfg.AllowPrivateEndpoints {
-		t.Fatal("AllowPrivateEndpoints = false, want true")
-	}
-	if !cfg.GRPCAllowPlaintext {
-		t.Fatal("GRPCAllowPlaintext = false, want true")
-	}
-	if !cfg.OTLPMetricEnabled {
-		t.Fatal("OTLPMetricEnabled = false, want true")
-	}
-	if !cfg.CORSAllowCredentials {
-		t.Fatal("CORSAllowCredentials = false, want true")
-	}
-	if !cfg.ProfilingEnabled {
-		t.Fatal("ProfilingEnabled = false, want true")
-	}
-	if cfg.ProfilingAPIEnabled {
-		t.Fatal("ProfilingAPIEnabled = true, want false")
-	}
-	if !cfg.ProfilingManagementEnabled {
-		t.Fatal("ProfilingManagementEnabled = false, want true")
-	}
-	if cfg.ProfilingManagementBindAddr != "127.0.0.2" {
-		t.Fatalf("ProfilingManagementBindAddr = %q, want 127.0.0.2", cfg.ProfilingManagementBindAddr)
-	}
-	if cfg.ProfilingManagementPort != 28080 {
-		t.Fatalf("ProfilingManagementPort = %d, want 28080", cfg.ProfilingManagementPort)
-	}
-	if cfg.ProfilingMutexFraction != 50 {
-		t.Fatalf("ProfilingMutexFraction = %d, want 50", cfg.ProfilingMutexFraction)
-	}
-	if cfg.ProfilingBlockRate != 250000 {
-		t.Fatalf("ProfilingBlockRate = %d, want 250000", cfg.ProfilingBlockRate)
-	}
-	if cfg.ProfilingSecret != "pprof-secret-value" {
-		t.Fatalf("ProfilingSecret = %q, want pprof-secret-value", cfg.ProfilingSecret)
-	}
+		cfg.ProfilingSecret,
+	)
+
 }
 
 func TestLoad_Float64Override(t *testing.T) {
@@ -566,12 +487,9 @@ func TestLoad_Float64Override(t *testing.T) {
 	t.Setenv("MEMORY_PRESSURE_THRESHOLD_PCT", "85.5")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.MemoryPressureThresholdPct != 85.5 {
-		t.Fatalf("MemoryPressureThresholdPct = %f, want 85.5", cfg.MemoryPressureThresholdPct)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 85.5, cfg.MemoryPressureThresholdPct)
+
 }
 
 func TestLoad_SliceFields(t *testing.T) {
@@ -580,15 +498,14 @@ func TestLoad_SliceFields(t *testing.T) {
 		t.Setenv("CORS_ALLOWED_ORIGINS", "https://app.example.com,https://admin.example.com")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(cfg.CORSAllowedOrigins) != 2 {
-			t.Fatalf("len(CORSAllowedOrigins) = %d, want 2", len(cfg.CORSAllowedOrigins))
-		}
-		if cfg.CORSAllowedOrigins[0] != "https://app.example.com" {
-			t.Fatalf("CORSAllowedOrigins[0] = %q, want https://app.example.com", cfg.CORSAllowedOrigins[0])
-		}
+		require.NoError(t, err)
+		require.Len(t, cfg.CORSAllowedOrigins,
+
+			2)
+		require.Equal(t, "https://app.example.com",
+
+			cfg.CORSAllowedOrigins[0])
+
 	})
 
 	t.Run("redis sentinel addrs", func(t *testing.T) {
@@ -596,12 +513,11 @@ func TestLoad_SliceFields(t *testing.T) {
 		t.Setenv("REDIS_SENTINEL_ADDRS", "host1:26379,host2:26379,host3:26379")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(cfg.RedisSentinelAddrs) != 3 {
-			t.Fatalf("len(RedisSentinelAddrs) = %d, want 3", len(cfg.RedisSentinelAddrs))
-		}
+		require.NoError(t, err)
+		require.Len(t, cfg.RedisSentinelAddrs,
+
+			3)
+
 	})
 
 	t.Run("worker partitions", func(t *testing.T) {
@@ -609,15 +525,12 @@ func TestLoad_SliceFields(t *testing.T) {
 		t.Setenv("WORKER_PARTITIONS", "critical,default,bulk")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(cfg.WorkerPartitions) != 3 {
-			t.Fatalf("len(WorkerPartitions) = %d, want 3", len(cfg.WorkerPartitions))
-		}
-		if cfg.WorkerPartitions[0] != "critical" {
-			t.Fatalf("WorkerPartitions[0] = %q, want critical", cfg.WorkerPartitions[0])
-		}
+		require.NoError(t, err)
+		require.Len(t, cfg.WorkerPartitions,
+			3)
+		require.Equal(t, "critical",
+			cfg.WorkerPartitions[0])
+
 	})
 
 	t.Run("profiling allowed CIDRs", func(t *testing.T) {
@@ -625,15 +538,13 @@ func TestLoad_SliceFields(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,10.0.0.0/8")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(cfg.ProfilingAllowedCIDRs) != 2 {
-			t.Fatalf("len(ProfilingAllowedCIDRs) = %d, want 2", len(cfg.ProfilingAllowedCIDRs))
-		}
-		if cfg.ProfilingAllowedCIDRs[0] != "127.0.0.1/32" {
-			t.Fatalf("ProfilingAllowedCIDRs[0] = %q, want 127.0.0.1/32", cfg.ProfilingAllowedCIDRs[0])
-		}
+		require.NoError(t, err)
+		require.Len(t, cfg.ProfilingAllowedCIDRs,
+
+			2)
+		require.Equal(t, "127.0.0.1/32",
+			cfg.ProfilingAllowedCIDRs[0])
+
 	})
 }
 
@@ -643,9 +554,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_SECRET", "short")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_SECRET") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_SECRET", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_SECRET")
+
 	})
 
 	t.Run("invalid profiling CIDR rejected", func(t *testing.T) {
@@ -653,9 +564,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_ALLOWED_CIDRS", "127.0.0.1/32,not-a-cidr")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_ALLOWED_CIDRS") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_ALLOWED_CIDRS", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_ALLOWED_CIDRS")
+
 	})
 
 	t.Run("enabled profiling requires listener", func(t *testing.T) {
@@ -665,9 +576,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_MANAGEMENT_ENABLED", "false")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_ENABLED") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_ENABLED", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_ENABLED")
+
 	})
 
 	t.Run("invalid management port rejected", func(t *testing.T) {
@@ -676,9 +587,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_MANAGEMENT_PORT", "70000")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_MANAGEMENT_PORT") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_MANAGEMENT_PORT", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_MANAGEMENT_PORT")
+
 	})
 
 	t.Run("negative mutex profiling fraction rejected", func(t *testing.T) {
@@ -686,9 +597,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_MUTEX_FRACTION", "-1")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_MUTEX_FRACTION") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_MUTEX_FRACTION", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_MUTEX_FRACTION")
+
 	})
 
 	t.Run("negative block profiling rate rejected", func(t *testing.T) {
@@ -696,9 +607,9 @@ func TestLoad_ProfilingSecurityValidation(t *testing.T) {
 		t.Setenv("STRAIT_PROFILING_BLOCK_RATE", "-1")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "STRAIT_PROFILING_BLOCK_RATE") {
-			t.Fatalf("error = %v, want STRAIT_PROFILING_BLOCK_RATE", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "STRAIT_PROFILING_BLOCK_RATE")
+
 	})
 }
 
@@ -708,12 +619,9 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		t.Setenv("SEQUIN_BATCH_SIZE", "50")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.CDCBatchSize != 50 {
-			t.Fatalf("CDCBatchSize = %d, want 50 (from SEQUIN_BATCH_SIZE)", cfg.CDCBatchSize)
-		}
+		require.NoError(t, err)
+		require.Equal(t, 50, cfg.CDCBatchSize)
+
 	})
 
 	t.Run("CDC uses Sequin wait time when CDC not set", func(t *testing.T) {
@@ -721,12 +629,11 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		t.Setenv("SEQUIN_WAIT_TIME_MS", "10000")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.CDCWaitTimeMs != 10000 {
-			t.Fatalf("CDCWaitTimeMs = %d, want 10000 (from SEQUIN_WAIT_TIME_MS)", cfg.CDCWaitTimeMs)
-		}
+		require.NoError(t, err)
+		require.Equal(t, 10000, cfg.
+			CDCWaitTimeMs,
+		)
+
 	})
 
 	t.Run("explicit CDC overrides Sequin", func(t *testing.T) {
@@ -735,12 +642,9 @@ func TestLoad_CDCSequinFallback(t *testing.T) {
 		t.Setenv("SEQUIN_BATCH_SIZE", "50")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.CDCBatchSize != 25 {
-			t.Fatalf("CDCBatchSize = %d, want 25 (explicit CDC_BATCH_SIZE)", cfg.CDCBatchSize)
-		}
+		require.NoError(t, err)
+		require.Equal(t, 25, cfg.CDCBatchSize)
+
 	})
 }
 
@@ -750,13 +654,11 @@ func TestLoad_EventTriggerRetentionDaysLegacy(t *testing.T) {
 		t.Setenv("EVENT_TRIGGER_RETENTION_DAYS", "14")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
+
 		want := 14 * 24 * time.Hour
-		if cfg.EventTriggerRetention != want {
-			t.Fatalf("EventTriggerRetention = %v, want %v", cfg.EventTriggerRetention, want)
-		}
+		require.Equal(t, want, cfg.EventTriggerRetention)
+
 	})
 
 	t.Run("explicit duration takes precedence over days", func(t *testing.T) {
@@ -765,13 +667,11 @@ func TestLoad_EventTriggerRetentionDaysLegacy(t *testing.T) {
 		t.Setenv("EVENT_TRIGGER_RETENTION_DAYS", "14")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
+
 		want := 168 * time.Hour
-		if cfg.EventTriggerRetention != want {
-			t.Fatalf("EventTriggerRetention = %v, want %v (explicit duration should win)", cfg.EventTriggerRetention, want)
-		}
+		require.Equal(t, want, cfg.EventTriggerRetention)
+
 	})
 }
 
@@ -821,12 +721,9 @@ func TestLoad_OIDCValidation(t *testing.T) {
 			setRequiredEnv(t)
 			tt.setEnv(t)
 			_, err := Load()
-			if err == nil {
-				t.Fatalf("expected error containing %q, got nil", tt.errorSub)
-			}
-			if !strings.Contains(err.Error(), tt.errorSub) {
-				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errorSub)
-			}
+			require.Error(t, err)
+			require.True(t, strings.Contains(err.Error(), tt.errorSub))
+
 		})
 	}
 
@@ -834,9 +731,8 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		setRequiredEnv(t)
 		// OIDC_ENABLED defaults to false, so no OIDC fields needed.
 		_, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("OIDC enabled with all fields", func(t *testing.T) {
@@ -847,12 +743,9 @@ func TestLoad_OIDCValidation(t *testing.T) {
 		t.Setenv("OIDC_PUBLIC_KEY_PEM", "my-key-pem")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !cfg.OIDCEnabled {
-			t.Fatal("OIDCEnabled = false, want true")
-		}
+		require.NoError(t, err)
+		require.True(t, cfg.OIDCEnabled)
+
 	})
 }
 
@@ -864,12 +757,9 @@ func TestLoad_MigrationModeValidation(t *testing.T) {
 			t.Setenv("MIGRATION_MODE", mode)
 
 			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("unexpected error for mode %q: %v", mode, err)
-			}
-			if cfg.MigrationMode != mode {
-				t.Fatalf("MigrationMode = %q, want %q", cfg.MigrationMode, mode)
-			}
+			require.NoError(t, err)
+			require.Equal(t, mode, cfg.MigrationMode)
+
 		})
 	}
 
@@ -878,12 +768,9 @@ func TestLoad_MigrationModeValidation(t *testing.T) {
 		t.Setenv("MIGRATION_MODE", "invalid")
 
 		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for invalid MIGRATION_MODE, got nil")
-		}
-		if !strings.Contains(err.Error(), "MIGRATION_MODE") {
-			t.Fatalf("error = %q, want substring MIGRATION_MODE", err.Error())
-		}
+		require.Error(t, err)
+		require.True(t, strings.Contains(err.Error(), "MIGRATION_MODE"))
+
 	})
 }
 
@@ -893,12 +780,9 @@ func TestLoad_ClickHouseValidation(t *testing.T) {
 		t.Setenv("CLICKHOUSE_ENABLED", "true")
 
 		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for CLICKHOUSE_ENABLED without URL, got nil")
-		}
-		if !strings.Contains(err.Error(), "CLICKHOUSE_URL") {
-			t.Fatalf("error = %q, want substring CLICKHOUSE_URL", err.Error())
-		}
+		require.Error(t, err)
+		require.True(t, strings.Contains(err.Error(), "CLICKHOUSE_URL"))
+
 	})
 
 	t.Run("enabled with URL succeeds", func(t *testing.T) {
@@ -907,15 +791,14 @@ func TestLoad_ClickHouseValidation(t *testing.T) {
 		t.Setenv("CLICKHOUSE_URL", "clickhouse://localhost:9000")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !cfg.ClickHouseEnabled {
-			t.Fatal("ClickHouseEnabled = false, want true")
-		}
-		if cfg.ClickHouseURL != "clickhouse://localhost:9000" {
-			t.Fatalf("ClickHouseURL = %q, want clickhouse://localhost:9000", cfg.ClickHouseURL)
-		}
+		require.NoError(t, err)
+		require.True(t, cfg.ClickHouseEnabled)
+		require.Equal(t, "clickhouse://localhost:9000",
+
+			cfg.
+				ClickHouseURL,
+		)
+
 	})
 }
 
@@ -925,12 +808,13 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 		t.Setenv("SEQUIN_BASE_URL", "https://sequin.example.com")
 
 		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if cfg.SequinBaseURL != "https://sequin.example.com" {
-			t.Fatalf("SequinBaseURL = %q, want https://sequin.example.com", cfg.SequinBaseURL)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "https://sequin.example.com",
+
+			cfg.
+				SequinBaseURL,
+		)
+
 	})
 
 	t.Run("valid HTTP URL", func(t *testing.T) {
@@ -938,9 +822,8 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 		t.Setenv("SEQUIN_BASE_URL", "http://localhost:8080")
 
 		_, err := Load()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("invalid URL rejected", func(t *testing.T) {
@@ -948,9 +831,8 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 		t.Setenv("SEQUIN_BASE_URL", "not-a-url")
 
 		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for invalid SEQUIN_BASE_URL, got nil")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("empty URL is rejected", func(t *testing.T) {
@@ -958,9 +840,8 @@ func TestLoad_SequinBaseURLValidation(t *testing.T) {
 		t.Setenv("SEQUIN_BASE_URL", "")
 
 		_, err := Load()
-		if err == nil {
-			t.Fatal("expected error for empty SEQUIN_BASE_URL, got nil")
-		}
+		require.Error(t, err)
+
 	})
 }
 
@@ -970,9 +851,9 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		t.Setenv("REDIS_URL", "")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
-			t.Fatalf("error = %v, want REDIS_URL requirement", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "REDIS_URL")
+
 	})
 
 	t.Run("missing Sequin consumer", func(t *testing.T) {
@@ -980,9 +861,9 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		t.Setenv("SEQUIN_CONSUMER_NAME", "")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "SEQUIN_CONSUMER_NAME") {
-			t.Fatalf("error = %v, want SEQUIN_CONSUMER_NAME requirement", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SEQUIN_CONSUMER_NAME")
+
 	})
 
 	t.Run("missing Sequin API token", func(t *testing.T) {
@@ -990,9 +871,9 @@ func TestLoad_RequiredRuntimeDependencies(t *testing.T) {
 		t.Setenv("SEQUIN_API_TOKEN", "")
 
 		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "SEQUIN_API_TOKEN") {
-			t.Fatalf("error = %v, want SEQUIN_API_TOKEN requirement", err)
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SEQUIN_API_TOKEN")
+
 	})
 }
 
@@ -1001,12 +882,12 @@ func TestDeepSecLoad_SequinWebhookSecret(t *testing.T) {
 	t.Setenv("SEQUIN_WEBHOOK_SECRET", "cdc-webhook-secret-32-bytes-min")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.SequinWebhookSecret != "cdc-webhook-secret-32-bytes-min" {
-		t.Fatalf("SequinWebhookSecret = %q", cfg.SequinWebhookSecret)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "cdc-webhook-secret-32-bytes-min",
+
+		cfg.SequinWebhookSecret,
+	)
+
 }
 
 func TestLoad_StringOverrides(t *testing.T) {
@@ -1030,58 +911,46 @@ func TestLoad_StringOverrides(t *testing.T) {
 	t.Setenv("WORKER_PARTITION_WEIGHTS", "critical:3,default:1")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "https://sentry.io/123",
 
-	if cfg.SentryDSN != "https://sentry.io/123" {
-		t.Fatalf("SentryDSN = %q, want https://sentry.io/123", cfg.SentryDSN)
-	}
-	if cfg.SentryEnvironment != "production" {
-		t.Fatalf("SentryEnvironment = %q, want production", cfg.SentryEnvironment)
-	}
-	if cfg.SentryTracesSampleRate != 0.25 {
-		t.Fatalf("SentryTracesSampleRate = %v, want 0.25", cfg.SentryTracesSampleRate)
-	}
-	if cfg.SentryRelease != "2026.05.07-sha" {
-		t.Fatalf("SentryRelease = %q, want 2026.05.07-sha", cfg.SentryRelease)
-	}
-	if !cfg.SentryDebug {
-		t.Fatal("SentryDebug = false, want true")
-	}
-	if cfg.SentryMaxBreadcrumbs != 64 {
-		t.Fatalf("SentryMaxBreadcrumbs = %d, want 64", cfg.SentryMaxBreadcrumbs)
-	}
-	if cfg.SentryMaxSpans != 256 {
-		t.Fatalf("SentryMaxSpans = %d, want 256", cfg.SentryMaxSpans)
-	}
-	if cfg.SentryMaxErrorDepth != 16 {
-		t.Fatalf("SentryMaxErrorDepth = %d, want 16", cfg.SentryMaxErrorDepth)
-	}
-	if !cfg.SentryStrictTraceContinuation {
-		t.Fatal("SentryStrictTraceContinuation = false, want true")
-	}
-	if !cfg.SentrySchedulerCheckIns {
-		t.Fatal("SentrySchedulerCheckIns = false, want true")
-	}
-	if cfg.SentrySchedulerCheckInPrefix != "custom-scheduler" {
-		t.Fatalf("SentrySchedulerCheckInPrefix = %q, want custom-scheduler", cfg.SentrySchedulerCheckInPrefix)
-	}
-	if cfg.ResendAPIKey != "re_123" {
-		t.Fatalf("ResendAPIKey = %q, want re_123", cfg.ResendAPIKey)
-	}
-	if cfg.ResendFromEmail != "support@strait.dev" {
-		t.Fatalf("ResendFromEmail = %q, want support@strait.dev", cfg.ResendFromEmail)
-	}
-	if cfg.GRPCBindAddr != "0.0.0.0" {
-		t.Fatalf("GRPCBindAddr = %q, want 0.0.0.0", cfg.GRPCBindAddr)
-	}
-	if cfg.Edition != "cloud" {
-		t.Fatalf("Edition = %q, want cloud", cfg.Edition)
-	}
-	if cfg.WorkerPartitionWeights != "critical:3,default:1" {
-		t.Fatalf("WorkerPartitionWeights = %q, want critical:3,default:1", cfg.WorkerPartitionWeights)
-	}
+		cfg.SentryDSN,
+	)
+	require.Equal(t, "production",
+		cfg.SentryEnvironment,
+	)
+	require.Equal(t, 0.25, cfg.SentryTracesSampleRate)
+	require.Equal(t, "2026.05.07-sha",
+		cfg.
+			SentryRelease,
+	)
+	require.True(t, cfg.SentryDebug)
+	require.Equal(t, 64, cfg.SentryMaxBreadcrumbs)
+	require.Equal(t, 256, cfg.SentryMaxSpans)
+	require.Equal(t, 16, cfg.SentryMaxErrorDepth)
+	require.True(t, cfg.SentryStrictTraceContinuation)
+	require.True(t, cfg.SentrySchedulerCheckIns)
+	require.Equal(t, "custom-scheduler",
+		cfg.
+			SentrySchedulerCheckInPrefix,
+	)
+	require.Equal(t, "re_123", cfg.
+		ResendAPIKey,
+	)
+	require.Equal(t, "support@strait.dev",
+
+		cfg.ResendFromEmail,
+	)
+	require.Equal(t, "0.0.0.0",
+		cfg.GRPCBindAddr,
+	)
+	require.Equal(t, "cloud", cfg.
+		Edition)
+	require.Equal(t, "critical:3,default:1",
+
+		cfg.WorkerPartitionWeights,
+	)
+
 }
 
 func TestLoad_StripeBillingFields(t *testing.T) {
@@ -1095,19 +964,15 @@ func TestLoad_StripeBillingFields(t *testing.T) {
 	t.Setenv("BILLING_ENFORCEMENT_ENABLED", "true")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "sk_test_123",
+		cfg.StripeSecretKey,
+	)
+	require.Equal(t, "whsec_123",
+		cfg.StripeWebhookSecret,
+	)
+	require.True(t, cfg.BillingEnforcementEnabled)
 
-	if cfg.StripeSecretKey != "sk_test_123" {
-		t.Fatalf("StripeSecretKey = %q, want sk_test_123", cfg.StripeSecretKey)
-	}
-	if cfg.StripeWebhookSecret != "whsec_123" {
-		t.Fatalf("StripeWebhookSecret = %q, want whsec_123", cfg.StripeWebhookSecret)
-	}
-	if !cfg.BillingEnforcementEnabled {
-		t.Fatal("BillingEnforcementEnabled = false, want true")
-	}
 }
 
 func TestParseCSVEnv(t *testing.T) {
@@ -1132,18 +997,16 @@ func TestParseCSVEnv(t *testing.T) {
 			}
 			got := parseCSVEnv(envKey)
 			if tt.value == "" {
-				if len(got) != 0 {
-					t.Fatalf("parseCSVEnv(%q) = %v, want empty", envKey, got)
-				}
+				require.Len(t, got, 0)
+
 				return
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("parseCSVEnv(%q) len = %d, want %d; got %v", envKey, len(got), len(tt.want), got)
-			}
+			require.Len(t, got, len(tt.want))
+
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Fatalf("parseCSVEnv(%q)[%d] = %q, want %q", envKey, i, got[i], tt.want[i])
-				}
+				require.Equal(t, tt.want[i],
+					got[i])
+
 			}
 		})
 	}
@@ -1154,24 +1017,18 @@ func TestLoad_InvalidRedisURL(t *testing.T) {
 	t.Setenv("REDIS_URL", "redis://loc%zz")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for invalid REDIS_URL, got nil")
-	}
-	if !strings.Contains(err.Error(), "REDIS_URL") {
-		t.Fatalf("error = %q, want substring REDIS_URL", err.Error())
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "REDIS_URL"))
+
 }
 
 func TestLoad_WfMaxStepCapDefault(t *testing.T) {
 	setRequiredEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.WfMaxStepCap != 100 {
-		t.Errorf("WfMaxStepCap = %d, want 100", cfg.WfMaxStepCap)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 100, cfg.WfMaxStepCap)
+
 }
 
 // TestEnvExample_ListsAllAuditVars asserts the repository .env.example file
@@ -1194,9 +1051,8 @@ func TestEnvExample_ListsAllAuditVars(t *testing.T) {
 	// Walk up from the test file's cwd looking for .env.example at the
 	// repository root. Test cwd is the package dir.
 	start, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd: %v", err)
-	}
+	require.NoError(t, err)
+
 	var found string
 	var tried []string
 	dir := start
@@ -1218,13 +1074,12 @@ func TestEnvExample_ListsAllAuditVars(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(found)
-	if err != nil {
-		t.Fatalf("ReadFile(%s): %v", found, err)
-	}
+	require.NoError(t, err)
+
 	content := string(data)
 	for _, key := range required {
-		if !strings.Contains(content, key+"=") {
-			t.Errorf("%s: missing %q= entry", found, key)
-		}
+		assert.True(t, strings.Contains(content,
+			key+"="))
+
 	}
 }
