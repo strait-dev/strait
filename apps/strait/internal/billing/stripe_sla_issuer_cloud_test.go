@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -145,32 +147,41 @@ func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
-	if err != nil {
-		t.Fatalf("IssueCredit: %v", err)
-	}
-	if id != "cn_test_123" {
-		t.Fatalf("id = %q, want cn_test_123", id)
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"cn_test_123",
+		id)
 
 	reqs := fake.snapshot()
 	var sawCreditNote bool
 	for _, r := range reqs {
 		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
 			sawCreditNote = true
-			if r.IdempotencyKey != "sla-credit-org-1-2026-05" {
-				t.Fatalf("idempotency key = %q, want sla-credit-org-1-2026-05", r.IdempotencyKey)
-			}
-			if !strings.Contains(r.Body, "invoice=in_test_open") {
-				t.Fatalf("credit note body missing invoice reference: %s", r.Body)
-			}
-			if !strings.Contains(r.Body, "amount=5000") {
-				t.Fatalf("credit note body missing 5000-cent amount: %s", r.Body)
-			}
+			require.Equal(
+				t,
+				"sla-credit-org-1-2026-05",
+
+				r.IdempotencyKey,
+			)
+			require.True(t,
+
+				strings.Contains(r.
+					Body, "invoice=in_test_open",
+				))
+			require.True(t,
+
+				strings.Contains(r.
+					Body, "amount=5000",
+				))
+
 		}
 	}
-	if !sawCreditNote {
-		t.Fatalf("no /v1/credit_notes POST observed; requests=%+v", reqs)
-	}
+	require.True(t,
+
+		sawCreditNote,
+	)
+
 }
 
 func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *testing.T) {
@@ -182,18 +193,23 @@ func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *t
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
-	if err != nil {
-		t.Fatalf("IssueCredit: %v", err)
-	}
-	if id != "cbtxn_test_123" {
-		t.Fatalf("id = %q, want cbtxn_test_123", id)
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"cbtxn_test_123",
+
+		id)
 
 	reqs := fake.snapshot()
 	for _, r := range reqs {
-		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
-			t.Fatalf("must not POST credit note larger than open balance; got body=%s", r.Body)
-		}
+		require.False(
+			t,
+			r.Method ==
+				http.MethodPost &&
+				r.Path ==
+					"/v1/credit_notes",
+		)
+
 	}
 	var sawCBT bool
 	for _, r := range reqs {
@@ -201,9 +217,10 @@ func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *t
 			sawCBT = true
 		}
 	}
-	if !sawCBT {
-		t.Fatalf("expected balance transaction fallback; requests=%+v", reqs)
-	}
+	require.True(t,
+
+		sawCBT)
+
 }
 
 // TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn guards the
@@ -224,31 +241,41 @@ func TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 50_000_000, periodEnd)
-	if err != nil {
-		t.Fatalf("IssueCredit: %v", err)
-	}
-	if id != "cbtxn_test_123" {
-		t.Fatalf("id = %q, want cbtxn_test_123 (balance txn fallback)", id)
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"cbtxn_test_123",
+
+		id)
 
 	reqs := fake.snapshot()
 	for _, r := range reqs {
-		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
-			t.Fatalf("paid-invoice path must NOT POST /v1/credit_notes (would 400 on $0 remaining); got body=%s", r.Body)
-		}
+		require.False(
+			t,
+			r.Method ==
+				http.MethodPost &&
+				r.Path ==
+					"/v1/credit_notes",
+		)
+
 	}
 	var sawCBT bool
 	for _, r := range reqs {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/balance_transactions") {
 			sawCBT = true
-			if r.IdempotencyKey != "sla-credit-org-1-2026-05" {
-				t.Fatalf("idempotency key = %q, want sla-credit-org-1-2026-05", r.IdempotencyKey)
-			}
+			require.Equal(
+				t,
+				"sla-credit-org-1-2026-05",
+
+				r.IdempotencyKey,
+			)
+
 		}
 	}
-	if !sawCBT {
-		t.Fatalf("expected balance transaction POST after skipping paid invoice; requests=%+v", reqs)
-	}
+	require.True(t,
+
+		sawCBT)
+
 }
 
 // TestStripeSLAIssuer_NoInvoice_FallsBackToBalanceTxn guards the
@@ -262,35 +289,46 @@ func TestStripeSLAIssuer_NoInvoice_FallsBackToBalanceTxn(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 12_500_000, periodEnd)
-	if err != nil {
-		t.Fatalf("IssueCredit: %v", err)
-	}
-	if id != "cbtxn_test_123" {
-		t.Fatalf("id = %q, want cbtxn_test_123", id)
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"cbtxn_test_123",
+
+		id)
 
 	reqs := fake.snapshot()
 	var sawCBT bool
 	for _, r := range reqs {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/balance_transactions") {
 			sawCBT = true
-			if r.Path != "/v1/customers/cus_no_invoice/balance_transactions" {
-				t.Fatalf("unexpected CBT path: %s", r.Path)
-			}
-			if r.IdempotencyKey != "sla-credit-org-1-2026-05" {
-				t.Fatalf("idempotency key = %q, want sla-credit-org-1-2026-05", r.IdempotencyKey)
-			}
-			if !strings.Contains(r.Body, "amount=-1250") {
-				t.Fatalf("CBT body missing -1250 cent amount: %s", r.Body)
-			}
-			if !strings.Contains(r.Body, "currency=usd") {
-				t.Fatalf("CBT body missing currency=usd: %s", r.Body)
-			}
+			require.Equal(
+				t,
+				"/v1/customers/cus_no_invoice/balance_transactions",
+
+				r.Path)
+			require.Equal(
+				t,
+				"sla-credit-org-1-2026-05",
+
+				r.IdempotencyKey,
+			)
+			require.True(t,
+
+				strings.Contains(r.
+					Body, "amount=-1250",
+				))
+			require.True(t,
+
+				strings.Contains(r.
+					Body, "currency=usd",
+				))
+
 		}
 	}
-	if !sawCBT {
-		t.Fatalf("no balance transaction POST observed; requests=%+v", reqs)
-	}
+	require.True(t,
+
+		sawCBT)
+
 }
 
 // TestStripeSLAIssuer_MissingCustomerID_NoStripeCall ensures we never
@@ -300,12 +338,13 @@ func TestStripeSLAIssuer_MissingCustomerID_NoStripeCall(t *testing.T) {
 	issuer := newTestIssuer(stubLookup{sub: &OrgSubscription{OrgID: "org-1"}}) // nil StripeCustomerID
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 1_000_000, time.Now().UTC())
-	if err == nil {
-		t.Fatalf("expected error for missing customer id, got id=%q", id)
-	}
-	if len(fake.snapshot()) != 0 {
-		t.Fatalf("expected no Stripe traffic, got %+v", fake.snapshot())
-	}
+	require.Error(
+		t,
+		err)
+	require.Len(t,
+
+		fake.snapshot(), 0)
+
 }
 
 // TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls guards the
@@ -320,10 +359,14 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd); err != nil {
-		t.Fatalf("first IssueCredit: %v", err)
+		require.Failf(t, "test failure",
+
+			"first IssueCredit: %v", err)
 	}
 	if _, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd); err != nil {
-		t.Fatalf("second IssueCredit: %v", err)
+		require.Failf(t, "test failure",
+
+			"second IssueCredit: %v", err)
 	}
 
 	var keys []string
@@ -332,12 +375,14 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 			keys = append(keys, r.IdempotencyKey)
 		}
 	}
-	if len(keys) != 2 {
-		t.Fatalf("expected 2 credit-note POSTs, got %d: %+v", len(keys), keys)
-	}
-	if keys[0] != keys[1] {
-		t.Fatalf("idempotency keys differ across retries: %q vs %q", keys[0], keys[1])
-	}
+	require.Len(t,
+
+		keys, 2)
+	require.Equal(
+		t,
+		keys[1],
+		keys[0])
+
 }
 
 func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
@@ -349,7 +394,9 @@ func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd); err != nil {
-		t.Fatalf("IssueCredit: %v", err)
+		require.Failf(t, "test failure",
+
+			"IssueCredit: %v", err)
 	}
 
 	var invoiceQuery url.Values
@@ -357,28 +404,32 @@ func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
 		if r.Method == http.MethodGet && r.Path == "/v1/invoices" {
 			rawQuery := strings.TrimPrefix(r.Body, "?")
 			query, err := url.ParseQuery(rawQuery)
-			if err != nil {
-				t.Fatalf("parse invoice query %q: %v", rawQuery, err)
-			}
+			require.NoError(t, err)
+
 			invoiceQuery = query
 			break
 		}
 	}
-	if invoiceQuery == nil {
-		t.Fatal("expected invoice list request")
-	}
+	require.NotNil(
+		t, invoiceQuery,
+	)
 
 	wantStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).Unix()
 	wantEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC).Unix()
-	if got := invoiceQuery.Get("created[gte]"); got != fmt.Sprint(wantStart) {
-		t.Fatalf("created[gte] = %q, want %d", got, wantStart)
-	}
-	if got := invoiceQuery.Get("created[lt]"); got != fmt.Sprint(wantEnd) {
-		t.Fatalf("created[lt] = %q, want %d", got, wantEnd)
-	}
-	if got := invoiceQuery.Get("customer"); got != "cus_period" {
-		t.Fatalf("customer = %q, want cus_period", got)
-	}
+	require.Equal(
+		t,
+		fmt.Sprint(wantStart), invoiceQuery.
+			Get("created[gte]"))
+	require.Equal(
+		t,
+		fmt.Sprint(wantEnd), invoiceQuery.
+			Get("created[lt]"))
+	require.Equal(
+		t,
+		"cus_period",
+		invoiceQuery.
+			Get("customer"))
+
 }
 
 // TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError guards the
@@ -395,12 +446,16 @@ func TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 
 	id, err := issuer.IssueCredit(context.Background(), "org-1", 5_000_000, periodEnd)
-	if err == nil {
-		t.Fatalf("expected error, got id=%q", id)
-	}
-	if !strings.Contains(err.Error(), "create credit note") {
-		t.Fatalf("error not wrapped with context: %v", err)
-	}
+	require.Error(
+		t,
+		err)
+	require.True(t,
+
+		strings.Contains(err.
+			Error(),
+			"create credit note",
+		))
+
 }
 
 // TestStripeSLAIssuer_StoreError_NoStripeCall guards the lookup-failure
@@ -411,12 +466,13 @@ func TestStripeSLAIssuer_StoreError_NoStripeCall(t *testing.T) {
 	issuer := newTestIssuer(stubLookup{err: sentinel})
 
 	_, err := issuer.IssueCredit(context.Background(), "org-1", 1_000_000, time.Now().UTC())
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("expected wrapped sentinel error, got %v", err)
-	}
-	if len(fake.snapshot()) != 0 {
-		t.Fatalf("expected no Stripe traffic, got %+v", fake.snapshot())
-	}
+	require.True(t,
+
+		errors.Is(err, sentinel))
+	require.Len(t,
+
+		fake.snapshot(), 0)
+
 }
 
 // TestStripeSLAIssuer_RoundsMicrousdToCents pins the rounding contract.
@@ -436,16 +492,23 @@ func TestStripeSLAIssuer_RoundsMicrousdToCents(t *testing.T) {
 		{35_000, 4}, // banker's: half → even
 	}
 	for _, c := range cases {
-		if got := microusdToCents(c.in); got != c.want {
-			t.Errorf("microusdToCents(%d) = %d, want %d", c.in, got, c.want)
-		}
+		assert.Equal(t,
+
+			c.want,
+			microusdToCents(c.in),
+		)
+
 	}
 }
 
 func TestSLACreditPeriodLabel_UsesExclusivePeriodEnd(t *testing.T) {
 	t.Parallel()
 	periodEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if got := slaCreditPeriodLabel(periodEnd); got != "April 2026" {
-		t.Fatalf("slaCreditPeriodLabel(%s) = %q, want April 2026", periodEnd, got)
-	}
+	require.Equal(
+		t,
+		"April 2026",
+		slaCreditPeriodLabel(
+			periodEnd,
+		))
+
 }

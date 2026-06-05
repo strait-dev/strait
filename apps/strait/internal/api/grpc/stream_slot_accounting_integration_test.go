@@ -9,6 +9,8 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fallbackServiceWithRegistry mirrors fallbackService but exposes the
@@ -39,9 +41,10 @@ func registerWorkerInRegistry(t *testing.T, reg *ConnectionRegistry, workerID, p
 		SendCh:         make(chan *workerv1.ServerMessage, 1),
 		revokeCh:       make(chan struct{}),
 	}
-	if err := reg.Register(w); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
+	require.NoError(t,
+
+		reg.Register(w))
+
 	return w
 }
 
@@ -68,9 +71,11 @@ func TestIntegration_Fallback_DoesNotOverCreditSlots(t *testing.T) {
 	svc := fallbackServiceWithRegistry(q, reg)
 
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+
+			projectID, tr))
 
 	snap := reg.Snapshot()
 	var got int32 = -1
@@ -80,12 +85,15 @@ func TestIntegration_Fallback_DoesNotOverCreditSlots(t *testing.T) {
 			break
 		}
 	}
-	if got == -1 {
-		t.Fatal("worker not present in registry snapshot after fallback")
-	}
-	if got != slots {
-		t.Fatalf("over-credit: SlotsAvailable=%d want %d (cap=SlotsTotal)", got, slots)
-	}
+	require.NotEqual(
+		t,
+		-1, got,
+	)
+	require.Equal(t,
+		slots,
+		got,
+	)
+
 }
 
 // TestIntegration_Fallback_RepeatedLateResultsStaySlot verifies the fix is
@@ -110,10 +118,13 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 	svc := fallbackServiceWithRegistry(q, reg)
 	tr := assignedTaskResult(runID, taskID, "success")
 
-	for i := range 3 {
-		if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-			t.Fatalf("handleTaskResult #%d: %v", i, err)
-		}
+	for range 3 {
+		require.NoError(t,
+
+			svc.handleTaskResult(ctx, workerID,
+
+				projectID, tr))
+
 	}
 
 	snap := reg.Snapshot()
@@ -124,13 +135,16 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 			break
 		}
 	}
-	if got != slots-1 {
-		t.Fatalf("repeated fallback altered slot count: got SlotsAvailable=%d want %d", got, slots-1)
-	}
+	require.Equal(t,
+		slots-
+			1,
+		got)
+	require.Equal(t,
+		domain.
+			StatusCompleted,
 
-	if rs := getRunStatus(t, ctx, q, runID); rs != domain.StatusCompleted {
-		t.Fatalf("run not completed after fallback: got %q", rs)
-	}
+		getRunStatus(t, ctx, q, runID))
+
 }
 
 // getRunStatus is a tiny inline helper kept here to avoid touching
@@ -138,11 +152,12 @@ func TestIntegration_Fallback_RepeatedLateResultsStaySlot(t *testing.T) {
 func getRunStatus(t *testing.T, ctx context.Context, q *store.Queries, runID string) domain.RunStatus {
 	t.Helper()
 	r, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if r == nil {
-		t.Fatal("run not found")
-	}
+	require.NoError(t,
+
+		err)
+	require.NotNil(t,
+
+		r)
+
 	return r.Status
 }

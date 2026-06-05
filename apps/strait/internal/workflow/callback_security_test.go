@@ -14,6 +14,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCallback_StepOutputInjection verifies that malicious output in a step
@@ -81,12 +82,11 @@ func TestCallback_StepOutputInjection(t *testing.T) {
 				Result:            json.RawMessage(payload),
 				WorkflowStepRunID: "sr-1",
 			}
-			if err := cb.OnJobRunTerminal(context.Background(), run); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if string(storedOutput) != payload {
-				t.Fatalf("output mutated: got %s, want %s", storedOutput, payload)
-			}
+			require.NoError(t,
+				cb.OnJobRunTerminal(context.
+					Background(), run))
+			require.Equal(t, payload,
+				string(storedOutput))
 		})
 	}
 }
@@ -151,10 +151,9 @@ func TestCallback_ConcurrentCallbacks(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if got := updateCalls.Load(); got < 3 {
-		t.Fatalf("expected at least 3 status updates, got %d", got)
-	}
+	require.GreaterOrEqual(t, updateCalls.
+		Load(),
+		int32(3))
 }
 
 // TestCallback_OrphanedCallback verifies that a callback for a non-existent
@@ -184,12 +183,9 @@ func TestCallback_OrphanedCallback(t *testing.T) {
 		WorkflowStepRunID: "sr-1",
 	}
 	err := cb.OnJobRunTerminal(context.Background(), run)
-	if err == nil {
-		t.Fatal("expected error for orphaned callback, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected 'not found' in error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "not found")
 }
 
 // TestCallback_TerminalWorkflowCallback verifies that a callback for a step in
@@ -215,10 +211,11 @@ func TestCallback_TerminalWorkflowCallback(t *testing.T) {
 		Status:            domain.StatusCompleted,
 		WorkflowStepRunID: "sr-1",
 	}
+	require.NoError(t,
+		cb.OnJobRunTerminal(context.
+			Background(), run))
+
 	// Should return nil since step is already terminal.
-	if err := cb.OnJobRunTerminal(context.Background(), run); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 }
 
 func TestEmitEventIfConfigured_DoesNotResolveForeignProjectEventKey(t *testing.T) {
@@ -268,13 +265,11 @@ func TestEmitEventIfConfigured_DoesNotResolveForeignProjectEventKey(t *testing.T
 		&domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "shared-key"},
 		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"},
 	)
-
-	if scopedLookupProject != "proj-1" {
-		t.Fatalf("scoped lookup project = %q, want proj-1", scopedLookupProject)
-	}
-	if updateCalled.Load() {
-		t.Fatal("foreign project event trigger was resolved")
-	}
+	require.Equal(t, "proj-1",
+		scopedLookupProject,
+	)
+	require.False(t, updateCalled.
+		Load())
 }
 
 // TestCallback_HugeStepOutput verifies that a 10MB step output is handled
@@ -285,9 +280,8 @@ func TestCallback_HugeStepOutput(t *testing.T) {
 	// Build a ~10MB JSON payload.
 	bigValue := strings.Repeat("x", 10*1024*1024)
 	hugeJSON, err := json.Marshal(map[string]string{"data": bigValue})
-	if err != nil {
-		t.Fatalf("failed to marshal huge payload: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	var storedSize int
 	ms := &mockCallbackStore{
@@ -333,12 +327,12 @@ func TestCallback_HugeStepOutput(t *testing.T) {
 		Result:            json.RawMessage(hugeJSON),
 		WorkflowStepRunID: "sr-1",
 	}
-	if err := cb.OnJobRunTerminal(context.Background(), run); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if storedSize < 10*1024*1024 {
-		t.Fatalf("expected stored output >= 10MB, got %d bytes", storedSize)
-	}
+	require.NoError(t,
+		cb.OnJobRunTerminal(context.
+			Background(), run))
+	require.GreaterOrEqual(t, storedSize,
+		10*1024*
+			1024)
 }
 
 // FuzzCallbackOutput fuzzes the step output JSON to ensure the callback

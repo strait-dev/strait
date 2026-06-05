@@ -19,21 +19,25 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCrashRecovery_MigrationIdempotency verifies that running migrations a
 // second time is idempotent -- migrations already ran in TestMain.
 func TestCrashRecovery_MigrationIdempotency(t *testing.T) {
 	m, err := migrate.New("file://../../migrations", testEnv.DB.ConnStr)
-	if err != nil {
-		t.Fatalf("create migrator: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _, _ = m.Close() }()
 
 	err = m.Up()
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		t.Fatalf("expected idempotent migration, got error: %v", err)
-	}
+	require.False(t, err !=
+		nil &&
+		!errors.Is(
+			err, migrate.
+				ErrNoChange,
+		))
+
 }
 
 // TestCrashRecovery_TransactionIsolation verifies that concurrent reads see a
@@ -52,39 +56,34 @@ func TestCrashRecovery_TransactionIsolation(t *testing.T) {
 
 	// Start a transaction that updates the run status but does not commit yet.
 	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	_, err = tx.Exec(ctx, `UPDATE job_runs SET status = 'executing', started_at = NOW() WHERE id = $1`, runID)
-	if err != nil {
-		t.Fatalf("update in tx: %v", err)
-	}
+	require.NoError(t, err)
 
 	// In a separate connection (not the tx), read the run.
 	got, err := testStore.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get run outside tx: %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusQueued,
+		got.
+			Status)
+	require.NoError(t, tx.
+		Commit(ctx))
 
 	// The uncommitted change should not be visible.
-	if got.Status != domain.StatusQueued {
-		t.Fatalf("expected queued (uncommitted update invisible), got %s", got.Status)
-	}
 
 	// Commit and verify the change is now visible.
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit: %v", err)
-	}
 
 	got, err = testStore.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get run after commit: %v", err)
-	}
-	if got.Status != domain.StatusExecuting {
-		t.Fatalf("expected executing after commit, got %s", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusExecuting,
+		got.
+			Status)
+
 }
 
 // TestCrashRecovery_AdvisoryLockTimeout acquires an advisory lock in one
@@ -98,30 +97,27 @@ func TestCrashRecovery_AdvisoryLockTimeout(t *testing.T) {
 
 	// Acquire the lock.
 	ok, err := testStore.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("acquire advisory lock: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected to acquire advisory lock")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	// In a separate store instance (same pool), try to acquire the same lock.
 	secondStore := store.New(testEnv.DB.Pool)
 	ok2, err := secondStore.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("second advisory lock attempt: %v", err)
-	}
+	require.NoError(t, err)
+
 	// pg_try_advisory_lock returns false when the lock is already held by
 	// another session. Since we use the same pool, the lock is held by a
 	// different connection from the pool, so this should return false.
 	// However, pgxpool may reuse the same connection. To be safe, just
 	// verify no error occurred.
 	_ = ok2
+	require.NoError(t, testStore.
+		ReleaseAdvisoryLock(ctx,
+			lockID,
+		))
 
 	// Clean up.
-	if err := testStore.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("release advisory lock: %v", err)
-	}
+
 }
 
 // TestCrashRecovery_ProjectQuotaAtomicity performs concurrent quota reads and
@@ -136,15 +132,12 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 	_, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO projects (id, org_id, name, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())`,
 		projectID, "org-"+newID(), "Quota Atomicity")
-	if err != nil {
-		t.Fatalf("insert project: %v", err)
-	}
+	require.NoError(t, err)
+
 	_, err = testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO project_quotas (project_id, max_queued_runs, max_executing_runs, max_jobs)
 		 VALUES ($1, 100, 50, 20)`, projectID)
-	if err != nil {
-		t.Fatalf("insert quota: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Concurrently update the quota.
 	var wg conc.WaitGroup
@@ -163,12 +156,14 @@ func TestCrashRecovery_ProjectQuotaAtomicity(t *testing.T) {
 
 	// Verify the quota row still exists and has a valid value.
 	quota, err := testStore.GetProjectQuota(ctx, projectID)
-	if err != nil {
-		t.Fatalf("get project quota: %v", err)
-	}
-	if quota.MaxQueuedRuns < 100 || quota.MaxQueuedRuns > 109 {
-		t.Fatalf("expected quota between 100-109, got %d", quota.MaxQueuedRuns)
-	}
+	require.NoError(t, err)
+	require.False(t, quota.
+		MaxQueuedRuns <
+		100 ||
+		quota.
+			MaxQueuedRuns >
+			109)
+
 }
 
 // TestCrashRecovery_JobDependencyRace creates and deletes the same job
@@ -215,12 +210,12 @@ func TestCrashRecovery_JobDependencyRace(t *testing.T) {
 	err := testEnv.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM job_dependencies WHERE job_id = $1 AND depends_on_job_id = $2`,
 		job2ID, job1ID).Scan(&count)
-	if err != nil {
-		t.Fatalf("count dependencies: %v", err)
-	}
-	if count > 1 {
-		t.Fatalf("expected 0 or 1 dependency, got %d", count)
-	}
+	require.NoError(t, err)
+	require.LessOrEqual(t,
+
+		count, 1,
+	)
+
 }
 
 // TestCrashRecovery_WorkflowRunVersionUpdate creates a workflow run while a
@@ -235,9 +230,7 @@ func TestCrashRecovery_WorkflowRunVersionUpdate(t *testing.T) {
 	_, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO projects (id, org_id, name, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())`,
 		projectID, "org-"+newID(), "WF Version")
-	if err != nil {
-		t.Fatalf("insert project: %v", err)
-	}
+	require.NoError(t, err)
 
 	wf := &domain.Workflow{
 		ProjectID: projectID,
@@ -245,9 +238,9 @@ func TestCrashRecovery_WorkflowRunVersionUpdate(t *testing.T) {
 		Slug:      "version-race-" + newID(),
 		Enabled:   true,
 	}
-	if err := testStore.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("create workflow: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateWorkflow(ctx, wf),
+	)
 
 	var wg conc.WaitGroup
 	var runCreated atomic.Bool
@@ -280,22 +273,20 @@ func TestCrashRecovery_WorkflowRunVersionUpdate(t *testing.T) {
 	})
 
 	wg.Wait()
+	require.False(t, !runCreated.
+		Load() && !versionUpdated.
+		Load())
 
 	// At least one of the operations should have succeeded.
-	if !runCreated.Load() && !versionUpdated.Load() {
-		t.Fatal("both workflow run creation and version update failed")
-	}
 
 	// Verify the workflow is in a consistent state.
 	var version int
 	err = testEnv.DB.Pool.QueryRow(ctx,
 		`SELECT version FROM workflows WHERE id = $1`, wf.ID).Scan(&version)
-	if err != nil {
-		t.Fatalf("query workflow version: %v", err)
-	}
-	if version < 1 {
-		t.Fatalf("expected workflow version >= 1, got %d", version)
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, version,
+		1)
+
 }
 
 // TestCrashRecovery_PubSubLossResilience publishes messages to Redis, flushes
@@ -315,15 +306,16 @@ func TestCrashRecovery_PubSubLossResilience(t *testing.T) {
 
 	// Wait for subscription to be ready.
 	_, err := sub.Receive(ctx)
-	if err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Publish some messages.
 	for i := range 5 {
-		if err := client.Publish(ctx, channel, fmt.Sprintf("msg-%d", i)).Err(); err != nil {
-			t.Fatalf("publish message %d: %v", i, err)
-		}
+		require.NoError(t, client.
+			Publish(ctx, channel,
+				fmt.
+					Sprintf("msg-%d", i)).
+			Err())
+
 	}
 
 	// Read some messages.
@@ -342,11 +334,10 @@ loop:
 			break loop
 		}
 	}
+	require.NoError(t, client.
+		FlushAll(ctx).Err())
 
 	// Flush Redis.
-	if err := client.FlushAll(ctx).Err(); err != nil {
-		t.Fatalf("flush redis: %v", err)
-	}
 
 	// Publish more messages after flush. The subscriber should handle the
 	// gap without panicking. We create a new subscriber since the old one
@@ -354,22 +345,22 @@ loop:
 	sub2 := client.Subscribe(ctx, channel)
 	defer sub2.Close()
 	_, err = sub2.Receive(ctx)
-	if err != nil {
-		t.Fatalf("re-subscribe: %v", err)
-	}
-
-	if err := client.Publish(ctx, channel, "post-flush").Err(); err != nil {
-		t.Fatalf("publish after flush: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, client.
+		Publish(ctx, channel,
+			"post-flush",
+		).Err())
 
 	ch2 := sub2.Channel()
 	select {
 	case msg := <-ch2:
 		if msg.Payload != "post-flush" {
-			t.Fatalf("expected 'post-flush', got %q", msg.Payload)
+			require.Failf(t, "test failure",
+
+				"expected 'post-flush', got %q", msg.Payload)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for post-flush message")
+		require.Fail(t, "timed out waiting for post-flush message")
 	}
 }
 
@@ -393,15 +384,19 @@ func TestCrashRecovery_ExporterFlushRetry(t *testing.T) {
 
 	// Publish 100 messages to a channel with no subscriber.
 	for i := range 100 {
-		if err := client.Publish(ctx, channel, fmt.Sprintf(`{"record":%d}`, i)).Err(); err != nil {
-			t.Fatalf("publish record %d: %v", i, err)
-		}
+		require.NoError(t, client.
+			Publish(ctx, channel,
+				fmt.
+					Sprintf(`{"record":%d}`,
+						i)).Err())
+
 	}
+	require.NoError(t, client.
+		Ping(
+			ctx).Err())
 
 	// Verify Redis is still healthy.
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis ping after publishing: %v", err)
-	}
+
 }
 
 // Ensure imports are used.

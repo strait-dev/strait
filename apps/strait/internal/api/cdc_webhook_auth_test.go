@@ -9,6 +9,8 @@ import (
 	"strait/internal/cdc"
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCDCWebhookRouteRequiresInternalSecretAndSequinSignature(t *testing.T) {
@@ -29,21 +31,23 @@ func TestCDCWebhookRouteRequiresInternalSecretAndSequinSignature(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("missing internal secret status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
-	if !strings.Contains(rec.Body.String(), "invalid or missing internal secret") {
-		t.Fatalf("missing internal secret body = %q", rec.Body.String())
-	}
+	require.Equal(
+		t, http.StatusUnauthorized,
+		rec.
+			Code)
+	require.Contains(t,
+		rec.
+			Body.String(), "invalid or missing internal secret")
 
 	req = httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", strings.NewReader("{}"))
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("missing Sequin signature status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
-	if !strings.Contains(rec.Body.String(), "invalid signature") {
-		t.Fatalf("missing Sequin signature body = %q", rec.Body.String())
-	}
+	require.Equal(
+		t, http.StatusUnauthorized,
+		rec.
+			Code)
+	require.Contains(t,
+		rec.
+			Body.String(), "invalid signature")
 }

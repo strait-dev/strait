@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func makeVersionedJob(id string, version int) *domain.Job {
@@ -48,16 +50,13 @@ func TestTriggerJob_StampsJobVersion(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected enqueue to be called")
-	}
-	if capturedRun.JobVersion != 3 {
-		t.Fatalf("expected job_version=3, got %d", capturedRun.JobVersion)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, 3, capturedRun.
+		JobVersion,
+	)
 }
 
 func TestTriggerJob_StampsVersionOne(t *testing.T) {
@@ -82,16 +81,13 @@ func TestTriggerJob_StampsVersionOne(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected enqueue to be called")
-	}
-	if capturedRun.JobVersion != 1 {
-		t.Fatalf("expected job_version=1, got %d", capturedRun.JobVersion)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, 1, capturedRun.
+		JobVersion,
+	)
 }
 
 func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
@@ -116,16 +112,13 @@ func TestTriggerJob_DefaultVersionIfZero(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected enqueue to be called")
-	}
-	if capturedRun.JobVersion != 0 {
-		t.Fatalf("expected job_version=0, got %d", capturedRun.JobVersion)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, 0, capturedRun.
+		JobVersion,
+	)
 }
 
 func TestBulkTrigger_StampsJobVersion(t *testing.T) {
@@ -151,17 +144,15 @@ func TestBulkTrigger_StampsJobVersion(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{},{},{}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Len(t,
+		capturedRuns, 3,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(capturedRuns) != 3 {
-		t.Fatalf("expected 3 enqueued runs, got %d", len(capturedRuns))
-	}
-	for i, run := range capturedRuns {
-		if run.JobVersion != 5 {
-			t.Fatalf("expected run[%d].job_version=5, got %d", i, run.JobVersion)
-		}
+	for _, run := range capturedRuns {
+		require.Equal(t, 5, run.JobVersion)
 	}
 }
 
@@ -188,18 +179,16 @@ func TestBulkTrigger_VersionConsistency(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{},{},{}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Len(t,
+		capturedRuns, 3,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(capturedRuns) != 3 {
-		t.Fatalf("expected 3 enqueued runs, got %d", len(capturedRuns))
-	}
 	first := capturedRuns[0].JobVersion
-	for i, run := range capturedRuns {
-		if run.JobVersion != first {
-			t.Fatalf("expected run[%d].job_version=%d, got %d", i, first, run.JobVersion)
-		}
+	for _, run := range capturedRuns {
+		require.Equal(t, first, run.JobVersion)
 	}
 }
 
@@ -224,18 +213,15 @@ func TestCreateJob_ReturnsVersion(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["version"] != float64(1) {
-		t.Fatalf("expected version=1, got %v", resp["version"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.InDelta(t, float64(1), resp["version"], 1e-9)
 }
 
 func TestUpdateJob_IncrementsVersion(t *testing.T) {
@@ -258,18 +244,14 @@ func TestUpdateJob_IncrementsVersion(t *testing.T) {
 	body := `{"name":"Updated Name"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["version"] != float64(3) {
-		t.Fatalf("expected version=3, got %v", resp["version"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.InDelta(t, float64(3), resp["version"], 1e-9)
 }
 
 func TestListJobVersions_Success(t *testing.T) {
@@ -290,20 +272,16 @@ func TestListJobVersions_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/versions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 3 {
-		t.Fatalf("expected 3 versions, got %d", len(resp))
-	}
-	for i, v := range resp {
-		if v["version"] == nil {
-			t.Fatalf("expected version on item %d, got nil", i)
-		}
+	require.Len(t,
+		resp, 3)
+
+	for _, v := range resp {
+		require.NotNil(t, v["version"])
 	}
 }
 
@@ -321,16 +299,13 @@ func TestListJobVersions_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/versions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(resp))
-	}
+	require.Empty(t,
+		resp)
 }
 
 func TestListJobVersions_StoreError(t *testing.T) {
@@ -347,10 +322,10 @@ func TestListJobVersions_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/versions", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code,
+	)
 }
 
 func TestGetJob_IncludesVersion(t *testing.T) {
@@ -367,18 +342,14 @@ func TestGetJob_IncludesVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["version"] != float64(5) {
-		t.Fatalf("expected version=5, got %v", resp["version"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.InDelta(t, float64(5), resp["version"], 1e-9)
 }
 
 func TestListJobs_IncludesVersion(t *testing.T) {
@@ -395,20 +366,16 @@ func TestListJobs_IncludesVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(resp))
-	}
-	for i, job := range resp {
-		if job["version"] == nil {
-			t.Fatalf("expected version on job[%d], got nil", i)
-		}
+	require.Len(t,
+		resp, 2)
+
+	for _, job := range resp {
+		require.NotNil(t, job["version"])
 	}
 }
 
@@ -431,18 +398,14 @@ func TestGetRun_IncludesJobVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["job_version"] != float64(3) {
-		t.Fatalf("expected job_version=3, got %v", resp["job_version"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.InDelta(t, float64(3), resp["job_version"], 1e-9)
 }
 
 func TestListRuns_IncludesJobVersion(t *testing.T) {
@@ -459,20 +422,16 @@ func TestListRuns_IncludesJobVersion(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(resp))
-	}
-	for i, run := range resp {
-		if run["job_version"] == nil {
-			t.Fatalf("expected job_version on run[%d], got nil", i)
-		}
+	require.Len(t,
+		resp, 2)
+
+	for _, run := range resp {
+		require.NotNil(t, run["job_version"])
 	}
 }
 
@@ -493,20 +452,13 @@ func TestListJobVersions_ReturnsExpectedVersionNumbers(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/versions", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 versions, got %d", len(resp))
-	}
-	if resp[0]["version"] != float64(3) {
-		t.Fatalf("expected first version=3, got %v", resp[0]["version"])
-	}
-	if resp[1]["version"] != float64(2) {
-		t.Fatalf("expected second version=2, got %v", resp[1]["version"])
-	}
+	require.Len(t,
+		resp, 2)
+	require.InDelta(t, float64(3), resp[0]["version"], 1e-9)
+	require.InDelta(t, float64(2), resp[1]["version"], 1e-9)
 }

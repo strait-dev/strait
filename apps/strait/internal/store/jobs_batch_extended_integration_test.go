@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 // DeleteJob (exercises private deleteJobTx indirectly).
@@ -23,15 +25,14 @@ func TestJobs_DeleteJob_HappyPath(t *testing.T) {
 	mustClean(t, ctx)
 
 	job := mustCreateJob(t, ctx, q, "project-delete-job")
-
-	if err := q.DeleteJob(ctx, job.ID); err != nil {
-		t.Fatalf("DeleteJob() error = %v", err)
-	}
+	require.NoError(t, q.DeleteJob(ctx,
+		job.ID))
 
 	_, err := q.GetJob(ctx, job.ID)
-	if !errors.Is(err, store.ErrJobNotFound) {
-		t.Fatalf("GetJob() after delete error = %v, want ErrJobNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobNotFound,
+	))
+
 }
 
 func TestJobs_DeleteJob_NotFound(t *testing.T) {
@@ -40,9 +41,10 @@ func TestJobs_DeleteJob_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.DeleteJob(ctx, newID())
-	if !errors.Is(err, store.ErrJobNotFound) {
-		t.Fatalf("DeleteJob() error = %v, want ErrJobNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobNotFound,
+	))
+
 }
 
 func TestJobs_DeleteJob_BlockedByActiveRuns(t *testing.T) {
@@ -53,14 +55,14 @@ func TestJobs_DeleteJob_BlockedByActiveRuns(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-delete-job-active")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	err := q.DeleteJob(ctx, job.ID)
-	if !errors.Is(err, store.ErrJobHasActiveRuns) {
-		t.Fatalf("DeleteJob() error = %v, want ErrJobHasActiveRuns", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobHasActiveRuns,
+	))
+
 }
 
 // BulkCountExecutingRunsByOrg.
@@ -74,26 +76,21 @@ func TestJobs_BulkCountExecutingRunsByOrg_HappyPath(t *testing.T) {
 	projectID := "project-bulk-exec-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	for range 3 {
 		run := baseRun(job, newID())
 		run.Status = domain.StatusExecuting
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 	}
 
 	counts, err := q.BulkCountExecutingRunsByOrg(ctx, []string{orgID})
-	if err != nil {
-		t.Fatalf("BulkCountExecutingRunsByOrg() error = %v", err)
-	}
-	if counts[orgID] != 3 {
-		t.Fatalf("count = %d, want 3", counts[orgID])
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, counts[orgID])
+
 }
 
 func TestJobs_BulkCountExecutingRunsByOrg_EmptyInput(t *testing.T) {
@@ -102,12 +99,11 @@ func TestJobs_BulkCountExecutingRunsByOrg_EmptyInput(t *testing.T) {
 	mustClean(t, ctx)
 
 	counts, err := q.BulkCountExecutingRunsByOrg(ctx, []string{})
-	if err != nil {
-		t.Fatalf("BulkCountExecutingRunsByOrg() error = %v", err)
-	}
-	if len(counts) != 0 {
-		t.Fatalf("len = %d, want 0", len(counts))
-	}
+	require.NoError(t, err)
+	require.Len(t, counts,
+		0,
+	)
+
 }
 
 func TestJobs_BulkCountExecutingRunsByOrg_NoExecuting(t *testing.T) {
@@ -119,24 +115,18 @@ func TestJobs_BulkCountExecutingRunsByOrg_NoExecuting(t *testing.T) {
 	projectID := "project-bulk-no-exec-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	counts, err := q.BulkCountExecutingRunsByOrg(ctx, []string{orgID})
-	if err != nil {
-		t.Fatalf("BulkCountExecutingRunsByOrg() error = %v", err)
-	}
-	if counts[orgID] != 0 {
-		t.Fatalf("count = %d, want 0", counts[orgID])
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, counts[orgID])
+
 }
 
 // ListOrgsWithExecutingRuns.
@@ -150,26 +140,20 @@ func TestJobs_ListOrgsWithExecutingRuns_HappyPath(t *testing.T) {
 	projectID := "project-exec-list-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	orgs, err := q.ListOrgsWithExecutingRuns(ctx)
-	if err != nil {
-		t.Fatalf("ListOrgsWithExecutingRuns() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := slices.Contains(orgs, orgID)
-	if !found {
-		t.Fatalf("org %q not in result %v", orgID, orgs)
-	}
+	require.True(t, found)
+
 }
 
 func TestJobs_ListOrgsWithExecutingRuns_EmptyWhenNone(t *testing.T) {
@@ -178,12 +162,9 @@ func TestJobs_ListOrgsWithExecutingRuns_EmptyWhenNone(t *testing.T) {
 	mustClean(t, ctx)
 
 	orgs, err := q.ListOrgsWithExecutingRuns(ctx)
-	if err != nil {
-		t.Fatalf("ListOrgsWithExecutingRuns() error = %v", err)
-	}
-	if len(orgs) != 0 {
-		t.Fatalf("len = %d, want 0", len(orgs))
-	}
+	require.NoError(t, err)
+	require.Len(t, orgs, 0)
+
 }
 
 func TestJobs_ListOrgsWithExecutingRuns_Distinct(t *testing.T) {
@@ -195,23 +176,19 @@ func TestJobs_ListOrgsWithExecutingRuns_Distinct(t *testing.T) {
 	projectID := "project-exec-distinct-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	for range 3 {
 		run := baseRun(job, newID())
 		run.Status = domain.StatusExecuting
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 	}
 
 	orgs, err := q.ListOrgsWithExecutingRuns(ctx)
-	if err != nil {
-		t.Fatalf("ListOrgsWithExecutingRuns() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	count := 0
 	for _, o := range orgs {
@@ -219,9 +196,8 @@ func TestJobs_ListOrgsWithExecutingRuns_Distinct(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 {
-		t.Fatalf("org %q appeared %d times, want 1", orgID, count)
-	}
+	require.EqualValues(t, 1, count)
+
 }
 
 // UpdateProjectDefaultRegion.
@@ -233,24 +209,20 @@ func TestJobs_UpdateProjectDefaultRegion_HappyPath(t *testing.T) {
 
 	projectID := "project-default-region-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
-		t.Fatalf("UpdateProjectDefaultRegion() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"us-east-1",
+	))
 
 	quota, err := q.GetProjectQuota(ctx, projectID)
-	if err != nil {
-		t.Fatalf("GetProjectQuota() error = %v", err)
-	}
-	if quota == nil {
-		t.Fatal("quota is nil after upsert")
-	}
-	if quota.DefaultRegion != "us-east-1" {
-		t.Fatalf("default_region = %q, want us-east-1", quota.DefaultRegion)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	require.Equal(t, "us-east-1",
+
+		quota.
+			DefaultRegion,
+	)
+
 }
 
 func TestJobs_UpdateProjectDefaultRegion_Upsert(t *testing.T) {
@@ -260,24 +232,22 @@ func TestJobs_UpdateProjectDefaultRegion_Upsert(t *testing.T) {
 
 	projectID := "project-region-upsert-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
-		t.Fatalf("first upsert error = %v", err)
-	}
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "eu-west-1"); err != nil {
-		t.Fatalf("second upsert error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"us-east-1",
+	))
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"eu-west-1",
+	))
 
 	quota, err := q.GetProjectQuota(ctx, projectID)
-	if err != nil {
-		t.Fatalf("GetProjectQuota() error = %v", err)
-	}
-	if quota.DefaultRegion != "eu-west-1" {
-		t.Fatalf("default_region = %q, want eu-west-1", quota.DefaultRegion)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "eu-west-1",
+
+		quota.
+			DefaultRegion,
+	)
+
 }
 
 // UpdateProjectMaxKeyLifetimeDays.
@@ -289,24 +259,18 @@ func TestJobs_UpdateProjectMaxKeyLifetimeDays_HappyPath(t *testing.T) {
 
 	projectID := "project-key-lifetime-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 90); err != nil {
-		t.Fatalf("UpdateProjectMaxKeyLifetimeDays() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		90,
+	))
 
 	quota, err := q.GetProjectQuota(ctx, projectID)
-	if err != nil {
-		t.Fatalf("GetProjectQuota() error = %v", err)
-	}
-	if quota == nil {
-		t.Fatal("quota is nil after upsert")
-	}
-	if quota.MaxKeyLifetimeDays != 90 {
-		t.Fatalf("max_key_lifetime_days = %d, want 90", quota.MaxKeyLifetimeDays)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, quota)
+	require.EqualValues(t, 90, quota.
+		MaxKeyLifetimeDays,
+	)
+
 }
 
 func TestJobs_UpdateProjectMaxKeyLifetimeDays_Upsert(t *testing.T) {
@@ -316,24 +280,20 @@ func TestJobs_UpdateProjectMaxKeyLifetimeDays_Upsert(t *testing.T) {
 
 	projectID := "project-key-lifetime-upsert-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 30); err != nil {
-		t.Fatalf("first upsert error = %v", err)
-	}
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 60); err != nil {
-		t.Fatalf("second upsert error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		30,
+	))
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		60,
+	))
 
 	quota, err := q.GetProjectQuota(ctx, projectID)
-	if err != nil {
-		t.Fatalf("GetProjectQuota() error = %v", err)
-	}
-	if quota.MaxKeyLifetimeDays != 60 {
-		t.Fatalf("max_key_lifetime_days = %d, want 60", quota.MaxKeyLifetimeDays)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 60, quota.
+		MaxKeyLifetimeDays,
+	)
+
 }
 
 func TestJobs_UpdateProjectQuotaSettings_SameValueNoOpDoesNotRewrite(t *testing.T) {
@@ -343,9 +303,7 @@ func TestJobs_UpdateProjectQuotaSettings_SameValueNoOpDoesNotRewrite(t *testing.
 
 	projectID := "project-quota-settings-no-op-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	quotaState := func() (string, int64, string, int) {
 		t.Helper()
@@ -353,78 +311,89 @@ func TestJobs_UpdateProjectQuotaSettings_SameValueNoOpDoesNotRewrite(t *testing.
 		var cacheVersion int64
 		var defaultRegion string
 		var maxKeyLifetimeDays int
-		if err := testDB.Pool.QueryRow(ctx, `
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
+			`
 			SELECT xmin::text, cache_version, COALESCE(default_region, ''), max_key_lifetime_days
 			FROM project_quotas
 			WHERE project_id = $1`,
-			projectID,
-		).Scan(&xmin, &cacheVersion, &defaultRegion, &maxKeyLifetimeDays); err != nil {
-			t.Fatalf("query project quota state: %v", err)
-		}
+
+			projectID).Scan(&xmin, &cacheVersion, &defaultRegion,
+			&maxKeyLifetimeDays))
+
 		return xmin, cacheVersion, defaultRegion, maxKeyLifetimeDays
 	}
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"us-east-1",
+	))
 
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
-		t.Fatalf("UpdateProjectDefaultRegion(first) error = %v", err)
-	}
 	regionXminBefore, regionVersionBefore, _, _ := quotaState()
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "us-east-1"); err != nil {
-		t.Fatalf("UpdateProjectDefaultRegion(no-op) error = %v", err)
-	}
-	regionXminAfterNoOp, regionVersionAfterNoOp, regionAfterNoOp, _ := quotaState()
-	if regionAfterNoOp != "us-east-1" {
-		t.Fatalf("default_region after no-op = %q, want us-east-1", regionAfterNoOp)
-	}
-	if regionXminAfterNoOp != regionXminBefore {
-		t.Fatalf("same default_region update changed xmin from %s to %s", regionXminBefore, regionXminAfterNoOp)
-	}
-	if regionVersionAfterNoOp != regionVersionBefore {
-		t.Fatalf("same default_region update changed cache_version from %d to %d", regionVersionBefore, regionVersionAfterNoOp)
-	}
-	if err := q.UpdateProjectDefaultRegion(ctx, projectID, "eu-west-1"); err != nil {
-		t.Fatalf("UpdateProjectDefaultRegion(update) error = %v", err)
-	}
-	regionXminAfterUpdate, regionVersionAfterUpdate, regionAfterUpdate, _ := quotaState()
-	if regionAfterUpdate != "eu-west-1" {
-		t.Fatalf("default_region after update = %q, want eu-west-1", regionAfterUpdate)
-	}
-	if regionXminAfterUpdate == regionXminBefore {
-		t.Fatalf("changed default_region update preserved xmin %s", regionXminAfterUpdate)
-	}
-	if regionVersionAfterUpdate <= regionVersionBefore {
-		t.Fatalf("changed default_region update cache_version = %d, want > %d", regionVersionAfterUpdate, regionVersionBefore)
-	}
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"us-east-1",
+	))
 
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 90); err != nil {
-		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(first) error = %v", err)
-	}
+	regionXminAfterNoOp, regionVersionAfterNoOp, regionAfterNoOp, _ := quotaState()
+	require.Equal(t, "us-east-1",
+
+		regionAfterNoOp,
+	)
+	require.Equal(t, regionXminBefore,
+
+		regionXminAfterNoOp,
+	)
+	require.Equal(t, regionVersionBefore,
+
+		regionVersionAfterNoOp,
+	)
+	require.NoError(t, q.UpdateProjectDefaultRegion(ctx, projectID,
+		"eu-west-1",
+	))
+
+	regionXminAfterUpdate, regionVersionAfterUpdate, regionAfterUpdate, _ := quotaState()
+	require.Equal(t, "eu-west-1",
+
+		regionAfterUpdate,
+	)
+	require.NotEqual(t, regionXminBefore,
+
+		regionXminAfterUpdate,
+	)
+	require.False(t, regionVersionAfterUpdate <=
+		regionVersionBefore,
+	)
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		90,
+	))
+
 	lifetimeXminBefore, lifetimeVersionBefore, _, _ := quotaState()
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 90); err != nil {
-		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(no-op) error = %v", err)
-	}
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		90,
+	))
+
 	lifetimeXminAfterNoOp, lifetimeVersionAfterNoOp, _, lifetimeAfterNoOp := quotaState()
-	if lifetimeAfterNoOp != 90 {
-		t.Fatalf("max_key_lifetime_days after no-op = %d, want 90", lifetimeAfterNoOp)
-	}
-	if lifetimeXminAfterNoOp != lifetimeXminBefore {
-		t.Fatalf("same max_key_lifetime_days update changed xmin from %s to %s", lifetimeXminBefore, lifetimeXminAfterNoOp)
-	}
-	if lifetimeVersionAfterNoOp != lifetimeVersionBefore {
-		t.Fatalf("same max_key_lifetime_days update changed cache_version from %d to %d", lifetimeVersionBefore, lifetimeVersionAfterNoOp)
-	}
-	if err := q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID, 60); err != nil {
-		t.Fatalf("UpdateProjectMaxKeyLifetimeDays(update) error = %v", err)
-	}
+	require.EqualValues(t, 90, lifetimeAfterNoOp)
+	require.Equal(t, lifetimeXminBefore,
+
+		lifetimeXminAfterNoOp,
+	)
+	require.Equal(t, lifetimeVersionBefore,
+
+		lifetimeVersionAfterNoOp,
+	)
+	require.NoError(t, q.UpdateProjectMaxKeyLifetimeDays(ctx, projectID,
+		60,
+	))
+
 	lifetimeXminAfterUpdate, lifetimeVersionAfterUpdate, _, lifetimeAfterUpdate := quotaState()
-	if lifetimeAfterUpdate != 60 {
-		t.Fatalf("max_key_lifetime_days after update = %d, want 60", lifetimeAfterUpdate)
-	}
-	if lifetimeXminAfterUpdate == lifetimeXminBefore {
-		t.Fatalf("changed max_key_lifetime_days update preserved xmin %s", lifetimeXminAfterUpdate)
-	}
-	if lifetimeVersionAfterUpdate <= lifetimeVersionBefore {
-		t.Fatalf("changed max_key_lifetime_days update cache_version = %d, want > %d", lifetimeVersionAfterUpdate, lifetimeVersionBefore)
-	}
+	require.EqualValues(t, 60, lifetimeAfterUpdate)
+	require.NotEqual(t, lifetimeXminBefore,
+
+		lifetimeXminAfterUpdate,
+	)
+	require.False(t, lifetimeVersionAfterUpdate <=
+		lifetimeVersionBefore,
+	)
+
 }
 
 // InsertBatchBufferItem.
@@ -444,16 +413,14 @@ func TestBatch_InsertBatchBufferItem_HappyPath(t *testing.T) {
 		Priority:    0,
 		TriggeredBy: "manual",
 	}
+	require.NoError(t, q.InsertBatchBufferItem(ctx,
+		item))
+	require.NotEqual(t, "",
 
-	if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-		t.Fatalf("InsertBatchBufferItem() error = %v", err)
-	}
-	if item.ID == "" {
-		t.Fatal("ID should be generated")
-	}
-	if item.CreatedAt.IsZero() {
-		t.Fatal("CreatedAt should be set")
-	}
+		item.ID)
+	require.False(t, item.CreatedAt.
+		IsZero())
+
 }
 
 func TestBatch_InsertBatchBufferItem_CustomID(t *testing.T) {
@@ -473,13 +440,13 @@ func TestBatch_InsertBatchBufferItem_CustomID(t *testing.T) {
 		Priority:    0,
 		TriggeredBy: "manual",
 	}
+	require.NoError(t, q.InsertBatchBufferItem(ctx,
+		item))
+	require.Equal(t, customID,
 
-	if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-		t.Fatalf("InsertBatchBufferItem() error = %v", err)
-	}
-	if item.ID != customID {
-		t.Fatalf("ID = %q, want %q", item.ID, customID)
-	}
+		item.ID,
+	)
+
 }
 
 func TestBatch_InsertBatchBufferItem_MultipleItems(t *testing.T) {
@@ -498,18 +465,15 @@ func TestBatch_InsertBatchBufferItem_MultipleItems(t *testing.T) {
 			Priority:    i,
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	count, err := q.CountBatchBufferItems(ctx, job.ID, "key-1")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems() error = %v", err)
-	}
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
 }
 
 // CountBatchBufferItems.
@@ -520,12 +484,9 @@ func TestBatch_CountBatchBufferItems_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	count, err := q.CountBatchBufferItems(ctx, newID(), "key-1")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestBatch_CountBatchBufferItems_FiltersByBatchKey(t *testing.T) {
@@ -543,26 +504,19 @@ func TestBatch_CountBatchBufferItems_FiltersByBatchKey(t *testing.T) {
 			Tags:        json.RawMessage(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	countAlpha, err := q.CountBatchBufferItems(ctx, job.ID, "alpha")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems(alpha) error = %v", err)
-	}
-	if countAlpha != 2 {
-		t.Fatalf("alpha count = %d, want 2", countAlpha)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, countAlpha)
 
 	countBeta, err := q.CountBatchBufferItems(ctx, job.ID, "beta")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems(beta) error = %v", err)
-	}
-	if countBeta != 1 {
-		t.Fatalf("beta count = %d, want 1", countBeta)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, countBeta)
+
 }
 
 // DrainBatchBuffer.
@@ -582,27 +536,22 @@ func TestBatch_DrainBatchBuffer_HappyPath(t *testing.T) {
 			Tags:        json.RawMessage(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	drained, err := q.DrainBatchBuffer(ctx, job.ID, "drain-key", 10)
-	if err != nil {
-		t.Fatalf("DrainBatchBuffer() error = %v", err)
-	}
-	if len(drained) != 3 {
-		t.Fatalf("drained len = %d, want 3", len(drained))
-	}
+	require.NoError(t, err)
+	require.Len(t, drained,
+
+		3)
 
 	// Buffer should be empty after drain.
 	count, err := q.CountBatchBufferItems(ctx, job.ID, "drain-key")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count after drain = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestBatch_DrainBatchBuffer_LimitRespected(t *testing.T) {
@@ -620,23 +569,20 @@ func TestBatch_DrainBatchBuffer_LimitRespected(t *testing.T) {
 			Tags:        json.RawMessage(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	drained, err := q.DrainBatchBuffer(ctx, job.ID, "lim-key", 2)
-	if err != nil {
-		t.Fatalf("DrainBatchBuffer() error = %v", err)
-	}
-	if len(drained) != 2 {
-		t.Fatalf("drained len = %d, want 2", len(drained))
-	}
+	require.NoError(t, err)
+	require.Len(t, drained,
+
+		2)
 
 	remaining, _ := q.CountBatchBufferItems(ctx, job.ID, "lim-key")
-	if remaining != 3 {
-		t.Fatalf("remaining = %d, want 3", remaining)
-	}
+	require.EqualValues(t, 3, remaining)
+
 }
 
 func TestBatch_DrainBatchBuffer_SkipsRowsLockedByConcurrentDrain(t *testing.T) {
@@ -655,57 +601,45 @@ func TestBatch_DrainBatchBuffer_SkipsRowsLockedByConcurrentDrain(t *testing.T) {
 			Tags:        json.RawMessage(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	firstDrain, err := q.DrainBatchBufferInTx(ctx, tx, job.ID, "locked-key", 2)
-	if err != nil {
-		t.Fatalf("DrainBatchBufferInTx() error = %v", err)
-	}
-	if len(firstDrain) != 2 {
-		t.Fatalf("first drain len = %d, want 2", len(firstDrain))
-	}
+	require.NoError(t, err)
+	require.Len(t, firstDrain,
+
+		2)
 
 	secondDrain, err := q.DrainBatchBuffer(ctx, job.ID, "locked-key", 4)
-	if err != nil {
-		t.Fatalf("concurrent DrainBatchBuffer() error = %v", err)
-	}
-	if len(secondDrain) != 2 {
-		t.Fatalf("second drain len = %d, want 2", len(secondDrain))
-	}
+	require.NoError(t, err)
+	require.Len(t, secondDrain,
+
+		2)
 
 	seen := make(map[string]bool, 4)
 	for _, item := range firstDrain {
 		seen[item.ID] = true
 	}
 	for _, item := range secondDrain {
-		if seen[item.ID] {
-			t.Fatalf("item %s drained twice while first transaction held locks", item.ID)
-		}
+		require.False(t, seen[item.
+			ID])
+
 		seen[item.ID] = true
 	}
-	if len(seen) != 4 {
-		t.Fatalf("unique drained items = %d, want 4", len(seen))
-	}
+	require.Len(t, seen, 4)
+	require.NoError(t, tx.Commit(ctx))
 
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit first drain: %v", err)
-	}
 	remaining, err := q.CountBatchBufferItems(ctx, job.ID, "locked-key")
-	if err != nil {
-		t.Fatalf("CountBatchBufferItems() error = %v", err)
-	}
-	if remaining != 0 {
-		t.Fatalf("remaining = %d, want 0", remaining)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, remaining)
+
 }
 
 func TestBatch_DrainBatchBuffer_EmptyBuffer(t *testing.T) {
@@ -714,12 +648,11 @@ func TestBatch_DrainBatchBuffer_EmptyBuffer(t *testing.T) {
 	mustClean(t, ctx)
 
 	drained, err := q.DrainBatchBuffer(ctx, newID(), "empty-key", 10)
-	if err != nil {
-		t.Fatalf("DrainBatchBuffer() error = %v", err)
-	}
-	if len(drained) != 0 {
-		t.Fatalf("drained len = %d, want 0", len(drained))
-	}
+	require.NoError(t, err)
+	require.Len(t, drained,
+
+		0)
+
 }
 
 // ListFlushableBatches.
@@ -732,9 +665,8 @@ func TestBatch_ListFlushableBatches_ByMaxSize(t *testing.T) {
 	// Create a job with batch_max_size = 2.
 	job := baseJob(newID(), "project-flushable-max-size")
 	job.BatchMaxSize = 2
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	for range 2 {
 		item := &domain.BatchBufferItem{
@@ -745,28 +677,24 @@ func TestBatch_ListFlushableBatches_ByMaxSize(t *testing.T) {
 			Tags:        json.RawMessage(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	batches, err := q.ListFlushableBatches(ctx)
-	if err != nil {
-		t.Fatalf("ListFlushableBatches() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, b := range batches {
 		if b.JobID == job.ID && b.BatchKey == "flush-key" {
 			found = true
-			if b.ItemCount != 2 {
-				t.Fatalf("item_count = %d, want 2", b.ItemCount)
-			}
+			require.EqualValues(t, 2, b.ItemCount)
+
 		}
 	}
-	if !found {
-		t.Fatal("expected flushable batch not found")
-	}
+	require.True(t, found)
+
 }
 
 func TestBatch_ListFlushableBatches_EmptyWhenNotReady(t *testing.T) {
@@ -777,9 +705,8 @@ func TestBatch_ListFlushableBatches_EmptyWhenNotReady(t *testing.T) {
 	// Create a job with batch_max_size = 10 but only insert 1 item.
 	job := baseJob(newID(), "project-flushable-not-ready")
 	job.BatchMaxSize = 10
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	item := &domain.BatchBufferItem{
 		JobID:       job.ID,
@@ -789,19 +716,17 @@ func TestBatch_ListFlushableBatches_EmptyWhenNotReady(t *testing.T) {
 		Tags:        json.RawMessage(`{}`),
 		TriggeredBy: "manual",
 	}
-	if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-		t.Fatalf("InsertBatchBufferItem() error = %v", err)
-	}
+	require.NoError(t, q.InsertBatchBufferItem(ctx,
+		item))
 
 	batches, err := q.ListFlushableBatches(ctx)
-	if err != nil {
-		t.Fatalf("ListFlushableBatches() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, b := range batches {
-		if b.JobID == job.ID {
-			t.Fatal("batch should not be flushable with only 1 item and max_size=10")
-		}
+		require.NotEqual(t, job.
+			ID, b.JobID,
+		)
+
 	}
 }
 
@@ -822,20 +747,19 @@ func TestEvents_ListEventsAsc_HappyPath(t *testing.T) {
 			Message: "event-" + string(rune('A'+i)),
 			Data:    json.RawMessage(`{}`),
 		}
-		if err := q.InsertEvent(ctx, ev); err != nil {
-			t.Fatalf("InsertEvent(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.InsertEvent(
+			ctx, ev))
+
 		// Sleep briefly to ensure ordering.
 		time.Sleep(2 * time.Millisecond)
 	}
 
 	events, err := q.ListEventsAsc(ctx, run.ID, 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListEventsAsc() error = %v", err)
-	}
-	if len(events) != 3 {
-		t.Fatalf("len = %d, want 3", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		3,
+	)
+
 	assertEventTimesAsc(t, events)
 }
 
@@ -855,9 +779,9 @@ func TestEvents_ListEventsAsc_WithCursor(t *testing.T) {
 			Message: "event-" + string(rune('A'+i)),
 			Data:    json.RawMessage(`{}`),
 		}
-		if err := q.InsertEvent(ctx, ev); err != nil {
-			t.Fatalf("InsertEvent(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.InsertEvent(
+			ctx, ev))
+
 		if i == 0 {
 			firstEvent = ev
 		}
@@ -865,12 +789,11 @@ func TestEvents_ListEventsAsc_WithCursor(t *testing.T) {
 	}
 
 	events, err := q.ListEventsAsc(ctx, run.ID, 10, &firstEvent.CreatedAt, firstEvent.ID)
-	if err != nil {
-		t.Fatalf("ListEventsAsc() error = %v", err)
-	}
-	if len(events) != 2 {
-		t.Fatalf("len = %d, want 2", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		2,
+	)
+
 }
 
 func TestEvents_ListEventsAsc_EmptyRun(t *testing.T) {
@@ -879,12 +802,11 @@ func TestEvents_ListEventsAsc_EmptyRun(t *testing.T) {
 	mustClean(t, ctx)
 
 	events, err := q.ListEventsAsc(ctx, newID(), 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListEventsAsc() error = %v", err)
-	}
-	if len(events) != 0 {
-		t.Fatalf("len = %d, want 0", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		0,
+	)
+
 }
 
 // DeleteProject (exercises private deleteProjectRows indirectly).
@@ -896,18 +818,14 @@ func TestProjects_DeleteProject_HappyPath(t *testing.T) {
 
 	projectID := "project-delete-" + newID()
 	project := &domain.Project{ID: projectID, Name: "to-delete", OrgID: "org-delete"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := q.DeleteProject(ctx, projectID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
+	require.NoError(t, q.DeleteProject(ctx, projectID))
 
 	_, err := q.GetProject(ctx, projectID)
-	if !errors.Is(err, store.ErrProjectNotFound) {
-		t.Fatalf("GetProject() after delete error = %v, want ErrProjectNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrProjectNotFound,
+	))
+
 }
 
 func TestProjects_DeleteProject_NotFound(t *testing.T) {
@@ -916,9 +834,10 @@ func TestProjects_DeleteProject_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.DeleteProject(ctx, "nonexistent-project-"+newID())
-	if !errors.Is(err, store.ErrProjectNotFound) {
-		t.Fatalf("DeleteProject() error = %v, want ErrProjectNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrProjectNotFound,
+	))
+
 }
 
 func TestProjects_DeleteProject_DisablesJobs(t *testing.T) {
@@ -928,24 +847,16 @@ func TestProjects_DeleteProject_DisablesJobs(t *testing.T) {
 
 	projectID := "project-delete-disables-" + newID()
 	project := &domain.Project{ID: projectID, Name: "to-delete", OrgID: "org-delete"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
-
-	if err := q.DeleteProject(ctx, projectID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, q.DeleteProject(ctx, projectID))
 
 	// Job should still exist but be disabled.
 	got, err := q.GetJob(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("GetJob() after project delete error = %v", err)
-	}
-	if got.Enabled {
-		t.Fatal("job should be disabled after project delete")
-	}
+	require.NoError(t, err)
+	require.False(t, got.Enabled)
+
 }
 
 // ListJobsByOrg.
@@ -959,21 +870,16 @@ func TestJobs_ListJobsByOrg_HappyPath(t *testing.T) {
 	projectID := "project-list-jobs-org-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	for range 3 {
 		_ = mustCreateJob(t, ctx, q, projectID)
 	}
 
 	jobs, err := q.ListJobsByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobsByOrg() error = %v", err)
-	}
-	if len(jobs) != 3 {
-		t.Fatalf("len = %d, want 3", len(jobs))
-	}
+	require.NoError(t, err)
+	require.Len(t, jobs, 3)
+
 }
 
 func TestJobs_ListJobsByOrg_EmptyOrg(t *testing.T) {
@@ -982,12 +888,9 @@ func TestJobs_ListJobsByOrg_EmptyOrg(t *testing.T) {
 	mustClean(t, ctx)
 
 	jobs, err := q.ListJobsByOrg(ctx, "nonexistent-org-"+newID(), 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobsByOrg() error = %v", err)
-	}
-	if len(jobs) != 0 {
-		t.Fatalf("len = %d, want 0", len(jobs))
-	}
+	require.NoError(t, err)
+	require.Len(t, jobs, 0)
+
 }
 
 func TestJobs_ListJobsByOrg_WithCursor(t *testing.T) {
@@ -999,9 +902,7 @@ func TestJobs_ListJobsByOrg_WithCursor(t *testing.T) {
 	projectID := "project-list-jobs-cursor-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	for range 3 {
 		_ = mustCreateJob(t, ctx, q, projectID)
@@ -1009,18 +910,15 @@ func TestJobs_ListJobsByOrg_WithCursor(t *testing.T) {
 	}
 
 	allJobs, _ := q.ListJobsByOrg(ctx, orgID, 100, nil)
-	if len(allJobs) < 2 {
-		t.Fatal("need at least 2 jobs for cursor test")
-	}
+	require.GreaterOrEqual(
+		t,
+		len(allJobs), 2)
 
 	cursor := allJobs[0].CreatedAt
 	paged, err := q.ListJobsByOrg(ctx, orgID, 100, &cursor)
-	if err != nil {
-		t.Fatalf("ListJobsByOrg(cursor) error = %v", err)
-	}
-	if len(paged) != len(allJobs)-1 {
-		t.Fatalf("paged len = %d, want %d", len(paged), len(allJobs)-1)
-	}
+	require.NoError(t, err)
+	require.Len(t, paged, len(allJobs)-1)
+
 }
 
 // ListRunsByOrg.
@@ -1034,9 +932,7 @@ func TestJobs_ListRunsByOrg_HappyPath(t *testing.T) {
 	projectID := "project-list-runs-org-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	for range 2 {
@@ -1044,12 +940,9 @@ func TestJobs_ListRunsByOrg_HappyPath(t *testing.T) {
 	}
 
 	runs, err := q.ListRunsByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByOrg() error = %v", err)
-	}
-	if len(runs) != 2 {
-		t.Fatalf("len = %d, want 2", len(runs))
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+
 }
 
 func TestJobs_ListRunsByOrg_Empty(t *testing.T) {
@@ -1058,12 +951,9 @@ func TestJobs_ListRunsByOrg_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	runs, err := q.ListRunsByOrg(ctx, "nonexistent-org-"+newID(), 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByOrg() error = %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("len = %d, want 0", len(runs))
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 0)
+
 }
 
 func TestJobs_ListRunsByOrg_ExcludesDeletedProjects(t *testing.T) {
@@ -1075,24 +965,16 @@ func TestJobs_ListRunsByOrg_ExcludesDeletedProjects(t *testing.T) {
 	projectID := "project-list-runs-deleted-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	_ = mustCreateRun(t, ctx, q, job)
-
-	if err := q.DeleteProject(ctx, projectID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, q.DeleteProject(ctx, projectID))
 
 	runs, err := q.ListRunsByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByOrg() error = %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("len = %d, want 0 (project deleted)", len(runs))
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 0)
+
 }
 
 func TestJobs_ListRunsByOrg_ExcludesRetentionMaskedRuns(t *testing.T) {
@@ -1104,27 +986,23 @@ func TestJobs_ListRunsByOrg_ExcludesRetentionMaskedRuns(t *testing.T) {
 	projectID := "project-list-runs-masked-" + newID()
 
 	project := &domain.Project{ID: projectID, OrgID: orgID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	job := mustCreateJob(t, ctx, q, projectID)
 	visibleRun := mustCreateRun(t, ctx, q, job)
 	maskedRun := mustCreateRun(t, ctx, q, job)
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET visible_until = NOW() WHERE id = $1`, maskedRun.ID); err != nil {
-		t.Fatalf("mask run: %v", err)
+		require.Failf(t, "test failure",
+
+			"mask run: %v", err)
 	}
 
 	runs, err := q.ListRunsByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByOrg() error = %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("len = %d, want 1 visible run: %+v", len(runs), runs)
-	}
-	if runs[0].ID != visibleRun.ID {
-		t.Fatalf("run id = %q, want visible run %q", runs[0].ID, visibleRun.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, visibleRun.
+		ID, runs[0].ID)
+
 }
 
 // ListEnabledLogDrains.
@@ -1136,9 +1014,7 @@ func TestLogDrains_ListEnabledLogDrains_HappyPath(t *testing.T) {
 
 	projectID := "project-log-drains-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	enabled := &domain.LogDrain{
 		ID:          newID(),
@@ -1149,9 +1025,7 @@ func TestLogDrains_ListEnabledLogDrains_HappyPath(t *testing.T) {
 		AuthType:    "bearer",
 		Enabled:     true,
 	}
-	if err := q.CreateLogDrain(ctx, enabled); err != nil {
-		t.Fatalf("CreateLogDrain(enabled) error = %v", err)
-	}
+	require.NoError(t, q.CreateLogDrain(ctx, enabled))
 
 	disabled := &domain.LogDrain{
 		ID:          newID(),
@@ -1162,27 +1036,23 @@ func TestLogDrains_ListEnabledLogDrains_HappyPath(t *testing.T) {
 		AuthType:    "bearer",
 		Enabled:     false,
 	}
-	if err := q.CreateLogDrain(ctx, disabled); err != nil {
-		t.Fatalf("CreateLogDrain(disabled) error = %v", err)
-	}
+	require.NoError(t, q.CreateLogDrain(ctx, disabled))
 
 	drains, err := q.ListEnabledLogDrains(ctx)
-	if err != nil {
-		t.Fatalf("ListEnabledLogDrains() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, d := range drains {
-		if d.ID == disabled.ID {
-			t.Fatal("disabled drain should not be in enabled list")
-		}
+		require.NotEqual(t, disabled.
+			ID,
+			d.ID)
+
 		if d.ID == enabled.ID {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("enabled drain not found in results")
-	}
+	require.True(t, found)
+
 }
 
 func TestLogDrains_ListEnabledLogDrains_Empty(t *testing.T) {
@@ -1191,12 +1061,11 @@ func TestLogDrains_ListEnabledLogDrains_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	drains, err := q.ListEnabledLogDrains(ctx)
-	if err != nil {
-		t.Fatalf("ListEnabledLogDrains() error = %v", err)
-	}
-	if len(drains) != 0 {
-		t.Fatalf("len = %d, want 0", len(drains))
-	}
+	require.NoError(t, err)
+	require.Len(t, drains,
+		0,
+	)
+
 }
 
 func TestLogDrains_ListEnabledLogDrains_AllDisabled(t *testing.T) {
@@ -1206,9 +1075,7 @@ func TestLogDrains_ListEnabledLogDrains_AllDisabled(t *testing.T) {
 
 	projectID := "project-log-drains-all-disabled-" + newID()
 	project := &domain.Project{ID: projectID, Name: "test"}
-	if err := q.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, project))
 
 	drain := &domain.LogDrain{
 		ID:          newID(),
@@ -1219,18 +1086,16 @@ func TestLogDrains_ListEnabledLogDrains_AllDisabled(t *testing.T) {
 		AuthType:    "none",
 		Enabled:     false,
 	}
-	if err := q.CreateLogDrain(ctx, drain); err != nil {
-		t.Fatalf("CreateLogDrain() error = %v", err)
-	}
+	require.NoError(t, q.CreateLogDrain(ctx, drain))
 
 	drains, err := q.ListEnabledLogDrains(ctx)
-	if err != nil {
-		t.Fatalf("ListEnabledLogDrains() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, d := range drains {
-		if d.ID == drain.ID {
-			t.Fatal("disabled drain should not appear")
-		}
+		require.NotEqual(t, drain.
+			ID, d.ID,
+		)
+
 	}
 }
 

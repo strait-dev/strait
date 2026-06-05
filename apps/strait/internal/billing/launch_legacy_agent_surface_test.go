@@ -6,15 +6,17 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLaunchSourceDoesNotExposeLegacyAgentGuardrails(t *testing.T) {
 	t.Parallel()
 
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok)
+
 	internalRoot := filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
 
 	forbidden := []string{
@@ -43,13 +45,10 @@ func TestLaunchSourceDoesNotExposeLegacyAgentGuardrails(t *testing.T) {
 			return readErr
 		}
 		for _, stale := range forbidden {
-			if strings.Contains(string(content), stale) {
-				t.Errorf("%s contains retired launch-inactive agent guardrail field %q", path, stale)
-			}
+			assert.NotContains(t, string(
+				content), stale)
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("walk internal source: %v", err)
-	}
+	require.NoError(t, err)
 }

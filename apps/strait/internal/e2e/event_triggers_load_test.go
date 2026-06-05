@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestEventTriggerLoadCreate measures throughput of creating event triggers.
@@ -36,9 +38,9 @@ func TestEventTriggerLoadCreate(t *testing.T) {
 			RequestedAt: time.Now(),
 			ExpiresAt:   time.Now().Add(time.Hour),
 		}
-		if err := testStore.CreateEventTrigger(ctx, trigger); err != nil {
-			t.Fatalf("create trigger %d: %v", i, err)
-		}
+		require.NoError(t, testStore.
+			CreateEventTrigger(ctx, trigger))
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Created %d triggers in %v (%.0f/sec)", count, elapsed, float64(count)/elapsed.Seconds())
@@ -67,9 +69,9 @@ func TestEventTriggerLoadSendConcurrent(t *testing.T) {
 			RequestedAt: time.Now(),
 			ExpiresAt:   time.Now().Add(time.Hour),
 		}
-		if err := testStore.CreateEventTrigger(ctx, triggers[i]); err != nil {
-			t.Fatalf("pre-create trigger %d: %v", i, err)
-		}
+		require.NoError(t, testStore.
+			CreateEventTrigger(ctx, triggers[i]))
+
 	}
 
 	var wg conc.WaitGroup
@@ -97,8 +99,9 @@ func TestEventTriggerLoadSendConcurrent(t *testing.T) {
 	}
 	t.Logf("Resolved %d/%d triggers concurrently in %v (%.0f/sec, %d failures)",
 		concurrency-failures, concurrency, elapsed, float64(concurrency)/elapsed.Seconds(), failures)
+	assert.LessOrEqual(t,
 
-	if failures > 0 {
-		t.Errorf("%d/%d concurrent sends failed", failures, concurrency)
-	}
+		failures,
+		0)
+
 }

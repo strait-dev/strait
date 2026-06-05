@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 var pgQueQueueNameBenchmarkSink string
@@ -22,23 +23,24 @@ func TestPgQueQueueNameDeterministicAndNotifySafe(t *testing.T) {
 
 	first := pgQueQueueName(routeKey)
 	second := pgQueQueueName(routeKey)
-	if first != second {
-		t.Fatalf("queue name changed: %q != %q", first, second)
-	}
-	if len(first) > 57 {
-		t.Fatalf("queue name length = %d, want <= 57", len(first))
-	}
-	if !strings.HasPrefix(first, pgQueQueuePrefix) {
-		t.Fatalf("queue name = %q, want prefix %q", first, pgQueQueuePrefix)
-	}
+	require.Equal(t,
+		second,
+		first)
+	require.LessOrEqual(t, len(first), 57)
+	require.True(t,
+		strings.HasPrefix(first,
+			pgQueQueuePrefix,
+		))
+	require.Equal(t,
+		"stq_e0603c499aae47eb89343ad0ef3178e0",
 
-	if got := pgQueQueueName(pgQueHTTPRouteKey); got != "stq_e0603c499aae47eb89343ad0ef3178e0" {
-		t.Fatalf("http queue name = %q", got)
-	}
+		pgQueQueueName(pgQueHTTPRouteKey))
+
 	workerRoute := pgQueWorkerRouteKey("project-a", "critical", "prod")
-	if got := pgQueQueueName(workerRoute); got != "stq_27d44f587337af384a66c080216b17d5" {
-		t.Fatalf("worker queue name = %q", got)
-	}
+	require.Equal(t,
+		"stq_27d44f587337af384a66c080216b17d5",
+
+		pgQueQueueName(workerRoute))
 }
 
 func BenchmarkPgQueQueueName(b *testing.B) {
@@ -69,14 +71,17 @@ func BenchmarkPgQueWorkerRouteRef(b *testing.B) {
 
 func TestPgQueRouteKeyForRun(t *testing.T) {
 	httpRun := &domain.JobRun{ProjectID: "project-a", ExecutionMode: domain.ExecutionModeHTTP}
-	if got := pgQueRouteKeyForRun(httpRun); got != pgQueHTTPRouteKey {
-		t.Fatalf("http route = %q, want %q", got, pgQueHTTPRouteKey)
-	}
+	require.Equal(t,
+		pgQueHTTPRouteKey,
+
+		pgQueRouteKeyForRun(
+			httpRun))
 
 	workerRun := &domain.JobRun{ProjectID: "project-a", ExecutionMode: domain.ExecutionModeWorker, QueueName: "critical"}
-	if got := pgQueRouteKeyForRun(workerRun); got != "worker:project-a:critical:" {
-		t.Fatalf("worker route = %q", got)
-	}
+	require.Equal(t,
+		"worker:project-a:critical:",
+
+		pgQueRouteKeyForRun(workerRun))
 }
 
 func TestPgQueWorkerRouteRef(t *testing.T) {
@@ -130,12 +135,12 @@ func TestPgQueWorkerRouteRef(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, ok := pgQueWorkerRouteRef(tt.routeKey)
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if got != tt.want {
-				t.Fatalf("ref = %+v, want %+v", got, tt.want)
-			}
+			require.Equal(t,
+				tt.wantOK,
+				ok)
+			require.Equal(t,
+				tt.want,
+				got)
 		})
 	}
 }
@@ -151,9 +156,11 @@ func TestPgQueWorkerRouteKeysCachesWildcardLookup(t *testing.T) {
 	db := &mockDBTX{
 		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
 			queryCount++
-			if len(args) != 2 || args[0] != prefix || args[1] != prefix+"%" {
-				t.Fatalf("route lookup args = %#v, want prefix lookup", args)
-			}
+			require.False(t,
+				len(args) != 2 || args[0] != prefix ||
+
+					args[1] != prefix+"%")
+
 			return &stringRows{values: knownRoutes}, nil
 		},
 	}
@@ -164,24 +171,19 @@ func TestPgQueWorkerRouteKeysCachesWildcardLookup(t *testing.T) {
 	}}
 
 	first, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys first error = %v", err)
-	}
+	require.NoError(t, err)
+
 	second, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys second error = %v", err)
-	}
+	require.NoError(t, err)
 
 	want := []string{knownRoutes[0], knownRoutes[1], prefix}
-	if !slices.Equal(first, want) {
-		t.Fatalf("first worker routes = %v, want %v", first, want)
-	}
-	if !slices.Equal(second, want) {
-		t.Fatalf("second worker routes = %v, want %v", second, want)
-	}
-	if queryCount != 1 {
-		t.Fatalf("route lookup count = %d, want 1", queryCount)
-	}
+	require.True(t,
+		slices.Equal(first,
+			want))
+	require.True(t,
+		slices.Equal(second,
+			want))
+	require.Equal(t, 1, queryCount)
 }
 
 func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
@@ -208,28 +210,25 @@ func TestPgQueEnsureRouteInvalidatesWorkerRouteCache(t *testing.T) {
 	}}
 
 	first, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys first error = %v", err)
-	}
-	if !slices.Equal(first, []string{productionRoute, prefix}) {
-		t.Fatalf("first worker routes = %v", first)
-	}
+	require.NoError(t, err)
+	require.True(t,
+		slices.Equal(first,
+			[]string{productionRoute,
 
-	if err := q.ensureRoute(ctx, db, stagingRoute, pgQueQueueName(stagingRoute)); err != nil {
-		t.Fatalf("ensureRoute error = %v", err)
-	}
+				prefix}))
+	require.NoError(t, q.ensureRoute(ctx,
+		db, stagingRoute,
+
+		pgQueQueueName(stagingRoute)))
 
 	second, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys second error = %v", err)
-	}
+	require.NoError(t, err)
+
 	want := []string{productionRoute, stagingRoute, prefix}
-	if !slices.Equal(second, want) {
-		t.Fatalf("second worker routes = %v, want %v", second, want)
-	}
-	if queryCount != 2 {
-		t.Fatalf("route lookup count = %d, want 2", queryCount)
-	}
+	require.True(t,
+		slices.Equal(second,
+			want))
+	require.Equal(t, 2, queryCount)
 }
 
 func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
@@ -244,32 +243,31 @@ func TestPgQueEnsureRouteInvalidatesExactWorkerRefCache(t *testing.T) {
 	}}
 
 	first, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys first error = %v", err)
-	}
-	if !slices.Equal(first, []string{routeKey}) {
-		t.Fatalf("first worker routes = %v, want %v", first, []string{routeKey})
-	}
+	require.NoError(t, err)
+	require.True(t,
+		slices.Equal(first,
+			[]string{routeKey}),
+	)
 
 	refCacheKey := refs[0]
 	refCacheKey.QueueName = runQueueName(refCacheKey.QueueName)
 	q.routeMu.Lock()
 	if _, ok := q.routeRefCache[refCacheKey]; !ok {
 		q.routeMu.Unlock()
-		t.Fatal("worker ref cache was not populated")
+		require.Fail(t,
+
+			"worker ref cache was not populated")
 	}
 	q.routeMu.Unlock()
-
-	if err := q.ensureRoute(ctx, db, routeKey, pgQueQueueName(routeKey)); err != nil {
-		t.Fatalf("ensureRoute error = %v", err)
-	}
+	require.NoError(t, q.ensureRoute(ctx,
+		db, routeKey,
+		pgQueQueueName(routeKey)))
 
 	q.routeMu.Lock()
 	_, ok := q.routeRefCache[refCacheKey]
 	q.routeMu.Unlock()
-	if ok {
-		t.Fatal("worker ref cache was not invalidated")
-	}
+	require.False(t,
+		ok)
 }
 
 func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
@@ -285,9 +283,9 @@ func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
 		queryFn: func(_ context.Context, _ string, args ...any) (pgx.Rows, error) {
 			queryCount++
 			prefix, ok := args[0].(string)
-			if !ok {
-				t.Fatalf("route lookup prefix arg = %T, want string", args[0])
-			}
+			require.True(t,
+				ok)
+
 			return &stringRows{values: knownRoutes[prefix]}, nil
 		},
 	}
@@ -299,13 +297,10 @@ func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
 	}
 
 	first, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys first error = %v", err)
-	}
+	require.NoError(t, err)
+
 	second, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys second error = %v", err)
-	}
+	require.NoError(t, err)
 
 	want := []string{
 		prefixA + "production",
@@ -314,15 +309,13 @@ func TestPgQueWorkerRouteKeysCachesMultiRefLookups(t *testing.T) {
 		prefixB,
 		pgQueWorkerRouteKey("project-c", "critical", "production"),
 	}
-	if !slices.Equal(first, want) {
-		t.Fatalf("first worker routes = %v, want %v", first, want)
-	}
-	if !slices.Equal(second, want) {
-		t.Fatalf("second worker routes = %v, want %v", second, want)
-	}
-	if queryCount != 2 {
-		t.Fatalf("route lookup count = %d, want 2", queryCount)
-	}
+	require.True(t,
+		slices.Equal(first,
+			want))
+	require.True(t,
+		slices.Equal(second,
+			want))
+	require.Equal(t, 2, queryCount)
 }
 
 func BenchmarkPgQueWorkerRouteKeysWildcardCached(b *testing.B) {
@@ -468,12 +461,12 @@ func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
 	}}
 
 	first, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys first error = %v", err)
-	}
-	if !slices.Equal(first, []string{productionRoute, prefix}) {
-		t.Fatalf("first worker routes = %v", first)
-	}
+	require.NoError(t, err)
+	require.True(t,
+		slices.Equal(first,
+			[]string{productionRoute,
+
+				prefix}))
 
 	q.routeMu.Lock()
 	refCacheKey := refs[0]
@@ -487,14 +480,11 @@ func TestPgQueWorkerRouteKeysReloadsExpiredWildcardCache(t *testing.T) {
 	q.routeMu.Unlock()
 
 	second, err := q.workerRouteKeys(ctx, refs)
-	if err != nil {
-		t.Fatalf("workerRouteKeys second error = %v", err)
-	}
+	require.NoError(t, err)
+
 	want := []string{productionRoute, stagingRoute, prefix}
-	if !slices.Equal(second, want) {
-		t.Fatalf("second worker routes = %v, want %v", second, want)
-	}
-	if queryCount != 2 {
-		t.Fatalf("route lookup count = %d, want 2", queryCount)
-	}
+	require.True(t,
+		slices.Equal(second,
+			want))
+	require.Equal(t, 2, queryCount)
 }

@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzPubSubMessageSerialization exercises JSON round-trip serialization of
@@ -28,19 +31,18 @@ func FuzzPubSubMessageSerialization(f *testing.F) {
 
 		// Marshal must not panic.
 		encoded, err := json.Marshal(msg)
-		if err != nil {
-			t.Fatalf("json.Marshal(PubSubMessage) should not fail: %v", err)
-		}
+		require.NoError(
+			t, err)
 
 		// Unmarshal must not panic.
 		var decoded PubSubMessage
-		if err := json.Unmarshal(encoded, &decoded); err != nil {
-			t.Fatalf("json.Unmarshal round-trip failed: %v", err)
-		}
-
-		if decoded.Channel != msg.Channel {
-			t.Errorf("channel mismatch: got %q, want %q", decoded.Channel, msg.Channel)
-		}
+		require.NoError(
+			t, json.Unmarshal(encoded,
+				&decoded))
+		assert.Equal(t,
+			msg.Channel, decoded.
+				Channel,
+		)
 	})
 }
 
@@ -103,11 +105,10 @@ func FuzzResilientPublisherThreshold(f *testing.F) {
 		}
 
 		rp := NewResilientPublisher(mp, slog.Default(), threshold)
+		assert.True(t, rp.
+			IsHealthy())
 
 		// Initial state must be healthy.
-		if !rp.IsHealthy() {
-			t.Error("expected healthy initial state")
-		}
 
 		// Apply a bounded number of failures to avoid excessive test time.
 		count := min(max(failureCount, 0), 200)
@@ -169,9 +170,8 @@ func FuzzResilientPublisherRecovery(f *testing.F) {
 
 		// After successes, if any succeeded, publisher should be healthy.
 		if successes > 0 {
-			if !rp.IsHealthy() {
-				t.Error("expected healthy state after recovery")
-			}
+			assert.True(t, rp.
+				IsHealthy())
 		}
 	})
 }
@@ -211,9 +211,7 @@ func FuzzNewSubscriptionClose(f *testing.F) {
 
 		if closeImmediately {
 			sub.Close()
-			if !called {
-				t.Error("cancel function should have been called")
-			}
+			assert.True(t, called)
 		}
 
 		// closedSubscription helper must not panic.

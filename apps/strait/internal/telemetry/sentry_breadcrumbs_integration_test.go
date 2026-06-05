@@ -2,7 +2,11 @@
 
 package telemetry
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIntegrationSentryBreadcrumbChainStaysOnContextHub(t *testing.T) {
 	t.Parallel()
@@ -13,10 +17,11 @@ func TestIntegrationSentryBreadcrumbChainStaysOnContextHub(t *testing.T) {
 	AddSentryBreadcrumb(ctx, "worker.dispatch", "worker panic", map[string]any{"error_class": "server"})
 
 	breadcrumbs := sentryBreadcrumbsFromHub(t, hub)
-	if len(breadcrumbs) != 3 {
-		t.Fatalf("breadcrumbs = %d, want 3", len(breadcrumbs))
-	}
-	if breadcrumbs[0].Category != "queue.claim" || breadcrumbs[1].Category != "worker.dispatch" || breadcrumbs[2].Category != "worker.dispatch" {
-		t.Fatalf("breadcrumb categories = %#v, want queue then dispatch chain", breadcrumbs)
-	}
+	require.Len(t, breadcrumbs,
+
+		3)
+	require.False(t, breadcrumbs[0].Category !=
+		"queue.claim" || breadcrumbs[1].Category != "worker.dispatch" || breadcrumbs[2].Category !=
+		"worker.dispatch")
+
 }

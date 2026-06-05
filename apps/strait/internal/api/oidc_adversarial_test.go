@@ -12,6 +12,8 @@ import (
 	"strait/internal/config"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestOIDCVerify_ValidToken verifies that a correctly signed JWT with valid
@@ -30,12 +32,11 @@ func TestOIDCVerify_ValidToken(t *testing.T) {
 	})
 
 	claims, err := v.verify(signed)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if claims.Subject != "user-1" {
-		t.Fatalf("subject = %q, want %q", claims.Subject, "user-1")
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t,
+		"user-1", claims.
+			Subject)
 }
 
 // TestOIDCVerify_ExpiredToken verifies that a token expired well beyond the
@@ -54,9 +55,8 @@ func TestOIDCVerify_ExpiredToken(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for expired token, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 // TestOIDCVerify_ExpiryBoundary checks behaviour around the 30-second leeway.
@@ -77,12 +77,12 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-1 * time.Second)),
 		})
 		claims, err := v.verify(signed)
-		if err != nil {
-			t.Fatalf("token expired 1s ago should be accepted with 30s leeway: %v", err)
-		}
-		if claims.Subject != "user-boundary-past" {
-			t.Fatalf("subject = %q, want %q", claims.Subject, "user-boundary-past")
-		}
+		require.NoError(t,
+			err)
+		require.Equal(t,
+			"user-boundary-past",
+			claims.
+				Subject)
 	})
 
 	t.Run("expired 31s ago rejected beyond leeway", func(t *testing.T) {
@@ -94,9 +94,8 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(-31 * time.Second)),
 		})
 		_, err := v.verify(signed)
-		if err == nil {
-			t.Fatal("token expired 31s ago should be rejected")
-		}
+		require.Error(t,
+			err)
 	})
 
 	t.Run("expires 1s from now accepted", func(t *testing.T) {
@@ -108,12 +107,12 @@ func TestOIDCVerify_ExpiryBoundary(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Second)),
 		})
 		claims, err := v.verify(signed)
-		if err != nil {
-			t.Fatalf("expected token not yet expired to pass, got %v", err)
-		}
-		if claims.Subject != "user-boundary-future" {
-			t.Fatalf("subject = %q, want %q", claims.Subject, "user-boundary-future")
-		}
+		require.NoError(t,
+			err)
+		require.Equal(t,
+			"user-boundary-future",
+			claims.
+				Subject)
 	})
 }
 
@@ -132,9 +131,8 @@ func TestOIDCVerify_WrongIssuer(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for wrong issuer, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 // TestOIDCVerify_WrongAudience verifies that a mismatched audience is rejected.
@@ -152,9 +150,8 @@ func TestOIDCVerify_WrongAudience(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for wrong audience, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 // TestOIDCVerify_EmptySubject verifies that an empty sub claim is rejected
@@ -173,12 +170,9 @@ func TestOIDCVerify_EmptySubject(t *testing.T) {
 	})
 
 	_, err := v.verify(signed)
-	if err == nil {
-		t.Fatal("expected error for empty subject, got nil")
-	}
-	if !strings.Contains(err.Error(), "subject") {
-		t.Fatalf("error should mention subject, got %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t, err.Error(), "subject")
 }
 
 // TestOIDCVerify_InvalidSignature verifies that a tampered token payload is
@@ -198,16 +192,15 @@ func TestOIDCVerify_InvalidSignature(t *testing.T) {
 
 	// Tamper with the payload section of the JWT.
 	parts := strings.SplitN(signed, ".", 3)
-	if len(parts) != 3 {
-		t.Fatalf("expected 3 JWT parts, got %d", len(parts))
-	}
+	require.Len(t, parts,
+		3)
+
 	parts[1] += "AAAA"
 	tampered := strings.Join(parts, ".")
 
 	_, err := v.verify(tampered)
-	if err == nil {
-		t.Fatal("expected error for tampered token, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 // TestOIDCVerify_MalformedJWT verifies that random non-JWT strings are
@@ -227,9 +220,7 @@ func TestOIDCVerify_MalformedJWT(t *testing.T) {
 	}
 	for _, tok := range malformed {
 		_, err := v.verify(tok)
-		if err == nil {
-			t.Errorf("expected error for malformed token %q, got nil", tok)
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -255,9 +246,10 @@ func TestOIDCVerify_NullBytesInClaims(t *testing.T) {
 	if err != nil {
 		return // Rejected is acceptable.
 	}
-	if claims.Subject != "user\x00injected" {
-		t.Fatalf("subject = %q, want %q", claims.Subject, "user\x00injected")
-	}
+	require.Equal(t,
+		"user\x00injected",
+		claims.Subject,
+	)
 }
 
 // TestNewOIDCVerifier_InvalidPEM verifies that an invalid PEM string is
@@ -272,9 +264,8 @@ func TestNewOIDCVerifier_InvalidPEM(t *testing.T) {
 		OIDCPublicKeyPEM: "not-valid-pem-data",
 	}
 	_, err := newOIDCVerifier(cfg)
-	if err == nil {
-		t.Fatal("expected error for invalid PEM, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 // TestNewOIDCVerifier_EmptyConfig verifies that an empty PEM is rejected when
@@ -291,25 +282,20 @@ func TestNewOIDCVerifier_EmptyConfig(t *testing.T) {
 			OIDCPublicKeyPEM: "",
 		}
 		_, err := newOIDCVerifier(cfg)
-		if err == nil {
-			t.Fatal("expected error for empty PEM with OIDC enabled, got nil")
-		}
+		require.Error(t,
+			err)
 	})
 
 	t.Run("disabled returns verifier", func(t *testing.T) {
 		t.Parallel()
 		cfg := &config.Config{OIDCEnabled: false}
 		v, err := newOIDCVerifier(cfg)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if v == nil {
-			t.Fatal("expected non-nil verifier when OIDC disabled")
-			return
-		}
-		if v.enabled {
-			t.Fatal("expected verifier to be disabled")
-		}
+		require.NoError(t,
+			err)
+		require.NotNil(t,
+			v)
+		require.False(t,
+			v.enabled)
 	})
 }
 
@@ -359,8 +345,8 @@ func mustOIDCVerifier(t *testing.T, pubPEM []byte, issuer, audience string) *oid
 		OIDCPublicKeyPEM: string(pubPEM),
 	}
 	v, err := newOIDCVerifier(cfg)
-	if err != nil {
-		t.Fatalf("newOIDCVerifier: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	return v
 }

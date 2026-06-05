@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // handleCreateEventSource.
@@ -35,21 +36,17 @@ func TestHandleCreateEventSource_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp domain.EventSource
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Name != "deploy-events" {
-		t.Fatalf("expected name=deploy-events, got %q", resp.Name)
-	}
-	if !resp.Enabled {
-		t.Fatal("expected enabled=true by default")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "deploy-events",
+		resp.Name,
+	)
+	require.True(
+		t, resp.Enabled)
 }
 
 func TestHandleCreateEventSource_MissingName(t *testing.T) {
@@ -59,13 +56,12 @@ func TestHandleCreateEventSource_MissingName(t *testing.T) {
 	body := `{"project_id": "proj-1"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "validation") {
-		t.Fatalf("expected validation error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "validation",
+	)
 }
 
 // handleListEventSources.
@@ -85,18 +81,13 @@ func TestHandleListEventSources_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []domain.EventSource
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 sources, got %d", len(resp))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t,
+		resp, 2)
 }
 
 func TestHandleListEventSources_MissingProjectID(t *testing.T) {
@@ -105,10 +96,9 @@ func TestHandleListEventSources_MissingProjectID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/event-sources", ""))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 // handleGetEventSource.
@@ -127,18 +117,13 @@ func TestHandleGetEventSource_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-1", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp domain.EventSource
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.ID != "src-1" {
-		t.Fatalf("expected id=src-1, got %q", resp.ID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "src-1", resp.
+		ID)
 }
 
 func TestHandleGetEventSource_NotFound(t *testing.T) {
@@ -152,10 +137,9 @@ func TestHandleGetEventSource_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-999", "", "proj-1"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // handleUpdateEventSource.
@@ -172,10 +156,9 @@ func TestHandleUpdateEventSource_Success(t *testing.T) {
 	body := `{"name": "renamed-source"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/event-sources/src-1", body, "proj-1"))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
@@ -184,13 +167,11 @@ func TestHandleUpdateEventSource_EmptyPatch(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPatch, "/v1/event-sources/src-1", `{}`, "proj-1"))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "no fields to update") {
-		t.Fatalf("expected 'no fields to update' error, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
+	require.Contains(
+		t, w.Body.String(), "no fields to update")
 }
 
 // handleDeleteEventSource.
@@ -206,10 +187,9 @@ func TestHandleDeleteEventSource_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1", "", "proj-1"))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 func TestHandleDeleteEventSource_NotFound(t *testing.T) {
@@ -223,10 +203,9 @@ func TestHandleDeleteEventSource_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-999", "", "proj-1"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // handleSubscribeToEventSource.
@@ -256,21 +235,15 @@ func TestHandleSubscribeToEventSource_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/src-1/subscribe", body, "proj-1"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp domain.EventSubscription
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.TargetType != "job" {
-		t.Fatalf("expected target_type=job, got %q", resp.TargetType)
-	}
-	if resp.SourceID != "src-1" {
-		t.Fatalf("expected source_id=src-1, got %q", resp.SourceID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "job", resp.TargetType)
+	require.Equal(t, "src-1", resp.
+		SourceID)
 }
 
 func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
@@ -280,10 +253,9 @@ func TestHandleSubscribeToEventSource_MissingTargetType(t *testing.T) {
 	body := `{"target_id": "job-1"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/event-sources/src-1/subscribe", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // handleListEventSourceSubscriptions.
@@ -304,18 +276,13 @@ func TestHandleListEventSourceSubscriptions_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/event-sources/src-1/subscriptions", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []domain.EventSubscription
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 subscription, got %d", len(resp))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t,
+		resp, 1)
 }
 
 // handleDeleteEventSubscription.
@@ -337,10 +304,9 @@ func TestHandleDeleteEventSubscription_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-1", "", "proj-1"))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
@@ -357,10 +323,9 @@ func TestHandleDeleteEventSubscription_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/src-1/subscriptions/sub-999", "", "proj-1"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // handleDispatchEvent.
@@ -399,18 +364,12 @@ func TestHandleDispatchEvent_Success(t *testing.T) {
 	body := `{"source":"my-source","project_id":"proj-1","payload":{"type":"deploy"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["dispatched"].(float64)) != 1 {
-		t.Fatalf("expected dispatched=1, got %v", resp["dispatched"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, 1, int(resp["dispatched"].(float64)))
 }
 
 func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
@@ -425,10 +384,9 @@ func TestHandleDispatchEvent_SourceNotFound(t *testing.T) {
 	body := `{"source":"nonexistent","project_id":"proj-1","payload":{}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
@@ -445,13 +403,11 @@ func TestHandleDispatchEvent_SourceDisabled(t *testing.T) {
 	body := `{"source":"my-source","project_id":"proj-1","payload":{}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "disabled") {
-		t.Fatalf("expected 'disabled' in error, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
+	require.Contains(
+		t, w.Body.String(), "disabled")
 }
 
 func TestHandleDispatchEvent_InvalidBody(t *testing.T) {
@@ -460,8 +416,7 @@ func TestHandleDispatchEvent_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/events/dispatch", "not json"))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }

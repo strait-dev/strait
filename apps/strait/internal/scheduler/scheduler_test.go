@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockSchedulerStore struct {
@@ -309,9 +310,7 @@ func TestScheduler_New(t *testing.T) {
 	}
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
-	if s == nil {
-		t.Fatal("expected scheduler to be non-nil")
-	}
+	require.NotNil(t, s)
 }
 
 func TestScheduler_Components_RegistersRequiredLoops(t *testing.T) {
@@ -339,14 +338,12 @@ func TestScheduler_Components_RegistersRequiredLoops(t *testing.T) {
 		"memory_cleanup",
 	}
 	for _, name := range required {
-		if !names[name] {
-			t.Fatalf("expected component %q to be registered", name)
-		}
+		require.True(t, names[name])
 	}
 	for i, name := range required {
-		if components[i].name != name {
-			t.Fatalf("component %d = %q, want %q", i, components[i].name, name)
-		}
+		require.Equal(t, name,
+			components[i].
+				name)
 	}
 }
 
@@ -368,9 +365,7 @@ func TestScheduler_Components_SkipsUnsetOptionalLoops(t *testing.T) {
 		"concurrent_reconciler",
 		"heartbeat_gc",
 	} {
-		if names[name] {
-			t.Fatalf("component %q registered without being configured", name)
-		}
+		require.False(t, names[name])
 	}
 }
 
@@ -398,10 +393,12 @@ func TestScheduler_TrackComponents_SkipsInvalidComponents(t *testing.T) {
 	select {
 	case got := <-ran:
 		if got != "valid" {
-			t.Fatalf("unexpected component ran: %s", got)
+			require.Failf(t, "test failure",
+
+				"unexpected component ran: %s", got)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("valid component did not run")
+		require.Fail(t, "valid component did not run")
 	}
 
 	cancel()
@@ -413,7 +410,7 @@ func TestScheduler_TrackComponents_SkipsInvalidComponents(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("tracked component did not stop")
+		require.Fail(t, "tracked component did not stop")
 	}
 }
 
@@ -432,10 +429,10 @@ func TestWithBudgetMonitoringStores_WiresSpendingStore(t *testing.T) {
 	s := &Scheduler{budgetMonitor: NewBudgetMonitor(struct{}{}, nil, time.Minute)}
 
 	WithBudgetMonitoringStores(spending, nil, nil)(s)
-
-	if s.budgetMonitor.spendingStore != spending {
-		t.Fatal("expected spending store to be wired into budget monitor")
-	}
+	require.Equal(t, spending,
+		s.budgetMonitor.
+			spendingStore,
+	)
 }
 
 func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
@@ -445,10 +442,9 @@ func TestWithSLOEvaluator_WiresSchedulerComponent(t *testing.T) {
 	s := &Scheduler{}
 
 	WithSLOEvaluator(evaluator)(s)
-
-	if s.sloEvaluator != evaluator {
-		t.Fatal("expected SLO evaluator to be wired into scheduler")
-	}
+	require.Equal(t, evaluator,
+		s.sloEvaluator,
+	)
 }
 
 func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
@@ -458,10 +454,8 @@ func TestWithHeartbeatGC_WiresSchedulerComponent(t *testing.T) {
 	s := &Scheduler{}
 
 	WithHeartbeatGC(gc)(s)
-
-	if s.heartbeatGC != gc {
-		t.Fatal("expected heartbeat GC to be wired into scheduler")
-	}
+	require.Equal(t, gc,
+		s.heartbeatGC)
 }
 
 func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
@@ -471,10 +465,9 @@ func TestWithGracePeriodEnforcer_WiresSchedulerComponent(t *testing.T) {
 	s := &Scheduler{}
 
 	WithGracePeriodEnforcer(enforcer)(s)
-
-	if s.gracePeriodEnforcer != enforcer {
-		t.Fatal("expected grace period enforcer to be wired into scheduler")
-	}
+	require.Equal(t, enforcer,
+		s.gracePeriodEnforcer,
+	)
 }
 
 func TestScheduler_Start_Success(t *testing.T) {
@@ -490,9 +483,8 @@ func TestScheduler_Start_Success(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t,
+		s.Start(ctx))
 
 	cancel()
 	s.Stop()
@@ -512,12 +504,9 @@ func TestScheduler_Start_LoadJobsError(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "load cron jobs") {
-		t.Fatalf("expected load cron jobs error, got %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "load cron jobs")
 }
 
 func TestScheduler_Stop(t *testing.T) {
@@ -533,9 +522,8 @@ func TestScheduler_Stop(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	require.NoError(t,
+		s.Start(ctx))
 
 	cancel()
 	s.Stop()
@@ -556,9 +544,8 @@ func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	require.NoError(t,
+		s.Start(ctx))
 
 	cancel()
 
@@ -572,7 +559,7 @@ func TestScheduler_Stop_CompletesWithinTimeout(t *testing.T) {
 	case <-done:
 		// Stop completed without deadlock.
 	case <-time.After(10 * time.Second):
-		t.Fatal("Scheduler.Stop() did not complete within 10s, possible deadlock")
+		require.Fail(t, "Scheduler.Stop() did not complete within 10s, possible deadlock")
 	}
 }
 
@@ -589,9 +576,8 @@ func TestScheduler_Stop_CalledTwice_NoPanic(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	require.NoError(t,
+		s.Start(ctx))
 
 	cancel()
 	s.Stop()
@@ -613,13 +599,8 @@ func TestScheduler_Start_LoadJobsError_Wrapped(t *testing.T) {
 
 	s := New(context.Background(), testSchedulerConfig(), store, &mockQueue{}, nil, nil)
 	err := s.Start(context.Background())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "load cron jobs") {
-		t.Errorf("error should wrap with 'load cron jobs', got: %v", err)
-	}
-	if !errors.Is(err, storeErr) {
-		t.Errorf("error should wrap original error, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "load cron jobs")
+	assert.ErrorIs(t, err, storeErr)
 }

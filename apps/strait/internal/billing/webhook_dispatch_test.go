@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeDispatcher struct {
@@ -44,41 +46,46 @@ func TestDispatchBillingWebhook_PayloadShape(t *testing.T) {
 		"org_123", domain.PlanScale, domain.WebhookEventBillingCapWarning,
 		map[string]any{"spend_pct": 0.81, "limit_microusd": int64(500_000_000)},
 	)
-	if err != nil {
-		t.Fatalf("DispatchBillingWebhook err = %v", err)
-	}
-	if len(d.calls) != 1 {
-		t.Fatalf("dispatcher calls = %d, want 1", len(d.calls))
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, d.
+		calls, 1)
+
 	call := d.calls[0]
-	if call.orgID != "org_123" {
-		t.Errorf("orgID = %q, want org_123", call.orgID)
-	}
-	if call.eventType != domain.WebhookEventBillingCapWarning {
-		t.Errorf("eventType = %q, want %q", call.eventType, domain.WebhookEventBillingCapWarning)
-	}
+	assert.Equal(t, "org_123",
+		call.orgID,
+	)
+	assert.Equal(t, domain.
+		WebhookEventBillingCapWarning,
+
+		call.
+			eventType,
+	)
+
 	var env BillingEventEnvelope
-	if err := json.Unmarshal(call.payload, &env); err != nil {
-		t.Fatalf("payload not valid JSON: %v (%q)", err, call.payload)
-	}
-	if env.EventID == "" {
-		t.Error("event_id missing")
-	}
-	if env.EventType != domain.WebhookEventBillingCapWarning {
-		t.Errorf("env.event_type = %q", env.EventType)
-	}
-	if env.OrgID != "org_123" {
-		t.Errorf("env.org_id = %q", env.OrgID)
-	}
-	if env.PlanTier != string(domain.PlanScale) {
-		t.Errorf("env.plan_tier = %q, want %q", env.PlanTier, domain.PlanScale)
-	}
-	if env.OccurredAt == "" {
-		t.Error("occurred_at missing")
-	}
-	if env.Detail["spend_pct"] == nil {
-		t.Errorf("detail.spend_pct missing: %+v", env.Detail)
-	}
+	require.NoError(t,
+		json.Unmarshal(
+			call.payload,
+			&env))
+	assert.NotEmpty(t,
+		env.EventID,
+	)
+	assert.Equal(t, domain.
+		WebhookEventBillingCapWarning,
+
+		env.
+			EventType,
+	)
+	assert.Equal(t, "org_123",
+		env.OrgID,
+	)
+	assert.Equal(t, string(domain.PlanScale), env.
+		PlanTier)
+	assert.NotEmpty(t,
+		env.OccurredAt,
+	)
+	assert.NotNil(t,
+		env.Detail["spend_pct"])
 }
 
 func TestDispatchBillingWebhook_PropagatesDispatcherError(t *testing.T) {
@@ -88,25 +95,31 @@ func TestDispatchBillingWebhook_PropagatesDispatcherError(t *testing.T) {
 	d := &fakeDispatcher{err: sentinel}
 	err := DispatchBillingWebhook(context.Background(), d,
 		"org", domain.PlanPro, domain.WebhookEventBillingDelinquent, nil)
-	if !errors.Is(err, sentinel) {
-		t.Errorf("err = %v, want sentinel error", err)
-	}
+	assert.ErrorIs(t, err, sentinel)
 }
 
 func TestDispatchBillingWebhook_ValidatesInputs(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	if err := DispatchBillingWebhook(ctx, nil, "o", domain.PlanFree, "x", nil); err == nil {
-		t.Error("nil dispatcher should error")
-	}
+	require.Error(t, DispatchBillingWebhook(ctx,
+		nil, "o", domain.
+			PlanFree,
+		"x",
+
+		nil))
+
 	d := &fakeDispatcher{}
-	if err := DispatchBillingWebhook(ctx, d, "", domain.PlanFree, "x", nil); err == nil {
-		t.Error("empty orgID should error")
-	}
-	if err := DispatchBillingWebhook(ctx, d, "o", domain.PlanFree, "", nil); err == nil {
-		t.Error("empty eventType should error")
-	}
+	require.Error(t, DispatchBillingWebhook(ctx,
+		d, "", domain.
+			PlanFree,
+		"x", nil,
+	))
+	assert.Error(t, DispatchBillingWebhook(ctx,
+		d, "o", domain.
+			PlanFree,
+		"", nil,
+	))
 }
 
 func TestValidWebhookEventTypes_IncludesBilling(t *testing.T) {
@@ -138,13 +151,9 @@ func TestValidWebhookEventTypes_IncludesBilling(t *testing.T) {
 		"WebhookEventSLACreditIssued":              domain.WebhookEventSLACreditIssued,
 	}
 	for name, w := range want {
-		if got[name] != w {
-			t.Errorf("%s = %q, want %q (string is wire-stable; change requires schema bump)",
-				name, got[name], w)
-		}
-		if !strings.Contains(w, ".") {
-			t.Errorf("event type %q must contain a dotted namespace", w)
-		}
+		assert.Equal(t, w,
+			got[name])
+		assert.Contains(t, w, ".")
 	}
 }
 
@@ -154,7 +163,7 @@ func TestEnforcer_WithBillingDispatcher(t *testing.T) {
 	d := &fakeDispatcher{}
 	e := &Enforcer{}
 	WithBillingDispatcher(d)(e)
-	if e.billingDispatcher == nil {
-		t.Fatal("billingDispatcher not set")
-	}
+	require.NotNil(t,
+		e.billingDispatcher,
+	)
 }

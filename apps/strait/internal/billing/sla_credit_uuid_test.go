@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The store layer convention is UUID v7 for primary keys used in
@@ -21,25 +23,19 @@ func TestSLACredit_IDUsesUUIDV7(t *testing.T) {
 	store := newFakeSLAStore(newTestContract("org-uuid-test", EnterpriseTierStarter))
 	calc := NewSLACalculator(store, fakeUptimeSource{pct: 93.0}, time.Hour, nil).
 		WithClock(fixedClock(now))
-
-	if err := calc.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
+	require.NoError(t,
+		calc.Tick(context.
+			Background()))
 
 	row, err := store.GetSLACredit(context.Background(), "org-uuid-test", periodStart, periodEnd)
-	if err != nil {
-		t.Fatalf("GetSLACredit: %v", err)
-	}
-	if row == nil {
-		t.Fatal("expected an SLA credit row to be inserted")
-		return
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		row)
 
 	parsed, err := uuid.Parse(row.ID)
-	if err != nil {
-		t.Fatalf("ID %q is not a valid UUID: %v", row.ID, err)
-	}
-	if v := parsed.Version(); v != 7 {
-		t.Errorf("ID version = %d, want 7 (store-layer convention); ID = %q", v, row.ID)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 7,
+		parsed.Version())
 }

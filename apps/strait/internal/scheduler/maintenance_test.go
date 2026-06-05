@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMaintenanceLoop_Run(t *testing.T) {
@@ -18,16 +20,13 @@ func TestMaintenanceLoop_Run(t *testing.T) {
 	defer cancel()
 
 	loop.Run(ctx)
-
-	if ticks.Load() < 2 {
-		t.Fatalf("ticks = %d, want >= 2", ticks.Load())
-	}
+	require.GreaterOrEqual(t, ticks.Load(), int32(2))
 }
 
 func TestMaintenanceLoop_DefaultInterval(t *testing.T) {
 	t.Parallel()
 	loop := NewMaintenanceLoop("default-interval", 0, nil, nil)
-	if loop.interval != time.Second {
-		t.Fatalf("interval = %v, want %v", loop.interval, time.Second)
-	}
+	require.Equal(t, time.
+		Second, loop.
+		interval)
 }

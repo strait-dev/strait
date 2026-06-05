@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // dispatchHarness wires the moving parts that every spending-limit test
@@ -112,9 +114,8 @@ func TestDispatchSpendingLimit_NoLimitSet(t *testing.T) {
 	h := newDispatchHarness(t, sub, 9_999_999_999)
 
 	runDispatch(h, "run-no-limit")
-	if sawSystemFailed(h.store) {
-		t.Errorf("dispatch was rejected even though SpendingLimitMicrousd=-1 (no cap)")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
 }
 
 // TestDispatchSpendingLimit_BelowLimit_ProceedsAndIncrementsCounters
@@ -131,9 +132,8 @@ func TestDispatchSpendingLimit_BelowLimit_ProceedsAndIncrementsCounters(t *testi
 	h := newDispatchHarness(t, sub, 1_000_000) // $1 spent
 
 	runDispatch(h, "run-below-limit")
-	if sawSystemFailed(h.store) {
-		t.Errorf("dispatch was rejected with spend below the limit")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
 }
 
 // TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters verifies that
@@ -152,9 +152,7 @@ func TestDispatchSpendingLimit_OverLimit_RejectsBeforeCounters(t *testing.T) {
 	h := newDispatchHarness(t, sub, 5_000_000) // $5 spent
 
 	runDispatch(h, "run-over-limit")
-	if !sawSystemFailed(h.store) {
-		t.Errorf("expected system_failed when spending limit exceeded")
-	}
+	assert.True(t, sawSystemFailed(h.store))
 }
 
 // TestDispatchSpendingLimit_AtLimitRejects locks in the existing
@@ -173,9 +171,7 @@ func TestDispatchSpendingLimit_AtLimitRejects(t *testing.T) {
 	h := newDispatchHarness(t, sub, 2_500_000)
 
 	runDispatch(h, "run-at-limit")
-	if !sawSystemFailed(h.store) {
-		t.Errorf("expected rejection at exact-equal spend; isOverageLimitReached uses >=")
-	}
+	assert.True(t, sawSystemFailed(h.store))
 }
 
 // TestDispatchSpendingLimit_FreeTierZeroSpend_Proceeds confirms that
@@ -192,7 +188,6 @@ func TestDispatchSpendingLimit_FreeTierZeroSpend_Proceeds(t *testing.T) {
 	h := newDispatchHarness(t, sub, 0)
 
 	runDispatch(h, "run-free-zero")
-	if sawSystemFailed(h.store) {
-		t.Errorf("free tier with zero spend should not be blocked by spending check")
-	}
+	assert.False(t,
+		sawSystemFailed(h.store))
 }

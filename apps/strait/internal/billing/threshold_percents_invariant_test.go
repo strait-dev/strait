@@ -2,6 +2,8 @@ package billing
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestThresholdPercents_IsArrayNotSlice locks the immutability stance via
@@ -26,10 +28,7 @@ func TestThresholdPercents_IsArrayNotSlice(t *testing.T) {
 func TestThresholdPercents_StrictlyAscending(t *testing.T) {
 	t.Parallel()
 	for i := 1; i < len(thresholdPercents); i++ {
-		if thresholdPercents[i] <= thresholdPercents[i-1] {
-			t.Errorf("thresholdPercents not strictly ascending at index %d: %v",
-				i, thresholdPercents)
-		}
+		assert.Greater(t, thresholdPercents[i], thresholdPercents[i-1])
 	}
 }
 
@@ -40,9 +39,9 @@ func TestThresholdPercents_StrictlyAscending(t *testing.T) {
 func TestThresholdPercents_AllInValidRange(t *testing.T) {
 	t.Parallel()
 	for _, p := range thresholdPercents {
-		if p <= 0 || p > 100 {
-			t.Errorf("threshold %d outside (0, 100]; would emit silently or constantly", p)
-		}
+		assert.False(t, p <=
+
+			0 || p > 100)
 	}
 }
 
@@ -53,8 +52,7 @@ func TestThresholdPercents_AllInValidRange(t *testing.T) {
 func TestThresholdPercents_CanonicalValues(t *testing.T) {
 	t.Parallel()
 	want := [...]int{80, 90, 100}
-	if thresholdPercents != want {
-		t.Errorf("canonical threshold buckets changed: got %v, want %v",
-			thresholdPercents, want)
-	}
+	assert.Equal(t, want,
+
+		thresholdPercents)
 }

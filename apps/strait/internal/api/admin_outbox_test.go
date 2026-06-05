@@ -6,12 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 type adminOutboxStoreMock struct {
@@ -73,22 +74,18 @@ func TestHandleAdminListOutbox_OK(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/admin/outbox", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var rows []AdminOutboxRow
 	decodePaginatedList(t, w.Body.Bytes(), &rows)
-	if len(rows) != 1 {
-		t.Fatalf("rows len = %d, want 1", len(rows))
-	}
-	if rows[0].ID != "outbox-1" {
-		t.Fatalf("row ID = %q, want %q", rows[0].ID, "outbox-1")
-	}
-	if rows[0].RetryOfOutboxID == nil || *rows[0].RetryOfOutboxID != lineage {
-		t.Fatalf("row RetryOfOutboxID = %v, want %q", rows[0].RetryOfOutboxID, lineage)
-	}
+	require.Len(t,
+		rows, 1)
+	require.Equal(t, "outbox-1", rows[0].ID)
+	require.False(t, rows[0].RetryOfOutboxID ==
+		nil || *rows[0].RetryOfOutboxID !=
+		lineage,
+	)
 }
 
 func TestHandleAdminGetOutbox_NotFound(t *testing.T) {
@@ -105,10 +102,9 @@ func TestHandleAdminGetOutbox_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/admin/outbox/missing", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleAdminOutbox_ForbiddenWithoutScope(t *testing.T) {
@@ -117,16 +113,24 @@ func TestHandleAdminOutbox_ForbiddenWithoutScope(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRunsRead})
 	if _, err := srv.handleAdminListOutbox(ctx, &ListAdminOutboxInput{}); err == nil {
-		t.Fatal("expected forbidden when caller lacks outbox:read")
+		require.Fail(t,
+
+			"expected forbidden when caller lacks outbox:read")
 	}
 	if _, err := srv.handleAdminGetOutbox(ctx, &GetAdminOutboxInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected forbidden when caller lacks outbox:read")
+		require.Fail(t,
+
+			"expected forbidden when caller lacks outbox:read")
 	}
 	if _, err := srv.handleAdminRetryOutbox(ctx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected forbidden when caller lacks outbox:retry")
+		require.Fail(t,
+
+			"expected forbidden when caller lacks outbox:retry")
 	}
 	if _, err := srv.handleAdminPurgeOutbox(ctx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected forbidden when caller lacks outbox:purge")
+		require.Fail(t,
+
+			"expected forbidden when caller lacks outbox:purge")
 	}
 }
 
@@ -160,25 +164,30 @@ func TestHandleAdminOutbox_EnvironmentScopedCallerForbidden(t *testing.T) {
 
 	readCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxRead})
 	if _, err := srv.handleAdminListOutbox(readCtx, &ListAdminOutboxInput{}); err == nil {
-		t.Fatal("expected environment-scoped outbox list to be forbidden")
+		require.Fail(t,
+
+			"expected environment-scoped outbox list to be forbidden")
 	}
 	if _, err := srv.handleAdminGetOutbox(readCtx, &GetAdminOutboxInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected environment-scoped outbox get to be forbidden")
+		require.Fail(t,
+
+			"expected environment-scoped outbox get to be forbidden")
 	}
 
 	retryCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxRetry})
 	if _, err := srv.handleAdminRetryOutbox(retryCtx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected environment-scoped outbox retry to be forbidden")
+		require.Fail(t,
+
+			"expected environment-scoped outbox retry to be forbidden")
 	}
 
 	purgeCtx := context.WithValue(ctx, ctxScopesKey, []string{domain.ScopeOutboxPurge})
 	if _, err := srv.handleAdminPurgeOutbox(purgeCtx, &AdminOutboxMutationInput{OutboxID: "outbox-1"}); err == nil {
-		t.Fatal("expected environment-scoped outbox purge to be forbidden")
-	}
+		require.Fail(t,
 
-	if storeCalled {
-		t.Fatal("environment-scoped outbox admin request reached the outbox store")
+			"expected environment-scoped outbox purge to be forbidden")
 	}
+	require.False(t, storeCalled)
 }
 
 func TestHandleAdminRetryOutbox_Unauthorized(t *testing.T) {
@@ -188,10 +197,9 @@ func TestHandleAdminRetryOutbox_Unauthorized(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/retry", nil)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleAdminGetOutbox_OK_IncludesRetryLineage(t *testing.T) {
@@ -217,18 +225,17 @@ func TestHandleAdminGetOutbox_OK_IncludesRetryLineage(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/admin/outbox/outbox-1", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var out AdminOutboxRow
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if out.RetryOfOutboxID == nil || *out.RetryOfOutboxID != lineage {
-		t.Fatalf("RetryOfOutboxID = %v, want %q", out.RetryOfOutboxID, lineage)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &out,
+	))
+	require.False(t, out.RetryOfOutboxID ==
+		nil || *out.
+		RetryOfOutboxID != lineage,
+	)
 }
 
 func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
@@ -272,31 +279,33 @@ func TestHandleAdminRetryOutbox_OK_WritesAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/retry", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var out struct {
 		OutboxID      string `json:"outbox_id"`
 		RetryOutboxID string `json:"retry_outbox_id"`
 		OK            bool   `json:"ok"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if out.OutboxID != "outbox-1" || out.RetryOutboxID != "retry-1" || !out.OK {
-		t.Fatalf("unexpected response: %+v", out)
-	}
-	if gotAudit == nil {
-		t.Fatal("expected audit event to be written")
-	}
-	if gotAudit.Action != "outbox.retry" {
-		t.Fatalf("audit action = %s, want outbox.retry", gotAudit.Action)
-	}
-	if gotAudit.ResourceType != "enqueue_outbox" || gotAudit.ResourceID != "outbox-1" {
-		t.Fatalf("unexpected audit resource: %s/%s", gotAudit.ResourceType, gotAudit.ResourceID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &out,
+	))
+	require.False(t, out.OutboxID !=
+		"outbox-1" ||
+		out.RetryOutboxID !=
+			"retry-1" ||
+		!out.
+			OK)
+	require.NotNil(t, gotAudit)
+	require.Equal(t, "outbox.retry",
+		gotAudit.
+			Action)
+	require.False(t, gotAudit.ResourceType !=
+		"enqueue_outbox" ||
+		gotAudit.ResourceID !=
+			"outbox-1",
+	)
+
 	assertOutboxAuditDetailsRedacted(t, gotAudit.Details, []string{
 		"retry-payload-token",
 		"retry payload secret",
@@ -330,10 +339,9 @@ func TestHandleAdminRetryOutbox_ConflictWhenActiveCloneExists(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/retry", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
@@ -343,9 +351,10 @@ func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
 	mock := &adminOutboxStoreMock{
 		APIStoreMock: &APIStoreMock{
 			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-				if ev.Action != "outbox.retry" {
-					t.Fatalf("audit action = %q, want outbox.retry", ev.Action)
-				}
+				require.Equal(t, "outbox.retry",
+					ev.Action,
+				)
+
 				return errors.New("audit unavailable")
 			},
 		},
@@ -376,13 +385,11 @@ func TestHandleAdminRetryOutbox_AuditFailureFailsRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/retry", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
-	}
-	if retryCalls != 1 {
-		t.Fatalf("retry calls = %d, want 1", retryCalls)
-	}
+		w.Code,
+	)
+	require.Equal(t, 1, retryCalls)
 }
 
 func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
@@ -416,27 +423,25 @@ func TestHandleAdminPurgeOutbox_OK_WritesAudit(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/purge", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var out struct {
 		OutboxID string `json:"outbox_id"`
 		OK       bool   `json:"ok"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if out.OutboxID != "outbox-1" || !out.OK {
-		t.Fatalf("unexpected response: %+v", out)
-	}
-	if gotAudit == nil {
-		t.Fatal("expected audit event to be written")
-	}
-	if gotAudit.Action != "outbox.purge" {
-		t.Fatalf("audit action = %s, want outbox.purge", gotAudit.Action)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &out,
+	))
+	require.False(t, out.OutboxID !=
+		"outbox-1" ||
+		!out.
+			OK)
+	require.NotNil(t, gotAudit)
+	require.Equal(t, "outbox.purge",
+		gotAudit.
+			Action)
+
 	assertOutboxAuditDetailsRedacted(t, gotAudit.Details, []string{
 		"purge-payload-token",
 		"purge payload secret",
@@ -451,9 +456,7 @@ func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, for
 
 	raw := string(details)
 	for _, value := range forbidden {
-		if strings.Contains(raw, value) {
-			t.Fatalf("audit details leaked %q: %s", value, raw)
-		}
+		require.NotContains(t, raw, value)
 	}
 	for _, required := range []string{
 		"payload_sha256",
@@ -464,9 +467,8 @@ func assertOutboxAuditDetailsRedacted(t *testing.T, details json.RawMessage, for
 		"error_present",
 		"error_bytes",
 	} {
-		if !strings.Contains(raw, required) {
-			t.Fatalf("audit details missing %q: %s", required, raw)
-		}
+		require.Contains(
+			t, raw, required)
 	}
 }
 
@@ -477,9 +479,10 @@ func TestHandleAdminPurgeOutbox_AuditFailureFailsRequest(t *testing.T) {
 	mock := &adminOutboxStoreMock{
 		APIStoreMock: &APIStoreMock{
 			CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-				if ev.Action != "outbox.purge" {
-					t.Fatalf("audit action = %q, want outbox.purge", ev.Action)
-				}
+				require.Equal(t, "outbox.purge",
+					ev.Action,
+				)
+
 				return errors.New("audit unavailable")
 			},
 		},
@@ -500,13 +503,11 @@ func TestHandleAdminPurgeOutbox_AuditFailureFailsRequest(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/purge", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
-	}
-	if purgeCalls != 1 {
-		t.Fatalf("purge calls = %d, want 1", purgeCalls)
-	}
+		w.Code,
+	)
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminPurgeOutbox_NotFound(t *testing.T) {
@@ -523,10 +524,9 @@ func TestHandleAdminPurgeOutbox_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/purge", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleAdminPurgeOutbox_ConflictForNonQuarantinedRow(t *testing.T) {
@@ -543,8 +543,7 @@ func TestHandleAdminPurgeOutbox_ConflictForNonQuarantinedRow(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodPost, "/v1/admin/outbox/outbox-1/purge", "", "proj-outbox")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -25,9 +27,9 @@ func orphanInvoicePayload(t *testing.T, invoiceID, customerID string) json.RawMe
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	return b
 }
 
@@ -46,9 +48,8 @@ func newOrphanTestEnforcer(t *testing.T) *Enforcer {
 func TestRecordOrphanInvoiceDelivery_NilEnforcerNoPanic(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(&mockBillingStore{}, NewStripeMapping("starter-id", "", "pro-id", ""), nil)
-	if h.enforcer != nil {
-		t.Fatal("test setup: expected nil enforcer")
-	}
+	require.Nil(t, h.enforcer)
+
 	h.recordOrphanInvoiceDelivery(context.Background(), "invoice.finalized", &stripe.Invoice{
 		ID:       "inv_no_enforcer",
 		Customer: &stripe.Customer{ID: "cust_no_enforcer"},
@@ -69,12 +70,11 @@ func TestHandleInvoiceFinalized_OrphanReturns200(t *testing.T) {
 	h.enforcer = newOrphanTestEnforcer(t)
 
 	rr := fireWebhook(t, h, "invoice.finalized", orphanInvoicePayload(t, "inv_orphan_fin", "cust_orphan_x"))
-	if rr.Code != http.StatusOK {
-		t.Errorf("orphan delivery must still return 200 (Stripe retries 5xx), got %d", rr.Code)
-	}
-	if len(audit.events) != 0 {
-		t.Errorf("orphan delivery must NOT emit an audit event, got %d", len(audit.events))
-	}
+	assert.Equal(t, http.
+		StatusOK, rr.
+		Code)
+	assert.Empty(t, audit.
+		events)
 }
 
 // TestHandleInvoicePaid_OrphanReturns200 proves the same shape for
@@ -88,9 +88,9 @@ func TestHandleInvoicePaid_OrphanReturns200(t *testing.T) {
 	h.enforcer = newOrphanTestEnforcer(t)
 
 	rr := fireWebhook(t, h, "invoice.paid", orphanInvoicePayload(t, "inv_orphan_paid", "cust_orphan_y"))
-	if rr.Code != http.StatusOK {
-		t.Errorf("orphan delivery must still return 200, got %d", rr.Code)
-	}
+	assert.Equal(t, http.
+		StatusOK, rr.
+		Code)
 }
 
 // TestHandleInvoicePaymentFailed_OrphanReturns200 proves the same shape for
@@ -104,9 +104,9 @@ func TestHandleInvoicePaymentFailed_OrphanReturns200(t *testing.T) {
 	h.enforcer = newOrphanTestEnforcer(t)
 
 	rr := fireWebhook(t, h, "invoice.payment_failed", orphanInvoicePayload(t, "inv_orphan_failed", "cust_orphan_z"))
-	if rr.Code != http.StatusOK {
-		t.Errorf("orphan delivery must still return 200, got %d", rr.Code)
-	}
+	assert.Equal(t, http.
+		StatusOK, rr.
+		Code)
 }
 
 // TestHandleInvoiceFinalized_KnownCustomerEmitsAudit proves the orphan path
@@ -129,10 +129,9 @@ func TestHandleInvoiceFinalized_KnownCustomerEmitsAudit(t *testing.T) {
 		AmountDue:  4900,
 	})
 	rr := fireWebhook(t, h, "invoice.finalized", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("known finalize: expected 200, got %d", rr.Code)
-	}
-	if len(audit.events) == 0 {
-		t.Fatal("expected audit event for known customer")
-	}
+	require.Equal(t,
+		http.StatusOK, rr.
+			Code)
+	require.NotEmpty(
+		t, audit.events)
 }

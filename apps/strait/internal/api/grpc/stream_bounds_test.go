@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBounds_Constants pins the worker-plane resource bounds. These caps are
@@ -39,9 +42,9 @@ func TestBounds_Constants(t *testing.T) {
 		{"maxRegistrationMetadataValueBytes", maxRegistrationMetadataValueBytes, 512},
 	}
 	for _, tc := range cases {
-		if tc.got != tc.want {
-			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
-		}
+		assert.Equal(t,
+			tc.want,
+			tc.got)
 	}
 }
 
@@ -52,7 +55,5 @@ func TestDeepSecHandleAck_OversizedRunIDRejectedBeforeStore(t *testing.T) {
 	err := svc.handleAck(context.Background(), "worker-1", "proj-1", &workerv1.Acknowledged{
 		Id: strings.Repeat("r", maxRunIDLen+1),
 	})
-	if err != nil {
-		t.Fatalf("oversized ack should be dropped without store access, got %v", err)
-	}
+	require.NoError(t, err)
 }

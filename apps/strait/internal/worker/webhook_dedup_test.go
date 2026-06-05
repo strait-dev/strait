@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSingleSendWebhookOnceImpl regresses fix #7: prior to dedupe, the
@@ -22,9 +24,7 @@ func TestSingleSendWebhookOnceImpl(t *testing.T) {
 
 	fset := token.NewFileSet()
 	files, err := filepath.Glob("webhook*.go")
-	if err != nil {
-		t.Fatalf("glob webhook files: %v", err)
-	}
+	require.NoError(t, err)
 
 	var matches []string
 	for _, path := range files {
@@ -32,9 +32,8 @@ func TestSingleSendWebhookOnceImpl(t *testing.T) {
 			continue
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatalf("parse %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Recv != nil {
@@ -45,12 +44,10 @@ func TestSingleSendWebhookOnceImpl(t *testing.T) {
 			}
 		}
 	}
+	require.Len(t,
+		matches, 1)
+	require.Equal(t,
+		"sendWebhookOnceWith",
 
-	if len(matches) != 1 {
-		t.Fatalf("expected exactly one sendWebhookOnce* helper, found %d: %v. "+
-			"Refactor callers onto the existing impl rather than duplicating.", len(matches), matches)
-	}
-	if matches[0] != "sendWebhookOnceWith" {
-		t.Fatalf("expected the sole impl to be sendWebhookOnceWith (client-injected), got %q", matches[0])
-	}
+		matches[0])
 }

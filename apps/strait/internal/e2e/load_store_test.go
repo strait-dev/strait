@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadStore_CreateJobThroughput(t *testing.T) {
@@ -25,9 +27,10 @@ func TestLoadStore_CreateJobThroughput(t *testing.T) {
 			`{"project_id":"%s","name":"store-job-%d","slug":"store-job-%d-%d","endpoint_url":"https://example.com/store","max_attempts":1,"timeout_secs":30}`,
 			projectID, i, time.Now().UnixNano(), i,
 		))
-		if w.Code != 201 {
-			t.Fatalf("create job %d: %d %s", i, w.Code, w.Body.String())
-		}
+		require.EqualValues(t, 201,
+
+			w.Code)
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Created %d jobs in %v (%.0f/sec)", volume, elapsed, float64(volume)/elapsed.Seconds())
@@ -65,10 +68,13 @@ func TestLoadStore_ConcurrentJobCreation(t *testing.T) {
 
 	t.Logf("Concurrent job creation: %d/%d succeeded in %v (%.0f/sec)",
 		successes.Load(), total, elapsed, float64(total)/elapsed.Seconds())
+	assert.LessOrEqual(t,
 
-	if failures.Load() > total/10 {
-		t.Errorf("too many failures: %d/%d", failures.Load(), total)
-	}
+		failures.
+			Load(), total/
+			10,
+	)
+
 }
 
 func TestLoadStore_EventTriggerThroughput(t *testing.T) {
@@ -90,9 +96,10 @@ func TestLoadStore_EventTriggerThroughput(t *testing.T) {
 			RequestedAt: time.Now(),
 			ExpiresAt:   time.Now().Add(time.Hour),
 		}
-		if err := testStore.CreateEventTrigger(ctx, trigger); err != nil {
-			t.Fatalf("create trigger %d: %v", i, err)
-		}
+		require.NoError(t, testStore.
+			CreateEventTrigger(ctx,
+				trigger))
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Created %d event triggers in %v (%.0f/sec)", volume, elapsed, float64(volume)/elapsed.Seconds())
@@ -108,9 +115,10 @@ func TestLoadStore_RunStatusTransitions(t *testing.T) {
 		`{"project_id":"%s","name":"store-trans","slug":"store-trans-%d","endpoint_url":"https://example.com/trans","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	runIDs := make([]string, volume)
@@ -160,9 +168,10 @@ func TestLoadStore_ConcurrentStatusTransitions(t *testing.T) {
 		`{"project_id":"%s","name":"store-ctrans","slug":"store-ctrans-%d","endpoint_url":"https://example.com/ctrans","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	runIDs := make([]string, volume)

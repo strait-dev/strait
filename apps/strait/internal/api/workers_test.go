@@ -3,11 +3,11 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
@@ -43,16 +43,14 @@ func TestHandleDeleteWorker_NilPubsubReturns503(t *testing.T) {
 	})
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatalf("expected error when pubsub is nil, got out=%+v", out)
-	}
+	require.Error(t, err)
+	require.Nil(t, out)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 503 {
-		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
+		GetStatus())
 }
 
 // TestHandleDeleteWorker_PublishErrorReturns503 ensures publish failure does
@@ -70,16 +68,14 @@ func TestHandleDeleteWorker_PublishErrorReturns503(t *testing.T) {
 	})
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatalf("expected error when publish fails, got out=%+v", out)
-	}
+	require.Error(t, err)
+	require.Nil(t, out)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 503 {
-		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
+		GetStatus())
 }
 
 // TestHandleDeleteWorker_HealthyPublishReturns200 confirms the happy path
@@ -107,21 +103,21 @@ func TestHandleDeleteWorker_HealthyPublishReturns200(t *testing.T) {
 	})
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out == nil || out.Body["status"] != "disconnected" {
-		t.Fatalf("expected disconnected envelope, got %+v", out)
-	}
-	if publishedChannel != "worker:disconnect:proj-1:worker-1" {
-		t.Fatalf("expected project-scoped disconnect channel, got %q", publishedChannel)
-	}
-	if subscribedChannel != "worker:disconnect_ack:proj-1:worker-1" {
-		t.Fatalf("expected project-scoped disconnect ack channel, got %q", subscribedChannel)
-	}
-	if publishedData != "worker-1" {
-		t.Fatalf("expected published data %q, got %q", "worker-1", publishedData)
-	}
+	require.NoError(t, err)
+	require.False(t, out ==
+		nil || out.
+		Body["status"] !=
+		"disconnected",
+	)
+	require.Equal(t, "worker:disconnect:proj-1:worker-1",
+
+		publishedChannel)
+	require.Equal(t, "worker:disconnect_ack:proj-1:worker-1",
+
+		subscribedChannel)
+	require.Equal(t, "worker-1",
+		publishedData,
+	)
 }
 
 func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
@@ -141,22 +137,21 @@ func TestHandleDeleteWorker_AckTimeoutReturns503(t *testing.T) {
 
 	start := time.Now()
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatalf("expected timeout error, got out=%+v", out)
-	}
-	if elapsed := time.Since(start); elapsed < workerDisconnectAckTimeout {
-		t.Fatalf("handler returned before ack timeout: %v", elapsed)
-	}
+	require.Error(t, err)
+	require.Nil(t, out)
+	require.GreaterOrEqual(
+		t, time.Since(start),
+		workerDisconnectAckTimeout,
+	)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 503 {
-		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
-	}
-	if !strings.Contains(err.Error(), "worker_disconnect_pending") {
-		t.Fatalf("expected worker_disconnect_pending error, got %v", err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
+		GetStatus())
+	require.Contains(
+		t, err.
+			Error(), "worker_disconnect_pending")
 }
 
 func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
@@ -176,16 +171,14 @@ func TestHandleDeleteWorker_ClosedAckChannelReturns503(t *testing.T) {
 	})
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatalf("expected closed ack channel to fail, got out=%+v", out)
-	}
+	require.Error(t, err)
+	require.Nil(t, out)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 503 {
-		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
+		GetStatus())
 }
 
 func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
@@ -201,16 +194,14 @@ func TestHandleDeleteWorker_MismatchedAckReturns503(t *testing.T) {
 	})
 
 	out, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatalf("expected mismatched ack to fail, got out=%+v", out)
-	}
+	require.Error(t, err)
+	require.Nil(t, out)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 503 {
-		t.Fatalf("expected 503, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 503, statusErr.
+		GetStatus())
 }
 
 // TestHandleDeleteWorker_UnknownWorker404 — cross-tenant existence guard:
@@ -222,16 +213,13 @@ func TestHandleDeleteWorker_UnknownWorker404(t *testing.T) {
 	})
 
 	_, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "ghost"})
-	if err == nil {
-		t.Fatal("expected 404 for unknown worker")
-	}
+	require.Error(t, err)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 404 {
-		t.Fatalf("expected 404, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 404, statusErr.
+		GetStatus())
 }
 
 // TestHandleDeleteWorker_StoreError404 — store failures should also yield
@@ -244,14 +232,11 @@ func TestHandleDeleteWorker_StoreError404(t *testing.T) {
 	})
 
 	_, err := srv.handleDeleteWorker(ctx, &DeleteWorkerInput{WorkerID: "worker-1"})
-	if err == nil {
-		t.Fatal("expected 404 when store errors")
-	}
+	require.Error(t, err)
+
 	var statusErr huma.StatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected huma.StatusError, got %T: %v", err, err)
-	}
-	if statusErr.GetStatus() != 404 {
-		t.Fatalf("expected 404, got %d (%v)", statusErr.GetStatus(), err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+	require.Equal(t, 404, statusErr.
+		GetStatus())
 }

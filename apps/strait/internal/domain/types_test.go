@@ -3,6 +3,8 @@ package domain
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
@@ -24,9 +26,8 @@ func TestWorkflowRunStatus_IsTerminal(t *testing.T) {
 		got[tc.status] = tc.status.IsTerminal()
 		want[tc.status] = tc.expected
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("IsTerminal map mismatch: got=%v want=%v", got, want)
-	}
+	require.True(t,
+		reflect.DeepEqual(got, want))
 }
 
 func TestStepRunStatus_IsTerminal(t *testing.T) {
@@ -50,25 +51,28 @@ func TestStepRunStatus_IsTerminal(t *testing.T) {
 		got[tc.status] = tc.status.IsTerminal()
 		want[tc.status] = tc.expected
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("IsTerminal map mismatch: got=%v want=%v", got, want)
-	}
+	require.True(t,
+		reflect.DeepEqual(got, want))
 }
 
 func TestEventTriggerStatusConstants(t *testing.T) {
 	t.Parallel()
-
-	if EventTriggerStatusWaiting != "waiting" || EventTriggerStatusReceived != "received" || EventTriggerStatusTimedOut != "timed_out" || EventTriggerStatusCanceled != "canceled" {
-		t.Fatalf("unexpected event trigger status constants: %q %q %q %q", EventTriggerStatusWaiting, EventTriggerStatusReceived, EventTriggerStatusTimedOut, EventTriggerStatusCanceled)
-	}
+	require.False(t,
+		EventTriggerStatusWaiting !=
+			"waiting" || EventTriggerStatusReceived !=
+			"received" ||
+			EventTriggerStatusTimedOut !=
+				"timed_out" ||
+			EventTriggerStatusCanceled !=
+				"canceled")
 }
 
 func TestWorkflowStepTypeWaitForEvent(t *testing.T) {
 	t.Parallel()
+	require.Equal(t,
+		"wait_for_event",
 
-	if string(WorkflowStepTypeWaitForEvent) != "wait_for_event" {
-		t.Fatalf("WorkflowStepTypeWaitForEvent = %q, want wait_for_event", WorkflowStepTypeWaitForEvent)
-	}
+		string(WorkflowStepTypeWaitForEvent))
 
 	// Verify it is distinct from existing step types.
 	types := []WorkflowStepType{
@@ -79,19 +83,16 @@ func TestWorkflowStepTypeWaitForEvent(t *testing.T) {
 	}
 	seen := make(map[WorkflowStepType]struct{}, len(types))
 	for _, st := range types {
-		if _, dup := seen[st]; dup {
-			t.Fatalf("duplicate step type: %s", st)
-		}
+		require.NotContains(t, seen, st)
 		seen[st] = struct{}{}
 	}
 }
 
 func TestDefaultEventTimeoutSecs(t *testing.T) {
 	t.Parallel()
-
-	if DefaultEventTimeoutSecs != 3600 {
-		t.Fatalf("DefaultEventTimeoutSecs = %d, want 3600", DefaultEventTimeoutSecs)
-	}
+	require.Equal(t,
+		3600, DefaultEventTimeoutSecs,
+	)
 }
 
 func TestDeploymentStrategy_Valid(t *testing.T) {
@@ -104,9 +105,7 @@ func TestDeploymentStrategy_Valid(t *testing.T) {
 		{DeploymentStrategyCanary, true},
 	}
 	for _, tc := range tests {
-		if got := tc.strategy.IsValid(); got != tc.valid {
-			t.Fatalf("DeploymentStrategy(%q).IsValid() = %v, want %v", tc.strategy, got, tc.valid)
-		}
+		require.Equal(t, tc.valid, tc.strategy.IsValid())
 	}
 }
 
@@ -120,8 +119,8 @@ func TestDeploymentStrategy_Invalid(t *testing.T) {
 		{DeploymentStrategy("rolling")},
 	}
 	for _, tc := range tests {
-		if tc.strategy.IsValid() {
-			t.Fatalf("DeploymentStrategy(%q).IsValid() = true, want false", tc.strategy)
-		}
+		require.False(t,
+			tc.strategy.
+				IsValid())
 	}
 }

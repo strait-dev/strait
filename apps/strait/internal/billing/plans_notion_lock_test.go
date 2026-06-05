@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Notion canonical values (source: "Strait — Pricing Model", page
@@ -96,33 +99,31 @@ func TestNotionLock_TierConstants(t *testing.T) {
 
 	for _, w := range want {
 		got, ok := Plans[w.planTier]
-		if !ok {
-			t.Fatalf("Plans[%q] missing", w.planTier)
-		}
-		if got.PriceMonthlyUsd != w.priceMonthlyCents {
-			t.Errorf("%s PriceMonthlyUsd = %d, want %d", w.planTier, got.PriceMonthlyUsd, w.priceMonthlyCents)
-		}
-		if got.PriceAnnualUsd != w.priceAnnualCents {
-			t.Errorf("%s PriceAnnualUsd = %d, want %d", w.planTier, got.PriceAnnualUsd, w.priceAnnualCents)
-		}
-		if got.MaxRunsPerMonth != w.maxRunsPerMonth {
-			t.Errorf("%s MaxRunsPerMonth = %d, want %d", w.planTier, got.MaxRunsPerMonth, w.maxRunsPerMonth)
-		}
-		if got.MaxConcurrentRuns != w.maxConcurrentRuns {
-			t.Errorf("%s MaxConcurrentRuns = %d, want %d", w.planTier, got.MaxConcurrentRuns, w.maxConcurrentRuns)
-		}
-		if got.RetentionDays != w.retentionDays {
-			t.Errorf("%s RetentionDays = %d, want %d", w.planTier, got.RetentionDays, w.retentionDays)
-		}
-		if got.MaxEnvironments != w.maxEnvironments {
-			t.Errorf("%s MaxEnvironments = %d, want %d", w.planTier, got.MaxEnvironments, w.maxEnvironments)
-		}
-		if got.CronMinIntervalSec != w.cronMinIntervalSec {
-			t.Errorf("%s CronMinIntervalSec = %d, want %d", w.planTier, got.CronMinIntervalSec, w.cronMinIntervalSec)
-		}
-		if got.OveragePerKMicrousd != w.overagePerKMicrousd {
-			t.Errorf("%s OveragePerKMicrousd = %d, want %d", w.planTier, got.OveragePerKMicrousd, w.overagePerKMicrousd)
-		}
+		require.True(t, ok)
+		assert.Equal(t, w.
+			priceMonthlyCents, got.PriceMonthlyUsd,
+		)
+		assert.Equal(t, w.
+			priceAnnualCents, got.PriceAnnualUsd,
+		)
+		assert.Equal(t, w.
+			maxRunsPerMonth, got.MaxRunsPerMonth,
+		)
+		assert.Equal(t, w.
+			maxConcurrentRuns, got.MaxConcurrentRuns,
+		)
+		assert.Equal(t, w.
+			retentionDays, got.RetentionDays,
+		)
+		assert.Equal(t, w.
+			maxEnvironments, got.MaxEnvironments,
+		)
+		assert.Equal(t, w.
+			cronMinIntervalSec, got.CronMinIntervalSec,
+		)
+		assert.Equal(t, w.
+			overagePerKMicrousd, got.OveragePerKMicrousd,
+		)
 	}
 }
 
@@ -141,9 +142,8 @@ func TestNotionLock_SpendingCapsMicrousd(t *testing.T) {
 		{"Business", MaxSpendingBusiness, 1_500_000_000},
 	}
 	for _, c := range cases {
-		if c.got != c.want {
-			t.Errorf("MaxSpending%s = %d, want %d", c.name, c.got, c.want)
-		}
+		assert.Equal(t, c.
+			want, c.got)
 	}
 }
 
@@ -159,25 +159,24 @@ func TestNotionLock_AddonPrices(t *testing.T) {
 	}
 	for at, wantCents := range want {
 		pack, ok := AddonPacks[at]
-		if !ok {
-			t.Fatalf("AddonPacks[%q] missing", at)
-		}
-		if pack.PriceCents != wantCents {
-			t.Errorf("AddonPacks[%q].PriceCents = %d, want %d", at, pack.PriceCents, wantCents)
-		}
+		require.True(t, ok)
+		assert.Equal(t, wantCents,
+
+			pack.PriceCents)
 	}
 }
 
 func TestNotionLock_SLACreditBands(t *testing.T) {
 	t.Parallel()
+	require.Len(t, SLACreditTiers,
 
-	if len(SLACreditTiers) != 3 {
-		t.Fatalf("len(SLACreditTiers) = %d, want 3 (Notion canonical 10/25/50)", len(SLACreditTiers))
-	}
+		3)
+
 	want := []int{10, 25, 50}
 	for i, w := range want {
-		if SLACreditTiers[i].CreditPct != w {
-			t.Errorf("SLACreditTiers[%d].CreditPct = %d, want %d", i, SLACreditTiers[i].CreditPct, w)
-		}
+		assert.Equal(t, w,
+
+			SLACreditTiers[i].CreditPct,
+		)
 	}
 }

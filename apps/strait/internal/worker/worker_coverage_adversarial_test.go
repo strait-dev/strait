@@ -15,6 +15,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // adaptive.go:Run -- context cancellation, error handling, probe updates
@@ -36,7 +38,7 @@ func TestAdaptiveRun_NilProbe_ReturnsImmediately(t *testing.T) {
 	case <-done:
 		// expected: Run returns immediately for nil probe
 	case <-time.After(time.Second):
-		t.Fatal("Run did not return for nil probe")
+		require.Fail(t, "Run did not return for nil probe")
 	}
 }
 
@@ -72,10 +74,12 @@ func TestAdaptiveRun_ContextCancellation(t *testing.T) {
 	select {
 	case <-done:
 		if probeCalls.Load() == 0 {
-			t.Fatal("probe was never called before cancellation")
+			require.Fail(t,
+
+				"probe was never called before cancellation")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not exit after context cancellation")
+		require.Fail(t, "Run did not exit after context cancellation")
 	}
 }
 
@@ -115,14 +119,12 @@ func TestAdaptiveRun_ProbeError_ContinuesPolling(t *testing.T) {
 
 	cancel()
 	<-done
+	require.Greater(t,
+		callCount.Load(), int32(3))
+	require.Greater(t,
+		a.CurrentLimit(), 10)
 
-	if callCount.Load() <= 3 {
-		t.Fatalf("expected probe to be called after errors, got %d calls", callCount.Load())
-	}
 	// After the successful probe with deep queue, limit should have increased.
-	if a.CurrentLimit() <= 10 {
-		t.Fatalf("expected limit to increase from 10, got %d", a.CurrentLimit())
-	}
 }
 
 func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
@@ -145,10 +147,9 @@ func TestAdaptiveRun_ZeroInterval_DefaultsTo10s(t *testing.T) {
 	// With a 10s default interval, no probe should fire in 50ms.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
-
-	if probeCalls.Load() > 0 {
-		t.Fatalf("expected 0 probe calls with 10s default interval in 50ms window, got %d", probeCalls.Load())
-	}
+	require.LessOrEqual(t, probeCalls.
+		Load(), int32(0),
+	)
 }
 
 func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
@@ -184,7 +185,7 @@ func TestAdaptiveRun_NilLogger_DoesNotPanic(t *testing.T) {
 	case <-done:
 		// no panic
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not exit")
+		require.Fail(t, "Run did not exit")
 	}
 }
 
@@ -216,10 +217,8 @@ func TestAdaptiveRun_UpdatesLimit_WhenProbeSignalsLoad(t *testing.T) {
 
 	cancel()
 	<-done
-
-	if a.CurrentLimit() <= 10 {
-		t.Fatalf("Run did not update limit: got %d, wanted > 10", a.CurrentLimit())
-	}
+	require.Greater(t,
+		a.CurrentLimit(), 10)
 }
 
 func TestAdaptiveConcurrency_ConcurrentAccess(t *testing.T) {
@@ -239,9 +238,9 @@ func TestAdaptiveConcurrency_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	lim := a.CurrentLimit()
-	if lim < 1 || lim > 1000 {
-		t.Fatalf("limit out of bounds after concurrent access: %d", lim)
-	}
+	require.False(t,
+		lim < 1 || lim >
+			1000)
 }
 
 func TestAdaptiveConcurrency_ZeroQueueDepth_ScaleDown(t *testing.T) {
@@ -251,9 +250,7 @@ func TestAdaptiveConcurrency_ZeroQueueDepth_ScaleDown(t *testing.T) {
 	// At minimum: two idle checks should not go below min.
 	_ = a.Observe(0, 0.0)
 	next := a.Observe(0, 0.0)
-	if next != 1 {
-		t.Fatalf("expected min=1, got %d", next)
-	}
+	require.Equal(t, 1, next)
 }
 
 func TestAdaptiveConcurrency_MaxQueueDepth_ScaleUp(t *testing.T) {
@@ -262,9 +259,7 @@ func TestAdaptiveConcurrency_MaxQueueDepth_ScaleUp(t *testing.T) {
 	a := NewAdaptiveConcurrency(1, 50, 25)
 	// Max int queue depth should not overflow.
 	next := a.Observe(1<<30, 1.0)
-	if next != 50 {
-		t.Fatalf("expected max=50, got %d", next)
-	}
+	require.Equal(t, 50, next)
 }
 
 func TestAdaptiveConcurrency_RapidFluctuations(t *testing.T) {
@@ -279,9 +274,9 @@ func TestAdaptiveConcurrency_RapidFluctuations(t *testing.T) {
 	}
 
 	lim := a.CurrentLimit()
-	if lim < 5 || lim > 100 {
-		t.Fatalf("limit out of bounds after fluctuations: %d", lim)
-	}
+	require.False(t,
+		lim < 5 || lim >
+			100)
 }
 
 func TestAdaptiveConcurrency_NegativeInterval_DefaultsGracefully(t *testing.T) {
@@ -371,14 +366,10 @@ func TestRunEventsFromDomain_EmptySlice(t *testing.T) {
 
 	run := &domain.JobRun{ID: "run-1", ProjectID: "proj-1", JobID: "job-1"}
 	records := runEventsFromDomain(run, nil)
-	if len(records) != 0 {
-		t.Fatalf("expected 0 records for nil events, got %d", len(records))
-	}
+	require.Empty(t, records)
 
 	records = runEventsFromDomain(run, []domain.RunEvent{})
-	if len(records) != 0 {
-		t.Fatalf("expected 0 records for empty events, got %d", len(records))
-	}
+	require.Empty(t, records)
 }
 
 func TestRunEventsFromDomain_EmptyStrings(t *testing.T) {
@@ -390,16 +381,19 @@ func TestRunEventsFromDomain_EmptyStrings(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-	if len(records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(records))
-	}
+	require.Len(t, records,
+		1)
+
 	r := records[0]
-	if r.EventID != "" || r.RunID != "" || r.ProjectID != "" || r.JobID != "" {
-		t.Errorf("expected all empty IDs, got %+v", r)
-	}
-	if r.Metadata != "" {
-		t.Errorf("expected empty metadata for nil Data, got %q", r.Metadata)
-	}
+	assert.False(t,
+		r.EventID != "" ||
+			r.RunID !=
+				"" ||
+			r.ProjectID !=
+				"" || r.JobID !=
+			"")
+	assert.Empty(t,
+		r.Metadata)
 }
 
 func TestRunEventsFromDomain_MalformedJSON(t *testing.T) {
@@ -418,13 +412,14 @@ func TestRunEventsFromDomain_MalformedJSON(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-	if len(records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(records))
-	}
+	require.Len(t, records,
+		1)
+	assert.Equal(t,
+		`{broken json`, records[0].
+			Metadata,
+	)
+
 	// Data is treated as raw bytes, not validated for JSON correctness.
-	if records[0].Metadata != `{broken json` {
-		t.Errorf("expected raw bytes as metadata, got %q", records[0].Metadata)
-	}
 }
 
 func TestRunEventsFromDomain_LargeDataField(t *testing.T) {
@@ -443,12 +438,10 @@ func TestRunEventsFromDomain_LargeDataField(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-	if len(records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(records))
-	}
-	if len(records[0].Metadata) != len(bigData) {
-		t.Errorf("metadata length = %d, want %d", len(records[0].Metadata), len(bigData))
-	}
+	require.Len(t, records,
+		1)
+	assert.Len(t, records[0].Metadata,
+		len(bigData))
 }
 
 func TestRunEventsFromDomain_MixedEventTypes(t *testing.T) {
@@ -463,20 +456,26 @@ func TestRunEventsFromDomain_MixedEventTypes(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-	if len(records) != 3 {
-		t.Fatalf("expected 3 records, got %d", len(records))
-	}
+	require.Len(t, records,
+		3)
+	assert.False(t,
+		records[0].EventType !=
+			"log" ||
+			records[0].Level !=
+				"info")
+	assert.False(t,
+		records[1].EventType !=
+			"error" ||
+			records[1].
+				Metadata != `{"code":500}`,
+	)
+	assert.False(t,
+		records[2].Message !=
+			"" ||
+			records[2].Metadata !=
+				"")
 
 	// Verify each record preserves the correct fields.
-	if records[0].EventType != "log" || records[0].Level != "info" {
-		t.Errorf("record 0 mismatch: type=%s level=%s", records[0].EventType, records[0].Level)
-	}
-	if records[1].EventType != "error" || records[1].Metadata != `{"code":500}` {
-		t.Errorf("record 1 mismatch: type=%s metadata=%s", records[1].EventType, records[1].Metadata)
-	}
-	if records[2].Message != "" || records[2].Metadata != "" {
-		t.Errorf("record 2 mismatch: message=%q metadata=%q", records[2].Message, records[2].Metadata)
-	}
 }
 
 func TestClickHouseSubscriber_DurationCalculation_NoStartTime(t *testing.T) {
@@ -500,10 +499,7 @@ func TestClickHouseSubscriber_DurationCalculation_NoStartTime(t *testing.T) {
 			FinishedAt: &now,
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_DurationCalculation_NoFinishTime(t *testing.T) {
@@ -526,10 +522,7 @@ func TestClickHouseSubscriber_DurationCalculation_NoFinishTime(t *testing.T) {
 			StartedAt: &now,
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NegativeDuration(t *testing.T) {
@@ -555,10 +548,7 @@ func TestClickHouseSubscriber_NegativeDuration(t *testing.T) {
 			FinishedAt: &now,
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_ZeroQueueWait(t *testing.T) {
@@ -575,10 +565,7 @@ func TestClickHouseSubscriber_ZeroQueueWait(t *testing.T) {
 		Run:       &domain.JobRun{ID: "run-zqw", ProjectID: "proj-1"},
 		QueueWait: 0,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilJob_EmptyExecutionMode(t *testing.T) {
@@ -595,10 +582,7 @@ func TestClickHouseSubscriber_NilJob_EmptyExecutionMode(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-nilj", ProjectID: "proj-1"},
 		Job:  nil, // nil job
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_AnalyticsAndEventsEnqueued(t *testing.T) {
@@ -644,10 +628,7 @@ func TestClickHouseSubscriber_AnalyticsAndEventsEnqueued(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	if exporter.PendingCount() != 2 {
-		t.Errorf("expected 2 pending (analytics+event), got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 2, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NonTerminalTypes_NoEnqueue(t *testing.T) {
@@ -669,10 +650,7 @@ func TestClickHouseSubscriber_NonTerminalTypes_NoEnqueue(t *testing.T) {
 				Type: et,
 				Run:  &domain.JobRun{ID: "run-nt", ProjectID: "proj-1"},
 			})
-
-			if exporter.PendingCount() != 0 {
-				t.Errorf("expected 0 pending for non-terminal %s, got %d", et, exporter.PendingCount())
-			}
+			assert.Equal(t, 0, exporter.PendingCount())
 		})
 	}
 }
@@ -695,10 +673,7 @@ func TestClickHouseSubscriber_TagsMarshalSpecialChars(t *testing.T) {
 			Tags:      map[string]string{"key\"with\"quotes": "val\nwith\nnewlines", "emoji": "hello"},
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestRunEventsFromDomain_PreservesAllFields(t *testing.T) {
@@ -719,36 +694,35 @@ func TestRunEventsFromDomain_PreservesAllFields(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-	if len(records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(records))
-	}
+	require.Len(t, records,
+		1)
 
 	r := records[0]
-	if r.EventID != "evt-fields" {
-		t.Errorf("EventID = %q, want %q", r.EventID, "evt-fields")
-	}
-	if r.RunID != "run-fields" {
-		t.Errorf("RunID = %q, want %q", r.RunID, "run-fields")
-	}
-	if r.ProjectID != "proj-fields" {
-		t.Errorf("ProjectID = %q, want %q", r.ProjectID, "proj-fields")
-	}
-	if r.JobID != "job-fields" {
-		t.Errorf("JobID = %q, want %q", r.JobID, "job-fields")
-	}
-	if r.EventType != "custom_type" {
-		t.Errorf("EventType = %q, want %q", r.EventType, "custom_type")
-	}
-	if r.Level != "warn" {
-		t.Errorf("Level = %q, want %q", r.Level, "warn")
-	}
-	if r.Message != "something happened" {
-		t.Errorf("Message = %q, want %q", r.Message, "something happened")
-	}
-	if r.Metadata != `[1,2,3]` {
-		t.Errorf("Metadata = %q, want %q", r.Metadata, `[1,2,3]`)
-	}
-	if !r.CreatedAt.Equal(now) {
-		t.Errorf("CreatedAt = %v, want %v", r.CreatedAt, now)
-	}
+	assert.Equal(t,
+		"evt-fields", r.EventID,
+	)
+	assert.Equal(t,
+		"run-fields", r.RunID,
+	)
+	assert.Equal(t,
+		"proj-fields", r.
+			ProjectID)
+	assert.Equal(t,
+		"job-fields", r.JobID,
+	)
+	assert.Equal(t,
+		"custom_type", r.
+			EventType)
+	assert.Equal(t,
+		"warn", r.Level)
+	assert.Equal(t,
+		"something happened",
+		r.Message,
+	)
+	assert.Equal(t,
+		`[1,2,3]`, r.Metadata,
+	)
+	assert.True(t, r.
+		CreatedAt.Equal(
+		now))
 }

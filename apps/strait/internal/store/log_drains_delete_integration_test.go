@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Integration tests for DeleteLogDrain, which had zero direct coverage
@@ -27,9 +29,8 @@ func createDrainForDelete(t *testing.T, ctx context.Context, q *store.Queries, p
 		AuthType:    "none",
 		Enabled:     true,
 	}
-	if err := q.CreateLogDrain(ctx, drain); err != nil {
-		t.Fatalf("CreateLogDrain: %v", err)
-	}
+	require.NoError(t, q.CreateLogDrain(ctx, drain))
+
 	return drain
 }
 
@@ -40,13 +41,14 @@ func TestDeleteLogDrain_RemovesRow(t *testing.T) {
 
 	projectID := "proj-drain-del-" + newID()
 	drain := createDrainForDelete(t, ctx, q, projectID, "deleteme")
-
-	if err := q.DeleteLogDrain(ctx, drain.ID, projectID); err != nil {
-		t.Fatalf("DeleteLogDrain: %v", err)
-	}
+	require.NoError(t, q.DeleteLogDrain(ctx, drain.
+		ID, projectID,
+	))
 
 	if _, err := q.GetLogDrain(ctx, drain.ID, projectID); !errors.Is(err, store.ErrLogDrainNotFound) {
-		t.Fatalf("GetLogDrain after delete: err = %v, want ErrLogDrainNotFound", err)
+		require.Failf(t, "test failure",
+
+			"GetLogDrain after delete: err = %v, want ErrLogDrainNotFound", err)
 	}
 }
 
@@ -56,9 +58,10 @@ func TestDeleteLogDrain_NotFound_ReturnsErr(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.DeleteLogDrain(ctx, "drain-does-not-exist", "proj-"+newID())
-	if !errors.Is(err, store.ErrLogDrainNotFound) {
-		t.Fatalf("err = %v, want ErrLogDrainNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrLogDrainNotFound,
+	))
+
 }
 
 func TestDeleteLogDrain_WrongProject_NoOp(t *testing.T) {
@@ -74,15 +77,17 @@ func TestDeleteLogDrain_WrongProject_NoOp(t *testing.T) {
 	// Attempt to delete A's drain while asserting project = B.
 	// Must return not-found without actually deleting anything.
 	if err := q.DeleteLogDrain(ctx, drain.ID, projectB); !errors.Is(err, store.ErrLogDrainNotFound) {
-		t.Fatalf("cross-tenant delete: err = %v, want ErrLogDrainNotFound", err)
+		require.Failf(t, "test failure",
+
+			"cross-tenant delete: err = %v, want ErrLogDrainNotFound", err)
 	}
 
 	// A's drain must still be there.
 	got, err := q.GetLogDrain(ctx, drain.ID, projectA)
-	if err != nil {
-		t.Fatalf("GetLogDrain after cross-tenant delete attempt: %v", err)
-	}
-	if got.ID != drain.ID {
-		t.Fatalf("drain ID = %q, want %q", got.ID, drain.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, drain.
+		ID,
+		got.ID,
+	)
+
 }

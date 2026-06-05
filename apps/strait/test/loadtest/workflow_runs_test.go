@@ -11,6 +11,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -132,13 +133,22 @@ func TestWorkflowRuns_PauseResume(t *testing.T) {
 	ctx := context.Background()
 	for _, workflowRunID := range workflowRunIDs {
 		run, err := testStore.GetWorkflowRun(ctx, workflowRunID)
-		if err != nil {
-			t.Fatalf("get workflow run %s: %v", workflowRunID, err)
-		}
+		require.NoError(t,
+
+			err)
+
 		if run.Status == domain.WfStatusPending {
-			if err := testStore.UpdateWorkflowRunStatus(ctx, workflowRunID, domain.WfStatusPending, domain.WfStatusRunning, nil); err != nil {
-				t.Fatalf("set workflow run %s to running: %v", workflowRunID, err)
-			}
+			require.NoError(t,
+
+				testStore.
+					UpdateWorkflowRunStatus(ctx, workflowRunID,
+						domain.
+							WfStatusPending,
+
+						domain.WfStatusRunning,
+
+						nil))
+
 		}
 	}
 

@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateAuditEvent_ShardChainsAreIndependent asserts that two shards in
@@ -38,9 +41,8 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 		ResourceID:   "j-1",
 		Details:      json.RawMessage(`{"i":0}`),
 	}
-	if err := q.CreateAuditEvent(ctx, jobA); err != nil {
-		t.Fatalf("CreateAuditEvent jobA: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, jobA))
+
 	jobB := &domain.AuditEvent{
 		ProjectID:    projectID,
 		ShardID:      "job",
@@ -51,9 +53,7 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 		ResourceID:   "j-2",
 		Details:      json.RawMessage(`{"i":1}`),
 	}
-	if err := q.CreateAuditEvent(ctx, jobB); err != nil {
-		t.Fatalf("CreateAuditEvent jobB: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, jobB))
 
 	// Write two events into shard "workflow".
 	wfA := &domain.AuditEvent{
@@ -66,9 +66,8 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 		ResourceID:   "w-1",
 		Details:      json.RawMessage(`{"i":0}`),
 	}
-	if err := q.CreateAuditEvent(ctx, wfA); err != nil {
-		t.Fatalf("CreateAuditEvent wfA: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, wfA))
+
 	wfB := &domain.AuditEvent{
 		ProjectID:    projectID,
 		ShardID:      "workflow",
@@ -79,47 +78,55 @@ func TestCreateAuditEvent_ShardChainsAreIndependent(t *testing.T) {
 		ResourceID:   "w-2",
 		Details:      json.RawMessage(`{"i":1}`),
 	}
-	if err := q.CreateAuditEvent(ctx, wfB); err != nil {
-		t.Fatalf("CreateAuditEvent wfB: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, wfB))
+	assert.Equal(t, store.ZeroHash,
+
+		jobA.
+			PreviousHash,
+	)
+	assert.Equal(t, store.ZeroHash,
+
+		wfA.
+			PreviousHash,
+	)
+	assert.Equal(t, jobA.Signature,
+
+		jobB.
+			PreviousHash,
+	)
+	assert.Equal(t, wfA.Signature,
+
+		wfB.
+			PreviousHash,
+	)
 
 	// Each shard's first row must start from ZeroHash. If the tail read
 	// were not shard-scoped, the second shard's first event would chain
 	// from the first shard's tail instead.
-	if jobA.PreviousHash != store.ZeroHash {
-		t.Errorf("jobA.PreviousHash = %s, want ZeroHash", jobA.PreviousHash)
-	}
-	if wfA.PreviousHash != store.ZeroHash {
-		t.Errorf("wfA.PreviousHash = %s, want ZeroHash (shards must be independent)", wfA.PreviousHash)
-	}
 
 	// Within a shard, the second event must chain from the first.
-	if jobB.PreviousHash != jobA.Signature {
-		t.Errorf("jobB.PreviousHash = %s, want jobA.Signature = %s", jobB.PreviousHash, jobA.Signature)
-	}
-	if wfB.PreviousHash != wfA.Signature {
-		t.Errorf("wfB.PreviousHash = %s, want wfA.Signature = %s", wfB.PreviousHash, wfA.Signature)
-	}
 
 	// All shard rows must be v4 because the canonical form binds shard_id.
-	for name, ev := range map[string]*domain.AuditEvent{"jobA": jobA, "jobB": jobB, "wfA": wfA, "wfB": wfB} {
-		if ev.SchemaVersion < 4 {
-			t.Errorf("%s.SchemaVersion = %d, want >= 4 (shard-aware writes force v4)", name, ev.SchemaVersion)
-		}
+	for _, ev := range map[string]*domain.AuditEvent{"jobA": jobA, "jobB": jobB, "wfA": wfA, "wfB": wfB} {
+		assert.GreaterOrEqual(t,
+
+			ev.SchemaVersion,
+			uint16(4),
+		)
+
 	}
 
 	// VerifyAuditChain must walk each shard as its own sub-chain and
 	// report a clean Valid=true.
 	result, verr := q.VerifyAuditChain(ctx, projectID)
-	if verr != nil {
-		t.Fatalf("VerifyAuditChain: %v", verr)
-	}
-	if !result.Valid {
-		t.Fatalf("VerifyAuditChain invalid: %s (broken at %s)", result.Error, result.BrokenAtID)
-	}
-	if result.EventsChecked != 4 {
-		t.Errorf("EventsChecked = %d, want 4", result.EventsChecked)
-	}
+	require.Nil(t, verr)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 4, result.
+		EventsChecked,
+	)
+
 }
 
 // TestCreateAuditEvent_AutoDerivesShardFromResourceType asserts that
@@ -147,15 +154,16 @@ func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 		ResourceID:   "j-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, jobEv); err != nil {
-		t.Fatalf("CreateAuditEvent jobEv: %v", err)
-	}
-	if jobEv.ShardID != "job" {
-		t.Errorf("jobEv.ShardID = %q, want %q (auto-derived from resource_type)", jobEv.ShardID, "job")
-	}
-	if jobEv.SchemaVersion < 4 {
-		t.Errorf("jobEv.SchemaVersion = %d, want >= 4 (shard-aware writes force v4)", jobEv.SchemaVersion)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, jobEv))
+	assert.Equal(t, "job",
+		jobEv.
+			ShardID,
+	)
+	assert.GreaterOrEqual(t,
+
+		jobEv.SchemaVersion,
+
+		uint16(4))
 
 	// A second event of a different resource_type lands in its own shard
 	// and chains from ZeroHash, not from the prior jobEv.
@@ -168,15 +176,16 @@ func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 		ResourceID:   "w-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, wfEv); err != nil {
-		t.Fatalf("CreateAuditEvent wfEv: %v", err)
-	}
-	if wfEv.ShardID != "workflow" {
-		t.Errorf("wfEv.ShardID = %q, want %q (auto-derived from resource_type)", wfEv.ShardID, "workflow")
-	}
-	if wfEv.PreviousHash != store.ZeroHash {
-		t.Errorf("wfEv.PreviousHash = %s, want ZeroHash (different shard must not chain from job tail)", wfEv.PreviousHash)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, wfEv))
+	assert.Equal(t, "workflow",
+
+		wfEv.
+			ShardID)
+	assert.Equal(t, store.ZeroHash,
+
+		wfEv.
+			PreviousHash,
+	)
 
 	// A subsequent job event chains from the job shard tail, not the
 	// workflow row that landed in between.
@@ -189,26 +198,25 @@ func TestCreateAuditEvent_AutoDerivesShardFromResourceType(t *testing.T) {
 		ResourceID:   "j-2",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, jobEv2); err != nil {
-		t.Fatalf("CreateAuditEvent jobEv2: %v", err)
-	}
-	if jobEv2.ShardID != "job" {
-		t.Errorf("jobEv2.ShardID = %q, want %q", jobEv2.ShardID, "job")
-	}
-	if jobEv2.PreviousHash != jobEv.Signature {
-		t.Errorf("jobEv2.PreviousHash = %s, want jobEv.Signature = %s (shard tail must skip workflow row)", jobEv2.PreviousHash, jobEv.Signature)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, jobEv2))
+	assert.Equal(t, "job",
+		jobEv2.
+			ShardID,
+	)
+	assert.Equal(t, jobEv.Signature,
+
+		jobEv2.PreviousHash,
+	)
 
 	result, verr := q.VerifyAuditChain(ctx, projectID)
-	if verr != nil {
-		t.Fatalf("VerifyAuditChain: %v", verr)
-	}
-	if !result.Valid {
-		t.Fatalf("VerifyAuditChain invalid: %s", result.Error)
-	}
-	if result.EventsChecked != 3 {
-		t.Errorf("EventsChecked = %d, want 3", result.EventsChecked)
-	}
+	require.Nil(t, verr)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 3, result.
+		EventsChecked,
+	)
+
 }
 
 // TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted asserts that an
@@ -242,7 +250,9 @@ func TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted(t *testing.T) {
 			NOW() - INTERVAL '1 minute', 3, FALSE, 0, ''
 		)
 	`, projectID); err != nil {
-		t.Fatalf("seed legacy row: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed legacy row: %v", err)
 	}
 
 	// Auto-derived shard write: ResourceType "job" → shard "job". Must
@@ -257,15 +267,17 @@ func TestCreateAuditEvent_LegacyEmptyShardRowNotPolluted(t *testing.T) {
 		ResourceID:   "j-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, jobEv); err != nil {
-		t.Fatalf("CreateAuditEvent jobEv: %v", err)
-	}
-	if jobEv.ShardID != "job" {
-		t.Errorf("jobEv.ShardID = %q, want %q", jobEv.ShardID, "job")
-	}
-	if jobEv.PreviousHash != store.ZeroHash {
-		t.Errorf("jobEv.PreviousHash = %s, want ZeroHash (shard 'job' must not chain from legacy '' row)", jobEv.PreviousHash)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, jobEv))
+	assert.Equal(t, "job",
+		jobEv.
+			ShardID,
+	)
+	assert.Equal(t, store.ZeroHash,
+
+		jobEv.
+			PreviousHash,
+	)
+
 }
 
 // TestVerifyAuditChain_DetectsCrossShardForgery asserts that flipping a
@@ -294,9 +306,7 @@ func TestVerifyAuditChain_DetectsCrossShardForgery(t *testing.T) {
 		ResourceID:   "j-1",
 		Details:      json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
 
 	// Flip the row's shard_id out-of-band, bypassing CreateAuditEvent so
 	// the signature is not recomputed. The verifier must detect the
@@ -304,17 +314,18 @@ func TestVerifyAuditChain_DetectsCrossShardForgery(t *testing.T) {
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE audit_events SET shard_id = 'workflow' WHERE id = $1
 	`, ev.ID); err != nil {
-		t.Fatalf("forge shard_id: %v", err)
+		require.Failf(t, "test failure",
+
+			"forge shard_id: %v", err)
 	}
 
 	result, verr := q.VerifyAuditChain(ctx, projectID)
-	if verr != nil {
-		t.Fatalf("VerifyAuditChain: %v", verr)
-	}
-	if result.Valid {
-		t.Fatal("VerifyAuditChain returned Valid=true for a row whose shard_id was forged out-of-band")
-	}
-	if result.BrokenAtID != ev.ID {
-		t.Errorf("BrokenAtID = %s, want %s", result.BrokenAtID, ev.ID)
-	}
+	require.Nil(t, verr)
+	require.False(t, result.
+		Valid)
+	assert.Equal(t, ev.ID,
+		result.
+			BrokenAtID,
+	)
+
 }

@@ -7,21 +7,22 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleAdminListDLQ_OK(t *testing.T) {
 	t.Parallel()
 	mock := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if projectID == "" {
-				t.Fatalf("projectID must be propagated")
-			}
+			require.NotEmpty(t, projectID)
+
 			return []domain.JobRun{{
 				ID: "run-1", JobID: "job-1", ProjectID: projectID,
 				Status: domain.StatusDeadLetter, CreatedAt: time.Now(),
@@ -33,13 +34,10 @@ func TestHandleAdminListDLQ_OK(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/admin/dlq", "")
 	r.Header.Set("X-Project-Id", "proj-admin-list")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(mock.ListDeadLetterRunsCalls()) != 1 {
-		t.Fatalf("expected one store call, got %d", len(mock.ListDeadLetterRunsCalls()))
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Len(t, mock.ListDeadLetterRunsCalls(), 1)
 }
 
 func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
@@ -52,9 +50,10 @@ func TestHandleAdminReplayDLQ_NotFound(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/missing/replay", ""))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
@@ -67,9 +66,10 @@ func TestHandleAdminReplayDLQ_Conflict(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-conflict/replay", ""))
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusConflict,
+		w.Code,
+	)
 }
 
 func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
@@ -94,27 +94,27 @@ func TestHandleAdminReplayDLQ_OK_WritesAudit(t *testing.T) {
 	}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/replay", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(mock.ReplayDeadLetterRunWithAuditCalls()) != 1 {
-		t.Fatalf("expected 1 store call, got %d", len(mock.ReplayDeadLetterRunWithAuditCalls()))
-	}
-	if seenAudit == nil {
-		t.Fatal("expected an audit envelope to be handed to the store")
-	}
-	if seenAudit.Action != "dlq.replay" {
-		t.Errorf("unexpected action: %s", seenAudit.Action)
-	}
-	if seenAudit.ResourceType != "job_run" {
-		t.Errorf("unexpected resource type: %s", seenAudit.ResourceType)
-	}
-	if seenAudit.ResourceID != "run-1" {
-		t.Errorf("unexpected resource id: %s", seenAudit.ResourceID)
-	}
-	if enqueuedExisting != "run-1" {
-		t.Errorf("EnqueueExisting run = %q, want run-1", enqueuedExisting)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Len(t, mock.ReplayDeadLetterRunWithAuditCalls(),
+		1)
+	require.NotNil(t, seenAudit)
+	assert.Equal(t, "dlq.replay",
+		seenAudit.
+			Action,
+	)
+	assert.Equal(t, "job_run",
+		seenAudit.
+			ResourceType,
+	)
+	assert.Equal(t, "run-1",
+		seenAudit.
+			ResourceID,
+	)
+	assert.Equal(t, "run-1",
+		enqueuedExisting,
+	)
 }
 
 func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
@@ -134,9 +134,10 @@ func TestHandleAdminUnmaskDLQ_Conflict(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-x/unmask", ""))
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusConflict,
+		w.Code,
+	)
 }
 
 func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
@@ -151,21 +152,21 @@ func TestHandleAdminUnmaskDLQ_AuditFailureFailsRequest(t *testing.T) {
 			return nil
 		},
 		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			if ev.Action != "dlq.unmask" {
-				t.Fatalf("audit action = %q, want dlq.unmask", ev.Action)
-			}
+			require.Equal(t, "dlq.unmask",
+				ev.
+					Action)
+
 			return errors.New("audit unavailable")
 		},
 	}
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/unmask", ""))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
-	}
-	if unmaskCalls != 1 {
-		t.Fatalf("expected unmask attempt before audit failure, got %d", unmaskCalls)
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+
+		w.Code)
+	require.Equal(t, 1, unmaskCalls)
 }
 
 func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
@@ -180,21 +181,20 @@ func TestHandleAdminPurgeDLQ_OK(t *testing.T) {
 			return nil
 		},
 		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			if ev.Action != "dlq.purge" {
-				t.Errorf("unexpected action: %s", ev.Action)
-			}
+			assert.Equal(t, "dlq.purge",
+				ev.
+					Action)
+
 			return nil
 		},
 	}
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if purgeCalls != 1 {
-		t.Fatalf("expected 1 purge call, got %d", purgeCalls)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
@@ -209,21 +209,21 @@ func TestHandleAdminPurgeDLQ_AuditFailureFailsRequest(t *testing.T) {
 			return nil
 		},
 		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			if ev.Action != "dlq.purge" {
-				t.Fatalf("audit action = %q, want dlq.purge", ev.Action)
-			}
+			require.Equal(t, "dlq.purge",
+				ev.
+					Action)
+
 			return errors.New("audit unavailable")
 		},
 	}
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when audit write fails, got %d: %s", w.Code, w.Body.String())
-	}
-	if purgeCalls != 1 {
-		t.Fatalf("expected purge attempt before audit failure, got %d", purgeCalls)
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+
+		w.Code)
+	require.Equal(t, 1, purgeCalls)
 }
 
 func TestHandleAdminListDLQ_ForbiddenWithEmptyScopes(t *testing.T) {
@@ -234,16 +234,24 @@ func TestHandleAdminListDLQ_ForbiddenWithEmptyScopes(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{})
 	if _, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{}); err == nil {
-		t.Fatal("expected 403 for empty-but-non-nil scopes on admin list")
+		require.Fail(t,
+
+			"expected 403 for empty-but-non-nil scopes on admin list")
 	}
 	if _, err := srv.handleAdminReplayDLQ(ctx, &AdminDLQRunInput{RunID: "r"}); err == nil {
-		t.Fatal("expected 403 for empty-but-non-nil scopes on admin replay")
+		require.Fail(t,
+
+			"expected 403 for empty-but-non-nil scopes on admin replay")
 	}
 	if _, err := srv.handleAdminUnmaskDLQ(ctx, &AdminDLQRunInput{RunID: "r"}); err == nil {
-		t.Fatal("expected 403 for empty-but-non-nil scopes on admin unmask")
+		require.Fail(t,
+
+			"expected 403 for empty-but-non-nil scopes on admin unmask")
 	}
 	if _, err := srv.handleAdminPurgeDLQ(ctx, &AdminDLQRunInput{RunID: "r"}); err == nil {
-		t.Fatal("expected 403 for empty-but-non-nil scopes on admin purge")
+		require.Fail(t,
+
+			"expected 403 for empty-but-non-nil scopes on admin purge")
 	}
 }
 
@@ -257,9 +265,7 @@ func TestHandleAdminListDLQ_ForbiddenWithoutScope(t *testing.T) {
 	// Prepare a context with scopes that exclude dlq:read.
 	ctx := context.WithValue(context.Background(), ctxScopesKey, []string{domain.ScopeRunsRead})
 	_, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{})
-	if err == nil {
-		t.Fatal("expected forbidden error when caller lacks dlq:read scope")
-	}
+	require.Error(t, err)
 }
 
 func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -287,17 +293,14 @@ func TestHandleAdminListDLQ_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
 	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
 
 	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Limit: "10"})
-	if err != nil {
-		t.Fatalf("handleAdminListDLQ: %v", err)
-	}
+	require.NoError(t, err)
 
 	runs, ok := out.Body.Data.([]domain.JobRun)
-	if !ok {
-		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
-	}
-	if len(runs) != 1 || runs[0].ID != "run-prod" {
-		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
-	}
+	require.True(t, ok)
+	require.False(t, len(runs) != 1 ||
+		runs[0].ID !=
+			"run-prod",
+	)
 }
 
 func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -312,9 +315,10 @@ func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testin
 		},
 		ListDeadLetterRunsFilteredFunc: func(_ context.Context, _ string, _ *string, masked *bool, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			filteredCalls++
-			if masked == nil || !*masked {
-				t.Fatalf("expected masked=true filter, got %v", masked)
-			}
+			require.False(t, masked ==
+				nil ||
+				!*masked)
+
 			return []domain.JobRun{
 				{ID: "run-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-time.Minute)},
 				{ID: "run-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.StatusDeadLetter, CreatedAt: time.Now().Add(-2 * time.Minute)},
@@ -335,23 +339,16 @@ func TestHandleAdminListDLQ_FilteredEnvironmentScopeFiltersForeignRuns(t *testin
 	ctx := context.WithValue(envScopedRunCtx(), ctxScopesKey, []string{domain.ScopeDLQRead})
 
 	out, err := srv.handleAdminListDLQ(ctx, &ListAdminDLQInput{Masked: "true", Limit: "10"})
-	if err != nil {
-		t.Fatalf("handleAdminListDLQ: %v", err)
-	}
+	require.NoError(t, err)
 
 	runs, ok := out.Body.Data.([]domain.JobRun)
-	if !ok {
-		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
-	}
-	if len(runs) != 1 || runs[0].ID != "run-prod" {
-		t.Fatalf("filtered admin DLQ runs = %+v, want only env-prod run", runs)
-	}
-	if filteredCalls != 1 {
-		t.Fatalf("filtered store calls = %d, want 1", filteredCalls)
-	}
-	if unfilteredCalls != 0 {
-		t.Fatalf("unfiltered store calls = %d, want 0", unfilteredCalls)
-	}
+	require.True(t, ok)
+	require.False(t, len(runs) != 1 ||
+		runs[0].ID !=
+			"run-prod",
+	)
+	require.Equal(t, 1, filteredCalls)
+	require.Equal(t, 0, unfilteredCalls)
 }
 
 // TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed verifies that
@@ -377,15 +374,12 @@ func TestHandleAdminPurgeDLQ_AuditWriteFailure_FailsClosed(t *testing.T) {
 	srv := newTestServer(t, mock, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/admin/dlq/run-1/purge", ""))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when audit persistence fails, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(buf.String(), "dlq purge failed") {
-		t.Fatalf("expected 'dlq purge failed' log entry, got: %s", buf.String())
-	}
-	if !strings.Contains(buf.String(), "run_id=run-1") {
-		t.Fatalf("expected run_id in log entry, got: %s", buf.String())
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+
+		w.Code)
+	require.Contains(t, buf.String(), "dlq purge failed")
+	require.Contains(t, buf.String(), "run_id=run-1")
 }
 
 // TestHandleAdminListDLQ_MaskedFilter verifies the masked filter is
@@ -402,15 +396,13 @@ func TestHandleAdminListDLQ_MaskedFilter(t *testing.T) {
 		},
 		ListDeadLetterRunsFilteredFunc: func(_ context.Context, projectID string, jobID *string, masked *bool, _ int, _ *time.Time) ([]domain.JobRun, error) {
 			filteredCalls++
-			if projectID == "" {
-				t.Fatalf("projectID must be propagated")
-			}
-			if masked == nil || *masked != true {
-				t.Fatalf("expected masked=true filter, got %v", masked)
-			}
-			if jobID != nil {
-				t.Fatalf("did not expect jobID filter, got %v", *jobID)
-			}
+			require.NotEmpty(t, projectID)
+			require.False(t, masked ==
+				nil ||
+				*masked !=
+					true)
+			require.Nil(t, jobID)
+
 			return []domain.JobRun{{
 				ID: "run-masked", JobID: "job-1", ProjectID: projectID,
 				Status: domain.StatusDeadLetter, CreatedAt: time.Now(),
@@ -422,15 +414,11 @@ func TestHandleAdminListDLQ_MaskedFilter(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/admin/dlq?masked=true", "")
 	r.Header.Set("X-Project-Id", "proj-masked")
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if filteredCalls != 1 {
-		t.Fatalf("expected 1 filtered call, got %d", filteredCalls)
-	}
-	if unfilteredCalls != 0 {
-		t.Fatalf("expected 0 unfiltered calls, got %d", unfilteredCalls)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, 1, filteredCalls)
+	require.Equal(t, 0, unfilteredCalls)
 }
 
 // TestHandleAdminListDLQ_MaskedFilter_InvalidValue rejects values
@@ -443,7 +431,8 @@ func TestHandleAdminListDLQ_MaskedFilter_InvalidValue(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/admin/dlq?masked=yes", "")
 	r.Header.Set("X-Project-Id", "proj-x")
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid masked value, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code,
+	)
 }

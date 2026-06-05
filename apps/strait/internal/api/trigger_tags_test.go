@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleTriggerJob_RejectsOversizedTags(t *testing.T) {
@@ -39,11 +41,9 @@ func TestHandleTriggerJob_RejectsOversizedTags(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body.String(), "proj-1"))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "too many tags") {
-		t.Fatalf("body = %q, want tag validation error", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.String(), "too many tags")
 }

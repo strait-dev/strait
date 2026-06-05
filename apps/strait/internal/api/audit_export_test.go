@@ -19,6 +19,7 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	xhkdf "golang.org/x/crypto/hkdf"
 )
 
@@ -42,18 +43,13 @@ func TestAuditExport_JSON_IncludesSignature(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	if sig == "" {
-		t.Fatal("expected X-Audit-Signature header to be present")
-	}
-	if !strings.HasPrefix(sig, "sha256=") {
-		t.Fatalf("signature %q should start with sha256=", sig)
-	}
+	require.NotEmpty(t, sig)
+	require.True(
+		t, strings.HasPrefix(sig, "sha256="))
 }
 
 func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
@@ -92,14 +88,10 @@ func TestAuditExport_NoSigningKey_SkipsSignature(t *testing.T) {
 		Format: "ndjson",
 	}
 	_, err := srv.handleExportAuditEvents(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	if sig != "" {
-		t.Fatalf("expected no X-Audit-Signature when InternalSecret is empty, got %q", sig)
-	}
+	require.Empty(t, sig)
 }
 
 func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
@@ -107,7 +99,9 @@ func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
 
 	ms := &APIStoreMock{
 		StreamAuditEventsFunc: func(context.Context, string, string, string, time.Time, time.Time, func(*domain.AuditEvent) error) error {
-			t.Fatal("environment-scoped audit export must be rejected before streaming")
+			require.Fail(t,
+
+				"environment-scoped audit export must be rejected before streaming")
 			return nil
 		},
 	}
@@ -126,12 +120,9 @@ func TestAuditExport_EnvironmentScopedKeyRejected(t *testing.T) {
 		To:     "2026-02-01T00:00:00Z",
 		Format: "ndjson",
 	})
-	if err == nil {
-		t.Fatal("expected environment-scoped audit export to fail")
-	}
-	if !strings.Contains(err.Error(), "project-wide key") {
-		t.Fatalf("error = %q, want project-wide key message", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "project-wide key")
 }
 
 func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
@@ -140,19 +131,20 @@ func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
 	var auditCreated atomic.Bool
 	ms := &APIStoreMock{
 		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			if ev.Action != domain.AuditActionAuditExported {
-				t.Fatalf("audit action = %q, want %q", ev.Action, domain.AuditActionAuditExported)
-			}
-			if ev.ResourceID != "proj-1" {
-				t.Fatalf("audit resource id = %q, want proj-1", ev.ResourceID)
-			}
+			require.Equal(t, domain.AuditActionAuditExported,
+
+				ev.Action)
+			require.Equal(t, "proj-1", ev.
+				ResourceID)
+
 			auditCreated.Store(true)
 			return nil
 		},
 		StreamAuditEventsFunc: func(_ context.Context, _, _, _ string, _, _ time.Time, fn func(*domain.AuditEvent) error) error {
-			if !auditCreated.Load() {
-				t.Fatal("audit export streamed before durable audit event was created")
-			}
+			require.True(
+				t, auditCreated.
+					Load())
+
 			return fn(&domain.AuditEvent{ID: "ev-1", ProjectID: "proj-1", CreatedAt: time.Now()})
 		},
 	}
@@ -161,13 +153,11 @@ func TestAuditExport_CreatesDurableAuditEventBeforeStreaming(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !auditCreated.Load() {
-		t.Fatal("expected durable audit event to be created")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, auditCreated.
+			Load())
 }
 
 func TestAuditExport_AuditWriteFailurePreventsStreaming(t *testing.T) {
@@ -188,13 +178,11 @@ func TestAuditExport_AuditWriteFailurePreventsStreaming(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-	if streamCalled.Load() {
-		t.Fatal("audit export streamed after required audit write failed")
-	}
+		w.Code)
+	require.False(t, streamCalled.
+		Load())
 }
 
 func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
@@ -224,17 +212,14 @@ func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=csv", "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	records, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
-	if err != nil {
-		t.Fatalf("read csv: %v\n%s", err, w.Body.String())
-	}
-	if len(records) != 2 {
-		t.Fatalf("expected header and one row, got %d", len(records))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		records, 2)
+
 	row := records[1]
 	formulaColumns := map[int]string{
 		0:  "id",
@@ -246,10 +231,9 @@ func TestAuditExportCSV_EscapesFormulaCells(t *testing.T) {
 		10: "user_agent",
 		11: "request_id",
 	}
-	for idx, name := range formulaColumns {
-		if !strings.HasPrefix(row[idx], "'") {
-			t.Fatalf("column %s was not formula-escaped: %q", name, row[idx])
-		}
+	for idx := range formulaColumns {
+		require.True(
+			t, strings.HasPrefix(row[idx], "'"))
 	}
 }
 
@@ -295,9 +279,8 @@ func TestSanitizeCSVCell_EscapesFormulaAfterLeadingWhitespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitizeCSVCell(tt.value); got != tt.want {
-				t.Fatalf("sanitizeCSVCell(%q) = %q, want %q", tt.value, got, tt.want)
-			}
+			require.Equal(t, tt.want, sanitizeCSVCell(tt.
+				value))
 		})
 	}
 }
@@ -321,15 +304,13 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, "/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson", "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	sig := w.Header().Get("X-Audit-Signature")
-	if !strings.HasPrefix(sig, "sha256=") {
-		t.Fatalf("expected sha256= prefix, got %q", sig)
-	}
+	require.True(
+		t, strings.HasPrefix(sig, "sha256="))
+
 	hexSig := strings.TrimPrefix(sig, "sha256=")
 
 	// Recompute HMAC using the same key derivation: HKDF-SHA256 over InternalSecret.
@@ -337,14 +318,14 @@ func TestAuditExport_SignatureVerifies(t *testing.T) {
 	hkdfReader := xhkdf.New(sha256.New, []byte(internalSecret), []byte("audit-export-signing"), []byte("strait:v1:audit-export-hmac"))
 	signingKey := make([]byte, 32)
 	if _, err := io.ReadFull(hkdfReader, signingKey); err != nil {
-		t.Fatalf("failed to derive signing key: %v", err)
+		require.Failf(t, "test failure",
+
+			"failed to derive signing key: %v", err)
 	}
 
 	mac := hmac.New(sha256.New, signingKey)
 	mac.Write(w.Body.Bytes())
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
-
-	if hexSig != expectedSig {
-		t.Fatalf("HMAC mismatch:\n  got:  %s\n  want: %s", hexSig, expectedSig)
-	}
+	require.Equal(t, expectedSig,
+		hexSig)
 }

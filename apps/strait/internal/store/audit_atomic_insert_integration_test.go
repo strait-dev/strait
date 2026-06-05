@@ -12,6 +12,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateAuditEvent_CrashBetweenInsertAndSignature_DoesNotBreakChain
@@ -57,38 +59,35 @@ func TestCreateAuditEvent_CrashBetweenInsertAndSignature_DoesNotBreakChain(t *te
 		Details:      json.RawMessage(`{"aborted":true}`),
 	}
 	err := q.CreateAuditEvent(ctx, ev)
-	if err == nil {
-		t.Fatalf("CreateAuditEvent: expected forced error, got nil")
-	}
-	if !errors.Is(err, forced) {
-		t.Errorf("err = %v, want wrap of forced sentinel", err)
-	}
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, forced))
 
 	// The row must not exist — the tx rolled back.
 	var count int
-	if qerr := testDB.Pool.QueryRow(ctx, `
+	require.Nil(t, testDB.
+		Pool.
+		QueryRow(ctx,
+			`
 		SELECT COUNT(*) FROM audit_events WHERE id = $1
-	`, attemptID).Scan(&count); qerr != nil {
-		t.Fatalf("count: %v", qerr)
-	}
-	if count != 0 {
-		t.Errorf("row count after aborted insert = %d, want 0 (tx must roll back)", count)
-	}
+	`,
+
+			attemptID,
+		).Scan(&count))
+	assert.EqualValues(t, 0, count)
 
 	// Clear the hook and verify the chain. With the atomic design, no
 	// row was ever written with an empty signature, so the chain over
 	// the 3 healthy seed events still verifies.
 	store.SetAuditEventPostInsertHookForTest(q, nil)
 	result, verr := q.VerifyAuditChain(ctx, projectID)
-	if verr != nil {
-		t.Fatalf("VerifyAuditChain: %v", verr)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid after aborted insert: %s", result.Error)
-	}
-	if result.EventsChecked != 3 {
-		t.Errorf("EventsChecked = %d, want 3 (aborted row must not appear)", result.EventsChecked)
-	}
+	require.Nil(t, verr)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 3, result.
+		EventsChecked,
+	)
+
 }
 
 func TestCreateAuditEvent_FailedAttemptDoesNotPinRotationEpoch(t *testing.T) {
@@ -101,19 +100,15 @@ func TestCreateAuditEvent_FailedAttemptDoesNotPinRotationEpoch(t *testing.T) {
 	q.SetAuditSigningKey(rootKey)
 
 	projectID := "proj-stale-epoch-retry"
-	if err := q.CreateAuditEvent(ctx, &domain.AuditEvent{
-		ProjectID:    projectID,
-		ActorID:      "actor",
-		ActorType:    "user",
-		Action:       domain.AuditActionJobCreated,
-		ResourceType: "job",
-		ResourceID:   "seed",
-		Details:      json.RawMessage(`{"seed":true}`),
-	}); err != nil {
-		t.Fatalf("seed CreateAuditEvent: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, &domain.AuditEvent{ProjectID: projectID,
+
+		ActorID: "actor", ActorType: "user", Action: domain.
+				AuditActionJobCreated, ResourceType: "job", ResourceID: "seed", Details: json.RawMessage(`{"seed":true}`)}))
+
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "rotator-1"); err != nil {
-		t.Fatalf("first rotation: %v", err)
+		require.Failf(t, "test failure",
+
+			"first rotation: %v", err)
 	}
 
 	forced := errors.New("forced failed audit attempt")
@@ -132,33 +127,34 @@ func TestCreateAuditEvent_FailedAttemptDoesNotPinRotationEpoch(t *testing.T) {
 		Details:      json.RawMessage(`{"retry":true}`),
 	}
 	err := q.CreateAuditEvent(ctx, ev)
-	if err == nil {
-		t.Fatal("CreateAuditEvent: expected forced failure, got nil")
-	}
-	if !errors.Is(err, forced) {
-		t.Fatalf("CreateAuditEvent err = %v, want forced failure", err)
-	}
-	if ev.ID != "" || ev.RotationEpoch != 0 || !ev.CreatedAt.IsZero() || ev.PreviousHash != "" || ev.Signature != "" || ev.ShardID != "" {
-		t.Fatalf("failed CreateAuditEvent mutated caller event: %+v", ev)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, forced))
+	require.False(t, ev.ID !=
+		"" || ev.
+		RotationEpoch !=
+		0 || !ev.
+		CreatedAt.
+		IsZero() ||
+
+		ev.PreviousHash != "" || ev.
+		Signature != "" || ev.ShardID !=
+		"")
 
 	store.SetAuditEventPostInsertHookForTest(q, nil)
 	if _, err := q.RotateAuditSigningKey(ctx, projectID, "rotator-2"); err != nil {
-		t.Fatalf("second rotation: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("retry CreateAuditEvent: %v", err)
+			"second rotation: %v", err)
 	}
-	if ev.RotationEpoch != 2 {
-		t.Fatalf("retry event rotation_epoch = %d, want 2", ev.RotationEpoch)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
+	require.EqualValues(t, 2, ev.
+		RotationEpoch,
+	)
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid after retry across rotation: %s", result.Error)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+
 }

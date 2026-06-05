@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -25,37 +27,25 @@ func TestAPIKey_HashNeverReversible(t *testing.T) {
 	t.Parallel()
 
 	rawKey, err := generateAPIKey()
-	if err != nil {
-		t.Fatalf("failed to generate key: %v", err)
-	}
+	require.NoError(t, err)
 
 	hash := hashAPIKey(rawKey)
-
-	if len(hash) != 64 {
-		t.Fatalf("expected 64-char hex hash, got %d chars", len(hash))
-	}
-	if strings.Contains(hash, rawKey) {
-		t.Fatal("hash should not contain the raw key")
-	}
-	if hash == rawKey {
-		t.Fatal("hash should differ from raw key")
-	}
+	require.Len(t,
+		hash, 64)
+	require.NotContains(t, hash, rawKey)
+	require.NotEqual(t, rawKey,
+		hash)
 
 	// Deterministic.
 	hash2 := hashAPIKey(rawKey)
-	if hash != hash2 {
-		t.Fatal("hashing the same key should be deterministic")
-	}
+	require.Equal(t, hash2, hash)
 
 	// Different keys produce different hashes.
 	rawKey2, err := generateAPIKey()
-	if err != nil {
-		t.Fatalf("failed to generate second key: %v", err)
-	}
+	require.NoError(t, err)
+
 	hash3 := hashAPIKey(rawKey2)
-	if hash == hash3 {
-		t.Fatal("different keys should produce different hashes")
-	}
+	require.NotEqual(t, hash3, hash)
 }
 
 // TestAPIKey_RotationGracePeriod verifies that an old key still works during
@@ -99,10 +89,9 @@ func TestAPIKey_RotationGracePeriod(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusUnauthorized,
 
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("old key should be accepted during grace period, got 401: %s", w.Body.String())
-	}
+		w.Code)
 }
 
 // TestAPIKey_ConcurrentRotation verifies that two simultaneous rotation requests
@@ -137,15 +126,14 @@ func TestAPIKey_ConcurrentRotation(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	var wg conc.WaitGroup
-	for i := range 2 {
-		idx := i
+	for range 2 {
 		wg.Go(func() {
 			body := `{"grace_period_minutes":60}`
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/key-1/rotate", body))
-			if w.Code == http.StatusInternalServerError {
-				t.Errorf("rotation %d should not cause 500: %s", idx, w.Body.String())
-			}
+			assert.NotEqual(t, http.StatusInternalServerError,
+
+				w.Code)
 		})
 	}
 	wg.Wait()
@@ -174,13 +162,11 @@ func TestAPIKey_RevocationImmediate(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("revoked key should return 401, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "revoked") {
-		t.Fatalf("expected 'revoked' in error message, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.String(), "revoked")
 }
 
 // TestAPIKey_ExpiredKeyRejected verifies that an expired key returns 401.
@@ -206,13 +192,11 @@ func TestAPIKey_ExpiredKeyRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expired key should return 401, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "expired") {
-		t.Fatalf("expected 'expired' in error message, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.String(), "expired")
 }
 
 // TestAPIKey_ScopeEscalation verifies that a key with limited scopes cannot
@@ -221,24 +205,24 @@ func TestAPIKey_ScopeEscalation(t *testing.T) {
 	t.Parallel()
 
 	limitedScopes := []string{"jobs:read"}
-
-	if !domain.HasScope(limitedScopes, "jobs:read") {
-		t.Fatal("expected jobs:read scope to be accessible")
-	}
-	if domain.HasScope(limitedScopes, "jobs:write") {
-		t.Fatal("limited scope should not grant jobs:write access")
-	}
-	if domain.HasScope(limitedScopes, "secrets:read") {
-		t.Fatal("limited scope should not grant secrets:read access")
-	}
-	if domain.HasScope(limitedScopes, "rbac:manage") {
-		t.Fatal("limited scope should not grant rbac:manage access")
-	}
+	require.True(
+		t, domain.HasScope(limitedScopes,
+			"jobs:read"))
+	require.False(t, domain.HasScope(limitedScopes,
+		"jobs:write"),
+	)
+	require.False(t, domain.HasScope(limitedScopes,
+		"secrets:read",
+	))
+	require.False(t, domain.HasScope(limitedScopes,
+		"rbac:manage",
+	))
 
 	wildcardScopes := []string{"*"}
-	if !domain.HasScope(wildcardScopes, "jobs:write") {
-		t.Fatal("wildcard scope should grant any access")
-	}
+	require.True(
+		t, domain.HasScope(wildcardScopes,
+			"jobs:write"),
+	)
 }
 
 // TestAPIKey_PrefixFormat verifies that generated API keys always start with
@@ -248,16 +232,13 @@ func TestAPIKey_PrefixFormat(t *testing.T) {
 
 	for range 100 {
 		key, err := generateAPIKey()
-		if err != nil {
-			t.Fatalf("failed to generate key: %v", err)
-		}
-		if !strings.HasPrefix(key, "strait_") {
-			t.Fatalf("expected key to start with strait_, got %q", key[:12])
-		}
+		require.NoError(t, err)
+		require.True(
+			t, strings.HasPrefix(key, "strait_"))
+		require.Len(t,
+			key, 71)
+
 		// Key should be "strait_" + 64 hex characters = 71 characters total.
-		if len(key) != 71 {
-			t.Fatalf("expected key length 71, got %d", len(key))
-		}
 	}
 }
 
@@ -273,10 +254,12 @@ func TestAPIKey_BruteForceResistance(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
-	for i := range 10000 {
+	for range 10000 {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
-			t.Fatalf("failed to generate random bytes: %v", err)
+			require.Failf(t, "test failure",
+
+				"failed to generate random bytes: %v", err)
 		}
 		fakeKey := "strait_" + hex.EncodeToString(b)
 
@@ -286,10 +269,9 @@ func TestAPIKey_BruteForceResistance(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("attempt %d: random key should be rejected, got %d", i, w.Code)
-		}
+		require.Equal(t, http.StatusUnauthorized,
+			w.Code,
+		)
 	}
 }
 
@@ -311,10 +293,9 @@ func TestAPIKey_NullByteInKey(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("null byte in key should result in 401, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 }
 
 // TestAPIKey_EmptyBearerToken verifies that an empty bearer token is rejected.
@@ -345,10 +326,9 @@ func TestAPIKey_EmptyBearerToken(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
-
-			if w.Code != http.StatusUnauthorized {
-				t.Fatalf("%s: expected 401, got %d: %s", tc.name, w.Code, w.Body.String())
-			}
+			require.Equal(t, http.StatusUnauthorized,
+				w.Code,
+			)
 		})
 	}
 }
@@ -376,14 +356,15 @@ func TestAPIKey_InvalidRotationInterval(t *testing.T) {
 			body := fmt.Sprintf(`{"project_id":"proj-1","name":"interval-test","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":%d}`, interval)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/", body))
+			require.NotEqual(t, http.StatusInternalServerError,
 
-			if w.Code == http.StatusInternalServerError {
-				t.Fatalf("invalid rotation interval should not cause 500: %s", w.Body.String())
-			}
+				w.Code)
+
 			if w.Code == http.StatusCreated && captured != nil {
-				if captured.NextRotationAt != nil && interval <= 0 {
-					t.Fatalf("expected nil NextRotationAt for interval %d, got %v", interval, captured.NextRotationAt)
-				}
+				require.False(t, captured.NextRotationAt !=
+					nil &&
+					interval <=
+						0)
 			}
 		})
 	}
@@ -394,7 +375,9 @@ func TestHandleCreateAPIKey_RejectsEmptyScopes(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("CreateAPIKey must not be called for empty scopes")
+			require.Fail(t,
+
+				"CreateAPIKey must not be called for empty scopes")
 			return nil
 		},
 	}
@@ -408,9 +391,9 @@ func TestHandleCreateAPIKey_RejectsEmptyScopes(t *testing.T) {
 		ProjectID: "proj-1",
 		Name:      "empty-scope",
 	}})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400 for empty scopes, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusBadRequest),
+	)
 }
 
 func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
@@ -418,7 +401,9 @@ func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("CreateAPIKey must not be called for cross-org create")
+			require.Fail(t,
+
+				"CreateAPIKey must not be called for cross-org create")
 			return nil
 		},
 	}
@@ -435,9 +420,8 @@ func TestHandleCreateAPIKey_RejectsCrossOrgID(t *testing.T) {
 		Name:      "cross-org",
 		Scopes:    []string{domain.ScopeJobsRead},
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for cross-org create, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusForbidden))
 }
 
 func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t *testing.T) {
@@ -445,7 +429,9 @@ func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t 
 
 	ms := &APIStoreMock{
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("CreateAPIKey must not be called for env scope mismatch")
+			require.Fail(t,
+
+				"CreateAPIKey must not be called for env scope mismatch")
 			return nil
 		},
 	}
@@ -461,9 +447,8 @@ func TestHandleCreateAPIKey_EnvironmentScopedCallerCannotCreateProjectWideKey(t 
 		Name:      "project-wide",
 		Scopes:    []string{domain.ScopeJobsRead},
 	}})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusNotFound))
 }
 
 func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
@@ -472,9 +457,8 @@ func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
 	now := time.Now()
 	ms := &APIStoreMock{
 		ListAPIKeysByProjectFunc: func(_ context.Context, projectID string, _ int, _ *time.Time) ([]domain.APIKey, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return []domain.APIKey{
 				{ID: "key-prod", ProjectID: "proj-1", EnvironmentID: "env-prod", CreatedAt: now},
 				{ID: "key-staging", ProjectID: "proj-1", EnvironmentID: "env-staging", CreatedAt: now},
@@ -490,16 +474,14 @@ func TestHandleListAPIKeys_FiltersEnvironmentScopedCaller(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	out, err := srv.handleListAPIKeys(ctx, &ListAPIKeysInput{})
-	if err != nil {
-		t.Fatalf("list keys: %v", err)
-	}
+	require.NoError(t, err)
+
 	keys, ok := out.Body.Data.([]domain.APIKey)
-	if !ok {
-		t.Fatalf("response data has type %T, want []domain.APIKey", out.Body.Data)
-	}
-	if len(keys) != 1 || keys[0].ID != "key-prod" {
-		t.Fatalf("expected only env-prod key, got %#v", keys)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(keys) !=
+		1 || keys[0].ID !=
+		"key-prod")
 }
 
 func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(t *testing.T) {
@@ -510,7 +492,9 @@ func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(
 			return &domain.APIKey{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 		RevokeAPIKeyFunc: func(_ context.Context, _ string) error {
-			t.Fatal("RevokeAPIKey must not be called for env scope mismatch")
+			require.Fail(t,
+
+				"RevokeAPIKey must not be called for env scope mismatch")
 			return nil
 		},
 	}
@@ -522,9 +506,8 @@ func TestHandleRevokeAPIKey_EnvironmentScopedCallerCannotRevokeOtherEnvironment(
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleRevokeAPIKey(ctx, &RevokeAPIKeyInput{KeyID: "key-staging"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusNotFound))
 }
 
 func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(t *testing.T) {
@@ -541,7 +524,9 @@ func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(
 			}, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("CreateAPIKey must not be called for env scope mismatch")
+			require.Fail(t,
+
+				"CreateAPIKey must not be called for env scope mismatch")
 			return nil
 		},
 	}
@@ -556,9 +541,8 @@ func TestHandleRotateAPIKey_EnvironmentScopedCallerCannotRotateOtherEnvironment(
 		KeyID: "key-staging",
 		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for env scope mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusNotFound))
 }
 
 func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T) {
@@ -574,7 +558,9 @@ func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T
 			}, nil
 		},
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("CreateAPIKey must not be called when caller cannot receive wildcard-equivalent key")
+			require.Fail(t,
+
+				"CreateAPIKey must not be called when caller cannot receive wildcard-equivalent key")
 			return nil
 		},
 	}
@@ -588,9 +574,8 @@ func TestHandleRotateAPIKey_LimitedCallerCannotRotateLegacyBroadKey(t *testing.T
 		KeyID: "key-legacy",
 		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for legacy broad-key rotation, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.StatusForbidden))
 }
 
 // FuzzAPIKeyAuth fuzzes Authorization headers to ensure the auth middleware

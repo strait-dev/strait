@@ -5,6 +5,9 @@ package queue_test
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigration_JobActiveCountsStorage_AppliesParams reads pg_class.reloptions
@@ -20,9 +23,7 @@ func TestMigration_JobActiveCountsStorage_AppliesParams(t *testing.T) {
 		FROM pg_class
 		WHERE relname = 'job_active_counts'
 	`).Scan(&opts)
-	if err != nil {
-		t.Fatalf("query reloptions: %v", err)
-	}
+	require.NoError(t, err)
 
 	want := map[string]string{
 		"fillfactor":                      "70",
@@ -43,9 +44,13 @@ func TestMigration_JobActiveCountsStorage_AppliesParams(t *testing.T) {
 
 	for k, v := range want {
 		if gv, ok := got[k]; !ok {
-			t.Errorf("missing reloption %s; full reloptions=%v", k, opts)
+			assert.Failf(t, "test failure",
+
+				"missing reloption %s; full reloptions=%v", k, opts)
 		} else if gv != v {
-			t.Errorf("reloption %s = %s, want %s", k, gv, v)
+			assert.Failf(t, "test failure",
+
+				"reloption %s = %s, want %s", k, gv, v)
 		}
 	}
 }

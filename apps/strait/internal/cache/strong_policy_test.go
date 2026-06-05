@@ -1,6 +1,10 @@
 package cache
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestStrongNamespacePoliciesCoverRequiredNamespaces(t *testing.T) {
 	required := map[string]bool{
@@ -16,38 +20,18 @@ func TestStrongNamespacePoliciesCoverRequiredNamespaces(t *testing.T) {
 		if _, ok := required[policy.Namespace]; ok {
 			required[policy.Namespace] = true
 		}
-		if policy.CacheKey == "" {
-			t.Fatalf("%s missing cache key contract", policy.Namespace)
-		}
-		if policy.VersionSource == "" {
-			t.Fatalf("%s missing version source", policy.Namespace)
-		}
-		if len(policy.MutationPaths) == 0 {
-			t.Fatalf("%s missing mutation paths", policy.Namespace)
-		}
-		if policy.WriteThroughPath == "" {
-			t.Fatalf("%s missing write-through path", policy.Namespace)
-		}
-		if policy.BusPath == "" {
-			t.Fatalf("%s missing cachebus path", policy.Namespace)
-		}
-		if policy.CDCRepairPath == "" {
-			t.Fatalf("%s missing CDC repair path", policy.Namespace)
-		}
-		if len(policy.CDCTables) == 0 {
-			t.Fatalf("%s missing CDC table contracts", policy.Namespace)
-		}
-		if policy.FailureMode == "" {
-			t.Fatalf("%s missing failure mode", policy.Namespace)
-		}
-		if policy.TestMarker == "" {
-			t.Fatalf("%s missing test marker", policy.Namespace)
-		}
+		require.NotEmpty(t, policy.CacheKey)
+		require.NotEmpty(t, policy.VersionSource)
+		require.NotEmpty(t, policy.MutationPaths)
+		require.NotEmpty(t, policy.WriteThroughPath)
+		require.NotEmpty(t, policy.BusPath)
+		require.NotEmpty(t, policy.CDCRepairPath)
+		require.NotEmpty(t, policy.CDCTables)
+		require.NotEmpty(t, policy.FailureMode)
+		require.NotEmpty(t, policy.TestMarker)
 	}
 
 	for namespace, found := range required {
-		if !found {
-			t.Fatalf("strong namespace %s missing from policy registry", namespace)
-		}
+		require.True(t, found, "namespace %q", namespace)
 	}
 }

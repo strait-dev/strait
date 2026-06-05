@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestValidateQueueName(t *testing.T) {
 	t.Parallel()
@@ -24,9 +28,7 @@ func TestValidateQueueName(t *testing.T) {
 			t.Parallel()
 
 			err := validateQueueName(tt.queue)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("validateQueueName(%q) error = %v, wantErr %v", tt.queue, err, tt.wantErr)
-			}
+			require.Equal(t, tt.wantErr, (err != nil))
 		})
 	}
 }

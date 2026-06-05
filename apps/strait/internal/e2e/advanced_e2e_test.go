@@ -13,14 +13,17 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func mustCleanAdv(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
-	if err := testEnv.DB.CleanTables(ctx); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	require.NoError(t, testEnv.
+		DB.CleanTables(
+		ctx))
+
 }
 
 func advAuthedReq(method, path, body string, projectID ...string) *http.Request {
@@ -48,9 +51,10 @@ func advDoReq(t *testing.T, method, path, body string, projectID ...string) *htt
 func advDecodeMap(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var resp map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&resp))
+
 	return resp
 }
 
@@ -59,9 +63,10 @@ func advDecodeSlice(t *testing.T, w *httptest.ResponseRecorder) []map[string]any
 	var envelope struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&envelope))
+
 	return envelope.Data
 }
 
@@ -81,18 +86,22 @@ func advCreateJob(t *testing.T, projectID, slug, name, cron string, runTTLSecs i
 	body += "}"
 
 	w := advDoReq(t, http.MethodPost, "/v1/jobs/", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return advDecodeMap(t, w)
 }
 
 func advTriggerRun(t *testing.T, jobID string) map[string]any {
 	t.Helper()
 	w := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("trigger status = %d; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return advDecodeMap(t, w)
 }
 
@@ -116,34 +125,26 @@ func TestE2E_JobVersioning_IncrementOnUpdate(t *testing.T) {
 	projectID := advUnique("proj-ver-inc")
 	job := advCreateJob(t, projectID, advUnique("job-ver-inc"), "Versioned Job", "", 0)
 	jobID := job["id"].(string)
-
-	if got := int(job["version"].(float64)); got != 1 {
-		t.Fatalf("initial version = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, int(job["version"].(float64)))
 
 	w1 := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"name":"Versioned Job V2"}`)
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first patch status = %d; body = %s", w1.Code, w1.Body.String())
-	}
-	if got := int(advDecodeMap(t, w1)["version"].(float64)); got != 2 {
-		t.Fatalf("version after first patch = %d, want 2", got)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w1.Code)
+	require.EqualValues(t, 2, int(advDecodeMap(t, w1)["version"].(float64)))
 
 	gw := advDoReq(t, http.MethodGet, "/v1/jobs/"+jobID, "")
-	if gw.Code != http.StatusOK {
-		t.Fatalf("get job status = %d; body = %s", gw.Code, gw.Body.String())
-	}
-	if got := int(advDecodeMap(t, gw)["version"].(float64)); got != 2 {
-		t.Fatalf("version after get = %d, want 2", got)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		gw.Code)
+	require.EqualValues(t, 2, int(advDecodeMap(t, gw)["version"].(float64)))
 
 	w2 := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"name":"Versioned Job V3"}`)
-	if w2.Code != http.StatusOK {
-		t.Fatalf("second patch status = %d; body = %s", w2.Code, w2.Body.String())
-	}
-	if got := int(advDecodeMap(t, w2)["version"].(float64)); got != 3 {
-		t.Fatalf("version after second patch = %d, want 3", got)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w2.Code)
+	require.EqualValues(t, 3, int(advDecodeMap(t, w2)["version"].(float64)))
+
 }
 
 func TestE2E_JobVersioning_VersionHistory(t *testing.T) {
@@ -153,32 +154,35 @@ func TestE2E_JobVersioning_VersionHistory(t *testing.T) {
 	jobID := job["id"].(string)
 
 	if w := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"name":"History V2"}`); w.Code != http.StatusOK {
-		t.Fatalf("first patch status = %d; body = %s", w.Code, w.Body.String())
+		require.Failf(t, "test failure",
+
+			"first patch status = %d; body = %s", w.Code, w.Body.String())
 	}
 	if w := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"name":"History V3"}`); w.Code != http.StatusOK {
-		t.Fatalf("second patch status = %d; body = %s", w.Code, w.Body.String())
+		require.Failf(t, "test failure",
+
+			"second patch status = %d; body = %s", w.Code, w.Body.String())
 	}
 
 	vw := advDoReq(t, http.MethodGet, "/v1/jobs/"+jobID+"/versions", "")
-	if vw.Code != http.StatusOK {
-		t.Fatalf("versions status = %d; body = %s", vw.Code, vw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		vw.Code)
+
 	versions := advDecodeSlice(t, vw)
-	if len(versions) != 2 {
-		t.Fatalf("versions len = %d, want 2", len(versions))
-	}
-	if got := int(versions[0]["version"].(float64)); got != 2 {
-		t.Fatalf("first snapshot version = %d, want 2", got)
-	}
-	if got := versions[0]["name"].(string); got != "History V2" {
-		t.Fatalf("first snapshot name = %q, want %q", got, "History V2")
-	}
-	if got := int(versions[1]["version"].(float64)); got != 1 {
-		t.Fatalf("second snapshot version = %d, want 1", got)
-	}
-	if got := versions[1]["name"].(string); got != "History Base" {
-		t.Fatalf("second snapshot name = %q, want %q", got, "History Base")
-	}
+	require.Len(t, versions,
+
+		2)
+	require.EqualValues(t, 2, int(versions[0]["version"].(float64)))
+	require.Equal(t, "History V2",
+
+		versions[0]["name"].(string),
+	)
+	require.EqualValues(t, 1, int(versions[1]["version"].(float64)))
+	require.Equal(t, "History Base",
+
+		versions[1]["name"].(string))
+
 }
 
 func TestE2E_JobVersioning_RunStamped(t *testing.T) {
@@ -190,26 +194,25 @@ func TestE2E_JobVersioning_RunStamped(t *testing.T) {
 	trigger1 := advTriggerRun(t, jobID)
 	run1ID := trigger1["id"].(string)
 	r1 := advDoReq(t, http.MethodGet, "/v1/runs/"+run1ID, "")
-	if r1.Code != http.StatusOK {
-		t.Fatalf("get run1 status = %d; body = %s", r1.Code, r1.Body.String())
-	}
-	if got := int(advDecodeMap(t, r1)["job_version"].(float64)); got != 1 {
-		t.Fatalf("run1 job_version = %d, want 1", got)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		r1.Code)
+	require.EqualValues(t, 1, int(advDecodeMap(t, r1)["job_version"].(float64)))
 
 	if w := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"name":"Stamped Job V2"}`); w.Code != http.StatusOK {
-		t.Fatalf("patch status = %d; body = %s", w.Code, w.Body.String())
+		require.Failf(t, "test failure",
+
+			"patch status = %d; body = %s", w.Code, w.Body.String())
 	}
 
 	trigger2 := advTriggerRun(t, jobID)
 	run2ID := trigger2["id"].(string)
 	r2 := advDoReq(t, http.MethodGet, "/v1/runs/"+run2ID, "")
-	if r2.Code != http.StatusOK {
-		t.Fatalf("get run2 status = %d; body = %s", r2.Code, r2.Body.String())
-	}
-	if got := int(advDecodeMap(t, r2)["job_version"].(float64)); got != 2 {
-		t.Fatalf("run2 job_version = %d, want 2", got)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		r2.Code)
+	require.EqualValues(t, 2, int(advDecodeMap(t, r2)["job_version"].(float64)))
+
 }
 
 func TestE2E_APIKey_CreateAndList(t *testing.T) {
@@ -217,32 +220,43 @@ func TestE2E_APIKey_CreateAndList(t *testing.T) {
 	projectID := advUnique("proj-api-key")
 
 	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"My Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
-	if cw.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		cw.Code,
+	)
+
 	created := advDecodeMap(t, cw)
 	keyID := created["id"].(string)
 	rawKey := created["key"].(string)
-	if keyID == "" || !strings.HasPrefix(rawKey, "strait_") {
-		t.Fatalf("unexpected key creation response: %#v", created)
-	}
+	require.False(t, keyID ==
+		"" ||
+		!strings.HasPrefix(rawKey,
+			"strait_",
+		))
+
 	if _, ok := created["key_prefix"]; !ok {
-		t.Fatalf("missing key_prefix in response: %#v", created)
+		require.Failf(t, "test failure",
+
+			"missing key_prefix in response: %#v", created)
 	}
 
 	lw := advDoReq(t, http.MethodGet, "/v1/api-keys/", "", projectID)
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list api keys status = %d; body = %s", lw.Code, lw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	keys := advDecodeSlice(t, lw)
-	if len(keys) != 1 {
-		t.Fatalf("api keys len = %d, want 1", len(keys))
-	}
-	if keys[0]["id"].(string) != keyID {
-		t.Fatalf("listed key id = %q, want %q", keys[0]["id"].(string), keyID)
-	}
+	require.Len(t, keys,
+		1,
+	)
+	require.Equal(t, keyID,
+
+		keys[0]["id"].(string))
+
 	if _, ok := keys[0]["key"]; ok {
-		t.Fatalf("list response should not include raw key: %#v", keys[0])
+		require.Failf(t, "test failure",
+
+			"list response should not include raw key: %#v", keys[0])
 	}
 }
 
@@ -252,9 +266,11 @@ func TestE2E_APIKey_Authenticate(t *testing.T) {
 	advCreateJob(t, projectID, advUnique("job-api-auth"), "API Auth Job", "", 0)
 
 	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Auth Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
-	if cw.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		cw.Code,
+	)
+
 	rawKey := advDecodeMap(t, cw)["key"].(string)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
@@ -262,10 +278,10 @@ func TestE2E_APIKey_Authenticate(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("api key auth status = %d; body = %s", w.Code, w.Body.String())
-	}
 }
 
 func TestE2E_APIKey_Revoke(t *testing.T) {
@@ -273,27 +289,30 @@ func TestE2E_APIKey_Revoke(t *testing.T) {
 	projectID := advUnique("proj-api-revoke")
 
 	cw := advDoReq(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"Revoke Key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeJobsRead))
-	if cw.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		cw.Code,
+	)
+
 	created := advDecodeMap(t, cw)
 	keyID := created["id"].(string)
 	rawKey := created["key"].(string)
 
 	rw := advDoReq(t, http.MethodDelete, "/v1/api-keys/"+keyID, "")
-	if rw.Code != http.StatusOK {
-		t.Fatalf("revoke api key status = %d; body = %s", rw.Code, rw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		rw.Code)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	req.Header.Set("Authorization", "Bearer "+rawKey)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("revoked key auth status = %d, want 401; body = %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 }
 
 func TestE2E_BulkTrigger(t *testing.T) {
@@ -304,36 +323,45 @@ func TestE2E_BulkTrigger(t *testing.T) {
 
 	body := `{"items":[{"payload":{"i":1},"priority":0},{"payload":{"i":2},"priority":1},{"payload":{"i":3},"priority":2},{"payload":{"i":4},"priority":3},{"payload":{"i":5},"priority":4}]}`
 	w := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger/bulk", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("bulk trigger status = %d; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	resp := advDecodeMap(t, w)
 	resultsAny, ok := resp["results"].([]any)
-	if !ok || len(resultsAny) != 5 {
-		t.Fatalf("bulk results len mismatch: %#v", resp)
-	}
+	require.False(t, !ok ||
+		len(resultsAny) !=
+			5)
+
 	runIDs := map[string]bool{}
 	for i, raw := range resultsAny {
 		item, ok := raw.(map[string]any)
-		if !ok {
-			t.Fatalf("result[%d] invalid type: %T", i, raw)
-		}
+		require.True(t, ok)
+
 		rid, ok := item["id"].(string)
-		if !ok || rid == "" {
-			t.Fatalf("result[%d] missing id: %#v", i, item)
-		}
+		require.False(t, !ok ||
+			rid ==
+				"")
+
 		status, ok := item["status"].(string)
-		if !ok || status != string(domain.StatusQueued) {
-			t.Fatalf("result[%d] status = %q, want %q", i, status, domain.StatusQueued)
-		}
+		require.False(t, !ok ||
+			status !=
+				string(domain.
+					StatusQueued,
+				))
+
 		if _, ok := item["run_token"]; ok {
-			t.Fatalf("result[%d] must not expose SDK run_token: %#v", i, item)
+			require.Failf(t, "test failure",
+
+				"result[%d] must not expose SDK run_token: %#v", i, item)
 		}
 		runIDs[rid] = true
 	}
-	if len(runIDs) != 5 {
-		t.Fatalf("expected unique run ids, got ids=%d", len(runIDs))
-	}
+	require.Len(t, runIDs,
+
+		5)
+
 }
 
 func TestE2E_BulkTrigger_Validation(t *testing.T) {
@@ -343,9 +371,11 @@ func TestE2E_BulkTrigger_Validation(t *testing.T) {
 	jobID := job["id"].(string)
 
 	w := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger/bulk", `{"items":[]}`)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("bulk validation status = %d, want 422; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusUnprocessableEntity,
+
+		w.Code)
+
 }
 
 func TestE2E_BulkCancel(t *testing.T) {
@@ -360,22 +390,23 @@ func TestE2E_BulkCancel(t *testing.T) {
 	}
 	body := fmt.Sprintf(`{"run_ids":["%s","%s","%s"]}`, runIDs[0], runIDs[1], runIDs[2])
 	bw := advDoReq(t, http.MethodPost, "/v1/runs/bulk-cancel", body)
-	if bw.Code != http.StatusOK {
-		t.Fatalf("bulk cancel status = %d; body = %s", bw.Code, bw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		bw.Code)
+
 	resp := advDecodeMap(t, bw)
-	if int(resp["canceled"].(float64)) != 3 || int(resp["failed"].(float64)) != 0 {
-		t.Fatalf("unexpected bulk cancel counters: %#v", resp)
-	}
+	require.False(t, int(
+		resp["canceled"].(float64)) != 3 || int(resp["failed"].(float64)) != 0)
 
 	for _, runID := range runIDs {
 		rw := advDoReq(t, http.MethodGet, "/v1/runs/"+runID, "")
-		if rw.Code != http.StatusOK {
-			t.Fatalf("get run status = %d; body = %s", rw.Code, rw.Body.String())
-		}
-		if got := advDecodeMap(t, rw)["status"].(string); got != string(domain.StatusCanceled) {
-			t.Fatalf("run %s status = %q, want %q", runID, got, domain.StatusCanceled)
-		}
+		require.Equal(t, http.
+			StatusOK,
+			rw.Code)
+		require.Equal(t, string(domain.
+			StatusCanceled,
+		), advDecodeMap(t, rw)["status"].(string))
+
 	}
 }
 
@@ -389,19 +420,20 @@ func TestE2E_BulkCancel_PartialFailure(t *testing.T) {
 	run2 := advTriggerRun(t, jobID)["id"].(string)
 
 	cw := advDoReq(t, http.MethodDelete, "/v1/runs/"+run1, "")
-	if cw.Code != http.StatusOK {
-		t.Fatalf("direct cancel status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		cw.Code)
 
 	body := fmt.Sprintf(`{"run_ids":["%s","%s"]}`, run1, run2)
 	bw := advDoReq(t, http.MethodPost, "/v1/runs/bulk-cancel", body)
-	if bw.Code != http.StatusOK {
-		t.Fatalf("bulk cancel status = %d; body = %s", bw.Code, bw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		bw.Code)
+
 	resp := advDecodeMap(t, bw)
-	if int(resp["canceled"].(float64)) != 1 || int(resp["failed"].(float64)) != 1 {
-		t.Fatalf("unexpected bulk cancel counters: %#v", resp)
-	}
+	require.False(t, int(
+		resp["canceled"].(float64)) != 1 || int(resp["failed"].(float64)) != 1)
+
 }
 
 func TestE2E_CancelPropagation(t *testing.T) {
@@ -419,31 +451,34 @@ func TestE2E_CancelPropagation(t *testing.T) {
 
 	spawnBody := fmt.Sprintf(`{"job_slug":"%s","project_id":"%s","payload":{"child":true}}`, childSlug, projectID)
 	sw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+parentRunID+"/spawn", runToken, spawnBody)
-	if sw.Code != http.StatusCreated {
-		t.Fatalf("spawn status = %d; body = %s", sw.Code, sw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		sw.Code,
+	)
+
 	childRunID := advDecodeMap(t, sw)["id"].(string)
 
 	cw := advDoReq(t, http.MethodDelete, "/v1/runs/"+parentRunID, "")
-	if cw.Code != http.StatusOK {
-		t.Fatalf("cancel parent status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		cw.Code)
 
 	pw := advDoReq(t, http.MethodGet, "/v1/runs/"+parentRunID, "")
-	if pw.Code != http.StatusOK {
-		t.Fatalf("get parent status = %d; body = %s", pw.Code, pw.Body.String())
-	}
-	if got := advDecodeMap(t, pw)["status"].(string); got != string(domain.StatusCanceled) {
-		t.Fatalf("parent status = %q, want %q", got, domain.StatusCanceled)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		pw.Code)
+	require.Equal(t, string(domain.
+		StatusCanceled,
+	), advDecodeMap(t, pw)["status"].(string))
 
 	chw := advDoReq(t, http.MethodGet, "/v1/runs/"+childRunID, "")
-	if chw.Code != http.StatusOK {
-		t.Fatalf("get child status = %d; body = %s", chw.Code, chw.Body.String())
-	}
-	if got := advDecodeMap(t, chw)["status"].(string); got != string(domain.StatusCanceled) {
-		t.Fatalf("child status = %q, want %q", got, domain.StatusCanceled)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		chw.Code)
+	require.Equal(t, string(domain.
+		StatusCanceled,
+	), advDecodeMap(t, chw)["status"].(string))
+
 }
 
 func TestE2E_EventLogging(t *testing.T) {
@@ -456,14 +491,16 @@ func TestE2E_EventLogging(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	lw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"hello event","level":"info"}`)
-	if lw.Code != http.StatusCreated {
-		t.Fatalf("log status = %d; body = %s", lw.Code, lw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		lw.Code,
+	)
 
 	ew := advDoReq(t, http.MethodGet, "/v1/runs/"+runID+"/events", "")
-	if ew.Code != http.StatusOK {
-		t.Fatalf("list events status = %d; body = %s", ew.Code, ew.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		ew.Code)
+
 	events := advDecodeSlice(t, ew)
 	found := false
 	for _, evt := range events {
@@ -472,9 +509,8 @@ func TestE2E_EventLogging(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("expected logged event not found: %#v", events)
-	}
+	require.True(t, found)
+
 }
 
 func TestE2E_EventFiltering(t *testing.T) {
@@ -487,24 +523,29 @@ func TestE2E_EventFiltering(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	if w := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"all good","level":"info"}`); w.Code != http.StatusCreated {
-		t.Fatalf("log info status = %d; body = %s", w.Code, w.Body.String())
+		require.Failf(t, "test failure",
+
+			"log info status = %d; body = %s", w.Code, w.Body.String())
 	}
 	if w := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"message":"something broke","level":"error"}`); w.Code != http.StatusCreated {
-		t.Fatalf("log error status = %d; body = %s", w.Code, w.Body.String())
+		require.Failf(t, "test failure",
+
+			"log error status = %d; body = %s", w.Code, w.Body.String())
 	}
 
 	ew := advDoReq(t, http.MethodGet, "/v1/runs/"+runID+"/events?level=error", "")
-	if ew.Code != http.StatusOK {
-		t.Fatalf("list filtered events status = %d; body = %s", ew.Code, ew.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		ew.Code)
+
 	events := advDecodeSlice(t, ew)
-	if len(events) == 0 {
-		t.Fatalf("expected at least one filtered event, got none")
-	}
+	require.NotEmpty(t, events)
+
 	for _, evt := range events {
-		if evt["level"] != "error" {
-			t.Fatalf("unexpected non-error event in filtered results: %#v", evt)
-		}
+		require.Equal(t, "error",
+
+			evt["level"])
+
 	}
 }
 
@@ -519,23 +560,27 @@ func TestE2E_RunTTL(t *testing.T) {
 	runID := trigger["id"].(string)
 
 	rw := advDoReq(t, http.MethodGet, "/v1/runs/"+runID, "")
-	if rw.Code != http.StatusOK {
-		t.Fatalf("get run status = %d; body = %s", rw.Code, rw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		rw.Code)
+
 	run := advDecodeMap(t, rw)
 	expiresRaw, ok := run["expires_at"].(string)
-	if !ok || expiresRaw == "" {
-		t.Fatalf("missing expires_at in run: %#v", run)
-	}
+	require.False(t, !ok ||
+		expiresRaw ==
+			"")
+
 	expiresAt, err := time.Parse(time.RFC3339Nano, expiresRaw)
-	if err != nil {
-		t.Fatalf("parse expires_at: %v", err)
-	}
+	require.NoError(t, err)
+
 	want := start.Add(3600 * time.Second)
 	delta := expiresAt.Sub(want)
-	if delta < -5*time.Second || delta > 5*time.Second {
-		t.Fatalf("expires_at delta = %v, want within 5s", delta)
-	}
+	require.False(t, delta <
+		-5*time.
+			Second ||
+		delta > 5*time.Second,
+	)
+
 }
 
 func TestE2E_CronJob(t *testing.T) {
@@ -546,36 +591,43 @@ func TestE2E_CronJob(t *testing.T) {
 	plainJob := advCreateJob(t, projectID, advUnique("job-cron-empty"), "No Cron", "", 0)
 
 	lw := advDoReq(t, http.MethodGet, "/v1/jobs/", "", projectID)
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list jobs status = %d; body = %s", lw.Code, lw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	jobs := advDecodeSlice(t, lw)
-	if len(jobs) != 2 {
-		t.Fatalf("jobs len = %d, want 2", len(jobs))
-	}
+	require.Len(t, jobs,
+		2,
+	)
 
 	byID := map[string]map[string]any{}
 	for _, item := range jobs {
 		byID[item["id"].(string)] = item
 	}
-	if got := byID[cronJob["id"].(string)]["cron"].(string); got != cronExpr {
-		t.Fatalf("cron job cron = %q, want %q", got, cronExpr)
-	}
+	require.Equal(t, cronExpr,
+
+		byID[cronJob["id"].(string)]["cron"].(string))
+
 	if item, ok := byID[plainJob["id"].(string)]; ok {
 		if v, present := item["cron"]; present && v != "" {
-			t.Fatalf("expected empty cron for non-cron job, got %#v", v)
+			require.Failf(t, "test failure",
+
+				"expected empty cron for non-cron job, got %#v", v)
 		}
 	} else {
-		t.Fatalf("plain job not found in list")
+		require.Failf(t, "test failure",
+
+			"plain job not found in list")
 	}
 }
 
 func TestE2E_WebhookDeliveries(t *testing.T) {
 	mustCleanAdv(t)
 	w := advDoReq(t, http.MethodGet, "/v1/webhook-deliveries", "", "proj-webhook-test")
-	if w.Code != http.StatusOK {
-		t.Fatalf("webhook deliveries status = %d; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	_ = advDecodeSlice(t, w)
 }
 
@@ -586,25 +638,27 @@ func TestE2E_TriggerDisabledJob(t *testing.T) {
 	jobID := job["id"].(string)
 
 	dw := advDoReq(t, http.MethodPatch, "/v1/jobs/"+jobID, `{"enabled":false}`)
-	if dw.Code != http.StatusOK {
-		t.Fatalf("disable job status = %d; body = %s", dw.Code, dw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		dw.Code)
 
 	tw := advDoReq(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger", `{}`)
-	if tw.Code != http.StatusBadRequest {
-		t.Fatalf("trigger disabled job status = %d, want 400; body = %s", tw.Code, tw.Body.String())
-	}
-	if !strings.Contains(tw.Body.String(), "job is disabled") {
-		t.Fatalf("expected disabled job error, got %s", tw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		tw.
+			Code)
+	require.True(t, strings.Contains(tw.Body.String(), "job is disabled"))
+
 }
 
 func TestE2E_GetNonexistentRun(t *testing.T) {
 	mustCleanAdv(t)
 	w := advDoReq(t, http.MethodGet, "/v1/runs/nonexistent-id", "")
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("get nonexistent run status = %d, want 404; body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code,
+	)
+
 }
 
 func TestE2E_CancelTerminalRun(t *testing.T) {
@@ -616,23 +670,29 @@ func TestE2E_CancelTerminalRun(t *testing.T) {
 	runToken := makeE2ERunToken(t, runID)
 
 	ctx := context.Background()
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{"started_at": time.Now()}); err != nil {
-		t.Fatalf("set run dequeued: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
-		t.Fatalf("set run executing: %v", err)
-	}
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusQueued,
+
+			domain.StatusDequeued,
+			map[string]any{"started_at": time.Now()}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusDequeued,
+
+			domain.StatusExecuting,
+			map[string]any{"started_at": time.Now()}))
 
 	cw := advDoSDKReq(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/complete", runToken, `{}`)
-	if cw.Code != http.StatusOK {
-		t.Fatalf("complete run status = %d; body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		cw.Code)
 
 	xw := advDoReq(t, http.MethodDelete, "/v1/runs/"+runID, "")
-	if xw.Code != http.StatusBadRequest {
-		t.Fatalf("cancel terminal run status = %d, want 400; body = %s", xw.Code, xw.Body.String())
-	}
-	if !strings.Contains(xw.Body.String(), "run already in terminal state") {
-		t.Fatalf("expected terminal state error, got %s", xw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		xw.
+			Code)
+	require.True(t, strings.Contains(xw.Body.String(), "run already in terminal state"))
+
 }

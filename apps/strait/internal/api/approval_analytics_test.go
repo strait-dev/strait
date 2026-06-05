@@ -7,13 +7,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func approvalStatsURL(from, to string) string {
@@ -43,20 +45,14 @@ func TestHandleGetApprovalStats_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var stats store.ApprovalStats
-	if err := json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if stats.TotalRequested != 10 {
-		t.Errorf("expected 10 total_requested, got %d", stats.TotalRequested)
-	}
-	if stats.TotalApproved != 7 {
-		t.Errorf("expected 7 total_approved, got %d", stats.TotalApproved)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &stats,
+	))
+	assert.Equal(t, 10, stats.TotalRequested)
+	assert.Equal(t, 7, stats.TotalApproved)
 }
 
 func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
@@ -64,7 +60,9 @@ func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
 
 	ms := &AnalyticsStoreMock{
 		GetApprovalStatsFunc: func(_ context.Context, _ string, _, _ time.Time) (*store.ApprovalStats, error) {
-			t.Fatal("GetApprovalStats must not be called when approval-gates plan gate rejects")
+			require.Fail(t,
+
+				"GetApprovalStats must not be called when approval-gates plan gate rejects")
 			return nil, nil
 		},
 	}
@@ -77,13 +75,12 @@ func TestHandleGetApprovalStats_FreeTierRejected(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest(http.MethodGet, approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier approval stats must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Approval gates") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
+	require.Contains(
+		t, w.Body.
+			String(), "Approval gates")
 }
 
 func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
@@ -93,10 +90,7 @@ func TestHandleGetApprovalStats_MissingParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", "/v1/analytics/approvals", "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
@@ -108,10 +102,7 @@ func TestHandleGetApprovalStats_InvalidTimeRange(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
@@ -123,10 +114,7 @@ func TestHandleGetApprovalStats_TooWideRange(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleGetApprovalStats_StoreError(t *testing.T) {
@@ -143,10 +131,7 @@ func TestHandleGetApprovalStats_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleGetApprovalStats_EmptyResults(t *testing.T) {
@@ -163,15 +148,11 @@ func TestHandleGetApprovalStats_EmptyResults(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedProjectRequest("GET", approvalStatsURL(from, to), "", "proj-1")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, 200, w.Code)
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var stats store.ApprovalStats
-	if err := json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if stats.TotalRequested != 0 {
-		t.Errorf("expected 0, got %d", stats.TotalRequested)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &stats,
+	))
+	assert.Equal(t, 0, stats.TotalRequested)
 }

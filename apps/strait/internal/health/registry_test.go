@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegistry_AllUp(t *testing.T) {
@@ -17,16 +19,10 @@ func TestRegistry_AllUp(t *testing.T) {
 	r.Register(NewChecker("redis", func(ctx context.Context) error { return nil }))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusUp {
-		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
-	}
-	if len(result.Components) != 2 {
-		t.Fatalf("components = %d, want 2", len(result.Components))
-	}
+	require.Equal(t, StatusUp, result.Status)
+	require.Len(t, result.Components, 2)
 	for _, c := range result.Components {
-		if c.Status != StatusUp {
-			t.Errorf("component %q status = %q, want %q", c.Name, c.Status, StatusUp)
-		}
+		assert.Equal(t, StatusUp, c.Status, "component %q", c.Name)
 	}
 }
 
@@ -37,34 +33,24 @@ func TestRegistry_OneDown(t *testing.T) {
 	r.Register(NewChecker("redis", func(ctx context.Context) error { return errors.New("connection refused") }))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 
 	var downCount int
 	for _, c := range result.Components {
 		if c.Status == StatusDown {
 			downCount++
-			if c.Error == "" {
-				t.Errorf("component %q has no error message", c.Name)
-			}
+			assert.NotEmpty(t, c.Error, "component %q", c.Name)
 		}
 	}
-	if downCount != 1 {
-		t.Fatalf("down components = %d, want 1", downCount)
-	}
+	require.Equal(t, 1, downCount)
 }
 
 func TestRegistry_Empty(t *testing.T) {
 	t.Parallel()
 	r := NewRegistry()
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusUp {
-		t.Fatalf("empty registry status = %q, want %q", result.Status, StatusUp)
-	}
-	if len(result.Components) != 0 {
-		t.Fatalf("components = %d, want 0", len(result.Components))
-	}
+	require.Equal(t, StatusUp, result.Status)
+	require.Empty(t, result.Components)
 }
 
 func TestRegistry_LatencyTracking(t *testing.T) {
@@ -76,12 +62,9 @@ func TestRegistry_LatencyTracking(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Components[0].Latency < 10*time.Millisecond {
-		t.Fatalf("latency = %v, want >= 10ms", result.Components[0].Latency)
-	}
-	if result.Components[0].LatencyMs < 10 {
-		t.Fatalf("latency_ms = %d, want >= 10", result.Components[0].LatencyMs)
-	}
+	require.Len(t, result.Components, 1)
+	require.GreaterOrEqual(t, result.Components[0].Latency, 10*time.Millisecond)
+	require.GreaterOrEqual(t, result.Components[0].LatencyMs, int64(10))
 }
 
 func TestRegistry_ContextCanceled(t *testing.T) {
@@ -96,9 +79,7 @@ func TestRegistry_ContextCanceled(t *testing.T) {
 	defer cancel()
 
 	result := r.CheckAll(ctx)
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 }
 
 func TestRegistry_ConcurrentRegister(t *testing.T) {
@@ -114,9 +95,7 @@ func TestRegistry_ConcurrentRegister(t *testing.T) {
 	wg.Wait()
 
 	result := r.CheckAll(context.Background())
-	if len(result.Components) != 10 {
-		t.Fatalf("components = %d, want 10", len(result.Components))
-	}
+	require.Len(t, result.Components, 10)
 }
 
 func TestRegistry_ChecksRunInParallel(t *testing.T) {
@@ -136,12 +115,8 @@ func TestRegistry_ChecksRunInParallel(t *testing.T) {
 	result := r.CheckAll(context.Background())
 	elapsed := time.Since(start)
 
-	if result.Status != StatusUp {
-		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
-	}
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("elapsed = %v, want < 200ms (checks should run in parallel, sequential would be 100ms+)", elapsed)
-	}
+	require.Equal(t, StatusUp, result.Status)
+	require.LessOrEqual(t, elapsed, 200*time.Millisecond)
 }
 
 func TestRegistry_AllCheckersExecuted(t *testing.T) {
@@ -155,10 +130,6 @@ func TestRegistry_AllCheckersExecuted(t *testing.T) {
 		}))
 	}
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusUp {
-		t.Fatalf("status = %q, want %q", result.Status, StatusUp)
-	}
-	if got := calls.Load(); got != 20 {
-		t.Errorf("checker invocations = %d, want 20", got)
-	}
+	require.Equal(t, StatusUp, result.Status)
+	assert.Equal(t, int32(20), calls.Load())
 }

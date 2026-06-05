@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUpdateJob_PerJobConcurrencyBypass_AfterDowngrade walks the after-downgrade
@@ -43,16 +45,12 @@ func TestUpdateJob_PerJobConcurrencyBypass_AfterDowngrade(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"max_concurrency":50}` // over Free cap
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 from per-job concurrency cap; got %d: %s", w.Code, w.Body.String())
-	}
-	if updateCalled {
-		t.Fatal("UpdateJob must not be called when the gate rejects")
-	}
-	if !strings.Contains(w.Body.String(), "max_concurrency") {
-		t.Errorf("response should mention max_concurrency; got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.False(t, updateCalled)
+	assert.Contains(t,
+		w.Body.String(), "max_concurrency")
 }
 
 // TestUpdateJob_OnlyPerKeyChanged_ChecksWithExistingMaxConcurrency catches a
@@ -88,13 +86,11 @@ func TestUpdateJob_OnlyPerKeyChanged_ChecksWithExistingMaxConcurrency(t *testing
 	w := httptest.NewRecorder()
 	body := `{"max_concurrency_per_key":50}` // only this field changes
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 when patched per-key field exceeds cap; got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "max_concurrency_per_key") {
-		t.Errorf("response should mention max_concurrency_per_key; got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	assert.Contains(t,
+		w.Body.String(), "max_concurrency_per_key")
 }
 
 // TestUpdateJob_NoConcurrencyChange_NotGated documents the deliberate
@@ -127,10 +123,8 @@ func TestUpdateJob_NoConcurrencyChange_NotGated(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"renamed"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 when concurrency unchanged; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // TestCloneJob_PerJobConcurrencyBypass_FromHighSource walks the clone vector:
@@ -165,11 +159,8 @@ func TestCloneJob_PerJobConcurrencyBypass_FromHighSource(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", `{"name":"Cloned","slug":"cloned"}`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 from per-job concurrency cap on clone; got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("CreateJob must not be called when the gate rejects the clone")
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.False(t, createCalled)
 }

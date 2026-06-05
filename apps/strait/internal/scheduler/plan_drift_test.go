@@ -9,6 +9,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakePlanStore struct {
@@ -51,37 +53,44 @@ var samePlanSimilarCost = []byte(`[{"Plan":{"Node Type":"Index Scan","Total Cost
 
 func TestParsePlanTopNode_IndexScan(t *testing.T) {
 	node, cost, err := ParsePlanTopNode(indexScanPlan)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if node != "Index Scan" || cost != 12.5 {
-		t.Errorf("got (%q, %v)", node, cost)
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, node !=
+		"Index Scan" ||
+		cost !=
+			12.5,
+	)
 }
 
 func TestParsePlanTopNode_SeqScan(t *testing.T) {
 	node, cost, err := ParsePlanTopNode(seqScanPlan)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if node != "Seq Scan" || cost != 500.0 {
-		t.Errorf("got (%q, %v)", node, cost)
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, node !=
+		"Seq Scan" ||
+		cost !=
+			500.0,
+	)
 }
 
 func TestParsePlanTopNode_BitmapHeap(t *testing.T) {
 	node, _, err := ParsePlanTopNode(bitmapHeapPlan)
-	if err != nil || node != "Bitmap Heap Scan" {
-		t.Errorf("got %q %v", node, err)
-	}
+	assert.False(t, err !=
+		nil ||
+		node != "Bitmap Heap Scan",
+	)
 }
 
 func TestParsePlanTopNode_Malformed(t *testing.T) {
 	if _, _, err := ParsePlanTopNode([]byte("garbage")); err == nil {
-		t.Error("expected error on garbage")
+		assert.Fail(t,
+
+			"expected error on garbage")
 	}
 	if _, _, err := ParsePlanTopNode([]byte("[]")); err == nil {
-		t.Error("expected error on empty")
+		assert.Fail(t,
+
+			"expected error on empty")
 	}
 }
 
@@ -91,14 +100,17 @@ func TestPlanDriftMonitor_FirstRunCapturesBaseline(t *testing.T) {
 	m := NewPlanDriftMonitor(s, PlanDriftMonitorConfig{
 		Queries: []WatchedQuery{{Name: "q1", SQL: "SELECT 1"}},
 	})
-	if err := m.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if m.DriftCount() != 0 {
-		t.Errorf("drift count = %d, want 0 on first run", m.DriftCount())
-	}
+	require.NoError(t,
+		m.runOnce(
+			context.Background(),
+		))
+	assert.EqualValues(t, 0,
+		m.DriftCount())
+
 	if _, ok := s.baselines["q1"]; !ok {
-		t.Error("baseline not captured")
+		assert.Fail(t,
+
+			"baseline not captured")
 	}
 }
 
@@ -114,15 +126,15 @@ func TestPlanDriftMonitor_NodeTypeChangeDetected(t *testing.T) {
 	// Second run returns Seq Scan.
 	s.nextExplain = seqScanPlan
 	_ = m.runOnce(context.Background())
+	assert.EqualValues(t, 1,
+		m.DriftCount())
 
-	if m.DriftCount() != 1 {
-		t.Errorf("drift count = %d, want 1", m.DriftCount())
-	}
 	// Baseline should be updated after drift.
 	b := s.baselines["q1"]
-	if b.TopNodeType != "Seq Scan" {
-		t.Errorf("baseline not updated: %q", b.TopNodeType)
-	}
+	assert.Equal(t, "Seq Scan",
+		b.
+			TopNodeType,
+	)
 }
 
 func TestPlanDriftMonitor_CostChangeBeyondTolerance(t *testing.T) {
@@ -135,10 +147,8 @@ func TestPlanDriftMonitor_CostChangeBeyondTolerance(t *testing.T) {
 
 	s.nextExplain = samePlanHigherCost // 12.5 -> 50 = 300% delta
 	_ = m.runOnce(context.Background())
-
-	if m.DriftCount() != 1 {
-		t.Errorf("drift count = %d, want 1 (cost jump)", m.DriftCount())
-	}
+	assert.EqualValues(t, 1,
+		m.DriftCount())
 }
 
 func TestPlanDriftMonitor_CostChangeWithinTolerance(t *testing.T) {
@@ -151,10 +161,8 @@ func TestPlanDriftMonitor_CostChangeWithinTolerance(t *testing.T) {
 
 	s.nextExplain = samePlanSimilarCost // 12.5 -> 13.5 = 8% delta
 	_ = m.runOnce(context.Background())
-
-	if m.DriftCount() != 0 {
-		t.Errorf("drift count = %d, want 0 (within tolerance)", m.DriftCount())
-	}
+	assert.EqualValues(t, 0,
+		m.DriftCount())
 }
 
 func TestPlanDriftMonitor_SamePlanNoDrift(t *testing.T) {
@@ -166,9 +174,8 @@ func TestPlanDriftMonitor_SamePlanNoDrift(t *testing.T) {
 	_ = m.runOnce(context.Background())
 	_ = m.runOnce(context.Background())
 	_ = m.runOnce(context.Background())
-	if m.DriftCount() != 0 {
-		t.Errorf("drift = %d, want 0 (stable plan)", m.DriftCount())
-	}
+	assert.EqualValues(t, 0,
+		m.DriftCount())
 }
 
 func TestPlanDriftMonitor_ExplainErrorContinues(t *testing.T) {
@@ -182,9 +189,8 @@ func TestPlanDriftMonitor_ExplainErrorContinues(t *testing.T) {
 	})
 	// Should not panic and should iterate over both queries.
 	_ = m.runOnce(context.Background())
-	if m.Iterations() != 1 {
-		t.Errorf("iterations = %d, want 1", m.Iterations())
-	}
+	assert.EqualValues(t, 1,
+		m.Iterations())
 }
 
 func TestPlanDriftMonitor_LockNotAcquired(t *testing.T) {
@@ -195,9 +201,9 @@ func TestPlanDriftMonitor_LockNotAcquired(t *testing.T) {
 		Queries: []WatchedQuery{{Name: "q1", SQL: "SELECT 1"}},
 	}).WithAdvisoryLocker(locker)
 	_ = m.runOnce(context.Background())
-	if s.upsertCalls != 0 {
-		t.Errorf("should not upsert without lock")
-	}
+	assert.Equal(t, 0,
+		s.upsertCalls,
+	)
 }
 
 func TestPlanDriftMonitor_RunExitsOnCancel(t *testing.T) {
@@ -220,6 +226,6 @@ func TestPlanDriftMonitor_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("did not exit")
+		require.Fail(t, "did not exit")
 	}
 }

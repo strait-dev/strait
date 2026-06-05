@@ -5,6 +5,8 @@ import (
 	"go/parser"
 	"go/token"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestStreamSSEHandlersAreThinWrappers regresses fix #9: the three
@@ -21,9 +23,7 @@ func TestStreamSSEHandlersAreThinWrappers(t *testing.T) {
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "stream.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse stream.go: %v", err)
-	}
+	require.NoError(t, err)
 
 	const maxBodyStmts = 3
 	wrappers := map[string]bool{
@@ -41,14 +41,8 @@ func TestStreamSSEHandlersAreThinWrappers(t *testing.T) {
 			continue
 		}
 		wrappers[fn.Name.Name] = true
-		if fn.Body == nil {
-			t.Fatalf("%s has nil body", fn.Name.Name)
-		}
-		if got := len(fn.Body.List); got > maxBodyStmts {
-			t.Fatalf("%s has %d statements; expected <= %d. "+
-				"SSE pump logic must live in streamSSE so a single fix lands once.",
-				fn.Name.Name, got, maxBodyStmts)
-		}
+		require.NotNil(t, fn.Body)
+		require.LessOrEqual(t, len(fn.Body.List), maxBodyStmts)
 
 		// Each wrapper must invoke streamSSE.
 		var sawStreamSSE bool
@@ -63,15 +57,11 @@ func TestStreamSSEHandlersAreThinWrappers(t *testing.T) {
 			}
 			return true
 		})
-		if !sawStreamSSE {
-			t.Fatalf("%s does not call s.streamSSE; the wrapper must delegate to the shared pump", fn.Name.Name)
-		}
+		require.True(t, sawStreamSSE)
 	}
 
-	for name, found := range wrappers {
-		if !found {
-			t.Fatalf("expected wrapper handler %s in stream.go", name)
-		}
+	for _, found := range wrappers {
+		require.True(t, found)
 	}
 }
 
@@ -84,9 +74,7 @@ func TestStreamSSESingleSubscribeCall(t *testing.T) {
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "stream.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse stream.go: %v", err)
-	}
+	require.NoError(t, err)
 
 	var subscribes int
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -107,7 +95,5 @@ func TestStreamSSESingleSubscribeCall(t *testing.T) {
 		}
 		return true
 	})
-	if subscribes != 1 {
-		t.Fatalf("found %d s.pubsub.Subscribe calls in stream.go, want exactly 1", subscribes)
-	}
+	require.Equal(t, 1, subscribes)
 }

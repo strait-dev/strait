@@ -14,6 +14,7 @@ import (
 	"strait/internal/telemetry"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // emit() tests.
@@ -33,7 +34,7 @@ func TestEmit_NoSubscribers_NoOp(t *testing.T) {
 
 	select {
 	case <-exec.eventCh:
-		t.Fatal("event should not be sent when there are no subscribers")
+		require.Fail(t, "event should not be sent when there are no subscribers")
 	default:
 		// Good: channel is empty.
 	}
@@ -69,7 +70,7 @@ func TestEmit_NonBlocking_ChannelFull(t *testing.T) {
 	case <-done:
 		// Good: non-blocking.
 	case <-time.After(time.Second):
-		t.Fatal("emit blocked on full channel")
+		require.Fail(t, "emit blocked on full channel")
 	}
 }
 
@@ -103,13 +104,17 @@ func TestEmit_DeliversToChannel(t *testing.T) {
 	select {
 	case env := <-exec.eventCh:
 		if env.event.Run.ID != "run-42" {
-			t.Fatalf("expected run-42, got %s", env.event.Run.ID)
+			require.Failf(t, "test failure",
+
+				"expected run-42, got %s", env.event.Run.ID)
 		}
 		if env.event.Type != EventCompleted {
-			t.Fatalf("expected EventCompleted, got %s", env.event.Type)
+			require.Failf(t, "test failure",
+
+				"expected EventCompleted, got %s", env.event.Type)
 		}
 	default:
-		t.Fatal("event was not delivered to channel")
+		require.Fail(t, "event was not delivered to channel")
 	}
 }
 
@@ -139,10 +144,12 @@ func TestRunEventLoop_FansOutToAll(t *testing.T) {
 		select {
 		case got := <-ch:
 			if got.Run.ID != "run-1" {
-				t.Fatalf("subscriber %d: expected run-1, got %s", i, got.Run.ID)
+				require.Failf(t, "test failure",
+
+					"subscriber %d: expected run-1, got %s", i, got.Run.ID)
 			}
 		case <-time.After(time.Second):
-			t.Fatalf("subscriber %d did not receive event", i)
+			require.Failf(t, "test failure", "subscriber %d did not receive event", i)
 		}
 	}
 
@@ -170,7 +177,7 @@ func TestRunEventLoop_ExitsOnClose(t *testing.T) {
 	case <-done:
 		// Good: loop exited.
 	case <-time.After(time.Second):
-		t.Fatal("runEventLoop did not exit after channel close")
+		require.Fail(t, "runEventLoop did not exit after channel close")
 	}
 }
 
@@ -357,37 +364,36 @@ func TestPubSubSubscriber_PublishesStatusChange(t *testing.T) {
 	})
 
 	calls := pub.publishCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 publish call, got %d", len(calls))
-	}
-	if calls[0].channel != "run:run-42" {
-		t.Fatalf("expected channel run:run-42, got %s", calls[0].channel)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		"run:run-42", calls[0].channel,
+	)
 
 	var payload map[string]any
-	if err := json.Unmarshal(calls[0].data, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-	if payload["type"] != "status_change" {
-		t.Fatalf("expected type=status_change, got %v", payload["type"])
-	}
-	if payload["run_id"] != "run-42" {
-		t.Fatalf("expected run_id=run-42, got %v", payload["run_id"])
-	}
-	if payload["job_id"] != "job-7" {
-		t.Fatalf("expected job_id=job-7, got %v", payload["job_id"])
-	}
-	if payload["project_id"] != "proj-3" {
-		t.Fatalf("expected project_id=proj-3, got %v", payload["project_id"])
-	}
-	if payload["from"] != string(domain.StatusExecuting) {
-		t.Fatalf("expected from=%s, got %v", domain.StatusExecuting, payload["from"])
-	}
-	if payload["to"] != string(domain.StatusCompleted) {
-		t.Fatalf("expected to=%s, got %v", domain.StatusCompleted, payload["to"])
-	}
+	require.NoError(
+		t, json.Unmarshal(calls[0].
+			data, &payload,
+		))
+	require.Equal(t,
+		"status_change",
+		payload["type"])
+	require.Equal(t,
+		"run-42", payload["run_id"])
+	require.Equal(t,
+		"job-7", payload["job_id"],
+	)
+	require.Equal(t,
+		"proj-3", payload["project_id"])
+	require.Equal(t,
+		string(domain.StatusExecuting), payload["from"])
+	require.Equal(t,
+		string(domain.StatusCompleted), payload["to"])
+
 	if _, ok := payload["timestamp"]; !ok {
-		t.Fatal("expected timestamp in payload")
+		require.Fail(t,
+
+			"expected timestamp in payload")
 	}
 }
 
@@ -402,9 +408,7 @@ func TestPubSubSubscriber_NilRun_NoPublish(t *testing.T) {
 	})
 
 	calls := pub.publishCalls()
-	if len(calls) != 0 {
-		t.Fatalf("expected 0 publish calls for nil run, got %d", len(calls))
-	}
+	require.Empty(t, calls)
 }
 
 func TestPubSubSubscriber_PublishError_NoPanic(t *testing.T) {
@@ -473,9 +477,9 @@ func TestPubSubSubscriber_ChannelFormat(t *testing.T) {
 	})
 
 	calls := pub.publishCalls()
-	if calls[0].channel != "run:abc-123-def" {
-		t.Fatalf("expected channel run:abc-123-def, got %s", calls[0].channel)
-	}
+	require.Equal(t,
+		"run:abc-123-def",
+		calls[0].channel)
 }
 
 // isTerminalStatus tests.
@@ -504,9 +508,9 @@ func TestIsTerminalStatus_AllCases(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(string(tc.status), func(t *testing.T) {
 			got := isTerminalStatus(tc.status)
-			if got != tc.terminal {
-				t.Fatalf("isTerminalStatus(%s) = %v, want %v", tc.status, got, tc.terminal)
-			}
+			require.Equal(t,
+				tc.terminal, got,
+			)
 		})
 	}
 }
@@ -540,6 +544,6 @@ func TestEmit_ChannelFull_DropCounterNoDeadlock(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("emit blocked on full channel")
+		require.Fail(t, "emit blocked on full channel")
 	}
 }

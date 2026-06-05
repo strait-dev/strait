@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetPlanLimits(t *testing.T) {
@@ -92,28 +95,27 @@ func TestGetPlanLimits(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tt.tier)
-
-			if limits.DisplayName != tt.wantDisplay {
-				t.Errorf("DisplayName = %q, want %q", limits.DisplayName, tt.wantDisplay)
-			}
-			if limits.PriceMonthlyUsd != tt.wantMonthly {
-				t.Errorf("PriceMonthlyUsd = %d, want %d", limits.PriceMonthlyUsd, tt.wantMonthly)
-			}
-			if limits.MaxConcurrentRuns != tt.wantConcurrent {
-				t.Errorf("MaxConcurrentRuns = %d, want %d", limits.MaxConcurrentRuns, tt.wantConcurrent)
-			}
-			if limits.MaxProjectsPerOrg != tt.wantProjects {
-				t.Errorf("MaxProjectsPerOrg = %d, want %d", limits.MaxProjectsPerOrg, tt.wantProjects)
-			}
-			if limits.MaxMembersPerOrg != tt.wantMembers {
-				t.Errorf("MaxMembersPerOrg = %d, want %d", limits.MaxMembersPerOrg, tt.wantMembers)
-			}
-			if limits.RequiresCreditCard != tt.wantCreditCard {
-				t.Errorf("RequiresCreditCard = %v, want %v", limits.RequiresCreditCard, tt.wantCreditCard)
-			}
-			if limits.RetentionDays != tt.wantRetention {
-				t.Errorf("RetentionDays = %d, want %d", limits.RetentionDays, tt.wantRetention)
-			}
+			assert.Equal(t, tt.
+				wantDisplay, limits.DisplayName,
+			)
+			assert.Equal(t, tt.
+				wantMonthly, limits.PriceMonthlyUsd,
+			)
+			assert.Equal(t, tt.
+				wantConcurrent, limits.MaxConcurrentRuns,
+			)
+			assert.Equal(t, tt.
+				wantProjects, limits.MaxProjectsPerOrg,
+			)
+			assert.Equal(t, tt.
+				wantMembers, limits.MaxMembersPerOrg,
+			)
+			assert.Equal(t, tt.
+				wantCreditCard, limits.RequiresCreditCard,
+			)
+			assert.Equal(t, tt.
+				wantRetention, limits.RetentionDays,
+			)
 		})
 	}
 }
@@ -121,9 +123,9 @@ func TestGetPlanLimits(t *testing.T) {
 func TestGetPlanLimits_UnknownTier(t *testing.T) {
 	t.Parallel()
 	limits := GetPlanLimits(domain.PlanTier("unknown"))
-	if limits.PlanTier != domain.PlanFree {
-		t.Errorf("expected fallback to free, got %q", limits.PlanTier)
-	}
+	assert.Equal(t, domain.
+		PlanFree, limits.PlanTier,
+	)
 }
 
 func TestIsDowngrade(t *testing.T) {
@@ -165,9 +167,8 @@ func TestIsDowngrade(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := IsDowngrade(tt.from, tt.to)
-			if got != tt.want {
-				t.Errorf("IsDowngrade(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got)
 		})
 	}
 }
@@ -180,9 +181,8 @@ func TestPlanLimits_AllowsHTTPMode(t *testing.T) {
 		t.Run(string(tier), func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tier)
-			if !limits.AllowsHTTPMode {
-				t.Errorf("%s.AllowsHTTPMode = false, want true", tier)
-			}
+			assert.True(t, limits.
+				AllowsHTTPMode)
 		})
 	}
 }
@@ -193,30 +193,31 @@ func TestPlanLimits_DailyRunsUnlimited(t *testing.T) {
 		t.Run(string(tier), func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tier)
-			if limits.MaxRunsPerDay != -1 {
-				t.Errorf("MaxRunsPerDay = %d, want -1 (unlimited)", limits.MaxRunsPerDay)
-			}
+			assert.EqualValues(t, -1,
+				limits.MaxRunsPerDay)
 		})
 	}
 }
 
 func TestHTTPCostPerRunMicrousd(t *testing.T) {
 	t.Parallel()
-	if HTTPCostPerRunMicrousd != 20 {
-		t.Errorf("HTTPCostPerRunMicrousd = %d, want 20", HTTPCostPerRunMicrousd)
-	}
+	assert.EqualValues(t, 20,
+
+		HTTPCostPerRunMicrousd)
 }
 
 func TestAllPlansHaveEntries(t *testing.T) {
 	t.Parallel()
 	for _, tier := range domain.AllPlanTiers() {
 		if _, ok := Plans[tier]; !ok {
-			t.Errorf("missing plan definition for tier %q", tier)
+			assert.Failf(t, "test failure",
+
+				"missing plan definition for tier %q", tier)
 		}
 	}
-	if len(Plans) != 6 {
-		t.Errorf("expected 6 plan entries, got %d", len(Plans))
-	}
+	assert.Len(t, Plans,
+
+		6)
 }
 
 func TestPlanLimits_WorkflowFeatures(t *testing.T) {
@@ -243,27 +244,27 @@ func TestPlanLimits_WorkflowFeatures(t *testing.T) {
 		t.Run(string(tt.tier), func(t *testing.T) {
 			t.Parallel()
 			l := GetPlanLimits(tt.tier)
-			if l.MaxWorkflowDAGSteps != tt.wantDAGSteps {
-				t.Errorf("MaxWorkflowDAGSteps = %d, want %d", l.MaxWorkflowDAGSteps, tt.wantDAGSteps)
-			}
-			if l.HasApprovalGates != tt.wantApprovalGates {
-				t.Errorf("HasApprovalGates = %v, want %v", l.HasApprovalGates, tt.wantApprovalGates)
-			}
-			if l.HasSubWorkflows != tt.wantSubWorkflows {
-				t.Errorf("HasSubWorkflows = %v, want %v", l.HasSubWorkflows, tt.wantSubWorkflows)
-			}
-			if l.HasJobChaining != tt.wantJobChaining {
-				t.Errorf("HasJobChaining = %v, want %v", l.HasJobChaining, tt.wantJobChaining)
-			}
-			if l.MaxJobChainDepth != tt.wantChainDepth {
-				t.Errorf("MaxJobChainDepth = %d, want %d", l.MaxJobChainDepth, tt.wantChainDepth)
-			}
-			if l.HasCompensatingTxns != tt.wantCompensation {
-				t.Errorf("HasCompensatingTxns = %v, want %v", l.HasCompensatingTxns, tt.wantCompensation)
-			}
-			if l.HasCanaryDeployments != tt.wantCanary {
-				t.Errorf("HasCanaryDeployments = %v, want %v", l.HasCanaryDeployments, tt.wantCanary)
-			}
+			assert.Equal(t, tt.
+				wantDAGSteps, l.MaxWorkflowDAGSteps,
+			)
+			assert.Equal(t, tt.
+				wantApprovalGates, l.HasApprovalGates,
+			)
+			assert.Equal(t, tt.
+				wantSubWorkflows, l.HasSubWorkflows,
+			)
+			assert.Equal(t, tt.
+				wantJobChaining, l.HasJobChaining,
+			)
+			assert.Equal(t, tt.
+				wantChainDepth, l.MaxJobChainDepth,
+			)
+			assert.Equal(t, tt.
+				wantCompensation, l.HasCompensatingTxns,
+			)
+			assert.Equal(t, tt.
+				wantCanary, l.HasCanaryDeployments,
+			)
 		})
 	}
 }
@@ -292,24 +293,24 @@ func TestPlanLimits_ResourceLimits(t *testing.T) {
 		t.Run(string(tt.tier), func(t *testing.T) {
 			t.Parallel()
 			l := GetPlanLimits(tt.tier)
-			if l.MaxScheduledJobs != tt.wantScheduled {
-				t.Errorf("MaxScheduledJobs = %d, want %d", l.MaxScheduledJobs, tt.wantScheduled)
-			}
-			if l.AllCronOverlapPolicies != tt.wantOverlapAll {
-				t.Errorf("AllCronOverlapPolicies = %v, want %v", l.AllCronOverlapPolicies, tt.wantOverlapAll)
-			}
-			if l.MaxEnvironments != tt.wantEnvironments {
-				t.Errorf("MaxEnvironments = %d, want %d", l.MaxEnvironments, tt.wantEnvironments)
-			}
-			if l.MaxWebhookEndpoints != tt.wantWebhookEP {
-				t.Errorf("MaxWebhookEndpoints = %d, want %d", l.MaxWebhookEndpoints, tt.wantWebhookEP)
-			}
-			if l.WebhookEventLevel != tt.wantWebhookLevel {
-				t.Errorf("WebhookEventLevel = %q, want %q", l.WebhookEventLevel, tt.wantWebhookLevel)
-			}
-			if l.APIRateLimit != tt.wantAPIRate {
-				t.Errorf("APIRateLimit = %d, want %d", l.APIRateLimit, tt.wantAPIRate)
-			}
+			assert.Equal(t, tt.
+				wantScheduled, l.MaxScheduledJobs,
+			)
+			assert.Equal(t, tt.
+				wantOverlapAll, l.AllCronOverlapPolicies,
+			)
+			assert.Equal(t, tt.
+				wantEnvironments, l.MaxEnvironments,
+			)
+			assert.Equal(t, tt.
+				wantWebhookEP, l.MaxWebhookEndpoints,
+			)
+			assert.Equal(t, tt.
+				wantWebhookLevel, l.WebhookEventLevel,
+			)
+			assert.Equal(t, tt.
+				wantAPIRate, l.APIRateLimit,
+			)
 		})
 	}
 }
@@ -332,9 +333,9 @@ func TestPlanLimits_AuditLogs(t *testing.T) {
 		t.Run(string(tt.tier), func(t *testing.T) {
 			t.Parallel()
 			limits := GetPlanLimits(tt.tier)
-			if limits.HasAuditLogs != tt.want {
-				t.Errorf("HasAuditLogs = %v, want %v", limits.HasAuditLogs, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, limits.HasAuditLogs,
+			)
 		})
 	}
 }
@@ -343,180 +344,200 @@ func TestPlanLimits_ScaleConstants(t *testing.T) {
 	t.Parallel()
 
 	scale := GetPlanLimits(domain.PlanScale)
-	if scale.PriceMonthlyUsd != PriceScaleMonthlyCents {
-		t.Errorf("PriceMonthlyUsd = %d, want %d", scale.PriceMonthlyUsd, PriceScaleMonthlyCents)
-	}
-	if scale.PriceAnnualUsd != PriceScaleAnnualCents {
-		t.Errorf("PriceAnnualUsd = %d, want %d", scale.PriceAnnualUsd, PriceScaleAnnualCents)
-	}
-	if scale.MaxConcurrentRuns != ConcurrentScale {
-		t.Errorf("MaxConcurrentRuns = %d, want %d", scale.MaxConcurrentRuns, ConcurrentScale)
-	}
-	if scale.OveragePerKMicrousd != ScaleOveragePerKMicrousd {
-		t.Errorf("OveragePerKMicrousd = %d, want %d", scale.OveragePerKMicrousd, ScaleOveragePerKMicrousd)
-	}
+	assert.Equal(t, PriceScaleMonthlyCents,
+
+		scale.
+			PriceMonthlyUsd,
+	)
+	assert.Equal(t, PriceScaleAnnualCents,
+
+		scale.
+			PriceAnnualUsd,
+	)
+	assert.Equal(t, ConcurrentScale,
+
+		scale.MaxConcurrentRuns,
+	)
+	assert.Equal(t, ScaleOveragePerKMicrousd,
+
+		scale.
+			OveragePerKMicrousd)
 }
 
 func TestPlanConstants_Pricing(t *testing.T) {
 	t.Parallel()
-	if PriceStarterMonthlyCents != 1_900 {
-		t.Errorf("PriceStarterMonthlyCents = %d, want 1900", PriceStarterMonthlyCents)
-	}
-	if PriceStarterAnnualCents != 18_000 {
-		t.Errorf("PriceStarterAnnualCents = %d, want 18000", PriceStarterAnnualCents)
-	}
-	if PriceProMonthlyCents != 9_900 {
-		t.Errorf("PriceProMonthlyCents = %d, want 9900", PriceProMonthlyCents)
-	}
-	if PriceProAnnualCents != 94_800 {
-		t.Errorf("PriceProAnnualCents = %d, want 94800", PriceProAnnualCents)
-	}
-	if PriceScaleMonthlyCents != 29_900 {
-		t.Errorf("PriceScaleMonthlyCents = %d, want 29900", PriceScaleMonthlyCents)
-	}
-	if PriceScaleAnnualCents != 286_800 {
-		t.Errorf("PriceScaleAnnualCents = %d, want 286800", PriceScaleAnnualCents)
-	}
-	if PriceBusinessMonthlyCents != 49_900 {
-		t.Errorf("PriceBusinessMonthlyCents = %d, want 49900", PriceBusinessMonthlyCents)
-	}
-	if PriceBusinessAnnualCents != 478_800 {
-		t.Errorf("PriceBusinessAnnualCents = %d, want 478800", PriceBusinessAnnualCents)
-	}
+	assert.Equal(t, 1_900,
+
+		PriceStarterMonthlyCents,
+	)
+	assert.Equal(t, 18_000,
+
+		PriceStarterAnnualCents,
+	)
+	assert.Equal(t, 9_900,
+
+		PriceProMonthlyCents)
+	assert.Equal(t, 94_800,
+
+		PriceProAnnualCents)
+	assert.Equal(t, 29_900,
+
+		PriceScaleMonthlyCents,
+	)
+	assert.Equal(t, 286_800,
+
+		PriceScaleAnnualCents,
+	)
+	assert.Equal(t, 49_900,
+
+		PriceBusinessMonthlyCents,
+	)
+	assert.Equal(t, 478_800,
+
+		PriceBusinessAnnualCents,
+	)
 }
 
 func TestPlanConstants_Credits(t *testing.T) {
 	t.Parallel()
-	if CreditFreeMicrousd != 1_000_000 {
-		t.Errorf("CreditFreeMicrousd = %d, want 1000000", CreditFreeMicrousd)
-	}
-	if CreditStarterMicrousd != 19_000_000 {
-		t.Errorf("CreditStarterMicrousd = %d, want 19000000", CreditStarterMicrousd)
-	}
-	if CreditProMicrousd != 99_000_000 {
-		t.Errorf("CreditProMicrousd = %d, want 99000000", CreditProMicrousd)
-	}
-	if CreditScaleMicrousd != 299_000_000 {
-		t.Errorf("CreditScaleMicrousd = %d, want 299000000", CreditScaleMicrousd)
-	}
-	if CreditBusinessMicrousd != 499_000_000 {
-		t.Errorf("CreditBusinessMicrousd = %d, want 499000000", CreditBusinessMicrousd)
-	}
+	assert.EqualValues(t, 1_000_000,
+
+		CreditFreeMicrousd,
+	)
+	assert.EqualValues(t, 19_000_000,
+
+		CreditStarterMicrousd,
+	)
+	assert.EqualValues(t, 99_000_000,
+
+		CreditProMicrousd,
+	)
+	assert.EqualValues(t, 299_000_000,
+
+		CreditScaleMicrousd,
+	)
+	assert.EqualValues(t, 499_000_000,
+
+		CreditBusinessMicrousd,
+	)
 }
 
 func TestPlanConstants_Concurrent(t *testing.T) {
 	t.Parallel()
-	if ConcurrentFree != 3 {
-		t.Errorf("ConcurrentFree = %d, want 3", ConcurrentFree)
-	}
-	if ConcurrentStarter != 15 {
-		t.Errorf("ConcurrentStarter = %d, want 15", ConcurrentStarter)
-	}
-	if ConcurrentPro != 100 {
-		t.Errorf("ConcurrentPro = %d, want 100", ConcurrentPro)
-	}
-	if ConcurrentScale != 300 {
-		t.Errorf("ConcurrentScale = %d, want 300", ConcurrentScale)
-	}
-	if ConcurrentBusiness != 500 {
-		t.Errorf("ConcurrentBusiness = %d, want 500", ConcurrentBusiness)
-	}
+	assert.Equal(t, 3,
+
+		ConcurrentFree)
+	assert.Equal(t, 15,
+
+		ConcurrentStarter)
+	assert.Equal(t, 100,
+
+		ConcurrentPro)
+	assert.Equal(t, 300,
+
+		ConcurrentScale)
+	assert.Equal(t, 500,
+
+		ConcurrentBusiness)
 }
 
 func TestPlanConstants_Retention(t *testing.T) {
 	t.Parallel()
-	if RetentionFree != 7 {
-		t.Errorf("RetentionFree = %d, want 7", RetentionFree)
-	}
-	if RetentionStarter != 14 {
-		t.Errorf("RetentionStarter = %d, want 14", RetentionStarter)
-	}
-	if RetentionPro != 30 {
-		t.Errorf("RetentionPro = %d, want 30", RetentionPro)
-	}
-	if RetentionScale != 60 {
-		t.Errorf("RetentionScale = %d, want 60", RetentionScale)
-	}
-	if RetentionBusiness != 90 {
-		t.Errorf("RetentionBusiness = %d, want 90", RetentionBusiness)
-	}
-	if RetentionEnterprise != -1 {
-		t.Errorf("RetentionEnterprise = %d, want -1 (unlimited)", RetentionEnterprise)
-	}
+	assert.Equal(t, 7,
+
+		RetentionFree)
+	assert.Equal(t, 14,
+
+		RetentionStarter)
+	assert.Equal(t, 30,
+
+		RetentionPro)
+	assert.Equal(t, 60,
+
+		RetentionScale)
+	assert.Equal(t, 90,
+
+		RetentionBusiness)
+	assert.Equal(t, -1,
+		RetentionEnterprise)
 }
 
 func TestPlanConstants_OrgLimits(t *testing.T) {
 	t.Parallel()
-	if MaxOrgsFree != 1 {
-		t.Errorf("MaxOrgsFree = %d, want 1", MaxOrgsFree)
-	}
-	if MaxOrgsStarter != 2 {
-		t.Errorf("MaxOrgsStarter = %d, want 2", MaxOrgsStarter)
-	}
-	if MaxOrgsPro != 5 {
-		t.Errorf("MaxOrgsPro = %d, want 5", MaxOrgsPro)
-	}
-	if MaxOrgsScale != 10 {
-		t.Errorf("MaxOrgsScale = %d, want 10", MaxOrgsScale)
-	}
+	assert.Equal(t, 1,
+
+		MaxOrgsFree)
+	assert.Equal(t, 2,
+
+		MaxOrgsStarter)
+	assert.Equal(t, 5,
+
+		MaxOrgsPro)
+	assert.Equal(t, 10,
+
+		MaxOrgsScale)
 }
 
 func TestPlanConstants_ProjectLimits(t *testing.T) {
 	t.Parallel()
-	if MaxProjectsFree != 1 {
-		t.Errorf("MaxProjectsFree = %d, want 1", MaxProjectsFree)
-	}
-	if MaxProjectsStarter != 3 {
-		t.Errorf("MaxProjectsStarter = %d, want 3", MaxProjectsStarter)
-	}
-	if MaxProjectsPro != 10 {
-		t.Errorf("MaxProjectsPro = %d, want 10", MaxProjectsPro)
-	}
-	if MaxProjectsScale != 50 {
-		t.Errorf("MaxProjectsScale = %d, want 50", MaxProjectsScale)
-	}
+	assert.Equal(t, 1,
+
+		MaxProjectsFree)
+	assert.Equal(t, 3,
+
+		MaxProjectsStarter)
+	assert.Equal(t, 10,
+
+		MaxProjectsPro)
+	assert.Equal(t, 50,
+
+		MaxProjectsScale)
 }
 
 func TestPlanConstants_MemberLimits(t *testing.T) {
 	t.Parallel()
-	if MaxMembersFree != 1 {
-		t.Errorf("MaxMembersFree = %d, want 1", MaxMembersFree)
-	}
-	if MaxMembersStarter != 3 {
-		t.Errorf("MaxMembersStarter = %d, want 3", MaxMembersStarter)
-	}
-	if MaxMembersPro != 10 {
-		t.Errorf("MaxMembersPro = %d, want 10", MaxMembersPro)
-	}
-	if MaxMembersScale != 50 {
-		t.Errorf("MaxMembersScale = %d, want 50", MaxMembersScale)
-	}
+	assert.Equal(t, 1,
+
+		MaxMembersFree)
+	assert.Equal(t, 3,
+
+		MaxMembersStarter)
+	assert.Equal(t, 10,
+
+		MaxMembersPro)
+	assert.Equal(t, 50,
+
+		MaxMembersScale)
 }
 
 func TestPlanConstants_SpendingLimits(t *testing.T) {
 	t.Parallel()
-	if MaxSpendingFree != 50_000_000 {
-		t.Errorf("MaxSpendingFree = %d, want 50000000", MaxSpendingFree)
-	}
-	if MaxSpendingStarter != 100_000_000 {
-		t.Errorf("MaxSpendingStarter = %d, want 100000000", MaxSpendingStarter)
-	}
-	if MaxSpendingPro != 200_000_000 {
-		t.Errorf("MaxSpendingPro = %d, want 200000000", MaxSpendingPro)
-	}
-	if MaxSpendingScale != 500_000_000 {
-		t.Errorf("MaxSpendingScale = %d, want 500000000", MaxSpendingScale)
-	}
-	if MaxSpendingBusiness != 1_500_000_000 {
-		t.Errorf("MaxSpendingBusiness = %d, want 1500000000", MaxSpendingBusiness)
-	}
+	assert.EqualValues(t, 50_000_000,
+
+		MaxSpendingFree)
+	assert.EqualValues(t, 100_000_000,
+
+		MaxSpendingStarter,
+	)
+	assert.EqualValues(t, 200_000_000,
+
+		MaxSpendingPro)
+	assert.EqualValues(t, 500_000_000,
+
+		MaxSpendingScale,
+	)
+	assert.EqualValues(t, 1_500_000_000,
+
+		MaxSpendingBusiness,
+	)
 }
 
 func TestPlanConstants_Overage(t *testing.T) {
 	t.Parallel()
-	if DefaultOveragePerKMicrousd != 500_000 {
-		t.Errorf("DefaultOveragePerKMicrousd = %d, want 500000", DefaultOveragePerKMicrousd)
-	}
+	assert.EqualValues(t, 500_000,
+
+		DefaultOveragePerKMicrousd,
+	)
 }
 
 func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
@@ -540,13 +561,11 @@ func TestPlanLimits_EnterpriseRoadmapFeaturesInactive(t *testing.T) {
 		{"HasSSO", ent.HasSSO},
 	}
 	for _, tt := range flags {
-		if tt.val {
-			t.Errorf("Enterprise.%s = true, want false for launch roadmap item", tt.name)
-		}
+		assert.False(t, tt.
+			val)
 	}
-	if !ent.HasSLA {
-		t.Error("Enterprise should have HasSLA")
-	}
+	assert.True(t, ent.
+		HasSLA)
 }
 
 func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
@@ -560,12 +579,12 @@ func TestPlanLimits_DispatchPriorityIsNotPaidLaunchEntitlement(t *testing.T) {
 		domain.PlanEnterprise,
 	} {
 		limits := GetPlanLimits(tier)
-		if limits.HasPriorityQueue {
-			t.Fatalf("%s HasPriorityQueue = true, want false for launch roadmap item", tier)
-		}
-		if limits.MaxDispatchPriority != 10 {
-			t.Fatalf("%s MaxDispatchPriority = %d, want shared launch cap 10", tier, limits.MaxDispatchPriority)
-		}
+		require.False(t,
+			limits.
+				HasPriorityQueue)
+		require.Equal(t, 10,
+			limits.MaxDispatchPriority,
+		)
 	}
 }
 
@@ -573,15 +592,12 @@ func TestPlanLimits_NonEnterpriseNoEnterpriseFeatures(t *testing.T) {
 	t.Parallel()
 	for _, tier := range []domain.PlanTier{domain.PlanFree, domain.PlanStarter} {
 		l := GetPlanLimits(tier)
-		if l.HasDedicatedCompute {
-			t.Errorf("%s should NOT have HasDedicatedCompute", tier)
-		}
-		if l.HasStaticIPs {
-			t.Errorf("%s should NOT have HasStaticIPs", tier)
-		}
-		if l.HasSIEMExport {
-			t.Errorf("%s should NOT have HasSIEMExport", tier)
-		}
+		assert.False(t, l.
+			HasDedicatedCompute)
+		assert.False(t, l.
+			HasStaticIPs)
+		assert.False(t, l.
+			HasSIEMExport)
 	}
 }
 
@@ -599,8 +615,8 @@ func FuzzGetPlanLimits_NoPanic(f *testing.F) {
 	f.Fuzz(func(t *testing.T, tier string) {
 		// Should never panic, always returns valid limits.
 		limits := GetPlanLimits(domain.PlanTier(tier))
-		if limits.PlanTier == "" {
-			t.Error("GetPlanLimits returned empty PlanTier")
-		}
+		assert.NotEmpty(t,
+
+			limits.PlanTier)
 	})
 }

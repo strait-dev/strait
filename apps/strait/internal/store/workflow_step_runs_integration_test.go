@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestListRunningStepRunsByWorkflowRun(t *testing.T) {
@@ -27,29 +29,22 @@ func TestListRunningStepRunsByWorkflowRun(t *testing.T) {
 		Status:  testutil.Ptr(domain.StepPending),
 		StepRef: new("pending-step"),
 	})
-	if err := q.CreateWorkflowStepRun(ctx, pendingSR); err != nil {
-		t.Fatalf("CreateWorkflowStepRun(pending) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepRun(ctx,
+		pendingSR))
 
 	running, err := q.ListRunningStepRunsByWorkflowRun(ctx, wfRun.ID, 100)
-	if err != nil {
-		t.Fatalf("ListRunningStepRunsByWorkflowRun() error = %v", err)
-	}
-	if len(running) != 1 {
-		t.Fatalf("ListRunningStepRunsByWorkflowRun() len = %d, want 1", len(running))
-	}
-	if running[0].ID != stepRun.ID {
-		t.Fatalf("ListRunningStepRunsByWorkflowRun() id = %q, want %q", running[0].ID, stepRun.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, running,
+
+		1)
+	require.Equal(t, stepRun.
+		ID, running[0].ID)
 
 	// Empty case.
 	empty, err := q.ListRunningStepRunsByWorkflowRun(ctx, newID(), 100)
-	if err != nil {
-		t.Fatalf("ListRunningStepRunsByWorkflowRun(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListRunningStepRunsByWorkflowRun(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestListStepRunStatusesByWorkflowRun(t *testing.T) {
@@ -60,24 +55,19 @@ func TestListStepRunStatusesByWorkflowRun(t *testing.T) {
 	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-run-statuses", domain.StepRunning)
 
 	statuses, err := q.ListStepRunStatusesByWorkflowRun(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListStepRunStatusesByWorkflowRun() error = %v", err)
-	}
-	if len(statuses) != 1 {
-		t.Fatalf("ListStepRunStatusesByWorkflowRun() len = %d, want 1", len(statuses))
-	}
-	if statuses[stepRun.StepRef] != domain.StepRunning {
-		t.Fatalf("ListStepRunStatusesByWorkflowRun() status = %q, want %q", statuses[stepRun.StepRef], domain.StepRunning)
-	}
+	require.NoError(t, err)
+	require.Len(t, statuses,
+
+		1)
+	require.Equal(t, domain.
+		StepRunning,
+		statuses[stepRun.StepRef])
 
 	// Empty case.
 	empty, err := q.ListStepRunStatusesByWorkflowRun(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListStepRunStatusesByWorkflowRun(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListStepRunStatusesByWorkflowRun(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestListStepRunsByWorkflowRun_CursorMovesForward(t *testing.T) {
@@ -111,25 +101,28 @@ func TestListStepRunsByWorkflowRun_CursorMovesForward(t *testing.T) {
 			SET created_at = $2
 			WHERE id = $1
 		`, stepRunID, baseTime.Add(time.Duration(i)*time.Minute)); err != nil {
-			t.Fatalf("set step run created_at(%d): %v", i, err)
+			require.Failf(t, "test failure",
+
+				"set step run created_at(%d): %v", i, err)
 		}
 	}
 
 	page1, err := q.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 2, nil)
-	if err != nil {
-		t.Fatalf("ListStepRunsByWorkflowRun(page1) error = %v", err)
-	}
-	if len(page1) != 2 || page1[0].ID != first.ID || page1[1].ID != second.ID {
-		t.Fatalf("page1 IDs = %v, want [%s %s]", stepRunIDs(page1), first.ID, second.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(page1) != 2 ||
+		page1[0].
+			ID != first.ID ||
+		page1[1].
+			ID != second.
+			ID)
+
 	cursor := page1[1].CreatedAt
 	page2, err := q.ListStepRunsByWorkflowRun(ctx, wfRun.ID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListStepRunsByWorkflowRun(page2) error = %v", err)
-	}
-	if len(page2) != 1 || page2[0].ID != third.ID {
-		t.Fatalf("page2 IDs = %v, want [%s]", stepRunIDs(page2), third.ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(page2) != 1 ||
+		page2[0].
+			ID != third.ID)
+
 }
 
 func stepRunIDs(stepRuns []domain.WorkflowStepRun) []string {
@@ -146,91 +139,94 @@ func TestUpdateStepRunStatusFrom(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, _, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-run-status-from", domain.StepPending)
+	require.NoError(t, q.UpdateStepRunStatusFrom(ctx, stepRun.ID,
+		domain.StepPending,
+
+		domain.StepRunning,
+
+		map[string]any{"started_at": time.Now().UTC().Truncate(time.Microsecond)}))
 
 	// Transition from pending to running.
-	if err := q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepPending, domain.StepRunning, map[string]any{
-		"started_at": time.Now().UTC().Truncate(time.Microsecond),
-	}); err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom() error = %v", err)
-	}
 
 	got, err := q.GetWorkflowStepRun(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepRunning {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepRunning)
-	}
-	if got.StartedAt == nil {
-		t.Fatal("started_at = nil, want timestamp from running transition")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepRunning,
+		got.Status,
+	)
+	require.NotNil(t, got.StartedAt)
 
 	var xminBeforeNoOp string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_step_runs
 		WHERE id = $1`,
-		stepRun.ID,
-	).Scan(&xminBeforeNoOp); err != nil {
-		t.Fatalf("query workflow_step_runs xmin before no-op: %v", err)
-	}
-	if err := q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepRunning, domain.StepRunning, map[string]any{
-		"started_at": *got.StartedAt,
-	}); err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(no-op) error = %v", err)
-	}
+
+		stepRun.ID).Scan(
+		&xminBeforeNoOp))
+	require.NoError(t, q.UpdateStepRunStatusFrom(ctx, stepRun.ID,
+		domain.StepRunning,
+
+		domain.StepRunning,
+
+		map[string]any{"started_at": *got.StartedAt}))
+
 	var xminAfterNoOp string
 	var statusAfterNoOp domain.StepRunStatus
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, status
 		FROM workflow_step_runs
 		WHERE id = $1`,
-		stepRun.ID,
-	).Scan(&xminAfterNoOp, &statusAfterNoOp); err != nil {
-		t.Fatalf("query workflow_step_runs xmin after no-op: %v", err)
-	}
-	if xminAfterNoOp != xminBeforeNoOp {
-		t.Fatalf("workflow_step_runs no-op CAS update changed xmin from %s to %s", xminBeforeNoOp, xminAfterNoOp)
-	}
-	if statusAfterNoOp != domain.StepRunning {
-		t.Fatalf("status after no-op = %q, want %q", statusAfterNoOp, domain.StepRunning)
-	}
 
-	if err := q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepRunning, domain.StepRunning, map[string]any{
-		"attempt": 2,
-	}); err != nil {
-		t.Fatalf("UpdateStepRunStatusFrom(changed field) error = %v", err)
-	}
+		stepRun.ID,
+	).Scan(&xminAfterNoOp, &statusAfterNoOp))
+	require.Equal(t, xminBeforeNoOp,
+
+		xminAfterNoOp,
+	)
+	require.Equal(t, domain.
+		StepRunning,
+		statusAfterNoOp,
+	)
+	require.NoError(t, q.UpdateStepRunStatusFrom(ctx, stepRun.ID,
+		domain.StepRunning,
+
+		domain.StepRunning,
+
+		map[string]any{"attempt": 2}))
+
 	var xminAfterChange string
 	var attemptAfterChange int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text, attempt
 		FROM workflow_step_runs
 		WHERE id = $1`,
-		stepRun.ID,
-	).Scan(&xminAfterChange, &attemptAfterChange); err != nil {
-		t.Fatalf("query workflow_step_runs after changed field: %v", err)
-	}
-	if xminAfterChange == xminAfterNoOp {
-		t.Fatalf("workflow_step_runs changed-field CAS update kept xmin %s, want a real update", xminAfterChange)
-	}
-	if attemptAfterChange != 2 {
-		t.Fatalf("attempt after changed field = %d, want 2", attemptAfterChange)
-	}
+
+		stepRun.
+			ID).Scan(&xminAfterChange,
+		&attemptAfterChange))
+	require.NotEqual(t, xminAfterNoOp,
+
+		xminAfterChange,
+	)
+	require.EqualValues(t, 2, attemptAfterChange)
 
 	// Conflict: try from pending again (already running).
 	err = q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepPending, domain.StepCompleted, nil)
-	if err == nil {
-		t.Fatal("UpdateStepRunStatusFrom() conflict expected error, got nil")
-	}
+	require.Error(t, err)
 
 	// Invalid field.
 	err = q.UpdateStepRunStatusFrom(ctx, stepRun.ID, domain.StepRunning, domain.StepCompleted, map[string]any{
 		"bad_field": "x",
 	})
-	if err == nil {
-		t.Fatal("UpdateStepRunStatusFrom() bad field expected error, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 func TestCountNonTerminalStepRuns(t *testing.T) {
@@ -241,21 +237,14 @@ func TestCountNonTerminalStepRuns(t *testing.T) {
 	_, wfRun, _ := mustCreateWorkflowStepFixture(t, ctx, q, "project-count-non-terminal", domain.StepPending)
 
 	count, err := q.CountNonTerminalStepRuns(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("CountNonTerminalStepRuns() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("CountNonTerminalStepRuns() = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
 
 	// Empty case.
 	zeroCount, err := q.CountNonTerminalStepRuns(ctx, newID())
-	if err != nil {
-		t.Fatalf("CountNonTerminalStepRuns(empty) error = %v", err)
-	}
-	if zeroCount != 0 {
-		t.Fatalf("CountNonTerminalStepRuns(empty) = %d, want 0", zeroCount)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, zeroCount)
+
 }
 
 func TestListFailedStepRunRefs(t *testing.T) {
@@ -266,24 +255,17 @@ func TestListFailedStepRunRefs(t *testing.T) {
 	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-failed-step-refs", domain.StepFailed)
 
 	refs, err := q.ListFailedStepRunRefs(ctx, wfRun.ID)
-	if err != nil {
-		t.Fatalf("ListFailedStepRunRefs() error = %v", err)
-	}
-	if len(refs) != 1 {
-		t.Fatalf("ListFailedStepRunRefs() len = %d, want 1", len(refs))
-	}
-	if refs[0] != stepRun.StepRef {
-		t.Fatalf("ListFailedStepRunRefs() ref = %q, want %q", refs[0], stepRun.StepRef)
-	}
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	require.Equal(t, stepRun.
+		StepRef,
+		refs[0])
 
 	// Empty case.
 	empty, err := q.ListFailedStepRunRefs(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListFailedStepRunRefs(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListFailedStepRunRefs(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestCancelNonTerminalStepRuns(t *testing.T) {
@@ -295,21 +277,14 @@ func TestCancelNonTerminalStepRuns(t *testing.T) {
 
 	now := time.Now().UTC()
 	affected, err := q.CancelNonTerminalStepRuns(ctx, wfRun.ID, now, "workflow canceled")
-	if err != nil {
-		t.Fatalf("CancelNonTerminalStepRuns() error = %v", err)
-	}
-	if affected != 1 {
-		t.Fatalf("CancelNonTerminalStepRuns() affected = %d, want 1", affected)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, affected)
 
 	// Calling again should affect 0.
 	affected2, err := q.CancelNonTerminalStepRuns(ctx, wfRun.ID, now, "workflow canceled")
-	if err != nil {
-		t.Fatalf("CancelNonTerminalStepRuns(again) error = %v", err)
-	}
-	if affected2 != 0 {
-		t.Fatalf("CancelNonTerminalStepRuns(again) affected = %d, want 0", affected2)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, affected2)
+
 }
 
 func TestSkipStepRunsByRefs(t *testing.T) {
@@ -321,29 +296,21 @@ func TestSkipStepRunsByRefs(t *testing.T) {
 
 	now := time.Now().UTC()
 	affected, err := q.SkipStepRunsByRefs(ctx, wfRun.ID, []string{stepRun.StepRef}, now)
-	if err != nil {
-		t.Fatalf("SkipStepRunsByRefs() error = %v", err)
-	}
-	if affected != 1 {
-		t.Fatalf("SkipStepRunsByRefs() affected = %d, want 1", affected)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, affected)
 
 	got, err := q.GetWorkflowStepRun(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepRun() error = %v", err)
-	}
-	if got.Status != domain.StepSkipped {
-		t.Fatalf("status = %q, want %q", got.Status, domain.StepSkipped)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StepSkipped,
+		got.Status,
+	)
 
 	// Empty refs returns 0.
 	zero, err := q.SkipStepRunsByRefs(ctx, wfRun.ID, []string{}, now)
-	if err != nil {
-		t.Fatalf("SkipStepRunsByRefs(empty) error = %v", err)
-	}
-	if zero != 0 {
-		t.Fatalf("SkipStepRunsByRefs(empty) affected = %d, want 0", zero)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, zero)
+
 }
 
 func TestGetStepOutputs(t *testing.T) {
@@ -352,34 +319,28 @@ func TestGetStepOutputs(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-outputs", domain.StepCompleted)
+	require.NoError(t, q.UpdateStepRunStatus(ctx,
+		stepRun.ID, domain.
+			StepCompleted,
+		map[string]any{"output": json.RawMessage(`{"result":"ok"}`)}))
 
 	// Set output on the step run.
-	if err := q.UpdateStepRunStatus(ctx, stepRun.ID, domain.StepCompleted, map[string]any{
-		"output": json.RawMessage(`{"result":"ok"}`),
-	}); err != nil {
-		t.Fatalf("UpdateStepRunStatus() error = %v", err)
-	}
 
 	outputs, err := q.GetStepOutputs(ctx, wfRun.ID, []string{stepRun.StepRef})
-	if err != nil {
-		t.Fatalf("GetStepOutputs() error = %v", err)
-	}
-	if len(outputs) != 1 {
-		t.Fatalf("GetStepOutputs() len = %d, want 1", len(outputs))
-	}
+	require.NoError(t, err)
+	require.Len(t, outputs,
+
+		1)
+
 	outStr := string(outputs[stepRun.StepRef])
-	if !strings.Contains(outStr, `"result"`) || !strings.Contains(outStr, `"ok"`) {
-		t.Fatalf("GetStepOutputs() output = %s, expected to contain result:ok", outStr)
-	}
+	require.False(t, !strings.Contains(outStr, `"result"`) || !strings.Contains(outStr,
+		`"ok"`))
 
 	// Unknown step ref.
 	empty, err := q.GetStepOutputs(ctx, wfRun.ID, []string{"nonexistent"})
-	if err != nil {
-		t.Fatalf("GetStepOutputs(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("GetStepOutputs(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestListRunnableStepRunsByWorkflowRun(t *testing.T) {
@@ -404,29 +365,23 @@ func TestListRunnableStepRunsByWorkflowRun(t *testing.T) {
 		DepsCompleted:  1,
 		DepsRequired:   1,
 	}
-	if err := q.CreateWorkflowStepRun(ctx, sr); err != nil {
-		t.Fatalf("CreateWorkflowStepRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepRun(ctx,
+		sr))
 
 	runnable, err := q.ListRunnableStepRunsByWorkflowRun(ctx, wfRun.ID, 100)
-	if err != nil {
-		t.Fatalf("ListRunnableStepRunsByWorkflowRun() error = %v", err)
-	}
-	if len(runnable) != 1 {
-		t.Fatalf("ListRunnableStepRunsByWorkflowRun() len = %d, want 1", len(runnable))
-	}
-	if runnable[0].ID != sr.ID {
-		t.Fatalf("ListRunnableStepRunsByWorkflowRun() id = %q, want %q", runnable[0].ID, sr.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, runnable,
+
+		1)
+	require.Equal(t, sr.ID,
+
+		runnable[0].ID)
 
 	// Empty case.
 	empty, err := q.ListRunnableStepRunsByWorkflowRun(ctx, newID(), 100)
-	if err != nil {
-		t.Fatalf("ListRunnableStepRunsByWorkflowRun(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListRunnableStepRunsByWorkflowRun(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestGetCostGateDefaultAction(t *testing.T) {
@@ -436,12 +391,9 @@ func TestGetCostGateDefaultAction(t *testing.T) {
 
 	// Empty result for a nonexistent step run.
 	action, err := q.GetCostGateDefaultAction(ctx, newID())
-	if err != nil {
-		t.Fatalf("GetCostGateDefaultAction() error = %v", err)
-	}
-	if action != "" {
-		t.Fatalf("GetCostGateDefaultAction() = %q, want empty", action)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "", action)
+
 }
 
 func TestGetCostGateDefaultAction_UsesVersionSnapshot(t *testing.T) {
@@ -466,11 +418,12 @@ func TestGetCostGateDefaultAction_UsesVersionSnapshot(t *testing.T) {
 		SET cost_gate_default_action = 'reject'
 		WHERE id = $1
 	`, step.ID); err != nil {
-		t.Fatalf("set snapshot cost gate action: %v", err)
+		require.Failf(t, "test failure",
+
+			"set snapshot cost gate action: %v", err)
 	}
-	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
-		t.Fatalf("CreateWorkflowVersionSnapshot() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowVersionSnapshot(ctx, wf.ID,
+		1))
 
 	wfRun := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	stepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, wfRun.ID, step.ID, &testutil.WorkflowStepRunOpts{
@@ -482,16 +435,18 @@ func TestGetCostGateDefaultAction_UsesVersionSnapshot(t *testing.T) {
 		SET cost_gate_default_action = 'approve'
 		WHERE id = $1
 	`, step.ID); err != nil {
-		t.Fatalf("mutate live cost gate action: %v", err)
+		require.Failf(t, "test failure",
+
+			"mutate live cost gate action: %v", err)
 	}
 
 	action, err := q.GetCostGateDefaultAction(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetCostGateDefaultAction() error = %v", err)
-	}
-	if action != "reject" {
-		t.Fatalf("GetCostGateDefaultAction() = %q, want snapshot action reject", action)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "reject",
+
+		action,
+	)
+
 }
 
 func TestGetCostGateDefaultAction_UsesWorkflowRunVersion(t *testing.T) {
@@ -516,31 +471,38 @@ func TestGetCostGateDefaultAction_UsesWorkflowRunVersion(t *testing.T) {
 		SET cost_gate_default_action = 'reject'
 		WHERE id = $1
 	`, step.ID); err != nil {
-		t.Fatalf("set v1 cost gate action: %v", err)
+		require.Failf(t, "test failure",
+
+			"set v1 cost gate action: %v", err)
 	}
-	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 1); err != nil {
-		t.Fatalf("CreateWorkflowVersionSnapshot(v1) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowVersionSnapshot(ctx, wf.ID,
+		1))
+
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflows SET version = 2 WHERE id = $1`, wf.ID); err != nil {
-		t.Fatalf("set workflow version 2: %v", err)
+		require.Failf(t, "test failure",
+
+			"set workflow version 2: %v", err)
 	}
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE workflow_steps
 		SET cost_gate_default_action = 'approve'
 		WHERE id = $1
 	`, step.ID); err != nil {
-		t.Fatalf("set v2 cost gate action: %v", err)
+		require.Failf(t, "test failure",
+
+			"set v2 cost gate action: %v", err)
 	}
-	if err := q.CreateWorkflowVersionSnapshot(ctx, wf.ID, 2); err != nil {
-		t.Fatalf("CreateWorkflowVersionSnapshot(v2) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowVersionSnapshot(ctx, wf.ID,
+		2))
 
 	v1Run := testutil.MustCreateWorkflowRun(t, ctx, q, wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: new(projectID),
 	})
 	v1Run.WorkflowVersion = 1
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET workflow_version = 1 WHERE id = $1`, v1Run.ID); err != nil {
-		t.Fatalf("pin workflow run to v1: %v", err)
+		require.Failf(t, "test failure",
+
+			"pin workflow run to v1: %v", err)
 	}
 	v1StepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, v1Run.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status:  new(domain.StepWaiting),
@@ -552,7 +514,9 @@ func TestGetCostGateDefaultAction_UsesWorkflowRunVersion(t *testing.T) {
 	})
 	v2Run.WorkflowVersion = 2
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET workflow_version = 2 WHERE id = $1`, v2Run.ID); err != nil {
-		t.Fatalf("pin workflow run to v2: %v", err)
+		require.Failf(t, "test failure",
+
+			"pin workflow run to v2: %v", err)
 	}
 	v2StepRun := testutil.MustCreateWorkflowStepRun(t, ctx, q, v2Run.ID, step.ID, &testutil.WorkflowStepRunOpts{
 		Status:  new(domain.StepWaiting),
@@ -560,19 +524,19 @@ func TestGetCostGateDefaultAction_UsesWorkflowRunVersion(t *testing.T) {
 	})
 
 	v1Action, err := q.GetCostGateDefaultAction(ctx, v1StepRun.ID)
-	if err != nil {
-		t.Fatalf("GetCostGateDefaultAction(v1) error = %v", err)
-	}
-	if v1Action != "reject" {
-		t.Fatalf("GetCostGateDefaultAction(v1) = %q, want reject", v1Action)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "reject",
+
+		v1Action,
+	)
+
 	v2Action, err := q.GetCostGateDefaultAction(ctx, v2StepRun.ID)
-	if err != nil {
-		t.Fatalf("GetCostGateDefaultAction(v2) error = %v", err)
-	}
-	if v2Action != "approve" {
-		t.Fatalf("GetCostGateDefaultAction(v2) = %q, want approve", v2Action)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "approve",
+
+		v2Action,
+	)
+
 }
 
 func TestListOrphanedStepRuns_Empty(t *testing.T) {
@@ -581,12 +545,11 @@ func TestListOrphanedStepRuns_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	orphans, err := q.ListOrphanedStepRuns(ctx)
-	if err != nil {
-		t.Fatalf("ListOrphanedStepRuns() error = %v", err)
-	}
-	if len(orphans) != 0 {
-		t.Fatalf("ListOrphanedStepRuns() len = %d, want 0", len(orphans))
-	}
+	require.NoError(t, err)
+	require.Len(t, orphans,
+
+		0)
+
 }
 
 func TestGetWorkflowStepRun_NotFound(t *testing.T) {
@@ -595,9 +558,10 @@ func TestGetWorkflowStepRun_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetWorkflowStepRun(ctx, newID())
-	if !errors.Is(err, store.ErrWorkflowStepRunNotFound) {
-		t.Fatalf("GetWorkflowStepRun() error = %v, want ErrWorkflowStepRunNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWorkflowStepRunNotFound,
+	))
+
 }
 
 func TestIncrementStepRunAttempt_NotFound(t *testing.T) {
@@ -606,10 +570,9 @@ func TestIncrementStepRunAttempt_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.IncrementStepRunAttempt(ctx, newID(), 2)
-	if err == nil {
-		t.Fatal("IncrementStepRunAttempt() expected error, got nil")
-	}
-	if !errors.Is(err, store.ErrWorkflowStepRunNotFound) {
-		t.Fatalf("IncrementStepRunAttempt() error = %v, want ErrWorkflowStepRunNotFound", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, store.
+		ErrWorkflowStepRunNotFound,
+	))
+
 }

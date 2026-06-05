@@ -6,6 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSSRF_AdversarialBypass is a comprehensive adversarial test that tries every
@@ -145,9 +148,7 @@ func TestSSRF_AdversarialBypass(t *testing.T) {
 	for _, att := range attacks {
 		t.Run(att.name, func(t *testing.T) {
 			err := ValidateExternalURL(att.url)
-			if err == nil {
-				t.Errorf("SSRF BYPASS: %q was accepted (expected rejection)", att.url)
-			}
+			assert.Error(t, err, "SSRF BYPASS: %q was accepted", att.url)
 		})
 	}
 }
@@ -180,9 +181,7 @@ func TestSSRF_ValidURLsAccepted(t *testing.T) {
 
 	for _, u := range validURLs {
 		t.Run(u, func(t *testing.T) {
-			if err := ValidateExternalURL(u); err != nil {
-				t.Errorf("valid URL %q was rejected: %v", u, err)
-			}
+			assert.NoError(t, ValidateExternalURL(u), "valid URL %q was rejected", u)
 		})
 	}
 }
@@ -250,13 +249,9 @@ func TestSSRF_BoundaryIPs(t *testing.T) {
 		t.Run(tt.ip, func(t *testing.T) {
 			t.Parallel()
 			ip := net.ParseIP(tt.ip)
-			if ip == nil {
-				t.Fatalf("failed to parse IP %q", tt.ip)
-			}
+			require.NotNil(t, ip, "failed to parse IP %q", tt.ip)
 			got := isPrivateIP(ip)
-			if got != tt.private {
-				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, got, tt.private)
-			}
+			assert.Equal(t, tt.private, got)
 		})
 	}
 }
@@ -331,9 +326,7 @@ func TestSSRF_NonStandardIPDetection(t *testing.T) {
 		t.Run(tt.host, func(t *testing.T) {
 			t.Parallel()
 			got := looksLikeNonStandardIP(tt.host)
-			if got != tt.detected {
-				t.Errorf("looksLikeNonStandardIP(%q) = %v, want %v", tt.host, got, tt.detected)
-			}
+			assert.Equal(t, tt.detected, got)
 		})
 	}
 }
@@ -393,7 +386,7 @@ func FuzzValidateExternalURL(f *testing.F) {
 			// private IP literal in the host (defense-in-depth check).
 			u, parseErr := url.Parse(input)
 			if parseErr != nil {
-				t.Errorf("accepted URL %q that fails to re-parse: %v", input, parseErr)
+				assert.NoError(t, parseErr, "accepted URL %q failed to re-parse", input)
 				return
 			}
 			host := u.Hostname()
@@ -401,20 +394,20 @@ func FuzzValidateExternalURL(f *testing.F) {
 			// Check if the accepted host is a plain private IP.
 			if ip := net.ParseIP(host); ip != nil {
 				if isPrivateIP(ip) {
-					t.Errorf("SSRF BYPASS: accepted URL with private IP %q: %s", input, ip)
+					assert.False(t, isPrivateIP(ip), "SSRF BYPASS: accepted URL with private IP %q: %s", input, ip)
 				}
 			}
 
 			// Check for known blocked hostnames.
 			for _, blocked := range blockedHosts {
 				if strings.EqualFold(host, blocked) {
-					t.Errorf("SSRF BYPASS: accepted URL with blocked host %q: %s", input, host)
+					assert.False(t, strings.EqualFold(host, blocked), "SSRF BYPASS: accepted URL with blocked host %q: %s", input, host)
 				}
 			}
 
 			// Check for octal/hex notation that might slip through.
 			if looksLikeNonStandardIP(host) {
-				t.Errorf("SSRF BYPASS: accepted URL with non-standard IP %q: %s", input, host)
+				assert.False(t, looksLikeNonStandardIP(host), "SSRF BYPASS: accepted URL with non-standard IP %q: %s", input, host)
 			}
 		}
 	})

@@ -11,6 +11,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCronScheduler_TriggerJob_ProjectQueuedQuotaPreventsInsert(t *testing.T) {
@@ -24,14 +25,16 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaPreventsInsert(t *testing.T)
 		OrgID: "org-" + uuid.Must(uuid.NewV7()).String(),
 		Name:  "cron quota",
 	}
-	if err := st.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.
+		CreateProject(ctx, project))
+
 	if _, err := tdb.Pool.Exec(ctx, `
 		INSERT INTO project_quotas (project_id, max_queued_runs)
 		VALUES ($1, 1)
 	`, project.ID); err != nil {
-		t.Fatalf("insert project quota: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project quota: %v", err)
 	}
 
 	job := &domain.Job{
@@ -45,29 +48,28 @@ func TestCronScheduler_TriggerJob_ProjectQueuedQuotaPreventsInsert(t *testing.T)
 		TimeoutSecs: 60,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.
+		CreateJob(
+			ctx, job))
+
 	existing := &domain.JobRun{
 		ID:        uuid.Must(uuid.NewV7()).String(),
 		JobID:     job.ID,
 		ProjectID: project.ID,
 		Status:    domain.StatusQueued,
 	}
-	if err := pq.Enqueue(ctx, existing); err != nil {
-		t.Fatalf("Enqueue existing run: %v", err)
-	}
+	require.NoError(t, pq.
+		Enqueue(ctx,
+			existing,
+		))
 
 	cs := NewCronScheduler(ctx, st, pq, nil)
 	cs.triggerJob(ctx, *job)
 
 	count, err := st.CountProjectQueuedRuns(ctx, project.ID)
-	if err != nil {
-		t.Fatalf("CountProjectQueuedRuns() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("queued run count = %d, want unchanged count 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }
 
 func TestCronScheduler_LoadJobs_SkipsInvalidStoredJobTimezone(t *testing.T) {
@@ -80,9 +82,8 @@ func TestCronScheduler_LoadJobs_SkipsInvalidStoredJobTimezone(t *testing.T) {
 		OrgID: "org-" + uuid.Must(uuid.NewV7()).String(),
 		Name:  "cron timezone",
 	}
-	if err := st.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.
+		CreateProject(ctx, project))
 
 	for _, tt := range []struct {
 		name     string
@@ -103,16 +104,16 @@ func TestCronScheduler_LoadJobs_SkipsInvalidStoredJobTimezone(t *testing.T) {
 			TimeoutSecs: 60,
 			Enabled:     true,
 		}
-		if err := st.CreateJob(ctx, job); err != nil {
-			t.Fatalf("CreateJob(%s) error = %v", tt.name, err)
-		}
+		require.NoError(t, st.
+			CreateJob(
+				ctx, job))
+
 	}
 
 	cs := NewCronScheduler(ctx, st, &mockQueue{}, nil)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
-	if got := len(cs.cron.Entries()); got != 1 {
-		t.Fatalf("loaded cron entries = %d, want only the valid timezone job", got)
-	}
+	require.NoError(t, cs.
+		LoadJobs(ctx))
+	require.EqualValues(t, 1, len(cs.cron.
+		Entries()))
+
 }

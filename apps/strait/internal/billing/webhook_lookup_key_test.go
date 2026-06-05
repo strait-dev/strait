@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWebhookHandler_SubscriptionCreated_BusinessTier_ByLookupKey exercises the
@@ -35,29 +38,30 @@ func TestWebhookHandler_SubscriptionCreated_BusinessTier_ByLookupKey(t *testing.
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d (body=%s)", rr.Code, rr.Body.String())
-	}
-	if store.lastUpserted == nil {
-		t.Fatal("expected subscription to be upserted")
-	}
-	if store.lastUpserted.PlanTier != string(domain.PlanBusiness) {
-		t.Errorf("plan_tier = %q, want %q", store.lastUpserted.PlanTier, domain.PlanBusiness)
-	}
-	if store.lastUpserted.StripeLookupKey == nil {
-		t.Fatal("expected stripe_lookup_key to be set on upsert")
-	}
-	if got := *store.lastUpserted.StripeLookupKey; got != "strait_business_monthly" {
-		t.Errorf("stripe_lookup_key = %q, want strait_business_monthly", got)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastUpserted,
+	)
+	assert.Equal(t,
+		string(domain.PlanBusiness),
+		store.lastUpserted.
+			PlanTier)
+	require.NotNil(
+		t, store.lastUpserted.
+			StripeLookupKey,
+	)
+	assert.Equal(t,
+		"strait_business_monthly",
+		*store.lastUpserted.
+			StripeLookupKey,
+	)
 }
 
 // TestWebhookHandler_SubscriptionCreated_FallbackPriceID confirms that when a
@@ -81,26 +85,24 @@ func TestWebhookHandler_SubscriptionCreated_FallbackPriceID(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d (body=%s)", rr.Code, rr.Body.String())
-	}
-	if store.lastUpserted == nil {
-		t.Fatal("expected subscription to be upserted")
-	}
-	if store.lastUpserted.PlanTier != string(domain.PlanPro) {
-		t.Errorf("plan_tier = %q, want pro", store.lastUpserted.PlanTier)
-	}
-	if store.lastUpserted.StripeLookupKey != nil {
-		t.Errorf("stripe_lookup_key should be nil on fallback, got %q", *store.lastUpserted.StripeLookupKey)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastUpserted,
+	)
+	assert.Equal(t,
+		string(domain.PlanPro), store.
+			lastUpserted.
+			PlanTier)
+	assert.Nil(t, store.lastUpserted.
+		StripeLookupKey,
+	)
 }
 
 // TestWebhookHandler_AddonByLookupKey resolves an addon subscription via the
@@ -132,29 +134,31 @@ func TestWebhookHandler_AddonByLookupKey(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.NotNil(
+		t, store.lastAddonCreated,
+	)
+	assert.Equal(t,
+		AddonConcurrency100,
+		store.lastAddonCreated.
+			AddonType)
+	require.NotNil(
+		t, store.lastAddonCreated.
+			StripeLookupKey,
+	)
+	assert.Equal(t,
+		"strait_addon_concurrency_100",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d (body=%s)", rr.Code, rr.Body.String())
-	}
-	if store.lastAddonCreated == nil {
-		t.Fatal("expected addon to be created via lookup-key resolution")
-	}
-	if store.lastAddonCreated.AddonType != AddonConcurrency100 {
-		t.Errorf("addon_type = %q, want %q", store.lastAddonCreated.AddonType, AddonConcurrency100)
-	}
-	if store.lastAddonCreated.StripeLookupKey == nil {
-		t.Fatal("expected stripe_lookup_key to be set on addon")
-	}
-	if got := *store.lastAddonCreated.StripeLookupKey; got != "strait_addon_concurrency_100" {
-		t.Errorf("addon stripe_lookup_key = %q, want strait_addon_concurrency_100", got)
-	}
+		*store.lastAddonCreated.
+			StripeLookupKey,
+	)
 }
 
 func TestWebhookHandler_RoadmapAddonLookupKeyRejected(t *testing.T) {
@@ -183,23 +187,18 @@ func TestWebhookHandler_RoadmapAddonLookupKeyRejected(t *testing.T) {
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
+	require.Equal(t,
+		http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500 so roadmap add-on Stripe misconfiguration retries", rr.Code)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("roadmap lookup key created addon row: %#v", store.lastAddonCreated)
-	}
-	if store.lastUpserted != nil {
-		t.Fatalf("roadmap add-on lookup key upserted plan subscription: %#v", store.lastUpserted)
-	}
+		rr.Code,
+	)
+	require.Nil(t, store.lastAddonCreated)
+	require.Nil(t, store.lastUpserted)
 }
 
 func TestWebhookHandler_LegacyRoadmapAddonPriceDoesNotCreateEntitlement(t *testing.T) {
@@ -230,21 +229,14 @@ func TestWebhookHandler_LegacyRoadmapAddonPriceDoesNotCreateEntitlement(t *testi
 	}
 
 	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/webhooks/stripe", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 for ignored legacy roadmap add-on", rr.Code)
-	}
-	if store.lastAddonCreated != nil {
-		t.Fatalf("legacy roadmap add-on price created addon row: %#v", store.lastAddonCreated)
-	}
-	if store.lastUpserted != nil {
-		t.Fatalf("legacy roadmap add-on price upserted plan subscription: %#v", store.lastUpserted)
-	}
+	require.Equal(t,
+		http.StatusOK,
+		rr.Code)
+	require.Nil(t, store.lastAddonCreated)
+	require.Nil(t, store.lastUpserted)
 }

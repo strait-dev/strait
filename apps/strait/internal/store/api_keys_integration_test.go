@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateAPIKey(t *testing.T) {
@@ -28,52 +30,60 @@ func TestCreateAPIKey(t *testing.T) {
 		EnvironmentID:      "env-" + newID(),
 		RotationWebhookURL: "https://example.com/rotate",
 	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.NotEqual(t, "",
 
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
-	if key.ID == "" {
-		t.Fatal("CreateAPIKey() did not set ID")
-	}
-	if key.CreatedAt.IsZero() {
-		t.Fatal("CreateAPIKey() did not set CreatedAt")
-	}
+		key.ID)
+	require.False(t, key.CreatedAt.
+		IsZero())
 
 	// Verify round-trip via GetAPIKeyByID.
 	got, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID() error = %v", err)
-	}
-	if got.ID != key.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, key.ID)
-	}
-	if got.ProjectID != key.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, key.ProjectID)
-	}
-	if got.OrgID != key.OrgID {
-		t.Fatalf("OrgID = %q, want %q", got.OrgID, key.OrgID)
-	}
-	if got.Name != key.Name {
-		t.Fatalf("Name = %q, want %q", got.Name, key.Name)
-	}
-	if got.KeyHash != key.KeyHash {
-		t.Fatalf("KeyHash = %q, want %q", got.KeyHash, key.KeyHash)
-	}
-	if got.KeyPrefix != key.KeyPrefix {
-		t.Fatalf("KeyPrefix = %q, want %q", got.KeyPrefix, key.KeyPrefix)
-	}
-	if len(got.Scopes) != len(key.Scopes) {
-		t.Fatalf("Scopes len = %d, want %d", len(got.Scopes), len(key.Scopes))
-	}
-	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(*key.ExpiresAt) {
-		t.Fatalf("ExpiresAt = %v, want %v", got.ExpiresAt, key.ExpiresAt)
-	}
-	if got.EnvironmentID != key.EnvironmentID {
-		t.Fatalf("EnvironmentID = %q, want %q", got.EnvironmentID, key.EnvironmentID)
-	}
-	if got.RotationWebhookURL != key.RotationWebhookURL {
-		t.Fatalf("RotationWebhookURL = %q, want %q", got.RotationWebhookURL, key.RotationWebhookURL)
-	}
+	require.NoError(t, err)
+	require.Equal(t, key.ID,
+
+		got.ID)
+	require.Equal(t, key.ProjectID,
+
+		got.
+			ProjectID,
+	)
+	require.Equal(t, key.OrgID,
+
+		got.OrgID,
+	)
+	require.Equal(t, key.Name,
+
+		got.Name,
+	)
+	require.Equal(t, key.KeyHash,
+
+		got.
+			KeyHash)
+	require.Equal(t, key.KeyPrefix,
+
+		got.
+			KeyPrefix,
+	)
+	require.Len(t, got.Scopes,
+
+		len(key.
+			Scopes))
+	require.False(t, got.ExpiresAt ==
+		nil || !got.
+		ExpiresAt.
+		Equal(*key.
+			ExpiresAt))
+	require.Equal(t, key.EnvironmentID,
+
+		got.EnvironmentID,
+	)
+	require.Equal(t, key.RotationWebhookURL,
+
+		got.
+			RotationWebhookURL,
+	)
+
 }
 
 func TestCreateAPIKey_DuplicateHash(t *testing.T) {
@@ -83,14 +93,12 @@ func TestCreateAPIKey_DuplicateHash(t *testing.T) {
 
 	hash := "hash-dup-" + newID()
 	key1 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k1", KeyHash: hash, KeyPrefix: "sk_1", Scopes: []string{"read"}}
-	if err := q.CreateAPIKey(ctx, key1); err != nil {
-		t.Fatalf("CreateAPIKey(key1) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key1))
 
 	key2 := &domain.APIKey{ProjectID: "proj-dup-hash", Name: "k2", KeyHash: hash, KeyPrefix: "sk_2", Scopes: []string{"read"}}
-	if err := q.CreateAPIKey(ctx, key2); err == nil {
-		t.Fatal("CreateAPIKey(duplicate hash) error = nil, want error")
-	}
+	require.Error(t, q.CreateAPIKey(ctx,
+		key2))
+
 }
 
 func TestGetAPIKeyByHash(t *testing.T) {
@@ -105,23 +113,18 @@ func TestGetAPIKeyByHash(t *testing.T) {
 		KeyPrefix: "sk_h",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
 
 	got, err := q.GetAPIKeyByHash(ctx, key.KeyHash)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByHash() error = %v", err)
-	}
-	if got.ID != key.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, key.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, key.ID,
+
+		got.ID)
 
 	// Not found.
 	_, err = q.GetAPIKeyByHash(ctx, "missing-hash-"+newID())
-	if err == nil {
-		t.Fatal("GetAPIKeyByHash(missing) error = nil, want error")
-	}
+	require.Error(t, err)
+
 }
 
 func TestAPIKeyCacheVersion_RoundTripAndMutationBump(t *testing.T) {
@@ -136,31 +139,24 @@ func TestAPIKeyCacheVersion_RoundTripAndMutationBump(t *testing.T) {
 		KeyPrefix: "sk_cv",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
-	if key.CacheVersion != 1 {
-		t.Fatalf("created CacheVersion = %d, want 1", key.CacheVersion)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.EqualValues(t, 1, key.
+		CacheVersion,
+	)
 
 	byHash, err := q.GetAPIKeyByHash(ctx, key.KeyHash)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByHash() error = %v", err)
-	}
-	if byHash.CacheVersion != 1 {
-		t.Fatalf("GetAPIKeyByHash() CacheVersion = %d, want 1", byHash.CacheVersion)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, byHash.
+		CacheVersion,
+	)
+	require.NoError(t, q.RevokeAPIKey(ctx, key.ID))
 
-	if err := q.RevokeAPIKey(ctx, key.ID); err != nil {
-		t.Fatalf("RevokeAPIKey() error = %v", err)
-	}
 	revoked, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(revoked) error = %v", err)
-	}
-	if revoked.CacheVersion != 2 {
-		t.Fatalf("revoked CacheVersion = %d, want 2", revoked.CacheVersion)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, revoked.
+		CacheVersion,
+	)
+
 }
 
 func TestGetAPIKeyByID_NotFound(t *testing.T) {
@@ -169,9 +165,8 @@ func TestGetAPIKeyByID_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetAPIKeyByID(ctx, newID())
-	if err == nil {
-		t.Fatal("GetAPIKeyByID(missing) error = nil, want error")
-	}
+	require.Error(t, err)
+
 }
 
 func TestListAPIKeysByProject(t *testing.T) {
@@ -191,9 +186,8 @@ func TestListAPIKeysByProject(t *testing.T) {
 			Scopes:    []string{"jobs:read"},
 		}
 		_ = i
-		if err := q.CreateAPIKey(ctx, key); err != nil {
-			t.Fatalf("CreateAPIKey(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateAPIKey(ctx, key))
+
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -205,41 +199,31 @@ func TestListAPIKeysByProject(t *testing.T) {
 		KeyPrefix: "sk_other",
 		Scopes:    []string{},
 	}
-	if err := q.CreateAPIKey(ctx, other); err != nil {
-		t.Fatalf("CreateAPIKey(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, other))
 
 	keys, err := q.ListAPIKeysByProject(ctx, projectID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListAPIKeysByProject() error = %v", err)
-	}
-	if len(keys) != 3 {
-		t.Fatalf("len = %d, want 3", len(keys))
-	}
+	require.NoError(t, err)
+	require.Len(t, keys, 3)
 
 	for i := 1; i < len(keys); i++ {
-		if keys[i-1].CreatedAt.Before(keys[i].CreatedAt) {
-			t.Fatalf("keys not DESC at index %d", i)
-		}
+		require.False(t, keys[i-
+			1].CreatedAt.
+			Before(
+				keys[i].CreatedAt,
+			))
+
 	}
 
 	// Cursor pagination.
 	page1, err := q.ListAPIKeysByProject(ctx, projectID, 2, nil)
-	if err != nil {
-		t.Fatalf("ListAPIKeysByProject(page1) error = %v", err)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("page1 len = %d, want 2", len(page1))
-	}
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
 
 	cursor := page1[1].CreatedAt
 	page2, err := q.ListAPIKeysByProject(ctx, projectID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListAPIKeysByProject(page2) error = %v", err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("page2 len = %d, want 1", len(page2))
-	}
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+
 }
 
 func TestListAPIKeysByOrg(t *testing.T) {
@@ -258,9 +242,7 @@ func TestListAPIKeysByOrg(t *testing.T) {
 		KeyPrefix: "sk_1",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key1); err != nil {
-		t.Fatalf("CreateAPIKey(k1) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key1))
 
 	key2 := &domain.APIKey{
 		ProjectID: "proj-orgkeys-" + newID(),
@@ -270,9 +252,7 @@ func TestListAPIKeysByOrg(t *testing.T) {
 		KeyPrefix: "sk_2",
 		Scopes:    []string{},
 	}
-	if err := q.CreateAPIKey(ctx, key2); err != nil {
-		t.Fatalf("CreateAPIKey(k2) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key2))
 
 	// Key in other org.
 	otherKey := &domain.APIKey{
@@ -283,21 +263,17 @@ func TestListAPIKeysByOrg(t *testing.T) {
 		KeyPrefix: "sk_other",
 		Scopes:    []string{},
 	}
-	if err := q.CreateAPIKey(ctx, otherKey); err != nil {
-		t.Fatalf("CreateAPIKey(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, otherKey))
 
 	keys, err := q.ListAPIKeysByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListAPIKeysByOrg() error = %v", err)
-	}
-	if len(keys) != 2 {
-		t.Fatalf("len = %d, want 2", len(keys))
-	}
+	require.NoError(t, err)
+	require.Len(t, keys, 2)
+
 	for _, k := range keys {
-		if k.OrgID != orgID {
-			t.Fatalf("OrgID = %q, want %q", k.OrgID, orgID)
-		}
+		require.Equal(t, orgID,
+
+			k.OrgID)
+
 	}
 }
 
@@ -324,42 +300,41 @@ func TestListAPIKeysByOrg_CanRunWithClearedProjectRLSContext(t *testing.T) {
 		Scopes:    []string{"api-keys:manage"},
 	}
 	for _, key := range []*domain.APIKey{key1, key2} {
-		if err := admin.CreateAPIKey(ctx, key); err != nil {
-			t.Fatalf("CreateAPIKey(%s) error = %v", key.Name, err)
-		}
+		require.NoError(t, admin.
+			CreateAPIKey(ctx, key))
+
 	}
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx, "SELECT set_config('app.current_project_id', $1, true)", key1.ProjectID); err != nil {
-		t.Fatalf("set project context: %v", err)
+		require.Failf(t, "test failure",
+
+			"set project context: %v", err)
 	}
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE strait_app"); err != nil {
-		t.Fatalf("set local role strait_app: %v", err)
+		require.Failf(t, "test failure",
+
+			"set local role strait_app: %v", err)
 	}
 	routed := store.New(tx)
 	projectScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("project-scoped ListAPIKeysByOrg() error = %v", err)
-	}
-	if len(projectScoped) != 1 || projectScoped[0].ProjectID != key1.ProjectID {
-		t.Fatalf("project-scoped keys = %+v, want only %s", projectScoped, key1.ProjectID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(projectScoped) != 1 ||
+		projectScoped[0].ProjectID !=
+			key1.ProjectID)
+	require.NoError(t, routed.
+		ClearProjectContext(ctx))
 
-	if err := routed.ClearProjectContext(ctx); err != nil {
-		t.Fatalf("ClearProjectContext() error = %v", err)
-	}
 	orgScoped, err := routed.ListAPIKeysByOrg(ctx, orgID, 100, nil)
-	if err != nil {
-		t.Fatalf("org-scoped ListAPIKeysByOrg() error = %v", err)
-	}
-	if len(orgScoped) != 2 {
-		t.Fatalf("org-scoped keys = %d, want 2", len(orgScoped))
-	}
+	require.NoError(t, err)
+	require.Len(t, orgScoped,
+
+		2)
+
 }
 
 func TestRevokeAPIKey(t *testing.T) {
@@ -374,40 +349,28 @@ func TestRevokeAPIKey(t *testing.T) {
 		KeyPrefix: "sk_rev",
 		Scopes:    []string{"jobs:trigger"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
-
-	if err := q.RevokeAPIKey(ctx, key.ID); err != nil {
-		t.Fatalf("RevokeAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.NoError(t, q.RevokeAPIKey(ctx, key.ID))
 
 	got, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(revoked) error = %v", err)
-	}
-	if got.RevokedAt == nil {
-		t.Fatal("RevokedAt = nil, want non-nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got.RevokedAt)
 
 	// Revoked keys excluded from list.
 	keys, err := q.ListAPIKeysByProject(ctx, key.ProjectID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListAPIKeysByProject() error = %v", err)
-	}
-	if len(keys) != 0 {
-		t.Fatalf("len = %d, want 0 (revoked excluded)", len(keys))
-	}
+	require.NoError(t, err)
+	require.Len(t, keys, 0)
+	require.Error(t, q.RevokeAPIKey(ctx,
+		key.ID),
+	)
+	require.Error(t, q.RevokeAPIKey(ctx,
+		newID(),
+	))
 
 	// Double revoke returns error.
-	if err := q.RevokeAPIKey(ctx, key.ID); err == nil {
-		t.Fatal("RevokeAPIKey(already) error = nil, want error")
-	}
 
 	// Revoke nonexistent.
-	if err := q.RevokeAPIKey(ctx, newID()); err == nil {
-		t.Fatal("RevokeAPIKey(missing) error = nil, want error")
-	}
+
 }
 
 func TestTouchAPIKeyLastUsed(t *testing.T) {
@@ -422,29 +385,22 @@ func TestTouchAPIKeyLastUsed(t *testing.T) {
 		KeyPrefix: "sk_t",
 		Scopes:    []string{"jobs:read"},
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
 
 	before, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(before) error = %v", err)
-	}
-	if before.LastUsedAt != nil {
-		t.Fatalf("LastUsedAt before = %v, want nil", before.LastUsedAt)
-	}
-
-	if err := q.TouchAPIKeyLastUsed(ctx, key.ID); err != nil {
-		t.Fatalf("TouchAPIKeyLastUsed() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.Nil(t, before.
+		LastUsedAt,
+	)
+	require.NoError(t, q.TouchAPIKeyLastUsed(ctx,
+		key.ID))
 
 	after, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(after) error = %v", err)
-	}
-	if after.LastUsedAt == nil {
-		t.Fatal("LastUsedAt after = nil, want non-nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, after.
+		LastUsedAt,
+	)
+
 }
 
 func TestMarkAPIKeyRotated_Lifecycle(t *testing.T) {
@@ -455,51 +411,48 @@ func TestMarkAPIKeyRotated_Lifecycle(t *testing.T) {
 	projectID := "proj-rotate-" + newID()
 	old := &domain.APIKey{ProjectID: projectID, Name: "old", KeyHash: "hash-" + newID(), KeyPrefix: "sk_old", Scopes: []string{"jobs:read"}}
 	new_ := &domain.APIKey{ProjectID: projectID, Name: "new", KeyHash: "hash-" + newID(), KeyPrefix: "sk_new", Scopes: []string{"jobs:read"}}
-	if err := q.CreateAPIKey(ctx, old); err != nil {
-		t.Fatalf("CreateAPIKey(old) error = %v", err)
-	}
-	if err := q.CreateAPIKey(ctx, new_); err != nil {
-		t.Fatalf("CreateAPIKey(new) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, old))
+	require.NoError(t, q.CreateAPIKey(ctx, new_))
 
 	grace := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Microsecond)
-	if err := q.MarkAPIKeyRotated(ctx, old.ID, new_.ID, grace); err != nil {
-		t.Fatalf("MarkAPIKeyRotated() error = %v", err)
-	}
+	require.NoError(t, q.MarkAPIKeyRotated(ctx,
+		old.ID, new_.
+			ID, grace,
+	))
 
 	got, err := q.GetAPIKeyByID(ctx, old.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(old) error = %v", err)
-	}
-	if got.ReplacedByKeyID != new_.ID {
-		t.Fatalf("ReplacedByKeyID = %q, want %q", got.ReplacedByKeyID, new_.ID)
-	}
-	if got.GraceExpiresAt == nil || !got.GraceExpiresAt.Equal(grace) {
-		t.Fatalf("GraceExpiresAt = %v, want %v", got.GraceExpiresAt, grace)
-	}
+	require.NoError(t, err)
+	require.Equal(t, new_.ID,
+
+		got.ReplacedByKeyID,
+	)
+	require.False(t, got.GraceExpiresAt ==
+		nil ||
+		!got.GraceExpiresAt.
+			Equal(grace))
 
 	otherNew := &domain.APIKey{ProjectID: projectID, Name: "new2", KeyHash: "hash-" + newID(), KeyPrefix: "sk_n2", Scopes: []string{"jobs:read"}}
-	if err := q.CreateAPIKey(ctx, otherNew); err != nil {
-		t.Fatalf("CreateAPIKey(otherNew) error = %v", err)
-	}
-	if err := q.MarkAPIKeyRotated(ctx, old.ID, otherNew.ID, grace); err == nil {
-		t.Fatal("MarkAPIKeyRotated(already rotated) error = nil, want error")
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, otherNew))
+	require.Error(t, q.MarkAPIKeyRotated(ctx, old.
+		ID, otherNew.
+		ID,
+		grace,
+	))
+
 	got, err = q.GetAPIKeyByID(ctx, old.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID(old after duplicate) error = %v", err)
-	}
-	if got.ReplacedByKeyID != new_.ID {
-		t.Fatalf("ReplacedByKeyID overwritten = %q, want original %q", got.ReplacedByKeyID, new_.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, new_.ID,
+
+		got.ReplacedByKeyID,
+	)
+	require.NoError(t, q.RevokeAPIKey(ctx, old.ID))
+	require.Error(t, q.MarkAPIKeyRotated(ctx, old.
+		ID, new_.
+		ID, grace,
+	))
 
 	// Marking an already-revoked key returns error.
-	if err := q.RevokeAPIKey(ctx, old.ID); err != nil {
-		t.Fatalf("RevokeAPIKey(old) error = %v", err)
-	}
-	if err := q.MarkAPIKeyRotated(ctx, old.ID, new_.ID, grace); err == nil {
-		t.Fatal("MarkAPIKeyRotated(revoked) error = nil, want error")
-	}
+
 }
 
 func TestListAPIKeysDueRotation(t *testing.T) {
@@ -522,9 +475,7 @@ func TestListAPIKeysDueRotation(t *testing.T) {
 		RotationIntervalDays: &rotDays,
 		NextRotationAt:       &pastRotation,
 	}
-	if err := q.CreateAPIKey(ctx, due); err != nil {
-		t.Fatalf("CreateAPIKey(due) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, due))
 
 	// Key not yet due.
 	notDue := &domain.APIKey{
@@ -536,9 +487,7 @@ func TestListAPIKeysDueRotation(t *testing.T) {
 		RotationIntervalDays: &rotDays,
 		NextRotationAt:       &futureRotation,
 	}
-	if err := q.CreateAPIKey(ctx, notDue); err != nil {
-		t.Fatalf("CreateAPIKey(not-due) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, notDue))
 
 	// Key without rotation interval.
 	noRot := &domain.APIKey{
@@ -548,30 +497,26 @@ func TestListAPIKeysDueRotation(t *testing.T) {
 		KeyPrefix: "sk_nr",
 		Scopes:    []string{},
 	}
-	if err := q.CreateAPIKey(ctx, noRot); err != nil {
-		t.Fatalf("CreateAPIKey(no-rot) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, noRot))
 
 	keys, err := q.ListAPIKeysDueRotation(ctx)
-	if err != nil {
-		t.Fatalf("ListAPIKeysDueRotation() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, k := range keys {
 		if k.ID == due.ID {
 			found = true
 		}
-		if k.ID == notDue.ID {
-			t.Fatal("ListAPIKeysDueRotation() returned not-due key")
-		}
-		if k.ID == noRot.ID {
-			t.Fatal("ListAPIKeysDueRotation() returned no-rotation key")
-		}
+		require.NotEqual(t, notDue.
+			ID, k.
+			ID)
+		require.NotEqual(t, noRot.
+			ID, k.ID,
+		)
+
 	}
-	if !found {
-		t.Fatal("ListAPIKeysDueRotation() did not return due key")
-	}
+	require.True(t, found)
+
 }
 
 func TestDisableAPIKeyAutoRotationClearsSchedulerEligibility(t *testing.T) {
@@ -590,29 +535,24 @@ func TestDisableAPIKeyAutoRotationClearsSchedulerEligibility(t *testing.T) {
 		RotationIntervalDays: &rotDays,
 		NextRotationAt:       &pastRotation,
 	}
-	if err := q.CreateAPIKey(ctx, key); err != nil {
-		t.Fatalf("CreateAPIKey() error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, key))
+	require.NoError(t, q.DisableAPIKeyAutoRotation(ctx, key.
+		ID))
 
-	if err := q.DisableAPIKeyAutoRotation(ctx, key.ID); err != nil {
-		t.Fatalf("DisableAPIKeyAutoRotation() error = %v", err)
-	}
 	got, err := q.GetAPIKeyByID(ctx, key.ID)
-	if err != nil {
-		t.Fatalf("GetAPIKeyByID() error = %v", err)
-	}
-	if got.NextRotationAt != nil {
-		t.Fatalf("NextRotationAt = %v, want nil", got.NextRotationAt)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got.
+		NextRotationAt,
+	)
 
 	keys, err := q.ListAPIKeysDueRotation(ctx)
-	if err != nil {
-		t.Fatalf("ListAPIKeysDueRotation() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, due := range keys {
-		if due.ID == key.ID {
-			t.Fatal("disabled key is still listed as due for rotation")
-		}
+		require.NotEqual(t, key.
+			ID, due.ID,
+		)
+
 	}
 }
 
@@ -633,9 +573,7 @@ func TestListAPIKeysExpiringSoon(t *testing.T) {
 		Scopes:    []string{"jobs:read"},
 		ExpiresAt: &soonExpiry,
 	}
-	if err := q.CreateAPIKey(ctx, soon); err != nil {
-		t.Fatalf("CreateAPIKey(soon) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, soon))
 
 	// Key expiring far in the future.
 	farExpiry := time.Now().UTC().Add(90 * 24 * time.Hour).Truncate(time.Microsecond)
@@ -647,9 +585,7 @@ func TestListAPIKeysExpiringSoon(t *testing.T) {
 		Scopes:    []string{},
 		ExpiresAt: &farExpiry,
 	}
-	if err := q.CreateAPIKey(ctx, far); err != nil {
-		t.Fatalf("CreateAPIKey(far) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, far))
 
 	// Key with no expiry (included because query uses IS NULL OR).
 	noExpiry := &domain.APIKey{
@@ -659,27 +595,20 @@ func TestListAPIKeysExpiringSoon(t *testing.T) {
 		KeyPrefix: "sk_ne",
 		Scopes:    []string{},
 	}
-	if err := q.CreateAPIKey(ctx, noExpiry); err != nil {
-		t.Fatalf("CreateAPIKey(no-exp) error = %v", err)
-	}
+	require.NoError(t, q.CreateAPIKey(ctx, noExpiry))
 
 	keys, err := q.ListAPIKeysExpiringSoon(ctx, projectID, 7)
-	if err != nil {
-		t.Fatalf("ListAPIKeysExpiringSoon() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ids := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		ids[k.ID] = true
 	}
+	require.True(t, ids[soon.
+		ID])
+	require.True(t, ids[noExpiry.
+		ID])
+	require.False(t, ids[far.
+		ID])
 
-	if !ids[soon.ID] {
-		t.Fatal("ListAPIKeysExpiringSoon() missing soon-expiring key")
-	}
-	if !ids[noExpiry.ID] {
-		t.Fatal("ListAPIKeysExpiringSoon() missing no-expiry key")
-	}
-	if ids[far.ID] {
-		t.Fatal("ListAPIKeysExpiringSoon() included far-expiry key")
-	}
 }

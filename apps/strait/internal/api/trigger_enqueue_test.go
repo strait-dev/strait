@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEnqueueTriggerRunUsesDirectQueueWithoutTx(t *testing.T) {
@@ -17,24 +18,21 @@ func TestEnqueueTriggerRunUsesDirectQueueWithoutTx(t *testing.T) {
 	run := &domain.JobRun{ID: "run-direct"}
 	queue := &triggerEnqueueQueue{
 		enqueueFunc: func(_ context.Context, got *domain.JobRun) error {
-			if got != run {
-				t.Fatalf("run = %p, want %p", got, run)
-			}
+			require.Equal(t, run, got)
+
 			return nil
 		},
 		enqueueInTxFunc: func(context.Context, store.DBTX, *domain.JobRun) error {
-			t.Fatal("EnqueueInTx must not run without a transaction")
+			require.Fail(t,
+
+				"EnqueueInTx must not run without a transaction")
 			return nil
 		},
 	}
 	srv := &Server{queue: queue}
-
-	if err := srv.enqueueTriggerRun(context.Background(), nil, run); err != nil {
-		t.Fatalf("enqueueTriggerRun() error = %v", err)
-	}
-	if queue.enqueueCalls != 1 {
-		t.Fatalf("enqueueCalls = %d, want 1", queue.enqueueCalls)
-	}
+	require.NoError(t, srv.enqueueTriggerRun(context.Background(), nil, run))
+	require.Equal(t, 1, queue.
+		enqueueCalls)
 }
 
 func TestEnqueueTriggerRunUsesTransactionalQueueWithTx(t *testing.T) {
@@ -44,27 +42,22 @@ func TestEnqueueTriggerRunUsesTransactionalQueueWithTx(t *testing.T) {
 	tx := triggerEnqueueDBTX{}
 	queue := &triggerEnqueueQueue{
 		enqueueFunc: func(context.Context, *domain.JobRun) error {
-			t.Fatal("Enqueue must not run with a transaction")
+			require.Fail(t,
+
+				"Enqueue must not run with a transaction")
 			return nil
 		},
 		enqueueInTxFunc: func(_ context.Context, gotTx store.DBTX, got *domain.JobRun) error {
-			if gotTx != tx {
-				t.Fatalf("tx = %T, want triggerEnqueueDBTX", gotTx)
-			}
-			if got != run {
-				t.Fatalf("run = %p, want %p", got, run)
-			}
+			require.Equal(t, tx, gotTx)
+			require.Equal(t, run, got)
+
 			return nil
 		},
 	}
 	srv := &Server{queue: queue}
-
-	if err := srv.enqueueTriggerRun(context.Background(), tx, run); err != nil {
-		t.Fatalf("enqueueTriggerRun() error = %v", err)
-	}
-	if queue.enqueueInTxCalls != 1 {
-		t.Fatalf("enqueueInTxCalls = %d, want 1", queue.enqueueInTxCalls)
-	}
+	require.NoError(t, srv.enqueueTriggerRun(context.Background(), tx, run))
+	require.Equal(t, 1, queue.
+		enqueueInTxCalls)
 }
 
 type triggerEnqueueQueue struct {

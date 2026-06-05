@@ -7,6 +7,8 @@ import (
 
 	straitcache "strait/internal/cache"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 type cacheInvalidationPublisher struct {
@@ -98,24 +100,28 @@ func TestCacheInvalidationHandler_PublishesTargetedInvalidations(t *testing.T) {
 
 	for _, tc := range cases {
 		h := byTable[tc.table]
-		if h == nil {
-			t.Fatalf("handler for %s missing", tc.table)
-		}
+		require.NotNil(t, h)
+
 		request := Message{
 			Action:   ActionUpdate,
 			Record:   []byte(tc.record),
 			Metadata: Metadata{TableName: tc.table},
 		}
-		if err := h.Handle(t.Context(), request); err != nil {
-			t.Fatalf("%s Handle() error = %v", tc.table, err)
-		}
+		require.NoError(t, h.Handle(t.
+			Context(),
+			request,
+		))
+
 		var busMsg straitcache.BusMessage
-		if err := json.Unmarshal(publisher.calls[len(publisher.calls)-1].data, &busMsg); err != nil {
-			t.Fatalf("%s bus message decode: %v", tc.table, err)
-		}
-		if busMsg.Action != straitcache.BusActionInvalidate || busMsg.Namespace != tc.namespace || busMsg.Key != tc.key {
-			t.Fatalf("%s message = %+v, want namespace %q key %q", tc.table, busMsg, tc.namespace, tc.key)
-		}
+		require.NoError(t, json.Unmarshal(publisher.
+			calls[len(publisher.calls)-1].data,
+			&busMsg))
+		require.False(t, busMsg.Action !=
+			straitcache.
+				BusActionInvalidate || busMsg.Namespace !=
+			tc.namespace ||
+			busMsg.
+				Key != tc.key)
 	}
 }
 
@@ -125,13 +131,12 @@ func TestCacheInvalidationHandler_SkipsRowsWithoutAddressableKey(t *testing.T) {
 	publisher := &cacheInvalidationPublisher{}
 	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
 	h := newCacheInvalidationHandler("api_keys", bus, nil, invalidateAPIKeyCache)
-
-	if err := h.Handle(t.Context(), Message{Action: ActionUpdate, Record: []byte(`{"id":"key-1"}`)}); err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
-	if len(publisher.calls) != 0 {
-		t.Fatalf("published %d messages, want 0", len(publisher.calls))
-	}
+	require.NoError(t, h.Handle(t.
+		Context(),
+		Message{Action: ActionUpdate, Record: []byte(`{"id":"key-1"}`)}),
+	)
+	require.Empty(t,
+		publisher.calls)
 }
 
 func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) {
@@ -145,23 +150,25 @@ func TestCacheInvalidationHandler_DeletePublishesVersionedBarrier(t *testing.T) 
 		Action: ActionDelete,
 		Record: []byte(`{"id":"job-1","cache_version":19}`),
 	}
-	if err := h.Handle(t.Context(), request); err != nil {
-		t.Fatalf("Handle(delete) error = %v", err)
-	}
-	if len(publisher.calls) != 1 {
-		t.Fatalf("published %d messages, want 1", len(publisher.calls))
-	}
+	require.NoError(t, h.Handle(t.
+		Context(),
+		request,
+	))
+	require.Len(t,
+		publisher.calls,
+		1)
+
 	var busMsg straitcache.BusMessage
-	if err := json.Unmarshal(publisher.calls[0].data, &busMsg); err != nil {
-		t.Fatalf("bus message decode: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(publisher.
+		calls[0].data, &busMsg))
+
 	gotWorkerJobBarrier := busMsg.Action == straitcache.BusActionInvalidate &&
 		busMsg.Namespace == cacheNamespaceWorkerJob &&
 		busMsg.Key == "job-1" &&
 		busMsg.Version == 19
-	if !gotWorkerJobBarrier {
-		t.Fatalf("message = %+v, want worker job invalidation barrier v19", busMsg)
-	}
+	require.True(
+		t, gotWorkerJobBarrier,
+	)
 }
 
 func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
@@ -170,11 +177,9 @@ func TestCacheInvalidationHandler_BadPayloadIsIgnored(t *testing.T) {
 	publisher := &cacheInvalidationPublisher{}
 	bus := straitcache.NewBus(publisher, straitcache.BusConfig{Origin: "cdc-test"})
 	h := newCacheInvalidationHandler("api_keys", bus, nil, invalidateAPIKeyCache)
-
-	if err := h.Handle(t.Context(), Message{Action: ActionUpdate, Record: []byte(`{"key_hash":`)}); err != nil {
-		t.Fatalf("Handle(malformed) error = %v, want nil", err)
-	}
-	if len(publisher.calls) != 0 {
-		t.Fatalf("published %d messages, want 0", len(publisher.calls))
-	}
+	require.NoError(t, h.Handle(t.
+		Context(),
+		Message{Action: ActionUpdate, Record: []byte(`{"key_hash":`)}))
+	require.Empty(t,
+		publisher.calls)
 }

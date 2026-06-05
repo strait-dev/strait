@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/queue"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Integration tests for notifier reconnect/degraded behavior.
@@ -41,5 +43,7 @@ func TestQueueNotifier_ConnectionAgeTracksRealListen(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Errorf("ConnectionAge never became positive after listen")
+	assert.Failf(t, "test failure",
+
+		"ConnectionAge never became positive after listen")
 }

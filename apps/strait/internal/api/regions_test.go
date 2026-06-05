@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLaunchInactiveRegionsEndpointNotRouted(t *testing.T) {
@@ -17,10 +19,9 @@ func TestLaunchInactiveRegionsEndpointNotRouted(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/regions", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("GET /v1/regions status = %d, want 404: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleGetProjectSettingsDoesNotExposeDefaultRegion(t *testing.T) {
@@ -39,24 +40,20 @@ func TestHandleGetProjectSettingsDoesNotExposeDefaultRegion(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/projects/proj-1/settings/", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET project settings status = %d, want 200: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+
 	if _, ok := body["default_region"]; ok {
-		t.Fatalf("project settings exposed launch-inactive default_region: %#v", body)
+		require.Failf(t, "test failure",
+
+			"project settings exposed launch-inactive default_region: %#v", body)
 	}
-	if body["plan_tier"] != "starter" {
-		t.Fatalf("plan_tier = %v, want starter", body["plan_tier"])
-	}
-	if body["max_key_lifetime_days"] != float64(30) {
-		t.Fatalf("max_key_lifetime_days = %v, want 30", body["max_key_lifetime_days"])
-	}
+	require.Equal(t, "starter", body["plan_tier"])
+	require.InDelta(t, float64(30),
+		body["max_key_lifetime_days"], 1e-9)
 }
 
 func TestHandleCreateJobDoesNotPersistOrReturnPreferredRegions(t *testing.T) {
@@ -64,9 +61,9 @@ func TestHandleCreateJobDoesNotPersistOrReturnPreferredRegions(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, job *domain.Job) error {
-			if len(job.PreferredRegions) != 0 {
-				t.Fatalf("CreateJob persisted launch-inactive preferred regions: %#v", job.PreferredRegions)
-			}
+			require.Empty(t,
+				job.PreferredRegions)
+
 			job.ID = "job-123"
 			return nil
 		},
@@ -83,16 +80,16 @@ func TestHandleCreateJobDoesNotPersistOrReturnPreferredRegions(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, want 201: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+
 	if _, ok := resp["preferred_regions"]; ok {
-		t.Fatalf("create job response exposed launch-inactive preferred_regions: %#v", resp)
+		require.Failf(t, "test failure",
+
+			"create job response exposed launch-inactive preferred_regions: %#v", resp)
 	}
 }

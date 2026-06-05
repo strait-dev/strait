@@ -4,12 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompensationPlan_FreeTierRejected(t *testing.T) {
@@ -26,11 +27,15 @@ func TestCompensationPlan_FreeTierRejected(t *testing.T) {
 			}, nil
 		},
 		ListStepsByWorkflowVersionFunc: func(context.Context, string, int) ([]domain.WorkflowStep, error) {
-			t.Fatal("ListStepsByWorkflowVersion must not be called when compensation-plan gate rejects")
+			require.Fail(t,
+
+				"ListStepsByWorkflowVersion must not be called when compensation-plan gate rejects")
 			return nil, nil
 		},
 		ListStepRunsByWorkflowRunFunc: func(context.Context, string, int, *time.Time) ([]domain.WorkflowStepRun, error) {
-			t.Fatal("ListStepRunsByWorkflowRun must not be called when compensation-plan gate rejects")
+			require.Fail(t,
+
+				"ListStepRunsByWorkflowRun must not be called when compensation-plan gate rejects")
 			return nil, nil
 		},
 	}
@@ -38,11 +43,8 @@ func TestCompensationPlan_FreeTierRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-runs/wfr-1/compensation-plan", "", "proj-1"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier compensation plan must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Compensating transactions") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "Compensating transactions")
 }

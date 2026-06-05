@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
@@ -16,9 +17,8 @@ func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
 	client := newMockRedisClient(func(_ context.Context, cmd redis.Cmder) error {
 		counter++
 		c, ok := cmd.(*redis.Cmd)
-		if !ok {
-			t.Fatal("unexpected command type")
-		}
+		require.True(t, ok)
+
 		remaining := max(limit-counter, 0)
 		allowed := int64(1)
 		if counter > limit {
@@ -35,29 +35,29 @@ func TestRedisRateLimiterAllow_RemainingCountAccurate(t *testing.T) {
 
 	for i := 1; i <= limit; i++ {
 		result, err := limiter.Allow(ctx, "key", limit, time.Minute)
-		if err != nil {
-			t.Fatalf("request %d: unexpected error: %v", i, err)
-		}
-		if !result.Allowed {
-			t.Fatalf("request %d: expected allowed", i)
-		}
+		require.NoError(t,
+			err)
+		require.True(t, result.
+			Allowed,
+		)
+
 		expectedRemaining := limit - i
-		if result.Remaining != expectedRemaining {
-			t.Fatalf("request %d: expected remaining=%d, got %d", i, expectedRemaining, result.Remaining)
-		}
+		require.Equal(t, expectedRemaining,
+
+			result.
+				Remaining)
 	}
 
 	// Next request should be rejected with remaining=0.
 	result, err := limiter.Allow(ctx, "key", limit, time.Minute)
-	if err != nil {
-		t.Fatalf("rejected request: unexpected error: %v", err)
-	}
-	if result.Allowed {
-		t.Fatal("expected request to be rejected")
-	}
-	if result.Remaining != 0 {
-		t.Fatalf("expected remaining=0 on rejection, got %d", result.Remaining)
-	}
+	require.NoError(t,
+		err)
+	require.False(t, result.
+		Allowed,
+	)
+	require.Equal(t, 0,
+		result.Remaining,
+	)
 }
 
 func TestRedisRateLimiterAllow_FailOpenReturnsFullRemaining(t *testing.T) {
@@ -65,13 +65,12 @@ func TestRedisRateLimiterAllow_FailOpenReturnsFullRemaining(t *testing.T) {
 
 	limiter := NewRedisRateLimiter(nil, true)
 	result, err := limiter.Allow(t.Context(), "key", 100, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed on fail-open")
-	}
-	if result.Remaining != 100 {
-		t.Fatalf("expected remaining=100 on fail-open, got %d", result.Remaining)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 100,
+		result.Remaining,
+	)
 }

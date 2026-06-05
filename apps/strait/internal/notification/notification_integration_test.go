@@ -22,6 +22,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testDB *testutil.TestDB
@@ -52,9 +54,8 @@ func mustStore(t *testing.T) *store.Queries {
 func mustClean(t *testing.T, ctx context.Context) {
 	t.Helper()
 	_, err := testDB.Pool.Exec(ctx, `TRUNCATE TABLE notification_deliveries, notification_channels CASCADE`)
-	if err != nil {
-		t.Fatalf("clean notification tables: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func makeChannel(projectID, channelType, name string, config json.RawMessage) *domain.NotificationChannel {
@@ -88,30 +89,22 @@ func TestCreateAndGetNotificationChannel(t *testing.T) {
 	mustClean(t, ctx)
 
 	ch := makeChannel("proj-1", domain.ChannelTypeSlack, "my-slack", json.RawMessage(`{"webhook_url":"https://hooks.slack.com/test"}`))
-
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
-	if ch.CreatedAt.IsZero() {
-		t.Fatal("CreateNotificationChannel() did not set created_at")
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
+	require.False(t, ch.CreatedAt.
+		IsZero())
 
 	got, err := st.GetNotificationChannel(ctx, ch.ID, ch.ProjectID)
-	if err != nil {
-		t.Fatalf("GetNotificationChannel() error = %v", err)
-	}
-	if got.ID != ch.ID {
-		t.Errorf("ID = %q, want %q", got.ID, ch.ID)
-	}
-	if got.ChannelType != domain.ChannelTypeSlack {
-		t.Errorf("ChannelType = %q, want %q", got.ChannelType, domain.ChannelTypeSlack)
-	}
-	if got.Name != "my-slack" {
-		t.Errorf("Name = %q, want %q", got.Name, "my-slack")
-	}
-	if !got.Enabled {
-		t.Error("Enabled = false, want true")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, ch.ID, got.ID)
+	assert.Equal(t, domain.ChannelTypeSlack,
+
+		got.ChannelType,
+	)
+	assert.Equal(t, "my-slack", got.
+		Name)
+	assert.True(t, got.Enabled)
+
 }
 
 func TestGetNotificationChannel_NotFound(t *testing.T) {
@@ -120,12 +113,13 @@ func TestGetNotificationChannel_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := st.GetNotificationChannel(ctx, newID(), "proj-nonexistent")
-	if err == nil {
-		t.Fatal("expected error for nonexistent channel, got nil")
-	}
-	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("error = %v, want ErrNotificationChannelNotFound", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err,
+
+		store.ErrNotificationChannelNotFound,
+	),
+	)
+
 }
 
 func TestListNotificationChannels(t *testing.T) {
@@ -140,18 +134,15 @@ func TestListNotificationChannels(t *testing.T) {
 	ch3 := makeChannel("proj-other", domain.ChannelTypeWebhook, "webhook-other", json.RawMessage(`{"url":"https://w1"}`))
 
 	for _, ch := range []*domain.NotificationChannel{ch1, ch2, ch3} {
-		if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-			t.Fatalf("CreateNotificationChannel() error = %v", err)
-		}
+		require.NoError(t, st.CreateNotificationChannel(ctx,
+			ch))
+
 	}
 
 	channels, err := st.ListNotificationChannels(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListNotificationChannels() error = %v", err)
-	}
-	if len(channels) != 2 {
-		t.Fatalf("ListNotificationChannels() returned %d channels, want 2", len(channels))
-	}
+	require.NoError(t, err)
+	require.Len(t, channels, 2)
+
 }
 
 func TestListEnabledNotificationChannels(t *testing.T) {
@@ -166,21 +157,17 @@ func TestListEnabledNotificationChannels(t *testing.T) {
 	chDisabled.Enabled = false
 
 	for _, ch := range []*domain.NotificationChannel{chEnabled, chDisabled} {
-		if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-			t.Fatalf("CreateNotificationChannel() error = %v", err)
-		}
+		require.NoError(t, st.CreateNotificationChannel(ctx,
+			ch))
+
 	}
 
 	channels, err := st.ListEnabledNotificationChannels(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListEnabledNotificationChannels() error = %v", err)
-	}
-	if len(channels) != 1 {
-		t.Fatalf("ListEnabledNotificationChannels() returned %d channels, want 1", len(channels))
-	}
-	if channels[0].ID != chEnabled.ID {
-		t.Errorf("returned channel ID = %q, want %q", channels[0].ID, chEnabled.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, channels, 1)
+	assert.Equal(t, chEnabled.ID,
+		channels[0].ID)
+
 }
 
 func TestUpdateNotificationChannel(t *testing.T) {
@@ -189,26 +176,22 @@ func TestUpdateNotificationChannel(t *testing.T) {
 	mustClean(t, ctx)
 
 	ch := makeChannel("proj-update", domain.ChannelTypeSlack, "original-name", json.RawMessage(`{"webhook_url":"https://orig"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	ch.Name = "updated-name"
 	ch.Enabled = false
-	if err := st.UpdateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("UpdateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.UpdateNotificationChannel(ctx,
+		ch))
 
 	got, err := st.GetNotificationChannel(ctx, ch.ID, ch.ProjectID)
-	if err != nil {
-		t.Fatalf("GetNotificationChannel() error = %v", err)
-	}
-	if got.Name != "updated-name" {
-		t.Errorf("Name = %q, want %q", got.Name, "updated-name")
-	}
-	if got.Enabled {
-		t.Error("Enabled = true, want false after update")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "updated-name",
+
+		got.Name,
+	)
+	assert.False(t, got.Enabled)
+
 }
 
 func TestDeleteNotificationChannel(t *testing.T) {
@@ -217,18 +200,19 @@ func TestDeleteNotificationChannel(t *testing.T) {
 	mustClean(t, ctx)
 
 	ch := makeChannel("proj-delete", domain.ChannelTypeWebhook, "to-delete", json.RawMessage(`{"url":"https://del"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
-
-	if err := st.DeleteNotificationChannel(ctx, ch.ID, ch.ProjectID); err != nil {
-		t.Fatalf("DeleteNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
+	require.NoError(t, st.DeleteNotificationChannel(ctx,
+		ch.ID, ch.ProjectID,
+	))
 
 	_, err := st.GetNotificationChannel(ctx, ch.ID, ch.ProjectID)
-	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("expected ErrNotificationChannelNotFound after delete, got %v", err)
-	}
+	require.True(t, errors.Is(err,
+
+		store.ErrNotificationChannelNotFound,
+	),
+	)
+
 }
 
 func TestDeleteNotificationChannel_NotFound(t *testing.T) {
@@ -237,9 +221,12 @@ func TestDeleteNotificationChannel_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := st.DeleteNotificationChannel(ctx, newID(), "proj-nope")
-	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("error = %v, want ErrNotificationChannelNotFound", err)
-	}
+	require.True(t, errors.Is(err,
+
+		store.ErrNotificationChannelNotFound,
+	),
+	)
+
 }
 
 // -- Delivery storage tests --.
@@ -251,34 +238,27 @@ func TestCreateAndListNotificationDeliveries(t *testing.T) {
 
 	projectID := "proj-deliveries"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "delivery-ch", json.RawMessage(`{"webhook_url":"https://h"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d1 := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{"project_id":"p1"}`))
 	d2 := makeDelivery(ch.ID, projectID, domain.NotificationEventCostAnomaly, json.RawMessage(`{"severity":"high"}`))
 
 	for _, d := range []*domain.NotificationDelivery{d1, d2} {
-		if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateNotificationDelivery() error = %v", err)
-		}
-	}
+		require.NoError(t, st.CreateNotificationDelivery(ctx,
+			d))
 
-	if d1.CreatedAt.IsZero() {
-		t.Fatal("CreateNotificationDelivery() did not set created_at")
 	}
+	require.False(t, d1.CreatedAt.
+		IsZero())
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 2 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 2", len(deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 2)
+	assert.Equal(t, d2.ID, deliveries[0].ID)
+
 	// Results are ordered by created_at DESC, so d2 should come first.
-	if deliveries[0].ID != d2.ID {
-		t.Errorf("first delivery ID = %q, want %q (most recent)", deliveries[0].ID, d2.ID)
-	}
+
 }
 
 func TestListNotificationDeliveries_Cursor(t *testing.T) {
@@ -288,38 +268,30 @@ func TestListNotificationDeliveries_Cursor(t *testing.T) {
 
 	projectID := "proj-cursor"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "cursor-ch", json.RawMessage(`{"webhook_url":"https://c"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	// Create 3 deliveries with small time gaps for ordering.
 	ids := make([]string, 3)
 	for i := range 3 {
 		d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-		if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateNotificationDelivery() error = %v", err)
-		}
+		require.NoError(t, st.CreateNotificationDelivery(ctx,
+			d))
+
 		ids[i] = d.ID
 	}
 
 	// Fetch first page (limit 2).
 	page1, err := st.ListNotificationDeliveries(ctx, projectID, 2, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries page1 error = %v", err)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("page1 returned %d, want 2", len(page1))
-	}
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
 
 	// Use the created_at of the last item as cursor.
 	cursor := page1[len(page1)-1].CreatedAt
 	page2, err := st.ListNotificationDeliveries(ctx, projectID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries page2 error = %v", err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("page2 returned %d, want 1", len(page2))
-	}
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+
 }
 
 // -- Claim and processing tests --.
@@ -331,40 +303,27 @@ func TestClaimPendingNotificationDeliveries(t *testing.T) {
 
 	projectID := "proj-claim"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "claim-ch", json.RawMessage(`{"webhook_url":"https://cl"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 5, 2*time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed %d deliveries, want 1", len(claimed))
-	}
-	if claimed[0].ID != d.ID {
-		t.Errorf("claimed delivery ID = %q, want %q", claimed[0].ID, d.ID)
-	}
-	if claimed[0].Status != "processing" {
-		t.Errorf("claimed status = %q, want %q", claimed[0].Status, "processing")
-	}
-	if claimed[0].ClaimToken == "" {
-		t.Error("claimed delivery has empty ClaimToken")
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, d.ID, claimed[0].ID)
+	assert.Equal(t, "processing",
+		claimed[0].
+			Status)
+	assert.NotEqual(t, "", claimed[0].ClaimToken)
 
 	// A second claim should return nothing since the delivery is now processing.
 	claimed2, err := st.ClaimPendingNotificationDeliveries(ctx, 5, 2*time.Minute)
-	if err != nil {
-		t.Fatalf("second ClaimPendingNotificationDeliveries() error = %v", err)
-	}
-	if len(claimed2) != 0 {
-		t.Fatalf("second claim returned %d deliveries, want 0", len(claimed2))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed2, 0)
+
 }
 
 func TestConcurrentClaims_NoDoubleClaim(t *testing.T) {
@@ -374,15 +333,13 @@ func TestConcurrentClaims_NoDoubleClaim(t *testing.T) {
 
 	projectID := "proj-concurrent"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "concurrent-ch", json.RawMessage(`{"webhook_url":"https://cc"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	// Create a single delivery.
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitReached, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	// Race multiple goroutines to claim the same delivery.
 	const concurrency = 10
@@ -392,8 +349,7 @@ func TestConcurrentClaims_NoDoubleClaim(t *testing.T) {
 	for range concurrency {
 		wg.Go(func() {
 			claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-			if err != nil {
-				t.Errorf("concurrent claim error: %v", err)
+			if !assert.NoError(t, err) {
 				return
 			}
 			results <- claimed
@@ -406,9 +362,8 @@ func TestConcurrentClaims_NoDoubleClaim(t *testing.T) {
 	for claimed := range results {
 		totalClaimed += len(claimed)
 	}
-	if totalClaimed != 1 {
-		t.Fatalf("concurrent claims produced %d total claimed deliveries, want exactly 1", totalClaimed)
-	}
+	require.Equal(t, 1, totalClaimed)
+
 }
 
 func TestUpdateClaimedNotificationDelivery(t *testing.T) {
@@ -418,19 +373,17 @@ func TestUpdateClaimedNotificationDelivery(t *testing.T) {
 
 	projectID := "proj-update-claim"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "update-claim-ch", json.RawMessage(`{"webhook_url":"https://uc"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v, len = %d", err, len(claimed))
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
 
 	c := &claimed[0]
 	now := time.Now()
@@ -440,27 +393,18 @@ func TestUpdateClaimedNotificationDelivery(t *testing.T) {
 	c.LastError = ""
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil {
-		t.Fatalf("UpdateClaimedNotificationDelivery() error = %v", err)
-	}
-	if !updated {
-		t.Fatal("UpdateClaimedNotificationDelivery() returned false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, updated)
 
 	// Verify the delivery is now in delivered state.
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
-	}
-	if deliveries[0].Status != "delivered" {
-		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "delivered")
-	}
-	if deliveries[0].DeliveredAt == nil {
-		t.Error("delivery delivered_at is nil after successful update")
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, "delivered", deliveries[0].Status)
+	assert.NotNil(t, deliveries[0].
+		DeliveredAt,
+	)
+
 }
 
 func TestUpdateClaimedNotificationDelivery_WrongToken(t *testing.T) {
@@ -470,19 +414,17 @@ func TestUpdateClaimedNotificationDelivery_WrongToken(t *testing.T) {
 
 	projectID := "proj-wrong-token"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "wrong-token-ch", json.RawMessage(`{"webhook_url":"https://wt"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v, len = %d", err, len(claimed))
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
 
 	c := &claimed[0]
 	c.ClaimToken = "wrong-token-value"
@@ -490,12 +432,9 @@ func TestUpdateClaimedNotificationDelivery_WrongToken(t *testing.T) {
 	c.Attempts = 1
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil {
-		t.Fatalf("UpdateClaimedNotificationDelivery() error = %v", err)
-	}
-	if updated {
-		t.Fatal("UpdateClaimedNotificationDelivery() returned true with wrong token, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, updated)
+
 }
 
 // -- Status lifecycle tests --.
@@ -507,31 +446,25 @@ func TestDeliveryStatusLifecycle_PendingToDelivered(t *testing.T) {
 
 	projectID := "proj-lifecycle"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "lifecycle-ch", json.RawMessage(`{"webhook_url":"https://lc"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if deliveries[0].Status != "pending" {
-		t.Fatalf("initial status = %q, want %q", deliveries[0].Status, "pending")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "pending", deliveries[0].Status)
 
 	// Claim: pending -> processing.
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("Claim error = %v, len = %d", err, len(claimed))
-	}
-	if claimed[0].Status != "processing" {
-		t.Fatalf("claimed status = %q, want %q", claimed[0].Status, "processing")
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
+	require.Equal(t, "processing",
+
+		claimed[0].Status)
 
 	// Mark delivered: processing -> delivered.
 	c := &claimed[0]
@@ -541,17 +474,15 @@ func TestDeliveryStatusLifecycle_PendingToDelivered(t *testing.T) {
 	c.DeliveredAt = &now
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil || !updated {
-		t.Fatalf("UpdateClaimedNotificationDelivery() error = %v, updated = %v", err, updated)
-	}
+	require.False(t, err != nil ||
+
+		!updated)
 
 	deliveries, err = st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if deliveries[0].Status != "delivered" {
-		t.Fatalf("final status = %q, want %q", deliveries[0].Status, "delivered")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "delivered",
+		deliveries[0].Status)
+
 }
 
 func TestDeliveryStatusLifecycle_PendingToFailed(t *testing.T) {
@@ -561,19 +492,17 @@ func TestDeliveryStatusLifecycle_PendingToFailed(t *testing.T) {
 
 	projectID := "proj-fail"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "fail-ch", json.RawMessage(`{"webhook_url":"https://fl"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventCostAnomaly, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("Claim error = %v, len = %d", err, len(claimed))
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
 
 	c := &claimed[0]
 	c.Status = "failed"
@@ -581,20 +510,19 @@ func TestDeliveryStatusLifecycle_PendingToFailed(t *testing.T) {
 	c.LastError = "send failed after max retries"
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil || !updated {
-		t.Fatalf("UpdateClaimedNotificationDelivery() error = %v, updated = %v", err, updated)
-	}
+	require.False(t, err != nil ||
+
+		!updated)
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if deliveries[0].Status != "failed" {
-		t.Errorf("final status = %q, want %q", deliveries[0].Status, "failed")
-	}
-	if deliveries[0].LastError != "send failed after max retries" {
-		t.Errorf("last_error = %q, want %q", deliveries[0].LastError, "send failed after max retries")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "failed", deliveries[0].
+		Status)
+	assert.Equal(t, "send failed after max retries",
+
+		deliveries[0].LastError,
+	)
+
 }
 
 // -- Retry flow tests --.
@@ -606,20 +534,19 @@ func TestDeliveryRetryFlow(t *testing.T) {
 
 	projectID := "proj-retry"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "retry-ch", json.RawMessage(`{"webhook_url":"https://rt"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	// First attempt: claim, fail, set retry in the past so it becomes claimable again.
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("first claim error = %v, len = %d", err, len(claimed))
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
+
 	c := &claimed[0]
 	c.Status = "pending"
 	c.Attempts = 1
@@ -628,21 +555,16 @@ func TestDeliveryRetryFlow(t *testing.T) {
 	c.NextRetryAt = &pastRetry
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil || !updated {
-		t.Fatalf("first update error = %v, updated = %v", err, updated)
-	}
+	require.False(t, err != nil ||
+
+		!updated)
 
 	// Second attempt: the delivery should be claimable again because next_retry_at is in the past.
 	claimed2, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil {
-		t.Fatalf("second claim error = %v", err)
-	}
-	if len(claimed2) != 1 {
-		t.Fatalf("second claim returned %d deliveries, want 1", len(claimed2))
-	}
-	if claimed2[0].ID != d.ID {
-		t.Errorf("second claim delivery ID = %q, want %q", claimed2[0].ID, d.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed2, 1)
+	assert.Equal(t, d.ID, claimed2[0].ID)
+
 }
 
 func TestDeliveryRetryNotClaimableBeforeNextRetryAt(t *testing.T) {
@@ -652,19 +574,17 @@ func TestDeliveryRetryNotClaimableBeforeNextRetryAt(t *testing.T) {
 
 	projectID := "proj-retry-future"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "retry-future-ch", json.RawMessage(`{"webhook_url":"https://rf"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	claimed, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil || len(claimed) != 1 {
-		t.Fatalf("claim error = %v, len = %d", err, len(claimed))
-	}
+	require.False(t, err != nil ||
+
+		len(claimed) != 1)
 
 	c := &claimed[0]
 	c.Status = "pending"
@@ -674,18 +594,15 @@ func TestDeliveryRetryNotClaimableBeforeNextRetryAt(t *testing.T) {
 	c.NextRetryAt = &futureRetry
 
 	updated, err := st.UpdateClaimedNotificationDelivery(ctx, c)
-	if err != nil || !updated {
-		t.Fatalf("update error = %v, updated = %v", err, updated)
-	}
+	require.False(t, err != nil ||
+
+		!updated)
 
 	// The delivery should not be claimable because next_retry_at is in the future.
 	claimed2, err := st.ClaimPendingNotificationDeliveries(ctx, 1, 2*time.Minute)
-	if err != nil {
-		t.Fatalf("second claim error = %v", err)
-	}
-	if len(claimed2) != 0 {
-		t.Fatalf("second claim returned %d deliveries, want 0 (next_retry_at is in the future)", len(claimed2))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed2, 0)
+
 }
 
 // -- Worker integration with real DB --.
@@ -720,14 +637,12 @@ func TestWorkerProcessesDeliveryFromRealDB(t *testing.T) {
 
 	projectID := "proj-worker"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-ch", json.RawMessage(`{"webhook_url":"https://wk"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"org-1"}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	sender := &fakeSender{}
 	w := notification.NewWorker(st, &http.Client{})
@@ -740,22 +655,14 @@ func TestWorkerProcessesDeliveryFromRealDB(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	cancel()
 	w.Stop()
-
-	if sender.callCount() != 1 {
-		t.Fatalf("sender.Send() called %d times, want 1", sender.callCount())
-	}
+	require.Equal(t, 1, sender.callCount())
 
 	// Verify the delivery is now delivered.
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
-	}
-	if deliveries[0].Status != "delivered" {
-		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "delivered")
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, "delivered", deliveries[0].Status)
+
 }
 
 func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
@@ -765,19 +672,16 @@ func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
 
 	projectID := "proj-worker-disabled"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-disabled-ch", json.RawMessage(`{"webhook_url":"https://disabled"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"org-disabled"}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	ch.Enabled = false
-	if err := st.UpdateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("UpdateNotificationChannel(disabled) error = %v", err)
-	}
+	require.NoError(t, st.UpdateNotificationChannel(ctx,
+		ch))
 
 	sender := &fakeSender{}
 	w := notification.NewWorker(st, &http.Client{})
@@ -789,27 +693,18 @@ func TestWorkerSkipsQueuedDeliveryAfterChannelDisabled(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	cancel()
 	w.Stop()
-
-	if sender.callCount() != 0 {
-		t.Fatalf("sender.Send() called %d times for disabled channel, want 0", sender.callCount())
-	}
+	require.Equal(t, 0, sender.callCount())
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
-	}
-	if deliveries[0].Status != "failed" {
-		t.Fatalf("delivery status = %q, want failed", deliveries[0].Status)
-	}
-	if deliveries[0].Attempts != 0 {
-		t.Fatalf("delivery attempts = %d, want 0", deliveries[0].Attempts)
-	}
-	if !strings.Contains(deliveries[0].LastError, "disabled") {
-		t.Fatalf("last error = %q, want disabled reason", deliveries[0].LastError)
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	require.Equal(t, "failed", deliveries[0].
+		Status)
+	require.Equal(t, 0, deliveries[0].Attempts)
+	require.True(t, strings.Contains(deliveries[0].LastError,
+		"disabled",
+	))
+
 }
 
 func TestWorkerDispatchesFastDeliveryWhileSlowEndpointBlocks(t *testing.T) {
@@ -820,17 +715,17 @@ func TestWorkerDispatchesFastDeliveryWhileSlowEndpointBlocks(t *testing.T) {
 	chSlow := makeChannel("proj-worker-slow", domain.ChannelTypeSlack, "slow-ch", json.RawMessage(`{"webhook_url":"https://slow"}`))
 	chFast := makeChannel("proj-worker-fast", domain.ChannelTypeSlack, "fast-ch", json.RawMessage(`{"webhook_url":"https://fast"}`))
 	for _, ch := range []*domain.NotificationChannel{chSlow, chFast} {
-		if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-			t.Fatalf("CreateNotificationChannel(%s) error = %v", ch.ID, err)
-		}
+		require.NoError(t, st.CreateNotificationChannel(ctx,
+			ch))
+
 	}
 
 	dSlow := makeDelivery(chSlow.ID, chSlow.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"slow"}`))
 	dFast := makeDelivery(chFast.ID, chFast.ProjectID, domain.NotificationEventSpendingLimitWarning, json.RawMessage(`{"org_id":"fast"}`))
 	for _, d := range []*domain.NotificationDelivery{dSlow, dFast} {
-		if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateNotificationDelivery(%s) error = %v", d.ID, err)
-		}
+		require.NoError(t, st.CreateNotificationDelivery(ctx,
+			d))
+
 	}
 
 	slowStarted := make(chan struct{})
@@ -861,27 +756,26 @@ func TestWorkerDispatchesFastDeliveryWhileSlowEndpointBlocks(t *testing.T) {
 	select {
 	case <-slowStarted:
 	case <-time.After(time.Second):
-		t.Fatal("slow delivery was not started")
+		require.FailNow(t, "slow delivery was not started")
 	}
 	select {
 	case <-fastSent:
 	case <-time.After(250 * time.Millisecond):
-		t.Fatal("fast delivery was blocked behind slow endpoint")
+		require.FailNow(t, "fast delivery was blocked behind slow endpoint")
 	}
 	close(releaseSlow)
 
 	deadline := time.After(2 * time.Second)
 	for {
 		deliveries, err := st.ListNotificationDeliveries(ctx, chFast.ProjectID, 10, nil)
-		if err != nil {
-			t.Fatalf("ListNotificationDeliveries() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if len(deliveries) == 1 && deliveries[0].Status == "delivered" {
 			return
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("fast delivery was not marked delivered, got %+v", deliveries)
+			require.FailNowf(t, "fast delivery was not marked delivered", "%+v", deliveries)
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
@@ -894,15 +788,15 @@ func TestWorkerMarksDeliveryFailedAfterMaxAttempts(t *testing.T) {
 
 	projectID := "proj-worker-fail"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-fail-ch", json.RawMessage(`{"webhook_url":"https://wf"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	d.MaxAttempts = 1 // Only one attempt allowed.
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	d.MaxAttempts = 1
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
+
+	// Only one attempt allowed.
 
 	sender := &fakeSender{
 		sendFunc: func(_ context.Context, _ *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
@@ -920,18 +814,12 @@ func TestWorkerMarksDeliveryFailedAfterMaxAttempts(t *testing.T) {
 	w.Stop()
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
-	}
-	if deliveries[0].Status != "failed" {
-		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "failed")
-	}
-	if deliveries[0].Attempts != 1 {
-		t.Errorf("delivery attempts = %d, want 1", deliveries[0].Attempts)
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, "failed", deliveries[0].
+		Status)
+	assert.Equal(t, 1, deliveries[0].Attempts)
+
 }
 
 var errSendFailed = fmt.Errorf("simulated send failure")
@@ -943,15 +831,13 @@ func TestWorkerSetsRetryOnFailureBelowMaxAttempts(t *testing.T) {
 
 	projectID := "proj-worker-retry"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "worker-retry-ch", json.RawMessage(`{"webhook_url":"https://wr"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
 	d.MaxAttempts = 3
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
 
 	sender := &fakeSender{
 		sendFunc: func(_ context.Context, _ *domain.NotificationChannel, _ *domain.NotificationDelivery) error {
@@ -969,22 +855,17 @@ func TestWorkerSetsRetryOnFailureBelowMaxAttempts(t *testing.T) {
 	w.Stop()
 
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 1 {
-		t.Fatalf("ListNotificationDeliveries() returned %d, want 1", len(deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 1)
+	assert.Equal(t, "pending", deliveries[0].
+		Status)
+	assert.Equal(t, 1, deliveries[0].Attempts)
+	assert.NotNil(t, deliveries[0].
+		NextRetryAt,
+	)
+
 	// After one failed attempt below max, status should be back to pending with a next_retry_at.
-	if deliveries[0].Status != "pending" {
-		t.Errorf("delivery status = %q, want %q", deliveries[0].Status, "pending")
-	}
-	if deliveries[0].Attempts != 1 {
-		t.Errorf("delivery attempts = %d, want 1", deliveries[0].Attempts)
-	}
-	if deliveries[0].NextRetryAt == nil {
-		t.Error("delivery next_retry_at is nil, want a future time for retry backoff")
-	}
+
 }
 
 func TestDeleteChannelCascadesDeliveries(t *testing.T) {
@@ -994,25 +875,19 @@ func TestDeleteChannelCascadesDeliveries(t *testing.T) {
 
 	projectID := "proj-cascade"
 	ch := makeChannel(projectID, domain.ChannelTypeSlack, "cascade-ch", json.RawMessage(`{"webhook_url":"https://cas"}`))
-	if err := st.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationChannel(ctx,
+		ch))
 
 	d := makeDelivery(ch.ID, projectID, domain.NotificationEventBudgetThreshold, json.RawMessage(`{}`))
-	if err := st.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
-
-	if err := st.DeleteNotificationChannel(ctx, ch.ID, ch.ProjectID); err != nil {
-		t.Fatalf("DeleteNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, st.CreateNotificationDelivery(ctx,
+		d))
+	require.NoError(t, st.DeleteNotificationChannel(ctx,
+		ch.ID, ch.ProjectID,
+	))
 
 	// Deliveries referencing this channel should be cascade-deleted.
 	deliveries, err := st.ListNotificationDeliveries(ctx, projectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 0 {
-		t.Fatalf("ListNotificationDeliveries() returned %d after cascade delete, want 0", len(deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries, 0)
+
 }

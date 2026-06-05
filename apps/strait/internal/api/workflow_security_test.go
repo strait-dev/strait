@@ -16,6 +16,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWorkflow_VersionPublishConcurrent fires concurrent workflow update
@@ -76,9 +77,8 @@ func TestWorkflow_VersionPublishConcurrent(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if version < 2 {
-		t.Fatalf("expected version to be bumped, got %d", version)
-	}
+	require.GreaterOrEqual(t, version,
+		2)
 }
 
 // TestWorkflow_StepApprovalWithoutPermission verifies that approving a workflow
@@ -99,10 +99,10 @@ func TestWorkflow_StepApprovalWithoutPermission(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflow-runs/wr-1/steps/step-a/approve", `{}`))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.
+			Code)
 }
 
 // TestWorkflow_CancelRunningWorkflow verifies that canceling an active workflow
@@ -137,16 +137,13 @@ func TestWorkflow_CancelRunningWorkflow(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/workflow-runs/wr-active", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !stepsCanceled {
-		t.Fatal("expected step runs to be canceled")
-	}
-	if !jobsCanceled {
-		t.Fatal("expected job runs to be canceled")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.True(
+		t, stepsCanceled)
+	require.True(
+		t, jobsCanceled)
 }
 
 // TestWorkflow_TriggerDisabledWorkflow verifies that triggering a disabled
@@ -168,13 +165,12 @@ func TestWorkflow_TriggerDisabledWorkflow(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"project_id":"proj-1","payload":{"key":"val"}}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-disabled/trigger", body))
+	require.Equal(t, http.StatusConflict,
 
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "disabled") {
-		t.Fatalf("expected disabled error, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "disabled")
 }
 
 // TestWorkflow_StepOverrideInjection verifies that a step_ref with malicious
@@ -197,10 +193,11 @@ func TestWorkflow_StepOverrideInjection(t *testing.T) {
 			w := httptest.NewRecorder()
 			body := fmt.Sprintf(`{"project_id":"proj-1","name":"wf","slug":"wf","steps":[{"job_id":"job-1","step_ref":%s}]}`, mustJSON(t, ref))
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows", body))
+			require.NotEqual(t, http.StatusInternalServerError,
+
+				w.Code)
+
 			// Should either reject or handle safely; no panic.
-			if w.Code == http.StatusInternalServerError {
-				t.Fatalf("unexpected 500 for malicious step_ref: %s", w.Body.String())
-			}
 		})
 	}
 }
@@ -300,9 +297,8 @@ func TestWorkflow_ConcurrentApprovalDecision(t *testing.T) {
 			successes++
 		}
 	}
-	if successes > 1 {
-		t.Fatalf("expected at most 1 approval success, got %d", successes)
-	}
+	require.LessOrEqual(t, successes,
+		1)
 }
 
 // TestWorkflow_TimelineQueryInjection passes adversarial query parameters to
@@ -328,10 +324,11 @@ func TestWorkflow_TimelineQueryInjection(t *testing.T) {
 			srv := newWorkflowTestServer(t, ms, &mockQueue{}, nil, nil)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/workflow-runs/"+id+"/timeline", ""))
+			require.NotEqual(t, http.StatusInternalServerError,
+
+				w.Code)
+
 			// We expect 404 since the mock always returns not found.
-			if w.Code == http.StatusInternalServerError {
-				t.Fatalf("unexpected 500 for injection attempt: %s", w.Body.String())
-			}
 		})
 	}
 }
@@ -371,17 +368,16 @@ func TestWorkflow_LabelInjection(t *testing.T) {
 	srv := newWorkflowTestServer(t, ms, &mockQueue{}, &mockPublisher{}, trigger)
 
 	labelsJSON, err := json.Marshal(labels)
-	if err != nil {
-		t.Fatalf("marshal labels: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := httptest.NewRecorder()
 	body := fmt.Sprintf(`{"project_id":"proj-1","labels":%s}`, string(labelsJSON))
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/workflows/wf-labels/trigger", body))
+	require.NotEqual(t, http.StatusInternalServerError,
+
+		w.Code)
+
 	// No panic is the main assertion; the endpoint may succeed or reject invalid labels.
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("unexpected 500: %s", w.Body.String())
-	}
 }
 
 // FuzzWorkflowTrigger fuzzes the trigger payload for a workflow.

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Lock the registered outbound webhook event-type set. Adding a new
@@ -25,8 +27,8 @@ func TestValidWebhookEventTypes_BillingEventsRegistered(t *testing.T) {
 		domain.WebhookEventSLACreditIssued,
 	}
 	for _, ev := range required {
-		if !validWebhookEventTypes[ev] {
-			t.Errorf("event type %q missing from validWebhookEventTypes registry", ev)
-		}
+		assert.True(t,
+
+			validWebhookEventTypes[ev])
 	}
 }

@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestIntegration_ListWorkerTasksByWorker_ProjectFilter pins the store-layer
@@ -27,46 +30,28 @@ func TestIntegration_ListWorkerTasksByWorker_ProjectFilter(t *testing.T) {
 	const workerID = "shared-id"
 	const projectA = "proj-A"
 	const projectB = "proj-B"
-
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectA,
+	require.NoError(t, q.RegisterWorker(ctx, &domain.
+		Worker{
+		ID: workerID, ProjectID: projectA,
 		QueueName: "q",
-		Hostname:  "host-a",
-		Version:   "1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
+		Hostname:  "host-a", Version: "1.0", Status: domain.WorkerStatusActive}))
 
 	// Two tasks for project A under this worker.
 	for _, taskID := range []string{"task-a1", "task-a2"} {
-		if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
-			ID:        taskID,
-			WorkerID:  workerID,
-			RunID:     "run-" + taskID,
-			ProjectID: projectA,
-			Status:    domain.WorkerTaskStatusAssigned,
-		}); err != nil {
-			t.Fatalf("create task %s: %v", taskID, err)
-		}
+		require.NoError(t, q.CreateWorkerTask(ctx, &domain.WorkerTask{ID: taskID, WorkerID: workerID, RunID: "run-" +
+
+			taskID, ProjectID: projectA, Status: domain.WorkerTaskStatusAssigned}))
+
 	}
 
 	// Project A query returns both.
 	gotA, err := q.ListWorkerTasksByWorker(ctx, workerID, projectA, "", 100, 0)
-	if err != nil {
-		t.Fatalf("list project A: %v", err)
-	}
-	if len(gotA) != 2 {
-		t.Errorf("project A: got %d tasks, want 2", len(gotA))
-	}
+	require.NoError(t, err)
+	assert.Len(t, gotA, 2)
 
 	// Project B query returns zero, even though worker_id matches.
 	gotB, err := q.ListWorkerTasksByWorker(ctx, workerID, projectB, "", 100, 0)
-	if err != nil {
-		t.Fatalf("list project B: %v", err)
-	}
-	if len(gotB) != 0 {
-		t.Errorf("project B: got %d tasks, want 0 (cross-project leak)", len(gotB))
-	}
+	require.NoError(t, err)
+	assert.Len(t, gotB, 0)
+
 }

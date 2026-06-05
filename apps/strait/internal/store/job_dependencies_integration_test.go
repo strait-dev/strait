@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateJobDependency(t *testing.T) {
@@ -22,15 +24,16 @@ func TestCreateJobDependency(t *testing.T) {
 		JobID:          job.ID,
 		DependsOnJobID: depJob.ID,
 	}
-	if err := q.CreateJobDependency(ctx, dep); err != nil {
-		t.Fatalf("CreateJobDependency() error = %v", err)
-	}
-	if dep.ID == "" {
-		t.Fatal("CreateJobDependency() did not set ID")
-	}
-	if dep.Condition != "completed" {
-		t.Fatalf("CreateJobDependency() condition = %q, want completed", dep.Condition)
-	}
+	require.NoError(t, q.CreateJobDependency(ctx,
+		dep))
+	require.NotEqual(t, "",
+
+		dep.ID)
+	require.Equal(t, "completed",
+
+		dep.
+			Condition)
+
 }
 
 func TestCreateJobDependency_SelfDependency(t *testing.T) {
@@ -44,9 +47,9 @@ func TestCreateJobDependency_SelfDependency(t *testing.T) {
 		JobID:          job.ID,
 		DependsOnJobID: job.ID,
 	}
-	if err := q.CreateJobDependency(ctx, dep); err == nil {
-		t.Fatal("CreateJobDependency(self) expected error, got nil")
-	}
+	require.Error(t, q.CreateJobDependency(ctx,
+		dep))
+
 }
 
 func TestListJobDependencies(t *testing.T) {
@@ -64,18 +67,15 @@ func TestListJobDependencies(t *testing.T) {
 			JobID:          job.ID,
 			DependsOnJobID: depJob.ID,
 		}
-		if err := q.CreateJobDependency(ctx, dep); err != nil {
-			t.Fatalf("CreateJobDependency() error = %v", err)
-		}
+		require.NoError(t, q.CreateJobDependency(ctx,
+			dep))
+
 	}
 
 	deps, err := q.ListJobDependencies(ctx, job.ID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobDependencies() error = %v", err)
-	}
-	if len(deps) != 2 {
-		t.Fatalf("ListJobDependencies() len = %d, want 2", len(deps))
-	}
+	require.NoError(t, err)
+	require.Len(t, deps, 2)
+
 }
 
 func TestDeleteJobDependency(t *testing.T) {
@@ -91,21 +91,15 @@ func TestDeleteJobDependency(t *testing.T) {
 		JobID:          job.ID,
 		DependsOnJobID: depJob.ID,
 	}
-	if err := q.CreateJobDependency(ctx, dep); err != nil {
-		t.Fatalf("CreateJobDependency() error = %v", err)
-	}
-
-	if err := q.DeleteJobDependency(ctx, dep.ID); err != nil {
-		t.Fatalf("DeleteJobDependency() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobDependency(ctx,
+		dep))
+	require.NoError(t, q.DeleteJobDependency(ctx,
+		dep.ID))
 
 	deps, err := q.ListJobDependencies(ctx, job.ID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobDependencies() error = %v", err)
-	}
-	if len(deps) != 0 {
-		t.Fatalf("ListJobDependencies() len = %d, want 0", len(deps))
-	}
+	require.NoError(t, err)
+	require.Len(t, deps, 0)
+
 }
 
 func TestListDependentsByDependencyJob(t *testing.T) {
@@ -123,27 +117,22 @@ func TestListDependentsByDependencyJob(t *testing.T) {
 			JobID:          j.ID,
 			DependsOnJobID: depJob.ID,
 		}
-		if err := q.CreateJobDependency(ctx, dep); err != nil {
-			t.Fatalf("CreateJobDependency() error = %v", err)
-		}
+		require.NoError(t, q.CreateJobDependency(ctx,
+			dep))
+
 	}
 
 	dependents, err := q.ListDependentsByDependencyJob(ctx, depJob.ID)
-	if err != nil {
-		t.Fatalf("ListDependentsByDependencyJob() error = %v", err)
-	}
-	if len(dependents) != 2 {
-		t.Fatalf("ListDependentsByDependencyJob() len = %d, want 2", len(dependents))
-	}
+	require.NoError(t, err)
+	require.Len(t, dependents,
+
+		2)
 
 	// Empty case.
 	empty, err := q.ListDependentsByDependencyJob(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListDependentsByDependencyJob(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListDependentsByDependencyJob(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestListWaitingRunsByJobIDs(t *testing.T) {
@@ -156,26 +145,18 @@ func TestListWaitingRunsByJobIDs(t *testing.T) {
 
 	run := baseRun(job, newID())
 	run.Status = domain.StatusWaiting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	runs, err := q.ListWaitingRunsByJobIDs(ctx, []string{job.ID}, 100)
-	if err != nil {
-		t.Fatalf("ListWaitingRunsByJobIDs() error = %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("ListWaitingRunsByJobIDs() len = %d, want 1", len(runs))
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
 
 	// Empty job IDs.
 	nilRuns, err := q.ListWaitingRunsByJobIDs(ctx, []string{}, 100)
-	if err != nil {
-		t.Fatalf("ListWaitingRunsByJobIDs(empty) error = %v", err)
-	}
-	if nilRuns != nil {
-		t.Fatalf("ListWaitingRunsByJobIDs(empty) = %v, want nil", nilRuns)
-	}
+	require.NoError(t, err)
+	require.Nil(t, nilRuns)
+
 }
 
 func TestAreJobDependenciesSatisfied_NoDeps(t *testing.T) {
@@ -185,15 +166,11 @@ func TestAreJobDependenciesSatisfied_NoDeps(t *testing.T) {
 
 	job := mustCreateJob(t, ctx, q, "project-deps-satisfied-no-deps")
 	run := baseRun(job, newID())
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	satisfied, err := q.AreJobDependenciesSatisfied(ctx, run)
-	if err != nil {
-		t.Fatalf("AreJobDependenciesSatisfied() error = %v", err)
-	}
-	if !satisfied {
-		t.Fatal("AreJobDependenciesSatisfied() = false, want true (no deps)")
-	}
+	require.NoError(t, err)
+	require.True(t, satisfied)
+
 }

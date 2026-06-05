@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequirePermission_AdminAllowsAll(t *testing.T) {
@@ -28,10 +30,9 @@ func TestRequirePermission_AdminAllowsAll(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
@@ -50,10 +51,9 @@ func TestRequirePermission_ViewerBlocksWrite(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
@@ -72,10 +72,9 @@ func TestRequirePermission_OperatorCanTrigger(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
@@ -95,10 +94,9 @@ func TestRequirePermission_APIKeyUsesScopes(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_UnknownUserDenied(t *testing.T) {
@@ -117,10 +115,9 @@ func TestRequirePermission_UnknownUserDenied(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj_1", "user_unknown")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
@@ -138,10 +135,9 @@ func TestRequirePermission_InternalSecretAllowed(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxInternalCallerKey, true))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (internal secret should pass)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestUsersAffectedByRoleMutation_DeepRoleChain(t *testing.T) {
@@ -161,13 +157,11 @@ func TestUsersAffectedByRoleMutation_DeepRoleChain(t *testing.T) {
 	s := rbacInvalidationTestServer(roles, members)
 
 	users, err := s.usersAffectedByRoleMutation(context.Background(), projectID, "role-0")
-	if err != nil {
-		t.Fatalf("usersAffectedByRoleMutation() error = %v", err)
-	}
-
-	if len(users) != len(roles) {
-		t.Fatalf("users = %v, want %d users", users, len(roles))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		users,
+		len(roles),
+	)
 }
 
 func TestUsersAffectedByRoleMutation_WideRoleTreeIgnoresUnrelatedBranches(t *testing.T) {
@@ -190,15 +184,15 @@ func TestUsersAffectedByRoleMutation_WideRoleTreeIgnoresUnrelatedBranches(t *tes
 	s := rbacInvalidationTestServer(roles, members)
 
 	users, err := s.usersAffectedByRoleMutation(context.Background(), projectID, "child-a")
-	if err != nil {
-		t.Fatalf("usersAffectedByRoleMutation() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	slices.Sort(users)
 
 	want := []string{"user-a", "user-grandchild"}
-	if !slices.Equal(users, want) {
-		t.Fatalf("users = %v, want %v", users, want)
-	}
+	require.True(
+		t, slices.
+			Equal(users,
+				want))
 }
 
 func BenchmarkUsersAffectedByRoleMutation(b *testing.B) {

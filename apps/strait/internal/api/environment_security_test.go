@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestEnvironment_VariableKeyInjection verifies that shell metacharacters in
@@ -50,16 +52,13 @@ func TestEnvironment_VariableKeyInjection(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments", body))
+			require.Equal(t, http.StatusCreated,
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-			}
-			if captured == nil {
-				t.Fatal("expected environment to be captured")
-			}
-			if captured.Variables[key] != "safe_value" {
-				t.Fatalf("expected variable key to be stored literally, got %v", captured.Variables)
-			}
+				w.Code)
+			require.NotNil(t, captured)
+			require.Equal(t, "safe_value",
+				captured.
+					Variables[key])
 		})
 	}
 }
@@ -99,17 +98,14 @@ func TestEnvironment_VariableValueInjection(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments", body))
+			require.Equal(t, http.StatusCreated,
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-			}
-			if captured == nil {
-				t.Fatal("expected environment to be captured")
-			}
+				w.Code)
+			require.NotNil(t, captured)
+
 			want := strings.ReplaceAll(val, "\x00", "")
-			if captured.Variables["SAFE_KEY"] != want {
-				t.Fatalf("expected variable value %q, got %q", want, captured.Variables["SAFE_KEY"])
-			}
+			require.Equal(t, want, captured.
+				Variables["SAFE_KEY"])
 		})
 	}
 }
@@ -137,11 +133,9 @@ func TestEnvironment_CircularParentID(t *testing.T) {
 	body := `{"parent_id":"env-circular"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-circular", body))
+	require.NotEqual(t, 0, w.Code)
 
 	// Should not panic or hang. Any response code is acceptable.
-	if w.Code == 0 {
-		t.Fatal("expected a response")
-	}
 }
 
 // TestEnvironment_DeepParentChain verifies that a 100-level deep parent chain
@@ -165,10 +159,9 @@ func TestEnvironment_DeepParentChain(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-0", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 }
 
 // TestEnvironment_VariableOverrideResolution verifies that child environment
@@ -196,21 +189,28 @@ func TestEnvironment_VariableOverrideResolution(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-child", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp EnvironmentResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if strings.Contains(w.Body.String(), "child-db.example.com") || strings.Contains(w.Body.String(), "inherited-from-parent") {
-		t.Fatalf("environment metadata response leaked resolved variable values: %s", w.Body.String())
-	}
-	if !containsString(resp.ResolvedVariableKeys, "DB_HOST") || !containsString(resp.ResolvedVariableKeys, "API_KEY") {
-		t.Fatalf("expected resolved variable keys, got %v", resp.ResolvedVariableKeys)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.False(t, strings.Contains(w.Body.
+		String(),
+		"child-db.example.com",
+	) || strings.Contains(w.Body.
+		String(),
+
+		"inherited-from-parent"))
+	require.False(t, !containsString(resp.
+		ResolvedVariableKeys,
+		"DB_HOST") ||
+		!containsString(resp.
+			ResolvedVariableKeys,
+
+			"API_KEY"))
 }
 
 func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
@@ -236,16 +236,20 @@ func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-prod", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "secret-token-value") || strings.Contains(w.Body.String(), "postgres://user:pass") {
-		t.Fatalf("environment metadata response leaked variable value: %s", w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "API_TOKEN") || !strings.Contains(w.Body.String(), "DATABASE_URL") {
-		t.Fatalf("environment metadata response should include variable keys: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.False(t, strings.Contains(w.Body.
+		String(),
+		"secret-token-value",
+	) || strings.Contains(w.Body.String(),
+		"postgres://user:pass",
+	))
+	require.False(t, !strings.Contains(w.
+		Body.String(), "API_TOKEN") || !strings.Contains(w.Body.
+		String(),
+		"DATABASE_URL",
+	))
 }
 
 func TestEnvironment_ListDoesNotLeakVariableValues(t *testing.T) {
@@ -268,16 +272,14 @@ func TestEnvironment_ListDoesNotLeakVariableValues(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "secret-token-value") {
-		t.Fatalf("environment list leaked variable value: %s", w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "API_TOKEN") {
-		t.Fatalf("environment list should include variable key metadata: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotContains(t, w.Body.
+		String(), "secret-token-value")
+	require.Contains(
+		t, w.Body.
+			String(), "API_TOKEN")
 }
 
 func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T) {
@@ -285,7 +287,9 @@ func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T
 
 	ms := &APIStoreMock{
 		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
-			t.Fatal("CreateEnvironment must not be called for environment-scoped credentials")
+			require.Fail(t,
+
+				"CreateEnvironment must not be called for environment-scoped credentials")
 			return nil
 		},
 	}
@@ -298,9 +302,7 @@ func TestEnvironment_EnvironmentScopedCallerCannotCreateEnvironment(t *testing.T
 		Name:      "Prod",
 		Slug:      "prod",
 	}})
-	if err == nil {
-		t.Fatal("expected environment-scoped create to fail")
-	}
+	require.Error(t, err)
 }
 
 func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
@@ -311,7 +313,9 @@ func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
 			return &domain.Environment{ID: id, ProjectID: "proj-other", Name: "Other", Slug: "other"}, nil
 		},
 		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
-			t.Fatal("CreateEnvironment must not be called with cross-project parent")
+			require.Fail(t,
+
+				"CreateEnvironment must not be called with cross-project parent")
 			return nil
 		},
 	}
@@ -324,9 +328,7 @@ func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
 		Slug:      "child",
 		ParentID:  "env-other",
 	}})
-	if err == nil {
-		t.Fatal("expected cross-project parent to fail")
-	}
+	require.Error(t, err)
 }
 
 func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
@@ -340,7 +342,9 @@ func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Prod", Slug: "prod"}, nil
 		},
 		UpdateEnvironmentFunc: func(context.Context, *domain.Environment) error {
-			t.Fatal("UpdateEnvironment must not be called with cross-environment parent")
+			require.Fail(t,
+
+				"UpdateEnvironment must not be called with cross-environment parent")
 			return nil
 		},
 	}
@@ -353,9 +357,7 @@ func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
 		EnvID: "env-staging",
 		Body:  UpdateEnvironmentRequest{ParentID: &parentID},
 	})
-	if err == nil {
-		t.Fatal("expected cross-environment parent update to fail")
-	}
+	require.Error(t, err)
 }
 
 func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
@@ -363,7 +365,9 @@ func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
-			t.Fatal("GetEnvironment must not be called without secrets:read")
+			require.Fail(t,
+
+				"GetEnvironment must not be called without secrets:read")
 			return nil, nil
 		},
 	}
@@ -372,10 +376,9 @@ func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := apiKeyRequestWithScopes(http.MethodGet, "/v1/environments/env-prod/variables", "", "proj-1", []string{domain.ScopeJobsRead})
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden,
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
@@ -383,7 +386,9 @@ func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
-			t.Fatal("CreateEnvironment must not be called without secrets:write when variables are present")
+			require.Fail(t,
+
+				"CreateEnvironment must not be called without secrets:write when variables are present")
 			return nil
 		},
 	}
@@ -400,9 +405,10 @@ func TestEnvironment_CreateVariablesRequiresSecretsWrite(t *testing.T) {
 		Slug:      "production",
 		Variables: map[string]string{"DATABASE_URL": "postgres://secret"},
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for variables without secrets:write, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusForbidden,
+		))
 }
 
 func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
@@ -413,7 +419,9 @@ func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
 			return &domain.Environment{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production"}, nil
 		},
 		UpdateEnvironmentFunc: func(context.Context, *domain.Environment) error {
-			t.Fatal("UpdateEnvironment must not be called without secrets:write when variables are present")
+			require.Fail(t,
+
+				"UpdateEnvironment must not be called without secrets:write when variables are present")
 			return nil
 		},
 	}
@@ -429,9 +437,10 @@ func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
 		EnvID: "env-prod",
 		Body:  UpdateEnvironmentRequest{Variables: &vars},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for variable update without secrets:write, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.StatusForbidden,
+		))
 }
 
 func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
@@ -444,9 +453,10 @@ func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
 		},
 		UpdateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
 			updated = true
-			if env.Variables["API_TOKEN"] != "secret-token" {
-				t.Fatalf("variable update was not propagated: %#v", env.Variables)
-			}
+			require.Equal(t, "secret-token",
+				env.
+					Variables["API_TOKEN"])
+
 			return nil
 		},
 	}
@@ -462,12 +472,9 @@ func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
 		EnvID: "env-prod",
 		Body:  UpdateEnvironmentRequest{Variables: &vars},
 	})
-	if err != nil {
-		t.Fatalf("expected secrets:write variable update to pass, got %v", err)
-	}
-	if !updated {
-		t.Fatal("expected UpdateEnvironment to be called")
-	}
+	require.NoError(t, err)
+	require.True(
+		t, updated)
 }
 
 // TestEnvironment_NullBytesInVariables verifies that null bytes in variable
@@ -490,13 +497,11 @@ func TestEnvironment_NullBytesInVariables(t *testing.T) {
 	body := `{"project_id":"proj-1","name":"null-env","slug":"null-env","variables":{"KEY\u0000X":"VAL\u0000Y"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected environment to be captured")
-	}
+		w.Code)
+	require.NotNil(t, captured)
+
 	found := false
 	for k := range captured.Variables {
 		if strings.Contains(k, "\x00") {
@@ -527,10 +532,9 @@ func TestEnvironment_EmptyVariableName(t *testing.T) {
 	body := `{"project_id":"proj-1","name":"empty-key-env","slug":"empty-key","variables":{"":"some_value"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments", body))
+	require.NotEqual(t, http.StatusInternalServerError,
 
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("empty variable name should not cause 500: %s", w.Body.String())
-	}
+		w.Code)
 }
 
 // TestEnvironment_DuplicateVariableKeys verifies that sending duplicate keys
@@ -553,16 +557,12 @@ func TestEnvironment_DuplicateVariableKeys(t *testing.T) {
 	body := `{"project_id":"proj-1","name":"dup-env","slug":"dup-env","variables":{"DB_HOST":"first","DB_HOST":"second"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected environment to be captured")
-	}
-	if captured.Variables["DB_HOST"] != "second" {
-		t.Fatalf("expected last value 'second' for duplicate key, got %q", captured.Variables["DB_HOST"])
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, "second", captured.
+		Variables["DB_HOST"])
 }
 
 // TestSecret_CreateWithSQLInjectionKey verifies that SQL injection attempts
@@ -601,16 +601,13 @@ func TestSecret_CreateWithSQLInjectionKey(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets", string(bodyJSON)))
+			require.Equal(t, http.StatusCreated,
 
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-			}
-			if captured == nil {
-				t.Fatal("expected secret to be captured")
-			}
-			if captured.SecretKey != key {
-				t.Fatalf("expected secret_key to be stored literally as %q, got %q", key, captured.SecretKey)
-			}
+				w.Code)
+			require.NotNil(t, captured)
+			require.Equal(t, key, captured.
+				SecretKey,
+			)
 		})
 	}
 }
@@ -635,16 +632,13 @@ func TestSecret_EncryptionVerification(t *testing.T) {
 	body := `{"project_id":"proj-1","secret_key":"DB_PASSWORD","value":"super-secret-123"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected secret to be captured")
-	}
-	if captured.EncryptedValue == "" {
-		t.Fatal("expected EncryptedValue to be populated")
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.NotEmpty(t, captured.
+		EncryptedValue,
+	)
 }
 
 // TestSecret_DecryptionRoundTrip verifies that creating and listing secrets
@@ -674,19 +668,17 @@ func TestSecret_DecryptionRoundTrip(t *testing.T) {
 	body := `{"project_id":"proj-1","secret_key":"API_TOKEN","value":"token-value"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create: expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, authedProjectRequest(http.MethodGet, "/v1/secrets", "", "proj-1"))
-	if w2.Code != http.StatusOK {
-		t.Fatalf("list: expected 200, got %d: %s", w2.Code, w2.Body.String())
-	}
-
-	if strings.Contains(w2.Body.String(), "token-value") {
-		t.Fatal("encrypted value should not appear in list response")
-	}
+	require.Equal(t, http.StatusOK,
+		w2.Code,
+	)
+	require.NotContains(t, w2.
+		Body.String(), "token-value")
 }
 
 // TestSecret_CrossEnvironmentIsolation verifies that secrets created for one
@@ -709,14 +701,11 @@ func TestSecret_CrossEnvironmentIsolation(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, "/v1/secrets?environment=staging", "", "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if strings.Contains(w.Body.String(), "PROD_KEY") {
-		t.Fatal("production secret should not appear in staging listing")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotContains(t, w.Body.
+		String(), "PROD_KEY")
 }
 
 func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *testing.T) {
@@ -730,7 +719,9 @@ func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *t
 			}, nil
 		},
 		CreateJobSecretFunc: func(context.Context, *domain.JobSecret) error {
-			t.Fatal("CreateJobSecret must not be called for cross-environment create")
+			require.Fail(t,
+
+				"CreateJobSecret must not be called for cross-environment create")
 			return nil
 		},
 	}
@@ -744,9 +735,7 @@ func TestSecret_EnvironmentScopedCallerCannotCreateSecretInOtherEnvironment(t *t
 		SecretKey:   "PROD_TOKEN",
 		Value:       "secret",
 	}})
-	if err == nil {
-		t.Fatal("expected cross-environment secret create to fail")
-	}
+	require.Error(t, err)
 }
 
 func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
@@ -763,7 +752,9 @@ func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
 			return &domain.Job{ID: jobID, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 		CreateJobSecretFunc: func(context.Context, *domain.JobSecret) error {
-			t.Fatal("CreateJobSecret must not be called for job/environment mismatch")
+			require.Fail(t,
+
+				"CreateJobSecret must not be called for job/environment mismatch")
 			return nil
 		},
 	}
@@ -777,9 +768,7 @@ func TestSecret_JobSecretMustMatchJobEnvironment(t *testing.T) {
 		SecretKey:   "API_TOKEN",
 		Value:       "secret",
 	}})
-	if err == nil {
-		t.Fatal("expected job/environment mismatch to fail")
-	}
+	require.Error(t, err)
 }
 
 func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
@@ -787,9 +776,12 @@ func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, env string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
-			if projectID != "proj-1" || jobID != "" || env != "env-staging" {
-				t.Fatalf("ListJobSecrets args = project %q job %q env %q, want proj-1/empty/env-staging", projectID, jobID, env)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				jobID !=
+					"" || env != "env-staging",
+			)
+
 			return []domain.JobSecret{{ID: "sec-staging", ProjectID: "proj-1", Environment: "env-staging", SecretKey: "STAGING_TOKEN"}}, nil
 		},
 	}
@@ -798,16 +790,13 @@ func TestSecret_EnvironmentScopedListDefaultsToCallerEnvironment(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
 
 	out, err := srv.handleListSecrets(ctx, &ListSecretsInput{})
-	if err != nil {
-		t.Fatalf("handleListSecrets() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	items, ok := out.Body.Data.([]domain.JobSecret)
-	if !ok {
-		t.Fatalf("response data type = %T, want []domain.JobSecret", out.Body.Data)
-	}
-	if len(items) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(items))
-	}
+	require.True(
+		t, ok)
+	require.Len(t,
+		items, 1)
 }
 
 func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(t *testing.T) {
@@ -818,7 +807,9 @@ func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(
 			return &domain.JobSecret{ID: "sec-prod", ProjectID: "proj-1", Environment: "env-prod", SecretKey: "PROD_TOKEN"}, nil
 		},
 		DeleteJobSecretFunc: func(context.Context, string) error {
-			t.Fatal("DeleteJobSecret must not be called for cross-environment secret")
+			require.Fail(t,
+
+				"DeleteJobSecret must not be called for cross-environment secret")
 			return nil
 		},
 	}
@@ -827,10 +818,14 @@ func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-staging")
 
 	if _, err := srv.handleGetSecret(ctx, &GetSecretInput{SecretID: "sec-prod"}); err == nil {
-		t.Fatal("expected cross-environment secret read to fail")
+		require.Fail(t,
+
+			"expected cross-environment secret read to fail")
 	}
 	if _, err := srv.handleDeleteSecret(ctx, &DeleteSecretInput{SecretID: "sec-prod"}); err == nil {
-		t.Fatal("expected cross-environment secret delete to fail")
+		require.Fail(t,
+
+			"expected cross-environment secret delete to fail")
 	}
 }
 
@@ -854,16 +849,13 @@ func TestSecret_KeyVersionTracking(t *testing.T) {
 	body := `{"project_id":"proj-1","secret_key":"VERSIONED_KEY","value":"v1-value"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected secret to be captured")
-	}
-	if captured.KeyVersion < 0 {
-		t.Fatalf("expected non-negative key version, got %d", captured.KeyVersion)
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.GreaterOrEqual(t, captured.
+		KeyVersion,
+		0)
 }
 
 // FuzzEnvironmentVariables fuzzes environment variable key/value pairs to ensure

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCancelChildRunsRecursive_PaginatesChildrenForNextDepth(t *testing.T) {
@@ -27,14 +29,18 @@ func TestCancelChildRunsRecursive_PaginatesChildrenForNextDepth(t *testing.T) {
 			if parentRunID != "run-parent" {
 				return nil, nil
 			}
-			if limit != childCancelPageLimit {
-				t.Fatalf("limit = %d, want %d", limit, childCancelPageLimit)
-			}
+			require.Equal(t, childCancelPageLimit,
+
+				limit,
+			)
+
 			childPageCalls++
 			switch childPageCalls {
 			case 1:
 				if cursor != nil {
-					t.Fatalf("first cursor = %v, want nil", cursor)
+					require.Failf(t, "test failure",
+
+						"first cursor = %v, want nil", cursor)
 				}
 				return []domain.JobRun{
 					{ID: "child-1", CreatedAt: time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)},
@@ -42,7 +48,9 @@ func TestCancelChildRunsRecursive_PaginatesChildrenForNextDepth(t *testing.T) {
 				}, nil
 			case 2:
 				if cursor == nil || !cursor.Equal(time.Date(2026, 6, 3, 12, 0, 1, 0, time.UTC)) {
-					t.Fatalf("second cursor = %v, want last first-page created_at", cursor)
+					require.Failf(t, "test failure",
+
+						"second cursor = %v, want last first-page created_at", cursor)
 				}
 				return []domain.JobRun{
 					{ID: "child-3", CreatedAt: time.Date(2026, 6, 3, 12, 0, 2, 0, time.UTC)},
@@ -55,14 +63,16 @@ func TestCancelChildRunsRecursive_PaginatesChildrenForNextDepth(t *testing.T) {
 	srv := &Server{store: ms}
 
 	total := srv.cancelChildRunsRecursive(context.Background(), "run-parent")
+	require.EqualValues(t, 3, total)
 
-	if total != 3 {
-		t.Fatalf("total = %d, want 3", total)
-	}
 	wantBatches := [][]string{{"run-parent"}, {"child-1", "child-2", "child-3"}}
-	if !slices.EqualFunc(canceledBatches, wantBatches, slices.Equal[[]string]) {
-		t.Fatalf("canceled batches = %#v, want %#v", canceledBatches, wantBatches)
-	}
+	require.True(
+		t, slices.
+			EqualFunc(
+				canceledBatches,
+				wantBatches,
+
+				slices.Equal[[]string]))
 }
 
 func TestCancelChildRunsRecursive_StopsOnCancelError(t *testing.T) {
@@ -87,13 +97,8 @@ func TestCancelChildRunsRecursive_StopsOnCancelError(t *testing.T) {
 	srv := &Server{store: ms}
 
 	total := srv.cancelChildRunsRecursive(context.Background(), "run-parent")
-
-	if total != 2 {
-		t.Fatalf("total = %d, want already-canceled count 2", total)
-	}
-	if cancelCalls != 2 {
-		t.Fatalf("cancel calls = %d, want 2", cancelCalls)
-	}
+	require.EqualValues(t, 2, total)
+	require.Equal(t, 2, cancelCalls)
 }
 
 func TestCancelChildRunsRecursive_StopsAtDepthLimit(t *testing.T) {
@@ -115,13 +120,14 @@ func TestCancelChildRunsRecursive_StopsAtDepthLimit(t *testing.T) {
 	srv := &Server{store: ms}
 
 	total := srv.cancelChildRunsRecursive(context.Background(), "run-parent")
+	require.Equal(t, int64(
+		maxCancelDepth,
+	), total,
+	)
+	require.Equal(t, maxCancelDepth,
 
-	if total != int64(maxCancelDepth) {
-		t.Fatalf("total = %d, want %d", total, maxCancelDepth)
-	}
-	if cancelCalls != maxCancelDepth {
-		t.Fatalf("cancel calls = %d, want %d", cancelCalls, maxCancelDepth)
-	}
+		cancelCalls,
+	)
 }
 
 func TestNextChildCancellationParents_StopsParentOnListError(t *testing.T) {
@@ -143,11 +149,15 @@ func TestNextChildCancellationParents_StopsParentOnListError(t *testing.T) {
 	srv := &Server{store: ms}
 
 	nextParents := srv.nextChildCancellationParents(context.Background(), []string{"parent-a", "parent-b"})
+	require.True(
+		t, slices.
+			Equal(nextParents,
+				[]string{"child-b"}))
+	require.True(
+		t, slices.
+			Equal(listedParents,
 
-	if !slices.Equal(nextParents, []string{"child-b"}) {
-		t.Fatalf("next parents = %#v, want child-b", nextParents)
-	}
-	if !slices.Equal(listedParents, []string{"parent-a", "parent-b", "parent-b"}) {
-		t.Fatalf("listed parents = %#v, want parent-a then parent-b page traversal", listedParents)
-	}
+				[]string{
+					"parent-a", "parent-b", "parent-b",
+				}))
 }

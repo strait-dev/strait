@@ -3,9 +3,11 @@ package health
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockPool struct {
@@ -49,17 +51,13 @@ func TestNewPoolChecker(t *testing.T) {
 			checker := NewPoolChecker(tt.pool)
 			err := checker.Check(context.Background())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
+				require.Error(t, err)
+				if tt.wantErrPart != "" {
+					assert.Contains(t, err.Error(), tt.wantErrPart)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -86,17 +84,13 @@ func TestNewMigrationChecker(t *testing.T) {
 			checker := NewMigrationChecker(tt.current, tt.dirty, tt.checkErr)
 			err := checker.Check(context.Background())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
+				require.Error(t, err)
+				if tt.wantErrPart != "" {
+					assert.Contains(t, err.Error(), tt.wantErrPart)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -126,17 +120,13 @@ func TestNewSchedulerChecker(t *testing.T) {
 			checker := newSchedulerChecker(func() time.Time { return tt.lastTick }, tt.maxAge, func() time.Time { return now })
 			err := checker.Check(context.Background())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
+				require.Error(t, err)
+				if tt.wantErrPart != "" {
+					assert.Contains(t, err.Error(), tt.wantErrPart)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -166,20 +156,14 @@ func TestNewRedisChecker(t *testing.T) {
 			checker := NewRedisChecker(&mockRedisPinger{err: tt.pingErr})
 			err := checker.Check(context.Background())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
+				require.Error(t, err)
+				if tt.wantErrPart != "" {
+					assert.Contains(t, err.Error(), tt.wantErrPart)
 				}
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
-				}
-				if !IsCritical(checker) {
-					t.Fatal("expected redis checker to be critical")
-				}
+				assert.True(t, IsCritical(checker))
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -190,36 +174,26 @@ func TestNewSequinChecker(t *testing.T) {
 	t.Run("healthy sequin", func(t *testing.T) {
 		t.Parallel()
 		checker := NewSequinChecker(mockSequinReadinessClient{})
-		if err := checker.Check(context.Background()); err != nil {
-			t.Fatalf("expected healthy Sequin, got %v", err)
-		}
-		if !IsCritical(checker) {
-			t.Fatal("expected Sequin checker to be critical")
-		}
+		require.NoError(t, checker.Check(context.Background()))
+		assert.True(t, IsCritical(checker))
 	})
 
 	t.Run("unhealthy sequin process", func(t *testing.T) {
 		t.Parallel()
 		checker := NewSequinChecker(mockSequinReadinessClient{healthErr: errors.New("HTTP 503")})
 		err := checker.Check(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "sequin health failed") {
-			t.Fatalf("error = %v, want sequin health failed", err)
-		}
-		if !IsCritical(checker) {
-			t.Fatal("expected Sequin checker to be critical")
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sequin health failed")
+		assert.True(t, IsCritical(checker))
 	})
 
 	t.Run("unhealthy sink consumer", func(t *testing.T) {
 		t.Parallel()
 		checker := NewSequinChecker(mockSequinReadinessClient{sinkConsumerErr: errors.New("consumer paused")})
 		err := checker.Check(context.Background())
-		if err == nil || !strings.Contains(err.Error(), "sequin sink consumer health failed") {
-			t.Fatalf("error = %v, want sequin sink consumer health failed", err)
-		}
-		if !IsCritical(checker) {
-			t.Fatal("expected Sequin checker to be critical")
-		}
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sequin sink consumer health failed")
+		assert.True(t, IsCritical(checker))
 	})
 }
 
@@ -252,17 +226,13 @@ func TestNewQueueDepthChecker(t *testing.T) {
 
 			err := checker.Check(context.Background())
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrPart != "" && !strings.Contains(err.Error(), tt.wantErrPart) {
-					t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantErrPart)
+				require.Error(t, err)
+				if tt.wantErrPart != "" {
+					assert.Contains(t, err.Error(), tt.wantErrPart)
 				}
 				return
 			}
-			if err != nil {
-				t.Fatalf("expected nil, got %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }

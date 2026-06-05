@@ -8,6 +8,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_GetRunTokenState_ReturnsStatusAttemptAndProject(t *testing.T) {
@@ -16,9 +18,12 @@ func TestIntegration_GetRunTokenState_ReturnsStatusAttemptAndProject(t *testing.
 
 	q := store.New(env.DB.Pool)
 	const projectID = "proj-run-token-state"
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-1", Name: "Run Token State"}); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{
+		ID: projectID, OrgID: "org-1",
+		Name: "Run Token State",
+	}))
+
 	job := &domain.Job{
 		ProjectID:     projectID,
 		Name:          "Token Job",
@@ -27,9 +32,9 @@ func TestIntegration_GetRunTokenState_ReturnsStatusAttemptAndProject(t *testing.
 		TimeoutSecs:   60,
 		MaxAttempts:   3,
 	}
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	run := &domain.JobRun{
 		ID:        "run-token-state",
 		JobID:     job.ID,
@@ -38,23 +43,21 @@ func TestIntegration_GetRunTokenState_ReturnsStatusAttemptAndProject(t *testing.
 		Attempt:   2,
 		Payload:   []byte(`{"ok":true}`),
 	}
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	status, attempt, gotProjectID, err := q.GetRunTokenState(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRunTokenState: %v", err)
-	}
-	if status != domain.StatusExecuting {
-		t.Fatalf("status = %q, want %q", status, domain.StatusExecuting)
-	}
-	if attempt != 2 {
-		t.Fatalf("attempt = %d, want 2", attempt)
-	}
-	if gotProjectID != projectID {
-		t.Fatalf("projectID = %q, want %q", gotProjectID, projectID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusExecuting,
+		status,
+	)
+	require.EqualValues(t, 2, attempt)
+	require.Equal(t, projectID,
+
+		gotProjectID,
+	)
+
 }
 
 func TestIntegration_GetRunTokenState_UsesSplitRunState(t *testing.T) {
@@ -63,9 +66,12 @@ func TestIntegration_GetRunTokenState_UsesSplitRunState(t *testing.T) {
 
 	q := store.New(env.DB.Pool)
 	const projectID = "proj-run-token-state-split"
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org-1", Name: "Run Token State Split"}); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{
+		ID: projectID, OrgID: "org-1",
+		Name: "Run Token State Split",
+	}))
+
 	job := &domain.Job{
 		ProjectID:     projectID,
 		Name:          "Token Job Split",
@@ -74,9 +80,9 @@ func TestIntegration_GetRunTokenState_UsesSplitRunState(t *testing.T) {
 		TimeoutSecs:   60,
 		MaxAttempts:   3,
 	}
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	run := &domain.JobRun{
 		ID:        "run-token-state-split",
 		JobID:     job.ID,
@@ -85,30 +91,26 @@ func TestIntegration_GetRunTokenState_UsesSplitRunState(t *testing.T) {
 		Attempt:   1,
 		Payload:   []byte(`{"ok":true}`),
 	}
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
-	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusExecuting, map[string]any{
-		"attempt": 2,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+	require.NoError(t, q.UpdateRunStatus(ctx, run.
+		ID, domain.
+		StatusQueued, domain.StatusExecuting,
+		map[string]any{
+			"attempt": 2}))
 
 	status, attempt, gotProjectID, err := q.GetRunTokenState(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRunTokenState: %v", err)
-	}
-	if status != domain.StatusExecuting {
-		t.Fatalf("status = %q, want %q", status, domain.StatusExecuting)
-	}
-	if attempt != 2 {
-		t.Fatalf("attempt = %d, want 2", attempt)
-	}
-	if gotProjectID != projectID {
-		t.Fatalf("projectID = %q, want %q", gotProjectID, projectID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusExecuting,
+		status,
+	)
+	require.EqualValues(t, 2, attempt)
+	require.Equal(t, projectID,
 
-	if err := q.EnsureRunActiveForAttempt(ctx, run.ID, 2); err != nil {
-		t.Fatalf("EnsureRunActiveForAttempt: %v", err)
-	}
+		gotProjectID,
+	)
+	require.NoError(t, q.EnsureRunActiveForAttempt(ctx, run.
+		ID, 2))
+
 }

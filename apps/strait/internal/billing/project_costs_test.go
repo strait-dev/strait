@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockProjectCostStore struct {
@@ -21,12 +24,9 @@ func TestGetProjectCosts_Empty(t *testing.T) {
 	to := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
 
 	entries, err := GetProjectCosts(context.Background(), store, "org-1", from, to)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("expected 0 entries, got %d", len(entries))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, entries)
 }
 
 func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
@@ -41,12 +41,10 @@ func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	to := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
 
 	entries, err := GetProjectCosts(context.Background(), store, "org-1", from, to)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(entries))
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, entries,
+		2)
 
 	entryMap := make(map[string]ProjectCostEntry)
 	for _, e := range entries {
@@ -54,21 +52,23 @@ func TestGetProjectCosts_AggregatesByProject(t *testing.T) {
 	}
 
 	projA := entryMap["proj-a"]
-	if projA.Runs != 15 {
-		t.Errorf("proj-a runs: expected 15, got %d", projA.Runs)
-	}
-	if projA.SpendMicro != 3000 {
-		t.Errorf("proj-a spend: expected 3000, got %d", projA.SpendMicro)
-	}
-	if projA.TotalMicro != 3000 {
-		t.Errorf("proj-a total: expected 3000, got %d", projA.TotalMicro)
-	}
+	assert.EqualValues(t, 15,
+		projA.Runs,
+	)
+	assert.EqualValues(t, 3000,
+		projA.
+			SpendMicro,
+	)
+	assert.EqualValues(t, 3000,
+		projA.
+			TotalMicro,
+	)
 
 	projB := entryMap["proj-b"]
-	if projB.Runs != 3 {
-		t.Errorf("proj-b runs: expected 3, got %d", projB.Runs)
-	}
-	if projB.TotalMicro != 800 {
-		t.Errorf("proj-b total: expected 800, got %d", projB.TotalMicro)
-	}
+	assert.EqualValues(t, 3,
+		projB.Runs,
+	)
+	assert.EqualValues(t, 800,
+		projB.TotalMicro,
+	)
 }

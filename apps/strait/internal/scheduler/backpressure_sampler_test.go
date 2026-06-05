@@ -10,6 +10,7 @@ import (
 	"strait/internal/queue"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeBPSampler struct {
@@ -25,12 +26,11 @@ func (f *fakeBPSampler) SampleAvailableTokens(_ context.Context, _ int) ([]queue
 
 func TestBackpressureSampler_Disabled(t *testing.T) {
 	t.Parallel()
-	if s := NewBackpressureSampler(nil, nil, 0, 0); s != nil {
-		t.Fatalf("expected nil sampler when disabled")
-	}
-	if s := NewBackpressureSampler(&fakeBPSampler{}, nil, 10*time.Second, 0); s != nil {
-		t.Fatalf("expected nil sampler when metrics missing")
-	}
+	require.Nil(t, NewBackpressureSampler(nil, nil,
+		0, 0))
+	require.Nil(t, NewBackpressureSampler(&fakeBPSampler{},
+		nil,
+		10*time.Second, 0))
 }
 
 func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
@@ -40,45 +40,47 @@ func TestBackpressureSampler_TickCallsSampler(t *testing.T) {
 	// from t.Parallel subtests would race with other tests in the package
 	// that read the singleton).
 	m, err := queue.Metrics()
-	if err != nil {
-		t.Fatalf("queue metrics: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	fake := &fakeBPSampler{samples: []queue.TokenSample{
 		{ProjectID: "proj-a", Tokens: 42},
 		{ProjectID: "proj-b", Tokens: 7},
 	}}
 	s := NewBackpressureSampler(fake, m, 15*time.Second, 100)
-	if s == nil {
-		t.Fatal("expected sampler")
-	}
+	require.NotNil(t, s)
+
 	s.Tick(context.Background())
 	s.Tick(context.Background())
-	if got := fake.calls.Load(); got != 2 {
-		t.Fatalf("expected 2 sample calls, got %d", got)
-	}
+	require.EqualValues(t, 2,
+		fake.calls.
+			Load())
 }
 
 func TestBackpressureSamplerMetricAttributes_DoNotIncludeProjectID(t *testing.T) {
 	t.Parallel()
 	for _, attr := range backpressureMetricAttributes() {
-		if string(attr.Key) == "project_id" {
-			t.Fatalf("backpressure sampler must not emit raw project_id metric label")
-		}
+		require.NotEqual(t,
+			"project_id",
+			string(attr.
+				Key))
 	}
 }
 
 func TestBackpressureSampler_TickSwallowsError(t *testing.T) {
 	t.Parallel()
 	m, err := queue.Metrics()
-	if err != nil {
-		t.Fatalf("queue metrics: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	fake := &fakeBPSampler{err: errors.New("boom")}
 	s := NewBackpressureSampler(fake, m, time.Second, 10)
-	s.Tick(context.Background()) // must not panic
-	if fake.calls.Load() != 1 {
-		t.Fatal("sampler should have been invoked once")
-	}
+	s.Tick(context.Background())
+	require.EqualValues(t, 1,
+		fake.calls.
+			Load())
+
+	// must not panic
 }
 
 func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
@@ -86,9 +88,9 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	defer concWG.Wait()
 	t.Parallel()
 	m, err := queue.Metrics()
-	if err != nil {
-		t.Fatalf("queue metrics: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	fake := &fakeBPSampler{}
 	s := NewBackpressureSampler(fake, m, 5*time.Millisecond, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -101,13 +103,14 @@ func TestBackpressureSampler_RunHonoursContext(t *testing.T) {
 	for fake.calls.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if fake.calls.Load() == 0 {
-		t.Fatal("expected at least one tick before cancel")
-	}
+	require.NotEqual(t,
+		0, fake.calls.
+			Load())
+
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not exit after cancel")
+		require.Fail(t, "Run did not exit after cancel")
 	}
 }

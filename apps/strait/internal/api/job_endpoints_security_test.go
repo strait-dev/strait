@@ -8,6 +8,8 @@ import (
 
 	straitcrypto "strait/internal/crypto"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetJobEndpoint_RejectsHostnameResolvingToPrivateIP(t *testing.T) {
@@ -18,7 +20,9 @@ func TestSetJobEndpoint_RejectsHostnameResolvingToPrivateIP(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
 		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
-			t.Fatal("UpdateJobEndpoint must not be called for private DNS target")
+			require.Fail(t,
+
+				"UpdateJobEndpoint must not be called for private DNS target")
 			return nil
 		},
 	}
@@ -26,10 +30,8 @@ func TestSetJobEndpoint_RejectsHostnameResolvingToPrivateIP(t *testing.T) {
 	body := `{"endpoint_url":"https://internal.example.com/hook"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for hostname resolving to private IP, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
@@ -40,7 +42,9 @@ func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
 		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
-			t.Fatal("UpdateJobEndpoint must not be called for private fallback DNS target")
+			require.Fail(t,
+
+				"UpdateJobEndpoint must not be called for private fallback DNS target")
 			return nil
 		},
 	}
@@ -48,10 +52,8 @@ func TestSetJobEndpoint_RejectsPrivateFallbackHostname(t *testing.T) {
 	body := `{"endpoint_url":"https://example.com/hook","fallback_endpoint_url":"https://loopback.example.com/hook"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for fallback hostname resolving to loopback, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
@@ -72,23 +74,21 @@ func TestSetJobEndpoint_StoresEncryptedRotatedSigningSecret(t *testing.T) {
 	body := `{"endpoint_url":"https://example.com/hook","rotate_signing_secret":true}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotEmpty(t, storedSecret)
+	require.True(
+		t, straitcrypto.
+			IsEncryptedField(
+				storedSecret,
+			))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if storedSecret == "" {
-		t.Fatal("UpdateJobEndpoint did not receive a signing secret")
-	}
-	if !straitcrypto.IsEncryptedField(storedSecret) {
-		t.Fatalf("stored signing secret = %q, want encrypted field", storedSecret)
-	}
 	plaintext, err := straitcrypto.DecryptField(enc, storedSecret)
-	if err != nil {
-		t.Fatalf("decrypt stored signing secret: %v", err)
-	}
-	if plaintext == "" || plaintext == storedSecret {
-		t.Fatalf("decrypted signing secret = %q, stored = %q", plaintext, storedSecret)
-	}
+	require.NoError(t, err)
+	require.False(t, plaintext ==
+		"" || plaintext ==
+		storedSecret,
+	)
 }
 
 func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) {
@@ -99,7 +99,9 @@ func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) 
 			return &domain.Job{ID: id, ProjectID: "proj-1"}, nil
 		},
 		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
-			t.Fatal("UpdateJobEndpoint must not be called when signing secret encryption is unavailable")
+			require.Fail(t,
+
+				"UpdateJobEndpoint must not be called when signing secret encryption is unavailable")
 			return nil
 		},
 	}
@@ -107,8 +109,7 @@ func TestSetJobEndpoint_RejectsSigningSecretWriteWithoutEncryptor(t *testing.T) 
 	body := `{"endpoint_url":"https://example.com/hook","rotate_signing_secret":true}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/endpoint", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 when encryption is unavailable, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }

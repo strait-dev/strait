@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateJobGroup(t *testing.T) {
@@ -22,15 +24,14 @@ func TestCreateJobGroup(t *testing.T) {
 		Slug:        "test-group",
 		Description: "A test group",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
-	if group.ID == "" {
-		t.Fatal("CreateJobGroup() did not set ID")
-	}
-	if group.CreatedAt.IsZero() {
-		t.Fatal("CreateJobGroup() did not set CreatedAt")
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
+	require.NotEqual(t, "",
+
+		group.ID)
+	require.False(t, group.
+		CreatedAt.
+		IsZero())
+
 }
 
 func TestGetJobGroup(t *testing.T) {
@@ -44,23 +45,21 @@ func TestGetJobGroup(t *testing.T) {
 		Slug:        "get-group",
 		Description: "Group for get test",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
 
 	got, err := q.GetJobGroup(ctx, group.ID)
-	if err != nil {
-		t.Fatalf("GetJobGroup() error = %v", err)
-	}
-	if got.Name != "Get Group" {
-		t.Fatalf("GetJobGroup() name = %q, want %q", got.Name, "Get Group")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Get Group",
+
+		got.
+			Name)
 
 	// Not found.
 	_, err = q.GetJobGroup(ctx, newID())
-	if !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("GetJobGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobGroupNotFound,
+	))
+
 }
 
 func TestListJobGroups(t *testing.T) {
@@ -75,27 +74,21 @@ func TestListJobGroups(t *testing.T) {
 			Name:      "Group " + string(rune('A'+i)),
 			Slug:      "group-" + string(rune('a'+i)),
 		}
-		if err := q.CreateJobGroup(ctx, group); err != nil {
-			t.Fatalf("CreateJobGroup(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateJobGroup(ctx, group))
+
 	}
 
 	groups, err := q.ListJobGroups(ctx, projectID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobGroups() error = %v", err)
-	}
-	if len(groups) != 3 {
-		t.Fatalf("ListJobGroups() len = %d, want 3", len(groups))
-	}
+	require.NoError(t, err)
+	require.Len(t, groups,
+		3,
+	)
 
 	// Empty project.
 	empty, err := q.ListJobGroups(ctx, "nonexistent", 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobGroups(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListJobGroups(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestUpdateJobGroup(t *testing.T) {
@@ -108,29 +101,26 @@ func TestUpdateJobGroup(t *testing.T) {
 		Name:      "Original",
 		Slug:      "original",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
 
 	group.Name = "Updated"
 	group.Slug = "updated"
 	group.Description = "Updated description"
-	if err := q.UpdateJobGroup(ctx, group); err != nil {
-		t.Fatalf("UpdateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.UpdateJobGroup(ctx, group))
 
 	got, err := q.GetJobGroup(ctx, group.ID)
-	if err != nil {
-		t.Fatalf("GetJobGroup() error = %v", err)
-	}
-	if got.Name != "Updated" {
-		t.Fatalf("name = %q, want Updated", got.Name)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Updated",
+
+		got.Name,
+	)
 
 	// Not found.
 	notFound := &domain.JobGroup{ID: newID(), ProjectID: "x", Name: "x", Slug: "x"}
 	if err := q.UpdateJobGroup(ctx, notFound); !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("UpdateJobGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
+		require.Failf(t, "test failure",
+
+			"UpdateJobGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
 	}
 }
 
@@ -144,22 +134,20 @@ func TestDeleteJobGroup(t *testing.T) {
 		Name:      "Delete Me",
 		Slug:      "delete-me",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
-
-	if err := q.DeleteJobGroup(ctx, group.ID); err != nil {
-		t.Fatalf("DeleteJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
+	require.NoError(t, q.DeleteJobGroup(ctx, group.
+		ID))
 
 	_, err := q.GetJobGroup(ctx, group.ID)
-	if !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("GetJobGroup(deleted) error = %v, want ErrJobGroupNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobGroupNotFound,
+	))
 
 	// Not found.
 	if err := q.DeleteJobGroup(ctx, newID()); !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("DeleteJobGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
+		require.Failf(t, "test failure",
+
+			"DeleteJobGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
 	}
 }
 
@@ -174,32 +162,22 @@ func TestListJobsByGroup_ReturnsOnlyGroupedJobs(t *testing.T) {
 		Name:      "Jobs Group",
 		Slug:      "jobs-group",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
 
 	job := baseJob(newID(), projectID)
 	job.GroupID = group.ID
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	jobs, err := q.ListJobsByGroup(ctx, group.ID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobsByGroup() error = %v", err)
-	}
-	if len(jobs) != 1 {
-		t.Fatalf("ListJobsByGroup() len = %d, want 1", len(jobs))
-	}
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
 
 	// Empty group.
 	empty, err := q.ListJobsByGroup(ctx, newID(), 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobsByGroup(empty) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("ListJobsByGroup(empty) len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestPauseAndResumeJobsByGroup(t *testing.T) {
@@ -213,46 +191,38 @@ func TestPauseAndResumeJobsByGroup(t *testing.T) {
 		Name:      "Pause Group",
 		Slug:      "pause-group",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
 
 	job := baseJob(newID(), projectID)
 	job.GroupID = group.ID
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
-
-	if err := q.PauseJobsByGroup(ctx, group.ID); err != nil {
-		t.Fatalf("PauseJobsByGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+	require.NoError(t, q.PauseJobsByGroup(ctx, group.
+		ID))
 
 	paused, err := q.GetJob(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("GetJob() error = %v", err)
-	}
-	if !paused.Paused {
-		t.Fatal("job should be paused after PauseJobsByGroup")
-	}
-
-	if err := q.ResumeJobsByGroup(ctx, group.ID); err != nil {
-		t.Fatalf("ResumeJobsByGroup() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, paused.
+		Paused,
+	)
+	require.NoError(t, q.ResumeJobsByGroup(ctx,
+		group.ID))
 
 	resumed, err := q.GetJob(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("GetJob() error = %v", err)
-	}
-	if resumed.Paused {
-		t.Fatal("job should not be paused after ResumeJobsByGroup")
-	}
+	require.NoError(t, err)
+	require.False(t, resumed.
+		Paused)
 
 	// Not found group.
 	if err := q.PauseJobsByGroup(ctx, newID()); !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("PauseJobsByGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
+		require.Failf(t, "test failure",
+
+			"PauseJobsByGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
 	}
 	if err := q.ResumeJobsByGroup(ctx, newID()); !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("ResumeJobsByGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
+		require.Failf(t, "test failure",
+
+			"ResumeJobsByGroup(notfound) error = %v, want ErrJobGroupNotFound", err)
 	}
 }
 
@@ -267,36 +237,31 @@ func TestGetJobGroupStats(t *testing.T) {
 		Name:      "Stats Group",
 		Slug:      "stats-group",
 	}
-	if err := q.CreateJobGroup(ctx, group); err != nil {
-		t.Fatalf("CreateJobGroup() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobGroup(ctx, group))
 
 	job := baseJob(newID(), projectID)
 	job.GroupID = group.ID
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	stats, err := q.GetJobGroupStats(ctx, group.ID)
-	if err != nil {
-		t.Fatalf("GetJobGroupStats() error = %v", err)
-	}
-	if stats.GroupID != group.ID {
-		t.Fatalf("GroupID = %q, want %q", stats.GroupID, group.ID)
-	}
-	if stats.RunCounts["completed"] != 1 {
-		t.Fatalf("RunCounts[completed] = %d, want 1", stats.RunCounts["completed"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, group.
+		ID,
+		stats.
+			GroupID)
+	require.EqualValues(t, 1, stats.
+		RunCounts["completed"])
 
 	// Not found.
 	_, err = q.GetJobGroupStats(ctx, newID())
-	if !errors.Is(err, store.ErrJobGroupNotFound) {
-		t.Fatalf("GetJobGroupStats(notfound) error = %v, want ErrJobGroupNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobGroupNotFound,
+	))
+
 }

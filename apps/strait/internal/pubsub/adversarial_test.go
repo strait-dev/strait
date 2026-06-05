@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Helpers
@@ -79,9 +81,9 @@ func TestSubscription_MessageOrdering_FIFO(t *testing.T) {
 	for i := range count {
 		msg := <-sub.Ch
 		expected := fmt.Sprintf("msg-%03d", i)
-		if string(msg) != expected {
-			t.Fatalf("message %d: got %q, want %q", i, msg, expected)
-		}
+		require.Equal(t,
+			expected,
+			string(msg))
 	}
 }
 
@@ -125,11 +127,12 @@ func TestSubscription_MessageOrdering_UnderConcurrentWrites(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	assert.Len(t, received,
+		producers*
+			perProducer,
+	)
 
 	// Verify all messages arrived (no duplicates or losses).
-	if len(received) != producers*perProducer {
-		t.Errorf("received %d unique messages, want %d", len(received), producers*perProducer)
-	}
 }
 
 // 2. Duplicate message delivery (ResilientPublisher deduplication semantics)
@@ -142,14 +145,13 @@ func TestResilientPublisher_NoDuplicatePublishOnSuccess(t *testing.T) {
 
 	const iterations = 100
 	for i := range iterations {
-		if err := rp.Publish(t.Context(), "events", fmt.Appendf(nil, "msg-%d", i)); err != nil {
-			t.Fatalf("Publish failed: %v", err)
-		}
+		require.NoError(
+			t, rp.Publish(t.Context(), "events",
+				fmt.
+					Appendf(nil, "msg-%d",
+						i)))
 	}
-
-	if cp.publishCount.Load() != iterations {
-		t.Errorf("publish count = %d, want %d (no duplicates)", cp.publishCount.Load(), iterations)
-	}
+	assert.Equal(t, int64(iterations), cp.publishCount.Load())
 }
 
 func TestResilientPublisher_PublishBatch_NoDuplicateOnFailure(t *testing.T) {
@@ -172,12 +174,10 @@ func TestResilientPublisher_PublishBatch_NoDuplicateOnFailure(t *testing.T) {
 	}
 
 	_ = rp.PublishBatch(context.Background(), msgs)
+	assert.Equal(t, int64(1), calls.Load())
 
 	// The mock's PublishBatch iterates over each message, so it should call
 	// publishFunc once for ch1 and then fail (stopping the batch).
-	if calls.Load() != 1 {
-		t.Errorf("publish calls = %d, want 1 (fail fast, no duplication)", calls.Load())
-	}
 }
 
 // 3. Subscriber crash/disconnect during message processing
@@ -212,9 +212,7 @@ func TestSubscription_CloseWhileWriting(t *testing.T) {
 		}
 	}
 done:
-	if drained > 5 {
-		t.Errorf("drained %d messages, want at most 5", drained)
-	}
+	assert.LessOrEqual(t, drained, 5)
 }
 
 func TestResilientPublisher_SubscribeFailure_ReturnClosedChannel(t *testing.T) {
@@ -229,18 +227,15 @@ func TestResilientPublisher_SubscribeFailure_ReturnClosedChannel(t *testing.T) {
 	rp := NewResilientPublisher(mock, slog.Default(), 1)
 
 	sub, err := rp.Subscribe(t.Context(), "events")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v, want nil (fail-open)", err)
-	}
+	require.NoError(
+		t, err)
 
 	// The returned subscription should have a closed channel.
 	select {
 	case _, ok := <-sub.Ch:
-		if ok {
-			t.Fatal("expected closed channel on failed subscription")
-		}
+		require.False(t, ok)
 	default:
-		t.Fatal("expected closed channel to be immediately readable")
+		require.FailNow(t, "expected closed channel to be immediately readable")
 	}
 }
 
@@ -250,17 +245,14 @@ func TestResilientPublisher_NilPublisher_SubscribeReturnsClosedChannel(t *testin
 	rp := NewResilientPublisher(nil, slog.Default(), 3)
 
 	sub, err := rp.Subscribe(t.Context(), "events")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 
 	select {
 	case _, ok := <-sub.Ch:
-		if ok {
-			t.Fatal("expected closed channel for nil publisher")
-		}
+		require.False(t, ok)
 	default:
-		t.Fatal("expected closed channel to be immediately readable")
+		require.FailNow(t, "expected closed channel to be immediately readable")
 	}
 }
 
@@ -301,14 +293,12 @@ func TestSubscription_BufferOverflow_DoesNotBlock(t *testing.T) {
 	// The channel is now full. Writing should block, but reading should work.
 	// Verify we can read from the subscription without deadlock.
 	msg := <-sub.Ch
-	if string(msg) != "msg-1" {
-		t.Errorf("got %q, want %q", msg, "msg-1")
-	}
+	assert.Equal(t,
+		"msg-1", string(msg))
 
 	msg = <-sub.Ch
-	if string(msg) != "msg-2" {
-		t.Errorf("got %q, want %q", msg, "msg-2")
-	}
+	assert.Equal(t,
+		"msg-2", string(msg))
 }
 
 func TestSubscription_ZeroBufferChannel(t *testing.T) {
@@ -329,9 +319,9 @@ func TestSubscription_ZeroBufferChannel(t *testing.T) {
 		})
 
 	msg := <-sub.Ch
-	if string(msg) != "sync-msg" {
-		t.Errorf("got %q, want %q", msg, "sync-msg")
-	}
+	assert.Equal(t,
+		"sync-msg",
+		string(msg))
 }
 
 // 5. Concurrent subscribe/unsubscribe
@@ -363,10 +353,8 @@ func TestResilientPublisher_ConcurrentSubscribeUnsubscribe(t *testing.T) {
 	}
 
 	wg.Wait()
-
-	if !rp.IsHealthy() {
-		t.Error("publisher should remain healthy after concurrent subscribe/unsubscribe")
-	}
+	assert.True(t, rp.
+		IsHealthy())
 }
 
 func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
@@ -401,10 +389,8 @@ func TestResilientPublisher_ConcurrentPublishAndSubscribe(t *testing.T) {
 	}
 
 	wg.Wait()
-
-	if !rp.IsHealthy() {
-		t.Error("publisher should remain healthy after mixed concurrent operations")
-	}
+	assert.True(t, rp.
+		IsHealthy())
 }
 
 // 6. Malformed messages (nil, empty, oversized)
@@ -416,13 +402,9 @@ func TestResilientPublisher_NilData(t *testing.T) {
 	rp := NewResilientPublisher(cp, slog.Default(), 3)
 
 	err := rp.Publish(t.Context(), "events", nil)
-	if err != nil {
-		t.Fatalf("Publish(nil data) = %v, want nil", err)
-	}
-
-	if cp.publishCount.Load() != 1 {
-		t.Errorf("publish count = %d, want 1", cp.publishCount.Load())
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t, int64(1), cp.publishCount.Load())
 }
 
 func TestResilientPublisher_EmptyChannel(t *testing.T) {
@@ -432,9 +414,8 @@ func TestResilientPublisher_EmptyChannel(t *testing.T) {
 	rp := NewResilientPublisher(cp, slog.Default(), 3)
 
 	err := rp.Publish(t.Context(), "", []byte("data"))
-	if err != nil {
-		t.Fatalf("Publish(empty channel) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestResilientPublisher_OversizedMessage(t *testing.T) {
@@ -446,9 +427,8 @@ func TestResilientPublisher_OversizedMessage(t *testing.T) {
 	// 10MB message.
 	data := []byte(strings.Repeat("x", 10*1024*1024))
 	err := rp.Publish(t.Context(), "events:large", data)
-	if err != nil {
-		t.Fatalf("Publish(10MB) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestResilientPublisher_PublishBatch_AllNilData(t *testing.T) {
@@ -464,9 +444,8 @@ func TestResilientPublisher_PublishBatch_AllNilData(t *testing.T) {
 	}
 
 	err := rp.PublishBatch(context.Background(), msgs)
-	if err != nil {
-		t.Fatalf("PublishBatch(all nil data) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestResilientPublisher_PublishBatch_EmptyMessages(t *testing.T) {
@@ -476,14 +455,12 @@ func TestResilientPublisher_PublishBatch_EmptyMessages(t *testing.T) {
 	rp := NewResilientPublisher(cp, slog.Default(), 3)
 
 	err := rp.PublishBatch(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("PublishBatch(nil) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 
 	err = rp.PublishBatch(context.Background(), []PubSubMessage{})
-	if err != nil {
-		t.Fatalf("PublishBatch(empty) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestResilientPublisher_PublishBatch_MixedChannelNames(t *testing.T) {
@@ -501,9 +478,8 @@ func TestResilientPublisher_PublishBatch_MixedChannelNames(t *testing.T) {
 	}
 
 	err := rp.PublishBatch(context.Background(), msgs)
-	if err != nil {
-		t.Fatalf("PublishBatch(mixed channels) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 // ResilientPublisher health transitions under adversarial conditions
@@ -552,11 +528,10 @@ func TestResilientPublisher_ConcurrentPublishDegradation(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.False(t,
+		rp.IsHealthy())
 
 	// After 100 failures with threshold=5, the publisher should be degraded.
-	if rp.IsHealthy() {
-		t.Error("publisher should be degraded after 100 consecutive failures")
-	}
 }
 
 func TestResilientPublisher_CloseNilPublisher(t *testing.T) {
@@ -564,9 +539,8 @@ func TestResilientPublisher_CloseNilPublisher(t *testing.T) {
 
 	rp := NewResilientPublisher(nil, slog.Default(), 3)
 	err := rp.Close()
-	if err != nil {
-		t.Fatalf("Close(nil publisher) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestResilientPublisher_CloseFailure(t *testing.T) {
@@ -576,10 +550,10 @@ func TestResilientPublisher_CloseFailure(t *testing.T) {
 	rp := NewResilientPublisher(cp, slog.Default(), 3)
 
 	err := rp.Close()
+	require.NoError(
+		t, err)
+
 	// Resilient publisher swallows close errors.
-	if err != nil {
-		t.Fatalf("Close() = %v, want nil (fail-open)", err)
-	}
 }
 
 func TestResilientPublisher_DefaultThreshold(t *testing.T) {
@@ -592,15 +566,13 @@ func TestResilientPublisher_DefaultThreshold(t *testing.T) {
 	// After 2 failures, should still be healthy (default threshold is 3).
 	_ = rp.Publish(t.Context(), "ch", []byte("a"))
 	_ = rp.Publish(t.Context(), "ch", []byte("b"))
-	if !rp.IsHealthy() {
-		t.Error("should still be healthy after 2 failures with default threshold=3")
-	}
+	assert.True(t, rp.
+		IsHealthy())
 
 	// Third failure should degrade.
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
-	if rp.IsHealthy() {
-		t.Error("should be degraded after 3 failures with default threshold=3")
-	}
+	assert.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_DefaultLogger(t *testing.T) {
@@ -621,9 +593,8 @@ func TestRedisPublisher_PublishBatch_NilMessages(t *testing.T) {
 
 	rp := &RedisPublisher{client: nil}
 	err := rp.PublishBatch(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("PublishBatch(nil) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestNewSubscription_NilCancel(t *testing.T) {
@@ -632,10 +603,7 @@ func TestNewSubscription_NilCancel(t *testing.T) {
 	// NewSubscription with a cancel func that does nothing should be safe.
 	ch := make(chan []byte)
 	sub := NewSubscription(ch, func() {})
-
-	if sub.Ch != ch {
-		t.Error("subscription channel mismatch")
-	}
+	assert.Equal(t, (<-chan []byte)(ch), sub.Ch)
 
 	// Close should not panic.
 	sub.Close()
@@ -647,10 +615,9 @@ func TestClosedSubscription_DrainImmediately(t *testing.T) {
 	sub := closedSubscription()
 
 	// Reading from a closed subscription should return immediately.
-	msg, ok := <-sub.Ch
-	if ok {
-		t.Fatalf("expected closed channel, got message: %q", msg)
-	}
+	_, ok := <-sub.Ch
+	require.False(t,
+		ok)
 
 	// Close should be idempotent and safe.
 	sub.Close()

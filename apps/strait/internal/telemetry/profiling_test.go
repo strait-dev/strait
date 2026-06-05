@@ -3,25 +3,26 @@ package telemetry
 import (
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInitProfiling_EmptyEndpoint(t *testing.T) {
 	shutdown, err := InitProfiling(ProfilingConfig{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if shutdown == nil {
-		t.Fatal("expected non-nil shutdown function")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t, shutdown)
+
 	// Calling shutdown should not panic.
 	shutdown()
 }
 
 func TestInitProfiling_ShutdownNoPanic(t *testing.T) {
 	shutdown, err := InitProfiling(ProfilingConfig{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	// Calling shutdown multiple times should not panic.
 	shutdown()
 	shutdown()
@@ -37,9 +38,9 @@ func TestInitProfiling_ConfigFields(t *testing.T) {
 		ServiceName: "test-service",
 		Environment: "test",
 	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	shutdown()
 }
 
@@ -52,15 +53,16 @@ func TestInitProfiling_NonEmptyEndpoint_SetsProfileRates(t *testing.T) {
 		ServiceName: "test-service",
 		Environment: "test",
 	})
-	if err != nil {
-		t.Fatalf("InitProfiling error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	defer shutdown()
 
 	prevMutex := runtime.SetMutexProfileFraction(0)
-	if prevMutex != 100 {
-		t.Errorf("expected SetMutexProfileFraction was set to 100, got previous=%d", prevMutex)
-	}
+	assert.Equal(t, 100,
+		prevMutex,
+	)
+
 	runtime.SetMutexProfileFraction(100)
 }
 
@@ -70,11 +72,9 @@ func TestInitProfiling_NonEmptyEndpoint_ReturnsStopFunc(t *testing.T) {
 		ServiceName: "test-service",
 		Environment: "test",
 	})
-	if err != nil {
-		t.Fatalf("InitProfiling error = %v", err)
-	}
-	if shutdown == nil {
-		t.Fatal("expected non-nil shutdown function")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t, shutdown)
+
 	shutdown()
 }

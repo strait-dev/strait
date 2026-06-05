@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -513,9 +514,11 @@ func TestJobs_DeleteDependency(t *testing.T) {
 		dependsOnJobID := seedJob(t, projectID)
 		resp := httpDo(t, "POST", "/v1/jobs/"+jobID+"/dependencies", fmt.Sprintf(`{"depends_on_job_id":"%s"}`, dependsOnJobID), nil)
 		depID, ok := resp["id"].(string)
-		if !ok || depID == "" {
-			t.Fatalf("seed dependency: missing id in response: %v", resp)
-		}
+		require.False(t, !ok ||
+			depID ==
+				"",
+		)
+
 		depIDs[i] = depID
 	}
 

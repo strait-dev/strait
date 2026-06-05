@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -55,12 +57,10 @@ func TestHealthScorer_RecordResult_GetError(t *testing.T) {
 		EndpointURL: "https://err.com/api",
 		Success:     true,
 	})
-	if err == nil {
-		t.Fatal("expected error from RecordResult when store.Get fails")
-	}
-	if !errors.Is(err, store.getErr) {
-		t.Errorf("error should wrap store error, got: %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.ErrorIs(t, err, store.
+		getErr)
 }
 
 func TestHealthScorer_RecordResult_UpsertError(t *testing.T) {
@@ -72,9 +72,8 @@ func TestHealthScorer_RecordResult_UpsertError(t *testing.T) {
 		EndpointURL: "https://err.com/api",
 		Success:     true,
 	})
-	if err == nil {
-		t.Fatal("expected error from RecordResult when store.Upsert fails")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestHealthScorer_CheckHealth_StoreError(t *testing.T) {
@@ -83,9 +82,8 @@ func TestHealthScorer_CheckHealth_StoreError(t *testing.T) {
 	hs := NewHealthScorer(store)
 
 	_, _, err := hs.CheckHealth(context.Background(), "https://err.com/api")
-	if err == nil {
-		t.Fatal("expected error from CheckHealth when store fails")
-	}
+	require.Error(t,
+		err)
 }
 
 // Boundary score value tests.
@@ -116,12 +114,12 @@ func TestHealthScorer_ExactBoundaryScores(t *testing.T) {
 			hs := NewHealthScorer(store)
 
 			_, allowed, err := hs.CheckHealth(context.Background(), "https://boundary.com")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if allowed != tt.wantAllowed {
-				t.Errorf("allowed = %v, want %v for score %v", allowed, tt.wantAllowed, tt.healthScore)
-			}
+			require.NoError(
+				t, err)
+			assert.Equal(t,
+				tt.wantAllowed,
+				allowed,
+			)
 		})
 	}
 }
@@ -146,16 +144,13 @@ func TestHealthScorer_MultipleEndpoints_Isolated(t *testing.T) {
 
 	scoreA, allowedA, _ := hs.CheckHealth(ctx, "https://a.com/api")
 	scoreB, allowedB, _ := hs.CheckHealth(ctx, "https://b.com/api")
-
-	if allowedA {
-		t.Errorf("endpoint A should be blocked, score = %v", scoreA.HealthScore)
-	}
-	if !allowedB {
-		t.Errorf("endpoint B should be allowed, score = %v", scoreB.HealthScore)
-	}
-	if scoreA.HealthScore >= scoreB.HealthScore {
-		t.Errorf("endpoint A score (%v) should be lower than B (%v)", scoreA.HealthScore, scoreB.HealthScore)
-	}
+	assert.False(t,
+		allowedA)
+	assert.True(t, allowedB)
+	assert.Less(t,
+		scoreA.HealthScore, scoreB.
+			HealthScore,
+	)
 }
 
 // EWMA convergence mathematical verification.
@@ -168,9 +163,10 @@ func TestEWMA_ConvergenceAfterManyIterations(t *testing.T) {
 	for range 1000 {
 		current = ewma(current, value, ewmaAlpha)
 	}
-	if math.Abs(current-value) > 0.001 {
-		t.Errorf("EWMA did not converge: got %v, want %v (within 0.001)", current, value)
-	}
+	assert.LessOrEqual(t, math.
+		Abs(current-
+			value), 0.001,
+	)
 }
 
 func TestEWMA_Symmetry(t *testing.T) {
@@ -179,9 +175,11 @@ func TestEWMA_Symmetry(t *testing.T) {
 	a, b, alpha := 0.3, 0.8, 0.1
 	result := ewma(a, b, alpha)
 	expected := alpha*b + (1-alpha)*a
-	if math.Abs(result-expected) > 1e-15 {
-		t.Errorf("EWMA(%v, %v, %v) = %v, want %v", a, b, alpha, result, expected)
-	}
+	assert.LessOrEqual(t, math.
+		Abs(result-
+			expected,
+		), 1e-15,
+	)
 }
 
 // ThrottledConcurrency exhaustive boundary tests.
@@ -190,32 +188,28 @@ func TestThrottledConcurrency_NegativeMaxConcurrency(t *testing.T) {
 	t.Parallel()
 	// Negative max concurrency should pass through unchanged.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 50}, -5)
-	if got != -5 {
-		t.Errorf("ThrottledConcurrency(-5) = %d, want -5", got)
-	}
+	assert.Equal(t, -5, got)
 }
 
 func TestThrottledConcurrency_MaxConcurrencyOne(t *testing.T) {
 	t.Parallel()
 	// With max=1 and degraded score, should still return at least 1.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 35}, 1)
-	if got != 1 {
-		t.Errorf("ThrottledConcurrency(score=35, max=1) = %d, want 1", got)
-	}
+	assert.Equal(t, 1, got)
 }
 
 func TestThrottledConcurrency_LargeMaxConcurrency(t *testing.T) {
 	t.Parallel()
 	score := &domain.EndpointHealthScore{HealthScore: 45}
 	got := ThrottledConcurrency(score, 1000)
-	if got <= 0 || got > 1000 {
-		t.Errorf("ThrottledConcurrency(score=45, max=1000) = %d, want in (0, 1000]", got)
-	}
+	assert.False(t,
+		got <= 0 ||
+			got >
+				1000)
+	assert.Equal(t, 625, got)
+
 	// At 45, ratio = (45-30)/(60-30) = 0.5, factor = 0.25 + 0.5*0.75 = 0.625
 	// throttled = ceil(1000 * 0.625) = 625
-	if got != 625 {
-		t.Errorf("ThrottledConcurrency(score=45, max=1000) = %d, want 625", got)
-	}
 }
 
 func TestThrottledConcurrency_ScoreExactlyAtDegradedBoundary(t *testing.T) {
@@ -223,11 +217,10 @@ func TestThrottledConcurrency_ScoreExactlyAtDegradedBoundary(t *testing.T) {
 	// Score = 60.0 is the boundary between degraded and healthy.
 	// healthScoreDegraded = 60.0, so score > 60 is healthy. score = 60 is degraded.
 	got := ThrottledConcurrency(&domain.EndpointHealthScore{HealthScore: 60.0}, 10)
+	assert.Equal(t, 10, got)
+
 	// ratio = (60-30)/(60-30) = 1.0, factor = 0.25 + 1.0*0.75 = 1.0
 	// throttled = ceil(10 * 1.0) = 10
-	if got != 10 {
-		t.Errorf("at boundary 60.0, got %d, want 10", got)
-	}
 }
 
 // Score monotonicity tests.
@@ -239,13 +232,17 @@ func TestHealthScorer_ScoreMonotonicallyDecreases_OnFailures(t *testing.T) {
 	ctx := context.Background()
 
 	prevScore := 100.0
-	for i := range 50 {
+	for range 50 {
 		score, _ := hs.RecordResult(ctx, DispatchResult{
 			EndpointURL: "https://decline.com/api", Success: false, JobTimeoutMs: 1000,
 		})
-		if score.HealthScore > prevScore+0.001 {
-			t.Errorf("iteration %d: score increased from %v to %v on failure", i, prevScore, score.HealthScore)
-		}
+		assert.LessOrEqual(t, score.
+			HealthScore,
+
+			prevScore+
+
+				0.001)
+
 		prevScore = score.HealthScore
 	}
 }
@@ -264,13 +261,16 @@ func TestHealthScorer_ScoreMonotonicallyIncreases_OnSuccesses(t *testing.T) {
 	}
 
 	prevScore := 0.0
-	for i := range 50 {
+	for range 50 {
 		score, _ := hs.RecordResult(ctx, DispatchResult{
 			EndpointURL: "https://rise.com/api", Success: true, LatencyMs: 10, JobTimeoutMs: 1000,
 		})
-		if score.HealthScore < prevScore-0.001 {
-			t.Errorf("iteration %d: score decreased from %v to %v on success", i, prevScore, score.HealthScore)
-		}
+		assert.GreaterOrEqual(t, score.
+			HealthScore,
+
+			prevScore-
+				0.001)
+
 		prevScore = score.HealthScore
 	}
 }
@@ -289,14 +289,15 @@ func TestHealthScorer_LatencyExceedsTimeout(t *testing.T) {
 		LatencyMs:    10000, // 2x the timeout
 		JobTimeoutMs: 5000,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	assert.LessOrEqual(t, score.
+		LatencyScore,
+
+		0.91)
+
 	// latency_score = 1 - min(1, 10000/5000) = 1 - 1 = 0
 	// EWMA from 1.0: 0.1*0 + 0.9*1.0 = 0.9
-	if score.LatencyScore > 0.91 {
-		t.Errorf("latency score = %v, want <= 0.91 for latency exceeding timeout", score.LatencyScore)
-	}
 }
 
 func TestHealthScorer_ZeroLatency(t *testing.T) {
@@ -311,14 +312,14 @@ func TestHealthScorer_ZeroLatency(t *testing.T) {
 		LatencyMs:    0,
 		JobTimeoutMs: 5000,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	assert.InDelta(t, 1.0, score.
+		LatencyScore, 1e-9,
+	)
+
 	// latency_score = 1 - min(1, 0/5000) = 1 - 0 = 1.0
 	// EWMA stays at 1.0
-	if score.LatencyScore != 1.0 {
-		t.Errorf("latency score = %v, want 1.0 for zero latency", score.LatencyScore)
-	}
 }
 
 // Concurrent multi-endpoint stress test.
@@ -349,12 +350,13 @@ func TestHealthScorer_ConcurrentMultiEndpoint(t *testing.T) {
 	// All endpoints should have valid scores.
 	for _, ep := range endpoints {
 		score, _, err := hs.CheckHealth(ctx, ep)
-		if err != nil {
-			t.Errorf("endpoint %s: unexpected error: %v", ep, err)
-		}
-		if score.HealthScore < 0 || score.HealthScore > 100 {
-			t.Errorf("endpoint %s: score %v out of range", ep, score.HealthScore)
-		}
+		require.NoError(t,
+			err)
+		assert.False(t,
+			score.HealthScore <
+				0 ||
+				score.HealthScore >
+					100)
 	}
 }
 
@@ -374,23 +376,30 @@ func TestHealthScorer_AllDispatchResultCombinations(t *testing.T) {
 		{EndpointURL: "https://combo.com", Success: true, TimedOut: false, LatencyMs: 1000000, JobTimeoutMs: 1},
 	}
 
-	for i, c := range combos {
+	for _, c := range combos {
 		score, err := hs.RecordResult(ctx, c)
-		if err != nil {
-			t.Fatalf("combo %d: unexpected error: %v", i, err)
-		}
-		if score.HealthScore < 0 || score.HealthScore > 100 {
-			t.Errorf("combo %d: score %v out of range", i, score.HealthScore)
-		}
-		if score.SuccessRate < 0 || score.SuccessRate > 1 {
-			t.Errorf("combo %d: success_rate %v out of range", i, score.SuccessRate)
-		}
-		if score.TimeoutRate < 0 || score.TimeoutRate > 1 {
-			t.Errorf("combo %d: timeout_rate %v out of range", i, score.TimeoutRate)
-		}
-		if score.LatencyScore < 0 || score.LatencyScore > 1 {
-			t.Errorf("combo %d: latency_score %v out of range", i, score.LatencyScore)
-		}
+		require.NoError(
+			t, err)
+		assert.False(t,
+			score.HealthScore <
+				0 ||
+				score.HealthScore >
+					100)
+		assert.False(t,
+			score.SuccessRate <
+				0 ||
+				score.SuccessRate >
+					1)
+		assert.False(t,
+			score.TimeoutRate <
+				0 ||
+				score.TimeoutRate >
+					1)
+		assert.False(t,
+			score.LatencyScore <
+				0 ||
+				score.LatencyScore >
+					1)
 	}
 }
 
@@ -406,15 +415,21 @@ func TestEndpointHealthScore_HealthLevel_Exhaustive(t *testing.T) {
 			switch {
 			case score < 30:
 				if level != "unhealthy" {
-					t.Errorf("score %.1f: got %q, want unhealthy", score, level)
+					assert.Failf(t, "test failure",
+
+						"score %.1f: got %q, want unhealthy", score, level)
 				}
 			case score <= 60:
 				if level != "degraded" {
-					t.Errorf("score %.1f: got %q, want degraded", score, level)
+					assert.Failf(t, "test failure",
+
+						"score %.1f: got %q, want degraded", score, level)
 				}
 			default:
 				if level != "healthy" {
-					t.Errorf("score %.1f: got %q, want healthy", score, level)
+					assert.Failf(t, "test failure",
+
+						"score %.1f: got %q, want healthy", score, level)
 				}
 			}
 		})

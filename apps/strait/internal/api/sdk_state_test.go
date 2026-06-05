@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleSDKSetState_Success(t *testing.T) {
@@ -27,19 +28,15 @@ func TestHandleSDKSetState_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1",
 		`{"key":"step_result","value":{"score":42}}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetState)(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("UpsertRunState was not called")
-	}
-	if captured.RunID != "run-1" {
-		t.Fatalf("expected run_id=run-1, got %s", captured.RunID)
-	}
-	if captured.StateKey != "step_result" {
-		t.Fatalf("expected key=step_result, got %s", captured.StateKey)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, "run-1", captured.
+		RunID)
+	require.Equal(t, "step_result",
+		captured.StateKey,
+	)
 }
 
 func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
@@ -55,10 +52,9 @@ func TestHandleSDKSetState_KeyTooLong(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1", string(body))
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetState)(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for long key, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
@@ -74,10 +70,9 @@ func TestHandleSDKSetState_ValueTooLarge(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1", string(body))
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetState)(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for large value, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleSDKSetState_MissingKey(t *testing.T) {
@@ -88,10 +83,9 @@ func TestHandleSDKSetState_MissingKey(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/state", "run-1",
 		`{"value":"hello"}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKSetState)(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing key, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKGetState_Found(t *testing.T) {
@@ -108,10 +102,8 @@ func TestHandleSDKGetState_Found(t *testing.T) {
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "mykey")
 	TypedHandler(srv, http.StatusOK, srv.handleSDKGetState)(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleSDKGetState_NotFound(t *testing.T) {
@@ -128,10 +120,9 @@ func TestHandleSDKGetState_NotFound(t *testing.T) {
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "missing")
 	TypedHandler(srv, http.StatusOK, srv.handleSDKGetState)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleSDKListState(t *testing.T) {
@@ -149,18 +140,13 @@ func TestHandleSDKListState(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodGet, "/sdk/v1/runs/run-1/state", "run-1", "")
 	TypedHandler(srv, http.StatusOK, srv.handleSDKListState)(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var items []domain.RunState
-	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(items))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &items))
+	require.Len(t,
+		items, 2)
 }
 
 func TestHandleSDKDeleteState(t *testing.T) {
@@ -179,11 +165,8 @@ func TestHandleSDKDeleteState(t *testing.T) {
 	rctx := chi.RouteContext(r.Context())
 	rctx.URLParams.Add("key", "mykey")
 	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteState)(w, r)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w.Code)
-	}
-	if deletedKey != "mykey" {
-		t.Fatalf("expected key=mykey, got %s", deletedKey)
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
+	require.Equal(t, "mykey", deletedKey)
 }

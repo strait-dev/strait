@@ -9,6 +9,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Regression guards for earlier security hardening work.
@@ -17,11 +18,11 @@ import (
 // 32 and that deeply nested schemas are rejected.
 func TestRegression_PayloadSchemaMaxDepth(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, 32,
+		maxSchemaDepth,
+	)
 
 	// Guard: constant must remain 32.
-	if maxSchemaDepth != 32 {
-		t.Fatalf("maxSchemaDepth = %d, want 32", maxSchemaDepth)
-	}
 
 	// Build a schema that exceeds the max depth.
 	depth := maxSchemaDepth + 2
@@ -29,19 +30,18 @@ func TestRegression_PayloadSchemaMaxDepth(t *testing.T) {
 	payload := regressionNestedPayload(depth)
 
 	err := validatePayloadAgainstSchema(payload, schema)
-	if err == nil {
-		t.Fatal("expected error for schema exceeding max depth, got nil")
-	}
-	if !strings.Contains(err.Error(), "maximum schema nesting depth") {
-		t.Fatalf("unexpected error message: %s", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "maximum schema nesting depth")
 
 	// A schema at exactly maxSchemaDepth should still pass.
 	okSchema := regressionNestedSchema(maxSchemaDepth - 1)
 	okPayload := regressionNestedPayload(maxSchemaDepth - 1)
-	if err := validatePayloadAgainstSchema(okPayload, okSchema); err != nil {
-		t.Fatalf("schema at depth %d should pass, got: %v", maxSchemaDepth-1, err)
-	}
+	require.NoError(t,
+		validatePayloadAgainstSchema(
+			okPayload,
+
+			okSchema))
 }
 
 // regressionNestedSchema creates a JSON schema with the given nesting depth.
@@ -87,14 +87,15 @@ func TestRegression_IDFormatValidation(t *testing.T) {
 			t.Parallel()
 			err := validateIDFormat(tc.id)
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("validateIDFormat(%q) = nil, want error containing %q", tc.id, tc.errSub)
-				}
-				if !strings.Contains(err.Error(), tc.errSub) {
-					t.Fatalf("validateIDFormat(%q) = %q, want substring %q", tc.id, err.Error(), tc.errSub)
-				}
+				require.Error(t, err)
+				require.Contains(t, err.
+					Error(), tc.
+					errSub,
+				)
 			} else if err != nil {
-				t.Fatalf("validateIDFormat(%q) = %v, want nil", tc.id, err)
+				require.Failf(t, "test failure",
+
+					"validateIDFormat(%q) = %v, want nil", tc.id, err)
 			}
 		})
 	}
@@ -121,7 +122,7 @@ func TestRegression_CronExpressionLength(t *testing.T) {
 	case <-done:
 		// Completed in time.
 	case <-time.After(2 * time.Second):
-		t.Fatal("cron parser hung on extremely long expression (>2s)")
+		require.Fail(t, "cron parser hung on extremely long expression (>2s)")
 	}
 }
 
@@ -146,9 +147,7 @@ func TestRegression_EndpointURLSSRF(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := validateURLWithAllowPrivate(tc.url, false)
-			if err == nil {
-				t.Fatalf("validateURL(%q) = nil, want error (SSRF blocked)", tc.url)
-			}
+			require.Error(t, err)
 		})
 	}
 }
@@ -175,27 +174,26 @@ func TestRegression_EventFilterUnboundedArrays(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("validateTags with 20 tags should pass, got: %v", err)
+			require.Failf(t, "test failure",
+
+				"validateTags with 20 tags should pass, got: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("validateTags hung on large tag map (>2s)")
+		require.Fail(t, "validateTags hung on large tag map (>2s)")
 	}
 
 	// Verify exceeding the limit is rejected.
 	tags["extra-key"] = "extra-value"
-	if err := validateTags(tags); err == nil {
-		t.Fatal("validateTags should reject >20 tags, got nil")
-	}
+	require.Error(t, validateTags(tags))
 }
 
 // TestRegression_BatchSizeLimits verifies the maxBatchSize constant is 50 and
 // that the limit is enforced.
 func TestRegression_BatchSizeLimits(t *testing.T) {
 	t.Parallel()
-
-	if maxBatchSize != 50 {
-		t.Fatalf("maxBatchSize = %d, want 50", maxBatchSize)
-	}
+	require.Equal(t, 50,
+		maxBatchSize,
+	)
 }
 
 // TestRegression_RequestBodySizeLimit verifies the default request body size
@@ -205,22 +203,23 @@ func TestRegression_RequestBodySizeLimit(t *testing.T) {
 
 	// The default maxRequestBodySize when config is zero should be 1<<20 (1MB).
 	expected := int64(1 << 20)
+	require.Equal(t, 5*
+		1024*
+		1024, maxPayloadSize,
+	)
 
 	// Verify the payload size limit constant is 5MB.
-	if maxPayloadSize != 5*1024*1024 {
-		t.Fatalf("maxPayloadSize = %d, want %d", maxPayloadSize, 5*1024*1024)
-	}
 
 	// Verify that validatePayloadSize rejects payloads exceeding the limit.
 	bigPayload := json.RawMessage(strings.Repeat("x", maxPayloadSize+1))
-	if err := validatePayloadSize(bigPayload); err == nil {
-		t.Fatal("validatePayloadSize should reject payload exceeding maxPayloadSize")
-	}
+	require.Error(t, validatePayloadSize(
+		bigPayload),
+	)
+	require.EqualValues(t, 1<<
+		20,
+		expected)
 
 	// Verify default body limit.
-	if expected != 1<<20 {
-		t.Fatalf("expected default body limit 1MB, got %d", expected)
-	}
 }
 
 // FuzzRegression_AllValidators is a meta-fuzz test that exercises validateTags,

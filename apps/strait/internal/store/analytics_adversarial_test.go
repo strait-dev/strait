@@ -1,10 +1,12 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestIsShortPeriod_Exactly24h verifies the boundary where exactly 24h is still short.
@@ -13,10 +15,9 @@ func TestIsShortPeriod_Exactly24h(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := from.Add(24 * time.Hour)
-
-	if !isShortPeriod(from, to) {
-		t.Fatal("expected exactly 24h to be a short period")
-	}
+	require.True(t,
+		isShortPeriod(from,
+			to))
 }
 
 // TestIsShortPeriod_OneMsOver24h verifies one millisecond over 24h is not short.
@@ -25,10 +26,10 @@ func TestIsShortPeriod_OneMsOver24h(t *testing.T) {
 
 	from := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := from.Add(24*time.Hour + time.Millisecond)
-
-	if isShortPeriod(from, to) {
-		t.Fatal("expected 24h+1ms to not be a short period")
-	}
+	require.False(
+		t, isShortPeriod(from,
+			to),
+	)
 }
 
 // TestIsShortPeriod_ZeroDuration verifies from == to is short.
@@ -36,9 +37,9 @@ func TestIsShortPeriod_ZeroDuration(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	if !isShortPeriod(now, now) {
-		t.Fatal("expected zero-duration range to be a short period")
-	}
+	require.True(t,
+		isShortPeriod(now,
+			now))
 }
 
 // TestIsShortPeriod_InvertedRange verifies from > to yields a negative duration.
@@ -47,11 +48,11 @@ func TestIsShortPeriod_InvertedRange(t *testing.T) {
 
 	from := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.True(t,
+		isShortPeriod(from,
+			to))
 
 	// Negative duration is <= 24h, so isShortPeriod returns true.
-	if !isShortPeriod(from, to) {
-		t.Fatal("expected inverted range (negative duration) to be treated as short period")
-	}
 }
 
 // TestIsShortPeriod_NegativeDuration verifies a large negative range is still short.
@@ -60,11 +61,11 @@ func TestIsShortPeriod_NegativeDuration(t *testing.T) {
 
 	from := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.True(t,
+		isShortPeriod(from,
+			to))
 
 	// to.Sub(from) is very negative, which is <= 24h.
-	if !isShortPeriod(from, to) {
-		t.Fatal("expected large negative duration to be treated as short period")
-	}
 }
 
 // FuzzIsShortPeriod fuzzes the isShortPeriod boundary with random time ranges.
@@ -79,9 +80,9 @@ func FuzzIsShortPeriod(f *testing.F) {
 		to := time.Unix(toSec, 0)
 		got := isShortPeriod(from, to)
 		want := to.Sub(from) <= 24*time.Hour
-		if got != want {
-			t.Errorf("isShortPeriod(%v, %v) = %v, want %v", from, to, got, want)
-		}
+		assert.Equal(t,
+			want,
+			got)
 	})
 }
 
@@ -91,28 +92,21 @@ func TestJobMemoryQuotaError_Is(t *testing.T) {
 
 	perKey := &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerKey, Max: 1024}
 	perJob := &JobMemoryQuotaError{Kind: jobMemoryQuotaKindPerJob, Max: 4096}
-
-	if !errors.Is(perKey, ErrJobMemoryPerKeyLimitExceeded) {
-		t.Fatal("per-key error should match ErrJobMemoryPerKeyLimitExceeded")
-	}
-	if errors.Is(perKey, ErrJobMemoryPerJobLimitExceeded) {
-		t.Fatal("per-key error should not match ErrJobMemoryPerJobLimitExceeded")
-	}
-	if !errors.Is(perJob, ErrJobMemoryPerJobLimitExceeded) {
-		t.Fatal("per-job error should match ErrJobMemoryPerJobLimitExceeded")
-	}
-	if errors.Is(perJob, ErrJobMemoryPerKeyLimitExceeded) {
-		t.Fatal("per-job error should not match ErrJobMemoryPerKeyLimitExceeded")
-	}
+	require.ErrorIs(t,
+		perKey, ErrJobMemoryPerKeyLimitExceeded)
+	require.NotErrorIs(
+		t, perKey, ErrJobMemoryPerJobLimitExceeded)
+	require.ErrorIs(t,
+		perJob, ErrJobMemoryPerJobLimitExceeded)
+	require.NotErrorIs(
+		t, perJob, ErrJobMemoryPerKeyLimitExceeded)
 
 	// Unknown kind should not match either sentinel.
 	unknown := &JobMemoryQuotaError{Kind: "unknown", Max: 100}
-	if errors.Is(unknown, ErrJobMemoryPerKeyLimitExceeded) {
-		t.Fatal("unknown kind should not match per-key sentinel")
-	}
-	if errors.Is(unknown, ErrJobMemoryPerJobLimitExceeded) {
-		t.Fatal("unknown kind should not match per-job sentinel")
-	}
+	require.NotErrorIs(
+		t, unknown, ErrJobMemoryPerKeyLimitExceeded)
+	require.NotErrorIs(
+		t, unknown, ErrJobMemoryPerJobLimitExceeded)
 }
 
 // TestJobMemoryQuotaError_Message verifies error message format for each kind.
@@ -145,9 +139,9 @@ func TestJobMemoryQuotaError_Message(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := tc.err.Error()
-			if got != tc.want {
-				t.Errorf("Error() = %q, want %q", got, tc.want)
-			}
+			assert.Equal(t,
+				tc.want,
+				got)
 		})
 	}
 }
@@ -160,10 +154,11 @@ func TestJobMemoryQuota_ExactlyAtPerKey(t *testing.T) {
 	// So size == max should NOT trigger an error.
 	maxPerKey := 1024
 	sizeBytes := 1024
-
-	if maxPerKey > 0 && sizeBytes > maxPerKey {
-		t.Fatal("size exactly at per-key limit should not be rejected")
-	}
+	require.False(
+		t, maxPerKey >
+			0 &&
+			sizeBytes >
+				maxPerKey)
 }
 
 // TestJobMemoryQuota_OneOverPerKey verifies one byte over per-key limit triggers error.
@@ -172,10 +167,11 @@ func TestJobMemoryQuota_OneOverPerKey(t *testing.T) {
 
 	maxPerKey := 1024
 	sizeBytes := 1025
-
-	if maxPerKey <= 0 || sizeBytes <= maxPerKey {
-		t.Fatal("one byte over per-key limit should be rejected")
-	}
+	require.False(
+		t, maxPerKey <=
+			0 ||
+			sizeBytes <=
+				maxPerKey)
 }
 
 // TestJobMemoryQuota_ExactlyAtPerJob verifies size exactly at per-job limit passes.
@@ -188,10 +184,11 @@ func TestJobMemoryQuota_ExactlyAtPerJob(t *testing.T) {
 	newSize := 4096
 	currentTotal := 0
 	existingSize := 0
-
-	if maxPerJob > 0 && currentTotal-existingSize+newSize > maxPerJob {
-		t.Fatal("size exactly at per-job limit should not be rejected")
-	}
+	require.False(
+		t, maxPerJob >
+			0 &&
+			currentTotal-
+				existingSize+newSize > maxPerJob)
 }
 
 // TestJobMemoryQuota_NegativeQuota verifies negative quota disables the check.
@@ -201,10 +198,11 @@ func TestJobMemoryQuota_NegativeQuota(t *testing.T) {
 	// Guard is: maxPerKey > 0 && ..., so negative quota skips the check.
 	maxPerKey := -1
 	sizeBytes := 999999
-
-	if maxPerKey > 0 && sizeBytes > maxPerKey {
-		t.Fatal("negative quota should disable per-key check")
-	}
+	require.False(
+		t, maxPerKey >
+			0 &&
+			sizeBytes >
+				maxPerKey)
 }
 
 // TestJobMemoryQuota_ZeroQuota verifies zero quota disables the check.
@@ -213,10 +211,11 @@ func TestJobMemoryQuota_ZeroQuota(t *testing.T) {
 
 	maxPerKey := 0
 	sizeBytes := 999999
-
-	if maxPerKey > 0 && sizeBytes > maxPerKey {
-		t.Fatal("zero quota should disable per-key check")
-	}
+	require.False(
+		t, maxPerKey >
+			0 &&
+			sizeBytes >
+				maxPerKey)
 }
 
 // FuzzJobMemoryQuota fuzzes the per-key quota check logic.
@@ -232,12 +231,15 @@ func FuzzJobMemoryQuota(f *testing.F) {
 		shouldReject := maxPerKey > 0 && sizeBytes > maxPerKey
 
 		err := checkPerKeyQuota(sizeBytes, maxPerKey)
-		if shouldReject && err == nil {
-			t.Errorf("expected rejection for size=%d, max=%d", sizeBytes, maxPerKey)
-		}
-		if !shouldReject && err != nil {
-			t.Errorf("unexpected rejection for size=%d, max=%d", sizeBytes, maxPerKey)
-		}
+		assert.False(t,
+			shouldReject &&
+				err == nil,
+		)
+		assert.False(t,
+			!shouldReject &&
+				err !=
+					nil,
+		)
 	})
 }
 
@@ -256,9 +258,7 @@ func TestAuditEvent_EmptyDetails(t *testing.T) {
 
 	var q *Queries // nil, will panic on DB access.
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic from nil Queries")
-		}
+		require.NotNil(t, recover())
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.
@@ -271,9 +271,7 @@ func TestAuditEvent_HugePayload(t *testing.T) {
 
 	var q *Queries
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic from nil Queries")
-		}
+		require.NotNil(t, recover())
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.
@@ -286,9 +284,7 @@ func TestAuditEvent_NullBytesInActor(t *testing.T) {
 
 	var q *Queries
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic from nil Queries")
-		}
+		require.NotNil(t, recover())
 	}()
 
 	//nolint:staticcheck // intentionally calling with nil receiver.

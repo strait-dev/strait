@@ -6,8 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // productionLikeWebhookClient builds a client wired exactly the way the
@@ -33,7 +35,9 @@ func TestNoFollowWebhookRedirects_ReturnsUseLastResponse(t *testing.T) {
 	t.Parallel()
 
 	if got := noFollowWebhookRedirects(nil, nil); !errors.Is(got, http.ErrUseLastResponse) {
-		t.Fatalf("noFollowWebhookRedirects returned %v, want http.ErrUseLastResponse", got)
+		require.Failf(t, "test failure",
+
+			"noFollowWebhookRedirects returned %v, want http.ErrUseLastResponse", got)
 	}
 }
 
@@ -45,12 +49,14 @@ func TestNoFollowWebhookRedirects_ReturnsUseLastResponse(t *testing.T) {
 // redirect-follow policy and CheckRedirect was nil.
 func TestProductionWebhookClient_RefusesToFollowRedirects(t *testing.T) {
 	t.Parallel()
+	require.NotNil(t, webhookClient.
+		CheckRedirect,
+	)
 
-	if webhookClient.CheckRedirect == nil {
-		t.Fatal("webhookClient.CheckRedirect is nil; redirects will be followed and bypass the SSRF guard")
-	}
 	if got := webhookClient.CheckRedirect(nil, nil); !errors.Is(got, http.ErrUseLastResponse) {
-		t.Fatalf("webhookClient.CheckRedirect returned %v, want http.ErrUseLastResponse", got)
+		require.Failf(t, "test failure",
+
+			"webhookClient.CheckRedirect returned %v, want http.ErrUseLastResponse", got)
 	}
 }
 
@@ -62,7 +68,9 @@ func TestNewSafeWebhookTransport_BlocksPrivateLoopback(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("server must never be reached: SSRF guard should refuse the dial")
+		assert.Fail(t,
+
+			"server must never be reached: SSRF guard should refuse the dial")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -70,17 +78,18 @@ func TestNewSafeWebhookTransport_BlocksPrivateLoopback(t *testing.T) {
 	client := productionLikeWebhookClient()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL, bytes.NewReader([]byte(`{}`)))
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
+	require.NoError(t, err)
+
 	resp, err := client.Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
-		t.Fatalf("expected SSRF guard to block loopback dial; got status %d", resp.StatusCode)
+		require.Failf(t, "test failure",
+
+			"expected SSRF guard to block loopback dial; got status %d", resp.StatusCode)
 	}
-	if !strings.Contains(err.Error(), "ssrf:") {
-		t.Fatalf("expected SSRF guard error, got: %v", err)
-	}
+	require.Contains(t,
+		err.
+			Error(), "ssrf:")
 }
 
 // TestNewSafeWebhookTransport_BlocksLinkLocalMetadata pins the
@@ -92,15 +101,16 @@ func TestNewSafeWebhookTransport_BlocksLinkLocalMetadata(t *testing.T) {
 	client := productionLikeWebhookClient()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://169.254.169.254/latest/meta-data/", bytes.NewReader(nil))
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
+	require.NoError(t, err)
+
 	resp, err := client.Do(req)
 	if err == nil {
 		_ = resp.Body.Close()
-		t.Fatalf("expected SSRF guard to refuse link-local metadata dial; got status %d", resp.StatusCode)
+		require.Failf(t, "test failure",
+
+			"expected SSRF guard to refuse link-local metadata dial; got status %d", resp.StatusCode)
 	}
-	if !strings.Contains(err.Error(), "ssrf:") {
-		t.Fatalf("expected SSRF guard error, got: %v", err)
-	}
+	require.Contains(t,
+		err.
+			Error(), "ssrf:")
 }

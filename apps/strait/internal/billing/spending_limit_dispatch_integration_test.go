@@ -11,6 +11,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -32,16 +34,22 @@ func TestSpendingLimitIntegration_AtCapRejects(t *testing.T) {
 	t.Cleanup(func() { rdb.Close() })
 
 	orgID := "org-spend-cap-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
-	const cap = int64(2_500_000) // $2.50
-	if err := pgStore.UpdateSpendingLimit(ctx, orgID, cap, "block"); err != nil {
-		t.Fatalf("set spending limit: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.
+				PlanPro),
+
+			"active"))
+
+	const cap = int64(2_500_000)
+	require.NoError(t, pgStore.
+		UpdateSpendingLimit(ctx, orgID,
+			cap, "block",
+		))
+
+	// $2.50
 
 	// Seed usage records summing to exactly the cap. Two days of $1.25
 	// ensures the SUM lands at the cap and the period window catches
@@ -56,27 +64,29 @@ func TestSpendingLimitIntegration_AtCapRejects(t *testing.T) {
 			RunsCount:        1,
 			ComputeCostMicro: cap / 2,
 		}
-		if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
-			t.Fatalf("seed usage_records: %v", err)
-		}
+		require.NoError(t, pgStore.
+			UpsertUsageRecord(ctx,
+				rec))
+
 	}
 
 	enforcer := billing.NewEnforcer(pgStore, rdb, slog.Default())
 
 	err := enforcer.CheckSpendingLimit(ctx, orgID)
-	if err == nil {
-		t.Fatalf("expected spending limit rejection at cap, got nil")
-	}
+	require.Error(t, err)
+
 	var lim *billing.LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *billing.LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "spending_limit_reached" {
-		t.Errorf("LimitError.Code = %q, want spending_limit_reached", lim.Code)
-	}
-	if lim.Limit != cap {
-		t.Errorf("LimitError.Limit = %d, want %d", lim.Limit, cap)
-	}
+	require.True(t, errors.As(
+		err, &lim,
+	))
+	assert.Equal(t, "spending_limit_reached",
+
+		lim.
+			Code)
+	assert.Equal(t, cap, lim.
+		Limit,
+	)
+
 }
 
 // TestSpendingLimitIntegration_BelowCapAllows is the negative half of
@@ -92,16 +102,22 @@ func TestSpendingLimitIntegration_BelowCapAllows(t *testing.T) {
 	t.Cleanup(func() { rdb.Close() })
 
 	orgID := "org-spend-under-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
-	const cap = int64(10_000_000) // $10
-	if err := pgStore.UpdateSpendingLimit(ctx, orgID, cap, "block"); err != nil {
-		t.Fatalf("set spending limit: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.
+				PlanPro),
+
+			"active"))
+
+	const cap = int64(10_000_000)
+	require.NoError(t, pgStore.
+		UpdateSpendingLimit(ctx, orgID,
+			cap, "block",
+		))
+
+	// $10
 
 	rec := &billing.UsageRecord{
 		ID:               newID(),
@@ -111,12 +127,14 @@ func TestSpendingLimitIntegration_BelowCapAllows(t *testing.T) {
 		RunsCount:        1,
 		ComputeCostMicro: cap / 4,
 	}
-	if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
-		t.Fatalf("seed usage_records: %v", err)
-	}
+	require.NoError(t, pgStore.
+		UpsertUsageRecord(ctx,
+			rec))
 
 	enforcer := billing.NewEnforcer(pgStore, rdb, slog.Default())
-	if err := enforcer.CheckSpendingLimit(ctx, orgID); err != nil {
-		t.Errorf("expected allow under cap, got %v", err)
-	}
+	assert.NoError(t, enforcer.
+		CheckSpendingLimit(
+			ctx, orgID,
+		))
+
 }

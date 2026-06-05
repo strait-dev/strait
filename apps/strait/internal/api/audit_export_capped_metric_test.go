@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -30,28 +32,22 @@ func newAuditMetricsHarness(t *testing.T) *auditMetricsHarness {
 	meter := provider.Meter("audit-metrics-harness")
 
 	exportCapped, err := meter.Int64Counter("strait_audit_events_export_capped_total")
-	if err != nil {
-		t.Fatalf("create export_capped counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	verifyTotal, err := meter.Int64Counter("strait_audit_chain_verify_total")
-	if err != nil {
-		t.Fatalf("create chain_verify_total counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	verifyFailed, err := meter.Int64Counter("strait_audit_chain_verify_failed_total")
-	if err != nil {
-		t.Fatalf("create chain_verify_failed_total counter: %v", err)
-	}
+	require.NoError(t, err)
+
 	// The HTTP-layer middleware blindly dereferences its instruments
 	// whenever metrics is non-nil, so tests that route a request
 	// through chi must populate those too or accept a nil panic.
 	httpDuration, err := meter.Float64Histogram("strait_http_request_duration_seconds")
-	if err != nil {
-		t.Fatalf("create http duration histogram: %v", err)
-	}
+	require.NoError(t, err)
+
 	httpInflight, err := meter.Int64UpDownCounter("strait_http_inflight_requests")
-	if err != nil {
-		t.Fatalf("create http inflight counter: %v", err)
-	}
+	require.NoError(t, err)
 
 	return &auditMetricsHarness{
 		metrics: &telemetry.Metrics{
@@ -69,9 +65,10 @@ func newAuditMetricsHarness(t *testing.T) *auditMetricsHarness {
 func (h *auditMetricsHarness) sumCounter(t *testing.T, name string) int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := h.reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, h.reader.
+		Collect(context.Background(),
+			&rm))
+
 	var total int64
 	for _, sm := range rm.ScopeMetrics {
 		for _, inst := range sm.Metrics {
@@ -135,15 +132,11 @@ func TestAuditExport_CapHit_IncrementsExportCappedCounter(t *testing.T) {
 		"/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson",
 		"", "proj-cap")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	got := h.sumCounter(t, "strait_audit_events_export_capped_total")
-	if got != 1 {
-		t.Errorf("export_capped counter = %d, want 1", got)
-	}
+	assert.EqualValues(t, 1, got)
 }
 
 // TestAuditExport_NoCap_DoesNotIncrementExportCappedCounter verifies
@@ -177,11 +170,7 @@ func TestAuditExport_NoCap_DoesNotIncrementExportCappedCounter(t *testing.T) {
 		"/v1/audit-events/export?from=2026-01-01T00:00:00Z&to=2026-02-01T00:00:00Z&format=ndjson",
 		"", "proj-nocap")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; body: %s", w.Code, w.Body.String())
-	}
-	if got := h.sumCounter(t, "strait_audit_events_export_capped_total"); got != 0 {
-		t.Errorf("export_capped counter = %d, want 0 (not capped)", got)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.EqualValues(t, 0, h.sumCounter(t, "strait_audit_events_export_capped_total"))
 }

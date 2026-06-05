@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
@@ -21,9 +23,8 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 		},
 		PauseJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
-			if groupID != "group-1" {
-				t.Fatalf("groupID = %q, want %q", groupID, "group-1")
-			}
+			require.Equal(t, "group-1", groupID)
+
 			return nil
 		},
 	}
@@ -32,13 +33,10 @@ func TestHandlePauseAllJobsByGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/pause-all", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !called {
-		t.Fatal("PauseJobsByGroup was not called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, called)
 }
 
 func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
@@ -51,9 +49,8 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 		},
 		ResumeJobsByGroupFunc: func(_ context.Context, groupID string) error {
 			called = true
-			if groupID != "group-1" {
-				t.Fatalf("groupID = %q, want %q", groupID, "group-1")
-			}
+			require.Equal(t, "group-1", groupID)
+
 			return nil
 		},
 	}
@@ -62,13 +59,10 @@ func TestHandleResumeAllJobsByGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/resume-all", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !called {
-		t.Fatal("ResumeJobsByGroup was not called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, called)
 }
 
 func TestHandleGetJobGroupStats_Success(t *testing.T) {
@@ -87,16 +81,10 @@ func TestHandleGetJobGroupStats_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1/stats", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var stats store.JobGroupStats
-	if err := json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if stats.RunCounts["completed"] != 4 {
-		t.Fatalf("completed count = %d, want 4", stats.RunCounts["completed"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
+	require.Equal(t, 4, stats.RunCounts["completed"])
 }

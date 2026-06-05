@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBatchFlushRun_BuildsQueuedRun(t *testing.T) {
@@ -43,64 +45,64 @@ func TestNewBatchFlushRun_BuildsQueuedRun(t *testing.T) {
 		},
 		now: now,
 	})
+	require.NotEmpty(t, run.ID)
+	require.False(t, run.JobID !=
+		job.ID || run.
+		ProjectID !=
+		job.ProjectID)
+	require.Equal(t, domain.StatusQueued,
+		run.
+			Status)
+	require.Equal(t, "batch", run.
+		TriggeredBy,
+	)
+	require.Equal(t, 8, run.Priority)
+	require.Equal(t, 1, run.Attempt)
+	require.JSONEq(t, `{"items":[{"n":1},{"n":2}]}`,
 
-	if run.ID == "" {
-		t.Fatal("run ID must be set")
-	}
-	if run.JobID != job.ID || run.ProjectID != job.ProjectID {
-		t.Fatalf("run job/project = (%q, %q), want (%q, %q)", run.JobID, run.ProjectID, job.ID, job.ProjectID)
-	}
-	if run.Status != domain.StatusQueued {
-		t.Fatalf("status = %q, want queued", run.Status)
-	}
-	if run.TriggeredBy != "batch" {
-		t.Fatalf("triggered_by = %q, want batch", run.TriggeredBy)
-	}
-	if run.Priority != 8 {
-		t.Fatalf("priority = %d, want 8", run.Priority)
-	}
-	if run.Attempt != 1 {
-		t.Fatalf("attempt = %d, want 1", run.Attempt)
-	}
-	if string(run.Payload) != `{"items":[{"n":1},{"n":2}]}` {
-		t.Fatalf("payload = %s", run.Payload)
-	}
-	if run.JobVersion != job.Version || run.JobVersionID != job.VersionID {
-		t.Fatalf("version = (%d, %q), want (%d, %q)", run.JobVersion, run.JobVersionID, job.Version, job.VersionID)
-	}
-	if run.ExpiresAt == nil || !run.ExpiresAt.Equal(now.Add(90*time.Second)) {
-		t.Fatalf("expires_at = %v, want %v", run.ExpiresAt, now.Add(90*time.Second))
-	}
-	if run.CreatedBy != "apikey:batch" {
-		t.Fatalf("created_by = %q, want actor", run.CreatedBy)
-	}
-	if run.ExecutionMode != domain.ExecutionModeWorker || run.QueueName != "critical" {
-		t.Fatalf("execution = (%q, %q), want worker/critical", run.ExecutionMode, run.QueueName)
-	}
-	if run.IsRollback {
-		t.Fatal("batch flush runs must not be rollback runs")
-	}
-	if run.Metadata[domain.RunMetadataSentryRoute] != triggerJobRoute {
-		t.Fatalf("route metadata = %q, want %q", run.Metadata[domain.RunMetadataSentryRoute], triggerJobRoute)
-	}
-	if run.Metadata[domain.RunMetadataSentryActorType] != "api_key" {
-		t.Fatalf("actor type metadata = %q, want api_key", run.Metadata[domain.RunMetadataSentryActorType])
-	}
-	if run.Metadata[domain.RunMetadataSentryRequestID] != "req-batch" {
-		t.Fatalf("request id metadata = %q, want req-batch", run.Metadata[domain.RunMetadataSentryRequestID])
-	}
-	if run.Metadata[domain.RunMetadataTraceParent] != input.Traceparent {
-		t.Fatalf("traceparent metadata = %q, want header", run.Metadata[domain.RunMetadataTraceParent])
-	}
-	if run.Metadata[domain.RunMetadataTraceState] != input.Tracestate {
-		t.Fatalf("tracestate metadata = %q, want header", run.Metadata[domain.RunMetadataTraceState])
-	}
-	if run.Metadata[domain.RunMetadataSentryTrace] != input.SentryTrace {
-		t.Fatalf("sentry trace metadata = %q, want header", run.Metadata[domain.RunMetadataSentryTrace])
-	}
-	if run.Metadata[domain.RunMetadataSentryBaggage] != input.Baggage {
-		t.Fatalf("baggage metadata = %q, want header", run.Metadata[domain.RunMetadataSentryBaggage])
-	}
+		string(run.Payload))
+	require.False(t, run.JobVersion !=
+		job.Version ||
+
+		run.JobVersionID != job.VersionID,
+	)
+	require.False(t, run.ExpiresAt ==
+		nil ||
+		!run.ExpiresAt.
+			Equal(now.Add(90*time.
+				Second,
+			)))
+	require.Equal(t, "apikey:batch",
+		run.CreatedBy,
+	)
+	require.False(t, run.ExecutionMode !=
+		domain.
+			ExecutionModeWorker ||
+		run.QueueName !=
+			"critical")
+	require.False(t, run.IsRollback)
+	require.Equal(t, triggerJobRoute,
+		run.Metadata[domain.
+			RunMetadataSentryRoute])
+	require.Equal(t, "api_key", run.
+		Metadata[domain.RunMetadataSentryActorType])
+	require.Equal(t, "req-batch",
+		run.Metadata[domain.
+			RunMetadataSentryRequestID])
+	require.Equal(t, input.Traceparent,
+		run.Metadata[domain.
+			RunMetadataTraceParent],
+	)
+	require.Equal(t, input.Tracestate,
+		run.Metadata[domain.
+			RunMetadataTraceState])
+	require.Equal(t, input.SentryTrace,
+		run.Metadata[domain.
+			RunMetadataSentryTrace],
+	)
+	require.Equal(t, input.Baggage,
+		run.Metadata[domain.
+			RunMetadataSentryBaggage])
 }
 
 func TestBatchFlushPayload(t *testing.T) {
@@ -110,18 +112,18 @@ func TestBatchFlushPayload(t *testing.T) {
 		{Payload: json.RawMessage(`{"a":1}`)},
 		{Payload: json.RawMessage(`["b"]`)},
 	})
-	if err != nil {
-		t.Fatalf("batchFlushPayload: %v", err)
-	}
-	if string(payload) != `{"items":[{"a":1},["b"]]}` {
-		t.Fatalf("payload = %s", payload)
-	}
+	require.NoError(t, err)
+	require.JSONEq(t, `{"items":[{"a":1},["b"]]}`,
+
+		string(payload))
 }
 
 func TestBatchFlushPayload_InvalidItem(t *testing.T) {
 	t.Parallel()
 
 	if _, err := batchFlushPayload([]domain.BatchBufferItem{{Payload: json.RawMessage(`{`)}}); err == nil {
-		t.Fatal("expected invalid batch item payload to fail")
+		require.Fail(t,
+
+			"expected invalid batch item payload to fail")
 	}
 }

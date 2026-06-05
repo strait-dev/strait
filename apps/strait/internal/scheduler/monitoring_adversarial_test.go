@@ -9,6 +9,7 @@ import (
 	"strait/internal/billing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Anomaly Monitor Tests.
@@ -18,9 +19,11 @@ func TestAnomalyMonitor_ZeroInterval(t *testing.T) {
 	t.Parallel()
 	s := &mockAnomalyMonitorStore{}
 	am := NewAnomalyMonitor(s, 0)
-	if am.interval != 15*time.Minute {
-		t.Fatalf("expected default interval 15m, got %v", am.interval)
-	}
+	require.Equal(t, 15*
+		time.
+			Minute, am.
+		interval,
+	)
 }
 
 // TestAnomalyMonitor_NegativeInterval verifies that a negative interval gets clamped to the default.
@@ -28,9 +31,11 @@ func TestAnomalyMonitor_NegativeInterval(t *testing.T) {
 	t.Parallel()
 	s := &mockAnomalyMonitorStore{}
 	am := NewAnomalyMonitor(s, -5*time.Second)
-	if am.interval != 15*time.Minute {
-		t.Fatalf("expected default interval 15m, got %v", am.interval)
-	}
+	require.Equal(t, 15*
+		time.
+			Minute, am.
+		interval,
+	)
 }
 
 // TestAnomalyMonitor_NilCooldown verifies the monitor does not panic when cooldown is nil.
@@ -70,9 +75,10 @@ func TestBudgetMonitor_ZeroBudget(t *testing.T) {
 	t.Parallel()
 	e := &mockEnqueuer{}
 	bm := NewBudgetMonitor(struct{}{}, e, 0)
-	if bm.interval != 5*time.Minute {
-		t.Fatalf("expected default interval 5m, got %v", bm.interval)
-	}
+	require.Equal(t, 5*
+		time.Minute,
+		bm.interval,
+	)
 }
 
 // TestBudgetMonitor_MaxIntBudget verifies construction with math.MaxInt64 interval works.
@@ -80,9 +86,10 @@ func TestBudgetMonitor_MaxIntBudget(t *testing.T) {
 	t.Parallel()
 	e := &mockEnqueuer{}
 	bm := NewBudgetMonitor(struct{}{}, e, time.Duration(math.MaxInt64))
-	if bm.interval != time.Duration(math.MaxInt64) {
-		t.Fatalf("expected max int interval, got %v", bm.interval)
-	}
+	require.Equal(t, time.
+		Duration(math.MaxInt64),
+
+		bm.interval)
 }
 
 // Stats Aggregator Tests.
@@ -92,9 +99,7 @@ func TestStatsAggregator_NilStore(t *testing.T) {
 	t.Parallel()
 	// Passing nil should not panic during construction.
 	sa := NewStatsAggregator(nil)
-	if sa == nil {
-		t.Fatal("expected non-nil StatsAggregator")
-	}
+	require.NotNil(t, sa)
 }
 
 // Grace Period Enforcer Tests.
@@ -104,9 +109,9 @@ func TestGracePeriod_ZeroDuration(t *testing.T) {
 	t.Parallel()
 	s := &mockGraceEnforcerStore{}
 	gpe := NewGracePeriodEnforcer(s, nil, 0)
-	if gpe.interval != 0 {
-		t.Fatalf("expected interval 0, got %v", gpe.interval)
-	}
+	require.EqualValues(t, 0,
+		gpe.interval,
+	)
 }
 
 // TestGracePeriod_NegativeDuration verifies construction with negative interval.
@@ -114,9 +119,11 @@ func TestGracePeriod_NegativeDuration(t *testing.T) {
 	t.Parallel()
 	s := &mockGraceEnforcerStore{}
 	gpe := NewGracePeriodEnforcer(s, nil, -10*time.Second)
-	if gpe.interval != -10*time.Second {
-		t.Fatalf("expected interval -10s, got %v", gpe.interval)
-	}
+	require.Equal(t, -10*
+		time.
+			Second, gpe.
+		interval,
+	)
 }
 
 // TestGracePeriod_AlreadyRestricted verifies that orgs with "restricted" status are skipped.
@@ -131,9 +138,7 @@ func TestGracePeriod_AlreadyRestricted(t *testing.T) {
 	gpe := NewGracePeriodEnforcer(s, nil, time.Minute)
 	// enforce should skip the restricted org without error.
 	gpe.enforce(context.Background())
-	if len(s.updatedStatuses) != 0 {
-		t.Fatalf("expected no status updates for restricted org, got %d", len(s.updatedStatuses))
-	}
+	require.Empty(t, s.updatedStatuses)
 }
 
 // TestGracePeriod_ConcurrentEnforce verifies that concurrent enforce calls do not panic.
@@ -168,14 +173,12 @@ func FuzzMonitorIntervals(f *testing.F) {
 	f.Fuzz(func(t *testing.T, intervalNs int64) {
 		s := &mockAnomalyMonitorStore{}
 		am := NewAnomalyMonitor(s, time.Duration(intervalNs))
-		if am.interval <= 0 {
-			t.Fatalf("interval should be positive after clamping, got %v", am.interval)
-		}
+		require.Positive(t, am.
+			interval)
 
 		e := &mockEnqueuer{}
 		bm := NewBudgetMonitor(struct{}{}, e, time.Duration(intervalNs))
-		if bm.interval <= 0 {
-			t.Fatalf("budget interval should be positive after clamping, got %v", bm.interval)
-		}
+		require.Positive(t, bm.
+			interval)
 	})
 }

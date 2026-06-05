@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestGenerateAPIKey_PrefixSliceIsExactlyAPIKeyPrefixLen proves a freshly
@@ -18,19 +21,16 @@ func TestGenerateAPIKey_PrefixSliceIsExactlyAPIKeyPrefixLen(t *testing.T) {
 
 	for range 8 {
 		raw, err := generateAPIKey()
-		if err != nil {
-			t.Fatalf("generateAPIKey: %v", err)
-		}
-		if len(raw) <= domain.APIKeyPrefixLen {
-			t.Fatalf("raw key shorter than prefix len: got %d, need > %d", len(raw), domain.APIKeyPrefixLen)
-		}
+		require.NoError(t, err)
+		require.Greater(t, len(raw), domain.APIKeyPrefixLen)
+
 		prefix := raw[:domain.APIKeyPrefixLen]
-		if !strings.HasPrefix(prefix, "strait_") {
-			t.Errorf("prefix missing strait_ tag: got %q", prefix)
-		}
-		if len(prefix) != domain.APIKeyPrefixLen {
-			t.Errorf("prefix length drifted: got %d, want %d", len(prefix), domain.APIKeyPrefixLen)
-		}
+		assert.True(t,
+			strings.HasPrefix(prefix, "strait_"),
+		)
+		assert.Len(t,
+			prefix, domain.
+				APIKeyPrefixLen)
 	}
 }
 
@@ -41,11 +41,10 @@ func TestGenerateAPIKey_PrefixSliceIsExactlyAPIKeyPrefixLen(t *testing.T) {
 func TestGenerateAPIKey_RawKeysHaveStableShape(t *testing.T) {
 	t.Parallel()
 	raw, err := generateAPIKey()
-	if err != nil {
-		t.Fatalf("generateAPIKey: %v", err)
-	}
+	require.NoError(t, err)
+
 	const wantLen = len("strait_") + 64
-	if len(raw) != wantLen {
-		t.Errorf("raw key length drifted: got %d, want %d", len(raw), wantLen)
-	}
+	assert.Len(t,
+		raw, wantLen,
+	)
 }

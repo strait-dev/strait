@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Export edge cases.
@@ -28,23 +31,14 @@ func TestExportBundle_JobWithAllFields(t *testing.T) {
 	envIDToSlug := map[string]string{"env-uuid": "production"}
 
 	b := ExportBundle("proj-1", jobs, nil, nil, nil, nil, envIDToSlug)
+	require.Len(t, b.Resources.Jobs, 1)
 	j := b.Resources.Jobs[0]
 
-	if j.Slug != "full-job" {
-		t.Errorf("slug = %q", j.Slug)
-	}
-	if j.FallbackEndpointURL != "https://fallback.example.com/run" {
-		t.Errorf("fallback_url = %q", j.FallbackEndpointURL)
-	}
-	if j.MaxConcurrency != 20 {
-		t.Errorf("max_concurrency = %d", j.MaxConcurrency)
-	}
-	if j.EnvironmentSlug != "production" {
-		t.Errorf("environment_slug = %q", j.EnvironmentSlug)
-	}
-	if j.OnCompleteTriggerWorkflow != "post-process" {
-		t.Errorf("on_complete_trigger_workflow = %q", j.OnCompleteTriggerWorkflow)
-	}
+	assert.Equal(t, "full-job", j.Slug)
+	assert.Equal(t, "https://fallback.example.com/run", j.FallbackEndpointURL)
+	assert.Equal(t, 20, j.MaxConcurrency)
+	assert.Equal(t, "production", j.EnvironmentSlug)
+	assert.Equal(t, "post-process", j.OnCompleteTriggerWorkflow)
 }
 
 func TestExportBundle_WorkflowMultipleSteps(t *testing.T) {
@@ -63,15 +57,10 @@ func TestExportBundle_WorkflowMultipleSteps(t *testing.T) {
 
 	b := ExportBundle("p1", nil, workflows, steps, nil, jobIDToSlug, nil)
 
-	if len(b.Resources.Workflows[0].Steps) != 3 {
-		t.Fatalf("expected 3 steps, got %d", len(b.Resources.Workflows[0].Steps))
-	}
-	if b.Resources.Workflows[0].Steps[2].JobSlug != "deploy-job" {
-		t.Errorf("step 3 job_slug = %q", b.Resources.Workflows[0].Steps[2].JobSlug)
-	}
-	if len(b.Resources.Workflows[0].Steps[2].DependsOn) != 1 {
-		t.Errorf("step 3 depends_on should have 1 entry")
-	}
+	require.Len(t, b.Resources.Workflows, 1)
+	require.Len(t, b.Resources.Workflows[0].Steps, 3)
+	assert.Equal(t, "deploy-job", b.Resources.Workflows[0].Steps[2].JobSlug)
+	assert.Len(t, b.Resources.Workflows[0].Steps[2].DependsOn, 1)
 }
 
 func TestExportBundle_EnvironmentWithNoVariables(t *testing.T) {
@@ -81,9 +70,8 @@ func TestExportBundle_EnvironmentWithNoVariables(t *testing.T) {
 	}
 	b := ExportBundle("p1", nil, nil, nil, envs, nil, nil)
 
-	if len(b.Resources.Environments[0].Variables) != 0 {
-		t.Error("env with no vars should have empty variables")
-	}
+	require.Len(t, b.Resources.Environments, 1)
+	assert.Empty(t, b.Resources.Environments[0].Variables)
 }
 
 func TestExportBundle_StandardEnvsPreserved(t *testing.T) {
@@ -94,12 +82,9 @@ func TestExportBundle_StandardEnvsPreserved(t *testing.T) {
 	}
 	b := ExportBundle("p1", nil, nil, nil, envs, nil, nil)
 
-	if !b.Resources.Environments[0].IsStandard {
-		t.Error("standard env should preserve is_standard flag")
-	}
-	if b.Resources.Environments[1].IsStandard {
-		t.Error("custom env should not be standard")
-	}
+	require.Len(t, b.Resources.Environments, 2)
+	assert.True(t, b.Resources.Environments[0].IsStandard)
+	assert.False(t, b.Resources.Environments[1].IsStandard)
 }
 
 // Diff edge cases.
@@ -116,24 +101,18 @@ func TestComputeDiff_MixedCreateAndUpdate(t *testing.T) {
 	}
 	diff := ComputeDiff(b, map[string]bool{"existing": true}, map[string]bool{}, map[string]bool{})
 
-	if len(diff) != 2 {
-		t.Fatalf("expected 2 diff entries, got %d", len(diff))
-	}
-	if diff[0].Action != DiffUpdate || diff[0].Slug != "existing" {
-		t.Errorf("first entry: %+v", diff[0])
-	}
-	if diff[1].Action != DiffCreate || diff[1].Slug != "new-one" {
-		t.Errorf("second entry: %+v", diff[1])
-	}
+	require.Len(t, diff, 2)
+	assert.Equal(t, DiffUpdate, diff[0].Action)
+	assert.Equal(t, "existing", diff[0].Slug)
+	assert.Equal(t, DiffCreate, diff[1].Action)
+	assert.Equal(t, "new-one", diff[1].Slug)
 }
 
 func TestComputeDiff_EmptyBundle(t *testing.T) {
 	t.Parallel()
 	b := &Bundle{}
 	diff := ComputeDiff(b, map[string]bool{}, map[string]bool{}, map[string]bool{})
-	if len(diff) != 0 {
-		t.Errorf("empty bundle should produce no diff, got %d", len(diff))
-	}
+	assert.Empty(t, diff)
 }
 
 func TestComputeDiff_WebhooksAlwaysCreate(t *testing.T) {
@@ -149,9 +128,7 @@ func TestComputeDiff_WebhooksAlwaysCreate(t *testing.T) {
 	diff := ComputeDiff(b, map[string]bool{}, map[string]bool{}, map[string]bool{})
 
 	for _, d := range diff {
-		if d.Action != DiffCreate {
-			t.Errorf("webhook should always be CREATE, got %s", d.Action)
-		}
+		assert.Equal(t, DiffCreate, d.Action)
 	}
 }
 
@@ -172,12 +149,8 @@ func TestMarshalYAML_LargeBundle(t *testing.T) {
 	}
 
 	data, err := MarshalYAML(b)
-	if err != nil {
-		t.Fatalf("MarshalYAML: %v", err)
-	}
-	if len(data) < 1000 {
-		t.Errorf("expected large YAML output, got %d bytes", len(data))
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(data), 1000)
 }
 
 func TestUnmarshalYAML_EmptyResources(t *testing.T) {
@@ -188,12 +161,8 @@ source_project_id: proj-1
 resources: {}
 `)
 	b, err := UnmarshalYAML(data)
-	if err != nil {
-		t.Fatalf("UnmarshalYAML: %v", err)
-	}
-	if len(b.Resources.Jobs) != 0 {
-		t.Error("expected no jobs")
-	}
+	require.NoError(t, err)
+	assert.Empty(t, b.Resources.Jobs)
 }
 
 func TestUnmarshalYAML_PreservesAllJobFields(t *testing.T) {
@@ -218,30 +187,17 @@ resources:
         env: prod
 `)
 	b, err := UnmarshalYAML(data)
-	if err != nil {
-		t.Fatalf("UnmarshalYAML: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, b.Resources.Jobs, 1)
 	j := b.Resources.Jobs[0]
-	if j.MaxConcurrency != 8 {
-		t.Errorf("max_concurrency = %d", j.MaxConcurrency)
-	}
-	if j.Cron != "0 * * * *" {
-		t.Errorf("cron = %q", j.Cron)
-	}
-	if j.EnvironmentSlug != "production" {
-		t.Errorf("environment_slug = %q", j.EnvironmentSlug)
-	}
-	if j.OnCompleteTriggerWorkflow != "post-process" {
-		t.Errorf("on_complete_trigger_workflow = %q", j.OnCompleteTriggerWorkflow)
-	}
-	if j.Tags["env"] != "prod" {
-		t.Errorf("tags = %v", j.Tags)
-	}
+	assert.Equal(t, 8, j.MaxConcurrency)
+	assert.Equal(t, "0 * * * *", j.Cron)
+	assert.Equal(t, "production", j.EnvironmentSlug)
+	assert.Equal(t, "post-process", j.OnCompleteTriggerWorkflow)
+	assert.Equal(t, "prod", j.Tags["env"])
 }
 
 func TestVersion_Constant(t *testing.T) {
 	t.Parallel()
-	if Version != "1" {
-		t.Errorf("Version = %q, want %q", Version, "1")
-	}
+	assert.Equal(t, "1", Version)
 }

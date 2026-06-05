@@ -8,6 +8,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
@@ -27,7 +28,9 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 		Sanitize:  cloneJobRunForStatusCache,
 	})
 	if ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{ID: "run-1", ProjectID: "proj-1", Status: domain.StatusExecuting}, 3); err != nil || !ok {
-		t.Fatalf("CompareAndSet() = %v, %v; want true, nil", ok, err)
+		require.Failf(t, "test failure",
+
+			"CompareAndSet() = %v, %v; want true, nil", ok, err)
 	}
 	var storeCalls atomic.Int64
 	srv := &Server{
@@ -41,15 +44,13 @@ func TestStatusReadModel_GetRunUsesRedisBeforeStore(t *testing.T) {
 	}
 
 	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("getRunWithStatusReadModel() error = %v", err)
-	}
-	if got.Status != domain.StatusExecuting {
-		t.Fatalf("status = %s, want executing", got.Status)
-	}
-	if storeCalls.Load() != 0 {
-		t.Fatalf("store calls = %d, want 0", storeCalls.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusExecuting,
+
+		got.Status,
+	)
+	require.EqualValues(t, 0, storeCalls.
+		Load())
 }
 
 func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
@@ -78,16 +79,14 @@ func TestStatusReadModel_GetRunColdFallbackFillsRedis(t *testing.T) {
 
 	for range 2 {
 		got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
-		if err != nil {
-			t.Fatalf("getRunWithStatusReadModel() error = %v", err)
-		}
-		if got.Status != domain.StatusQueued {
-			t.Fatalf("status = %s, want queued", got.Status)
-		}
+		require.NoError(t, err)
+		require.Equal(t, domain.StatusQueued,
+			got.
+				Status,
+		)
 	}
-	if storeCalls.Load() != 1 {
-		t.Fatalf("store calls = %d, want 1", storeCalls.Load())
-	}
+	require.EqualValues(t, 1, storeCalls.
+		Load())
 }
 
 func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -116,29 +115,26 @@ func TestStatusReadModel_GetRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
 	}
 
 	got, err := srv.getRunWithStatusReadModel(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("getRunWithStatusReadModel() error = %v", err)
-	}
-	if got.Status != domain.StatusExecuting {
-		t.Fatalf("status = %s, want executing", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusExecuting,
+
+		got.Status,
+	)
+
 	ok, err := model.CompareAndSet(context.Background(), "run-1", &domain.JobRun{ID: "run-1", Status: domain.StatusQueued}, 7)
-	if err != nil {
-		t.Fatalf("CompareAndSet(v7) error = %v", err)
-	}
-	if ok {
-		t.Fatal("CompareAndSet(v7) = true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+
 	cached, err := model.Get(context.Background(), "run-1")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if cached.Version != 9 || cached.Value.Status != domain.StatusExecuting {
-		t.Fatalf("cached = %+v, want version 9 executing", cached)
-	}
-	if storeCalls.Load() != 1 {
-		t.Fatalf("store calls = %d, want 1", storeCalls.Load())
-	}
+	require.NoError(t, err)
+	require.False(t, cached.Version !=
+		9 ||
+		cached.
+			Value.
+			Status != domain.StatusExecuting,
+	)
+	require.EqualValues(t, 1, storeCalls.
+		Load())
 }
 
 func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *testing.T) {
@@ -167,29 +163,25 @@ func TestStatusReadModel_GetWorkflowRunColdFallbackUsesStoreCacheVersion(t *test
 	}
 
 	got, err := srv.getWorkflowRunWithStatusReadModel(context.Background(), "wfr-1")
-	if err != nil {
-		t.Fatalf("getWorkflowRunWithStatusReadModel() error = %v", err)
-	}
-	if got.Status != domain.WfStatusRunning {
-		t.Fatalf("status = %s, want running", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.WfStatusRunning,
+
+		got.Status,
+	)
+
 	ok, err := model.CompareAndSet(context.Background(), "wfr-1", &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusPending}, 9)
-	if err != nil {
-		t.Fatalf("CompareAndSet(v9) error = %v", err)
-	}
-	if ok {
-		t.Fatal("CompareAndSet(v9) = true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, ok)
+
 	cached, err := model.Get(context.Background(), "wfr-1")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if cached.Version != 14 || cached.Value.Status != domain.WfStatusRunning {
-		t.Fatalf("cached = %+v, want version 14 running", cached)
-	}
-	if storeCalls.Load() != 1 {
-		t.Fatalf("store calls = %d, want 1", storeCalls.Load())
-	}
+	require.NoError(t, err)
+	require.False(t, cached.Version !=
+		14 ||
+		cached.
+			Value.Status != domain.WfStatusRunning,
+	)
+	require.EqualValues(t, 1, storeCalls.
+		Load())
 }
 
 type versionedStatusStore struct {

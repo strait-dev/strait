@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var _ PartitionReclaimerStore = (*fakeReclaimerStore)(nil)
@@ -64,12 +67,10 @@ func TestPartitionReclaimer_SkipsRecentPartitions(t *testing.T) {
 		rowCounts: map[string]int64{},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 0 {
-		t.Errorf("expected no drops, got %v", s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DropsEmptyOldPartition(t *testing.T) {
@@ -80,12 +81,12 @@ func TestPartitionReclaimer_DropsEmptyOldPartition(t *testing.T) {
 		rowCounts:     map[string]int64{"job_runs_p" + old: 0},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 1 {
-		t.Fatalf("expected 1 drop, got %d", len(s.dropped))
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	require.Len(t, s.dropped,
+
+		1)
 }
 
 func TestPartitionReclaimer_SkipsNonEmptyPartition(t *testing.T) {
@@ -96,12 +97,10 @@ func TestPartitionReclaimer_SkipsNonEmptyPartition(t *testing.T) {
 		rowCounts:     map[string]int64{"job_runs_p" + old: 42},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 0 {
-		t.Errorf("expected no drops for non-empty partition, got %v", s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DropsOutboxHistoryPartition(t *testing.T) {
@@ -113,12 +112,12 @@ func TestPartitionReclaimer_DropsOutboxHistoryPartition(t *testing.T) {
 		rowCounts:        map[string]int64{"enqueue_outbox_history_p" + old: 0},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 1 {
-		t.Fatalf("expected 1 drop for outbox history, got %d", len(s.dropped))
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	require.Len(t, s.dropped,
+
+		1)
 }
 
 func TestPartitionReclaimer_InvalidPartitionName(t *testing.T) {
@@ -132,12 +131,10 @@ func TestPartitionReclaimer_InvalidPartitionName(t *testing.T) {
 		rowCounts: map[string]int64{},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 0})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 0 {
-		t.Errorf("expected no drops for invalid partition names, got %v", s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_DDLError(t *testing.T) {
@@ -150,15 +147,13 @@ func TestPartitionReclaimer_DDLError(t *testing.T) {
 		ddlErr:        ddlErr,
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if r.Errors() != 1 {
-		t.Errorf("errors = %d, want 1", r.Errors())
-	}
-	if r.Dropped() != 0 {
-		t.Errorf("dropped = %d, want 0", r.Dropped())
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.EqualValues(t, 1,
+		r.Errors())
+	assert.EqualValues(t, 0,
+		r.Dropped())
 }
 
 func TestPartitionReclaimer_IterationsIncrement(t *testing.T) {
@@ -167,9 +162,8 @@ func TestPartitionReclaimer_IterationsIncrement(t *testing.T) {
 	for range 3 {
 		_ = r.RunOnceForTest(context.Background())
 	}
-	if r.Iterations() != 3 {
-		t.Errorf("iterations = %d, want 3", r.Iterations())
-	}
+	assert.EqualValues(t, 3,
+		r.Iterations())
 }
 
 func TestPartitionReclaimer_BothTableTypes(t *testing.T) {
@@ -185,22 +179,23 @@ func TestPartitionReclaimer_BothTableTypes(t *testing.T) {
 		},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.dropped) != 2 {
-		t.Fatalf("expected 2 drops (one per table type), got %d: %v", len(s.dropped), s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	require.Len(t, s.dropped,
+
+		2)
 }
 
 func TestPartitionReclaimer_Defaults(t *testing.T) {
 	r := NewPartitionReclaimer(&fakeReclaimerStore{rowCounts: map[string]int64{}}, PartitionReclaimerConfig{})
-	if r.interval != 24*time.Hour {
-		t.Errorf("interval = %v", r.interval)
-	}
-	if r.safetyMonths != 2 {
-		t.Errorf("safetyMonths = %d", r.safetyMonths)
-	}
+	assert.Equal(t, 24*
+		time.
+			Hour, r.interval,
+	)
+	assert.Equal(t, 2,
+		r.safetyMonths,
+	)
 }
 
 func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
@@ -213,15 +208,11 @@ func TestPartitionReclaimer_SkipsOnEstimateNonEmpty(t *testing.T) {
 		estimatedCounts: map[string]int64{name: 500},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if s.atomicDropCalled[name] {
-		t.Error("DropPartitionIfEmptyWithTimeout should not be called when estimate is non-empty")
-	}
-	if len(s.dropped) != 0 {
-		t.Errorf("expected no drops when estimate says non-empty, got %v", s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.False(t, s.atomicDropCalled[name])
+	assert.Empty(t, s.dropped)
 }
 
 func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
@@ -234,15 +225,13 @@ func TestPartitionReclaimer_FallsThroughOnEstimateZero(t *testing.T) {
 		estimatedCounts: map[string]int64{name: 0},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !s.atomicDropCalled[name] {
-		t.Error("DropPartitionIfEmptyWithTimeout should be called when estimate is zero")
-	}
-	if len(s.dropped) != 1 {
-		t.Errorf("expected 1 drop after estimate=0 and atomic empty check, got %d", len(s.dropped))
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	assert.True(t, s.atomicDropCalled[name])
+	assert.Len(t, s.dropped,
+		1,
+	)
 }
 
 func TestPartitionReclaimer_UsesAtomicDropAfterEstimateZero(t *testing.T) {
@@ -255,13 +244,9 @@ func TestPartitionReclaimer_UsesAtomicDropAfterEstimateZero(t *testing.T) {
 		estimatedCounts: map[string]int64{name: 0},
 	}
 	r := NewPartitionReclaimer(s, PartitionReclaimerConfig{SafetyMonths: 2})
-	if err := r.RunOnceForTest(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !s.atomicDropCalled[name] {
-		t.Fatal("expected atomic drop path after estimate=0")
-	}
-	if len(s.dropped) != 0 {
-		t.Fatalf("expected atomic drop path to preserve non-empty partition, got drops %v", s.dropped)
-	}
+	require.NoError(t,
+		r.RunOnceForTest(context.
+			Background()))
+	require.True(t, s.atomicDropCalled[name])
+	require.Empty(t, s.dropped)
 }

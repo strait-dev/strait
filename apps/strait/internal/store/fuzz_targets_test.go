@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 // placeholderRE matches every pgx parameter placeholder ($1, $2, …) so
@@ -133,19 +134,20 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			q := New(cap1)
 			mk := key
 			_, err := q.ListRunsByProject(context.Background(), "proj-fuzz", nil, &mk, nil, nil, nil, nil, nil, nil, 10, nil)
-			if err == nil {
-				t.Fatal("expected sentinel error from mock")
-			}
-			if !errors.Is(err, cap1.sentinel) {
-				t.Fatalf("error chain does not include sentinel: %v", err)
-			}
+			require.Error(t,
+				err)
+			require.ErrorIs(t,
+				err, cap1.
+					sentinel)
+			require.False(t,
+				!strings.Contains(cap1.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
+					!strings.Contains(cap1.sql,
+						"? $"))
+
 			// The SQL must query the merged ledger + append-only metadata
 			// overlay. The key must NOT appear as a literal in the query
 			// string.
-			if !strings.Contains(cap1.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
-				!strings.Contains(cap1.sql, "? $") {
-				t.Fatalf("SQL missing merged metadata `? $` template: %q", cap1.sql)
-			}
+
 			// Strip all placeholders ($1, $2, …) then assert the key
 			// does not appear as a literal. Short keys are still
 			// skipped to avoid coinciding with SQL keywords like "id",
@@ -153,13 +155,13 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			// the caller's control.
 			if len(key) >= 8 {
 				stripped := stripPlaceholders(cap1.sql)
-				if strings.Contains(stripped, key) {
-					t.Fatalf("key %q leaked into SQL (placeholder-stripped): %q", key, stripped)
-				}
+				require.NotContains(t,
+					stripped, key,
+				)
 			}
-			if !argsContain(cap1.args, key) {
-				t.Fatalf("key %q not found in args %v", key, cap1.args)
-			}
+			require.True(t,
+				argsContain(cap1.
+					args, key))
 		}
 
 		// Branch 2: key + value.
@@ -169,26 +171,30 @@ func FuzzListRunsByProject_MetadataFilter_NoInjection(f *testing.F) {
 			mk := key
 			mv := value
 			_, err := q.ListRunsByProject(context.Background(), "proj-fuzz", nil, &mk, &mv, nil, nil, nil, nil, nil, 10, nil)
-			if err == nil {
-				t.Fatal("expected sentinel error from mock")
-			}
-			if !strings.Contains(cap2.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
-				!strings.Contains(cap2.sql, "->> $") {
-				t.Fatalf("SQL missing merged metadata `->> $` template: %q", cap2.sql)
-			}
+			require.Error(t,
+				err)
+			require.False(t,
+				!strings.Contains(cap2.sql, "COALESCE(jr.metadata, '{}'::jsonb) || COALESCE(metadata_delta.metadata, '{}'::jsonb)") ||
+					!strings.Contains(cap2.sql,
+						"->> $"))
+
 			stripped := stripPlaceholders(cap2.sql)
-			if len(key) >= 8 && strings.Contains(stripped, key) {
-				t.Fatalf("key %q leaked into SQL (placeholder-stripped): %q", key, stripped)
-			}
-			if len(value) >= 8 && strings.Contains(stripped, value) {
-				t.Fatalf("value %q leaked into SQL (placeholder-stripped): %q", value, stripped)
-			}
-			if !argsContain(cap2.args, key) {
-				t.Fatalf("key %q not found in args %v", key, cap2.args)
-			}
-			if !argsContain(cap2.args, value) {
-				t.Fatalf("value %q not found in args %v", value, cap2.args)
-			}
+			require.False(t,
+				len(key) >= 8 &&
+					strings.Contains(stripped,
+						key),
+			)
+			require.False(t,
+				len(value) >= 8 &&
+					strings.Contains(stripped,
+						value,
+					))
+			require.True(t,
+				argsContain(cap2.
+					args, key))
+			require.True(t,
+				argsContain(cap2.
+					args, value))
 		}
 	})
 }
@@ -214,11 +220,13 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 		capture := newFuzzCaptureDB()
 		q := New(capture)
 		_, _, _, _, _ = q.TryAcquireIdempotencyKey(context.Background(), "proj-fuzz", key, time.Hour)
+		require.True(t,
+			argsContain(capture.
+				args, key))
+
 		// The first call the store makes is INSERT ... ON CONFLICT DO
 		// NOTHING. The key must be in args exactly as provided.
-		if !argsContain(capture.args, key) {
-			t.Fatalf("key %q not found in args %v", key, capture.args)
-		}
+
 		// Assert the key is not concatenated into the SQL. Strip
 		// placeholders first so short keys that coincide with
 		// placeholder digits aren't false positives. Only keys >= 8
@@ -226,9 +234,9 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 		// the captured INSERT template ("key", "id", "status", etc.).
 		if len(key) >= 8 {
 			stripped := stripPlaceholders(capture.sql)
-			if strings.Contains(stripped, key) {
-				t.Fatalf("key %q leaked into SQL (placeholder-stripped): %q", key, stripped)
-			}
+			require.NotContains(t,
+				stripped, key,
+			)
 		}
 	})
 }
@@ -264,14 +272,15 @@ func FuzzCreateEventTrigger_EventKeyPassthrough(f *testing.F) {
 			TimeoutSecs: 3600,
 		}
 		_ = q.CreateEventTrigger(context.Background(), trigger)
-		if !argsContain(capture.args, eventKey) {
-			t.Fatalf("event_key %q not found in args %v", eventKey, capture.args)
-		}
+		require.True(t,
+			argsContain(capture.
+				args, eventKey,
+			))
+
 		if len(eventKey) >= 8 {
 			stripped := stripPlaceholders(capture.sql)
-			if strings.Contains(stripped, eventKey) {
-				t.Fatalf("event_key %q leaked into SQL (placeholder-stripped): %q", eventKey, stripped)
-			}
+			require.NotContains(t,
+				stripped, eventKey)
 		}
 	})
 }
@@ -330,21 +339,21 @@ func FuzzDecryptSecretWithFallback_CorruptionDeterministic(f *testing.F) {
 		// decrypt a corrupted HKDF blob unless the mask happens to be
 		// cryptographically equivalent, which is astronomically unlikely.
 		plaintext, err := q.decryptSecretWithFallback(corrupted)
-		if err == nil && plaintext == "fuzz-plaintext" {
-			// If mask is 0 this shouldn't happen because we force a bit
-			// flip. Treat any match as a failure.
-			t.Fatalf("corrupted ciphertext decrypted to original plaintext (mask=%d pos=%d)", mask, pos)
-		}
+		require.False(t,
+			err == nil && plaintext ==
+				"fuzz-plaintext",
+		)
+
+		// If mask is 0 this shouldn't happen because we force a bit
+		// flip. Treat any match as a failure.
 
 		// Also verify the known-good ciphertext still decrypts to
 		// confirm the fuzz setup is sane.
 		got, err := q.decryptSecretWithFallback(ciphertext)
-		if err != nil {
-			t.Fatalf("baseline ciphertext failed to decrypt: %v", err)
-		}
-		if got != "fuzz-plaintext" {
-			t.Fatalf("baseline plaintext = %q, want %q", got, "fuzz-plaintext")
-		}
+		require.NoError(t, err)
+		require.Equal(t,
+			"fuzz-plaintext",
+			got)
 	})
 }
 
@@ -366,9 +375,7 @@ func FuzzDomainIsValid_StatusAndModes_NoPanic(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		// Each call below must complete without panicking.
 		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("panic on input %q: %v", s, r)
-			}
+			require.Nil(t, recover())
 		}()
 
 		// RunStatus.

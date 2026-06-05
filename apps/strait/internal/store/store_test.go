@@ -14,14 +14,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	t.Parallel()
 	q := New(nil)
-	if q == nil {
-		t.Fatal("New(nil) returned nil")
-	}
+	require.NotNil(
+		t, q)
 }
 
 func TestSentinelErrors(t *testing.T) {
@@ -41,9 +42,10 @@ func TestSentinelErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if tt.err.Error() != tt.msg {
-				t.Errorf("Error() = %q, want %q", tt.err.Error(), tt.msg)
-			}
+			assert.Equal(t,
+				tt.msg, tt.
+					err.Error(),
+			)
 		})
 	}
 }
@@ -62,18 +64,16 @@ func TestDeleteInactiveActiveClaims_UsesPrimaryKeyOrder(t *testing.T) {
 	}
 
 	_, err := New(db).DeleteInactiveActiveClaims(context.Background(), 250)
-	if err != nil {
-		t.Fatalf("DeleteInactiveActiveClaims() error = %v", err)
-	}
-	if !strings.Contains(capturedSQL, "ORDER BY c.run_id ASC, c.ready_generation ASC") {
-		t.Fatalf("cleanup SQL must use primary-key order, got:\n%s", capturedSQL)
-	}
-	if strings.Contains(capturedSQL, "ORDER BY c.started_at") {
-		t.Fatalf("cleanup SQL must not sort on unindexed started_at, got:\n%s", capturedSQL)
-	}
-	if len(capturedArgs) != 1 || capturedArgs[0] != 250 {
-		t.Fatalf("cleanup args = %#v, want [250]", capturedArgs)
-	}
+	require.NoError(t, err)
+	require.Contains(t,
+		capturedSQL, "ORDER BY c.run_id ASC, c.ready_generation ASC")
+	require.NotContains(t,
+		capturedSQL, "ORDER BY c.started_at",
+	)
+	require.False(t,
+		len(capturedArgs) !=
+			1 || capturedArgs[0] !=
+			250)
 }
 
 func TestSentinelErrors_Wrapping(t *testing.T) {
@@ -82,24 +82,20 @@ func TestSentinelErrors_Wrapping(t *testing.T) {
 	for _, sentinel := range sentinels {
 		t.Run(sentinel.Error(), func(t *testing.T) {
 			wrapped := fmt.Errorf("outer: %w", sentinel)
-			if !errors.Is(wrapped, sentinel) {
-				t.Errorf("wrapped error should match %v via errors.Is", sentinel)
-			}
+			assert.ErrorIs(t,
+				wrapped, sentinel)
 		})
 	}
 }
 
 func TestSentinelErrors_NotEqual(t *testing.T) {
 	t.Parallel()
-	if errors.Is(ErrJobNotFound, ErrRunNotFound) {
-		t.Error("ErrJobNotFound should not equal ErrRunNotFound")
-	}
-	if errors.Is(ErrRunNotFound, ErrRunConflict) {
-		t.Error("ErrRunNotFound should not equal ErrRunConflict")
-	}
-	if errors.Is(ErrOutboxRowNotFound, ErrOutboxRowConflict) {
-		t.Error("ErrOutboxRowNotFound should not equal ErrOutboxRowConflict")
-	}
+	require.NotErrorIs(t,
+		ErrJobNotFound, ErrRunNotFound)
+	require.NotErrorIs(t,
+		ErrRunNotFound, ErrRunConflict)
+	assert.NotErrorIs(t,
+		ErrOutboxRowNotFound, ErrOutboxRowConflict)
 }
 
 // mockDBTX implements DBTX for unit testing store queries.
@@ -191,42 +187,51 @@ func TestQueriesWithTx_InheritsConfiguration(t *testing.T) {
 	q.auditEventPostInsertHook = func(context.Context) error { return nil }
 
 	err := q.withTx(context.Background(), func(txQ *Queries) error {
-		if txQ == q {
-			t.Fatal("tx query reused parent instance")
-		}
-		if txQ.db != tx {
-			t.Fatalf("tx query db = %#v, want transaction", txQ.db)
-		}
-		if txQ.secretEncryptionKey != q.secretEncryptionKey {
-			t.Fatalf("secretEncryptionKey = %q, want inherited", txQ.secretEncryptionKey)
-		}
-		if !reflect.DeepEqual(txQ.oldSecretEncryptionKeys, q.oldSecretEncryptionKeys) {
-			t.Fatalf("oldSecretEncryptionKeys = %#v, want %#v", txQ.oldSecretEncryptionKeys, q.oldSecretEncryptionKeys)
-		}
-		if len(txQ.oldSecretEncryptionKeys) == 0 {
-			t.Fatal("oldSecretEncryptionKeys was not copied")
-		}
+		require.NotEqual(t, q, txQ)
+		require.Equal(t,
+			tx, txQ.
+				db)
+		require.Equal(t,
+			q.secretEncryptionKey,
+
+			txQ.secretEncryptionKey,
+		)
+		require.True(t,
+			reflect.DeepEqual(txQ.
+				oldSecretEncryptionKeys,
+
+				q.oldSecretEncryptionKeys,
+			))
+		require.NotEmpty(t, txQ.oldSecretEncryptionKeys)
+
 		txQ.oldSecretEncryptionKeys[0] = "mutated"
-		if string(txQ.auditSigningKey) != string(q.auditSigningKey) {
-			t.Fatalf("auditSigningKey = %q, want inherited", string(txQ.auditSigningKey))
-		}
-		if txQ.maxSLOWindowHours != q.maxSLOWindowHours {
-			t.Fatalf("maxSLOWindowHours = %d, want %d", txQ.maxSLOWindowHours, q.maxSLOWindowHours)
-		}
-		if txQ.tombstoneInsertHook == nil || txQ.auditEventPostInsertHook == nil {
-			t.Fatal("transaction query did not inherit audit hooks")
-		}
+		require.Equal(t,
+			string(q.
+				auditSigningKey,
+			), string(txQ.auditSigningKey),
+		)
+		require.Equal(t,
+			q.maxSLOWindowHours,
+
+			txQ.maxSLOWindowHours,
+		)
+		require.False(t,
+			txQ.tombstoneInsertHook ==
+				nil ||
+				txQ.auditEventPostInsertHook ==
+					nil)
+
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("withTx() error = %v", err)
-	}
-	if !tx.committed || tx.rolledBack {
-		t.Fatalf("commit/rollback = %v/%v, want committed only", tx.committed, tx.rolledBack)
-	}
-	if q.oldSecretEncryptionKeys[0] != "old-secret-key" {
-		t.Fatalf("parent old key mutated to %q", q.oldSecretEncryptionKeys[0])
-	}
+	require.NoError(t, err)
+	require.False(t,
+		!tx.committed ||
+			tx.rolledBack,
+	)
+	require.Equal(t,
+		"old-secret-key",
+
+		q.oldSecretEncryptionKeys[0])
 }
 
 func TestQueriesWithTxOptions_InheritsConfiguration(t *testing.T) {
@@ -240,26 +245,33 @@ func TestQueriesWithTxOptions_InheritsConfiguration(t *testing.T) {
 
 	opts := pgx.TxOptions{IsoLevel: pgx.Serializable}
 	err := q.withTxOptions(context.Background(), opts, func(txQ *Queries) error {
-		if txQ.db != tx {
-			t.Fatalf("tx query db = %#v, want transaction", txQ.db)
-		}
-		if txQ.secretEncryptionKey != q.secretEncryptionKey {
-			t.Fatalf("secretEncryptionKey = %q, want inherited", txQ.secretEncryptionKey)
-		}
-		if string(txQ.auditSigningKey) != string(q.auditSigningKey) {
-			t.Fatalf("auditSigningKey = %q, want inherited", string(txQ.auditSigningKey))
-		}
+		require.Equal(t,
+			tx, txQ.
+				db)
+		require.Equal(t,
+			q.secretEncryptionKey,
+
+			txQ.secretEncryptionKey,
+		)
+		require.Equal(t,
+			string(q.
+				auditSigningKey,
+			), string(txQ.auditSigningKey),
+		)
+
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("withTxOptions() error = %v", err)
-	}
-	if beginner.opts.IsoLevel != opts.IsoLevel {
-		t.Fatalf("tx options iso level = %q, want %q", beginner.opts.IsoLevel, opts.IsoLevel)
-	}
-	if !tx.committed || tx.rolledBack {
-		t.Fatalf("commit/rollback = %v/%v, want committed only", tx.committed, tx.rolledBack)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		opts.IsoLevel,
+
+		beginner.
+			opts.IsoLevel,
+	)
+	require.False(t,
+		!tx.committed ||
+			tx.rolledBack,
+	)
 }
 
 func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {
@@ -287,9 +299,7 @@ func TestUpdateRunStatus_IdempotentSameTarget(t *testing.T) {
 
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
-	if err != nil {
-		t.Fatalf("expected nil (idempotent), got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestUpdateRunStatus_ConflictDifferentTarget(t *testing.T) {
@@ -313,9 +323,8 @@ func TestUpdateRunStatus_ConflictDifferentTarget(t *testing.T) {
 
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
-	if !errors.Is(err, ErrRunConflict) {
-		t.Fatalf("expected ErrRunConflict, got %v", err)
-	}
+	require.ErrorIs(t,
+		err, ErrRunConflict)
 }
 
 func TestUpdateRunStatus_NotFound(t *testing.T) {
@@ -336,9 +345,8 @@ func TestUpdateRunStatus_NotFound(t *testing.T) {
 
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-nonexistent", domain.StatusExecuting, domain.StatusCompleted, nil)
-	if err == nil {
-		t.Fatal("expected error for non-existent run, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestUpdateRunStatus_NormalTransition(t *testing.T) {
@@ -352,9 +360,7 @@ func TestUpdateRunStatus_NormalTransition(t *testing.T) {
 
 	q := New(db)
 	err := q.UpdateRunStatus(context.Background(), "run-1", domain.StatusExecuting, domain.StatusCompleted, nil)
-	if err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestQueueStats_Success(t *testing.T) {
@@ -374,18 +380,15 @@ func TestQueueStats_Success(t *testing.T) {
 
 	q := New(db)
 	stats, err := q.QueueStats(context.Background())
-	if err != nil {
-		t.Fatalf("QueueStats() error = %v", err)
-	}
-	if stats.Queued != 5 {
-		t.Errorf("Queued = %d, want 5", stats.Queued)
-	}
-	if stats.Executing != 3 {
-		t.Errorf("Executing = %d, want 3", stats.Executing)
-	}
-	if stats.Delayed != 2 {
-		t.Errorf("Delayed = %d, want 2", stats.Delayed)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 5, stats.
+		Queued)
+	assert.Equal(t, 3, stats.
+		Executing,
+	)
+	assert.Equal(t, 2, stats.
+		Delayed,
+	)
 }
 
 func TestQueueStats_ZeroValues(t *testing.T) {
@@ -405,13 +408,15 @@ func TestQueueStats_ZeroValues(t *testing.T) {
 
 	q := New(db)
 	stats, err := q.QueueStats(context.Background())
-	if err != nil {
-		t.Fatalf("QueueStats() error = %v", err)
-	}
-	if stats.Queued != 0 || stats.Executing != 0 || stats.Delayed != 0 {
-		t.Errorf("expected all zeros, got queued=%d executing=%d delayed=%d",
-			stats.Queued, stats.Executing, stats.Delayed)
-	}
+	require.NoError(t, err)
+	assert.False(t,
+		stats.Queued !=
+			0 || stats.
+			Executing !=
+			0 ||
+			stats.Delayed !=
+				0,
+	)
 }
 
 func TestQueueStats_DBError(t *testing.T) {
@@ -426,12 +431,9 @@ func TestQueueStats_DBError(t *testing.T) {
 
 	q := New(db)
 	stats, err := q.QueueStats(context.Background())
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if stats != nil {
-		t.Errorf("stats = %v, want nil on error", stats)
-	}
+	require.Error(t,
+		err)
+	assert.Nil(t, stats)
 }
 
 // Issue 10: ReplayDeadLetterRun does a single CAS UPDATE ... RETURNING and
@@ -460,15 +462,11 @@ func TestReplayDeadLetterRun_CASConflict(t *testing.T) {
 
 	q := New(db)
 	_, err := q.ReplayDeadLetterRun(context.Background(), "run-1")
-	if err == nil {
-		t.Fatal("expected error for non-dead_letter run, got nil")
-	}
-	if !errors.Is(err, ErrRunConflict) {
-		t.Fatalf("expected ErrRunConflict, got %v", err)
-	}
-	if calls != 1 {
-		t.Fatalf("expected 1 query call (status precheck), got %d", calls)
-	}
+	require.Error(t,
+		err)
+	require.ErrorIs(t,
+		err, ErrRunConflict)
+	require.Equal(t, 1, calls)
 }
 
 // Issue 11: ReceiveEventAndRequeueRun returns error when tx not supported.
@@ -479,13 +477,12 @@ func TestReceiveEventAndRequeueRun_NoTxSupport(t *testing.T) {
 	db := &mockDBTX{}
 	q := New(db)
 	err := q.ReceiveEventAndRequeueRun(context.Background(), "trigger-1", nil, time.Now(), "run-1")
-	if err == nil {
-		t.Fatal("expected error when db does not support transactions, got nil")
-	}
+	require.Error(t,
+		err)
+
 	want := "requires transaction support"
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("error = %q, want substring %q", err.Error(), want)
-	}
+	require.Contains(t,
+		err.Error(), want)
 }
 
 // Issue 17: AreAllDescendantsTerminal CTE includes depth limiter.
@@ -507,15 +504,12 @@ func TestAreAllDescendantsTerminal_DepthLimiter(t *testing.T) {
 
 	q := New(db)
 	allTerminal, err := q.AreAllDescendantsTerminal(context.Background(), "parent-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !allTerminal {
-		t.Fatal("expected true when count is 0")
-	}
-	if !strings.Contains(capturedSQL, "d.depth < 100") {
-		t.Fatalf("CTE query missing depth limiter, got: %s", capturedSQL)
-	}
+	require.NoError(t, err)
+	require.True(t,
+		allTerminal,
+	)
+	require.Contains(t,
+		capturedSQL, "d.depth < 100")
 }
 
 // Issue 20: BulkCancelByFilter SQL contains LIMIT 10000.
@@ -532,9 +526,9 @@ func TestBulkCancelByFilter_HasLimit(t *testing.T) {
 
 	q := New(db)
 	_, _ = q.BulkCancelByFilter(context.Background(), "proj-1", BulkCancelFilter{}, time.Now(), "test")
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Fatalf("bulk cancel query missing LIMIT 10000, got: %s", capturedSQL)
-	}
+	require.Contains(t,
+		capturedSQL, "LIMIT 10000",
+	)
 }
 
 // Issue 21: ResetRunIdempotencyKey requires transaction support.
@@ -545,13 +539,12 @@ func TestResetRunIdempotencyKey_NoTxSupport(t *testing.T) {
 	db := &mockDBTX{}
 	q := New(db)
 	err := q.ResetRunIdempotencyKey(context.Background(), "run-1")
-	if err == nil {
-		t.Fatal("expected error when db does not support transactions, got nil")
-	}
+	require.Error(t,
+		err)
+
 	want := "requires transaction support"
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("error = %q, want substring %q", err.Error(), want)
-	}
+	require.Contains(t,
+		err.Error(), want)
 }
 
 // Unbounded query LIMIT tests.
@@ -567,9 +560,9 @@ func TestListCronJobs_QueryDoesNotSilentlyCapCronSchedules(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListCronJobs(context.Background())
-	if strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("ListCronJobs query must not silently cap cron schedules, got: %s", capturedSQL)
-	}
+	assert.NotContains(t,
+		capturedSQL, "LIMIT 10000",
+	)
 }
 
 func TestListRunState_QueryContainsLimit(t *testing.T) {
@@ -583,9 +576,8 @@ func TestListRunState_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListRunState(context.Background(), "run-1")
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("ListRunState query missing LIMIT 10000, got: %s", capturedSQL)
-	}
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestGetWorkflowRunsByParent_QueryContainsLimit(t *testing.T) {
@@ -599,9 +591,8 @@ func TestGetWorkflowRunsByParent_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.GetWorkflowRunsByParent(context.Background(), "parent-1")
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("GetWorkflowRunsByParent query missing LIMIT 10000, got: %s", capturedSQL)
-	}
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestListJobMemory_QueryContainsLimit(t *testing.T) {
@@ -615,9 +606,8 @@ func TestListJobMemory_QueryContainsLimit(t *testing.T) {
 	}
 	q := New(db)
 	_, _ = q.ListJobMemory(context.Background(), "job-1")
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("ListJobMemory query missing LIMIT 10000, got: %s", capturedSQL)
-	}
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestDeleteExpiredJobMemory_BatchesWithLimit(t *testing.T) {
@@ -634,18 +624,11 @@ func TestDeleteExpiredJobMemory_BatchesWithLimit(t *testing.T) {
 	}
 	q := New(db)
 	total, err := q.DeleteExpiredJobMemory(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if total != 42 {
-		t.Errorf("total deleted = %d, want 42", total)
-	}
-	if callCount != 1 {
-		t.Errorf("expected 1 batch call, got %d", callCount)
-	}
-	if !strings.Contains(capturedSQL, "LIMIT 10000") {
-		t.Errorf("DeleteExpiredJobMemory query missing LIMIT 10000, got: %s", capturedSQL)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 42, total)
+	assert.Equal(t, 1, callCount)
+	assert.Contains(t,
+		capturedSQL, "LIMIT 10000")
 }
 
 func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
@@ -664,15 +647,9 @@ func TestDeleteExpiredJobMemory_MultipleBatches(t *testing.T) {
 	}
 	q := New(db)
 	total, err := q.DeleteExpiredJobMemory(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if total != 10500 {
-		t.Errorf("total deleted = %d, want 10500", total)
-	}
-	if callCount != 2 {
-		t.Errorf("expected 2 batch calls, got %d", callCount)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 10500, total)
+	assert.Equal(t, 2, callCount)
 }
 
 func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
@@ -690,15 +667,11 @@ func TestCanDispatchEndpoint_ClosedFastPathAvoidsFORUPDATE(t *testing.T) {
 	}
 	q := New(db)
 	ok, _, err := q.CanDispatchEndpoint(context.Background(), "https://example.com", time.Now())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !ok {
-		t.Error("expected dispatch allowed for new endpoint")
-	}
-	if strings.Contains(capturedSQL, "FOR UPDATE") {
-		t.Errorf("CanDispatchEndpoint fast path should not lock, got: %s", capturedSQL)
-	}
+	require.NoError(t, err)
+	assert.True(t,
+		ok)
+	assert.NotContains(t,
+		capturedSQL, "FOR UPDATE")
 }
 
 func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
@@ -719,21 +692,15 @@ func TestCanDispatchEndpoint_OpenExpiredSlowPathUsesFORUPDATE(t *testing.T) {
 	}
 	q := New(db)
 	ok, retryAt, err := q.CanDispatchEndpoint(context.Background(), "https://example.com", now)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !ok {
-		t.Error("expected dispatch allowed after expired open circuit reset")
-	}
-	if retryAt != nil {
-		t.Fatalf("retryAt = %v, want nil", retryAt)
-	}
-	if len(queries) != 2 {
-		t.Fatalf("query count = %d, want fast read plus locked slow path", len(queries))
-	}
-	if !strings.Contains(queries[1], "FOR UPDATE") {
-		t.Errorf("CanDispatchEndpoint slow path missing FOR UPDATE, got: %s", queries[1])
-	}
+	require.NoError(t, err)
+	assert.True(t,
+		ok)
+	require.Nil(t, retryAt)
+	require.Len(t,
+		queries, 2,
+	)
+	assert.Contains(t,
+		queries[1], "FOR UPDATE")
 }
 
 func BenchmarkCanDispatchEndpoint_ClosedFastPath(b *testing.B) {
@@ -791,21 +758,17 @@ func TestGetJobHealthCounts_QueryExcludesPercentiles(t *testing.T) {
 	}
 	q := New(db)
 	stats, err := q.GetJobHealthCounts(context.Background(), "job-1", time.Now().Add(-time.Hour))
-	if err != nil {
-		t.Fatalf("GetJobHealthCounts() error = %v", err)
-	}
-	if strings.Contains(capturedSQL, "PERCENTILE_CONT") {
-		t.Fatalf("GetJobHealthCounts query contains percentile aggregate: %s", capturedSQL)
-	}
-	if strings.Contains(capturedSQL, "AVG(") {
-		t.Fatalf("GetJobHealthCounts query contains duration average: %s", capturedSQL)
-	}
-	if stats.SuccessRate != 80 {
-		t.Fatalf("SuccessRate = %f, want 80", stats.SuccessRate)
-	}
-	if stats.HealthScore != 56 {
-		t.Fatalf("HealthScore = %f, want 56", stats.HealthScore)
-	}
+	require.NoError(t, err)
+	require.NotContains(t,
+		capturedSQL, "PERCENTILE_CONT")
+	require.NotContains(t,
+		capturedSQL, "AVG(")
+	require.InDelta(t, 80, stats.
+		SuccessRate, 1e-9,
+	)
+	require.InDelta(t, 56, stats.
+		HealthScore, 1e-9,
+	)
 }
 
 func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
@@ -820,11 +783,12 @@ func TestGetJobHealthStats_QueryIncludesPercentiles(t *testing.T) {
 	}
 	q := New(db)
 	if _, err := q.GetJobHealthStats(context.Background(), "job-1", time.Now().Add(-time.Hour)); err != nil {
-		t.Fatalf("GetJobHealthStats() error = %v", err)
+		require.Failf(t, "test failure",
+
+			"GetJobHealthStats() error = %v", err)
 	}
-	if !strings.Contains(capturedSQL, "PERCENTILE_CONT") {
-		t.Fatalf("GetJobHealthStats query missing percentile aggregate: %s", capturedSQL)
-	}
+	require.Contains(t,
+		capturedSQL, "PERCENTILE_CONT")
 }
 
 func BenchmarkGetJobHealthCounts(b *testing.B) {
@@ -894,24 +858,22 @@ func TestListReceivedEventTriggersWithStaleSteps_LIMITOnBothBranches(t *testing.
 
 	// Read the source file to verify the SQL has LIMIT on both UNION branches.
 	src, err := os.ReadFile("event_triggers.go")
-	if err != nil {
-		t.Fatalf("failed to read event_triggers.go: %v", err)
-	}
+	require.NoError(t, err)
 
 	content := string(src)
 
 	// Find the function containing the query.
 	fnStart := strings.Index(content, "func (q *Queries) ListReceivedEventTriggersWithStaleSteps")
-	if fnStart < 0 {
-		t.Fatal("could not find ListReceivedEventTriggersWithStaleSteps function")
-	}
+	require.GreaterOrEqual(t,
+		fnStart,
+		0)
 
 	fnBody := content[fnStart:]
 	// Find the UNION ALL which separates the two SELECT branches.
 	unionIdx := strings.Index(fnBody, "UNION ALL")
-	if unionIdx < 0 {
-		t.Fatal("could not find UNION ALL in query")
-	}
+	require.GreaterOrEqual(t,
+		unionIdx,
+		0)
 
 	firstBranch := fnBody[:unionIdx]
 	secondBranch := fnBody[unionIdx:]
@@ -923,11 +885,10 @@ func TestListReceivedEventTriggersWithStaleSteps_LIMITOnBothBranches(t *testing.
 
 	firstHasLimit := strings.Contains(strings.ToUpper(firstBranch), "LIMIT")
 	secondHasLimit := strings.Contains(strings.ToUpper(secondBranch), "LIMIT")
-
-	if !firstHasLimit {
-		t.Error("first UNION branch (workflow_step source) is missing LIMIT clause")
-	}
-	if !secondHasLimit {
-		t.Error("second UNION branch (job_run source) is missing LIMIT clause")
-	}
+	assert.True(t,
+		firstHasLimit,
+	)
+	assert.True(t,
+		secondHasLimit,
+	)
 }

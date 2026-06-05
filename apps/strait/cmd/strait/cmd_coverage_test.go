@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // root.go
@@ -21,24 +22,23 @@ func TestNewRootCommand_Structure(t *testing.T) {
 	t.Parallel()
 
 	cmd := newRootCommand()
-	if cmd.Use != "strait" {
-		t.Fatalf("root command Use = %q, want %q", cmd.Use, "strait")
-	}
-	if !cmd.SilenceUsage {
-		t.Fatal("expected SilenceUsage to be true")
-	}
-	if !cmd.SilenceErrors {
-		t.Fatal("expected SilenceErrors to be true")
-	}
+	require.Equal(
+		t, "strait",
+		cmd.Use)
+	require.True(t,
+		cmd.
+			SilenceUsage)
+	require.True(t,
+		cmd.
+			SilenceErrors)
 
 	subs := map[string]bool{}
 	for _, sub := range cmd.Commands() {
 		subs[sub.Name()] = true
 	}
 	for _, name := range []string{"serve", "server", "migrate", "version", "health"} {
-		if !subs[name] {
-			t.Fatalf("expected subcommand %q to be registered", name)
-		}
+		require.True(t,
+			subs[name])
 	}
 }
 
@@ -63,9 +63,9 @@ func TestContainsModeFlag(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := containsModeFlag(tc.args)
-			if got != tc.want {
-				t.Fatalf("containsModeFlag(%v) = %v, want %v", tc.args, got, tc.want)
-			}
+			require.Equal(
+				t, tc.
+					want, got)
 		})
 	}
 }
@@ -74,30 +74,26 @@ func TestNewServeCommand(t *testing.T) {
 	t.Parallel()
 
 	cmd := newServeCommand()
-	if cmd.Use != "serve" {
-		t.Fatalf("serve command Use = %q, want %q", cmd.Use, "serve")
-	}
+	require.Equal(
+		t, "serve",
+		cmd.Use)
 
 	f := cmd.Flags().Lookup("mode")
-	if f == nil {
-		t.Fatal("expected --mode flag to be registered on serve command")
-		return
-	}
-	if f.DefValue != "" {
-		t.Fatalf("--mode default = %q, want empty string", f.DefValue)
-	}
+	require.NotNil(t, f)
+	require.Empty(
+		t, f.DefValue)
 }
 
 func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *testing.T) {
 	t.Parallel()
 
 	err := validateBillingRedisDependency(&config.Config{BillingEnforcementEnabled: true}, nil)
-	if err == nil {
-		t.Fatal("expected billing enforcement without Redis to fail")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement requires Redis") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(
+		t, err,
+	)
+	require.Contains(t,
+		err.
+			Error(), "billing enforcement requires Redis")
 }
 
 func TestValidateBillingEnforcerDependency(t *testing.T) {
@@ -134,14 +130,16 @@ func TestValidateBillingEnforcerDependency(t *testing.T) {
 
 			err := validateBillingEnforcerDependency(tt.cfg, tt.enforcer)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("validateBillingEnforcerDependency() error = %v", err)
-				}
+				require.NoError(t, err)
+
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("validateBillingEnforcerDependency() error = %v, want %s", err, tt.want)
-			}
+			require.Error(
+				t, err,
+			)
+			assert.Contains(t, err.
+				Error(), tt.want,
+			)
 		})
 	}
 }
@@ -202,14 +200,16 @@ func TestValidateCloudBillingConfig(t *testing.T) {
 
 			err := validateCloudBillingConfig(tt.edition, tt.cfg)
 			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("validateCloudBillingConfig() error = %v", err)
-				}
+				require.NoError(t, err)
+
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("validateCloudBillingConfig() error = %v, want %s", err, tt.want)
-			}
+			require.Error(
+				t, err,
+			)
+			assert.Contains(t, err.
+				Error(), tt.want,
+			)
 		})
 	}
 }
@@ -228,27 +228,24 @@ func TestLogAuditDMLGuardStartup_UsesDMLRestrictedInterface(t *testing.T) {
 
 	checker := &auditDMLStartupChecker{}
 	logAuditDMLGuardStartup(context.Background(), checker, nil)
-	if !checker.called {
-		t.Fatal("expected startup audit DML guard to call AuditEventsDMLRestricted")
-	}
+	require.True(t,
+		checker.
+			called)
 }
 
 func TestNewVersionCommand(t *testing.T) {
 	t.Parallel()
 
 	cmd := newVersionCommand()
-	if cmd.Use != "version" {
-		t.Fatalf("version command Use = %q, want %q", cmd.Use, "version")
-	}
+	require.Equal(
+		t, "version",
+		cmd.Use)
 
 	f := cmd.Flags().Lookup("short")
-	if f == nil {
-		t.Fatal("expected --short flag to be registered on version command")
-		return
-	}
-	if f.DefValue != "false" {
-		t.Fatalf("--short default = %q, want %q", f.DefValue, "false")
-	}
+	require.NotNil(t, f)
+	require.Equal(
+		t, "false",
+		f.DefValue)
 }
 
 func TestNewVersionCommand_Execute(t *testing.T) {
@@ -256,9 +253,8 @@ func TestNewVersionCommand_Execute(t *testing.T) {
 
 	cmd := newVersionCommand()
 	cmd.SetArgs([]string{"--short"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("version --short returned error: %v", err)
-	}
+	require.NoError(t, cmd.
+		Execute())
 }
 
 func TestNewVersionCommand_ExecuteLong(t *testing.T) {
@@ -266,17 +262,14 @@ func TestNewVersionCommand_ExecuteLong(t *testing.T) {
 
 	cmd := newVersionCommand()
 	cmd.SetArgs(nil)
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("version (long) returned error: %v", err)
-	}
+	require.NoError(t, cmd.
+		Execute())
 }
 
 func TestNormalizeLegacyArgs_Empty(t *testing.T) {
 	t.Parallel()
 	got := normalizeLegacyArgs(nil)
-	if got != nil {
-		t.Fatalf("normalizeLegacyArgs(nil) = %v, want nil", got)
-	}
+	require.Nil(t, got)
 }
 
 func TestNormalizeLegacyArgs_AllSubcommands(t *testing.T) {
@@ -285,9 +278,9 @@ func TestNormalizeLegacyArgs_AllSubcommands(t *testing.T) {
 	for _, sub := range []string{"serve", "server", "migrate", "version", "health", "help"} {
 		args := []string{sub, "--verbose"}
 		got := normalizeLegacyArgs(args)
-		if got[0] != sub {
-			t.Fatalf("normalizeLegacyArgs(%v)[0] = %q, want %q", args, got[0], sub)
-		}
+		require.Equal(
+			t, sub,
+			got[0])
 	}
 }
 
@@ -295,9 +288,9 @@ func TestNormalizeLegacyArgs_UnknownNonFlag(t *testing.T) {
 	t.Parallel()
 
 	got := normalizeLegacyArgs([]string{"unknown-cmd"})
-	if len(got) != 1 || got[0] != "unknown-cmd" {
-		t.Fatalf("normalizeLegacyArgs([unknown-cmd]) = %v, want [unknown-cmd]", got)
-	}
+	require.False(
+		t, len(got) != 1 || got[0] != "unknown-cmd",
+	)
 }
 
 // migrate.go: parsePositiveInt
@@ -328,17 +321,16 @@ func TestParsePositiveInt(t *testing.T) {
 			t.Parallel()
 			got, err := parsePositiveInt(tc.input)
 			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("parsePositiveInt(%q) = %d, nil; want error", tc.input, got)
-				}
+				require.Error(
+					t, err,
+				)
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("parsePositiveInt(%q) returned unexpected error: %v", tc.input, err)
-			}
-			if got != tc.want {
-				t.Fatalf("parsePositiveInt(%q) = %d, want %d", tc.input, got, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(
+				t, tc.
+					want, got)
 		})
 	}
 }
@@ -347,23 +339,24 @@ func TestValidateMigrationDatabaseURLRejectsDisableSSLInProduction(t *testing.T)
 	t.Parallel()
 
 	err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", "production")
-	if err == nil {
-		t.Fatal("expected production sslmode=disable to be rejected")
-	}
-	if !strings.Contains(err.Error(), "sslmode=disable") {
-		t.Fatalf("error = %v, want sslmode=disable", err)
-	}
+	require.Error(
+		t, err,
+	)
+	require.Contains(t,
+		err.
+			Error(), "sslmode=disable")
 }
 
 func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T) {
 	t.Parallel()
+	require.NoError(t, validateMigrationDatabaseURL(
+		"postgres://localhost/strait?sslmode=disable",
 
-	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", "development"); err != nil {
-		t.Fatalf("development sslmode=disable should be allowed: %v", err)
-	}
-	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", ""); err != nil {
-		t.Fatalf("empty environment should default to development: %v", err)
-	}
+		"development"))
+	require.NoError(t, validateMigrationDatabaseURL(
+		"postgres://localhost/strait?sslmode=disable",
+
+		""))
 }
 
 // migrate.go: sanitizeMigrationName
@@ -393,9 +386,9 @@ func TestSanitizeMigrationName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := sanitizeMigrationName(tc.input)
-			if got != tc.want {
-				t.Fatalf("sanitizeMigrationName(%q) = %q, want %q", tc.input, got, tc.want)
-			}
+			require.Equal(
+				t, tc.
+					want, got)
 		})
 	}
 }
@@ -447,18 +440,17 @@ func TestNextMigrationVersion(t *testing.T) {
 
 			dir := t.TempDir()
 			for _, f := range tc.files {
-				if err := os.WriteFile(filepath.Join(dir, f), []byte("-- test"), 0o600); err != nil {
-					t.Fatalf("failed to create test file %s: %v", f, err)
-				}
+				require.NoError(t, os.
+					WriteFile(filepath.
+						Join(dir,
+							f), []byte("-- test"), 0o600))
 			}
 
 			got, err := nextMigrationVersion(dir)
-			if err != nil {
-				t.Fatalf("nextMigrationVersion() returned error: %v", err)
-			}
-			if got != tc.want {
-				t.Fatalf("nextMigrationVersion() = %d, want %d", got, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(
+				t, tc.
+					want, got)
 		})
 	}
 }
@@ -467,9 +459,9 @@ func TestNextMigrationVersion_NonexistentDir(t *testing.T) {
 	t.Parallel()
 
 	_, err := nextMigrationVersion("/nonexistent/path/that/does/not/exist")
-	if err == nil {
-		t.Fatal("expected error for nonexistent directory, got nil")
-	}
+	require.Error(
+		t, err,
+	)
 }
 
 // migrate.go: command structure
@@ -478,18 +470,17 @@ func TestNewMigrateCommand_Structure(t *testing.T) {
 	t.Parallel()
 
 	cmd := newMigrateCommand()
-	if cmd.Use != "migrate" {
-		t.Fatalf("migrate command Use = %q, want %q", cmd.Use, "migrate")
-	}
+	require.Equal(
+		t, "migrate",
+		cmd.Use)
 
 	subs := map[string]bool{}
 	for _, sub := range cmd.Commands() {
 		subs[sub.Name()] = true
 	}
 	for _, name := range []string{"up", "down", "status", "create"} {
-		if !subs[name] {
-			t.Fatalf("expected subcommand %q on migrate", name)
-		}
+		require.True(t,
+			subs[name])
 	}
 }
 
@@ -498,18 +489,13 @@ func TestNewMigrateDownCommand_YesFlag(t *testing.T) {
 
 	cmd := newMigrateCommand()
 	down := findSubcommand(cmd, "down")
-	if down == nil {
-		t.Fatal("down subcommand not found")
-	}
+	require.NotNil(t, down)
 
 	f := down.Flags().Lookup("yes")
-	if f == nil {
-		t.Fatal("expected --yes flag on migrate down command")
-		return
-	}
-	if f.DefValue != "false" {
-		t.Fatalf("--yes default = %q, want %q", f.DefValue, "false")
-	}
+	require.NotNil(t, f)
+	require.Equal(
+		t, "false",
+		f.DefValue)
 }
 
 // server.go
@@ -518,35 +504,30 @@ func TestNewServerCommand_Structure(t *testing.T) {
 	t.Parallel()
 
 	cmd := newServerCommand()
-	if cmd.Use != "server" {
-		t.Fatalf("server command Use = %q, want %q", cmd.Use, "server")
-	}
+	require.Equal(
+		t, "server",
+		cmd.Use)
 
 	subs := map[string]bool{}
 	for _, sub := range cmd.Commands() {
 		subs[sub.Name()] = true
 	}
-	if !subs["start"] {
-		t.Fatal("expected start subcommand on server command")
-	}
+	require.True(t,
+		subs["start"])
 }
 
 func TestNewServerStartCommand_ModeFlag(t *testing.T) {
 	t.Parallel()
 
 	cmd := newServerStartCommand()
-	if cmd.Use != "start" {
-		t.Fatalf("server start Use = %q, want %q", cmd.Use, "start")
-	}
+	require.Equal(
+		t, "start",
+		cmd.Use)
 
 	f := cmd.Flags().Lookup("mode")
-	if f == nil {
-		t.Fatal("expected --mode flag on server start command")
-		return
-	}
-	if f.DefValue != "" {
-		t.Fatalf("--mode default = %q, want empty string", f.DefValue)
-	}
+	require.NotNil(t, f)
+	require.Empty(
+		t, f.DefValue)
 }
 
 // services.go: retrySleep
@@ -558,14 +539,12 @@ func TestRetrySleep_ReturnsAfterDelay(t *testing.T) {
 	start := time.Now()
 	err := retrySleep(ctx, 0)
 	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, elapsed, 900*
+		time.Millisecond,
+	)
 
-	if err != nil {
-		t.Fatalf("retrySleep returned error: %v", err)
-	}
 	// attempt=0 means 1s delay; allow generous tolerance for CI
-	if elapsed < 900*time.Millisecond {
-		t.Fatalf("retrySleep(0) returned too quickly: %v", elapsed)
-	}
 }
 
 func TestRetrySleep_CancelledContext(t *testing.T) {
@@ -575,9 +554,9 @@ func TestRetrySleep_CancelledContext(t *testing.T) {
 	cancel() // cancel immediately
 
 	err := retrySleep(ctx, 0)
-	if err == nil {
-		t.Fatal("expected error from cancelled context, got nil")
-	}
+	require.Error(
+		t, err,
+	)
 }
 
 func TestRetrySleep_NegativeAttempt(t *testing.T) {
@@ -589,9 +568,7 @@ func TestRetrySleep_NegativeAttempt(t *testing.T) {
 	defer cancel()
 
 	err := retrySleep(ctx, -5)
-	if err != nil {
-		t.Fatalf("retrySleep with negative attempt returned error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // services.go: nilSafeBillingEnforcer
@@ -600,9 +577,7 @@ func TestNilSafeBillingEnforcer_NilInput(t *testing.T) {
 	t.Parallel()
 
 	got := nilSafeBillingEnforcer(nil)
-	if got != nil {
-		t.Fatalf("nilSafeBillingEnforcer(nil) returned non-nil: %v", got)
-	}
+	require.Nil(t, got)
 }
 
 func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
@@ -613,9 +588,7 @@ func TestNilSafeBillingEnforcer_NonNilInput(t *testing.T) {
 	// A typed nil *billing.Enforcer assigned to the interface would be non-nil.
 	var typed *billing.Enforcer
 	got := nilSafeBillingEnforcer(typed)
-	if got != nil {
-		t.Fatal("nilSafeBillingEnforcer(typed nil) should return nil interface")
-	}
+	require.Nil(t, got)
 }
 
 // services.go: logWorkerShutdownStart / logWorkerShutdownComplete

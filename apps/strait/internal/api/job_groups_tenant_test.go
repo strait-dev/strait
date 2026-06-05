@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newJobGroupMock(ownerProject string) *APIStoreMock {
@@ -58,10 +60,8 @@ func TestHandleGetJobGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/job-groups/grp_exists", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project get, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 }
 
 func TestHandleGetJobGroup_SameProjectAllowed(t *testing.T) {
@@ -72,10 +72,8 @@ func TestHandleGetJobGroup_SameProjectAllowed(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/job-groups/grp_exists", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for same-project get, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleUpdateJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -87,10 +85,8 @@ func TestHandleUpdateJobGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodPatch, "/v1/job-groups/grp_exists", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project update, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 }
 
 func TestHandleDeleteJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -106,13 +102,9 @@ func TestHandleDeleteJobGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodDelete, "/v1/job-groups/grp_exists", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project delete, got %d: %s", w.Code, w.Body.String())
-	}
-	if deleteCalled {
-		t.Fatal("DeleteJobGroup should not have been called for cross-project access")
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, deleteCalled)
 }
 
 func TestHandleListJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -123,12 +115,11 @@ func TestHandleListJobsByGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/job-groups/grp_exists/jobs", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	// Cross-project list returns 200 with empty results (not 404) because
 	// the group may have been deleted and the endpoint gracefully degrades.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for cross-project list jobs, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandlePauseAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -144,13 +135,9 @@ func TestHandlePauseAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/job-groups/grp_exists/pause-all", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project pause, got %d: %s", w.Code, w.Body.String())
-	}
-	if pauseCalled {
-		t.Fatal("PauseJobsByGroup should not have been called for cross-project access")
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, pauseCalled)
 }
 
 func TestHandleResumeAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
@@ -166,13 +153,9 @@ func TestHandleResumeAllJobsByGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/job-groups/grp_exists/resume-all", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project resume, got %d: %s", w.Code, w.Body.String())
-	}
-	if resumeCalled {
-		t.Fatal("ResumeJobsByGroup should not have been called for cross-project access")
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, resumeCalled)
 }
 
 func TestHandleGetJobGroupStats_CrossProjectBlocked(t *testing.T) {
@@ -183,10 +166,8 @@ func TestHandleGetJobGroupStats_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/job-groups/grp_exists/stats", "", "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project stats, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 }
 
 func TestHandleCreateJobGroup_CrossProjectBlocked(t *testing.T) {
@@ -203,13 +184,9 @@ func TestHandleCreateJobGroup_CrossProjectBlocked(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/job-groups/", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for cross-project create, got %d: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("CreateJobGroup should not have been called for cross-project access")
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
+	require.False(t, createCalled)
 }
 
 func TestHandleCreateJobGroup_SameProjectAllowed(t *testing.T) {
@@ -221,8 +198,6 @@ func TestHandleCreateJobGroup_SameProjectAllowed(t *testing.T) {
 	req := authedProjectRequest(http.MethodPost, "/v1/job-groups/", body, "proj-mine")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 for same-project create, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 }

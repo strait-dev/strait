@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestTracer_UnconditionalDelay(t *testing.T) {
@@ -16,12 +17,9 @@ func TestTracer_UnconditionalDelay(t *testing.T) {
 	start := time.Now()
 	_ = tr.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "select 1"})
 	elapsed := time.Since(start)
-	if elapsed < 15*time.Millisecond {
-		t.Fatalf("expected delay, got %v", elapsed)
-	}
-	if tr.InjectedCount() != 1 || tr.TotalCount() != 1 {
-		t.Fatalf("counters: injected=%d total=%d", tr.InjectedCount(), tr.TotalCount())
-	}
+	assert.GreaterOrEqual(t, elapsed, 15*time.Millisecond)
+	assert.Equal(t, int64(1), tr.InjectedCount())
+	assert.Equal(t, int64(1), tr.TotalCount())
 }
 
 func TestTracer_PatternMatch(t *testing.T) {
@@ -31,23 +29,15 @@ func TestTracer_PatternMatch(t *testing.T) {
 	// Non-matching query: no delay.
 	start := time.Now()
 	_ = tr.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "select 1"})
-	if d := time.Since(start); d > 5*time.Millisecond {
-		t.Fatalf("non-match should not delay, got %v", d)
-	}
+	assert.LessOrEqual(t, time.Since(start), 5*time.Millisecond)
 
 	// Matching query: delay applied.
 	start = time.Now()
 	_ = tr.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{SQL: "UPDATE job_runs SET x=1"})
-	if d := time.Since(start); d < 5*time.Millisecond {
-		t.Fatalf("match should delay, got %v", d)
-	}
+	assert.GreaterOrEqual(t, time.Since(start), 5*time.Millisecond)
 
-	if tr.InjectedCount() != 1 {
-		t.Fatalf("injected=%d want 1", tr.InjectedCount())
-	}
-	if tr.TotalCount() != 2 {
-		t.Fatalf("total=%d want 2", tr.TotalCount())
-	}
+	assert.Equal(t, int64(1), tr.InjectedCount())
+	assert.Equal(t, int64(2), tr.TotalCount())
 }
 
 func TestTracer_ContextCancelShortCircuits(t *testing.T) {
@@ -61,9 +51,7 @@ func TestTracer_ContextCancelShortCircuits(t *testing.T) {
 	})
 	start := time.Now()
 	_ = tr.TraceQueryStart(ctx, nil, pgx.TraceQueryStartData{SQL: "x"})
-	if d := time.Since(start); d > 200*time.Millisecond {
-		t.Fatalf("expected early return on cancel, got %v", d)
-	}
+	assert.LessOrEqual(t, time.Since(start), 200*time.Millisecond)
 }
 
 func TestTracer_SetRulesConcurrent(t *testing.T) {
@@ -78,9 +66,7 @@ func TestTracer_SetRulesConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	if tr.TotalCount() != 800 {
-		t.Fatalf("total=%d want 800", tr.TotalCount())
-	}
+	assert.Equal(t, int64(800), tr.TotalCount())
 }
 
 func TestTracer_TraceQueryEndNoOp(t *testing.T) {

@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setAdversarialRuntimeEnv(t *testing.T) {
@@ -50,12 +53,10 @@ func TestConfig_NegativePort(t *testing.T) {
 	setAdversarialRuntimeEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.Port != -1 {
-		t.Errorf("Port = %d, want -1", cfg.Port)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		-1, cfg.
+			Port)
 }
 
 // TestConfig_EmptyDatabaseURL verifies that missing DATABASE_URL returns
@@ -67,16 +68,17 @@ func TestConfig_EmptyDatabaseURL(t *testing.T) {
 	t.Setenv("JWT_SIGNING_KEY", "this-is-a-very-long-key-for-jwt-signing-1234")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for empty DATABASE_URL")
-	}
+	require.Error(t,
+		err)
+
 	var cfgErr *domain.ConfigError
-	if !isConfigError(err, &cfgErr) {
-		t.Fatalf("expected *domain.ConfigError, got %T: %v", err, err)
-	}
-	if cfgErr.Field != "DATABASE_URL" {
-		t.Errorf("ConfigError.Field = %q, want %q", cfgErr.Field, "DATABASE_URL")
-	}
+	require.True(t,
+		isConfigError(err,
+			&cfgErr))
+	assert.Equal(t,
+		"DATABASE_URL",
+		cfgErr.
+			Field)
 }
 
 // TestConfig_MalformedDatabaseURL verifies that a malformed DATABASE_URL
@@ -95,9 +97,11 @@ func TestConfig_MalformedDatabaseURL(t *testing.T) {
 		t.Logf("Load() returned error for malformed DATABASE_URL: %v", err)
 		return
 	}
-	if cfg.DatabaseURL != "://not-a-valid-url" {
-		t.Errorf("DatabaseURL = %q, want %q", cfg.DatabaseURL, "://not-a-valid-url")
-	}
+	assert.Equal(t,
+		"://not-a-valid-url",
+
+		cfg.DatabaseURL,
+	)
 }
 
 // TestConfig_ExtremeWorkerConcurrency verifies that an extreme concurrency
@@ -110,12 +114,12 @@ func TestConfig_ExtremeWorkerConcurrency(t *testing.T) {
 	setAdversarialRuntimeEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.WorkerConcurrency != math.MaxInt32 {
-		t.Errorf("WorkerConcurrency = %d, want %d", cfg.WorkerConcurrency, math.MaxInt32)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		math.MaxInt32,
+		cfg.
+			WorkerConcurrency,
+	)
 }
 
 // FuzzConfigParsing fuzzes key environment variables to check for panics

@@ -8,24 +8,30 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTenantIso_EventSources_ListSubs_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	_, err := srv.handleListEventSourceSubscriptions(context.Background(), &ListEventSourceSubscriptionsInput{SourceID: "src-1"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusBadRequest,
+		))
 }
 
 func TestTenantIso_EventSources_DeleteSub_EmptyProjectCtx_Rejected(t *testing.T) {
 	t.Parallel()
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	_, err := srv.handleDeleteEventSubscription(context.Background(), &DeleteEventSubscriptionInput{SourceID: "src-1", SubID: "sub-1"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusBadRequest,
+		))
 }
 
 func TestTenantIso_EventSources_DeleteSub_RejectsCrossProject(t *testing.T) {
@@ -35,16 +41,20 @@ func TestTenantIso_EventSources_DeleteSub_RejectsCrossProject(t *testing.T) {
 			return nil, store.ErrEventSourceNotFound
 		},
 		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
-			t.Fatal("DeleteEventSubscription must not be called for cross-project delete")
+			require.Fail(t,
+
+				"DeleteEventSubscription must not be called for cross-project delete")
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-aaa")
 	_, err := srv.handleDeleteEventSubscription(ctx, &DeleteEventSubscriptionInput{SourceID: "src-foreign", SubID: "sub-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
 }
 
 func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
@@ -64,13 +74,17 @@ func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
 			}}, nil
 		},
 		GetJobFunc: func(context.Context, string) (*domain.Job, error) {
-			t.Fatal("GetJob must not be called when caller lacks jobs:trigger")
+			require.Fail(t,
+
+				"GetJob must not be called when caller lacks jobs:trigger")
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(context.Context, *domain.JobRun) error {
-			t.Fatal("event dispatch must not enqueue with only jobs:write")
+			require.Fail(t,
+
+				"event dispatch must not enqueue with only jobs:write")
 			return nil
 		},
 	}, nil)
@@ -85,12 +99,8 @@ func TestEventDispatch_JobsWriteDoesNotTriggerJobSubscription(t *testing.T) {
 		ProjectID: "proj-1",
 		Payload:   []byte(`{"kind":"deploy"}`),
 	}})
-	if err != nil {
-		t.Fatalf("dispatch should skip unauthorized subscriptions without failing the whole event: %v", err)
-	}
-	if got := out.Body["dispatched"]; got != 0 {
-		t.Fatalf("dispatched = %v, want 0", got)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, out.Body["dispatched"])
 }
 
 func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
@@ -124,7 +134,9 @@ func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{
 		enqueueFn: func(context.Context, *domain.JobRun) error {
-			t.Fatal("event dispatch must not enqueue when job rate limit is exceeded")
+			require.Fail(t,
+
+				"event dispatch must not enqueue when job rate limit is exceeded")
 			return nil
 		},
 	}, nil)
@@ -139,10 +151,6 @@ func TestEventDispatch_EnforcesJobRateLimitGuardrail(t *testing.T) {
 		ProjectID: "proj-1",
 		Payload:   []byte(`{"kind":"deploy"}`),
 	}})
-	if err != nil {
-		t.Fatalf("dispatch should skip rate-limited subscriptions without failing the whole event: %v", err)
-	}
-	if got := out.Body["dispatched"]; got != 0 {
-		t.Fatalf("dispatched = %v, want 0", got)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, out.Body["dispatched"])
 }

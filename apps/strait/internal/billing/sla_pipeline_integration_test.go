@@ -16,6 +16,8 @@ import (
 
 	"strait/internal/billing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -136,17 +138,15 @@ func TestSLAPipeline_EndToEnd_IssuesCreditAndPersists(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 	credStore := billing.NewPgSLACreditStore(testDB.Pool)
 	store := pipelineStore{PgStore: pgStore, PgSLACreditStore: credStore}
+	require.NoError(t, pgStore.UpsertOrgSubscription(ctx, &billing.
+		OrgSubscription{ID: "sub-row-1",
+		OrgID: orgID, PlanTier: "enterprise",
 
-	if err := pgStore.UpsertOrgSubscription(ctx, &billing.OrgSubscription{
-		ID:                   "sub-row-1",
-		OrgID:                orgID,
-		PlanTier:             "enterprise",
-		Status:               "active",
-		StripeSubscriptionID: stripe.String(subID),
-		StripeCustomerID:     stripe.String(customerID),
-	}); err != nil {
-		t.Fatalf("UpsertOrgSubscription: %v", err)
-	}
+		Status: "active",
+
+		StripeSubscriptionID: stripe.
+			String(subID), StripeCustomerID: stripe.
+			String(customerID)}))
 
 	contractStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	contractEnd := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -163,7 +163,9 @@ func TestSLAPipeline_EndToEnd_IssuesCreditAndPersists(t *testing.T) {
 			true, 'annual', $6
 		)
 	`, newID(), orgID, int64(1_200_000), contractStart, contractEnd, subID); err != nil {
-		t.Fatalf("insert enterprise_contracts: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert enterprise_contracts: %v", err)
 	}
 
 	issuer := billing.NewStripeSLAIssuer("sk_test_fake", pgStore, slog.New(slog.DiscardHandler))
@@ -173,46 +175,39 @@ func TestSLAPipeline_EndToEnd_IssuesCreditAndPersists(t *testing.T) {
 	calc := billing.NewSLACalculator(store, staticUptime{pct: 93.0}, time.Hour, slog.New(slog.DiscardHandler)).
 		WithIssuer(issuer).
 		WithClock(func() time.Time { return now })
-
-	if err := calc.Tick(ctx); err != nil {
-		t.Fatalf("first Tick: %v", err)
-	}
+	require.NoError(t, calc.Tick(ctx))
 
 	row, err := credStore.GetSLACredit(ctx, orgID,
 		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 	)
-	if err != nil {
-		t.Fatalf("GetSLACredit: %v", err)
-	}
-	if row == nil {
-		t.Fatal("expected an sla_credits row after first Tick")
-	}
-	if row.StripeCreditNoteID != "cn_pipeline_001" {
-		t.Errorf("stripe_credit_note_id = %q, want cn_pipeline_001", row.StripeCreditNoteID)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, row)
+	assert.Equal(
+		t, "cn_pipeline_001",
+
+		row.StripeCreditNoteID,
+	)
 
 	creditNotePOSTs := 0
 	for _, r := range fake.snapshot() {
 		if r.Method == http.MethodPost && r.Path == "/v1/credit_notes" {
 			creditNotePOSTs++
-			if r.IdempotencyKey != "sla-credit-"+orgID+"-2026-05" {
-				t.Errorf("idempotency key = %q, want sla-credit-%s-2026-05", r.IdempotencyKey, orgID)
-			}
+			assert.Equal(
+				t, "sla-credit-"+orgID+
+					"-2026-05",
+				r.IdempotencyKey,
+			)
+
 		}
 	}
-	if creditNotePOSTs != 1 {
-		t.Errorf("credit-note POSTs = %d after first Tick, want 1", creditNotePOSTs)
-	}
+	assert.EqualValues(t, 1, creditNotePOSTs)
 
 	// Second tick must be a clean no-op.
 	before := len(fake.snapshot())
-	if err := calc.Tick(ctx); err != nil {
-		t.Fatalf("second Tick: %v", err)
-	}
-	if got := len(fake.snapshot()) - before; got != 0 {
-		t.Errorf("second Tick made %d Stripe calls, want 0", got)
-	}
+	require.NoError(t, calc.Tick(ctx))
+	assert.EqualValues(t, 0, len(fake.snapshot())-before)
+
 }
 
 // TestSLAPipeline_StripeFailure_DoesNotPersistRow asserts the atomicity
@@ -236,17 +231,15 @@ func TestSLAPipeline_StripeFailure_DoesNotPersistRow(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 	credStore := billing.NewPgSLACreditStore(testDB.Pool)
 	store := pipelineStore{PgStore: pgStore, PgSLACreditStore: credStore}
+	require.NoError(t, pgStore.UpsertOrgSubscription(ctx, &billing.
+		OrgSubscription{ID: "sub-row-2",
+		OrgID: orgID, PlanTier: "enterprise",
 
-	if err := pgStore.UpsertOrgSubscription(ctx, &billing.OrgSubscription{
-		ID:                   "sub-row-2",
-		OrgID:                orgID,
-		PlanTier:             "enterprise",
-		Status:               "active",
-		StripeSubscriptionID: stripe.String(subID),
-		StripeCustomerID:     stripe.String(customerID),
-	}); err != nil {
-		t.Fatalf("UpsertOrgSubscription: %v", err)
-	}
+		Status: "active",
+
+		StripeSubscriptionID: stripe.
+			String(subID), StripeCustomerID: stripe.
+			String(customerID)}))
 
 	contractStart := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	contractEnd := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -263,7 +256,9 @@ func TestSLAPipeline_StripeFailure_DoesNotPersistRow(t *testing.T) {
 			true, 'annual', $6
 		)
 	`, newID(), orgID, int64(1_200_000), contractStart, contractEnd, subID); err != nil {
-		t.Fatalf("insert enterprise_contracts: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert enterprise_contracts: %v", err)
 	}
 
 	issuer := billing.NewStripeSLAIssuer("sk_test_fake", pgStore, slog.New(slog.DiscardHandler))
@@ -271,26 +266,19 @@ func TestSLAPipeline_StripeFailure_DoesNotPersistRow(t *testing.T) {
 	calc := billing.NewSLACalculator(store, staticUptime{pct: 93.0}, time.Hour, slog.New(slog.DiscardHandler)).
 		WithIssuer(issuer).
 		WithClock(func() time.Time { return now })
+	require.NoError(t, calc.Tick(ctx))
 
 	// processContract swallows per-org errors so Tick itself returns nil.
-	if err := calc.Tick(ctx); err != nil {
-		t.Fatalf("Tick: %v", err)
-	}
 
 	row, err := credStore.GetSLACredit(ctx, orgID,
 		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 	)
-	if err != nil {
-		t.Fatalf("GetSLACredit: %v", err)
-	}
-	if row != nil {
-		t.Errorf("expected NO sla_credits row when Stripe failed; got %+v", row)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, row)
+	assert.NotEqual(t, 0, failingFake.
+		creditNotePOSTs())
 
-	if c := failingFake.creditNotePOSTs(); c == 0 {
-		t.Error("expected at least one credit-note POST attempt before the failure")
-	}
 }
 
 // newSLAStripeFakeWithFailure is the failing-Stripe variant used by the

@@ -9,20 +9,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestChaosHarness_DoesNotUseHostWideProcessKills(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile("chaos.go")
-	if err != nil {
-		t.Fatalf("read chaos.go: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	source := string(data)
 	for _, forbidden := range []string{`"pkill"`, `"killall"`, `"pgrep"`} {
-		if strings.Contains(source, forbidden) {
-			t.Fatalf("chaos harness contains host-wide process command %s", forbidden)
-		}
+		require.False(t, strings.Contains(source,
+			forbidden,
+		))
+
 	}
 }
 
@@ -30,31 +34,36 @@ func TestChaosHarness_RunEventsPressureUsesCurrentSchema(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile("chaos.go")
-	if err != nil {
-		t.Fatalf("read chaos.go: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	source := string(data)
-	if strings.Contains(source, "event_type") {
-		t.Fatal("run_events pressure scenario references removed event_type column")
-	}
-	if strings.Contains(source, "run_events (id, run_id, project_id") {
-		t.Fatal("run_events pressure scenario inserts removed project_id column")
-	}
-	if strings.Contains(source, "job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)") {
-		t.Fatal("job_runs chaos scenarios insert removed updated_at column")
-	}
+	require.False(t, strings.Contains(source,
+		"event_type",
+	),
+	)
+	require.False(t, strings.Contains(source,
+		"run_events (id, run_id, project_id",
+	))
+	require.False(t, strings.Contains(source,
+		"job_runs (id, job_id, project_id, status, payload, triggered_by, created_at, updated_at)",
+	))
+
 	for _, required := range []string{"run_events (id, run_id, type, level, message, data, created_at)", "'loadtest_pressure'"} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("run_events pressure scenario missing expected schema fragment %q", required)
-		}
+		require.True(t, strings.Contains(source,
+			required,
+		))
+
 	}
 	for _, required := range []string{
 		"job_runs (id, job_id, project_id, status, payload, triggered_by, created_at)",
 		"'loadtest-clock-skew-'",
 	} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("job_runs chaos scenario missing expected schema fragment %q", required)
-		}
+		require.True(t, strings.Contains(source,
+			required,
+		))
+
 	}
 }
 
@@ -62,9 +71,10 @@ func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile("chaos.go")
-	if err != nil {
-		t.Fatalf("read chaos.go: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	source := string(data)
 	for _, required := range []string{
 		"DELETE FROM run_events re",
@@ -75,9 +85,10 @@ func TestChaosHarness_DiskPressureCleanupIsRunScoped(t *testing.T) {
 		"DELETE FROM job_runs",
 		"WHERE id = $2",
 	} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("disk pressure cleanup missing scoped fragment %q", required)
-		}
+		require.True(t, strings.Contains(source,
+			required,
+		))
+
 	}
 }
 
@@ -85,13 +96,15 @@ func TestChaosHarness_CleanupUsesDetachedContext(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile("chaos.go")
-	if err != nil {
-		t.Fatalf("read chaos.go: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	source := string(data)
-	if !strings.Contains(source, "func chaosCleanupContext() (context.Context, context.CancelFunc)") {
-		t.Fatal("chaos cleanup helper is missing")
-	}
+	require.True(t, strings.Contains(source,
+		"func chaosCleanupContext() (context.Context, context.CancelFunc)",
+	))
+
 	for _, required := range []string{
 		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", container)",
 		"exec.CommandContext(cleanupCtx, \"docker\", \"unpause\", container)",
@@ -99,9 +112,10 @@ func TestChaosHarness_CleanupUsesDetachedContext(t *testing.T) {
 		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", redisContainer)",
 		"exec.CommandContext(cleanupCtx, \"docker\", \"start\", straitContainer)",
 	} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("chaos cleanup missing detached-context fragment %q", required)
-		}
+		require.True(t, strings.Contains(source,
+			required,
+		))
+
 	}
 }
 
@@ -115,12 +129,14 @@ func TestFindContainer_RequiresExactLoadtestContainerName(t *testing.T) {
 	defer restore()
 
 	got, err := findContainer("postgres")
-	if err != nil {
-		t.Fatalf("findContainer(postgres): %v", err)
-	}
-	if got != "strait-postgres" {
-		t.Fatalf("findContainer(postgres) = %q, want exact strait-postgres", got)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t, "strait-postgres",
+
+		got,
+	)
+
 }
 
 func TestFindContainer_FailsClosedWhenOnlySubstringMatches(t *testing.T) {
@@ -131,9 +147,9 @@ func TestFindContainer_FailsClosedWhenOnlySubstringMatches(t *testing.T) {
 	})
 	defer restore()
 
-	if got, err := findContainer("postgres"); err == nil {
-		t.Fatalf("findContainer(postgres) = %q, want error when only substring matches exist", got)
-	}
+	got, err := findContainer("postgres")
+	require.Error(t, err)
+	require.Empty(t, got)
 }
 
 func TestFindContainer_UsesExplicitLoadtestOverrideExactly(t *testing.T) {
@@ -147,12 +163,13 @@ func TestFindContainer_UsesExplicitLoadtestOverrideExactly(t *testing.T) {
 	defer restore()
 
 	got, err := findContainer("redis")
-	if err != nil {
-		t.Fatalf("findContainer(redis): %v", err)
-	}
-	if got != "strait-pr-147-redis" {
-		t.Fatalf("findContainer(redis) = %q, want override exact match", got)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t, "strait-pr-147-redis",
+
+		got)
+
 }
 
 func TestFindContainer_PropagatesDockerListError(t *testing.T) {
@@ -166,9 +183,8 @@ func TestFindContainer_PropagatesDockerListError(t *testing.T) {
 		listDockerContainerNames = orig
 	})
 
-	if _, err := findContainer("postgres"); !errors.Is(err, want) {
-		t.Fatalf("findContainer(postgres) error = %v, want %v", err, want)
-	}
+	_, err := findContainer("postgres")
+	require.ErrorIs(t, err, want)
 }
 
 func TestChaosCascadingFailure_FailsClosedWhenRedisMissing(t *testing.T) {
@@ -177,12 +193,9 @@ func TestChaosCascadingFailure_FailsClosedWhenRedisMissing(t *testing.T) {
 
 	ce := &ChaosEngine{}
 	err := ce.chaosCascadingFailure(t.Context())
-	if err == nil {
-		t.Fatal("expected cascading failure scenario to fail when redis container is missing")
-	}
-	if !strings.Contains(err.Error(), "finding redis container") {
-		t.Fatalf("error = %q, want redis discovery failure", err.Error())
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "finding redis container"))
+
 }
 
 func TestTrafficSpikeFailsClosedWhenAllTriggersFail(t *testing.T) {
@@ -196,18 +209,20 @@ func TestTrafficSpikeFailsClosedWhenAllTriggersFail(t *testing.T) {
 	}
 
 	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
-	if err == nil {
-		t.Fatal("expected traffic spike to fail when every trigger fails")
-	}
-	if attempts == 0 {
-		t.Fatal("expected traffic spike attempts")
-	}
-	if successes != 0 {
-		t.Fatalf("successes = %d, want 0", successes)
-	}
-	if ce.errorCount.Load() == 0 {
-		t.Fatal("expected failed spike attempts to increment errorCount")
-	}
+	require.Error(t, err)
+	require.NotEqual(t,
+
+		0, attempts,
+	)
+	require.EqualValues(t, 0,
+
+		successes,
+	)
+	require.NotEqual(t,
+
+		0, ce.errorCount.
+			Load())
+
 }
 
 func TestTrafficSpikeRequiresAtLeastOneAttempt(t *testing.T) {
@@ -215,12 +230,11 @@ func TestTrafficSpikeRequiresAtLeastOneAttempt(t *testing.T) {
 
 	ce := &ChaosEngine{loadRate: 1}
 	attempts, successes, err := ce.runTrafficSpike(t.Context(), time.Nanosecond, time.Hour)
-	if err == nil {
-		t.Fatal("expected traffic spike with no ticks to fail")
-	}
-	if attempts != 0 || successes != 0 {
-		t.Fatalf("attempts=%d successes=%d, want zero values", attempts, successes)
-	}
+	require.Error(t, err)
+	require.False(t, attempts !=
+		0 || successes !=
+		0)
+
 }
 
 func TestTrafficSpikeCountsSuccessfulTriggers(t *testing.T) {
@@ -234,15 +248,17 @@ func TestTrafficSpikeCountsSuccessfulTriggers(t *testing.T) {
 	}
 
 	attempts, successes, err := ce.runTrafficSpike(t.Context(), 20*time.Millisecond, time.Millisecond)
-	if err != nil {
-		t.Fatalf("runTrafficSpike() error = %v", err)
-	}
-	if attempts == 0 || successes == 0 {
-		t.Fatalf("attempts=%d successes=%d, want non-zero", attempts, successes)
-	}
-	if ce.triggerCount.Load() != successes {
-		t.Fatalf("triggerCount = %d, want successes %d", ce.triggerCount.Load(), successes)
-	}
+	require.NoError(t,
+
+		err)
+	require.False(t, attempts ==
+		0 || successes ==
+		0)
+	require.Equal(t, successes,
+
+		ce.triggerCount.
+			Load())
+
 }
 
 func stubDockerContainerNames(t *testing.T, names []string) func() {

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestGenerateDeviceCode_Format verifies that generateDeviceCode returns a
@@ -19,14 +21,14 @@ func TestGenerateDeviceCode_Format(t *testing.T) {
 	t.Parallel()
 
 	code, err := generateDeviceCode()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(code) != 64 {
-		t.Fatalf("expected 64-char hex string, got %d chars: %q", len(code), code)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		code, 64)
+
 	if _, err := hex.DecodeString(code); err != nil {
-		t.Fatalf("code is not valid hex: %v", err)
+		require.Failf(t, "test failure",
+
+			"code is not valid hex: %v", err)
 	}
 }
 
@@ -39,11 +41,12 @@ func TestGenerateDeviceCode_Uniqueness(t *testing.T) {
 	seen := make(map[string]struct{}, n)
 	for i := range n {
 		code, err := generateDeviceCode()
-		if err != nil {
-			t.Fatalf("iteration %d: %v", i, err)
-		}
+		require.NoError(t, err)
+
 		if _, exists := seen[code]; exists {
-			t.Fatalf("duplicate device code at iteration %d: %q", i, code)
+			require.Failf(t, "test failure",
+
+				"duplicate device code at iteration %d: %q", i, code)
 		}
 		seen[code] = struct{}{}
 	}
@@ -55,12 +58,9 @@ func TestGenerateUserCode_Format(t *testing.T) {
 	t.Parallel()
 
 	code, err := generateUserCode()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(code) != 8 {
-		t.Fatalf("expected 8-char user code, got %d chars: %q", len(code), code)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		code, 8)
 }
 
 // TestGenerateUserCode_Alphabet verifies that all characters in the generated
@@ -68,15 +68,15 @@ func TestGenerateUserCode_Format(t *testing.T) {
 func TestGenerateUserCode_Alphabet(t *testing.T) {
 	t.Parallel()
 
-	for i := range 1000 {
+	for range 1000 {
 		code, err := generateUserCode()
-		if err != nil {
-			t.Fatalf("iteration %d: %v", i, err)
-		}
-		for j, ch := range code {
-			if !strings.ContainsRune(userCodeAlphabet, ch) {
-				t.Fatalf("iteration %d: char %d (%q) not in alphabet %q", i, j, string(ch), userCodeAlphabet)
-			}
+		require.NoError(t, err)
+
+		for _, ch := range code {
+			require.True(
+				t, strings.ContainsRune(userCodeAlphabet,
+					ch),
+			)
 		}
 	}
 }
@@ -105,17 +105,14 @@ func TestDeviceToken_ExpiredCode(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["error"] != "expired_token" {
-		t.Fatalf("error = %q, want %q", resp["error"], "expired_token")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "expired_token",
+		resp["error"])
 }
 
 // TestDeviceToken_AlreadyUsedCode verifies that an already-used device code is
@@ -142,17 +139,14 @@ func TestDeviceToken_AlreadyUsedCode(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["error"] != "token_already_exchanged" {
-		t.Fatalf("error = %q, want %q", resp["error"], "token_already_exchanged")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "token_already_exchanged",
+		resp["error"])
 }
 
 // TestDeviceToken_InvalidGrantType verifies that a wrong grant_type value is
@@ -173,10 +167,9 @@ func TestDeviceToken_InvalidGrantType(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 }
 
 // TestDeviceToken_EmptyDeviceCode verifies that an empty device_code value is
@@ -197,10 +190,9 @@ func TestDeviceToken_EmptyDeviceCode(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
 }
 
 // FuzzGenerateUserCode_Alphabet fuzzes generateUserCode to verify that every
@@ -212,16 +204,15 @@ func FuzzGenerateUserCode_Alphabet(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, _ uint64) {
 		code, err := generateUserCode()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(code) != 8 {
-			t.Fatalf("expected 8-char code, got %d", len(code))
-		}
-		for i, ch := range code {
-			if !strings.ContainsRune(userCodeAlphabet, ch) {
-				t.Fatalf("char %d (%q) not in alphabet", i, string(ch))
-			}
+		require.NoError(t, err)
+		require.Len(t,
+			code, 8)
+
+		for _, ch := range code {
+			require.True(
+				t, strings.ContainsRune(userCodeAlphabet,
+					ch),
+			)
 		}
 	})
 }
@@ -235,14 +226,14 @@ func FuzzDeviceCodeFormat(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, _ uint64) {
 		code, err := generateDeviceCode()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(code) != 64 {
-			t.Fatalf("expected 64-char hex, got %d chars", len(code))
-		}
+		require.NoError(t, err)
+		require.Len(t,
+			code, 64)
+
 		if _, err := hex.DecodeString(code); err != nil {
-			t.Fatalf("code is not valid hex: %v", err)
+			require.Failf(t, "test failure",
+
+				"code is not valid hex: %v", err)
 		}
 	})
 }

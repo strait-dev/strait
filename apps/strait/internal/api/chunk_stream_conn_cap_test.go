@@ -11,6 +11,8 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newChunkStreamServer(t *testing.T, ms *APIStoreMock, pub *mockPublisher, maxPerProject int64) *Server {
@@ -57,24 +59,24 @@ func TestChunkStreamRespectsPerProjectCap(t *testing.T) {
 
 	pub := &mockPublisher{
 		subscribeFn: func(_ context.Context, _ string) (*pubsub.Subscription, error) {
-			t.Fatal("Subscribe should not be reached when conn cap is exhausted")
+			require.Fail(t,
+
+				"Subscribe should not be reached when conn cap is exhausted")
 			return nil, nil
 		},
 	}
 	srv := newChunkStreamServer(t, executingRunStore(), pub, 1)
-
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("baseline acquire should succeed")
-	}
+	require.True(
+		t, srv.acquireSSEConn(
+			"proj-1"))
 
 	w := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when per-project cap is exhausted, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // TestChunkStreamReleasesOnHandlerReturn proves the handler defers the
@@ -89,20 +91,18 @@ func TestChunkStreamReleasesOnHandlerReturn(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with SSE error body, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	counter := srv.projectSSECounter("proj-1")
-	if got := counter.Load(); got != 0 {
-		t.Fatalf("per-project counter not released: got %d, want 0", got)
-	}
+	require.EqualValues(t, 0, counter.
+		Load())
+	require.True(
+		t, srv.acquireSSEConn(
+			"proj-1"))
 
 	// A second acquire on the same project must succeed now that the handler released its slot.
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("acquire after handler return should succeed")
-	}
 }
 
 // TestChunkStreamReleasesOnEarlyError ensures the slot is released when
@@ -123,16 +123,13 @@ func TestChunkStreamReleasesOnEarlyError(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with SSE error body, got %d", w.Code)
-	}
-	if subscribeCalls.Load() != 1 {
-		t.Fatalf("expected Subscribe to be called once, got %d", subscribeCalls.Load())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.EqualValues(t, 1, subscribeCalls.
+		Load())
 
 	counter := srv.projectSSECounter("proj-1")
-	if got := counter.Load(); got != 0 {
-		t.Fatalf("per-project counter not released after subscribe error: got %d, want 0", got)
-	}
+	require.EqualValues(t, 0, counter.
+		Load())
 }

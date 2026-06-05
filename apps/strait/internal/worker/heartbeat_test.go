@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type mockHeartbeatStore struct {
@@ -89,22 +90,21 @@ func TestNewHeartbeatSender_PrefersSideTableStore(t *testing.T) {
 	h.flush(context.Background())
 
 	legacyCalls, sideCalls, singleCalls := store.snapshot()
-	if legacyCalls != 0 {
-		t.Fatalf("legacy UpdateHeartbeat calls = %d, want 0", legacyCalls)
-	}
-	if len(singleCalls) != 0 {
-		t.Fatalf("single side-table calls = %d, want 0", len(singleCalls))
-	}
-	if len(sideCalls) != 1 {
-		t.Fatalf("side-table batch calls = %d, want 1", len(sideCalls))
-	}
+	require.Equal(t, 0, legacyCalls)
+	require.Empty(t, singleCalls)
+	require.Len(t, sideCalls,
+
+		1)
+
 	got := map[string]struct{}{}
 	for _, id := range sideCalls[0] {
 		got[id] = struct{}{}
 	}
 	for _, id := range []string{"run-1", "run-2"} {
 		if _, ok := got[id]; !ok {
-			t.Fatalf("side-table batch ids = %v, missing %s", sideCalls[0], id)
+			require.Failf(t, "test failure",
+
+				"side-table batch ids = %v, missing %s", sideCalls[0], id)
 		}
 	}
 }
@@ -146,9 +146,9 @@ func TestHeartbeatManager_RegisterDeregister(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewHeartbeatManager(&mockHeartbeatStore{}, 5*time.Millisecond)
 			tt.run(h)
-			if got := h.ActiveCount(); got != tt.want {
-				t.Fatalf("ActiveCount() = %d, want %d", got, tt.want)
-			}
+			require.Equal(t,
+				tt.want,
+				h.ActiveCount())
 		})
 	}
 }
@@ -211,35 +211,36 @@ func TestHeartbeatManager_Run_Batching(t *testing.T) {
 			select {
 			case <-done:
 			case <-time.After(300 * time.Millisecond):
-				t.Fatal("Run() did not stop after cancel")
+				require.Fail(t, "Run() did not stop after cancel")
 			}
 
 			calls := store.calls()
-			if len(calls) < tt.wantMinCalls {
-				t.Fatalf("batch call count = %d, want at least %d", len(calls), tt.wantMinCalls)
-			}
+			require.GreaterOrEqual(
+				t, len(calls), tt.wantMinCalls,
+			)
 
 			if len(tt.wantFirstCallID) == 0 {
-				if len(calls) != 0 {
-					t.Fatalf("batch call count = %d, want 0", len(calls))
-				}
+				require.Empty(t, calls)
+
 				return
 			}
-
-			if len(calls) == 0 {
-				t.Fatal("no batch calls recorded")
-			}
+			require.NotEmpty(t, calls)
 
 			firstSet := make(map[string]struct{}, len(calls[0]))
 			for _, id := range calls[0] {
 				firstSet[id] = struct{}{}
 			}
-			if len(firstSet) != len(tt.wantFirstCallID) {
-				t.Fatalf("first batch unique id count = %d, want %d", len(firstSet), len(tt.wantFirstCallID))
-			}
+			require.Len(t, firstSet,
+
+				len(tt.
+					wantFirstCallID,
+				))
+
 			for id := range tt.wantFirstCallID {
 				if _, ok := firstSet[id]; !ok {
-					t.Fatalf("first batch ids = %v, missing %s", calls[0], id)
+					require.Failf(t, "test failure",
+
+						"first batch ids = %v, missing %s", calls[0], id)
 				}
 			}
 		})
@@ -276,10 +277,7 @@ func TestHeartbeatManager_ConcurrentRegisterDeregister(t *testing.T) {
 			}
 
 			wg.Wait()
-
-			if got := h.ActiveCount(); got != 0 {
-				t.Fatalf("ActiveCount() = %d, want 0", got)
-			}
+			require.Equal(t, 0, h.ActiveCount())
 		})
 	}
 }
@@ -291,9 +289,12 @@ func TestHeartbeatSender_Run(t *testing.T) {
 	beats := make(chan struct{}, 10)
 	store := &mockExecutorStore{}
 	store.batchUpdateHeartbeatFn = func(_ context.Context, ids []string) error {
-		if len(ids) != 1 || ids[0] != "run-1" {
-			t.Fatalf("batch ids = %v, want [run-1]", ids)
-		}
+		require.False(t,
+			len(ids) != 1 ||
+				ids[0] !=
+					"run-1",
+		)
+
 		beats <- struct{}{}
 		return nil
 	}
@@ -310,7 +311,7 @@ func TestHeartbeatSender_Run(t *testing.T) {
 		select {
 		case <-beats:
 		case <-time.After(300 * time.Millisecond):
-			t.Fatalf("heartbeat %d not received in time", i+1)
+			require.Failf(t, "test failure", "heartbeat %d not received in time", i+1)
 		}
 	}
 
@@ -331,7 +332,7 @@ func waitForHeartbeatCalls(t *testing.T, store *mockHeartbeatStore, want int, ti
 				return
 			}
 		case <-deadline:
-			t.Fatalf("timed out waiting for %d heartbeat calls", want)
+			require.Failf(t, "test failure", "timed out waiting for %d heartbeat calls", want)
 		}
 	}
 }
@@ -346,7 +347,9 @@ func waitForNoHeartbeatCalls(t *testing.T, store *mockHeartbeatStore, wait time.
 		select {
 		case <-ticker.C:
 			if len(store.calls()) > 0 {
-				t.Fatal("expected no heartbeat calls, but got some")
+				require.Fail(t,
+
+					"expected no heartbeat calls, but got some")
 			}
 		case <-deadline:
 			return

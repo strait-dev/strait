@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // auditCoverageExemptHandlers lists handlers that must NOT emit audit events.
@@ -114,15 +116,11 @@ func TestAuditCoverageGuard(t *testing.T) {
 	t.Parallel()
 
 	dir, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
 
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
-	}
+	require.NoError(t, err)
 
 	type handlerInfo struct {
 		name string
@@ -143,9 +141,8 @@ func TestAuditCoverageGuard(t *testing.T) {
 
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if parseErr != nil {
-			t.Fatalf("parse %s: %v", name, parseErr)
-		}
+		require.NoError(t, parseErr)
+
 		files[name] = file
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -212,8 +209,9 @@ func TestAuditCoverageGuard(t *testing.T) {
 	b.WriteString("\nadd a call to s.emitAuditEvent (or s.emitAuditEventAsync for the hot path), ")
 	b.WriteString("or — if the handler is truly read-only — add it to ")
 	b.WriteString("auditCoverageExemptHandlers with a documented reason.\n")
+	require.Fail(t,
 
-	t.Fatal(b.String())
+		b.String())
 }
 
 // isServerReceiver reports whether the function's receiver is *api.Server.
@@ -305,14 +303,11 @@ func TestAuditNegativePathFloor(t *testing.T) {
 	t.Parallel()
 
 	path, err := filepath.Abs("audit_negative_path_test.go")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
+
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
+	require.NoError(t, err)
 
 	count := 0
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -333,12 +328,9 @@ func TestAuditNegativePathFloor(t *testing.T) {
 		}
 		return true
 	})
-
-	if count < auditNegativePathFloor {
-		t.Fatalf("audit_negative_path_test.go has %d _StoreError subcases, floor is %d. "+
-			"add more negative-path assertions (or, with justification, lower the floor).",
-			count, auditNegativePathFloor)
-	}
+	require.GreaterOrEqual(t,
+		count, auditNegativePathFloor,
+	)
 }
 
 // itoa is a small int→string helper so the test has no runtime dependencies

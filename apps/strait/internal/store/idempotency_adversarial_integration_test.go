@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/store"
 )
@@ -22,7 +24,9 @@ func TestIdempotency_SustainedHotKey_NoErrors(t *testing.T) {
 	q := mustStore(t)
 
 	if _, err := testDB.Pool.Exec(ctx, "SET lock_timeout = '500ms'"); err != nil {
-		t.Fatalf("set lock_timeout: %v", err)
+		require.Failf(t, "test failure",
+
+			"set lock_timeout: %v", err)
 	}
 	t.Cleanup(func() {
 		_, _ = testDB.Pool.Exec(ctx, "RESET lock_timeout")
@@ -46,7 +50,9 @@ func TestIdempotency_SustainedHotKey_NoErrors(t *testing.T) {
 				status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Minute)
 				if err != nil {
 					atomic.AddInt64(&errs, 1)
-					t.Errorf("round=%d i=%d: %v", round, i, err)
+					assert.Failf(t, "test failure",
+
+						"round=%d i=%d: %v", round, i, err)
 					return
 				}
 				switch status {
@@ -59,17 +65,15 @@ func TestIdempotency_SustainedHotKey_NoErrors(t *testing.T) {
 		}
 	}
 	wg.Wait()
+	require.EqualValues(t, 0, errs)
+	require.EqualValues(t, 4, acquired)
+	require.EqualValues(t, concurrent*
+		rounds,
+		acquired+
+			pending)
 
-	if errs != 0 {
-		t.Fatalf("got %d errors under sustained contention (advisory lock + retry should absorb)", errs)
-	}
 	// Exactly len(keys) acquisitions; rest are pending replays.
-	if acquired != 4 {
-		t.Fatalf("acquired = %d, want 4 (one per hot key)", acquired)
-	}
-	if total := acquired + pending; total != concurrent*rounds {
-		t.Fatalf("acquired+pending = %d, want %d", total, concurrent*rounds)
-	}
+
 }
 
 // TestIdempotency_AcquireThenCompleteThenReacquireAcrossExpiry walks the full
@@ -85,25 +89,34 @@ func TestIdempotency_AcquireThenCompleteThenReacquireAcrossExpiry(t *testing.T) 
 	key := "key-lifecycle-" + newID()
 
 	status, _, _, _, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil || status != store.IdempotencyAcquired {
-		t.Fatalf("phase1 acquire: status=%q err=%v", status, err)
-	}
-	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 200, nil, []byte(`"phase1"`)); err != nil {
-		t.Fatalf("phase1 complete: %v", err)
-	}
+	require.False(t, err !=
+
+		nil || status !=
+		store.
+			IdempotencyAcquired,
+	)
+	require.NoError(t, q.CompleteIdempotencyKey(
+		ctx, projectID,
+		key, 200,
+		nil, []byte(`"phase1"`)))
 
 	// Replay should see completed. JSONB stores quoted-string scalars with no
 	// extra whitespace, so an exact match is safe here.
 	status, _, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-	if err != nil || status != store.IdempotencyComplete || string(body) != `"phase1"` {
-		t.Fatalf("phase1 replay: status=%q body=%q err=%v", status, body, err)
-	}
+	require.False(t, err !=
+
+		nil || status !=
+		store.
+			IdempotencyComplete ||
+		string(body) != `"phase1"`)
 
 	// Force-expire and re-acquire under contention.
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE idempotency_keys SET expires_at = NOW() - INTERVAL '1 hour'
 		WHERE project_id = $1 AND key = $2`, projectID, key); err != nil {
-		t.Fatalf("force-expire: %v", err)
+		require.Failf(t, "test failure",
+
+			"force-expire: %v", err)
 	}
 
 	const concurrent = 16
@@ -112,10 +125,8 @@ func TestIdempotency_AcquireThenCompleteThenReacquireAcrossExpiry(t *testing.T) 
 	for range concurrent {
 		wg.Go(func() {
 			s, _, _, _, e := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
-			if e != nil {
-				t.Errorf("phase2 acquire: %v", e)
-				return
-			}
+			assert.Nil(t, e)
+
 			switch s {
 			case store.IdempotencyAcquired:
 				atomic.AddInt64(&acquired, 1)
@@ -125,11 +136,9 @@ func TestIdempotency_AcquireThenCompleteThenReacquireAcrossExpiry(t *testing.T) 
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 1, acquired)
+	require.EqualValues(t, concurrent-
+		1,
+		pending)
 
-	if acquired != 1 {
-		t.Fatalf("phase2 acquired = %d, want 1 (race after expiry)", acquired)
-	}
-	if pending != concurrent-1 {
-		t.Fatalf("phase2 pending = %d, want %d", pending, concurrent-1)
-	}
 }

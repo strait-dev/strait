@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeRow struct {
@@ -49,14 +50,10 @@ func TestCacheWarmer_WarmExecutesQueries(t *testing.T) {
 
 	fakeDB := &fakeQueryRower{}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
-
-	if err := w.Warm(t.Context()); err != nil {
-		t.Fatalf("warm cache: %v", err)
-	}
-
-	if len(fakeDB.queries) != 4 {
-		t.Fatalf("executed queries = %d, want 4", len(fakeDB.queries))
-	}
+	require.NoError(t, w.Warm(t.Context()))
+	require.Len(t,
+		fakeDB.queries,
+		4)
 }
 
 func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
@@ -65,10 +62,7 @@ func TestCacheWarmer_WarmIgnoresNoRows(t *testing.T) {
 	query := "SELECT 1 FROM jobs LIMIT 1"
 	fakeDB := &fakeQueryRower{errs: map[string]error{query: pgx.ErrNoRows}}
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
-
-	if err := w.Warm(t.Context()); err != nil {
-		t.Fatalf("warm cache with no rows: %v", err)
-	}
+	require.NoError(t, w.Warm(t.Context()))
 }
 
 func TestCacheWarmer_WarmReturnsError(t *testing.T) {
@@ -79,7 +73,6 @@ func TestCacheWarmer_WarmReturnsError(t *testing.T) {
 	w := &CacheWarmer{db: fakeDB, logger: slog.New(slog.DiscardHandler)}
 
 	err := w.Warm(t.Context())
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t,
+		err)
 }

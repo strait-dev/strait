@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fakeProjectLister returns a fixed slice of project IDs for the given org.
@@ -56,13 +58,13 @@ func TestBillingDispatcher_NoProjects_NoDeliveries(t *testing.T) {
 	t.Parallel()
 
 	d, ms := newDispatcherFixture(t, map[string][]string{}, nil)
+	require.NoError(t,
+		d.DispatchBillingEvent(context.
+			Background(), "org-empty", domain.WebhookEventBillingCapWarning,
 
-	if err := d.DispatchBillingEvent(context.Background(), "org-empty", domain.WebhookEventBillingCapWarning, []byte(`{"x":1}`)); err != nil {
-		t.Fatalf("dispatch: %v", err)
-	}
-	if got := len(ms.getDeliveries()); got != 0 {
-		t.Fatalf("expected 0 deliveries, got %d", got)
-	}
+			[]byte(`{"x":1}`)))
+	require.Empty(t, ms.
+		getDeliveries())
 }
 
 func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
@@ -86,9 +88,11 @@ func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
 	d, ms := newDispatcherFixture(t, map[string][]string{orgID: {"proj-a", "proj-b"}}, subs)
 
 	payload := []byte(`{"detail":"warn"}`)
-	if err := d.DispatchBillingEvent(context.Background(), orgID, domain.WebhookEventBillingCapWarning, payload); err != nil {
-		t.Fatalf("dispatch: %v", err)
-	}
+	require.NoError(t,
+		d.DispatchBillingEvent(context.
+			Background(), orgID, domain.WebhookEventBillingCapWarning,
+
+			payload))
 
 	got := ms.getDeliveries()
 	if len(got) != 2 {
@@ -96,31 +100,34 @@ func TestBillingDispatcher_FansOutToMatchingProjectsAndSubs(t *testing.T) {
 		for _, dl := range got {
 			ids = append(ids, dl.SubscriptionID)
 		}
-		t.Fatalf("expected 2 deliveries (s-a1, s-b1 wildcard), got %d: %v", len(got), ids)
+		require.Failf(t, "test failure", "expected 2 deliveries (s-a1, s-b1 wildcard), got %d: %v", len(got), ids)
 	}
 
 	subIDs := []string{got[0].SubscriptionID, got[1].SubscriptionID}
 	sort.Strings(subIDs)
-	if subIDs[0] != "s-a1" || subIDs[1] != "s-b1" {
-		t.Fatalf("expected s-a1 and s-b1, got %v", subIDs)
-	}
+	require.False(t,
+		subIDs[0] !=
+			"s-a1" ||
+			subIDs[1] != "s-b1",
+	)
 
 	for _, dl := range got {
-		if string(dl.Payload) != string(payload) {
-			t.Fatalf("delivery %s payload = %s, want %s", dl.SubscriptionID, dl.Payload, payload)
-		}
-		if dl.Status != domain.WebhookStatusPending {
-			t.Fatalf("delivery %s status = %s, want pending", dl.SubscriptionID, dl.Status)
-		}
-		if dl.NextRetryAt == nil {
-			t.Fatalf("delivery %s next_retry_at is nil; poll loop would never claim it", dl.SubscriptionID)
-		}
-		if dl.RetryPolicy == "" {
-			t.Fatalf("delivery %s retry_policy is empty", dl.SubscriptionID)
-		}
-		if dl.WebhookURL == "" {
-			t.Fatalf("delivery %s webhook_url is empty", dl.SubscriptionID)
-		}
+		require.Equal(t,
+			string(payload), string(dl.Payload))
+		require.Equal(t,
+			domain.WebhookStatusPending,
+
+			dl.
+				Status)
+		require.NotNil(t,
+			dl.NextRetryAt,
+		)
+		require.NotEmpty(
+			t, dl.
+				RetryPolicy)
+		require.NotEmpty(
+			t, dl.
+				WebhookURL)
 	}
 }
 
@@ -139,13 +146,13 @@ func TestBillingDispatcher_LiteralGlobIsNotInterpreted(t *testing.T) {
 		},
 	}
 	d, ms := newDispatcherFixture(t, map[string][]string{orgID: {"proj-a"}}, subs)
+	require.NoError(t,
+		d.DispatchBillingEvent(context.
+			Background(), orgID, domain.WebhookEventBillingCapWarning,
 
-	if err := d.DispatchBillingEvent(context.Background(), orgID, domain.WebhookEventBillingCapWarning, []byte(`{}`)); err != nil {
-		t.Fatalf("dispatch: %v", err)
-	}
-	if got := len(ms.getDeliveries()); got != 0 {
-		t.Fatalf("literal 'billing.*' should not match 'billing.cap_warning'; got %d deliveries", got)
-	}
+			[]byte(`{}`)))
+	require.Empty(t, ms.
+		getDeliveries())
 }
 
 func TestBillingDispatcher_PerProjectErrorDoesNotAbortFanout(t *testing.T) {
@@ -166,14 +173,18 @@ func TestBillingDispatcher_PerProjectErrorDoesNotAbortFanout(t *testing.T) {
 		},
 		slog.Default(),
 	)
+	require.NoError(t,
+		d.DispatchBillingEvent(context.
+			Background(), orgID, domain.WebhookEventBillingCapReached,
 
-	if err := d.DispatchBillingEvent(context.Background(), orgID, domain.WebhookEventBillingCapReached, []byte(`{}`)); err != nil {
-		t.Fatalf("dispatch returned err despite per-project failure being skippable: %v", err)
-	}
+			[]byte(`{}`)))
+
 	got := ms.getDeliveries()
-	if len(got) != 1 || got[0].SubscriptionID != "s-g" {
-		t.Fatalf("expected delivery to proj-good's sub, got %+v", got)
-	}
+	require.False(t,
+		len(got) !=
+			1 || got[0].SubscriptionID !=
+
+			"s-g")
 }
 
 func TestBillingDispatcher_ProjectsLookupError_PropagatesAsError(t *testing.T) {
@@ -189,20 +200,22 @@ func TestBillingDispatcher_ProjectsLookupError_PropagatesAsError(t *testing.T) {
 	)
 
 	err := d.DispatchBillingEvent(context.Background(), "org-x", domain.WebhookEventBillingSuspended, []byte(`{}`))
-	if err == nil {
-		t.Fatal("expected error when project lookup fails")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestBillingDispatcher_RejectsEmptyArgs(t *testing.T) {
 	t.Parallel()
 
 	d, _ := newDispatcherFixture(t, map[string][]string{}, nil)
+	require.Error(t,
+		d.DispatchBillingEvent(context.
+			Background(), "", "billing.cap_warning",
 
-	if err := d.DispatchBillingEvent(context.Background(), "", "billing.cap_warning", []byte(`{}`)); err == nil {
-		t.Fatal("expected error for empty orgID")
-	}
-	if err := d.DispatchBillingEvent(context.Background(), "org-1", "", []byte(`{}`)); err == nil {
-		t.Fatal("expected error for empty eventType")
-	}
+			[]byte(`{}`)))
+	require.Error(t,
+		d.DispatchBillingEvent(context.
+			Background(), "org-1", "", []byte(`{}`),
+		),
+	)
 }

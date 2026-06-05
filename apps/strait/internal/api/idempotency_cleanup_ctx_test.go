@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/store"
 )
@@ -75,15 +76,13 @@ func TestPanicCleanupRunsAfterContextCancel(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !deleteCalled {
-		t.Fatal("expected DeleteIdempotencyKey to run on panic-cleanup path")
-	}
-	if deleteCtxErr != nil {
-		t.Fatalf("DeleteIdempotencyKey received canceled context: ctx.Err() = %v", deleteCtxErr)
-	}
-	if !deleteCtxDeadline {
-		t.Fatal("DeleteIdempotencyKey context must carry a deadline so cleanup cannot block forever")
-	}
+	require.True(
+		t, deleteCalled,
+	)
+	require.NoError(t, deleteCtxErr)
+	require.True(
+		t, deleteCtxDeadline,
+	)
 }
 
 func TestPanicCleanupStripsRequestTransactionFromDetachedContext(t *testing.T) {
@@ -126,9 +125,7 @@ func TestPanicCleanupStripsRequestTransactionFromDetachedContext(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deleteTxOK {
-		t.Fatal("DeleteIdempotencyKey cleanup context retained the request transaction")
-	}
+	require.False(t, deleteTxOK)
 }
 
 // TestNonSuccessCleanupSurvivesTimeout verifies the non-2xx
@@ -180,12 +177,10 @@ func TestNonSuccessCleanupSurvivesTimeout(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !deleteCalled {
-		t.Fatal("expected DeleteIdempotencyKey to run on non-2xx cleanup path")
-	}
-	if deleteCtxErr != nil {
-		t.Fatalf("DeleteIdempotencyKey received canceled context: ctx.Err() = %v", deleteCtxErr)
-	}
+	require.True(
+		t, deleteCalled,
+	)
+	require.NoError(t, deleteCtxErr)
 }
 
 // TestCleanupBoundsCleanupDuration is the adversarial guard:
@@ -234,20 +229,22 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	select {
 	case <-deleteCh:
 	case <-time.After(2 * time.Second):
-		t.Fatalf("DeleteIdempotencyKey did not return within 2s; cleanup timeout missing")
+		require.Failf(t, "test failure", "DeleteIdempotencyKey did not return within 2s; cleanup timeout missing")
 	}
 	elapsed := time.Since(start)
-	if elapsed > 2*time.Second {
-		t.Fatalf("middleware blocked %v on cleanup; expected bounded cleanup", elapsed)
-	}
+	require.LessOrEqual(t,
+		elapsed, 2*
+			time.Second)
 
 	select {
 	case d := <-deadlineCh:
 		if d <= 0 || d > cleanupTimeout {
-			t.Fatalf("cleanup deadline = %v, want a finite positive value <= %v", d, cleanupTimeout)
+			require.Failf(t, "test failure",
+
+				"cleanup deadline = %v, want a finite positive value <= %v", d, cleanupTimeout)
 		}
 	default:
-		t.Fatal("cleanup ctx had no deadline")
+		require.Fail(t, "cleanup ctx had no deadline")
 	}
 }
 
@@ -265,7 +262,9 @@ func TestSuccessCompletionRunsAfterRLSTxCommit(t *testing.T) {
 			return nil
 		},
 		DeleteIdempotencyKeyFunc: func(context.Context, string, string) (int64, error) {
-			t.Fatal("DeleteIdempotencyKey should not run on committed success")
+			require.Fail(t,
+
+				"DeleteIdempotencyKey should not run on committed success")
 			return 0, nil
 		},
 	}
@@ -281,16 +280,14 @@ func TestSuccessCompletionRunsAfterRLSTxCommit(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", w.Code)
-	}
-	if tx.commitCalls != 1 {
-		t.Fatalf("Commit calls = %d, want 1", tx.commitCalls)
-	}
-	if !completeAfterCommit {
-		t.Fatal("CompleteIdempotencyKey ran before the RLS transaction committed")
-	}
+		w.Code)
+	require.Equal(t, 1, tx.
+		commitCalls)
+	require.True(
+		t, completeAfterCommit,
+	)
 }
 
 func TestSuccessPendingKeyCleanedWhenRLSTxCommitFails(t *testing.T) {
@@ -324,13 +321,10 @@ func TestSuccessPendingKeyCleanedWhenRLSTxCommitFails(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, r)
-
-	if completeCalled {
-		t.Fatal("CompleteIdempotencyKey should not run when the RLS transaction does not commit")
-	}
-	if !deleteCalled {
-		t.Fatal("DeleteIdempotencyKey should clean the pending key when commit fails")
-	}
+	require.False(t, completeCalled)
+	require.True(
+		t, deleteCalled,
+	)
 }
 
 type testCancelKey struct{}

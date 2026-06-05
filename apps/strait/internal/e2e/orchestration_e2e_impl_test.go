@@ -50,6 +50,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // createWorkerJob creates a worker-mode job via the HTTP API and returns the decoded response.
@@ -60,9 +62,9 @@ func createWorkerJob(t *testing.T, projectID, name, slug, queue string) map[stri
 		projectID, name, slug, queue,
 	)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("createWorkerJob: status=%d body=%s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated, w.Code)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -74,9 +76,9 @@ func createHTTPJobWithSecret(t *testing.T, projectID, name, slug, endpointURL, s
 		projectID, name, slug, endpointURL, secret,
 	)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("createHTTPJobWithSecret: status=%d body=%s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated, w.Code)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -99,9 +101,8 @@ func countRunsByStatus(t *testing.T, ctx context.Context, jobID string, status d
 		`SELECT COUNT(*) FROM job_run_read_state WHERE job_id = $1 AND status = $2`,
 		jobID, string(status),
 	).Scan(&n)
-	if err != nil {
-		t.Fatalf("countRunsByStatus(%s, %s): %v", jobID, status, err)
-	}
+	require.NoError(t, err)
+
 	return n
 }
 
@@ -113,9 +114,8 @@ func sumUsageRecordRuns(t *testing.T, ctx context.Context, projectID string) int
 		`SELECT COALESCE(SUM(runs_count), 0) FROM usage_records WHERE project_id = $1`,
 		projectID,
 	).Scan(&n)
-	if err != nil {
-		t.Fatalf("sumUsageRecordRuns: %v", err)
-	}
+	require.NoError(t, err)
+
 	return n
 }
 
@@ -127,9 +127,8 @@ func sumUsageRecordCost(t *testing.T, ctx context.Context, projectID string) int
 		`SELECT COALESCE(SUM(compute_cost_microusd), 0) FROM usage_records WHERE project_id = $1`,
 		projectID,
 	).Scan(&n)
-	if err != nil {
-		t.Fatalf("sumUsageRecordCost: %v", err)
-	}
+	require.NoError(t, err)
+
 	return n
 }
 
@@ -141,9 +140,8 @@ func countWorkerTasksByStatus(t *testing.T, ctx context.Context, workerID string
 		`SELECT COUNT(*) FROM worker_tasks WHERE worker_id = $1 AND status = $2`,
 		workerID, string(status),
 	).Scan(&n)
-	if err != nil {
-		t.Fatalf("countWorkerTasksByStatus: %v", err)
-	}
+	require.NoError(t, err)
+
 	return n
 }
 
@@ -200,7 +198,9 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		 VALUES (gen_random_uuid()::text, $1, 'free', 'active') ON CONFLICT DO NOTHING`,
 		orgID,
 	); err != nil {
-		t.Fatalf("insert org subscription: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert org subscription: %v", err)
 	}
 	// Map projectID → orgID in projects table (required for billing cost recording).
 	if _, err := testEnv.DB.Pool.Exec(ctx,
@@ -209,7 +209,9 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		 ON CONFLICT (id) DO UPDATE SET org_id = EXCLUDED.org_id`,
 		projectID, orgID,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project: %v", err)
 	}
 
 	// Create a worker-mode job.
@@ -221,23 +223,22 @@ func TestEndToEndWorkerMode(t *testing.T) {
 
 	// Trigger 10 runs via the HTTP API.
 	runIDs := make([]string, 0, runCount)
-	for i := range runCount {
+	for range runCount {
 		code, resp := triggerJobNoAssert(t, jobID)
-		if code != http.StatusCreated {
-			t.Fatalf("trigger run %d: status=%d body=%v", i, code, resp)
-		}
+		require.Equal(t, http.
+			StatusCreated, code)
+
 		runIDs = append(runIDs, resp["id"].(string))
 	}
+	require.Len(t, runIDs,
 
-	if len(runIDs) != runCount {
-		t.Fatalf("expected %d run IDs, got %d", runCount, len(runIDs))
-	}
+		runCount)
 
 	// Verify all runs are in "queued" status.
 	queued := countRunsByStatus(t, ctx, jobID, domain.StatusQueued)
-	if queued != runCount {
-		t.Fatalf("expected %d queued runs, got %d", runCount, queued)
-	}
+	require.Equal(t, runCount,
+
+		queued)
 
 	// Set up an in-process worker via the gRPC registry directly (no real gRPC
 	// connection needed — we own both sides of the channel).
@@ -255,9 +256,8 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		Status:         "active",
 		SendCh:         sendCh,
 	}
-	if err := registry.Register(worker); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
+	require.NoError(t, registry.
+		Register(worker))
 
 	// Insert the worker row into the DB so worker_tasks FK constraint is satisfied.
 	// The workers table has no FK to projects, so this always succeeds.
@@ -267,7 +267,9 @@ func TestEndToEndWorkerMode(t *testing.T) {
 		 ON CONFLICT (project_id, id) DO NOTHING`,
 		workerID, projectID, queueName,
 	); err != nil {
-		t.Fatalf("insert worker row: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert worker row: %v", err)
 	}
 
 	// Build a WorkerDispatcher wired to the same registry and result channels.
@@ -296,7 +298,9 @@ func TestEndToEndWorkerMode(t *testing.T) {
 			// Simulate run executing -> complete: update DB status.
 			runStore := store.New(testEnv.DB.Pool)
 			if err := runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusQueued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}); err != nil {
-				t.Errorf("set run %s executing: %v", assignment.RunId, err)
+				assert.Failf(t, "test failure",
+
+					"set run %s executing: %v", assignment.RunId, err)
 				continue
 			}
 
@@ -311,7 +315,9 @@ func TestEndToEndWorkerMode(t *testing.T) {
 
 			// Update run to completed.
 			if err := runStore.UpdateRunStatus(ctx, assignment.RunId, domain.StatusExecuting, domain.StatusCompleted, map[string]any{"finished_at": time.Now()}); err != nil {
-				t.Errorf("complete run %s: %v", assignment.RunId, err)
+				assert.Failf(t, "test failure",
+
+					"complete run %s: %v", assignment.RunId, err)
 				continue
 			}
 
@@ -342,25 +348,17 @@ func TestEndToEndWorkerMode(t *testing.T) {
 
 				runStore := store.New(testEnv.DB.Pool)
 				run, err := runStore.GetRun(ctx, id)
-				if err != nil {
-					t.Errorf("get run %s: %v", id, err)
-					return
-				}
+				assert.NoError(t, err)
+
 				jobObj, err := runStore.GetJob(ctx, run.JobID)
-				if err != nil {
-					t.Errorf("get job for run %s: %v", id, err)
-					return
-				}
+				assert.NoError(t, err)
 
 				jobObj.Queue = queueName
 				result, err := dispatcher.WorkerDispatch(dispatchCtx, run, jobObj)
-				if err != nil {
-					t.Errorf("WorkerDispatch for run %s: %v", id, err)
-					return
-				}
-				if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
-					t.Errorf("CompleteWorkerTask for run %s: %v", id, err)
-				}
+				assert.NoError(t, err)
+				assert.NoError(t, dispatcher.
+					CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted))
+
 			})
 		}
 	}
@@ -368,45 +366,44 @@ func TestEndToEndWorkerMode(t *testing.T) {
 	dispatchWG.Wait()
 	close(sendCh)
 	wg.Wait()
+	assert.Equal(t, int64(
+		runCount), tasksReceived.Load())
 
 	// Assert: all 10 runs received by the test worker.
-	if got := tasksReceived.Load(); got != int64(runCount) {
-		t.Errorf("worker received %d task assignments, want %d", got, runCount)
-	}
 
 	// Assert: all 10 runs are in completed status.
 	completed := countRunsByStatus(t, ctx, jobID, domain.StatusCompleted)
-	if completed != runCount {
-		t.Errorf("completed runs = %d, want %d", completed, runCount)
-	}
+	assert.Equal(t, runCount,
+
+		completed)
 
 	// Assert: worker_tasks all show completed status.
 	tasksDone := countWorkerTasksByStatus(t, ctx, workerID, domain.WorkerTaskStatusCompleted)
-	if tasksDone != runCount {
-		t.Errorf("completed worker_tasks = %d, want %d", tasksDone, runCount)
-	}
+	assert.Equal(t, runCount,
+
+		tasksDone)
 
 	// Assert: usage_records rows exist with runs_count = 10.
 	totalRunsRecorded := sumUsageRecordRuns(t, ctx, projectID)
-	if totalRunsRecorded != runCount {
-		t.Errorf("usage_records runs_count sum = %d, want %d", totalRunsRecorded, runCount)
-	}
+	assert.Equal(t, runCount,
+
+		totalRunsRecorded)
 
 	// Assert: cost = 10 * 20 = 200 micro-USD (WorkerCostPerRunMicrousd = 20).
 	totalCost := sumUsageRecordCost(t, ctx, projectID)
 	expectedCost := int64(runCount) * billing.WorkerCostPerRunMicrousd
-	if totalCost != expectedCost {
-		t.Errorf("usage_records cost sum = %d micro-USD, want %d", totalCost, expectedCost)
-	}
+	assert.Equal(t, expectedCost,
+
+		totalCost)
 
 	// Assert: no goroutine leak (tolerance of 10 for background GC / timers).
 	goroutinesAfter := runtime.NumGoroutine()
 	delta := goroutinesAfter - goroutinesBefore
 	const leakTolerance = 10
-	if delta > leakTolerance {
-		t.Errorf("goroutine delta = %d (before=%d, after=%d), exceeds tolerance %d — possible goroutine leak",
-			delta, goroutinesBefore, goroutinesAfter, leakTolerance)
-	}
+	assert.LessOrEqual(t,
+
+		delta, leakTolerance)
+
 }
 
 // TestEndToEndHTTPMode verifies the HTTP-mode execution path:
@@ -437,7 +434,9 @@ func TestEndToEndHTTPMode(t *testing.T) {
 		 VALUES (gen_random_uuid()::text, $1, 'free', 'active') ON CONFLICT DO NOTHING`,
 		orgID,
 	); err != nil {
-		t.Fatalf("insert org subscription: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert org subscription: %v", err)
 	}
 	if _, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO projects (id, org_id, name, created_at, updated_at)
@@ -445,7 +444,9 @@ func TestEndToEndHTTPMode(t *testing.T) {
 		 ON CONFLICT (id) DO UPDATE SET org_id = EXCLUDED.org_id`,
 		projectID, orgID,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project: %v", err)
 	}
 
 	// Create HTTP-mode job with signing secret.
@@ -457,11 +458,11 @@ func TestEndToEndHTTPMode(t *testing.T) {
 
 	// Trigger 5 runs.
 	runIDs := make([]string, 0, runCount)
-	for i := range runCount {
+	for range runCount {
 		code, resp := triggerJobNoAssert(t, jobID)
-		if code != http.StatusCreated {
-			t.Fatalf("trigger run %d: status=%d body=%v", i, code, resp)
-		}
+		require.Equal(t, http.
+			StatusCreated, code)
+
 		runIDs = append(runIDs, resp["id"].(string))
 	}
 
@@ -490,9 +491,7 @@ func TestEndToEndHTTPMode(t *testing.T) {
 
 	for _, runID := range runIDs {
 		run, err := runStore.GetRun(ctx, runID)
-		if err != nil {
-			t.Fatalf("get run %s: %v", runID, err)
-		}
+		require.NoError(t, err)
 
 		payload := run.Payload
 		if len(payload) == 0 {
@@ -510,62 +509,57 @@ func TestEndToEndHTTPMode(t *testing.T) {
 		// POST to the SDK server (directly, not through the SSRF guard).
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, sdkServer.URL,
 			strings.NewReader(string(payload)))
-		if err != nil {
-			t.Fatalf("build sdk request for run %s: %v", runID, err)
-		}
+		require.NoError(t, err)
+
 		req.Header.Set("X-Strait-Signature", sig)
 		req.Header.Set("X-Strait-Timestamp", ts)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatalf("sdk server POST for run %s: %v", runID, err)
-		}
+		require.NoError(t, err)
+
 		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("sdk server rejected run %s with status %d", runID, resp.StatusCode)
-		}
+		assert.Equal(t, http.
+			StatusOK,
+			resp.StatusCode)
+		require.NoError(t, runStore.
+			UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusExecuting, map[string]any{"started_at": time.Now()}))
+		require.NoError(t, runStore.
+			UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted,
+				map[string]any{"finished_at": time.Now()}))
+		require.NoError(t, costRecorder.
+			RecordHTTPRunCost(ctx, orgID, projectID, runID))
 
 		// Simulate executor success path: advance run to completed.
-		if err := runStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusExecuting,
-			map[string]any{"started_at": time.Now()}); err != nil {
-			t.Fatalf("set run %s executing: %v", runID, err)
-		}
-		if err := runStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted,
-			map[string]any{"finished_at": time.Now()}); err != nil {
-			t.Fatalf("update run %s to completed: %v", runID, err)
-		}
 
 		// Record billing cost.
-		if err := costRecorder.RecordHTTPRunCost(ctx, orgID, projectID, runID); err != nil {
-			t.Fatalf("record http run cost for run %s: %v", runID, err)
-		}
+
 	}
+	assert.Equal(t, int64(
+		runCount), sigOK.Load())
+	assert.EqualValues(t, 0, sigBad.
+		Load())
 
 	// Assert: all HMAC signatures verified correctly.
-	if got := sigOK.Load(); got != int64(runCount) {
-		t.Errorf("HMAC signatures verified OK = %d, want %d", got, runCount)
-	}
-	if bad := sigBad.Load(); bad != 0 {
-		t.Errorf("HMAC signatures rejected = %d, want 0", bad)
-	}
 
 	// Assert: all 5 runs completed.
 	completed := countRunsByStatus(t, ctx, jobID, domain.StatusCompleted)
-	if completed != runCount {
-		t.Errorf("completed runs = %d, want %d", completed, runCount)
-	}
+	assert.Equal(t, runCount,
+
+		completed)
 
 	// Assert: usage_records = 5 runs × 20 micro-USD = 100 micro-USD.
 	totalRuns := sumUsageRecordRuns(t, ctx, projectID)
-	if totalRuns != runCount {
-		t.Errorf("usage_records runs_count = %d, want %d", totalRuns, runCount)
-	}
+	assert.Equal(t, runCount,
+
+		totalRuns)
+
 	totalCost := sumUsageRecordCost(t, ctx, projectID)
 	expectedCost := int64(runCount) * billing.HTTPCostPerRunMicrousd
-	if totalCost != expectedCost {
-		t.Errorf("usage_records cost = %d micro-USD, want %d", totalCost, expectedCost)
-	}
+	assert.Equal(t, expectedCost,
+
+		totalCost)
+
 }
 
 // TestEndToEndCapEnforcement verifies billing quota enforcement mechanics:
@@ -596,7 +590,9 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 		 VALUES (gen_random_uuid()::text, $1, 'free', 'active', true) ON CONFLICT DO NOTHING`,
 		orgID,
 	); err != nil {
-		t.Fatalf("insert org subscription: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert org subscription: %v", err)
 	}
 	if _, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO projects (id, org_id, name, created_at, updated_at)
@@ -604,7 +600,9 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 		 ON CONFLICT (id) DO UPDATE SET org_id = EXCLUDED.org_id`,
 		projectID, orgID,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert project: %v", err)
 	}
 
 	// Create an HTTP-mode job with a public placeholder endpoint.
@@ -617,11 +615,11 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 	jobID := asString(t, jobResp, "id")
 
 	// Trigger 3 runs (these should succeed at the trigger level).
-	for i := range 3 {
-		code, resp := triggerJobNoAssert(t, jobID)
-		if code != http.StatusCreated {
-			t.Fatalf("pre-cap trigger run %d: status=%d body=%v", i, code, resp)
-		}
+	for range 3 {
+		code, _ := triggerJobNoAssert(t, jobID)
+		require.Equal(t, http.
+			StatusCreated, code)
+
 	}
 
 	// Set up billing enforcer + Redis.
@@ -639,15 +637,14 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 	now := time.Now().UTC()
 	monthKey := fmt.Sprintf("strait:org_monthly_runs:%s:%s", orgID, now.Format("2006-01"))
 	fillValue := int64(freeLimits.MaxRunsPerMonth) - 3
-	if err := rdb.Set(ctx, monthKey, fillValue, 40*24*time.Hour).Err(); err != nil {
-		t.Fatalf("pre-fill monthly counter: %v", err)
-	}
+	require.NoError(t, rdb.
+		Set(ctx, monthKey, fillValue, 40*24*time.Hour).Err())
 
 	// First 3 CheckMonthlyRunLimit calls should succeed.
-	for i := range 3 {
-		if err := enforcer.CheckMonthlyRunLimit(ctx, orgID); err != nil {
-			t.Errorf("run %d: CheckMonthlyRunLimit unexpectedly rejected: %v", i+1, err)
-		}
+	for range 3 {
+		assert.NoError(t, enforcer.
+			CheckMonthlyRunLimit(ctx, orgID))
+
 	}
 
 	// The 4th call should fail with plan_cap_reached.
@@ -655,33 +652,35 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 	for i := range 2 {
 		err := enforcer.CheckMonthlyRunLimit(ctx, orgID)
 		if err == nil {
-			t.Errorf("post-cap run %d: CheckMonthlyRunLimit expected rejection, got nil", i+1)
+			assert.Failf(t, "test failure",
+
+				"post-cap run %d: CheckMonthlyRunLimit expected rejection, got nil", i+1)
 			continue
 		}
 		var le *billing.LimitError
 		if !errors.As(err, &le) {
-			t.Errorf("post-cap run %d: expected *billing.LimitError, got %T: %v", i+1, err, err)
+			assert.Failf(t, "test failure",
+
+				"post-cap run %d: expected *billing.LimitError, got %T: %v", i+1, err, err)
 			continue
 		}
-		if le.Code != "plan_cap_reached" {
-			t.Errorf("post-cap run %d: LimitError.Code = %q, want %q", i+1, le.Code, "plan_cap_reached")
-		}
+		assert.Equal(t, "plan_cap_reached",
+
+			le.Code)
+
 		capErrors++
 	}
-	if capErrors != 2 {
-		t.Errorf("expected 2 cap rejections, got %d", capErrors)
-	}
+	assert.EqualValues(t, 2, capErrors)
+	require.NoError(t, enforcer.
+		PauseJobsForQuotaExceeded(ctx, orgID))
 
 	// Verify PauseJobsForQuotaExceeded sets pause_reason='quota_exceeded' on the job.
-	if err := enforcer.PauseJobsForQuotaExceeded(ctx, orgID); err != nil {
-		t.Fatalf("PauseJobsForQuotaExceeded: %v", err)
-	}
 
 	// After pausing, trigger attempt should return 409 (job is paused).
-	code, resp := triggerJobNoAssert(t, jobID)
-	if code != http.StatusConflict {
-		t.Errorf("post-pause trigger: status = %d, want 409; body = %v", code, resp)
-	}
+	code, _ := triggerJobNoAssert(t, jobID)
+	assert.Equal(t, http.
+		StatusConflict,
+		code)
 
 	// Verify the job has pause_reason='quota_exceeded' in the DB.
 	var pauseReason string
@@ -689,10 +688,9 @@ func TestEndToEndCapEnforcement(t *testing.T) {
 		`SELECT COALESCE(pause_reason, '') FROM jobs WHERE id = $1`,
 		jobID,
 	).Scan(&pauseReason)
-	if err != nil {
-		t.Fatalf("query pause_reason: %v", err)
-	}
-	if pauseReason != "quota_exceeded" {
-		t.Errorf("pause_reason = %q, want %q", pauseReason, "quota_exceeded")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "quota_exceeded",
+
+		pauseReason)
+
 }

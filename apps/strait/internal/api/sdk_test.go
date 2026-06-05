@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func generateRunToken(t *testing.T, runID string) string {
@@ -30,9 +31,8 @@ func generateRunToken(t *testing.T, runID string) string {
 		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -64,9 +64,8 @@ func generateExpiredRunToken(t *testing.T, runID string) string {
 		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -76,21 +75,21 @@ func TestHandleSDKLog_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
-			if event.RunID != "run-123" {
-				t.Fatalf("expected run id run-123, got %s", event.RunID)
-			}
-			if event.Type != domain.EventError {
-				t.Fatalf("expected type error, got %s", event.Type)
-			}
-			if event.Level != "warn" {
-				t.Fatalf("expected level warn, got %s", event.Level)
-			}
-			if event.Message != "something happened" {
-				t.Fatalf("expected message, got %s", event.Message)
-			}
-			if string(event.Data) != `{"code":123}` {
-				t.Fatalf("expected data payload, got %s", string(event.Data))
-			}
+			require.Equal(t, "run-123", event.
+				RunID)
+			require.Equal(t, domain.EventError,
+				event.
+					Type)
+			require.Equal(t, "warn", event.
+				Level)
+			require.Equal(t, "something happened",
+				event.
+					Message,
+			)
+			require.Equal(t, `{"code":123}`,
+				string(
+					event.Data))
+
 			return nil
 		},
 	}
@@ -100,13 +99,11 @@ func TestHandleSDKLog_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/log", "run-123", `{"type":"error","level":"warn","message":"something happened","data":{"code":123}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !insertCalled.Load() {
-		t.Fatal("expected InsertEvent to be called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, insertCalled.Load())
 }
 
 func TestHandleSDKLog_MissingMessage(t *testing.T) {
@@ -117,10 +114,10 @@ func TestHandleSDKLog_MissingMessage(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/log", "run-123", `{"type":"log"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
@@ -129,12 +126,12 @@ func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 	ms := &APIStoreMock{
 		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
-			if event.Type != domain.EventLog {
-				t.Fatalf("expected default event type log, got %s", event.Type)
-			}
-			if event.Level != "info" {
-				t.Fatalf("expected default level info, got %s", event.Level)
-			}
+			require.Equal(t, domain.EventLog,
+				event.
+					Type)
+			require.Equal(t, "info", event.
+				Level)
+
 			return nil
 		},
 	}
@@ -144,13 +141,11 @@ func TestHandleSDKLog_DefaultsEventType(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/log", "run-123", `{"message":"hello"}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !insertCalled.Load() {
-		t.Fatal("expected InsertEvent to be called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, insertCalled.Load())
 }
 
 func TestHandleSDKLog_StoreError(t *testing.T) {
@@ -166,10 +161,10 @@ func TestHandleSDKLog_StoreError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/log", "run-123", `{"message":"hello"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKProgress_Success(t *testing.T) {
@@ -178,9 +173,10 @@ func TestHandleSDKProgress_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		InsertEventFunc: func(_ context.Context, event *domain.RunEvent) error {
 			insertCalled.Store(true)
-			if event.Type != domain.EventProgress {
-				t.Fatalf("event type = %s, want %s", event.Type, domain.EventProgress)
-			}
+			require.Equal(t, domain.EventProgress,
+				event.
+					Type)
+
 			return nil
 		},
 	}
@@ -190,13 +186,11 @@ func TestHandleSDKProgress_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/progress", "run-123", `{"percent":45,"message":"working","step":"phase-1","eta_seconds":30}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !insertCalled.Load() {
-		t.Fatal("expected InsertEvent to be called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, insertCalled.Load())
 }
 
 func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
@@ -207,10 +201,10 @@ func TestHandleSDKProgress_InvalidPercent(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/progress", "run-123", `{"percent":101,"message":"working"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKAnnotate_Success(t *testing.T) {
@@ -219,12 +213,11 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		UpdateRunMetadataFunc: func(_ context.Context, id string, annotations map[string]string) error {
 			updated = true
-			if id != "run-123" {
-				t.Fatalf("run id = %q, want run-123", id)
-			}
-			if annotations["env"] != "prod" || annotations["region"] != "eu" {
-				t.Fatalf("annotations = %+v", annotations)
-			}
+			require.Equal(t, "run-123", id)
+			require.False(t, annotations["env"] != "prod" ||
+				annotations["region"] !=
+					"eu")
+
 			return nil
 		},
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -237,13 +230,10 @@ func TestHandleSDKAnnotate_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod","region":"eu"}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updated {
-		t.Fatal("expected UpdateRunMetadata to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updated)
 }
 
 func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
@@ -259,10 +249,9 @@ func TestHandleSDKAnnotate_RunNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{"env":"prod"}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
@@ -273,10 +262,10 @@ func TestHandleSDKAnnotate_InvalidPayload(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", `{"annotations":{}}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
@@ -287,13 +276,13 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 	}
 
 	payload, err := json.Marshal(map[string]any{"annotations": annotations})
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	ms := &APIStoreMock{
 		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
-			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			require.Fail(t,
+
+				"UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
 	}
@@ -303,13 +292,12 @@ func TestHandleSDKAnnotate_TooManyAnnotations(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "too many annotations (max 50)") {
-		t.Fatalf("expected too-many-annotations error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "too many annotations (max 50)")
 }
 
 func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
@@ -319,13 +307,13 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 			strings.Repeat("k", 129): "prod",
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	ms := &APIStoreMock{
 		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
-			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			require.Fail(t,
+
+				"UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
 	}
@@ -335,13 +323,12 @@ func TestHandleSDKAnnotate_AnnotationKeyTooLong(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "annotation key too long (max 128 characters)") {
-		t.Fatalf("expected key-too-long error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "annotation key too long (max 128 characters)")
 }
 
 func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
@@ -351,13 +338,13 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 			"env": strings.Repeat("v", 1025),
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	ms := &APIStoreMock{
 		UpdateRunMetadataFunc: func(_ context.Context, _ string, _ map[string]string) error {
-			t.Fatal("UpdateRunMetadata should not be called for invalid annotations")
+			require.Fail(t,
+
+				"UpdateRunMetadata should not be called for invalid annotations")
 			return nil
 		},
 	}
@@ -367,13 +354,12 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/annotate", "run-123", string(payload))
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "annotation value too long (max 1024 characters)") {
-		t.Fatalf("expected value-too-long error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "annotation value too long (max 1024 characters)")
 }
 
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
@@ -385,12 +371,12 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 		},
 		CreateRunCheckpointFunc: func(_ context.Context, checkpoint *domain.RunCheckpoint) error {
 			created = true
-			if checkpoint.RunID != "run-123" {
-				t.Fatalf("run_id = %q, want run-123", checkpoint.RunID)
-			}
-			if len(checkpoint.State) == 0 {
-				t.Fatal("expected non-empty checkpoint state")
-			}
+			require.Equal(t, "run-123", checkpoint.
+				RunID,
+			)
+			require.NotEmpty(t, checkpoint.
+				State)
+
 			return nil
 		},
 	}
@@ -399,13 +385,11 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/checkpoint", "run-123", `{"state":{"cursor":12}}`)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created {
-		t.Fatal("expected CreateRunCheckpoint to be called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, created)
 }
 
 func TestSDKUsageRoute_NotRegistered(t *testing.T) {
@@ -415,10 +399,9 @@ func TestSDKUsageRoute_NotRegistered(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/usage", "run-123", `{"usage_units":1}`)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for launch-inactive usage route, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
@@ -429,10 +412,9 @@ func TestHandleSDKOutput_SchemaValidation(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/output", "run-123", `{"output_key":"final","schema":{"type":"object","required":["name"]},"value":{"age":12}}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleSDKHeartbeat_Success(t *testing.T) {
@@ -441,9 +423,8 @@ func TestHandleSDKHeartbeat_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		UpdateHeartbeatFunc: func(_ context.Context, id string) error {
 			updateCalled.Store(true)
-			if id != "run-123" {
-				t.Fatalf("expected run id run-123, got %s", id)
-			}
+			require.Equal(t, "run-123", id)
+
 			return nil
 		},
 	}
@@ -453,13 +434,10 @@ func TestHandleSDKHeartbeat_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !updateCalled.Load() {
-		t.Fatal("expected UpdateHeartbeat to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updateCalled.Load())
 }
 
 func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
@@ -475,10 +453,10 @@ func TestHandleSDKHeartbeat_StoreError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
@@ -486,7 +464,9 @@ func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
 	var statusCalls atomic.Int32
 	ms := &APIStoreMock{
 		UpdateHeartbeatFunc: func(context.Context, string) error {
-			t.Fatal("heartbeat mutation must not run after post-decode terminal revalidation")
+			require.Fail(t,
+
+				"heartbeat mutation must not run after post-decode terminal revalidation")
 			return nil
 		},
 	}
@@ -501,13 +481,11 @@ func TestSDKRunToken_RevalidatesAfterDecodeBeforeMutation(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
-	}
-	if statusCalls.Load() != 2 {
-		t.Fatalf("expected pre-auth and post-decode status checks, got %d", statusCalls.Load())
-	}
+	require.Equal(t, http.StatusGone,
+		w.Code,
+	)
+	require.EqualValues(t, 2, statusCalls.
+		Load())
 }
 
 func TestHandleSDKComplete_Success(t *testing.T) {
@@ -524,14 +502,17 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 			updateCalled.Store(true)
-			if id != "run-123" {
-				t.Fatalf("expected run id run-123, got %s", id)
-			}
-			if from != domain.StatusExecuting || to != domain.StatusCompleted {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
+			require.Equal(t, "run-123", id)
+			require.False(t, from != domain.
+				StatusExecuting ||
+				to !=
+					domain.StatusCompleted,
+			)
+
 			if _, ok := fields["finished_at"]; !ok {
-				t.Fatal("expected finished_at field")
+				require.Fail(t,
+
+					"expected finished_at field")
 			}
 			return nil
 		},
@@ -542,16 +523,11 @@ func TestHandleSDKComplete_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updateCalled.Load() {
-		t.Fatal("expected UpdateRunStatus to be called")
-	}
-	if getRunCalls != 2 {
-		t.Fatalf("expected GetRun to be called twice, got %d", getRunCalls)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updateCalled.Load())
+	require.Equal(t, 2, getRunCalls)
 }
 
 func TestHandleSDKComplete_WithResult(t *testing.T) {
@@ -567,12 +543,11 @@ func TestHandleSDKComplete_WithResult(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, _ domain.RunStatus, fields map[string]any) error {
 			result, ok := fields["result"].(json.RawMessage)
-			if !ok {
-				t.Fatalf("expected result field to be json.RawMessage, got %T", fields["result"])
-			}
-			if string(result) != `{"ok":true}` {
-				t.Fatalf("expected result payload, got %s", string(result))
-			}
+			require.True(
+				t, ok)
+			require.Equal(t, `{"ok":true}`,
+				string(result))
+
 			return nil
 		},
 	}
@@ -582,10 +557,8 @@ func TestHandleSDKComplete_WithResult(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{"result":{"ok":true}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleSDKComplete_RunNotFound(t *testing.T) {
@@ -601,10 +574,9 @@ func TestHandleSDKComplete_RunNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKComplete_Conflict(t *testing.T) {
@@ -623,10 +595,9 @@ func TestHandleSDKComplete_Conflict(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleSDKFail_Success(t *testing.T) {
@@ -643,12 +614,13 @@ func TestHandleSDKFail_Success(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
 			updateCalled.Store(true)
-			if from != domain.StatusExecuting || to != domain.StatusFailed {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
-			if fields["error"] != "boom" {
-				t.Fatalf("expected error field boom, got %v", fields["error"])
-			}
+			require.False(t, from != domain.
+				StatusExecuting ||
+				to !=
+					domain.StatusFailed,
+			)
+			require.Equal(t, "boom", fields["error"])
+
 			return nil
 		},
 	}
@@ -658,16 +630,11 @@ func TestHandleSDKFail_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":"boom"}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updateCalled.Load() {
-		t.Fatal("expected UpdateRunStatus to be called")
-	}
-	if getRunCalls != 2 {
-		t.Fatalf("expected GetRun to be called twice, got %d", getRunCalls)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updateCalled.Load())
+	require.Equal(t, 2, getRunCalls)
 }
 
 func TestHandleSDKFail_MissingError(t *testing.T) {
@@ -678,10 +645,10 @@ func TestHandleSDKFail_MissingError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKFail_RunNotFound(t *testing.T) {
@@ -697,10 +664,9 @@ func TestHandleSDKFail_RunNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":"boom"}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKFail_Conflict(t *testing.T) {
@@ -719,10 +685,9 @@ func TestHandleSDKFail_Conflict(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":"boom"}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleSDKSpawn_Success(t *testing.T) {
@@ -735,9 +700,11 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 		},
 		GetJobBySlugFunc: func(_ context.Context, projectID, slug string) (*domain.Job, error) {
 			getJobCalled.Store(true)
-			if projectID != "proj-1" || slug != "child-job" {
-				t.Fatalf("unexpected project/slug %s/%s", projectID, slug)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				slug != "child-job",
+			)
+
 			return &domain.Job{ID: "job-123", ProjectID: projectID, Slug: slug}, nil
 		},
 	}
@@ -745,18 +712,17 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	mq := &mockQueue{
 		enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 			enqueueCalled.Store(true)
-			if run.JobID != "job-123" {
-				t.Fatalf("expected job id job-123, got %s", run.JobID)
-			}
-			if run.TriggeredBy != domain.TriggerSpawn {
-				t.Fatalf("expected triggered_by spawn, got %s", run.TriggeredBy)
-			}
-			if run.ParentRunID != "run-parent" {
-				t.Fatalf("expected parent run id run-parent, got %s", run.ParentRunID)
-			}
-			if string(run.Payload) != `{"x":1}` {
-				t.Fatalf("expected payload, got %s", string(run.Payload))
-			}
+			require.Equal(t, "job-123", run.
+				JobID)
+			require.Equal(t, domain.TriggerSpawn,
+				run.
+					TriggeredBy,
+			)
+			require.Equal(t, "run-parent",
+				run.ParentRunID,
+			)
+			require.Equal(t, `{"x":1}`, string(run.Payload))
+
 			return nil
 		},
 	}
@@ -766,16 +732,14 @@ func TestHandleSDKSpawn_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent", `{"job_slug":"child-job","project_id":"proj-1","payload":{"x":1}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !getJobCalled.Load() {
-		t.Fatal("expected GetJobBySlug to be called")
-	}
-	if !enqueueCalled.Load() {
-		t.Fatal("expected Enqueue to be called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, getJobCalled.Load())
+	require.True(
+		t, enqueueCalled.
+			Load())
 }
 
 func TestHandleSDKSpawn_MissingFields(t *testing.T) {
@@ -786,10 +750,10 @@ func TestHandleSDKSpawn_MissingFields(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent", `{"project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
@@ -805,10 +769,9 @@ func TestHandleSDKSpawn_JobNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent", `{"job_slug":"child-job","project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
@@ -833,10 +796,10 @@ func TestHandleSDKSpawn_EnqueueError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/spawn", "run-parent", `{"job_slug":"child-job","project_id":"proj-1"}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
@@ -859,9 +822,12 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 		},
 		UpdateRunStatusFunc: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
 			if id == "run-parent" {
-				if from != domain.StatusWaiting || to != domain.StatusQueued {
-					t.Fatalf("unexpected parent transition %s -> %s", from, to)
-				}
+				require.False(t, from != domain.
+					StatusWaiting ||
+					to !=
+						domain.StatusQueued,
+				)
+
 				updatedParent = true
 				return nil
 			}
@@ -871,9 +837,10 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 			return nil
 		},
 		AreAllDescendantsTerminalFunc: func(_ context.Context, parentRunID string) (bool, error) {
-			if parentRunID != "run-parent" {
-				t.Fatalf("parent_run_id = %q, want run-parent", parentRunID)
-			}
+			require.Equal(t, "run-parent",
+				parentRunID,
+			)
+
 			return true, nil
 		},
 	}
@@ -882,13 +849,10 @@ func TestHandleSDKComplete_ResumesParentWhenDescendantsTerminal(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-child/complete", "run-child", `{}`)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updatedParent {
-		t.Fatal("expected parent run to be resumed")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updatedParent)
 }
 
 func TestSDKAuth_MissingToken(t *testing.T) {
@@ -900,10 +864,9 @@ func TestSDKAuth_MissingToken(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestSDKAuth_InvalidToken(t *testing.T) {
@@ -916,10 +879,9 @@ func TestSDKAuth_InvalidToken(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer not-a-jwt")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
@@ -935,10 +897,9 @@ func TestSDKAuth_TokenRunIDMismatch(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
 }
 
 func TestSDKAuth_ExpiredToken(t *testing.T) {
@@ -951,10 +912,9 @@ func TestSDKAuth_ExpiredToken(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+generateExpiredRunToken(t, "run-123"))
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
@@ -971,16 +931,12 @@ func TestSDKAuth_SDKVersionHeaders_Modern(t *testing.T) {
 	r.Header.Set("X-SDK-Version", "2.1.0")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "2.1.0", w.Header().Get("X-SDK-Version-Accepted"))
+	require.Equal(t, "progress,checkpoint",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if got := w.Header().Get("X-SDK-Version-Accepted"); got != "2.1.0" {
-		t.Fatalf("X-SDK-Version-Accepted = %q, want %q", got, "2.1.0")
-	}
-	if got := w.Header().Get("X-SDK-Capabilities"); got != "progress,checkpoint" {
-		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "progress,checkpoint")
-	}
+		w.Header().Get("X-SDK-Capabilities"))
 }
 
 func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
@@ -996,16 +952,12 @@ func TestSDKAuth_SDKVersionHeaders_Legacy(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/heartbeat", "run-123", "")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if got := w.Header().Get("X-SDK-Version-Accepted"); got != "legacy" {
-		t.Fatalf("X-SDK-Version-Accepted = %q, want %q", got, "legacy")
-	}
-	if got := w.Header().Get("X-SDK-Capabilities"); got != "none" {
-		t.Fatalf("X-SDK-Capabilities = %q, want %q", got, "none")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "legacy", w.Header().Get("X-SDK-Version-Accepted"))
+	require.Equal(t, "none", w.Header().Get(
+		"X-SDK-Capabilities",
+	))
 }
 
 func TestHandleHealthReady_Success(t *testing.T) {
@@ -1021,10 +973,8 @@ func TestHandleHealthReady_Success(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleHealthReady_StoreError(t *testing.T) {
@@ -1040,10 +990,10 @@ func TestHandleHealthReady_StoreError(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleGetRun_Success(t *testing.T) {
@@ -1059,10 +1009,8 @@ func TestHandleGetRun_Success(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/runs/run-123", "")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleGetRun_NotFound(t *testing.T) {
@@ -1078,10 +1026,9 @@ func TestHandleGetRun_NotFound(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/runs/run-123", "")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleListRuns_Success(t *testing.T) {
@@ -1090,21 +1037,19 @@ func TestHandleListRuns_Success(t *testing.T) {
 	ms := &APIStoreMock{
 		ListRunsByProjectFunc: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
-			if projectID != "proj-1" {
-				t.Fatalf("expected project_id proj-1, got %s", projectID)
-			}
-			if metadataKey != nil || metadataValue != nil {
-				t.Fatalf("expected metadata filters to be nil, got key=%v value=%v", metadataKey, metadataValue)
-			}
-			if status == nil || *status != domain.StatusExecuting {
-				t.Fatalf("expected status executing, got %v", status)
-			}
-			if limit != 101 { // handler passes limit+1 for has_more detection
-				t.Fatalf("expected limit to be clamped to 100, got %d", limit)
-			}
-			if cursor == nil {
-				t.Fatal("expected cursor to be parsed")
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.False(t, metadataKey !=
+				nil || metadataValue !=
+				nil)
+			require.False(t, status == nil ||
+				*status !=
+					domain.
+						StatusExecuting)
+			require.Equal(t, 101, limit)
+			require.NotNil(t, cursor)
+
+			// handler passes limit+1 for has_more detection
+
 			return []domain.JobRun{{ID: "run-1", ProjectID: projectID, Status: domain.StatusExecuting}}, nil
 		},
 	}
@@ -1115,13 +1060,10 @@ func TestHandleListRuns_Success(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?status=executing&limit=500&cursor="+cursor, "", "proj-1")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !listCalled.Load() {
-		t.Fatal("expected ListRunsByProject to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, listCalled.Load())
 }
 
 func TestHandleListRuns_MetadataFilter(t *testing.T) {
@@ -1130,24 +1072,20 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 	ms := &APIStoreMock{
 		ListRunsByProjectFunc: func(_ context.Context, projectID string, status *domain.RunStatus, metadataKey, metadataValue, triggeredBy, batchID *string, payloadContains json.RawMessage, _ *domain.ExecutionMode, _ *string, limit int, cursor *time.Time) ([]domain.JobRun, error) {
 			listCalled.Store(true)
-			if projectID != "proj-1" {
-				t.Fatalf("expected project_id proj-1, got %s", projectID)
-			}
-			if status != nil {
-				t.Fatalf("expected status nil, got %v", *status)
-			}
-			if metadataKey == nil || *metadataKey != "env" {
-				t.Fatalf("expected metadata_key env, got %v", metadataKey)
-			}
-			if metadataValue == nil || *metadataValue != "prod" {
-				t.Fatalf("expected metadata_value prod, got %v", metadataValue)
-			}
-			if limit != 51 { // handler passes limit+1 (default 50 + 1)
-				t.Fatalf("expected default limit 50, got %d", limit)
-			}
-			if cursor != nil {
-				t.Fatalf("expected nil cursor, got %v", cursor)
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.Nil(t, status)
+			require.False(t, metadataKey ==
+				nil || *metadataKey !=
+				"env")
+			require.False(t, metadataValue ==
+				nil ||
+				*metadataValue !=
+					"prod")
+			require.Equal(t, 51, limit)
+			require.Nil(t, cursor)
+
+			// handler passes limit+1 (default 50 + 1)
+
 			return []domain.JobRun{{ID: "run-1", ProjectID: projectID}}, nil
 		},
 	}
@@ -1157,13 +1095,10 @@ func TestHandleListRuns_MetadataFilter(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?metadata_key=env&metadata_value=prod", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !listCalled.Load() {
-		t.Fatal("expected ListRunsByProject to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, listCalled.Load())
 }
 
 func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
@@ -1174,10 +1109,9 @@ func TestHandleListRuns_MetadataValueWithoutKey(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?metadata_value=prod", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListRuns_MissingProjectID(t *testing.T) {
@@ -1188,10 +1122,9 @@ func TestHandleListRuns_MissingProjectID(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/runs/", "")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListRuns_InvalidLimit(t *testing.T) {
@@ -1202,10 +1135,9 @@ func TestHandleListRuns_InvalidLimit(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?limit=abc", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListRuns_InvalidCursor(t *testing.T) {
@@ -1216,10 +1148,9 @@ func TestHandleListRuns_InvalidCursor(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?cursor=not-a-time", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListRuns_InvalidStatus(t *testing.T) {
@@ -1237,22 +1168,20 @@ func TestHandleListRuns_InvalidStatus(t *testing.T) {
 	r := authedProjectRequest(http.MethodGet, "/v1/runs/?status=definitely-not-valid", "", "proj-1")
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-	if called {
-		t.Fatal("expected ListRunsByProject to not be called for invalid status")
-	}
+		w.Code)
+	require.False(t, called)
 }
 
 func TestHandleListChildRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListChildRunsFunc: func(_ context.Context, parentRunID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if parentRunID != "run-parent" {
-				t.Fatalf("expected parent run id run-parent, got %s", parentRunID)
-			}
+			require.Equal(t, "run-parent",
+				parentRunID,
+			)
+
 			return []domain.JobRun{{ID: "run-child", ParentRunID: parentRunID}}, nil
 		},
 	}
@@ -1262,10 +1191,8 @@ func TestHandleListChildRuns_Success(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/runs/run-parent/children", "")
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleSDKContinue_Success(t *testing.T) {
@@ -1300,25 +1227,24 @@ func TestHandleSDKContinue_Success(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{"payload":{"step":2}}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueuedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueuedRun.ContinuationOf != "run-parent" {
-		t.Fatalf("expected continuation_of=run-parent, got %s", enqueuedRun.ContinuationOf)
-	}
-	if enqueuedRun.LineageDepth != 3 {
-		t.Fatalf("expected lineage_depth=3, got %d", enqueuedRun.LineageDepth)
-	}
-	if enqueuedRun.Priority != 5 {
-		t.Fatalf("expected priority=5, got %d", enqueuedRun.Priority)
-	}
-	if string(enqueuedRun.Payload) != `{"step":2}` {
-		t.Fatalf("expected custom payload, got %s", string(enqueuedRun.Payload))
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueuedRun)
+	require.Equal(t, "run-parent",
+		enqueuedRun.
+			ContinuationOf,
+	)
+	require.Equal(t, 3, enqueuedRun.
+		LineageDepth,
+	)
+	require.Equal(t, 5, enqueuedRun.
+		Priority,
+	)
+	require.Equal(t, `{"step":2}`,
+		string(enqueuedRun.
+			Payload,
+		))
 }
 
 func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
@@ -1351,13 +1277,12 @@ func TestHandleSDKContinue_InheritsPayload(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if string(enqueuedRun.Payload) != `{"inherited":true}` {
-		t.Fatalf("expected inherited payload, got %s", string(enqueuedRun.Payload))
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, `{"inherited":true}`,
+		string(enqueuedRun.
+			Payload))
 }
 
 func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
@@ -1379,10 +1304,9 @@ func TestHandleSDKContinue_MaxDepthExceeded(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
@@ -1402,10 +1326,9 @@ func TestHandleSDKContinue_InvalidStatus(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleSDKContinue_RunNotFound(t *testing.T) {
@@ -1421,10 +1344,9 @@ func TestHandleSDKContinue_RunNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSDKContinue_EnqueueError(t *testing.T) {
@@ -1454,8 +1376,8 @@ func TestHandleSDKContinue_EnqueueError(t *testing.T) {
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-parent/continue", "run-parent", `{}`)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code,
+	)
 }

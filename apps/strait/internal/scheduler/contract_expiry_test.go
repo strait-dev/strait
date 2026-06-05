@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockContractExpiryStore struct {
@@ -107,13 +110,13 @@ func TestContractExpiryChecker_SendsReminderForExpiringContract(t *testing.T) {
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-
-	if len(emails.sent) == 0 {
-		t.Fatal("expected at least one reminder to be sent")
-	}
-	if !emails.sent[0].autoRenew {
-		t.Error("expected auto-renew reminder, got expiry warning")
-	}
+	require.NotEmpty(t,
+		emails.sent,
+	)
+	assert.True(t, emails.
+		sent[0].
+		autoRenew,
+	)
 }
 
 func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
@@ -138,9 +141,7 @@ func TestContractExpiryChecker_Sends7DayReminder(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("expected 7-day expiry warning to be sent")
-	}
+	require.True(t, found)
 }
 
 func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T) {
@@ -156,10 +157,8 @@ func TestContractExpiryChecker_DoesNotSend30And7DayReminderSameTick(t *testing.T
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-
-	if len(emails.sent) != 1 {
-		t.Fatalf("expected one reminder for same 5-day contract, got %d", len(emails.sent))
-	}
+	require.Len(t, emails.
+		sent, 1)
 }
 
 func TestContractExpiryChecker_DurableClaimPreventsDuplicateReminder(t *testing.T) {
@@ -178,13 +177,12 @@ func TestContractExpiryChecker_DurableClaimPreventsDuplicateReminder(t *testing.
 	emailsB := &mockContractEmailSender{}
 	checkerB := NewContractExpiryChecker(store, emailsB, time.Hour)
 	checkerB.check(context.Background())
-
-	if len(emailsA.sent) != 1 {
-		t.Fatalf("first checker sent %d reminders, want 1", len(emailsA.sent))
-	}
-	if len(emailsB.sent) != 0 {
-		t.Fatalf("second checker sent %d reminders after durable claim, want 0", len(emailsB.sent))
-	}
+	require.Len(t, emailsA.
+		sent, 1,
+	)
+	require.Empty(t, emailsB.
+		sent,
+	)
 }
 
 func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T) {
@@ -198,10 +196,10 @@ func TestContractExpiryChecker_RestrictsExpiredNonRenewingContract(t *testing.T)
 	}
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	checker.check(context.Background())
+	require.False(t, len(store.restricted) !=
+		1 || store.restricted[0] !=
 
-	if len(store.restricted) != 1 || store.restricted[0] != "org-expired" {
-		t.Fatalf("restricted orgs = %v, want [org-expired]", store.restricted)
-	}
+		"org-expired")
 }
 
 func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T) {
@@ -217,10 +215,11 @@ func TestContractExpiryChecker_InvalidatesOrgCacheAfterRestriction(t *testing.T)
 	invalidator := &mockContractExpiryInvalidator{}
 	checker := NewContractExpiryChecker(store, nil, time.Hour).WithOrgCacheInvalidator(invalidator)
 	checker.check(context.Background())
+	require.False(t, len(invalidator.
+		orgs) !=
+		1 || invalidator.orgs[0] !=
 
-	if len(invalidator.orgs) != 1 || invalidator.orgs[0] != "org-expired" {
-		t.Fatalf("invalidated orgs = %v, want [org-expired]", invalidator.orgs)
-	}
+		"org-expired")
 }
 
 func TestContractExpiryChecker_SkipsStaleExpiredContractRestriction(t *testing.T) {
@@ -234,10 +233,8 @@ func TestContractExpiryChecker_SkipsStaleExpiredContractRestriction(t *testing.T
 	}
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	checker.check(context.Background())
-
-	if len(store.restricted) != 0 {
-		t.Fatalf("restricted orgs = %v, want none for stale contract", store.restricted)
-	}
+	require.Empty(t, store.
+		restricted)
 }
 
 func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
@@ -257,9 +254,8 @@ func TestContractExpiryChecker_AutoRenewGetsRenewalNotice(t *testing.T) {
 	checker.check(context.Background())
 
 	for _, call := range emails.sent {
-		if !call.autoRenew {
-			t.Error("auto-renew contract should get renewal notice, not expiry warning")
-		}
+		assert.True(t, call.
+			autoRenew)
 	}
 }
 
@@ -270,10 +266,8 @@ func TestContractExpiryChecker_NoContracts(t *testing.T) {
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-
-	if len(emails.sent) != 0 {
-		t.Fatalf("expected 0 emails, got %d", len(emails.sent))
-	}
+	require.Empty(t, emails.
+		sent)
 }
 
 func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
@@ -291,9 +285,9 @@ func TestContractExpiryChecker_NilEmailSender(t *testing.T) {
 	checker := NewContractExpiryChecker(store, nil, time.Hour)
 	// Should not panic.
 	checker.check(context.Background())
-	if len(store.claims) != 0 {
-		t.Fatalf("durable claims = %d, want 0 when email sender is nil", len(store.claims))
-	}
+	require.Empty(t, store.
+		claims,
+	)
 }
 
 func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {
@@ -311,8 +305,6 @@ func TestContractExpiryChecker_NoAdminEmails(t *testing.T) {
 	emails := &mockContractEmailSender{}
 	checker := NewContractExpiryChecker(store, emails, time.Hour)
 	checker.check(context.Background())
-
-	if len(emails.sent) != 0 {
-		t.Fatalf("expected 0 emails for org with no admin emails, got %d", len(emails.sent))
-	}
+	require.Empty(t, emails.
+		sent)
 }

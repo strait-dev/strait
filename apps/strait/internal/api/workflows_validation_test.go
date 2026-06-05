@@ -1,10 +1,11 @@
 package api
 
 import (
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateWorkflowSteps_MaxStepLimit(t *testing.T) {
@@ -16,9 +17,7 @@ func TestValidateWorkflowSteps_MaxStepLimit(t *testing.T) {
 	}
 
 	err := validateWorkflowSteps(steps)
-	if err == nil {
-		t.Fatal("expected max step limit error")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateWorkflowSteps_InvalidResourceClass(t *testing.T) {
@@ -31,9 +30,7 @@ func TestValidateWorkflowSteps_InvalidResourceClass(t *testing.T) {
 	}}
 
 	err := validateWorkflowSteps(steps)
-	if err == nil {
-		t.Fatal("expected resource_class validation error")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateWorkflowSteps_RejectsUnknownStepType(t *testing.T) {
@@ -46,12 +43,9 @@ func TestValidateWorkflowSteps_RejectsUnknownStepType(t *testing.T) {
 	}}
 
 	err := validateWorkflowSteps(steps)
-	if err == nil {
-		t.Fatal("expected unknown step_type validation error")
-	}
-	if !strings.Contains(err.Error(), "invalid step_type") {
-		t.Fatalf("expected invalid step_type error, got %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "invalid step_type")
 }
 
 func TestValidateWorkflowSteps_RejectsOversizedSleepDuration(t *testing.T) {
@@ -64,12 +58,9 @@ func TestValidateWorkflowSteps_RejectsOversizedSleepDuration(t *testing.T) {
 	}}
 
 	err := validateWorkflowSteps(steps)
-	if err == nil {
-		t.Fatal("expected oversized sleep duration validation error")
-	}
-	if !strings.Contains(err.Error(), "sleep_duration_secs must be <=") {
-		t.Fatalf("expected sleep duration cap error, got %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "sleep_duration_secs must be <=")
 }
 
 func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
@@ -80,10 +71,7 @@ func TestValidateWorkflowSteps_AllowsMaxSleepDuration(t *testing.T) {
 		StepType:          domain.WorkflowStepTypeSleep,
 		SleepDurationSecs: domain.MaxSleepDurationSecs,
 	}}
-
-	if err := validateWorkflowSteps(steps); err != nil {
-		t.Fatalf("validate max sleep duration: %v", err)
-	}
+	require.NoError(t, validateWorkflowSteps(steps))
 }
 
 func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
@@ -127,12 +115,10 @@ func TestValidateWorkflowSteps_RejectsInvalidEventNotifyURL(t *testing.T) {
 			}}
 
 			err := validateWorkflowSteps(steps)
-			if err == nil {
-				t.Fatal("expected event_notify_url validation error")
-			}
-			if !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("expected error containing %q, got %v", tt.want, err)
-			}
+			require.Error(t, err)
+			require.Contains(
+				t, err.Error(), tt.want,
+			)
 		})
 	}
 }
@@ -146,10 +132,7 @@ func TestValidateWorkflowSteps_AllowsValidEventNotifyURL(t *testing.T) {
 		EventKey:       "external.signal",
 		EventNotifyURL: "https://example.com:443/hook",
 	}}
-
-	if err := validateWorkflowSteps(steps); err != nil {
-		t.Fatalf("validate valid event_notify_url: %v", err)
-	}
+	require.NoError(t, validateWorkflowSteps(steps))
 }
 
 func TestValidateWorkflowStepAcyclic_DuplicateDependencyIsNotCycle(t *testing.T) {
@@ -159,8 +142,5 @@ func TestValidateWorkflowStepAcyclic_DuplicateDependencyIsNotCycle(t *testing.T)
 		{StepRef: "a", JobID: "job-a"},
 		{StepRef: "b", JobID: "job-b", DependsOn: []string{"a", "a"}},
 	}
-
-	if err := validateWorkflowSteps(steps); err != nil {
-		t.Fatalf("duplicate dependency should not be reported as a cycle: %v", err)
-	}
+	require.NoError(t, validateWorkflowSteps(steps))
 }

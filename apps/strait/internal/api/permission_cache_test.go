@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPermissionCache_GetSet(t *testing.T) {
@@ -23,19 +25,15 @@ func TestPermissionCache_GetSet(t *testing.T) {
 
 	// Miss on empty cache.
 	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss")
-	}
+	require.False(t, ok)
 
 	// Set and hit.
 	c.Set("proj", "user", []string{"jobs:read", "jobs:write"})
 	perms, ok := c.Get("proj", "user")
-	if !ok {
-		t.Fatal("expected cache hit")
-	}
-	if len(perms) != 2 {
-		t.Fatalf("len(perms) = %d, want 2", len(perms))
-	}
+	require.True(
+		t, ok)
+	require.Len(t,
+		perms, 2)
 }
 
 func TestPermissionCache_Expiry(t *testing.T) {
@@ -52,7 +50,7 @@ func TestPermissionCache_Expiry(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for cache entry to expire")
+			require.Fail(t, "timed out waiting for cache entry to expire")
 		case <-ticker.C:
 			if _, ok := c.Get("proj", "user"); !ok {
 				return // entry expired as expected
@@ -71,9 +69,7 @@ func TestPermissionCache_Invalidate(t *testing.T) {
 	c.Invalidate("proj", "user")
 
 	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss after invalidate")
-	}
+	require.False(t, ok)
 }
 
 func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -90,13 +86,15 @@ func TestPermissionCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	depsB.Registry = registryB
 	cacheB := newPermissionCache(time.Minute, depsB)
 	perms, ok := cacheB.Get("proj", "user")
-	if !ok || len(perms) != 1 || perms[0] != "jobs:read" {
-		t.Fatalf("permissions from L2 = %v, %v; want [jobs:read],true", perms, ok)
-	}
+	require.False(t, !ok || len(perms) !=
+		1 || perms[0] != "jobs:read",
+	)
 
 	publishTestInvalidate(t, registryB, permissionCacheNamespace, cacheB.key("proj", "user"))
 	if _, ok := cacheB.Get("proj", "user"); ok {
-		t.Fatal("expected peer cache miss after cachebus invalidation")
+		require.Fail(t,
+
+			"expected peer cache miss after cachebus invalidation")
 	}
 }
 
@@ -111,18 +109,17 @@ func TestPermissionCache_SetWithVersionPreservesVersionInRedis(t *testing.T) {
 	cache.SetWithVersion("proj", "user", []string{"jobs:read"}, 14)
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+permissionCacheNamespace+":"+cache.key("proj", "user")).Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 14 {
-		t.Fatalf("redis version = %d, want 14", envelope.Version)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&envelope,
+	))
+	require.EqualValues(t, 14, envelope.
+		Version,
+	)
 }
 
 func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
@@ -138,13 +135,16 @@ func TestStrongPermissionCache_BarrierRejectsStaleUpdate(t *testing.T) {
 	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsWrite}, 4)
 
 	if got, ok := cache.Get("proj", "user"); ok {
-		t.Fatalf("Get() = %v, true; want barrier to reject stale update", got)
+		require.Failf(t, "test failure",
+
+			"Get() = %v, true; want barrier to reject stale update", got)
 	}
 	cache.SetWithVersion("proj", "user", []string{domain.ScopeJobsWrite}, 5)
 	got, ok := cache.Get("proj", "user")
-	if !ok || !slices.Contains(got, domain.ScopeJobsWrite) {
-		t.Fatalf("Get() = %v, %v; want equal-version replacement", got, ok)
-	}
+	require.False(t, !ok || !slices.
+		Contains(got, domain.
+			ScopeJobsWrite,
+		))
 }
 
 func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
@@ -159,25 +159,25 @@ func TestPermissionCache_ProjectInvalidationClearsRedisL2(t *testing.T) {
 	indexKey := cache.redisProjectIndexKey("proj")
 
 	members, err := deps.Redis.SMembers(t.Context(), indexKey).Result()
-	if err != nil {
-		t.Fatalf("read permission project index: %v", err)
-	}
-	if len(members) != 2 {
-		t.Fatalf("permission project index size = %d, want 2", len(members))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		members, 2)
 
 	cache.InvalidateProject(t.Context(), "proj", time.Now().UnixNano())
 
 	fresh := newPermissionCache(time.Minute, deps)
 	if _, ok := fresh.Get("proj", "user-a"); ok {
-		t.Fatal("user-a permission survived project invalidation")
+		require.Fail(t,
+
+			"user-a permission survived project invalidation")
 	}
 	if _, ok := fresh.Get("proj", "user-b"); ok {
-		t.Fatal("user-b permission survived project invalidation")
+		require.Fail(t,
+
+			"user-b permission survived project invalidation")
 	}
-	if exists := deps.Redis.Exists(t.Context(), indexKey).Val(); exists != 0 {
-		t.Fatalf("permission project index exists = %d, want 0", exists)
-	}
+	require.EqualValues(t, 0, deps.Redis.
+		Exists(t.Context(), indexKey).Val())
 }
 
 func TestPermissionCache_IsolatesProjects(t *testing.T) {
@@ -189,20 +189,18 @@ func TestPermissionCache_IsolatesProjects(t *testing.T) {
 	c.Set("proj-b", "user", []string{"*"})
 
 	permsA, ok := c.Get("proj-a", "user")
-	if !ok {
-		t.Fatal("expected hit for proj-a")
-	}
-	if len(permsA) != 1 {
-		t.Fatalf("proj-a perms = %d, want 1", len(permsA))
-	}
+	require.True(
+		t, ok)
+	require.Len(t,
+		permsA, 1)
 
 	permsB, ok := c.Get("proj-b", "user")
-	if !ok {
-		t.Fatal("expected hit for proj-b")
-	}
-	if len(permsB) != 1 || permsB[0] != "*" {
-		t.Fatalf("proj-b perms = %v, want [*]", permsB)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(permsB) !=
+		1 ||
+		permsB[0] !=
+			"*")
 }
 
 func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
@@ -220,7 +218,7 @@ func TestPermissionCache_EvictsOnExpiredRead(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for cache entry to expire")
+			require.Fail(t, "timed out waiting for cache entry to expire")
 		case <-ticker.C:
 			if _, ok := c.Get("proj", "user"); !ok {
 				goto expired
@@ -231,9 +229,7 @@ expired:
 
 	// A second Get should still miss (entry was evicted, not just stale).
 	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss on second read after expiry")
-	}
+	require.False(t, ok)
 }
 
 func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
@@ -245,12 +241,11 @@ func TestPermissionCache_SetOverwritesExisting(t *testing.T) {
 	c.Set("proj", "user", []string{"*", "runs:write"})
 
 	perms, ok := c.Get("proj", "user")
-	if !ok {
-		t.Fatal("expected cache hit")
-	}
-	if len(perms) != 2 || perms[0] != "*" {
-		t.Fatalf("perms = %v, want [* runs:write]", perms)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(perms) !=
+		2 || perms[0] !=
+		"*")
 }
 
 func TestPermissionCache_InvalidateNonexistent(t *testing.T) {
@@ -272,15 +267,11 @@ func TestPermissionCache_EmptyPermissionsSlice(t *testing.T) {
 	// Set empty (non-nil) permissions — should be distinguishable from cache miss.
 	c.Set("proj", "user", []string{})
 	perms, ok := c.Get("proj", "user")
-	if !ok {
-		t.Fatal("expected cache hit for empty permissions slice")
-	}
-	if perms == nil {
-		t.Fatal("expected non-nil empty slice, got nil")
-	}
-	if len(perms) != 0 {
-		t.Fatalf("expected empty slice, got %v", perms)
-	}
+	require.True(
+		t, ok)
+	require.NotNil(t, perms)
+	require.Empty(t,
+		perms)
 }
 
 func TestPermissionCache_ConcurrentReadWrite(t *testing.T) {
@@ -334,9 +325,8 @@ func TestPermissionCache_ManyEntries(t *testing.T) {
 
 	for _, i := range []int{0, 100, 5000, 9999} {
 		_, ok := c.Get("proj", "user-"+string(rune(i)))
-		if !ok {
-			t.Fatalf("expected cache hit for user-%d", i)
-		}
+		require.True(
+			t, ok)
 	}
 }
 
@@ -348,9 +338,7 @@ func TestPermissionCache_ZeroTTL(t *testing.T) {
 	c.Set("proj", "user", []string{"*"})
 
 	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expected cache miss with zero TTL")
-	}
+	require.False(t, ok)
 }
 
 func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
@@ -372,10 +360,9 @@ func TestPermissionCache_RLockAllowsConcurrentReads(t *testing.T) {
 	}
 	wg.Wait()
 
-	for i, ok := range results {
-		if !ok {
-			t.Errorf("reader %d got cache miss, expected hit", i)
-		}
+	for _, ok := range results {
+		assert.True(t,
+			ok)
 	}
 }
 
@@ -394,7 +381,7 @@ func TestPermissionCache_EvictRaceOnExpiry(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for cache entry to expire")
+			require.Fail(t, "timed out waiting for cache entry to expire")
 		case <-ticker.C:
 			if _, ok := c.Get("proj", "user"); !ok {
 				goto expired
@@ -408,17 +395,14 @@ expired:
 	for range goroutines {
 		wg.Go(func() {
 			_, ok := c.Get("proj", "user")
-			if ok {
-				t.Error("expected miss for expired entry")
-			}
+			assert.False(
+				t, ok)
 		})
 	}
 	wg.Wait()
 
 	_, ok := c.Get("proj", "user")
-	if ok {
-		t.Fatal("expired entry should have been evicted")
-	}
+	require.False(t, ok)
 }
 
 func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
@@ -447,7 +431,7 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 	select {
 	case <-firstRead:
 	case <-ctx.Done():
-		t.Fatal("timed out waiting for first read")
+		require.Fail(t, "timed out waiting for first read")
 	}
 
 	for i := range 100 {
@@ -456,10 +440,8 @@ func TestPermissionCache_GetDoesNotBlockSet(t *testing.T) {
 
 	cancel()
 	wg.Wait()
-
-	if readCount.Load() == 0 {
-		t.Fatal("no reads completed, possible deadlock")
-	}
+	require.NotEqual(t, 0, readCount.
+		Load())
 }
 
 func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
@@ -482,12 +464,11 @@ func TestPermissionCache_RefreshedBetweenRLockAndLock(t *testing.T) {
 	c.Set("proj", "user", []string{"refreshed"})
 
 	perms, ok := c.Get("proj", "user")
-	if !ok {
-		t.Fatal("expected hit after refresh")
-	}
-	if len(perms) != 1 || perms[0] != "refreshed" {
-		t.Fatalf("perms = %v, want [refreshed]", perms)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(perms) !=
+		1 || perms[0] !=
+		"refreshed")
 }
 
 func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
@@ -501,18 +482,17 @@ func TestPermissionCache_KeySeparatorCollision(t *testing.T) {
 	c.Set("a\x00b", "", []string{"perm-collision"})
 
 	permsAB, ok := c.Get("a", "b")
-	if !ok {
-		t.Fatal("expected hit for a/b")
-	}
-	if len(permsAB) != 1 || permsAB[0] != "perm-ab" {
-		t.Fatalf("a/b perms = %v, want [perm-ab]", permsAB)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(permsAB) !=
+		1 ||
+		permsAB[0] != "perm-ab")
 
 	permsCollision, ok := c.Get("a\x00b", "")
-	if !ok {
-		t.Fatal("expected hit for a\\x00b/empty")
-	}
-	if len(permsCollision) != 1 || permsCollision[0] != "perm-collision" {
-		t.Fatalf("collision perms = %v, want [perm-collision]", permsCollision)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(permsCollision) !=
+		1 || permsCollision[0] !=
+		"perm-collision",
+	)
 }

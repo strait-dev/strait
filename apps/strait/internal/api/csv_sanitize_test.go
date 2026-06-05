@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSanitizeCSVCellHandlesFormatChars pins the contract for
@@ -36,9 +38,10 @@ func TestSanitizeCSVCellHandlesFormatChars(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := sanitizeCSVCell(tc.in)
-			if !strings.HasPrefix(out, "'") {
-				t.Fatalf("sanitizeCSVCell(%q) = %q, want leading single quote", tc.in, out)
-			}
+			require.True(
+				t, strings.HasPrefix(out,
+
+					"'"))
 		})
 	}
 }
@@ -63,12 +66,11 @@ func TestSanitizeCSVCellPreservesBenignText(t *testing.T) {
 	for _, in := range cases {
 		t.Run(in, func(t *testing.T) {
 			out := sanitizeCSVCell(in)
-			if strings.HasPrefix(out, "'") {
-				t.Fatalf("sanitizeCSVCell(%q) wrongly prefixed: %q", in, out)
-			}
-			if out != in {
-				t.Fatalf("sanitizeCSVCell(%q) = %q, want unchanged", in, out)
-			}
+			require.False(t, strings.HasPrefix(
+				out,
+
+				"'"))
+			require.Equal(t, in, out)
 		})
 	}
 }
@@ -106,7 +108,7 @@ func FuzzSanitizeCSVCellNeverLeavesFormulaPrefix(f *testing.F) {
 			}
 			switch r {
 			case '=', '+', '-', '@':
-				t.Fatalf("sanitizeCSVCell(%q) = %q left formula trigger %q visible", in, out, r)
+				require.Failf(t, "test failure", "sanitizeCSVCell(%q) = %q left formula trigger %q visible", in, out, r)
 			}
 			break
 		}

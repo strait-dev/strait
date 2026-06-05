@@ -13,6 +13,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func intCreateDelayedRun(t *testing.T, ctx context.Context, st *store.Queries, job *domain.Job, scheduledAt time.Time) *domain.JobRun {
@@ -25,25 +26,25 @@ func intCreateDelayedRun(t *testing.T, ctx context.Context, st *store.Queries, j
 		ScheduledAt: &scheduledAt,
 		TriggeredBy: domain.TriggerManual,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
+
 	return run
 }
 
 func intCountRunsByStatus(t *testing.T, ctx context.Context, st *store.Queries, jobID string, status domain.RunStatus) int {
 	t.Helper()
 	var count int
-	if err := getTestDB(t).Pool.QueryRow(ctx,
-		`SELECT COUNT(*)
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*)
 		FROM job_runs jr
 		LEFT JOIN job_run_read_state s ON s.run_id = jr.id
 		WHERE jr.job_id = $1
 		  AND COALESCE(s.status, jr.status) = $2`,
-		jobID, status,
-	).Scan(&count); err != nil {
-		t.Fatalf("count runs by status: %v", err)
-	}
+
+			jobID, status).Scan(&count))
+
 	return count
 }
 
@@ -56,7 +57,7 @@ func intWaitForRunStatusCount(t *testing.T, ctx context.Context, st *store.Queri
 		select {
 		case <-deadline:
 			got := intCountRunsByStatus(t, ctx, st, jobID, status)
-			t.Fatalf("timed out waiting for %d %s runs, got %d", want, status, got)
+			require.Failf(t, "test failure", "timed out waiting for %d %s runs, got %d", want, status, got)
 		case <-tick.C:
 			if got := intCountRunsByStatus(t, ctx, st, jobID, status); got == want {
 				return
@@ -136,9 +137,11 @@ func TestIntegration_DelayedPoller_RespectsPerTickBound(t *testing.T) {
 	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 6)
-	if got := intCountRunsByStatus(t, ctx, st, job.ID, domain.StatusDelayed); got != 2 {
-		t.Fatalf("delayed runs after bounded tick = %d, want 2", got)
-	}
+	require.EqualValues(t, 2, intCountRunsByStatus(t, ctx,
+		st, job.ID,
+		domain.StatusDelayed,
+	))
+
 	cancel()
 	<-done
 }
@@ -168,9 +171,11 @@ func TestIntegration_DelayedPoller_KeepsFutureRunsDelayed(t *testing.T) {
 	})
 
 	intWaitForRunStatusCount(t, ctx, st, job.ID, domain.StatusQueued, 2)
-	if got := intCountRunsByStatus(t, ctx, st, job.ID, domain.StatusDelayed); got != 3 {
-		t.Fatalf("future delayed runs = %d, want 3", got)
-	}
+	require.EqualValues(t, 3, intCountRunsByStatus(t, ctx,
+		st, job.ID,
+		domain.StatusDelayed,
+	))
+
 	cancel()
 	<-done
 }

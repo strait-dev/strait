@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEval_UnknownOperatorFailsClosed(t *testing.T) {
@@ -13,12 +16,9 @@ func TestEval_UnknownOperatorFailsClosed(t *testing.T) {
 		json.RawMessage(`{"contains":[["role","admin"]]}`),
 		json.RawMessage(`{"role":"admin"}`),
 	)
-	if match {
-		t.Fatal("unknown operator matched; want fail closed")
-	}
-	if err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("error = %v, want unknown field", err)
-	}
+	assert.False(t, match)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown field")
 }
 
 func TestEval_TooManyConditionsFailsClosed(t *testing.T) {
@@ -29,17 +29,12 @@ func TestEval_TooManyConditionsFailsClosed(t *testing.T) {
 		conditions[i] = [2]string{"status", "ok"}
 	}
 	filter, err := json.Marshal(FilterExpr{Eq: conditions})
-	if err != nil {
-		t.Fatalf("marshal filter: %v", err)
-	}
+	require.NoError(t, err)
 
 	match, err := Eval(json.RawMessage(filter), json.RawMessage(`{"status":"ok"}`))
-	if match {
-		t.Fatal("oversized condition set matched; want fail closed")
-	}
-	if err == nil || !strings.Contains(err.Error(), "too many conditions") {
-		t.Fatalf("error = %v, want too many conditions", err)
-	}
+	assert.False(t, match)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too many conditions")
 }
 
 func TestEval_TooDeepPathFailsClosed(t *testing.T) {
@@ -50,15 +45,10 @@ func TestEval_TooDeepPathFailsClosed(t *testing.T) {
 		parts[i] = "x"
 	}
 	filter, err := json.Marshal(FilterExpr{Has: []string{strings.Join(parts, ".")}})
-	if err != nil {
-		t.Fatalf("marshal filter: %v", err)
-	}
+	require.NoError(t, err)
 
 	match, err := Eval(json.RawMessage(filter), json.RawMessage(`{"x":{}}`))
-	if match {
-		t.Fatal("overly deep path matched; want fail closed")
-	}
-	if err == nil || !strings.Contains(err.Error(), "too many") && !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("error = %v, want path depth error", err)
-	}
+	assert.False(t, match)
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(), "too many") || strings.Contains(err.Error(), "exceeds"))
 }

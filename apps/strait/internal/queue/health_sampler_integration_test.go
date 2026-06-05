@@ -10,6 +10,8 @@ import (
 	"strait/internal/queue"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // waitFor polls cond until it returns true or timeout elapses, failing the
@@ -23,7 +25,9 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("condition not met within %s", timeout)
+	require.Failf(t, "test failure",
+
+		"condition not met within %s", timeout)
 }
 
 func TestHealthSampler_HappyPath(t *testing.T) {
@@ -40,9 +44,8 @@ func TestHealthSampler_HappyPath(t *testing.T) {
 	}
 
 	sampler, err := queue.NewHealthSampler(testDB.Pool, 50*time.Millisecond, nil)
-	if err != nil {
-		t.Fatalf("NewHealthSampler: %v", err)
-	}
+	require.NoError(t, err)
+
 	go sampler.Run(ctx)
 
 	waitFor(t, 2*time.Second, func() bool { return sampler.Iterations() >= 3 })
@@ -65,9 +68,7 @@ func TestHealthSampler_SurvivesDroppedPartition(t *testing.T) {
 	_, _ = testDB.Pool.Exec(ctx, "DROP TABLE IF EXISTS tmp_health_part")
 
 	sampler, err := queue.NewHealthSampler(testDB.Pool, 30*time.Millisecond, nil)
-	if err != nil {
-		t.Fatalf("NewHealthSampler: %v", err)
-	}
+	require.NoError(t, err)
 
 	done := make(chan struct{})
 	concWG.Go(func() {
@@ -81,12 +82,13 @@ func TestHealthSampler_SurvivesDroppedPartition(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("sampler did not exit on context cancel")
+		require.Fail(t, "sampler did not exit on context cancel")
 	}
+	assert.GreaterOrEqual(t,
 
-	if sampler.Iterations() < 3 {
-		t.Errorf("expected sampler to iterate, got %d", sampler.Iterations())
-	}
+		sampler.
+			Iterations(), int64(3))
+
 }
 
 func TestHealthSampler_OldestQueuedAgeObservedAfterEnqueue(t *testing.T) {
@@ -103,16 +105,15 @@ func TestHealthSampler_OldestQueuedAgeObservedAfterEnqueue(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	sampler, err := queue.NewHealthSampler(testDB.Pool, 1*time.Second, nil)
-	if err != nil {
-		t.Fatalf("NewHealthSampler: %v", err)
-	}
+	require.NoError(t, err)
+
 	sampler.SampleOnce(ctx)
+	assert.EqualValues(t, 1, sampler.
+		Iterations())
 
 	// We cannot inspect the histogram directly without an OTEL SDK, but
 	// SampleOnce must return cleanly and increment iterations.
-	if sampler.Iterations() != 1 {
-		t.Errorf("iterations = %d, want 1", sampler.Iterations())
-	}
+
 }
 
 func TestHealthSampler_ManyPartitionsRecorded(t *testing.T) {
@@ -127,17 +128,16 @@ func TestHealthSampler_ManyPartitionsRecorded(t *testing.T) {
 		SELECT relname FROM pg_stat_user_tables
 		WHERE relname = 'job_runs' OR relname LIKE 'job_runs_%'
 	`)
-	if err != nil {
-		t.Fatalf("pg_stat_user_tables query: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	var seen int
 	for rows.Next() {
 		var r string
-		if err := rows.Scan(&r); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&r))
+
 		seen++
 	}
 	if seen == 0 {
@@ -145,8 +145,7 @@ func TestHealthSampler_ManyPartitionsRecorded(t *testing.T) {
 	}
 
 	sampler, err := queue.NewHealthSampler(testDB.Pool, 1*time.Second, nil)
-	if err != nil {
-		t.Fatalf("NewHealthSampler: %v", err)
-	}
+	require.NoError(t, err)
+
 	sampler.SampleOnce(ctx)
 }

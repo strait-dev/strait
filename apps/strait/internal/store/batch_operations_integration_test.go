@@ -11,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateBatchOperation(t *testing.T) {
@@ -27,35 +28,35 @@ func TestCreateBatchOperation(t *testing.T) {
 		ItemCount: 10,
 		CreatedBy: "user-1",
 	}
-	if err := q.CreateBatchOperation(ctx, op); err != nil {
-		t.Fatalf("CreateBatchOperation() error = %v", err)
-	}
+	require.NoError(t, q.CreateBatchOperation(ctx,
+		op))
 
 	got, err := q.GetBatchOperation(ctx, op.ID, op.ProjectID)
-	if err != nil {
-		t.Fatalf("GetBatchOperation() error = %v", err)
-	}
-	if got.ID != op.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, op.ID)
-	}
-	if got.ProjectID != op.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, op.ProjectID)
-	}
-	if got.JobID != op.JobID {
-		t.Fatalf("JobID = %q, want %q", got.JobID, op.JobID)
-	}
-	if got.ItemCount != 10 {
-		t.Fatalf("ItemCount = %d, want 10", got.ItemCount)
-	}
-	if got.CreatedCount != 0 {
-		t.Fatalf("CreatedCount = %d, want 0", got.CreatedCount)
-	}
-	if got.CreatedAt.IsZero() {
-		t.Fatalf("CreatedAt is zero")
-	}
-	if got.FinishedAt != nil {
-		t.Fatalf("FinishedAt = %v, want nil", got.FinishedAt)
-	}
+	require.NoError(t, err)
+	require.Equal(t, op.ID,
+
+		got.ID)
+	require.Equal(t, op.ProjectID,
+
+		got.
+			ProjectID,
+	)
+	require.Equal(t, op.JobID,
+
+		got.JobID,
+	)
+	require.EqualValues(t, 10, got.
+		ItemCount,
+	)
+	require.EqualValues(t, 0, got.
+		CreatedCount,
+	)
+	require.False(t, got.CreatedAt.
+		IsZero())
+	require.Nil(t, got.
+		FinishedAt,
+	)
+
 }
 
 func TestFinalizeBatchOperation(t *testing.T) {
@@ -72,24 +73,19 @@ func TestFinalizeBatchOperation(t *testing.T) {
 		ItemCount: 5,
 		CreatedBy: "user-1",
 	}
-	if err := q.CreateBatchOperation(ctx, op); err != nil {
-		t.Fatalf("CreateBatchOperation() error = %v", err)
-	}
-
-	if err := q.FinalizeBatchOperation(ctx, op.ID, 3); err != nil {
-		t.Fatalf("FinalizeBatchOperation() error = %v", err)
-	}
+	require.NoError(t, q.CreateBatchOperation(ctx,
+		op))
+	require.NoError(t, q.FinalizeBatchOperation(
+		ctx, op.ID,
+		3))
 
 	got, err := q.GetBatchOperation(ctx, op.ID, op.ProjectID)
-	if err != nil {
-		t.Fatalf("GetBatchOperation() error = %v", err)
-	}
-	if got.CreatedCount != 3 {
-		t.Fatalf("CreatedCount = %d, want 3", got.CreatedCount)
-	}
-	if got.FinishedAt == nil {
-		t.Fatalf("FinishedAt is nil, want non-nil")
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, got.
+		CreatedCount,
+	)
+	require.NotNil(t, got.FinishedAt)
+
 }
 
 func TestGetBatchOperation_NotFound(t *testing.T) {
@@ -98,12 +94,11 @@ func TestGetBatchOperation_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetBatchOperation(ctx, newID(), "nonexistent-project")
-	if err == nil {
-		t.Fatalf("GetBatchOperation() expected error, got nil")
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("GetBatchOperation() error = %v, want pgx.ErrNoRows", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, pgx.
+		ErrNoRows,
+	))
+
 }
 
 func TestListBatchOperations(t *testing.T) {
@@ -121,33 +116,26 @@ func TestListBatchOperations(t *testing.T) {
 			ItemCount: i + 1,
 			CreatedBy: "user-1",
 		}
-		if err := q.CreateBatchOperation(ctx, op); err != nil {
-			t.Fatalf("CreateBatchOperation()[%d] error = %v", i, err)
-		}
+		require.NoError(t, q.CreateBatchOperation(ctx,
+			op))
+
 		time.Sleep(time.Millisecond)
 	}
 
 	// First page: limit 2
 	page1, err := q.ListBatchOperations(ctx, job.ProjectID, 2, nil)
-	if err != nil {
-		t.Fatalf("ListBatchOperations() page1 error = %v", err)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("ListBatchOperations() page1 len = %d, want 2", len(page1))
-	}
-	if !page1[0].CreatedAt.After(page1[1].CreatedAt) {
-		t.Fatalf("expected descending order, got %v then %v", page1[0].CreatedAt, page1[1].CreatedAt)
-	}
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	require.True(t, page1[0].
+		CreatedAt.
+		After(page1[1].CreatedAt))
 
 	// Second page: cursor = last item's CreatedAt
 	cursor := page1[1].CreatedAt
 	page2, err := q.ListBatchOperations(ctx, job.ProjectID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListBatchOperations() page2 error = %v", err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("ListBatchOperations() page2 len = %d, want 1", len(page2))
-	}
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+
 }
 
 func TestListBatchOperations_CrossProject(t *testing.T) {
@@ -165,9 +153,8 @@ func TestListBatchOperations_CrossProject(t *testing.T) {
 		ItemCount: 1,
 		CreatedBy: "user-1",
 	}
-	if err := q.CreateBatchOperation(ctx, opA); err != nil {
-		t.Fatalf("CreateBatchOperation() A error = %v", err)
-	}
+	require.NoError(t, q.CreateBatchOperation(ctx,
+		opA))
 
 	opB := &domain.BatchOperation{
 		ID:        newID(),
@@ -176,18 +163,15 @@ func TestListBatchOperations_CrossProject(t *testing.T) {
 		ItemCount: 1,
 		CreatedBy: "user-1",
 	}
-	if err := q.CreateBatchOperation(ctx, opB); err != nil {
-		t.Fatalf("CreateBatchOperation() B error = %v", err)
-	}
+	require.NoError(t, q.CreateBatchOperation(ctx,
+		opB))
 
 	ops, err := q.ListBatchOperations(ctx, jobA.ProjectID, 10, nil)
-	if err != nil {
-		t.Fatalf("ListBatchOperations() error = %v", err)
-	}
-	if len(ops) != 1 {
-		t.Fatalf("ListBatchOperations() len = %d, want 1", len(ops))
-	}
-	if ops[0].ProjectID != jobA.ProjectID {
-		t.Fatalf("ProjectID = %q, want %q", ops[0].ProjectID, jobA.ProjectID)
-	}
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	require.Equal(t, jobA.ProjectID,
+
+		ops[0].ProjectID,
+	)
+
 }

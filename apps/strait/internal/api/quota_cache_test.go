@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	straitcache "strait/internal/cache"
 	"strait/internal/store"
@@ -35,27 +36,19 @@ func TestQuotaCache_HitAndMiss(t *testing.T) {
 
 	// First call: miss, loads from DB.
 	got, err := c.Get(ctx, "p1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got == nil || got.MaxQueuedRuns != 100 {
-		t.Fatalf("Get returned %+v, want MaxQueuedRuns=100", got)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1", calls.Load())
-	}
+	require.NoError(t, err)
+	require.False(t, got == nil ||
+		got.MaxQueuedRuns !=
+			100)
+	require.EqualValues(t, 1, calls.Load())
 
 	// Second call: hit, no DB call.
 	got, err = c.Get(ctx, "p1")
-	if err != nil {
-		t.Fatalf("Get (cached): %v", err)
-	}
-	if got == nil || got.MaxQueuedRuns != 100 {
-		t.Fatalf("cached Get returned %+v", got)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1 (cache hit)", calls.Load())
-	}
+	require.NoError(t, err)
+	require.False(t, got == nil ||
+		got.MaxQueuedRuns !=
+			100)
+	require.EqualValues(t, 1, calls.Load())
 }
 
 func TestQuotaCache_Invalidate(t *testing.T) {
@@ -67,16 +60,12 @@ func TestQuotaCache_Invalidate(t *testing.T) {
 
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 1 {
-		t.Fatalf("pre-invalidate DB calls = %d, want 1", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.Load())
 
 	c.Invalidate("p1")
 
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 2 {
-		t.Fatalf("post-invalidate DB calls = %d, want 2", calls.Load())
-	}
+	require.EqualValues(t, 2, calls.Load())
 }
 
 func TestQuotaCache_SingleflightDedupes(t *testing.T) {
@@ -117,17 +106,14 @@ func TestQuotaCache_SingleflightDedupes(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	close(gate)
 	wg.Wait()
+	require.EqualValues(t, 1, calls.Load())
 
-	if calls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1 (singleflight dedupe)", calls.Load())
-	}
 	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("goroutine %d: %v", i, err)
-		}
-		if results[i] == nil || results[i].MaxQueuedRuns != 42 {
-			t.Fatalf("goroutine %d: %+v", i, results[i])
-		}
+		require.NoError(t, err)
+		require.False(t, results[i] ==
+			nil || results[i].
+			MaxQueuedRuns !=
+			42)
 	}
 }
 
@@ -140,16 +126,12 @@ func TestQuotaCache_TTLExpiry(t *testing.T) {
 	ctx := t.Context()
 
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 1 {
-		t.Fatalf("initial DB calls = %d, want 1", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.Load())
 
 	time.Sleep(3 * time.Second)
 
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 2 {
-		t.Fatalf("post-expiry DB calls = %d, want 2", calls.Load())
-	}
+	require.EqualValues(t, 2, calls.Load())
 }
 
 func TestQuotaCache_PropagatesError(t *testing.T) {
@@ -161,20 +143,16 @@ func TestQuotaCache_PropagatesError(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := c.Get(ctx, "p1")
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("err = %v, want wraps %v", err, sentinel)
-	}
+	require.ErrorIs(
+		t, err, sentinel,
+	)
 
 	// Failed loads must not poison the cache. A subsequent successful load
 	// should still issue a DB call rather than returning the previous error.
 	c = newQuotaCacheWithLoader(5*time.Second, &calls, &store.ProjectQuota{ProjectID: "p1"}, nil)
 	got, err := c.Get(ctx, "p1")
-	if err != nil {
-		t.Fatalf("post-recovery Get: %v", err)
-	}
-	if got == nil {
-		t.Fatal("post-recovery Get returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }
 
 func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
@@ -187,17 +165,11 @@ func TestQuotaCache_NilQuotaIsCached(t *testing.T) {
 	ctx := t.Context()
 
 	got, err := c.Get(ctx, "p1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get returned %+v, want nil", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
 
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1 (nil quota cached)", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.Load())
 }
 
 func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
@@ -214,29 +186,20 @@ func TestQuotaCache_PreservesStoreCacheVersionInRedis(t *testing.T) {
 	}, deps)
 
 	got, err := c.Get(t.Context(), "project-versioned")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got == nil || got.CacheVersion != 9 {
-		t.Fatalf("Get() CacheVersion = %v, want 9", got)
-	}
+	require.NoError(t, err)
+	require.False(t, got == nil ||
+		got.CacheVersion !=
+			9)
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-versioned").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 9 {
-		t.Fatalf("redis version = %d, want 9", envelope.Version)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", calls.Load())
-	}
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	require.EqualValues(t, 9, envelope.Version)
+	require.EqualValues(t, 1, calls.Load())
 }
 
 func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
@@ -253,31 +216,25 @@ func TestQuotaCache_StrongBarrierAllowsDBConfirmedNil(t *testing.T) {
 
 	c.InvalidateWithVersion("project-nil", 10)
 	got, err := c.Get(t.Context(), "project-nil")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() = %+v, want nil quota", got)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", calls.Load())
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.EqualValues(t, 1, calls.Load())
 
 	raw, err := deps.Redis.Get(t.Context(), "strait:cache:"+quotaCacheNamespace+":project-nil").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t, err)
+
 	var envelope struct {
 		Version  int64 `json:"version"`
 		Barrier  bool  `json:"barrier"`
 		Negative bool  `json:"negative"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 10 || envelope.Barrier || !envelope.Negative {
-		t.Fatalf("redis envelope = %+v, want version 10 negative value", envelope)
-	}
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	require.False(t, envelope.Version !=
+		10 ||
+		envelope.
+			Barrier ||
+		!envelope.Negative,
+	)
 }
 
 func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
@@ -292,9 +249,7 @@ func TestQuotaCache_StrongBarrierRejectsStaleQuotaFill(t *testing.T) {
 
 	c.InvalidateWithVersion("project-stale", 10)
 	_, err := c.Get(t.Context(), "project-stale")
-	if err == nil {
-		t.Fatal("Get() error = nil, want stale version rejection")
-	}
+	require.Error(t, err)
 }
 
 func TestQuotaCache_Disabled(t *testing.T) {
@@ -307,7 +262,5 @@ func TestQuotaCache_Disabled(t *testing.T) {
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
 	_, _ = c.Get(ctx, "p1")
-	if calls.Load() != 3 {
-		t.Fatalf("DB calls = %d, want 3 (caching disabled)", calls.Load())
-	}
+	require.EqualValues(t, 3, calls.Load())
 }

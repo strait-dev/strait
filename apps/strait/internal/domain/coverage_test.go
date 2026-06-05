@@ -2,8 +2,10 @@ package domain
 
 import (
 	"fmt"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewVersionID_PanicsOnGenerateError(t *testing.T) {
@@ -17,16 +19,11 @@ func TestNewVersionID_PanicsOnGenerateError(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic, got none")
-		}
+		require.NotNil(t, r)
+
 		msg, ok := r.(string)
-		if !ok {
-			t.Fatalf("panic value is not a string: %v", r)
-		}
-		if !strings.Contains(msg, "injected failure") {
-			t.Fatalf("panic message %q does not contain 'injected failure'", msg)
-		}
+		require.True(t, ok)
+		require.Contains(t, msg, "injected failure")
 	}()
 
 	NewVersionID()
@@ -48,9 +45,7 @@ func TestDeploymentVersionStatus_IsValid(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if got := tc.status.IsValid(); got != tc.want {
-			t.Errorf("DeploymentVersionStatus(%q).IsValid() = %v, want %v", tc.status, got, tc.want)
-		}
+		assert.Equal(t, tc.want, tc.status.IsValid())
 	}
 }
 
@@ -70,8 +65,6 @@ func TestCronOverlapPolicy_IsValid(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		if got := tc.policy.IsValid(); got != tc.want {
-			t.Errorf("CronOverlapPolicy(%q).IsValid() = %v, want %v", tc.policy, got, tc.want)
-		}
+		assert.Equal(t, tc.want, tc.policy.IsValid())
 	}
 }

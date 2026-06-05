@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleUpdateJob_Success(t *testing.T) {
@@ -34,24 +36,18 @@ func TestHandleUpdateJob_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"name":"Updated Name"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updated == nil {
-		t.Fatal("expected UpdateJob to be called")
-	}
-	if updated.Name != "Updated Name" {
-		t.Fatalf("expected updated name, got %q", updated.Name)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, updated)
+	require.Equal(t, "Updated Name",
+		updated.
+			Name)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["name"] != "Updated Name" {
-		t.Fatalf("expected response name Updated Name, got %v", resp["name"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "Updated Name",
+		resp["name"])
 }
 
 func TestHandleUpdateJob_NotFound(t *testing.T) {
@@ -65,10 +61,9 @@ func TestHandleUpdateJob_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/missing", `{"name":"Updated Name"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleUpdateJob_InvalidBody(t *testing.T) {
@@ -82,10 +77,9 @@ func TestHandleUpdateJob_InvalidBody(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"name":`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleUpdateJob_InvalidCron(t *testing.T) {
@@ -99,10 +93,9 @@ func TestHandleUpdateJob_InvalidCron(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"cron":"bad cron"}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleUpdateJob_StoreError(t *testing.T) {
@@ -119,10 +112,9 @@ func TestHandleUpdateJob_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"name":"Updated"}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
@@ -132,10 +124,9 @@ func TestHandleCreateJob_MissingFields_ProjectID(t *testing.T) {
 
 	body := `{"project_id":"","name":"Job","slug":"job","endpoint_url":"https://example.com"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJob_InvalidURL(t *testing.T) {
@@ -145,10 +136,9 @@ func TestHandleCreateJob_InvalidURL(t *testing.T) {
 
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"not-a-url"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJob_InvalidCron(t *testing.T) {
@@ -158,10 +148,9 @@ func TestHandleCreateJob_InvalidCron(t *testing.T) {
 
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"https://example.com","cron":"bad cron"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJob_StoreError(t *testing.T) {
@@ -177,10 +166,9 @@ func TestHandleCreateJob_StoreError(t *testing.T) {
 
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"https://example.com"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJob_DefaultValues(t *testing.T) {
@@ -199,19 +187,12 @@ func TestHandleCreateJob_DefaultValues(t *testing.T) {
 
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"https://example.com"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
-	if got.MaxAttempts != 3 {
-		t.Fatalf("expected default max_attempts=3, got %d", got.MaxAttempts)
-	}
-	if got.TimeoutSecs != 300 {
-		t.Fatalf("expected default timeout_secs=300, got %d", got.TimeoutSecs)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, got)
+	require.Equal(t, 3, got.MaxAttempts)
+	require.Equal(t, 300, got.TimeoutSecs)
 }
 
 func TestHandleDeleteJob_NotFound(t *testing.T) {
@@ -228,10 +209,9 @@ func TestHandleDeleteJob_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-404", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleDeleteJob_StoreError(t *testing.T) {
@@ -248,10 +228,9 @@ func TestHandleDeleteJob_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-500", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCancelRun_NotFound(t *testing.T) {
@@ -265,10 +244,9 @@ func TestHandleCancelRun_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-404", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleCancelRun_TerminalState(t *testing.T) {
@@ -282,10 +260,9 @@ func TestHandleCancelRun_TerminalState(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCancelRun_UpdateError(t *testing.T) {
@@ -302,10 +279,9 @@ func TestHandleCancelRun_UpdateError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-1", ""))
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
@@ -348,16 +324,14 @@ func TestHandleCancelRun_PropagatesChildren(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-parent", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, domain.StatusCanceled,
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updates["run-parent"] != domain.StatusCanceled {
-		t.Fatalf("expected parent run to be canceled, got %q", updates["run-parent"])
-	}
-	if len(bulkCancelParentIDs) == 0 || bulkCancelParentIDs[0] != "run-parent" {
-		t.Fatalf("expected CancelChildRunsByParentIDs called with run-parent, got %v", bulkCancelParentIDs)
-	}
+		updates["run-parent"])
+	require.False(t, len(bulkCancelParentIDs) == 0 ||
+		bulkCancelParentIDs[0] != "run-parent",
+	)
 }
 
 func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
@@ -411,13 +385,11 @@ func TestHandleCancelRun_PropagatesChildren_MultiPage(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-parent", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.GreaterOrEqual(t, bulkCancelCalls,
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if bulkCancelCalls < 1 {
-		t.Fatalf("expected at least 1 CancelChildRunsByParentIDs call, got %d", bulkCancelCalls)
-	}
+		1)
 }
 
 func TestHandleTriggerJob_NotFound(t *testing.T) {
@@ -431,10 +403,9 @@ func TestHandleTriggerJob_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-missing/trigger", `{}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
@@ -445,9 +416,11 @@ func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if jobID != "job-123" || key != "same-key" {
-				t.Fatalf("unexpected idempotency lookup args: %s %s", jobID, key)
-			}
+			require.False(t, jobID != "job-123" ||
+				key !=
+					"same-key",
+			)
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 		},
 	}
@@ -464,23 +437,20 @@ func TestHandleTriggerJob_IdempotencyHit(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotent hit), got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected enqueue to be skipped for idempotency hit")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, enqueued)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "run-existing" {
-		t.Fatalf("expected existing run id, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "run-existing",
+		resp["id"])
+
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("did not expect run_token for idempotency hit")
+		require.Fail(t,
+
+			"did not expect run_token for idempotency hit")
 	}
 }
 
@@ -505,16 +475,13 @@ func TestHandleTriggerJob_DelayedSchedule(t *testing.T) {
 	future := time.Now().Add(10 * time.Minute).UTC().Format(time.RFC3339)
 	body := `{"scheduled_at":"` + future + `"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueued.Status != domain.StatusDelayed {
-		t.Fatalf("expected delayed status, got %s", enqueued.Status)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, domain.StatusDelayed,
+		enqueued.
+			Status)
 }
 
 func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
@@ -544,13 +511,11 @@ func TestHandleTriggerJob_PayloadValidationEnabled(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"name":"leo"}}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !enqueued {
-		t.Fatal("expected run to be enqueued")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, enqueued)
 }
 
 func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
@@ -577,13 +542,10 @@ func TestHandleTriggerJob_PayloadValidationRejectsInvalidPayload(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"age":12}}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected run to not be enqueued")
-	}
+		w.Code)
+	require.False(t, enqueued)
 }
 
 func TestHandleTriggerJob_EnqueueError(t *testing.T) {
@@ -603,10 +565,9 @@ func TestHandleTriggerJob_EnqueueError(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing.T) {
@@ -632,9 +593,11 @@ func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing
 			return 2, nil
 		},
 		DrainBatchBufferFunc: func(_ context.Context, jobID, batchKey string, limit int) ([]domain.BatchBufferItem, error) {
-			if jobID != "job-123" || batchKey != "batch-a" || limit != 2 {
-				t.Fatalf("unexpected drain args: job=%q batch=%q limit=%d", jobID, batchKey, limit)
-			}
+			require.False(t, jobID != "job-123" ||
+				batchKey !=
+					"batch-a" ||
+				limit != 2)
+
 			return []domain.BatchBufferItem{
 				{Payload: json.RawMessage(`{"n":1}`)},
 				{Payload: json.RawMessage(`{"n":2}`)},
@@ -649,105 +612,101 @@ func TestHandleTriggerJob_ImmediateBatchFlushPreservesWorkerModeQueue(t *testing
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"batch_key":"batch-a","payload":{"n":2}}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, domain.ExecutionModeWorker,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected immediate batch run to be enqueued")
-	}
-	if enqueued.ExecutionMode != domain.ExecutionModeWorker {
-		t.Fatalf("execution mode = %q, want worker", enqueued.ExecutionMode)
-	}
-	if enqueued.QueueName != "critical-workers" {
-		t.Fatalf("queue = %q, want critical-workers", enqueued.QueueName)
-	}
+		enqueued.
+			ExecutionMode,
+	)
+	require.Equal(t, "critical-workers",
+		enqueued.
+			QueueName,
+	)
 }
 
 func TestValidateURL_ValidHTTPS(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("https://example.com", false); err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t, validateURLWithAllowPrivate(
+		"https://example.com",
+		false))
 }
 
 func TestValidateURL_ValidHTTP(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("http://example.com", false); err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t, validateURLWithAllowPrivate(
+		"http://example.com",
+		false))
 }
 
 func TestValidateURL_InvalidScheme(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("ftp://example.com", false); err == nil {
-		t.Fatal("expected error for invalid scheme")
-	}
+	require.Error(t, validateURLWithAllowPrivate("ftp://example.com",
+
+		false))
 }
 
 func TestValidateURL_NoHost(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("http://", false); err == nil {
-		t.Fatal("expected error for missing host")
-	}
+	require.Error(t, validateURLWithAllowPrivate("http://",
+		false,
+	))
 }
 
 func TestValidateURL_LoopbackIP(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("http://127.0.0.1", false); err == nil {
-		t.Fatal("expected error for loopback IP")
-	}
+	require.Error(t, validateURLWithAllowPrivate("http://127.0.0.1",
+
+		false))
 }
 
 func TestValidateURL_PrivateIP(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("http://192.168.1.1", false); err == nil {
-		t.Fatal("expected error for private IP")
-	}
+	require.Error(t, validateURLWithAllowPrivate("http://192.168.1.1",
+
+		false))
 }
 
 func TestValidateURL_AllowPrivateEndpointsAllowsLoopback(t *testing.T) {
 	globalAllowPrivateEndpoints.Store(true)
 	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
-
-	if err := validateURL("http://127.0.0.1:49152/webhook"); err != nil {
-		t.Fatalf("expected loopback URL to be allowed, got %v", err)
-	}
+	require.NoError(t, validateURL("http://127.0.0.1:49152/webhook"))
 }
 
 func TestValidateURLWithTLS_AllowPrivateEndpointsRespectsTLS(t *testing.T) {
 	globalAllowPrivateEndpoints.Store(true)
 	t.Cleanup(func() { globalAllowPrivateEndpoints.Store(false) })
+	require.Error(t, validateURLWithTLS("http://127.0.0.1:49152/webhook",
 
-	if err := validateURLWithTLS("http://127.0.0.1:49152/webhook", true); err == nil {
-		t.Fatal("expected TLS requirement to reject http URL")
-	}
-	if err := validateURLWithTLS("http://127.0.0.1:49152/webhook", false); err != nil {
-		t.Fatalf("expected loopback URL to be allowed without TLS requirement, got %v", err)
-	}
+		true))
+	require.NoError(t, validateURLWithTLS("http://127.0.0.1:49152/webhook",
+
+		false))
 }
 
 func TestValidateURL_InvalidURL(t *testing.T) {
 	t.Parallel()
-	if err := validateURLWithAllowPrivate("://bad", false); err == nil {
-		t.Fatal("expected error for invalid URL")
-	}
+	require.Error(t, validateURLWithAllowPrivate("://bad",
+		false,
+	))
 }
 
 func TestValidateURL_ErrorCasing(t *testing.T) {
 	t.Parallel()
 	err := validateURLWithAllowPrivate("ftp://example.com", false)
-	if err == nil {
-		t.Fatal("expected error for ftp scheme")
-	}
+	require.Error(t, err)
+
 	msg := err.Error()
-	if msg[:3] != "url" {
-		t.Fatalf("expected error message to start with lowercase 'url', got %q", msg)
-	}
+	require.Equal(t, "url", msg[:3])
+
 	if msg[3] == ' ' {
 		// Good: "url must use http or https scheme"
 	} else {
-		t.Fatalf("expected space after 'url', got %q", msg)
+		require.Failf(t, "test failure",
+
+			"expected space after 'url', got %q", msg)
 	}
 }
 
@@ -762,10 +721,9 @@ func TestHandleStats_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/stats", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListChildRuns_StoreError(t *testing.T) {
@@ -779,10 +737,9 @@ func TestHandleListChildRuns_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-parent/children", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListChildRuns_SuccessBody(t *testing.T) {
@@ -796,13 +753,11 @@ func TestHandleListChildRuns_SuccessBody(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-parent/children", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "run-child-1") {
-		t.Fatalf("expected response to include child run IDs, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "run-child-1")
 }
 
 func TestHandleGetJob_StoreError(t *testing.T) {
@@ -816,10 +771,9 @@ func TestHandleGetJob_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListJobs_StoreError(t *testing.T) {
@@ -833,10 +787,9 @@ func TestHandleListJobs_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs/", "", "proj-1"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleGetRun_StoreError(t *testing.T) {
@@ -850,10 +803,9 @@ func TestHandleGetRun_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-123", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleUpdateJob_AllFields(t *testing.T) {
@@ -895,22 +847,31 @@ func TestHandleUpdateJob_AllFields(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-all", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, updated)
+	require.False(t, updated.Name !=
+		name ||
+		updated.
+			Slug != slug ||
+		updated.Description !=
+			desc ||
+		updated.
+			Cron !=
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updated == nil {
-		t.Fatal("expected updated job")
-	}
-	if updated.Name != name || updated.Slug != slug || updated.Description != desc || updated.Cron != cronExpr {
-		t.Fatalf("unexpected string field values: %+v", updated)
-	}
-	if updated.EndpointURL != endpoint || updated.MaxAttempts != maxAttempts || updated.TimeoutSecs != timeout || updated.Enabled != enabled {
-		t.Fatalf("unexpected scalar fields: %+v", updated)
-	}
-	if string(updated.PayloadSchema) != string(schema) {
-		t.Fatalf("unexpected payload schema: %s", string(updated.PayloadSchema))
-	}
+			cronExpr)
+	require.False(t, updated.EndpointURL !=
+		endpoint ||
+		updated.
+			MaxAttempts != maxAttempts ||
+		updated.
+			TimeoutSecs !=
+			timeout || updated.Enabled !=
+		enabled)
+	require.Equal(t, string(schema), string(
+		updated.
+			PayloadSchema,
+	))
 }
 
 func TestHandleTriggerJob_InvalidBody(t *testing.T) {
@@ -924,10 +885,9 @@ func TestHandleTriggerJob_InvalidBody(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleTriggerJob_GetJobError(t *testing.T) {
@@ -941,10 +901,9 @@ func TestHandleTriggerJob_GetJobError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
@@ -963,10 +922,9 @@ func TestHandleTriggerJob_IdempotencyLookupError(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
 	r.Header.Set("Idempotency-Key", "idem-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
@@ -991,10 +949,9 @@ func TestHandleCancelRun_GetUpdatedRunError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-123", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
@@ -1019,10 +976,8 @@ func TestHandleCancelRun_ListChildrenErrorStillSucceeds(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-123", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleSDKComplete_StoreGetError(t *testing.T) {
@@ -1037,10 +992,9 @@ func TestHandleSDKComplete_StoreGetError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKComplete_UpdateError(t *testing.T) {
@@ -1058,10 +1012,9 @@ func TestHandleSDKComplete_UpdateError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKFail_StoreGetError(t *testing.T) {
@@ -1076,10 +1029,9 @@ func TestHandleSDKFail_StoreGetError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":"boom"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKFail_UpdateError(t *testing.T) {
@@ -1097,10 +1049,9 @@ func TestHandleSDKFail_UpdateError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":"boom"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKComplete_InvalidBody(t *testing.T) {
@@ -1109,10 +1060,9 @@ func TestHandleSDKComplete_InvalidBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/complete", "run-123", `{"result":`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleSDKFail_InvalidBody(t *testing.T) {
@@ -1121,10 +1071,9 @@ func TestHandleSDKFail_InvalidBody(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-123/fail", "run-123", `{"error":`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
@@ -1149,21 +1098,21 @@ func TestHandleTriggerJob_RunTTLSecs(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.NotNil(t, capturedRun.
+		ExpiresAt)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if capturedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
 	expected := time.Now().Add(600 * time.Second)
 	diff := capturedRun.ExpiresAt.Sub(expected)
-	if diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("ExpiresAt diff = %v, want within 5s", diff)
-	}
+	assert.False(
+		t, diff < -5*time.
+			Second ||
+			diff >
+				5*time.Second,
+	)
 }
 
 func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
@@ -1188,21 +1137,21 @@ func TestHandleTriggerJob_DefaultTTL(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.NotNil(t, capturedRun.
+		ExpiresAt)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if capturedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
 	expected := time.Now().Add(120 * time.Second)
 	diff := capturedRun.ExpiresAt.Sub(expected)
-	if diff < -5*time.Second || diff > 5*time.Second {
-		t.Errorf("ExpiresAt diff = %v, want within 5s", diff)
-	}
+	assert.False(
+		t, diff < -5*time.
+			Second ||
+			diff >
+				5*time.Second,
+	)
 }
 
 func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
@@ -1213,9 +1162,8 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60}, nil
 		},
 		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("unexpected project id %q", projectID)
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return &store.ProjectQuota{ProjectID: projectID, MaxQueuedRuns: 1}, nil
 		},
 		CountProjectQueuedRunsFunc: func(_ context.Context, _ string) (int, error) {
@@ -1232,13 +1180,11 @@ func TestHandleTriggerJob_ProjectQueuedQuotaExceeded(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected run not to be enqueued when project quota exceeded")
-	}
+		w.
+			Code)
+	require.False(t, enqueued)
 }
 
 func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
@@ -1261,13 +1207,11 @@ func TestHandleTriggerJob_RateLimitExceeded(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected run not to be enqueued when rate limit exceeded")
-	}
+		w.
+			Code)
+	require.False(t, enqueued)
 }
 
 func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
@@ -1278,12 +1222,9 @@ func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true, TimeoutSecs: 60, DedupWindowSecs: 300}, nil
 		},
 		FindRecentRunByPayloadFunc: func(_ context.Context, jobID string, payload json.RawMessage, _ time.Time) (*domain.JobRun, error) {
-			if jobID != "job-123" {
-				t.Fatalf("unexpected job id %q", jobID)
-			}
-			if string(payload) != `{"a":1}` {
-				t.Fatalf("unexpected canonical payload %s", string(payload))
-			}
+			require.Equal(t, "job-123", jobID)
+			require.Equal(t, `{"a":1}`, string(payload))
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 		},
 	}
@@ -1296,13 +1237,10 @@ func TestHandleTriggerJob_DedupWindowReturnsExistingRun(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"a":1}}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected enqueue to be skipped when dedup window hit")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, enqueued)
 }
 
 type txAPIStoreMock struct {
@@ -1344,7 +1282,9 @@ func TestHandleTriggerJob_DedupWindowRechecksInsideLimitGuard(t *testing.T) {
 		},
 	}
 	base.AreJobDependenciesSatisfiedFunc = func(_ context.Context, _ *domain.JobRun) (bool, error) {
-		t.Fatal("dependencies should not be evaluated after guarded dedup hit")
+		require.Fail(t,
+
+			"dependencies should not be evaluated after guarded dedup hit")
 		return true, nil
 	}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
@@ -1355,19 +1295,14 @@ func TestHandleTriggerJob_DedupWindowRechecksInsideLimitGuard(t *testing.T) {
 	srv := newTestServer(t, &txAPIStoreMock{APIStoreMock: base}, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"a":1}}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if findCalls != 2 {
-		t.Fatalf("FindRecentRunByPayload calls = %d, want 2", findCalls)
-	}
-	if enqueued {
-		t.Fatal("expected enqueue to be skipped when guarded dedup recheck hits")
-	}
-	if !strings.Contains(w.Body.String(), "run-winner") {
-		t.Fatalf("response did not return dedup winner: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, 2, findCalls)
+	require.False(t, enqueued)
+	require.Contains(
+		t, w.Body.
+			String(), "run-winner")
 }
 
 func TestHandleTriggerJob_DelayedRunExpiresRelativeToScheduledAt(t *testing.T) {
@@ -1391,17 +1326,24 @@ func TestHandleTriggerJob_DelayedRunExpiresRelativeToScheduledAt(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := fmt.Sprintf(`{"scheduled_at":%q,"ttl_secs":%d}`, scheduledAt.Format(time.RFC3339), ttlSecs)
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", body))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, capturedRun ==
+		nil || capturedRun.
+		ExpiresAt ==
+		nil)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected enqueued run with expires_at")
-	}
 	want := scheduledAt.Add(time.Duration(ttlSecs) * time.Second)
-	if capturedRun.ExpiresAt.Before(want.Add(-time.Second)) || capturedRun.ExpiresAt.After(want.Add(time.Second)) {
-		t.Fatalf("expires_at = %s, want around %s", capturedRun.ExpiresAt.Format(time.RFC3339), want.Format(time.RFC3339))
-	}
+	require.False(t, capturedRun.ExpiresAt.
+		Before(want.
+			Add(-time.
+				Second)) || capturedRun.
+		ExpiresAt.
+		After(want.
+			Add(
+				time.
+					Second)))
 }
 
 func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
@@ -1422,22 +1364,20 @@ func TestHandleTriggerJob_ExecutionWindowDelaysRun(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if capturedRun.Status != domain.StatusDelayed {
-		t.Fatalf("expected delayed status, got %s", capturedRun.Status)
-	}
-	if capturedRun.ScheduledAt == nil {
-		t.Fatal("expected scheduled_at to be set by execution window")
-	}
-	if !capturedRun.ScheduledAt.After(time.Now().Add(24 * time.Hour)) {
-		t.Fatalf("expected execution window to push scheduled_at to future, got %v", capturedRun.ScheduledAt)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, capturedRun)
+	require.Equal(t, domain.StatusDelayed,
+		capturedRun.
+			Status)
+	require.NotNil(t, capturedRun.
+		ScheduledAt,
+	)
+	require.True(
+		t, capturedRun.ScheduledAt.
+			After(time.
+				Now().Add(24*time.Hour)))
 }
 
 func TestHandleCreateJob_WithRunTTL(t *testing.T) {
@@ -1453,18 +1393,15 @@ func TestHandleCreateJob_WithRunTTL(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"project_id":"proj-1","name":"Job","slug":"job","endpoint_url":"https://example.com","run_ttl_secs":300}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["run_ttl_secs"] != float64(300) {
-		t.Fatalf("expected run_ttl_secs=300, got %v", resp["run_ttl_secs"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.InDelta(t, float64(300),
+		resp["run_ttl_secs"], 1e-9)
 }
 
 func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
@@ -1483,16 +1420,12 @@ func TestHandleUpdateJob_WithRunTTL(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"run_ttl_secs":600}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updated == nil {
-		t.Fatal("expected UpdateJob to be called")
-	}
-	if updated.RunTTLSecs != 600 {
-		t.Fatalf("expected run_ttl_secs=600, got %d", updated.RunTTLSecs)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, updated)
+	require.Equal(t, 600, updated.
+		RunTTLSecs,
+	)
 }
 
 func TestHealthReady_RedisDown(t *testing.T) {
@@ -1510,10 +1443,10 @@ func TestHealthReady_RedisDown(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHealthReady_NoPinger(t *testing.T) {
@@ -1529,10 +1462,9 @@ func TestHealthReady_NoPinger(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	assert.Equal(
+		t, http.StatusOK,
+		w.Code)
 }
 
 func TestHealthReady_RedisOK(t *testing.T) {
@@ -1549,10 +1481,9 @@ func TestHealthReady_RedisOK(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	assert.Equal(
+		t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleListRunEvents_Success(t *testing.T) {
@@ -1560,9 +1491,10 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &APIStoreMock{
 		ListEventsByRunFilteredFunc: func(ctx context.Context, runID string, level, eventType string, _ int, _ *time.Time) ([]domain.RunEvent, error) {
-			if runID != "run-123" {
-				t.Errorf("runID = %s, want run-123", runID)
-			}
+			assert.Equal(
+				t, "run-123", runID,
+			)
+
 			return []domain.RunEvent{
 				{ID: "evt-1", RunID: "run-123", Type: "log", Level: "info", Message: "started", CreatedAt: now},
 				{ID: "evt-2", RunID: "run-123", Type: "log", Level: "error", Message: "failed", CreatedAt: now},
@@ -1574,16 +1506,13 @@ func TestHandleListRunEvents_Success(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-123/events", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var events []domain.RunEvent
 	decodePaginatedList(t, w.Body.Bytes(), &events)
-	if len(events) != 2 {
-		t.Errorf("len(events) = %d, want 2", len(events))
-	}
+	assert.Len(t,
+		events, 2)
 }
 
 func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
@@ -1600,13 +1529,11 @@ func TestHandleListRunEvents_WithLevelFilter(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events?level=error", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotLevel != "error" {
-		t.Errorf("level = %q, want %q", gotLevel, "error")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "error", gotLevel,
+	)
 }
 
 func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
@@ -1623,13 +1550,11 @@ func TestHandleListRunEvents_WithTypeFilter(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events?type=heartbeat", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotType != "heartbeat" {
-		t.Errorf("type = %q, want %q", gotType, "heartbeat")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "heartbeat", gotType,
+	)
 }
 
 func TestHandleListRunEvents_StoreError(t *testing.T) {
@@ -1644,10 +1569,10 @@ func TestHandleListRunEvents_StoreError(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListRunEvents_EmptyResult(t *testing.T) {
@@ -1662,16 +1587,13 @@ func TestHandleListRunEvents_EmptyResult(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/events", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var events []domain.RunEvent
 	decodePaginatedList(t, w.Body.Bytes(), &events)
-	if len(events) != 0 {
-		t.Errorf("len(events) = %d, want 0", len(events))
-	}
+	assert.Empty(t,
+		events)
 }
 
 func TestHandleListWebhookDeliveries_Success(t *testing.T) {
@@ -1689,16 +1611,13 @@ func TestHandleListWebhookDeliveries_Success(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var deliveries []domain.WebhookDelivery
 	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
-	if len(deliveries) != 1 {
-		t.Errorf("len = %d, want 1", len(deliveries))
-	}
+	assert.Len(t,
+		deliveries, 1)
 }
 
 func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
@@ -1720,21 +1639,24 @@ func TestHandleListWebhookDeliveries_RedactsWebhookURLSecrets(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, strings.Contains(w.Body.
+		String(), "user:pass",
+	) || strings.Contains(w.Body.
+		String(), "/services/",
+	) || strings.Contains(w.
+		Body.String(), "secret=value",
+	))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
-		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
-	}
 	var deliveries []domain.WebhookDelivery
 	decodePaginatedList(t, w.Body.Bytes(), &deliveries)
-	if len(deliveries) != 1 {
-		t.Fatalf("len(deliveries) = %d, want 1", len(deliveries))
-	}
-	if deliveries[0].WebhookURL != "https://hooks.example.com" {
-		t.Fatalf("webhook_url = %q, want redacted host URL", deliveries[0].WebhookURL)
-	}
+	require.Len(t,
+		deliveries, 1)
+	require.Equal(t, "https://hooks.example.com",
+
+		deliveries[0].
+			WebhookURL)
 }
 
 func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
@@ -1751,13 +1673,11 @@ func TestHandleListWebhookDeliveries_WithStatusFilter(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?status=pending", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotStatus != "pending" {
-		t.Errorf("status = %q, want %q", gotStatus, "pending")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "pending", gotStatus,
+	)
 }
 
 func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t *testing.T) {
@@ -1765,12 +1685,12 @@ func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t 
 	now := time.Now().UTC().Truncate(time.Second)
 	ms := &APIStoreMock{
 		ListWebhookDeliveriesFunc: func(_ context.Context, projectID, status string, _ int, _ *time.Time) ([]domain.WebhookDelivery, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
-			if status != domain.WebhookStatusFailed {
-				t.Fatalf("status = %q, want %q", status, domain.WebhookStatusFailed)
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.Equal(t, domain.WebhookStatusFailed,
+
+				status,
+			)
+
 			return []domain.WebhookDelivery{
 				{ID: "del-staging", JobID: "job-staging", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-2 * time.Second)},
 				{ID: "del-prod", JobID: "job-prod", ProjectID: "proj-1", Status: domain.WebhookStatusFailed, CreatedAt: now.Add(-1 * time.Second)},
@@ -1783,7 +1703,7 @@ func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t 
 			case "job-staging":
 				return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 			default:
-				t.Fatalf("unexpected job lookup %q", id)
+				require.Failf(t, "test failure", "unexpected job lookup %q", id)
 				return nil, nil
 			}
 		},
@@ -1795,16 +1715,14 @@ func TestHandleListWebhookDeliveries_EnvironmentScopeFiltersForeignDeliveries(t 
 	out, err := srv.handleListWebhookDeliveries(ctx, &ListWebhookDeliveriesInput{
 		Status: domain.WebhookStatusFailed,
 	})
-	if err != nil {
-		t.Fatalf("handleListWebhookDeliveries returned error: %v", err)
-	}
+	require.NoError(t, err)
+
 	deliveries, ok := out.Body.Data.([]domain.WebhookDelivery)
-	if !ok {
-		t.Fatalf("response data type = %T, want []domain.WebhookDelivery", out.Body.Data)
-	}
-	if len(deliveries) != 1 || deliveries[0].ID != "del-prod" {
-		t.Fatalf("deliveries = %#v, want only del-prod", deliveries)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(deliveries) != 1 ||
+		deliveries[0].ID !=
+			"del-prod")
 }
 
 func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
@@ -1821,13 +1739,11 @@ func TestHandleListWebhookDeliveries_WithLimit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=10", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(t, 11, gotLimit)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotLimit != 11 { // handler passes limit+1 for has_more detection
-		t.Errorf("limit = %d, want 11 (10+1)", gotLimit)
-	}
+	// handler passes limit+1 for has_more detection
 }
 
 func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
@@ -1844,13 +1760,11 @@ func TestHandleListWebhookDeliveries_DefaultLimit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(t, 51, gotLimit)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotLimit != 51 { // handler passes limit+1 (default 50+1)
-		t.Errorf("limit = %d, want 51 (default+1)", gotLimit)
-	}
+	// handler passes limit+1 (default 50+1)
 }
 
 func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
@@ -1867,13 +1781,11 @@ func TestHandleListWebhookDeliveries_LimitCapped(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=200", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(t, 101, gotLimit)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if gotLimit != 101 { // handler passes limit+1 (capped 100+1)
-		t.Errorf("limit = %d, want 101 (capped+1)", gotLimit)
-	}
+	// handler passes limit+1 (capped 100+1)
 }
 
 func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
@@ -1883,10 +1795,10 @@ func TestHandleListWebhookDeliveries_InvalidLimit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=abc", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
@@ -1896,10 +1808,10 @@ func TestHandleListWebhookDeliveries_NegativeLimit(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries?limit=-5", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
@@ -1914,10 +1826,10 @@ func TestHandleListWebhookDeliveries_StoreError(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhook-deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
@@ -1925,9 +1837,8 @@ func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListWebhookDeliveriesFunc: func(ctx context.Context, projectID, status string, limit int, _ *time.Time) ([]domain.WebhookDelivery, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("project_id = %q, want proj-1", projectID)
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return []domain.WebhookDelivery{{ID: "del-1", Status: domain.WebhookStatusPending, CreatedAt: time.Now().UTC()}}, nil
 		},
 	}
@@ -1936,10 +1847,8 @@ func TestHandleListWebhookDeliveries_NewRouteGroup(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/webhooks/deliveries", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleGetWebhookDelivery_Success(t *testing.T) {
@@ -1947,9 +1856,8 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetWebhookDeliveryFunc: func(ctx context.Context, id string) (*domain.WebhookDelivery, error) {
-			if id != "del-1" {
-				t.Fatalf("delivery id = %q, want del-1", id)
-			}
+			require.Equal(t, "del-1", id)
+
 			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusPending}, nil
 		},
 	}
@@ -1958,10 +1866,8 @@ func TestHandleGetWebhookDelivery_Success(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
@@ -1978,20 +1884,23 @@ func TestHandleGetWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/del-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, strings.Contains(w.Body.
+		String(), "user:pass",
+	) || strings.Contains(w.Body.
+		String(), "/services/",
+	) || strings.Contains(w.
+		Body.String(), "secret=value",
+	))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
-		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
-	}
 	var delivery domain.WebhookDelivery
-	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if delivery.WebhookURL != "https://hooks.example.com" {
-		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&delivery))
+	require.Equal(t, "https://hooks.example.com",
+
+		delivery.
+			WebhookURL,
+	)
 }
 
 func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
@@ -2007,10 +1916,9 @@ func TestHandleGetWebhookDelivery_NotFound(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/webhooks/deliveries/missing", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
@@ -2029,10 +1937,8 @@ func TestHandleRetryWebhookDelivery_Success(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
@@ -2043,7 +1949,9 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 			return &domain.WebhookDelivery{ID: id, Status: domain.WebhookStatusDelivered}, nil
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
-			t.Fatal("RetryWebhookDelivery should not be called")
+			require.Fail(t,
+
+				"RetryWebhookDelivery should not be called")
 			return nil, nil
 		},
 	}
@@ -2052,10 +1960,9 @@ func TestHandleRetryWebhookDelivery_Conflict(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
@@ -2066,7 +1973,9 @@ func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
 			return nil, fmt.Errorf("webhook delivery not found")
 		},
 		RetryWebhookDeliveryFunc: func(context.Context, string) (*domain.WebhookDelivery, error) {
-			t.Fatal("RetryWebhookDelivery should not be called when get returns not found")
+			require.Fail(t,
+
+				"RetryWebhookDelivery should not be called when get returns not found")
 			return nil, nil
 		},
 	}
@@ -2075,10 +1984,9 @@ func TestHandleRetryWebhookDelivery_GetNotFoundErrorReturns404(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/missing/retry", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
@@ -2097,10 +2005,9 @@ func TestHandleRetryWebhookDelivery_NoLongerRetriableReturns409(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleRetryWebhookDelivery(t *testing.T) {
@@ -2111,9 +2018,8 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		retryCalled := false
 		ms := &APIStoreMock{
 			GetWebhookDeliveryFunc: func(_ context.Context, id string) (*domain.WebhookDelivery, error) {
-				if id != "del-1" {
-					t.Fatalf("delivery id = %q, want del-1", id)
-				}
+				require.Equal(t, "del-1", id)
+
 				return &domain.WebhookDelivery{
 					ID:        id,
 					Status:    "failed",
@@ -2134,21 +2040,18 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-		}
-		if !retryCalled {
-			t.Fatal("expected RetryWebhookDelivery to be called")
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
+		require.True(
+			t, retryCalled)
 
 		var resp domain.WebhookDelivery
-		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if resp.Status != "pending" || resp.Attempts != 0 {
-			t.Fatalf("unexpected response: %+v", resp)
-		}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		require.False(t, resp.Status !=
+			"pending" ||
+			resp.
+				Attempts !=
+				0)
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -2162,10 +2065,9 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/missing/retry", ""))
-
-		if w.Code != http.StatusNotFound {
-			t.Fatalf("status = %d, want 404", w.Code)
-		}
+		require.Equal(t, http.StatusNotFound,
+			w.
+				Code)
 	})
 
 	t.Run("conflict when status is not failed", func(t *testing.T) {
@@ -2179,10 +2081,9 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
-
-		if w.Code != http.StatusConflict {
-			t.Fatalf("status = %d, want 409", w.Code)
-		}
+		require.Equal(t, http.StatusConflict,
+			w.
+				Code)
 	})
 
 	t.Run("get delivery store error", func(t *testing.T) {
@@ -2196,10 +2097,9 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+		require.Equal(t, http.StatusInternalServerError,
 
-		if w.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500", w.Code)
-		}
+			w.Code)
 	})
 
 	t.Run("retry delivery store error", func(t *testing.T) {
@@ -2216,10 +2116,9 @@ func TestHandleRetryWebhookDelivery(t *testing.T) {
 		srv := newTestServer(t, ms, &mockQueue{}, nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhook-deliveries/del-1/retry", ""))
+		require.Equal(t, http.StatusInternalServerError,
 
-		if w.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500", w.Code)
-		}
+			w.Code)
 	})
 }
 
@@ -2237,9 +2136,11 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			mq := &mockQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
-				if run.Priority != tt.priority {
-					t.Errorf("priority = %d, want %d", run.Priority, tt.priority)
-				}
+				assert.Equal(
+					t, tt.priority, run.
+						Priority,
+				)
+
 				return nil
 			}}
 			ms := &APIStoreMock{
@@ -2252,9 +2153,10 @@ func TestHandleTriggerJob_PriorityValidRange(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
-			if w.Code != http.StatusCreated {
-				t.Errorf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-			}
+			assert.Equal(
+				t, http.StatusCreated,
+				w.Code,
+			)
 		})
 	}
 }
@@ -2276,20 +2178,23 @@ func TestHandleRetryWebhookDelivery_RedactsWebhookURLSecrets(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/webhooks/deliveries/del-1/retry", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, strings.Contains(w.Body.
+		String(), "user:pass",
+	) || strings.Contains(w.Body.
+		String(), "/services/",
+	) || strings.Contains(w.
+		Body.String(), "secret=value",
+	))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "user:pass") || strings.Contains(w.Body.String(), "/services/") || strings.Contains(w.Body.String(), "secret=value") {
-		t.Fatalf("response leaked sensitive webhook URL components: %s", w.Body.String())
-	}
 	var delivery domain.WebhookDelivery
-	if err := json.NewDecoder(w.Body).Decode(&delivery); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if delivery.WebhookURL != "https://hooks.example.com" {
-		t.Fatalf("webhook_url = %q, want redacted host URL", delivery.WebhookURL)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&delivery))
+	require.Equal(t, "https://hooks.example.com",
+
+		delivery.
+			WebhookURL,
+	)
 }
 
 func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
@@ -2303,12 +2208,16 @@ func TestHandleTriggerJob_PriorityTooHigh(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":11}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "Priority") || !strings.Contains(w.Body.String(), "max") {
-		t.Errorf("body = %s, want priority error message", w.Body.String())
-	}
+	assert.Equal(
+		t, http.StatusUnprocessableEntity,
+
+		w.Code)
+	assert.False(
+		t, !strings.Contains(w.Body.
+			String(), "Priority",
+		) || !strings.Contains(w.Body.
+			String(), "max",
+		))
 }
 
 func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
@@ -2322,9 +2231,10 @@ func TestHandleTriggerJob_PriorityNegative(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"payload":{},"priority":-1}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusUnprocessableEntity,
+
+		w.Code)
 }
 
 func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
@@ -2354,9 +2264,9 @@ func TestHandleTriggerJob_PriorityBoundary(t *testing.T) {
 			r := authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
-			if w.Code != tt.wantStatus {
-				t.Errorf("[priority=%d] status = %d, want %d; body: %s", tt.priority, w.Code, tt.wantStatus, w.Body.String())
-			}
+			assert.Equal(
+				t, tt.wantStatus,
+				w.Code)
 		})
 	}
 }
@@ -2438,17 +2348,14 @@ func TestValidateWorkflowConfig(t *testing.T) {
 			t.Parallel()
 			err := validateWorkflowConfig(tt.cronExpr, tt.cronTimezone, tt.maxParallelSteps)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Fatalf("error = %v, want containing %q", err, tt.wantErrContains)
-				}
+				require.Error(t, err)
+				require.False(t, tt.wantErrContains !=
+					"" &&
+					!strings.Contains(err.Error(), tt.wantErrContains))
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -2477,13 +2384,11 @@ func TestHandleTriggerJob_DailyCostBudgetExceeded(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued {
-		t.Fatal("expected run not to be enqueued when daily cost budget exceeded")
-	}
+		w.
+			Code)
+	require.False(t, enqueued)
 }
 
 func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
@@ -2511,13 +2416,11 @@ func TestHandleTriggerJob_DailyCostBudgetOK(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !enqueued {
-		t.Fatal("expected run to be enqueued when daily cost budget not exceeded")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, enqueued)
 }
 
 func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
@@ -2533,13 +2436,14 @@ func TestHandleCreateJob_InvalidRetryStrategy(t *testing.T) {
 		"endpoint_url": "https://example.com/webhook",
 		"retry_strategy": "banana"
 	}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for invalid retry_strategy, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "RetryStrategy") || !strings.Contains(w.Body.String(), "oneof") {
-		t.Fatalf("expected error about retry_strategy, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.False(t, !strings.Contains(w.Body.
+		String(), "RetryStrategy",
+	) || !strings.Contains(w.
+		Body.String(), "oneof",
+	))
 }
 
 func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
@@ -2556,13 +2460,12 @@ func TestHandleCreateJob_NegativeRetryDelays(t *testing.T) {
 		"retry_strategy": "custom",
 		"retry_delays_secs": [-5, 10, 30]
 	}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for negative retry_delays_secs, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "retry_delays_secs values must be positive") {
-		t.Fatalf("expected error about positive values, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "retry_delays_secs values must be positive")
 }
 
 func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
@@ -2586,10 +2489,9 @@ func TestHandleCreateJob_ValidRetryStrategy(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
-
-			if w.Code != http.StatusCreated {
-				t.Fatalf("expected 201 for valid strategy %q, got %d: %s", strategy, w.Code, w.Body.String())
-			}
+			require.Equal(t, http.StatusCreated,
+				w.Code,
+			)
 		})
 	}
 }
@@ -2605,10 +2507,9 @@ func TestHandleUpdateJob_InvalidRetryStrategy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_strategy": "banana"}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for invalid retry_strategy on update, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
@@ -2622,8 +2523,7 @@ func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"retry_delays_secs": [0, -1, 5]}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for negative retry_delays_secs on update, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }

@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOnApprovalChanged_CalledAfterCreate(t *testing.T) {
@@ -39,15 +42,18 @@ func TestOnApprovalChanged_CalledAfterCreate(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected OnApprovalChanged to be called")
-	}
-	if captured.ID != "appr-1" {
-		t.Errorf("expected approval ID appr-1, got %s", captured.ID)
-	}
-	if captured.Status != "pending" {
-		t.Errorf("expected status pending, got %s", captured.Status)
-	}
+	require.NotNil(
+		t, captured,
+	)
+	assert.Equal(t,
+		"appr-1",
+		captured.
+			ID)
+	assert.Equal(t,
+		"pending",
+		captured.
+			Status,
+	)
 }
 
 func TestOnApprovalChanged_NilHookDoesNotPanic(t *testing.T) {
@@ -91,16 +97,21 @@ func TestOnApprovalChanged_UpdateFields(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected OnApprovalChanged to be called")
-	}
-	if captured.Status != "approved" {
-		t.Errorf("expected status approved, got %s", captured.Status)
-	}
-	if captured.ApprovedBy != "user-1" {
-		t.Errorf("expected approved_by user-1, got %s", captured.ApprovedBy)
-	}
-	if captured.ApprovedAt == nil {
-		t.Error("expected ApprovedAt to be set")
-	}
+	require.NotNil(
+		t, captured,
+	)
+	assert.Equal(t,
+		"approved",
+		captured.
+			Status,
+	)
+	assert.Equal(t,
+		"user-1",
+		captured.
+			ApprovedBy,
+	)
+	assert.NotNil(t,
+		captured.
+			ApprovedAt,
+	)
 }

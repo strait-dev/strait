@@ -13,6 +13,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newAPIKeyTestServer(t *testing.T, maxLifetimeDays int) *Server {
@@ -63,23 +66,20 @@ func TestCreateAPIKey_MaxLifetime_AutoCaps(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"]}`)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp CreateAPIKeyResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if resp.ExpiresAt == nil {
-		t.Fatal("expected auto-capped expiry, got nil")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.NotNil(t, resp.ExpiresAt)
 
-	maxExpected := time.Now().Add(91 * 24 * time.Hour) // generous check
-	if resp.ExpiresAt.After(maxExpected) {
-		t.Errorf("expiry %v exceeds expected max ~90 days from now", resp.ExpiresAt)
-	}
+	maxExpected := time.Now().Add(91 * 24 * time.Hour)
+	assert.False(
+		t, resp.ExpiresAt.
+			After(maxExpected))
+
+	// generous check
 }
 
 func TestCreateAPIKey_MaxLifetime_AcceptsWithinLimit(t *testing.T) {
@@ -87,10 +87,9 @@ func TestCreateAPIKey_MaxLifetime_AcceptsWithinLimit(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":30}`)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 func TestCreateAPIKey_MaxLifetime_RejectsExceeding(t *testing.T) {
@@ -98,15 +97,13 @@ func TestCreateAPIKey_MaxLifetime_RejectsExceeding(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":120}`)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 
 	body := w.Body.String()
-	if !strings.Contains(body, "exceeds project maximum") {
-		t.Errorf("error should mention exceeding max: %s", body)
-	}
+	assert.Contains(t,
+		body, "exceeds project maximum")
 }
 
 func TestCreateAPIKey_NoMaxLifetime_RequiresExplicitExpiry(t *testing.T) {
@@ -114,13 +111,12 @@ func TestCreateAPIKey_NoMaxLifetime_RequiresExplicitExpiry(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 0) // no limit
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"]}`)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "expires_in_days is required") {
-		t.Fatalf("error should mention required expires_in_days: %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "expires_in_days is required")
 }
 
 func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
@@ -128,10 +124,9 @@ func TestCreateAPIKey_NoMaxLifetime_LongExpiry_Accepted(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 0) // no limit
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":365}`)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
@@ -150,13 +145,11 @@ func TestCreateAPIKey_QuotaLookupFailureFailsClosed(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":365}`)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", w.Code, w.Body.String())
-	}
-	if createCalled {
-		t.Fatal("api key should not be created when quota lookup fails")
-	}
+		w.Code,
+	)
+	require.False(t, createCalled)
 }
 
 func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
@@ -186,15 +179,14 @@ func TestRotateAPIKey_MaxLifetime_AutoCapsLegacyNoExpiry(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
-	if err != nil {
-		t.Fatalf("handleRotateAPIKey: %v", err)
-	}
-	if created == nil || created.ExpiresAt == nil {
-		t.Fatal("rotated legacy key should receive a policy-capped expiry")
-	}
-	if created.ExpiresAt.After(time.Now().Add(31 * 24 * time.Hour)) {
-		t.Fatalf("rotated expiry = %v, want within project max lifetime", created.ExpiresAt)
-	}
+	require.NoError(t, err)
+	require.False(t, created == nil ||
+		created.
+			ExpiresAt ==
+			nil)
+	require.False(t, created.ExpiresAt.
+		After(time.Now().
+			Add(31*24*time.Hour)))
 }
 
 func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {
@@ -222,12 +214,11 @@ func TestRotateAPIKey_NoMaxLifetime_RejectsLegacyNoExpiry(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400 for legacy no-expiry rotation without policy, got %v", err)
-	}
-	if createCalled {
-		t.Fatal("replacement key must not be created when lifetime policy rejects rotation")
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusBadRequest,
+		))
+	require.False(t, createCalled)
 }
 
 func TestRotateAPIKey_MaxLifetime_RejectsOverlongLegacyExpiry(t *testing.T) {
@@ -257,12 +248,11 @@ func TestRotateAPIKey_MaxLifetime_RejectsOverlongLegacyExpiry(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 
 	_, err := srv.handleRotateAPIKey(ctx, &RotateAPIKeyInput{KeyID: "key-old"})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400 for overlong rotation expiry, got %v", err)
-	}
-	if createCalled {
-		t.Fatal("replacement key must not be created when expiry exceeds policy")
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusBadRequest,
+		))
+	require.False(t, createCalled)
 }
 
 func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
@@ -270,13 +260,16 @@ func TestCreateAPIKey_Adversarial_ExpiresZero_Rejected(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":0}`)
-
-	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "ExpiresIn") && !strings.Contains(w.Body.String(), "expires_in_days") {
-		t.Fatalf("error should mention ExpiresIn / expires_in_days: %s", w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusUnprocessableEntity &&
+		w.Code != http.
+			StatusBadRequest,
+	)
+	require.False(t, !strings.Contains(w.Body.
+		String(),
+		"ExpiresIn") && !strings.Contains(w.Body.String(),
+		"expires_in_days",
+	))
 }
 
 func TestCreateAPIKey_Adversarial_ExpiresNegative_Rejected(t *testing.T) {
@@ -284,11 +277,14 @@ func TestCreateAPIKey_Adversarial_ExpiresNegative_Rejected(t *testing.T) {
 
 	srv := newAPIKeyTestServer(t, 90)
 	w := createKeyRequest(t, srv, `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":-7}`)
-
-	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "ExpiresIn") && !strings.Contains(w.Body.String(), "expires_in_days") {
-		t.Fatalf("error should mention ExpiresIn / expires_in_days: %s", w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusUnprocessableEntity &&
+		w.Code != http.
+			StatusBadRequest,
+	)
+	require.False(t, !strings.Contains(w.Body.
+		String(),
+		"ExpiresIn") && !strings.Contains(w.Body.String(),
+		"expires_in_days",
+	))
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -49,16 +49,16 @@ func TestCheckSpendingLimit_SumSpendError_FailsClosed(t *testing.T) {
 	ctx := context.Background()
 
 	err := enforcer.CheckSpendingLimit(ctx, "org-spend-err")
-	if err == nil {
-		t.Fatal("expected fail-closed error, got nil")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "service_degraded" {
-		t.Fatalf("expected code service_degraded, got %q", le.Code)
-	}
+	require.ErrorAs(t,
+		err, &le)
+	require.Equal(t,
+		"service_degraded",
+		le.Code,
+	)
 }
 
 func TestCheckSpendingLimit_SumSpendError_SuccessAfterRecovery(t *testing.T) {
@@ -88,18 +88,15 @@ func TestCheckSpendingLimit_SumSpendError_SuccessAfterRecovery(t *testing.T) {
 	ctx := context.Background()
 
 	err := enforcer.CheckSpendingLimit(ctx, "org-reset")
-	if err == nil {
-		t.Fatal("expected initial spend read error to fail closed")
-	}
+	require.Error(t,
+		err)
 
 	// Fix the error -- next call succeeds and resets the tracker.
 	store.sumSpendErr = nil
 	store.periodSpendByOrg = map[string]int64{"org-reset": 10_000_000}
 
 	err = enforcer.CheckSpendingLimit(ctx, "org-reset")
-	if err != nil {
-		t.Fatalf("expected nil after error resolved, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestCheckSpendingLimit_SumSpendError_CrossOrgFailsClosed(t *testing.T) {
@@ -123,12 +120,12 @@ func TestCheckSpendingLimit_SumSpendError_CrossOrgFailsClosed(t *testing.T) {
 	for _, orgID := range []string{"org-A", "org-B"} {
 		err := enforcer.CheckSpendingLimit(ctx, orgID)
 		var le *LimitError
-		if !errors.As(err, &le) {
-			t.Fatalf("%s expected *LimitError, got %T: %v", orgID, err, err)
-		}
-		if le.Code != "service_degraded" {
-			t.Fatalf("%s expected code service_degraded, got %q", orgID, le.Code)
-		}
+		require.ErrorAs(t,
+			err, &le)
+		require.Equal(t,
+			"service_degraded",
+			le.Code,
+		)
 	}
 }
 
@@ -148,21 +145,23 @@ func TestWebhook_RecordProcessedWebhookError_StillReturns200(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusOK,
+		rec.Code)
+	require.NotNil(
+		t, store.lastUpserted,
+	)
+	require.True(t,
+		slices.Contains(store.recordedWebhookIDs,
+
+			"evt-record-err",
+		))
 
 	// Should still return 200 (webhook processed successfully, recording is best-effort).
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 even with record error, got %d", rec.Code)
-	}
 
 	// Verify the webhook was processed (subscription upserted).
-	if store.lastUpserted == nil {
-		t.Fatal("expected subscription to be upserted despite record error")
-	}
 
 	// Verify the record was attempted using the Stripe event ID.
-	if !slices.Contains(store.recordedWebhookIDs, "evt-record-err") {
-		t.Fatal("RecordProcessedWebhook was not called")
-	}
 }
 
 func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
@@ -188,15 +187,16 @@ func TestWebhook_RecordProcessedWebhookSuccess_IDStored(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusOK,
+		rec.Code)
+	require.True(t,
+		slices.Contains(store.recordedWebhookIDs,
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
+			"evt-record-ok",
+		))
 
 	// Verify the Stripe event ID was recorded.
-	if !slices.Contains(store.recordedWebhookIDs, "evt-record-ok") {
-		t.Fatal("RecordProcessedWebhook was not called on success")
-	}
 }
 
 func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
@@ -223,16 +223,17 @@ func TestWebhook_RecordProcessedWebhook_NotCalledOnHandlerError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t,
+		http.StatusInternalServerError,
+
+		rec.
+			Code)
 
 	// Handler error returns 500.
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for unknown product, got %d", rec.Code)
-	}
 
 	// RecordProcessedWebhook should NOT be called when handler errors.
 	for _, id := range store.recordedWebhookIDs {
-		if id == "evt-handler-err" {
-			t.Fatal("RecordProcessedWebhook should not be called when handler returns error")
-		}
+		require.NotEqual(t, "evt-handler-err",
+			id)
 	}
 }

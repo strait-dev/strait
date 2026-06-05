@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 // completeRunWithWebhook branching tests.
@@ -26,17 +27,15 @@ func TestCompleteRunWithWebhook_NoTxPool_NoWebhook(t *testing.T) {
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{"result": "ok"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
-	if calls[0].to != domain.StatusCompleted {
-		t.Fatalf("expected Completed, got %s", calls[0].to)
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusCompleted,
+		calls[0].to)
 }
 
 func TestCompleteRunWithWebhook_NoTxPool_WithWebhook(t *testing.T) {
@@ -49,15 +48,14 @@ func TestCompleteRunWithWebhook_NoTxPool_WithWebhook(t *testing.T) {
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{"result": "ok"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	// Status update happens via plain path (no transaction).
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 status update, got %d", len(calls))
-	}
+	require.Len(t, calls,
+		1)
+
 	// Webhook is silently skipped (but warning log emitted).
 }
 
@@ -72,18 +70,14 @@ func TestCompleteRunWithWebhook_WithTxPool_NoWebhookUsesTransaction(t *testing.T
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{"result": "ok"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !txPool.beginCalled {
-		t.Fatal("expected transaction to be started for terminal status update")
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		txPool.beginCalled,
+	)
 
 	calls := store.statusUpdates()
-	if len(calls) != 0 {
-		t.Fatalf("expected 0 plain store calls (tx path should be used), got %d", len(calls))
-	}
+	require.Empty(t, calls)
 }
 
 func TestCompleteRunWithWebhook_WithTxPool_WithWebhook(t *testing.T) {
@@ -102,22 +96,18 @@ func TestCompleteRunWithWebhook_WithTxPool_WithWebhook(t *testing.T) {
 	// that the transaction path is entered.
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{"result": "ok"})
-
-	if !txPool.beginCalled {
-		t.Fatal("expected transaction to be started")
-	}
+	require.True(t,
+		txPool.beginCalled,
+	)
+	require.Error(t,
+		err)
 
 	// The tx path executes real SQL against our mock tx, which returns a mock row
 	// that fails on Scan. An error here confirms the transaction path was taken.
-	if err == nil {
-		t.Fatal("expected error from SQL execution inside tx (confirms tx path was taken)")
-	}
 
 	// The plain store path should NOT have been called — the tx path was used.
 	calls := store.statusUpdates()
-	if len(calls) != 0 {
-		t.Fatalf("expected 0 plain store calls (tx path should be used), got %d", len(calls))
-	}
+	require.Empty(t, calls)
 }
 
 func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
@@ -133,12 +123,11 @@ func TestCompleteRunWithWebhook_TxBeginError(t *testing.T) {
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{})
-	if err == nil {
-		t.Fatal("expected error from Begin failure")
-	}
-	if !txPool.beginCalled {
-		t.Fatal("Begin should have been called")
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		txPool.beginCalled,
+	)
 }
 
 func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
@@ -155,12 +144,11 @@ func TestCompleteRunWithWebhook_StoreError_Propagated(t *testing.T) {
 
 	err := exec.completeRunWithWebhook(context.Background(), run, job,
 		domain.StatusCompleted, map[string]any{})
-	if err == nil {
-		t.Fatal("expected error propagation from store")
-	}
-	if err.Error() != "db write failed" {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Equal(t,
+		"db write failed",
+		err.Error())
 }
 
 func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
@@ -185,31 +173,44 @@ func TestTerminalRunCompletion_CompletedEndpointWebhook(t *testing.T) {
 	}
 
 	completion := newTerminalRunCompletion(run, job, domain.StatusCompleted, fields)
-
-	if completion.from != domain.StatusExecuting {
-		t.Fatalf("from = %s, want %s", completion.from, domain.StatusExecuting)
-	}
-	if completion.to != domain.StatusCompleted {
-		t.Fatalf("to = %s, want %s", completion.to, domain.StatusCompleted)
-	}
-	if string(completion.fields["result"].(json.RawMessage)) != string(result) {
-		t.Fatalf("result field = %v, want %s", completion.fields["result"], result)
-	}
-	if !completion.recordEndpointSuccess {
-		t.Fatal("completed endpoint run should record endpoint success")
-	}
-	if !completion.enqueueWebhook {
-		t.Fatal("webhook URL should enqueue webhook delivery")
-	}
-	if completion.webhookRun.Status != domain.StatusCompleted {
-		t.Fatalf("webhook run status = %s, want %s", completion.webhookRun.Status, domain.StatusCompleted)
-	}
-	if string(completion.webhookRun.Result) != string(result) {
-		t.Fatalf("webhook result = %s, want %s", completion.webhookRun.Result, result)
-	}
-	if completion.webhookRun.FinishedAt == nil || !completion.webhookRun.FinishedAt.Equal(finishedAt) {
-		t.Fatalf("webhook finished_at = %v, want %s", completion.webhookRun.FinishedAt, finishedAt)
-	}
+	require.Equal(t,
+		domain.StatusExecuting,
+		completion.
+			from,
+	)
+	require.Equal(t,
+		domain.StatusCompleted,
+		completion.
+			to,
+	)
+	require.Equal(t,
+		string(result),
+		string(completion.
+			fields["result"].(json.RawMessage)))
+	require.True(t,
+		completion.recordEndpointSuccess,
+	)
+	require.True(t,
+		completion.enqueueWebhook,
+	)
+	require.Equal(t,
+		domain.StatusCompleted,
+		completion.
+			webhookRun.
+			Status)
+	require.Equal(t,
+		string(result),
+		string(completion.
+			webhookRun.
+			Result,
+		))
+	require.False(t,
+		completion.webhookRun.
+			FinishedAt ==
+			nil ||
+			!completion.
+				webhookRun.FinishedAt.
+				Equal(finishedAt))
 }
 
 func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
@@ -232,22 +233,29 @@ func TestTerminalRunCompletion_FailedRunSkipsEndpointSuccess(t *testing.T) {
 	}
 
 	completion := newTerminalRunCompletion(run, job, domain.StatusDeadLetter, fields)
-
-	if completion.recordEndpointSuccess {
-		t.Fatal("failed run should not record endpoint success")
-	}
-	if completion.enqueueWebhook {
-		t.Fatal("empty webhook URL should not enqueue webhook delivery")
-	}
-	if completion.webhookRun.Status != domain.StatusDeadLetter {
-		t.Fatalf("webhook run status = %s, want %s", completion.webhookRun.Status, domain.StatusDeadLetter)
-	}
-	if completion.webhookRun.Error != "failed" {
-		t.Fatalf("webhook error = %q, want failed", completion.webhookRun.Error)
-	}
-	if completion.webhookRun.FinishedAt == nil || !completion.webhookRun.FinishedAt.Equal(finishedAt) {
-		t.Fatalf("webhook finished_at = %v, want %s", completion.webhookRun.FinishedAt, finishedAt)
-	}
+	require.False(t,
+		completion.recordEndpointSuccess,
+	)
+	require.False(t,
+		completion.enqueueWebhook,
+	)
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		completion.
+			webhookRun.
+			Status)
+	require.Equal(t,
+		"failed", completion.
+			webhookRun.
+			Error,
+	)
+	require.False(t,
+		completion.webhookRun.
+			FinishedAt ==
+			nil ||
+			!completion.
+				webhookRun.FinishedAt.
+				Equal(finishedAt))
 }
 
 // Handler integration tests.
@@ -270,9 +278,8 @@ func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
 	exec.handleSuccess(context.Background(), run, job, nil)
 
 	calls := store.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+	require.NotEmpty(t, calls)
+
 	found := false
 	for _, c := range calls {
 		if c.to == domain.StatusCompleted {
@@ -280,17 +287,15 @@ func TestHandleSuccess_EmitsCompletedEvent(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected a transition to Completed")
-	}
+	require.True(t,
+		found)
 
 	events := getEvents()
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
-	if events[0].Type != EventCompleted {
-		t.Fatalf("expected EventCompleted, got %s", events[0].Type)
-	}
+	require.NotEmpty(t, events)
+	require.Equal(t,
+		EventCompleted,
+		events[0].
+			Type)
 }
 
 func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
@@ -315,9 +320,8 @@ func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected a transition to DeadLetter at max attempts")
-	}
+	require.True(t,
+		found)
 
 	events := getEvents()
 	foundDL := false
@@ -327,9 +331,8 @@ func TestHandleFailure_DeadLetter_AtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !foundDL {
-		t.Fatal("expected EventDeadLettered")
-	}
+	require.True(t,
+		foundDL)
 }
 
 func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
@@ -354,9 +357,8 @@ func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected a transition to TimedOut at max attempts")
-	}
+	require.True(t,
+		found)
 
 	events := getEvents()
 	foundTO := false
@@ -366,9 +368,8 @@ func TestHandleTimeout_Terminal_AtMaxAttempts(t *testing.T) {
 			break
 		}
 	}
-	if !foundTO {
-		t.Fatal("expected EventTimedOut")
-	}
+	require.True(t,
+		foundTO)
 }
 
 // Test helpers.

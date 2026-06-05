@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestEncodeNDJSONBatch_ReturnsIndependentBytes asserts the output slice
@@ -34,9 +36,8 @@ func TestEncodeNDJSONBatch_ReturnsIndependentBytes(t *testing.T) {
 	ev2.Details = json.RawMessage(`{"iteration":2,"padding":"` + strings.Repeat("x", 4096) + `"}`)
 
 	first, err := encodeNDJSONBatch([]domain.AuditEvent{ev1})
-	if err != nil {
-		t.Fatalf("first encode: %v", err)
-	}
+	require.NoError(t, err)
+
 	copyOfFirst := make([]byte, len(first))
 	copy(copyOfFirst, first)
 
@@ -44,13 +45,10 @@ func TestEncodeNDJSONBatch_ReturnsIndependentBytes(t *testing.T) {
 	// implementation handed `first` as a view over the pooled bytes,
 	// running the second encode would trample it.
 	_, err = encodeNDJSONBatch([]domain.AuditEvent{ev2})
-	if err != nil {
-		t.Fatalf("second encode: %v", err)
-	}
-
-	if string(first) != string(copyOfFirst) {
-		t.Fatalf("first batch payload was mutated after a subsequent encodeNDJSONBatch: want len=%d original, got len=%d", len(copyOfFirst), len(first))
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(
+		copyOfFirst,
+	), string(first))
 }
 
 // TestEncodeNDJSONBatch_PooledBufferReuse asserts repeated encodes use
@@ -75,12 +73,8 @@ func TestEncodeNDJSONBatch_PooledBufferReuse(t *testing.T) {
 		ev := template
 		ev.ID = "ev-reuse-" + ndjsonItoa(i)
 		out, err := encodeNDJSONBatch([]domain.AuditEvent{ev})
-		if err != nil {
-			t.Fatalf("encode iter %d: %v", i, err)
-		}
-		if !strings.Contains(string(out), ev.ID) {
-			t.Fatalf("iter %d: encoded output did not contain event id %q; output = %q", i, ev.ID, string(out))
-		}
+		require.NoError(t, err)
+		require.Contains(t, string(out), ev.ID)
 	}
 }
 

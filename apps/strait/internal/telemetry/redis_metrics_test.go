@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -23,9 +24,9 @@ func TestRedisMetricsHookRecordsCommandOutcomesAndPool(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
-		if err := provider.Shutdown(context.Background()); err != nil {
-			t.Fatalf("shutdown meter provider: %v", err)
-		}
+		require.NoError(t,
+			provider.Shutdown(context.
+				Background()))
 	})
 
 	hook := newRedisMetricsHook(
@@ -34,22 +35,21 @@ func TestRedisMetricsHookRecordsCommandOutcomesAndPool(t *testing.T) {
 		redisMetricsStatsProvider{stats: &redis.PoolStats{TotalConns: 5, IdleConns: 2}},
 	)
 	ctx := context.Background()
+	require.NoError(t,
+		hook.ProcessHook(func(
+			context.Context, redis.Cmder) error {
+			return nil
+		})(ctx, redis.NewStringCmd(ctx, "GET", "cache-key")))
 
-	if err := hook.ProcessHook(func(context.Context, redis.Cmder) error {
-		return nil
-	})(ctx, redis.NewStringCmd(ctx, "GET", "cache-key")); err != nil {
-		t.Fatalf("ProcessHook success returned error: %v", err)
-	}
 	if err := hook.ProcessHook(func(context.Context, redis.Cmder) error {
 		return redis.Nil
 	})(ctx, redis.NewStringCmd(ctx, "GET", "missing-key")); !errors.Is(err, redis.Nil) {
-		t.Fatalf("ProcessHook miss error = %v, want redis.Nil", err)
+		require.ErrorIs(t, err, redis.Nil)
 	}
-	if err := hook.ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
-		return errors.New("redis unavailable")
-	})(ctx, []redis.Cmder{redis.NewStringCmd(ctx, "SET", "cache-key", "value")}); err == nil {
-		t.Fatal("ProcessPipelineHook error = nil, want error")
-	}
+	require.Error(t, hook.
+		ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
+			return errors.New("redis unavailable")
+		})(ctx, []redis.Cmder{redis.NewStringCmd(ctx, "SET", "cache-key", "value")}))
 
 	histogram := collectRedisHistogram(t, reader, "strait_redis_command_duration_seconds")
 	assertRedisHistogramPoint(t, histogram, map[string]string{"command": "get", "outcome": "success"})
@@ -61,61 +61,57 @@ func TestRedisMetricsHookRecordsCommandOutcomesAndPool(t *testing.T) {
 }
 
 func TestRedisMetricsNormalization(t *testing.T) {
-	if got := normalizeRedisCommand(" CLIENT LIST "); got != "client" {
-		t.Fatalf("normalizeRedisCommand() = %q, want client", got)
-	}
-	if got := normalizeRedisCommand(""); got != "unknown" {
-		t.Fatalf("normalizeRedisCommand(empty) = %q, want unknown", got)
-	}
-	if got := redisCommandOutcome(redis.Nil); got != "miss" {
-		t.Fatalf("redisCommandOutcome(redis.Nil) = %q, want miss", got)
-	}
-	if got := redisCommandOutcome(errors.New("boom")); got != "error" {
-		t.Fatalf("redisCommandOutcome(error) = %q, want error", got)
-	}
+	require.Equal(t, "client",
+		normalizeRedisCommand(" CLIENT LIST "))
+	require.Equal(t, "unknown",
+		normalizeRedisCommand(""))
+	require.Equal(t, "miss",
+		redisCommandOutcome(redis.Nil))
+	require.Equal(t, "error",
+		redisCommandOutcome(errors.New("boom")))
 }
 
 func collectRedisHistogram(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Histogram[float64] {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
+
 	for _, scope := range rm.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			if metric.Name != name {
 				continue
 			}
 			histogram, ok := metric.Data.(metricdata.Histogram[float64])
-			if !ok {
-				t.Fatalf("%s data type = %T, want histogram", name, metric.Data)
-			}
+			require.True(t, ok)
+
 			return histogram
 		}
 	}
-	t.Fatalf("metric %s not collected", name)
+	require.Failf(t, "metric not collected", "%s", name)
 	return metricdata.Histogram[float64]{}
 }
 
 func collectRedisGauge(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Gauge[int64] {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
+
 	for _, scope := range rm.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			if metric.Name != name {
 				continue
 			}
 			gauge, ok := metric.Data.(metricdata.Gauge[int64])
-			if !ok {
-				t.Fatalf("%s data type = %T, want int64 gauge", name, metric.Data)
-			}
+			require.True(t, ok)
+
 			return gauge
 		}
 	}
-	t.Fatalf("metric %s not collected", name)
+	require.Failf(t, "metric not collected", "%s", name)
 	return metricdata.Gauge[int64]{}
 }
 
@@ -126,7 +122,7 @@ func assertRedisHistogramPoint(t *testing.T, histogram metricdata.Histogram[floa
 			return
 		}
 	}
-	t.Fatalf("histogram point attrs=%v not found in %#v", attrs, histogram.DataPoints)
+	require.Failf(t, "histogram point not found", "attrs=%v points=%#v", attrs, histogram.DataPoints)
 }
 
 func assertRedisGaugePoint(t *testing.T, gauge metricdata.Gauge[int64], value int64, attrs map[string]string) {
@@ -136,7 +132,7 @@ func assertRedisGaugePoint(t *testing.T, gauge metricdata.Gauge[int64], value in
 			return
 		}
 	}
-	t.Fatalf("gauge point value=%d attrs=%v not found in %#v", value, attrs, gauge.DataPoints)
+	require.Failf(t, "gauge point not found", "value=%d attrs=%v points=%#v", value, attrs, gauge.DataPoints)
 }
 
 func redisAttrsMatch(got []attribute.KeyValue, want map[string]string) bool {

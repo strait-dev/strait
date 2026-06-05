@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimulate_DryRun_LinearDAG(t *testing.T) {
@@ -19,21 +22,17 @@ func TestSimulate_DryRun_LinearDAG(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.ExecutionPlan) != 3 {
-		t.Fatalf("expected 3 steps, got %d", len(result.ExecutionPlan))
-	}
-	if result.ExecutionPlan[0].StepRef != "a" {
-		t.Errorf("first step = %q, want a", result.ExecutionPlan[0].StepRef)
-	}
-	if result.ExecutionPlan[2].StepRef != "c" {
-		t.Errorf("last step = %q, want c", result.ExecutionPlan[2].StepRef)
-	}
-	if result.EstimatedDuration != 60 {
-		t.Errorf("estimated duration = %d, want 60", result.EstimatedDuration)
-	}
+	require.NoError(t, err)
+	require.Len(t, result.ExecutionPlan,
+
+		3)
+	assert.Equal(t, "a", result.
+		ExecutionPlan[0].StepRef)
+	assert.Equal(t, "c", result.
+		ExecutionPlan[2].StepRef)
+	assert.Equal(t, 60, result.
+		EstimatedDuration,
+	)
 }
 
 func TestSimulate_DryRun_ParallelBranches(t *testing.T) {
@@ -46,9 +45,7 @@ func TestSimulate_DryRun_ParallelBranches(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// b and c should be in the same parallel group.
 	bGroup := -1
@@ -61,9 +58,8 @@ func TestSimulate_DryRun_ParallelBranches(t *testing.T) {
 			cGroup = s.ParallelGroup
 		}
 	}
-	if bGroup != cGroup {
-		t.Errorf("b (group %d) and c (group %d) should be in the same parallel group", bGroup, cGroup)
-	}
+	assert.Equal(t, cGroup,
+		bGroup)
 }
 
 func TestSimulate_DryRun_ConditionalBranch(t *testing.T) {
@@ -75,15 +71,11 @@ func TestSimulate_DryRun_ConditionalBranch(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.ConditionResults["b"] != true {
-		t.Error("dry run should assume conditions pass")
-	}
-	if result.ExecutionPlan[1].ConditionMet == nil || !*result.ExecutionPlan[1].ConditionMet {
-		t.Error("condition_met should be true for dry run")
-	}
+	require.NoError(t, err)
+	assert.True(t, result.
+		ConditionResults["b"])
+	assert.False(t, result.ExecutionPlan[1].ConditionMet ==
+		nil || !*result.ExecutionPlan[1].ConditionMet)
 }
 
 func TestSimulate_CostEstimation(t *testing.T) {
@@ -99,12 +91,10 @@ func TestSimulate_CostEstimation(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, costs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.EstimatedCost != 3500 {
-		t.Errorf("total cost = %d, want 3500", result.EstimatedCost)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 3500, result.
+		EstimatedCost,
+	)
 }
 
 func TestSimulate_FailureInjection_SingleStep(t *testing.T) {
@@ -120,18 +110,16 @@ func TestSimulate_FailureInjection_SingleStep(t *testing.T) {
 	}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.FailurePaths) != 1 {
-		t.Fatalf("expected 1 failure path, got %d", len(result.FailurePaths))
-	}
-	if result.FailurePaths[0].StepRef != "b" {
-		t.Errorf("failure step = %q, want b", result.FailurePaths[0].StepRef)
-	}
-	if result.FailurePaths[0].InjectedFailure != "simulated failure" {
-		t.Errorf("injected failure = %q, want 'simulated failure'", result.FailurePaths[0].InjectedFailure)
-	}
+	require.NoError(t, err)
+	require.Len(t, result.FailurePaths,
+
+		1)
+	assert.Equal(t, "b", result.
+		FailurePaths[0].StepRef)
+	assert.Equal(t, "simulated failure",
+
+		result.
+			FailurePaths[0].InjectedFailure)
 }
 
 func TestSimulate_FailureInjection_WithCompensation(t *testing.T) {
@@ -146,14 +134,14 @@ func TestSimulate_FailureInjection_WithCompensation(t *testing.T) {
 	}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	// Step a should show it would compensate.
 	for _, s := range result.ExecutionPlan {
-		if s.StepRef == "a" && !s.WouldCompensate {
-			t.Error("step a should show would_compensate=true")
-		}
+		assert.False(t, s.StepRef ==
+			"a" &&
+			!s.WouldCompensate,
+		)
 	}
 }
 
@@ -167,15 +155,13 @@ func TestSimulate_DAGVisualizationData(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.DAG.Nodes) != 3 {
-		t.Errorf("expected 3 nodes, got %d", len(result.DAG.Nodes))
-	}
-	if len(result.DAG.Edges) != 2 {
-		t.Errorf("expected 2 edges, got %d", len(result.DAG.Edges))
-	}
+	require.NoError(t, err)
+	assert.Len(t, result.DAG.
+		Nodes,
+		3)
+	assert.Len(t, result.DAG.
+		Edges,
+		2)
 }
 
 func TestSimulate_EmptyPayload(t *testing.T) {
@@ -186,30 +172,24 @@ func TestSimulate_EmptyPayload(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun, Payload: nil}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.ExecutionPlan) != 1 {
-		t.Fatalf("expected 1 step, got %d", len(result.ExecutionPlan))
-	}
+	require.NoError(t, err)
+	require.Len(t, result.ExecutionPlan,
+
+		1)
 }
 
 func TestSimulate_NilRequest(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{{StepRef: "a"}}
 	_, err := SimulateWorkflow(steps, nil, nil)
-	if err == nil {
-		t.Error("expected error for nil request")
-	}
+	assert.Error(t, err)
 }
 
 func TestSimulate_NoSteps(t *testing.T) {
 	t.Parallel()
 	req := &SimulateRequest{Mode: SimModeDryRun}
 	_, err := SimulateWorkflow(nil, req, nil)
-	if err == nil {
-		t.Error("expected error for no steps")
-	}
+	assert.Error(t, err)
 }
 
 func BenchmarkSimulateWorkflow_Chain100(b *testing.B) {
@@ -273,18 +253,16 @@ func TestValidateSimulateRequest_Valid(t *testing.T) {
 	t.Parallel()
 	steps := []domain.WorkflowStep{{StepRef: "a"}}
 	req := &SimulateRequest{Mode: SimModeDryRun}
-	if err := ValidateSimulateRequest(req, steps); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	assert.NoError(t, ValidateSimulateRequest(
+		req, steps),
+	)
 }
 
 func TestValidateSimulateRequest_InvalidMode(t *testing.T) {
 	t.Parallel()
 	req := &SimulateRequest{Mode: "invalid"}
 	err := ValidateSimulateRequest(req, nil)
-	if err == nil {
-		t.Error("expected error for invalid mode")
-	}
+	assert.Error(t, err)
 }
 
 func TestValidateSimulateRequest_InvalidFailureInjection(t *testing.T) {
@@ -295,12 +273,8 @@ func TestValidateSimulateRequest_InvalidFailureInjection(t *testing.T) {
 		FailureInjection: map[string]string{"nonexistent": "boom"},
 	}
 	err := ValidateSimulateRequest(req, steps)
-	if err == nil {
-		t.Error("expected error for unknown step ref in failure injection")
-	}
-	if !strings.Contains(err.Error(), "nonexistent") {
-		t.Errorf("error should mention unknown step, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent")
 }
 
 func TestValidateSimulateRequest_ValidFailureInjection(t *testing.T) {
@@ -313,9 +287,7 @@ func TestValidateSimulateRequest_ValidFailureInjection(t *testing.T) {
 			"b": "again",
 		},
 	}
-	if err := ValidateSimulateRequest(req, steps); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, ValidateSimulateRequest(req, steps))
 }
 
 func TestValidateSimulateRequest_SingleInvalidFailureInjection(t *testing.T) {
@@ -326,20 +298,14 @@ func TestValidateSimulateRequest_SingleInvalidFailureInjection(t *testing.T) {
 		FailureInjection: map[string]string{"missing": "boom"},
 	}
 	err := ValidateSimulateRequest(req, steps)
-	if err == nil {
-		t.Fatal("expected error for unknown step ref in single failure injection")
-	}
-	if !strings.Contains(err.Error(), "missing") {
-		t.Errorf("error should mention unknown step, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing")
 }
 
 func TestValidateSimulateRequest_NilRequest(t *testing.T) {
 	t.Parallel()
 	err := ValidateSimulateRequest(nil, nil)
-	if err == nil {
-		t.Error("expected error for nil request")
-	}
+	assert.Error(t, err)
 }
 
 func BenchmarkValidateSimulateRequest(b *testing.B) {
@@ -431,12 +397,10 @@ func TestSimulate_100StepDAG(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.ExecutionPlan) != 100 {
-		t.Errorf("expected 100 steps, got %d", len(result.ExecutionPlan))
-	}
+	require.NoError(t, err)
+	assert.Len(t, result.ExecutionPlan,
+
+		100)
 }
 
 func TestSimulate_5MBPayload(t *testing.T) {
@@ -446,12 +410,10 @@ func TestSimulate_5MBPayload(t *testing.T) {
 	req := &SimulateRequest{Mode: SimModeDryRun, Payload: largePayload}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.ExecutionPlan) != 1 {
-		t.Errorf("expected 1 step, got %d", len(result.ExecutionPlan))
-	}
+	require.NoError(t, err)
+	assert.Len(t, result.ExecutionPlan,
+
+		1)
 }
 
 func TestSimulate_FailureInjectionMultipleSteps(t *testing.T) {
@@ -471,12 +433,10 @@ func TestSimulate_FailureInjectionMultipleSteps(t *testing.T) {
 	}
 
 	result, err := SimulateWorkflow(steps, req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.FailurePaths) != 2 {
-		t.Errorf("expected 2 failure paths, got %d", len(result.FailurePaths))
-	}
+	require.NoError(t, err)
+	assert.Len(t, result.FailurePaths,
+
+		2)
 }
 
 func TestSimulate_ModePreservedInResult(t *testing.T) {
@@ -487,12 +447,10 @@ func TestSimulate_ModePreservedInResult(t *testing.T) {
 			t.Parallel()
 			req := &SimulateRequest{Mode: mode}
 			result, err := SimulateWorkflow(steps, req, nil)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if result.Mode != mode {
-				t.Errorf("mode = %q, want %q", result.Mode, mode)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, mode, result.
+				Mode,
+			)
 		})
 	}
 }

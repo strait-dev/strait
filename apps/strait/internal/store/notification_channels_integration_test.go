@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateNotificationChannel(t *testing.T) {
@@ -26,39 +28,34 @@ func TestCreateNotificationChannel(t *testing.T) {
 		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
 		Enabled:     true,
 	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
+	require.NotEqual(t, "",
 
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
-	if ch.ID == "" {
-		t.Fatal("CreateNotificationChannel() did not set ID")
-	}
-	if ch.CreatedAt.IsZero() {
-		t.Fatal("CreateNotificationChannel() did not set CreatedAt")
-	}
-	if ch.UpdatedAt.IsZero() {
-		t.Fatal("CreateNotificationChannel() did not set UpdatedAt")
-	}
+		ch.ID)
+	require.False(t, ch.CreatedAt.
+		IsZero())
+	require.False(t, ch.UpdatedAt.
+		IsZero())
 
 	got, err := q.GetNotificationChannel(ctx, ch.ID, projectID)
-	if err != nil {
-		t.Fatalf("GetNotificationChannel() error = %v", err)
-	}
-	if got.ID != ch.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, ch.ID)
-	}
-	if got.ProjectID != projectID {
-		t.Fatalf("ProjectID = %q, want %q", got.ProjectID, projectID)
-	}
-	if got.ChannelType != domain.ChannelTypeWebhook {
-		t.Fatalf("ChannelType = %q, want %q", got.ChannelType, domain.ChannelTypeWebhook)
-	}
-	if got.Name != ch.Name {
-		t.Fatalf("Name = %q, want %q", got.Name, ch.Name)
-	}
-	if !got.Enabled {
-		t.Fatal("Enabled = false, want true")
-	}
+	require.NoError(t, err)
+	require.Equal(t, ch.ID,
+
+		got.ID)
+	require.Equal(t, projectID,
+
+		got.ProjectID,
+	)
+	require.Equal(t, domain.
+		ChannelTypeWebhook,
+
+		got.ChannelType)
+	require.Equal(t, ch.Name,
+
+		got.Name,
+	)
+	require.True(t, got.Enabled)
+
 }
 
 func TestCreateNotificationChannel_CustomID(t *testing.T) {
@@ -75,12 +72,11 @@ func TestCreateNotificationChannel_CustomID(t *testing.T) {
 		Config:      []byte(`{"to":"team@example.com"}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
-	if ch.ID != customID {
-		t.Fatalf("ID = %q, want %q", ch.ID, customID)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
+	require.Equal(t, customID,
+
+		ch.ID)
+
 }
 
 func TestCreateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T) {
@@ -96,12 +92,12 @@ func TestCreateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T)
 		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
 		Enabled:     true,
 	}
+	require.Error(t, q.CreateNotificationChannel(ctx, ch))
 
-	if err := q.CreateNotificationChannel(ctx, ch); err == nil {
-		t.Fatal("CreateNotificationChannel() error = nil, want encryption failure")
-	}
 	if _, err := q.GetNotificationChannel(ctx, ch.ID, ch.ProjectID); !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("GetNotificationChannel() error = %v, want ErrNotificationChannelNotFound", err)
+		require.Failf(t, "test failure",
+
+			"GetNotificationChannel() error = %v, want ErrNotificationChannelNotFound", err)
 	}
 }
 
@@ -117,15 +113,12 @@ func TestUpdateNotificationChannel_InvalidEncryptionKeyFailsClosed(t *testing.T)
 		Config:      []byte(`{"url":"https://example.com/hooks/ops"}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	q.SetSecretEncryptionKey("short")
 	ch.Config = []byte(`{"url":"https://example.com/hooks/updated"}`)
-	if err := q.UpdateNotificationChannel(ctx, ch); err == nil {
-		t.Fatal("UpdateNotificationChannel() error = nil, want encryption failure")
-	}
+	require.Error(t, q.UpdateNotificationChannel(ctx, ch))
+
 }
 
 func TestGetNotificationChannel_NotFound(t *testing.T) {
@@ -134,9 +127,10 @@ func TestGetNotificationChannel_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.GetNotificationChannel(ctx, newID(), "proj-missing")
-	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("GetNotificationChannel(missing) error = %v, want ErrNotificationChannelNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrNotificationChannelNotFound,
+	))
+
 }
 
 func TestListNotificationChannels(t *testing.T) {
@@ -155,9 +149,8 @@ func TestListNotificationChannels(t *testing.T) {
 			Config:      []byte(`{"url":"https://example.com"}`),
 			Enabled:     true,
 		}
-		if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-			t.Fatalf("CreateNotificationChannel() error = %v", err)
-		}
+		require.NoError(t, q.CreateNotificationChannel(ctx, ch))
+
 	}
 
 	// Disabled channel also appears in ListNotificationChannels (but not ListEnabled).
@@ -168,9 +161,7 @@ func TestListNotificationChannels(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     false,
 	}
-	if err := q.CreateNotificationChannel(ctx, disabled); err != nil {
-		t.Fatalf("CreateNotificationChannel(disabled) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, disabled))
 
 	// Another project.
 	other := &domain.NotificationChannel{
@@ -180,21 +171,20 @@ func TestListNotificationChannels(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, other); err != nil {
-		t.Fatalf("CreateNotificationChannel(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, other))
 
 	channels, err := q.ListNotificationChannels(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListNotificationChannels() error = %v", err)
-	}
-	if len(channels) != 4 {
-		t.Fatalf("len = %d, want 4 (including disabled)", len(channels))
-	}
+	require.NoError(t, err)
+	require.Len(t, channels,
+
+		4)
+
 	for _, ch := range channels {
-		if ch.ProjectID != projectID {
-			t.Fatalf("ProjectID = %q, want %q", ch.ProjectID, projectID)
-		}
+		require.Equal(t, projectID,
+
+			ch.ProjectID,
+		)
+
 	}
 }
 
@@ -212,9 +202,7 @@ func TestListEnabledNotificationChannels(t *testing.T) {
 		Config:      []byte(`{"url":"https://example.com"}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, enabled); err != nil {
-		t.Fatalf("CreateNotificationChannel(enabled) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, enabled))
 
 	disabled := &domain.NotificationChannel{
 		ProjectID:   projectID,
@@ -223,20 +211,16 @@ func TestListEnabledNotificationChannels(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     false,
 	}
-	if err := q.CreateNotificationChannel(ctx, disabled); err != nil {
-		t.Fatalf("CreateNotificationChannel(disabled) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, disabled))
 
 	channels, err := q.ListEnabledNotificationChannels(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListEnabledNotificationChannels() error = %v", err)
-	}
-	if len(channels) != 1 {
-		t.Fatalf("len = %d, want 1", len(channels))
-	}
-	if channels[0].ID != enabled.ID {
-		t.Fatalf("ID = %q, want %q", channels[0].ID, enabled.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, channels,
+
+		1)
+	require.Equal(t, enabled.
+		ID, channels[0].ID)
+
 }
 
 func TestListEnabledNotificationChannelsByProjectIDs(t *testing.T) {
@@ -254,9 +238,7 @@ func TestListEnabledNotificationChannelsByProjectIDs(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, chA); err != nil {
-		t.Fatalf("CreateNotificationChannel(a) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, chA))
 
 	chB := &domain.NotificationChannel{
 		ProjectID:   projB,
@@ -265,9 +247,7 @@ func TestListEnabledNotificationChannelsByProjectIDs(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, chB); err != nil {
-		t.Fatalf("CreateNotificationChannel(b) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, chB))
 
 	// Disabled in projB should not appear.
 	disabledB := &domain.NotificationChannel{
@@ -277,29 +257,18 @@ func TestListEnabledNotificationChannelsByProjectIDs(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     false,
 	}
-	if err := q.CreateNotificationChannel(ctx, disabledB); err != nil {
-		t.Fatalf("CreateNotificationChannel(disabled-b) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, disabledB))
 
 	result, err := q.ListEnabledNotificationChannelsByProjectIDs(ctx, []string{projA, projB})
-	if err != nil {
-		t.Fatalf("ListEnabledNotificationChannelsByProjectIDs() error = %v", err)
-	}
-	if len(result[projA]) != 1 {
-		t.Fatalf("projA count = %d, want 1", len(result[projA]))
-	}
-	if len(result[projB]) != 1 {
-		t.Fatalf("projB count = %d, want 1", len(result[projB]))
-	}
+	require.NoError(t, err)
+	require.Len(t, result[projA], 1)
+	require.Len(t, result[projB], 1)
 
 	// Empty input.
 	empty, err := q.ListEnabledNotificationChannelsByProjectIDs(ctx, nil)
-	if err != nil {
-		t.Fatalf("ListEnabledNotificationChannelsByProjectIDs(nil) error = %v", err)
-	}
-	if len(empty) != 0 {
-		t.Fatalf("empty len = %d, want 0", len(empty))
-	}
+	require.NoError(t, err)
+	require.Len(t, empty, 0)
+
 }
 
 func TestUpdateNotificationChannel(t *testing.T) {
@@ -315,36 +284,30 @@ func TestUpdateNotificationChannel(t *testing.T) {
 		Config:      []byte(`{"url":"https://old.example.com"}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
+
 	origUpdatedAt := ch.UpdatedAt
 
 	ch.Name = "updated"
 	ch.ChannelType = domain.ChannelTypeEmail
 	ch.Config = []byte(`{"to":"new@example.com"}`)
 	ch.Enabled = false
-
-	if err := q.UpdateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("UpdateNotificationChannel() error = %v", err)
-	}
-	if !ch.UpdatedAt.After(origUpdatedAt) {
-		t.Fatal("UpdatedAt was not advanced")
-	}
+	require.NoError(t, q.UpdateNotificationChannel(ctx, ch))
+	require.True(t, ch.UpdatedAt.
+		After(origUpdatedAt))
 
 	got, err := q.GetNotificationChannel(ctx, ch.ID, projectID)
-	if err != nil {
-		t.Fatalf("GetNotificationChannel(updated) error = %v", err)
-	}
-	if got.Name != "updated" {
-		t.Fatalf("Name = %q, want %q", got.Name, "updated")
-	}
-	if got.ChannelType != domain.ChannelTypeEmail {
-		t.Fatalf("ChannelType = %q, want %q", got.ChannelType, domain.ChannelTypeEmail)
-	}
-	if got.Enabled {
-		t.Fatal("Enabled = true, want false")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "updated",
+
+		got.Name,
+	)
+	require.Equal(t, domain.
+		ChannelTypeEmail,
+		got.
+			ChannelType)
+	require.False(t, got.Enabled)
+
 }
 
 func TestUpdateNotificationChannel_NotFound(t *testing.T) {
@@ -361,7 +324,9 @@ func TestUpdateNotificationChannel_NotFound(t *testing.T) {
 		Enabled:     true,
 	}
 	if err := q.UpdateNotificationChannel(ctx, ch); !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("UpdateNotificationChannel(missing) error = %v, want ErrNotificationChannelNotFound", err)
+		require.Failf(t, "test failure",
+
+			"UpdateNotificationChannel(missing) error = %v, want ErrNotificationChannelNotFound", err)
 	}
 }
 
@@ -378,18 +343,14 @@ func TestDeleteNotificationChannel(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
-
-	if err := q.DeleteNotificationChannel(ctx, ch.ID, projectID); err != nil {
-		t.Fatalf("DeleteNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
+	require.NoError(t, q.DeleteNotificationChannel(ctx, ch.ID, projectID))
 
 	_, err := q.GetNotificationChannel(ctx, ch.ID, projectID)
-	if !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("GetNotificationChannel(deleted) error = %v, want ErrNotificationChannelNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrNotificationChannelNotFound,
+	))
+
 }
 
 func TestDeleteNotificationChannel_NotFound(t *testing.T) {
@@ -398,7 +359,9 @@ func TestDeleteNotificationChannel_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	if err := q.DeleteNotificationChannel(ctx, newID(), "proj-missing"); !errors.Is(err, store.ErrNotificationChannelNotFound) {
-		t.Fatalf("DeleteNotificationChannel(missing) error = %v, want ErrNotificationChannelNotFound", err)
+		require.Failf(t, "test failure",
+
+			"DeleteNotificationChannel(missing) error = %v, want ErrNotificationChannelNotFound", err)
 	}
 }
 
@@ -415,9 +378,7 @@ func TestCreateNotificationDelivery(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	d := &domain.NotificationDelivery{
 		ChannelID:   ch.ID,
@@ -427,16 +388,13 @@ func TestCreateNotificationDelivery(t *testing.T) {
 		Status:      "pending",
 		MaxAttempts: 3,
 	}
+	require.NoError(t, q.CreateNotificationDelivery(ctx, d))
+	require.NotEqual(t, "",
 
-	if err := q.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
-	if d.ID == "" {
-		t.Fatal("CreateNotificationDelivery() did not set ID")
-	}
-	if d.CreatedAt.IsZero() {
-		t.Fatal("CreateNotificationDelivery() did not set CreatedAt")
-	}
+		d.ID)
+	require.False(t, d.CreatedAt.
+		IsZero())
+
 }
 
 func TestCreateNotificationDelivery_DedupeKeySkipsDuplicate(t *testing.T) {
@@ -452,9 +410,7 @@ func TestCreateNotificationDelivery_DedupeKeySkipsDuplicate(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	for i := 0; i < 2; i++ {
 		d := &domain.NotificationDelivery{
@@ -466,21 +422,19 @@ func TestCreateNotificationDelivery_DedupeKeySkipsDuplicate(t *testing.T) {
 			MaxAttempts: 3,
 			DedupeKey:   "budget:org-1:80:2026-05-16:" + projectID + ":" + ch.ID,
 		}
-		if err := q.CreateNotificationDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateNotificationDelivery(%d) error = %v", i, err)
-		}
+		require.NoError(t, q.CreateNotificationDelivery(ctx, d))
+
 	}
 
 	var count int
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM notification_deliveries WHERE dedupe_key = $1`,
-		"budget:org-1:80:2026-05-16:"+projectID+":"+ch.ID,
-	).Scan(&count); err != nil {
-		t.Fatalf("count deduped deliveries: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("deduped delivery count = %d, want 1", count)
-	}
+
+		"budget:org-1:80:2026-05-16:"+
+			projectID+":"+ch.ID).Scan(&count))
+	require.EqualValues(t, 1, count)
+
 }
 
 func TestClaimPendingNotificationDeliveries(t *testing.T) {
@@ -496,9 +450,7 @@ func TestClaimPendingNotificationDeliveries(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	d := &domain.NotificationDelivery{
 		ChannelID:   ch.ID,
@@ -508,18 +460,15 @@ func TestClaimPendingNotificationDeliveries(t *testing.T) {
 		Status:      "pending",
 		MaxAttempts: 3,
 	}
-	if err := q.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationDelivery(ctx, d))
 
 	// Claim.
 	claimed, err := q.ClaimPendingNotificationDeliveries(ctx, 10, time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v", err)
-	}
-	if len(claimed) < 1 {
-		t.Fatalf("claimed len = %d, want >= 1", len(claimed))
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(
+		t,
+		len(claimed), 1)
+
 	// Find our specific delivery in the claimed batch.
 	var found *domain.NotificationDelivery
 	for i := range claimed {
@@ -528,28 +477,29 @@ func TestClaimPendingNotificationDeliveries(t *testing.T) {
 			break
 		}
 	}
-	if found == nil {
-		t.Fatal("our delivery not found in claimed batch")
-	}
-	if found.Status != "processing" {
-		t.Fatalf("claimed status = %q, want processing", found.Status)
-	}
-	if found.ClaimToken == "" {
-		t.Fatal("claim token = empty, want non-empty")
-	}
-	if found.LeaseExpiry == nil {
-		t.Fatal("lease expiry = nil, want non-nil")
-	}
+	require.NotNil(t, found)
+	require.Equal(t, "processing",
+
+		found.
+			Status)
+	require.NotEqual(t, "",
+
+		found.ClaimToken,
+	)
+	require.NotNil(t, found.
+		LeaseExpiry,
+	)
 
 	// Second claim should not return our delivery again (already processing).
 	second, err := q.ClaimPendingNotificationDeliveries(ctx, 10, time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimPendingNotificationDeliveries(second) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, s := range second {
-		if s.ChannelID == ch.ID {
-			t.Fatal("our delivery was re-claimed, should have been excluded (already processing)")
-		}
+		require.NotEqual(t, ch.
+			ID,
+			s.ChannelID,
+		)
+
 	}
 }
 
@@ -566,9 +516,7 @@ func TestUpdateClaimedNotificationDelivery(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	d := &domain.NotificationDelivery{
 		ChannelID:   ch.ID,
@@ -578,17 +526,13 @@ func TestUpdateClaimedNotificationDelivery(t *testing.T) {
 		Status:      "pending",
 		MaxAttempts: 3,
 	}
-	if err := q.CreateNotificationDelivery(ctx, d); err != nil {
-		t.Fatalf("CreateNotificationDelivery() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationDelivery(ctx, d))
 
 	claimed, err := q.ClaimPendingNotificationDeliveries(ctx, 1, time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimPendingNotificationDeliveries() error = %v", err)
-	}
-	if len(claimed) != 1 {
-		t.Fatalf("claimed len = %d, want 1", len(claimed))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		1)
 
 	// Complete the delivery.
 	now := time.Now().UTC()
@@ -596,22 +540,15 @@ func TestUpdateClaimedNotificationDelivery(t *testing.T) {
 	claimed[0].Attempts = 1
 	claimed[0].DeliveredAt = &now
 	updated, err := q.UpdateClaimedNotificationDelivery(ctx, &claimed[0])
-	if err != nil {
-		t.Fatalf("UpdateClaimedNotificationDelivery() error = %v", err)
-	}
-	if !updated {
-		t.Fatal("updated = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, updated)
 
 	// Stale token should not update.
 	claimed[0].ClaimToken = "stale-token"
 	updated2, err := q.UpdateClaimedNotificationDelivery(ctx, &claimed[0])
-	if err != nil {
-		t.Fatalf("UpdateClaimedNotificationDelivery(stale) error = %v", err)
-	}
-	if updated2 {
-		t.Fatal("updated(stale) = true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, updated2)
+
 }
 
 func TestListNotificationDeliveries(t *testing.T) {
@@ -629,9 +566,7 @@ func TestListNotificationDeliveries(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, ch); err != nil {
-		t.Fatalf("CreateNotificationChannel() error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, ch))
 
 	otherCh := &domain.NotificationChannel{
 		ProjectID:   otherProjectID,
@@ -640,9 +575,7 @@ func TestListNotificationDeliveries(t *testing.T) {
 		Config:      []byte(`{}`),
 		Enabled:     true,
 	}
-	if err := q.CreateNotificationChannel(ctx, otherCh); err != nil {
-		t.Fatalf("CreateNotificationChannel(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationChannel(ctx, otherCh))
 
 	for range 3 {
 		d := &domain.NotificationDelivery{
@@ -653,9 +586,8 @@ func TestListNotificationDeliveries(t *testing.T) {
 			Status:      "pending",
 			MaxAttempts: 3,
 		}
-		if err := q.CreateNotificationDelivery(ctx, d); err != nil {
-			t.Fatalf("CreateNotificationDelivery() error = %v", err)
-		}
+		require.NoError(t, q.CreateNotificationDelivery(ctx, d))
+
 	}
 
 	// Other project delivery.
@@ -667,43 +599,36 @@ func TestListNotificationDeliveries(t *testing.T) {
 		Status:      "pending",
 		MaxAttempts: 3,
 	}
-	if err := q.CreateNotificationDelivery(ctx, otherD); err != nil {
-		t.Fatalf("CreateNotificationDelivery(other) error = %v", err)
-	}
+	require.NoError(t, q.CreateNotificationDelivery(ctx, otherD))
 
 	deliveries, err := q.ListNotificationDeliveries(ctx, projectID, 100, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries() error = %v", err)
-	}
-	if len(deliveries) != 3 {
-		t.Fatalf("len = %d, want 3", len(deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t, deliveries,
+
+		3)
+
 	for _, d := range deliveries {
-		if d.ProjectID != projectID {
-			t.Fatalf("ProjectID = %q, want %q", d.ProjectID, projectID)
-		}
+		require.Equal(t, projectID,
+
+			d.ProjectID,
+		)
+
 	}
 
 	for i := 1; i < len(deliveries); i++ {
-		if deliveries[i-1].CreatedAt.Before(deliveries[i].CreatedAt) {
-			t.Fatalf("deliveries not DESC at index %d", i)
-		}
+		require.False(t, deliveries[i-1].
+			CreatedAt.Before(deliveries[i].CreatedAt))
+
 	}
 
 	// Cursor pagination.
 	page1, err := q.ListNotificationDeliveries(ctx, projectID, 2, nil)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries(page1) error = %v", err)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("page1 len = %d, want 2", len(page1))
-	}
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+
 	cursor := page1[1].CreatedAt
 	page2, err := q.ListNotificationDeliveries(ctx, projectID, 2, &cursor)
-	if err != nil {
-		t.Fatalf("ListNotificationDeliveries(page2) error = %v", err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("page2 len = %d, want 1", len(page2))
-	}
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+
 }

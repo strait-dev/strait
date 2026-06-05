@@ -4,30 +4,27 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsCritical_DefaultIsTrue(t *testing.T) {
 	t.Parallel()
 	c := NewChecker("plain", func(context.Context) error { return nil })
-	if !IsCritical(c) {
-		t.Fatal("plain Checker should be critical by default")
-	}
+	assert.True(t, IsCritical(c))
 }
 
 func TestIsCritical_CriticalCheckerTrue(t *testing.T) {
 	t.Parallel()
 	c := NewCriticalChecker("db", true, func(context.Context) error { return nil })
-	if !IsCritical(c) {
-		t.Fatal("CriticalChecker(critical=true) should be critical")
-	}
+	assert.True(t, IsCritical(c))
 }
 
 func TestIsCritical_CriticalCheckerFalse(t *testing.T) {
 	t.Parallel()
 	c := NewCriticalChecker("redis", false, func(context.Context) error { return nil })
-	if IsCritical(c) {
-		t.Fatal("CriticalChecker(critical=false) should not be critical")
-	}
+	assert.False(t, IsCritical(c))
 }
 
 func TestRegistry_NonCriticalDown_ReportsDegraded(t *testing.T) {
@@ -39,9 +36,7 @@ func TestRegistry_NonCriticalDown_ReportsDegraded(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDegraded {
-		t.Fatalf("status = %q, want %q", result.Status, StatusDegraded)
-	}
+	require.Equal(t, StatusDegraded, result.Status)
 }
 
 func TestRegistry_CriticalDown_ReportsDown(t *testing.T) {
@@ -53,9 +48,7 @@ func TestRegistry_CriticalDown_ReportsDown(t *testing.T) {
 	r.Register(NewCriticalChecker("redis", false, func(context.Context) error { return nil }))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 }
 
 func TestRegistry_BothCriticalAndNonCriticalDown_ReportsDown(t *testing.T) {
@@ -69,9 +62,7 @@ func TestRegistry_BothCriticalAndNonCriticalDown_ReportsDown(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDown {
-		t.Fatalf("status = %q, want %q when critical is down", result.Status, StatusDown)
-	}
+	require.Equal(t, StatusDown, result.Status)
 }
 
 func TestRegistry_MultipleNonCriticalDown_ReportsDegraded(t *testing.T) {
@@ -86,9 +77,7 @@ func TestRegistry_MultipleNonCriticalDown_ReportsDegraded(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDegraded {
-		t.Fatalf("status = %q, want %q when only non-critical are down", result.Status, StatusDegraded)
-	}
+	require.Equal(t, StatusDegraded, result.Status)
 
 	downCount := 0
 	for _, c := range result.Components {
@@ -96,9 +85,7 @@ func TestRegistry_MultipleNonCriticalDown_ReportsDegraded(t *testing.T) {
 			downCount++
 		}
 	}
-	if downCount != 2 {
-		t.Fatalf("down components = %d, want 2", downCount)
-	}
+	require.Equal(t, 2, downCount)
 }
 
 func TestRegistry_AllNonCriticalDown_ReportsDegraded(t *testing.T) {
@@ -112,9 +99,7 @@ func TestRegistry_AllNonCriticalDown_ReportsDegraded(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDegraded {
-		t.Fatalf("status = %q, want %q when all checkers are non-critical", result.Status, StatusDegraded)
-	}
+	require.Equal(t, StatusDegraded, result.Status)
 }
 
 func TestCriticalChecker_DelegatesCheck(t *testing.T) {
@@ -124,12 +109,8 @@ func TestCriticalChecker_DelegatesCheck(t *testing.T) {
 		return wantErr
 	})
 
-	if c.Name() != "test" {
-		t.Fatalf("name = %q, want %q", c.Name(), "test")
-	}
-	if err := c.Check(context.Background()); !errors.Is(err, wantErr) {
-		t.Fatalf("error = %v, want %v", err, wantErr)
-	}
+	assert.Equal(t, "test", c.Name())
+	require.ErrorIs(t, c.Check(context.Background()), wantErr)
 }
 
 func TestRegistry_DegradedComponentErrorsVisible(t *testing.T) {
@@ -141,17 +122,13 @@ func TestRegistry_DegradedComponentErrorsVisible(t *testing.T) {
 	}))
 
 	result := r.CheckAll(context.Background())
-	if result.Status != StatusDegraded {
-		t.Fatalf("status = %q, want degraded", result.Status)
-	}
+	require.Equal(t, StatusDegraded, result.Status)
 
 	for _, c := range result.Components {
 		if c.Name == "redis" {
-			if c.Error != "dial tcp: connection refused" {
-				t.Fatalf("redis error = %q, want specific error message", c.Error)
-			}
+			require.Equal(t, "dial tcp: connection refused", c.Error)
 			return
 		}
 	}
-	t.Fatal("redis component not found in results")
+	require.Fail(t, "redis component not found in results")
 }

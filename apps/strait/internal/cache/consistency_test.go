@@ -3,12 +3,13 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func versionedStringLoader(value string, version int64) VersionedLoadFunc[string, string] {
@@ -29,18 +30,17 @@ func TestStrictConsistency_VersionedLoaderPreservesDatabaseVersion(t *testing.T)
 	})
 
 	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, versionedStringLoader("db", 12))
-	if err != nil {
-		t.Fatalf("GetConsistentVersioned() error = %v", err)
-	}
-	if got.Value != "db" || got.Version != 12 {
-		t.Fatalf("GetConsistentVersioned() = %+v, want db@12", got)
-	}
+	require.NoError(t, err)
+	require.False(t,
+		got.Value != "db" ||
+			got.
+				Version !=
+				12)
+
 	l2.mu.Lock()
 	stored := l2.values["k"]
 	l2.mu.Unlock()
-	if stored.Version != 12 {
-		t.Fatalf("stored version = %d, want 12", stored.Version)
-	}
+	require.Equal(t, int64(12), stored.Version)
 }
 
 func TestStrictConsistency_RacingStaleReaderCannotOverwriteNewerWriter(t *testing.T) {
@@ -62,21 +62,22 @@ func TestStrictConsistency_RacingStaleReaderCannotOverwriteNewerWriter(t *testin
 		return Versioned[string]{Value: "stale-reader", Version: 19}, nil
 	}
 	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, loader)
-	if err != nil {
-		t.Fatalf("GetConsistentVersioned() error = %v", err)
-	}
-	if got.Value != "writer" || got.Version != 20 {
-		t.Fatalf("GetConsistentVersioned() = %+v, want writer@20", got)
-	}
+	require.NoError(t, err)
+	require.False(t,
+		got.Value != "writer" ||
+			got.Version !=
+				20)
+
 	l2.mu.Lock()
 	stored := l2.values["k"]
 	l2.mu.Unlock()
-	if stored.Value != "writer" || stored.Version != 20 {
-		t.Fatalf("stored entry = %+v, want writer@20", stored)
-	}
-	if rejects.Load() != 1 {
-		t.Fatalf("CAS rejects = %d, want 1", rejects.Load())
-	}
+	require.False(t,
+		stored.Value !=
+			"writer" ||
+			stored.
+				Version !=
+				20)
+	require.Equal(t, int64(1), rejects.Load())
 }
 
 func TestStrictConsistency_GetConsistentVersionedRejectsLoaderBelowMinVersion(t *testing.T) {
@@ -90,9 +91,8 @@ func TestStrictConsistency_GetConsistentVersionedRejectsLoaderBelowMinVersion(t 
 	})
 
 	_, err := tier.GetConsistentVersioned(t.Context(), "k", 20, versionedStringLoader("db", 19))
-	if !errors.Is(err, ErrStaleVersion) {
-		t.Fatalf("GetConsistentVersioned() error = %v, want ErrStaleVersion", err)
-	}
+	require.ErrorIs(t,
+		err, ErrStaleVersion)
 }
 
 func TestStrictConsistency_WriteThroughCASAndPublishesUpdate(t *testing.T) {
@@ -108,37 +108,29 @@ func TestStrictConsistency_WriteThroughCASAndPublishesUpdate(t *testing.T) {
 		TTL:         time.Minute,
 	})
 	sub, err := publisher.Subscribe(t.Context(), bus.Channel())
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	ok, err := tier.WriteThrough(t.Context(), "k", "value", 4, bus, "ns", "k")
-	if err != nil {
-		t.Fatalf("WriteThrough() error = %v", err)
-	}
-	if !ok {
-		t.Fatal("WriteThrough() ok = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t,
+		ok)
 
 	select {
 	case data := <-sub.Ch:
 		var msg BusMessage
-		if err := json.Unmarshal(data, &msg); err != nil {
-			t.Fatalf("unmarshal bus message: %v", err)
-		}
-		if msg.Action != BusActionUpdate || msg.Namespace != "ns" || msg.Key != "k" || msg.Version != 4 {
-			t.Fatalf("bus message = %+v, want update ns/k@4", msg)
-		}
+		require.NoError(t, json.Unmarshal(data, &msg))
+		require.Equal(t, BusActionUpdate, msg.Action)
+		require.Equal(t, "ns", msg.Namespace)
+		require.Equal(t, "k", msg.Key)
+		require.Equal(t, int64(4), msg.Version)
 		var entry cacheEntry[string]
-		if err := json.Unmarshal(msg.Payload, &entry); err != nil {
-			t.Fatalf("unmarshal update payload: %v", err)
-		}
-		if entry.Value != "value" || entry.Version != 4 {
-			t.Fatalf("update payload = %+v, want value@4", entry)
-		}
+		require.NoError(t, json.Unmarshal(msg.Payload, &entry))
+		require.Equal(t, "value", entry.Value)
+		require.Equal(t, int64(4), entry.Version)
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for bus update")
+		require.FailNow(t, "timed out waiting for bus update")
 	}
 }
 
@@ -178,11 +170,9 @@ func TestStrictConsistency_ConcurrentVersionedLoadsCoalesce(t *testing.T) {
 	wg.Wait()
 	close(errs)
 	for err := range errs {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.Equal(t, int64(1), loads.Load())
 }
 
 func errUnexpectedVersioned[V comparable](got Versioned[V], wantValue V, wantVersion int64) error {

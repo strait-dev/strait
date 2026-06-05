@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // newTestEngine creates a WorkflowEngine with the given mock store and queue.
@@ -90,12 +92,10 @@ func TestWorkflowNesting_AtMaxDepth(t *testing.T) {
 
 	// getNestingDepth should return depth, which equals DefaultMaxNestingDepth - 1.
 	got, err := engine.getNestingDepth(context.Background(), runs[leafID])
-	if err != nil {
-		t.Fatalf("getNestingDepth() error = %v", err)
-	}
-	if got != depth {
-		t.Fatalf("getNestingDepth() = %d, want %d", got, depth)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t, depth,
+		got)
 
 	// Since depth < maxNestingDepth, a sub-workflow start should not be rejected
 	// by the depth check itself. We only verify the depth calculation here.
@@ -148,12 +148,9 @@ func TestWorkflowNesting_OverMaxDepth(t *testing.T) {
 	err := engine.startSubWorkflowStep(
 		context.Background(), stepRun, step, runs[leafID], nil, time.Now(),
 	)
-	if err == nil {
-		t.Fatal("expected error for exceeding nesting depth, got nil")
-	}
-	if !strings.Contains(err.Error(), "nesting depth") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "nesting depth")
 }
 
 // TestWorkflowNesting_ZeroDepth verifies that WithMaxNestingDepth(0) is ignored
@@ -163,11 +160,11 @@ func TestWorkflowNesting_ZeroDepth(t *testing.T) {
 
 	engine := newTestEngine(&mockEngineStore{}, &mockEngineQueue{})
 	engine.WithMaxNestingDepth(0)
+	require.Equal(t, DefaultMaxNestingDepth,
 
-	if engine.maxNestingDepth != DefaultMaxNestingDepth {
-		t.Fatalf("maxNestingDepth = %d after WithMaxNestingDepth(0), want %d",
-			engine.maxNestingDepth, DefaultMaxNestingDepth)
-	}
+		engine.
+			maxNestingDepth,
+	)
 }
 
 // TestWorkflowNesting_NegativeDepth verifies that WithMaxNestingDepth(-1) is
@@ -177,11 +174,11 @@ func TestWorkflowNesting_NegativeDepth(t *testing.T) {
 
 	engine := newTestEngine(&mockEngineStore{}, &mockEngineQueue{})
 	engine.WithMaxNestingDepth(-1)
+	require.Equal(t, DefaultMaxNestingDepth,
 
-	if engine.maxNestingDepth != DefaultMaxNestingDepth {
-		t.Fatalf("maxNestingDepth = %d after WithMaxNestingDepth(-1), want %d",
-			engine.maxNestingDepth, DefaultMaxNestingDepth)
-	}
+		engine.
+			maxNestingDepth,
+	)
 }
 
 // TestWorkflowTrigger_HugePayload verifies that TriggerWorkflow accepts a
@@ -192,9 +189,8 @@ func TestWorkflowTrigger_HugePayload(t *testing.T) {
 	// 1 MB payload.
 	bigValue := strings.Repeat("x", 1<<20)
 	payload, err := json.Marshal(map[string]string{"data": bigValue})
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	var capturedPayload json.RawMessage
 	ms := minimalWorkflowStore("wf-1", "proj-1", singleJobStep())
@@ -209,15 +205,10 @@ func TestWorkflowTrigger_HugePayload(t *testing.T) {
 	run, trigErr := engine.TriggerWorkflow(
 		context.Background(), "wf-1", "proj-1", payload, "manual", nil, nil,
 	)
-	if trigErr != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", trigErr)
-	}
-	if run == nil {
-		t.Fatal("TriggerWorkflow() returned nil run")
-	}
-	if len(capturedPayload) < 1<<20 {
-		t.Fatalf("enqueued payload length = %d, want >= %d", len(capturedPayload), 1<<20)
-	}
+	require.NoError(t, trigErr)
+	require.NotNil(t,
+		run)
+	require.GreaterOrEqual(t, len(capturedPayload), 1<<20)
 }
 
 // TestWorkflowTrigger_NullPayload verifies that TriggerWorkflow handles a nil
@@ -231,12 +222,10 @@ func TestWorkflowTrigger_NullPayload(t *testing.T) {
 	run, err := engine.TriggerWorkflow(
 		context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil,
 	)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if run == nil {
-		t.Fatal("TriggerWorkflow() returned nil run")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		run)
 }
 
 // TestWorkflowTrigger_EmptyStepOverrides verifies that passing an empty
@@ -260,15 +249,12 @@ func TestWorkflowTrigger_EmptyStepOverrides(t *testing.T) {
 		json.RawMessage(`{}`), "manual",
 		[]domain.StepOverride{}, nil,
 	)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if run == nil {
-		t.Fatal("TriggerWorkflow() returned nil run")
-	}
-	if enqueued != 1 {
-		t.Fatalf("enqueued = %d, want 1", enqueued)
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		run)
+	require.Equal(t, 1,
+		enqueued)
 }
 
 // TestWorkflowTrigger_InvalidStepOverride verifies that referencing a
@@ -287,12 +273,10 @@ func TestWorkflowTrigger_InvalidStepOverride(t *testing.T) {
 		},
 		nil,
 	)
-	if err == nil {
-		t.Fatal("expected error for unknown step_ref override, got nil")
-	}
-	if !strings.Contains(err.Error(), "unknown step_ref") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "unknown step_ref",
+	)
 }
 
 // TestStepExecution_UnknownStepType verifies that startStep for an unrecognized
@@ -327,12 +311,9 @@ func TestStepExecution_UnknownStepType(t *testing.T) {
 	}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err != nil {
-		t.Fatalf("startStep() error = %v", err)
-	}
-	if !enqueued {
-		t.Fatal("expected job to be enqueued for unknown step type")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, enqueued)
 }
 
 // TestStepExecution_CostGateZeroThreshold verifies that a cost gate with
@@ -368,12 +349,9 @@ func TestStepExecution_CostGateZeroThreshold(t *testing.T) {
 	}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err != nil {
-		t.Fatalf("startStep() error = %v", err)
-	}
-	if !enqueued {
-		t.Fatal("expected job to be enqueued directly, cost gate should not trigger at threshold=0")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, enqueued)
 }
 
 // TestStepExecution_CostGateNegativeThreshold verifies that a negative cost
@@ -409,12 +387,9 @@ func TestStepExecution_CostGateNegativeThreshold(t *testing.T) {
 	}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err != nil {
-		t.Fatalf("startStep() error = %v", err)
-	}
-	if !enqueued {
-		t.Fatal("expected job to be enqueued directly, cost gate should not trigger at negative threshold")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, enqueued)
 }
 
 // TestSnapshotEnforcement_StaleVersion verifies that GetOrCreateWorkflowSnapshot
@@ -445,15 +420,12 @@ func TestSnapshotEnforcement_StaleVersion(t *testing.T) {
 		context.Background(), "wf-1", "proj-1",
 		json.RawMessage(`{}`), "manual", nil, nil,
 	)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if !snapshotCalled {
-		t.Fatal("GetOrCreateWorkflowSnapshot was not called during trigger")
-	}
-	if run.WorkflowSnapshotID != "snap-v1" {
-		t.Fatalf("WorkflowSnapshotID = %q, want snap-v1", run.WorkflowSnapshotID)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, snapshotCalled)
+	require.Equal(t, "snap-v1",
+		run.WorkflowSnapshotID,
+	)
 }
 
 // TestSnapshotEnforcement_ConcurrentUpdate verifies that if
@@ -477,12 +449,9 @@ func TestSnapshotEnforcement_ConcurrentUpdate(t *testing.T) {
 		context.Background(), "wf-1", "proj-1",
 		json.RawMessage(`{}`), "manual", nil, nil,
 	)
-	if err == nil {
-		t.Fatal("expected error from snapshot creation failure, got nil")
-	}
-	if !strings.Contains(err.Error(), "create workflow snapshot") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "create workflow snapshot")
 }
 
 // FuzzWorkflowPayload verifies that TriggerWorkflow does not panic on

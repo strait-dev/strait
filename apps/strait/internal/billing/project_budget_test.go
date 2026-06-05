@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockBudgetTestStore struct {
@@ -39,15 +42,16 @@ func TestSetProjectBudget_Valid_Stores(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 50000000, "reject")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if store.setBudget != 50000000 {
-		t.Errorf("expected stored budget 50000000, got %d", store.setBudget)
-	}
-	if store.setAction != "reject" {
-		t.Errorf("expected stored action reject, got %s", store.setAction)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 50000000,
+		store.
+			setBudget,
+	)
+	assert.Equal(t, "reject",
+		store.
+			setAction,
+	)
 }
 
 func TestSetProjectBudget_InvalidAction_Rejects(t *testing.T) {
@@ -57,9 +61,8 @@ func TestSetProjectBudget_InvalidAction_Rejects(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	err := svc.SetProjectBudget(context.Background(), "proj-1", 50000000, "invalid")
-	if err == nil {
-		t.Fatal("expected error for invalid action")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestSetProjectBudget_NegativeBudget_SetsUnlimited(t *testing.T) {
@@ -69,10 +72,7 @@ func TestSetProjectBudget_NegativeBudget_SetsUnlimited(t *testing.T) {
 	svc := NewUsageService(store, e)
 
 	err := svc.SetProjectBudget(context.Background(), "proj-1", -5, "notify")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if store.setBudget != -1 {
-		t.Errorf("expected stored budget -1 (unlimited), got %d", store.setBudget)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, -1, store.setBudget)
 }

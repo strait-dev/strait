@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func FuzzValidateScopes(f *testing.F) {
 	f.Add("jobs:read")
@@ -27,9 +31,10 @@ func FuzzParseEdition(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		// ParseEdition should never panic regardless of input.
 		edition := ParseEdition(s)
+		require.False(
+			t, edition != EditionCommunity && edition !=
+				EditionCloud)
+
 		// Result must be one of the known values.
-		if edition != EditionCommunity && edition != EditionCloud {
-			t.Fatalf("unexpected edition: %q", edition)
-		}
 	})
 }

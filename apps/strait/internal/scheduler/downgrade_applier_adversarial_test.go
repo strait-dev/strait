@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // downgradeStrategyMap names every OrgPlanLimits field and pins the policy
@@ -109,10 +112,7 @@ func TestDowngradeStrategy_CoversEveryOrgPlanLimitField(t *testing.T) {
 			missing = append(missing, f.Name)
 		}
 	}
-	if len(missing) > 0 {
-		t.Fatalf("OrgPlanLimits has %d undocumented field(s): %v\n\nAdd each to downgradeStrategyMap with the correct strategy:\n  deactivate / block_new / block_new_signal / n/a_static / n/a_runtime",
-			len(missing), missing)
-	}
+	require.Empty(t, missing)
 }
 
 // TestDowngradeStrategy_NoStaleEntries fails if downgradeStrategyMap has an
@@ -132,9 +132,7 @@ func TestDowngradeStrategy_NoStaleEntries(t *testing.T) {
 			stale = append(stale, name)
 		}
 	}
-	if len(stale) > 0 {
-		t.Fatalf("downgradeStrategyMap references non-existent OrgPlanLimits field(s): %v", stale)
-	}
+	require.Empty(t, stale)
 }
 
 // TestDowngradeApplier_ConcurrentTicks_NoDoubleDeactivation simulates two
@@ -160,12 +158,14 @@ func TestDowngradeApplier_ConcurrentTicks_NoDoubleDeactivation(t *testing.T) {
 	// equivalent serialized retry).
 	applier.apply(context.Background())
 	applier.apply(context.Background())
+	assert.GreaterOrEqual(t, len(store.
+		logDrainCalls,
+	),
+
+		1)
 
 	// Each tick produces one log-drain call; the deactivator queries for
 	// rows with enabled=true and OFFSETs past the cap, so a stale-state
 	// second pass returns 0 rows. This test pins that the applier itself
 	// is happy to be called twice.
-	if got := len(store.logDrainCalls); got < 1 {
-		t.Errorf("expected at least one DeactivateExcessLogDrains call after two ticks, got %d", got)
-	}
 }

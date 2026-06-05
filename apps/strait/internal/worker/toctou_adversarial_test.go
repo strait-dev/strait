@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -27,26 +29,26 @@ func TestTOCTOU_TokenExpiryBoundary(t *testing.T) {
 
 	// Token expired 1 nanosecond ago should fail.
 	expired := token{ExpiresAt: now.Add(-1 * time.Nanosecond)}
-	if !expired.ExpiresAt.Before(now) {
-		t.Error("token expired 1ns ago should be before now")
-	}
+	assert.True(t, expired.
+		ExpiresAt.
+		Before(now))
 
 	// Token expiring 1 second in the future should pass.
 	valid := token{ExpiresAt: now.Add(1 * time.Second)}
-	if valid.ExpiresAt.Before(now) {
-		t.Error("token expiring in 1s should not be before now")
-	}
+	assert.False(t,
+		valid.ExpiresAt.
+			Before(now))
 
 	// Exact boundary: token expiring exactly at now is not before now.
 	boundary := token{ExpiresAt: now}
-	if boundary.ExpiresAt.Before(now) {
-		t.Error("token expiring exactly at now should not be strictly before now")
-	}
+	assert.False(t,
+		boundary.ExpiresAt.
+			Before(now))
+	assert.True(t, valid.
+		ExpiresAt.
+		After(now))
 
 	// Using After for the valid case.
-	if !valid.ExpiresAt.After(now) {
-		t.Error("valid token should be after now")
-	}
 }
 
 // TestTOCTOU_RetryDelayNeverNegative verifies that NextRetryDelay never returns
@@ -57,22 +59,21 @@ func TestTOCTOU_RetryDelayNeverNegative(t *testing.T) {
 	strategies := []string{"", RetryExponential, RetryLinear, RetryFixed}
 
 	for _, strategy := range strategies {
-		for i := range 1000 {
+		for range 1000 {
 			attempt := rand.IntN(200) + 1
 			delay := NextRetryDelayWithStrategy(attempt, strategy, nil)
-			if delay < 0 {
-				t.Fatalf("iteration %d: strategy=%q attempt=%d returned negative delay: %v",
-					i, strategy, attempt, delay)
-			}
+			require.GreaterOrEqual(t,
+				delay,
+				time.Duration(0))
 		}
 	}
 
 	// Also test with negative and zero attempts (should be clamped to 1).
 	for _, attempt := range []int{-100, -1, 0} {
 		delay := NextRetryDelay(attempt)
-		if delay < 0 {
-			t.Fatalf("attempt=%d returned negative delay: %v", attempt, delay)
-		}
+		require.GreaterOrEqual(t,
+			delay,
+			time.Duration(0))
 	}
 }
 
@@ -88,12 +89,12 @@ func TestTOCTOU_BackoffDelayStability(t *testing.T) {
 	minExpected := time.Duration(float64(expectedBase) * 0.8)
 	maxExpected := time.Duration(float64(expectedBase) * 1.2)
 
-	for i := range 100 {
+	for range 100 {
 		delay := NextRetryDelay(attempt)
-		if delay < minExpected || delay > maxExpected {
-			t.Fatalf("iteration %d: delay %v outside jitter range [%v, %v]",
-				i, delay, minExpected, maxExpected)
-		}
+		require.False(t,
+			delay < minExpected ||
+				delay > maxExpected,
+		)
 	}
 }
 
@@ -112,61 +113,66 @@ func TestTOCTOU_CircuitBreakerHalfOpenTiming(t *testing.T) {
 	// Trip the breaker.
 	cb.RecordFailure()
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("expected open, got %s", cb.State())
-	}
+	require.Equal(t,
+		circuitOpen,
+		cb.
+			State())
+	require.False(t,
+		cb.Allow())
 
 	// Should not allow requests while open.
-	if cb.Allow() {
-		t.Fatal("circuit breaker should reject requests when open and within openDuration")
-	}
 
 	// Inject a mock clock that is past the open duration.
 	mockTime := time.Now().Add(openDuration + time.Millisecond)
 	cb.mu.Lock()
 	cb.now = func() time.Time { return mockTime }
 	cb.mu.Unlock()
+	require.True(t,
+		cb.Allow(),
+	)
+	require.Equal(t,
+		circuitHalfOpen,
+
+		cb.State())
 
 	// First Allow() after open duration should transition to half-open and allow.
-	if !cb.Allow() {
-		t.Fatal("circuit breaker should allow first request after open duration (half-open)")
-	}
-	if cb.State() != circuitHalfOpen {
-		t.Fatalf("expected half_open, got %s", cb.State())
-	}
 
 	// Record success to close the breaker.
 	cb.RecordSuccess()
-	if cb.State() != circuitClosed {
-		t.Fatalf("expected closed after success in half-open, got %s", cb.State())
-	}
+	require.Equal(t,
+		circuitClosed,
+		cb.
+			State())
 
 	// Verify re-opening from half-open on failure.
 	cb.RecordFailure()
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("expected open after 2 failures, got %s", cb.State())
-	}
+	require.Equal(t,
+		circuitOpen,
+		cb.
+			State())
 
 	// Advance clock again past open duration.
 	mockTime2 := mockTime.Add(openDuration + time.Millisecond)
 	cb.mu.Lock()
 	cb.now = func() time.Time { return mockTime2 }
 	cb.mu.Unlock()
+	require.True(t,
+		cb.Allow(),
+	)
+	require.Equal(t,
+		circuitHalfOpen,
+
+		cb.State())
 
 	// Transition to half-open.
-	if !cb.Allow() {
-		t.Fatal("should allow after second open duration")
-	}
-	if cb.State() != circuitHalfOpen {
-		t.Fatalf("expected half_open, got %s", cb.State())
-	}
 
 	// Failure in half-open should reopen immediately.
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("expected open after failure in half-open, got %s", cb.State())
-	}
+	require.Equal(t,
+		circuitOpen,
+		cb.
+			State())
 }
 
 // TestTOCTOU_HealthScoreDecayTiming verifies that recording multiple consecutive
@@ -186,18 +192,18 @@ func TestTOCTOU_HealthScoreDecayTiming(t *testing.T) {
 
 		// Compute a simplified health score based on success rate component.
 		score := successRate * 100.0
+		require.False(t,
+			i > 0 &&
+				score >
+					prevScore)
 
-		if i > 0 && score > prevScore {
-			t.Fatalf("iteration %d: score %f increased from %f after failure",
-				i, score, prevScore)
-		}
 		prevScore = score
 	}
+	assert.LessOrEqual(t, successRate,
+
+		0.15)
 
 	// After 20 consecutive failures, the success rate should be very low.
-	if successRate > 0.15 {
-		t.Errorf("success rate after 20 failures = %f, expected < 0.15", successRate)
-	}
 }
 
 // TestTOCTOU_PoisonPillThresholdBoundary verifies that poison pill detection
@@ -230,16 +236,16 @@ func TestTOCTOU_PoisonPillThresholdBoundary(t *testing.T) {
 
 		if count >= threshold {
 			poisonDetected = true
-			if attempt < threshold {
-				t.Fatalf("poison pill detected at attempt %d, before threshold %d", attempt, threshold)
-			}
+			require.GreaterOrEqual(t,
+				attempt,
+				threshold)
+
 			break
 		}
 	}
-
-	if !poisonDetected {
-		t.Fatal("poison pill should have been detected at the threshold")
-	}
+	require.True(t,
+		poisonDetected,
+	)
 
 	// Verify that at attempt threshold-1 (count=2), poison was not detected.
 	metadata2 := make(map[string]string)
@@ -257,10 +263,9 @@ func TestTOCTOU_PoisonPillThresholdBoundary(t *testing.T) {
 		}
 		metadata2["_error_hash"] = hash
 		metadata2["_error_hash_count"] = fmt.Sprintf("%d", count)
-
-		if count >= threshold {
-			t.Fatalf("poison pill detected early at attempt %d with count %d", attempt, count)
-		}
+		require.Less(t,
+			count, threshold,
+		)
 	}
 }
 
@@ -307,13 +312,8 @@ func TestTOCTOU_ConcurrentBudgetCheckSpend(t *testing.T) {
 
 	close(start)
 	wg.Wait()
-
-	if successes != 1 {
-		t.Fatalf("expected exactly 1 successful spend, got %d", successes)
-	}
-	if b.remaining != 0 {
-		t.Fatalf("expected 0 remaining budget, got %d", b.remaining)
-	}
+	require.EqualValues(t, 1, successes)
+	require.Equal(t, 0, b.remaining)
 }
 
 // TestTOCTOU_BulkheadAcquireReleaseTiming verifies that bulkhead acquisition
@@ -328,22 +328,23 @@ func TestTOCTOU_BulkheadAcquireReleaseTiming(t *testing.T) {
 	maxConcurrency := 3
 
 	// Acquire all slots.
-	for i := range maxConcurrency {
-		if !bh.TryAcquire(jobID, maxConcurrency) {
-			t.Fatalf("failed to acquire slot %d", i)
-		}
+	for range maxConcurrency {
+		require.True(t,
+			bh.TryAcquire(jobID,
+				maxConcurrency,
+			))
 	}
 
 	// Next acquire should fail immediately (not block or delay).
 	start := time.Now()
 	got := bh.TryAcquire(jobID, maxConcurrency)
 	elapsed := time.Since(start)
-	if got {
-		t.Fatal("expected TryAcquire to fail when all slots taken")
-	}
-	if elapsed > 5*time.Millisecond {
-		t.Errorf("TryAcquire took %v to fail, expected immediate (< 5ms)", elapsed)
-	}
+	require.False(t,
+		got)
+	assert.LessOrEqual(t, elapsed,
+		5*
+			time.Millisecond,
+	)
 
 	// Release one slot.
 	bh.Release(jobID, maxConcurrency)
@@ -352,17 +353,18 @@ func TestTOCTOU_BulkheadAcquireReleaseTiming(t *testing.T) {
 	start = time.Now()
 	got = bh.TryAcquire(jobID, maxConcurrency)
 	elapsed = time.Since(start)
-	if !got {
-		t.Fatal("expected TryAcquire to succeed after release")
-	}
-	if elapsed > 5*time.Millisecond {
-		t.Errorf("TryAcquire took %v to succeed, expected immediate (< 5ms)", elapsed)
-	}
+	require.True(t,
+		got)
+	assert.LessOrEqual(t, elapsed,
+		5*
+			time.Millisecond,
+	)
+	assert.Equal(t,
+		maxConcurrency,
+		bh.
+			ActiveCount(jobID))
 
 	// Verify active count.
-	if count := bh.ActiveCount(jobID); count != maxConcurrency {
-		t.Errorf("active count = %d, want %d", count, maxConcurrency)
-	}
 }
 
 // TestTOCTOU_ErrorClassificationStability verifies that classifyError returns
@@ -433,15 +435,16 @@ func TestTOCTOU_ErrorClassificationStability(t *testing.T) {
 			t.Parallel()
 
 			first := classifyError(tc.err)
-			if first != tc.expected {
-				t.Fatalf("first classification = %q, want %q", first, tc.expected)
-			}
+			require.Equal(t,
+				tc.expected,
+				first,
+			)
 
-			for i := range 1000 {
+			for range 1000 {
 				got := classifyError(tc.err)
-				if got != first {
-					t.Fatalf("iteration %d: classification changed from %q to %q", i, first, got)
-				}
+				require.Equal(t,
+					first, got,
+				)
 			}
 		})
 	}

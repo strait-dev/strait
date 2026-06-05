@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
@@ -39,31 +41,28 @@ func TestRBACMutations_CreateRole_EmitsAuditEvent(t *testing.T) {
 	req.Header.Set("X-Actor-Id", "user-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if captured == nil {
-		t.Fatal("expected CreateAuditEvent to be called")
-	}
-	if captured.Action != "role.created" {
-		t.Fatalf("action = %q, want %q", captured.Action, "role.created")
-	}
-	if captured.ResourceType != "role" {
-		t.Fatalf("resource_type = %q, want %q", captured.ResourceType, "role")
-	}
-	if captured.ResourceID != "role-1" {
-		t.Fatalf("resource_id = %q, want %q", captured.ResourceID, "role-1")
-	}
-	if captured.ProjectID != "proj-1" {
-		t.Fatalf("project_id = %q, want %q", captured.ProjectID, "proj-1")
-	}
-	if captured.ActorID != "user-1" {
-		t.Fatalf("actor_id = %q, want %q", captured.ActorID, "user-1")
-	}
+	require.NotNil(t, captured)
+	require.Equal(t, "role.created",
+		captured.
+			Action)
+	require.Equal(t, "role", captured.
+		ResourceType,
+	)
+	require.Equal(t, "role-1", captured.
+		ResourceID,
+	)
+	require.Equal(t, "proj-1", captured.
+		ProjectID,
+	)
+	require.Equal(t, "user-1", captured.
+		ActorID,
+	)
 }
 
 func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.T) {
@@ -92,28 +91,22 @@ func TestRBACMutations_AssignMember_EmitsPermissionGrantedAuditEvent(t *testing.
 	req.Header.Set("X-Actor-Id", "user-admin")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("expected CreateAuditEvent to be called")
-	}
-	if captured.Action != "permission.granted" {
-		t.Fatalf("action = %q, want %q", captured.Action, "permission.granted")
-	}
-	if captured.ResourceType != "role" {
-		t.Fatalf("resource_type = %q, want %q", captured.ResourceType, "role")
-	}
-	if captured.ResourceID != "role-2" {
-		t.Fatalf("resource_id = %q, want %q", captured.ResourceID, "role-2")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, "permission.granted",
+		captured.
+			Action)
+	require.Equal(t, "role", captured.
+		ResourceType,
+	)
+	require.Equal(t, "role-2", captured.
+		ResourceID,
+	)
 
 	var details map[string]any
-	if err := json.Unmarshal(captured.Details, &details); err != nil {
-		t.Fatalf("unmarshal details: %v", err)
-	}
-	if details["user_id"] != "user-2" {
-		t.Fatalf("details.user_id = %v, want %q", details["user_id"], "user-2")
-	}
+	require.NoError(t, json.Unmarshal(captured.
+		Details, &details))
+	require.Equal(t, "user-2", details["user_id"])
 }

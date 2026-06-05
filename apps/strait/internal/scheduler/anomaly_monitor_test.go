@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockAnomalyMonitorStore implements AnomalyMonitorStore with function callbacks
@@ -343,13 +345,13 @@ func TestAnomalyMonitor_SpikeDetected_AlertFires(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, domain.
+		NotificationEventCostAnomaly,
 
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].EventType != domain.NotificationEventCostAnomaly {
-		t.Errorf("expected event type %s, got %s", domain.NotificationEventCostAnomaly, deliveries[0].EventType)
-	}
+		deliveries[0].
+			EventType)
 }
 
 func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
@@ -375,10 +377,7 @@ func TestAnomalyMonitor_NoSpike_NoAlert(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if deliveryCalled {
-		t.Fatal("expected no delivery when there is no spike")
-	}
+	require.False(t, deliveryCalled)
 }
 
 func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
@@ -414,10 +413,8 @@ func TestAnomalyMonitor_Cooldown_SkipsRecentlyAlerted(t *testing.T) {
 	am.check(context.Background())
 	// Second check should skip because cooldown is active.
 	am.check(context.Background())
-
-	if deliveryCount != 1 {
-		t.Fatalf("expected 1 delivery (cooldown should dedup), got %d", deliveryCount)
-	}
+	require.Equal(t, 1,
+		deliveryCount)
 }
 
 func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
@@ -449,10 +446,8 @@ func TestAnomalyMonitor_DefaultCooldownDeduplicatesTicks(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
 	am.check(context.Background())
-
-	if deliveryCount != 1 {
-		t.Fatalf("deliveries = %d, want 1 with default cooldown", deliveryCount)
-	}
+	require.Equal(t, 1,
+		deliveryCount)
 }
 
 func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
@@ -492,10 +487,8 @@ func TestAnomalyMonitor_Cooldown_AlertsAfter4Hours(t *testing.T) {
 
 	// Second check should fire again after cooldown expires.
 	am.check(context.Background())
-
-	if deliveryCount != 2 {
-		t.Fatalf("expected 2 deliveries (after cooldown expiry), got %d", deliveryCount)
-	}
+	require.Equal(t, 2,
+		deliveryCount)
 }
 
 func TestAnomalyMonitor_CooldownKey_PerOrg(t *testing.T) {
@@ -529,24 +522,21 @@ func TestAnomalyMonitor_CooldownKey_PerOrg(t *testing.T) {
 
 	// First check: both orgs alert.
 	am.check(context.Background())
-	if len(deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries (one per org), got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		2)
 
 	// Second check: both should be in cooldown.
 	am.check(context.Background())
-	if len(deliveries) != 2 {
-		t.Fatalf("expected still 2 deliveries (both in cooldown), got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		2)
 
 	// Clear cooldown for org-1 only.
 	delete(cd.cooled, "org-1")
 
 	// Third check: only org-1 should fire.
 	am.check(context.Background())
-	if len(deliveries) != 3 {
-		t.Fatalf("expected 3 deliveries (org-1 re-alerted), got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		3)
 }
 
 func TestAnomalyMonitor_WarningAt3x(t *testing.T) {
@@ -578,18 +568,16 @@ func TestAnomalyMonitor_WarningAt3x(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery at 3x spike (warning), got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-	if payload["severity"] != string(billing.AnomalySeverityWarning) {
-		t.Errorf("expected severity warning, got %v", payload["severity"])
-	}
+	require.NoError(t,
+		json.Unmarshal(deliveries[0].Payload,
+			&payload,
+		),
+	)
+	assert.Equal(t, string(billing.AnomalySeverityWarning), payload["severity"])
 }
 
 func TestAnomalyMonitor_ZeroAverage_Skipped(t *testing.T) {
@@ -615,10 +603,7 @@ func TestAnomalyMonitor_ZeroAverage_Skipped(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if deliveryCalled {
-		t.Fatal("expected no delivery when 7-day average is zero")
-	}
+	require.False(t, deliveryCalled)
 }
 
 func TestAnomalyMonitor_NoHistorySkipped(t *testing.T) {
@@ -648,10 +633,7 @@ func TestAnomalyMonitor_NoHistorySkipped(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if deliveryCalled {
-		t.Fatal("expected no delivery when there is no 7-day history")
-	}
+	require.False(t, deliveryCalled)
 }
 
 func TestAnomalyMonitor_NoOrgsWithActivity_NoOp(t *testing.T) {
@@ -670,10 +652,7 @@ func TestAnomalyMonitor_NoOrgsWithActivity_NoOp(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if deliveryCalled {
-		t.Fatal("expected no deliveries when org list is empty")
-	}
+	require.False(t, deliveryCalled)
 }
 
 func TestAnomalyMonitor_StoreError_LogsContinues(t *testing.T) {
@@ -730,13 +709,11 @@ func TestAnomalyMonitor_MultipleOrgs_IndependentAlerts(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery (only org-1), got %d", len(deliveries))
-	}
-	if deliveries[0].ProjectID != "proj-1" {
-		t.Errorf("expected delivery for proj-1, got %s", deliveries[0].ProjectID)
-	}
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, "proj-1",
+		deliveries[0].ProjectID,
+	)
 }
 
 func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
@@ -760,7 +737,7 @@ func TestAnomalyMonitor_Run_StopsOnContextCancel(t *testing.T) {
 	case <-done:
 		// OK
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -787,7 +764,7 @@ func TestAnomalyMonitor_Run_ChecksOnInterval(t *testing.T) {
 		select {
 		case <-checkCh:
 		case <-deadline:
-			t.Fatalf("timed out waiting for check %d", i+1)
+			require.Failf(t, "test failure", "timed out waiting for check %d", i+1)
 		}
 	}
 }
@@ -820,45 +797,43 @@ func TestAnomalyMonitor_NotificationDeliveryCreated(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		1)
 
 	d := deliveries[0]
-	if d.EventType != domain.NotificationEventCostAnomaly {
-		t.Errorf("expected event type %s, got %s", domain.NotificationEventCostAnomaly, d.EventType)
-	}
-	if d.ChannelID != "ch-1" {
-		t.Errorf("expected channel ch-1, got %s", d.ChannelID)
-	}
-	if d.ProjectID != "proj-1" {
-		t.Errorf("expected project proj-1, got %s", d.ProjectID)
-	}
-	if d.Status != "pending" {
-		t.Errorf("expected status pending, got %s", d.Status)
-	}
-	if d.MaxAttempts != 3 {
-		t.Errorf("expected max_attempts 3, got %d", d.MaxAttempts)
-	}
+	assert.Equal(t, domain.
+		NotificationEventCostAnomaly,
+
+		d.EventType,
+	)
+	assert.Equal(t, "ch-1",
+		d.ChannelID)
+	assert.Equal(t, "proj-1",
+		d.ProjectID,
+	)
+	assert.Equal(t, "pending",
+		d.Status)
+	assert.Equal(t, 3,
+		d.MaxAttempts)
 
 	// Verify payload contains expected fields.
 	var payload map[string]any
-	if err := json.Unmarshal(d.Payload, &payload); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-	if payload["event"] != domain.NotificationEventCostAnomaly {
-		t.Errorf("payload event mismatch: %v", payload["event"])
-	}
-	if payload["project_id"] != "proj-1" {
-		t.Errorf("payload project_id mismatch: %v", payload["project_id"])
-	}
-	if payload["severity"] == nil {
-		t.Error("payload missing severity")
-	}
+	require.NoError(t,
+		json.Unmarshal(d.
+			Payload, &payload))
+	assert.Equal(t, domain.
+		NotificationEventCostAnomaly,
+
+		payload["event"])
+	assert.Equal(t, "proj-1",
+		payload["project_id"])
+	assert.NotNil(t, payload["severity"])
+
 	for _, key := range []string{"org_id", "today_spend", "avg_7d_spend", "top_contributor", "spike_ratio"} {
 		if _, ok := payload[key]; ok {
-			t.Fatalf("project-scoped payload leaked org-wide field %q: %v", key, payload)
+			require.Failf(t, "test failure",
+
+				"project-scoped payload leaked org-wide field %q: %v", key, payload)
 		}
 	}
 }
@@ -896,10 +871,8 @@ func TestAnomalyMonitor_CustomThresholds_Used(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery with custom threshold, got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		1)
 }
 
 func TestAnomalyMonitor_5xSpike_SendsEmail(t *testing.T) {
@@ -933,19 +906,16 @@ func TestAnomalyMonitor_5xSpike_SendsEmail(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
+	require.Len(t, deliveries,
+		2)
 
 	// At 5x (high severity): both webhook and email should fire.
-	if len(deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries (webhook + email), got %d", len(deliveries))
-	}
 
 	channelIDs := map[string]bool{}
 	for _, d := range deliveries {
 		channelIDs[d.ChannelID] = true
 	}
-	if !channelIDs["ch-webhook"] || !channelIDs["ch-email"] {
-		t.Error("expected both webhook and email deliveries for 5x spike")
-	}
+	assert.False(t, !channelIDs["ch-webhook"] || !channelIDs["ch-email"])
 }
 
 func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
@@ -979,14 +949,13 @@ func TestAnomalyMonitor_3xSpike_NoEmail(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
+	require.Len(t, deliveries,
+		1)
+	assert.Equal(t, "ch-webhook",
+		deliveries[0].ChannelID,
+	)
 
 	// At 3x (warning severity): only webhook should fire, not email.
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery (webhook only), got %d", len(deliveries))
-	}
-	if deliveries[0].ChannelID != "ch-webhook" {
-		t.Errorf("expected webhook channel, got %s", deliveries[0].ChannelID)
-	}
 }
 
 func TestAnomalyMonitor_WebhookPayload_RedactsOrgWideAnomalyData(t *testing.T) {
@@ -1022,22 +991,22 @@ func TestAnomalyMonitor_WebhookPayload_RedactsOrgWideAnomalyData(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute)
 	am.check(context.Background())
-
-	if len(deliveries) == 0 {
-		t.Fatal("expected at least 1 delivery")
-	}
+	require.NotEmpty(t,
+		deliveries)
 
 	for _, d := range deliveries {
 		var payload map[string]any
-		if err := json.Unmarshal(d.Payload, &payload); err != nil {
-			t.Fatalf("failed to unmarshal payload: %v", err)
-		}
-		if payload["project_id"] != d.ProjectID {
-			t.Fatalf("payload project_id = %v, want %s", payload["project_id"], d.ProjectID)
-		}
+		require.NoError(t,
+			json.Unmarshal(d.
+				Payload, &payload))
+		require.Equal(t, d.
+			ProjectID, payload["project_id"])
+
 		for _, key := range []string{"org_id", "today_spend", "avg_7d_spend", "top_contributor", "spike_ratio"} {
 			if _, ok := payload[key]; ok {
-				t.Fatalf("project-scoped payload leaked org-wide field %q: %v", key, payload)
+				require.Failf(t, "test failure",
+
+					"project-scoped payload leaked org-wide field %q: %v", key, payload)
 			}
 		}
 	}
@@ -1072,8 +1041,5 @@ func TestAnomalyMonitor_NoChannels_StillLogs(t *testing.T) {
 	am := NewAnomalyMonitor(s, time.Minute)
 	// Should not panic when there are no channels.
 	am.check(context.Background())
-
-	if deliveryCalled {
-		t.Fatal("expected no delivery when there are no channels")
-	}
+	require.False(t, deliveryCalled)
 }

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -59,7 +61,7 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	select {
 	case <-requestArrived:
 	case <-time.After(2 * time.Second):
-		t.Fatal("first request never reached the server")
+		require.Fail(t, "first request never reached the server")
 	}
 
 	// Now flood — forwarder is stuck, buffer fills and drops kick in.
@@ -75,12 +77,10 @@ func TestAuditSIEMDrain_BufferFullDropsAndCounts(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Enqueue blocked — non-blocking contract violated")
+		require.Fail(t, "Enqueue blocked - non-blocking contract violated")
 	}
 
-	if got := hits.Load(); got != 1 {
-		t.Errorf("expected exactly 1 in-flight request while hanging; got %d", got)
-	}
+	assert.Equal(t, int32(1), hits.Load())
 }
 
 // TestAuditSIEMDrain_StartStopRacefree checks that Start/Stop do not leak
@@ -118,10 +118,11 @@ func TestAuditSIEMDrain_StartStopRacefree(t *testing.T) {
 	}
 
 	after := runtime.NumGoroutine()
+	assert.LessOrEqual(t, after,
+		before+
+			5)
+
 	// Allow a tiny slack for test-server / httptest internals.
-	if after > before+5 {
-		t.Errorf("goroutine leak: before=%d after=%d", before, after)
-	}
 }
 
 // TestAuditSIEMDrain_EnqueueBeforeStart_Noop ensures Enqueue is safe when
@@ -141,9 +142,10 @@ func TestAuditSIEMDrain_NilReceiverSafe(t *testing.T) {
 	drain.Start(context.Background())
 	drain.Enqueue(domain.AuditEvent{})
 	drain.Stop(context.Background())
-	if err := drain.FlushNow(context.Background()); err != nil {
-		t.Errorf("FlushNow on nil drain = %v, want nil", err)
-	}
+	assert.NoError(t,
+		drain.
+			FlushNow(context.
+				Background()))
 }
 
 // TestSIEMDrain_FlushNow_DrainsBufferedEvents asserts that FlushNow
@@ -182,14 +184,12 @@ func TestSIEMDrain_FlushNow_DrainsBufferedEvents(t *testing.T) {
 	for i := range 10 {
 		drain.ch <- domain.AuditEvent{ID: "ev", Action: "a", ResourceID: itoa(i)}
 	}
+	require.NoError(t,
+		drain.
+			FlushNow(context.
+				Background()))
 
-	if err := drain.FlushNow(context.Background()); err != nil {
-		t.Fatalf("FlushNow: %v", err)
-	}
-
-	if got := received.Load(); got != 10 {
-		t.Fatalf("FlushNow forwarded %d events, want 10", got)
-	}
+	require.Equal(t, int32(10), received.Load())
 }
 
 // TestSIEMDrain_FlushNow_Idempotent verifies that calling FlushNow when
@@ -211,14 +211,14 @@ func TestSIEMDrain_FlushNow_Idempotent(t *testing.T) {
 		defer cancel()
 		drain.Stop(ctx)
 	})
+	require.NoError(t,
+		drain.
+			FlushNow(context.
+				Background()))
 
 	// Empty buffer — FlushNow must return nil and not hit the server.
-	if err := drain.FlushNow(context.Background()); err != nil {
-		t.Fatalf("FlushNow on empty drain returned %v, want nil", err)
-	}
-	if got := hits.Load(); got != 0 {
-		t.Fatalf("FlushNow generated %d HTTP requests on empty buffer, want 0", got)
-	}
+
+	require.Equal(t, int32(0), hits.Load())
 }
 
 // TestSIEMDrain_Stop_CancelsInFlightFlush asserts that calling Stop while
@@ -257,7 +257,7 @@ func TestSIEMDrain_Stop_CancelsInFlightFlush(t *testing.T) {
 	select {
 	case <-requestArrived:
 	case <-time.After(2 * time.Second):
-		t.Fatal("HTTP request never arrived at test server")
+		require.Fail(t, "HTTP request never arrived at test server")
 	}
 
 	start := time.Now()
@@ -265,13 +265,13 @@ func TestSIEMDrain_Stop_CancelsInFlightFlush(t *testing.T) {
 	drain.Stop(stopCtx)
 	stopCancel()
 	elapsed := time.Since(start)
+	require.LessOrEqual(t, elapsed,
+		6*
+			time.Second)
 
 	// Stop budget is 5s but with parent-ctx propagation a hanging
 	// request returns immediately when the parent is cancelled. We
 	// require well under the 30s flush deadline.
-	if elapsed > 6*time.Second {
-		t.Fatalf("Stop took %v, want < 6s (parent ctx cancel should reach in-flight HTTP request)", elapsed)
-	}
 }
 
 // TestSIEMDrain_Enqueue_Stop_NoSendOnClosedChannel runs many concurrent

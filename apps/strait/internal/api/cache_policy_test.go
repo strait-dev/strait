@@ -7,6 +7,8 @@ import (
 
 	straitcache "strait/internal/cache"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPIStrongCacheConstructorsRegisterRuntimeNamespaces(t *testing.T) {
@@ -41,7 +43,9 @@ func assertRegisteredNamespaces(t *testing.T, registry *straitcache.Registry, ex
 	}
 	for _, namespace := range expected {
 		if _, ok := registered[namespace]; !ok {
-			t.Fatalf("cache namespace %s was not registered; registered namespaces: %v", namespace, registry.RegisteredNamespaces())
+			require.Failf(t, "test failure",
+
+				"cache namespace %s was not registered; registered namespaces: %v", namespace, registry.RegisteredNamespaces())
 		}
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/pubsub"
 	"strait/internal/testutil"
@@ -43,23 +45,21 @@ func TestPublishSubscribe(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:basic")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	want := []byte(`{"event":"created","run_id":"run-001"}`)
-	if err := pub.Publish(ctx, "test:basic", want); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+	require.NoError(t, pub.Publish(ctx,
+		"test:basic",
+		want,
+	))
 
 	select {
 	case got := <-sub.Ch:
-		if string(got) != string(want) {
-			t.Errorf("received %q, want %q", got, want)
-		}
+		assert.Equal(t, string(want), string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for message")
+		require.FailNow(t, "timed out waiting for message")
 	}
 }
 
@@ -68,26 +68,24 @@ func TestPublishSubscribe_MultipleMessages(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:multi")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	messages := []string{"msg-1", "msg-2", "msg-3", "msg-4", "msg-5"}
 	for _, msg := range messages {
-		if err := pub.Publish(ctx, "test:multi", []byte(msg)); err != nil {
-			t.Fatalf("Publish(%q) error = %v", msg, err)
-		}
+		require.NoError(t, pub.Publish(ctx,
+			"test:multi",
+			[]byte(msg)))
+
 	}
 
 	for i, want := range messages {
 		select {
 		case got := <-sub.Ch:
-			if string(got) != want {
-				t.Errorf("message[%d] = %q, want %q", i, got, want)
-			}
+			assert.Equal(t, want, string(got), "message %d", i)
 		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for message %d (%q)", i, want)
+			require.FailNowf(t, "timed out waiting for message", "%d (%q)", i, want)
 		}
 	}
 }
@@ -97,36 +95,34 @@ func TestSubscribe_ChannelIsolation(t *testing.T) {
 	ctx := context.Background()
 
 	subA, err := pub.Subscribe(ctx, "test:chan-a")
-	if err != nil {
-		t.Fatalf("Subscribe(chan-a) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subA.Close()
 
 	subB, err := pub.Subscribe(ctx, "test:chan-b")
-	if err != nil {
-		t.Fatalf("Subscribe(chan-b) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subB.Close()
+	require.NoError(t, pub.Publish(ctx,
+		"test:chan-a",
+		[]byte(
+			"for-a-only",
+		)))
 
 	// Publish only to channel A.
-	if err := pub.Publish(ctx, "test:chan-a", []byte("for-a-only")); err != nil {
-		t.Fatalf("Publish(chan-a) error = %v", err)
-	}
 
 	// subA should receive the message.
 	select {
 	case got := <-subA.Ch:
-		if string(got) != "for-a-only" {
-			t.Errorf("subA received %q, want %q", got, "for-a-only")
-		}
+		assert.Equal(t, "for-a-only", string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("subA timed out")
+		require.FailNow(t, "subA timed out")
 	}
 
 	// subB should NOT receive anything.
 	select {
 	case got := <-subB.Ch:
-		t.Errorf("subB received unexpected message: %q", got)
+		assert.Failf(t, "subB received unexpected message", "%q", got)
 	case <-time.After(300 * time.Millisecond):
 		// Expected — no cross-channel leakage.
 	}
@@ -135,11 +131,13 @@ func TestSubscribe_ChannelIsolation(t *testing.T) {
 func TestPublish_NoSubscribers(t *testing.T) {
 	pub := newPublisher(t)
 	ctx := context.Background()
+	require.NoError(t, pub.Publish(ctx,
+		"test:nobody-listening",
+
+		[]byte("echo")))
 
 	// Publishing with zero subscribers must not return an error.
-	if err := pub.Publish(ctx, "test:nobody-listening", []byte("echo")); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+
 }
 
 func TestSubscription_CloseStopsReceiving(t *testing.T) {
@@ -147,9 +145,7 @@ func TestSubscription_CloseStopsReceiving(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:close-stop")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Close the subscription — the internal goroutine should exit
 	// and close the channel.
@@ -161,16 +157,14 @@ func TestSubscription_CloseStopsReceiving(t *testing.T) {
 			// May receive a buffered message, try again for close signal.
 			select {
 			case _, ok2 := <-sub.Ch:
-				if ok2 {
-					t.Error("channel still open after second read")
-				}
+				assert.False(t, ok2)
 			case <-time.After(5 * time.Second):
-				t.Fatal("channel did not close after subscription Close()")
+				require.FailNow(t, "channel did not close after subscription Close()")
 			}
 		}
 		// ok == false means channel is closed — correct.
 	case <-time.After(5 * time.Second):
-		t.Fatal("channel did not close after subscription Close()")
+		require.FailNow(t, "channel did not close after subscription Close()")
 	}
 }
 
@@ -179,9 +173,8 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:slow-consumer")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	// Publish many more messages than the internal buffer (64) while
@@ -192,9 +185,12 @@ func TestSubscribe_SlowConsumer(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	for i := range total {
 		msg := fmt.Sprintf("msg-%03d", i)
-		if err := pub.Publish(ctx, "test:slow-consumer", []byte(msg)); err != nil {
-			t.Fatalf("Publish(%q) error = %v", msg, err)
-		}
+		require.NoError(t, pub.Publish(ctx,
+			"test:slow-consumer",
+
+			[]byte(msg),
+		))
+
 	}
 
 	// Drain the channel — we should receive fewer than total because
@@ -212,26 +208,20 @@ drain:
 			break drain
 		}
 	}
+	assert.False(t, received >=
+		total)
+	assert.NotEqual(t, 0, received)
 
-	if received >= total {
-		t.Errorf("received all %d messages, expected some to be dropped", total)
-	}
-	if received == 0 {
-		t.Error("received 0 messages, want at least 1")
-	}
 	t.Logf("received %d/%d messages (buffer=64)", received, total)
 }
 
 func TestRedisPublisher_Close(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
-
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, pub.Close())
+	assert.Error(t, client.Ping(context.
+		Background()).Err())
 
 	// Underlying client should be closed — operations should fail.
-	if err := client.Ping(context.Background()).Err(); err == nil {
-		t.Error("Ping succeeded after Close(), want error")
-	}
+
 }

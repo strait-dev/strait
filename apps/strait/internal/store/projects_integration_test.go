@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateProject(t *testing.T) {
@@ -21,30 +23,26 @@ func TestCreateProject(t *testing.T) {
 		OrgID: "org-proj-create",
 		Name:  "Test Project",
 	}
-
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
 
 	got, err := st.GetProject(ctx, p.ID)
-	if err != nil {
-		t.Fatalf("GetProject() error = %v", err)
-	}
-	if got.ID != p.ID {
-		t.Fatalf("ID = %q, want %q", got.ID, p.ID)
-	}
-	if got.OrgID != p.OrgID {
-		t.Fatalf("OrgID = %q, want %q", got.OrgID, p.OrgID)
-	}
-	if got.Name != p.Name {
-		t.Fatalf("Name = %q, want %q", got.Name, p.Name)
-	}
-	if got.CreatedAt.IsZero() {
-		t.Fatal("CreatedAt should not be zero")
-	}
-	if got.UpdatedAt.IsZero() {
-		t.Fatal("UpdatedAt should not be zero")
-	}
+	require.NoError(t, err)
+	require.Equal(t, p.ID,
+		got.
+			ID)
+	require.Equal(t, p.OrgID,
+
+		got.OrgID,
+	)
+	require.Equal(t, p.Name,
+
+		got.Name,
+	)
+	require.False(t, got.CreatedAt.
+		IsZero())
+	require.False(t, got.UpdatedAt.
+		IsZero())
+
 }
 
 func TestCreateProject_Upsert(t *testing.T) {
@@ -54,22 +52,18 @@ func TestCreateProject_Upsert(t *testing.T) {
 
 	id := newID()
 	p := &domain.Project{ID: id, OrgID: "org-upsert", Name: "Original"}
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
 
 	p2 := &domain.Project{ID: id, OrgID: "org-upsert", Name: "Updated"}
-	if err := st.CreateProject(ctx, p2); err != nil {
-		t.Fatalf("CreateProject() upsert error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p2))
 
 	got, err := st.GetProject(ctx, id)
-	if err != nil {
-		t.Fatalf("GetProject() error = %v", err)
-	}
-	if got.Name != "Updated" {
-		t.Fatalf("Name = %q, want %q", got.Name, "Updated")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Updated",
+
+		got.Name,
+	)
+
 }
 
 func TestCreateProject_UpsertPreservesOrgID(t *testing.T) {
@@ -79,23 +73,18 @@ func TestCreateProject_UpsertPreservesOrgID(t *testing.T) {
 
 	id := newID()
 	p := &domain.Project{ID: id, OrgID: "org-preserve", Name: "First"}
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
 
 	// Upsert with empty org_id should preserve existing.
 	p2 := &domain.Project{ID: id, OrgID: "", Name: "Second"}
-	if err := st.CreateProject(ctx, p2); err != nil {
-		t.Fatalf("CreateProject() upsert error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p2))
 
 	got, err := st.GetProject(ctx, id)
-	if err != nil {
-		t.Fatalf("GetProject() error = %v", err)
-	}
-	if got.OrgID != "org-preserve" {
-		t.Fatalf("OrgID = %q, want %q (should be preserved)", got.OrgID, "org-preserve")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "org-preserve",
+
+		got.OrgID)
+
 }
 
 func TestGetProject_NotFound(t *testing.T) {
@@ -104,9 +93,10 @@ func TestGetProject_NotFound(t *testing.T) {
 	st := mustStore(t)
 
 	_, err := st.GetProject(ctx, "nonexistent-project")
-	if !errors.Is(err, store.ErrProjectNotFound) {
-		t.Fatalf("GetProject() error = %v, want ErrProjectNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrProjectNotFound,
+	))
+
 }
 
 func TestListProjectsByOrg(t *testing.T) {
@@ -119,22 +109,19 @@ func TestListProjectsByOrg(t *testing.T) {
 
 	for i, org := range []string{orgA, orgA, orgB} {
 		p := &domain.Project{ID: newID(), OrgID: org, Name: "Project " + string(rune('A'+i))}
-		if err := st.CreateProject(ctx, p); err != nil {
-			t.Fatalf("CreateProject(%d) error = %v", i, err)
-		}
+		require.NoError(t, st.CreateProject(ctx, p))
+
 	}
 
 	got, err := st.ListProjectsByOrg(ctx, orgA)
-	if err != nil {
-		t.Fatalf("ListProjectsByOrg() error = %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("len = %d, want 2", len(got))
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
 	for _, p := range got {
-		if p.OrgID != orgA {
-			t.Fatalf("OrgID = %q, want %q", p.OrgID, orgA)
-		}
+		require.Equal(t, orgA,
+			p.
+				OrgID)
+
 	}
 }
 
@@ -144,12 +131,9 @@ func TestListProjectsByOrg_Empty(t *testing.T) {
 	st := mustStore(t)
 
 	got, err := st.ListProjectsByOrg(ctx, "org-empty")
-	if err != nil {
-		t.Fatalf("ListProjectsByOrg() error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("expected empty slice, got %d items", len(got))
-	}
+	require.NoError(t, err)
+	require.Len(t, got, 0)
+
 }
 
 func TestDeleteProject(t *testing.T) {
@@ -158,34 +142,24 @@ func TestDeleteProject(t *testing.T) {
 	st := mustStore(t)
 
 	p := &domain.Project{ID: newID(), OrgID: "org-delete", Name: "Delete Me"}
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-
-	if err := st.DeleteProject(ctx, p.ID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
+	require.NoError(t, st.DeleteProject(ctx, p.ID))
 
 	_, err := st.GetProject(ctx, p.ID)
-	if !errors.Is(err, store.ErrProjectNotFound) {
-		t.Fatalf("GetProject() after delete error = %v, want ErrProjectNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrProjectNotFound,
+	))
 
 	count, err := st.CountProjectsByOrg(ctx, p.OrgID)
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg() after delete error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count after delete = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
 
 	projects, err := st.ListProjectsByOrg(ctx, p.OrgID)
-	if err != nil {
-		t.Fatalf("ListProjectsByOrg() after delete error = %v", err)
-	}
-	if len(projects) != 0 {
-		t.Fatalf("ListProjectsByOrg() after delete len = %d, want 0", len(projects))
-	}
+	require.NoError(t, err)
+	require.Len(t, projects,
+
+		0)
+
 }
 
 func TestDeleteProject_DisablesWorkflows(t *testing.T) {
@@ -194,9 +168,8 @@ func TestDeleteProject_DisablesWorkflows(t *testing.T) {
 	st := mustStore(t)
 
 	p := &domain.Project{ID: newID(), OrgID: "org-delete-workflows", Name: "Delete Workflows"}
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
+
 	wf := &domain.Workflow{
 		ID:        newID(),
 		ProjectID: p.ID,
@@ -206,21 +179,17 @@ func TestDeleteProject_DisablesWorkflows(t *testing.T) {
 		Version:   1,
 		Cron:      "*/5 * * * *",
 	}
-	if err := st.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("CreateWorkflow() error = %v", err)
-	}
-
-	if err := st.DeleteProject(ctx, p.ID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateWorkflow(ctx, wf))
+	require.NoError(t, st.DeleteProject(ctx, p.ID))
 
 	var enabled bool
-	if err := testDB.Pool.QueryRow(ctx, `SELECT enabled FROM workflows WHERE id = $1`, wf.ID).Scan(&enabled); err != nil {
-		t.Fatalf("read workflow enabled after project delete: %v", err)
-	}
-	if enabled {
-		t.Fatal("project deletion must disable workflows")
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT enabled FROM workflows WHERE id = $1`,
+
+		wf.ID).Scan(&enabled))
+	require.False(t, enabled)
+
 }
 
 func TestDeleteProject_RecreateRevivesProject(t *testing.T) {
@@ -230,33 +199,23 @@ func TestDeleteProject_RecreateRevivesProject(t *testing.T) {
 
 	projectID := newID()
 	initial := &domain.Project{ID: projectID, OrgID: "org-revive", Name: "Original"}
-	if err := st.CreateProject(ctx, initial); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
-	if err := st.DeleteProject(ctx, projectID); err != nil {
-		t.Fatalf("DeleteProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, initial))
+	require.NoError(t, st.DeleteProject(ctx, projectID))
 
 	recreated := &domain.Project{ID: projectID, OrgID: "org-revive", Name: "Recreated"}
-	if err := st.CreateProject(ctx, recreated); err != nil {
-		t.Fatalf("CreateProject() recreate error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, recreated))
 
 	got, err := st.GetProject(ctx, projectID)
-	if err != nil {
-		t.Fatalf("GetProject() after recreate error = %v", err)
-	}
-	if got.Name != "Recreated" {
-		t.Fatalf("Name after recreate = %q, want %q", got.Name, "Recreated")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Recreated",
+
+		got.
+			Name)
 
 	count, err := st.CountProjectsByOrg(ctx, "org-revive")
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg() after recreate error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("count after recreate = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }
 
 func TestDeleteProject_NonExistent(t *testing.T) {
@@ -265,9 +224,10 @@ func TestDeleteProject_NonExistent(t *testing.T) {
 	st := mustStore(t)
 
 	err := st.DeleteProject(ctx, "nonexistent-project")
-	if !errors.Is(err, store.ErrProjectNotFound) {
-		t.Fatalf("DeleteProject(nonexistent) error = %v, want ErrProjectNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrProjectNotFound,
+	))
+
 }
 
 func TestCountProjectsByOrg(t *testing.T) {
@@ -276,31 +236,21 @@ func TestCountProjectsByOrg(t *testing.T) {
 	st := mustStore(t)
 
 	org := "org-count"
-	for i := range 3 {
+	for range 3 {
 		p := &domain.Project{ID: newID(), OrgID: org, Name: "P"}
-		if err := st.CreateProject(ctx, p); err != nil {
-			t.Fatalf("CreateProject(%d) error = %v", i, err)
-		}
+		require.NoError(t, st.CreateProject(ctx, p))
+
 	}
 	// Different org
 	p := &domain.Project{ID: newID(), OrgID: "org-other", Name: "P"}
-	if err := st.CreateProject(ctx, p); err != nil {
-		t.Fatalf("CreateProject(other) error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(ctx, p))
 
 	count, err := st.CountProjectsByOrg(ctx, org)
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg() error = %v", err)
-	}
-	if count != 3 {
-		t.Fatalf("count = %d, want 3", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
 
 	count2, err := st.CountProjectsByOrg(ctx, "org-other")
-	if err != nil {
-		t.Fatalf("CountProjectsByOrg(other) error = %v", err)
-	}
-	if count2 != 1 {
-		t.Fatalf("count = %d, want 1", count2)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count2)
+
 }

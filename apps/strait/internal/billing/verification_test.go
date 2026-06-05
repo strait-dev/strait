@@ -10,6 +10,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Grace period tests for Scale tier.
@@ -34,16 +36,15 @@ func TestGracePeriod_ScaleTier_BlockAfterExpiry(t *testing.T) {
 
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-scale-expired")
-	if err == nil {
-		t.Fatal("expected block after grace period expiry for Scale tier")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !isLimitError(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "grace_period_expired" {
-		t.Errorf("Code = %q, want grace_period_expired", le.Code)
-	}
+	require.True(t, isLimitError(
+		err, &le))
+	assert.Equal(t, "grace_period_expired",
+
+		le.Code)
 }
 
 func TestGracePeriod_ScaleTier_AllowDuringGrace(t *testing.T) {
@@ -66,9 +67,8 @@ func TestGracePeriod_ScaleTier_AllowDuringGrace(t *testing.T) {
 
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-scale-grace")
-	if err != nil {
-		t.Fatalf("expected runs allowed during active grace period: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestGracePeriod_ScaleTier_PaymentRestricted(t *testing.T) {
@@ -89,16 +89,16 @@ func TestGracePeriod_ScaleTier_PaymentRestricted(t *testing.T) {
 
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 	err := enforcer.CheckDailyRunLimit(context.Background(), "org-scale-restricted")
-	if err == nil {
-		t.Fatal("expected block when payment is restricted")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !isLimitError(err, &le) {
-		t.Fatalf("expected LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "payment_restricted" {
-		t.Errorf("Code = %q, want payment_restricted", le.Code)
-	}
+	require.True(t, isLimitError(
+		err, &le))
+	assert.Equal(t, "payment_restricted",
+
+		le.
+			Code)
 }
 
 // Idempotent addon deactivation.
@@ -116,19 +116,19 @@ func TestDeactivateAddon_DoubleCall_NoError(t *testing.T) {
 		Quantity:  1,
 		Active:    true,
 	}
-	if err := store.CreateAddon(context.Background(), addon); err != nil {
-		t.Fatalf("CreateAddon failed: %v", err)
-	}
+	require.NoError(t,
+		store.CreateAddon(context.
+			Background(), addon))
+	require.NoError(t,
+		store.DeactivateAddon(context.
+			Background(), "addon-1"))
+	require.NoError(t,
+		store.DeactivateAddon(context.
+			Background(), "addon-1"))
 
 	// Deactivate once.
-	if err := store.DeactivateAddon(context.Background(), "addon-1"); err != nil {
-		t.Fatalf("first DeactivateAddon failed: %v", err)
-	}
 
 	// Deactivate again -- should be idempotent, no error.
-	if err := store.DeactivateAddon(context.Background(), "addon-1"); err != nil {
-		t.Fatalf("second DeactivateAddon failed: %v", err)
-	}
 }
 
 // Self-hosted verification: billing gates are skipped, but the launch catalog
@@ -150,29 +150,33 @@ func TestSelfHosted_LaunchActiveFeaturesAvailable(t *testing.T) {
 	}
 
 	for _, f := range enterpriseFeatures {
-		if !reg.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("Enterprise should have feature %q", f)
-		}
+		assert.True(t, reg.
+			AllowsFeature(domain.
+				PlanEnterprise,
+
+				f))
 	}
 
 	for _, f := range roadmapEnterpriseFeatures {
-		if reg.AllowsFeature(domain.PlanEnterprise, f) {
-			t.Errorf("Enterprise should not have launch-roadmap feature %q", f)
-		}
+		assert.False(t, reg.
+			AllowsFeature(domain.
+				PlanEnterprise,
+
+				f))
 	}
 
 	enterpriseLimits := GetPlanLimits(domain.PlanEnterprise)
+	assert.Equal(t, -1, enterpriseLimits.
+		MaxConcurrentRuns,
+	)
+	assert.Equal(t, -1, enterpriseLimits.
+		MaxWorkflowDAGSteps,
+	)
+	assert.Equal(t, -1, enterpriseLimits.
+		MaxScheduledJobs,
+	)
 
 	// Verify unlimited limits.
-	if enterpriseLimits.MaxConcurrentRuns != -1 {
-		t.Errorf("Enterprise MaxConcurrentRuns = %d, want -1", enterpriseLimits.MaxConcurrentRuns)
-	}
-	if enterpriseLimits.MaxWorkflowDAGSteps != -1 {
-		t.Errorf("Enterprise MaxWorkflowDAGSteps = %d, want -1", enterpriseLimits.MaxWorkflowDAGSteps)
-	}
-	if enterpriseLimits.MaxScheduledJobs != -1 {
-		t.Errorf("Enterprise MaxScheduledJobs = %d, want -1", enterpriseLimits.MaxScheduledJobs)
-	}
 }
 
 func TestSelfHosted_EditionCommunity_SkipsGating(t *testing.T) {
@@ -180,9 +184,9 @@ func TestSelfHosted_EditionCommunity_SkipsGating(t *testing.T) {
 
 	// EditionCommunity should not require HTTP mode gating.
 	edition := domain.EditionCommunity
-	if edition.RequiresHTTPModeGating() {
-		t.Error("EditionCommunity.RequiresHTTPModeGating() = true, want false")
-	}
+	assert.False(t, edition.
+		RequiresHTTPModeGating(),
+	)
 
 	// This is the check that getOrgPlanLimits uses to skip all enforcement.
 	// When this returns false, all plan gates return nil (allowed).
@@ -201,16 +205,19 @@ func TestAddon_EffectiveLimits_Integration(t *testing.T) {
 
 	result := EffectiveLimits(base, addons)
 	want := base.MaxConcurrentRuns + 200
-	if result.MaxConcurrentRuns != want {
-		t.Errorf("MaxConcurrentRuns = %d, want %d (base + 2x100 packs)", result.MaxConcurrentRuns, want)
-	}
+	assert.Equal(t, want,
+		result.
+			MaxConcurrentRuns,
+	)
 
 	// Deactivate addon -> back to base.
 	deactivated := []Addon{
 		{AddonType: AddonConcurrency100, Quantity: 2, Active: false},
 	}
 	result = EffectiveLimits(base, deactivated)
-	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {
-		t.Errorf("after deactivation MaxConcurrentRuns = %d, want %d", result.MaxConcurrentRuns, base.MaxConcurrentRuns)
-	}
+	assert.Equal(t, base.
+		MaxConcurrentRuns,
+
+		result.MaxConcurrentRuns,
+	)
 }

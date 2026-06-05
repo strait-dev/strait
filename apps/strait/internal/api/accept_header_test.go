@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequireJSONAccept(t *testing.T) {
@@ -46,9 +48,8 @@ func TestRequireJSONAccept(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
-			if w.Code != tc.want {
-				t.Errorf("Accept=%q: status=%d, want %d", tc.accept, w.Code, tc.want)
-			}
+			assert.Equal(t,
+				tc.want, w.Code)
 		})
 	}
 }
@@ -71,8 +72,11 @@ func FuzzRequireJSONAccept(f *testing.F) {
 		req.Header.Set("Accept", accept)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != http.StatusOK && w.Code != http.StatusNotAcceptable {
-			t.Errorf("unexpected status %d for Accept=%q", w.Code, accept)
-		}
+		assert.False(t,
+			w.Code != http.StatusOK &&
+				w.Code !=
+					http.
+						StatusNotAcceptable,
+		)
 	})
 }

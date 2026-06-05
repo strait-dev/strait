@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for the priority promoter. Integration tests live in
@@ -84,18 +86,20 @@ func (f *fakeLocker) ReleaseAdvisoryLock(_ context.Context, _ int64) error {
 
 func TestPriorityPromoter_Defaults(t *testing.T) {
 	p := NewPriorityPromoter(&fakeDB{}, PriorityPromoterConfig{})
-	if p.interval != 60*time.Second {
-		t.Errorf("interval = %v", p.interval)
-	}
-	if p.ageThreshold != 5*time.Minute {
-		t.Errorf("ageThreshold = %v", p.ageThreshold)
-	}
-	if p.maxPriority != 1000 {
-		t.Errorf("maxPriority = %d", p.maxPriority)
-	}
-	if p.batchLimit != 500 {
-		t.Errorf("batchLimit = %d", p.batchLimit)
-	}
+	assert.Equal(t, 60*
+		time.Second,
+		p.interval,
+	)
+	assert.Equal(t, 5*
+		time.Minute,
+		p.ageThreshold,
+	)
+	assert.Equal(t, 1000,
+		p.maxPriority,
+	)
+	assert.Equal(t, 500,
+		p.batchLimit,
+	)
 }
 
 func TestPriorityPromoter_RunOnce_AppendsPriorityEvents(t *testing.T) {
@@ -107,74 +111,65 @@ func TestPriorityPromoter_RunOnce_AppendsPriorityEvents(t *testing.T) {
 		BatchLimit:   50,
 		Logger:       slog.Default(),
 	})
-	if err := p.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if db.calls != 1 {
-		t.Errorf("calls = %d, want 1", db.calls)
-	}
-	if p.RowsPromoted() != 3 {
-		t.Errorf("RowsPromoted = %d, want 3", p.RowsPromoted())
-	}
-	if p.Iterations() != 1 {
-		t.Errorf("Iterations = %d, want 1", p.Iterations())
-	}
+	require.NoError(t,
+		p.runOnce(
+			context.Background()))
+	assert.Equal(t, 1,
+		db.calls)
+	assert.EqualValues(t, 3,
+		p.RowsPromoted())
+	assert.EqualValues(t, 1,
+		p.Iterations())
 }
 
 func TestPriorityPromoter_RunOnce_WithLock_Acquired(t *testing.T) {
 	db := &fakeDB{rows: 1}
 	locker := &fakeLocker{acquireOK: true}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{}).WithAdvisoryLocker(locker)
-	if err := p.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if !locker.acquired {
-		t.Error("locker should have been called")
-	}
-	if !locker.released {
-		t.Error("locker should have released")
-	}
-	if db.calls != 1 {
-		t.Errorf("db calls = %d, want 1", db.calls)
-	}
+	require.NoError(t,
+		p.runOnce(
+			context.Background()))
+	assert.True(t, locker.
+		acquired,
+	)
+	assert.True(t, locker.
+		released,
+	)
+	assert.Equal(t, 1,
+		db.calls)
 }
 
 func TestPriorityPromoter_RunOnce_WithLock_NotAcquired(t *testing.T) {
 	db := &fakeDB{rows: 1}
 	locker := &fakeLocker{acquireOK: false}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{}).WithAdvisoryLocker(locker)
-	if err := p.runOnce(context.Background()); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if db.calls != 0 {
-		t.Errorf("db calls = %d, want 0 (lock not acquired)", db.calls)
-	}
-	if locker.released {
-		t.Error("locker should not release when not acquired")
-	}
+	require.NoError(t,
+		p.runOnce(
+			context.Background()))
+	assert.Equal(t, 0,
+		db.calls)
+	assert.False(t, locker.
+		released,
+	)
 }
 
 func TestPriorityPromoter_RunOnce_LockError(t *testing.T) {
 	db := &fakeDB{}
 	locker := &fakeLocker{err: errors.New("pg down")}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{}).WithAdvisoryLocker(locker)
-	if err := p.runOnce(context.Background()); err == nil {
-		t.Error("expected error")
-	}
-	if db.calls != 0 {
-		t.Errorf("db calls = %d, want 0", db.calls)
-	}
+	require.Error(t, p.runOnce(context.
+		Background()))
+	assert.Equal(t, 0,
+		db.calls)
 }
 
 func TestPriorityPromoter_RunOnce_InsertError(t *testing.T) {
 	db := &fakeDB{err: errors.New("deadlock")}
 	p := NewPriorityPromoter(db, PriorityPromoterConfig{})
-	if err := p.runOnce(context.Background()); err == nil {
-		t.Error("expected update error")
-	}
-	if p.Iterations() != 1 {
-		t.Errorf("Iterations = %d, want 1", p.Iterations())
-	}
+	require.Error(t, p.runOnce(context.
+		Background()))
+	assert.EqualValues(t, 1,
+		p.Iterations())
 }
 
 func TestPriorityPromoter_QuerySanity(t *testing.T) {
@@ -185,25 +180,22 @@ func TestPriorityPromoter_QuerySanity(t *testing.T) {
 		BatchLimit:   100,
 	})
 	_ = p.runOnce(context.Background())
-	if db.lastSQL == "" {
-		t.Fatal("no SQL captured")
-	}
+	require.NotEmpty(t,
+		db.lastSQL,
+	)
+
 	// The exec must be parameterized (no inline values) so pg can cache the
 	// plan. $1 $2 $3 should appear.
 	for _, p := range []string{"$1", "$2", "$3", "job_run_state", "job_run_priority_events", "s.status = 'queued'", "FOR UPDATE OF s SKIP LOCKED", "INSERT INTO job_run_priority_events", "LEAST(COALESCE(priority.priority, s.priority) + 1"} {
-		if !contains(db.lastSQL, p) {
-			t.Errorf("SQL missing %q: %s", p, db.lastSQL)
-		}
+		assert.True(t, contains(db.lastSQL,
+			p))
 	}
-	if len(db.lastArgs) != 3 {
-		t.Errorf("args = %v, want 3 args", db.lastArgs)
-	}
-	if db.lastArgs[0] != 42 {
-		t.Errorf("max priority arg = %v", db.lastArgs[0])
-	}
-	if db.lastArgs[2] != 100 {
-		t.Errorf("batch limit arg = %v", db.lastArgs[2])
-	}
+	assert.Len(t, db.lastArgs,
+		3)
+	assert.EqualValues(t, 42,
+		db.lastArgs[0])
+	assert.EqualValues(t, 100,
+		db.lastArgs[2])
 }
 
 func contains(haystack, needle string) bool {
@@ -233,9 +225,8 @@ func TestPriorityPromoter_RunExitsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not exit on cancel")
+		require.Fail(t, "Run did not exit on cancel")
 	}
-	if p.Iterations() < 2 {
-		t.Errorf("Iterations = %d, want >= 2", p.Iterations())
-	}
+	assert.GreaterOrEqual(t, p.Iterations(),
+		int64(2))
 }

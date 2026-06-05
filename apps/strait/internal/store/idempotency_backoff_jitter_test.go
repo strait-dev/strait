@@ -3,16 +3,15 @@ package store
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestIdempotencyBackoffWithJitter_FirstAttemptIsZero documents the
 // no-sleep semantics of attempt 0 (the initial try is unwaited).
 func TestIdempotencyBackoffWithJitter_FirstAttemptIsZero(t *testing.T) {
 	t.Parallel()
-
-	if got := idempotencyBackoffWithJitter(0); got != 0 {
-		t.Fatalf("attempt 0 = %v, want 0", got)
-	}
+	require.EqualValues(t, 0, idempotencyBackoffWithJitter(0))
 }
 
 // TestIdempotencyBackoffWithJitter_OutOfRangeIsZero protects against
@@ -21,13 +20,8 @@ func TestIdempotencyBackoffWithJitter_FirstAttemptIsZero(t *testing.T) {
 // of range.
 func TestIdempotencyBackoffWithJitter_OutOfRangeIsZero(t *testing.T) {
 	t.Parallel()
-
-	if got := idempotencyBackoffWithJitter(idempotencyMaxAttempts); got != 0 {
-		t.Fatalf("attempt N = %v, want 0", got)
-	}
-	if got := idempotencyBackoffWithJitter(-1); got != 0 {
-		t.Fatalf("attempt -1 = %v, want 0", got)
-	}
+	require.EqualValues(t, 0, idempotencyBackoffWithJitter(idempotencyMaxAttempts))
+	require.EqualValues(t, 0, idempotencyBackoffWithJitter(-1))
 }
 
 // TestIdempotencyBackoffWithJitter_StaysWithinBounds verifies the
@@ -42,11 +36,12 @@ func TestIdempotencyBackoffWithJitter_StaysWithinBounds(t *testing.T) {
 		base := idempotencyBackoff[attempt]
 		lo := time.Duration(float64(base) * (1 - idempotencyBackoffJitter))
 		hi := time.Duration(float64(base) * (1 + idempotencyBackoffJitter))
-		for i := range 2000 {
+		for range 2000 {
 			got := idempotencyBackoffWithJitter(attempt)
-			if got < lo || got >= hi {
-				t.Fatalf("attempt %d: sample %d = %v, want [%v, %v)", attempt, i, got, lo, hi)
-			}
+			require.False(t,
+				got <
+					lo ||
+					got >= hi)
 		}
 	}
 }
@@ -74,7 +69,8 @@ func TestIdempotencyBackoffWithJitter_ProducesVariance(t *testing.T) {
 	// Theoretical max spread is 2 * 20ms * 0.2 = 8ms. Require at least
 	// half of that — 4ms — across 200 samples to call it variant.
 	minSpread := time.Duration(float64(idempotencyBackoff[2]) * idempotencyBackoffJitter)
-	if spread < minSpread {
-		t.Fatalf("spread = %v across %d samples, want >= %v (jitter appears collapsed)", spread, samples, minSpread)
-	}
+	require.GreaterOrEqual(
+		t,
+
+		spread, minSpread)
 }

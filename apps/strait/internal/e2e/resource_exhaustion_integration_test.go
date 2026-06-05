@@ -17,6 +17,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestDoS_ConnectionPoolSaturation exhausts all database pool connections and
@@ -80,15 +81,19 @@ func TestDoS_RedisMemoryPressure(t *testing.T) {
 	largePayload := strings.Repeat("A", 10*1024)
 	for i := range 1000 {
 		key := fmt.Sprintf("test:pressure:%d", i)
-		if err := client.Set(ctx, key, largePayload, 30*time.Second).Err(); err != nil {
-			t.Fatalf("set key %d: %v", i, err)
-		}
+		require.NoError(t, client.
+			Set(ctx,
+				key, largePayload,
+
+				30*time.
+					Second).Err())
+
 	}
+	require.NoError(t, client.
+		Ping(
+			ctx).Err())
 
 	// Verify Redis is still operational.
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis ping after pressure: %v", err)
-	}
 
 	// Clean up.
 	for i := range 1000 {
@@ -109,9 +114,8 @@ func TestDoS_AdvisoryLockExhaustion(t *testing.T) {
 	for i := range lockCount {
 		lockID := int64(800000 + i)
 		ok, err := testStore.TryAdvisoryLock(ctx, lockID)
-		if err != nil {
-			t.Fatalf("acquire advisory lock %d: %v", lockID, err)
-		}
+		require.NoError(t, err)
+
 		if ok {
 			acquired = append(acquired, lockID)
 		}
@@ -120,9 +124,9 @@ func TestDoS_AdvisoryLockExhaustion(t *testing.T) {
 	// Verify the system is still operational.
 	projectID := "proj-lock-exhaust-" + newID()
 	job := createJob(t, projectID, "Lock Exhaust", "lock-exhaust-"+newID())
-	if asString(t, job, "id") == "" {
-		t.Fatal("expected valid job ID after lock exhaustion")
-	}
+	require.NotEqual(t, "",
+
+		asString(t, job, "id"))
 
 	// Release all locks.
 	for _, lockID := range acquired {
@@ -180,10 +184,11 @@ func TestDoS_ConcurrentSSEConnections(t *testing.T) {
 
 	current := runtime.NumGoroutine()
 	leaked := current - baseline
-	if leaked > 20 {
-		t.Fatalf("possible goroutine leak: baseline=%d, current=%d, leaked=%d",
-			baseline, current, leaked)
-	}
+	require.LessOrEqual(t,
+
+		leaked,
+		20)
+
 }
 
 // TestDoS_CacheEvictionStorm rapidly sets and deletes keys in Redis to
@@ -215,11 +220,12 @@ func TestDoS_CacheEvictionStorm(t *testing.T) {
 	if errors.Load() > 0 {
 		t.Logf("cache eviction storm had %d errors out of %d", errors.Load(), iterations)
 	}
+	require.NoError(t, client.
+		Ping(
+			ctx).Err())
 
 	// Verify Redis is still operational.
-	if err := client.Ping(ctx).Err(); err != nil {
-		t.Fatalf("redis ping after eviction storm: %v", err)
-	}
+
 }
 
 // TestDoS_WebhookDeliveryQueueOverflow creates many pending webhook deliveries
@@ -243,7 +249,7 @@ func TestDoS_WebhookDeliveryQueueOverflow(t *testing.T) {
 
 	// Create 100 pending webhook deliveries.
 	const deliveryCount = 100
-	for i := range deliveryCount {
+	for range deliveryCount {
 		retryAt := time.Now().UTC().Add(-time.Second)
 		delivery := &domain.WebhookDelivery{
 			RunID:       runID,
@@ -255,27 +261,28 @@ func TestDoS_WebhookDeliveryQueueOverflow(t *testing.T) {
 			MaxAttempts: 3,
 			NextRetryAt: &retryAt,
 		}
-		if err := testStore.CreateWebhookDelivery(ctx, delivery); err != nil {
-			t.Fatalf("create webhook delivery %d: %v", i, err)
-		}
+		require.NoError(t, testStore.
+			CreateWebhookDelivery(ctx, delivery))
+
 	}
 
 	// Verify all deliveries were created.
 	var count int
 	err := testEnv.DB.Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM webhook_deliveries WHERE run_id = $1`, runID).Scan(&count)
-	if err != nil {
-		t.Fatalf("count webhook deliveries: %v", err)
-	}
-	if count != deliveryCount {
-		t.Fatalf("expected %d webhook deliveries, got %d", deliveryCount, count)
-	}
+	require.NoError(t, err)
+	require.Equal(t, deliveryCount,
+
+		count)
 
 	// Verify the system is still operational after creating many deliveries.
 	newRun := triggerJob(t, jobID, `{"payload":{"after_overflow":true}}`, "")
-	if asString(t, newRun, "id") == "" {
-		t.Fatal("expected valid run ID after webhook overflow")
-	}
+	require.NotEqual(t, "",
+
+		asString(t, newRun,
+			"id"),
+	)
+
 }
 
 // Ensure imports are used.

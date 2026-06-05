@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestApproveDeviceCodeRaceNoOrphans drives the canonical race the
@@ -31,27 +32,30 @@ func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 	defer cancel()
 
 	tdb, err := testutil.SetupSharedTestDB(ctx, "../../migrations", "api-cli-auth")
-	if err != nil {
-		t.Fatalf("SetupTestDB() error = %v", err)
-	}
+	require.NoError(
+		t,
+		err)
+
 	t.Cleanup(func() { tdb.Cleanup(context.Background()) })
 
 	q := store.New(tdb.Pool)
 	q.SetSecretEncryptionKey("test-device-flow-key")
-
-	if err := tdb.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(
+		t,
+		tdb.CleanTables(ctx))
 
 	const (
 		userCode  = "RACE1234"
 		projectID = "proj-fix-07-race"
 	)
 	deviceCode := uuid.Must(uuid.NewV7()).String()
+	require.NoError(
+		t,
+		q.CreateDeviceCode(ctx, deviceCode,
+			userCode,
 
-	if err := q.CreateDeviceCode(ctx, deviceCode, userCode, "", []string{}, time.Now().UTC().Add(15*time.Minute)); err != nil {
-		t.Fatalf("CreateDeviceCode() error = %v", err)
-	}
+			"", []string{}, time.Now().
+				UTC().Add(15*time.Minute)))
 
 	approveOnce := func(label string) error {
 		return store.WithTx(ctx, tdb.Pool, func(txq *store.Queries) error {
@@ -97,27 +101,27 @@ func TestApproveDeviceCodeRaceNoOrphans(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if errsOK != 1 {
-		t.Fatalf("expected exactly one successful approval, got success=%d failure=%d", errsOK, errsNG)
-	}
-	if errsNG != 1 {
-		t.Fatalf("expected exactly one failed approval (rolled back), got success=%d failure=%d", errsOK, errsNG)
-	}
+	require.EqualValues(t, 1, errsOK)
+	require.EqualValues(t, 1, errsNG)
 
 	var keyCount int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM api_keys WHERE project_id = $1`, projectID).Scan(&keyCount); err != nil {
-		t.Fatalf("count api_keys: %v", err)
-	}
-	if keyCount != 1 {
-		t.Fatalf("api_keys for project after race = %d, want 1 (failed tx must rollback its key)", keyCount)
-	}
+	require.NoError(
+		t,
+		tdb.Pool.
+			QueryRow(
+				ctx, `SELECT COUNT(*) FROM api_keys WHERE project_id = $1`,
+
+				projectID).Scan(&keyCount))
+	require.EqualValues(t, 1, keyCount)
 
 	var approvedCount int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM cli_device_codes WHERE user_code = $1 AND status = 'approved'`, userCode).Scan(&approvedCount); err != nil {
-		t.Fatalf("count approved device codes: %v", err)
-	}
-	if approvedCount != 1 {
-		t.Fatalf("approved device codes = %d, want 1", approvedCount)
-	}
+	require.NoError(
+		t,
+		tdb.Pool.
+			QueryRow(
+				ctx, `SELECT COUNT(*) FROM cli_device_codes WHERE user_code = $1 AND status = 'approved'`,
+
+				userCode).Scan(&approvedCount))
+	require.EqualValues(t, 1, approvedCount)
+
 }

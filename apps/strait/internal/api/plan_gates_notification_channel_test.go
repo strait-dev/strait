@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func validChannelBody() string {
@@ -37,16 +40,13 @@ func TestCreateNotificationChannel_FreeTier_RejectsZeroCap(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "not available") {
-		t.Errorf("error message must say feature is not available, got: %s", w.Body.String())
-	}
-	if got := createCalls.Load(); got != 0 {
-		t.Errorf("CreateNotificationChannel called %d times before plan-gate rejection; want 0", got)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
+	assert.Contains(t,
+		w.Body.String(), "not available")
+	assert.EqualValues(t, 0, createCalls.
+		Load())
 }
 
 // TestCreateNotificationChannel_ProTier_BlocksAtCap verifies that on Pro
@@ -68,14 +68,15 @@ func TestCreateNotificationChannel_ProTier_BlocksAtCap(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "5 notification channels") || !strings.Contains(body, "have 5") {
-		t.Errorf("error message must report cap and current count, got: %s", body)
-	}
+	assert.False(
+		t, !strings.Contains(body, "5 notification channels") || !strings.Contains(body,
+
+			"have 5"))
 }
 
 // TestCreateNotificationChannel_ProTier_BelowCap_Succeeds verifies that 4
@@ -97,10 +98,9 @@ func TestCreateNotificationChannel_ProTier_BelowCap_Succeeds(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
 }
 
 // TestCreateNotificationChannel_EnterpriseUnlimited_NoCountLookup confirms
@@ -124,13 +124,11 @@ func TestCreateNotificationChannel_EnterpriseUnlimited_NoCountLookup(t *testing.
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := countCalls.Load(); got != 0 {
-		t.Errorf("CountNotificationChannelsByProject called %d times for unlimited tier; want 0", got)
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
+	assert.EqualValues(t, 0, countCalls.
+		Load())
 }
 
 // TestCreateNotificationChannel_NilEnforcer_FailsOpen confirms that the
@@ -149,10 +147,9 @@ func TestCreateNotificationChannel_NilEnforcer_FailsOpen(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("nil enforcer must fail open; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
 }
 
 // TestCreateNotificationChannel_CountQueryFails_FailsClosed ensures a transient
@@ -174,8 +171,8 @@ func TestCreateNotificationChannel_CountQueryFails_FailsClosed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/notification-channels", validChannelBody(), "proj-1"))
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("count failure must fail closed; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusServiceUnavailable,
+		w.Code,
+	)
 }

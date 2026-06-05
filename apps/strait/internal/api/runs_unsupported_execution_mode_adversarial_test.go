@@ -4,10 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateJob_UnsupportedExecutionMode_Rejected asserts that unsupported
@@ -32,14 +33,13 @@ func TestCreateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for unsupported execution_mode, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "ExecutionMode")
+
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
-	if !strings.Contains(w.Body.String(), "ExecutionMode") {
-		t.Fatalf("expected ExecutionMode validation error in response body, got: %s", w.Body.String())
-	}
 }
 
 // TestUpdateJob_UnsupportedExecutionMode_Rejected asserts that unsupported
@@ -68,12 +68,11 @@ func TestUpdateJob_UnsupportedExecutionMode_Rejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for unsupported execution_mode on update, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "ExecutionMode")
+
 	// The oneof validation tag rejects unrecognised execution modes with a validation_error.
-	if !strings.Contains(w.Body.String(), "ExecutionMode") {
-		t.Fatalf("expected ExecutionMode validation error in response body, got: %s", w.Body.String())
-	}
 }

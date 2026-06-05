@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRedisRateLimiterAllow_NilClientFailOpen(t *testing.T) {
@@ -17,19 +18,18 @@ func TestRedisRateLimiterAllow_NilClientFailOpen(t *testing.T) {
 
 	limiter := NewRedisRateLimiter(nil, true)
 	result, err := limiter.Allow(t.Context(), "key", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when redis client is nil")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when limiter is disabled")
+		require.Fail(t, "redis should not be called when limiter is disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -38,34 +38,33 @@ func TestRedisRateLimiterAllow_DisabledBypassesRedis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when limiter is disabled")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_EffectivelyUnlimitedBypassesRedis(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for effectively unlimited fail-open limits")
+		require.Fail(t, "redis should not be called for effectively unlimited fail-open limits")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
 
 	limiter := NewRedisRateLimiter(client, true)
 	result, err := limiter.Allow(t.Context(), "key", effectivelyUnlimitedRequests, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when limit is effectively unlimited")
-	}
-	if result.Remaining != effectivelyUnlimitedRequests {
-		t.Fatalf("Remaining = %d, want %d", result.Remaining, effectivelyUnlimitedRequests)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, effectivelyUnlimitedRequests,
+
+		result.Remaining,
+	)
 }
 
 func TestRedisRateLimiterAllow_EffectivelyUnlimitedDailyWindowStillUsesRedis(t *testing.T) {
@@ -84,15 +83,13 @@ func TestRedisRateLimiterAllow_EffectivelyUnlimitedDailyWindowStillUsesRedis(t *
 
 	limiter := NewRedisRateLimiter(client, true)
 	result, err := limiter.Allow(t.Context(), "key", effectivelyUnlimitedRequests, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed")
-	}
-	if calls != 1 {
-		t.Fatalf("redis calls = %d, want 1", calls)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 1,
+		calls)
 }
 
 func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
@@ -136,34 +133,31 @@ func TestRedisRateLimiterAllow_EnforcesLimit(t *testing.T) {
 	defer cancel()
 
 	result, err := limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected first request to be allowed")
-	}
-	if result.Remaining != 1 {
-		t.Fatalf("expected remaining=1, got %d", result.Remaining)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 1,
+		result.Remaining,
+	)
 
 	result, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected second request to be allowed")
-	}
-	if result.Remaining != 0 {
-		t.Fatalf("expected remaining=0, got %d", result.Remaining)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 0,
+		result.Remaining,
+	)
 
 	result, err = limiter.Allow(ctx, "rate:user:1", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Allowed {
-		t.Fatal("expected third request to be rejected")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
@@ -178,19 +172,18 @@ func TestRedisRateLimiterAllow_RedisErrorFailsOpen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected fail-open behavior on redis error")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_ZeroLimit_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero limit")
+		require.Fail(t, "redis should not be called for zero limit")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -199,19 +192,18 @@ func TestRedisRateLimiterAllow_ZeroLimit_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 0, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when limit is zero")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_ZeroWindow_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero window")
+		require.Fail(t, "redis should not be called for zero window")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -220,12 +212,11 @@ func TestRedisRateLimiterAllow_ZeroWindow_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.Allow(ctx, "key", 10, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when window is zero")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
@@ -270,21 +261,18 @@ func TestRedisRateLimiterAllow_DifferentKeys_Independent(t *testing.T) {
 
 	// Key A: allow 1 request.
 	r1, _ := limiter.Allow(ctx, "rl:apikey:A", 1, time.Minute)
-	if !r1.Allowed {
-		t.Fatal("key A first request should be allowed")
-	}
+	require.True(t, r1.
+		Allowed)
 
 	// Key A: second request should be rejected.
 	r2, _ := limiter.Allow(ctx, "rl:apikey:A", 1, time.Minute)
-	if r2.Allowed {
-		t.Fatal("key A second request should be rejected")
-	}
+	require.False(t, r2.
+		Allowed)
 
 	// Key B: first request should be allowed (independent counter).
 	r3, _ := limiter.Allow(ctx, "rl:apikey:B", 1, time.Minute)
-	if !r3.Allowed {
-		t.Fatal("key B first request should be allowed (independent from key A)")
-	}
+	require.True(t, r3.
+		Allowed)
 }
 
 func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
@@ -299,16 +287,14 @@ func TestRedisRateLimiterAllowStrict_RedisErrorFailsClosed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, err := limiter.AllowStrict(ctx, "key", 1, time.Minute)
-	if err == nil {
-		t.Fatal("expected error on Redis failure, got nil (fail-closed)")
-	}
+	require.Error(t, err)
 }
 
 func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero limit in AllowStrict")
+		require.Fail(t, "redis should not be called for zero limit in AllowStrict")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -317,12 +303,11 @@ func TestRedisRateLimiterAllowStrict_ZeroLimit_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.AllowStrict(ctx, "key", 0, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when limit is zero")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_EffectivelyUnlimitedStillUsesRedis(t *testing.T) {
@@ -341,22 +326,20 @@ func TestRedisRateLimiterAllowStrict_EffectivelyUnlimitedStillUsesRedis(t *testi
 
 	limiter := NewRedisRateLimiter(client, true)
 	result, err := limiter.AllowStrict(t.Context(), "key", effectivelyUnlimitedRequests, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed")
-	}
-	if calls != 1 {
-		t.Fatalf("redis calls = %d, want 1", calls)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 1,
+		calls)
 }
 
 func TestRedisRateLimiterAllowStrict_ZeroWindow_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for zero window in AllowStrict")
+		require.Fail(t, "redis should not be called for zero window in AllowStrict")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -365,19 +348,18 @@ func TestRedisRateLimiterAllowStrict_ZeroWindow_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.AllowStrict(ctx, "key", 10, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when window is zero")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_NegativeLimit_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for negative limit in AllowStrict")
+		require.Fail(t, "redis should not be called for negative limit in AllowStrict")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -386,19 +368,18 @@ func TestRedisRateLimiterAllowStrict_NegativeLimit_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.AllowStrict(ctx, "key", -5, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when limit is negative")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_NegativeWindow_Allowed(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for negative window in AllowStrict")
+		require.Fail(t, "redis should not be called for negative window in AllowStrict")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -407,12 +388,11 @@ func TestRedisRateLimiterAllowStrict_NegativeWindow_Allowed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.AllowStrict(ctx, "key", 10, -time.Second)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when window is negative")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_NilClient_FailOpen(t *testing.T) {
@@ -420,22 +400,21 @@ func TestRedisRateLimiterAllowStrict_NilClient_FailOpen(t *testing.T) {
 
 	limiter := NewRedisRateLimiter(nil, true)
 	result, err := limiter.AllowStrict(t.Context(), "key", 10, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when client is nil")
-	}
-	if result.Remaining != 10 {
-		t.Fatalf("expected remaining=10, got %d", result.Remaining)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
+	require.Equal(t, 10,
+		result.Remaining,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_Disabled_FailOpen(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when disabled")
+		require.Fail(t, "redis should not be called when disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -444,12 +423,11 @@ func TestRedisRateLimiterAllowStrict_Disabled_FailOpen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result, err := limiter.AllowStrict(ctx, "key", 10, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !result.Allowed {
-		t.Fatal("expected allowed when disabled")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, result.
+		Allowed,
+	)
 }
 
 func TestRedisRateLimiterAllowStrict_ShortResult_Error(t *testing.T) {
@@ -468,9 +446,7 @@ func TestRedisRateLimiterAllowStrict_ShortResult_Error(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, err := limiter.AllowStrict(ctx, "key", 10, time.Minute)
-	if err == nil {
-		t.Fatal("expected error for short script response")
-	}
+	require.Error(t, err)
 }
 
 func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
@@ -499,26 +475,20 @@ func TestRedisRateLimiterAllowStrict_EnforcesLimit(t *testing.T) {
 	defer cancel()
 
 	r1, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !r1.Allowed {
-		t.Fatal("first request should be allowed")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, r1.
+		Allowed)
 
 	r2, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !r2.Allowed {
-		t.Fatal("second request should be allowed")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, r2.
+		Allowed)
 
 	r3, err := limiter.AllowStrict(ctx, "key", 2, time.Minute)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if r3.Allowed {
-		t.Fatal("third request should be rejected")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, r3.
+		Allowed)
 }

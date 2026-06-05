@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestHTTPProtocol_CRLFInjectionInHeaders verifies that CRLF sequences in
@@ -21,17 +23,13 @@ func TestHTTPProtocol_CRLFInjectionInHeaders(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.Empty(t, rec.Header().Get("Evil-Header"))
 
 	// The response must never contain an Evil-Header that was injected via CRLF.
-	if rec.Header().Get("Evil-Header") != "" {
-		t.Fatal("CRLF injection succeeded: Evil-Header found in response")
-	}
 
 	// Also scan raw header keys for the injected header.
 	for key := range rec.Header() {
-		if strings.EqualFold(key, "Evil-Header") {
-			t.Fatalf("CRLF injection succeeded: found header key %q", key)
-		}
+		require.False(t, strings.EqualFold(key, "Evil-Header"))
 	}
 }
 
@@ -71,11 +69,10 @@ func TestHTTPProtocol_ExtremelyLargeHeaderValue(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.NotEqual(t, 0,
+		rec.Code)
 
 	// Any non-panic response is a pass.
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
 }
 
 // TestHTTPProtocol_ContentLengthMismatch sends a request where Content-Length
@@ -93,11 +90,10 @@ func TestHTTPProtocol_ContentLengthMismatch(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.NotEqual(t, 0,
+		rec.Code)
 
 	// The server should respond with an error or handle it gracefully.
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
 }
 
 // TestHTTPProtocol_DuplicateContentType sends a request with two Content-Type
@@ -114,10 +110,8 @@ func TestHTTPProtocol_DuplicateContentType(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
+	require.NotEqual(t, 0,
+		rec.Code)
 }
 
 // TestHTTPProtocol_MissingContentTypeOnPOST sends a POST request with a JSON
@@ -133,11 +127,10 @@ func TestHTTPProtocol_MissingContentTypeOnPOST(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.NotEqual(t, 0,
+		rec.Code)
 
 	// The server should return a client error or handle gracefully.
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
 }
 
 // TestHTTPProtocol_ChunkedZeroLength sends a request with Transfer-Encoding
@@ -154,10 +147,8 @@ func TestHTTPProtocol_ChunkedZeroLength(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
+	require.NotEqual(t, 0,
+		rec.Code)
 }
 
 // TestHTTPProtocol_UnexpectedMethods sends OPTIONS, TRACE, and CONNECT to
@@ -177,11 +168,11 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			srv.ServeHTTP(rec, req)
+			require.NotEqual(t, http.
+				StatusOK, rec.Code,
+			)
 
 			// TRACE and CONNECT should not return 200 OK.
-			if rec.Code == http.StatusOK {
-				t.Fatalf("%s returned 200 OK, expected rejection", method)
-			}
 		})
 	}
 
@@ -195,10 +186,8 @@ func TestHTTPProtocol_UnexpectedMethods(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
-
-		if rec.Code == 0 {
-			t.Fatal("expected a valid HTTP status code for OPTIONS")
-		}
+		require.NotEqual(t, 0,
+			rec.Code)
 	})
 }
 
@@ -215,11 +204,10 @@ func TestHTTPProtocol_VeryLongURLPath(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.NotEqual(t, 0,
+		rec.Code)
 
 	// Any status is acceptable as long as the server did not panic.
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
 }
 
 // TestHTTPProtocol_MassiveQueryParameters sends a GET request with 10000 query
@@ -243,10 +231,8 @@ func TestHTTPProtocol_MassiveQueryParameters(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
-
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
+	require.NotEqual(t, 0,
+		rec.Code)
 }
 
 // TestHTTPProtocol_BodyOnGETRequest sends a GET request with a body and
@@ -262,11 +248,10 @@ func TestHTTPProtocol_BodyOnGETRequest(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
+	require.NotEqual(t, 0,
+		rec.Code)
 
 	// The server should process the GET normally and ignore the body.
-	if rec.Code == 0 {
-		t.Fatal("expected a valid HTTP status code")
-	}
 }
 
 // TestHTTPProtocol_KeepAliveAbuse sends 100 sequential requests to the same
@@ -280,14 +265,12 @@ func TestHTTPProtocol_KeepAliveAbuse(t *testing.T) {
 	runtime.GC()
 	baseline := runtime.NumGoroutine()
 
-	for i := range 100 {
+	for range 100 {
 		req := authedRequest(http.MethodGet, "/v1/jobs", "")
 		rec := httptest.NewRecorder()
 		srv.ServeHTTP(rec, req)
-
-		if rec.Code == 0 {
-			t.Fatalf("request %d returned status 0", i)
-		}
+		require.NotEqual(t, 0,
+			rec.Code)
 	}
 
 	runtime.GC()
@@ -297,7 +280,6 @@ func TestHTTPProtocol_KeepAliveAbuse(t *testing.T) {
 	// growing unboundedly (e.g. 100 leaked goroutines would indicate a
 	// problem).
 	growth := after - baseline
-	if growth > 50 {
-		t.Fatalf("goroutine count grew by %d (baseline=%d, after=%d); possible leak", growth, baseline, after)
-	}
+	require.LessOrEqual(t,
+		growth, 50)
 }

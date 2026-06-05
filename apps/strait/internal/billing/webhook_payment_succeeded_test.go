@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // invoice.paid must dispatch billing.payment_succeeded when the org was
@@ -45,9 +48,9 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 		AmountPaid: 1234,
 	})
 	rr := fireWebhook(t, h, "invoice.paid", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
 	var count int
 	var captured fakeDispatchCall
@@ -57,35 +60,35 @@ func TestHandlePaymentSucceeded_DispatchesPaymentSucceeded_OnRecovery(t *testing
 			captured = c
 		}
 	}
-	if count != 1 {
-		t.Fatalf("billing.payment_succeeded dispatched %d times, want 1; saw event types %v", count, dispatchedEventTypes(d))
-	}
-	if captured.orgID != orgID {
-		t.Errorf("dispatched org_id = %q, want %q", captured.orgID, orgID)
-	}
+	require.Equal(t, 1, count)
+	assert.Equal(t, orgID,
+		captured.orgID,
+	)
 
 	var env BillingEventEnvelope
-	if err := json.Unmarshal(captured.payload, &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v", err)
-	}
-	if env.OrgID != orgID {
-		t.Errorf("env.org_id = %q, want %q", env.OrgID, orgID)
-	}
-	if env.PlanTier != "pro" {
-		t.Errorf("env.plan_tier = %q, want pro", env.PlanTier)
-	}
+	require.NoError(t, json.
+		Unmarshal(captured.
+			payload,
+			&env))
+	assert.Equal(t, orgID,
+		env.OrgID)
+	assert.Equal(t, "pro",
+		env.PlanTier,
+	)
+
 	detail := env.Detail
 	for _, key := range []string{"stripe_invoice_id", "stripe_subscription_id", "plan_tier", "paid_at"} {
 		if _, ok := detail[key]; !ok {
-			t.Errorf("detail missing %q; got %v", key, detail)
+			assert.Failf(t, "test failure",
+
+				"detail missing %q; got %v", key, detail)
 		}
 	}
-	if detail["stripe_invoice_id"] != "in_recover_1" {
-		t.Errorf("detail.stripe_invoice_id = %v, want in_recover_1", detail["stripe_invoice_id"])
-	}
-	if detail["amount_paid_microusd"] != float64(12_340_000) {
-		t.Errorf("detail.amount_paid_microusd = %v, want 12340000", detail["amount_paid_microusd"])
-	}
+	assert.Equal(t, "in_recover_1",
+		detail["stripe_invoice_id"])
+	assert.InDelta(t, float64(12_340_000),
+		detail["amount_paid_microusd"], 1e-9,
+	)
 }
 
 // When the org is already ok (routine renewal payment), no dispatch fires —
@@ -120,14 +123,17 @@ func TestHandlePaymentSucceeded_NoDispatch_WhenAlreadyOK(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	})
 	rr := fireWebhook(t, h, "invoice.paid", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 
 	for _, c := range d.calls {
-		if c.eventType == domain.WebhookEventBillingPaymentSucceeded {
-			t.Fatalf("did not expect billing.payment_succeeded on routine renewal; saw event types %v", dispatchedEventTypes(d))
-		}
+		require.NotEqual(t, domain.
+			WebhookEventBillingPaymentSucceeded,
+
+			c.
+				eventType,
+		)
 	}
 }
 
@@ -164,7 +170,7 @@ func TestHandlePaymentSucceeded_NoEnforcer_DoesNotPanic(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	})
 	rr := fireWebhook(t, h, "invoice.paid", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
 }

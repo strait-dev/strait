@@ -21,6 +21,8 @@ import (
 	"strait/internal/worker"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSTR526CreateJobWebhookSecretPersistsEncryptedSigningSecret(t *testing.T) {
@@ -37,9 +39,11 @@ func TestSTR526CreateJobWebhookSecretPersistsEncryptedSigningSecret(t *testing.T
 	}`, projectID, "str526-create-"+newID(), secret)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	resp := mustDecodeObject(t, w)
 	jobID := asString(t, resp, "id")
 
@@ -63,9 +67,11 @@ func TestSTR526CreateJobWebhookSecretWinsOverEndpointSigningSecret(t *testing.T)
 	}`, projectID, "str526-conflict-"+newID(), endpointSecret, webhookSecret)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	resp := mustDecodeObject(t, w)
 
 	requirePersistedEndpointSigningSecret(t, asString(t, resp, "id"), webhookSecret)
@@ -98,18 +104,16 @@ func TestSTR526BatchCreateJobsPersistsWebhookSecretAlias(t *testing.T) {
 	]}`, projectID, endpointSlug, endpointSecret, projectID, webhookSlug, webhookSecret)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/batch", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("batch create status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	endpointJob, err := testStore.GetJobBySlug(context.Background(), projectID, endpointSlug)
-	if err != nil {
-		t.Fatalf("get endpoint job by slug: %v", err)
-	}
+	require.NoError(t, err)
+
 	webhookJob, err := testStore.GetJobBySlug(context.Background(), projectID, webhookSlug)
-	if err != nil {
-		t.Fatalf("get webhook job by slug: %v", err)
-	}
+	require.NoError(t, err)
 
 	requirePersistedEndpointSigningSecret(t, endpointJob.ID, endpointSecret)
 	requirePersistedEndpointSigningSecret(t, webhookJob.ID, webhookSecret)
@@ -130,16 +134,18 @@ func TestSTR526UpdateJobWebhookSecretRotatesPersistedSigningSecret(t *testing.T)
 	}`, projectID, "str526-update-"+newID(), initialSecret)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	patchBody := fmt.Sprintf(`{"webhook_secret": %q}`, rotatedSecret)
 	w = doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", patchBody, projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("update job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	requirePersistedEndpointSigningSecret(t, jobID, rotatedSecret)
 }
@@ -172,20 +178,26 @@ func TestSTR526HTTPExecutorSignsDispatchCreatedWithWebhookSecret(t *testing.T) {
 		"webhook_secret": %q
 	}`, projectID, "str526-http-dispatch-"+newID(), secret)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", createBody, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	if _, err := testEnv.DB.Pool.Exec(ctx, `UPDATE jobs SET endpoint_url = $1 WHERE id = $2`, sdkServer.URL, jobID); err != nil {
-		t.Fatalf("replace endpoint_url with test server: %v", err)
+		require.Failf(t, "test failure",
+
+			"replace endpoint_url with test server: %v", err)
 	}
 
 	triggerBody := fmt.Sprintf(`{"payload": %s}`, payload)
 	w = doRequest(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger", triggerBody, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("trigger job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	execCtx, cancel := context.WithCancel(ctx)
@@ -209,25 +221,31 @@ func TestSTR526HTTPExecutorSignsDispatchCreatedWithWebhookSecret(t *testing.T) {
 	t.Cleanup(func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		if err := exec.Shutdown(shutdownCtx); err != nil {
-			t.Fatalf("shutdown executor: %v", err)
-		}
+		require.NoError(t, exec.
+			Shutdown(shutdownCtx))
+
 	})
 
 	select {
 	case req := <-received:
 		if req.Header.Get("X-Strait-Timestamp") == "" {
-			t.Fatal("missing X-Strait-Timestamp")
+			require.Fail(t,
+
+				"missing X-Strait-Timestamp")
 		}
 		if sig := req.Header.Get("X-Strait-Signature"); !strings.HasPrefix(sig, "v1=") {
-			t.Fatalf("X-Strait-Signature = %q, want v1= prefix", sig)
+			require.Failf(t, "test failure",
+
+				"X-Strait-Signature = %q, want v1= prefix", sig)
 		}
 	case <-time.After(10 * time.Second):
 		run, err := testStore.GetRun(ctx, runID)
 		if err != nil {
-			t.Fatalf("timed out waiting for signed dispatch; get run: %v", err)
+			require.Failf(t, "test failure",
+
+				"timed out waiting for signed dispatch; get run: %v", err)
 		}
-		t.Fatalf("timed out waiting for signed dispatch; run status=%s error=%q", run.Status, run.Error)
+		require.Failf(t, "test failure", "timed out waiting for signed dispatch; run status=%s error=%q", run.Status, run.Error)
 	}
 }
 
@@ -251,40 +269,43 @@ func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T
 		"webhook_secret": %q
 	}`, projectID, "str526-worker-dispatch-"+newID(), queueName, secret)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", createBody, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create worker job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	triggerBody := fmt.Sprintf(`{"payload": %s}`, payload)
 	w = doRequest(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger", triggerBody, projectID)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("trigger worker job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	runID := asString(t, mustDecodeObject(t, w), "id")
 
 	workerID := "str526-worker-" + newID()
 	sendCh := make(chan *workerv1.ServerMessage, 2)
 	registry := grpcpkg.NewConnectionRegistry()
 	resultChannels := grpcpkg.NewResultChannelRegistry()
-	if err := registry.Register(&grpcpkg.ConnectedWorker{
-		WorkerID:       workerID,
-		ProjectID:      projectID,
-		APIKeyID:       "str526-api-key",
-		Queues:         []string{queueName},
-		SlotsTotal:     1,
-		SlotsAvailable: 1,
-		Status:         "active",
-		SendCh:         sendCh,
-	}); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
+	require.NoError(t, registry.
+		Register(&grpcpkg.
+			ConnectedWorker{WorkerID: workerID,
+			ProjectID: projectID,
+			APIKeyID:  "str526-api-key",
+
+			Queues: []string{queueName}, SlotsTotal: 1, SlotsAvailable: 1, Status: "active",
+			SendCh: sendCh}))
+
 	if _, err := testEnv.DB.Pool.Exec(ctx,
 		`INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		 VALUES ($1, $2, $3, 'test-host', '1.0', 'active', NOW(), NOW())`,
 		workerID, projectID, queueName,
 	); err != nil {
-		t.Fatalf("insert worker row: %v", err)
+		require.Failf(t, "test failure",
+
+			"insert worker row: %v", err)
 	}
 
 	dispatcher := grpcpkg.NewWorkerDispatcher(registry, store.New(testEnv.DB.Pool), "test-jwt-key", resultChannels).
@@ -298,40 +319,44 @@ func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T
 	concWG.Go(func() {
 		defer dispatchWG.Done()
 		run, err := testStore.GetRun(ctx, runID)
-		if err != nil {
-			t.Errorf("get run: %v", err)
-			return
-		}
+		assert.NoError(t, err)
+
 		job, err := testStore.GetJob(ctx, jobID)
-		if err != nil {
-			t.Errorf("get job: %v", err)
-			return
-		}
+		assert.NoError(t, err)
+
 		result, err := dispatcher.WorkerDispatch(dispatchCtx, run, job)
-		if err != nil {
-			t.Errorf("worker dispatch: %v", err)
-			return
-		}
-		if err := dispatcher.CompleteWorkerTask(ctx, result, domain.WorkerTaskStatusCompleted); err != nil {
-			t.Errorf("complete worker task: %v", err)
-		}
+		assert.NoError(t, err)
+		assert.NoError(t, dispatcher.
+			CompleteWorkerTask(ctx,
+				result,
+				domain.WorkerTaskStatusCompleted,
+			))
+
 	})
 
 	select {
 	case msg := <-sendCh:
 		assignmentMsg, ok := msg.Payload.(*workerv1.ServerMessage_TaskAssignment)
 		if !ok {
-			t.Fatalf("message payload = %T, want task assignment", msg.Payload)
+			require.Failf(t, "test failure",
+
+				"message payload = %T, want task assignment", msg.Payload)
 		}
 		assignment := assignmentMsg.TaskAssignment
 		if assignment.HmacTimestamp == "" {
-			t.Fatal("missing hmac_timestamp")
+			require.Fail(t,
+
+				"missing hmac_timestamp")
 		}
 		if assignment.HmacSignature == "" {
-			t.Fatal("missing hmac_signature")
+			require.Fail(t,
+
+				"missing hmac_signature")
 		}
 		if got, want := assignment.HmacSignature, worker.SignHTTPDispatch(secret, assignment.HmacTimestamp, assignment.PayloadJson); got != want {
-			t.Fatalf("hmac_signature = %q, want %q", got, want)
+			require.Failf(t, "test failure",
+
+				"hmac_signature = %q, want %q", got, want)
 		}
 		resultChannels.Send(runID, projectID, workerID, &workerv1.TaskResult{
 			RunId:        runID,
@@ -340,7 +365,7 @@ func TestSTR526WorkerAssignmentSignsPayloadCreatedWithWebhookSecret(t *testing.T
 			Attempt:      assignment.Attempt,
 		})
 	case <-dispatchCtx.Done():
-		t.Fatal("timed out waiting for task assignment")
+		require.Fail(t, "timed out waiting for task assignment")
 	}
 	dispatchWG.Wait()
 }
@@ -349,36 +374,39 @@ func requirePersistedEndpointSigningSecret(t *testing.T, jobID, want string) {
 	t.Helper()
 
 	job, err := testStore.GetJob(context.Background(), jobID)
-	if err != nil {
-		t.Fatalf("get job: %v", err)
-	}
-	if job.EndpointSigningSecret == "" {
-		t.Fatal("endpoint_signing_secret was not persisted")
-	}
-	if job.EndpointSigningSecret == want {
-		t.Fatal("endpoint_signing_secret was persisted in plaintext")
-	}
-	if !straitcrypto.IsEncryptedField(job.EndpointSigningSecret) {
-		t.Fatalf("endpoint_signing_secret = %q, want encrypted field", job.EndpointSigningSecret)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "",
+
+		job.EndpointSigningSecret,
+	)
+	require.NotEqual(t, want,
+
+		job.EndpointSigningSecret,
+	)
+	require.True(t, straitcrypto.
+		IsEncryptedField(job.
+			EndpointSigningSecret,
+		))
 
 	got, err := straitcrypto.DecryptField(newSTR526Encryptor(t), job.EndpointSigningSecret)
-	if err != nil {
-		t.Fatalf("decrypt endpoint_signing_secret: %v", err)
-	}
-	if got != want {
-		t.Fatalf("decrypted endpoint_signing_secret = %q, want %q", got, want)
-	}
-	if job.WebhookSecret != "" {
-		t.Fatalf("legacy webhook_secret column = %q, want empty; dispatch signing must use endpoint_signing_secret", job.WebhookSecret)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want,
+
+		got)
+	require.Equal(t, "",
+		job.
+			WebhookSecret,
+	)
+
 }
 
 func requireCreateResponseDoesNotLeakSigningSecret(t *testing.T, resp map[string]any) {
 	t.Helper()
 	for _, key := range []string{"endpoint_signing_secret", "webhook_secret"} {
 		if _, ok := resp[key]; ok {
-			t.Fatalf("create response leaked %s: %#v", key, resp[key])
+			require.Failf(t, "test failure",
+
+				"create response leaked %s: %#v", key, resp[key])
 		}
 	}
 }
@@ -386,8 +414,7 @@ func requireCreateResponseDoesNotLeakSigningSecret(t *testing.T, resp map[string
 func newSTR526Encryptor(t *testing.T) *straitcrypto.KeyRotator {
 	t.Helper()
 	enc, err := straitcrypto.NewKeyRotatorFromStrings(testEncryptionKey)
-	if err != nil {
-		t.Fatalf("new key rotator: %v", err)
-	}
+	require.NoError(t, err)
+
 	return enc
 }

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // auditActionReferenceAllowlist lists AuditAction* constants that are NOT
@@ -50,16 +52,13 @@ func TestEveryAuditActionConstHasCallSite(t *testing.T) {
 	t.Parallel()
 
 	apiDir, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
+
 	// apiDir = .../apps/strait/internal/api — walk up to apps/strait.
 	straitRoot := filepath.Clean(filepath.Join(apiDir, "..", ".."))
 
 	defined := collectAuditActionConsts(t, filepath.Join(straitRoot, "internal", "domain", "audit_actions.go"))
-	if len(defined) == 0 {
-		t.Fatal("no AuditAction* constants found in internal/domain/audit_actions.go — parser broken?")
-	}
+	require.NotEmpty(t, defined)
 
 	scanFiles := []string{
 		filepath.Join(straitRoot, "internal", "store", "audit_events.go"),
@@ -68,9 +67,8 @@ func TestEveryAuditActionConstHasCallSite(t *testing.T) {
 	}
 	// Add every non-test .go in internal/api.
 	apiEntries, err := os.ReadDir(apiDir)
-	if err != nil {
-		t.Fatalf("read api dir: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, e := range apiEntries {
 		if e.IsDir() {
 			continue
@@ -86,12 +84,13 @@ func TestEveryAuditActionConstHasCallSite(t *testing.T) {
 	fset := token.NewFileSet()
 	for _, path := range scanFiles {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("stat %s: %v", path, err)
+			require.Failf(t, "test failure",
+
+				"stat %s: %v", path, err)
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatalf("parse %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		ast.Inspect(file, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
 			if !ok {
@@ -140,7 +139,9 @@ func TestEveryAuditActionConstHasCallSite(t *testing.T) {
 	b.WriteString("\neither add an emitAuditEventAsync/CreateAuditEvent call using the const, ")
 	b.WriteString("or (if the action is emitted from a file outside the scanned set) add it ")
 	b.WriteString("to auditActionReferenceAllowlist with a documented reason.\n")
-	t.Fatal(b.String())
+	require.Fail(t,
+
+		b.String())
 }
 
 // collectAuditActionConsts parses audit_actions.go and returns the set of
@@ -149,9 +150,8 @@ func collectAuditActionConsts(t *testing.T, path string) map[string]struct{} {
 	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
+	require.NoError(t, err)
+
 	out := map[string]struct{}{}
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)

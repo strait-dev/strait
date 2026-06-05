@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Fuzz targets that live in the worker package because they
@@ -39,9 +41,10 @@ func FuzzAdaptivePollBounds(f *testing.F) {
 		if minD > maxD {
 			minD = maxD
 		}
-		if d < minD || d > maxD {
-			t.Errorf("interval %v outside [%v, %v]", d, minD, maxD)
-		}
+		assert.False(t,
+			d < minD ||
+				d > maxD,
+		)
 	})
 }
 
@@ -70,12 +73,14 @@ func FuzzDLQCapInvariant(f *testing.F) {
 				s.perProject["p"] = depth
 			}
 		}
-		if perJob > 0 && depth > perJob {
-			t.Errorf("depth %d > perJob cap %d", depth, perJob)
-		}
-		if perProject > 0 && depth > perProject {
-			t.Errorf("depth %d > perProject cap %d", depth, perProject)
-		}
+		assert.False(t,
+			perJob > 0 &&
+				depth >
+					perJob)
+		assert.False(t,
+			perProject >
+				0 && depth >
+				perProject)
 	})
 }
 
@@ -91,8 +96,7 @@ func FuzzRetryBackoffNeverNegative(f *testing.F) {
 			return
 		}
 		delay := NextRetryDelayWithPolicy(attempt, domain.RetryBackoffExponential, initialSec, maxSec)
-		if delay < 0 {
-			t.Errorf("negative delay: %v", delay)
-		}
+		assert.GreaterOrEqual(t, delay,
+			time.Duration(0))
 	})
 }

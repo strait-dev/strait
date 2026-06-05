@@ -3,6 +3,8 @@ package loadtest
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEvaluateQueueBloatGate_PassesBloatFirstCandidate(t *testing.T) {
@@ -49,10 +51,9 @@ func TestEvaluateQueueBloatGate_PassesBloatFirstCandidate(t *testing.T) {
 			MinHOTUpdateRatio: 0.75,
 		}},
 	})
-
-	if !result.Passed {
-		t.Fatalf("gate failed: %v", result.Failures)
-	}
+	require.True(t, result.
+		Passed,
+	)
 }
 
 func TestEvaluateQueueBloatGate_FailsWALAndBloatRegression(t *testing.T) {
@@ -78,13 +79,11 @@ func TestEvaluateQueueBloatGate_FailsWALAndBloatRegression(t *testing.T) {
 			MaxDeadTupleRatio: 0.10,
 		}},
 	})
-
-	if result.Passed {
-		t.Fatal("gate passed, want failure")
-	}
-	if len(result.Failures) < 4 {
-		t.Fatalf("failures = %v, want duplicate, latency, WAL, and bloat failures", result.Failures)
-	}
+	require.False(t, result.
+		Passed,
+	)
+	require.GreaterOrEqual(t,
+		len(result.Failures), 4)
 }
 
 func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
@@ -115,19 +114,17 @@ func TestEvaluateQueueBloatGate_FailsLowHOTRatio(t *testing.T) {
 			MinHOTUpdateRatio: 0.50,
 		}},
 	})
+	require.False(t, result.
+		Passed,
+	)
 
-	if result.Passed {
-		t.Fatal("gate passed, want low HOT ratio failure")
-	}
 	found := false
 	for _, failure := range result.Failures {
 		if failure == "job_run_state HOT update ratio = 0.1000, min 0.5000" {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("failures = %v, want HOT ratio failure", result.Failures)
-	}
+	require.True(t, found)
 }
 
 func TestEvaluateQueueBloatGate_FailsMissingRequiredRelation(t *testing.T) {
@@ -155,19 +152,17 @@ func TestEvaluateQueueBloatGate_FailsMissingRequiredRelation(t *testing.T) {
 			MaxDeadTupleRatio: 0.05,
 		}},
 	})
+	require.False(t, result.
+		Passed,
+	)
 
-	if result.Passed {
-		t.Fatal("gate passed, want missing relation failure")
-	}
 	found := false
 	for _, failure := range result.Failures {
 		if failure == "missing relation delta for strait_pgque_ready_events" {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("failures = %v, want missing pgque ready-event relation failure", result.Failures)
-	}
+	require.True(t, found)
 }
 
 func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
@@ -195,17 +190,15 @@ func TestEvaluateQueueBloatGate_FailsLogicalSlotWALRegression(t *testing.T) {
 		RequireWALImprovement:            true,
 		RequireLogicalSlotWALImprovement: true,
 	})
+	require.False(t, result.
+		Passed,
+	)
 
-	if result.Passed {
-		t.Fatal("gate passed, want logical slot WAL failure")
-	}
 	found := false
 	for _, failure := range result.Failures {
 		if failure == "logical slot retained WAL delta = +1000, want improvement below baseline" {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("failures = %v, want logical slot WAL failure", result.Failures)
-	}
+	require.True(t, found)
 }

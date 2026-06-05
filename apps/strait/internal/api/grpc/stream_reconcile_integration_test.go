@@ -10,6 +10,8 @@ import (
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestIntegration_Reconcile_CompletedUpdatesWorkerTask asserts that
@@ -28,26 +30,33 @@ func TestIntegration_Reconcile_CompletedUpdatesWorkerTask(t *testing.T) {
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker_tasks not transitioned: got %q, want completed", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		got.
+			Status)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusCompleted {
-		t.Fatalf("run not transitioned: got %q, want completed", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusCompleted,
+
+		run.Status)
+
 	var result map[string]bool
-	if err := json.Unmarshal(run.Result, &result); err != nil {
-		t.Fatalf("unmarshal run result: %v", err)
-	}
-	if !result["recovered"] {
-		t.Fatalf("run result = %s, want in-flight output_json", string(run.Result))
-	}
+	require.NoError(t,
+
+		json.Unmarshal(run.
+			Result, &result))
+	require.True(t, result["recovered"])
+
 }
 
 // TestIntegration_Reconcile_FailedUpdatesWorkerTask asserts the failed/abandoned
@@ -65,12 +74,16 @@ func TestIntegration_Reconcile_FailedUpdatesWorkerTask(t *testing.T) {
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker_tasks not transitioned: got %q, want failed", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		got.Status,
+	)
+
 }
 
 func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
@@ -84,28 +97,41 @@ func TestIntegration_Reconcile_CompletedUsesRunFinalizer(t *testing.T) {
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":true}`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+	require.Len(t, finalizer.
+		calls,
+		1)
 
-	if len(finalizer.calls) != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
-	}
 	call := finalizer.calls[0]
-	if call.runID != runID || call.status != "success" || string(call.output) != `{"recovered":true}` {
-		t.Fatalf("unexpected finalizer call: %+v", call)
-	}
+	require.False(t,
+		call.
+			runID !=
+			runID ||
+			call.status !=
+				"success" ||
+
+			string(call.output) != `{"recovered":true}`)
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker task status = %q, want completed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		task.
+			Status)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+
 }
 
 func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T) {
@@ -119,21 +145,32 @@ func TestIntegration_Reconcile_InvalidCompletedOutputRoutesFailure(t *testing.T)
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "completed", OutputJson: []byte(`{"recovered":`)}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+	require.Len(t, finalizer.
+		calls,
+		1)
 
-	if len(finalizer.calls) != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
-	}
 	call := finalizer.calls[0]
-	if call.runID != runID || call.status != "failed" || call.errorMessage != invalidWorkerOutputError || call.output != nil {
-		t.Fatalf("unexpected finalizer call for invalid output: %+v", call)
-	}
+	require.False(t,
+		call.
+			runID !=
+			runID ||
+			call.status !=
+				"failed" ||
+
+			call.errorMessage != invalidWorkerOutputError || call.
+			output != nil)
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker task status = %q, want failed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		task.Status,
+	)
+
 }
 
 func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
@@ -147,28 +184,41 @@ func TestIntegration_Reconcile_FailedUsesRunFinalizer(t *testing.T) {
 
 	tasks := []*workerv1.InFlightTask{{RunId: runID, AssignmentId: taskID, Attempt: 1, Status: "failed", ErrorMessage: "boom"}}
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
+	require.Len(t, finalizer.
+		calls,
+		1)
 
-	if len(finalizer.calls) != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
-	}
 	call := finalizer.calls[0]
-	if call.runID != runID || call.status != "failed" || call.errorMessage != "boom" {
-		t.Fatalf("unexpected finalizer call: %+v", call)
-	}
+	require.False(t,
+		call.
+			runID !=
+			runID ||
+			call.status !=
+				"failed" ||
+
+			call.errorMessage != "boom")
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker task status = %q, want failed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		task.Status,
+	)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("reconcile should let finalizer own run transition, got %q", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+
 }
 
 // TestIntegration_Reconcile_OwnershipMismatchSkips guards the adversarial path:
@@ -187,19 +237,26 @@ func TestIntegration_Reconcile_OwnershipMismatchSkips(t *testing.T) {
 	svc.reconcileInFlightTasks(ctx, "impostor-worker", projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("ownership mismatch should not touch worker_task: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("ownership mismatch should not touch run: got %q", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+
 }
 
 func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.T) {
@@ -208,20 +265,21 @@ func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.
 
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, staleTaskID := seedRunWithTask(t, ctx, q, env)
-	if err := q.UpdateWorkerTaskStatus(ctx, staleTaskID, domain.WorkerTaskStatusFailed); err != nil {
-		t.Fatalf("mark stale task failed: %v", err)
-	}
+	require.NoError(t,
+
+		q.UpdateWorkerTaskStatus(ctx, staleTaskID,
+			domain.
+				WorkerTaskStatusFailed))
+
 	const currentTaskID = "task-current-assignment"
-	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
-		ID:        currentTaskID,
-		WorkerID:  workerID,
-		ProjectID: projectID,
-		RunID:     runID,
-		Attempt:   2,
-		Status:    domain.WorkerTaskStatusAssigned,
-	}); err != nil {
-		t.Fatalf("create current task: %v", err)
-	}
+	require.NoError(t,
+
+		q.CreateWorkerTask(
+			ctx, &domain.WorkerTask{ID: currentTaskID,
+				WorkerID: workerID, ProjectID: projectID,
+				RunID: runID, Attempt: 2, Status: domain.WorkerTaskStatusAssigned,
+			}))
+
 	svc := fallbackService(q)
 
 	tasks := []*workerv1.InFlightTask{{
@@ -234,19 +292,26 @@ func TestIntegration_Reconcile_StaleAssignmentReplaySkipsCurrentTask(t *testing.
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	current, err := q.GetWorkerTask(ctx, currentTaskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask current: %v", err)
-	}
-	if current.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("stale replay changed current worker_task: got %q, want assigned", current.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		current.
+			Status)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("stale replay changed run: got %q, want executing", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+
 }
 
 // TestIntegration_Reconcile_UnknownStatusIgnored asserts that a malformed
@@ -264,12 +329,16 @@ func TestIntegration_Reconcile_UnknownStatusIgnored(t *testing.T) {
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("unknown status should not transition worker_task: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_Reconcile_NilAndEmptyEntries asserts the loop tolerates
@@ -289,10 +358,14 @@ func TestIntegration_Reconcile_NilAndEmptyEntries(t *testing.T) {
 	svc.reconcileInFlightTasks(ctx, workerID, projectID, tasks)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("nil/empty entries should not affect state: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }

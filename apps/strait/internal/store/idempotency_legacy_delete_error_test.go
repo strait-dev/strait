@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeNoRowsRow returns pgx.ErrNoRows from Scan so the legacy path falls
@@ -66,22 +67,23 @@ func TestTryAcquireIdempotencyKeyLegacy_DeletePropagatesError(t *testing.T) {
 	q := New(db)
 
 	_, _, _, _, err := q.TryAcquireIdempotencyKey(context.Background(), "proj-1", "key-1", time.Minute)
-	if err == nil {
-		t.Fatal("expected error from delete, got nil")
-	}
-	if !errors.Is(err, rootCause) {
-		t.Fatalf("error chain does not include root cause: got %v", err)
-	}
-	if !strings.Contains(err.Error(), "delete expired idempotency key") {
-		t.Fatalf("error message missing context wrapper: got %q", err.Error())
-	}
+	require.Error(t,
+		err)
+	require.ErrorIs(t,
+		err, rootCause)
+	require.Contains(t,
+		err.
+			Error(), "delete expired idempotency key")
 
 	// Belt-and-suspenders: the function must NOT have attempted the retry
 	// insert after a failed delete — otherwise the original error semantics
 	// (broken connection masquerading as a transient conflict) creep back in.
 	for _, call := range db.calls {
-		if call == "insert" && len(db.calls) > 1 && db.calls[len(db.calls)-1] == "insert" {
-			t.Fatalf("retry insert was attempted after delete error: %v", db.calls)
-		}
+		require.False(t,
+			call ==
+				"insert" &&
+				len(db.calls) > 1 &&
+				db.calls[len(db.calls)-1] ==
+					"insert")
 	}
 }

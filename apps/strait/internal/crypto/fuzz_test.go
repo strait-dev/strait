@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzEncryptDecryptRoundTrip(f *testing.F) {
@@ -14,28 +16,18 @@ func FuzzEncryptDecryptRoundTrip(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, plaintext []byte) {
 		key := make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			t.Fatal(err)
-		}
+		_, err := rand.Read(key)
+		require.NoError(t, err)
 
 		enc, err := newEncryptorFromBytes(key)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		ciphertext, err := enc.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		decrypted, err := enc.Decrypt(ciphertext)
-		if err != nil {
-			t.Fatalf("Decrypt failed: %v", err)
-		}
-
-		if !bytes.Equal(plaintext, decrypted) {
-			t.Fatal("roundtrip mismatch")
-		}
+		require.NoError(t, err)
+		require.True(t, bytes.Equal(plaintext, decrypted))
 	})
 }
 
@@ -48,14 +40,11 @@ func FuzzDecryptMalformed(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		key := make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			t.Fatal(err)
-		}
+		_, err := rand.Read(key)
+		require.NoError(t, err)
 
 		enc, err := newEncryptorFromBytes(key)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		// Decrypting random bytes should return an error, never panic.
 		_, _ = enc.Decrypt(data)

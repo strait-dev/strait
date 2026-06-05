@@ -19,6 +19,8 @@ import (
 	"strait/internal/billing"
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -52,18 +54,16 @@ func buildSubscriptionCreatedEvent(t *testing.T, eventID, subID, customerID, pri
 		Metadata: map[string]string{"org_id": orgID},
 	}
 	rawSub, err := json.Marshal(sub)
-	if err != nil {
-		t.Fatalf("marshal subscription: %v", err)
-	}
+	require.NoError(t, err)
+
 	envelope := map[string]any{
 		"id":   eventID,
 		"type": "customer.subscription.created",
 		"data": map[string]any{"object": json.RawMessage(rawSub)},
 	}
 	body, err := json.Marshal(envelope)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
+	require.NoError(t, err)
+
 	return body
 }
 
@@ -92,16 +92,15 @@ func TestWebhookHandler_StripeReplayIdempotency(t *testing.T) {
 	eventID := "evt_integration_" + newID()
 	subID := "sub_integration_" + newID()
 	customerID := "cust_integration_" + newID()
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		SetPendingPlanTier(ctx, orgID,
+			"pro"))
 
 	// Seed a pending-intent row so resolveOrgIDForNewSubscription accepts the
 	// org_id from metadata. In production this row is written by the API when
 	// the checkout session is created.
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure subscription: %v", err)
-	}
-	if err := pgStore.SetPendingPlanTier(ctx, orgID, "pro"); err != nil {
-		t.Fatalf("set pending tier: %v", err)
-	}
 
 	body := buildSubscriptionCreatedEvent(t, eventID, subID, customerID, proPrice, orgID)
 
@@ -110,42 +109,39 @@ func TestWebhookHandler_StripeReplayIdempotency(t *testing.T) {
 		req.Header.Set("Stripe-Signature", signStripeWebhookForTest(t, secret, body))
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("attempt %d: status = %d, body = %q", attempt, rec.Code, rec.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+
+			rec.
+				Code)
+
 	}
 
 	// Subscription must exist, in Pro tier, with the customer attached.
 	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		t.Fatalf("get subscription: %v", err)
-	}
-	if sub.PlanTier != "pro" {
-		t.Errorf("plan_tier = %q, want pro", sub.PlanTier)
-	}
-	if sub.StripeCustomerID == nil || *sub.StripeCustomerID != customerID {
-		t.Errorf("StripeCustomerID = %v, want %q", sub.StripeCustomerID, customerID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "pro", sub.
+		PlanTier,
+	)
+	assert.False(t, sub.StripeCustomerID ==
+		nil ||
+		*sub.StripeCustomerID !=
+			customerID)
 
 	// The processed_webhook_messages row must be present and marked processed
 	// exactly once — duplicate posts should not duplicate the row.
 	var rowCount int
-	if err := testDB.Pool.QueryRow(ctx,
-		"SELECT COUNT(*) FROM processed_webhook_messages WHERE msg_id = $1", eventID,
-	).Scan(&rowCount); err != nil {
-		t.Fatalf("count processed rows: %v", err)
-	}
-	if rowCount != 1 {
-		t.Errorf("processed_webhook_messages rows for %q = %d, want 1", eventID, rowCount)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM processed_webhook_messages WHERE msg_id = $1",
+
+		eventID,
+	).Scan(&rowCount))
+	assert.EqualValues(t, 1, rowCount)
 
 	processed, err := pgStore.IsWebhookProcessed(ctx, eventID)
-	if err != nil {
-		t.Fatalf("IsWebhookProcessed: %v", err)
-	}
-	if !processed {
-		t.Errorf("event %q not marked processed after 3 attempts", eventID)
-	}
+	require.NoError(t, err)
+	assert.True(t, processed)
+
 }
 
 // TestWebhookHandler_RejectsUnknownPrice verifies that an event referencing a
@@ -165,12 +161,12 @@ func TestWebhookHandler_RejectsUnknownPrice(t *testing.T) {
 	handler := billing.NewWebhookHandler(pgStore, mapping, secret, slog.Default(), nil, nil)
 
 	orgID := "00000000-0000-0000-0000-000000000def"
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure subscription: %v", err)
-	}
-	if err := pgStore.SetPendingPlanTier(ctx, orgID, "pro"); err != nil {
-		t.Fatalf("set pending tier: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		SetPendingPlanTier(ctx, orgID,
+			"pro"))
+
 	body := buildSubscriptionCreatedEvent(t,
 		"evt_unknown_"+newID(),
 		"sub_unknown_"+newID(),
@@ -183,21 +179,21 @@ func TestWebhookHandler_RejectsUnknownPrice(t *testing.T) {
 	req.Header.Set("Stripe-Signature", signStripeWebhookForTest(t, secret, body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusInternalServerError,
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 500 (so Stripe retries)", rec.Code)
-	}
+		rec.Code,
+	)
 
 	// The pre-seeded pending row must not have been upgraded — an unknown
 	// price must never silently promote an org to a paid tier.
 	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		t.Fatalf("get subscription: %v", err)
-	}
-	if sub.PlanTier != string(domain.PlanFree) {
-		t.Errorf("plan_tier promoted to %q despite unknown price; want %q", sub.PlanTier, domain.PlanFree)
-	}
-	if sub.StripeSubscriptionID != nil {
-		t.Errorf("StripeSubscriptionID set to %v despite unknown price", *sub.StripeSubscriptionID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, string(domain.
+		PlanFree,
+	), sub.
+		PlanTier)
+	assert.Nil(t, sub.
+		StripeSubscriptionID,
+	)
+
 }

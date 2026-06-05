@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestMigration_JobRunStateStorage_AppliesParams guards the hot mutable
@@ -20,13 +22,15 @@ func TestMigration_JobRunStateStorage_AppliesParams(t *testing.T) {
 	mustClean(t, ctx)
 
 	var opts []string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT reloptions
 		FROM pg_class
 		WHERE relname = 'job_run_state'
-	`).Scan(&opts); err != nil {
-		t.Fatalf("query job_run_state reloptions: %v", err)
-	}
+	`,
+	).
+		Scan(&opts))
 
 	wantOptions := []string{
 		"fillfactor=70",
@@ -39,9 +43,10 @@ func TestMigration_JobRunStateStorage_AppliesParams(t *testing.T) {
 	}
 	gotOptions := strings.Join(opts, ",")
 	for _, want := range wantOptions {
-		if !strings.Contains(gotOptions, want) {
-			t.Fatalf("job_run_state reloptions missing %q; got %v", want, opts)
-		}
+		require.True(t, strings.Contains(
+			gotOptions,
+			want))
+
 	}
 }
 
@@ -56,21 +61,22 @@ func TestMigration_JobRunStateStorage_DropsStatusClaimIndexes(t *testing.T) {
 		  AND tablename = 'job_run_state'
 		  AND indexname LIKE 'idx_job_run_state%claim%'
 		  AND indexname <> 'idx_job_run_state_pgque_active_claim_counts'`)
-	if err != nil {
-		t.Fatalf("query job_run_state indexes: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	for rows.Next() {
 		var name, def string
-		if err := rows.Scan(&name, &def); err != nil {
-			t.Fatalf("scan job_run_state index: %v", err)
-		}
-		t.Fatalf("job_run_state still has claim index %s: %s", name, def)
+		require.NoError(t, rows.
+			Scan(&name,
+				&def))
+		require.Failf(t, "test failure",
+
+			"job_run_state still has claim index %s: %s", name, def)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("job_run_state index rows: %v", err)
-	}
+	require.NoError(t, rows.
+		Err())
+
 }
 
 func TestMigration_JobRunActiveClaims_UsesMinimalPayload(t *testing.T) {
@@ -83,27 +89,25 @@ func TestMigration_JobRunActiveClaims_UsesMinimalPayload(t *testing.T) {
 		WHERE table_schema = 'public'
 		  AND table_name = 'job_run_active_claims'
 		ORDER BY ordinal_position`)
-	if err != nil {
-		t.Fatalf("query active claim columns: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	var got []string
 	for rows.Next() {
 		var column string
-		if err := rows.Scan(&column); err != nil {
-			t.Fatalf("scan active claim column: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&column))
+
 		got = append(got, column)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("active claim column rows: %v", err)
-	}
+	require.NoError(t, rows.
+		Err())
 
 	want := []string{"run_id", "ready_generation", "attempt", "started_at"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("job_run_active_claims columns = %v, want minimal payload %v", got, want)
-	}
+	require.Equal(t, strings.Join(want,
+		","), strings.Join(got, ","))
+
 }
 
 func TestJobActiveCounts_TracksJobRunStateTransitions(t *testing.T) {
@@ -117,7 +121,9 @@ func TestJobActiveCounts_TracksJobRunStateTransitions(t *testing.T) {
 		`UPDATE job_run_state SET job_max_concurrency = 1 WHERE run_id = $1`,
 		run.ID,
 	); err != nil {
-		t.Fatalf("enable active count tracking: %v", err)
+		require.Failf(t, "test failure",
+
+			"enable active count tracking: %v", err)
 	}
 
 	setStateStatus := func(status domain.RunStatus) {
@@ -127,21 +133,24 @@ func TestJobActiveCounts_TracksJobRunStateTransitions(t *testing.T) {
 			status,
 			run.ID,
 		); err != nil {
-			t.Fatalf("update job_run_state status %s: %v", status, err)
+			require.Failf(t, "test failure",
+
+				"update job_run_state status %s: %v", status, err)
 		}
 	}
 	assertCount := func(want int) {
 		t.Helper()
 		var got int
-		if err := testDB.Pool.QueryRow(ctx,
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
 			`SELECT COALESCE(SUM(count), 0) FROM job_active_counts WHERE job_id = $1`,
-			job.ID,
-		).Scan(&got); err != nil {
-			t.Fatalf("query active count: %v", err)
-		}
-		if got != want {
-			t.Fatalf("active count = %d, want %d", got, want)
-		}
+
+			job.
+				ID).Scan(&got))
+		require.Equal(t, want,
+			got,
+		)
+
 	}
 
 	assertCount(0)
@@ -149,26 +158,23 @@ func TestJobActiveCounts_TracksJobRunStateTransitions(t *testing.T) {
 	assertCount(1)
 
 	var activeUpdatedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT updated_at FROM job_active_counts WHERE job_id = $1 AND concurrency_key = ''`,
-		job.ID,
-	).Scan(&activeUpdatedAt); err != nil {
-		t.Fatalf("query active count updated_at after dequeue: %v", err)
-	}
+
+		job.ID).Scan(&activeUpdatedAt))
 
 	setStateStatus(domain.StatusExecuting)
 	assertCount(1)
 
 	var afterExecutingUpdatedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT updated_at FROM job_active_counts WHERE job_id = $1 AND concurrency_key = ''`,
-		job.ID,
-	).Scan(&afterExecutingUpdatedAt); err != nil {
-		t.Fatalf("query active count updated_at after executing: %v", err)
-	}
-	if !afterExecutingUpdatedAt.Equal(activeUpdatedAt) {
-		t.Fatalf("active count updated_at changed on active-to-active transition: before=%s after=%s", activeUpdatedAt, afterExecutingUpdatedAt)
-	}
+
+		job.ID).Scan(&afterExecutingUpdatedAt))
+	require.True(t, afterExecutingUpdatedAt.
+		Equal(activeUpdatedAt))
 
 	setStateStatus(domain.StatusCompleted)
 	assertCount(0)
@@ -188,20 +194,22 @@ func TestJobActiveCounts_SkipsUnconstrainedRuns(t *testing.T) {
 			status,
 			run.ID,
 		); err != nil {
-			t.Fatalf("update job_run_state status %s: %v", status, err)
+			require.Failf(t, "test failure",
+
+				"update job_run_state status %s: %v", status, err)
 		}
 	}
 
 	var countRows int
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT COUNT(*) FROM job_active_counts WHERE job_id = $1`,
-		job.ID,
-	).Scan(&countRows); err != nil {
-		t.Fatalf("query active count rows: %v", err)
-	}
-	if countRows != 0 {
-		t.Fatalf("job_active_counts rows = %d, want 0 for unconstrained job", countRows)
-	}
+
+		job.ID).Scan(
+		&countRows,
+	))
+	require.EqualValues(t, 0, countRows)
+
 }
 
 func TestJobRunState_TerminalTransitionAppendsColdStateOverlay(t *testing.T) {
@@ -211,74 +219,77 @@ func TestJobRunState_TerminalTransitionAppendsColdStateOverlay(t *testing.T) {
 	job := mustCreateJob(t, ctx, st, "project-terminal-state-cold-storage")
 	q := mustQueue(t)
 	run := mustEnqueueRun(t, ctx, q, job)
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusQueued,
 
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
-		t.Fatalf("UpdateRunStatus queued->dequeued: %v", err)
-	}
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, nil); err != nil {
-		t.Fatalf("UpdateRunStatus dequeued->executing: %v", err)
-	}
+		domain.StatusDequeued,
+
+		nil))
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusDequeued,
+
+		domain.StatusExecuting,
+
+		nil))
 
 	finishedAt := time.Now().UTC()
 	result := json.RawMessage(`{"ok":true}`)
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": finishedAt,
-		"result":      result,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus executing->completed: %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusExecuting,
+
+		domain.StatusCompleted,
+
+		map[string]any{"finished_at": finishedAt, "result": result}))
 
 	var hotStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT status FROM job_run_state WHERE run_id = $1`,
-		run.ID,
-	).Scan(&hotStatus); err != nil {
-		t.Fatalf("query hot state status: %v", err)
-	}
-	if hotStatus != domain.StatusExecuting {
-		t.Fatalf("hot state status = %s, want retained %s", hotStatus, domain.StatusExecuting)
-	}
+
+		run.ID).Scan(&hotStatus))
+	require.Equal(t, domain.
+		StatusExecuting,
+		hotStatus,
+	)
 
 	var coldStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT status FROM job_run_terminal_state WHERE run_id = $1`,
-		run.ID,
-	).Scan(&coldStatus); err != nil {
-		t.Fatalf("query cold terminal state: %v", err)
-	}
-	if coldStatus != domain.StatusCompleted {
-		t.Fatalf("cold terminal status = %s, want %s", coldStatus, domain.StatusCompleted)
-	}
+
+		run.ID).Scan(
+		&coldStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		coldStatus,
+	)
 
 	var readStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx,
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
 		`SELECT status FROM job_run_read_state WHERE run_id = $1`,
-		run.ID,
-	).Scan(&readStatus); err != nil {
-		t.Fatalf("query read state status: %v", err)
-	}
-	if readStatus != domain.StatusCompleted {
-		t.Fatalf("read state status = %s, want %s", readStatus, domain.StatusCompleted)
-	}
+
+		run.ID).Scan(&readStatus))
+	require.Equal(t, domain.
+		StatusCompleted,
+		readStatus,
+	)
 
 	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error: %v", err)
-	}
-	if got.Status != domain.StatusCompleted {
-		t.Fatalf("GetRun status = %s, want %s", got.Status, domain.StatusCompleted)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusCompleted,
+		got.
+			Status)
+
 	var gotResult, wantResult map[string]bool
-	if err := json.Unmarshal(got.Result, &gotResult); err != nil {
-		t.Fatalf("unmarshal GetRun result: %v", err)
-	}
-	if err := json.Unmarshal(result, &wantResult); err != nil {
-		t.Fatalf("unmarshal want result: %v", err)
-	}
-	if gotResult["ok"] != wantResult["ok"] {
-		t.Fatalf("GetRun result = %s, want %s", string(got.Result), string(result))
-	}
-	if got.FinishedAt == nil {
-		t.Fatal("GetRun finished_at is nil after terminal transition")
-	}
+	require.NoError(t, json.
+		Unmarshal(got.Result,
+			&gotResult))
+	require.NoError(t, json.
+		Unmarshal(result, &wantResult))
+	require.Equal(t, wantResult["ok"],
+		gotResult["ok"])
+	require.NotNil(t, got.FinishedAt)
+
 }

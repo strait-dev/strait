@@ -7,6 +7,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrepareTriggerRequestBuildsState(t *testing.T) {
@@ -15,18 +17,15 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 	quota := &store.ProjectQuota{ProjectID: "project-1", Timezone: "UTC"}
 	srv := newTestServer(t, &APIStoreMock{
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if jobID != "job-1" {
-				t.Fatalf("jobID = %q, want job-1", jobID)
-			}
-			if key != "idem-1" {
-				t.Fatalf("key = %q, want idem-1", key)
-			}
+			require.Equal(t, "job-1", jobID)
+			require.Equal(t, "idem-1", key)
+
 			return nil, nil
 		},
 		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
-			if projectID != "project-1" {
-				t.Fatalf("projectID = %q, want project-1", projectID)
-			}
+			require.Equal(t, "project-1",
+				projectID)
+
 			return quota, nil
 		},
 	}, &mockQueue{}, nil)
@@ -46,30 +45,25 @@ func TestPrepareTriggerRequestBuildsState(t *testing.T) {
 	state, idempotencyHit, err := srv.prepareTriggerRequest(context.Background(), &TriggerJobInput{
 		XIdempotencyKey: "idem-1",
 	}, job, req)
-	if err != nil {
-		t.Fatalf("prepareTriggerRequest() error = %v", err)
-	}
-	if idempotencyHit != nil {
-		t.Fatalf("idempotencyHit = %+v, want nil", idempotencyHit)
-	}
-	if state.job != job {
-		t.Fatalf("state.job = %p, want %p", state.job, job)
-	}
-	if state.idempotencyKey != "idem-1" {
-		t.Fatalf("idempotencyKey = %q, want idem-1", state.idempotencyKey)
-	}
-	if string(state.payload) != `{"a":1,"b":2}` {
-		t.Fatalf("payload = %s, want canonical JSON", state.payload)
-	}
-	if state.payloadHash == "" {
-		t.Fatal("payloadHash is empty")
-	}
-	if state.projectQuota == nil {
-		t.Fatal("projectQuota is nil")
-	}
-	if state.projectQuota.ProjectID != quota.ProjectID || state.projectQuota.Timezone != quota.Timezone {
-		t.Fatalf("projectQuota = %+v, want %+v", state.projectQuota, quota)
-	}
+	require.NoError(t, err)
+	require.Nil(t, idempotencyHit)
+	require.Equal(t, job, state.job)
+	require.Equal(t, "idem-1", state.
+		idempotencyKey,
+	)
+	require.Equal(t, `{"a":1,"b":2}`,
+		string(
+			state.
+				payload))
+	require.NotEmpty(t, state.
+		payloadHash,
+	)
+	require.NotNil(t, state.projectQuota)
+	require.False(t, state.projectQuota.
+		ProjectID !=
+		quota.ProjectID ||
+		state.projectQuota.Timezone !=
+			quota.Timezone)
 }
 
 func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {
@@ -77,16 +71,15 @@ func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {
 
 	srv := newTestServer(t, &APIStoreMock{
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if jobID != "job-1" {
-				t.Fatalf("jobID = %q, want job-1", jobID)
-			}
-			if key != "idem-hit" {
-				t.Fatalf("key = %q, want idem-hit", key)
-			}
+			require.Equal(t, "job-1", jobID)
+			require.Equal(t, "idem-hit", key)
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 		},
 		GetProjectQuotaFunc: func(context.Context, string) (*store.ProjectQuota, error) {
-			t.Fatal("GetProjectQuota must not run when idempotency hits")
+			require.Fail(t,
+
+				"GetProjectQuota must not run when idempotency hits")
 			return nil, nil
 		},
 	}, &mockQueue{}, nil)
@@ -94,11 +87,8 @@ func TestPrepareTriggerRequestReturnsIdempotencyHitBeforeQuota(t *testing.T) {
 	state, idempotencyHit, err := srv.prepareTriggerRequest(context.Background(), &TriggerJobInput{
 		XIdempotencyKey: "idem-hit",
 	}, &domain.Job{ID: "job-1", ProjectID: "project-1"}, TriggerRequest{Payload: json.RawMessage(`{"ok":true}`)})
-	if err != nil {
-		t.Fatalf("prepareTriggerRequest() error = %v", err)
-	}
-	if state != nil {
-		t.Fatalf("state = %+v, want nil", state)
-	}
+	require.NoError(t, err)
+	require.Nil(t, state)
+
 	assertIdempotencyResponse(t, idempotencyHit, "run-existing", domain.StatusQueued)
 }

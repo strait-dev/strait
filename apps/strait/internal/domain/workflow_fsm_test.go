@@ -1,9 +1,11 @@
 package domain
 
 import (
-	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateWorkflowTransition_AllValidTransitions(t *testing.T) {
@@ -11,9 +13,8 @@ func TestValidateWorkflowTransition_AllValidTransitions(t *testing.T) {
 	for from, toStatuses := range validWorkflowTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
-				if err := ValidateWorkflowTransition(from, to); err != nil {
-					t.Errorf("expected valid transition %s -> %s, got error: %v", from, to, err)
-				}
+				assert.NoError(
+					t, ValidateWorkflowTransition(from, to))
 			})
 		}
 	}
@@ -42,9 +43,8 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s->%s", tc.from, tc.to), func(t *testing.T) {
-			if err := ValidateWorkflowTransition(tc.from, tc.to); err == nil {
-				t.Errorf("expected invalid transition %s -> %s to fail", tc.from, tc.to)
-			}
+			assert.Error(t,
+				ValidateWorkflowTransition(tc.from, tc.to))
 		})
 	}
 }
@@ -52,14 +52,12 @@ func TestValidateWorkflowTransition_InvalidTransitions(t *testing.T) {
 func TestValidateWorkflowTransition_UnknownStatus(t *testing.T) {
 	t.Parallel()
 	err := ValidateWorkflowTransition(WorkflowRunStatus("unknown"), WfStatusRunning)
-	if err == nil {
-		t.Fatal("expected error for unknown status")
-	}
+	require.Error(t,
+		err)
 
 	var unknownErr *UnknownStatusError
-	if !errors.As(err, &unknownErr) {
-		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
-	}
+	require.ErrorAs(t,
+		err, &unknownErr)
 }
 
 func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
@@ -69,21 +67,19 @@ func TestValidateWorkflowTransition_TerminalHaveNoTransitions(t *testing.T) {
 	for _, status := range fullyTerminal {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validWorkflowTransitions[status]
-			if !ok {
-				t.Errorf("terminal status %s not found in validWorkflowTransitions", status)
-			}
-			if len(transitions) != 0 {
-				t.Errorf("terminal status %s should not have transitions, got %v", status, transitions)
-			}
+			assert.True(t,
+				ok)
+			assert.Empty(t, transitions)
 		})
 	}
 	// failed and timed_out can transition to compensating.
 	for _, status := range []WorkflowRunStatus{WfStatusFailed, WfStatusTimedOut} {
 		t.Run(string(status)+"_can_compensate", func(t *testing.T) {
 			transitions := validWorkflowTransitions[status]
-			if len(transitions) != 1 || transitions[0] != WfStatusCompensating {
-				t.Errorf("status %s should only transition to compensating, got %v", status, transitions)
-			}
+			assert.False(t,
+				len(transitions) !=
+
+					1 || transitions[0] != WfStatusCompensating)
 		})
 	}
 }
@@ -105,15 +101,13 @@ func TestAllWorkflowStatusesCovered(t *testing.T) {
 
 	for _, status := range allStatuses {
 		t.Run(string(status), func(t *testing.T) {
-			if _, ok := validWorkflowTransitions[status]; !ok {
-				t.Errorf("status %s is missing from validWorkflowTransitions map", status)
-			}
+			assert.Contains(t, validWorkflowTransitions, status)
 		})
 	}
+	require.Len(t,
+		validWorkflowTransitions,
 
-	if len(validWorkflowTransitions) != len(allStatuses) {
-		t.Fatalf("validWorkflowTransitions has %d statuses, expected %d", len(validWorkflowTransitions), len(allStatuses))
-	}
+		len(allStatuses))
 }
 
 func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
@@ -136,9 +130,7 @@ func TestWorkflowRunStatusIsTerminal_AllStatuses(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
-			if got := tc.status.IsTerminal(); got != tc.expected {
-				t.Errorf("status %s IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-			}
+			assert.Equal(t, tc.expected, tc.status.IsTerminal())
 		})
 	}
 }
@@ -152,13 +144,14 @@ func TestWorkflowRunStatusIsValid(t *testing.T) {
 		WfStatusCompensationFailed,
 	}
 	for _, status := range valid {
-		if !status.IsValid() {
-			t.Fatalf("expected %s to be valid", status)
-		}
+		require.True(t,
+			status.
+				IsValid())
 	}
-	if WorkflowRunStatus("not-valid").IsValid() {
-		t.Fatal("expected arbitrary workflow status to be invalid")
-	}
+	require.False(t,
+		WorkflowRunStatus(
+			"not-valid",
+		).IsValid())
 }
 
 func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
@@ -167,33 +160,34 @@ func TestValidateWorkflowTransition_ErrorTypes(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusCompleted, WfStatusRunning)
 		var te *TransitionError
-		if !errors.As(err, &te) {
-			t.Fatalf("expected *TransitionError, got %T: %v", err, err)
-		}
-		if te.From != RunStatus(WfStatusCompleted) || te.To != RunStatus(WfStatusRunning) {
-			t.Fatalf("TransitionError From=%s To=%s, want completed->running", te.From, te.To)
-		}
+		require.ErrorAs(t,
+			err, &te,
+		)
+		require.False(t,
+			te.From !=
+				RunStatus(WfStatusCompleted) || te.To != RunStatus(WfStatusRunning))
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WorkflowRunStatus("bogus"), WfStatusRunning)
 		var ue *UnknownStatusError
-		if !errors.As(err, &ue) {
-			t.Fatalf("expected *UnknownStatusError, got %T: %v", err, err)
-		}
-		if ue.Status != RunStatus("bogus") {
-			t.Fatalf("UnknownStatusError.Status = %s, want bogus", ue.Status)
-		}
+		require.ErrorAs(t,
+			err, &ue,
+		)
+		require.Equal(t,
+			RunStatus("bogus"),
+
+			ue.Status)
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateWorkflowTransition(WfStatusRunning, WfStatusRunning)
 		var te *TransitionError
-		if !errors.As(err, &te) {
-			t.Fatalf("expected *TransitionError for self-transition, got %T: %v", err, err)
-		}
+		require.ErrorAs(t,
+			err, &te,
+		)
 	})
 }
 
@@ -202,9 +196,8 @@ func TestValidateStepTransition_AllValidTransitions(t *testing.T) {
 	for from, toStatuses := range validStepTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
-				if err := ValidateStepTransition(from, to); err != nil {
-					t.Errorf("expected valid transition %s -> %s, got error: %v", from, to, err)
-				}
+				assert.NoError(
+					t, ValidateStepTransition(from, to))
 			})
 		}
 	}
@@ -236,9 +229,8 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateStepTransition(tc.from, tc.to)
-			if err == nil {
-				t.Fatalf("expected error for %s -> %s, got nil", tc.from, tc.to)
-			}
+			require.Error(t,
+				err)
 		})
 	}
 }
@@ -246,14 +238,12 @@ func TestValidateStepTransition_InvalidTransitions(t *testing.T) {
 func TestValidateStepTransition_UnknownStatus(t *testing.T) {
 	t.Parallel()
 	err := ValidateStepTransition(StepRunStatus("unknown"), StepRunning)
-	if err == nil {
-		t.Fatal("expected error for unknown status")
-	}
+	require.Error(t,
+		err)
 
 	var unknownErr *UnknownStatusError
-	if !errors.As(err, &unknownErr) {
-		t.Fatalf("expected UnknownStatusError, got %T: %v", err, err)
-	}
+	require.ErrorAs(t,
+		err, &unknownErr)
 }
 
 func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
@@ -262,12 +252,9 @@ func TestValidateStepTransition_TerminalHaveNoTransitions(t *testing.T) {
 	for _, status := range terminalStatuses {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validStepTransitions[status]
-			if !ok {
-				t.Errorf("terminal status %s not found in validStepTransitions", status)
-			}
-			if len(transitions) != 0 {
-				t.Errorf("terminal status %s should not have transitions, got %v", status, transitions)
-			}
+			assert.True(t,
+				ok)
+			assert.Empty(t, transitions)
 		})
 	}
 }
@@ -286,15 +273,13 @@ func TestAllStepStatusesCovered(t *testing.T) {
 
 	for _, status := range allStatuses {
 		t.Run(string(status), func(t *testing.T) {
-			if _, ok := validStepTransitions[status]; !ok {
-				t.Errorf("status %s is missing from validStepTransitions map", status)
-			}
+			assert.Contains(t, validStepTransitions, status)
 		})
 	}
+	require.Len(t,
+		validStepTransitions,
 
-	if len(validStepTransitions) != len(allStatuses) {
-		t.Fatalf("validStepTransitions has %d statuses, expected %d", len(validStepTransitions), len(allStatuses))
-	}
+		len(allStatuses))
 }
 
 func TestValidateStepTransition_ErrorTypes(t *testing.T) {
@@ -303,33 +288,34 @@ func TestValidateStepTransition_ErrorTypes(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepCompleted, StepRunning)
 		var te *TransitionError
-		if !errors.As(err, &te) {
-			t.Fatalf("expected *TransitionError, got %T: %v", err, err)
-		}
-		if te.From != RunStatus(StepCompleted) || te.To != RunStatus(StepRunning) {
-			t.Fatalf("TransitionError From=%s To=%s, want completed->running", te.From, te.To)
-		}
+		require.ErrorAs(t,
+			err, &te,
+		)
+		require.False(t,
+			te.From !=
+				RunStatus(StepCompleted) || te.To != RunStatus(StepRunning))
 	})
 
 	t.Run("unknown_status_error", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepRunStatus("bogus"), StepRunning)
 		var ue *UnknownStatusError
-		if !errors.As(err, &ue) {
-			t.Fatalf("expected *UnknownStatusError, got %T: %v", err, err)
-		}
-		if ue.Status != RunStatus("bogus") {
-			t.Fatalf("UnknownStatusError.Status = %s, want bogus", ue.Status)
-		}
+		require.ErrorAs(t,
+			err, &ue,
+		)
+		require.Equal(t,
+			RunStatus("bogus"),
+
+			ue.Status)
 	})
 
 	t.Run("self_transition_running", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateStepTransition(StepRunning, StepRunning)
 		var te *TransitionError
-		if !errors.As(err, &te) {
-			t.Fatalf("expected *TransitionError for self-transition, got %T: %v", err, err)
-		}
+		require.ErrorAs(t,
+			err, &te,
+		)
 	})
 }
 
@@ -350,9 +336,7 @@ func TestStepRunStatusIsTerminal_AllStatuses(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
-			if got := tc.status.IsTerminal(); got != tc.expected {
-				t.Errorf("status %s IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-			}
+			assert.Equal(t, tc.expected, tc.status.IsTerminal())
 		})
 	}
 }

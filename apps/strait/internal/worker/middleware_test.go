@@ -7,6 +7,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
@@ -24,10 +25,8 @@ func TestChain_Empty(t *testing.T) {
 
 	wrapped := Chain()(handler)
 	wrapped(context.Background(), &ExecutionContext{})
-
-	if !called {
-		t.Fatal("handler was not called with empty chain")
-	}
+	require.True(t,
+		called)
 }
 
 func TestChain_Single(t *testing.T) {
@@ -48,13 +47,13 @@ func TestChain_Single(t *testing.T) {
 	Chain(mw)(handler)(context.Background(), &ExecutionContext{})
 
 	expected := []string{"A-before", "handler", "A-after"}
-	if len(order) != len(expected) {
-		t.Fatalf("expected %v, got %v", expected, order)
-	}
+	require.Len(t, order,
+		len(expected),
+	)
+
 	for i := range expected {
-		if order[i] != expected[i] {
-			t.Fatalf("at index %d: expected %q, got %q", i, expected[i], order[i])
-		}
+		require.Equal(t,
+			expected[i], order[i])
 	}
 }
 
@@ -78,13 +77,13 @@ func TestChain_Multiple_OnionOrder(t *testing.T) {
 	Chain(makeMW("A"), makeMW("B"), makeMW("C"))(handler)(context.Background(), &ExecutionContext{})
 
 	expected := []string{"A-before", "B-before", "C-before", "handler", "C-after", "B-after", "A-after"}
-	if len(order) != len(expected) {
-		t.Fatalf("expected %v, got %v", expected, order)
-	}
+	require.Len(t, order,
+		len(expected),
+	)
+
 	for i := range expected {
-		if order[i] != expected[i] {
-			t.Fatalf("at index %d: expected %q, got %q", i, expected[i], order[i])
-		}
+		require.Equal(t,
+			expected[i], order[i])
 	}
 }
 
@@ -114,13 +113,11 @@ func TestChain_ShortCircuit(t *testing.T) {
 	}
 
 	Chain(mwA, mwB, mwC)(handler)(context.Background(), &ExecutionContext{})
-
-	if handlerCalled {
-		t.Fatal("handler should not have been called after short-circuit")
-	}
-	if cReached {
-		t.Fatal("middleware C should not have been reached after short-circuit in B")
-	}
+	require.False(t,
+		handlerCalled,
+	)
+	require.False(t,
+		cReached)
 }
 
 type ctxKey string
@@ -141,10 +138,10 @@ func TestChain_ContextPropagation(t *testing.T) {
 	}
 
 	Chain(mw)(handler)(context.Background(), &ExecutionContext{})
-
-	if gotValue != "injected" {
-		t.Fatalf("expected context value %q, got %v", "injected", gotValue)
-	}
+	require.Equal(t,
+		"injected",
+		gotValue,
+	)
 }
 
 func TestChain_ExecutionContextModification(t *testing.T) {
@@ -165,10 +162,10 @@ func TestChain_ExecutionContextModification(t *testing.T) {
 	Chain(mw)(handler)(context.Background(), &ExecutionContext{
 		Run: &domain.JobRun{ID: "run-1"},
 	})
-
-	if gotJob != injectedJob {
-		t.Fatal("handler did not see the job injected by middleware")
-	}
+	require.Equal(t,
+		injectedJob,
+		gotJob,
+	)
 }
 
 // These tests share a global TracerProvider, so they run sequentially under a
@@ -199,12 +196,12 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) != 1 {
-			t.Fatalf("expected 1 span, got %d", len(spans))
-		}
-		if spans[0].Name != "executor.Execute" {
-			t.Fatalf("expected span name %q, got %q", "executor.Execute", spans[0].Name)
-		}
+		require.Len(t, spans,
+			1)
+		require.Equal(t,
+			"executor.Execute",
+
+			spans[0].Name)
 	})
 
 	t.Run("SetsRunAttributes", func(t *testing.T) {
@@ -249,9 +246,11 @@ func TestTracingMiddleware(t *testing.T) {
 
 		spans := exporter.GetSpans()
 		for _, attr := range spans[0].Attributes {
-			if attr.Key == "job.endpoint" || attr.Key == "job.version" {
-				t.Fatalf("unexpected job attribute %q when Job is nil", attr.Key)
-			}
+			require.False(t,
+				attr.Key ==
+					"job.endpoint" ||
+					attr.Key == "job.version",
+			)
 		}
 	})
 
@@ -268,14 +267,15 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		// The span should inherit the trace ID from the injected traceparent.
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatalf("expected trace ID from traceparent, got %s", gotTraceID)
-		}
+		require.Equal(t,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("NilMetadata_NoPanic", func(t *testing.T) {
@@ -287,9 +287,8 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) != 1 {
-			t.Fatalf("expected 1 span even with nil metadata, got %d", len(spans))
-		}
+		require.Len(t, spans,
+			1)
 	})
 
 	t.Run("ExtractsTraceParentAndState", func(t *testing.T) {
@@ -315,21 +314,22 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(capturingHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatalf("expected trace ID from traceparent, got %s", gotTraceID)
-		}
+		require.Equal(t,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 
 		// Re-extract tracestate from the context the handler received.
 		carrier := propagation.MapCarrier{}
 		otel.GetTextMapPropagator().Inject(capturedCtx, carrier)
 		gotTS := carrier.Get("tracestate")
-		if gotTS != traceState {
-			t.Fatalf("expected tracestate %q, got %q", traceState, gotTS)
-		}
+		require.Equal(t,
+			traceState,
+			gotTS)
 	})
 
 	t.Run("EmptyTraceParent_Ignored", func(t *testing.T) {
@@ -344,15 +344,15 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		// An empty traceparent should not inject a parent; the span should be a root
 		// with a freshly generated trace ID (not matching any injected value).
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID == "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatal("expected a new root trace ID, but got the injected one")
-		}
+		require.NotEqual(t, "4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("MalformedTraceParent_Graceful", func(t *testing.T) {
@@ -367,14 +367,14 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		// Malformed traceparent is ignored by OTel; span should be root.
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID == "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatal("expected a new root trace ID, but got the injected one")
-		}
+		require.NotEqual(t, "4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("AllZerosTraceID_Ignored", func(t *testing.T) {
@@ -391,14 +391,14 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		// All-zeros trace ID is invalid per W3C; span should be root.
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID == "00000000000000000000000000000000" {
-			t.Fatal("expected a new root trace ID, not all-zeros")
-		}
+		require.NotEqual(t, "00000000000000000000000000000000",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("SampledFlagZero_StillPropagates", func(t *testing.T) {
@@ -425,9 +425,11 @@ func TestTracingMiddleware(t *testing.T) {
 		// was inherited from the parent.
 		sc := oteltrace.SpanFromContext(capturedCtx).SpanContext()
 		gotTraceID := sc.TraceID().String()
-		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatalf("expected trace ID to be inherited even with sampled=0, got %s", gotTraceID)
-		}
+		require.Equal(t,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("OnlyTraceState_NoParent", func(t *testing.T) {
@@ -442,15 +444,15 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		// Without _trace_parent, the middleware should not inject any parent context.
 		// The span should be a root with a fresh trace ID.
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID == "00000000000000000000000000000000" {
-			t.Fatal("expected a valid root trace ID")
-		}
+		require.NotEqual(t, "00000000000000000000000000000000",
+
+			gotTraceID,
+		)
 	})
 
 	t.Run("MetadataWithNonTraceKeys", func(t *testing.T) {
@@ -469,13 +471,14 @@ func TestTracingMiddleware(t *testing.T) {
 		TracingMiddleware()(nopHandler)(context.Background(), ec)
 
 		spans := exporter.GetSpans()
-		if len(spans) == 0 {
-			t.Fatal("expected at least 1 span")
-		}
+		require.NotEmpty(t, spans)
+
 		gotTraceID := spans[0].SpanContext.TraceID().String()
-		if gotTraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
-			t.Fatalf("expected trace ID from traceparent, got %s", gotTraceID)
-		}
+		require.Equal(t,
+			"4bf92f3577b34da6a3ce929d0e0e4736",
+
+			gotTraceID,
+		)
 	})
 }
 
@@ -485,24 +488,31 @@ func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, expected string) 
 	t.Helper()
 	for _, a := range attrs {
 		if string(a.Key) == key {
-			if a.Value.AsString() != expected {
-				t.Fatalf("attribute %q: expected %q, got %q", key, expected, a.Value.AsString())
-			}
+			require.Equal(t,
+				expected,
+				a.Value.
+					AsString())
+
 			return
 		}
 	}
-	t.Fatalf("attribute %q not found", key)
+	require.Failf(t, "test failure",
+
+		"attribute %q not found", key)
 }
 
 func assertAttrInt(t *testing.T, attrs []attribute.KeyValue, key string, expected int) {
 	t.Helper()
 	for _, a := range attrs {
 		if string(a.Key) == key {
-			if a.Value.AsInt64() != int64(expected) {
-				t.Fatalf("attribute %q: expected %d, got %d", key, expected, a.Value.AsInt64())
-			}
+			require.Equal(t,
+				int64(expected), a.
+					Value.AsInt64())
+
 			return
 		}
 	}
-	t.Fatalf("attribute %q not found", key)
+	require.Failf(t, "test failure",
+
+		"attribute %q not found", key)
 }

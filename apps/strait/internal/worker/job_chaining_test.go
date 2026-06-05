@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock helpers for job chaining.
@@ -71,22 +73,27 @@ func TestOnComplete_TriggersDownstreamJob(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 enqueue call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+
 	call := enqueuer.calls[0]
-	if call.run.JobID != "job-process-1" {
-		t.Errorf("target job_id = %q, want %q", call.run.JobID, "job-process-1")
-	}
-	if call.run.TriggeredBy != domain.TriggerJobChain {
-		t.Errorf("triggered_by = %q, want %q", call.run.TriggeredBy, domain.TriggerJobChain)
-	}
-	if call.run.ParentRunID != "run-1" {
-		t.Errorf("parent_run_id = %q, want %q", call.run.ParentRunID, "run-1")
-	}
-	if string(call.run.Payload) != string(result) {
-		t.Errorf("payload = %s, want %s", call.run.Payload, result)
-	}
+	assert.Equal(t,
+		"job-process-1",
+		call.run.
+			JobID)
+	assert.Equal(t,
+		domain.TriggerJobChain,
+
+		call.run.TriggeredBy,
+	)
+	assert.Equal(t,
+		"run-1", call.run.
+			ParentRunID,
+	)
+	assert.Equal(t,
+		string(result), string(call.
+			run.Payload,
+		))
 }
 
 func TestOnComplete_TriggersDownstreamWorkflow(t *testing.T) {
@@ -111,9 +118,8 @@ func TestOnComplete_TriggersDownstreamWorkflow(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 1 {
-		t.Fatalf("expected 1 workflow trigger call, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 1)
 }
 
 func TestOnComplete_TriggersBothJobAndWorkflow(t *testing.T) {
@@ -143,15 +149,15 @@ func TestOnComplete_TriggersBothJobAndWorkflow(t *testing.T) {
 	oct.MaybeTrigger(context.Background(), run, job, json.RawMessage(`{}`))
 
 	wfTrigger.mu.Lock()
-	if len(wfTrigger.calls) != 1 {
-		t.Errorf("expected 1 workflow trigger, got %d", len(wfTrigger.calls))
-	}
+	assert.Len(t, wfTrigger.
+		calls, 1)
+
 	wfTrigger.mu.Unlock()
 
 	enqueuer.mu.Lock()
-	if len(enqueuer.calls) != 1 {
-		t.Errorf("expected 1 job enqueue, got %d", len(enqueuer.calls))
-	}
+	assert.Len(t, enqueuer.
+		calls, 1)
+
 	enqueuer.mu.Unlock()
 }
 
@@ -177,12 +183,12 @@ func TestOnComplete_PassesOutputAsPayload(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
-	if string(enqueuer.calls[0].run.Payload) != string(result) {
-		t.Errorf("payload not passed through: got %s", enqueuer.calls[0].run.Payload)
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+	assert.Equal(t,
+		string(result), string(enqueuer.
+			calls[0].run.
+			Payload))
 }
 
 func TestOnComplete_PayloadMappingForJob(t *testing.T) {
@@ -208,22 +214,25 @@ func TestOnComplete_PayloadMappingForJob(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 
 	var mapped map[string]any
-	if err := json.Unmarshal(enqueuer.calls[0].run.Payload, &mapped); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if mapped["user_id"] != "u-123" {
-		t.Errorf("user_id = %v, want u-123", mapped["user_id"])
-	}
-	if mapped["name"] != "Alice" {
-		t.Errorf("name = %v, want Alice", mapped["name"])
-	}
+	require.NoError(
+		t, json.Unmarshal(enqueuer.
+			calls[0].
+			run.Payload,
+			&mapped,
+		))
+	assert.Equal(t,
+		"u-123", mapped["user_id"])
+	assert.Equal(t,
+		"Alice", mapped["name"])
+
 	if _, ok := mapped["extra"]; ok {
-		t.Error("extra should not be present after mapping")
+		assert.Fail(t,
+
+			"extra should not be present after mapping")
 	}
 }
 
@@ -240,15 +249,13 @@ func TestOnComplete_NoTriggerConfigured(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 enqueue calls, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 0 {
-		t.Fatalf("expected 0 workflow trigger calls, got %d", len(trigger.calls))
-	}
+	require.Empty(t, trigger.
+		calls)
 }
 
 func TestOnComplete_JobNotFound(t *testing.T) {
@@ -268,9 +275,8 @@ func TestOnComplete_JobNotFound(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 enqueue calls for missing job, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 // Unit tests for on_failure triggers.
@@ -302,24 +308,28 @@ func TestOnFailure_TriggersOnDeadLetter(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 enqueue call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+
 	call := enqueuer.calls[0]
-	if call.run.TriggeredBy != domain.TriggerJobFailure {
-		t.Errorf("triggered_by = %q, want %q", call.run.TriggeredBy, domain.TriggerJobFailure)
-	}
+	assert.Equal(t,
+		domain.TriggerJobFailure,
+
+		call.run.
+			TriggeredBy,
+	)
 
 	var payload map[string]any
-	if err := json.Unmarshal(call.run.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if payload["error"] != "connection refused" {
-		t.Errorf("error = %v, want 'connection refused'", payload["error"])
-	}
-	if payload["source_job_id"] != "job-1" {
-		t.Errorf("source_job_id = %v, want job-1", payload["source_job_id"])
-	}
+	require.NoError(
+		t, json.Unmarshal(call.run.
+			Payload,
+			&payload,
+		))
+	assert.Equal(t,
+		"connection refused",
+		payload["error"])
+	assert.Equal(t,
+		"job-1", payload["source_job_id"])
 }
 
 func TestOnFailure_TriggersOnTimedOut(t *testing.T) {
@@ -343,9 +353,8 @@ func TestOnFailure_TriggersOnTimedOut(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call for timed_out, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 }
 
 func TestOnFailure_DoesNotTriggerOnSuccess(t *testing.T) {
@@ -364,9 +373,8 @@ func TestOnFailure_DoesNotTriggerOnSuccess(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 calls for successful run, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestOnFailure_TriggersWorkflow(t *testing.T) {
@@ -390,12 +398,15 @@ func TestOnFailure_TriggersWorkflow(t *testing.T) {
 
 	wfTrigger.mu.Lock()
 	defer wfTrigger.mu.Unlock()
-	if len(wfTrigger.calls) != 1 {
-		t.Fatalf("expected 1 workflow trigger, got %d", len(wfTrigger.calls))
-	}
-	if wfTrigger.calls[0].triggeredBy != domain.TriggerJobFailure {
-		t.Errorf("triggered_by = %q, want %q", wfTrigger.calls[0].triggeredBy, domain.TriggerJobFailure)
-	}
+	require.Len(t, wfTrigger.
+		calls, 1,
+	)
+	assert.Equal(t,
+		domain.TriggerJobFailure,
+
+		wfTrigger.
+			calls[0].triggeredBy,
+	)
 }
 
 func TestOnFailure_PassesErrorContext(t *testing.T) {
@@ -425,26 +436,24 @@ func TestOnFailure_PassesErrorContext(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(enqueuer.calls[0].run.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if payload["error"] != "segfault" {
-		t.Errorf("error = %v, want segfault", payload["error"])
-	}
-	if payload["error_class"] != "server" {
-		t.Errorf("error_class = %v, want server", payload["error_class"])
-	}
-	if payload["status"] != "crashed" {
-		t.Errorf("status = %v, want crashed", payload["status"])
-	}
-	if payload["attempt"] != float64(2) {
-		t.Errorf("attempt = %v, want 2", payload["attempt"])
-	}
+	require.NoError(
+		t, json.Unmarshal(enqueuer.
+			calls[0].
+			run.Payload,
+			&payload,
+		))
+	assert.Equal(t,
+		"segfault", payload["error"])
+	assert.Equal(t,
+		"server", payload["error_class"])
+	assert.Equal(t,
+		"crashed", payload["status"])
+	assert.InDelta(t,
+		float64(2), payload["attempt"], 1e-9)
 }
 
 func TestOnFailure_PayloadMapping(t *testing.T) {
@@ -472,20 +481,20 @@ func TestOnFailure_PayloadMapping(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(enqueuer.calls[0].run.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if payload["err"] != "boom" {
-		t.Errorf("err = %v, want boom", payload["err"])
-	}
-	if payload["run"] != "run-1" {
-		t.Errorf("run = %v, want run-1", payload["run"])
-	}
+	require.NoError(
+		t, json.Unmarshal(enqueuer.
+			calls[0].
+			run.Payload,
+			&payload,
+		))
+	assert.Equal(t,
+		"boom", payload["err"])
+	assert.Equal(t,
+		"run-1", payload["run"])
 }
 
 // Chain depth enforcement tests.
@@ -515,9 +524,8 @@ func TestChainDepth_Enforcement(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 calls at max depth, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestChainDepth_Propagation(t *testing.T) {
@@ -545,12 +553,11 @@ func TestChainDepth_Propagation(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
-	if enqueuer.calls[0].run.LineageDepth != 6 {
-		t.Errorf("lineage_depth = %d, want 6", enqueuer.calls[0].run.LineageDepth)
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+	assert.Equal(t, 6, enqueuer.calls[0].run.
+		LineageDepth,
+	)
 }
 
 func TestChainDepth_StartsAtZero(t *testing.T) {
@@ -578,12 +585,11 @@ func TestChainDepth_StartsAtZero(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
-	if enqueuer.calls[0].run.LineageDepth != 1 {
-		t.Errorf("lineage_depth = %d, want 1", enqueuer.calls[0].run.LineageDepth)
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+	assert.Equal(t, 1, enqueuer.calls[0].run.
+		LineageDepth,
+	)
 }
 
 func TestChainDepth_ExactlyAtLimit(t *testing.T) {
@@ -613,9 +619,7 @@ func TestChainDepth_ExactlyAtLimit(t *testing.T) {
 	enqueuer.mu.Lock()
 	okCalls := len(enqueuer.calls)
 	enqueuer.mu.Unlock()
-	if okCalls != 1 {
-		t.Fatalf("depth %d should trigger, got %d calls", domain.MaxJobChainDepth-1, okCalls)
-	}
+	require.Equal(t, 1, okCalls)
 
 	// depth = 10 should NOT work
 	run2 := &domain.JobRun{
@@ -628,9 +632,8 @@ func TestChainDepth_ExactlyAtLimit(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("depth %d should not trigger, got %d total calls", domain.MaxJobChainDepth, len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 }
 
 // Fuzz tests for job chaining.
@@ -687,14 +690,17 @@ func FuzzChainDepthOverflow(f *testing.F) {
 		defer enqueuer.mu.Unlock()
 
 		if depth >= domain.MaxJobChainDepth {
-			if len(enqueuer.calls) != 0 {
-				t.Errorf("depth %d >= max %d should not trigger", depth, domain.MaxJobChainDepth)
-			}
+			assert.Empty(t, enqueuer.
+				calls)
 		} else if depth >= 0 {
 			if len(enqueuer.calls) != 1 {
-				t.Errorf("depth %d < max %d should trigger", depth, domain.MaxJobChainDepth)
+				assert.Failf(t, "test failure",
+
+					"depth %d < max %d should trigger", depth, domain.MaxJobChainDepth)
 			} else if enqueuer.calls[0].run.LineageDepth != depth+1 {
-				t.Errorf("downstream depth = %d, want %d", enqueuer.calls[0].run.LineageDepth, depth+1)
+				assert.Failf(t, "test failure",
+
+					"downstream depth = %d, want %d", enqueuer.calls[0].run.LineageDepth, depth+1)
 			}
 		}
 	})
@@ -755,9 +761,8 @@ func TestChaining_SQLInjectionInJobSlug(t *testing.T) {
 
 			enqueuer.mu.Lock()
 			defer enqueuer.mu.Unlock()
-			if len(enqueuer.calls) != 0 {
-				t.Error("malicious slug should not resolve to a job")
-			}
+			assert.Empty(t, enqueuer.
+				calls)
 		})
 	}
 }
@@ -787,12 +792,13 @@ func TestChaining_5MBOutputPayload(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
-	if len(enqueuer.calls[0].run.Payload) < 5*1024*1024 {
-		t.Error("large payload should be passed through")
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
+	assert.GreaterOrEqual(t, len(enqueuer.
+		calls[0].run.
+		Payload),
+		5*1024*
+			1024)
 }
 
 func TestChaining_ConcurrentCompletions(t *testing.T) {
@@ -824,9 +830,8 @@ func TestChaining_ConcurrentCompletions(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 50 {
-		t.Errorf("expected 50 concurrent triggers, got %d", len(enqueuer.calls))
-	}
+	assert.Len(t, enqueuer.
+		calls, 50)
 }
 
 func TestChaining_NilOutputWithMapping(t *testing.T) {
@@ -852,9 +857,8 @@ func TestChaining_NilOutputWithMapping(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 }
 
 func TestChaining_UnicodeInPayload(t *testing.T) {
@@ -879,9 +883,8 @@ func TestChaining_UnicodeInPayload(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 }
 
 func TestOnFailure_AllTerminalFailureStatuses(t *testing.T) {
@@ -915,9 +918,8 @@ func TestOnFailure_AllTerminalFailureStatuses(t *testing.T) {
 
 			enqueuer.mu.Lock()
 			defer enqueuer.mu.Unlock()
-			if len(enqueuer.calls) != 1 {
-				t.Errorf("status %s should trigger on_failure, got %d calls", status, len(enqueuer.calls))
-			}
+			assert.Len(t, enqueuer.
+				calls, 1)
 		})
 	}
 }
@@ -952,9 +954,8 @@ func TestOnFailure_NonTerminalStatusesDoNotTrigger(t *testing.T) {
 
 			enqueuer.mu.Lock()
 			defer enqueuer.mu.Unlock()
-			if len(enqueuer.calls) != 0 {
-				t.Errorf("status %s should NOT trigger on_failure, got %d calls", status, len(enqueuer.calls))
-			}
+			assert.Empty(t, enqueuer.
+				calls)
 		})
 	}
 }
@@ -979,9 +980,8 @@ func TestIsTerminalFailureStatus(t *testing.T) {
 		t.Run(string(tt.status), func(t *testing.T) {
 			t.Parallel()
 			got := isTerminalFailureStatus(tt.status)
-			if got != tt.want {
-				t.Errorf("isTerminalFailureStatus(%s) = %v, want %v", tt.status, got, tt.want)
-			}
+			assert.Equal(t,
+				tt.want, got)
 		})
 	}
 }

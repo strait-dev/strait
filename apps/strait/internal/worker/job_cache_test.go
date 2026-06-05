@@ -10,6 +10,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
@@ -32,18 +34,19 @@ func TestJobCache_HitAvoidsDatabaseLookup(t *testing.T) {
 		Version: 1,
 		Name:    "test-job",
 	}
-
-	if err := jobCache.Set(ctx, "job-1", job); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
+	require.NoError(
+		t, jobCache.Set(ctx,
+			"job-1", job,
+		))
 
 	cached, err := jobCache.Get(ctx, "job-1")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if cached.ID != "job-1" || cached.Version != 1 {
-		t.Fatalf("cached job = %+v, want ID=job-1 Version=1", cached)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		cached.ID != "job-1" ||
+			cached.
+				Version !=
+				1)
 }
 
 func TestJobCache_MissReturnsError(t *testing.T) {
@@ -53,9 +56,8 @@ func TestJobCache_MissReturnsError(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := jobCache.Get(ctx, "nonexistent")
-	if err == nil {
-		t.Fatal("expected error on cache miss, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestJobCache_ExpiresAfterTTL(t *testing.T) {
@@ -66,16 +68,16 @@ func TestJobCache_ExpiresAfterTTL(t *testing.T) {
 	ctx := t.Context()
 
 	job := &domain.Job{ID: "job-ttl", Version: 1}
-	if err := jobCache.Set(ctx, "job-ttl", job); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
+	require.NoError(
+		t, jobCache.Set(ctx,
+			"job-ttl",
+			job))
 
 	time.Sleep(3 * time.Second)
 
 	_, err := jobCache.Get(ctx, "job-ttl")
-	if err == nil {
-		t.Fatal("expected cache miss after TTL expiry")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
@@ -91,12 +93,13 @@ func TestJobCache_OverwriteUpdatesValue(t *testing.T) {
 	_ = jobCache.Set(ctx, "job-ow", v2)
 
 	cached, err := jobCache.Get(ctx, "job-ow")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if cached.Version != 2 || cached.Name != "new-name" {
-		t.Fatalf("expected v2, got %+v", cached)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		cached.Version !=
+			2 || cached.Name !=
+			"new-name",
+	)
 }
 
 func TestJobCache_ConcurrentAccess(t *testing.T) {
@@ -125,12 +128,11 @@ func TestJobCache_ConcurrentAccess(t *testing.T) {
 
 	// Should not panic or race. Final value should be one of the written versions.
 	cached, err := jobCache.Get(ctx, "job-conc")
-	if err != nil {
-		t.Fatalf("Get after concurrent writes: %v", err)
-	}
-	if cached.ID != "job-conc" {
-		t.Fatalf("unexpected job ID: %s", cached.ID)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"job-conc", cached.
+			ID)
 }
 
 func TestJobCache_Delete(t *testing.T) {
@@ -141,15 +143,12 @@ func TestJobCache_Delete(t *testing.T) {
 
 	job := &domain.Job{ID: "job-del", Version: 1}
 	_ = jobCache.Set(ctx, "job-del", job)
-
-	if err := jobCache.Delete(ctx, "job-del"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
+	require.NoError(
+		t, jobCache.Delete(ctx, "job-del"))
 
 	_, err := jobCache.Get(ctx, "job-del")
-	if err == nil {
-		t.Fatal("expected miss after delete")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
@@ -160,23 +159,28 @@ func TestWorkerJobCache_RedisL2BackfillAndCachebusInvalidate(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	cacheA := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
-	if err := cacheA.Set(t.Context(), "job-redis", &domain.Job{ID: "job-redis", Version: 3, Name: "cached"}); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(
+		t, cacheA.Set(t.Context(), "job-redis",
+			&domain.
+				Job{
+				ID: "job-redis", Version: 3, Name: "cached",
+			}))
 
 	registryB := straitcache.NewRegistry(straitcache.RegistryConfig{Origin: "node-b"})
 	cacheB := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb, Registry: registryB})
 	got, err := cacheB.Get(t.Context(), "job-redis")
-	if err != nil {
-		t.Fatalf("Get() L2 hit error = %v", err)
-	}
-	if got.Name != "cached" || got.Version != 3 {
-		t.Fatalf("Get() = %+v, want cached version 3", got)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		got.Name != "cached" ||
+			got.Version !=
+				3)
 
 	publishTestWorkerInvalidate(t, registryB, workerJobCacheNamespace, "job-redis")
 	if _, err := cacheB.Get(t.Context(), "job-redis"); err == nil {
-		t.Fatal("expected cache miss after cachebus invalidation")
+		require.Fail(t,
+
+			"expected cache miss after cachebus invalidation")
 	}
 }
 
@@ -189,28 +193,26 @@ func TestWorkerJobCache_UsesUpdatedAtVersionForRedisCAS(t *testing.T) {
 
 	updatedAt := time.Unix(1700000000, 123).UTC()
 	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
-	if err := cache.Set(t.Context(), "job-versioned", &domain.Job{
-		ID:        "job-versioned",
-		Version:   3,
-		Name:      "cached",
-		UpdatedAt: updatedAt,
-	}); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(
+		t, cache.Set(t.Context(), "job-versioned",
+
+			&domain.
+				Job{ID: "job-versioned", Version: 3,
+				Name: "cached", UpdatedAt: updatedAt,
+			}))
 
 	raw, err := rdb.Get(t.Context(), "strait:cache:"+workerJobCacheNamespace+":job-versioned").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != updatedAt.UnixNano() {
-		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
-	}
+	require.NoError(
+		t, json.Unmarshal(raw, &envelope))
+	require.Equal(t,
+		updatedAt.UnixNano(), envelope.
+			Version)
 }
 
 func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
@@ -222,29 +224,24 @@ func TestWorkerJobCache_PrefersCacheVersionForRedisCAS(t *testing.T) {
 
 	updatedAt := time.Unix(1700000000, 123).UTC()
 	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
-	if err := cache.Set(t.Context(), "job-cache-version", &domain.Job{
-		ID:           "job-cache-version",
-		Version:      3,
-		Name:         "cached",
-		UpdatedAt:    updatedAt,
-		CacheVersion: 42,
-	}); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(
+		t, cache.Set(t.Context(), "job-cache-version",
+
+			&domain.
+				Job{ID: "job-cache-version", Version: 3, Name: "cached", UpdatedAt: updatedAt, CacheVersion: 42},
+		),
+	)
 
 	raw, err := rdb.Get(t.Context(), "strait:cache:"+workerJobCacheNamespace+":job-cache-version").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 42 {
-		t.Fatalf("redis version = %d, want 42", envelope.Version)
-	}
+	require.NoError(
+		t, json.Unmarshal(raw, &envelope))
+	require.EqualValues(t, 42, envelope.Version)
 }
 
 func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
@@ -255,16 +252,17 @@ func TestWorkerJobCache_StrongBarrierRejectsStaleLoaderFill(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
-	if err := cache.Delete(t.Context(), "job-deleted"); err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
+	require.NoError(
+		t, cache.Delete(t.
+			Context(), "job-deleted",
+		),
+	)
 
 	_, err := cache.Load(t.Context(), "job-deleted", func(context.Context, string) (*domain.Job, error) {
 		return &domain.Job{ID: "job-deleted", Name: "stale", CacheVersion: 1}, nil
 	})
-	if err == nil {
-		t.Fatal("Load() error = nil, want stale version rejection")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T) {
@@ -275,26 +273,22 @@ func TestWorkerJobCache_StrongBarrierAllowsEqualVersionReplacement(t *testing.T)
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	cache := newTierJobCache(time.Minute, workerCacheDeps{Redis: rdb})
-	if err := cache.tier.StrongInvalidate(
-		t.Context(),
-		workerCachePolicy(workerJobCacheNamespace),
-		"job-recreated",
-		"job-recreated",
-		workerCacheBarrier(7),
-		nil,
-	); err != nil {
-		t.Fatalf("StrongInvalidate() error = %v", err)
-	}
+	require.NoError(
+		t, cache.tier.StrongInvalidate(t.
+			Context(),
+			workerCachePolicy(workerJobCacheNamespace),
+			"job-recreated", "job-recreated",
+			workerCacheBarrier(7), nil))
 
 	got, err := cache.Load(t.Context(), "job-recreated", func(context.Context, string) (*domain.Job, error) {
 		return &domain.Job{ID: "job-recreated", Name: "fresh", CacheVersion: 7}, nil
 	})
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if got == nil || got.Name != "fresh" {
-		t.Fatalf("Load() = %+v, want fresh job", got)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		got == nil || got.
+			Name != "fresh",
+	)
 }
 
 func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
@@ -309,26 +303,25 @@ func TestWorkerJobCache_LoadPreservesUpdatedAtVersionInRedis(t *testing.T) {
 	got, err := cache.Load(t.Context(), "job-loaded", func(context.Context, string) (*domain.Job, error) {
 		return &domain.Job{ID: "job-loaded", Version: 2, Name: "loaded", UpdatedAt: updatedAt}, nil
 	})
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if got == nil || got.UpdatedAt != updatedAt {
-		t.Fatalf("Load() = %+v, want UpdatedAt %v", got, updatedAt)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		got == nil || got.
+			UpdatedAt !=
+			updatedAt)
 
 	raw, err := rdb.Get(t.Context(), "strait:cache:"+workerJobCacheNamespace+":job-loaded").Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != updatedAt.UnixNano() {
-		t.Fatalf("redis version = %d, want %d", envelope.Version, updatedAt.UnixNano())
-	}
+	require.NoError(
+		t, json.Unmarshal(raw, &envelope))
+	require.Equal(t,
+		updatedAt.UnixNano(), envelope.
+			Version)
 }
 
 func TestJobCacheVersion(t *testing.T) {
@@ -366,9 +359,8 @@ func TestJobCacheVersion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := jobCacheVersion(tt.job); got != tt.want {
-				t.Fatalf("jobCacheVersion() = %d, want %d", got, tt.want)
-			}
+			require.Equal(t,
+				tt.want, jobCacheVersion(tt.job))
 		})
 	}
 }
@@ -377,9 +369,9 @@ func TestWorkerJobVersionKeyString(t *testing.T) {
 	t.Parallel()
 
 	got := workerJobVersionKeyString(jobVersionKey{JobID: "job-1", Version: 7})
-	if got != "job-1\x007" {
-		t.Fatalf("workerJobVersionKeyString() = %q, want %q", got, "job-1\x007")
-	}
+	require.Equal(t,
+		"job-1\x007", got,
+	)
 }
 
 func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
@@ -389,12 +381,14 @@ func TestVersionedJobCache_NilCacheUsesLoader(t *testing.T) {
 	got, err := cache.Load(t.Context(), jobVersionKey{JobID: "job-1", Version: 4}, func(_ context.Context, key jobVersionKey) (*domain.Job, error) {
 		return &domain.Job{ID: key.JobID, Version: key.Version}, nil
 	})
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if got == nil || got.ID != "job-1" || got.Version != 4 {
-		t.Fatalf("Load() = %+v, want job-1 version 4", got)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		got == nil || got.
+			ID != "job-1" ||
+			got.Version !=
+				4,
+	)
 }
 
 func TestJobCache_MultipleKeys(t *testing.T) {
@@ -411,12 +405,11 @@ func TestJobCache_MultipleKeys(t *testing.T) {
 	for _, i := range []int{0, 50, 99} {
 		key := "job-multi" + string(rune('a'+i))
 		cached, err := jobCache.Get(ctx, key)
-		if err != nil {
-			t.Fatalf("Get(%s): %v", key, err)
-		}
-		if cached.Version != i {
-			t.Fatalf("Version for key %s = %d, want %d", key, cached.Version, i)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t,
+			i, cached.Version,
+		)
 	}
 }
 
@@ -430,9 +423,9 @@ func publishTestWorkerInvalidate(t *testing.T, registry *straitcache.Registry, n
 		Origin:    "peer",
 		SentAt:    time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("marshal invalidate: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	registry.Handle(t.Context(), data)
 }
 
@@ -456,21 +449,15 @@ func TestJobCache_NilCacheDisablesLookup(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 
 	job, err := e.resolveJobForRun(ctx, run)
-	if err != nil {
-		t.Fatalf("resolveJobForRun: %v", err)
-	}
-	if job.ID != "job-1" {
-		t.Fatalf("job ID = %q, want job-1", job.ID)
-	}
-	if dbCalls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1", dbCalls.Load())
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"job-1", job.ID)
+	require.EqualValues(t, 1, dbCalls.Load())
 
 	// Second call should also hit DB since cache is nil.
 	_, _ = e.resolveJobForRun(ctx, run)
-	if dbCalls.Load() != 2 {
-		t.Fatalf("DB calls = %d, want 2 (no cache)", dbCalls.Load())
-	}
+	require.EqualValues(t, 2, dbCalls.Load())
 }
 
 func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
@@ -487,28 +474,22 @@ func TestWorkerCache_ConstructedFromExecutorConfig(t *testing.T) {
 		MaxDequeueBatchSize:      7,
 		DefaultJobMaxConcurrency: 3,
 	})
-
-	if exec.jobCache == nil {
-		t.Fatal("jobCache = nil, want constructed when JobCacheTTL > 0")
-	}
-	if exec.jobVersionCache == nil {
-		t.Fatal("jobVersionCache = nil, want constructed when VersionCacheTTL > 0")
-	}
-	if exec.runVersionCache == nil {
-		t.Fatal("runVersionCache = nil, want constructed when RunVersionCacheTTL > 0")
-	}
-	if exec.stepsVersionCache == nil {
-		t.Fatal("stepsVersionCache = nil, want constructed when VersionCacheTTL > 0")
-	}
-	if exec.jobHealthCache == nil {
-		t.Fatal("jobHealthCache = nil, want constructed when JobHealthCacheTTL > 0")
-	}
-	if exec.maxDequeueBatchSize != 7 {
-		t.Fatalf("maxDequeueBatchSize = %d, want 7", exec.maxDequeueBatchSize)
-	}
-	if exec.defaultJobMaxConcurrency != 3 {
-		t.Fatalf("defaultJobMaxConcurrency = %d, want 3", exec.defaultJobMaxConcurrency)
-	}
+	require.NotNil(t,
+		exec.jobCache)
+	require.NotNil(t,
+		exec.jobVersionCache,
+	)
+	require.NotNil(t,
+		exec.runVersionCache,
+	)
+	require.NotNil(t,
+		exec.stepsVersionCache,
+	)
+	require.NotNil(t,
+		exec.jobHealthCache,
+	)
+	require.Equal(t, 7, exec.maxDequeueBatchSize)
+	require.Equal(t, 3, exec.defaultJobMaxConcurrency)
 }
 
 func TestWorkerStrongCacheConstructorRegistersRuntimeNamespace(t *testing.T) {
@@ -530,10 +511,9 @@ func TestWorkerStrongCacheConstructorRegistersRuntimeNamespace(t *testing.T) {
 		RedisClient:   rdb,
 		CacheRegistry: registry,
 	})
+	require.NotNil(t,
+		exec.jobCache)
 
-	if exec.jobCache == nil {
-		t.Fatal("jobCache = nil, want constructed when JobCacheTTL > 0")
-	}
 	assertWorkerRegisteredNamespaces(t, registry, []string{workerJobCacheNamespace})
 }
 
@@ -546,7 +526,9 @@ func assertWorkerRegisteredNamespaces(t *testing.T, registry *straitcache.Regist
 	}
 	for _, namespace := range expected {
 		if _, ok := registered[namespace]; !ok {
-			t.Fatalf("cache namespace %s was not registered; registered namespaces: %v", namespace, registry.RegisteredNamespaces())
+			require.Failf(t, "test failure",
+
+				"cache namespace %s was not registered; registered namespaces: %v", namespace, registry.RegisteredNamespaces())
 		}
 	}
 }
@@ -577,19 +559,13 @@ func TestResolveJobForRun_CachesPinnedVersion(t *testing.T) {
 
 	for range 2 {
 		job, err := exec.resolveJobForRun(t.Context(), run)
-		if err != nil {
-			t.Fatalf("resolveJobForRun() error = %v", err)
-		}
-		if job.Version != 1 {
-			t.Fatalf("resolved version = %d, want 1", job.Version)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, job.Version)
 	}
-	if getJobCalls.Load() != 1 {
-		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
-	}
-	if getVersionCalls.Load() != 1 {
-		t.Fatalf("GetJobAtVersion calls = %d, want 1", getVersionCalls.Load())
-	}
+	require.EqualValues(t, 1, getJobCalls.Load())
+	require.EqualValues(t, 1, getVersionCalls.
+		Load())
 }
 
 func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.T) {
@@ -630,23 +606,20 @@ func TestResolveExecutionPolicy_WarmPathUsesCachedRunVersionAndSteps(t *testing.
 
 	for range 2 {
 		got, err := exec.resolveExecutionPolicy(t.Context(), run, fallback)
-		if err != nil {
-			t.Fatalf("resolveExecutionPolicy() error = %v", err)
-		}
-		if got.maxAttempts != 8 || got.timeoutSecs != 42 || got.retryInitialSecs != 4 {
-			t.Fatalf("resolved policy = %+v, want step overrides", got)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			got.maxAttempts !=
+				8 || got.timeoutSecs !=
+				42 || got.
+				retryInitialSecs != 4)
 	}
-
-	if stepRunCalls.Load() != 2 {
-		t.Fatalf("GetWorkflowStepRun calls = %d, want 2 live reads", stepRunCalls.Load())
-	}
-	if workflowRunCalls.Load() != 1 {
-		t.Fatalf("GetWorkflowRun calls = %d, want 1 cached after cold read", workflowRunCalls.Load())
-	}
-	if listStepsCalls.Load() != 1 {
-		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1 cached after cold read", listStepsCalls.Load())
-	}
+	require.EqualValues(t, 2, stepRunCalls.
+		Load())
+	require.EqualValues(t, 1, workflowRunCalls.
+		Load())
+	require.EqualValues(t, 1, listStepsCalls.
+		Load())
 }
 
 func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
@@ -675,9 +648,9 @@ func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
 	})
 
 	first, err := exec.getWorkflowStepsForVersion(t.Context(), "wf-1", 3)
-	if err != nil {
-		t.Fatalf("getWorkflowStepsForVersion() first error = %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	first[0].StepRef = "mutated"
 	first[0].DependsOn[0] = "mutated"
 	first[0].Condition[0] = '{'
@@ -685,27 +658,23 @@ func TestWorkflowStepsVersionCache_ReturnsClones(t *testing.T) {
 	first[0].StageNotifications[0] = '{'
 
 	second, err := exec.getWorkflowStepsForVersion(t.Context(), "wf-1", 3)
-	if err != nil {
-		t.Fatalf("getWorkflowStepsForVersion() second error = %v", err)
-	}
-	if listStepsCalls.Load() != 1 {
-		t.Fatalf("ListStepsByWorkflowVersion calls = %d, want 1", listStepsCalls.Load())
-	}
+	require.NoError(
+		t, err)
+	require.EqualValues(t, 1, listStepsCalls.
+		Load())
+
 	stringFieldsWereCloned := second[0].StepRef == "step-a" &&
 		second[0].DependsOn[0] == "root" &&
 		second[0].ApprovalApprovers[0] == "ops"
-	if !stringFieldsWereCloned {
-		t.Fatalf("cached step was mutated: %+v", second[0])
-	}
+	require.True(t,
+		stringFieldsWereCloned,
+	)
+
 	rawFieldsWereCloned := string(second[0].Condition) == `{"ok":true}` &&
 		string(second[0].StageNotifications) == `{"start":true}`
-	if !rawFieldsWereCloned {
-		t.Fatalf(
-			"cached raw JSON was mutated: condition=%s notifications=%s",
-			second[0].Condition,
-			second[0].StageNotifications,
-		)
-	}
+	require.True(t,
+		rawFieldsWereCloned,
+	)
 }
 
 func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
@@ -727,20 +696,15 @@ func TestJobHealthCache_BucketHitAvoidsStore(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
 	first, err := exec.getJobHealthStats(t.Context(), "job-1", now)
-	if err != nil {
-		t.Fatalf("getJobHealthStats() first error = %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	first.TotalRuns = 999
 	second, err := exec.getJobHealthStats(t.Context(), "job-1", now.Add(10*time.Second))
-	if err != nil {
-		t.Fatalf("getJobHealthStats() second error = %v", err)
-	}
-	if healthCalls.Load() != 1 {
-		t.Fatalf("GetJobHealthStats calls = %d, want 1", healthCalls.Load())
-	}
-	if second.TotalRuns != 10 {
-		t.Fatalf("cached stats were mutated: %+v", second)
-	}
+	require.NoError(
+		t, err)
+	require.EqualValues(t, 1, healthCalls.Load())
+	require.Equal(t, 10, second.TotalRuns)
 }
 
 func TestJobCache_ResolveJobForRun_CacheHit(t *testing.T) {
@@ -764,24 +728,17 @@ func TestJobCache_ResolveJobForRun_CacheHit(t *testing.T) {
 
 	// First call: cache miss, hits DB.
 	job, err := e.resolveJobForRun(ctx, run)
-	if err != nil {
-		t.Fatalf("resolveJobForRun: %v", err)
-	}
-	if job.ID != "job-1" {
-		t.Fatalf("job ID = %q, want job-1", job.ID)
-	}
-	if dbCalls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1", dbCalls.Load())
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"job-1", job.ID)
+	require.EqualValues(t, 1, dbCalls.Load())
 
 	// Second call: cache hit, no DB call.
 	_, err = e.resolveJobForRun(ctx, run)
-	if err != nil {
-		t.Fatalf("resolveJobForRun: %v", err)
-	}
-	if dbCalls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1 (cache hit)", dbCalls.Load())
-	}
+	require.NoError(
+		t, err)
+	require.EqualValues(t, 1, dbCalls.Load())
 }
 
 func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
@@ -806,17 +763,13 @@ func TestJobCache_ResolveJobForRun_CacheExpiry(t *testing.T) {
 
 	// First call: populates cache.
 	_, _ = e.resolveJobForRun(ctx, run)
-	if dbCalls.Load() != 1 {
-		t.Fatalf("DB calls = %d, want 1", dbCalls.Load())
-	}
+	require.EqualValues(t, 1, dbCalls.Load())
 
 	time.Sleep(3 * time.Second)
 
 	// After TTL: cache miss, hits DB again.
 	_, _ = e.resolveJobForRun(ctx, run)
-	if dbCalls.Load() != 2 {
-		t.Fatalf("DB calls = %d, want 2 (cache expired)", dbCalls.Load())
-	}
+	require.EqualValues(t, 2, dbCalls.Load())
 }
 
 func TestResolveJob_CacheHit(t *testing.T) {
@@ -842,26 +795,17 @@ func TestResolveJob_CacheHit(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 
 	job1, err := exec.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("first call error: %v", err)
-	}
-	if job1 == nil {
-		t.Fatal("expected job, got nil")
-		return
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		job1)
 
 	job2, err := exec.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("second call error: %v", err)
-	}
-	if job2 == nil {
-		t.Fatal("expected job, got nil")
-		return
-	}
-
-	if getJobCalls.Load() != 1 {
-		t.Errorf("expected 1 GetJob call (cache hit), got %d", getJobCalls.Load())
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		job2)
+	assert.EqualValues(t, 1, getJobCalls.Load())
 }
 
 func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *testing.T) {
@@ -877,24 +821,29 @@ func TestDeepSecResolveJob_ClonesCachedJobBeforeEnvironmentOverrideMutation(t *t
 	t.Cleanup(exec.CloseCache)
 
 	cached := &domain.Job{ID: "job-1", ProjectID: "proj-1", Version: 1, EndpointURL: "https://original.example/run"}
-	if err := exec.jobCache.Set(context.Background(), "job-1", cached); err != nil {
-		t.Fatalf("seed cache: %v", err)
-	}
+	require.NoError(
+		t, exec.jobCache.
+			Set(context.Background(),
+				"job-1",
+
+				cached))
+
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 
 	resolved, err := exec.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("resolveJobForRun: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	resolved.EndpointURL = "https://override.example/run"
 
 	again, err := exec.jobCache.Get(context.Background(), "job-1")
-	if err != nil {
-		t.Fatalf("read cache: %v", err)
-	}
-	if again.EndpointURL != "https://original.example/run" {
-		t.Fatalf("cached endpoint mutated to %q", again.EndpointURL)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"https://original.example/run",
+
+		again.EndpointURL,
+	)
 }
 
 func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
@@ -922,27 +871,27 @@ func TestDeepSecResolveJob_RefreshesLatestPolicyCacheHit(t *testing.T) {
 		JobCacheTTL:  5 * time.Minute,
 	})
 	t.Cleanup(exec.CloseCache)
-	if err := exec.jobCache.Set(context.Background(), "job-1", &domain.Job{
-		ID:            "job-1",
-		ProjectID:     "proj-1",
-		Version:       1,
-		VersionPolicy: domain.VersionPolicyLatest,
-		EndpointURL:   "https://stale.example/run",
-	}); err != nil {
-		t.Fatalf("seed cache: %v", err)
-	}
+	require.NoError(
+		t, exec.jobCache.
+			Set(context.Background(),
+				"job-1",
+
+				&domain.Job{ID: "job-1", ProjectID: "proj-1", Version: 1, VersionPolicy: domain.VersionPolicyLatest,
+
+					EndpointURL: "https://stale.example/run",
+				}))
 
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", JobVersion: 1}
 	resolved, err := exec.resolveJobForRun(context.Background(), run)
-	if err != nil {
-		t.Fatalf("resolveJobForRun: %v", err)
-	}
-	if getJobCalls.Load() != 1 {
-		t.Fatalf("GetJob calls = %d, want 1", getJobCalls.Load())
-	}
-	if resolved.Version != 2 || resolved.EndpointURL != "https://fresh.example/run" {
-		t.Fatalf("resolved stale job: version=%d endpoint=%q", resolved.Version, resolved.EndpointURL)
-	}
+	require.NoError(
+		t, err)
+	require.EqualValues(t, 1, getJobCalls.Load())
+	require.False(t,
+		resolved.Version !=
+			2 || resolved.
+			EndpointURL !=
+			"https://fresh.example/run",
+	)
 }
 
 func TestResolveJob_CacheExpiry(t *testing.T) {
@@ -970,10 +919,7 @@ func TestResolveJob_CacheExpiry(t *testing.T) {
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 	time.Sleep(3 * time.Second)
 	_, _ = exec.resolveJobForRun(context.Background(), run)
-
-	if getJobCalls.Load() != 2 {
-		t.Errorf("expected 2 GetJob calls after expiry, got %d", getJobCalls.Load())
-	}
+	assert.EqualValues(t, 2, getJobCalls.Load())
 }
 
 func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
@@ -999,8 +945,5 @@ func TestResolveJob_CacheDisabledWhenTTLZero(t *testing.T) {
 
 	_, _ = exec.resolveJobForRun(context.Background(), run)
 	_, _ = exec.resolveJobForRun(context.Background(), run)
-
-	if getJobCalls.Load() != 2 {
-		t.Errorf("expected 2 GetJob calls (cache disabled), got %d", getJobCalls.Load())
-	}
+	assert.EqualValues(t, 2, getJobCalls.Load())
 }

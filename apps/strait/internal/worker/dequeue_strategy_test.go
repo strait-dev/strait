@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/queue"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // mockStrategyQueue tracks which dequeue method was called.
@@ -78,10 +80,8 @@ func TestPoll_DequeueUsesQueueDequeueN(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-
-	if q.dequeueNCalled.Load() != 1 {
-		t.Fatalf("DequeueN called %d times, want 1", q.dequeueNCalled.Load())
-	}
+	require.EqualValues(t, 1, q.dequeueNCalled.
+		Load())
 }
 
 // TestPoll_PartitionsOverrideAutoSelect verifies that partition-based
@@ -102,13 +102,10 @@ func TestPoll_PartitionsOverrideAutoSelect(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-
-	if q.dequeueNByProject.Load() != 1 {
-		t.Fatalf("DequeueNByProject called %d times, want 1", q.dequeueNByProject.Load())
-	}
-	if q.dequeueNCalled.Load() != 0 {
-		t.Fatalf("DequeueN called %d times, want 0 (partitions override)", q.dequeueNCalled.Load())
-	}
+	require.EqualValues(t, 1, q.dequeueNByProject.
+		Load())
+	require.EqualValues(t, 0, q.dequeueNCalled.
+		Load())
 }
 
 func TestDequeueRuns_AppendsWorkerRunsWithRemainingCapacity(t *testing.T) {
@@ -126,21 +123,21 @@ func TestDequeueRuns_AppendsWorkerRunsWithRemainingCapacity(t *testing.T) {
 	}
 
 	runs, err := exec.dequeueRuns(context.Background(), 3)
-	if err != nil {
-		t.Fatalf("dequeueRuns() error = %v", err)
-	}
-	if len(runs) != 3 {
-		t.Fatalf("runs len = %d, want 3", len(runs))
-	}
-	if runs[0].ID != "http-1" || runs[1].ID != "worker-1" || runs[2].ID != "worker-2" {
-		t.Fatalf("runs = %+v, want HTTP claim followed by worker claims", runs)
-	}
-	if got := q.workerQueueN.Load(); got != 2 {
-		t.Fatalf("worker dequeue n = %d, want remaining capacity 2", got)
-	}
-	if len(q.workerQueueInputs) != 1 || q.workerQueueInputs[0] != workerQueues[0] {
-		t.Fatalf("worker queue inputs = %+v, want %+v", q.workerQueueInputs, workerQueues)
-	}
+	require.NoError(
+		t, err)
+	require.Len(t, runs,
+		3)
+	require.False(t,
+		runs[0].ID !=
+			"http-1" ||
+			runs[1].ID !=
+				"worker-1" ||
+			runs[2].ID != "worker-2")
+	require.EqualValues(t, 2, q.workerQueueN.
+		Load())
+	require.False(t,
+		len(q.workerQueueInputs) != 1 || q.workerQueueInputs[0] !=
+			workerQueues[0])
 }
 
 func TestDequeueRuns_SkipsWorkerPassWhenHTTPClaimsFillCapacity(t *testing.T) {
@@ -159,15 +156,12 @@ func TestDequeueRuns_SkipsWorkerPassWhenHTTPClaimsFillCapacity(t *testing.T) {
 	}
 
 	runs, err := exec.dequeueRuns(context.Background(), 2)
-	if err != nil {
-		t.Fatalf("dequeueRuns() error = %v", err)
-	}
-	if len(runs) != 2 {
-		t.Fatalf("runs len = %d, want 2", len(runs))
-	}
-	if got := q.workerQueueCalled.Load(); got != 0 {
-		t.Fatalf("worker dequeue calls = %d, want 0", got)
-	}
+	require.NoError(
+		t, err)
+	require.Len(t, runs,
+		2)
+	require.EqualValues(t, 0, q.workerQueueCalled.
+		Load())
 }
 
 func TestDequeueRuns_WorkerFailureKeepsHTTPClaims(t *testing.T) {
@@ -186,13 +180,12 @@ func TestDequeueRuns_WorkerFailureKeepsHTTPClaims(t *testing.T) {
 	}
 
 	runs, err := exec.dequeueRuns(context.Background(), 2)
-	if err != nil {
-		t.Fatalf("dequeueRuns() error = %v", err)
-	}
-	if len(runs) != 1 || runs[0].ID != "http-1" {
-		t.Fatalf("runs = %+v, want preserved HTTP claim", runs)
-	}
-	if got := q.workerQueueCalled.Load(); got != 1 {
-		t.Fatalf("worker dequeue calls = %d, want 1", got)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		len(runs) !=
+			1 || runs[0].ID != "http-1",
+	)
+	require.EqualValues(t, 1, q.workerQueueCalled.
+		Load())
 }

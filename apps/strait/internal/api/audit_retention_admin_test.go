@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestServerWithRetentionConfig wires a Server with a non-zero
@@ -44,18 +46,16 @@ func TestGetAuditRetention_DefaultWhenUnset(t *testing.T) {
 	srv := newTestServerWithRetentionConfig(t, ms, 365)
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Days != 365 {
-		t.Errorf("days = %d, want 365", out.Body.Days)
-	}
-	if !out.Body.InheritedFromDefault {
-		t.Errorf("expected inherited_from_default=true, got false")
-	}
-	if out.Body.ProjectID != "proj-a" {
-		t.Errorf("project_id = %q, want proj-a", out.Body.ProjectID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 365, out.Body.
+		Days)
+	assert.True(t,
+		out.Body.InheritedFromDefault,
+	)
+	assert.Equal(
+		t, "proj-a", out.
+			Body.ProjectID,
+	)
 }
 
 func TestGetAuditRetention_ProjectOverride(t *testing.T) {
@@ -68,15 +68,11 @@ func TestGetAuditRetention_ProjectOverride(t *testing.T) {
 	srv := newTestServerWithRetentionConfig(t, ms, 365)
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.Days != 30 {
-		t.Errorf("days = %d, want 30", out.Body.Days)
-	}
-	if out.Body.InheritedFromDefault {
-		t.Errorf("expected inherited_from_default=false, got true")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 30, out.Body.Days)
+	assert.False(
+		t, out.Body.InheritedFromDefault,
+	)
 }
 
 func TestGetAuditRetention_RequiresAdmin(t *testing.T) {
@@ -84,12 +80,9 @@ func TestGetAuditRetention_RequiresAdmin(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	_, err := srv.handleGetAuditRetention(nonAdminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
-	if err == nil {
-		t.Fatal("expected 403 for non-admin caller, got nil")
-	}
-	if !strings.Contains(err.Error(), "admin") {
-		t.Errorf("expected admin-required error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestGetAuditRetention_RejectsCrossTenant(t *testing.T) {
@@ -97,12 +90,9 @@ func TestGetAuditRetention_RejectsCrossTenant(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, nil, nil)
 
 	_, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-b"})
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant request, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "not found")
 }
 
 func TestPutAuditRetention_PersistsAndEmitsAudit(t *testing.T) {
@@ -154,37 +144,33 @@ func TestPutAuditRetention_PersistsAndEmitsAudit(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = 30
 	out, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out == nil || out.Body.ProjectID != "proj-a" || out.Body.Days != 30 {
-		t.Fatalf("unexpected response: %+v", out)
-	}
+	require.NoError(t, err)
+	require.False(t, out == nil ||
+		out.Body.
+			ProjectID !=
+			"proj-a" ||
+		out.Body.
+			Days != 30)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if storedProject != "proj-a" {
-		t.Errorf("Set called with project %q, want proj-a", storedProject)
-	}
-	if storedDays != 30 {
-		t.Errorf("persisted days = %d, want 30", storedDays)
-	}
-	if !selfAuditHit {
-		t.Fatal("audit.retention_updated self-audit was not emitted")
-	}
-	if seenOldDays != 90 {
-		t.Errorf("self-audit old_days = %v, want 90", seenOldDays)
-	}
-	if seenNewDays != 30 {
-		t.Errorf("self-audit new_days = %v, want 30", seenNewDays)
-	}
+	assert.Equal(
+		t, "proj-a", storedProject,
+	)
+	assert.Equal(t, 30, storedDays)
+	require.True(
+		t, selfAuditHit)
+	assert.InDelta(t, 90, seenOldDays, 1e-9)
+	assert.InDelta(t, 30, seenNewDays, 1e-9)
 }
 
 func TestPutAuditRetention_RejectsNegative(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		SetAuditRetentionDaysFunc: func(_ context.Context, _ string, _ int) error {
-			t.Error("Set must not be called when input is invalid")
+			assert.Fail(t,
+
+				"Set must not be called when input is invalid")
 			return nil
 		},
 	}
@@ -193,19 +179,18 @@ func TestPutAuditRetention_RejectsNegative(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = -1
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 400 for negative days, got nil")
-	}
-	if !strings.Contains(err.Error(), ">= 0") {
-		t.Errorf("expected >=0 error message, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), ">= 0")
 }
 
 func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		SetAuditRetentionDaysFunc: func(_ context.Context, _ string, _ int) error {
-			t.Error("Set must not be called when input exceeds max retention")
+			assert.Fail(t,
+
+				"Set must not be called when input exceeds max retention")
 			return nil
 		},
 	}
@@ -214,12 +199,9 @@ func TestPutAuditRetention_RejectsOverflowDays(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = domain.MaxAuditRetentionDays + 1
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 400 for overflow days, got nil")
-	}
-	if !strings.Contains(err.Error(), "maximum") {
-		t.Errorf("expected maximum error message, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "maximum")
 }
 
 func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
@@ -231,16 +213,20 @@ func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
 			return 90, true, nil
 		},
 		SetAuditRetentionDaysFunc: func(_ context.Context, projectID string, days int) error {
-			if projectID != "proj-a" || days != 30 {
-				t.Fatalf("SetAuditRetentionDays(%q, %d), want proj-a/30", projectID, days)
-			}
+			require.False(t, projectID !=
+				"proj-a" ||
+				days != 30,
+			)
+
 			setCalls.Add(1)
 			return nil
 		},
 		CreateAuditEventFunc: func(_ context.Context, ev *domain.AuditEvent) error {
-			if ev.Action != domain.AuditActionRetentionUpdated {
-				t.Fatalf("audit action = %q, want %q", ev.Action, domain.AuditActionRetentionUpdated)
-			}
+			require.Equal(t, domain.AuditActionRetentionUpdated,
+
+				ev.Action,
+			)
+
 			return errors.New("audit unavailable")
 		},
 	}
@@ -249,12 +235,9 @@ func TestPutAuditRetention_AuditFailureFailsRequest(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
-	if !isHumaStatusError(err, 500) {
-		t.Fatalf("expected 500 when audit write fails, got %v", err)
-	}
-	if setCalls.Load() != 1 {
-		t.Fatalf("SetAuditRetentionDays calls = %d, want 1 attempted inside transaction", setCalls.Load())
-	}
+	require.True(
+		t, isHumaStatusError(err, 500))
+	require.EqualValues(t, 1, setCalls.Load())
 }
 
 func TestPutAuditRetention_ZeroDisablesTrim(t *testing.T) {
@@ -289,22 +272,19 @@ func TestPutAuditRetention_ZeroDisablesTrim(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = 0
 	if _, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in); err != nil {
-		t.Fatalf("unexpected PUT error: %v", err)
+		require.Failf(t, "test failure",
+
+			"unexpected PUT error: %v", err)
 	}
-	if storedDays.Load() != 0 {
-		t.Fatalf("days not persisted as 0, got %d", storedDays.Load())
-	}
+	require.EqualValues(t, 0, storedDays.
+		Load())
 
 	out, err := srv.handleGetAuditRetention(adminCtx("proj-a"), &GetAuditRetentionInput{ID: "proj-a"})
-	if err != nil {
-		t.Fatalf("unexpected GET error: %v", err)
-	}
-	if out.Body.Days != 0 {
-		t.Errorf("GET days = %d, want 0 (explicit disable)", out.Body.Days)
-	}
-	if out.Body.InheritedFromDefault {
-		t.Errorf("GET inherited_from_default = true, want false (0 is an explicit override)")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 0, out.Body.Days)
+	assert.False(
+		t, out.Body.InheritedFromDefault,
+	)
 }
 
 func TestPutAuditRetention_RequiresAdmin(t *testing.T) {
@@ -314,12 +294,9 @@ func TestPutAuditRetention_RequiresAdmin(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-a"}
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(nonAdminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 403 for non-admin caller, got nil")
-	}
-	if !strings.Contains(err.Error(), "admin") {
-		t.Errorf("expected admin-required error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "admin")
 }
 
 func TestPutAuditRetention_RejectsCrossTenant(t *testing.T) {
@@ -329,10 +306,7 @@ func TestPutAuditRetention_RejectsCrossTenant(t *testing.T) {
 	in := &UpdateAuditRetentionInput{ID: "proj-b"}
 	in.Body.Days = 30
 	_, err := srv.handleSetAuditRetention(adminCtx("proj-a"), in)
-	if err == nil {
-		t.Fatal("expected 404 for cross-tenant request, got nil")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected not-found error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "not found")
 }

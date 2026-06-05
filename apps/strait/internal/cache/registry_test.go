@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegistryRegisteredNamespacesReturnsSortedCopy(t *testing.T) {
@@ -14,24 +17,16 @@ func TestRegistryRegisteredNamespacesReturnsSortedCopy(t *testing.T) {
 	registry.Register("authn_keys", NamespaceHandlerFuncs{Update: func(context.Context, string, int64, json.RawMessage) {}})
 
 	namespaces := registry.RegisteredNamespaces()
-	if got, want := len(namespaces), 2; got != want {
-		t.Fatalf("len(RegisteredNamespaces()) = %d, want %d", got, want)
-	}
-	if namespaces[0] != "authn_keys" || namespaces[1] != "quota" {
-		t.Fatalf("RegisteredNamespaces() = %v, want sorted authn_keys/quota", namespaces)
-	}
+	require.Len(t, namespaces, 2)
+	assert.Equal(t, []string{"authn_keys", "quota"}, namespaces)
 
 	namespaces[0] = "mutated"
-	if registry.RegisteredNamespaces()[0] != "authn_keys" {
-		t.Fatal("RegisteredNamespaces() returned internal storage instead of a copy")
-	}
+	require.Equal(t, "authn_keys", registry.RegisteredNamespaces()[0])
 }
 
 func TestRegistryRegisteredNamespacesNilSafe(t *testing.T) {
 	t.Parallel()
 
 	var registry *Registry
-	if namespaces := registry.RegisteredNamespaces(); namespaces != nil {
-		t.Fatalf("nil registry RegisteredNamespaces() = %v, want nil", namespaces)
-	}
+	require.Nil(t, registry.RegisteredNamespaces())
 }

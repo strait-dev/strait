@@ -12,6 +12,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
+	"github.com/stretchr/testify/require"
 )
 
 func webhookTestJob(webhookURL string) *domain.Job {
@@ -60,16 +61,13 @@ func TestSendWebhook_Success(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
-
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if result.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", result.StatusCode)
-	}
-	if got := hits.Load(); got != 1 {
-		t.Fatalf("expected 1 server hit, got %d", got)
-	}
+	require.True(t,
+		result.Delivered)
+	require.Equal(t,
+		http.StatusOK, result.
+			StatusCode,
+	)
+	require.EqualValues(t, 1, hits.Load())
 }
 
 func TestSendWebhook_RetriesOn503(t *testing.T) {
@@ -93,13 +91,9 @@ func TestSendWebhook_RetriesOn503(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
-
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if got := hits.Load(); got != 2 {
-		t.Fatalf("expected 2 server hits, got %d", got)
-	}
+	require.True(t,
+		result.Delivered)
+	require.EqualValues(t, 2, hits.Load())
 }
 
 func TestSendWebhook_NoRetryOn400(t *testing.T) {
@@ -119,13 +113,10 @@ func TestSendWebhook_NoRetryOn400(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
-
-	if result.Delivered {
-		t.Fatal("expected delivered=false for 400 response")
-	}
-	if got := hits.Load(); got != 1 {
-		t.Fatalf("expected 1 server hit, got %d", got)
-	}
+	require.False(t,
+		result.Delivered,
+	)
+	require.EqualValues(t, 1, hits.Load())
 }
 
 func TestSendWebhook_MaxRetriesExhausted(t *testing.T) {
@@ -145,22 +136,18 @@ func TestSendWebhook_MaxRetriesExhausted(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, webhookClient, job, run)
 	})
-
-	if result.Delivered {
-		t.Fatal("expected delivered=false after exhausting retries")
-	}
-	if got := hits.Load(); got != 3 {
-		t.Fatalf("expected 3 server hits, got %d", got)
-	}
+	require.False(t,
+		result.Delivered,
+	)
+	require.EqualValues(t, 3, hits.Load())
 }
 
 func TestSendWebhook_EmptyWebhookURL(t *testing.T) {
 	t.Parallel()
 
 	result := SendWebhookWithRetry(context.Background(), &domain.Job{ID: "job-1"}, webhookTestRun(), 3)
-	if !result.Delivered {
-		t.Fatal("expected delivered=true for empty webhook URL")
-	}
+	require.True(t,
+		result.Delivered)
 }
 
 func TestRunForTerminalWebhook_IncludesFinalResultAndError(t *testing.T) {
@@ -178,29 +165,35 @@ func TestRunForTerminalWebhook_IncludesFinalResultAndError(t *testing.T) {
 		"result":      json.RawMessage(`{"ok":true}`),
 		"finished_at": finishedAt,
 	})
-	if success.Status != domain.StatusCompleted {
-		t.Fatalf("success status = %s, want completed", success.Status)
-	}
-	if string(success.Result) != `{"ok":true}` {
-		t.Fatalf("success result = %s, want final result", success.Result)
-	}
-	if success.FinishedAt == nil || !success.FinishedAt.Equal(finishedAt) {
-		t.Fatalf("success finished_at = %v, want %v", success.FinishedAt, finishedAt)
-	}
-	if run.Result != nil || run.Error != "" {
-		t.Fatal("source run should not be mutated while preparing webhook payload")
-	}
+	require.Equal(t,
+		domain.StatusCompleted,
+		success.
+			Status)
+	require.Equal(t,
+		`{"ok":true}`, string(success.
+			Result))
+	require.False(t,
+		success.FinishedAt ==
+			nil ||
+			!success.FinishedAt.
+				Equal(finishedAt))
+	require.False(t,
+		run.Result != nil ||
+			run.Error !=
+				"")
 
 	failed := runForTerminalWebhook(run, domain.StatusFailed, map[string]any{
 		"error":       "endpoint returned 500",
 		"finished_at": finishedAt,
 	})
-	if failed.Status != domain.StatusFailed {
-		t.Fatalf("failed status = %s, want failed", failed.Status)
-	}
-	if failed.Error != "endpoint returned 500" {
-		t.Fatalf("failed error = %q, want final error", failed.Error)
-	}
+	require.Equal(t,
+		domain.StatusFailed,
+		failed.
+			Status)
+	require.Equal(t,
+		"endpoint returned 500",
+		failed.
+			Error)
 }
 
 func TestSendWebhookWithClient_Success(t *testing.T) {
@@ -221,16 +214,13 @@ func TestSendWebhookWithClient_Success(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, client, job, run)
 	})
-
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if result.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", result.StatusCode)
-	}
-	if got := hits.Load(); got != 1 {
-		t.Fatalf("expected 1 server hit, got %d", got)
-	}
+	require.True(t,
+		result.Delivered)
+	require.Equal(t,
+		http.StatusOK, result.
+			StatusCode,
+	)
+	require.EqualValues(t, 1, hits.Load())
 }
 
 func TestSendWebhookWithClient_RetriesOn503(t *testing.T) {
@@ -255,11 +245,7 @@ func TestSendWebhookWithClient_RetriesOn503(t *testing.T) {
 	result := sendWithRetryPolicy(context.Background(), rp, job, run, func(ctx context.Context) WebhookResult {
 		return sendWebhookOnceWith(ctx, client, job, run)
 	})
-
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if got := hits.Load(); got != 2 {
-		t.Fatalf("expected 2 server hits, got %d", got)
-	}
+	require.True(t,
+		result.Delivered)
+	require.EqualValues(t, 2, hits.Load())
 }

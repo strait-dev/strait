@@ -16,6 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PgQueQueue, *domain.Job) {
@@ -44,9 +46,9 @@ func setupReconciler(t *testing.T) (*testutil.TestDB, *store.Queries, *queue.PgQ
 		MaxConcurrency: 1000,
 		Enabled:        true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return tdb, st, q, job
 }
 
@@ -63,9 +65,8 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 			ProjectID: job.ProjectID,
 			Priority:  1,
 		}
-		if err := q.Enqueue(ctx, r); err != nil {
-			t.Fatalf("enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx, r))
+
 	}
 	_ = intClaimRuns(t, ctx, q, 3)
 	if _, err := tdb.Pool.Exec(ctx, `
@@ -75,7 +76,9 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 		DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`,
 		job.ID,
 	); err != nil {
-		t.Fatalf("seed active count: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed active count: %v", err)
 	}
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
@@ -88,10 +91,8 @@ func TestCounterReconciler_HappyPath_ZeroDrift(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	cancel()
 	<-done
+	assert.EqualValues(t, 0, r.TotalDrift())
 
-	if r.TotalDrift() != 0 {
-		t.Errorf("drift on clean DB = %d, want 0", r.TotalDrift())
-	}
 }
 
 func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
@@ -104,9 +105,8 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 			JobID:     job.ID,
 			ProjectID: job.ProjectID,
 		}
-		if err := q.Enqueue(ctx, r); err != nil {
-			t.Fatalf("enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx, r))
+
 	}
 	_ = intClaimRuns(t, ctx, q, 5)
 	if _, err := tdb.Pool.Exec(ctx,
@@ -114,7 +114,9 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 		job.ID,
 		job.MaxConcurrency,
 	); err != nil {
-		t.Fatalf("enable active count truth: %v", err)
+		require.Failf(t, "test failure",
+
+			"enable active count truth: %v", err)
 	}
 
 	// Manually corrupt the counter to simulate drift.
@@ -125,14 +127,10 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 		 DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`,
 		job.ID,
 	)
-	if err != nil {
-		t.Fatalf("corrupt: %v", err)
-	}
+	require.NoError(t, err)
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	// Verify the counter is now correct.
 	var count int
@@ -140,15 +138,11 @@ func TestCounterReconciler_InducedDrift_ActiveCounts(t *testing.T) {
 		`SELECT COALESCE(SUM(count), 0) FROM job_active_counts WHERE job_id = $1`,
 		job.ID,
 	).Scan(&count)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if count != 5 {
-		t.Errorf("counter after reconcile = %d, want 5", count)
-	}
-	if r.TotalDrift() < 10 {
-		t.Errorf("drift = %d, want >= 10", r.TotalDrift())
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, count)
+	assert.GreaterOrEqual(t, r.
+		TotalDrift(), int64(10))
+
 }
 
 func TestCounterReconciler_RemovesStaleActiveCountRows(t *testing.T) {
@@ -162,24 +156,23 @@ func TestCounterReconciler_RemovesStaleActiveCountRows(t *testing.T) {
 		job.ID,
 		uuid.Must(uuid.NewV7()).String(),
 	); err != nil {
-		t.Fatalf("seed stale active counts: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed stale active counts: %v", err)
 	}
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var rows int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_active_counts`).Scan(&rows); err != nil {
-		t.Fatalf("query active count rows: %v", err)
-	}
-	if rows != 0 {
-		t.Fatalf("active count rows after reconcile = %d, want 0 stale rows removed", rows)
-	}
-	if r.TotalDrift() != 7 {
-		t.Fatalf("active count drift = %d, want 7 from the non-zero stale row", r.TotalDrift())
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COUNT(*) FROM job_active_counts`,
+		).
+		Scan(&rows))
+	require.EqualValues(t, 0, rows)
+	require.EqualValues(t, 7, r.TotalDrift())
+
 }
 
 func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *testing.T) {
@@ -192,9 +185,8 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 			JobID:     job.ID,
 			ProjectID: job.ProjectID,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx, run))
+
 	}
 	_ = intClaimRuns(t, ctx, q, 3)
 	if _, err := tdb.Pool.Exec(ctx,
@@ -202,16 +194,17 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 		job.ID,
 		job.MaxConcurrency,
 	); err != nil {
-		t.Fatalf("enable active count truth: %v", err)
+		require.Failf(t, "test failure",
+
+			"enable active count truth: %v", err)
 	}
 	for range 2 {
 		_, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW())
 		`, uuid.Must(uuid.NewV7()).String(), job.ID, job.ProjectID)
-		if err != nil {
-			t.Fatalf("insert dlq run: %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	if _, err := tdb.Pool.Exec(ctx, `
@@ -219,33 +212,34 @@ func TestCounterReconciler_TransactionalReconcileRepairsActiveAndDLQDrift(t *tes
 		VALUES ($1, '', 99, NOW())
 		ON CONFLICT (job_id, concurrency_key)
 		DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`, job.ID); err != nil {
-		t.Fatalf("corrupt active count: %v", err)
+		require.Failf(t, "test failure",
+
+			"corrupt active count: %v", err)
 	}
 	if _, err := tdb.Pool.Exec(ctx, `UPDATE dlq_counts SET count = 42 WHERE job_id = $1`, job.ID); err != nil {
-		t.Fatalf("corrupt dlq count: %v", err)
+		require.Failf(t, "test failure",
+
+			"corrupt dlq count: %v", err)
 	}
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var activeCount, dlqCount int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count), 0) FROM job_active_counts WHERE job_id = $1`, job.ID).Scan(&activeCount); err != nil {
-		t.Fatalf("query active count: %v", err)
-	}
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count), 0) FROM dlq_counts WHERE job_id = $1`, job.ID).Scan(&dlqCount); err != nil {
-		t.Fatalf("query dlq count: %v", err)
-	}
-	if activeCount != 3 {
-		t.Errorf("active count after reconcile = %d, want 3", activeCount)
-	}
-	if dlqCount != 2 {
-		t.Errorf("dlq count after reconcile = %d, want 2", dlqCount)
-	}
-	if r.TotalDrift() == 0 {
-		t.Errorf("drift = %d, want non-zero repair signal", r.TotalDrift())
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COALESCE(SUM(count), 0) FROM job_active_counts WHERE job_id = $1`,
+
+			job.ID).Scan(&activeCount))
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COALESCE(SUM(count), 0) FROM dlq_counts WHERE job_id = $1`,
+
+			job.ID).Scan(&dlqCount))
+	assert.EqualValues(t, 3, activeCount)
+	assert.EqualValues(t, 2, dlqCount)
+	assert.NotEqual(t, 0, r.TotalDrift())
+
 }
 
 func TestCounterReconciler_DoesNotTakeJobRunsTableLock(t *testing.T) {
@@ -253,20 +247,20 @@ func TestCounterReconciler_DoesNotTakeJobRunsTableLock(t *testing.T) {
 	ctx := context.Background()
 
 	writerTx, err := tdb.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin writer transaction: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer writerTx.Rollback(ctx) //nolint:errcheck
 	if _, err := writerTx.Exec(ctx, `LOCK TABLE job_runs IN ROW EXCLUSIVE MODE`); err != nil {
-		t.Fatalf("hold writer table lock: %v", err)
+		require.Failf(t, "test failure",
+
+			"hold writer table lock: %v", err)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(runCtx); err != nil {
-		t.Fatalf("reconcile while writer holds job_runs lock: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(runCtx))
+
 }
 
 func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
@@ -279,9 +273,8 @@ func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW())
 		`, uuid.Must(uuid.NewV7()).String(), job.ID, job.ProjectID)
-		if err != nil {
-			t.Fatalf("insert: %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	// Corrupt the dlq counter.
@@ -289,23 +282,16 @@ func TestCounterReconciler_InducedDrift_DLQCounts(t *testing.T) {
 		`UPDATE dlq_counts SET count = 100 WHERE job_id = $1`,
 		job.ID,
 	)
-	if err != nil {
-		t.Fatalf("corrupt dlq: %v", err)
-	}
+	require.NoError(t, err)
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var count int
 	err = tdb.Pool.QueryRow(ctx, `SELECT count FROM dlq_counts WHERE job_id = $1`, job.ID).Scan(&count)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if count != 3 {
-		t.Errorf("dlq count after reconcile = %d, want 3", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, count)
+
 }
 
 func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
@@ -314,50 +300,43 @@ func TestCounterReconciler_BypassTriggerRepaired(t *testing.T) {
 
 	// Disable the trigger, insert rows (counter unchanged), re-enable.
 	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
-	if err != nil {
-		t.Fatalf("disable trigger: %v", err)
-	}
+	require.NoError(t, err)
+
 	for range 4 {
 		runID := uuid.Must(uuid.NewV7()).String()
 		_, err := tdb.Pool.Exec(ctx, `
 				INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at, job_max_concurrency)
 				VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW(), 1000)
 			`, runID, job.ID, job.ProjectID)
-		if err != nil {
-			t.Fatalf("insert: %v", err)
-		}
+		require.NoError(t, err)
+
 		if _, err := tdb.Pool.Exec(ctx, `
 			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
 			SELECT run_id, ready_generation, attempt, NOW()
 			FROM job_run_state
 			WHERE run_id = $1
 		`, runID); err != nil {
-			t.Fatalf("insert active claim: %v", err)
+			require.Failf(t, "test failure",
+
+				"insert active claim: %v", err)
 		}
 	}
 	_, err = tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state ENABLE TRIGGER job_run_state_active_counts_trg`)
-	if err != nil {
-		t.Fatalf("enable trigger: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Counter should be 0 (trigger was off during inserts).
 	var before int
 	_ = tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count),0) FROM job_active_counts WHERE job_id=$1`, job.ID).Scan(&before)
-	if before != 0 {
-		t.Fatalf("counter before reconcile = %d, want 0", before)
-	}
+	require.EqualValues(t, 0, before)
 
 	// Reconcile.
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var after int
 	_ = tdb.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(count),0) FROM job_active_counts WHERE job_id=$1`, job.ID).Scan(&after)
-	if after != 4 {
-		t.Errorf("counter after reconcile = %d, want 4", after)
-	}
+	assert.EqualValues(t, 4, after)
+
 }
 
 func TestCounterReconciler_RemovesStaleDLQCountRows(t *testing.T) {
@@ -373,24 +352,22 @@ func TestCounterReconciler_RemovesStaleDLQCountRows(t *testing.T) {
 		"stale-"+uuid.Must(uuid.NewV7()).String(),
 		uuid.Must(uuid.NewV7()).String(),
 	); err != nil {
-		t.Fatalf("seed stale dlq counts: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed stale dlq counts: %v", err)
 	}
 
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var rows int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM dlq_counts`).Scan(&rows); err != nil {
-		t.Fatalf("query dlq count rows: %v", err)
-	}
-	if rows != 0 {
-		t.Fatalf("dlq count rows after reconcile = %d, want 0 stale rows removed", rows)
-	}
-	if r.TotalDrift() != 11 {
-		t.Fatalf("dlq count drift = %d, want 11 from the non-zero stale row", r.TotalDrift())
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COUNT(*) FROM dlq_counts`,
+		).Scan(&rows))
+	require.EqualValues(t, 0, rows)
+	require.EqualValues(t, 11, r.TotalDrift())
+
 }
 
 // TestCounterReconciler_PropertyRandomOps runs a random sequence of queue
@@ -434,18 +411,17 @@ func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 
 	// Reconcile and assert zero drift (meaning the trigger stayed correct).
 	r := scheduler.NewCounterReconciler(tdb.Pool, scheduler.CounterReconcilerConfig{})
-	if err := r.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("reconcile: %v", err)
-	}
+	require.NoError(t, r.RunOnceForTest(ctx))
 
 	var activeCount, truthCount int
-	if err := tdb.Pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(count),0) FROM job_active_counts WHERE job_id=$1`,
-		job.ID,
-	).Scan(&activeCount); err != nil {
-		t.Fatalf("query active count: %v", err)
-	}
-	if err := tdb.Pool.QueryRow(ctx, `
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT COALESCE(SUM(count),0) FROM job_active_counts WHERE job_id=$1`,
+
+			job.ID).Scan(&activeCount))
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `
 		SELECT COUNT(*)::int
 		FROM job_run_state s
 		JOIN job_run_active_claims c
@@ -455,10 +431,13 @@ func TestCounterReconciler_PropertyRandomOps(t *testing.T) {
 		WHERE s.job_id = $1
 		  AND terminal.run_id IS NULL
 		  AND (s.job_max_concurrency IS NOT NULL OR s.job_max_concurrency_per_key IS NOT NULL)
-	`, job.ID).Scan(&truthCount); err != nil {
-		t.Fatalf("query active truth: %v", err)
-	}
-	if activeCount != truthCount {
-		t.Errorf("active count after random reconcile = %d, want truth %d", activeCount, truthCount)
-	}
+	`,
+
+			job.ID).
+		Scan(&truthCount))
+	assert.Equal(t, truthCount,
+
+		activeCount,
+	)
+
 }

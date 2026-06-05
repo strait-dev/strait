@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
@@ -24,19 +27,15 @@ func TestSDKResourceSnapshot_OOMRisk_InsertsEvent(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":950,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-
-	if w.Code != 201 {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if insertedEvent == nil {
-		t.Fatal("expected InsertEvent to be called for OOM risk")
-	}
-	if insertedEvent.Type != "resource.oom_risk" {
-		t.Errorf("expected event type resource.oom_risk, got %s", insertedEvent.Type)
-	}
-	if insertedEvent.Level != "warn" {
-		t.Errorf("expected level warn, got %s", insertedEvent.Level)
-	}
+	require.Equal(t, 201, w.Code)
+	require.NotNil(t, insertedEvent)
+	assert.Equal(
+		t, domain.EventType("resource.oom_risk"),
+		insertedEvent.
+			Type)
+	assert.Equal(
+		t, "warn", insertedEvent.
+			Level)
 }
 
 func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
@@ -54,13 +53,8 @@ func TestSDKResourceSnapshot_NoOOMRisk_BelowThreshold(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":1000,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-
-	if w.Code != 201 {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if eventCalled {
-		t.Fatal("expected no OOM risk event when below 90% threshold")
-	}
+	require.Equal(t, 201, w.Code)
+	require.False(t, eventCalled)
 }
 
 func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
@@ -78,11 +72,6 @@ func TestSDKResourceSnapshot_NoOOMRisk_ZeroLimit(t *testing.T) {
 	r := sdkRequest(t, "POST", "/sdk/v1/runs/run-1/resource-snapshot", "run-1",
 		`{"cpu_percent":50,"memory_mb":800,"memory_limit_mb":0,"network_rx_bytes":100,"network_tx_bytes":200}`)
 	TypedHandler(srv, http.StatusCreated, srv.handleSDKResourceSnapshot)(w, r)
-
-	if w.Code != 201 {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if eventCalled {
-		t.Fatal("expected no OOM risk event when memory_limit_mb is zero")
-	}
+	require.Equal(t, 201, w.Code)
+	require.False(t, eventCalled)
 }

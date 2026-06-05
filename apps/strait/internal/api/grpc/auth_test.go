@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -24,9 +26,8 @@ func TestHashGRPCAPIKey(t *testing.T) {
 	expected := hex.EncodeToString(h[:])
 
 	got := hashGRPCAPIKey(key)
-	if got != expected {
-		t.Errorf("hashGRPCAPIKey(%q) = %q, want %q", key, got, expected)
-	}
+	assert.Equal(t,
+		expected, got)
 }
 
 // TestHashGRPCAPIKey_Deterministic verifies that the same key always hashes the same way.
@@ -34,9 +35,8 @@ func TestHashGRPCAPIKey_Deterministic(t *testing.T) {
 	key := "my-secret-key"
 	h1 := hashGRPCAPIKey(key)
 	h2 := hashGRPCAPIKey(key)
-	if h1 != h2 {
-		t.Errorf("hash not deterministic: %q != %q", h1, h2)
-	}
+	assert.Equal(t,
+		h2, h1)
 }
 
 // TestProjectIDFromContext_HappyPath verifies extraction after withAPIKeyContext.
@@ -49,20 +49,17 @@ func TestProjectIDFromContext_HappyPath(t *testing.T) {
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 
 	projectID, err := ProjectIDFromContext(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if projectID != "proj-abc" {
-		t.Errorf("expected proj-abc, got %s", projectID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		"proj-abc", projectID,
+	)
 }
 
 // TestProjectIDFromContext_Missing verifies error when project ID is absent from context.
 func TestProjectIDFromContext_Missing(t *testing.T) {
 	_, err := ProjectIDFromContext(context.Background())
-	if err == nil {
-		t.Fatal("expected error for missing project ID")
-	}
+	require.Error(
+		t, err)
 }
 
 // TestOrgIDFromContext_Present verifies org ID is extracted correctly when set.
@@ -71,9 +68,8 @@ func TestOrgIDFromContext_Present(t *testing.T) {
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 
 	orgID := OrgIDFromContext(ctx)
-	if orgID != "org-1" {
-		t.Errorf("expected org-1, got %s", orgID)
-	}
+	assert.Equal(t,
+		"org-1", orgID)
 }
 
 // TestOrgIDFromContext_Empty verifies empty string returned when org not set.
@@ -82,9 +78,8 @@ func TestOrgIDFromContext_Empty(t *testing.T) {
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 
 	orgID := OrgIDFromContext(ctx)
-	if orgID != "" {
-		t.Errorf("expected empty org ID, got %s", orgID)
-	}
+	assert.Empty(t,
+		orgID)
 }
 
 // TestAPIKeyFromContext_HappyPath verifies that the full APIKey is retrievable.
@@ -93,29 +88,26 @@ func TestAPIKeyFromContext_HappyPath(t *testing.T) {
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 
 	got, ok := APIKeyFromContext(ctx)
-	if !ok {
-		t.Fatal("expected APIKey to be found in context")
-	}
-	if got.ID != "key-42" {
-		t.Errorf("expected key-42, got %s", got.ID)
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		"key-42", got.ID,
+	)
 }
 
 func TestEnvironmentIDFromContext_Present(t *testing.T) {
 	apiKey := &domain.APIKey{ID: "key-42", ProjectID: "proj-x", EnvironmentID: "env-prod"}
 	ctx := withAPIKeyContext(context.Background(), apiKey)
-
-	if got := EnvironmentIDFromContext(ctx); got != "env-prod" {
-		t.Fatalf("EnvironmentIDFromContext() = %q, want env-prod", got)
-	}
+	require.Equal(
+		t, "env-prod", EnvironmentIDFromContext(
+			ctx))
 }
 
 // TestAPIKeyFromContext_Missing verifies (nil, false) when context has no API key.
 func TestAPIKeyFromContext_Missing(t *testing.T) {
 	_, ok := APIKeyFromContext(context.Background())
-	if ok {
-		t.Error("expected ok=false for context without API key")
-	}
+	assert.False(t,
+		ok)
 }
 
 // resolveAPIKeyFromContext tests require a real store.Queries (DB-backed). We test the
@@ -127,16 +119,16 @@ func TestResolveAPIKey_MissingMetadata(t *testing.T) {
 	// No metadata attached — resolveAPIKeyFromContext must return Unauthenticated.
 	ctx := context.Background()
 	_, err := resolveAPIKeyFromContext(ctx, nil)
-	if err == nil {
-		t.Fatal("expected error for missing metadata")
-	}
+	require.Error(
+		t, err)
+
 	s, ok := status.FromError(err)
-	if !ok {
-		t.Fatalf("expected gRPC status error, got: %v", err)
-	}
-	if s.Code() != codes.Unauthenticated {
-		t.Errorf("expected Unauthenticated, got %s", s.Code())
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		codes.Unauthenticated,
+		s.Code(),
+	)
 }
 
 // TestResolveAPIKey_MissingAuthorizationHeader verifies error for missing authorization header.
@@ -145,13 +137,14 @@ func TestResolveAPIKey_MissingAuthorizationHeader(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
 	_, err := resolveAPIKeyFromContext(ctx, nil)
-	if err == nil {
-		t.Fatal("expected error for missing authorization header")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.Unauthenticated {
-		t.Errorf("expected Unauthenticated, got %s", s.Code())
-	}
+	assert.Equal(t,
+		codes.Unauthenticated,
+		s.Code(),
+	)
 }
 
 // TestResolveAPIKey_InvalidAuthorizationFormat verifies error for non-Bearer prefix.
@@ -160,13 +153,14 @@ func TestResolveAPIKey_InvalidAuthorizationFormat(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), md)
 
 	_, err := resolveAPIKeyFromContext(ctx, nil)
-	if err == nil {
-		t.Fatal("expected error for non-Bearer auth")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.Unauthenticated {
-		t.Errorf("expected Unauthenticated, got %s", s.Code())
-	}
+	assert.Equal(t,
+		codes.Unauthenticated,
+		s.Code(),
+	)
 }
 
 func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
@@ -186,13 +180,14 @@ func TestResolveAPIKey_RejectsMalformedAPIKeyBeforeStoreLookup(t *testing.T) {
 			ctx := metadata.NewIncomingContext(context.Background(), md)
 
 			_, err := resolveAPIKeyFromContext(ctx, nil)
-			if err == nil {
-				t.Fatal("expected malformed api key to be rejected")
-			}
+			require.Error(
+				t, err)
+
 			s, _ := status.FromError(err)
-			if s.Code() != codes.Unauthenticated {
-				t.Errorf("expected Unauthenticated, got %s", s.Code())
-			}
+			assert.Equal(t,
+				codes.Unauthenticated,
+				s.Code(),
+			)
 		})
 	}
 }
@@ -228,19 +223,24 @@ func TestResolveAPIKeyFromContextWithLimit_BlockedBeforeStoreLookup(t *testing.T
 	ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.10"), Port: 443}})
 
 	_, err := resolveAPIKeyFromContextWithLimit(ctx, nil, limiter)
-	if err == nil {
-		t.Fatal("expected blocked auth error")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.ResourceExhausted {
-		t.Fatalf("code = %s, want ResourceExhausted", s.Code())
-	}
-	if len(limiter.blockChecks) != 1 || limiter.blockChecks[0] != "203.0.113.10" {
-		t.Fatalf("block checks = %+v, want peer IP", limiter.blockChecks)
-	}
-	if len(limiter.failures) != 0 || len(limiter.resets) != 0 {
-		t.Fatalf("failures/resets = %+v/%+v, want none when already blocked", limiter.failures, limiter.resets)
-	}
+	require.Equal(
+		t, codes.ResourceExhausted,
+		s.Code())
+	require.False(
+		t, len(limiter.blockChecks) != 1 ||
+			limiter.
+				blockChecks[0] !=
+				"203.0.113.10",
+	)
+	require.False(
+		t, len(limiter.failures) != 0 ||
+			len(limiter.
+				resets,
+			) != 0)
 }
 
 func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testing.T) {
@@ -251,28 +251,28 @@ func TestResolveAPIKeyFromContextWithLimit_RecordsMalformedAuthFailure(t *testin
 	ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("198.51.100.7"), Port: 443}})
 
 	_, err := resolveAPIKeyFromContextWithLimit(ctx, nil, limiter)
-	if err == nil {
-		t.Fatal("expected malformed auth error")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.Unauthenticated {
-		t.Fatalf("code = %s, want Unauthenticated", s.Code())
-	}
-	if len(limiter.failures) != 1 || limiter.failures[0] != "198.51.100.7" {
-		t.Fatalf("failures = %+v, want peer IP", limiter.failures)
-	}
-	if len(limiter.resets) != 0 {
-		t.Fatalf("resets = %+v, want none on failure", limiter.resets)
-	}
+	require.Equal(
+		t, codes.Unauthenticated,
+		s.Code())
+	require.False(
+		t, len(limiter.failures) != 1 ||
+			limiter.
+				failures[0] != "198.51.100.7",
+	)
+	require.Empty(t,
+		limiter.resets)
 }
 
 func TestValidGRPCAPIKeyFormat_AllowsExpectedShape(t *testing.T) {
 	t.Parallel()
 
 	rawKey := "strait_" + strings.Repeat("a", 64)
-	if !validGRPCAPIKeyFormat(rawKey) {
-		t.Fatalf("expected valid api key format for %q", rawKey)
-	}
+	require.True(t,
+		validGRPCAPIKeyFormat(rawKey))
 }
 
 // TestAPIKey_Expired verifies that an expired key fails lifecycle validation.
@@ -287,13 +287,13 @@ func TestAPIKey_Expired(t *testing.T) {
 	}
 
 	err := validateWorkerAPIKey(apiKey)
-	if err == nil {
-		t.Fatal("expected expired key to be rejected")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.Unauthenticated {
-		t.Fatalf("status = %s, want Unauthenticated", s.Code())
-	}
+	require.Equal(
+		t, codes.Unauthenticated,
+		s.Code())
 }
 
 // TestAPIKey_GraceExpired verifies grace period expiry detection.
@@ -307,13 +307,13 @@ func TestAPIKey_GraceExpired(t *testing.T) {
 	}
 
 	err := validateWorkerAPIKey(apiKey)
-	if err == nil {
-		t.Fatal("expected expired grace period to be rejected")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.Unauthenticated {
-		t.Fatalf("status = %s, want Unauthenticated", s.Code())
-	}
+	require.Equal(
+		t, codes.Unauthenticated,
+		s.Code())
 }
 
 // TestAPIKey_Revoked verifies revocation detection.
@@ -329,7 +329,9 @@ func TestAPIKey_Revoked(t *testing.T) {
 		// expected
 		return
 	}
-	t.Error("expected key to be detected as revoked")
+	assert.Fail(t,
+
+		"expected key to be detected as revoked")
 }
 
 func TestValidateWorkerAPIKey_RequiresWorkersConnectScope(t *testing.T) {
@@ -340,13 +342,13 @@ func TestValidateWorkerAPIKey_RequiresWorkersConnectScope(t *testing.T) {
 	}
 
 	err := validateWorkerAPIKey(apiKey)
-	if err == nil {
-		t.Fatal("expected missing workers:connect scope to be rejected")
-	}
+	require.Error(
+		t, err)
+
 	s, _ := status.FromError(err)
-	if s.Code() != codes.PermissionDenied {
-		t.Fatalf("status = %s, want PermissionDenied", s.Code())
-	}
+	require.Equal(
+		t, codes.PermissionDenied,
+		s.Code())
 }
 
 func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
@@ -355,10 +357,7 @@ func TestValidateWorkerAPIKey_AllowsWorkersConnectScope(t *testing.T) {
 		ProjectID: "p",
 		Scopes:    []string{domain.ScopeWorkersConnect},
 	}
-
-	if err := validateWorkerAPIKey(apiKey); err != nil {
-		t.Fatalf("validateWorkerAPIKey() error = %v, want nil", err)
-	}
+	require.NoError(t, validateWorkerAPIKey(apiKey))
 }
 
 func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
@@ -374,12 +373,10 @@ func TestWorkerAPIKeyExpiresAt_UsesEarliestExpiryBoundary(t *testing.T) {
 	}
 
 	got, ok := workerAPIKeyExpiresAt(apiKey)
-	if !ok {
-		t.Fatal("expected expiry boundary")
-	}
-	if !got.Equal(graceExpiresAt) {
-		t.Fatalf("expiry = %s, want grace expiry %s", got, graceExpiresAt)
-	}
+	require.True(t,
+		ok)
+	require.True(t,
+		got.Equal(graceExpiresAt))
 }
 
 func TestWorkerAPIKeyExpiresAt_StoresDeadlineInContext(t *testing.T) {
@@ -392,12 +389,10 @@ func TestWorkerAPIKeyExpiresAt_StoresDeadlineInContext(t *testing.T) {
 	})
 
 	got, ok := APIKeyExpiresAtFromContext(ctx)
-	if !ok {
-		t.Fatal("expected expiry boundary in context")
-	}
-	if !got.Equal(expiresAt) {
-		t.Fatalf("context expiry = %s, want %s", got, expiresAt)
-	}
+	require.True(t,
+		ok)
+	require.True(t,
+		got.Equal(expiresAt))
 }
 
 func TestWorkerAPIKeyExpiresAt_NoDeadlineForNonExpiringKey(t *testing.T) {
@@ -408,10 +403,14 @@ func TestWorkerAPIKeyExpiresAt_NoDeadlineForNonExpiringKey(t *testing.T) {
 	}
 
 	if _, ok := workerAPIKeyExpiresAt(apiKey); ok {
-		t.Fatal("expected no expiry boundary")
+		require.Fail(t,
+
+			"expected no expiry boundary")
 	}
 	ctx := withAPIKeyContext(context.Background(), apiKey)
 	if _, ok := APIKeyExpiresAtFromContext(ctx); ok {
-		t.Fatal("expected no expiry boundary in context")
+		require.Fail(t,
+
+			"expected no expiry boundary in context")
 	}
 }

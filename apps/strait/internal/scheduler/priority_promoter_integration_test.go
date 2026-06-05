@@ -14,6 +14,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type promoterEnqueuer interface {
@@ -43,9 +45,8 @@ func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q promoterEnqueuer,
 		TimeoutSecs: 60,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
 
 	runs := make([]*domain.JobRun, 0, n)
 	for range n {
@@ -55,9 +56,8 @@ func createJobAndQueuedRuns(t *testing.T, st *store.Queries, q promoterEnqueuer,
 			ProjectID: job.ProjectID,
 			Priority:  priority,
 		}
-		if err := q.Enqueue(ctx, r); err != nil {
-			t.Fatalf("enqueue: %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx, r))
+
 		runs = append(runs, r)
 	}
 	return runs
@@ -76,9 +76,8 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 		_, err := tdb.Pool.Exec(ctx, `
 			UPDATE job_runs SET created_at = NOW() - INTERVAL '10 minutes' WHERE id = $1
 		`, r.ID)
-		if err != nil {
-			t.Fatalf("backdate: %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	p := scheduler.NewPriorityPromoter(tdb.Pool, scheduler.PriorityPromoterConfig{
@@ -99,54 +98,57 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 	<-done
 
 	var maxStatePriority int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxStatePriority); err != nil {
-		t.Fatalf("query state priority: %v", err)
-	}
-	if maxStatePriority != 10 {
-		t.Errorf("max state priority after promotion = %d, want unchanged 10", maxStatePriority)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT MAX(priority) FROM job_run_state WHERE job_id = $1`,
+
+			runs[0].JobID).Scan(
+		&maxStatePriority))
+	assert.EqualValues(t, 10, maxStatePriority)
 
 	var maxReadPriority int
-	if err := tdb.Pool.QueryRow(ctx, `
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `
 		SELECT MAX(priority)
 		FROM job_run_read_state
 		WHERE job_id = $1`,
-		runs[0].JobID,
-	).Scan(&maxReadPriority); err != nil {
-		t.Fatalf("query read priority: %v", err)
-	}
-	if maxReadPriority != 11 {
-		t.Errorf("max read priority after promotion = %d, want 11", maxReadPriority)
-	}
+
+			runs[0].
+				JobID).Scan(&maxReadPriority))
+	assert.EqualValues(t, 11, maxReadPriority)
 
 	var maxLedgerPriority int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`, runs[0].JobID).Scan(&maxLedgerPriority); err != nil {
-		t.Fatalf("query ledger priority: %v", err)
-	}
-	if maxLedgerPriority != 10 {
-		t.Errorf("max ledger priority after promotion = %d, want immutable ledger value 10", maxLedgerPriority)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT MAX(priority) FROM job_runs WHERE job_id = $1`,
+
+			runs[0].JobID).Scan(&maxLedgerPriority))
+	assert.EqualValues(t, 10, maxLedgerPriority)
 
 	var priorityEvents int
-	if err := tdb.Pool.QueryRow(ctx, `
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `
 		SELECT COUNT(*)
 		FROM job_run_priority_events e
 		JOIN job_runs jr ON jr.id = e.run_id
 		WHERE jr.job_id = $1`,
-		runs[0].JobID,
-	).Scan(&priorityEvents); err != nil {
-		t.Fatalf("query priority events: %v", err)
-	}
-	if priorityEvents != len(runs) {
-		t.Errorf("priority events = %d, want %d", priorityEvents, len(runs))
-	}
+
+			runs[0].JobID).Scan(&priorityEvents))
+	assert.Equal(t, len(runs),
+		priorityEvents,
+	)
+
 	var maxClaimPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_queue WHERE job_id = $1`, runs[0].JobID).Scan(&maxClaimPri); err != nil {
-		t.Fatalf("query claim priority: %v", err)
-	}
-	if maxClaimPri != 10 {
-		t.Errorf("max queue priority after promotion = %d, want immutable base value 10", maxClaimPri)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT MAX(priority) FROM job_run_queue WHERE job_id = $1`,
+
+			runs[0].JobID).Scan(
+		&maxClaimPri))
+	assert.EqualValues(t, 10, maxClaimPri)
+
 }
 
 func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
@@ -159,9 +161,8 @@ func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
 	// Backdate them.
 	for _, r := range runs {
 		_, err := tdb.Pool.Exec(ctx, `UPDATE job_runs SET created_at = NOW() - INTERVAL '1 hour' WHERE id = $1`, r.ID)
-		if err != nil {
-			t.Fatalf("backdate: %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	p := scheduler.NewPriorityPromoter(tdb.Pool, scheduler.PriorityPromoterConfig{
@@ -180,12 +181,14 @@ func TestPriorityPromoter_RespectsCeiling(t *testing.T) {
 	<-done
 
 	var maxPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_read_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
-		t.Fatalf("query priority: %v", err)
-	}
-	if maxPri != 1000 {
-		t.Errorf("max priority after promotion = %d, want 1000 (ceiling)", maxPri)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT MAX(priority) FROM job_run_read_state WHERE job_id = $1`,
+
+			runs[0].JobID).
+		Scan(&maxPri))
+	assert.EqualValues(t, 1000, maxPri)
+
 }
 
 func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
@@ -212,12 +215,14 @@ func TestPriorityPromoter_DoesNotTouchFresh(t *testing.T) {
 	<-done
 
 	var maxPri int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_read_state WHERE job_id = $1`, runs[0].JobID).Scan(&maxPri); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if maxPri != 10 {
-		t.Errorf("priority changed unexpectedly: %d", maxPri)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT MAX(priority) FROM job_run_read_state WHERE job_id = $1`,
+
+			runs[0].JobID).
+		Scan(&maxPri))
+	assert.EqualValues(t, 10, maxPri)
+
 }
 
 func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
@@ -234,9 +239,7 @@ func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
 	oldRuns := createJobAndQueuedRuns(t, st, q, 1, 1, 0)
 	// Backdate the low-priority one.
 	_, err := tdb.Pool.Exec(ctx, `UPDATE job_runs SET created_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, oldRuns[0].ID)
-	if err != nil {
-		t.Fatalf("backdate: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Run the promoter enough times to bump the low-priority run above the
 	// high-priority ones. With BatchLimit=1000 and MaxPriority=200 we need
@@ -258,9 +261,13 @@ func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		var pri int
-		if err := tdb.Pool.QueryRow(ctx, `SELECT priority FROM job_run_read_state WHERE run_id = $1`, oldRuns[0].ID).Scan(&pri); err != nil {
-			t.Fatalf("query: %v", err)
-		}
+		require.NoError(t, tdb.Pool.
+			QueryRow(
+				ctx, `SELECT priority FROM job_run_read_state WHERE run_id = $1`,
+
+				oldRuns[0].ID).Scan(
+			&pri))
+
 		if pri > 100 {
 			cancel()
 			<-done
@@ -268,5 +275,7 @@ func TestPriorityPromoter_StarvedLowPriorityEventuallyDequeued(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("starved run did not get promoted above high-priority runs in time")
+	require.Fail(t,
+
+		"starved run did not get promoted above high-priority runs in time")
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAddSentryBreadcrumbSanitizesData(t *testing.T) {
@@ -24,28 +25,28 @@ func TestAddSentryBreadcrumbSanitizesData(t *testing.T) {
 	})
 
 	breadcrumbs := sentryBreadcrumbsFromHub(t, hub)
-	if len(breadcrumbs) != 1 {
-		t.Fatalf("breadcrumbs = %d, want 1", len(breadcrumbs))
-	}
+	require.Len(t, breadcrumbs,
+		1,
+	)
+
 	bc := breadcrumbs[0]
-	if bc.Category != "worker.dispatch" {
-		t.Fatalf("category = %q, want worker.dispatch", bc.Category)
-	}
-	if len(bc.Message) != maxBreadcrumbMessageBytes {
-		t.Fatalf("message length = %d, want %d", len(bc.Message), maxBreadcrumbMessageBytes)
-	}
-	if _, ok := bc.Data["authorization"]; ok {
-		t.Fatal("authorization data was not dropped")
-	}
-	if got := bc.Data["message"]; got != "failed with [REDACTED]" {
-		t.Fatalf("message data = %v, want redacted bearer token", got)
-	}
-	if got := bc.Data["dsn"]; got != "[REDACTED]" {
-		t.Fatalf("dsn data = %v, want redacted", got)
-	}
-	if got := bc.Data["count"]; got != 3 {
-		t.Fatalf("count data = %v, want 3", got)
-	}
+	require.Equal(t, "worker.dispatch",
+
+		bc.Category,
+	)
+	require.Len(t, bc.Message,
+		maxBreadcrumbMessageBytes,
+	)
+
+	require.NotContains(t, bc.Data, "authorization")
+	require.Equal(t, "failed with [REDACTED]",
+
+		bc.Data["message"])
+	require.Equal(t, "[REDACTED]",
+
+		bc.Data["dsn"])
+	require.EqualValues(t, 3,
+		bc.Data["count"])
 }
 
 func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
@@ -60,22 +61,20 @@ func TestBeforeBreadcrumbSanitizesSDKBreadcrumbs(t *testing.T) {
 			"status_code":   503,
 		},
 	}, nil)
-	if breadcrumb == nil {
-		t.Fatal("expected breadcrumb")
-		return
-	}
-	if strings.Contains(breadcrumb.Message, "user:pass") {
-		t.Fatalf("message leaked credentials: %q", breadcrumb.Message)
-	}
-	if _, ok := breadcrumb.Data["authorization"]; ok {
-		t.Fatal("authorization data was not dropped")
-	}
-	if got := breadcrumb.Data["url"]; got != "[REDACTED]" {
-		t.Fatalf("url data = %v, want redacted", got)
-	}
-	if got := breadcrumb.Data["status_code"]; got != 503 {
-		t.Fatalf("status_code = %v, want 503", got)
-	}
+	require.NotNil(t, breadcrumb)
+
+	require.NotContains(t, breadcrumb.
+		Message, "user:pass")
+
+	require.NotContains(t, breadcrumb.Data, "authorization")
+	require.Equal(t, "[REDACTED]",
+
+		breadcrumb.
+			Data["url"])
+	require.EqualValues(t, 503,
+		breadcrumb.
+			Data["status_code"],
+	)
 }
 
 func TestSentryPGXTracerAddsSQLBreadcrumbWithoutArgs(t *testing.T) {
@@ -92,22 +91,22 @@ func TestSentryPGXTracerAddsSQLBreadcrumbWithoutArgs(t *testing.T) {
 	})
 
 	breadcrumbs := sentryBreadcrumbsFromHub(t, hub)
-	if len(breadcrumbs) != 1 {
-		t.Fatalf("breadcrumbs = %d, want 1", len(breadcrumbs))
-	}
+	require.Len(t, breadcrumbs,
+		1,
+	)
+
 	bc := breadcrumbs[0]
-	if bc.Category != "db.sql" {
-		t.Fatalf("category = %q, want db.sql", bc.Category)
-	}
-	if got := bc.Data["sql"].(string); !strings.Contains(got, "SELECT * FROM jobs") {
-		t.Fatalf("sql = %q, want normalized query", got)
-	}
-	if got := bc.Data["sql"].(string); strings.Contains(got, "secret-arg") || strings.Contains(got, "user:pass") {
-		t.Fatalf("sql leaked secret data: %q", got)
-	}
-	if got := bc.Data["command"]; got != "SELECT 1" {
-		t.Fatalf("command = %v, want SELECT 1", got)
-	}
+	require.Equal(t, "db.sql",
+		bc.
+			Category)
+
+	gotSQL := bc.Data["sql"].(string)
+	require.Contains(t, gotSQL, "SELECT * FROM jobs")
+	require.NotContains(t, gotSQL, "secret-arg")
+	require.NotContains(t, gotSQL, "user:pass")
+	require.Equal(t, "SELECT 1",
+
+		bc.Data["command"])
 }
 
 func TestRedisBreadcrumbHookAddsCommandAndPipelineBreadcrumbs(t *testing.T) {
@@ -119,30 +118,28 @@ func TestRedisBreadcrumbHookAddsCommandAndPipelineBreadcrumbs(t *testing.T) {
 		return nil
 	})
 	cmd := redis.NewStringCmd(ctx, "GET", "cache:key")
-	if err := process(ctx, cmd); err != nil {
-		t.Fatalf("process hook returned error: %v", err)
-	}
+	require.NoError(t,
+		process(ctx,
+			cmd))
 
 	pipeline := hook.ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
 		return errors.New("redis://user:pass@localhost:6379 failed")
 	})
-	if err := pipeline(ctx, []redis.Cmder{redis.NewStringCmd(ctx, "SET", "cache:key", "value")}); err == nil {
-		t.Fatal("pipeline hook returned nil error")
-	}
+	require.Error(t, pipeline(ctx,
+		[]redis.Cmder{redis.
+			NewStringCmd(ctx, "SET", "cache:key",
+				"value")}))
 
 	breadcrumbs := sentryBreadcrumbsFromHub(t, hub)
-	if len(breadcrumbs) != 2 {
-		t.Fatalf("breadcrumbs = %d, want 2", len(breadcrumbs))
-	}
-	if got := breadcrumbs[0].Data["cmd"]; got != "get" {
-		t.Fatalf("command breadcrumb cmd = %v, want get", got)
-	}
-	if got := breadcrumbs[1].Data["first_cmd"]; got != "set" {
-		t.Fatalf("pipeline breadcrumb first_cmd = %v, want set", got)
-	}
-	if got := breadcrumbs[1].Data["error"].(string); strings.Contains(got, "user:pass") {
-		t.Fatalf("pipeline breadcrumb leaked redis credentials: %q", got)
-	}
+	require.Len(t, breadcrumbs,
+		2,
+	)
+	require.Equal(t, "get",
+		breadcrumbs[0].Data["cmd"])
+	require.Equal(t, "set",
+		breadcrumbs[1].Data["first_cmd"])
+
+	require.NotContains(t, breadcrumbs[1].Data["error"].(string), "user:pass")
 }
 
 func contextWithSentryHub() (context.Context, *sentry.Hub) {
@@ -153,9 +150,7 @@ func contextWithSentryHub() (context.Context, *sentry.Hub) {
 func sentryBreadcrumbsFromHub(t *testing.T, hub *sentry.Hub) []*sentry.Breadcrumb {
 	t.Helper()
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-		return nil
-	}
+	require.NotNil(t, event)
+
 	return event.Breadcrumbs
 }

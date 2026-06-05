@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 )
 
 // brokenRedis is a tiny redis.Cmdable stand-in whose SetNX always returns an
@@ -51,12 +51,10 @@ func TestMaybeEmitUsageThreshold_DedupeFailureLogsAtErrorLevel(t *testing.T) {
 		"org-broken", "starter", "monthly_runs", "2026-05", 80, 100)
 
 	out := logBuf.String()
-	if !strings.Contains(out, `"level":"ERROR"`) {
-		t.Errorf("expected Error-level log, got: %s", out)
-	}
-	if !strings.Contains(out, "usage threshold dedupe failed") {
-		t.Errorf("expected dedupe failure message, got: %s", out)
-	}
+	assert.Contains(t,
+		out, `"level":"ERROR"`)
+	assert.Contains(t,
+		out, "usage threshold dedupe failed")
 }
 
 // TestMaybeEmitUsageThreshold_DedupeFailureNoCounterWithoutMetrics guards the
@@ -71,10 +69,9 @@ func TestMaybeEmitUsageThreshold_DedupeFailureNoCounterWithoutMetrics(t *testing
 
 	enforcer.maybeEmitUsageThreshold(context.Background(),
 		"org-broken", "free", "daily_runs", "2026-05-10", 100, 100)
-
-	if !strings.Contains(logBuf.String(), `"level":"ERROR"`) {
-		t.Errorf("expected Error-level log even without metrics, got: %s", logBuf.String())
-	}
+	assert.Contains(t,
+		logBuf.
+			String(), `"level":"ERROR"`)
 }
 
 // TestMaybeEmitUsageThreshold_HealthyRedisDoesNotLogError proves the success
@@ -89,8 +86,7 @@ func TestMaybeEmitUsageThreshold_HealthyRedisDoesNotLogError(t *testing.T) {
 	enforcer, logBuf := newDedupeFailureTestEnforcer(t, rdb)
 	enforcer.maybeEmitUsageThreshold(context.Background(),
 		"org-healthy", "pro", "monthly_runs", "2026-05", 80, 100)
-
-	if strings.Contains(logBuf.String(), `"level":"ERROR"`) {
-		t.Errorf("healthy redis must not log at Error level, got: %s", logBuf.String())
-	}
+	assert.NotContains(t,
+		logBuf.
+			String(), `"level":"ERROR"`)
 }

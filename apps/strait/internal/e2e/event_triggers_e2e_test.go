@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/scheduler"
 	"strait/internal/workflow"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestE2E_WaitForEventStep_CompletesViaAPI(t *testing.T) {
@@ -40,67 +42,78 @@ func TestE2E_WaitForEventStep_CompletesViaAPI(t *testing.T) {
 
 	// Verify step run is waiting.
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep := findStepRunByRef(t, stepRuns, "wait_step")
-	if waitStep.Status != domain.StepWaiting {
-		t.Fatalf("expected wait_step status waiting, got %s", waitStep.Status)
-	}
+	require.Equal(t, domain.
+		StepWaiting,
+		waitStep.
+			Status)
 
 	// Verify event trigger exists via API.
 	getResp := wfDoReq(t, srv, http.MethodGet, "/v1/events/e2e-check:app-e2e-123", "")
-	if getResp.Code != http.StatusOK {
-		t.Fatalf("get event trigger status = %d, body = %s", getResp.Code, getResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		getResp.Code,
+	)
+
 	triggerObj := mustDecodeObject(t, getResp)
-	if asString(t, triggerObj, "status") != "waiting" {
-		t.Fatalf("expected trigger status waiting, got %s", asString(t, triggerObj, "status"))
-	}
+	require.Equal(t, "waiting",
+
+		asString(t, triggerObj,
+			"status",
+		))
 
 	// Send event via API.
 	sendResp := wfDoReq(t, srv, http.MethodPost, "/v1/events/e2e-check:app-e2e-123/send", `{"payload":{"result":"clear"}}`)
-	if sendResp.Code != http.StatusOK {
-		t.Fatalf("send event status = %d, body = %s", sendResp.Code, sendResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		sendResp.Code,
+	)
 
 	// Verify step completed with event payload.
 	stepRuns, err = testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs after event: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep = findStepRunByRef(t, stepRuns, "wait_step")
-	if waitStep.Status != domain.StepCompleted {
-		t.Fatalf("expected wait_step completed, got %s", waitStep.Status)
-	}
+	require.Equal(t, domain.
+		StepCompleted,
+		waitStep.
+			Status)
 
 	// Verify output contains event payload.
 	var output map[string]any
-	if err := json.Unmarshal(waitStep.Output, &output); err != nil {
-		t.Fatalf("unmarshal step output: %v", err)
-	}
-	if output["result"] != "clear" {
-		t.Fatalf("expected output result=clear, got %v", output["result"])
-	}
+	require.NoError(t, json.
+		Unmarshal(waitStep.
+			Output, &output),
+	)
+	require.Equal(t, "clear",
+
+		output["result"],
+	)
 
 	// Verify workflow completed.
 	run, err := testStore.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get workflow run: %v", err)
-	}
-	if run.Status != domain.WfStatusCompleted {
-		t.Fatalf("expected workflow completed, got %s", run.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusCompleted,
+
+		run.Status)
 
 	// Verify event trigger is now received.
 	getResp2 := wfDoReq(t, srv, http.MethodGet, "/v1/events/e2e-check:app-e2e-123", "")
-	if getResp2.Code != http.StatusOK {
-		t.Fatalf("get event trigger after send status = %d", getResp2.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		getResp2.Code,
+	)
+
 	triggerObj2 := mustDecodeObject(t, getResp2)
-	if asString(t, triggerObj2, "status") != "received" {
-		t.Fatalf("expected trigger status received, got %s", asString(t, triggerObj2, "status"))
-	}
+	require.Equal(t, "received",
+
+		asString(t, triggerObj2,
+			"status",
+		))
+
 }
 
 func TestE2E_WaitForEventStep_TimeoutViaReaper(t *testing.T) {
@@ -124,22 +137,26 @@ func TestE2E_WaitForEventStep_TimeoutViaReaper(t *testing.T) {
 
 	// Verify step is waiting.
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep := findStepRunByRef(t, stepRuns, "wait_step")
-	if waitStep.Status != domain.StepWaiting {
-		t.Fatalf("expected wait_step status waiting, got %s", waitStep.Status)
-	}
+	require.Equal(t, domain.
+		StepWaiting,
+		waitStep.
+			Status)
 
 	// Force the trigger to expire by updating expires_at in the past.
 	trigger, err := testStore.GetEventTriggerByStepRunID(ctx, waitStep.ID)
-	if err != nil || trigger == nil {
-		t.Fatalf("get event trigger: %v (trigger=%v)", err, trigger)
-	}
+	require.False(t, err !=
+		nil ||
+		trigger ==
+			nil)
+
 	pastExpiry := time.Now().Add(-time.Minute)
 	if _, dbErr := testEnv.DB.Pool.Exec(ctx, "UPDATE event_triggers SET expires_at = $1 WHERE id = $2", pastExpiry, trigger.ID); dbErr != nil {
-		t.Fatalf("force expire trigger: %v", dbErr)
+		require.Failf(t, "test failure",
+
+			"force expire trigger: %v", dbErr)
 	}
 
 	// Run the reaper once.
@@ -150,31 +167,35 @@ func TestE2E_WaitForEventStep_TimeoutViaReaper(t *testing.T) {
 
 	// Verify trigger timed out.
 	updatedTrigger, err := testStore.GetEventTriggerByStepRunID(ctx, waitStep.ID)
-	if err != nil || updatedTrigger == nil {
-		t.Fatalf("get updated trigger: %v", err)
-	}
-	if updatedTrigger.Status != domain.EventTriggerStatusTimedOut {
-		t.Fatalf("expected trigger timed_out, got %s", updatedTrigger.Status)
-	}
+	require.False(t, err !=
+		nil ||
+		updatedTrigger ==
+			nil)
+	require.Equal(t, domain.
+		EventTriggerStatusTimedOut,
+
+		updatedTrigger.
+			Status,
+	)
 
 	// Verify step failed.
 	stepRuns, err = testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs after reap: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep = findStepRunByRef(t, stepRuns, "wait_step")
-	if waitStep.Status != domain.StepFailed {
-		t.Fatalf("expected wait_step failed, got %s", waitStep.Status)
-	}
+	require.Equal(t, domain.
+		StepFailed,
+		waitStep.
+			Status)
 
 	// Verify workflow failed.
 	run, err := testStore.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get workflow run: %v", err)
-	}
-	if run.Status != domain.WfStatusFailed {
-		t.Fatalf("expected workflow failed, got %s", run.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusFailed,
+		run.
+			Status)
+
 }
 
 func TestE2E_WaitForEventStep_ChainedDependencies(t *testing.T) {
@@ -204,47 +225,54 @@ func TestE2E_WaitForEventStep_ChainedDependencies(t *testing.T) {
 
 	// Verify wait_step is waiting and job_step is pending.
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep := findStepRunByRef(t, stepRuns, "wait_step")
 	jobStep := findStepRunByRef(t, stepRuns, "job_step")
-	if waitStep.Status != domain.StepWaiting {
-		t.Fatalf("expected wait_step waiting, got %s", waitStep.Status)
-	}
-	if jobStep.Status != domain.StepWaiting {
-		t.Fatalf("expected job_step waiting (deps unmet), got %s", jobStep.Status)
-	}
+	require.Equal(t, domain.
+		StepWaiting,
+		waitStep.
+			Status)
+	require.Equal(t, domain.
+		StepWaiting,
+		jobStep.
+			Status)
 
 	// Get event key from trigger.
 	trigger, err := testStore.GetEventTriggerByStepRunID(ctx, waitStep.ID)
-	if err != nil || trigger == nil {
-		t.Fatalf("get event trigger: %v", err)
-	}
+	require.False(t, err !=
+		nil ||
+		trigger ==
+			nil)
 
 	// Send event.
 	sendResp := wfDoReq(t, srv, http.MethodPost, "/v1/events/"+trigger.EventKey+"/send", `{"payload":{"done":true}}`)
-	if sendResp.Code != http.StatusOK {
-		t.Fatalf("send event status = %d, body = %s", sendResp.Code, sendResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		sendResp.Code,
+	)
 
 	// Verify wait_step completed and job_step was started (running or pending with job_run).
 	stepRuns, err = testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs after event: %v", err)
-	}
+	require.NoError(t, err)
+
 	waitStep = findStepRunByRef(t, stepRuns, "wait_step")
 	jobStep = findStepRunByRef(t, stepRuns, "job_step")
-	if waitStep.Status != domain.StepCompleted {
-		t.Fatalf("expected wait_step completed, got %s", waitStep.Status)
-	}
+	require.Equal(t, domain.
+		StepCompleted,
+		waitStep.
+			Status)
+	require.Equal(t, domain.
+		StepRunning,
+		jobStep.
+			Status)
+	require.NotEqual(t, "",
+
+		jobStep.
+			JobRunID)
+
 	// job_step should be running (has job_run_id) since its dependency completed.
-	if jobStep.Status != domain.StepRunning {
-		t.Fatalf("expected job_step running (fan-in triggered), got %s", jobStep.Status)
-	}
-	if jobStep.JobRunID == "" {
-		t.Fatal("expected job_step to have a job_run_id after fan-in")
-	}
+
 }
 
 func TestE2E_SendEvent_AlreadyReceived_Returns409(t *testing.T) {
@@ -267,15 +295,18 @@ func TestE2E_SendEvent_AlreadyReceived_Returns409(t *testing.T) {
 
 	// First send succeeds.
 	sendResp1 := wfDoReq(t, srv, http.MethodPost, "/v1/events/"+eventKey+"/send", `{"payload":{"first":true}}`)
-	if sendResp1.Code != http.StatusOK {
-		t.Fatalf("first send status = %d, body = %s", sendResp1.Code, sendResp1.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		sendResp1.
+			Code)
 
 	// Second send returns 409.
 	sendResp2 := wfDoReq(t, srv, http.MethodPost, "/v1/events/"+eventKey+"/send", `{"payload":{"second":true}}`)
-	if sendResp2.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d, body = %s", sendResp2.Code, sendResp2.Body.String())
-	}
+	require.Equal(t, http.
+		StatusConflict,
+		sendResp2.
+			Code)
+
 }
 
 func TestE2E_ApprovalStepWithParallelEventTrigger(t *testing.T) {
@@ -299,57 +330,62 @@ func TestE2E_ApprovalStepWithParallelEventTrigger(t *testing.T) {
 
 	// Verify step is waiting.
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	approvalStep := findStepRunByRef(t, stepRuns, "approve_step")
-	if approvalStep.Status != domain.StepWaiting {
-		t.Fatalf("expected approval step waiting, got %s", approvalStep.Status)
-	}
+	require.Equal(t, domain.
+		StepWaiting,
+		approvalStep.
+			Status)
 
 	// Check for parallel event trigger (non-fatal if not created, but should exist).
 	trigger, err := testStore.GetEventTriggerByStepRunID(ctx, approvalStep.ID)
-	if err != nil {
-		t.Fatalf("get event trigger by step run: %v", err)
-	}
+	require.NoError(t, err)
+
 	if trigger == nil {
 		t.Log("no parallel event trigger found for approval step (non-fatal creation)")
 	} else if trigger.Status != domain.EventTriggerStatusWaiting {
-		t.Fatalf("expected trigger status waiting, got %s", trigger.Status)
+		require.Failf(t, "test failure",
+
+			"expected trigger status waiting, got %s", trigger.Status)
 	}
 
 	// Approve the step.
 	approveResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflow-runs/"+runID+"/steps/approve_step/approve", `{"approver":"admin@example.com"}`)
-	if approveResp.Code != http.StatusOK {
-		t.Fatalf("approve step status = %d, body = %s", approveResp.Code, approveResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		approveResp.
+			Code)
 
 	// Verify step completed.
 	stepRuns, err = testStore.ListStepRunsByWorkflowRun(ctx, runID, 100, nil)
-	if err != nil {
-		t.Fatalf("list step runs after approve: %v", err)
-	}
+	require.NoError(t, err)
+
 	approvalStep = findStepRunByRef(t, stepRuns, "approve_step")
-	if approvalStep.Status != domain.StepCompleted {
-		t.Fatalf("expected approval step completed, got %s", approvalStep.Status)
-	}
+	require.Equal(t, domain.
+		StepCompleted,
+		approvalStep.
+			Status)
 
 	// Verify workflow completed.
 	run, err := testStore.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get workflow run: %v", err)
-	}
-	if run.Status != domain.WfStatusCompleted {
-		t.Fatalf("expected workflow completed, got %s", run.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusCompleted,
+
+		run.Status)
 
 	// If trigger existed, verify it's now received.
 	if trigger != nil {
 		updatedTrigger, getErr := testStore.GetEventTriggerByStepRunID(ctx, approvalStep.ID)
 		if getErr == nil && updatedTrigger != nil {
-			if updatedTrigger.Status != domain.EventTriggerStatusReceived {
-				t.Fatalf("expected trigger received after approval, got %s", updatedTrigger.Status)
-			}
+			require.Equal(t, domain.
+				EventTriggerStatusReceived,
+
+				updatedTrigger.
+					Status,
+			)
+
 		}
 	}
 }

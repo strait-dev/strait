@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRequireJSONContentType(t *testing.T) {
@@ -48,9 +50,8 @@ func TestRequireJSONContentType(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
-			if w.Code != tc.want {
-				t.Errorf("method=%s ct=%q: status=%d, want %d", tc.method, tc.contentType, w.Code, tc.want)
-			}
+			assert.Equal(t,
+				tc.want, w.Code)
 		})
 	}
 }
@@ -72,8 +73,11 @@ func FuzzRequireJSONContentType(f *testing.F) {
 		req.Header.Set("Content-Type", ct)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != http.StatusOK && w.Code != http.StatusUnsupportedMediaType {
-			t.Errorf("unexpected status %d for Content-Type=%q", w.Code, ct)
-		}
+		assert.False(t,
+			w.Code != http.StatusOK &&
+				w.Code !=
+					http.
+						StatusUnsupportedMediaType,
+		)
 	})
 }

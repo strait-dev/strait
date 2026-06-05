@@ -12,6 +12,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 // makeEventStreamAPIKeyServer wires a server whose rate limiter is backed by
@@ -110,22 +111,19 @@ func TestEventTriggerStreamRateLimited(t *testing.T) {
 	// First call: under the 1 req/60s budget -- handler runs to completion.
 	w1 := httptest.NewRecorder()
 	srv.ServeHTTP(w1, eventStreamRequest("evt-a", rawA))
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first call: status = %d, want 200; body: %s", w1.Code, w1.Body.String())
-	}
-	if got := w1.Header().Get("X-RateLimit-Limit"); got != "1" {
-		t.Fatalf("first call: X-RateLimit-Limit = %q, want %q (projectRateLimit middleware did not run)", got, "1")
-	}
+	require.Equal(t, http.StatusOK,
+		w1.Code)
+	require.Equal(t, "1", w1.
+		Header().Get("X-RateLimit-Limit"))
 
 	// Second call within the same window: projectRateLimit must reject with 429.
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, eventStreamRequest("evt-a", rawA))
-	if w2.Code != http.StatusTooManyRequests {
-		t.Fatalf("second call: status = %d, want 429; body: %s", w2.Code, w2.Body.String())
-	}
-	if got := w2.Header().Get("Retry-After"); got != "60" {
-		t.Fatalf("second call: Retry-After = %q, want %q", got, "60")
-	}
+	require.Equal(t, http.StatusTooManyRequests,
+		w2.
+			Code)
+	require.Equal(t, "60", w2.
+		Header().Get("Retry-After"))
 }
 
 // TestEventTriggerStreamRateLimitIsolatedPerProject pins that
@@ -142,19 +140,18 @@ func TestEventTriggerStreamRateLimitIsolatedPerProject(t *testing.T) {
 	// Saturate project A.
 	w1 := httptest.NewRecorder()
 	srv.ServeHTTP(w1, eventStreamRequest("evt-a", rawA))
-	if w1.Code != http.StatusOK {
-		t.Fatalf("project A first call: status = %d, want 200; body: %s", w1.Code, w1.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w1.Code)
+
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, eventStreamRequest("evt-a", rawA))
-	if w2.Code != http.StatusTooManyRequests {
-		t.Fatalf("project A second call: status = %d, want 429 (precondition for isolation test)", w2.Code)
-	}
+	require.Equal(t, http.StatusTooManyRequests,
+		w2.
+			Code)
 
 	// Project B's bucket is independent -- still allowed.
 	w3 := httptest.NewRecorder()
 	srv.ServeHTTP(w3, eventStreamRequest("evt-b", rawB))
-	if w3.Code != http.StatusOK {
-		t.Fatalf("project B first call: status = %d, want 200 (rate limit must be per-API-key/per-project); body: %s", w3.Code, w3.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w3.Code)
 }

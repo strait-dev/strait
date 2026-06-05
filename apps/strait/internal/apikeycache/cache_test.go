@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVersionedLoaderNormalizesMissingAPIKeys(t *testing.T) {
@@ -16,12 +19,9 @@ func TestVersionedLoaderNormalizesMissingAPIKeys(t *testing.T) {
 		return nil, errAPIKeyNotFound
 	}, errAPIKeyNotFound)
 	got, err := loader(t.Context(), "missing")
-	if err != nil {
-		t.Fatalf("VersionedLoader() error = %v", err)
-	}
-	if got.Value != nil || got.Version != 0 {
-		t.Fatalf("VersionedLoader() = %+v, want nil@0", got)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, got.Value)
+	assert.Zero(t, got.Version)
 }
 
 func TestSanitizeClonesAndRemovesRotationSecret(t *testing.T) {
@@ -35,16 +35,8 @@ func TestSanitizeClonesAndRemovesRotationSecret(t *testing.T) {
 	got := Sanitize(key)
 	key.Scopes[0] = domain.ScopeJobsWrite
 
-	if got == key {
-		t.Fatal("Sanitize() returned original pointer")
-	}
-	if got.Scopes[0] != domain.ScopeJobsRead {
-		t.Fatalf("sanitized scopes mutated with source: %v", got.Scopes)
-	}
-	if len(got.RotationWebhookSecret) != 0 {
-		t.Fatalf("sanitized key retained rotation secret: %q", got.RotationWebhookSecret)
-	}
-	if Version(got) != 12 {
-		t.Fatalf("Version() = %d, want 12", Version(got))
-	}
+	assert.NotSame(t, key, got)
+	assert.Equal(t, domain.ScopeJobsRead, got.Scopes[0])
+	assert.Empty(t, got.RotationWebhookSecret)
+	assert.Equal(t, int64(12), Version(got))
 }

@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
@@ -18,64 +21,58 @@ func TestIntegration_ArchiveTerminalRunRoundTrip(t *testing.T) {
 
 	projectID := "proj-archive-rt-" + t.Name()
 	job := baseJob("job-archive-rt", projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	run := baseRun(job, "run-archive-rt")
 	run.Status = domain.StatusCompleted
 	now := time.Now().UTC()
 	run.FinishedAt = &now
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+
 	seedRetentionSideRows(t, ctx, run.ID)
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	require.NoError(t, err)
 
-	if err := q.ArchiveTerminalRun(ctx, tx, run.ID); err != nil {
-		t.Fatalf("ArchiveTerminalRun: %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	defer tx.Rollback(ctx)
+	require.NoError(t, q.ArchiveTerminalRun(ctx,
+		tx, run.ID,
+	))
+	require.NoError(t, tx.Commit(ctx))
+
+	//nolint:errcheck
 
 	// Verify the run is gone from the hot table by querying directly.
 	// GetRun has a transparent history fallback, so we bypass it here.
 	var hotCount int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_runs WHERE id = $1`, run.ID).Scan(&hotCount); err != nil {
-		t.Fatalf("count hot rows: %v", err)
-	}
-	if hotCount != 0 {
-		t.Error("run should be gone from hot table after archive")
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM job_runs WHERE id = $1`,
+
+		run.ID).Scan(&hotCount))
+	assert.EqualValues(t, 0, hotCount)
 
 	// GetRun should still find the run via history fallback.
 	gotViaFallback, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun (fallback): %v", err)
-	}
-	if gotViaFallback == nil {
-		t.Fatal("GetRun should find archived run via history fallback")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, gotViaFallback)
 
 	gotHistory, err := q.GetRunFromHistory(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRunFromHistory: %v", err)
-	}
-	if gotHistory == nil {
-		t.Fatal("run should exist in history after archive")
-	}
-	if gotHistory.ID != run.ID {
-		t.Errorf("history run ID = %q, want %q", gotHistory.ID, run.ID)
-	}
-	if gotHistory.Status != domain.StatusCompleted {
-		t.Errorf("history run status = %q, want %q", gotHistory.Status, domain.StatusCompleted)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, gotHistory)
+	assert.Equal(t, run.ID,
+
+		gotHistory.
+			ID)
+	assert.Equal(t, domain.
+		StatusCompleted,
+
+		gotHistory.
+			Status,
+	)
+
 	assertNoRunRetentionSideRows(t, ctx, run.ID)
 }
 
@@ -85,40 +82,36 @@ func TestIntegration_ArchiveIdempotent(t *testing.T) {
 
 	projectID := "proj-archive-idem-" + t.Name()
 	job := baseJob("job-archive-idem", projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	run := baseRun(job, "run-archive-idem")
 	run.Status = domain.StatusCompleted
 	now := time.Now().UTC()
 	run.FinishedAt = &now
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	tx1, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	if err := q.ArchiveTerminalRun(ctx, tx1, run.ID); err != nil {
-		t.Fatalf("first ArchiveTerminalRun: %v", err)
-	}
-	if err := tx1.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, q.ArchiveTerminalRun(ctx,
+		tx1, run.ID,
+	))
+	require.NoError(t, tx1.
+		Commit(ctx))
 
 	tx2, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
-	defer tx2.Rollback(ctx) //nolint:errcheck
-	if err := q.ArchiveTerminalRun(ctx, tx2, run.ID); err != nil {
-		t.Fatalf("second ArchiveTerminalRun should not fail: %v", err)
-	}
-	if err := tx2.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	require.NoError(t, err)
+
+	defer tx2.Rollback(ctx)
+	require.NoError(t, q.ArchiveTerminalRun(ctx,
+		tx2, run.ID,
+	))
+	require.NoError(t, tx2.
+		Commit(ctx))
+
+	//nolint:errcheck
+
 }
 
 func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
@@ -127,9 +120,8 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 
 	projectID := "proj-archive-batch-" + t.Name()
 	job := baseJob("job-archive-batch", projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	past := time.Now().UTC().Add(-45 * 24 * time.Hour) // must be in a prior month for cold-partition filter
 	for i := range 5 {
@@ -137,9 +129,9 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 		run.Status = domain.StatusCompleted
 		finished := past.Add(time.Duration(i) * time.Minute)
 		run.FinishedAt = &finished
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		seedRetentionSideRows(t, ctx, run.ID)
 	}
 	// Backdate created_at so runs are in cold partitions (reaper's
@@ -148,29 +140,28 @@ func TestIntegration_ArchiveTerminalRunsBatchAndRetention(t *testing.T) {
 		id := "run-archive-batch-" + string(rune('a'+i))
 		createdAt := past.Add(time.Duration(i) * time.Minute)
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE job_runs SET created_at = $1 WHERE id = $2`, createdAt, id); err != nil {
-			t.Fatalf("backdate run %d: %v", i, err)
+			require.Failf(t, "test failure",
+
+				"backdate run %d: %v", i, err)
 		}
 	}
 
 	archived, err := q.ArchiveTerminalRunsPastRetention(ctx, time.Hour, time.Hour, 10)
-	if err != nil {
-		t.Fatalf("ArchiveTerminalRunsPastRetention: %v", err)
-	}
-	if archived != 5 {
-		t.Errorf("archived = %d, want 5", archived)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 5, archived)
+
 	for i := range 5 {
 		id := "run-archive-batch-" + string(rune('a'+i))
 		assertNoRunRetentionSideRows(t, ctx, id)
 	}
 
 	deleted, err := q.DeleteHistoryRunsPastRetention(ctx, time.Now().Add(time.Hour), 100)
-	if err != nil {
-		t.Fatalf("DeleteHistoryRunsPastRetention: %v", err)
-	}
-	if deleted < 5 {
-		t.Errorf("deleted = %d, want >= 5", deleted)
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t,
+
+		deleted,
+		int64(5))
+
 }
 
 func TestIntegration_HistoryTableColumnSync(t *testing.T) {
@@ -204,29 +195,32 @@ func TestIntegration_HistoryTableColumnSync(t *testing.T) {
 	}
 
 	hotCols, err := fetchColumns("job_runs")
-	if err != nil {
-		t.Fatalf("fetch job_runs columns: %v", err)
-	}
+	require.NoError(t, err)
+
 	historyCols, err := fetchColumns("job_runs_history")
-	if err != nil {
-		t.Fatalf("fetch job_runs_history columns: %v", err)
-	}
+	require.NoError(t, err)
 
 	for name, hot := range hotCols {
 		hist, ok := historyCols[name]
 		if !ok {
-			t.Errorf("column %q exists in job_runs but not in job_runs_history", name)
+			assert.Failf(t, "test failure",
+
+				"column %q exists in job_runs but not in job_runs_history", name)
 			continue
 		}
-		if hot.Type != hist.Type {
-			t.Errorf("column %q type mismatch: job_runs=%q, history=%q", name, hot.Type, hist.Type)
-		}
+		assert.Equal(t, hist.Type,
+
+			hot.Type,
+		)
+
 	}
 
 	allowed := map[string]bool{"archived_at": true}
 	for name := range historyCols {
 		if _, ok := hotCols[name]; !ok && !allowed[name] {
-			t.Errorf("column %q exists in job_runs_history but not in job_runs (and not in allowed set)", name)
+			assert.Failf(t, "test failure",
+
+				"column %q exists in job_runs_history but not in job_runs (and not in allowed set)", name)
 		}
 	}
 }
@@ -239,22 +233,20 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 		FROM information_schema.columns
 		WHERE table_name = 'job_runs_history'
 		ORDER BY ordinal_position`)
-	if err != nil {
-		t.Fatalf("fetch columns: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	schemaCols := make(map[string]bool)
 	for rows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&name))
+
 		schemaCols[name] = true
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows: %v", err)
-	}
+	require.NoError(t, rows.
+		Err())
 
 	archiveCols := make(map[string]bool)
 	for raw := range strings.SplitSeq(store.HistoryArchiveColumnsForTest, ",") {
@@ -268,30 +260,26 @@ func TestIntegration_HistoryArchiveColumnsMatchSchema(t *testing.T) {
 		if col == "archived_at" {
 			continue
 		}
-		if !archiveCols[col] {
-			t.Errorf("schema column %q missing from historyArchiveColumns", col)
-		}
+		assert.True(t, archiveCols[col])
+
 	}
 
 	for col := range archiveCols {
-		if !schemaCols[col] {
-			t.Errorf("historyArchiveColumns references %q which does not exist in job_runs_history schema", col)
-		}
+		assert.True(t, schemaCols[col])
+
 	}
 }
 
 func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 	ctx := context.Background()
 	q := store.New(testDB.Pool)
-	if err := testDB.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables: %v", err)
-	}
+	require.NoError(t, testDB.
+		CleanTables(ctx))
 
 	projectID := "proj-backfill-" + t.Name()
 	job := baseJob("job-backfill", projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	past := time.Now().UTC().Add(-72 * time.Hour)
 	for i := range 3 {
@@ -299,33 +287,30 @@ func TestIntegration_BackfillTerminalRunsToHistory(t *testing.T) {
 		run.Status = domain.StatusFailed
 		finished := past.Add(time.Duration(i) * time.Hour)
 		run.FinishedAt = &finished
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		seedRetentionSideRows(t, ctx, run.ID)
 	}
 
 	activeRun := baseRun(job, "run-backfill-active")
 	activeRun.Status = domain.StatusQueued
-	if err := q.CreateRun(ctx, activeRun); err != nil {
-		t.Fatalf("CreateRun active: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		activeRun,
+	))
 
 	moved, err := q.BackfillTerminalRunsToHistory(ctx, time.Now(), 100)
-	if err != nil {
-		t.Fatalf("BackfillTerminalRunsToHistory: %v", err)
-	}
-	if moved != 3 {
-		t.Errorf("moved = %d, want 3", moved)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, moved)
 
 	active, err := q.GetRun(ctx, activeRun.ID)
-	if err != nil {
-		t.Fatalf("GetRun active: %v", err)
-	}
-	if active.Status != domain.StatusQueued {
-		t.Errorf("active run status = %q, want queued", active.Status)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, domain.
+		StatusQueued,
+
+		active.
+			Status)
+
 	for i := range 3 {
 		id := "run-backfill-" + string(rune('a'+i))
 		assertNoRunRetentionSideRows(t, ctx, id)
@@ -338,17 +323,16 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 
 	projectID := "proj-repair-" + t.Name()
 	job := baseJob("job-repair", projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	run := baseRun(job, "run-repair-dupe")
 	run.Status = domain.StatusCompleted
 	now := time.Now().UTC()
 	run.FinishedAt = &now
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+
 	seedRetentionSideRows(t, ctx, run.ID)
 
 	// Manually copy the run into history to create a duplicate.
@@ -377,24 +361,15 @@ func TestIntegration_RepairOrphanedHistoryRuns(t *testing.T) {
 			visible_until, job_enabled, job_paused, job_max_concurrency, job_max_concurrency_per_key,
 			created_at
 		FROM job_runs WHERE id = $1`, run.ID)
-	if err != nil {
-		t.Fatalf("manual insert into history: %v", err)
-	}
+	require.NoError(t, err)
 
 	repaired, err := q.RepairOrphanedHistoryRuns(ctx, 10)
-	if err != nil {
-		t.Fatalf("RepairOrphanedHistoryRuns: %v", err)
-	}
-	if repaired != 1 {
-		t.Errorf("repaired = %d, want 1", repaired)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, repaired)
 
 	dupes, err := q.CountDuplicateHistoryRuns(ctx)
-	if err != nil {
-		t.Fatalf("CountDuplicateHistoryRuns: %v", err)
-	}
-	if dupes != 0 {
-		t.Errorf("dupes after repair = %d, want 0", dupes)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, dupes)
+
 	assertNoRunRetentionSideRows(t, ctx, run.ID)
 }

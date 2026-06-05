@@ -2,6 +2,9 @@ package config
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setRequiredRuntimeEnv(t *testing.T) {
@@ -22,13 +25,15 @@ func TestCORS_WildcardWithCredentials_Rejected(t *testing.T) {
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for wildcard CORS with credentials, got nil")
-	}
+	require.Error(t,
+		err,
+	)
+
 	want := "config CORS_ALLOWED_ORIGINS: wildcard origin (*) is not allowed when CORS_ALLOW_CREDENTIALS is true"
-	if err.Error() != want {
-		t.Errorf("error = %q, want %q", err.Error(), want)
-	}
+	assert.Equal(t,
+		want,
+
+		err.Error())
 }
 
 func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
@@ -40,12 +45,12 @@ func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "*" {
-		t.Errorf("CORSAllowedOrigins = %v, want [*]", cfg.CORSAllowedOrigins)
-	}
+	require.NoError(
+		t,
+
+		err)
+	assert.False(t,
+		len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "*")
 }
 
 func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
@@ -56,12 +61,12 @@ func TestCORS_EmptyOrigins_Allowed(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", "")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfg.CORSAllowedOrigins) != 0 {
-		t.Errorf("CORSAllowedOrigins = %v, want empty", cfg.CORSAllowedOrigins)
-	}
+	require.NoError(
+		t,
+
+		err)
+	assert.Empty(t, cfg.
+		CORSAllowedOrigins)
 }
 
 func TestInternalSecret_TooShort_Rejected(t *testing.T) {
@@ -71,13 +76,15 @@ func TestInternalSecret_TooShort_Rejected(t *testing.T) {
 	setRequiredRuntimeEnv(t)
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for short internal secret, got nil")
-	}
+	require.Error(t,
+		err,
+	)
+
 	want := "config INTERNAL_SECRET: must be at least 16 characters"
-	if err.Error() != want {
-		t.Errorf("error = %q, want %q", err.Error(), want)
-	}
+	assert.Equal(t,
+		want,
+
+		err.Error())
 }
 
 func TestInternalSecret_MinLength_Accepted(t *testing.T) {
@@ -87,9 +94,10 @@ func TestInternalSecret_MinLength_Accepted(t *testing.T) {
 	setRequiredRuntimeEnv(t)
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t,
+
+		err)
 }
 
 func TestInternalSecret_Long_Accepted(t *testing.T) {
@@ -99,9 +107,10 @@ func TestInternalSecret_Long_Accepted(t *testing.T) {
 	setRequiredRuntimeEnv(t)
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t,
+
+		err)
 }
 
 func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
@@ -113,13 +122,15 @@ func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for wildcard CORS in production, got nil")
-	}
+	require.Error(t,
+		err,
+	)
+
 	want := "config CORS_ALLOWED_ORIGINS: wildcard origin (*) is not allowed in non-development environments"
-	if err.Error() != want {
-		t.Errorf("error = %q, want %q", err.Error(), want)
-	}
+	assert.Equal(t,
+		want,
+
+		err.Error())
 }
 
 func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
@@ -130,13 +141,15 @@ func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 	t.Setenv("SENTRY_ENVIRONMENT", "production")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for sslmode=disable in production, got nil")
-	}
+	require.Error(t,
+		err,
+	)
+
 	want := "config DATABASE_URL: sslmode=disable is not allowed in non-development environments"
-	if err.Error() != want {
-		t.Errorf("error = %q, want %q", err.Error(), want)
-	}
+	assert.Equal(t,
+		want,
+
+		err.Error())
 }
 
 func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
@@ -147,9 +160,10 @@ func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 	t.Setenv("SENTRY_ENVIRONMENT", "development")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t,
+
+		err)
 }
 
 func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
@@ -161,10 +175,11 @@ func TestCORS_ExplicitOrigins_Allowed(t *testing.T) {
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfg.CORSAllowedOrigins) != 2 {
-		t.Errorf("CORSAllowedOrigins length = %d, want 2", len(cfg.CORSAllowedOrigins))
-	}
+	require.NoError(
+		t,
+
+		err)
+	assert.Len(t, cfg.
+		CORSAllowedOrigins,
+		2)
 }

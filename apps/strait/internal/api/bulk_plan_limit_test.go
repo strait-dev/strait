@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 // priorityRecordingEnforcer extends mockBillingEnforcer with a configurable
@@ -69,13 +70,11 @@ func TestBulkTrigger_PriorityCheckedPerItem_AllAllowed(t *testing.T) {
 	body := `{"items":[{"priority":1},{"priority":2},{"priority":3}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := enforcer.calls.Load(); got != 3 {
-		t.Fatalf("CheckMaxDispatchPriority called %d times, want 3 (one per priority>0 item)", got)
-	}
+		w.Code)
+	require.EqualValues(t, 3, enforcer.calls.
+		Load())
 }
 
 // TestBulkTrigger_PriorityCheckedPerItem_ZeroPriorityNotChecked verifies that
@@ -96,13 +95,11 @@ func TestBulkTrigger_PriorityCheckedPerItem_ZeroPriorityNotChecked(t *testing.T)
 	body := `{"items":[{},{"priority":5},{}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := enforcer.calls.Load(); got != 1 {
-		t.Fatalf("CheckMaxDispatchPriority called %d times, want 1 (priority>0 only)", got)
-	}
+		w.Code)
+	require.EqualValues(t, 1, enforcer.calls.
+		Load())
 }
 
 // TestBulkTrigger_PriorityRejectsSmuggled verifies that one over-cap item in a
@@ -131,13 +128,14 @@ func TestBulkTrigger_PriorityRejectsSmuggled(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", string(bodyBytes)))
+	require.Equal(t, http.StatusPaymentRequired,
 
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402 PaymentRequired for over-cap item, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := enforcer.calls.Load(); got < 1 {
-		t.Fatalf("CheckMaxDispatchPriority calls = %d, want at least 1", got)
-	}
+		w.Code,
+	)
+	require.GreaterOrEqual(t, enforcer.
+		calls.
+		Load(),
+		int64(1))
 }
 
 func TestBulkTrigger_CloudNilBillingEnforcerFailsClosed(t *testing.T) {
@@ -155,13 +153,13 @@ func TestBulkTrigger_CloudNilBillingEnforcerFailsClosed(t *testing.T) {
 	body := `{"items":[{"priority":99},{"priority":100}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 with cloud nil enforcer, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "service_unavailable") {
-		t.Fatalf("response body = %s, want service_unavailable code", w.Body.String())
-	}
+		w.
+			Code)
+	require.Contains(
+		t, w.Body.
+			String(), "service_unavailable")
 }
 
 // TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen verifies that the
@@ -181,10 +179,9 @@ func TestBulkTrigger_CommunityNilBillingEnforcerFailsOpen(t *testing.T) {
 	body := `{"items":[{"priority":99},{"priority":100}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 with no enforcer (fail-open), got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // TestBulkTrigger_LargeBatch_GateCalledPerItem locks in that the gate is
@@ -211,11 +208,10 @@ func TestBulkTrigger_LargeBatch_GateCalledPerItem(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", string(bodyBytes)))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := enforcer.calls.Load(); got != int64(itemCount) {
-		t.Fatalf("CheckMaxDispatchPriority called %d times, want %d", got, itemCount)
-	}
+		w.Code)
+	require.Equal(t, int64(itemCount), enforcer.
+		calls.
+		Load())
 }

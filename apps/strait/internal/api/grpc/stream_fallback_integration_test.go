@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/domain"
@@ -28,14 +29,13 @@ func seedRunWithTask(t *testing.T, ctx context.Context, q *store.Queries, env *t
 	workerID = "worker-" + uuid.Must(uuid.NewV7()).String()
 	runID = uuid.Must(uuid.NewV7()).String()
 	taskID = uuid.Must(uuid.NewV7()).String()
+	require.NoError(t,
 
-	if err := q.CreateProject(ctx, &domain.Project{
-		ID:    projectID,
-		OrgID: "org-1",
-		Name:  "fallback-test",
-	}); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
+		q.CreateProject(ctx,
+			&domain.Project{ID: projectID,
+				OrgID: "org-1",
+				Name:  "fallback-test",
+			}))
 
 	job := testutil.MustCreateJob(t, ctx, q, &testutil.JobOpts{
 		ProjectID: &projectID,
@@ -49,9 +49,10 @@ func seedRunWithTask(t *testing.T, ctx context.Context, q *store.Queries, env *t
 		Status: &executing,
 	})
 	run.ExecutionMode = domain.ExecutionModeWorker
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun: %v", err)
-	}
+	require.NoError(t,
+
+		q.CreateRun(ctx, run))
+
 	// CreateRun may set its own initial status — force executing for the test.
 	if err := q.UpdateRunStatus(ctx, runID, run.Status, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now(),
@@ -59,28 +60,24 @@ func seedRunWithTask(t *testing.T, ctx context.Context, q *store.Queries, env *t
 		// Already-executing or matching state is fine.
 		t.Logf("UpdateRunStatus to executing returned: %v (continuing)", err)
 	}
+	require.NoError(t,
+
+		q.RegisterWorker(ctx,
+			&domain.Worker{ID: workerID,
+				ProjectID: projectID,
+				QueueName: "default", Hostname: "h",
+
+				Version: "1.0", Status: domain.WorkerStatusActive},
+		))
+	require.NoError(t,
+
+		q.CreateWorkerTask(
+			ctx, &domain.WorkerTask{ID: taskID, WorkerID: workerID,
+				RunID: runID, ProjectID: projectID,
+
+				Status: domain.WorkerTaskStatusAssigned}))
 
 	// Insert worker row so worker_tasks FK (if any) is satisfied.
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectID,
-		QueueName: "default",
-		Hostname:  "h",
-		Version:   "1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("RegisterWorker: %v", err)
-	}
-
-	if err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
-		ID:        taskID,
-		WorkerID:  workerID,
-		RunID:     runID,
-		ProjectID: projectID,
-		Status:    domain.WorkerTaskStatusAssigned,
-	}); err != nil {
-		t.Fatalf("CreateWorkerTask: %v", err)
-	}
 
 	return projectID, workerID, runID, taskID
 }
@@ -166,29 +163,39 @@ func TestIntegration_HandleTaskResult_Fallback_SuccessUpdatesWorkerTask(t *testi
 
 	tr := assignedTaskResult(runID, taskID, "success")
 	tr.OutputJson = []byte(`{"worker":"result"}`)
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
 
 	// Worker task must now be completed.
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker_tasks not transitioned: got %q, want completed", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		got.
+			Status)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	var result map[string]string
-	if err := json.Unmarshal(run.Result, &result); err != nil {
-		t.Fatalf("unmarshal run result: %v", err)
-	}
-	if result["worker"] != "result" {
-		t.Fatalf("run result = %s, want worker output_json", string(run.Result))
-	}
+	require.NoError(t,
+
+		json.Unmarshal(run.
+			Result, &result))
+	require.Equal(t,
+		"result",
+
+		result["worker"])
+
 }
 
 func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateFails(t *testing.T) {
@@ -202,23 +209,31 @@ func TestIntegration_HandleTaskResult_Fallback_DoesNotCompleteTaskWhenRunUpdateF
 		SET status = $1, finished_at = NOW(), result = $2::jsonb
 		WHERE id = $3
 	`, domain.StatusCanceled, json.RawMessage(`{"already":true}`), runID); err != nil {
-		t.Fatalf("force run terminal: %v", err)
+		require.Failf(t, "test failure",
+
+			"force run terminal: %v", err)
 	}
 
 	svc := fallbackService(q)
 	tr := assignedTaskResult(runID, taskID, "success")
 	tr.OutputJson = []byte(`{"worker":"late"}`)
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("worker task status = %q, want assigned when run update fails", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }
 
 func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *testing.T) {
@@ -232,31 +247,48 @@ func TestIntegration_HandleTaskResult_Fallback_UsesRunFinalizerForSuccess(t *tes
 
 	tr := assignedTaskResult(runID, taskID, "success")
 	tr.OutputJson = []byte(`{"worker":"result"}`)
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
 
-	if len(finalizer.calls) != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
-	}
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
+	require.Len(t, finalizer.
+		calls,
+		1)
+
 	call := finalizer.calls[0]
-	if call.runID != runID || call.status != "success" || string(call.output) != `{"worker":"result"}` {
-		t.Fatalf("unexpected finalizer call: %+v", call)
-	}
+	require.False(t,
+		call.
+			runID !=
+			runID ||
+			call.status !=
+				"success" ||
+			string(call.
+				output) !=
+				`{"worker":"result"}`,
+	)
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker task status = %q, want completed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		task.
+			Status)
+
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("fallback should let finalizer own run transition, got run status %q", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
+
 }
 
 func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure(t *testing.T) {
@@ -270,24 +302,38 @@ func TestIntegration_HandleTaskResult_Fallback_InvalidSuccessOutputRoutesFailure
 
 	tr := assignedTaskResult(runID, taskID, "success")
 	tr.OutputJson = []byte(`{"worker":`)
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
 
-	if len(finalizer.calls) != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", len(finalizer.calls))
-	}
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
+	require.Len(t, finalizer.
+		calls,
+		1)
+
 	call := finalizer.calls[0]
-	if call.runID != runID || call.status != "failed" || call.errorMessage != invalidWorkerOutputError || call.output != nil {
-		t.Fatalf("unexpected finalizer call for invalid output: %+v", call)
-	}
+	require.False(t,
+		call.
+			runID !=
+			runID ||
+			call.status !=
+				"failed" ||
+			call.errorMessage !=
+				invalidWorkerOutputError ||
+			call.output !=
+				nil)
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker task status = %q, want failed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		task.Status,
+	)
+
 }
 
 func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *testing.T) {
@@ -299,17 +345,23 @@ func TestIntegration_HandleTaskResult_Fallback_FinalizerErrorLeavesTaskOpen(t *t
 	svc := fallbackServiceWithFinalizer(q, &recordingRunFinalizer{err: errors.New("finalizer failed")})
 
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("worker task status = %q, want assigned when finalizer fails", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		task.
+			Status)
+
 }
 
 func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
@@ -325,20 +377,28 @@ func TestIntegration_HandleAck_MarksOpenWorkerTaskAccepted(t *testing.T) {
 			Ack: &workerv1.Acknowledged{Id: runID},
 		},
 	}
-	if err := svc.handleWorkerMessage(ctx, workerID, projectID, "", "", msg); err != nil {
-		t.Fatalf("handleWorkerMessage ack: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleWorkerMessage(ctx, workerID,
+			projectID,
+			"", "", msg,
+		))
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusAccepted {
-		t.Fatalf("task status = %q, want accepted", task.Status)
-	}
-	if task.AcceptedAt == nil {
-		t.Fatal("accepted_at is nil, want timestamp")
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAccepted,
+
+		task.
+			Status)
+	require.NotNil(t,
+
+		task.AcceptedAt,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask asserts the
@@ -354,17 +414,23 @@ func TestIntegration_HandleTaskResult_Fallback_FailedUpdatesWorkerTask(t *testin
 
 	tr := assignedTaskResult(runID, taskID, "failed")
 	tr.ErrorMessage = "boom"
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("worker_tasks not transitioned: got %q, want failed", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_Fallback_ProjectMismatchRejects guards the
@@ -381,17 +447,23 @@ func TestIntegration_HandleTaskResult_Fallback_ProjectMismatchRejects(t *testing
 	// Use the WRONG project ID — simulates a stream authenticated to project B
 	// trying to mark a run that belongs to project A.
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, workerID, "proj-impostor", tr); err != nil {
-		t.Fatalf("handleTaskResult unexpectedly errored: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			"proj-impostor",
+			tr))
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("project mismatch should not transition worker_task: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects guards
@@ -408,30 +480,33 @@ func TestIntegration_HandleTaskResult_Fallback_OwnershipMismatchRejects(t *testi
 
 	// A different worker, in the same project, reports a result it doesn't own.
 	otherWorker := "other-worker-" + uuid.Must(uuid.NewV7()).String()
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        otherWorker,
-		ProjectID: projectID,
-		QueueName: "default",
-		Hostname:  "h",
-		Version:   "1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("RegisterWorker other: %v", err)
-	}
+	require.NoError(t,
+
+		q.RegisterWorker(ctx,
+			&domain.Worker{ID: otherWorker,
+				ProjectID: projectID,
+				QueueName: "default", Hostname: "h", Version: "1.0", Status: domain.WorkerStatusActive,
+			}))
 
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, otherWorker, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, otherWorker,
+			projectID,
+			tr))
 
 	// Original worker_task must remain assigned (not touched by the impostor).
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusAssigned {
-		t.Fatalf("ownership mismatch should not touch original task: got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusAssigned,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects verifies
@@ -445,31 +520,40 @@ func TestIntegration_HandleTaskResult_Fallback_ClosedAssignmentRejects(t *testin
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	svc := fallbackService(q)
+	require.NoError(t,
 
-	if err := q.UpdateWorkerTaskStatus(ctx, taskID, domain.WorkerTaskStatusFailed); err != nil {
-		t.Fatalf("UpdateWorkerTaskStatus: %v", err)
-	}
+		q.UpdateWorkerTaskStatus(ctx, taskID,
+			domain.WorkerTaskStatusFailed,
+		))
 
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
 
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusExecuting {
-		t.Fatalf("closed assignment result changed run status to %q, want executing", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+
+		run.Status)
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusFailed {
-		t.Fatalf("closed assignment result changed task status to %q, want failed", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusFailed,
+
+		got.Status,
+	)
+
 }
 
 // TestIntegration_HandleTaskResult_Fallback_IdempotentOnRepeat asserts that
@@ -484,19 +568,28 @@ func TestIntegration_HandleTaskResult_Fallback_IdempotentOnRepeat(t *testing.T) 
 	svc := fallbackService(q)
 
 	tr := assignedTaskResult(runID, taskID, "success")
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult #1: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
+	require.NoError(t,
+
+		svc.handleTaskResult(ctx, workerID,
+			projectID,
+			tr))
+
 	// Second time — must remain "completed", no panic, no error.
-	if err := svc.handleTaskResult(ctx, workerID, projectID, tr); err != nil {
-		t.Fatalf("handleTaskResult #2: %v", err)
-	}
 
 	got, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if got.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("expected completed after idempotent retry, got %q", got.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		got.
+			Status)
+
 }

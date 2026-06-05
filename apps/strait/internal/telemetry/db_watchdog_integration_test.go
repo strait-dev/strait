@@ -15,6 +15,8 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -28,9 +30,8 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 	testDBOnce.Do(func() {
 		testDB, testDBErr = testutil.SetupSharedTestDB(context.Background(), "../../migrations", "telemetry-db-watchdog")
 	})
-	if testDBErr != nil {
-		t.Fatalf("setup test db: %v", testDBErr)
-	}
+	require.Nil(t, testDBErr)
+
 	return testDB
 }
 
@@ -70,21 +71,19 @@ func TestDBWatchdog_HappyPath_NoLongTxns(t *testing.T) {
 
 	logger, logs := captureLogger()
 	wd, err := telemetry.NewDBWatchdog(tdb.Pool, 100*time.Millisecond, 60*time.Second, logger)
-	if err != nil {
-		t.Fatalf("NewDBWatchdog: %v", err)
-	}
+	require.NoError(t, err)
+
 	go wd.Run(ctx)
 
 	// Wait until at least 3 samples have happened so the sampler has had
 	// multiple chances to observe a clean state.
 	waitFor(t, 2*time.Second, func() bool { return wd.SampleCount() >= 3 })
+	assert.EqualValues(t, 0, wd.AlertCount())
+	assert.False(t, strings.Contains(logs.
+		String(),
+		"long-running transaction detected",
+	))
 
-	if wd.AlertCount() != 0 {
-		t.Errorf("expected 0 alerts on a clean DB, got %d", wd.AlertCount())
-	}
-	if strings.Contains(logs.String(), "long-running transaction detected") {
-		t.Errorf("unexpected long-txn alert in logs: %s", logs.String())
-	}
 }
 
 func TestDBWatchdog_DetectsLongTxn(t *testing.T) {
@@ -94,26 +93,22 @@ func TestDBWatchdog_DetectsLongTxn(t *testing.T) {
 
 	logger, logs := captureLogger()
 	wd, err := telemetry.NewDBWatchdog(tdb.Pool, 100*time.Millisecond, 500*time.Millisecond, logger)
-	if err != nil {
-		t.Fatalf("NewDBWatchdog: %v", err)
-	}
+	require.NoError(t, err)
+
 	go wd.Run(ctx)
 
 	// Open a transaction on a different connection and hold it open for
 	// longer than the 500ms alert threshold.
 	conn, err := tdb.Pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer conn.Release()
 
 	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
-		t.Fatalf("exec: %v", err)
-	}
+	require.NoError(t, err)
+
+	_, err = tx.Exec(ctx, "SELECT 1")
+	require.NoError(t, err)
 
 	// Let it age past the threshold.
 	time.Sleep(1200 * time.Millisecond)
@@ -123,10 +118,11 @@ func TestDBWatchdog_DetectsLongTxn(t *testing.T) {
 	_ = tx.Commit(ctx)
 
 	waitFor(t, 3*time.Second, func() bool { return wd.AlertCount() >= 1 })
+	assert.True(t, strings.Contains(logs.
+		String(),
+		"long-running transaction detected",
+	))
 
-	if !strings.Contains(logs.String(), "long-running transaction detected") {
-		t.Errorf("expected alert log, got: %s", logs.String())
-	}
 }
 
 func TestDBWatchdog_IdleInTransactionTerminated(t *testing.T) {
@@ -138,21 +134,17 @@ func TestDBWatchdog_IdleInTransactionTerminated(t *testing.T) {
 	// and verify Postgres terminates the idle txn. This is the behavioral
 	// test that proves the RuntimeParam actually works end-to-end.
 	conn, err := pgx.Connect(ctx, tdb.ConnStr)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer conn.Close(ctx)
 
-	if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout = '500ms'"); err != nil {
-		t.Fatalf("set timeout: %v", err)
-	}
+	_, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout = '500ms'")
+	require.NoError(t, err)
 
-	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
-		t.Fatalf("select: %v", err)
-	}
+	_, err = conn.Exec(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, "SELECT 1")
+	require.NoError(t, err)
 
 	// Wait long enough that the idle-in-transaction timeout fires.
 	time.Sleep(1500 * time.Millisecond)
@@ -160,12 +152,9 @@ func TestDBWatchdog_IdleInTransactionTerminated(t *testing.T) {
 	// The next query on this connection should fail because the server
 	// terminated the backend.
 	_, err = conn.Exec(ctx, "SELECT 1")
-	if err == nil {
-		t.Fatalf("expected error after idle_in_transaction_session_timeout, got nil")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "terminat") && !strings.Contains(strings.ToLower(err.Error()), "closed") {
-		t.Errorf("expected termination error, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.False(t, !strings.Contains(strings.ToLower(err.Error()), "terminat") && !strings.Contains(strings.ToLower(err.Error()), "closed"))
+
 }
 
 // fakePool returns a controllable query result to drive adversarial tests.
@@ -195,17 +184,15 @@ func TestDBWatchdog_SurvivesQueryFailure(t *testing.T) {
 
 	logger, _ := captureLogger()
 	wd, err := telemetry.NewDBWatchdog(&fakePool{err: context.Canceled}, 50*time.Millisecond, 60*time.Second, logger)
-	if err != nil {
-		t.Fatalf("NewDBWatchdog: %v", err)
-	}
+	require.NoError(t, err)
+
 	go wd.Run(ctx)
 
 	waitFor(t, 1*time.Second, func() bool { return wd.SampleCount() >= 5 })
+	assert.EqualValues(t, 0, wd.AlertCount())
 
 	// Never panicked; alert count stays zero.
-	if wd.AlertCount() != 0 {
-		t.Errorf("alert count should be 0 on query failure, got %d", wd.AlertCount())
-	}
+
 }
 
 func TestDBWatchdog_SurvivesPanic(t *testing.T) {
@@ -214,24 +201,23 @@ func TestDBWatchdog_SurvivesPanic(t *testing.T) {
 
 	logger, logs := captureLogger()
 	wd, err := telemetry.NewDBWatchdog(&fakePool{panicOn: 1}, 50*time.Millisecond, 60*time.Second, logger)
-	if err != nil {
-		t.Fatalf("NewDBWatchdog: %v", err)
-	}
+	require.NoError(t, err)
+
 	go wd.Run(ctx)
 
 	// After a panicking first sample the watchdog must keep sampling.
 	waitFor(t, 1*time.Second, func() bool { return wd.SampleCount() >= 3 })
+	assert.True(t, strings.Contains(logs.
+		String(),
+		"db watchdog panic recovered",
+	))
 
-	if !strings.Contains(logs.String(), "db watchdog panic recovered") {
-		t.Errorf("expected panic recovery log, got: %s", logs.String())
-	}
 }
 
 func TestNewDBWatchdog_ValidatesInput(t *testing.T) {
 	logger, _ := captureLogger()
-	if _, err := telemetry.NewDBWatchdog(nil, 1*time.Second, 1*time.Second, logger); err == nil {
-		t.Error("expected error for nil pool")
-	}
+	_, err := telemetry.NewDBWatchdog(nil, 1*time.Second, 1*time.Second, logger)
+	require.Error(t, err)
 }
 
 func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
@@ -243,5 +229,5 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("condition not met within %s", timeout)
+	require.Failf(t, "condition not met", "timeout=%s", timeout)
 }

@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeTx is a minimal pgx.Tx test double. Only Exec, Query, and QueryRow
@@ -72,11 +74,11 @@ func TestCtxAwareDBTX_NoContext_RoutesToPool(t *testing.T) {
 
 	ctx := context.Background() // no tx bound
 	if _, err := wrapper.Exec(ctx, "SELECT 1"); err != nil {
-		t.Fatalf("Exec error = %v", err)
+		require.Failf(t, "test failure",
+
+			"Exec error = %v", err)
 	}
-	if poolCalls != 1 {
-		t.Fatalf("pool Exec called %d times, want 1", poolCalls)
-	}
+	require.Equal(t, 1, poolCalls)
 }
 
 func TestCtxAwareDBTX_WithContext_RoutesToTx(t *testing.T) {
@@ -94,29 +96,21 @@ func TestCtxAwareDBTX_WithContext_RoutesToTx(t *testing.T) {
 
 	ctx := ContextWithTx(context.Background(), tx)
 	if _, err := wrapper.Exec(ctx, "SELECT 1"); err != nil {
-		t.Fatalf("Exec error = %v", err)
+		require.Failf(t, "test failure",
+
+			"Exec error = %v", err)
 	}
 	rows, err := wrapper.Query(ctx, "SELECT 2")
-	if err != nil {
-		t.Fatalf("Query error = %v", err)
-	}
+	require.NoError(t, err)
+
 	if rows != nil {
 		rows.Close()
 	}
 	_ = wrapper.QueryRow(ctx, "SELECT 3")
-
-	if tx.execCalls != 1 {
-		t.Fatalf("tx Exec calls = %d, want 1", tx.execCalls)
-	}
-	if tx.queryCalls != 1 {
-		t.Fatalf("tx Query calls = %d, want 1", tx.queryCalls)
-	}
-	if tx.queryRowCalls != 1 {
-		t.Fatalf("tx QueryRow calls = %d, want 1", tx.queryRowCalls)
-	}
-	if poolCalls != 0 {
-		t.Fatalf("pool Exec calls = %d, want 0 (should route to tx)", poolCalls)
-	}
+	require.Equal(t, 1, tx.execCalls)
+	require.Equal(t, 1, tx.queryCalls)
+	require.Equal(t, 1, tx.queryRowCalls)
+	require.Equal(t, 0, poolCalls)
 }
 
 func TestCtxAwareDBTX_BeginWithContextUsesAmbientTxSavepoint(t *testing.T) {
@@ -133,18 +127,11 @@ func TestCtxAwareDBTX_BeginWithContextUsesAmbientTxSavepoint(t *testing.T) {
 	ctx := ContextWithTx(context.Background(), tx)
 
 	nested, err := wrapper.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin error = %v", err)
-	}
-	if nested == nil {
-		t.Fatal("Begin returned nil nested transaction")
-	}
-	if tx.beginCalls != 1 {
-		t.Fatalf("ambient tx Begin calls = %d, want 1", tx.beginCalls)
-	}
-	if poolBeginCalls != 0 {
-		t.Fatalf("pool Begin calls = %d, want 0", poolBeginCalls)
-	}
+	require.NoError(t, err)
+	require.NotNil(
+		t, nested)
+	require.Equal(t, 1, tx.beginCalls)
+	require.Equal(t, 0, poolBeginCalls)
 }
 
 func TestCtxAwareDBTX_BeginTxWithContextRejectsCustomOptions(t *testing.T) {
@@ -154,9 +141,8 @@ func TestCtxAwareDBTX_BeginTxWithContextRejectsCustomOptions(t *testing.T) {
 	ctx := ContextWithTx(context.Background(), &fakeTx{})
 
 	_, err := wrapper.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err == nil {
-		t.Fatal("expected custom nested transaction options to fail")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
@@ -167,7 +153,9 @@ func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
 	// pool, and never cross-contaminate.
 	pool := &mockDBTX{
 		execFn: func(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
-			t.Errorf("pool should never be called when every request has a tx")
+			assert.Failf(t, "test failure",
+
+				"pool should never be called when every request has a tx")
 			return pgconn.CommandTag{}, nil
 		},
 	}
@@ -191,13 +179,14 @@ func TestCtxAwareDBTX_ContextsAreIndependent(t *testing.T) {
 		}
 	})
 	wg.Wait()
-
-	if txA.execCalls != iters {
-		t.Fatalf("txA exec calls = %d, want %d", txA.execCalls, iters)
-	}
-	if txB.execCalls != iters {
-		t.Fatalf("txB exec calls = %d, want %d", txB.execCalls, iters)
-	}
+	require.Equal(t,
+		iters, txA.
+			execCalls,
+	)
+	require.Equal(t,
+		iters, txB.
+			execCalls,
+	)
 }
 
 func TestCtxAwareDBTX_TxErrorPropagates(t *testing.T) {
@@ -213,9 +202,8 @@ func TestCtxAwareDBTX_TxErrorPropagates(t *testing.T) {
 	ctx := ContextWithTx(context.Background(), tx)
 
 	_, err := wrapper.Exec(ctx, "SELECT 1")
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("error = %v, want %v", err, sentinel)
-	}
+	require.ErrorIs(t,
+		err, sentinel)
 }
 
 func TestNewWithContextRouting_FallsThroughToPoolWithoutTx(t *testing.T) {
@@ -227,21 +215,18 @@ func TestNewWithContextRouting_FallsThroughToPoolWithoutTx(t *testing.T) {
 		},
 	}
 	q := NewWithContextRouting(pool)
+	require.NoError(t, q.SetProjectContext(context.Background(), "any-project"))
 
 	// Call a store method that issues q.db.Exec under the hood. Use a simple
 	// generic path: SetProjectContext runs q.db.Exec.
-	if err := q.SetProjectContext(context.Background(), "any-project"); err != nil {
-		t.Fatalf("SetProjectContext error = %v", err)
-	}
 }
 
 func TestTxFromContext_MissingReturnsFalse(t *testing.T) {
 	t.Parallel()
 
 	_, ok := TxFromContext(context.Background())
-	if ok {
-		t.Fatal("expected no tx in bare context")
-	}
+	require.False(t,
+		ok)
 }
 
 func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
@@ -254,9 +239,11 @@ func TestContextWithoutTxMasksTransactionButPreservesValues(t *testing.T) {
 	ctx := ContextWithoutTx(ContextWithTx(base, tx))
 
 	if _, ok := TxFromContext(ctx); ok {
-		t.Fatal("expected transaction to be hidden")
+		require.Fail(t,
+
+			"expected transaction to be hidden")
 	}
-	if got := ctx.Value(valueKey{}); got != "kept" {
-		t.Fatalf("preserved value = %v, want kept", got)
-	}
+	require.Equal(t,
+		"kept",
+		ctx.Value(valueKey{}))
 }

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSanitizeQueryRedactsExpandedKeys pins the broader
@@ -56,31 +58,18 @@ func TestSanitizeQueryRedactsExpandedKeys(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			out := sanitizeQuery(map[string][]string{tc.key: {tc.value}})
-			if strings.Contains(out, tc.value) {
-				t.Fatalf("sanitizeQuery leaked value %q in output %q", tc.value, out)
-			}
-			if !strings.Contains(strings.ToLower(out), strings.ToLower(tc.key)) {
-				t.Fatalf("sanitizeQuery dropped key %q from output %q", tc.key, out)
-			}
-			if !strings.Contains(out, "[REDACTED]") {
-				t.Fatalf("sanitizeQuery output missing redaction marker: %q", out)
-			}
+			require.NotContains(t, out, tc.value)
+			require.Contains(t, strings.ToLower(out), strings.ToLower(tc.key))
+			require.Contains(t, out, "[REDACTED]")
 		})
 	}
 }
 
 func TestShouldLogRequest_AlwaysLogsErrorsAndSamplesSuccess(t *testing.T) {
 	t.Parallel()
-
-	if !shouldLogRequest(500, "") {
-		t.Fatal("5xx request should always be logged")
-	}
-	if !shouldLogRequest(404, "") {
-		t.Fatal("4xx request should always be logged")
-	}
-	if shouldLogRequest(200, "") {
-		t.Fatal("2xx request without request id should not be logged")
-	}
+	require.True(t, shouldLogRequest(500, ""))
+	require.True(t, shouldLogRequest(404, ""))
+	require.False(t, shouldLogRequest(200, ""))
 
 	var sampled string
 	for i := range successRequestLogSampleModulo * 4 {
@@ -90,12 +79,10 @@ func TestShouldLogRequest_AlwaysLogsErrorsAndSamplesSuccess(t *testing.T) {
 			break
 		}
 	}
-	if sampled == "" {
-		t.Fatal("expected to find a sampled request id")
-	}
-	if !shouldLogRequest(200, sampled) {
-		t.Fatal("sampled 2xx request id should be logged")
-	}
+	require.NotEmpty(t,
+		sampled,
+	)
+	require.True(t, shouldLogRequest(200, sampled))
 }
 
 func BenchmarkShouldLogRequestSuccess(b *testing.B) {
@@ -125,12 +112,8 @@ func TestSanitizeQueryPreservesSafeParams(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.key, func(t *testing.T) {
 			out := sanitizeQuery(map[string][]string{tc.key: {tc.value}})
-			if !strings.Contains(out, tc.value) {
-				t.Fatalf("sanitizeQuery dropped benign value %q from output %q", tc.value, out)
-			}
-			if strings.Contains(out, "[REDACTED]") {
-				t.Fatalf("sanitizeQuery wrongly redacted benign param %q: %q", tc.key, out)
-			}
+			require.Contains(t, out, tc.value)
+			require.NotContains(t, out, "[REDACTED]")
 		})
 	}
 }
@@ -176,9 +159,7 @@ func FuzzSanitizeQueryNeverEchoesSensitiveSubstring(f *testing.F) {
 			return
 		}
 		out := sanitizeQuery(map[string][]string{key: {value}})
-		if strings.Contains(out, value) {
-			t.Fatalf("value %q leaked through sanitizeQuery for key %q: %q", value, key, out)
-		}
+		require.NotContains(t, out, value)
 	})
 }
 
@@ -196,7 +177,8 @@ func TestSanitizeQueryPropertyRedactsKeywordKeys(t *testing.T) {
 		out := sanitizeQuery(map[string][]string{key: {probe}})
 		return !strings.Contains(out, probe)
 	}
-	if err := quick.Check(prop, &quick.Config{MaxCount: 200}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, quick.
+		Check(
+			prop, &quick.Config{
+				MaxCount: 200}))
 }

@@ -2,7 +2,11 @@
 
 package telemetry
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIntegrationSentryRequiredTagsCoverBillingSubsystem(t *testing.T) {
 	t.Parallel()
@@ -16,8 +20,9 @@ func TestIntegrationSentryRequiredTagsCoverBillingSubsystem(t *testing.T) {
 		"version":   "V1.2.3",
 	}
 	for key, value := range want {
-		if got := tags[key]; got != value {
-			t.Fatalf("tag %s = %q, want %q", key, got, value)
-		}
+		require.Equal(t, value,
+
+			tags[key])
+
 	}
 }

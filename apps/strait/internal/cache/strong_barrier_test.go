@@ -3,12 +3,12 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStrongBarrierRejectsStaleFill(t *testing.T) {
@@ -21,30 +21,24 @@ func TestStrongBarrierRejectsStaleFill(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
+	require.NoError(t, tier.StrongInvalidate(t.
+		Context(),
+		StrongNamespacePolicy{Namespace: "barrier_reject"}, "k", "k", VersionBarrier{Version: 10}, nil))
 
-	if err := tier.StrongInvalidate(
-		t.Context(),
-		StrongNamespacePolicy{Namespace: "barrier_reject"},
-		"k",
-		"k",
-		VersionBarrier{Version: 10},
-		nil,
-	); err != nil {
-		t.Fatalf("StrongInvalidate() error = %v", err)
-	}
 	_, err := tier.GetConsistentVersioned(t.Context(), "k", 0, func(context.Context, string) (Versioned[string], error) {
 		return Versioned[string]{Value: "stale", Version: 9}, nil
 	})
-	if !errors.Is(err, ErrStaleVersion) {
-		t.Fatalf("GetConsistentVersioned() error = %v, want ErrStaleVersion", err)
-	}
+	require.ErrorIs(t,
+		err, ErrStaleVersion)
 
 	l2.mu.Lock()
 	stored := l2.values["k"]
 	l2.mu.Unlock()
-	if !stored.Barrier || stored.Version != 10 {
-		t.Fatalf("stored entry = %+v, want barrier@10", stored)
-	}
+	require.False(t,
+		!stored.Barrier ||
+			stored.
+				Version !=
+				10)
 }
 
 func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
@@ -57,17 +51,11 @@ func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
+	require.NoError(t, tier.StrongInvalidate(t.
+		Context(),
+		StrongNamespacePolicy{Namespace: "barrier_replace"}, "k", "k", VersionBarrier{
+			Version: 10}, nil))
 
-	if err := tier.StrongInvalidate(
-		t.Context(),
-		StrongNamespacePolicy{Namespace: "barrier_replace"},
-		"k",
-		"k",
-		VersionBarrier{Version: 10},
-		nil,
-	); err != nil {
-		t.Fatalf("StrongInvalidate() error = %v", err)
-	}
 	ok, err := tier.StrongWriteThrough(
 		t.Context(),
 		StrongNamespacePolicy{Namespace: "barrier_replace"},
@@ -77,23 +65,21 @@ func TestStrongBarrierAllowsEqualVersionValueReplacement(t *testing.T) {
 		10,
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("StrongWriteThrough() error = %v", err)
-	}
-	if !ok {
-		t.Fatal("StrongWriteThrough() ok = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t,
+		ok)
+
 	loader := func(context.Context, string) (Versioned[string], error) {
-		t.Fatal("loader must not run after equal-version replacement")
+		require.Fail(t, "loader must not run after equal-version replacement")
 		return Versioned[string]{}, nil
 	}
 	got, err := tier.GetConsistentVersioned(t.Context(), "k", 10, loader)
-	if err != nil {
-		t.Fatalf("GetConsistentVersioned() error = %v", err)
-	}
-	if got.Value != "fresh" || got.Version != 10 {
-		t.Fatalf("got %+v, want fresh@10", got)
-	}
+	require.NoError(t, err)
+	require.False(t,
+		got.Value != "fresh" ||
+			got.
+				Version !=
+				10)
 }
 
 func TestStrongBarrierBusMessageIsIdempotent(t *testing.T) {
@@ -110,9 +96,7 @@ func TestStrongBarrierBusMessageIsIdempotent(t *testing.T) {
 	reg.Register("barrier_bus", UpdatingStringTierHandler[string]{Tier: tier})
 	msg := BusMessage{Action: BusActionInvalidate, Namespace: "barrier_bus", Key: "k", Version: 10, Origin: "node-a"}
 	payload, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("marshal bus message: %v", err)
-	}
+	require.NoError(t, err)
 
 	reg.Handle(t.Context(), payload)
 	reg.Handle(t.Context(), payload)
@@ -120,9 +104,11 @@ func TestStrongBarrierBusMessageIsIdempotent(t *testing.T) {
 	l2.mu.Lock()
 	stored := l2.values["k"]
 	l2.mu.Unlock()
-	if !stored.Barrier || stored.Version != 10 {
-		t.Fatalf("stored entry = %+v, want idempotent barrier@10", stored)
-	}
+	require.False(t,
+		!stored.Barrier ||
+			stored.
+				Version !=
+				10)
 }
 
 func TestStrongBarrierRedisCASAllowsEqualVersionReplacement(t *testing.T) {
@@ -137,18 +123,19 @@ func TestStrongBarrierRedisCASAllowsEqualVersionReplacement(t *testing.T) {
 	})
 
 	ok, err := l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Barrier: true}, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("CompareAndSet(barrier) = %v, %v; want true, nil", ok, err)
-	}
+	require.False(t,
+		err != nil || !ok)
+
 	ok, err = l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Value: "fresh"}, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("CompareAndSet(equal value) = %v, %v; want true, nil", ok, err)
-	}
+	require.False(t,
+		err != nil || !ok)
+
 	entry, err := l2.Get(t.Context(), "k")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if entry.Barrier || entry.Value != "fresh" || entry.Version != 10 {
-		t.Fatalf("entry = %+v, want fresh@10", entry)
-	}
+	require.NoError(t, err)
+	require.False(t,
+		entry.Barrier ||
+			entry.Value !=
+				"fresh" ||
+			entry.
+				Version != 10)
 }

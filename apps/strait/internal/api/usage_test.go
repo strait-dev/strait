@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockBillingEnforcer struct {
@@ -340,10 +342,9 @@ func TestUsageEndpoint_APIKey_CrossTenantForbidden(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-tenant access, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_APIKey_SameTenantAllowed(t *testing.T) {
@@ -360,18 +361,13 @@ func TestUsageEndpoint_APIKey_SameTenantAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for same-tenant access, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp billing.CurrentUsageResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response JSON: %v", err)
-	}
-	if resp.OrgID != "org-A" {
-		t.Fatalf("expected org_id=org-A, got %q", resp.OrgID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "org-A", resp.
+		OrgID)
 }
 
 func TestUsageEndpoint_InternalSecret_AllowsAnyOrg(t *testing.T) {
@@ -385,10 +381,8 @@ func TestUsageEndpoint_InternalSecret_AllowsAnyOrg(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for internal secret with any org_id, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestUsageEndpoint_NotConfigured(t *testing.T) {
@@ -400,10 +394,9 @@ func TestUsageEndpoint_NotConfigured(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotImplemented,
 
-	if w.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 when usage service is nil, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestUsageEndpoint_MissingOrgID(t *testing.T) {
@@ -415,10 +408,9 @@ func TestUsageEndpoint_MissingOrgID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 when org_id is missing, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestGetUsageHistory_Success(t *testing.T) {
@@ -429,10 +421,8 @@ func TestGetUsageHistory_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
@@ -449,21 +439,16 @@ func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp billing.SpendingLimitResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response JSON: %v", err)
-	}
-	if resp.PlanTier != "free" {
-		t.Fatalf("plan tier = %q, want free", resp.PlanTier)
-	}
-	if !resp.IsHardCapped {
-		t.Fatal("expected free tier spending limit response to be hard capped")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "free", resp.
+		PlanTier)
+	require.True(
+		t, resp.IsHardCapped,
+	)
 }
 
 func TestGetUsageHistory_MissingParams(t *testing.T) {
@@ -484,9 +469,9 @@ func TestGetUsageHistory_MissingParams(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodGet, tc.url, ""))
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for %s, got %d", tc.name, w.Code)
-			}
+			require.Equal(t, http.StatusBadRequest,
+				w.
+					Code)
 		})
 	}
 }
@@ -499,10 +484,8 @@ func TestGetUsageForecast_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestGetProjectCosts_Success(t *testing.T) {
@@ -513,10 +496,8 @@ func TestGetProjectCosts_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
@@ -527,10 +508,9 @@ func TestGetDowngradePreview_InvalidTier_400(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid target tier, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestExportCSV_ReturnsValidCSV(t *testing.T) {
@@ -541,16 +521,12 @@ func TestExportCSV_ReturnsValidCSV(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
-		t.Errorf("expected Content-Type text/csv, got %q", ct)
-	}
-	if cd := w.Header().Get("Content-Disposition"); cd == "" {
-		t.Error("expected Content-Disposition header")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "text/csv", w.
+			Header().Get("Content-Type"))
+	assert.NotEmpty(t, w.Header().Get("Content-Disposition"))
 }
 
 func TestAnomalyAlerts_NoHistoryReturnsEmpty(t *testing.T) {
@@ -561,18 +537,13 @@ func TestAnomalyAlerts_NoHistoryReturnsEmpty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var alerts []billing.AnomalyAlert
-	if err := json.Unmarshal(w.Body.Bytes(), &alerts); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Errorf("expected empty alerts, got %d", len(alerts))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &alerts))
+	assert.Empty(t,
+		alerts)
 }
 
 func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
@@ -587,10 +558,9 @@ func TestGetUsageHistory_APIKey_CrossTenantForbidden(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for cross-tenant usage history, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
@@ -609,10 +579,9 @@ func TestUsageEndpoint_OIDC_NoRoleForbidden(t *testing.T) {
 	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-A", "", token, "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 without a project role, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing.T) {
@@ -625,19 +594,20 @@ func TestUsageEndpoint_OIDC_ProjectReadRoleForbiddenForOrgBillingRead(t *testing
 		enforcer: enforcer,
 		usageSvc: &mockUsageService{},
 	}, func(_ context.Context, projectID, userID string) ([]string, error) {
-		if projectID != "proj-1" || userID != usageTestOIDCUserID {
-			t.Fatalf("permission lookup args = (%s,%s), want (proj-1,%s)", projectID, userID, usageTestOIDCUserID)
-		}
+		require.False(t, projectID !=
+			"proj-1" ||
+			userID != usageTestOIDCUserID,
+		)
+
 		return []string{domain.ScopeProjectsRead}, nil
 	})
 
 	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-A", "", token, "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for project-scoped OIDC on org billing read, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_OIDC_MismatchedOrgForbidden(t *testing.T) {
@@ -656,10 +626,9 @@ func TestUsageEndpoint_OIDC_MismatchedOrgForbidden(t *testing.T) {
 	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-B", "", token, "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for mismatched org_id, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_OIDC_MissingProjectContextForbidden(t *testing.T) {
@@ -675,10 +644,9 @@ func TestUsageEndpoint_OIDC_MissingProjectContextForbidden(t *testing.T) {
 	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-A", "", token, "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 without X-Project-Id, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_OIDC_DeletedProjectContextForbidden(t *testing.T) {
@@ -700,10 +668,9 @@ func TestUsageEndpoint_OIDC_DeletedProjectContextForbidden(t *testing.T) {
 	req := oidcRequest(http.MethodGet, "/v1/usage/current?org_id=org-A", "", token, "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for deleted project context, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestSpendingLimit_OIDC_ReadRoleCannotMutate(t *testing.T) {
@@ -722,10 +689,9 @@ func TestSpendingLimit_OIDC_ReadRoleCannotMutate(t *testing.T) {
 	req := oidcRequest(http.MethodPut, "/v1/spending-limit?org_id=org-A", `{"limit_microusd":1000,"action":"reject"}`, token, "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 with projects:read on spending limit update, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_APIKey_ReadScopeRequired(t *testing.T) {
@@ -739,10 +705,9 @@ func TestUsageEndpoint_APIKey_ReadScopeRequired(t *testing.T) {
 	req := apiKeyRequestWithScopes(http.MethodGet, "/v1/usage/current?org_id=org-A", "", "proj-1", []string{domain.ScopeJobsRead})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 without projects:read, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUsageEndpoint_APIKey_ReadScopeAllowed(t *testing.T) {
@@ -756,10 +721,8 @@ func TestUsageEndpoint_APIKey_ReadScopeAllowed(t *testing.T) {
 	req := apiKeyRequestWithScopes(http.MethodGet, "/v1/usage/current?org_id=org-A", "", "proj-1", []string{domain.ScopeProjectsRead})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 with projects:read, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // internalSecretRequestWithProject creates an internal-secret request with a
@@ -794,9 +757,9 @@ func TestGetProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-B", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestGetProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -811,9 +774,8 @@ func TestGetProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-A2", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestGetProjectBudget_APIKey_CrossOrgForbidden(t *testing.T) {
@@ -831,9 +793,9 @@ func TestGetProjectBudget_APIKey_CrossOrgForbidden(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestGetProjectBudget_APIKey_SameOrgAllowed(t *testing.T) {
@@ -848,9 +810,8 @@ func TestGetProjectBudget_APIKey_SameOrgAllowed(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestUpdateProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -866,9 +827,9 @@ func TestUpdateProjectBudget_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/project-budget", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUpdateProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -883,9 +844,8 @@ func TestUpdateProjectBudget_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/project-budget", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // Edge cases.
@@ -900,9 +860,9 @@ func TestGetProjectBudget_NoProjectContext_BadRequest(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/project-budget", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 without project_id param, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestGetProjectBudget_NonexistentProject_Forbidden(t *testing.T) {
@@ -914,9 +874,9 @@ func TestGetProjectBudget_NonexistentProject_Forbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-nonexistent", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for nonexistent project, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestUpdateProjectBudget_EmptyProjectID_BadRequest(t *testing.T) {
@@ -926,9 +886,9 @@ func TestUpdateProjectBudget_EmptyProjectID_BadRequest(t *testing.T) {
 	req := authedRequest(http.MethodPut, "/v1/project-budget", body)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
@@ -937,9 +897,9 @@ func TestUpdateProjectBudget_MissingBody_BadRequest(t *testing.T) {
 	req := authedRequest(http.MethodPut, "/v1/project-budget", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestProjectBudget_NilEnforcer_WithProjectContext_Forbidden(t *testing.T) {
@@ -950,9 +910,9 @@ func TestProjectBudget_NilEnforcer_WithProjectContext_Forbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/project-budget?project_id=proj-A", "", "proj-caller")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 when enforcer is nil but caller has project context, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestProjectBudget_NilEnforcer_NoProjectContext_Forbidden(t *testing.T) {
@@ -966,9 +926,9 @@ func TestProjectBudget_NilEnforcer_NoProjectContext_Forbidden(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/project-budget?project_id=proj-A", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 when enforcer is nil (query param sets project context), got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestExportUsage_PDF_Format(t *testing.T) {
@@ -981,19 +941,18 @@ func TestExportUsage_PDF_Format(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=pdf", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "application/pdf",
+		w.Header().Get("Content-Type"))
+	assert.Equal(
+		t, "attachment; filename=usage_org-1.pdf",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/pdf" {
-		t.Errorf("expected Content-Type application/pdf, got %s", ct)
-	}
-	if cd := w.Header().Get("Content-Disposition"); cd != "attachment; filename=usage_org-1.pdf" {
-		t.Errorf("expected Content-Disposition with .pdf filename, got %s", cd)
-	}
-	if !strings.HasPrefix(w.Body.String(), "%PDF-") {
-		t.Errorf("expected response body to start with %%PDF-, got %q", w.Body.String()[:20])
-	}
+		w.Header().Get("Content-Disposition"),
+	)
+	assert.True(t,
+		strings.HasPrefix(w.Body.String(), "%PDF-"))
 }
 
 func TestExportUsage_DefaultFormat_CSV(t *testing.T) {
@@ -1004,13 +963,11 @@ func TestExportUsage_DefaultFormat_CSV(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
-		t.Errorf("expected Content-Type text/csv, got %s", ct)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "text/csv", w.
+			Header().Get("Content-Type"))
 }
 
 func TestExportUsage_InvalidFormat(t *testing.T) {
@@ -1021,10 +978,9 @@ func TestExportUsage_InvalidFormat(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=xml", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
@@ -1036,9 +992,9 @@ func TestExportUsage_RowLimitExceededReturns413(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=csv", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusRequestEntityTooLarge,
+
+		w.Code)
 }
 
 func TestExportUsage_CSV_ExplicitFormat(t *testing.T) {
@@ -1047,15 +1003,16 @@ func TestExportUsage_CSV_ExplicitFormat(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=csv", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/csv" {
-		t.Errorf("expected text/csv, got %s", ct)
-	}
-	if cd := w.Header().Get("Content-Disposition"); cd != "attachment; filename=usage_org-1.csv" {
-		t.Errorf("expected .csv filename, got %s", cd)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, "text/csv", w.
+			Header().Get("Content-Type"))
+	assert.Equal(
+		t, "attachment; filename=usage_org-1.csv",
+
+		w.Header().Get("Content-Disposition"),
+	)
 }
 
 func TestExportUsage_MissingOrgID(t *testing.T) {
@@ -1064,9 +1021,9 @@ func TestExportUsage_MissingOrgID(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?from=2026-01-01&to=2026-01-31", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestExportUsage_MissingDateRange(t *testing.T) {
@@ -1075,9 +1032,9 @@ func TestExportUsage_MissingDateRange(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestExportUsage_APIKey_CrossTenantForbidden(t *testing.T) {
@@ -1089,9 +1046,9 @@ func TestExportUsage_APIKey_CrossTenantForbidden(t *testing.T) {
 	req := apiKeyRequest(http.MethodGet, "/v1/usage/export?org_id=org-B&from=2026-01-01&to=2026-01-31&format=csv", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestExportUsage_APIKey_SameTenantAllowed(t *testing.T) {
@@ -1103,9 +1060,8 @@ func TestExportUsage_APIKey_SameTenantAllowed(t *testing.T) {
 	req := apiKeyRequest(http.MethodGet, "/v1/usage/export?org_id=org-A&from=2026-01-01&to=2026-01-31&format=pdf", "", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestExportUsage_NotConfigured(t *testing.T) {
@@ -1114,9 +1070,9 @@ func TestExportUsage_NotConfigured(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotImplemented,
+
+		w.Code)
 }
 
 func TestExportUsage_InvalidDateRange(t *testing.T) {
@@ -1126,9 +1082,9 @@ func TestExportUsage_InvalidDateRange(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-02-01&to=2026-01-01", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for reversed date range, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestExportUsage_PDF_ResponseBody(t *testing.T) {
@@ -1140,10 +1096,8 @@ func TestExportUsage_PDF_ResponseBody(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/usage/export?org_id=org-1&from=2026-01-01&to=2026-01-31&format=pdf", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Body.Len() != len(pdfContent) {
-		t.Errorf("expected body length %d, got %d", len(pdfContent), w.Body.Len())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	assert.Equal(
+		t, len(pdfContent), w.Body.Len())
 }

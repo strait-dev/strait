@@ -15,18 +15,17 @@ import (
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func mustOIDCKeyPair(t *testing.T) (*rsa.PrivateKey, []byte) {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate rsa key: %v", err)
-	}
+	require.NoError(t, err)
+
 	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	if err != nil {
-		t.Fatalf("marshal pub key: %v", err)
-	}
+	require.NoError(t, err)
+
 	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 	return key, pubPEM
 }
@@ -34,13 +33,11 @@ func mustOIDCKeyPair(t *testing.T) (*rsa.PrivateKey, []byte) {
 func mustOIDCPublicKeyPEM(t *testing.T, bits int) []byte {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, bits)
-	if err != nil {
-		t.Fatalf("generate rsa key: %v", err)
-	}
+	require.NoError(t, err)
+
 	pubDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-	if err != nil {
-		t.Fatalf("marshal pub key: %v", err)
-	}
+	require.NoError(t, err)
+
 	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 }
 
@@ -48,9 +45,8 @@ func mustSignOIDCToken(t *testing.T, key *rsa.PrivateKey, claims jwt.RegisteredC
 	t.Helper()
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := token.SignedString(key)
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -63,9 +59,7 @@ func TestNewOIDCVerifier_RejectsWeakRSAKey(t *testing.T) {
 		OIDCAudience:     "strait-api",
 		OIDCPublicKeyPEM: string(mustOIDCPublicKeyPEM(t, 1024)),
 	})
-	if err == nil {
-		t.Fatal("expected weak RSA key to be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestOIDCAuth_AllowsValidToken(t *testing.T) {
@@ -87,18 +81,19 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 		return false, nil
 	}
 	ms.QueueStatsFunc = func(ctx context.Context) (*store.QueueStats, error) {
-		if actor := actorFromContext(ctx); actor != "user-oidc-1" {
-			t.Fatalf("actor = %q, want user-oidc-1", actor)
-		}
-		if projectID := projectIDFromContext(ctx); projectID != "proj-oidc" {
-			t.Fatalf("project_id = %q, want proj-oidc", projectID)
-		}
+		require.Equal(t, "user-oidc-1",
+			actorFromContext(ctx))
+		require.Equal(t, "proj-oidc",
+			projectIDFromContext(ctx))
+
 		return &store.QueueStats{}, nil
 	}
 	ms.GetUserPermissionsFunc = func(_ context.Context, projectID, userID string) ([]string, error) {
-		if projectID != "proj-oidc" || userID != "user-oidc-1" {
-			t.Fatalf("permission lookup args = (%s,%s)", projectID, userID)
-		}
+		require.False(t, projectID !=
+			"proj-oidc" ||
+			userID != "user-oidc-1",
+		)
+
 		return []string{"stats:read"}, nil
 	}
 
@@ -120,10 +115,8 @@ func TestOIDCAuth_AllowsValidToken(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-oidc")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
@@ -155,10 +148,9 @@ func TestOIDCAuth_RejectsExpiredToken(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-oidc")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
+		w.Code)
 }
 
 func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
@@ -190,8 +182,7 @@ func TestOIDCAuth_RejectsWrongAudience(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-oidc")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
+		w.Code)
 }

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMountDebugRoutes_StatsvizIndexReturnsHTML(t *testing.T) {
@@ -19,19 +21,13 @@ func TestMountDebugRoutes_StatsvizIndexReturnsHTML(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /debug/statsviz/ status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, w.Code)
 
 	ct := w.Header().Get("Content-Type")
-	if !strings.Contains(ct, "text/html") {
-		t.Errorf("Content-Type = %q, want text/html", ct)
-	}
+	assert.Contains(t, ct, "text/html")
 
 	body := w.Body.String()
-	if body == "" {
-		t.Error("response body is empty")
-	}
+	assert.NotEmpty(t, body)
 }
 
 func TestMountDebugRoutes_StatsvizWsRouteExists(t *testing.T) {
@@ -46,9 +42,7 @@ func TestMountDebugRoutes_StatsvizWsRouteExists(t *testing.T) {
 
 	// The WebSocket endpoint is registered but will not complete a WS upgrade
 	// in httptest. Verify it does not 404 (route exists).
-	if w.Code == http.StatusNotFound {
-		t.Fatal("GET /debug/statsviz/ws returned 404, route should be registered")
-	}
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }
 
 func TestMountDebugRoutes_NonDebugRouteReturns404(t *testing.T) {
@@ -61,9 +55,7 @@ func TestMountDebugRoutes_NonDebugRouteReturns404(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Errorf("GET /api/v1/jobs status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestMountDebugRoutes_PostMethodNotAllowed(t *testing.T) {
@@ -77,9 +69,7 @@ func TestMountDebugRoutes_PostMethodNotAllowed(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	// POST to a GET-only route should return 405 Method Not Allowed.
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /debug/statsviz/ status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
-	}
+	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 }
 
 func TestMountDebugRoutes_DoesNotAffectExistingRoutes(t *testing.T) {
@@ -97,21 +87,15 @@ func TestMountDebugRoutes_DoesNotAffectExistingRoutes(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want %d", w.Code, http.StatusOK)
-	}
-	if w.Body.String() != "ok" {
-		t.Errorf("GET /healthz body = %q, want %q", w.Body.String(), "ok")
-	}
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "ok", w.Body.String())
 
 	// Verify debug route also works.
 	req = httptest.NewRequest(http.MethodGet, "/debug/statsviz/", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /debug/statsviz/ status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestMountDebugRoutes_MultipleMounts(t *testing.T) {
@@ -126,9 +110,7 @@ func TestMountDebugRoutes_MultipleMounts(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /debug/statsviz/ after double mount status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestMountDebugRoutes_StatsvizIndexBodyContainsStatsviz(t *testing.T) {
@@ -141,15 +123,11 @@ func TestMountDebugRoutes_StatsvizIndexBodyContainsStatsviz(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("GET /debug/statsviz/ status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, w.Code)
 
 	// The statsviz index page should contain identifying content.
 	body := w.Body.String()
-	if !strings.Contains(strings.ToLower(body), "statsviz") && !strings.Contains(body, "<html") {
-		t.Error("response body does not contain expected statsviz or html content")
-	}
+	assert.True(t, strings.Contains(strings.ToLower(body), "statsviz") || strings.Contains(body, "<html"))
 }
 
 func TestMountDebugRoutes_HeadRequest(t *testing.T) {
@@ -163,7 +141,5 @@ func TestMountDebugRoutes_HeadRequest(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	// HEAD on a GET route should return 200 with no body (or 405 depending on router).
-	if w.Code == http.StatusNotFound {
-		t.Error("HEAD /debug/statsviz/ returned 404, route should be registered")
-	}
+	assert.NotEqual(t, http.StatusNotFound, w.Code)
 }

@@ -3,6 +3,9 @@ package domain
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateTransition_AllValidTransitions(t *testing.T) {
@@ -10,9 +13,7 @@ func TestValidateTransition_AllValidTransitions(t *testing.T) {
 	for from, toStatuses := range validTransitions {
 		for _, to := range toStatuses {
 			t.Run(fmt.Sprintf("%s->%s", from, to), func(t *testing.T) {
-				if err := ValidateTransition(from, to); err != nil {
-					t.Errorf("expected valid transition %s -> %s, got error: %v", from, to, err)
-				}
+				assert.NoError(t, ValidateTransition(from, to))
 			})
 		}
 	}
@@ -40,9 +41,7 @@ func TestValidateTransition_InvalidTransitions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("%s->%s", tc.from, tc.to), func(t *testing.T) {
-			if err := ValidateTransition(tc.from, tc.to); err == nil {
-				t.Errorf("expected invalid transition %s -> %s to fail", tc.from, tc.to)
-			}
+			assert.Error(t, ValidateTransition(tc.from, tc.to))
 		})
 	}
 }
@@ -61,20 +60,17 @@ func TestTerminalStatesHaveNoValidTransitions(t *testing.T) {
 	for _, status := range TerminalStatuses() {
 		t.Run(string(status), func(t *testing.T) {
 			transitions, ok := validTransitions[status]
-			if !ok {
-				t.Errorf("terminal status %s not found in validTransitions", status)
-			}
+			assert.True(
+				t, ok)
+
 			if status == StatusDeadLetter {
 				for _, to := range transitions {
-					if _, ok := deadLetterAllowed[to]; !ok {
-						t.Errorf("dead_letter transitions include unexpected target %s; only manual replay (queued, replay_staged) is allowed", to)
-					}
+					assert.Contains(t, deadLetterAllowed, to)
 				}
 				return
 			}
-			if len(transitions) != 0 {
-				t.Errorf("terminal status %s transitions = %v, want []", status, transitions)
-			}
+			assert.Empty(t,
+				transitions)
 		})
 	}
 }
@@ -103,9 +99,7 @@ func TestRunStatusIsTerminal_AllStatuses(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
-			if got := tc.status.IsTerminal(); got != tc.expected {
-				t.Errorf("status %s IsTerminal() = %v, expected %v", tc.status, got, tc.expected)
-			}
+			assert.Equal(t, tc.expected, tc.status.IsTerminal())
 		})
 	}
 }
@@ -132,25 +126,20 @@ func TestAllStatusesCoveredByTransitionsMap(t *testing.T) {
 
 	for _, status := range allStatuses {
 		t.Run(string(status), func(t *testing.T) {
-			if _, ok := validTransitions[status]; !ok {
-				t.Errorf("status %s is missing from validTransitions map", status)
-			}
+			assert.Contains(t, validTransitions, status)
 		})
 	}
+	require.Len(
+		t, validTransitions,
 
-	if len(validTransitions) != len(allStatuses) {
-		t.Fatalf("validTransitions has %d statuses, expected %d", len(validTransitions), len(allStatuses))
-	}
+		len(allStatuses))
 }
 
 func TestRunStatusIsValid(t *testing.T) {
 	t.Parallel()
-	if !StatusQueued.IsValid() {
-		t.Fatal("expected queued to be valid")
-	}
-	if RunStatus("not-valid").IsValid() {
-		t.Fatal("expected arbitrary status to be invalid")
-	}
+	require.True(t, StatusQueued.
+		IsValid())
+	require.False(t, RunStatus("not-valid").IsValid())
 }
 
 func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
@@ -174,12 +163,10 @@ func TestValidateTransition_DeadLetterTransitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateTransition(tc.from, tc.to)
-			if tc.wantErr && err == nil {
-				t.Fatalf("expected transition %s -> %s to fail", tc.from, tc.to)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("expected transition %s -> %s to succeed, got %v", tc.from, tc.to, err)
-			}
+			require.False(t, tc.wantErr &&
+				err == nil)
+			require.False(t, !tc.wantErr &&
+				err != nil)
 		})
 	}
 }

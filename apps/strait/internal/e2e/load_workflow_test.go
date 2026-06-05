@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadWorkflow_CreateThroughput(t *testing.T) {
@@ -22,9 +23,10 @@ func TestLoadWorkflow_CreateThroughput(t *testing.T) {
 			`{"project_id":"%s","name":"load-wf-%d","slug":"load-wf-%d-%d","enabled":true}`,
 			projectID, i, time.Now().UnixNano(), i,
 		))
-		if w.Code != 201 {
-			t.Fatalf("create workflow %d: %d %s", i, w.Code, w.Body.String())
-		}
+		require.EqualValues(t, 201,
+
+			w.Code)
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Created %d workflows in %v (%.0f/sec)", volume, elapsed, float64(volume)/elapsed.Seconds())
@@ -39,9 +41,10 @@ func TestLoadWorkflow_TriggerThroughput(t *testing.T) {
 		`{"project_id":"%s","name":"trig-wf","slug":"trig-wf-%d","enabled":true}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create workflow: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	wfID := asString(t, mustDecodeObject(t, w), "id")
 
 	start := time.Now()
@@ -66,9 +69,10 @@ func TestLoadWorkflow_ConcurrentTrigger(t *testing.T) {
 		`{"project_id":"%s","name":"ctrig-wf","slug":"ctrig-wf-%d","enabled":true}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create workflow: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	wfID := asString(t, mustDecodeObject(t, w), "id")
 
 	const workers = 10
@@ -107,9 +111,10 @@ func TestLoadWorkflow_ListRunsPaginated(t *testing.T) {
 		`{"project_id":"%s","name":"lruns-wf","slug":"lruns-wf-%d","enabled":true}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create workflow: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	wfID := asString(t, mustDecodeObject(t, w), "id")
 
 	for i := range volume {
@@ -121,9 +126,11 @@ func TestLoadWorkflow_ListRunsPaginated(t *testing.T) {
 	const iterations = 50
 	for range iterations {
 		resp := doRequest(t, "GET", "/v1/workflows/"+wfID+"/runs?limit=50", "")
-		if resp.Code != 200 {
-			t.Fatalf("list workflow runs: %d", resp.Code)
-		}
+		require.EqualValues(t, 200,
+
+			resp.Code,
+		)
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Listed workflow runs %d times in %v (%.0f/sec)", iterations, elapsed, float64(iterations)/elapsed.Seconds())

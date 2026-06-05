@@ -8,6 +8,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestApproveDeviceCodeAuditCarriesAPIKeyID asserts that the
@@ -65,15 +67,15 @@ func TestApproveDeviceCodeAuditCarriesAPIKeyID(t *testing.T) {
 		UserCode:  "AUDIT123",
 		ProjectID: "proj-audit",
 	}}); err != nil {
-		t.Fatalf("handleApproveDeviceCode() error = %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if persistedAPIKeyID == "" {
-		t.Fatal("CreateAPIKey was not called or did not record an ID")
+			"handleApproveDeviceCode() error = %v", err)
 	}
-	if persistedAPIKeyID == "store-assigned-id" {
-		t.Fatal("handler did not pre-assign apiKey.ID; store-side fallback ran")
-	}
+	require.NotEmpty(t, persistedAPIKeyID)
+	require.NotEqual(t, "store-assigned-id",
+
+		persistedAPIKeyID,
+	)
 
 	var approvedEvent *domain.AuditEvent
 	for _, ev := range auditEvents {
@@ -82,22 +84,18 @@ func TestApproveDeviceCodeAuditCarriesAPIKeyID(t *testing.T) {
 			break
 		}
 	}
-	if approvedEvent == nil {
-		t.Fatalf("expected audit event with action %q, got %d events", domain.AuditActionDeviceCodeApproved, len(auditEvents))
-		return
-	}
+	require.NotNil(t, approvedEvent)
 
 	var details map[string]any
-	if err := json.Unmarshal(approvedEvent.Details, &details); err != nil {
-		t.Fatalf("audit details not valid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(approvedEvent.
+		Details,
+
+		&details))
+
 	got, _ := details["api_key_id"].(string)
-	if got == "" {
-		t.Fatalf("audit details api_key_id is empty; details=%s", string(approvedEvent.Details))
-	}
-	if got != persistedAPIKeyID {
-		t.Fatalf("audit api_key_id %q != persisted api_key_id %q", got, persistedAPIKeyID)
-	}
+	require.NotEmpty(t, got)
+	require.Equal(t, persistedAPIKeyID,
+		got)
 }
 
 // TestApproveDeviceCodeAuditAPIKeyIDIsValidUUIDv7 ensures the
@@ -138,17 +136,20 @@ func TestApproveDeviceCodeAuditAPIKeyIDIsValidUUIDv7(t *testing.T) {
 		UserCode:  "UUIDV7AB",
 		ProjectID: "proj-uuid",
 	}}); err != nil {
-		t.Fatalf("handleApproveDeviceCode() error = %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if captured == nil || captured.ID == "" {
-		t.Fatal("expected pre-assigned UUID on apiKey")
+			"handleApproveDeviceCode() error = %v", err)
 	}
-	if len(captured.ID) != 36 {
-		t.Fatalf("apiKey.ID = %q, want 36-char UUID", captured.ID)
-	}
+	require.False(t, captured == nil ||
+		captured.
+			ID ==
+
+			"")
+	require.Len(t,
+		captured.ID, 36,
+	)
+	require.Equal(t, byte('7'), captured.
+		ID[14])
+
 	// UUIDv7 layout: xxxxxxxx-xxxx-7xxx-xxxx-xxxxxxxxxxxx (version nibble at index 14).
-	if captured.ID[14] != '7' {
-		t.Fatalf("apiKey.ID = %q, want UUIDv7 (version nibble '7' at index 14)", captured.ID)
-	}
 }

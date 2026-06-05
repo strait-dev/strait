@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // runInTxHandlers are the handlers known to wrap store mutations inside
@@ -29,13 +32,10 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 	t.Parallel()
 
 	dir, err := filepath.Abs(".")
-	if err != nil {
-		t.Fatalf("abs path: %v", err)
-	}
+	require.NoError(t, err)
+
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read dir: %v", err)
-	}
+	require.NoError(t, err)
 
 	fset := token.NewFileSet()
 
@@ -59,9 +59,7 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 		}
 		path := filepath.Join(dir, name)
 		file, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if parseErr != nil {
-			t.Fatalf("parse %s: %v", name, parseErr)
-		}
+		require.NoError(t, parseErr)
 
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -130,7 +128,9 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 			b.WriteString(")\n")
 		}
 		b.WriteString("\naudit events must only fire AFTER the runInTx closure returns.\n")
-		t.Fatal(b.String())
+		require.Fail(t,
+
+			b.String())
 	}
 
 	// Verify all tracked handlers were actually found in source.
@@ -159,8 +159,7 @@ func TestAuditEmitOrdering_OutsideRunInTx(t *testing.T) {
 		}
 	}
 	for name := range runInTxHandlers {
-		if !found[name] {
-			t.Errorf("runInTxHandlers references %q but no such method was found in the api package", name)
-		}
+		assert.True(
+			t, found[name])
 	}
 }

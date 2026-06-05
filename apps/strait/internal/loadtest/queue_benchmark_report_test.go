@@ -1,9 +1,10 @@
 package loadtest
 
 import (
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSummarizeLatencies(t *testing.T) {
@@ -14,19 +15,21 @@ func TestSummarizeLatencies(t *testing.T) {
 		20 * time.Millisecond,
 		50 * time.Millisecond,
 	})
+	require.InDelta(t, 5,
+		summary.Count, 1e-9,
+	)
+	require.Equal(t, time.
+		Millisecond,
+		summary.
+			Min)
+	require.Equal(t, 20*
+		time.Millisecond,
 
-	if summary.Count != 5 {
-		t.Fatalf("Count = %d, want 5", summary.Count)
-	}
-	if summary.Min != time.Millisecond {
-		t.Fatalf("Min = %s, want 1ms", summary.Min)
-	}
-	if summary.P50 != 20*time.Millisecond {
-		t.Fatalf("P50 = %s, want 20ms", summary.P50)
-	}
-	if summary.Max != 100*time.Millisecond {
-		t.Fatalf("Max = %s, want 100ms", summary.Max)
-	}
+		summary.P50)
+	require.Equal(t, 100*
+		time.Millisecond,
+
+		summary.Max)
 }
 
 func TestRelationBloatSampleRatios(t *testing.T) {
@@ -37,12 +40,8 @@ func TestRelationBloatSampleRatios(t *testing.T) {
 		HOTUpdates:   7,
 	}
 
-	if got := sample.DeadTupleRatio(); got != 0.2 {
-		t.Fatalf("DeadTupleRatio = %f, want 0.2", got)
-	}
-	if got := sample.HOTUpdateRatio(); got != 0.7 {
-		t.Fatalf("HOTUpdateRatio = %f, want 0.7", got)
-	}
+	require.InDelta(t, 0.2, sample.DeadTupleRatio(), 1e-9)
+	require.InDelta(t, 0.7, sample.HOTUpdateRatio(), 1e-9)
 }
 
 func TestQueueBenchmarkReportMarkdown(t *testing.T) {
@@ -72,9 +71,7 @@ func TestQueueBenchmarkReportMarkdown(t *testing.T) {
 
 	md := report.Markdown()
 	for _, want := range []string{"# baseline", "Engine: `legacy`", "Duplicate claims", "`job_runs`", "SQL Plans", "Seq Scan"} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("Markdown missing %q:\n%s", want, md)
-		}
+		require.Contains(t, md, want)
 	}
 }
 
@@ -113,34 +110,37 @@ func TestCompareQueueBenchmarkReports(t *testing.T) {
 	}
 
 	comparison := CompareQueueBenchmarkReports("comparison", baseline, candidate)
-	if comparison.BaselineEngine != "previous" || comparison.CandidateEngine != "pgque" {
-		t.Fatalf("engines = %s/%s, want previous/pgque", comparison.BaselineEngine, comparison.CandidateEngine)
-	}
-	if comparison.CounterDelta.NotifyCount != -5 {
-		t.Fatalf("NotifyCount delta = %d, want -5", comparison.CounterDelta.NotifyCount)
-	}
-	if comparison.CounterDelta.LogicalSlotWALBytes != -200 {
-		t.Fatalf("LogicalSlotWALBytes delta = %d, want -200", comparison.CounterDelta.LogicalSlotWALBytes)
-	}
-	if comparison.P99LatencyDelta != 15*time.Millisecond {
-		t.Fatalf("P99LatencyDelta = %s, want 15ms", comparison.P99LatencyDelta)
-	}
-	if comparison.ThroughputDelta != -25 {
-		t.Fatalf("ThroughputDelta = %f, want -25", comparison.ThroughputDelta)
-	}
-	if len(comparison.RelationDeltas) != 1 {
-		t.Fatalf("RelationDeltas len = %d, want 1", len(comparison.RelationDeltas))
-	}
+	require.False(t, comparison.
+		BaselineEngine !=
+		"previous" || comparison.CandidateEngine !=
+		"pgque")
+	require.InDelta(t, -5, comparison.
+		CounterDelta.
+		NotifyCount, 1e-9)
+	require.InDelta(t, -200, comparison.
+		CounterDelta.
+		LogicalSlotWALBytes, 1e-9)
+	require.Equal(t, 15*
+		time.Millisecond,
+
+		comparison.P99LatencyDelta)
+	require.InDelta(t, -25, comparison.
+		ThroughputDelta, 1e-9,
+	)
+	require.Len(t, comparison.
+		RelationDeltas,
+
+		1)
+
 	delta := comparison.RelationDeltas[0]
-	if delta.DeadTuplesDelta != -15 {
-		t.Fatalf("DeadTuplesDelta = %d, want -15", delta.DeadTuplesDelta)
-	}
-	if delta.DeadTuplesPerKCompleted != -150 {
-		t.Fatalf("DeadTuplesPerKCompleted = %f, want -150", delta.DeadTuplesPerKCompleted)
-	}
-	if len(comparison.ImprovementHints) == 0 {
-		t.Fatal("expected improvement hints for slower candidate and higher WAL")
-	}
+	require.InDelta(t, -15, delta.DeadTuplesDelta, 1e-9)
+	require.InDelta(t, -150, delta.
+		DeadTuplesPerKCompleted, 1e-9,
+	)
+	require.NotEmpty(t,
+		comparison.
+			ImprovementHints,
+	)
 }
 
 func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
@@ -166,8 +166,6 @@ func TestQueueBenchmarkComparisonMarkdown(t *testing.T) {
 
 	md := comparison.Markdown()
 	for _, want := range []string{"# comparison", "Baseline: `previous`", "Candidate: `pgque`", "Relation Deltas", "SQL Plans", "Nested Loop"} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("Markdown missing %q:\n%s", want, md)
-		}
+		require.Contains(t, md, want)
 	}
 }

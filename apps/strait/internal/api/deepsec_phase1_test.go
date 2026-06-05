@@ -8,6 +8,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDeepSec_BulkTriggerRejectsCrossEnvironmentJob(t *testing.T) {
@@ -20,7 +22,9 @@ func TestDeepSec_BulkTriggerRejectsCrossEnvironmentJob(t *testing.T) {
 			return job, nil
 		},
 		CreateBatchOperationFunc: func(context.Context, *domain.BatchOperation) error {
-			t.Fatal("cross-environment bulk trigger must not create a batch")
+			require.Fail(t,
+
+				"cross-environment bulk trigger must not create a batch")
 			return nil
 		},
 	}
@@ -32,9 +36,11 @@ func TestDeepSec_BulkTriggerRejectsCrossEnvironmentJob(t *testing.T) {
 		JobID: "job-1",
 		Body:  BulkTriggerRequest{Items: []BulkTriggerItem{{}}},
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for cross-environment bulk trigger, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
 }
 
 func TestDeepSec_BulkCancelAllEnvironmentScopedRequiresJobFilter(t *testing.T) {
@@ -42,7 +48,9 @@ func TestDeepSec_BulkCancelAllEnvironmentScopedRequiresJobFilter(t *testing.T) {
 
 	ms := &APIStoreMock{
 		BulkCancelByFilterFunc: func(context.Context, string, store.BulkCancelFilter, time.Time, string) ([]string, error) {
-			t.Fatal("environment-scoped bulk cancel without job_id must not reach store")
+			require.Fail(t,
+
+				"environment-scoped bulk cancel without job_id must not reach store")
 			return nil, nil
 		},
 	}
@@ -51,9 +59,11 @@ func TestDeepSec_BulkCancelAllEnvironmentScopedRequiresJobFilter(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleBulkCancelAll(ctx, &BulkCancelAllInput{Body: BulkCancelAllRequest{Status: domain.StatusQueued}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for unscoped environment bulk cancel, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
 }
 
 func TestDeepSec_BulkCancelAllRejectsCrossEnvironmentJobFilter(t *testing.T) {
@@ -64,7 +74,9 @@ func TestDeepSec_BulkCancelAllRejectsCrossEnvironmentJobFilter(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 		BulkCancelByFilterFunc: func(context.Context, string, store.BulkCancelFilter, time.Time, string) ([]string, error) {
-			t.Fatal("cross-environment bulk cancel must not reach store")
+			require.Fail(t,
+
+				"cross-environment bulk cancel must not reach store")
 			return nil, nil
 		},
 	}
@@ -73,9 +85,11 @@ func TestDeepSec_BulkCancelAllRejectsCrossEnvironmentJobFilter(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleBulkCancelAll(ctx, &BulkCancelAllInput{Body: BulkCancelAllRequest{JobID: "job-1"}})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for cross-environment job filter, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
 }
 
 func TestDeepSec_CreateJobRejectsEnvironmentScopedMismatch(t *testing.T) {
@@ -83,7 +97,9 @@ func TestDeepSec_CreateJobRejectsEnvironmentScopedMismatch(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(context.Context, *domain.Job) error {
-			t.Fatal("environment-scoped create must not persist a job in another environment")
+			require.Fail(t,
+
+				"environment-scoped create must not persist a job in another environment")
 			return nil
 		},
 	}
@@ -98,9 +114,11 @@ func TestDeepSec_CreateJobRejectsEnvironmentScopedMismatch(t *testing.T) {
 		Slug:          "cross-env",
 		EndpointURL:   "https://example.com/run",
 	}})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for cross-environment create, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
 }
 
 func TestDeepSec_UpdateJobRejectsEnvironmentScopedMove(t *testing.T) {
@@ -113,7 +131,9 @@ func TestDeepSec_UpdateJobRejectsEnvironmentScopedMove(t *testing.T) {
 			return job, nil
 		},
 		UpdateJobFunc: func(context.Context, *domain.Job) error {
-			t.Fatal("environment-scoped update must not move the job to another environment")
+			require.Fail(t,
+
+				"environment-scoped update must not move the job to another environment")
 			return nil
 		},
 	}
@@ -126,9 +146,11 @@ func TestDeepSec_UpdateJobRejectsEnvironmentScopedMove(t *testing.T) {
 		JobID: "job-1",
 		Body:  UpdateJobRequest{EnvironmentID: &targetEnv},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for cross-environment update, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
 }
 
 func TestDeepSec_ListJobsFiltersEnvironmentScopedResults(t *testing.T) {
@@ -148,13 +170,12 @@ func TestDeepSec_ListJobsFiltersEnvironmentScopedResults(t *testing.T) {
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	out, err := srv.handleListJobs(ctx, &ListJobsInput{})
-	if err != nil {
-		t.Fatalf("handleListJobs error = %v", err)
-	}
+	require.NoError(t, err)
+
 	got := out.Body.Data.([]domain.Job)
-	if len(got) != 1 || got[0].ID != "job-prod" {
-		t.Fatalf("filtered jobs = %+v, want only job-prod", got)
-	}
+	require.False(t, len(got) !=
+		1 || got[0].ID !=
+		"job-prod")
 }
 
 func TestDeepSec_BatchCreateRejectsInvalidCron(t *testing.T) {
@@ -162,7 +183,9 @@ func TestDeepSec_BatchCreateRejectsInvalidCron(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(context.Context, *domain.Job) error {
-			t.Fatal("batch create must not persist invalid cron definitions")
+			require.Fail(t,
+
+				"batch create must not persist invalid cron definitions")
 			return nil
 		},
 	}
@@ -178,9 +201,7 @@ func TestDeepSec_BatchCreateRejectsInvalidCron(t *testing.T) {
 			Cron:        "* * *",
 		}},
 	}})
-	if err == nil {
-		t.Fatal("expected batch create to reject invalid cron")
-	}
+	require.Error(t, err)
 }
 
 func TestDeepSec_CreateJobDependencyRejectsCrossEnvironment(t *testing.T) {
@@ -198,7 +219,9 @@ func TestDeepSec_CreateJobDependencyRejectsCrossEnvironment(t *testing.T) {
 			}
 		},
 		CreateJobDependencyFunc: func(context.Context, *domain.JobDependency) error {
-			t.Fatal("cross-environment dependency must not be created")
+			require.Fail(t,
+
+				"cross-environment dependency must not be created")
 			return nil
 		},
 	}
@@ -210,18 +233,18 @@ func TestDeepSec_CreateJobDependencyRejectsCrossEnvironment(t *testing.T) {
 		JobID: "job-prod",
 		Body:  CreateJobDependencyRequest{DependsOnJobID: "job-staging"},
 	})
-	if !isHumaStatusError(err, http.StatusBadRequest) {
-		t.Fatalf("expected 400 for cross-environment dependency, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusBadRequest,
+		))
 }
 
 func TestDeepSec_UsageDateRangeRejectsMultiYearWindows(t *testing.T) {
 	t.Parallel()
 
 	_, _, err := parseDateRangeTyped("2024-01-01", "2026-01-01")
-	if err == nil {
-		t.Fatal("expected multi-year usage date range to be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestDeepSec_ProjectScopedAPIKeyCannotMutateOrgSpendingLimit(t *testing.T) {
@@ -237,7 +260,9 @@ func TestDeepSec_ProjectScopedAPIKeyCannotMutateOrgSpendingLimit(t *testing.T) {
 		OrgID: "org-1",
 		Body:  updateSpendingLimitRequest{LimitMicrousd: 1000, Action: "reject"},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for project-scoped billing mutation, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
 }

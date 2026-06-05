@@ -3,9 +3,10 @@ package crypto
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecryptString_InvalidBase64(t *testing.T) {
@@ -13,9 +14,8 @@ func TestDecryptString_InvalidBase64(t *testing.T) {
 	enc := mustEncryptor(t, "0123456789abcdef0123456789abcdef")
 
 	_, err := enc.DecryptString("not-valid-base64!!!")
-	if err == nil {
-		t.Fatal("expected error for invalid base64")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestDecryptString_ValidBase64ButBadCiphertext(t *testing.T) {
@@ -25,9 +25,8 @@ func TestDecryptString_ValidBase64ButBadCiphertext(t *testing.T) {
 	// Valid base64 but too short to contain a nonce.
 	short := base64.StdEncoding.EncodeToString([]byte("short"))
 	_, err := enc.DecryptString(short)
-	if err == nil {
-		t.Fatal("expected error for truncated ciphertext")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestDecryptString_ValidBase64WrongKey(t *testing.T) {
@@ -36,70 +35,57 @@ func TestDecryptString_ValidBase64WrongKey(t *testing.T) {
 	encB := mustEncryptor(t, "fedcba9876543210fedcba9876543210")
 
 	ct, err := encA.EncryptString("secret-value")
-	if err != nil {
-		t.Fatalf("EncryptString error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = encB.DecryptString(ct)
-	if err == nil {
-		t.Fatal("expected decrypt failed error")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestNewEncryptorFromBytes_TooShort(t *testing.T) {
 	t.Parallel()
 	_, err := newEncryptorFromBytes([]byte("short"))
-	if err == nil {
-		t.Fatal("expected error for short key")
-	}
-	if !errors.Is(err, errInvalidKeyLength) {
-		t.Fatalf("error = %v, want errInvalidKeyLength", err)
-	}
+	require.Error(
+		t, err)
+	require.ErrorIs(t,
+		err, errInvalidKeyLength)
 }
 
 func TestNewEncryptorFromBytes_TooLong(t *testing.T) {
 	t.Parallel()
 	_, err := newEncryptorFromBytes(make([]byte, 64))
-	if err == nil {
-		t.Fatal("expected error for 64-byte key")
-	}
-	if !errors.Is(err, errInvalidKeyLength) {
-		t.Fatalf("error = %v, want errInvalidKeyLength", err)
-	}
+	require.Error(
+		t, err)
+	require.ErrorIs(t,
+		err, errInvalidKeyLength)
 }
 
 func TestNewKeyRotator_InvalidPrimary(t *testing.T) {
 	t.Parallel()
 	_, err := NewKeyRotator([]byte("bad"))
-	if err == nil {
-		t.Fatal("expected error for invalid primary key")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestNewKeyRotator_InvalidOldKey(t *testing.T) {
 	t.Parallel()
 	good := []byte("0123456789abcdef0123456789abcdef")
 	_, err := NewKeyRotator(good, []byte("bad"))
-	if err == nil {
-		t.Fatal("expected error for invalid old key")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestKeyRotator_DecryptTooShort(t *testing.T) {
 	t.Parallel()
 	key := []byte("0123456789abcdef0123456789abcdef")
 	rotator, err := NewKeyRotator(key)
-	if err != nil {
-		t.Fatalf("NewKeyRotator error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = rotator.Decrypt([]byte("x"))
-	if err == nil {
-		t.Fatal("expected error for short ciphertext")
-	}
-	if !errors.Is(err, errCiphertextTooShort) {
-		t.Fatalf("error = %v, want errCiphertextTooShort", err)
-	}
+	require.Error(
+		t, err)
+	require.ErrorIs(t,
+		err, errCiphertextTooShort)
 }
 
 func TestKeyRotator_DecryptNoMatchingKey(t *testing.T) {
@@ -109,40 +95,30 @@ func TestKeyRotator_DecryptNoMatchingKey(t *testing.T) {
 	keyC := []byte("1234567890abcdef1234567890abcdef")
 
 	encC, err := newEncryptorFromBytes(keyC)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes error: %v", err)
-	}
+	require.NoError(t, err)
+
 	ct, err := encC.Encrypt([]byte("secret"))
-	if err != nil {
-		t.Fatalf("Encrypt error: %v", err)
-	}
+	require.NoError(t, err)
 
 	rotator, err := NewKeyRotator(keyA, keyB)
-	if err != nil {
-		t.Fatalf("NewKeyRotator error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = rotator.Decrypt(ct)
-	if err == nil {
-		t.Fatal("expected decrypt failed error")
-	}
-	if !errors.Is(err, errDecryptFailed) {
-		t.Fatalf("error = %v, want errDecryptFailed", err)
-	}
+	require.Error(
+		t, err)
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestRotateKey_InvalidKey(t *testing.T) {
 	t.Parallel()
 	key := []byte("0123456789abcdef0123456789abcdef")
 	rotator, err := NewKeyRotator(key)
-	if err != nil {
-		t.Fatalf("NewKeyRotator error: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = rotator.RotateKey([]byte("bad"))
-	if err == nil {
-		t.Fatal("expected error for invalid key")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestParseKey_Base64Standard(t *testing.T) {
@@ -154,12 +130,8 @@ func TestParseKey_Base64Standard(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString(raw)
 
 	enc, err := NewEncryptor(encoded)
-	if err != nil {
-		t.Fatalf("NewEncryptor error: %v", err)
-	}
-	if enc == nil {
-		t.Fatal("expected non-nil encryptor")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, enc)
 }
 
 func TestParseKey_Base64RawStandard(t *testing.T) {
@@ -171,12 +143,8 @@ func TestParseKey_Base64RawStandard(t *testing.T) {
 	encoded := base64.RawStdEncoding.EncodeToString(raw)
 
 	enc, err := NewEncryptor(encoded)
-	if err != nil {
-		t.Fatalf("NewEncryptor error: %v", err)
-	}
-	if enc == nil {
-		t.Fatal("expected non-nil encryptor")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, enc)
 }
 
 func TestParseKey_Base64URLSafe(t *testing.T) {
@@ -191,12 +159,8 @@ func TestParseKey_Base64URLSafe(t *testing.T) {
 		base64.RawURLEncoding.EncodeToString(raw),
 	} {
 		enc, err := NewEncryptor(encoded)
-		if err != nil {
-			t.Fatalf("NewEncryptor(%q) error: %v", encoded, err)
-		}
-		if enc == nil {
-			t.Fatal("expected non-nil encryptor")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, enc)
 	}
 }
 
@@ -205,17 +169,15 @@ func TestParseKey_64CharsNonHex(t *testing.T) {
 	// 64 chars that are not valid hex.
 	key := strings.Repeat("zz", 32)
 	_, err := NewEncryptor(key)
-	if err == nil {
-		t.Fatal("expected error for non-hex 64-char key")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestParseKey_WrongLength(t *testing.T) {
 	t.Parallel()
 	_, err := NewEncryptor("12345")
-	if err == nil {
-		t.Fatal("expected error for wrong length key")
-	}
+	require.Error(
+		t, err)
 }
 
 func TestDecrypt_ExactlyNonceSizeBytes(t *testing.T) {
@@ -226,15 +188,13 @@ func TestDecrypt_ExactlyNonceSizeBytes(t *testing.T) {
 
 	ciphertext := make([]byte, nonceSize)
 	_, err := enc.Decrypt(ciphertext)
-	if err == nil {
-		t.Fatal("expected error for nonce-only ciphertext")
-	}
-	if errors.Is(err, errCiphertextTooShort) {
-		t.Fatal("ciphertext of exactly nonceSize should not be 'too short'")
-	}
-	if !errors.Is(err, errDecryptFailed) {
-		t.Fatalf("expected errDecryptFailed, got: %v", err)
-	}
+	require.Error(
+		t, err)
+	require.NotErrorIs(
+		t, err, errCiphertextTooShort,
+	)
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestKeyRotator_DecryptNoOldKeys(t *testing.T) {
@@ -242,24 +202,18 @@ func TestKeyRotator_DecryptNoOldKeys(t *testing.T) {
 
 	key := []byte("0123456789abcdef0123456789abcdef")
 	rotator, err := NewKeyRotator(key)
-	if err != nil {
-		t.Fatalf("NewKeyRotator error: %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("no-old-keys-test")
 	ciphertext, err := rotator.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt error: %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := rotator.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt error: %v", err)
-	}
-
-	if !bytes.Equal(plaintext, decrypted) {
-		t.Fatalf("roundtrip mismatch: got %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.True(t,
+		bytes.Equal(plaintext,
+			decrypted,
+		))
 }
 
 func TestKeyRotator_DecryptExactlyNonceSizeBytes(t *testing.T) {
@@ -267,22 +221,18 @@ func TestKeyRotator_DecryptExactlyNonceSizeBytes(t *testing.T) {
 
 	key := []byte("0123456789abcdef0123456789abcdef")
 	rotator, err := NewKeyRotator(key)
-	if err != nil {
-		t.Fatalf("NewKeyRotator error: %v", err)
-	}
+	require.NoError(t, err)
 
 	nonceSize := rotator.primary.aead.NonceSize()
 	ciphertext := make([]byte, nonceSize)
 	_, err = rotator.Decrypt(ciphertext)
-	if err == nil {
-		t.Fatal("expected error for nonce-only ciphertext")
-	}
-	if errors.Is(err, errCiphertextTooShort) {
-		t.Fatal("ciphertext of exactly nonceSize should not be 'too short' at KeyRotator level")
-	}
-	if !errors.Is(err, errDecryptFailed) {
-		t.Fatalf("expected errDecryptFailed, got: %v", err)
-	}
+	require.Error(
+		t, err)
+	require.NotErrorIs(
+		t, err, errCiphertextTooShort,
+	)
+	require.ErrorIs(t,
+		err, errDecryptFailed)
 }
 
 func TestEncrypt_ProducesUniqueCiphertexts(t *testing.T) {
@@ -291,15 +241,10 @@ func TestEncrypt_ProducesUniqueCiphertexts(t *testing.T) {
 	plaintext := []byte("same-input")
 
 	ct1, err := enc.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt error: %v", err)
-	}
-	ct2, err := enc.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if string(ct1) == string(ct2) {
-		t.Fatal("two encryptions of the same plaintext should produce different ciphertext")
-	}
+	ct2, err := enc.Encrypt(plaintext)
+	require.NoError(t, err)
+	require.NotEqual(t, string(ct2),
+		string(ct1))
 }

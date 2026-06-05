@@ -21,6 +21,8 @@ import (
 	"strait/internal/loadtest"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -123,9 +125,8 @@ func startTestGRPCServer(t *testing.T, srv *echoWorkerServer) string {
 	var concWG conc.WaitGroup
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
+	require.NoError(t, err)
+
 	gs := grpc.NewServer()
 	workerv1.RegisterWorkerServiceServer(gs, srv)
 	concWG.Go(func() {
@@ -166,30 +167,32 @@ func TestWorkerScenario_SmokeTest(t *testing.T) {
 	defer cancel()
 
 	result, err := loadtest.RunWorkerScenario(ctx, cfg)
-	if err != nil {
-		t.Fatalf("worker scenario error: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("dispatched=%d succeeded=%d failed=%d errors=%d duration=%s rps=%.1f",
 		result.Dispatched, result.Succeeded, result.Failed, result.Errors,
 		result.Duration, result.ThroughputRPS,
 	)
+	assert.GreaterOrEqual(t,
+
+		result.Dispatched,
+
+		50)
 
 	// At least half the tasks must have been processed. The server closes
 	// streams when the shared quota is hit, so workers exit cleanly; any
 	// shortfall means the stream closed before the worker processed its tasks.
-	if result.Dispatched < 50 {
-		t.Errorf("expected at least 50 dispatched tasks, got %d", result.Dispatched)
-	}
 
 	// Throughput must exceed 50 tasks/sec on any dev machine.
 	// Workers exit quickly (simulated work capped at SimWorkMaxMs = 20ms) and
 	// the scenario returns as soon as all wg goroutines finish.
 	const minRPS = 50.0
-	if result.ThroughputRPS < minRPS {
-		t.Errorf("throughput %.1f rps < minimum %.1f rps (duration=%s dispatched=%d)",
-			result.ThroughputRPS, minRPS, result.Duration, result.Dispatched)
-	}
+	assert.GreaterOrEqual(t,
+
+		result.ThroughputRPS,
+
+		minRPS)
+
 }
 
 // HMAC verifier tests.
@@ -204,10 +207,11 @@ func TestVerifyStraitDispatchSignature_Valid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
 	req.Header.Set("X-Strait-Timestamp", ts)
 	req.Header.Set("X-Strait-Signature", sig)
+	require.NoError(t, loadtest.
+		VerifyStraitDispatchSignature(secret,
+			body, req),
+	)
 
-	if err := loadtest.VerifyStraitDispatchSignature(secret, body, req); err != nil {
-		t.Fatalf("expected valid signature, got error: %v", err)
-	}
 }
 
 // TestVerifyStraitDispatchSignature_WrongSecret checks that a mismatched secret fails.
@@ -218,10 +222,11 @@ func TestVerifyStraitDispatchSignature_WrongSecret(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
 	req.Header.Set("X-Strait-Timestamp", ts)
 	req.Header.Set("X-Strait-Signature", sig)
+	require.Error(t, loadtest.
+		VerifyStraitDispatchSignature("wrong-secret",
+			body,
+			req))
 
-	if err := loadtest.VerifyStraitDispatchSignature("wrong-secret", body, req); err == nil {
-		t.Fatal("expected signature mismatch error, got nil")
-	}
 }
 
 // TestVerifyStraitDispatchSignature_Replay checks that an old timestamp is rejected.
@@ -240,12 +245,11 @@ func TestVerifyStraitDispatchSignature_Replay(t *testing.T) {
 	req.Header.Set("X-Strait-Signature", "v1="+sig)
 
 	err := loadtest.VerifyStraitDispatchSignature(secret, body, req)
-	if err == nil {
-		t.Fatal("expected replay rejection, got nil")
-	}
-	if !strings.Contains(err.Error(), "too old") {
-		t.Errorf("expected 'too old' in error, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.
+		Error(),
+		"too old"))
+
 }
 
 // TestVerifyStraitDispatchSignature_MissingHeader checks that a missing header is rejected.
@@ -254,9 +258,8 @@ func TestVerifyStraitDispatchSignature_MissingHeader(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dispatch", strings.NewReader(string(body)))
 
 	err := loadtest.VerifyStraitDispatchSignature("secret", body, req)
-	if err == nil {
-		t.Fatal("expected error for missing header, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // TestVerifyStraitDispatchSignature_IntegrationReceiver verifies end-to-end signing
@@ -289,25 +292,25 @@ func TestVerifyStraitDispatchSignature_IntegrationReceiver(t *testing.T) {
 	tsValue, sig := loadtest.SignStraitDispatch(secret, body)
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ts.URL+"/dispatch", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatalf("new request: %v", err)
-	}
+	require.NoError(t, err)
+
 	req.Header.Set("X-Strait-Timestamp", tsValue)
 	req.Header.Set("X-Strait-Signature", sig)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request error: %v", err)
-	}
-	defer resp.Body.Close()
+	require.NoError(t, err)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected 200, got %d (handler error: %v)", resp.StatusCode, handlerErr)
-	}
-	if string(gotBody) != string(body) {
-		t.Errorf("body mismatch: got %q, want %q", gotBody, body)
-	}
+	defer resp.Body.Close()
+	assert.NoError(t, handlerErr)
+	assert.Equal(t, http.StatusOK,
+
+		resp.
+			StatusCode,
+	)
+	assert.Equal(t, string(
+		body,
+	), string(gotBody))
 
 	// Now send with wrong secret — must get 401.
 	badTS, badSig := loadtest.SignStraitDispatch("wrong-secret", body)
@@ -315,13 +318,14 @@ func TestVerifyStraitDispatchSignature_IntegrationReceiver(t *testing.T) {
 	req2.Header.Set("X-Strait-Timestamp", badTS)
 	req2.Header.Set("X-Strait-Signature", badSig)
 	resp2, err := http.DefaultClient.Do(req2)
-	if err != nil {
-		t.Fatalf("bad-sig request error: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 for wrong secret, got %d", resp2.StatusCode)
-	}
+	assert.Equal(t, http.StatusUnauthorized,
+
+		resp2.
+			StatusCode)
+
 }
 
 // gRPC client connectivity tests.
@@ -332,9 +336,8 @@ func TestGRPCClientConnect_Insecure(t *testing.T) {
 	addr := startTestGRPCServer(t, srvImpl)
 
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer conn.Close() //nolint:errcheck
 
 	client := workerv1.NewWorkerServiceClient(conn)
@@ -342,9 +345,7 @@ func TestGRPCClientConnect_Insecure(t *testing.T) {
 	defer cancel()
 
 	stream, err := client.StreamTasks(ctx)
-	if err != nil {
-		t.Fatalf("StreamTasks: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Send registration.
 	err = stream.Send(&workerv1.WorkerMessage{
@@ -358,16 +359,11 @@ func TestGRPCClientConnect_Insecure(t *testing.T) {
 			},
 		},
 	})
-	if err != nil {
-		t.Fatalf("send registration: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Receive ACK.
 	msg, err := stream.Recv()
-	if err != nil {
-		t.Fatalf("recv ack: %v", err)
-	}
-	if msg.GetAck() == nil {
-		t.Errorf("expected Ack, got %T", msg.Payload)
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, msg.GetAck())
+
 }

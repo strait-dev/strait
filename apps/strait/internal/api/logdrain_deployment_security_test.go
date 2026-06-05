@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -43,11 +45,11 @@ func TestLogDrain_AuthConfigHeaderInjection(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	// Authorization is intentionally allowed for custom header auth type.
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201 (Authorization is not protected), got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestLogDrain_AuthConfigProtectedHeaderCase verifies that protected header
@@ -79,13 +81,12 @@ func TestLogDrain_AuthConfigProtectedHeaderCase(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", string(bodyBytes)))
+			require.NotEqual(t, http.StatusCreated,
 
-			if w.Code == http.StatusCreated {
-				t.Fatalf("expected rejection for protected header %q, got 201", header)
-			}
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for protected header %q, got %d: %s", header, w.Code, w.Body.String())
-			}
+				w.Code)
+			require.Equal(t, http.StatusBadRequest,
+
+				w.Code)
 		})
 	}
 }
@@ -115,11 +116,11 @@ func TestLogDrain_AuthConfigEmptyBearer(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", body))
+	require.Equal(t, http.StatusCreated,
+
+		w.Code)
 
 	// Empty bearer token should be accepted (no validation on token value).
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestLogDrain_LevelFilterInvalid verifies that invalid log levels in the
@@ -152,9 +153,7 @@ func TestLogDrain_LevelFilterInvalid(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Logf("note: invalid levels rejected with status %d", w.Code)
 	}
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
+	require.NotEqual(t, 0, w.Code)
 }
 
 // TestLogDrain_LevelFilterUnboundedArray verifies that a very large
@@ -188,11 +187,9 @@ func TestLogDrain_LevelFilterUnboundedArray(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", string(bodyBytes)))
+	require.NotEqual(t, 0, w.Code)
 
 	// Must not panic. May return 201 or 413/400.
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
 }
 
 // TestLogDrain_EndpointSSRF verifies that internal/private IP addresses
@@ -227,13 +224,12 @@ func TestLogDrain_EndpointSSRF(t *testing.T) {
 			})
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", string(bodyBytes)))
+			require.NotEqual(t, http.StatusCreated,
 
-			if w.Code == http.StatusCreated {
-				t.Fatalf("expected SSRF URL %q to be rejected, got 201", u)
-			}
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for SSRF URL %q, got %d: %s", u, w.Code, w.Body.String())
-			}
+				w.Code)
+			require.Equal(t, http.StatusBadRequest,
+
+				w.Code)
 		})
 	}
 }
@@ -271,10 +267,9 @@ func TestLogDrain_UpdateWithoutAuthType(t *testing.T) {
 	body := `{"auth_config": {"X-Custom": "new-value"}}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/log-drains/drain-1", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 }
 
 // TestDeployment_CanaryPercentBoundary verifies the canary_percent boundary
@@ -319,13 +314,14 @@ func TestDeployment_CanaryPercentBoundary(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
-
-			if tc.wantOK && w.Code != http.StatusCreated {
-				t.Fatalf("canary_percent=%d: expected 201, got %d: %s", tc.percent, w.Code, w.Body.String())
-			}
-			if !tc.wantOK && w.Code == http.StatusCreated {
-				t.Fatalf("canary_percent=%d: expected rejection, got 201", tc.percent)
-			}
+			require.False(t, tc.wantOK &&
+				w.Code !=
+					http.StatusCreated,
+			)
+			require.False(t, !tc.wantOK &&
+				w.Code ==
+					http.StatusCreated,
+			)
 		})
 	}
 }
@@ -357,11 +353,9 @@ func TestDeployment_CanaryDurationOverflow(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
+	require.NotEqual(t, 0, w.Code)
 
 	// The server must not panic. It may accept or reject the extreme duration.
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
 }
 
 // TestDeployment_ManifestArbitraryJSON verifies that a very large manifest
@@ -395,11 +389,9 @@ func TestDeployment_ManifestArbitraryJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", string(bodyBytes)))
+	require.NotEqual(t, 0, w.Code)
 
 	// Must not panic. Large payloads may be rejected by the framework.
-	if w.Code == 0 {
-		t.Fatal("no response from server")
-	}
 }
 
 // TestDeployment_ConcurrentVersionPublish verifies that concurrent deployment
@@ -432,16 +424,17 @@ func TestDeployment_ConcurrentVersionPublish(t *testing.T) {
 			}`, n)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments", body))
-			if w.Code != http.StatusCreated && w.Code != http.StatusInternalServerError {
-				t.Errorf("goroutine %d: unexpected status %d", n, w.Code)
-			}
+			assert.False(
+				t, w.Code != http.
+					StatusCreated &&
+					w.
+						Code != http.StatusInternalServerError,
+			)
 		})
 	}
 	wg.Wait()
-
-	if createCount.Load() == 0 {
-		t.Fatal("expected at least one deployment version to be created")
-	}
+	require.NotEqual(t, 0, createCount.
+		Load())
 }
 
 // FuzzLogDrainAuthConfig fuzzes the auth_config JSON to verify the
@@ -486,13 +479,10 @@ func FuzzDeploymentManifest(f *testing.F) {
 
 		// marshalRaw must not panic.
 		result := marshalRaw(value)
-		if result == nil {
-			t.Fatal("marshalRaw returned nil")
-		}
+		require.NotNil(t, result)
+		require.True(
+			t, json.Valid(result))
 
 		// The result must be valid JSON.
-		if !json.Valid(result) {
-			t.Fatalf("marshalRaw produced invalid JSON: %s", string(result))
-		}
 	})
 }

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
@@ -92,26 +94,27 @@ func TestPublishEvent_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-42", JobID: "job-1", ProjectID: "proj-1"}
 
 	e.publishEvent(context.Background(), run, map[string]any{"from": "executing", "to": "completed"})
+	require.EqualValues(t, 1, pub.calls.Load())
+	require.Equal(t,
+		"run:run-42", capturedChannel,
+	)
 
-	if pub.calls.Load() != 1 {
-		t.Fatalf("expected 1 publish call, got %d", pub.calls.Load())
-	}
-	if capturedChannel != "run:run-42" {
-		t.Fatalf("expected channel run:run-42, got %s", capturedChannel)
-	}
 	var event map[string]any
-	if err := json.Unmarshal(captured, &event); err != nil {
-		t.Fatalf("failed to unmarshal event: %v", err)
-	}
-	if event["type"] != "status_change" {
-		t.Fatalf("expected type=status_change, got %v", event["type"])
-	}
-	if event["run_id"] != "run-42" {
-		t.Fatalf("expected run_id=run-42, got %v", event["run_id"])
-	}
-	if event["from"] != "executing" || event["to"] != "completed" {
-		t.Fatalf("expected from=executing, to=completed, got from=%v, to=%v", event["from"], event["to"])
-	}
+	require.NoError(
+		t, json.Unmarshal(captured,
+			&event,
+		))
+	require.Equal(t,
+		"status_change",
+		event["type"])
+	require.Equal(t,
+		"run-42", event["run_id"])
+	require.False(t,
+		event["from"] !=
+			"executing" ||
+			event["to"] !=
+				"completed",
+	)
 }
 
 func TestPublishEvent_PublishError(t *testing.T) {
@@ -126,10 +129,7 @@ func TestPublishEvent_PublishError(t *testing.T) {
 
 	// Should not panic, should log error.
 	e.publishEvent(context.Background(), run, map[string]any{"from": "executing", "to": "failed"})
-
-	if pub.calls.Load() != 1 {
-		t.Fatalf("expected 1 publish call, got %d", pub.calls.Load())
-	}
+	require.EqualValues(t, 1, pub.calls.Load())
 }
 
 // notifyWorkflowCallback tests.
@@ -156,13 +156,10 @@ func TestNotifyWorkflowCallback_Success(t *testing.T) {
 
 	e.notifyWorkflowCallback(context.Background(), run)
 	e.callbackWG.Wait()
-
-	if cb.calls.Load() != 1 {
-		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
-	}
-	if capturedRunID != "run-99" {
-		t.Fatalf("expected run_id=run-99, got %s", capturedRunID)
-	}
+	require.EqualValues(t, 1, cb.calls.Load())
+	require.Equal(t,
+		"run-99", capturedRunID,
+	)
 }
 
 func TestNotifyWorkflowCallback_Error(t *testing.T) {
@@ -178,10 +175,7 @@ func TestNotifyWorkflowCallback_Error(t *testing.T) {
 	// Should not panic, should log error.
 	e.notifyWorkflowCallback(context.Background(), run)
 	e.callbackWG.Wait()
-
-	if cb.calls.Load() != 1 {
-		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
-	}
+	require.EqualValues(t, 1, cb.calls.Load())
 }
 
 // resolveExecutionPolicy tests.
@@ -195,12 +189,14 @@ func TestResolveExecutionPolicy_NoWorkflowStep(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.maxAttempts != 3 || got.timeoutSecs != 30 {
-		t.Fatalf("expected fallback policy, got maxAttempts=%d, timeoutSecs=%d", got.maxAttempts, got.timeoutSecs)
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		got.maxAttempts !=
+			3 || got.
+			timeoutSecs !=
+			30,
+	)
 }
 
 func TestResolveExecutionPolicy_StepRunNotFound(t *testing.T) {
@@ -216,9 +212,9 @@ func TestResolveExecutionPolicy_StepRunNotFound(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if !errors.Is(err, orcstore.ErrWorkflowStepRunNotFound) {
-		t.Fatalf("expected ErrWorkflowStepRunNotFound, got %v", err)
-	}
+	require.ErrorIs(t,
+		err, orcstore.
+			ErrWorkflowStepRunNotFound)
 }
 
 func TestResolveExecutionPolicy_StepRunError(t *testing.T) {
@@ -234,9 +230,8 @@ func TestResolveExecutionPolicy_StepRunError(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestResolveExecutionPolicy_WorkflowRunNotFound(t *testing.T) {
@@ -255,12 +250,9 @@ func TestResolveExecutionPolicy_WorkflowRunNotFound(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.maxAttempts != 3 {
-		t.Fatalf("expected fallback, got maxAttempts=%d", got.maxAttempts)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t, 3, got.maxAttempts)
 }
 
 func TestResolveExecutionPolicy_WorkflowRunError(t *testing.T) {
@@ -279,9 +271,8 @@ func TestResolveExecutionPolicy_WorkflowRunError(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestResolveExecutionPolicy_OverridesFromStep(t *testing.T) {
@@ -326,9 +317,9 @@ func TestResolveExecutionPolicy_OverridesFromStep(t *testing.T) {
 	}
 
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	testutil.AssertEqual(t, got, executionPolicy{
 		maxAttempts:      7,
 		timeoutSecs:      90,
@@ -360,13 +351,11 @@ func TestResolveExecutionPolicy_StepNotFoundInList(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t, 3, got.maxAttempts)
+
 	// Step not found → returns fallback unchanged.
-	if got.maxAttempts != 3 {
-		t.Fatalf("expected fallback maxAttempts=3, got %d", got.maxAttempts)
-	}
 }
 
 func TestResolveExecutionPolicy_ListStepsError(t *testing.T) {
@@ -388,9 +377,8 @@ func TestResolveExecutionPolicy_ListStepsError(t *testing.T) {
 	fallback := executionPolicy{maxAttempts: 3, timeoutSecs: 30}
 
 	_, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestResolveExecutionPolicy_PartialOverrides(t *testing.T) {
@@ -424,9 +412,9 @@ func TestResolveExecutionPolicy_PartialOverrides(t *testing.T) {
 	}
 
 	got, err := e.resolveExecutionPolicy(context.Background(), run, fallback)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	testutil.AssertEqual(t, got, executionPolicy{
 		maxAttempts:      5,
 		timeoutSecs:      60,
@@ -444,9 +432,8 @@ func TestSendWebhookWithClient_EmptyURL(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
 	result := sendWebhookWithClientForTest(context.Background(), http.DefaultClient, job, run, 3)
-	if !result.Delivered {
-		t.Fatal("expected delivered=true for empty URL")
-	}
+	require.True(t,
+		result.Delivered)
 }
 
 func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
@@ -454,12 +441,14 @@ func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
 	var called atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called.Add(1)
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Errorf("expected Content-Type=application/json, got %s", r.Header.Get("Content-Type"))
-		}
-		if r.Header.Get("X-Run-ID") != "run-1" {
-			t.Errorf("expected X-Run-ID=run-1, got %s", r.Header.Get("X-Run-ID"))
-		}
+		assert.Equal(t,
+			"application/json",
+			r.Header.
+				Get("Content-Type"))
+		assert.Equal(t,
+			"run-1", r.Header.
+				Get("X-Run-ID"))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -468,15 +457,10 @@ func TestSendWebhookWithClient_SuccessFirstAttempt(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted, Attempt: 1}
 
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 3)
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if result.StatusCode != 200 {
-		t.Fatalf("expected status=200, got %d", result.StatusCode)
-	}
-	if called.Load() != 1 {
-		t.Fatalf("expected 1 call, got %d", called.Load())
-	}
+	require.True(t,
+		result.Delivered)
+	require.Equal(t, 200, result.StatusCode)
+	require.EqualValues(t, 1, called.Load())
 }
 
 func TestSendWebhookWithClient_ClientErrorNoRetry(t *testing.T) {
@@ -492,15 +476,11 @@ func TestSendWebhookWithClient_ClientErrorNoRetry(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 3)
-	if result.Delivered {
-		t.Fatal("expected not delivered for 400")
-	}
-	if result.StatusCode != 400 {
-		t.Fatalf("expected status=400, got %d", result.StatusCode)
-	}
-	if called.Load() != 1 {
-		t.Fatalf("expected 1 call (no retry on 4xx), got %d", called.Load())
-	}
+	require.False(t,
+		result.Delivered,
+	)
+	require.Equal(t, 400, result.StatusCode)
+	require.EqualValues(t, 1, called.Load())
 }
 
 func TestSendWebhookWithClient_ServerErrorRetries(t *testing.T) {
@@ -524,12 +504,9 @@ func TestSendWebhookWithClient_ServerErrorRetries(t *testing.T) {
 	defer cancel()
 
 	result := sendWebhookWithClientForTest(ctx, srv.Client(), job, run, 3)
-	if !result.Delivered {
-		t.Fatalf("expected delivered on second attempt, got error: %s", result.Error)
-	}
-	if called.Load() != 2 {
-		t.Fatalf("expected 2 calls (1 failure + 1 success), got %d", called.Load())
-	}
+	require.True(t,
+		result.Delivered)
+	require.EqualValues(t, 2, called.Load())
 }
 
 func TestSendWebhookWithClient_ContextCanceled(t *testing.T) {
@@ -547,9 +524,9 @@ func TestSendWebhookWithClient_ContextCanceled(t *testing.T) {
 	cancel()
 
 	result := sendWebhookWithClientForTest(ctx, srv.Client(), job, run, 3)
-	if result.Delivered {
-		t.Fatal("expected not delivered when context canceled")
-	}
+	require.False(t,
+		result.Delivered,
+	)
 }
 
 func TestSendWebhookWithClient_DefaultMaxAttempts(t *testing.T) {
@@ -566,9 +543,8 @@ func TestSendWebhookWithClient_DefaultMaxAttempts(t *testing.T) {
 
 	// maxAttempts=0 should default to 3.
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 0)
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
+	require.True(t,
+		result.Delivered)
 }
 
 func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
@@ -584,15 +560,13 @@ func TestSendWebhookWithClient_HMACSignature(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1", Status: domain.StatusCompleted}
 
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if gotSig == "" {
-		t.Fatal("expected X-Webhook-Signature header to be set")
-	}
-	if len(gotSig) < 5 || gotSig[:3] != "v1=" {
-		t.Fatalf("expected signature to start with v1=, got %s", gotSig)
-	}
+	require.True(t,
+		result.Delivered)
+	require.NotEmpty(t, gotSig)
+	require.False(t,
+		len(gotSig) < 5 ||
+			gotSig[:3] !=
+				"v1=")
 }
 
 func TestSendWebhookWithClient_NoSignatureWithoutSecret(t *testing.T) {
@@ -608,21 +582,19 @@ func TestSendWebhookWithClient_NoSignatureWithoutSecret(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", ProjectID: "proj-1"}
 
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if gotSig != "" {
-		t.Fatalf("expected no signature header, got %s", gotSig)
-	}
+	require.True(t,
+		result.Delivered)
+	require.Empty(t,
+		gotSig)
 }
 
 func TestSendWebhookWithClient_PayloadContent(t *testing.T) {
 	t.Parallel()
 	var received WebhookPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
-			t.Errorf("failed to decode body: %v", err)
-		}
+		assert.NoError(t,
+			json.NewDecoder(r.Body).Decode(&received))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -639,27 +611,27 @@ func TestSendWebhookWithClient_PayloadContent(t *testing.T) {
 	}
 
 	result := sendWebhookWithClientForTest(context.Background(), srv.Client(), job, run, 1)
-	if !result.Delivered {
-		t.Fatalf("expected delivered=true, got error: %s", result.Error)
-	}
-	if received.RunID != "run-42" {
-		t.Fatalf("expected run_id=run-42, got %s", received.RunID)
-	}
-	if received.JobID != "job-1" {
-		t.Fatalf("expected job_id=job-1, got %s", received.JobID)
-	}
-	if received.ProjectID != "proj-1" {
-		t.Fatalf("expected project_id=proj-1, got %s", received.ProjectID)
-	}
-	if received.Status != "completed" {
-		t.Fatalf("expected status=completed, got %s", received.Status)
-	}
-	if received.Attempt != 3 {
-		t.Fatalf("expected attempt=3, got %d", received.Attempt)
-	}
-	if received.Error != "some error" {
-		t.Fatalf("expected error='some error', got %s", received.Error)
-	}
+	require.True(t,
+		result.Delivered)
+	require.Equal(t,
+		"run-42", received.
+			RunID)
+	require.Equal(t,
+		"job-1", received.
+			JobID)
+	require.Equal(t,
+		"proj-1", received.
+			ProjectID,
+	)
+	require.Equal(t,
+		"completed", received.
+			Status,
+	)
+	require.Equal(t, 3, received.Attempt)
+	require.Equal(t,
+		"some error", received.
+			Error,
+	)
 }
 
 func TestSendWebhookWithClient_NetworkError(t *testing.T) {
@@ -673,12 +645,10 @@ func TestSendWebhookWithClient_NetworkError(t *testing.T) {
 	defer cancel()
 
 	result := sendWebhookWithClientForTest(ctx, client, job, run, 1)
-	if result.Delivered {
-		t.Fatal("expected not delivered for network error")
-	}
-	if result.Error == "" {
-		t.Fatal("expected error message for network error")
-	}
+	require.False(t,
+		result.Delivered,
+	)
+	require.NotEmpty(t, result.Error)
 }
 
 // dispatchToEndpoint tests.
@@ -686,15 +656,15 @@ func TestSendWebhookWithClient_NetworkError(t *testing.T) {
 func TestDispatchToEndpoint_Success(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Run-ID") != "run-1" {
-			t.Errorf("expected X-Run-ID=run-1, got %s", r.Header.Get("X-Run-ID"))
-		}
-		if r.Header.Get("X-Job-ID") != "job-1" {
-			t.Errorf("expected X-Job-ID=job-1, got %s", r.Header.Get("X-Job-ID"))
-		}
-		if r.Header.Get("X-Attempt") != "1" {
-			t.Errorf("expected X-Attempt=1, got %s", r.Header.Get("X-Attempt"))
-		}
+		assert.Equal(t,
+			"run-1", r.Header.
+				Get("X-Run-ID"))
+		assert.Equal(t,
+			"job-1", r.Header.
+				Get("X-Job-ID"))
+		assert.Equal(t,
+			"1", r.Header.Get("X-Attempt"))
+
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"result":"ok"}`)
 	}))
@@ -704,12 +674,12 @@ func TestDispatchToEndpoint_Success(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1, Payload: json.RawMessage(`{"input":"data"}`)}
 
 	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(result) != `{"result":"ok"}` {
-		t.Fatalf("expected {\"result\":\"ok\"}, got %s", string(result))
-	}
+	require.NoError(
+		t, err)
+	require.JSONEq(t,
+		`{"result":"ok"}`,
+		string(result),
+	)
 }
 
 func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
@@ -725,23 +695,21 @@ func TestDispatchToEndpoint_SuccessWithTextBodyReturnsJSONString(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
 
 	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !json.Valid(result) {
-		t.Fatalf("result should be valid JSON, got %s", result)
-	}
-	if string(result) != `"ok"` {
-		t.Fatalf("result = %s, want JSON string %q", result, `"ok"`)
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		json.Valid(result))
+	require.Equal(t,
+		`"ok"`, string(result))
 }
 
 func TestDispatchToEndpoint_WithExtraHeaders(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Secret-MY_KEY") != "secret-value" {
-			t.Errorf("expected X-Secret-MY_KEY=secret-value, got %s", r.Header.Get("X-Secret-MY_KEY"))
-		}
+		assert.Equal(t,
+			"secret-value", r.
+				Header.Get("X-Secret-MY_KEY"))
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -751,9 +719,8 @@ func TestDispatchToEndpoint_WithExtraHeaders(t *testing.T) {
 	headers := map[string]string{"X-Secret-MY_KEY": "secret-value"}
 
 	_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, headers)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestDispatchToEndpoint_NonOKStatus(t *testing.T) {
@@ -768,16 +735,18 @@ func TestDispatchToEndpoint_NonOKStatus(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
 
 	_, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-	if err == nil {
-		t.Fatal("expected error for non-OK status")
-	}
+	require.Error(t,
+		err)
+
 	var endpointErr *domain.EndpointError
-	if !errors.As(err, &endpointErr) {
-		t.Fatalf("expected EndpointError, got %T: %v", err, err)
-	}
-	if endpointErr.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("expected status=503, got %d", endpointErr.StatusCode)
-	}
+	require.ErrorAs(t,
+		err, &endpointErr)
+	require.Equal(t,
+		http.StatusServiceUnavailable,
+
+		endpointErr.
+			StatusCode,
+	)
 }
 
 func TestDispatchToEndpoint_EmptyBody(t *testing.T) {
@@ -791,12 +760,9 @@ func TestDispatchToEndpoint_EmptyBody(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
 
 	result, err := e.dispatchToEndpoint(context.Background(), srv.URL, run, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != nil {
-		t.Fatalf("expected nil result for empty body, got %s", string(result))
-	}
+	require.NoError(
+		t, err)
+	require.Nil(t, result)
 }
 
 func TestDispatchToEndpoint_InvalidURL(t *testing.T) {
@@ -805,9 +771,8 @@ func TestDispatchToEndpoint_InvalidURL(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Attempt: 1}
 
 	_, err := e.dispatchToEndpoint(context.Background(), "://invalid", run, nil)
-	if err == nil {
-		t.Fatal("expected error for invalid URL")
-	}
+	require.Error(t,
+		err)
 }
 
 // handleSuccess integration (through execute) — with publish + callback.
@@ -849,13 +814,10 @@ func TestExecutor_HandleSuccess_PublishesAndCallsBack(t *testing.T) {
 	waitForCondition(t, 2*time.Second, func() bool {
 		return pub.calls.Load() >= 1 && cb.calls.Load() >= 1
 	}, "publish and callback calls")
-
-	if pub.calls.Load() < 1 {
-		t.Fatalf("expected at least 1 publish call (status change), got %d", pub.calls.Load())
-	}
-	if cb.calls.Load() != 1 {
-		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
-	}
+	require.GreaterOrEqual(t, pub.calls.
+		Load(),
+		int32(1))
+	require.EqualValues(t, 1, cb.calls.Load())
 
 	updates := ms.statusUpdates()
 	found := false
@@ -864,9 +826,8 @@ func TestExecutor_HandleSuccess_PublishesAndCallsBack(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("expected status transition to completed")
-	}
+	require.True(t,
+		found)
 }
 
 // handleFailure with publish + callback.
@@ -908,13 +869,10 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 	waitForCondition(t, 2*time.Second, func() bool {
 		return pub.calls.Load() >= 1 && cb.calls.Load() >= 1
 	}, "publish and callback calls")
-
-	if pub.calls.Load() < 1 {
-		t.Fatalf("expected at least 1 publish call, got %d", pub.calls.Load())
-	}
-	if cb.calls.Load() != 1 {
-		t.Fatalf("expected 1 callback call, got %d", cb.calls.Load())
-	}
+	require.GreaterOrEqual(t, pub.calls.
+		Load(),
+		int32(1))
+	require.EqualValues(t, 1, cb.calls.Load())
 
 	updates := ms.statusUpdates()
 	found := false
@@ -923,9 +881,8 @@ func TestExecutor_HandleFailure_PublishesAndCallsBack(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("expected status transition to dead_letter")
-	}
+	require.True(t,
+		found)
 }
 
 // Workflow step run → execution policy override through execute.
@@ -982,9 +939,8 @@ func TestExecutor_Execute_WithWorkflowPolicyOverride(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("expected status transition to completed")
-	}
+	require.True(t,
+		found)
 }
 
 // noopLogger returns a logger that discards all output.
@@ -1005,7 +961,7 @@ func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, des
 		select {
 		case <-ticker.C:
 		case <-deadline:
-			t.Fatalf("timed out waiting for %s", desc)
+			require.Failf(t, "test failure", "timed out waiting for %s", desc)
 		}
 	}
 }

@@ -2,7 +2,6 @@ package logdrain
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -12,6 +11,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // shrinkBackoffForTest collapses the production retry/breaker delays to
@@ -65,18 +66,15 @@ func TestAuditSIEMDrain_RetryOn5xx(t *testing.T) {
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	deadline := time.Now().Add(3 * time.Second)
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-1")})
-	if time.Now().After(deadline) {
-		t.Fatalf("ForwardBatch took too long")
-	}
-	if err != nil {
-		t.Fatalf("expected success after retries, got %v", err)
-	}
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("expected 3 HTTP calls (2 retries), got %d", got)
-	}
-	if drain.DrainedFailureCount() != 0 {
-		t.Fatalf("expected sub-DLQ empty, got %d", drain.DrainedFailureCount())
-	}
+	require.False(t, time.
+		Now().
+		After(deadline))
+	require.NoError(t,
+		err)
+
+	require.Equal(t, int32(3), calls.Load())
+	require.Equal(t, 0,
+		drain.DrainedFailureCount())
 }
 
 func TestAuditSIEMDrain_NoRetryOn4xx(t *testing.T) {
@@ -91,26 +89,23 @@ func TestAuditSIEMDrain_NoRetryOn4xx(t *testing.T) {
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-1")})
-	if err == nil {
-		t.Fatal("expected error for 4xx")
-	}
+	require.Error(t, err)
+
 	var terminal *terminalStatusError
-	if !errors.As(err, &terminal) {
-		t.Fatalf("expected terminalStatusError, got %T: %v", err, err)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("expected exactly 1 HTTP call, got %d", got)
-	}
-	if classifyForwardError(err) != "siem_4xx" {
-		t.Fatalf("expected reason siem_4xx, got %s", classifyForwardError(err))
-	}
-	if drain.DrainedFailureCount() != 1 {
-		t.Fatalf("expected sub-DLQ size 1, got %d", drain.DrainedFailureCount())
-	}
+	require.ErrorAs(t, err, &terminal)
+
+	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, "siem_4xx",
+
+		classifyForwardError(err))
+	require.Equal(t, 1,
+		drain.DrainedFailureCount())
+
 	failures := drain.DrainedFailures()
-	if len(failures) != 1 || failures[0].Reason != "siem_4xx" || failures[0].Event.ID != "ev-1" {
-		t.Fatalf("unexpected sub-DLQ contents: %+v", failures)
-	}
+	require.False(t, len(failures) != 1 || failures[0].Reason !=
+		"siem_4xx" || failures[0].
+		Event.ID !=
+		"ev-1")
 }
 
 func TestAuditSIEMDrain_CircuitOpens(t *testing.T) {
@@ -127,28 +122,28 @@ func TestAuditSIEMDrain_CircuitOpens(t *testing.T) {
 
 	// 5 consecutive batch-forward calls, each exhausts retries — each
 	// counts as 1 failure toward the breaker's threshold.
-	for i := range siemBreakerFailureThreshold {
-		if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")}); err == nil {
-			t.Fatalf("iteration %d: expected error", i)
-		}
+	for range siemBreakerFailureThreshold {
+		require.Error(t, drain.
+			ForwardBatch(context.
+				Background(), []domain.
+				AuditEvent{sampleEvent("ev")},
+			))
 	}
 	before := calls.Load()
 	// 6th call should be short-circuited without an HTTP hit.
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-final")})
-	if err == nil {
-		t.Fatal("expected error when circuit open")
-	}
+	require.Error(t, err)
+
 	after := calls.Load()
-	if after != before {
-		t.Fatalf("expected no new HTTP calls while open, got %d -> %d", before, after)
-	}
-	if !drain.breakerWasOpen.Load() {
-		t.Fatal("expected breaker to have opened")
-	}
+	require.Equal(t, before,
+		after,
+	)
+	require.True(t, drain.
+		breakerWasOpen.
+		Load())
+
 	// The short-circuit failure should be classified as circuit_open.
-	if got := classifyForwardError(err); got != "circuit_open" {
-		t.Fatalf("expected reason circuit_open, got %s (err=%v)", got, err)
-	}
+	require.Equal(t, "circuit_open", classifyForwardError(err))
 }
 
 func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
@@ -166,18 +161,15 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 	defer srv.Close()
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
-	if got := drain.BreakerState(); got != BreakerStateClosed {
-		t.Fatalf("initial breaker state = %d, want closed (%d)", got, BreakerStateClosed)
-	}
+	require.Equal(t, BreakerStateClosed, drain.BreakerState())
 	for range siemBreakerFailureThreshold {
 		_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
 	}
-	if !drain.breakerWasOpen.Load() {
-		t.Fatal("expected breaker open after threshold")
-	}
-	if got := drain.BreakerState(); got != BreakerStateOpen {
-		t.Fatalf("breaker state after threshold = %d, want open (%d)", got, BreakerStateOpen)
-	}
+	require.True(t, drain.
+		breakerWasOpen.
+		Load())
+
+	require.Equal(t, BreakerStateOpen, drain.BreakerState())
 	// Wait for half-open transition.
 	time.Sleep(200 * time.Millisecond)
 	// Stop failing.
@@ -192,20 +184,21 @@ func TestAuditSIEMDrain_CircuitHalfOpenRecovery(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if lastErr != nil {
-		t.Fatalf("expected breaker to recover, got %v", lastErr)
-	}
+	require.NoError(t,
+		lastErr,
+	)
+	require.NoError(t,
+		drain.ForwardBatch(context.
+			Background(), []domain.AuditEvent{sampleEvent("ev-after")}))
+	assert.False(t, drain.
+		breakerWasOpen.
+		Load())
+
 	// Subsequent call also succeeds.
-	if err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev-after")}); err != nil {
-		t.Fatalf("post-recovery call failed: %v", err)
-	}
+
 	// breakerWasOpen latch must reset on close so it tracks current state.
-	if drain.breakerWasOpen.Load() {
-		t.Error("breakerWasOpen still set after breaker closed; OnClose handler did not reset the latch")
-	}
-	if got := drain.BreakerState(); got != BreakerStateClosed {
-		t.Errorf("breaker state after recovery = %d, want closed (%d)", got, BreakerStateClosed)
-	}
+
+	assert.Equal(t, BreakerStateClosed, drain.BreakerState())
 }
 
 // TestAuditSIEMDrain_BreakerStateTransitionsCycle drives the breaker
@@ -228,16 +221,12 @@ func TestAuditSIEMDrain_BreakerStateTransitionsCycle(t *testing.T) {
 
 	drain := NewAuditSIEMDrain(srv.URL, "", 0, 0)
 	// Stage 1: closed at start.
-	if got := drain.BreakerState(); got != BreakerStateClosed {
-		t.Fatalf("stage 1 (initial) = %d, want closed", got)
-	}
+	require.Equal(t, BreakerStateClosed, drain.BreakerState())
 	// Stage 2: drive failures past threshold -> open.
 	for range siemBreakerFailureThreshold {
 		_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
 	}
-	if got := drain.BreakerState(); got != BreakerStateOpen {
-		t.Fatalf("stage 2 (post-threshold) = %d, want open", got)
-	}
+	require.Equal(t, BreakerStateOpen, drain.BreakerState())
 	// Stage 3: wait for the breaker's open delay to expire.
 	time.Sleep(200 * time.Millisecond)
 	// Stage 4: stop failing and probe — recovery transitions through
@@ -250,9 +239,7 @@ func TestAuditSIEMDrain_BreakerStateTransitionsCycle(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if got := drain.BreakerState(); got != BreakerStateClosed {
-		t.Fatalf("stage 4 (post-recovery) = %d, want closed", got)
-	}
+	require.Equal(t, BreakerStateClosed, drain.BreakerState())
 }
 
 func TestAuditSIEMDrain_JitterBackoffBounded(t *testing.T) {
@@ -267,9 +254,9 @@ func TestAuditSIEMDrain_JitterBackoffBounded(t *testing.T) {
 	start := time.Now()
 	_ = drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("ev")})
 	elapsed := time.Since(start)
-	if elapsed > 3*time.Second {
-		t.Fatalf("retry sequence exceeded 3s bound: %v", elapsed)
-	}
+	require.LessOrEqual(t, elapsed,
+		3*time.
+			Second)
 }
 
 // TestAuditSIEMDrain_ContextCanceled_NoRetry asserts that a context
@@ -309,19 +296,14 @@ func TestAuditSIEMDrain_ContextCanceled_NoRetry(t *testing.T) {
 	})
 
 	err := drain.ForwardBatch(ctx, []domain.AuditEvent{sampleEvent("cancel-ev")})
-	if err == nil {
-		t.Fatal("expected cancellation error, got nil")
-	}
+	require.Error(t, err)
 
-	if got := calls.Load(); got != 1 {
-		t.Errorf("upstream calls = %d, want 1 (cancellation must not consume retry budget)", got)
-	}
-	if drain.breakerWasOpen.Load() {
-		t.Error("circuit breaker opened on cancellation — cancellation must not flip the breaker")
-	}
-	if drain.DrainedFailureCount() != 1 {
-		t.Errorf("sub-DLQ size = %d, want 1", drain.DrainedFailureCount())
-	}
+	assert.Equal(t, int32(1), calls.Load())
+	assert.False(t, drain.
+		breakerWasOpen.
+		Load())
+	assert.Equal(t, 1,
+		drain.DrainedFailureCount())
 }
 
 // TestAuditSIEMDrain_RequestConstructError_NoRetry asserts that a
@@ -337,14 +319,9 @@ func TestAuditSIEMDrain_RequestConstructError_NoRetry(t *testing.T) {
 	drain := NewAuditSIEMDrain("http://example.com/\x7f", "", 0, 0)
 
 	err := drain.ForwardBatch(context.Background(), []domain.AuditEvent{sampleEvent("bad-url")})
-
-	if err == nil {
-		t.Fatal("expected request construction error, got nil")
-	}
-	if !errors.Is(err, errRequestConstruct) {
-		t.Errorf("err = %v, want wrap of errRequestConstruct", err)
-	}
-	if drain.breakerWasOpen.Load() {
-		t.Error("circuit breaker opened on request-construct failure")
-	}
+	require.Error(t, err)
+	require.ErrorIs(t, err, errRequestConstruct)
+	assert.False(t, drain.
+		breakerWasOpen.
+		Load())
 }

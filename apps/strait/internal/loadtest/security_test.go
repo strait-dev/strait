@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGRPCTransportCredentials_DefaultsTLSForRemote(t *testing.T) {
 	t.Parallel()
 
 	creds := grpcTransportCredentials(WorkerConfig{GRPCAddr: "workers.example.com:50051"})
-	if got := creds.Info().SecurityProtocol; got != "tls" {
-		t.Fatalf("SecurityProtocol = %q, want tls", got)
-	}
+	require.Equal(t, "tls", creds.Info().SecurityProtocol)
 }
 
 func TestGRPCTransportCredentials_AllowsPlaintextOnlyForLoopbackOrOverride(t *testing.T) {
@@ -35,9 +35,7 @@ func TestGRPCTransportCredentials_AllowsPlaintextOnlyForLoopbackOrOverride(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			creds := grpcTransportCredentials(tt.cfg)
-			if got := creds.Info().SecurityProtocol; got != tt.want {
-				t.Fatalf("SecurityProtocol = %q, want %s", got, tt.want)
-			}
+			require.Equal(t, tt.want, creds.Info().SecurityProtocol)
 		})
 	}
 }
@@ -47,47 +45,58 @@ func TestTestServer_BindsLoopbackAndRequiresSignature(t *testing.T) {
 
 	const secret = "loadtest-secret-32-bytes-long"
 	srv := NewTestServer(0, WithTestServerHMACSecret(secret))
-	if err := srv.Start(); err != nil {
-		t.Fatalf("start server: %v", err)
-	}
-	defer srv.Close()
+	require.NoError(t,
 
-	if strings.HasPrefix(srv.Addr(), ":") || strings.HasPrefix(srv.Addr(), "0.0.0.0") || strings.HasPrefix(srv.Addr(), "[::]") {
-		t.Fatalf("server addr = %q, want loopback bind", srv.Addr())
-	}
+		srv.Start())
+
+	defer srv.Close()
+	require.False(t, strings.HasPrefix(srv.
+		Addr(), ":",
+	) || strings.HasPrefix(srv.Addr(),
+		"0.0.0.0") || strings.HasPrefix(srv.Addr(), "[::]"))
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	unsignedReq, err := http.NewRequest(http.MethodPost, srv.URL("/fast-echo"), strings.NewReader(`{"unsigned":true}`))
-	if err != nil {
-		t.Fatalf("unsigned request: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	unsignedReq.Header.Set("Content-Type", "application/json")
 	unsignedResp, err := client.Do(unsignedReq)
-	if err != nil {
-		t.Fatalf("unsigned request failed: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	_ = unsignedResp.Body.Close()
-	if unsignedResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("unsigned status = %d, want 401", unsignedResp.StatusCode)
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+
+		unsignedResp.
+			StatusCode,
+	)
 
 	body := []byte(`{"signed":true}`)
 	ts, sig := SignStraitDispatch(secret, body)
 	signedReq, err := http.NewRequest(http.MethodPost, srv.URL("/fast-echo"), strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatalf("signed request: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	signedReq.Header.Set("Content-Type", "application/json")
 	signedReq.Header.Set("X-Strait-Timestamp", ts)
 	signedReq.Header.Set("X-Strait-Signature", sig)
 	signedResp, err := client.Do(signedReq)
-	if err != nil {
-		t.Fatalf("signed request failed: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	_ = signedResp.Body.Close()
-	if signedResp.StatusCode != http.StatusOK {
-		t.Fatalf("signed status = %d, want 200", signedResp.StatusCode)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		signedResp.
+			StatusCode,
+	)
+
 }
 
 func TestGenerateLoadTestSecretPanicsWhenCryptoRandomFails(t *testing.T) {
@@ -100,21 +109,20 @@ func TestGenerateLoadTestSecretPanicsWhenCryptoRandomFails(t *testing.T) {
 	})
 
 	defer func() {
-		if rec := recover(); rec == nil {
-			t.Fatal("expected generateLoadTestSecret to panic on crypto random failure")
-		}
+		require.NotNil(t, recover())
 	}()
 	_ = generateLoadTestSecret()
 }
 
 func TestGenerateLoadTestSecretUsesCryptoRandomLength(t *testing.T) {
 	secret := generateLoadTestSecret()
-	if !strings.HasPrefix(secret, "loadtest_") {
-		t.Fatalf("secret prefix = %q, want loadtest_", secret)
-	}
-	if len(secret) != len("loadtest_")+64 {
-		t.Fatalf("secret len = %d, want %d", len(secret), len("loadtest_")+64)
-	}
+	require.True(t, strings.HasPrefix(secret,
+		"loadtest_",
+	))
+	require.Len(t, secret,
+
+		len("loadtest_")+64)
+
 }
 
 func TestValidateLoadTestEndpointURLRejectsWildcardHosts(t *testing.T) {
@@ -126,9 +134,8 @@ func TestValidateLoadTestEndpointURLRejectsWildcardHosts(t *testing.T) {
 	}
 	for _, endpointURL := range tests {
 		t.Run(endpointURL, func(t *testing.T) {
-			if err := validateLoadTestEndpointURL(endpointURL); err == nil {
-				t.Fatal("expected wildcard endpoint URL to be rejected")
-			}
+			require.Error(t, validateLoadTestEndpointURL(endpointURL))
+
 		})
 	}
 }
@@ -143,9 +150,10 @@ func TestValidateLoadTestEndpointURLAllowsLoopbackAndRemoteHosts(t *testing.T) {
 	}
 	for _, endpointURL := range tests {
 		t.Run(endpointURL, func(t *testing.T) {
-			if err := validateLoadTestEndpointURL(endpointURL); err != nil {
-				t.Fatalf("expected endpoint URL to be allowed: %v", err)
-			}
+			require.NoError(t,
+
+				validateLoadTestEndpointURL(endpointURL))
+
 		})
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestExecutor_HeartbeatTrackedForShutdown verifies that the heartbeat
@@ -41,10 +43,8 @@ func TestExecutor_HeartbeatTrackedForShutdown(t *testing.T) {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutCancel()
-
-	if err := e.Shutdown(shutCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
+	require.NoError(
+		t, e.Shutdown(shutCtx))
 
 	// If we reach here, pollWG.Wait() completed, meaning the heartbeat
 	// goroutine was properly tracked and exited.
@@ -80,15 +80,11 @@ func TestExecutor_HeartbeatFlushesBeforeShutdown(t *testing.T) {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutCancel()
-
-	if err := e.Shutdown(shutCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
+	require.NoError(
+		t, e.Shutdown(shutCtx))
 
 	calls := hbStore.calls()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one heartbeat batch call before shutdown")
-	}
+	require.NotEmpty(t, calls)
 }
 
 func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
@@ -121,9 +117,9 @@ func TestExecutor_Poll_NoAvailableSlots(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-	if called.Load() != 0 {
-		t.Fatalf("DequeueN call count = %d, want 0", called.Load())
-	}
+	require.EqualValues(t, 0, called.
+		Load(),
+	)
 
 	close(release)
 }
@@ -134,22 +130,19 @@ func TestExecutor_Poll_EmptyQueue(t *testing.T) {
 	q := &mockExecQueue{
 		dequeueNFn: func(_ context.Context, n int) ([]domain.JobRun, error) {
 			dequeueCalls.Add(1)
-			if n <= 0 {
-				t.Fatalf("dequeue n = %d, want > 0", n)
-			}
+			require.Positive(t,
+				n)
+
 			return []domain.JobRun{}, nil
 		},
 	}
 
 	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
 	exec.poll(context.Background())
-
-	if dequeueCalls.Load() != 1 {
-		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
-	}
-	if got := exec.pool.ActiveCount(); got != 0 {
-		t.Fatalf("pool active count = %d, want 0", got)
-	}
+	require.EqualValues(t, 1, dequeueCalls.
+		Load())
+	require.Equal(t, 0, exec.pool.
+		ActiveCount())
 }
 
 func TestExecutor_Poll_DequeueError(t *testing.T) {
@@ -164,10 +157,8 @@ func TestExecutor_Poll_DequeueError(t *testing.T) {
 
 	exec := newTestExecutor(t, &mockExecutorStore{}, q, time.Hour, nil)
 	exec.poll(context.Background())
-
-	if dequeueCalls.Load() != 1 {
-		t.Fatalf("DequeueN call count = %d, want 1", dequeueCalls.Load())
-	}
+	require.EqualValues(t, 1, dequeueCalls.
+		Load())
 }
 
 func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
@@ -178,16 +169,19 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	q := &mockExecQueue{
 		dequeueNByProjectFn: func(_ context.Context, n int, projectID string) ([]domain.JobRun, error) {
 			called = true
-			if n <= 0 {
-				t.Fatalf("expected positive dequeue size")
-			}
-			if projectID != "proj-a" {
-				t.Fatalf("projectID = %q, want %q", projectID, "proj-a")
-			}
+			require.Positive(t,
+				n)
+			require.Equal(t,
+				"proj-a",
+				projectID,
+			)
+
 			return nil, nil
 		},
 		dequeueNFn: func(_ context.Context, _ int) ([]domain.JobRun, error) {
-			t.Fatal("did not expect global DequeueN when partitions are configured")
+			require.Fail(t,
+
+				"did not expect global DequeueN when partitions are configured")
 			return nil, nil
 		},
 	}
@@ -205,9 +199,8 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-	if !called {
-		t.Fatal("expected partitioned dequeue to be called")
-	}
+	require.True(t,
+		called)
 }
 
 func BenchmarkExecutorPoll(b *testing.B) {
@@ -280,10 +273,9 @@ func TestAdaptiveDequeue_SkipsWhenPoolSaturated(t *testing.T) {
 
 	exec.poll(context.Background())
 	close(done)
-
-	if dequeueCalled.Load() {
-		t.Fatal("expected dequeue to be skipped when pool is saturated")
-	}
+	require.False(t,
+		dequeueCalled.
+			Load())
 }
 
 func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
@@ -323,9 +315,7 @@ func TestAdaptiveDequeue_UsesIdleCount(t *testing.T) {
 	close(done)
 
 	got := requestedN.Load()
-	if got != 5 {
-		t.Fatalf("expected dequeue with n=5 (idle workers), got n=%d", got)
-	}
+	require.EqualValues(t, 5, got)
 }
 
 func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
@@ -353,9 +343,7 @@ func TestAdaptiveDequeue_CapsAtMaxBatch(t *testing.T) {
 	exec.poll(context.Background())
 
 	got := requestedN.Load()
-	if got != 10 {
-		t.Fatalf("expected dequeue capped at maxBatchSize=10, got n=%d", got)
-	}
+	require.EqualValues(t, 10, got)
 }
 
 func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
@@ -392,9 +380,7 @@ func TestAdaptiveDequeue_SingleIdleWorker(t *testing.T) {
 	close(done)
 
 	got := requestedN.Load()
-	if got != 1 {
-		t.Fatalf("expected dequeue with n=1 (single idle worker), got n=%d", got)
-	}
+	require.EqualValues(t, 1, got)
 }
 
 func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
@@ -417,10 +403,9 @@ func TestPoll_MemoryPressure_SkipsDequeue(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-
-	if dequeueCalled.Load() {
-		t.Fatal("dequeue should not be called when memory pressure exceeds threshold")
-	}
+	require.False(t,
+		dequeueCalled.
+			Load())
 }
 
 func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
@@ -443,8 +428,7 @@ func TestPoll_MemoryPressure_DisabledByDefault(t *testing.T) {
 	})
 
 	exec.poll(context.Background())
-
-	if !dequeueCalled.Load() {
-		t.Fatal("dequeue should be called when memory pressure threshold disabled")
-	}
+	require.True(t,
+		dequeueCalled.
+			Load())
 }

@@ -13,6 +13,9 @@ import (
 	"strait/internal/domain"
 	"strait/internal/loadtest"
 	"strait/internal/logdrain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // buildEvent constructs a throw-away audit event tagged with the given
@@ -56,30 +59,26 @@ func TestAuditLoad_Burst(t *testing.T) {
 	}
 	burstDur := time.Since(start)
 	t.Logf("burst emit duration: %s (n=%d)", burstDur, n)
-
-	if !h.WaitDrain(60 * time.Second) {
-		t.Fatalf("harness did not drain within 60s")
-	}
+	require.True(t, h.WaitDrain(60*
+		time.Second,
+	))
 
 	c := h.Counters()
-	if c.Dropped != 0 {
-		t.Errorf("Dropped = %d, want 0", c.Dropped)
-	}
-	if c.Deadlettered != 0 {
-		t.Errorf("Deadlettered = %d, want 0", c.Deadlettered)
-	}
-	if c.Persisted != int64(n) {
-		t.Errorf("Persisted = %d, want %d", c.Persisted, n)
-	}
-	if c.PeakQueue > int64(bufSize) {
-		t.Errorf("PeakQueue = %d, want <= %d (BufferSize)", c.PeakQueue, bufSize)
-	}
+	assert.EqualValues(t, 0, c.Dropped)
+	assert.EqualValues(t, 0, c.Deadlettered)
+	assert.Equal(t, int64(n), c.Persisted)
+	assert.LessOrEqual(t, c.
+		PeakQueue,
+		int64(bufSize))
+
 	// p99 Enqueue latency budget. The hot path is a non-blocking send into
 	// a buffered channel; <5ms is generous and accommodates CI jitter.
 	p99 := h.LatencyPercentile(99)
-	if p99 > 5*time.Millisecond {
-		t.Errorf("p99 emit latency = %s, want < 5ms (env-sensitive)", p99)
-	}
+	assert.LessOrEqual(t, p99,
+		5*
+			time.Millisecond,
+	)
+
 	t.Logf("burst: persisted=%d peakQueue=%d p99=%s", c.Persisted, c.PeakQueue, p99)
 }
 
@@ -124,12 +123,12 @@ loop:
 	// Let in-flight retries resolve into DLQ.
 	time.Sleep(200 * time.Millisecond)
 	c := h.Counters()
-	if c.Deadlettered == 0 {
-		t.Fatalf("expected Deadlettered > 0 during outage, got %d (emitted=%d)", c.Deadlettered, totalEmitted)
-	}
-	if store.DeadletterCount() == 0 {
-		t.Fatalf("expected DLQ depth > 0 during outage")
-	}
+	require.NotEqual(t, 0,
+		c.Deadlettered,
+	)
+	require.NotEqual(t, 0,
+		store.DeadletterCount())
+
 	t.Logf("during outage: emitted=%d deadlettered=%d dlq_depth=%d", totalEmitted, c.Deadlettered, store.DeadletterCount())
 
 	// Simulate recovery + reclaimer.
@@ -147,18 +146,20 @@ loop:
 			continue
 		}
 		for _, ev := range batch {
-			if err := store.CreateAuditEvent(context.Background(), ev); err != nil {
-				t.Fatalf("reclaim CreateAuditEvent: %v", err)
-			}
+			require.NoError(t, store.
+				CreateAuditEvent(
+					context.Background(),
+					ev))
+
 			reclaimed++
 		}
 	}
-	if store.DeadletterCount() != 0 {
-		t.Fatalf("DLQ still has %d rows after reclaim", store.DeadletterCount())
-	}
-	if reclaimed == 0 {
-		t.Fatal("reclaimer drained zero rows")
-	}
+	require.Equal(t, 0, store.
+		DeadletterCount())
+	require.NotEqual(t, 0,
+		reclaimed,
+	)
+
 	t.Logf("reclaimed %d rows in %s", reclaimed, time.Since(reclaimStart))
 }
 
@@ -179,9 +180,8 @@ func TestAuditLoad_SIEMDown(t *testing.T) {
 	t.Cleanup(siem.Close)
 
 	drain := logdrain.NewAuditSIEMDrain(siem.URL, "", 10, 20*time.Millisecond)
-	if drain == nil {
-		t.Fatal("NewAuditSIEMDrain returned nil")
-	}
+	require.NotNil(t, drain)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	drain.Start(ctx)
@@ -206,9 +206,9 @@ func TestAuditLoad_SIEMDown(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
-	if !h.WaitDrain(30 * time.Second) {
-		t.Fatalf("harness did not drain within 30s")
-	}
+	require.True(t, h.WaitDrain(30*
+		time.Second,
+	))
 
 	// Let SIEM drain attempt flushes + breaker state to settle. Retry
 	// policy backoff alone can take ~2s per exhausted call, so give it
@@ -216,22 +216,17 @@ func TestAuditLoad_SIEMDown(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	c := h.Counters()
-	if c.Persisted != n {
-		t.Errorf("Persisted = %d, want %d (chain must be unaffected by SIEM outage)", c.Persisted, n)
-	}
-	if c.Deadlettered != 0 {
-		t.Errorf("Deadlettered = %d, want 0 (SIEM failure must not deadletter chain events)", c.Deadlettered)
-	}
+	assert.Equal(t, int64(n), c.Persisted)
+	assert.EqualValues(t, 0, c.Deadlettered)
 
 	// SIEM sub-DLQ should be populated but bounded. siemSubDLQCapacity = 1024
 	// is the internal cap. We don't import that constant here so we assert
 	// with the concrete bound.
 	subDLQ := drain.DrainedFailureCount()
-	if subDLQ == 0 {
-		t.Error("SIEM sub-DLQ should contain entries after persistent 5xx")
-	}
-	if subDLQ > 1024 {
-		t.Errorf("SIEM sub-DLQ = %d, want <= 1024 (cap)", subDLQ)
-	}
+	assert.NotEqual(t, 0, subDLQ)
+	assert.LessOrEqual(t, subDLQ,
+
+		1024)
+
 	t.Logf("SIEM-down: persisted=%d subDLQ=%d siemHits=%d", c.Persisted, subDLQ, siemHits.Load())
 }

@@ -12,6 +12,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadPipeline_TriggerDequeueComplete(t *testing.T) {
@@ -24,9 +25,10 @@ func TestLoadPipeline_TriggerDequeueComplete(t *testing.T) {
 		`{"project_id":"%s","name":"pipe-full","slug":"pipe-full-%d","endpoint_url":"https://example.com/pipe","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	start := time.Now()
@@ -34,9 +36,11 @@ func TestLoadPipeline_TriggerDequeueComplete(t *testing.T) {
 	for i := range volume {
 		resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger",
 			fmt.Sprintf(`{"payload":{"i":%d}}`, i))
-		if resp.Code != 201 {
-			t.Fatalf("trigger %d: %d", i, resp.Code)
-		}
+		require.EqualValues(t, 201,
+
+			resp.Code,
+		)
+
 	}
 	triggerElapsed := time.Since(start)
 
@@ -81,9 +85,10 @@ func TestLoadPipeline_ConcurrentFullLifecycle(t *testing.T) {
 		`{"project_id":"%s","name":"pipe-conc","slug":"pipe-conc-%d","endpoint_url":"https://example.com/pipe","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const workers = 10
@@ -144,9 +149,10 @@ func TestLoadPipeline_MultiJobParallel(t *testing.T) {
 			`{"project_id":"%s","name":"multi-%d","slug":"multi-%d-%d","endpoint_url":"https://example.com/multi","max_attempts":1,"timeout_secs":30}`,
 			projectID, j, time.Now().UnixNano(), j,
 		))
-		if w.Code != 201 {
-			t.Fatalf("create job %d: %d", j, w.Code)
-		}
+		require.EqualValues(t, 201,
+
+			w.Code)
+
 		jobIDs[j] = asString(t, mustDecodeObject(t, w), "id")
 	}
 
@@ -203,9 +209,10 @@ func TestLoadPipeline_FailureRecovery(t *testing.T) {
 		`{"project_id":"%s","name":"pipe-fail","slug":"pipe-fail-%d","endpoint_url":"https://example.com/fail","max_attempts":3,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d", w.Code)
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	volume := loadVolume() / 10

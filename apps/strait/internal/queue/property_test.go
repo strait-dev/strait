@@ -3,6 +3,8 @@ package queue
 import (
 	"math/rand/v2"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestProperty_DequeuedNeverExceedsEnqueued simulates random enqueue/dequeue
@@ -26,13 +28,14 @@ func TestProperty_DequeuedNeverExceedsEnqueued(t *testing.T) {
 			}
 
 			currentPending := enqueued - dequeued
-			if currentPending < 0 {
-				t.Fatalf("pending count went negative: enqueued=%d dequeued=%d",
-					enqueued, dequeued)
-			}
-			if dequeued > enqueued {
-				t.Fatalf("dequeued (%d) > enqueued (%d)", dequeued, enqueued)
-			}
+			require.GreaterOrEqual(t, currentPending,
+
+				0)
+			require.LessOrEqual(
+				t, dequeued,
+
+				enqueued,
+			)
 		}
 	}
 }
@@ -56,13 +59,13 @@ func TestProperty_BudgetSpentNeverExceedsBudget(t *testing.T) {
 			if cost <= remaining {
 				spent += cost
 			}
+			require.LessOrEqual(
+				t, spent, budget,
+			)
+			require.GreaterOrEqual(t, spent,
 
-			if spent > budget {
-				t.Fatalf("spent (%d) > budget (%d)", spent, budget)
-			}
-			if spent < 0 {
-				t.Fatalf("spent went negative: %d", spent)
-			}
+				0,
+			)
 		}
 	}
 }

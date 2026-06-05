@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReportGenerator_EmptyInput(t *testing.T) {
@@ -17,41 +20,48 @@ func TestReportGenerator_EmptyInput(t *testing.T) {
 	outputDir := t.TempDir()
 
 	rg := NewReportGenerator(inputDir, outputDir, "report.html", "report.json")
-	if err := rg.Generate(); err != nil {
-		t.Fatalf("Generate() with empty input failed: %v", err)
-	}
+	require.NoError(t,
+
+		rg.Generate())
 
 	// Verify HTML was created and is valid
 	htmlPath := filepath.Join(outputDir, "report.html")
 	htmlData, err := os.ReadFile(htmlPath)
-	if err != nil {
-		t.Fatalf("reading HTML report: %v", err)
-	}
-	if !strings.Contains(string(htmlData), "<!DOCTYPE html>") {
-		t.Error("HTML report missing DOCTYPE")
-	}
-	if !strings.Contains(string(htmlData), "Strait Capacity Report") {
-		t.Error("HTML report missing title")
-	}
+	require.NoError(t,
+
+		err)
+	assert.True(t, strings.Contains(string(
+		htmlData), "<!DOCTYPE html>",
+	))
+	assert.True(t, strings.Contains(string(
+		htmlData), "Strait Capacity Report",
+	))
 
 	// Verify JSON was created and is valid
 	jsonPath := filepath.Join(outputDir, "report.json")
 	jsonData, err := os.ReadFile(jsonPath)
-	if err != nil {
-		t.Fatalf("reading JSON report: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	var report Report
-	if err := json.Unmarshal(jsonData, &report); err != nil {
-		t.Fatalf("JSON report is not valid JSON: %v", err)
-	}
+	require.NoError(t,
+
+		json.Unmarshal(jsonData,
+			&report))
+	assert.Equal(t, "PASS",
+
+		report.
+			Summary.
+			OverallVerdict)
+	assert.EqualValues(t, 0,
+
+		report.Summary.
+			MaxThroughput,
+	)
 
 	// Empty input should produce PASS verdict (no failures)
-	if report.Summary.OverallVerdict != "PASS" {
-		t.Errorf("expected PASS verdict for empty input, got %s", report.Summary.OverallVerdict)
-	}
-	if report.Summary.MaxThroughput != 0 {
-		t.Errorf("expected 0 max throughput for empty input, got %d", report.Summary.MaxThroughput)
-	}
+
 }
 
 func TestReportGenerator_WithThroughputData(t *testing.T) {
@@ -75,40 +85,52 @@ func TestReportGenerator_WithThroughputData(t *testing.T) {
 	}
 
 	data, err := json.MarshalIndent(throughput, "", "  ")
-	if err != nil {
-		t.Fatalf("marshaling throughput data: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(inputDir, "throughput_ceiling.json"), data, 0o644); err != nil {
-		t.Fatalf("writing throughput file: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+	require.NoError(t,
+
+		os.WriteFile(filepath.
+			Join(inputDir,
+				"throughput_ceiling.json",
+			), data,
+			0o644))
 
 	rg := NewReportGenerator(inputDir, outputDir, "report.html", "report.json")
-	if err := rg.Generate(); err != nil {
-		t.Fatalf("Generate() failed: %v", err)
-	}
+	require.NoError(t,
+
+		rg.Generate())
 
 	// Read and verify JSON report
 	jsonData, err := os.ReadFile(filepath.Join(outputDir, "report.json"))
-	if err != nil {
-		t.Fatalf("reading JSON report: %v", err)
-	}
-	var report Report
-	if err := json.Unmarshal(jsonData, &report); err != nil {
-		t.Fatalf("invalid JSON report: %v", err)
-	}
+	require.NoError(t,
 
-	if report.Summary.MaxThroughput != 500 {
-		t.Errorf("expected MaxThroughput=500, got %d", report.Summary.MaxThroughput)
-	}
-	if report.Throughput == nil {
-		t.Fatal("expected Throughput to be populated")
-	}
-	if report.Throughput.BreakingRate != 600 {
-		t.Errorf("expected BreakingRate=600, got %d", report.Throughput.BreakingRate)
-	}
-	if len(report.Throughput.Steps) != 3 {
-		t.Errorf("expected 3 steps, got %d", len(report.Throughput.Steps))
-	}
+		err)
+
+	var report Report
+	require.NoError(t,
+
+		json.Unmarshal(jsonData,
+			&report))
+	assert.EqualValues(t, 500,
+
+		report.
+			Summary.MaxThroughput,
+	)
+	require.NotNil(t,
+		report.
+			Throughput,
+	)
+	assert.EqualValues(t, 600,
+
+		report.
+			Throughput.
+			BreakingRate)
+	assert.Len(t, report.
+		Throughput.
+		Steps,
+		3)
+
 }
 
 func TestReportGenerator_BuildSummary(t *testing.T) {
@@ -171,16 +193,23 @@ func TestReportGenerator_BuildSummary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			summary := rg.buildSummary(tt.report)
+			assert.Equal(t, tt.
+				wantVerdict,
+				summary.
+					OverallVerdict)
+			assert.False(t, tt.
+				wantThroughput >
+				0 &&
+				summary.MaxThroughput !=
+					tt.wantThroughput,
+			)
+			assert.False(t, tt.
+				wantChaosPassed >
+				0 &&
+				summary.ChaosPassed !=
+					tt.wantChaosPassed,
+			)
 
-			if summary.OverallVerdict != tt.wantVerdict {
-				t.Errorf("OverallVerdict = %s, want %s", summary.OverallVerdict, tt.wantVerdict)
-			}
-			if tt.wantThroughput > 0 && summary.MaxThroughput != tt.wantThroughput {
-				t.Errorf("MaxThroughput = %d, want %d", summary.MaxThroughput, tt.wantThroughput)
-			}
-			if tt.wantChaosPassed > 0 && summary.ChaosPassed != tt.wantChaosPassed {
-				t.Errorf("ChaosPassed = %d, want %d", summary.ChaosPassed, tt.wantChaosPassed)
-			}
 		})
 	}
 }
@@ -204,46 +233,48 @@ func TestReportGenerator_DiffReport(t *testing.T) {
 
 	rg := NewReportGenerator(dirA, outputDir, "report.html", "report.json")
 	rg.DiffDir = dirB
+	require.NoError(t,
 
-	if err := rg.Generate(); err != nil {
-		t.Fatalf("Generate() with diff failed: %v", err)
-	}
+		rg.Generate())
 
 	// Check diff.json exists
 	diffData, err := os.ReadFile(filepath.Join(outputDir, "diff.json"))
-	if err != nil {
-		t.Fatalf("reading diff.json: %v", err)
-	}
-	var diff ReportDiff
-	if err := json.Unmarshal(diffData, &diff); err != nil {
-		t.Fatalf("invalid diff JSON: %v", err)
-	}
+	require.NoError(t,
 
-	if len(diff.Changes) == 0 {
-		t.Fatal("expected at least one change in diff")
-	}
+		err)
+
+	var diff ReportDiff
+	require.NoError(t,
+
+		json.Unmarshal(diffData,
+			&diff))
+	require.NotEmpty(t,
+
+		diff.Changes,
+	)
 
 	foundThroughput := false
 	for _, change := range diff.Changes {
 		if change.Metric == "max_throughput" {
 			foundThroughput = true
-			if change.Change != "improved" {
-				t.Errorf("expected throughput change to be 'improved' (500 vs 400), got %s", change.Change)
-			}
+			assert.Equal(t, "improved",
+
+				change.Change,
+			)
+
 		}
 	}
-	if !foundThroughput {
-		t.Error("diff missing max_throughput comparison")
-	}
+	assert.True(t, foundThroughput)
 
 	// Check diff.html exists
 	diffHTML, err := os.ReadFile(filepath.Join(outputDir, "diff.html"))
-	if err != nil {
-		t.Fatalf("reading diff.html: %v", err)
-	}
-	if !strings.Contains(string(diffHTML), "Load Test Comparison") {
-		t.Error("diff HTML missing expected title")
-	}
+	require.NoError(t,
+
+		err)
+	assert.True(t, strings.Contains(string(
+		diffHTML), "Load Test Comparison",
+	))
+
 }
 
 func TestMetricsCollector_StartStop(t *testing.T) {
@@ -253,17 +284,18 @@ func TestMetricsCollector_StartStop(t *testing.T) {
 		OutputDir: outputDir,
 		Interval:  100 * time.Millisecond,
 	})
-	if err != nil {
-		t.Fatalf("NewMetricsCollector: %v", err)
-	}
+	require.NoError(t,
 
-	if err := mc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+		err)
+	require.NoError(t,
 
-	if err := mc.Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
+		mc.Start(
+			context.Background()))
+	require.NoError(t,
+
+		mc.Stop(),
+	)
+
 }
 
 func TestMetricsCollector_CollectsGoMetrics(t *testing.T) {
@@ -273,37 +305,41 @@ func TestMetricsCollector_CollectsGoMetrics(t *testing.T) {
 		OutputDir: outputDir,
 		Interval:  50 * time.Millisecond,
 	})
-	if err != nil {
-		t.Fatalf("NewMetricsCollector: %v", err)
-	}
+	require.NoError(t,
 
-	if err := mc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+		err)
+	require.NoError(t,
+
+		mc.Start(
+			context.Background()))
 
 	// Wait for at least a couple collection cycles
 	time.Sleep(200 * time.Millisecond)
+	require.NoError(t,
 
-	if err := mc.Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
+		mc.Stop(),
+	)
 
 	snapshots := mc.Snapshots()
-	if len(snapshots) < 2 {
-		t.Fatalf("expected at least 2 snapshots, got %d", len(snapshots))
-	}
+	require.GreaterOrEqual(t, len(snapshots), 2)
 
 	// Verify Go metrics are populated
-	for i, snap := range snapshots {
-		if snap.Go.Goroutines == 0 {
-			t.Errorf("snapshot %d: Goroutines should be > 0", i)
-		}
-		if snap.Go.HeapAlloc == 0 {
-			t.Errorf("snapshot %d: HeapAlloc should be > 0", i)
-		}
-		if snap.Timestamp.IsZero() {
-			t.Errorf("snapshot %d: Timestamp should not be zero", i)
-		}
+	for _, snap := range snapshots {
+		assert.NotEqual(t,
+
+			0, snap.Go.
+				Goroutines,
+		)
+		assert.NotEqual(t,
+
+			0, snap.Go.
+				HeapAlloc,
+		)
+		assert.False(t, snap.
+			Timestamp.
+			IsZero(),
+		)
+
 	}
 }
 
@@ -314,29 +350,31 @@ func TestMetricsCollector_FileRotation(t *testing.T) {
 		OutputDir: outputDir,
 		Interval:  10 * time.Millisecond,
 	})
-	if err != nil {
-		t.Fatalf("NewMetricsCollector: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	// Set a very small max file size to trigger rotation
-	mc.maxFileSize = 500 // 500 bytes
+	mc.maxFileSize = 500
+	require.NoError(t,
 
-	if err := mc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+		mc.Start(
+			context.Background()))
+
+	// 500 bytes
 
 	// Wait for enough collections to trigger rotation
 	time.Sleep(500 * time.Millisecond)
+	require.NoError(t,
 
-	if err := mc.Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
+		mc.Stop(),
+	)
 
 	// Check that multiple files were created
 	entries, err := os.ReadDir(outputDir)
-	if err != nil {
-		t.Fatalf("reading output dir: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	jsonlCount := 0
 	for _, entry := range entries {
@@ -344,10 +382,9 @@ func TestMetricsCollector_FileRotation(t *testing.T) {
 			jsonlCount++
 		}
 	}
+	assert.GreaterOrEqual(t, jsonlCount,
+		2)
 
-	if jsonlCount < 2 {
-		t.Errorf("expected at least 2 JSONL files from rotation, got %d", jsonlCount)
-	}
 }
 
 func TestMetricsCollector_Snapshots(t *testing.T) {
@@ -357,42 +394,43 @@ func TestMetricsCollector_Snapshots(t *testing.T) {
 		OutputDir: outputDir,
 		Interval:  50 * time.Millisecond,
 	})
-	if err != nil {
-		t.Fatalf("NewMetricsCollector: %v", err)
-	}
+	require.NoError(t,
 
-	if err := mc.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+		err)
+	require.NoError(t,
+
+		mc.Start(
+			context.Background()))
 
 	time.Sleep(150 * time.Millisecond)
 
 	// Get snapshots while collector is still running
 	snaps1 := mc.Snapshots()
-	if len(snaps1) == 0 {
-		t.Error("expected snapshots to be available while running")
-	}
+	assert.NotEmpty(t,
+
+		snaps1)
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Get more snapshots - should have grown
 	snaps2 := mc.Snapshots()
-	if len(snaps2) <= len(snaps1) {
-		t.Errorf("expected more snapshots over time: first=%d, second=%d", len(snaps1), len(snaps2))
-	}
+	assert.False(t, len(snaps2) <=
+		len(snaps1))
+	require.NoError(t,
 
-	if err := mc.Stop(); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
+		mc.Stop(),
+	)
 
 	// Verify snapshots are a copy (modifying returned slice does not affect collector)
 	finalSnaps := mc.Snapshots()
 	originalLen := len(finalSnaps)
 	_ = finalSnaps[:0] // Reslice to verify the original is not affected
 	afterClear := mc.Snapshots()
-	if len(afterClear) != originalLen {
-		t.Errorf("Snapshots() should return a copy; expected %d, got %d", originalLen, len(afterClear))
-	}
+	assert.Len(t, afterClear,
+
+		originalLen,
+	)
+
 }
 
 func TestLatencyTracker_ReservoirSampling(t *testing.T) {
@@ -409,13 +447,12 @@ func TestLatencyTracker_ReservoirSampling(t *testing.T) {
 	count := lt.count
 	sampleLen := len(lt.samples)
 	lt.mu.Unlock()
+	assert.Equal(t, int64(total),
+		count)
+	assert.Equal(t, reservoirSize,
 
-	if count != int64(total) {
-		t.Errorf("expected count=%d, got %d", total, count)
-	}
-	if sampleLen != reservoirSize {
-		t.Errorf("expected samples to be capped at %d, got %d", reservoirSize, sampleLen)
-	}
+		sampleLen,
+	)
 
 	// Verify percentiles are reasonable
 	p50 := lt.percentile(50)
@@ -425,40 +462,29 @@ func TestLatencyTracker_ReservoirSampling(t *testing.T) {
 	// around total/2 microseconds. Allow wide tolerance since reservoir sampling
 	// is approximate.
 	expectedMedian := time.Duration(total/2) * time.Microsecond
-	if p50 < expectedMedian/4 || p50 > expectedMedian*4 {
-		t.Errorf("p50=%v seems unreasonable for uniform distribution (expected near %v)", p50, expectedMedian)
-	}
+	assert.False(t, p50 <
+		expectedMedian/
+			4 ||
+		p50 > expectedMedian*
+			4)
+	assert.False(t, p99 <=
+		p50)
 
-	if p99 <= p50 {
-		t.Errorf("p99 (%v) should be greater than p50 (%v)", p99, p50)
-	}
 }
 
 func TestLatencyTracker_Empty(t *testing.T) {
 	lt := newLatencyTracker()
 
-	if got := lt.percentile(50); got != 0 {
-		t.Errorf("percentile(50) on empty tracker = %v, want 0", got)
-	}
-	if got := lt.percentile(99); got != 0 {
-		t.Errorf("percentile(99) on empty tracker = %v, want 0", got)
-	}
+	assert.Equal(t, time.Duration(0), lt.percentile(50))
+	assert.Equal(t, time.Duration(0), lt.percentile(99))
 }
 
 func TestLatencyTracker_SingleSample(t *testing.T) {
 	lt := newLatencyTracker()
 	lt.record(42 * time.Millisecond)
 
-	if got := lt.percentile(0); got != 42*time.Millisecond {
-		t.Errorf("percentile(0) = %v, want 42ms", got)
-	}
-	if got := lt.percentile(50); got != 42*time.Millisecond {
-		t.Errorf("percentile(50) = %v, want 42ms", got)
-	}
-	if got := lt.percentile(99); got != 42*time.Millisecond {
-		t.Errorf("percentile(99) = %v, want 42ms", got)
-	}
-	if got := lt.percentile(100); got != 42*time.Millisecond {
-		t.Errorf("percentile(100) = %v, want 42ms", got)
-	}
+	assert.Equal(t, 42*time.Millisecond, lt.percentile(0))
+	assert.Equal(t, 42*time.Millisecond, lt.percentile(50))
+	assert.Equal(t, 42*time.Millisecond, lt.percentile(99))
+	assert.Equal(t, 42*time.Millisecond, lt.percentile(100))
 }

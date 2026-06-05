@@ -8,6 +8,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func envScopedProjectContext() context.Context {
@@ -21,15 +23,21 @@ func TestJobGroups_EnvironmentScopedCallersRejectedBeforeStore(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobGroupFunc: func(context.Context, *domain.JobGroup) error {
-			t.Fatal("CreateJobGroup must not be called for an environment-scoped caller")
+			require.Fail(t,
+
+				"CreateJobGroup must not be called for an environment-scoped caller")
 			return nil
 		},
 		GetJobGroupFunc: func(context.Context, string) (*domain.JobGroup, error) {
-			t.Fatal("GetJobGroup must not be called for an environment-scoped caller")
+			require.Fail(t,
+
+				"GetJobGroup must not be called for an environment-scoped caller")
 			return nil, store.ErrJobGroupNotFound
 		},
 		ListJobGroupsFunc: func(context.Context, string, int, *time.Time) ([]domain.JobGroup, error) {
-			t.Fatal("ListJobGroups must not be called for an environment-scoped caller")
+			require.Fail(t,
+
+				"ListJobGroups must not be called for an environment-scoped caller")
 			return nil, nil
 		},
 	}
@@ -108,7 +116,9 @@ func TestJobGroups_EnvironmentScopedCallersRejectedBeforeStore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if err := tt.call(); !isHumaStatusError(err, http.StatusForbidden) {
-				t.Fatalf("expected 403, got %v", err)
+				require.Failf(t, "test failure",
+
+					"expected 403, got %v", err)
 			}
 		})
 	}
@@ -171,7 +181,9 @@ func TestJobAnalytics_EnvironmentScopedCallersRejected(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if err := tt.call(); !isHumaStatusError(err, http.StatusForbidden) {
-				t.Fatalf("expected 403, got %v", err)
+				require.Failf(t, "test failure",
+
+					"expected 403, got %v", err)
 			}
 		})
 	}

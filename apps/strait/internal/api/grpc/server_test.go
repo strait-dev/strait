@@ -1,11 +1,12 @@
 package grpc
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/config"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestNewServer_NilPubRejected pins the precondition that NewServer must
@@ -16,15 +17,12 @@ import (
 func TestNewServer_NilPubRejected(t *testing.T) {
 	t.Parallel()
 	srv, err := NewServer(testConfig(), nil, nil)
-	if err == nil {
-		t.Fatal("expected error when pub is nil")
-	}
-	if srv != nil {
-		t.Fatal("expected nil server when pub is nil")
-	}
-	if !strings.Contains(err.Error(), "pubsub") {
-		t.Fatalf("error message should mention pubsub, got: %v", err)
-	}
+	require.Error(
+		t, err)
+	require.Nil(t, srv)
+	require.Contains(t,
+		err.
+			Error(), "pubsub")
 }
 
 // testConfig returns a minimal config suitable for unit tests.
@@ -46,12 +44,9 @@ func TestBuildServer_Plaintext(t *testing.T) {
 	}
 
 	gs, err := s.buildServer()
-	if err != nil {
-		t.Fatalf("expected no error for plaintext config, got: %v", err)
-	}
-	if gs == nil {
-		t.Fatal("expected non-nil gRPC server")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, gs)
+
 	gs.Stop()
 }
 
@@ -60,10 +55,10 @@ func TestGRPCListenAddress_DefaultsToLoopback(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.GRPCPort = 50051
+	require.Equal(
+		t, "127.0.0.1:50051",
 
-	if got := grpcListenAddress(cfg); got != "127.0.0.1:50051" {
-		t.Fatalf("grpcListenAddress = %q, want 127.0.0.1:50051", got)
-	}
+		grpcListenAddress(cfg))
 }
 
 func TestValidateGRPCPlaintextExposure_BlocksPublicBind(t *testing.T) {
@@ -71,10 +66,8 @@ func TestValidateGRPCPlaintextExposure_BlocksPublicBind(t *testing.T) {
 
 	cfg := testConfig()
 	cfg.GRPCBindAddr = "0.0.0.0"
-
-	if err := validateGRPCPlaintextExposure(cfg); err == nil {
-		t.Fatal("expected public plaintext bind to be rejected")
-	}
+	require.Error(
+		t, validateGRPCPlaintextExposure(cfg))
 }
 
 func TestValidateGRPCPlaintextExposure_AllowsPublicBindWithExplicitOverride(t *testing.T) {
@@ -83,10 +76,7 @@ func TestValidateGRPCPlaintextExposure_AllowsPublicBindWithExplicitOverride(t *t
 	cfg := testConfig()
 	cfg.GRPCBindAddr = "0.0.0.0"
 	cfg.GRPCAllowPlaintext = true
-
-	if err := validateGRPCPlaintextExposure(cfg); err != nil {
-		t.Fatalf("expected explicit plaintext override to pass, got %v", err)
-	}
+	require.NoError(t, validateGRPCPlaintextExposure(cfg))
 }
 
 func TestValidateGRPCPlaintextExposure_AllowsLoopback(t *testing.T) {
@@ -97,9 +87,7 @@ func TestValidateGRPCPlaintextExposure_AllowsLoopback(t *testing.T) {
 		t.Run(bind, func(t *testing.T) {
 			cfg := testConfig()
 			cfg.GRPCBindAddr = bind
-			if err := validateGRPCPlaintextExposure(cfg); err != nil {
-				t.Fatalf("loopback bind %q rejected: %v", bind, err)
-			}
+			require.NoError(t, validateGRPCPlaintextExposure(cfg))
 		})
 	}
 }
@@ -111,10 +99,7 @@ func TestValidateGRPCPlaintextExposure_AllowsTLSOnPublicBind(t *testing.T) {
 	cfg.GRPCBindAddr = "0.0.0.0"
 	cfg.GRPCTLSCertPath = "/tmp/cert.pem"
 	cfg.GRPCTLSKeyPath = "/tmp/key.pem"
-
-	if err := validateGRPCPlaintextExposure(cfg); err != nil {
-		t.Fatalf("expected TLS-configured public bind to pass, got %v", err)
-	}
+	require.NoError(t, validateGRPCPlaintextExposure(cfg))
 }
 
 // TestBuildServer_OnlyCertPath_Error verifies that setting only cert path (not key) returns error.
@@ -130,9 +115,8 @@ func TestBuildServer_OnlyCertPath_Error(t *testing.T) {
 	}
 
 	_, err := s.buildServer()
-	if err == nil {
-		t.Fatal("expected error when only cert path is set, got nil")
-	}
+	require.Error(
+		t, err)
 }
 
 // TestBuildServer_OnlyKeyPath_Error verifies that setting only key path (not cert) returns error.
@@ -148,9 +132,8 @@ func TestBuildServer_OnlyKeyPath_Error(t *testing.T) {
 	}
 
 	_, err := s.buildServer()
-	if err == nil {
-		t.Fatal("expected error when only key path is set, got nil")
-	}
+	require.Error(
+		t, err)
 }
 
 // TestBuildServer_BothPathsSet_BadCert verifies that invalid cert/key files return an error.
@@ -166,21 +149,17 @@ func TestBuildServer_BothPathsSet_BadCert(t *testing.T) {
 	}
 
 	_, err := s.buildServer()
-	if err == nil {
-		t.Fatal("expected error for nonexistent TLS cert/key files")
-	}
+	require.Error(
+		t, err)
 }
 
 // TestNewServer_Plaintext verifies NewServer succeeds with plaintext config.
 func TestNewServer_Plaintext(t *testing.T) {
 	cfg := testConfig()
 	srv, err := NewServer(cfg, nil, noopPub{})
-	if err != nil {
-		t.Fatalf("NewServer failed: %v", err)
-	}
-	if srv == nil {
-		t.Fatal("expected non-nil server")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, srv)
+
 	srv.GracefulStop()
 }
 
@@ -188,28 +167,22 @@ func TestNewServer_Plaintext(t *testing.T) {
 func TestServer_Registry(t *testing.T) {
 	cfg := testConfig()
 	srv, err := NewServer(cfg, nil, noopPub{})
-	if err != nil {
-		t.Fatalf("NewServer failed: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer srv.GracefulStop()
 
 	reg := srv.Registry()
-	if reg == nil {
-		t.Fatal("expected non-nil registry")
-	}
+	require.NotNil(t, reg)
 }
 
 // TestServer_WorkerDispatcher verifies WorkerDispatcher() returns a non-nil dispatcher.
 func TestServer_WorkerDispatcher(t *testing.T) {
 	cfg := testConfig()
 	srv, err := NewServer(cfg, nil, noopPub{})
-	if err != nil {
-		t.Fatalf("NewServer failed: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer srv.GracefulStop()
 
 	d := srv.WorkerDispatcher("test-jwt-key")
-	if d == nil {
-		t.Fatal("expected non-nil WorkerDispatcher")
-	}
+	require.NotNil(t, d)
 }

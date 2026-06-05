@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCheckRunTTLLimit_ZeroTTL_NoCap proves the gate ignores zero (the
@@ -17,10 +19,10 @@ func TestCheckRunTTLLimit_ZeroTTL_NoCap(t *testing.T) {
 	t.Parallel()
 	enforcer := &tunableLimitsEnforcer{limits: freeLimits()}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
-
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", 0); err != nil {
-		t.Fatalf("zero ttl must not be capped; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", 0,
+		))
 }
 
 // TestCheckRunTTLLimit_FreeAtLimit_Allows verifies the cap is inclusive — Free
@@ -32,9 +34,10 @@ func TestCheckRunTTLLimit_FreeAtLimit_Allows(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	maxTTL := limits.RetentionDays * 86400
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", maxTTL); err != nil {
-		t.Fatalf("ttl at exact retention boundary must be allowed; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", maxTTL,
+		))
 }
 
 // TestCheckRunTTLLimit_FreeOverLimit_Rejects walks one second past the cap and
@@ -48,13 +51,12 @@ func TestCheckRunTTLLimit_FreeOverLimit_Rejects(t *testing.T) {
 
 	maxTTL := limits.RetentionDays * 86400
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", maxTTL+1)
-	if err == nil {
-		t.Fatal("over-cap ttl must be rejected")
-	}
+	require.Error(t, err)
+
 	for _, fragment := range []string{limits.DisplayName, "retains", "run_ttl_secs"} {
-		if !strings.Contains(err.Error(), fragment) {
-			t.Errorf("error message missing %q, got: %v", fragment, err)
-		}
+		assert.Contains(t,
+			err.
+				Error(), fragment)
 	}
 }
 
@@ -64,10 +66,10 @@ func TestCheckRunTTLLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 	t.Parallel()
 	enforcer := &tunableLimitsEnforcer{limits: enterpriseLimits()}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
-
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", 365*86400); err != nil {
-		t.Fatalf("unlimited tier must never reject; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", 365*
+			86400))
 }
 
 func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -76,9 +78,10 @@ func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	srv.edition = domain.EditionCloud
 
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999_999)
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
 }
 
 // TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen confirms self-hosted
@@ -86,10 +89,10 @@ func TestCheckRunTTLLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 func TestCheckRunTTLLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 	srv := &Server{edition: domain.EditionCommunity}
-
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999_999); err != nil {
-		t.Fatalf("community nil enforcer must fail open; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", 999_999_999,
+		))
 }
 
 func TestCheckRunTTLLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -98,12 +101,10 @@ func TestCheckRunTTLLimit_OrgLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999)
-	if err == nil {
-		t.Fatal("expected org lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckRunTTLLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -112,12 +113,10 @@ func TestCheckRunTTLLimit_PlanLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999)
-	if err == nil {
-		t.Fatal("expected plan lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 // TestCheckRunTTLLimit_RetentionZero_NoCap matches the production behavior of
@@ -128,8 +127,8 @@ func TestCheckRunTTLLimit_RetentionZero_NoCap(t *testing.T) {
 	limits := billing.OrgPlanLimits{DisplayName: "Custom", RetentionDays: 0}
 	enforcer := &tunableLimitsEnforcer{limits: limits}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
-
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", 999_999_999); err != nil {
-		t.Fatalf("zero retention is treated as unset; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", 999_999_999,
+		))
 }

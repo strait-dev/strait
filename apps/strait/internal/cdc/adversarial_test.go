@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestParseChangeEvent_MalformedJSON verifies that handlers return errors
@@ -29,9 +32,7 @@ func TestParseChangeEvent_MalformedJSON(t *testing.T) {
 		}
 
 		err := handler.Handle(context.Background(), msg)
-		if err == nil {
-			t.Errorf("expected error for malformed JSON %q, got nil", string(raw))
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -52,22 +53,14 @@ func TestParseChangeEvent_MissingFields(t *testing.T) {
 	}
 
 	err := handler.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Handle() error = %v; empty object should not fail JSON decode", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, pub.calls, 1)
 
 	// Verify publish was called (the handler publishes even with empty fields).
-	if len(pub.calls) != 1 {
-		t.Fatalf("expected 1 publish call, got %d", len(pub.calls))
-	}
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
-		t.Fatalf("unmarshal published event: %v", err)
-	}
-	if event.Table != "job_runs" {
-		t.Errorf("event.Table = %q, want %q", event.Table, "job_runs")
-	}
+	require.NoError(t, json.Unmarshal(pub.calls[0].data, &event))
+	assert.Equal(t, "job_runs", event.Table)
 }
 
 // TestParseChangeEvent_UnknownAction verifies that an unknown action string
@@ -85,21 +78,12 @@ func TestParseChangeEvent_UnknownAction(t *testing.T) {
 	}
 
 	err := handler.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Handle() error = %v; unknown action should not cause failure", err)
-	}
-
-	if len(pub.calls) != 1 {
-		t.Fatalf("expected 1 publish call, got %d", len(pub.calls))
-	}
+	require.NoError(t, err)
+	require.Len(t, pub.calls, 1)
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if event.Action != Action("drop_table") {
-		t.Errorf("event.Action = %q, want %q", event.Action, "drop_table")
-	}
+	require.NoError(t, json.Unmarshal(pub.calls[0].data, &event))
+	assert.Equal(t, Action("drop_table"), event.Action)
 }
 
 // TestBatchProcess_MixedValidInvalid verifies that Collect correctly handles
@@ -153,25 +137,24 @@ func TestBatchProcess_MixedValidInvalid(t *testing.T) {
 
 		pubMsg, err := handler.Collect(context.Background(), msg)
 		if tc.wantErr {
-			if err == nil {
-				t.Errorf("%s: expected error, got nil", tc.name)
-			}
+			require.Error(t, err)
 			continue
 		}
 		if err != nil {
-			t.Errorf("%s: unexpected error: %v", tc.name, err)
+			assert.Failf(t, "test failure",
+
+				"%s: unexpected error: %v", tc.name, err)
 			continue
 		}
 		if pubMsg == nil {
-			t.Errorf("%s: expected non-nil message", tc.name)
+			assert.Failf(t, "test failure",
+
+				"%s: expected non-nil message", tc.name)
 			continue
 		}
 		successCount++
 	}
-
-	if successCount != 3 {
-		t.Errorf("successCount = %d, want 3", successCount)
-	}
+	assert.Equal(t, 3, successCount)
 }
 
 // FuzzChangeEventParsing fuzzes raw CDC event JSON to check for panics

@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCreateEnvironment_CrossProjectBlocked verifies that an API key for
@@ -19,7 +21,9 @@ func TestCreateEnvironment_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
-			t.Fatal("store.CreateEnvironment should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateEnvironment should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -28,10 +32,9 @@ func TestCreateEnvironment_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","name":"env","slug":"env"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/environments", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateEnvironment_SameProjectAllowed verifies that creating an
@@ -52,10 +55,9 @@ func TestCreateEnvironment_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"env","slug":"env"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/environments", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateWebhookSubscription_CrossProjectBlocked verifies that an API key
@@ -65,7 +67,9 @@ func TestCreateWebhookSubscription_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateWebhookSubscriptionFunc: func(_ context.Context, _ *domain.WebhookSubscription) error {
-			t.Fatal("store.CreateWebhookSubscription should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateWebhookSubscription should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -74,10 +78,9 @@ func TestCreateWebhookSubscription_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"whsec_test"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/subscriptions/", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateDeploymentVersion_CrossProjectBlocked verifies that an API key
@@ -87,7 +90,9 @@ func TestCreateDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateDeploymentVersionFunc: func(_ context.Context, _ *domain.DeploymentVersion) error {
-			t.Fatal("store.CreateDeploymentVersion should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateDeploymentVersion should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -96,10 +101,9 @@ func TestCreateDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","environment":"prod","runtime":"node","artifact_uri":"https://example.com/v1.tar.gz"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestFinalizeDeploymentVersion_CrossProjectBlocked verifies that finalize
@@ -109,7 +113,9 @@ func TestFinalizeDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		FinalizeDeploymentVersionFunc: func(_ context.Context, _, _, _ string) (*domain.DeploymentVersion, error) {
-			t.Fatal("store.FinalizeDeploymentVersion should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.FinalizeDeploymentVersion should not be called for cross-project request")
 			return nil, nil
 		},
 	}
@@ -118,10 +124,9 @@ func TestFinalizeDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","environment":"prod"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments/dep-1/finalize", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestPromoteDeploymentVersion_CrossProjectBlocked verifies that promote
@@ -131,7 +136,9 @@ func TestPromoteDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		PromoteDeploymentVersionFunc: func(_ context.Context, _, _, _, _ string) (*domain.DeploymentVersion, error) {
-			t.Fatal("store.PromoteDeploymentVersion should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.PromoteDeploymentVersion should not be called for cross-project request")
 			return nil, nil
 		},
 	}
@@ -140,10 +147,9 @@ func TestPromoteDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","environment":"prod"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments/dep-1/promote", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestRollbackDeploymentVersion_CrossProjectBlocked verifies that rollback
@@ -153,7 +159,9 @@ func TestRollbackDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		RollbackDeploymentVersionFunc: func(_ context.Context, _, _, _, _ string) (*domain.DeploymentVersion, error) {
-			t.Fatal("store.RollbackDeploymentVersion should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.RollbackDeploymentVersion should not be called for cross-project request")
 			return nil, nil
 		},
 	}
@@ -162,10 +170,9 @@ func TestRollbackDeploymentVersion_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","environment":"prod"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestUpsertWorkflowPolicy_CrossProjectBlocked verifies that an API key
@@ -175,7 +182,9 @@ func TestUpsertWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		UpsertWorkflowPolicyFunc: func(_ context.Context, _ *domain.WorkflowPolicy) error {
-			t.Fatal("store.UpsertWorkflowPolicy should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.UpsertWorkflowPolicy should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -184,10 +193,9 @@ func TestUpsertWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 	body := `{"max_fan_out":10,"max_depth":5}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPut, "/v1/workflow-policies/proj-OTHER", body, "proj-A"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // TestGetWorkflowPolicy_CrossProjectBlocked verifies that an API key
@@ -197,7 +205,9 @@ func TestGetWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetWorkflowPolicyByProjectFunc: func(_ context.Context, _ string) (*domain.WorkflowPolicy, error) {
-			t.Fatal("store.GetWorkflowPolicyByProject should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.GetWorkflowPolicyByProject should not be called for cross-project request")
 			return nil, nil
 		},
 	}
@@ -205,10 +215,9 @@ func TestGetWorkflowPolicy_CrossProjectBlocked(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-policies/proj-OTHER", "", "proj-A"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // TestDeleteEventSubscription_WrongSourceBlocked verifies that deleting an
@@ -227,7 +236,9 @@ func TestDeleteEventSubscription_WrongSourceBlocked(t *testing.T) {
 			}, nil
 		},
 		DeleteEventSubscriptionFunc: func(_ context.Context, _ string) error {
-			t.Fatal("store.DeleteEventSubscription should not be called when source mismatch")
+			require.Fail(t,
+
+				"store.DeleteEventSubscription should not be called when source mismatch")
 			return nil
 		},
 	}
@@ -235,10 +246,9 @@ func TestDeleteEventSubscription_WrongSourceBlocked(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/source-WRONG/subscriptions/sub-1", "", "proj-A"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // TestDeleteEventSubscription_CorrectSourceAllowed verifies that deleting an
@@ -264,10 +274,9 @@ func TestDeleteEventSubscription_CorrectSourceAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/source-1/subscriptions/sub-1", "", "proj-A"))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 // TestDeleteEventSubscription_NotFoundReturns404 verifies that deleting a
@@ -287,10 +296,9 @@ func TestDeleteEventSubscription_NotFoundReturns404(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodDelete, "/v1/event-sources/source-1/subscriptions/sub-missing", "", "proj-A"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
@@ -298,20 +306,21 @@ func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetEventSourceFunc: func(_ context.Context, sourceID, projectID string) (*domain.EventSource, error) {
-			if sourceID != "source-a" {
-				t.Fatalf("sourceID = %q, want source-a", sourceID)
-			}
-			if projectID != projectB {
-				t.Fatalf("projectID = %q, want %q", projectID, projectB)
-			}
+			require.Equal(t, "source-a", sourceID)
+			require.Equal(t, projectB, projectID)
+
 			return nil, store.ErrEventSourceNotFound
 		},
 		GetJobFunc: func(_ context.Context, _ string) (*domain.Job, error) {
-			t.Fatal("GetJob must not be called for cross-project source")
+			require.Fail(t,
+
+				"GetJob must not be called for cross-project source")
 			return nil, nil
 		},
 		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
-			t.Fatal("CreateEventSubscription must not be called for cross-project source")
+			require.Fail(t,
+
+				"CreateEventSubscription must not be called for cross-project source")
 			return nil
 		},
 	}
@@ -320,10 +329,9 @@ func TestSubscribeToEventSource_CrossProjectSourceBlocked(t *testing.T) {
 	body := `{"target_type":"job","target_id":"job-b"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectB))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
@@ -334,13 +342,14 @@ func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
 			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "Source A", Enabled: true}, nil
 		},
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != "job-b" {
-				t.Fatalf("id = %q, want job-b", id)
-			}
+			require.Equal(t, "job-b", id)
+
 			return &domain.Job{ID: "job-b", ProjectID: projectB, Enabled: true}, nil
 		},
 		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
-			t.Fatal("CreateEventSubscription must not be called for cross-project job target")
+			require.Fail(t,
+
+				"CreateEventSubscription must not be called for cross-project job target")
 			return nil
 		},
 	}
@@ -349,10 +358,9 @@ func TestSubscribeToEventSource_CrossProjectJobTargetBlocked(t *testing.T) {
 	body := `{"target_type":"job","target_id":"job-b"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) {
@@ -363,13 +371,14 @@ func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) 
 			return &domain.EventSource{ID: sourceID, ProjectID: projectID, Name: "Source A", Enabled: true}, nil
 		},
 		GetWorkflowFunc: func(_ context.Context, id string) (*domain.Workflow, error) {
-			if id != "wf-b" {
-				t.Fatalf("id = %q, want wf-b", id)
-			}
+			require.Equal(t, "wf-b", id)
+
 			return &domain.Workflow{ID: "wf-b", ProjectID: projectB, Enabled: true}, nil
 		},
 		CreateEventSubscriptionFunc: func(_ context.Context, _ *domain.EventSubscription) error {
-			t.Fatal("CreateEventSubscription must not be called for cross-project workflow target")
+			require.Fail(t,
+
+				"CreateEventSubscription must not be called for cross-project workflow target")
 			return nil
 		},
 	}
@@ -378,10 +387,9 @@ func TestSubscribeToEventSource_CrossProjectWorkflowTargetBlocked(t *testing.T) 
 	body := `{"target_type":"workflow","target_id":"wf-b"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
@@ -397,12 +405,10 @@ func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
 		},
 		CreateEventSubscriptionFunc: func(_ context.Context, sub *domain.EventSubscription) error {
 			created = true
-			if sub.SourceID != "source-a" {
-				t.Fatalf("SourceID = %q, want source-a", sub.SourceID)
-			}
-			if sub.TargetID != "wf-a" {
-				t.Fatalf("TargetID = %q, want wf-a", sub.TargetID)
-			}
+			require.Equal(t, "source-a", sub.
+				SourceID)
+			require.Equal(t, "wf-a", sub.TargetID)
+
 			sub.ID = "sub-a"
 			return nil
 		},
@@ -412,13 +418,11 @@ func TestSubscribeToEventSource_OwnProjectWorkflowTargetAllowed(t *testing.T) {
 	body := `{"target_type":"workflow","target_id":"wf-a"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources/source-a/subscribe", body, projectA))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created {
-		t.Fatal("expected own-project subscription to be created")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, created)
 }
 
 // TestDeleteJobDependency_WrongJobBlocked verifies that deleting a job
@@ -440,7 +444,9 @@ func TestDeleteJobDependency_WrongJobBlocked(t *testing.T) {
 			}, nil
 		},
 		DeleteJobDependencyFunc: func(_ context.Context, _ string) error {
-			t.Fatal("store.DeleteJobDependency should not be called when job mismatch")
+			require.Fail(t,
+
+				"store.DeleteJobDependency should not be called when job mismatch")
 			return nil
 		},
 	}
@@ -448,10 +454,9 @@ func TestDeleteJobDependency_WrongJobBlocked(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-WRONG/dependencies/dep-1", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // TestDeleteJobDependency_CorrectJobAllowed verifies that deleting a job
@@ -480,10 +485,9 @@ func TestDeleteJobDependency_CorrectJobAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-1/dependencies/dep-1", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 // TestCreateJob_CrossProjectBlocked verifies that an API key for project A
@@ -493,7 +497,9 @@ func TestCreateJob_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, _ *domain.Job) error {
-			t.Fatal("store.CreateJob should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateJob should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -502,10 +508,9 @@ func TestCreateJob_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateJob_SameProjectAllowed verifies that creating a job with the
@@ -524,10 +529,9 @@ func TestCreateJob_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateJob_TimeoutSecsExceeds86400Rejected verifies that timeout_secs
@@ -537,7 +541,9 @@ func TestCreateJob_TimeoutSecsExceeds86400Rejected(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobFunc: func(_ context.Context, _ *domain.Job) error {
-			t.Fatal("store.CreateJob should not be called for excessive timeout_secs")
+			require.Fail(t,
+
+				"store.CreateJob should not be called for excessive timeout_secs")
 			return nil
 		},
 	}
@@ -546,10 +552,9 @@ func TestCreateJob_TimeoutSecsExceeds86400Rejected(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook","timeout_secs":999999999}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 // TestCreateJob_TimeoutSecs86400Allowed verifies that timeout_secs at exactly
@@ -568,10 +573,9 @@ func TestCreateJob_TimeoutSecs86400Allowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"test job","slug":"test-job","endpoint_url":"https://example.com/hook","timeout_secs":86400}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateAPIKey_CrossProjectBlocked verifies that an API key for project A
@@ -581,7 +585,9 @@ func TestCreateAPIKey_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateAPIKeyFunc: func(_ context.Context, _ *domain.APIKey) error {
-			t.Fatal("store.CreateAPIKey should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateAPIKey should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -590,10 +596,9 @@ func TestCreateAPIKey_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","name":"my key"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateAPIKey_SameProjectAllowed verifies that creating an API key with
@@ -613,10 +618,9 @@ func TestCreateAPIKey_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"my key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/api-keys", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateEventSource_CrossProjectBlocked verifies that an API key for
@@ -626,7 +630,9 @@ func TestCreateEventSource_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateEventSourceFunc: func(_ context.Context, _ *domain.EventSource) error {
-			t.Fatal("store.CreateEventSource should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateEventSource should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -635,10 +641,9 @@ func TestCreateEventSource_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","name":"src"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateEventSource_SameProjectAllowed verifies that creating an event
@@ -657,10 +662,9 @@ func TestCreateEventSource_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"src"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/event-sources", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateLogDrain_CrossProjectBlocked verifies that an API key for project A
@@ -670,7 +674,9 @@ func TestCreateLogDrain_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
-			t.Fatal("store.CreateLogDrain should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateLogDrain should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -679,10 +685,9 @@ func TestCreateLogDrain_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","name":"drain","drain_type":"http","endpoint_url":"https://example.com/logs","auth_type":"header"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/log-drains", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateLogDrain_SameProjectAllowed verifies that creating a log drain
@@ -700,10 +705,9 @@ func TestCreateLogDrain_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","name":"drain","drain_type":"http","endpoint_url":"https://example.com/logs","auth_type":"header"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/log-drains", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestCreateSecret_CrossProjectBlocked verifies that an API key for project A
@@ -713,7 +717,9 @@ func TestCreateSecret_CrossProjectBlocked(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateJobSecretFunc: func(_ context.Context, _ *domain.JobSecret) error {
-			t.Fatal("store.CreateJobSecret should not be called for cross-project request")
+			require.Fail(t,
+
+				"store.CreateJobSecret should not be called for cross-project request")
 			return nil
 		},
 	}
@@ -722,10 +728,9 @@ func TestCreateSecret_CrossProjectBlocked(t *testing.T) {
 	body := `{"project_id":"proj-OTHER","secret_key":"MY_SECRET","value":"supersecret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/secrets", body, "proj-A"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestCreateSecret_SameProjectAllowed verifies that creating a secret with
@@ -744,10 +749,9 @@ func TestCreateSecret_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","secret_key":"MY_SECRET","value":"supersecret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/secrets", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestTestWebhook_ErrorSanitized verifies that the webhook test endpoint
@@ -764,23 +768,18 @@ func TestTestWebhook_ErrorSanitized(t *testing.T) {
 	body := `{"url":"https://192.0.2.1:1/hook"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/test", body, "proj-A"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	errMsg, ok := resp["error"].(string)
-	if !ok {
-		t.Fatal("expected error field in response")
-	}
-	if errMsg != "connection to webhook URL failed" {
-		t.Fatalf("expected sanitized error message, got: %q", errMsg)
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, "connection to webhook URL failed",
+
+		errMsg)
 }
 
 // TestDeleteJobDependency_NotFoundReturns404 verifies that deleting a
@@ -800,10 +799,9 @@ func TestDeleteJobDependency_NotFoundReturns404(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-1/dependencies/dep-missing", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 // TestCreateDeploymentVersion_SameProjectAllowed verifies that creating a
@@ -824,10 +822,9 @@ func TestCreateDeploymentVersion_SameProjectAllowed(t *testing.T) {
 	body := `{"project_id":"proj-A","environment":"prod","runtime":"node","artifact_uri":"https://example.com/v1.tar.gz"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/deployments", body, "proj-A"))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 // TestUpsertWorkflowPolicy_SameProjectAllowed verifies that upserting a
@@ -845,10 +842,8 @@ func TestUpsertWorkflowPolicy_SameProjectAllowed(t *testing.T) {
 	body := `{"max_fan_out":10,"max_depth":5}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPut, "/v1/workflow-policies/proj-A", body, "proj-A"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // TestGetWorkflowPolicy_SameProjectAllowed verifies that reading a workflow
@@ -870,16 +865,10 @@ func TestGetWorkflowPolicy_SameProjectAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/workflow-policies/proj-A", "", "proj-A"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["project_id"] != "proj-A" {
-		t.Fatalf("expected project_id proj-A, got %v", resp["project_id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "proj-A", resp["project_id"])
 }

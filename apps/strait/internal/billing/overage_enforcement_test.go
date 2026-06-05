@@ -11,6 +11,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupSpendingEnforcer(t *testing.T, orgID, planTier string, spendingLimit int64, periodSpend int64) (*Enforcer, *mockBillingStore) {
@@ -51,17 +53,16 @@ func TestOverage_FreeTier_HardCap(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, 1)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free")
-	if err == nil {
-		t.Fatal("expected spending limit error for free tier with any spend")
-	}
+	require.Error(t,
+		err)
 
 	var le *LimitError
-	if !isLimitError(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "spending_limit_reached" {
-		t.Errorf("Code = %q, want spending_limit_reached", le.Code)
-	}
+	require.True(t, isLimitError(
+		err, &le))
+	assert.Equal(t, "spending_limit_reached",
+
+		le.Code,
+	)
 }
 
 func TestOverage_FreeTier_ZeroSpend_Passes(t *testing.T) {
@@ -71,9 +72,8 @@ func TestOverage_FreeTier_ZeroSpend_Passes(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-free", "free", 0, 0)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free")
-	if err != nil {
-		t.Fatalf("expected pass with zero spend: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestOverage_PaidTier_NoSpendingLimit_Allows(t *testing.T) {
@@ -84,9 +84,8 @@ func TestOverage_PaidTier_NoSpendingLimit_Allows(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", -1, 200_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
-	if err != nil {
-		t.Fatalf("expected no block with unlimited spending: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestOverage_PaidTier_WithSpendingLimit_Blocks(t *testing.T) {
@@ -97,9 +96,8 @@ func TestOverage_PaidTier_WithSpendingLimit_Blocks(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", 50_000_000, 100_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
-	if err == nil {
-		t.Fatal("expected spending limit block at $50 total cap")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
@@ -109,9 +107,8 @@ func TestOverage_PaidTier_ZeroSpendingLimit_Blocks(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-pro", "pro", 0, 1)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-pro")
-	if err == nil {
-		t.Fatal("expected spending limit block with $0 cap")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestOverage_ScaleTier_NoSpendingLimit(t *testing.T) {
@@ -121,9 +118,8 @@ func TestOverage_ScaleTier_NoSpendingLimit(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-scale", "scale", -1, 200_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-scale")
-	if err != nil {
-		t.Fatalf("expected no block for Scale with unlimited spending: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestOverage_NoSubscription_FreeTierFallback(t *testing.T) {
@@ -140,9 +136,8 @@ func TestOverage_NoSubscription_FreeTierFallback(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-none")
-	if err == nil {
-		t.Fatal("expected free tier fallback to block any spend")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestOverage_StarterTier_NoLimit_LargeSpend_Passes(t *testing.T) {
@@ -152,9 +147,8 @@ func TestOverage_StarterTier_NoLimit_LargeSpend_Passes(t *testing.T) {
 	enforcer, _ := setupSpendingEnforcer(t, "org-starter", "starter", -1, 50_000_000)
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-starter")
-	if err != nil {
-		t.Fatalf("expected pass with no spending limit: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestOverage_ConcurrentSpendChecks(t *testing.T) {
@@ -179,7 +173,9 @@ func TestOverage_ConcurrentSpendChecks(t *testing.T) {
 
 	// All should pass since we're under the limit.
 	for err := range errs {
-		t.Errorf("unexpected error in concurrent check: %v", err)
+		assert.Failf(t, "test failure",
+
+			"unexpected error in concurrent check: %v", err)
 	}
 }
 
@@ -213,9 +209,9 @@ func TestOverage_AllTiers_CorrectBehavior(t *testing.T) {
 
 			err := enforcer.CheckSpendingLimit(context.Background(), orgID)
 			blocked := err != nil
-			if blocked != tt.wantBlock {
-				t.Errorf("blocked = %v, want %v (err: %v)", blocked, tt.wantBlock, err)
-			}
+			assert.Equal(t, tt.
+				wantBlock,
+				blocked)
 		})
 	}
 }

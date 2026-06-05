@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Stripe customer.subscription.paused must dispatch billing.suspended via the
@@ -33,31 +36,28 @@ func TestHandleSubscriptionPaused_DispatchesSuspended(t *testing.T) {
 		Metadata:   map[string]string{"org_id": orgID},
 	})
 	rr := fireWebhook(t, h, "customer.subscription.paused", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
-	if len(d.calls) == 0 {
-		t.Fatal("expected at least one billing dispatch")
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
+	require.NotEmpty(t, d.calls)
+
 	var saw bool
 	for _, c := range d.calls {
 		if c.eventType == domain.WebhookEventBillingSuspended {
 			saw = true
 			var env BillingEventEnvelope
-			if err := json.Unmarshal(c.payload, &env); err != nil {
-				t.Fatalf("envelope unmarshal: %v", err)
-			}
-			if env.OrgID != orgID {
-				t.Errorf("env.org_id = %q, want %q", env.OrgID, orgID)
-			}
-			if env.PlanTier != "pro" {
-				t.Errorf("env.plan_tier = %q, want pro", env.PlanTier)
-			}
+			require.NoError(t, json.
+				Unmarshal(c.
+					payload, &env,
+				))
+			assert.Equal(t, orgID,
+				env.OrgID)
+			assert.Equal(t, "pro",
+				env.PlanTier,
+			)
 		}
 	}
-	if !saw {
-		t.Errorf("billing.suspended not dispatched; saw event types %v", dispatchedEventTypes(d))
-	}
+	assert.True(t, saw)
 }
 
 // invoice.payment_failed must dispatch billing.delinquent.
@@ -91,28 +91,27 @@ func TestHandlePaymentFailed_DispatchesDelinquent(t *testing.T) {
 		AmountDue:  1500,
 	})
 	rr := fireWebhook(t, h, "invoice.payment_failed", data)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.
+			Code)
+
 	var saw bool
 	var captured fakeDispatchCall
 	for _, c := range d.calls {
 		if c.eventType == domain.WebhookEventBillingDelinquent {
 			saw = true
 			captured = c
-			if c.orgID != orgID {
-				t.Errorf("dispatched org_id = %q, want %q", c.orgID, orgID)
-			}
+			assert.Equal(t, orgID,
+				c.orgID)
 		}
 	}
-	if !saw {
-		t.Errorf("billing.delinquent not dispatched; saw event types %v", dispatchedEventTypes(d))
-	}
+	assert.True(t, saw)
+
 	var env BillingEventEnvelope
-	if err := json.Unmarshal(captured.payload, &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v", err)
-	}
-	if env.Detail["amount_due_microusd"] != float64(15_000_000) {
-		t.Errorf("detail.amount_due_microusd = %v, want 15000000", env.Detail["amount_due_microusd"])
-	}
+	require.NoError(t, json.
+		Unmarshal(captured.
+			payload,
+			&env))
+	assert.InDelta(t, float64(15_000_000),
+		env.Detail["amount_due_microusd"], 1e-9)
 }

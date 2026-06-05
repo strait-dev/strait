@@ -9,13 +9,16 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSafeGo_NoPanic_RunsNormally(t *testing.T) {
 	// Not parallel: mutates package-level exitFunc.
 	origExit := exitFunc
 	exitFunc = func(code int) {
-		t.Fatalf("exitFunc should not be called, got code %d", code)
+		require.Failf(t, "test failure",
+
+			"exitFunc should not be called, got code %d", code)
 	}
 	defer func() { exitFunc = origExit }()
 
@@ -25,10 +28,7 @@ func TestSafeGo_NoPanic_RunsNormally(t *testing.T) {
 		ran = true
 	})
 	wg.Wait()
-
-	if !ran {
-		t.Fatal("expected function to run")
-	}
+	require.True(t, ran)
 }
 
 func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
@@ -42,12 +42,15 @@ func TestSafeGoWithContext_AddsSchedulerBreadcrumb(t *testing.T) {
 	wg.Wait()
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil || len(event.Breadcrumbs) != 1 {
-		t.Fatalf("breadcrumbs = %v, want one breadcrumb", event)
-	}
-	if got := event.Breadcrumbs[0].Category; got != "scheduler.component" {
-		t.Fatalf("breadcrumb category = %q, want scheduler.component", got)
-	}
+	require.False(t, event ==
+		nil ||
+		len(event.Breadcrumbs) !=
+			1)
+	require.Equal(t, "scheduler.component",
+
+		event.
+			Breadcrumbs[0].Category,
+	)
 }
 
 func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
@@ -68,25 +71,24 @@ func TestSafeGoWithContext_CapturesSchedulerCheckIns(t *testing.T) {
 		checkInMonitorPrefix: "Strait Scheduler",
 	}, &wg, "Clean Component", func(context.Context) {})
 	wg.Wait()
+	require.Len(t, got,
+		2)
+	require.Equal(t, "strait-scheduler-clean-component",
 
-	if len(got) != 2 {
-		t.Fatalf("check-ins = %d, want 2", len(got))
-	}
-	if got[0].MonitorSlug != "strait-scheduler-clean-component" {
-		t.Fatalf("monitor slug = %q, want sanitized slug", got[0].MonitorSlug)
-	}
-	if got[0].Status != sentry.CheckInStatusInProgress {
-		t.Fatalf("start status = %q, want in_progress", got[0].Status)
-	}
-	if got[1].ID != id {
-		t.Fatalf("finish check-in id = %q, want %q", got[1].ID, id)
-	}
-	if got[1].Status != sentry.CheckInStatusOK {
-		t.Fatalf("finish status = %q, want ok", got[1].Status)
-	}
-	if got[1].Duration < 0 {
-		t.Fatalf("duration = %v, want non-negative", got[1].Duration)
-	}
+		got[0].MonitorSlug,
+	)
+	require.Equal(t, sentry.
+		CheckInStatusInProgress,
+
+		got[0].
+			Status)
+	require.Equal(t, id,
+		got[1].ID,
+	)
+	require.Equal(t, sentry.
+		CheckInStatusOK,
+		got[1].Status)
+	require.GreaterOrEqual(t, got[1].Duration, time.Duration(0))
 }
 
 func TestSafeGoWithContext_PassesSentryContextToComponent(t *testing.T) {
@@ -106,13 +108,11 @@ func TestSafeGoWithContext_PassesSentryContextToComponent(t *testing.T) {
 		gotCheckIn, _ = componentCtx.Value(schedulerCheckInContextKey{}).(schedulerCheckInContext)
 	})
 	wg.Wait()
+	require.NotNil(t, gotHub)
+	require.Equal(t, "component",
 
-	if gotHub == nil {
-		t.Fatal("component context is missing sentry hub")
-	}
-	if gotCheckIn.component != "component" {
-		t.Fatalf("component check-in context = %q, want component", gotCheckIn.component)
-	}
+		gotCheckIn.component,
+	)
 }
 
 func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
@@ -142,25 +142,26 @@ func TestRunSchedulerCycleCheckIn_CapturesConfiguredCycle(t *testing.T) {
 	runSchedulerCycleCheckIn(ctx, 90*time.Second, func() {
 		ran = true
 	})
+	require.True(t, ran)
+	require.Len(t, got,
+		2)
+	require.Equal(t, "strait-reaper-cycle",
 
-	if !ran {
-		t.Fatal("cycle body did not run")
-	}
-	if len(got) != 2 {
-		t.Fatalf("check-ins = %d, want 2", len(got))
-	}
-	if got[0].checkIn.MonitorSlug != "strait-reaper-cycle" {
-		t.Fatalf("monitor slug = %q, want strait-reaper-cycle", got[0].checkIn.MonitorSlug)
-	}
-	if got[0].config == nil || got[0].config.CheckInMargin != 2 || got[0].config.MaxRuntime != 2 {
-		t.Fatalf("monitor config = %#v, want 2 minute interval config", got[0].config)
-	}
-	if got[1].checkIn.ID != id {
-		t.Fatalf("finish id = %q, want %q", got[1].checkIn.ID, id)
-	}
-	if got[1].checkIn.Status != sentry.CheckInStatusOK {
-		t.Fatalf("finish status = %q, want ok", got[1].checkIn.Status)
-	}
+		got[0].checkIn.
+			MonitorSlug,
+	)
+	require.False(t, got[0].config ==
+		nil || got[0].config.
+		CheckInMargin !=
+		2 || got[0].config.MaxRuntime !=
+		2)
+	require.Equal(t, id,
+		got[1].checkIn.
+			ID)
+	require.Equal(t, sentry.
+		CheckInStatusOK,
+		got[1].checkIn.
+			Status)
 }
 
 func TestRunSchedulerCycleCheckInWithError_CapturesFailedCycle(t *testing.T) {
@@ -185,18 +186,19 @@ func TestRunSchedulerCycleCheckInWithError_CapturesFailedCycle(t *testing.T) {
 	err := runSchedulerCycleCheckInWithError(ctx, time.Minute, func() error {
 		return errors.New("flush failed")
 	})
-	if err == nil {
-		t.Fatal("expected cycle error")
-	}
-	if len(got) != 2 {
-		t.Fatalf("check-ins = %d, want 2", len(got))
-	}
-	if got[1].Status != sentry.CheckInStatusError {
-		t.Fatalf("finish status = %q, want error", got[1].Status)
-	}
-	if got[1].MonitorSlug != "strait-outbox-flusher-cycle" {
-		t.Fatalf("monitor slug = %q, want strait-outbox-flusher-cycle", got[1].MonitorSlug)
-	}
+	require.Error(t, err)
+	require.Len(t, got,
+		2)
+	require.Equal(t, sentry.
+		CheckInStatusError,
+
+		got[1].Status,
+	)
+	require.Equal(t, "strait-outbox-flusher-cycle",
+
+		got[1].
+			MonitorSlug,
+	)
 }
 
 func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
@@ -224,16 +226,16 @@ func TestSafeGoWithContext_CapturesErrorCheckInOnPanic(t *testing.T) {
 		panic("boom")
 	})
 	wg.Wait()
+	require.Len(t, got,
+		2)
+	require.Equal(t, sentry.
+		CheckInStatusError,
 
-	if len(got) != 2 {
-		t.Fatalf("check-ins = %d, want 2", len(got))
-	}
-	if got[1].Status != sentry.CheckInStatusError {
-		t.Fatalf("finish status = %q, want error", got[1].Status)
-	}
-	if got[1].Duration > time.Minute {
-		t.Fatalf("duration = %v, want bounded test duration", got[1].Duration)
-	}
+		got[1].Status,
+	)
+	require.LessOrEqual(t, got[1].
+		Duration, time.
+		Minute)
 }
 
 func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
@@ -246,9 +248,8 @@ func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
 		version: "test-version",
 	}, "poller", "boom")
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-	}
+	require.NotNil(t, event)
+
 	wantTags := map[string]string{
 		"subsystem": "scheduler",
 		"mode":      "all",
@@ -257,13 +258,13 @@ func TestApplySchedulerSentryScopeAddsRuntimeTags(t *testing.T) {
 		"operation": "poller",
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(t, want,
+			event.
+				Tags[key])
 	}
-	if got := event.Contexts["scheduler.component"]["component"]; got != "poller" {
-		t.Fatalf("scheduler component context = %v, want poller", got)
-	}
+	require.Equal(t, "poller",
+		event.
+			Contexts["scheduler.component"]["component"])
 }
 
 func TestSafeGo_Panic_CallsExit(t *testing.T) {
@@ -281,10 +282,9 @@ func TestSafeGo_Panic_CallsExit(t *testing.T) {
 		panic("something broke")
 	})
 	wg.Wait()
-
-	if exitCode.Load() != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode.Load())
-	}
+	require.EqualValues(t, 1,
+		exitCode.
+			Load())
 }
 
 func TestSafeGo_Panic_NilValue(t *testing.T) {
@@ -301,11 +301,11 @@ func TestSafeGo_Panic_NilValue(t *testing.T) {
 		panic(nil)
 	})
 	wg.Wait()
+	require.True(t, called.
+		Load(),
+	)
 
 	// panic(nil) is still caught by recover() in Go 1.21+; in older Go it returns nil.
 	// Either way, exitFunc should be called because the deferred recover fires.
 	// Note: In Go 1.21+ panic(nil) wraps into a *runtime.PanicNilError.
-	if !called.Load() {
-		t.Fatal("expected exitFunc to be called on panic(nil)")
-	}
 }

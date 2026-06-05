@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestReaper_RetryStaleRunUsesBackoffAndKeepsWorkflowCallbackSilent(t *testing.T) {
@@ -25,41 +27,43 @@ func TestReaper_RetryStaleRunUsesBackoffAndKeepsWorkflowCallbackSilent(t *testin
 			return &domain.Job{MaxAttempts: 3}, nil
 		},
 		scheduleRetryFn: func(_ context.Context, runID string, at time.Time, attempt int) error {
-			if runID != "run-1" {
-				t.Fatalf("scheduled run id = %s, want run-1", runID)
-			}
-			if !at.After(time.Now()) {
-				t.Fatalf("retry time = %s, want future", at)
-			}
+			require.Equal(t, "run-1",
+				runID,
+			)
+			require.True(t, at.
+				After(time.
+					Now()))
+
 			scheduledAttempt = attempt
 			return nil
 		},
 		updateRunStatusFn: func(_ context.Context, _ string, from, to domain.RunStatus, fields map[string]any) error {
-			if from != domain.StatusExecuting {
-				t.Fatalf("from = %s, want executing", from)
-			}
-			if fields["error_class"] != "transient" {
-				t.Fatalf("error_class = %v, want transient", fields["error_class"])
-			}
+			require.Equal(t, domain.
+				StatusExecuting,
+
+				from)
+			require.Equal(t, "transient",
+
+				fields["error_class"])
+
 			transitionedTo = to
 			return nil
 		},
 	}
 	reaper := NewReaper(store, time.Second, time.Minute, 0, 0, false, callback)
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Status: domain.StatusExecuting, Attempt: 1}
+	require.True(t, reaper.
+		retryStaleRun(context.
+			Background(), run))
+	require.Equal(t, 2,
+		scheduledAttempt,
+	)
+	require.Equal(t, domain.
+		StatusQueued,
 
-	if !reaper.retryStaleRun(context.Background(), run) {
-		t.Fatal("retryStaleRun() = false, want true")
-	}
-	if scheduledAttempt != 2 {
-		t.Fatalf("scheduled attempt = %d, want 2", scheduledAttempt)
-	}
-	if transitionedTo != domain.StatusQueued {
-		t.Fatalf("transitioned to = %s, want queued", transitionedTo)
-	}
-	if callbackCalled {
-		t.Fatal("workflow callback should not fire for non-terminal retry")
-	}
+		transitionedTo,
+	)
+	require.False(t, callbackCalled)
 }
 
 func TestReaper_RetryStaleRunStopsWhenAttemptsExhausted(t *testing.T) {
@@ -70,16 +74,18 @@ func TestReaper_RetryStaleRunStopsWhenAttemptsExhausted(t *testing.T) {
 			return &domain.Job{MaxAttempts: 2}, nil
 		},
 		scheduleRetryFn: func(context.Context, string, time.Time, int) error {
-			t.Fatal("ScheduleRetry should not be called after attempts are exhausted")
+			require.Fail(t,
+
+				"ScheduleRetry should not be called after attempts are exhausted")
 			return nil
 		},
 	}
 	reaper := NewReaper(store, time.Second, time.Minute, 0, 0, false, nil)
 	run := &domain.JobRun{ID: "run-1", JobID: "job-1", Status: domain.StatusExecuting, Attempt: 2}
-
-	if reaper.retryStaleRun(context.Background(), run) {
-		t.Fatal("retryStaleRun() = true, want false")
-	}
+	require.False(t, reaper.
+		retryStaleRun(
+			context.
+				Background(), run))
 }
 
 func FuzzNextStaleRunRetryAt(f *testing.F) {
@@ -90,12 +96,13 @@ func FuzzNextStaleRunRetryAt(f *testing.F) {
 	f.Fuzz(func(t *testing.T, attempt int) {
 		before := time.Now()
 		got := nextStaleRunRetryAt(attempt)
-		if got.Before(before) {
-			t.Fatalf("retry time %s is before %s", got, before)
-		}
-		if got.After(before.Add(time.Hour + time.Second)) {
-			t.Fatalf("retry time %s exceeds one-hour cap from %s", got, before)
-		}
+		require.False(t, got.
+			Before(before))
+		require.False(t, got.
+			After(before.
+				Add(
+					time.
+						Hour+time.Second)))
 	})
 }
 

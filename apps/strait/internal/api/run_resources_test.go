@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleListRunResources_Success(t *testing.T) {
@@ -27,9 +29,9 @@ func TestHandleListRunResources_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
@@ -42,9 +44,9 @@ func TestHandleListRunResources_CrossProjectBlocked(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-B"))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleListRunResources_EnvironmentScopedCallerBlockedBeforeSnapshots(t *testing.T) {
@@ -66,12 +68,9 @@ func TestHandleListRunResources_EnvironmentScopedCallerBlockedBeforeSnapshots(t 
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 	_, err := srv.handleListRunResources(ctx, &ListRunResourcesInput{RunID: "run-1"})
-	if !isNotFound(err) {
-		t.Fatalf("expected not found for cross-environment run, got %v", err)
-	}
-	if snapshotsCalled {
-		t.Fatal("expected environment check to run before listing snapshots")
-	}
+	require.True(
+		t, isNotFound(err))
+	require.False(t, snapshotsCalled)
 }
 
 func TestHandleListRunResources_RunNotFound(t *testing.T) {
@@ -84,9 +83,9 @@ func TestHandleListRunResources_RunNotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-missing/resources", "", "proj-1"))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
@@ -102,9 +101,9 @@ func TestHandleListRunResources_EmptySnapshots(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestHandleListRunResources_MissingProjectID(t *testing.T) {
@@ -120,10 +119,11 @@ func TestHandleListRunResources_MissingProjectID(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", ""))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	// Without a project ID in context, requireProjectMatch allows through (internal caller).
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
@@ -136,9 +136,9 @@ func TestHandleListRunResources_InvalidFromParam(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?from=not-a-date", "", "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestHandleListRunResources_InvalidToParam(t *testing.T) {
@@ -151,9 +151,9 @@ func TestHandleListRunResources_InvalidToParam(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?to=not-a-date", "", "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestHandleListRunResources_InvalidLimit(t *testing.T) {
@@ -167,9 +167,9 @@ func TestHandleListRunResources_InvalidLimit(t *testing.T) {
 	for _, limit := range []string{"0", "-1"} {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?limit="+limit, "", "proj-1"))
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 for limit=%s, got %d: %s", limit, w.Code, w.Body.String())
-		}
+		require.Equal(t, http.
+			StatusBadRequest,
+			w.Code)
 	}
 }
 
@@ -188,12 +188,12 @@ func TestHandleListRunResources_LimitCapped(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources?limit=5000", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedLimit != 1000 {
-		t.Fatalf("expected limit capped to 1000, got %d", capturedLimit)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, 1000,
+		capturedLimit,
+	)
 }
 
 func TestHandleListRunResources_StoreError(t *testing.T) {
@@ -209,7 +209,8 @@ func TestHandleListRunResources_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/resources", "", "proj-1"))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+		w.Code,
+	)
 }

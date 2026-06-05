@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestOpenAPISchema_IncludesAuditAdminEndpoints is a drift guard asserting
@@ -25,20 +28,17 @@ func TestOpenAPISchema_IncludesAuditAdminEndpoints(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var spec struct {
 		Paths map[string]map[string]any `json:"paths"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("unmarshal openapi spec: %v", err)
-	}
-	if len(spec.Paths) == 0 {
-		t.Fatal("openapi spec has no paths")
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &spec))
+	require.NotEmpty(t,
+		spec.Paths)
 
 	// Each entry: (path, http method) the spec must expose.
 	want := []struct {
@@ -56,11 +56,15 @@ func TestOpenAPISchema_IncludesAuditAdminEndpoints(t *testing.T) {
 	for _, w := range want {
 		methods, ok := spec.Paths[w.path]
 		if !ok {
-			t.Errorf("openapi spec missing path %q", w.path)
+			assert.Failf(t, "test failure",
+
+				"openapi spec missing path %q", w.path)
 			continue
 		}
 		if _, ok := methods[w.method]; !ok {
-			t.Errorf("openapi spec path %q missing method %q", w.path, w.method)
+			assert.Failf(t, "test failure",
+
+				"openapi spec path %q missing method %q", w.path, w.method)
 		}
 	}
 }
@@ -72,10 +76,9 @@ func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	raw := w.Body.String()
 	retiredCostFields := []string{
@@ -143,14 +146,10 @@ func TestOpenAPISchema_DoesNotExposeRemovedLaunchSurfaces(t *testing.T) {
 		"stream-deployment-logs",
 		"machine_id",
 	} {
-		if strings.Contains(raw, stale) {
-			t.Fatalf("openapi spec contains removed launch surface %q", stale)
-		}
+		require.NotContains(t, raw, stale)
 	}
 	for _, stale := range retiredCostFields {
-		if strings.Contains(raw, stale) {
-			t.Fatalf("openapi spec contains removed launch surface %q", stale)
-		}
+		require.NotContains(t, raw, stale)
 	}
 }
 
@@ -161,19 +160,20 @@ func TestOpenAPISchema_DoesNotExposeLaunchInactiveRegionSurface(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var spec struct {
 		Paths map[string]map[string]any `json:"paths"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("unmarshal openapi spec: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &spec))
+
 	if _, ok := spec.Paths["/v1/regions"]; ok {
-		t.Fatal("openapi spec exposes launch-inactive /v1/regions endpoint")
+		require.Fail(t,
+
+			"openapi spec exposes launch-inactive /v1/regions endpoint")
 	}
 }
 
@@ -184,10 +184,9 @@ func TestOpenAPISchema_TriggerJobIncludesTraceHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var spec struct {
 		Paths map[string]map[string]struct {
@@ -197,14 +196,12 @@ func TestOpenAPISchema_TriggerJobIncludesTraceHeaders(t *testing.T) {
 			} `json:"parameters"`
 		} `json:"paths"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("unmarshal openapi spec: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &spec))
 
 	trigger, ok := spec.Paths["/v1/jobs/{jobID}/trigger"]["post"]
-	if !ok {
-		t.Fatal("openapi spec is missing POST /v1/jobs/{jobID}/trigger")
-	}
+	require.True(t, ok)
+
 	want := map[string]bool{
 		"Traceparent":  false,
 		"Tracestate":   false,
@@ -219,10 +216,8 @@ func TestOpenAPISchema_TriggerJobIncludesTraceHeaders(t *testing.T) {
 			want[param.Name] = true
 		}
 	}
-	for name, found := range want {
-		if !found {
-			t.Fatalf("trigger operation missing header parameter %q", name)
-		}
+	for _, found := range want {
+		require.True(t, found)
 	}
 }
 
@@ -233,19 +228,17 @@ func TestOpenAPISchema_PlanGatedOperationsDeclareForbidden(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var spec struct {
 		Paths map[string]map[string]struct {
 			Responses map[string]json.RawMessage `json:"responses"`
 		} `json:"paths"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("unmarshal openapi spec: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &spec))
 
 	want := []struct {
 		name   string
@@ -266,15 +259,15 @@ func TestOpenAPISchema_PlanGatedOperationsDeclareForbidden(t *testing.T) {
 	for _, tt := range want {
 		t.Run(tt.name, func(t *testing.T) {
 			methods, ok := spec.Paths[tt.path]
-			if !ok {
-				t.Fatalf("openapi spec missing path %q", tt.path)
-			}
+			require.True(t, ok)
+
 			op, ok := methods[tt.method]
-			if !ok {
-				t.Fatalf("openapi spec path %q missing method %q", tt.path, tt.method)
-			}
+			require.True(t, ok)
+
 			if _, ok := op.Responses["403"]; !ok {
-				t.Fatalf("%s %s must declare 403 for its plan/RBAC gate", tt.method, tt.path)
+				require.Failf(t, "test failure",
+
+					"%s %s must declare 403 for its plan/RBAC gate", tt.method, tt.path)
 			}
 		})
 	}
@@ -296,15 +289,12 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	raw := w.Body.Bytes()
-	if strings.Contains(string(raw), "ErrorModel") {
-		t.Fatal("openapi spec still references Huma ErrorModel; the override did not run")
-	}
+	require.NotContains(t, string(raw), "ErrorModel")
 
 	var spec struct {
 		Components struct {
@@ -320,14 +310,12 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 			} `json:"responses"`
 		} `json:"paths"`
 	}
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		t.Fatalf("unmarshal openapi spec: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(raw, &spec))
 
 	apiErrorSchema, ok := spec.Components.Schemas["APIError"]
-	if !ok {
-		t.Fatal("openapi spec missing components.schemas.APIError")
-	}
+	require.True(t, ok)
+
 	var apiError struct {
 		Properties struct {
 			Code struct {
@@ -335,9 +323,9 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 			} `json:"code"`
 		} `json:"properties"`
 	}
-	if err := json.Unmarshal(apiErrorSchema, &apiError); err != nil {
-		t.Fatalf("unmarshal APIError schema: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(apiErrorSchema, &apiError))
+
 	wantCodes := []string{
 		"bad_request",
 		"authentication_required",
@@ -355,13 +343,13 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 		got[c] = true
 	}
 	for _, c := range wantCodes {
-		if !got[c] {
-			t.Errorf("APIError.code enum missing %q", c)
-		}
+		assert.True(t, got[c])
 	}
 
 	if _, ok := spec.Components.Schemas["ErrorResponse"]; !ok {
-		t.Fatal("openapi spec missing components.schemas.ErrorResponse")
+		require.Fail(t,
+
+			"openapi spec missing components.schemas.ErrorResponse")
 	}
 
 	// Spot-check at least one operation: error responses should reference
@@ -377,15 +365,12 @@ func TestOpenAPISchema_ErrorEnvelope(t *testing.T) {
 					if c.Schema.Ref == "" {
 						continue
 					}
-					if !strings.HasSuffix(c.Schema.Ref, "/ErrorResponse") {
-						t.Errorf("response %s references %q, want #/components/schemas/ErrorResponse", status, c.Schema.Ref)
-					}
+					assert.True(t, strings.HasSuffix(c.Schema.Ref, "/ErrorResponse"))
+
 					found = true
 				}
 			}
 		}
 	}
-	if !found {
-		t.Fatal("no error responses found to inspect; spec may be empty")
-	}
+	require.True(t, found)
 }

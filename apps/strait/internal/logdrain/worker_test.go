@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockDrainStore implements DrainStore for testing.
@@ -129,7 +131,7 @@ func TestWorker_StartStop(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("worker did not stop within 2s after context cancel")
+		require.Fail(t, "worker did not stop within 2s after context cancel")
 	}
 }
 
@@ -152,7 +154,7 @@ func TestWorker_StopMethod(t *testing.T) {
 	select {
 	case <-stopped:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Stop() did not return within 2s")
+		require.Fail(t, "Stop() did not return within 2s")
 	}
 }
 
@@ -254,12 +256,10 @@ func TestWorker_Tick_DrainEventsDelivered(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(received))
-	}
-	if received[0].ID != "evt-1" {
-		t.Errorf("first event ID = %q, want evt-1", received[0].ID)
-	}
+	require.Len(t, received,
+		2)
+	assert.Equal(t, "evt-1",
+		received[0].ID)
 }
 
 func TestWorker_Tick_MultipleRuns(t *testing.T) {
@@ -302,9 +302,8 @@ func TestWorker_Tick_MultipleRuns(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deliveryCount != 2 {
-		t.Errorf("expected 2 deliveries, got %d", deliveryCount)
-	}
+	assert.Equal(t, 2,
+		deliveryCount)
 }
 
 func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
@@ -343,13 +342,11 @@ func TestWorker_Tick_CheckpointUpdated(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-
-	if !cp.FinishedAt.Equal(f2) {
-		t.Errorf("checkpoint.FinishedAt = %v, want %v", cp.FinishedAt, f2)
-	}
-	if cp.RunID != "run-2" {
-		t.Errorf("checkpoint.RunID = %q, want run-2", cp.RunID)
-	}
+	assert.True(t, cp.
+		FinishedAt.Equal(
+		f2))
+	assert.Equal(t, "run-2",
+		cp.RunID)
 }
 
 func TestWorker_Tick_DeliveryErrorContinuesToNextRun(t *testing.T) {
@@ -397,19 +394,18 @@ func TestWorker_Tick_DeliveryErrorContinuesToNextRun(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	assert.Equal(t, 2,
+		callCount)
+
 	// run-1 fails, run-2 succeeds - both should be attempted.
-	if callCount != 2 {
-		t.Errorf("expected 2 HTTP calls (run-1 fail + run-2 success), got %d", callCount)
-	}
 
 	// Checkpoint should advance past run-2 (success) but not run-1 (failure).
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-
-	if !cp.FinishedAt.Equal(f2) {
-		t.Errorf("checkpoint.FinishedAt = %v, want %v (run-2)", cp.FinishedAt, f2)
-	}
+	assert.True(t, cp.
+		FinishedAt.Equal(
+		f2))
 }
 
 func TestWorker_Tick_NoEventsSkipsDelivery(t *testing.T) {
@@ -449,9 +445,8 @@ func TestWorker_Tick_NoEventsSkipsDelivery(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if requestCount != 0 {
-		t.Errorf("expected 0 HTTP requests for empty events, got %d", requestCount)
-	}
+	assert.Equal(t, 0,
+		requestCount)
 }
 
 func TestWorker_Tick_NilStore(t *testing.T) {
@@ -582,11 +577,11 @@ func TestWorker_Tick_ListEventsError_DoesNotAdvanceCheckpoint(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
+	assert.True(t, cp.
+		FinishedAt.Equal(
+		f1))
 
 	// Checkpoint should be at run-1, not run-2 (which had a ListEvents error).
-	if !cp.FinishedAt.Equal(f1) {
-		t.Errorf("checkpoint.FinishedAt = %v, want %v (run-1 only)", cp.FinishedAt, f1)
-	}
 }
 
 // Poison run skip after max retries.
@@ -628,9 +623,8 @@ func TestWorker_Tick_PoisonRunSkippedAfterMaxRetries(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if cp.FinishedAt.Equal(finishedAt) {
-		t.Error("checkpoint should not advance before the skip tick")
-	}
+	assert.False(t, cp.
+		FinishedAt.Equal(finishedAt))
 
 	// One more tick: now it should be skipped as a poison run.
 	w.tick(ctx)
@@ -638,9 +632,10 @@ func TestWorker_Tick_PoisonRunSkippedAfterMaxRetries(t *testing.T) {
 	w.mu.Lock()
 	cp = w.checkpoints["drain-1"]
 	w.mu.Unlock()
-	if !cp.FinishedAt.Equal(finishedAt) {
-		t.Errorf("checkpoint.FinishedAt = %v, want %v (poison run should be skipped)", cp.FinishedAt, finishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.Equal(
+		finishedAt,
+	))
 }
 
 func TestWorker_Tick_SuccessResetsFailCount(t *testing.T) {
@@ -686,18 +681,16 @@ func TestWorker_Tick_SuccessResetsFailCount(t *testing.T) {
 	w.mu.Lock()
 	fc := w.failCounts["drain-1:run-1"]
 	w.mu.Unlock()
-	if fc != 1 {
-		t.Fatalf("fail count = %d, want 1", fc)
-	}
+	require.Equal(t, 1,
+		fc)
 
 	w.tick(ctx) // succeeds
 
 	w.mu.Lock()
 	fc = w.failCounts["drain-1:run-1"]
 	w.mu.Unlock()
-	if fc != 0 {
-		t.Errorf("fail count after success = %d, want 0", fc)
-	}
+	assert.Equal(t, 0,
+		fc)
 }
 
 // Composite cursor handles timestamp collision.
@@ -750,9 +743,8 @@ func TestWorker_Tick_TimestampCollisionPagination(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(deliveredRuns) != 3 {
-		t.Errorf("expected 3 delivered runs, got %d: %v", len(deliveredRuns), deliveredRuns)
-	}
+	assert.Len(t, deliveredRuns,
+		3)
 }
 
 // Zero checkpoint and pagination on catch-up.
@@ -795,9 +787,8 @@ func TestWorker_Tick_FirstRunProcessesAllHistory(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deliveredCount != 1 {
-		t.Errorf("expected 1 delivery (old run processed), got %d", deliveredCount)
-	}
+	assert.Equal(t, 1,
+		deliveredCount)
 }
 
 func TestWorker_Tick_PaginatesCatchUp(t *testing.T) {
@@ -848,9 +839,9 @@ func TestWorker_Tick_PaginatesCatchUp(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deliveredCount != 250 {
-		t.Errorf("expected 250 deliveries (paginated catch-up), got %d", deliveredCount)
-	}
+	assert.Equal(t, 250,
+		deliveredCount,
+	)
 }
 
 // Event pagination across multiple pages.
@@ -908,9 +899,8 @@ func TestWorker_Tick_EventPagination(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receivedEvents) != 2500 {
-		t.Errorf("expected 2500 events (paginated), got %d", len(receivedEvents))
-	}
+	assert.Len(t, receivedEvents,
+		2500)
 }
 
 func TestWorker_Tick_EventPaginationError(t *testing.T) {
@@ -957,8 +947,6 @@ func TestWorker_Tick_EventPaginationError(t *testing.T) {
 	w.mu.Lock()
 	cp := w.checkpoints["drain-1"]
 	w.mu.Unlock()
-
-	if !cp.FinishedAt.IsZero() {
-		t.Errorf("checkpoint should be zero after event fetch error, got %v", cp.FinishedAt)
-	}
+	assert.True(t, cp.
+		FinishedAt.IsZero())
 }

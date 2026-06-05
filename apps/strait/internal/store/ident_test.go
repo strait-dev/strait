@@ -3,6 +3,9 @@ package store
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateIdent_Valid(t *testing.T) {
@@ -11,9 +14,8 @@ func TestValidateIdent_Valid(t *testing.T) {
 		"idx_runs_queue", "schema_version",
 	}
 	for _, s := range valid {
-		if err := ValidateIdent(s); err != nil {
-			t.Errorf("ValidateIdent(%q) = %v, want nil", s, err)
-		}
+		assert.NoError(
+			t, ValidateIdent(s))
 	}
 }
 
@@ -23,32 +25,31 @@ func TestValidateIdent_Invalid(t *testing.T) {
 		"a b", "a\tb", "a\nb",
 	}
 	for _, s := range invalid {
-		if err := ValidateIdent(s); err == nil {
-			t.Errorf("ValidateIdent(%q) = nil, want error", s)
-		}
+		assert.Error(t,
+			ValidateIdent(s))
 	}
 }
 
 func TestValidateIdent_TooLong(t *testing.T) {
 	long := strings.Repeat("a", 129)
-	if err := ValidateIdent(long); err == nil {
-		t.Error("expected too-long error")
-	}
+	assert.Error(t,
+		ValidateIdent(long))
 }
 
 func TestSafeQuoteIdent_HappyPath(t *testing.T) {
 	got, err := SafeQuoteIdent("job_runs_p2026_04")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != `"job_runs_p2026_04"` {
-		t.Errorf("got %q", got)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		`"job_runs_p2026_04"`,
+
+		got)
 }
 
 func TestSafeQuoteIdent_RejectsInjection(t *testing.T) {
 	if _, err := SafeQuoteIdent(`"; DROP TABLE`); err == nil {
-		t.Error("expected rejection")
+		assert.Fail(t,
+
+			"expected rejection")
 	}
 }
 
@@ -64,7 +65,9 @@ func TestSafeQuoteIdent_InjectionPayloads(t *testing.T) {
 	}
 	for _, p := range payloads {
 		if _, err := SafeQuoteIdent(p); err == nil {
-			t.Errorf("SafeQuoteIdent(%q) should reject injection payload", p)
+			assert.Failf(t, "test failure",
+
+				"SafeQuoteIdent(%q) should reject injection payload", p)
 		}
 	}
 }
@@ -76,9 +79,7 @@ func FuzzValidateIdent(f *testing.F) {
 	f.Add("a\x00b")
 	f.Fuzz(func(t *testing.T, s string) {
 		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("panic on %q: %v", s, r)
-			}
+			require.Nil(t, recover())
 		}()
 		_ = ValidateIdent(s)
 	})

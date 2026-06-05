@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Fuzz tests for run methods.
@@ -40,12 +42,9 @@ func FuzzCreateRunPayload(f *testing.F) {
 		}
 
 		got, err := q.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
-		if got == nil {
-			t.Fatal("expected non-nil run")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
 	})
 }
 
@@ -75,12 +74,9 @@ func FuzzInsertEventMessage(f *testing.F) {
 		}
 
 		events, err := q.ListEventsAsc(ctx, run.ID, 10, nil, "")
-		if err != nil {
-			t.Fatalf("ListEventsAsc() error = %v", err)
-		}
-		if len(events) == 0 {
-			t.Fatal("expected at least 1 event")
-		}
+		require.NoError(t, err)
+		require.NotEmpty(t, events)
+
 	})
 }
 
@@ -115,12 +111,12 @@ func FuzzBatchBufferPayload(f *testing.F) {
 		}
 
 		count, err := q.CountBatchBufferItems(ctx, job.ID, "fuzz-key")
-		if err != nil {
-			t.Fatalf("CountBatchBufferItems() error = %v", err)
-		}
-		if count < 1 {
-			t.Fatal("expected count >= 1")
-		}
+		require.NoError(t, err)
+		require.GreaterOrEqual(
+			t,
+			count,
+			1)
+
 	})
 }
 
@@ -154,12 +150,9 @@ func FuzzJobMemoryValue(f *testing.F) {
 		}
 
 		got, err := q.GetJobMemory(ctx, job.ID, "fuzz-key")
-		if err != nil {
-			t.Fatalf("GetJobMemory() error = %v", err)
-		}
-		if got == nil {
-			t.Fatal("expected non-nil memory entry")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, got)
+
 	})
 }
 
@@ -194,11 +187,10 @@ func FuzzJobSlugLookup(f *testing.F) {
 		}
 
 		got, err := q.GetJobBySlug(ctx, projectID, slug)
-		if err != nil {
-			t.Fatalf("GetJobBySlug(%q) error = %v", slug, err)
-		}
-		if got.Slug != slug {
-			t.Fatalf("slug = %q, want %q", got.Slug, slug)
-		}
+		require.NoError(t, err)
+		require.Equal(t, slug,
+			got.
+				Slug)
+
 	})
 }

@@ -5,25 +5,29 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResilientPublisher_Publish_NilPublisher(t *testing.T) {
 	t.Parallel()
 
 	rp := NewResilientPublisher(nil, slog.Default(), 2)
+	require.NoError(
+		t, rp.Publish(t.Context(), "events",
+
+			[]byte("payload")))
+	require.NoError(
+		t, rp.Publish(t.Context(), "events",
+
+			[]byte("payload")))
+	require.False(t,
+		rp.IsHealthy())
 
 	// Publish with nil publisher should fail open (no error returned).
-	if err := rp.Publish(t.Context(), "events", []byte("payload")); err != nil {
-		t.Fatalf("Publish() error = %v, want nil", err)
-	}
 
 	// Should accumulate failures.
-	if err := rp.Publish(t.Context(), "events", []byte("payload")); err != nil {
-		t.Fatalf("Publish() error = %v, want nil", err)
-	}
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after threshold failures with nil publisher, want degraded")
-	}
 }
 
 func TestResilientPublisher_Publish_Success(t *testing.T) {
@@ -36,26 +40,22 @@ func TestResilientPublisher_Publish_Success(t *testing.T) {
 		slog.Default(),
 		2,
 	)
+	require.NoError(
+		t, rp.Publish(t.Context(), "events",
 
-	if err := rp.Publish(t.Context(), "events", []byte("payload")); err != nil {
-		t.Fatalf("Publish() error = %v, want nil", err)
-	}
-	if !rp.IsHealthy() {
-		t.Fatal("publisher unhealthy after successful publish")
-	}
+			[]byte("payload")))
+	require.True(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_Close_NilPublisher(t *testing.T) {
 	t.Parallel()
 
 	rp := NewResilientPublisher(nil, slog.Default(), 1)
-
-	if err := rp.Close(); err != nil {
-		t.Fatalf("Close() error = %v, want nil", err)
-	}
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after close failure with nil publisher, want degraded")
-	}
+	require.NoError(
+		t, rp.Close())
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_Close_Success(t *testing.T) {
@@ -66,13 +66,10 @@ func TestResilientPublisher_Close_Success(t *testing.T) {
 		slog.Default(),
 		3,
 	)
-
-	if err := rp.Close(); err != nil {
-		t.Fatalf("Close() error = %v, want nil", err)
-	}
-	if !rp.IsHealthy() {
-		t.Fatal("publisher unhealthy after successful close")
-	}
+	require.NoError(
+		t, rp.Close())
+	require.True(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_Close_Error(t *testing.T) {
@@ -83,13 +80,10 @@ func TestResilientPublisher_Close_Error(t *testing.T) {
 		slog.Default(),
 		1,
 	)
-
-	if err := rp.Close(); err != nil {
-		t.Fatalf("Close() error = %v, want nil (fail-open)", err)
-	}
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after close failure, want degraded")
-	}
+	require.NoError(
+		t, rp.Close())
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_Ping_Success(t *testing.T) {
@@ -100,13 +94,10 @@ func TestResilientPublisher_Ping_Success(t *testing.T) {
 		slog.Default(),
 		3,
 	)
-
-	if err := rp.Ping(t.Context()); err != nil {
-		t.Fatalf("Ping() error = %v, want nil", err)
-	}
-	if !rp.IsHealthy() {
-		t.Fatal("publisher unhealthy after successful ping")
-	}
+	require.NoError(
+		t, rp.Ping(t.Context()))
+	require.True(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_Subscribe_NilPublisher(t *testing.T) {
@@ -115,21 +106,17 @@ func TestResilientPublisher_Subscribe_NilPublisher(t *testing.T) {
 	rp := NewResilientPublisher(nil, slog.Default(), 1)
 
 	sub, err := rp.Subscribe(t.Context(), "events")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v, want nil", err)
-	}
-	if sub == nil {
-		t.Fatal("Subscribe() returned nil subscription")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		sub)
 
 	// Channel should be closed.
 	select {
 	case _, ok := <-sub.Ch:
-		if ok {
-			t.Fatal("subscription channel open, want closed")
-		}
+		require.False(t, ok)
 	default:
-		t.Fatal("subscription channel read blocked, want closed channel")
+		require.FailNow(t, "subscription channel read blocked, want closed channel")
 	}
 }
 
@@ -146,15 +133,12 @@ func TestResilientPublisher_Subscribe_Success(t *testing.T) {
 	)
 
 	sub, err := rp.Subscribe(t.Context(), "events")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v, want nil", err)
-	}
-	if sub == nil {
-		t.Fatal("Subscribe() returned nil subscription")
-	}
-	if !rp.IsHealthy() {
-		t.Fatal("publisher unhealthy after successful subscribe")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		sub)
+	require.True(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_DefaultThreshold_ZeroFallback(t *testing.T) {
@@ -171,19 +155,17 @@ func TestResilientPublisher_DefaultThreshold_ZeroFallback(t *testing.T) {
 
 	// First two failures should not degrade.
 	_ = rp.Publish(t.Context(), "ch", []byte("a"))
-	if !rp.IsHealthy() {
-		t.Fatal("degraded after 1 failure, want healthy (threshold=3)")
-	}
+	require.True(t,
+		rp.IsHealthy())
+
 	_ = rp.Publish(t.Context(), "ch", []byte("b"))
-	if !rp.IsHealthy() {
-		t.Fatal("degraded after 2 failures, want healthy (threshold=3)")
-	}
+	require.True(t,
+		rp.IsHealthy())
 
 	// Third failure should degrade.
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
-	if rp.IsHealthy() {
-		t.Fatal("healthy after 3 failures, want degraded (threshold=3)")
-	}
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_NegativeThreshold(t *testing.T) {
@@ -200,13 +182,12 @@ func TestResilientPublisher_NegativeThreshold(t *testing.T) {
 
 	_ = rp.Publish(t.Context(), "ch", []byte("a"))
 	_ = rp.Publish(t.Context(), "ch", []byte("b"))
-	if !rp.IsHealthy() {
-		t.Fatal("degraded after 2 failures, want healthy (threshold defaults to 3)")
-	}
+	require.True(t,
+		rp.IsHealthy())
+
 	_ = rp.Publish(t.Context(), "ch", []byte("c"))
-	if rp.IsHealthy() {
-		t.Fatal("healthy after 3 failures, want degraded")
-	}
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_PublishBatch_EmptySlice(t *testing.T) {
@@ -221,13 +202,11 @@ func TestResilientPublisher_PublishBatch_EmptySlice(t *testing.T) {
 		slog.Default(),
 		3,
 	)
-
-	if err := rp.PublishBatch(t.Context(), nil); err != nil {
-		t.Fatalf("PublishBatch(nil) error = %v, want nil", err)
-	}
-	if published {
-		t.Error("underlying publisher called for empty batch")
-	}
+	require.NoError(
+		t, rp.PublishBatch(t.Context(), nil),
+	)
+	assert.False(t,
+		published)
 }
 
 func TestResilientPublisher_PublishBatch_NilPublisherDegrades(t *testing.T) {
@@ -238,12 +217,10 @@ func TestResilientPublisher_PublishBatch_NilPublisherDegrades(t *testing.T) {
 	err := rp.PublishBatch(t.Context(), []PubSubMessage{
 		{Channel: "ch", Data: []byte("data")},
 	})
-	if err != nil {
-		t.Fatalf("PublishBatch() error = %v, want nil", err)
-	}
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after nil publisher batch, want degraded")
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_PublishBatch_RecoveryAfterFailure(t *testing.T) {
@@ -268,16 +245,14 @@ func TestResilientPublisher_PublishBatch_RecoveryAfterFailure(t *testing.T) {
 	_ = rp.PublishBatch(t.Context(), []PubSubMessage{
 		{Channel: "ch", Data: []byte("a")},
 	})
-	if rp.IsHealthy() {
-		t.Fatal("expected degraded after failed batch")
-	}
+	require.False(t,
+		rp.IsHealthy())
 
 	// Second batch succeeds (calls > 2).
 	calls = 3
 	_ = rp.PublishBatch(t.Context(), []PubSubMessage{
 		{Channel: "ch", Data: []byte("b")},
 	})
-	if !rp.IsHealthy() {
-		t.Fatal("expected healthy after successful batch")
-	}
+	require.True(t,
+		rp.IsHealthy())
 }

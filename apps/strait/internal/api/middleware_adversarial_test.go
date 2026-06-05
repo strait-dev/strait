@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/billing"
 	"strait/internal/config"
@@ -55,13 +57,9 @@ func TestProjectContextMiddleware_NoProjectID(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 	// No project ID in context -- middleware should still call next.
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler to be called when no project ID is set")
-	}
-	if setter.setCalls != 0 {
-		t.Fatalf("expected SetProjectContext to not be called, got %d calls", setter.setCalls)
-	}
+	require.True(
+		t, called)
+	require.Equal(t, 0, setter.setCalls)
 }
 
 func TestProjectContextMiddleware_WithProjectID(t *testing.T) {
@@ -81,13 +79,9 @@ func TestProjectContextMiddleware_WithProjectID(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler to be called")
-	}
-	if setter.setCalls != 1 {
-		t.Fatalf("expected SetProjectContext to be called once, got %d", setter.setCalls)
-	}
+	require.True(
+		t, called)
+	require.Equal(t, 1, setter.setCalls)
 }
 
 func TestProjectContextMiddleware_SetError(t *testing.T) {
@@ -110,11 +104,10 @@ func TestProjectContextMiddleware_SetError(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	handler.ServeHTTP(w, r)
+	require.True(
+		t, called)
 
 	// Even on SetProjectContext error, the middleware should still call next.
-	if !called {
-		t.Fatal("expected next handler to be called even when SetProjectContext fails")
-	}
 }
 
 func TestProjectContextMiddleware_ClearError(t *testing.T) {
@@ -138,10 +131,8 @@ func TestProjectContextMiddleware_ClearError(t *testing.T) {
 
 	// Should not panic even when ClearProjectContext returns an error.
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler to be called")
-	}
+	require.True(
+		t, called)
 }
 
 func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
@@ -162,10 +153,8 @@ func TestProjectContextMiddleware_StoreDoesNotImplementSetter(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler to be called when store does not implement ProjectContextSetter")
-	}
+	require.True(
+		t, called)
 }
 
 // 1b. rlsTxMiddleware
@@ -225,16 +214,14 @@ func TestRLSTxMiddleware_NoProjectID_PassThrough(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/test", nil))
-
-	if !called {
-		t.Fatal("expected next handler called")
-	}
-	if tx.execCalls != 0 || tx.commitCalls != 0 {
-		t.Fatal("tx should not be used when no project id is present")
-	}
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
+	require.True(
+		t, called)
+	require.False(t, tx.execCalls !=
+		0 || tx.
+		commitCalls !=
+		0)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
@@ -248,12 +235,11 @@ func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
 		called = true
 		// Verify the request context carries the bound tx.
 		gotTx, ok := store.TxFromContext(r.Context())
-		if !ok {
-			t.Error("expected tx in request context")
-		}
-		if gotTx != tx {
-			t.Error("request context tx != expected tx")
-		}
+		assert.True(t,
+			ok)
+		assert.Equal(
+			t, tx, gotTx)
+
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -261,25 +247,14 @@ func TestRLSTxMiddleware_HappyPath_BeginsSetsConfigCommits(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler called")
-	}
-	if pool.calls != 1 {
-		t.Fatalf("Begin calls = %d, want 1", pool.calls)
-	}
-	if tx.execCalls != 1 {
-		t.Fatalf("set_config Exec calls = %d, want 1", tx.execCalls)
-	}
-	if tx.commitCalls != 1 {
-		t.Fatalf("Commit calls = %d, want 1", tx.commitCalls)
-	}
-	if tx.rollbackCalls != 0 {
-		t.Fatalf("Rollback calls = %d, want 0", tx.rollbackCalls)
-	}
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
+	require.True(
+		t, called)
+	require.Equal(t, 1, pool.calls)
+	require.Equal(t, 1, tx.execCalls)
+	require.Equal(t, 1, tx.commitCalls)
+	require.Equal(t, 0, tx.rollbackCalls)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
@@ -297,13 +272,10 @@ func TestRLSTxMiddleware_BeginFails_FailsClosed(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
+	require.False(t, called)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if called {
-		t.Fatal("next handler must not be called when Begin fails")
-	}
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
-	}
+		w.Code)
 }
 
 func TestRLSTxMiddleware_SetConfigFails_RollsBackAnd500(t *testing.T) {
@@ -321,19 +293,12 @@ func TestRLSTxMiddleware_SetConfigFails_RollsBackAnd500(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
+	require.False(t, called)
+	require.Equal(t, 1, tx.rollbackCalls)
+	require.Equal(t, 0, tx.commitCalls)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if called {
-		t.Fatal("next handler must not be called when set_config fails")
-	}
-	if tx.rollbackCalls != 1 {
-		t.Fatalf("Rollback calls = %d, want 1", tx.rollbackCalls)
-	}
-	if tx.commitCalls != 0 {
-		t.Fatalf("Commit calls = %d, want 0 (should have rolled back)", tx.commitCalls)
-	}
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", w.Code)
-	}
+		w.Code)
 }
 
 func TestRLSTxMiddleware_HandlerPanic_RollsBack(t *testing.T) {
@@ -350,15 +315,9 @@ func TestRLSTxMiddleware_HandlerPanic_RollsBack(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	defer func() {
-		if rec := recover(); rec == nil {
-			t.Fatal("expected panic to propagate past middleware")
-		}
-		if tx.rollbackCalls != 1 {
-			t.Fatalf("Rollback calls = %d, want 1 after panic", tx.rollbackCalls)
-		}
-		if tx.commitCalls != 0 {
-			t.Fatalf("Commit calls = %d, want 0 after panic", tx.commitCalls)
-		}
+		require.NotNil(t, recover())
+		require.Equal(t, 1, tx.rollbackCalls)
+		require.Equal(t, 0, tx.commitCalls)
 	}()
 	handler.ServeHTTP(w, r)
 }
@@ -378,13 +337,9 @@ func TestRLSTxMiddleware_NoTxPool_FallsBackToLegacy(t *testing.T) {
 	r = r.WithContext(context.WithValue(r.Context(), ctxProjectIDKey, "proj-123"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("next handler should be called when falling back to legacy middleware")
-	}
-	if setter.setCalls != 1 {
-		t.Fatalf("legacy SetProjectContext calls = %d, want 1", setter.setCalls)
-	}
+	require.True(
+		t, called)
+	require.Equal(t, 1, setter.setCalls)
 }
 
 // 2. requestMetrics
@@ -402,13 +357,10 @@ func TestRequestMetrics_NilMetrics(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler.ServeHTTP(w, r)
-
-	if !called {
-		t.Fatal("expected next handler to be called when metrics is nil")
-	}
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.True(
+		t, called)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequestMetrics_RecordsStatusOnSuccess(t *testing.T) {
@@ -425,10 +377,9 @@ func TestRequestMetrics_RecordsStatusOnSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/test", nil)
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 }
 
 func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
@@ -442,10 +393,9 @@ func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/test", nil)
 	handler.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }
 
 // 3. normalizeAPIError
@@ -453,108 +403,112 @@ func TestRequestMetrics_RecordsErrorStatus(t *testing.T) {
 func TestNormalizeAPIError_StringInput(t *testing.T) {
 	t.Parallel()
 	got := normalizeAPIError(http.StatusBadRequest, "bad input")
-	if got.Code != ErrorCodeBadRequest {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
-	}
-	if got.Message != "bad input" {
-		t.Fatalf("message = %q, want %q", got.Message, "bad input")
-	}
+	require.Equal(t, ErrorCodeBadRequest,
+		got.
+			Code)
+	require.Equal(t, "bad input",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_EmptyString(t *testing.T) {
 	t.Parallel()
 	got := normalizeAPIError(http.StatusNotFound, "")
-	if got.Code != ErrorCodeNotFound {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeNotFound)
-	}
-	if got.Message != "Not Found" {
-		t.Fatalf("message = %q, want %q", got.Message, "Not Found")
-	}
+	require.Equal(t, ErrorCodeNotFound,
+		got.
+			Code)
+	require.Equal(t, "Not Found",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_NilError(t *testing.T) {
 	t.Parallel()
 	var err error
 	got := normalizeAPIError(http.StatusInternalServerError, err)
-	if got.Code != ErrorCodeInternalError {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeInternalError)
-	}
-	if got.Message != "Internal Server Error" {
-		t.Fatalf("message = %q, want %q", got.Message, "Internal Server Error")
-	}
+	require.Equal(t, ErrorCodeInternalError,
+
+		got.Code,
+	)
+	require.Equal(t, "Internal Server Error",
+
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_NonNilError(t *testing.T) {
 	t.Parallel()
 	got := normalizeAPIError(http.StatusBadRequest, errors.New("field missing"))
-	if got.Code != ErrorCodeBadRequest {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
-	}
-	if got.Message != "field missing" {
-		t.Fatalf("message = %q, want %q", got.Message, "field missing")
-	}
+	require.Equal(t, ErrorCodeBadRequest,
+		got.
+			Code)
+	require.Equal(t, "field missing",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_APIErrorValue(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Code: "custom_code", Message: "custom message"}
 	got := normalizeAPIError(http.StatusBadRequest, ae)
-	if got.Code != "custom_code" {
-		t.Fatalf("code = %q, want custom_code", got.Code)
-	}
-	if got.Message != "custom message" {
-		t.Fatalf("message = %q, want custom message", got.Message)
-	}
+	require.Equal(t, "custom_code",
+		got.Code,
+	)
+	require.Equal(t, "custom message",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_APIErrorEmptyCode(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Message: "some message"}
 	got := normalizeAPIError(http.StatusNotFound, ae)
-	if got.Code != ErrorCodeNotFound {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeNotFound)
-	}
+	require.Equal(t, ErrorCodeNotFound,
+		got.
+			Code)
 }
 
 func TestNormalizeAPIError_APIErrorEmptyMessage(t *testing.T) {
 	t.Parallel()
 	ae := APIError{Code: "custom"}
 	got := normalizeAPIError(http.StatusForbidden, ae)
-	if got.Message != "Forbidden" {
-		t.Fatalf("message = %q, want Forbidden", got.Message)
-	}
+	require.Equal(t, "Forbidden",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_APIErrorPointer(t *testing.T) {
 	t.Parallel()
 	ae := &APIError{Code: "ptr_code", Message: "ptr_msg"}
 	got := normalizeAPIError(http.StatusConflict, ae)
-	if got.Code != "ptr_code" || got.Message != "ptr_msg" {
-		t.Fatalf("unexpected APIError: %+v", got)
-	}
+	require.False(t, got.Code != "ptr_code" ||
+		got.
+			Message != "ptr_msg",
+	)
 }
 
 func TestNormalizeAPIError_NilAPIErrorPointer(t *testing.T) {
 	t.Parallel()
 	var ae *APIError
 	got := normalizeAPIError(http.StatusBadRequest, ae)
-	if got.Code != ErrorCodeBadRequest {
-		t.Fatalf("code = %q, want %q", got.Code, ErrorCodeBadRequest)
-	}
-	if got.Message != "Bad Request" {
-		t.Fatalf("message = %q, want Bad Request", got.Message)
-	}
+	require.Equal(t, ErrorCodeBadRequest,
+		got.
+			Code)
+	require.Equal(t, "Bad Request",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_UnknownType(t *testing.T) {
 	t.Parallel()
 	got := normalizeAPIError(http.StatusTeapot, 42)
-	if got.Code != ErrorCodeInternalError {
-		t.Fatalf("code = %q, want fallback %q", got.Code, ErrorCodeInternalError)
-	}
-	if got.Message != "I'm a teapot" {
-		t.Fatalf("message = %q, want 'I'm a teapot'", got.Message)
-	}
+	require.Equal(t, ErrorCodeInternalError,
+
+		got.Code,
+	)
+	require.Equal(t, "I'm a teapot",
+		got.Message,
+	)
 }
 
 func TestNormalizeAPIError_WrappedError(t *testing.T) {
@@ -562,18 +516,22 @@ func TestNormalizeAPIError_WrappedError(t *testing.T) {
 	inner := errors.New("root cause")
 	wrapped := fmt.Errorf("outer: %w", inner)
 	got := normalizeAPIError(http.StatusInternalServerError, wrapped)
-	if got.Message != "outer: root cause" {
-		t.Fatalf("message = %q, want 'outer: root cause'", got.Message)
-	}
+	require.Equal(t, "outer: root cause",
+		got.
+			Message,
+	)
 }
 
 func TestNormalizeAPIError_JoinedErrors(t *testing.T) {
 	t.Parallel()
 	joined := errors.Join(errors.New("err1"), errors.New("err2"))
 	got := normalizeAPIError(http.StatusBadRequest, joined)
-	if !strings.Contains(got.Message, "err1") || !strings.Contains(got.Message, "err2") {
-		t.Fatalf("expected both errors in message, got %q", got.Message)
-	}
+	require.False(t, !strings.Contains(got.Message,
+
+		"err1") ||
+		!strings.Contains(got.
+			Message, "err2",
+		))
 }
 
 // 4. validateTriggerRequest (dry-run validation)
@@ -616,16 +574,10 @@ func TestValidateTriggerRequest_Valid(t *testing.T) {
 
 	req := TriggerRequest{Payload: json.RawMessage(`{"key":"value"}`)}
 	result, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
-	if result.Job.ID != "job-1" {
-		t.Fatalf("expected job ID job-1, got %q", result.Job.ID)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "job-1", result.
+		Job.ID)
 }
 
 func TestValidateTriggerRequest_EmptyJobID(t *testing.T) {
@@ -634,9 +586,7 @@ func TestValidateTriggerRequest_EmptyJobID(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "", req)
-	if err == nil {
-		t.Fatal("expected error for empty job ID")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateTriggerRequest_WhitespaceJobID(t *testing.T) {
@@ -645,9 +595,7 @@ func TestValidateTriggerRequest_WhitespaceJobID(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "   ", req)
-	if err == nil {
-		t.Fatal("expected error for whitespace-only job ID")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateTriggerRequest_JobNotFound(t *testing.T) {
@@ -661,9 +609,7 @@ func TestValidateTriggerRequest_JobNotFound(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-missing", req)
-	if err == nil {
-		t.Fatal("expected error for missing job")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateTriggerRequest_JobDisabled(t *testing.T) {
@@ -677,12 +623,9 @@ func TestValidateTriggerRequest_JobDisabled(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err == nil {
-		t.Fatal("expected error for disabled job")
-	}
-	if !strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("expected 'disabled' in error, got %q", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "disabled")
 }
 
 func TestValidateTriggerRequest_JobPaused(t *testing.T) {
@@ -696,12 +639,9 @@ func TestValidateTriggerRequest_JobPaused(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err == nil {
-		t.Fatal("expected error for paused job")
-	}
-	if !strings.Contains(err.Error(), "paused") {
-		t.Fatalf("expected 'paused' in error, got %q", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "paused")
 }
 
 func TestValidateTriggerRequest_PayloadTooLarge(t *testing.T) {
@@ -717,12 +657,9 @@ func TestValidateTriggerRequest_PayloadTooLarge(t *testing.T) {
 	largePayload := `{"data":"` + strings.Repeat("x", 6*1024*1024) + `"}`
 	req := TriggerRequest{Payload: json.RawMessage(largePayload)}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err == nil {
-		t.Fatal("expected error for oversized payload")
-	}
-	if !strings.Contains(err.Error(), "too large") {
-		t.Fatalf("expected 'too large' in error, got %q", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "too large")
 }
 
 func TestValidateTriggerRequest_StoreError(t *testing.T) {
@@ -736,9 +673,7 @@ func TestValidateTriggerRequest_StoreError(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err == nil {
-		t.Fatal("expected error for store failure")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateTriggerRequest_QuotaExceeded(t *testing.T) {
@@ -758,12 +693,9 @@ func TestValidateTriggerRequest_QuotaExceeded(t *testing.T) {
 
 	req := TriggerRequest{}
 	_, err := srv.validateTriggerRequest(context.Background(), "job-1", req)
-	if err == nil {
-		t.Fatal("expected error for quota exceeded")
-	}
-	if !strings.Contains(err.Error(), "quota") {
-		t.Fatalf("expected 'quota' in error, got %q", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.Error(), "quota")
 }
 
 // 5. handleCreateProject
@@ -780,10 +712,9 @@ func TestHandleCreateProject_StoreError_Adversarial(t *testing.T) {
 	body := `{"id":"proj-1","org_id":"org-1","name":"Test Project"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleCreateProject_DuplicateName_Adversarial(t *testing.T) {
@@ -798,11 +729,11 @@ func TestHandleCreateProject_DuplicateName_Adversarial(t *testing.T) {
 	body := `{"id":"proj-dup","org_id":"org-1","name":"Duplicate"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusInternalServerError,
+
+		w.Code)
 
 	// Without special duplicate handling, the store error maps to 500.
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
@@ -825,7 +756,9 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	ms := &APIStoreMock{
 		// CreateProject should not be called when limit check fails.
 		CreateProjectFunc: func(_ context.Context, _ *domain.Project) error {
-			t.Fatal("CreateProject should not be called when limit is exceeded")
+			require.Fail(t,
+
+				"CreateProject should not be called when limit is exceeded")
 			return nil
 		},
 	}
@@ -848,24 +781,25 @@ func TestHandleCreateProject_ProjectLimitExceeded_Adversarial(t *testing.T) {
 	body := `{"id":"proj-new","org_id":"org-1","name":"Over Limit"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", body))
+	require.Equal(t, http.StatusPaymentRequired,
 
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
-	}
+		w.
+			Code)
 
 	var resp QuotaExceededBody
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Code != "quota_exceeded" {
-		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
-	}
-	if resp.Kind != "project_limit_exceeded" {
-		t.Fatalf("expected kind 'project_limit_exceeded', got %q", resp.Kind)
-	}
-	if resp.Message != "project limit reached" {
-		t.Fatalf("expected message 'project limit reached', got %q", resp.Message)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "quota_exceeded",
+		resp.
+			Code)
+	require.Equal(t, "project_limit_exceeded",
+
+		resp.
+			Kind)
+	require.Equal(t, "project limit reached",
+
+		resp.
+			Message)
 }
 
 func TestHandleCreateProject_InvalidBody_Adversarial(t *testing.T) {
@@ -874,10 +808,9 @@ func TestHandleCreateProject_InvalidBody_Adversarial(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", `{invalid json`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleCreateProject_EmptyBody_Adversarial(t *testing.T) {
@@ -886,10 +819,9 @@ func TestHandleCreateProject_EmptyBody_Adversarial(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/projects/", `{}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
@@ -907,10 +839,9 @@ func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
 }
 
 // 6. handleDeleteSecret
@@ -922,9 +853,8 @@ func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 			return &domain.JobSecret{ID: id, ProjectID: "test-project", SecretKey: "KEY"}, nil
 		},
 		DeleteJobSecretFunc: func(_ context.Context, id string) error {
-			if id != "sec-123" {
-				t.Fatalf("unexpected secret ID: %q", id)
-			}
+			require.Equal(t, "sec-123", id)
+
 			return nil
 		},
 	}
@@ -932,10 +862,9 @@ func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/secrets/sec-123", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.
+			Code)
 }
 
 func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
@@ -952,10 +881,9 @@ func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/secrets/sec-missing", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
@@ -972,10 +900,9 @@ func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/secrets/sec-err", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // Additional edge cases for normalizeAPIError / defaultErrorCode
@@ -1000,9 +927,7 @@ func TestDefaultErrorCode_AllStatusCodes(t *testing.T) {
 		t.Run(fmt.Sprintf("status_%d", tc.status), func(t *testing.T) {
 			t.Parallel()
 			code := defaultErrorCode(tc.status)
-			if code != tc.want {
-				t.Fatalf("status %d: expected %q, got %q", tc.status, tc.want, code)
-			}
+			require.Equal(t, tc.want, code)
 		})
 	}
 }
@@ -1011,12 +936,12 @@ func TestNormalizeAPIError_APIErrorPointerEmptyCodeAndMessage(t *testing.T) {
 	t.Parallel()
 	ae := &APIError{}
 	got := normalizeAPIError(http.StatusConflict, ae)
-	if got.Code != ErrorCodeConflict {
-		t.Fatalf("expected code=%q, got %q", ErrorCodeConflict, got.Code)
-	}
-	if got.Message != "Conflict" {
-		t.Fatalf("expected message=Conflict, got %q", got.Message)
-	}
+	require.Equal(t, ErrorCodeConflict,
+		got.
+			Code)
+	require.Equal(t, "Conflict", got.
+		Message,
+	)
 }
 
 // Cross-org access via requireProjectMatch
@@ -1025,27 +950,22 @@ func TestRequireProjectMatch_SameProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	err := requireProjectMatch(ctx, "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestRequireProjectMatch_DifferentProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	err := requireProjectMatch(ctx, "proj-2")
-	if !errors.Is(err, errProjectMismatch) {
-		t.Fatalf("expected errProjectMismatch, got %v", err)
-	}
+	require.ErrorIs(
+		t, err, errProjectMismatch)
 }
 
 func TestRequireProjectMatch_NoProjectContext(t *testing.T) {
 	t.Parallel()
 	// Internal callers without project context should pass through.
 	err := requireProjectMatch(context.Background(), "proj-1")
-	if err != nil {
-		t.Fatalf("expected no error for internal caller, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // ScheduledAt validation via trigger handler
@@ -1074,10 +994,9 @@ func TestTriggerJob_ScheduledAtInThePast(t *testing.T) {
 	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, pastTime)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body, "proj-1"))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for past scheduled_at, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestTriggerJob_ScheduledAtFarFuture(t *testing.T) {
@@ -1104,10 +1023,9 @@ func TestTriggerJob_ScheduledAtFarFuture(t *testing.T) {
 	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, futureTime)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body, "proj-1"))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for far-future scheduled_at, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // Helper: mock billing enforcer
