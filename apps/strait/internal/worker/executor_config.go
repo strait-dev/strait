@@ -7,7 +7,6 @@ import (
 
 	"strait/internal/billing"
 	straitcache "strait/internal/cache"
-	"strait/internal/httputil"
 	"strait/internal/pubsub"
 	"strait/internal/queue"
 	"strait/internal/store"
@@ -102,31 +101,7 @@ func resolveDegradedPollInterval(d time.Duration) time.Duration {
 }
 
 func NewExecutor(cfg ExecutorConfig) *Executor {
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		execTimeout := cfg.ExecutorHTTPTimeout
-		if execTimeout <= 0 {
-			execTimeout = 5 * time.Minute
-		}
-		execIdleTimeout := cfg.ExecutorIdleConnTimeout
-		if execIdleTimeout <= 0 {
-			execIdleTimeout = 90 * time.Second
-		}
-		httpClient = &http.Client{
-			Timeout: execTimeout,
-			Transport: func() *http.Transport {
-				transport := httputil.NewExternalTransport(cfg.AllowPrivateEndpoints)
-				transport.MaxIdleConns = 100
-				transport.MaxIdleConnsPerHost = 10
-				transport.IdleConnTimeout = execIdleTimeout
-				transport.TLSHandshakeTimeout = 10 * time.Second
-				return transport
-			}(),
-			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-	}
+	httpClient := resolveExecutorHTTPClient(cfg)
 
 	whMaxAttempts := cfg.WebhookMaxAttempts
 	if whMaxAttempts <= 0 {
