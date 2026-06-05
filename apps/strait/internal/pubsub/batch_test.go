@@ -5,6 +5,9 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRedisPublisher_PublishBatch_Empty(t *testing.T) {
@@ -12,14 +15,13 @@ func TestRedisPublisher_PublishBatch_Empty(t *testing.T) {
 	// PublishBatch with empty slice should be a no-op.
 	rp := &RedisPublisher{client: nil}
 	err := rp.PublishBatch(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("PublishBatch(nil) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
 
 	err = rp.PublishBatch(context.Background(), []PubSubMessage{})
-	if err != nil {
-		t.Fatalf("PublishBatch([]) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
+
 }
 
 func TestResilientPublisher_PublishBatch_FailOpen(t *testing.T) {
@@ -37,11 +39,11 @@ func TestResilientPublisher_PublishBatch_FailOpen(t *testing.T) {
 		{Channel: "ch1", Data: []byte("msg1")},
 		{Channel: "ch2", Data: []byte("msg2")},
 	})
+	require.NoError(
+		t, err)
 
 	// Resilient publisher swallows errors (fail-open).
-	if err != nil {
-		t.Fatalf("PublishBatch() = %v, want nil (fail-open)", err)
-	}
+
 }
 
 func TestResilientPublisher_PublishBatch_NilPublisher(t *testing.T) {
@@ -50,9 +52,9 @@ func TestResilientPublisher_PublishBatch_NilPublisher(t *testing.T) {
 	err := rp.PublishBatch(context.Background(), []PubSubMessage{
 		{Channel: "ch1", Data: []byte("msg1")},
 	})
-	if err != nil {
-		t.Fatalf("PublishBatch(nil publisher) = %v, want nil", err)
-	}
+	require.NoError(
+		t, err)
+
 }
 
 func TestResilientPublisher_PublishBatch_Success(t *testing.T) {
@@ -77,21 +79,23 @@ func TestResilientPublisher_PublishBatch_Success(t *testing.T) {
 	}
 
 	err := rp.PublishBatch(context.Background(), msgs)
-	if err != nil {
-		t.Fatalf("PublishBatch() = %v, want nil", err)
-	}
-	if !rp.IsHealthy() {
-		t.Error("publisher should be healthy after successful batch")
-	}
+	require.NoError(
+		t, err)
+	assert.True(t, rp.
+		IsHealthy())
+
 }
 
 func TestPubSubMessage_Fields(t *testing.T) {
 	t.Parallel()
 	msg := PubSubMessage{Channel: "test:channel", Data: []byte("payload")}
-	if msg.Channel != "test:channel" {
-		t.Errorf("Channel = %q, want %q", msg.Channel, "test:channel")
-	}
-	if string(msg.Data) != "payload" {
-		t.Errorf("Data = %q, want %q", msg.Data, "payload")
-	}
+	assert.Equal(t,
+		"test:channel",
+		msg.
+			Channel)
+	assert.Equal(t,
+		"payload",
+		string(
+			msg.Data))
+
 }
