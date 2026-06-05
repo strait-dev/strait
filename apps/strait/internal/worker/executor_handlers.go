@@ -61,14 +61,3 @@ func (e *Executor) handleSuccessWithStats(
 	e.recordSuccessfulLatencyAnomaly(ctx, run, job, transition, stats)
 	return true
 }
-
-func durationMillisecondsAtLeastOne(d time.Duration) int64 {
-	if d <= 0 {
-		return 0
-	}
-	ms := d.Milliseconds()
-	if ms == 0 {
-		return 1
-	}
-	return ms
-}

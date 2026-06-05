@@ -2,6 +2,7 @@ package worker
 
 import (
 	"strings"
+	"time"
 
 	"strait/internal/domain"
 )
@@ -43,4 +44,31 @@ func (e *Executor) addExecutionTraceField(fields map[string]any, status domain.R
 	if e.shouldPersistExecutionTrace(status, execTrace) {
 		fields["execution_trace"] = execTrace
 	}
+}
+
+func populateExecutionTraceRunTimings(execTrace *domain.ExecutionTrace, run *domain.JobRun, executeStart, traceEnd time.Time) {
+	if execTrace == nil {
+		return
+	}
+	execTrace.TotalMs = durationMillisecondsAtLeastOne(traceEnd.Sub(executeStart))
+	if run == nil {
+		return
+	}
+	queueWait := max(time.Duration(0), executeStart.Sub(run.CreatedAt))
+	execTrace.QueueWaitMs = durationMillisecondsAtLeastOne(queueWait)
+	if run.StartedAt != nil {
+		dequeue := max(time.Duration(0), executeStart.Sub(*run.StartedAt))
+		execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
+	}
+}
+
+func durationMillisecondsAtLeastOne(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	ms := d.Milliseconds()
+	if ms == 0 {
+		return 1
+	}
+	return ms
 }

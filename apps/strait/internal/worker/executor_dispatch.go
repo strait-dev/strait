@@ -81,15 +81,7 @@ func (e *Executor) executeInner(ctx context.Context, ec *ExecutionContext) {
 	defer cancel()
 
 	result, execTrace, err := e.tracedDispatch(execCtx, job, run)
-	if execTrace != nil {
-		execTrace.TotalMs = durationMillisecondsAtLeastOne(time.Since(executeStart))
-		queueWait := max(time.Duration(0), executeStart.Sub(run.CreatedAt))
-		execTrace.QueueWaitMs = durationMillisecondsAtLeastOne(queueWait)
-		if run.StartedAt != nil {
-			dequeue := max(time.Duration(0), executeStart.Sub(*run.StartedAt))
-			execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
-		}
-	}
+	populateExecutionTraceRunTimings(execTrace, run, executeStart, time.Now())
 	if err != nil {
 		fallbackResult, fallbackErr, fallbackOK := e.tryFallbackDispatch(execCtx, job, run, err)
 		if fallbackOK {
