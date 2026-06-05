@@ -284,6 +284,40 @@ func TestHeartbeatManager_ConcurrentRegisterDeregister(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSender_Run(t *testing.T) {
+	var concWG conc.WaitGroup
+	defer concWG.Wait()
+	t.Parallel()
+	beats := make(chan struct{}, 10)
+	store := &mockExecutorStore{}
+	store.batchUpdateHeartbeatFn = func(_ context.Context, ids []string) error {
+		if len(ids) != 1 || ids[0] != "run-1" {
+			t.Fatalf("batch ids = %v, want [run-1]", ids)
+		}
+		beats <- struct{}{}
+		return nil
+	}
+
+	hb := NewHeartbeatSender(store, 10*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	concWG.Go(func() {
+		hb.Run(ctx, "run-1")
+		close(done)
+	})
+
+	for i := range 2 {
+		select {
+		case <-beats:
+		case <-time.After(300 * time.Millisecond):
+			t.Fatalf("heartbeat %d not received in time", i+1)
+		}
+	}
+
+	cancel()
+	waitForSignal(t, done, "heartbeat sender did not stop after cancel")
+}
+
 func waitForHeartbeatCalls(t *testing.T, store *mockHeartbeatStore, want int, timeout time.Duration) {
 	t.Helper()
 

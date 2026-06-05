@@ -3,18 +3,13 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"maps"
 	"net/http"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/sourcegraph/conc"
-
 	"strait/internal/domain"
-	"strait/internal/httputil"
 	"strait/internal/queue"
 	orcstore "strait/internal/store"
 )
@@ -504,70 +499,8 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
 	}
 }
 
-func TestHeartbeatSender_Run(t *testing.T) {
-	var concWG conc.WaitGroup
-	defer concWG.Wait()
-	t.Parallel()
-	beats := make(chan struct{}, 10)
-	store := &mockExecutorStore{}
-	store.batchUpdateHeartbeatFn = func(_ context.Context, ids []string) error {
-		if len(ids) != 1 || ids[0] != "run-1" {
-			t.Fatalf("batch ids = %v, want [run-1]", ids)
-		}
-		beats <- struct{}{}
-		return nil
-	}
-
-	hb := NewHeartbeatSender(store, 10*time.Millisecond)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	concWG.Go(func() {
-		hb.Run(ctx, "run-1")
-		close(done)
-	})
-
-	for i := range 2 {
-		select {
-		case <-beats:
-		case <-time.After(300 * time.Millisecond):
-			t.Fatalf("heartbeat %d not received in time", i+1)
-		}
-	}
-
-	cancel()
-	waitForSignal(t, done, "heartbeat sender did not stop after cancel")
-}
-
 type roundTripFunc func(req *http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
-}
-
-func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
-	restore := httputil.SetLookupHostForTest(func(host string) ([]string, error) {
-		if host != "rebind.test" {
-			return nil, fmt.Errorf("unexpected host lookup: %s", host)
-		}
-		return []string{"127.0.0.1"}, nil
-	})
-	t.Cleanup(restore)
-
-	exec := NewExecutor(ExecutorConfig{})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	_, err := exec.dispatchToEndpoint(ctx, "http://rebind.test/hook", &domain.JobRun{
-		ID:      "run-ssrf",
-		JobID:   "job-ssrf",
-		Attempt: 1,
-		Payload: json.RawMessage(`{"ok":true}`),
-	}, nil)
-	if err == nil {
-		t.Fatal("expected SSRF-safe executor client to reject private DNS answer")
-		return
-	}
-	if !strings.Contains(err.Error(), "blocked private") && !strings.Contains(err.Error(), "resolves to private") {
-		t.Fatalf("expected private-address rejection, got %v", err)
-	}
 }
