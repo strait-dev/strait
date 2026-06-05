@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/config"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newUptimeSource has three observable branches: no URL → static 100%,
@@ -53,28 +56,34 @@ func TestNewUptimeSource_Branches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := newUptimeSource(tc.cfg, silentLogger)
-			if got == nil {
-				t.Fatal("newUptimeSource returned nil")
-			}
+			require.NotNil(t, got)
 
 			switch src := got.(type) {
 			case *billing.PrometheusUptimeSource:
 				if !tc.wantPrometheus {
-					t.Fatalf("got *PrometheusUptimeSource, want fallback to static")
+					require.Failf(t, "test failure",
+
+						"got *PrometheusUptimeSource, want fallback to static")
 				}
 			case *billing.StaticUptimeSource:
 				if tc.wantPrometheus {
-					t.Fatalf("got *StaticUptimeSource, want *PrometheusUptimeSource")
+					require.Failf(t, "test failure",
+
+						"got *StaticUptimeSource, want *PrometheusUptimeSource")
 				}
 				pct, err := src.MonthlyUptimePct(context.Background(), "any-org", time.Now(), time.Now())
 				if err != nil {
-					t.Fatalf("static source MonthlyUptimePct: %v", err)
+					require.Failf(t, "test failure",
+
+						"static source MonthlyUptimePct: %v", err)
 				}
 				if pct != tc.wantStaticPct {
-					t.Errorf("static source pct = %v, want %v", pct, tc.wantStaticPct)
+					assert.Failf(t, "test failure",
+
+						"static source pct = %v, want %v", pct, tc.wantStaticPct)
 				}
 			default:
-				t.Fatalf("unexpected source type %T", got)
+				require.Failf(t, "test failure", "unexpected source type %T", got)
 			}
 		})
 	}

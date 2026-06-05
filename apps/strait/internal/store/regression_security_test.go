@@ -1,7 +1,6 @@
 package store
 
 import (
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -12,6 +11,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Regression guards: column allowlists in dynamic UPDATE builders.
@@ -21,16 +23,16 @@ import (
 // assertFieldError is a shared helper for all allowlist regression tests.
 func assertFieldError(t *testing.T, err error, wantField string) {
 	t.Helper()
-	if err == nil {
-		t.Fatalf("expected FieldError for column %q, got nil", wantField)
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
-	if fe.Field != wantField {
-		t.Fatalf("expected FieldError.Field=%q, got %q", wantField, fe.Field)
-	}
+	require.ErrorAs(t,
+		err, &fe)
+	require.Equal(
+		t, wantField,
+		fe.
+			Field)
 }
 
 // TestRegression_LogDrainAllowlist verifies UpdateLogDrain rejects columns not
@@ -173,9 +175,7 @@ func TestRegression_NoRawSQLInterpolation(t *testing.T) {
 	storeDir := "."
 
 	entries, err := os.ReadDir(storeDir)
-	if err != nil {
-		t.Fatalf("failed to read store directory: %v", err)
-	}
+	require.NoError(t, err)
 
 	fset := token.NewFileSet()
 	var violations []string
@@ -188,9 +188,7 @@ func TestRegression_NoRawSQLInterpolation(t *testing.T) {
 
 		filePath := filepath.Join(storeDir, name)
 		node, parseErr := parser.ParseFile(fset, filePath, nil, 0)
-		if parseErr != nil {
-			t.Fatalf("failed to parse %s: %v", name, parseErr)
-		}
+		require.NoError(t, parseErr)
 
 		ast.Inspect(node, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -270,11 +268,8 @@ func TestRegression_NoRawSQLInterpolation(t *testing.T) {
 			return true
 		})
 	}
-
-	if len(violations) > 0 {
-		t.Errorf("found %d potential raw SQL interpolation(s):\n%s",
-			len(violations), strings.Join(violations, "\n"))
-	}
+	assert.Empty(t,
+		violations)
 }
 
 // truncate shortens a string for display.

@@ -13,6 +13,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -506,15 +507,37 @@ func TestRuns_BulkDLQReplay(t *testing.T) {
 	deadLetterRunIDs := make([]string, 500)
 	for i := range 500 {
 		runID, _ := seedRun(t, jobID)
-		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{"started_at": time.Now().UTC()}); err != nil {
-			t.Fatalf("dequeue run %s: %v", runID, err)
-		}
-		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
-			t.Fatalf("execute run %s: %v", runID, err)
-		}
-		if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{"finished_at": time.Now().UTC(), "error": "dead letter for load test"}); err != nil {
-			t.Fatalf("dead-letter run %s: %v", runID, err)
-		}
+		require.NoError(t,
+
+			testStore.
+				UpdateRunStatus(ctx,
+					runID, domain.
+						StatusQueued,
+					domain.
+						StatusDequeued,
+					map[string]any{"started_at": time.
+						Now().UTC()}))
+		require.NoError(t,
+
+			testStore.
+				UpdateRunStatus(ctx,
+					runID, domain.
+						StatusDequeued,
+					domain.
+						StatusExecuting,
+
+					map[string]any{}))
+		require.NoError(t,
+
+			testStore.
+				UpdateRunStatus(ctx,
+					runID, domain.
+						StatusExecuting,
+					domain.
+						StatusDeadLetter,
+
+					map[string]any{"finished_at": time.Now().UTC(), "error": "dead letter for load test"}))
+
 		deadLetterRunIDs[i] = runID
 	}
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMetricsCollectorRecordsWriteErrors(t *testing.T) {
@@ -14,25 +16,24 @@ func TestMetricsCollectorRecordsWriteErrors(t *testing.T) {
 		OutputDir: t.TempDir(),
 		Interval:  time.Hour,
 	})
-	if err != nil {
-		t.Fatalf("NewMetricsCollector: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	mc.filePrefix = "metrics-test"
-	if err := mc.openNewFile(); err != nil {
-		t.Fatalf("openNewFile: %v", err)
-	}
-	if err := mc.file.Close(); err != nil {
-		t.Fatalf("close metrics file: %v", err)
-	}
+	require.NoError(t,
+
+		mc.openNewFile())
+	require.NoError(t,
+
+		mc.file.Close())
+
 	mc.maxFileSize = 1
 
 	mc.collect(context.Background())
 
 	err = mc.collectionError()
-	if err == nil {
-		t.Fatal("expected metrics collection error")
-	}
-	if !strings.Contains(err.Error(), "rotating metrics file") {
-		t.Fatalf("collection error = %v, want write error", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "rotating metrics file"))
+
 }

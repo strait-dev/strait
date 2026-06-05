@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadWorker_BulkTriggerThroughput(t *testing.T) {
@@ -24,18 +26,21 @@ func TestLoadWorker_BulkTriggerThroughput(t *testing.T) {
 		`{"project_id":"%s","name":"worker-bulk","slug":"worker-bulk-%d","endpoint_url":"https://example.com/bulk","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	start := time.Now()
 	for i := range volume {
 		resp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger",
 			fmt.Sprintf(`{"payload":{"i":%d}}`, i))
-		if resp.Code != 201 {
-			t.Fatalf("trigger %d: %d %s", i, resp.Code, resp.Body.String())
-		}
+		require.EqualValues(t, 201,
+
+			resp.Code,
+		)
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Triggered %d runs in %v (%.0f/sec)", volume, elapsed, float64(volume)/elapsed.Seconds())
@@ -49,9 +54,10 @@ func TestLoadWorker_ConcurrentTriggers(t *testing.T) {
 		`{"project_id":"%s","name":"worker-conc","slug":"worker-conc-%d","endpoint_url":"https://example.com/conc","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const workers = 20
@@ -79,10 +85,12 @@ func TestLoadWorker_ConcurrentTriggers(t *testing.T) {
 
 	t.Logf("Concurrent triggers: %d successes, %d failures in %v (%.0f/sec)",
 		successes.Load(), failures.Load(), elapsed, float64(total)/elapsed.Seconds())
+	assert.LessOrEqual(t,
 
-	if failures.Load() > total/10 {
-		t.Errorf("too many failures: %d/%d", failures.Load(), total)
-	}
+		failures.
+			Load(), total/
+			10)
+
 }
 
 func TestLoadWorker_SDKHeartbeatFlood(t *testing.T) {
@@ -94,15 +102,18 @@ func TestLoadWorker_SDKHeartbeatFlood(t *testing.T) {
 		`{"project_id":"%s","name":"worker-hb","slug":"worker-hb-%d","endpoint_url":"https://example.com/hb","max_attempts":1,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	trigResp := doRequest(t, "POST", "/v1/jobs/"+jobID+"/trigger", `{"payload":{}}`)
-	if trigResp.Code != 201 {
-		t.Fatalf("trigger: %d", trigResp.Code)
-	}
+	require.EqualValues(t, 201,
+
+		trigResp.
+			Code)
+
 	runData := mustDecodeObject(t, trigResp)
 	runID := asString(t, runData, "id")
 	runToken := makeE2ERunToken(t, runID)
@@ -110,13 +121,10 @@ func TestLoadWorker_SDKHeartbeatFlood(t *testing.T) {
 	err := testStore.UpdateRunStatus(ctx, runID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("transition dequeued: %v", err)
-	}
+	require.NoError(t, err)
+
 	err = testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{})
-	if err != nil {
-		t.Fatalf("transition executing: %v", err)
-	}
+	require.NoError(t, err)
 
 	const heartbeats = 1000
 	const workers = 10
@@ -150,9 +158,10 @@ func TestLoadWorker_RunCreationAndListing(t *testing.T) {
 		`{"project_id":"%s","name":"worker-list","slug":"worker-list-%d","endpoint_url":"https://example.com/list","max_attempts":1,"timeout_secs":30}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	for i := range volume {
@@ -169,9 +178,10 @@ func TestLoadWorker_RunCreationAndListing(t *testing.T) {
 			path += "&cursor=" + cursor
 		}
 		resp := doRequest(t, "GET", path, "", projectID)
-		if resp.Code != 200 {
-			t.Fatalf("list runs: %d", resp.Code)
-		}
+		require.EqualValues(t, 200,
+
+			resp.Code,
+		)
 
 		var listResp struct {
 			Data []map[string]any `json:"data"`
@@ -179,10 +189,8 @@ func TestLoadWorker_RunCreationAndListing(t *testing.T) {
 				NextCursor string `json:"next_cursor"`
 			} `json:"meta"`
 		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&listResp); err != nil {
-			t.Fatalf("decode list: %v", err)
-		}
+		require.NoError(t, json.
+			NewDecoder(resp.Body).Decode(&listResp))
 
 		totalListed += len(listResp.Data)
 		requests++

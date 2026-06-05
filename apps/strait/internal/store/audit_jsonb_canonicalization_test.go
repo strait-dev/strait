@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeJSONBDBTX models a minimal Postgres-compatible DB that reproduces
@@ -367,9 +369,8 @@ func TestCreateAuditEvent_SignAndVerify_SurviveJSONBCanonicalization(t *testing.
 	fake := &fakeJSONBDBTX{}
 	q := New(fake)
 	key, err := DeriveAuditSigningKey("canonicalization-test-secret")
-	if err != nil {
-		t.Fatalf("DeriveAuditSigningKey: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(key)
 	fake.signingKey = key
 
@@ -410,25 +411,18 @@ func TestCreateAuditEvent_SignAndVerify_SurviveJSONBCanonicalization(t *testing.
 		},
 	}
 
-	for i, ev := range events {
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent(%d): %v", i, err)
-		}
-		if ev.Signature == "" {
-			t.Fatalf("CreateAuditEvent(%d): empty signature on return; writer must set ev.Signature after UPDATE",
-				i)
-		}
+	for _, ev := range events {
+		require.NoError(t, q.CreateAuditEvent(ctx,
+			ev))
+		require.NotEmpty(t, ev.Signature)
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid: %s (broken at %q, checked %d)",
-			result.Error, result.BrokenAtID, result.EventsChecked)
-	}
-	if result.EventsChecked != len(events) {
-		t.Errorf("EventsChecked = %d, want %d", result.EventsChecked, len(events))
-	}
+	require.NoError(t, err)
+	require.True(t,
+		result.Valid)
+	assert.Equal(t,
+		len(events), result.
+			EventsChecked,
+	)
 }

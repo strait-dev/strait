@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func newEventTriggersTestServer(t *testing.T, s APIStore, wfCallback WorkflowCallback) *Server {
@@ -80,22 +81,18 @@ func TestReceiveJobRunEventTrigger_EnqueuesExistingReadyRun(t *testing.T) {
 	var enqueuedRunID string
 	ms := &APIStoreMock{
 		ReceiveEventAndRequeueRunFunc: func(_ context.Context, triggerID string, gotPayload json.RawMessage, _ time.Time, jobRunID string) error {
-			if triggerID != trigger.ID {
-				t.Fatalf("triggerID = %q, want %q", triggerID, trigger.ID)
-			}
-			if jobRunID != trigger.JobRunID {
-				t.Fatalf("jobRunID = %q, want %q", jobRunID, trigger.JobRunID)
-			}
-			if string(gotPayload) != string(payload) {
-				t.Fatalf("payload = %s, want %s", string(gotPayload), string(payload))
-			}
+			require.Equal(t, trigger.ID, triggerID)
+			require.Equal(t, trigger.JobRunID,
+				jobRunID,
+			)
+			require.Equal(t, string(payload), string(gotPayload))
+
 			received = true
 			return nil
 		},
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if id != run.ID {
-				t.Fatalf("GetRun id = %q, want %q", id, run.ID)
-			}
+			require.Equal(t, run.ID, id)
+
 			return run, nil
 		},
 	}
@@ -116,16 +113,13 @@ func TestReceiveJobRunEventTrigger_EnqueuesExistingReadyRun(t *testing.T) {
 		PubSub: &mockPublisher{},
 	})
 	t.Cleanup(srv.Close)
-
-	if err := srv.receiveJobRunEventTrigger(context.Background(), trigger, payload, time.Now().UTC()); err != nil {
-		t.Fatalf("receiveJobRunEventTrigger() error = %v", err)
-	}
-	if !received {
-		t.Fatal("ReceiveEventAndRequeueRun was not called")
-	}
-	if enqueuedRunID != run.ID {
-		t.Fatalf("EnqueueExisting run = %q, want %q", enqueuedRunID, run.ID)
-	}
+	require.NoError(t, srv.receiveJobRunEventTrigger(context.
+		Background(), trigger,
+		payload,
+		time.Now().UTC()))
+	require.True(
+		t, received)
+	require.Equal(t, run.ID, enqueuedRunID)
 }
 
 func TestHandleSendEvent_Success(t *testing.T) {
@@ -154,9 +148,11 @@ func TestHandleSendEvent_Success(t *testing.T) {
 			return getTrigger(ctx, key)
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			updatedStatus = status
 			updatedPayload = payload
 			return nil
@@ -177,21 +173,17 @@ func TestHandleSendEvent_Success(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, domain.EventTriggerStatusReceived,
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if updatedStatus != domain.EventTriggerStatusReceived {
-		t.Fatalf("trigger status = %q, want %q", updatedStatus, domain.EventTriggerStatusReceived)
-	}
+		updatedStatus)
 
 	var result map[string]any
-	if err := json.Unmarshal(updatedPayload, &result); err != nil {
-		t.Fatalf("unmarshal response payload: %v", err)
-	}
-	if result["result"] != "approved" {
-		t.Fatalf("payload result = %v, want approved", result["result"])
-	}
+	require.NoError(t, json.Unmarshal(updatedPayload,
+		&result,
+	))
+	require.Equal(t, "approved", result["result"])
 }
 
 func TestHandleSendEvent_NotFound(t *testing.T) {
@@ -211,10 +203,9 @@ func TestHandleSendEvent_NotFound(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
@@ -242,10 +233,9 @@ func TestHandleSendEvent_AlreadyReceived_DifferentPayload(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusConflict, rr.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		rr.
+			Code)
 }
 
 func TestHandleSendEvent_StoreError(t *testing.T) {
@@ -265,10 +255,10 @@ func TestHandleSendEvent_StoreError(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusInternalServerError)
-	}
+		rr.
+			Code)
 }
 
 func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
@@ -300,18 +290,15 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var trigger domain.EventTrigger
-	if err := json.NewDecoder(rr.Body).Decode(&trigger); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if trigger.EventKey != "aml-check:app-123" {
-		t.Fatalf("event_key = %q, want %q", trigger.EventKey, "aml-check:app-123")
-	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&trigger))
+	require.Equal(t, "aml-check:app-123",
+		trigger.
+			EventKey,
+	)
 }
 
 func TestHandleGetEventTrigger_NotFound(t *testing.T) {
@@ -331,10 +318,9 @@ func TestHandleGetEventTrigger_NotFound(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNotFound)
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 func TestHandleListEventTriggers_Success(t *testing.T) {
@@ -366,10 +352,8 @@ func TestHandleListEventTriggers_Success(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 }
 
 func TestHandleListEventTriggers_EnvironmentScopedCallerPassesEnvironmentFilter(t *testing.T) {
@@ -394,16 +378,10 @@ func TestHandleListEventTriggers_EnvironmentScopedCallerPassesEnvironmentFilter(
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if gotProjectID != "proj-1" {
-		t.Fatalf("projectID = %q, want proj-1", gotProjectID)
-	}
-	if gotEnvironmentID != "env-prod" {
-		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, "proj-1", gotProjectID)
+	require.Equal(t, "env-prod", gotEnvironmentID)
 }
 
 func TestHandleSendEvent_EmptyBody(t *testing.T) {
@@ -423,9 +401,11 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
@@ -449,15 +429,11 @@ func TestHandleSendEvent_EmptyBody(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Nil(t, capturedTrigger)
 
 	// For job_run source type, callback shouldn't be called
-	if capturedTrigger != nil {
-		t.Fatal("workflow callback should not be called for job_run source type")
-	}
 }
 
 func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
@@ -479,9 +455,11 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return nil
 		},
 		UpdateStepRunStatusFunc: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
@@ -506,18 +484,17 @@ func TestHandleSendEvent_WorkflowStepCallsCallback(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.True(
+		t, callbackCalled,
+	)
+	require.True(
+		t, stepRunStatusUpdatedDirectly,
+	)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if !callbackCalled {
-		t.Fatal("expected workflow callback to be called for workflow_step source")
-	}
 	// With runInTx, both trigger and step status are updated atomically
 	// by the handler (even in pass-through mode without a real TxPool).
-	if !stepRunStatusUpdatedDirectly {
-		t.Fatal("step run status should be updated by handler inside runInTx")
-	}
 }
 
 func TestHandleSendEvent_UpdateStatusConflictReturns409(t *testing.T) {
@@ -534,9 +511,11 @@ func TestHandleSendEvent_UpdateStatusConflictReturns409(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return store.ErrEventTriggerConflict
 		},
 	}
@@ -548,10 +527,9 @@ func TestHandleSendEvent_UpdateStatusConflictReturns409(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		rr.
+			Code)
 }
 
 func TestHandleSendEvent_IdempotentResend(t *testing.T) {
@@ -581,9 +559,8 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for idempotent resend, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	// Different payload -> 409.
 	req2 := httptest.NewRequest(http.MethodPost, "/v1/events/my-event/send", strings.NewReader(`{"payload":{"ok":false}}`))
@@ -592,9 +569,9 @@ func TestHandleSendEvent_IdempotentResend(t *testing.T) {
 	req2.Header.Set("X-Project-Id", "proj-1")
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, req2)
-	if w2.Code != http.StatusConflict {
-		t.Fatalf("expected 409 for different payload, got %d: %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w2.
+			Code)
 }
 
 func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
@@ -631,21 +608,16 @@ func TestHandleSendEventByPrefix_ResolvesMultiple(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if len(batchResolvedIDs) != 2 {
-		t.Fatalf("batch resolved count = %d, want 2", len(batchResolvedIDs))
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Len(t,
+		batchResolvedIDs,
+		2)
 
 	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["resolved"].(float64) != 2 {
-		t.Fatalf("resolved = %v, want 2", resp["resolved"])
-	}
+	require.NoError(t, json.Unmarshal(rr.Body.
+		Bytes(), &resp))
+	require.InDelta(t, 2, resp["resolved"].(float64), 1e-9)
 }
 
 func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
@@ -665,18 +637,13 @@ func TestHandleSendEventByPrefix_NoMatches(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["resolved"].(float64) != 0 {
-		t.Fatalf("resolved = %v, want 0", resp["resolved"])
-	}
+	require.NoError(t, json.Unmarshal(rr.Body.
+		Bytes(), &resp))
+	require.InDelta(t, 0, resp["resolved"].(float64), 1e-9)
 }
 
 func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
@@ -708,11 +675,11 @@ func TestHandleSendEvent_ProjectScoping_Forbidden(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 
 	// Returns 404 (not 403) to avoid leaking resource existence to other projects.
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
 }
 
 func TestPayloadsMatch(t *testing.T) {
@@ -741,9 +708,8 @@ func TestPayloadsMatch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := payloadsMatch(tt.a, tt.b); got != tt.want {
-				t.Fatalf("payloadsMatch(%s, %s) = %v, want %v", string(tt.a), string(tt.b), got, tt.want)
-			}
+			require.Equal(t, tt.want, payloadsMatch(
+				tt.a, tt.b))
 		})
 	}
 }
@@ -815,9 +781,11 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 			return nil, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			canceledTriggerStatus = status
 			return nil
 		},
@@ -839,19 +807,16 @@ func TestHandleCancelEventTrigger(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, domain.EventTriggerStatusCanceled,
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	if canceledTriggerStatus != domain.EventTriggerStatusCanceled {
-		t.Fatalf("trigger status = %q, want %q", canceledTriggerStatus, domain.EventTriggerStatusCanceled)
-	}
-	if failedStepRunID != "wsr-1" {
-		t.Fatalf("failed step run = %q, want %q", failedStepRunID, "wsr-1")
-	}
-	if !onStepFailedCalled {
-		t.Fatal("expected OnStepFailed to be called")
-	}
+		canceledTriggerStatus,
+	)
+	require.Equal(t, "wsr-1", failedStepRunID)
+	require.True(
+		t, onStepFailedCalled,
+	)
 }
 
 func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
@@ -875,10 +840,9 @@ func TestHandleCancelEventTrigger_NotWaiting(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusConflict, rr.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		rr.
+			Code)
 }
 
 // SSE stream tests.
@@ -907,20 +871,17 @@ func TestHandleEventTriggerStream_TerminalState(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, "text/event-stream",
+		rr.
+			Header().Get("Content-Type"))
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if ct := rr.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
-	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "event: status") {
-		t.Fatalf("expected SSE status event, got: %s", body)
-	}
-	if !strings.Contains(body, "evt-terminal") {
-		t.Fatalf("expected trigger ID in response, got: %s", body)
-	}
+	require.Contains(
+		t, body, "event: status")
+	require.Contains(
+		t, body, "evt-terminal")
 }
 
 func TestHandleEventTriggerStream_NotFound(t *testing.T) {
@@ -939,10 +900,9 @@ func TestHandleEventTriggerStream_NotFound(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 func TestHandleEventTriggerStream_ProjectMismatch(t *testing.T) {
@@ -971,10 +931,9 @@ func TestHandleEventTriggerStream_ProjectMismatch(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 // Stats endpoint tests.
@@ -989,10 +948,9 @@ func TestHandleGetEventTriggerStats_RequiresProject(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.Code)
 }
 
 func TestHandleGetEventTriggerStats_Success(t *testing.T) {
@@ -1016,17 +974,17 @@ func TestHandleGetEventTriggerStats_Success(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(rr.Body.
+		Bytes(), &resp))
+
 	if _, ok := resp["total_count"]; !ok {
-		t.Fatal("expected total_count in response")
+		require.Fail(t,
+
+			"expected total_count in response")
 	}
 }
 
@@ -1051,16 +1009,12 @@ func TestHandleGetEventTriggerStats_EnvironmentScopedCallerPassesEnvironmentFilt
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if gotProjectID != "proj-stats" {
-		t.Fatalf("projectID = %q, want proj-stats", gotProjectID)
-	}
-	if gotEnvironmentID != "env-prod" {
-		t.Fatalf("environmentID = %q, want env-prod", gotEnvironmentID)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, "proj-stats",
+		gotProjectID,
+	)
+	require.Equal(t, "env-prod", gotEnvironmentID)
 }
 
 // Get trigger project mismatch.
@@ -1091,10 +1045,9 @@ func TestHandleGetEventTrigger_ProjectMismatchWithAPIKey(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 // List triggers tests.
@@ -1124,19 +1077,13 @@ func TestHandleListEventTriggers_WithFilters(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if calledStatus != "waiting" {
-		t.Fatalf("expected status=waiting, got %q", calledStatus)
-	}
-	if calledWfRunID != "wfr-1" {
-		t.Fatalf("expected workflow_run_id=wfr-1, got %q", calledWfRunID)
-	}
-	if calledSourceType != "workflow_step" {
-		t.Fatalf("expected source_type=workflow_step, got %q", calledSourceType)
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, "waiting", calledStatus)
+	require.Equal(t, "wfr-1", calledWfRunID)
+	require.Equal(t, "workflow_step",
+		calledSourceType,
+	)
 }
 
 // Cancel with job_run source.
@@ -1158,9 +1105,11 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
@@ -1176,13 +1125,12 @@ func TestHandleCancelEventTrigger_JobRunSource(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Equal(t, domain.StatusCanceled,
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if canceledRunStatus != domain.StatusCanceled {
-		t.Fatalf("run status = %q, want %q", canceledRunStatus, domain.StatusCanceled)
-	}
+		canceledRunStatus,
+	)
 }
 
 // Send event with workflow step resume.
@@ -1205,9 +1153,11 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return nil
 		},
 	}
@@ -1226,13 +1176,11 @@ func TestHandleSendEvent_WorkflowStepResume(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if !receivedCalled {
-		t.Fatal("expected OnEventReceived to be called for workflow step")
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.True(
+		t, receivedCalled,
+	)
 }
 
 // Idempotent re-send with matching payload.
@@ -1261,10 +1209,8 @@ func TestHandleSendEvent_IdempotentResendMatchingPayload(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 }
 
 func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
@@ -1291,10 +1237,9 @@ func TestHandleSendEvent_ConflictDifferentPayload(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		rr.
+			Code)
 }
 
 // Store error.
@@ -1315,10 +1260,10 @@ func TestHandleSendEvent_GetTriggerStoreError(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 // SSE stream: full long-poll lifecycle with mock pubsub.
@@ -1362,17 +1307,17 @@ func TestHandleEventTriggerStream_ReceivesMessage(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
 
-	_ = ctx // keep cancel reference alive
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
+	_ = ctx
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+
+	// keep cancel reference alive
+
 	body := rr.Body.String()
-	if !strings.Contains(body, `"status":"received"`) {
-		t.Fatalf("expected received status in SSE body, got: %s", body)
-	}
-	if !strings.Contains(body, "event: status") {
-		t.Fatalf("expected SSE event line, got: %s", body)
-	}
+	require.Contains(
+		t, body, `"status":"received"`)
+	require.Contains(
+		t, body, "event: status")
 }
 
 func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
@@ -1428,13 +1373,12 @@ func TestHandleEventTriggerStream_IgnoresGenericRequestTimeout(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
-	if !strings.Contains(rr.Body.String(), `"status":"received"`) {
-		t.Fatalf("stream was cut off before terminal event; body: %s", rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Contains(
+		t, rr.Body.
+			String(), `"status":"received"`,
+	)
 }
 
 func TestHandleEventTriggerStream_DropsForeignEnvironmentMessage(t *testing.T) {
@@ -1476,17 +1420,22 @@ func TestHandleEventTriggerStream_DropsForeignEnvironmentMessage(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.handleEventTriggerStream(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 	body := rr.Body.String()
-	if strings.Contains(body, `"environment_id":"env-staging"`) || strings.Contains(body, `"status":"received"`) {
-		t.Fatalf("foreign environment message was forwarded: %s", body)
-	}
-	if !strings.Contains(body, `"environment_id":"env-prod"`) || !strings.Contains(body, `"status":"waiting"`) {
-		t.Fatalf("expected only initial scoped trigger state, got: %s", body)
-	}
+	require.False(t, strings.Contains(body,
+		`"environment_id":"env-staging"`,
+	) ||
+		strings.Contains(body,
+			`"status":"received"`,
+		))
+	require.False(t, !strings.Contains(body,
+		`"environment_id":"env-prod"`,
+	) ||
+		!strings.Contains(body,
+			`"status":"waiting"`,
+		))
 }
 
 func TestHandleEventTriggerStream_ForwardsMatchingEnvironmentMessage(t *testing.T) {
@@ -1527,16 +1476,16 @@ func TestHandleEventTriggerStream_ForwardsMatchingEnvironmentMessage(t *testing.
 
 	rr := httptest.NewRecorder()
 	srv.handleEventTriggerStream(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `"id":"evt-env-stream-ok"`) ||
-		!strings.Contains(body, `"environment_id":"env-prod"`) ||
-		!strings.Contains(body, `"status":"received"`) {
-		t.Fatalf("expected matching environment message to be forwarded, got: %s", body)
-	}
+	require.False(t, !strings.Contains(body,
+		`"id":"evt-env-stream-ok"`,
+	) || !strings.Contains(body,
+		`"environment_id":"env-prod"`,
+	) ||
+		!strings.Contains(body, `"status":"received"`))
 }
 
 // SSE stream: context cancellation closes cleanly.
@@ -1576,14 +1525,13 @@ func TestHandleEventTriggerStream_ContextCancel(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
+	require.Contains(
+		t, rr.Body.
+			String(), "event: status")
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 	// Should contain the initial state message at minimum.
-	if !strings.Contains(rr.Body.String(), "event: status") {
-		t.Fatalf("expected initial SSE event, got: %s", rr.Body.String())
-	}
 }
 
 // SSE stream: closed channel exits cleanly.
@@ -1619,10 +1567,8 @@ func TestHandleEventTriggerStream_ClosedChannel(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 }
 
 // SSE stream: nil pubsub returns 503.
@@ -1647,10 +1593,10 @@ func TestHandleEventTriggerStream_NilPubsub(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.Code,
+	)
 }
 
 // SSE stream: subscribe error returns 500.
@@ -1681,10 +1627,10 @@ func TestHandleEventTriggerStream_SubscribeError(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 // SSE stream: store error on get trigger.
@@ -1704,10 +1650,10 @@ func TestHandleEventTriggerStream_StoreError(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 // Stats: store error returns 500.
@@ -1730,10 +1676,10 @@ func TestHandleGetEventTriggerStats_StoreError(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 // Cancel: not found returns 404.
@@ -1753,10 +1699,9 @@ func TestHandleCancelEventTrigger_NotFound(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 }
 
 // Cancel: project forbidden.
@@ -1784,11 +1729,11 @@ func TestHandleCancelEventTrigger_ProjectForbidden(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer strait_testapikey123")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusNotFound,
+		rr.
+			Code)
 
 	// Returns 404 (not 403) to avoid leaking resource existence to other projects.
-	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; body: %s", rr.Code, rr.Body.String())
-	}
 }
 
 // Cancel: store error on status update returns 500.
@@ -1816,10 +1761,10 @@ func TestHandleCancelEventTrigger_UpdateStatusError(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 func TestHandleCancelEventTrigger_UpdateStatusConflictReturns409(t *testing.T) {
@@ -1835,9 +1780,11 @@ func TestHandleCancelEventTrigger_UpdateStatusConflictReturns409(t *testing.T) {
 			}, nil
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, _ string, _ json.RawMessage, _ *time.Time, _ string) error {
-			if from != domain.EventTriggerStatusWaiting {
-				t.Fatalf("from = %q, want %q", from, domain.EventTriggerStatusWaiting)
-			}
+			require.Equal(t, domain.EventTriggerStatusWaiting,
+
+				from,
+			)
+
 			return store.ErrEventTriggerConflict
 		},
 	}
@@ -1848,10 +1795,9 @@ func TestHandleCancelEventTrigger_UpdateStatusConflictReturns409(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body: %s", rr.Code, rr.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		rr.
+			Code)
 }
 
 // Get trigger: store error returns 500.
@@ -1871,10 +1817,10 @@ func TestHandleGetEventTrigger_StoreError(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500; body: %s", rr.Code, rr.Body.String())
-	}
+		rr.
+			Code)
 }
 
 // Get trigger: success verifies response body structure.
@@ -1901,20 +1847,16 @@ func TestHandleGetEventTrigger_ResponseBody(t *testing.T) {
 	req.Header.Set("X-Project-Id", "proj-1")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK,
+		rr.Code)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body: %s", rr.Code, rr.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp["event_key"] != "ok-key" {
-		t.Fatalf("expected event_key=ok-key, got %v", resp["event_key"])
-	}
-	if resp["source_type"] != domain.EventSourceWorkflowStep {
-		t.Fatalf("expected source_type=%s, got %v", domain.EventSourceWorkflowStep, resp["source_type"])
-	}
+	require.NoError(t, json.Unmarshal(rr.Body.
+		Bytes(), &resp))
+	require.Equal(t, "ok-key", resp["event_key"])
+	require.Equal(t, domain.EventSourceWorkflowStep,
+
+		resp["source_type"])
 }
 
 // publishTriggerStatusChange: nil pubsub is a no-op.
@@ -1958,9 +1900,7 @@ func TestResumeEventSource_NilCallback(t *testing.T) {
 		SourceType:        domain.EventSourceWorkflowStep,
 		WorkflowStepRunID: "wsr-1",
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // resumeEventSource: empty step run ID is a no-op.
@@ -1971,9 +1911,7 @@ func TestResumeEventSource_EmptyStepRunID(t *testing.T) {
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: domain.EventSourceWorkflowStep,
 	})
-	if err != nil {
-		t.Fatalf("expected no error for empty step run ID, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // resumeEventSource: empty job run ID is a no-op.
@@ -1984,9 +1922,7 @@ func TestResumeEventSource_EmptyJobRunID(t *testing.T) {
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: domain.EventSourceJobRun,
 	})
-	if err != nil {
-		t.Fatalf("expected no error for empty job run ID, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // resumeEventSource: unknown source type is a no-op.
@@ -1997,9 +1933,7 @@ func TestResumeEventSource_UnknownSourceType(t *testing.T) {
 	err := srv.resumeEventSource(context.Background(), &domain.EventTrigger{
 		SourceType: "unknown",
 	})
-	if err != nil {
-		t.Fatalf("expected no error for unknown source, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestValidateEventKey(t *testing.T) {
@@ -2033,12 +1967,12 @@ func TestValidateEventKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			result := validateEventKey(tt.key)
-			if tt.wantErr && result == "" {
-				t.Fatalf("expected error for key %q, got none", tt.key)
-			}
-			if !tt.wantErr && result != "" {
-				t.Fatalf("expected no error for key %q, got %q", tt.key, result)
-			}
+			require.False(t, tt.wantErr &&
+				result ==
+					"")
+			require.False(t, !tt.wantErr &&
+				result !=
+					"")
 		})
 	}
 }
@@ -2070,13 +2004,10 @@ func TestHandleEventTriggerStream_RawQueryParamAuthRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/qp-key/stream?token=strait_testapikey123", nil)
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body: %s", rr.Code, rr.Body.String())
-	}
-	if keyLookupCalled {
-		t.Fatal("raw query API key should be rejected before store lookup")
-	}
+		rr.Code)
+	require.False(t, keyLookupCalled)
 }
 
 func TestHandlePurgeEventTriggers(t *testing.T) {
@@ -2091,10 +2022,9 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Project-Id", "proj-1")
 		req.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest,
 
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", w.Code)
-		}
+			w.Code)
 	})
 
 	t.Run("older_than_days must be >= 1", func(t *testing.T) {
@@ -2106,10 +2036,9 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest,
 
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", w.Code)
-		}
+			w.Code)
 	})
 
 	t.Run("older_than_days overflow rejected", func(t *testing.T) {
@@ -2121,10 +2050,9 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusBadRequest,
 
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", w.Code)
-		}
+			w.Code)
 	})
 
 	t.Run("dry run success", func(t *testing.T) {
@@ -2134,12 +2062,9 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		ms := &APIStoreMock{
 			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
 				countCalled = true
-				if projectID != "proj-1" {
-					t.Fatalf("projectID = %q, want proj-1", projectID)
-				}
-				if environmentID != "" {
-					t.Fatalf("environmentID = %q, want empty", environmentID)
-				}
+				require.Equal(t, "proj-1", projectID)
+				require.Empty(t, environmentID)
+
 				return 7, nil
 			},
 			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, _, _ string, _ time.Time, _ int) (int64, error) {
@@ -2154,27 +2079,16 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-		}
-		if !countCalled {
-			t.Fatal("expected count method to be called")
-		}
-		if deleteCalled {
-			t.Fatal("did not expect delete method on dry run")
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
+		require.True(
+			t, countCalled)
+		require.False(t, deleteCalled)
 
 		var resp map[string]any
-		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if resp["dry_run"] != true {
-			t.Fatalf("dry_run = %v, want true", resp["dry_run"])
-		}
-		if resp["would_delete"] != float64(7) {
-			t.Fatalf("would_delete = %v, want 7", resp["would_delete"])
-		}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		require.Equal(t, true, resp["dry_run"])
+		require.InDelta(t, float64(7), resp["would_delete"], 1e-9)
 	})
 
 	t.Run("dry run count error", func(t *testing.T) {
@@ -2191,10 +2105,10 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError,
 
-		if w.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500", w.Code)
-		}
+			w.Code,
+		)
 	})
 
 	t.Run("delete success", func(t *testing.T) {
@@ -2203,15 +2117,10 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		ms := &APIStoreMock{
 			DeleteEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time, limit int) (int64, error) {
 				deleteCalled = true
-				if projectID != "proj-1" {
-					t.Fatalf("projectID = %q, want proj-1", projectID)
-				}
-				if environmentID != "" {
-					t.Fatalf("environmentID = %q, want empty", environmentID)
-				}
-				if limit != 10000 {
-					t.Fatalf("limit = %d, want 10000", limit)
-				}
+				require.Equal(t, "proj-1", projectID)
+				require.Empty(t, environmentID)
+				require.Equal(t, 10000, limit)
+
 				return 11, nil
 			},
 		}
@@ -2222,21 +2131,15 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-		}
-		if !deleteCalled {
-			t.Fatal("expected delete method to be called")
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
+		require.True(
+			t, deleteCalled)
 
 		var resp map[string]any
-		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-			t.Fatalf("decode response: %v", err)
-		}
-		if resp["deleted"] != float64(11) {
-			t.Fatalf("deleted = %v, want 11", resp["deleted"])
-		}
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		require.InDelta(t, float64(11),
+			resp["deleted"], 1e-9)
 	})
 
 	t.Run("delete error", func(t *testing.T) {
@@ -2253,10 +2156,10 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.Header.Set("X-Project-Id", "proj-1")
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusInternalServerError,
 
-		if w.Code != http.StatusInternalServerError {
-			t.Fatalf("status = %d, want 500", w.Code)
-		}
+			w.Code,
+		)
 	})
 
 	t.Run("environment scoped dry run passes environment to store", func(t *testing.T) {
@@ -2267,12 +2170,9 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 			},
 			TouchAPIKeyLastUsedFunc: func(_ context.Context, _ string) error { return nil },
 			CountEventTriggersFinishedBeforeForProjectFunc: func(_ context.Context, projectID, environmentID string, _ time.Time) (int64, error) {
-				if projectID != "proj-1" {
-					t.Fatalf("projectID = %q, want proj-1", projectID)
-				}
-				if environmentID != "env-prod" {
-					t.Fatalf("environmentID = %q, want env-prod", environmentID)
-				}
+				require.Equal(t, "proj-1", projectID)
+				require.Equal(t, "env-prod", environmentID)
+
 				return 3, nil
 			},
 		}
@@ -2282,9 +2182,7 @@ func TestHandlePurgeEventTriggers(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer strait_testapikey123")
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	})
 }

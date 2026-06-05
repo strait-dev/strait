@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -18,9 +20,9 @@ func TestGetProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-B/settings", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestGetProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -34,9 +36,9 @@ func TestGetProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodGet, "/v1/projects/proj-A/settings", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusOK, w.Code,
+	)
 }
 
 func TestGetProjectSettings_APIKey_CrossOrgForbidden(t *testing.T) {
@@ -51,9 +53,9 @@ func TestGetProjectSettings_APIKey_CrossOrgForbidden(t *testing.T) {
 	req := apiKeyRequest(http.MethodGet, "/v1/projects/proj-B/settings", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestGetProjectSettings_APIKey_SameOrgAllowed(t *testing.T) {
@@ -67,9 +69,9 @@ func TestGetProjectSettings_APIKey_SameOrgAllowed(t *testing.T) {
 	req := apiKeyRequest(http.MethodGet, "/v1/projects/proj-A/settings", "", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusOK, w.Code,
+	)
 }
 
 func TestUpdateProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
@@ -85,9 +87,9 @@ func TestUpdateProjectSettings_InternalSecret_CrossOrgForbidden(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/projects/proj-B/settings", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestUpdateProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
@@ -102,9 +104,9 @@ func TestUpdateProjectSettings_InternalSecret_SameOrgAllowed(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/projects/proj-A/settings", body, "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code == http.StatusForbidden {
-		t.Fatalf("expected non-403, got 403: %s", w.Body.String())
-	}
+	require.NotEqual(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestGetProjectSettings_NoProjectContext_Forbidden(t *testing.T) {
@@ -116,9 +118,9 @@ func TestGetProjectSettings_NoProjectContext_Forbidden(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/projects/proj-A/settings", "")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 without project context, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestUpdateProjectSettings_InvalidBody_BadRequest(t *testing.T) {
@@ -130,7 +132,8 @@ func TestUpdateProjectSettings_InvalidBody_BadRequest(t *testing.T) {
 	req := internalSecretRequestWithProject(http.MethodPut, "/v1/projects/proj-A/settings", "not-json", "proj-A")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(
+		t, http.StatusBadRequest,
+		w.Code,
+	)
 }

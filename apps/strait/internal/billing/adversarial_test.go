@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSpendingLimit_BoundaryValues verifies spending limit boundary checks for each plan tier.
@@ -47,9 +49,9 @@ func TestSpendingLimit_BoundaryValues(t *testing.T) {
 			t.Parallel()
 
 			got := MaxSpendingLimit(tt.tier)
-			if got != tt.expected {
-				t.Fatalf("MaxSpendingLimit(%q) = %d, want %d", tt.tier, got, tt.expected)
-			}
+			require.Equal(t,
+				tt.
+					expected, got)
 		})
 	}
 }

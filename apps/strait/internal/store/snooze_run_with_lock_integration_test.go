@@ -13,6 +13,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSnoozeRunWithLock_HappyPath verifies a clean dequeued -> queued
@@ -25,25 +27,74 @@ func TestSnoozeRunWithLock_HappyPath(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-snooze-lock-happy")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusDequeued
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	err := q.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, map[string]any{
 		"error":       "transient",
 		"error_class": "transient",
 	})
-	if err != nil {
-		t.Fatalf("SnoozeRunWithLock() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusQueued {
-		t.Fatalf("status = %s, want queued", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusQueued,
+		got.Status,
+	)
+
+}
+
+func TestSnoozeRunWithLock_RequeuesActiveClaimOverlay(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-snooze-lock-active-claim")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusQueued
+	require.NoError(t, q.CreateRun(ctx, run))
+
+	var beforeGeneration int64
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration))
+	started := time.Now().UTC().Add(-10 * time.Minute)
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		VALUES ($1, $2, 1, $3)`,
+		run.ID, beforeGeneration, started,
+	)
+	require.NoError(t, err)
+
+	err = q.SnoozeRunWithLock(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		"error":        nil,
+		"error_class":  nil,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"heartbeat_at": nil,
+	})
+	require.NoError(t, err)
+
+	var stateStatus domain.RunStatus
+	var afterGeneration int64
+	var activeClaims int
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `
+		SELECT s.status, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1`,
+		run.ID,
+	).Scan(&stateStatus, &afterGeneration, &activeClaims))
+	require.Equal(t, domain.StatusQueued, stateStatus)
+	require.Equal(t, beforeGeneration+1, afterGeneration)
+	require.Equal(t, 1, activeClaims)
+	got, err := q.GetRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusQueued, got.Status)
 }
 
 // TestSnoozeRunWithLock_RunNotFound verifies a missing row surfaces
@@ -54,9 +105,10 @@ func TestSnoozeRunWithLock_RunNotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.SnoozeRunWithLock(ctx, newID(), domain.StatusDequeued, domain.StatusQueued, nil)
-	if !errors.Is(err, store.ErrRunNotFound) {
-		t.Fatalf("err = %v, want ErrRunNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrRunNotFound,
+	))
+
 }
 
 // TestSnoozeRunWithLock_StatusConflictReturnsConflict verifies a row that
@@ -70,14 +122,14 @@ func TestSnoozeRunWithLock_StatusConflictReturnsConflict(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-snooze-lock-conflict")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	err := q.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, nil)
-	if !errors.Is(err, store.ErrRunConflict) {
-		t.Fatalf("err = %v, want ErrRunConflict", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrRunConflict,
+	))
+
 }
 
 // TestSnoozeRunWithLock_LockedRowReturnsErrRunLocked verifies that when
@@ -91,37 +143,35 @@ func TestSnoozeRunWithLock_LockedRowReturnsErrRunLocked(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-snooze-lock-locked")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusDequeued
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	// Start a competing tx and grab the row lock. Hold it until the
 	// SnoozeRunWithLock call returns.
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var locked string
-	if err := tx.QueryRow(ctx,
-		`SELECT run_id FROM job_run_state WHERE run_id = $1 FOR UPDATE`, run.ID).Scan(&locked); err != nil {
-		t.Fatalf("competing FOR UPDATE error = %v", err)
-	}
+	require.NoError(t, tx.QueryRow(ctx,
+		`SELECT run_id FROM job_run_state WHERE run_id = $1 FOR UPDATE`,
+
+		run.ID).Scan(&locked))
 
 	snoozeErr := q.SnoozeRunWithLock(ctx, run.ID, domain.StatusDequeued, domain.StatusQueued, nil)
-	if !errors.Is(snoozeErr, store.ErrRunLocked) {
-		t.Fatalf("err = %v, want ErrRunLocked", snoozeErr)
-	}
+	require.True(t, errors.Is(snoozeErr,
+		store.ErrRunLocked,
+	))
 
 	// Status must NOT have transitioned while the lock was held.
 	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusDequeued {
-		t.Fatalf("status = %s, want dequeued (transition leaked through SKIP LOCKED)", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusDequeued,
+		got.
+			Status)
+
 }
 
 // TestSnoozeRunWithLock_ConcurrentSnoozesExactlyOneWinner is the regression
@@ -136,9 +186,8 @@ func TestSnoozeRunWithLock_ConcurrentSnoozesExactlyOneWinner(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-snooze-lock-concurrent")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusDequeued
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	const n = 25
 	results := make(chan error, n)
@@ -169,24 +218,20 @@ func TestSnoozeRunWithLock_ConcurrentSnoozesExactlyOneWinner(t *testing.T) {
 			t.Logf("unexpected error: %v", err)
 		}
 	}
+	require.EqualValues(t, 1, winners)
+	require.EqualValues(t, 0, other)
+	require.Equal(t, n-1,
 
-	if winners != 1 {
-		t.Fatalf("winners = %d, want exactly 1 (locked=%d conflict=%d other=%d)", winners, locked, conflict, other)
-	}
-	if other != 0 {
-		t.Fatalf("got %d genuine errors; SKIP LOCKED must never leak DB errors to callers", other)
-	}
-	if locked+conflict != n-1 {
-		t.Fatalf("locked+conflict = %d, want %d", locked+conflict, n-1)
-	}
+		locked+
+			conflict)
 
 	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusQueued {
-		t.Fatalf("final status = %s, want queued", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusQueued,
+		got.Status,
+	)
+
 }
 
 // TestSnoozeRunWithLock_RacesWithCompletion simulates the original
@@ -205,9 +250,9 @@ func TestSnoozeRunWithLock_RacesWithCompletion(t *testing.T) {
 	for i := range n {
 		run := baseRun(job, newID())
 		run.Status = domain.StatusDequeued
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		runs[i] = run
 	}
 
@@ -223,9 +268,13 @@ func TestSnoozeRunWithLock_RacesWithCompletion(t *testing.T) {
 				snoozeWins.Add(1)
 				return
 			}
-			if !errors.Is(err, store.ErrRunLocked) && !errors.Is(err, store.ErrRunConflict) {
-				t.Errorf("run %s: snooze err = %v", run.ID, err)
-			}
+			assert.False(t, !errors.Is(err, store.
+				ErrRunLocked,
+			) &&
+				!errors.Is(err,
+					store.ErrRunConflict,
+				))
+
 		})
 		wg.Go(func() {
 			<-start
@@ -234,27 +283,31 @@ func TestSnoozeRunWithLock_RacesWithCompletion(t *testing.T) {
 				completionWins.Add(1)
 				return
 			}
-			if !errors.Is(err, store.ErrRunConflict) {
-				t.Errorf("run %s: complete err = %v", run.ID, err)
-			}
+			assert.True(t, errors.Is(err, store.
+				ErrRunConflict,
+			))
+
 		})
 	}
 	close(start)
 	wg.Wait()
-
-	if snoozeWins.Load()+completionWins.Load() != int32(n) {
-		t.Fatalf("snoozeWins=%d completionWins=%d total=%d, want %d",
-			snoozeWins.Load(), completionWins.Load(), snoozeWins.Load()+completionWins.Load(), n)
-	}
+	require.Equal(t, int32(
+		n,
+	), snoozeWins.
+		Load()+
+		completionWins.
+			Load())
 
 	for _, run := range runs {
 		got, err := q.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun(%s) error = %v", run.ID, err)
-		}
-		if got.Status != domain.StatusQueued && got.Status != domain.StatusExecuting {
-			t.Fatalf("run %s final status = %s, want queued or executing", run.ID, got.Status)
-		}
+		require.NoError(t, err)
+		require.False(t, got.Status !=
+			domain.
+				StatusQueued &&
+			got.Status != domain.
+				StatusExecuting,
+		)
+
 	}
 }
 
@@ -274,9 +327,9 @@ func TestSnoozeRunWithLock_HighContention_NoDeadlock(t *testing.T) {
 	for i := range numRuns {
 		run := baseRun(job, newID())
 		run.Status = domain.StatusDequeued
-		if err := q.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			run))
+
 		runs[i] = run
 	}
 
@@ -296,18 +349,18 @@ func TestSnoozeRunWithLock_HighContention_NoDeadlock(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if deadlocks.Load() != 0 {
-		t.Fatalf("deadlocks observed: %d", deadlocks.Load())
-	}
+	require.EqualValues(t, 0, deadlocks.
+		Load())
 
 	for _, run := range runs {
 		got, err := q.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun(%s) error = %v", run.ID, err)
-		}
-		if got.Status != domain.StatusDequeued && got.Status != domain.StatusQueued {
-			t.Fatalf("run %s ended in unexpected status %s", run.ID, got.Status)
-		}
+		require.NoError(t, err)
+		require.False(t, got.Status !=
+			domain.
+				StatusDequeued &&
+			got.Status !=
+				domain.StatusQueued,
+		)
+
 	}
 }

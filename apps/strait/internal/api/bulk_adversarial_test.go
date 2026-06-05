@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun
@@ -44,14 +46,13 @@ func TestBulkTrigger_PriorityCheckedAfterIdempotencyHit_NotInvokedForCachedRun(t
 	body := `{"items":[{"priority":99,"idempotency_key":"cached"},{"priority":1,"idempotency_key":"fresh"}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+	require.EqualValues(t, 1, enforcer.calls.
+		Load())
+
 	// Only the fresh item should have triggered the gate.
-	if got := enforcer.calls.Load(); got != 1 {
-		t.Fatalf("CheckMaxDispatchPriority calls = %d, want 1 (cached items skip the gate)", got)
-	}
 }
 
 // flakyEnforcer trips the gate on a specific item index. Used to simulate the
@@ -96,14 +97,14 @@ func TestBulkTrigger_FailureAtItemN_StopsAtFirstFailure(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", string(bodyBytes)))
+	require.Equal(t, http.StatusPaymentRequired,
 
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402 PaymentRequired, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code,
+	)
+	require.EqualValues(t, 5, enforcer.calls.
+		Load())
+
 	// Gate fired exactly 5 times: items 0..3 passed, item 4 failed and bailed.
-	if got := enforcer.calls.Load(); got != 5 {
-		t.Fatalf("gate calls = %d, want 5 (stop at first failure)", got)
-	}
 }
 
 // TestBulkTrigger_PerItemErrorMessageReferencesItemIndex verifies that the
@@ -124,14 +125,14 @@ func TestBulkTrigger_PerItemErrorMessageReferencesItemIndex(t *testing.T) {
 	body := `{"items":[{"priority":1},{"priority":2},{"priority":99}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger/bulk", body))
+	require.Equal(t, http.StatusPaymentRequired,
 
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code,
+	)
+
 	bodyStr := w.Body.String()
-	if !strings.Contains(bodyStr, "item 2") {
-		t.Errorf("error body must reference 'item 2' (the offending index), got: %s", bodyStr)
-	}
+	assert.Contains(t,
+		bodyStr, "item 2")
 }
 
 func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
@@ -143,18 +144,16 @@ func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
 	job.RateLimitWindowSecs = 60
 	ms := &APIStoreMock{
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != job.ID {
-				t.Fatalf("job id = %q, want %q", id, job.ID)
-			}
+			require.Equal(t, job.ID, id)
+
 			return job, nil
 		},
 		GetProjectQuotaFunc: func(_ context.Context, projectID string) (*store.ProjectQuota, error) {
 			return &store.ProjectQuota{ProjectID: projectID}, nil
 		},
 		CountRunsForJobSinceFunc: func(_ context.Context, jobID string, _ time.Time) (int, error) {
-			if jobID != job.ID {
-				t.Fatalf("jobID = %q, want %q", jobID, job.ID)
-			}
+			require.Equal(t, job.ID, jobID)
+
 			return 1, nil
 		},
 	}
@@ -166,13 +165,11 @@ func TestBulkTrigger_RateLimitCountsPendingBatchItems(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-rate/trigger/bulk", `{"items":[{},{}]}`))
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued.Load() {
-		t.Fatal("bulk trigger enqueued items beyond the per-job rate limit")
-	}
+		w.Code,
+	)
+	require.False(t, enqueued.Load())
 }
 
 func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
@@ -189,12 +186,9 @@ func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
 		},
 		SumProjectDailyCostMicrousdFunc: func(_ context.Context, projectID string, timezone string) (int64, error) {
 			budgetChecks.Add(1)
-			if projectID != "proj-1" {
-				t.Fatalf("projectID = %q, want proj-1", projectID)
-			}
-			if timezone != "UTC" {
-				t.Fatalf("timezone = %q, want UTC", timezone)
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.Equal(t, "UTC", timezone)
+
 			return 5000, nil
 		},
 	}
@@ -206,16 +200,13 @@ func TestBulkTrigger_DailyCostBudgetExceeded(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-budget/trigger/bulk", `{"items":[{},{}]}`))
+	require.Equal(t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued.Load() {
-		t.Fatal("expected bulk trigger not to enqueue when daily cost budget is exhausted")
-	}
-	if got := budgetChecks.Load(); got != 1 {
-		t.Fatalf("daily budget checks = %d, want 1", got)
-	}
+		w.Code,
+	)
+	require.False(t, enqueued.Load())
+	require.EqualValues(t, 1, budgetChecks.
+		Load())
 }
 
 func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
@@ -233,12 +224,16 @@ func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
 			return existingRun, nil
 		},
 		SumProjectDailyCostMicrousdFunc: func(_ context.Context, _ string, _ string) (int64, error) {
-			t.Fatal("daily budget must not be checked when every item is an idempotency hit")
+			require.Fail(t,
+
+				"daily budget must not be checked when every item is an idempotency hit")
 			return 0, nil
 		},
 	}
 	mq := &mockQueue{enqueueFn: func(_ context.Context, _ *domain.JobRun) error {
-		t.Fatal("idempotency-only bulk trigger must not enqueue a new run")
+		require.Fail(t,
+
+			"idempotency-only bulk trigger must not enqueue a new run")
 		return nil
 	}}
 	srv := newTestServer(t, ms, mq, nil)
@@ -249,21 +244,20 @@ func TestBulkTrigger_DailyCostBudgetAllIdempotencyHitsBypass(t *testing.T) {
 		"/v1/jobs/job-budget/trigger/bulk",
 		`{"items":[{"idempotency_key":"cached-a"},{"idempotency_key":"cached-b"}]}`,
 	))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 	var resp BulkTriggerResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Created != 0 {
-		t.Fatalf("created = %d, want 0", resp.Created)
-	}
-	for idx, result := range resp.Results {
-		if !result.IdempotencyHit {
-			t.Fatalf("result %d idempotency_hit = false, want true", idx)
-		}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.Equal(t, 0, resp.Created)
+
+	for _, result := range resp.Results {
+		require.True(
+			t, result.IdempotencyHit,
+		)
 	}
 }
 
@@ -292,14 +286,10 @@ func TestBulkTrigger_DailyCostBudgetCheckedOnceForNewBatch(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-budget/trigger/bulk", `{"items":[{},{},{}]}`))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := budgetChecks.Load(); got != 1 {
-		t.Fatalf("daily budget checks = %d, want 1", got)
-	}
-	if got := enqueued.Load(); got != 3 {
-		t.Fatalf("enqueued runs = %d, want 3", got)
-	}
+		w.Code)
+	require.EqualValues(t, 1, budgetChecks.
+		Load())
+	require.EqualValues(t, 3, enqueued.Load())
 }

@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // writeRawEntitlements sets the entitlements column directly, bypassing
@@ -22,7 +24,9 @@ func writeRawEntitlements(t *testing.T, ctx context.Context, orgID string, raw [
 	if _, err := testDB.Pool.Exec(ctx,
 		`UPDATE organization_subscriptions SET entitlements = $2::jsonb WHERE org_id = $1`,
 		orgID, raw); err != nil {
-		t.Fatalf("write raw entitlements for %s: %v", orgID, err)
+		require.Failf(t, "test failure",
+
+			"write raw entitlements for %s: %v", orgID, err)
 	}
 }
 
@@ -32,12 +36,11 @@ func TestReaderSwitch_IntegrationStaleSnapshotIsAuthoritative(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-rs-stale-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanFree), "active"); err != nil {
-		t.Fatalf("plan free: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.PlanFree), "active"))
 
 	// Hand-write Enterprise-tier limits to a Free org's row. This is the
 	// documented trust boundary: the DB row IS authoritative once the
@@ -45,23 +48,22 @@ func TestReaderSwitch_IntegrationStaleSnapshotIsAuthoritative(t *testing.T) {
 	// what the catalog says.
 	stale := billing.GetPlanLimits(domain.PlanEnterprise)
 	raw, err := json.Marshal(stale)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t, err)
+
 	writeRawEntitlements(t, ctx, orgID, raw)
 
 	enforcer := billing.NewEnforcer(pgStore, nil, nil,
 		billing.WithEntitlementsAuthoritative(true))
 
 	got, err := enforcer.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits: %v", err)
-	}
+	require.NoError(t, err)
+
 	want := billing.GetPlanLimits(domain.PlanEnterprise)
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("expected snapshot to be authoritative: got %d, want %d (Enterprise)",
-			got.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
+	assert.Equal(t, want.MaxConcurrentRuns,
+
+		got.MaxConcurrentRuns,
+	)
+
 }
 
 func TestReaderSwitch_IntegrationEmptySnapshotPopulatesOpportunistically(t *testing.T) {
@@ -70,12 +72,12 @@ func TestReaderSwitch_IntegrationEmptySnapshotPopulatesOpportunistically(t *test
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-rs-empty-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanScale), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.PlanScale), "active"))
+
 	// Nuke the snapshot so the reader has to recompute and write back.
 	writeRawEntitlements(t, ctx, orgID, []byte("{}"))
 
@@ -83,28 +85,30 @@ func TestReaderSwitch_IntegrationEmptySnapshotPopulatesOpportunistically(t *test
 		billing.WithEntitlementsAuthoritative(true))
 
 	if _, err := enforcer.GetOrgPlanLimits(ctx, orgID); err != nil {
-		t.Fatalf("first GetOrgPlanLimits: %v", err)
+		require.Failf(t, "test failure",
+
+			"first GetOrgPlanLimits: %v", err)
 	}
 
 	// Direct read: the column is now populated.
 	var raw []byte
-	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
-		orgID).Scan(&raw); err != nil {
-		t.Fatalf("read column: %v", err)
-	}
-	if string(raw) == "{}" || len(raw) <= 2 {
-		t.Errorf("opportunistic write did not populate column: got %q", string(raw))
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx, `SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
+
+		orgID).Scan(&raw))
+	assert.False(t, string(raw) == "{}" ||
+		len(raw) <= 2)
+
 	var snap billing.OrgPlanLimits
-	if err := json.Unmarshal(raw, &snap); err != nil {
-		t.Fatalf("unmarshal column: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&snap))
+
 	want := billing.GetPlanLimits(domain.PlanScale)
-	if snap.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("populated snapshot does not match Scale: got %d, want %d",
-			snap.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
+	assert.Equal(t, want.MaxConcurrentRuns,
+
+		snap.MaxConcurrentRuns,
+	)
+
 }
 
 // TestAdversarialReaderSwitch_MalformedJSONFallsBackAndOverwrites exercises
@@ -117,12 +121,12 @@ func TestAdversarialReaderSwitch_MalformedJSONFallsBackAndOverwrites(t *testing.
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-rs-bad-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.PlanPro), "active"))
+
 	// Postgres jsonb won't store invalid JSON, so simulate a malformed
 	// snapshot by writing a JSON object with values of the wrong type.
 	// json.Unmarshal into OrgPlanLimits will fail because PlanTier is
@@ -130,35 +134,40 @@ func TestAdversarialReaderSwitch_MalformedJSONFallsBackAndOverwrites(t *testing.
 	if _, err := testDB.Pool.Exec(ctx,
 		`UPDATE organization_subscriptions SET entitlements = '{"PlanTier": 12345}'::jsonb WHERE org_id = $1`,
 		orgID); err != nil {
-		t.Fatalf("write malformed: %v", err)
+		require.Failf(t, "test failure",
+
+			"write malformed: %v", err)
 	}
 
 	enforcer := billing.NewEnforcer(pgStore, nil, nil,
 		billing.WithEntitlementsAuthoritative(true))
 
 	got, err := enforcer.GetOrgPlanLimits(ctx, orgID)
-	if err != nil {
-		t.Fatalf("GetOrgPlanLimits panic-free fallback failed: %v", err)
-	}
+	require.NoError(t, err)
+
 	want := billing.GetPlanLimits(domain.PlanPro)
-	if got.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("fallback returned %d, want Pro=%d", got.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
+	assert.Equal(t, want.MaxConcurrentRuns,
+
+		got.MaxConcurrentRuns,
+	)
 
 	// Column should now be a valid snapshot (overwrite happened).
 	var raw []byte
-	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
-		orgID).Scan(&raw); err != nil {
-		t.Fatalf("re-read: %v", err)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx, `SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
+
+		orgID).Scan(&raw))
+
 	var fixed billing.OrgPlanLimits
-	if err := json.Unmarshal(raw, &fixed); err != nil {
-		t.Fatalf("column not repaired (still malformed): %s: %v", string(raw), err)
-	}
-	if fixed.MaxConcurrentRuns != want.MaxConcurrentRuns {
-		t.Errorf("repaired snapshot wrong: got %d, want %d", fixed.MaxConcurrentRuns, want.MaxConcurrentRuns)
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&fixed),
+	)
+	assert.Equal(t, want.MaxConcurrentRuns,
+
+		fixed.
+			MaxConcurrentRuns,
+	)
+
 }
 
 // TestAdversarialReaderSwitch_ConcurrentReadersAndWriters fires N goroutines
@@ -174,12 +183,11 @@ func TestAdversarialReaderSwitch_ConcurrentReadersAndWriters(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-rs-race-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.PlanPro), "active"))
 
 	enforcer := billing.NewEnforcer(pgStore, nil, nil,
 		billing.WithEntitlementsAuthoritative(true))
@@ -218,14 +226,12 @@ func TestAdversarialReaderSwitch_ConcurrentReadersAndWriters(t *testing.T) {
 			defer wg.Done()
 			for range reads {
 				got, err := enforcer.GetOrgPlanLimits(ctx, orgID)
-				if err != nil {
-					t.Errorf("reader err: %v", err)
-					return
-				}
-				if !validTier(got.PlanTier) {
-					t.Errorf("reader saw invalid tier %q", got.PlanTier)
-					return
-				}
+				assert.NoError(t, err)
+				assert.True(t, validTier(
+					got.
+						PlanTier,
+				))
+
 			}
 		})
 	}

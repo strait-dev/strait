@@ -11,6 +11,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBatchFlusher_DisabledJobSkip verifies that a job disabled between
@@ -39,10 +40,8 @@ func TestBatchFlusher_DisabledJobSkip(t *testing.T) {
 
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if enqueued.Load() != 0 {
-		t.Fatalf("expected 0 enqueued runs for disabled job, got %d", enqueued.Load())
-	}
+	require.EqualValues(t, 0,
+		enqueued.Load())
 }
 
 // TestBatchFlusher_ZeroBatchSize verifies that a zero BatchMaxSize falls back
@@ -73,19 +72,17 @@ func TestBatchFlusher_ZeroBatchSize(t *testing.T) {
 
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.NotNil(t, enqueuedPayload)
 
-	if enqueuedPayload == nil {
-		t.Fatal("expected a run to be enqueued")
-	}
 	var result struct {
 		Items []json.RawMessage `json:"items"`
 	}
-	if err := json.Unmarshal(enqueuedPayload, &result); err != nil {
-		t.Fatalf("failed to unmarshal payload: %v", err)
-	}
-	if len(result.Items) != 3 {
-		t.Fatalf("expected 3 items in batch, got %d", len(result.Items))
-	}
+	require.NoError(t,
+		json.Unmarshal(enqueuedPayload,
+
+			&result))
+	require.Len(t, result.
+		Items, 3)
 }
 
 // TestBatchFlusher_NegativeBatchSize verifies that a negative BatchMaxSize
@@ -114,10 +111,8 @@ func TestBatchFlusher_NegativeBatchSize(t *testing.T) {
 
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if enqueued.Load() != 1 {
-		t.Fatalf("expected 1 enqueued run, got %d", enqueued.Load())
-	}
+	require.EqualValues(t, 1,
+		enqueued.Load())
 }
 
 // TestBatchFlusher_PayloadMarshalError verifies that a payload that causes
@@ -147,10 +142,8 @@ func TestBatchFlusher_PayloadMarshalError(t *testing.T) {
 
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if enqueued.Load() != 0 {
-		t.Fatalf("expected 0 enqueued runs for empty drain, got %d", enqueued.Load())
-	}
+	require.EqualValues(t, 0,
+		enqueued.Load())
 }
 
 // TestBatchFlusher_TTLZeroSeconds verifies that RunTTLSecs = 0 causes the
@@ -179,18 +172,16 @@ func TestBatchFlusher_TTLZeroSeconds(t *testing.T) {
 
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.NotNil(t, enqueuedRun)
+	require.NotNil(t, enqueuedRun.
+		ExpiresAt,
+	)
 
-	if enqueuedRun == nil {
-		t.Fatal("expected a run to be enqueued")
-	}
-	if enqueuedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
 	// With RunTTLSecs=0, expiry should be TimeoutSecs+60 seconds from now.
 	expectedMin := time.Now().Add(time.Duration(60+60-5) * time.Second)
-	if enqueuedRun.ExpiresAt.Before(expectedMin) {
-		t.Fatalf("ExpiresAt too early: %v", enqueuedRun.ExpiresAt)
-	}
+	require.False(t, enqueuedRun.
+		ExpiresAt.
+		Before(expectedMin))
 }
 
 // TestAutoRotate_ConcurrentRotation verifies that multiple concurrent rotation

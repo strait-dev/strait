@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Integration tests for soft-delete retention via append-only visibility events.
@@ -22,50 +25,43 @@ func TestMaskRunsByOrgOlderThan_RowsPhysicallyRemain(t *testing.T) {
 
 	orgID := "org-mask-phys-" + newID()
 	projectID := "proj-mask-phys-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("project: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID, Name: "P",
+	}))
+
 	job := baseJob(newID(), projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("job: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("run: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+
 	past := time.Now().UTC().Add(-48 * time.Hour)
 	if _, err := testDB.Pool.Exec(ctx,
 		"UPDATE job_runs SET status='completed', finished_at=$1 WHERE id=$2", past, run.ID); err != nil {
-		t.Fatalf("update finished_at: %v", err)
+		require.Failf(t, "test failure",
+
+			"update finished_at: %v", err)
 	}
 
 	masked, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("mask: %v", err)
-	}
-	if masked != 1 {
-		t.Fatalf("masked = %d, want 1", masked)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, masked)
 
 	// Physically still there.
 	var count int
 	err = testDB.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM job_runs WHERE id = $1", run.ID).Scan(&count)
-	if err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("row physically missing after mask: count = %d", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
 
 	var ledgerVisibleUntil *time.Time
 	err = testDB.Pool.QueryRow(ctx, "SELECT visible_until FROM job_runs WHERE id = $1", run.ID).Scan(&ledgerVisibleUntil)
-	if err != nil {
-		t.Fatalf("query ledger visible_until: %v", err)
-	}
-	if ledgerVisibleUntil != nil {
-		t.Fatalf("ledger visible_until = %v, want nil", *ledgerVisibleUntil)
-	}
+	require.NoError(t, err)
+	require.Nil(t, ledgerVisibleUntil)
 
 	var eventVisibleUntil *time.Time
 	err = testDB.Pool.QueryRow(ctx, `
@@ -75,12 +71,9 @@ func TestMaskRunsByOrgOlderThan_RowsPhysicallyRemain(t *testing.T) {
 		ORDER BY id DESC
 		LIMIT 1
 	`, run.ID).Scan(&eventVisibleUntil)
-	if err != nil {
-		t.Fatalf("query visibility event: %v", err)
-	}
-	if eventVisibleUntil == nil {
-		t.Error("visibility event should mask the run")
-	}
+	require.NoError(t, err)
+	assert.NotNil(t, eventVisibleUntil)
+
 }
 
 func TestMaskRunsByOrgOlderThan_IdempotentWithinSameCutoff(t *testing.T) {
@@ -90,37 +83,34 @@ func TestMaskRunsByOrgOlderThan_IdempotentWithinSameCutoff(t *testing.T) {
 
 	orgID := "org-mask-idem-" + newID()
 	projectID := "proj-mask-idem-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("project: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID, Name: "P",
+	}))
+
 	job := baseJob(newID(), projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("job: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("run: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+
 	past := time.Now().UTC().Add(-48 * time.Hour)
 	_, _ = testDB.Pool.Exec(ctx,
 		"UPDATE job_runs SET status='completed', finished_at=$1 WHERE id=$2", past, run.ID)
 
 	first, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("first mask: %v", err)
-	}
-	if first != 1 {
-		t.Errorf("first = %d, want 1", first)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, first)
+
 	// Second call should see the visibility event and skip the row.
 	second, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("second mask: %v", err)
-	}
-	if second != 0 {
-		t.Errorf("second = %d, want 0 (already masked)", second)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, second)
+
 }
 
 func TestMaskRunsByOrgOlderThan_DoesNotUpdateLedger(t *testing.T) {
@@ -130,29 +120,30 @@ func TestMaskRunsByOrgOlderThan_DoesNotUpdateLedger(t *testing.T) {
 
 	orgID := "org-mask-hot-" + newID()
 	projectID := "proj-mask-hot-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("project: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: orgID, Name: "P",
+	}))
+
 	job := baseJob(newID(), projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("job: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
+
 	// Enqueue a batch and mark them all as old terminal.
 	for range 50 {
 		r := baseRun(job, newID())
 		r.Status = domain.StatusCompleted
-		if err := q.CreateRun(ctx, r); err != nil {
-			t.Fatalf("run: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			r))
+
 	}
 	past := time.Now().UTC().Add(-48 * time.Hour)
 	_, _ = testDB.Pool.Exec(ctx,
 		"UPDATE job_runs SET status='completed', finished_at=$1 WHERE project_id=$2", past, projectID)
 
 	_, err := q.DeleteRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("mask: %v", err)
-	}
+	require.NoError(t, err)
 
 	var ledgerMasks int
 	err = testDB.Pool.QueryRow(ctx, `
@@ -161,12 +152,8 @@ func TestMaskRunsByOrgOlderThan_DoesNotUpdateLedger(t *testing.T) {
 		WHERE project_id = $1
 		  AND visible_until IS NOT NULL
 	`, projectID).Scan(&ledgerMasks)
-	if err != nil {
-		t.Fatalf("query ledger masks: %v", err)
-	}
-	if ledgerMasks != 0 {
-		t.Fatalf("ledger masks = %d, want 0", ledgerMasks)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, ledgerMasks)
 
 	var events int
 	err = testDB.Pool.QueryRow(ctx, `
@@ -174,10 +161,7 @@ func TestMaskRunsByOrgOlderThan_DoesNotUpdateLedger(t *testing.T) {
 		FROM job_run_visibility_events
 		WHERE run_id IN (SELECT id FROM job_runs WHERE project_id = $1)
 	`, projectID).Scan(&events)
-	if err != nil {
-		t.Fatalf("query visibility events: %v", err)
-	}
-	if events != 50 {
-		t.Fatalf("visibility events = %d, want 50", events)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 50, events)
+
 }

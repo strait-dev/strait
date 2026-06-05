@@ -12,6 +12,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // handleGetBatchOperation tests.
@@ -40,18 +42,16 @@ func TestHandleGetBatchOperation_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations/batch-1", "", "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var got domain.BatchOperation
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got.ID != "batch-1" {
-		t.Fatalf("expected ID batch-1, got %s", got.ID)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&got))
+	require.Equal(t, "batch-1", got.
+		ID)
 }
 
 func TestHandleGetBatchOperation_NotFound(t *testing.T) {
@@ -66,10 +66,9 @@ func TestHandleGetBatchOperation_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations/batch-999", "", "proj-1")
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // handleListBatchOperations tests.
@@ -95,16 +94,14 @@ func TestHandleListBatchOperations_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, "/v1/batch-operations", "", "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var got []domain.BatchOperation
 	decodePaginatedList(t, w.Body.Bytes(), &got)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 batch ops, got %d", len(got))
-	}
+	require.Len(t,
+		got, 2)
 }
 
 // handleBulkCancelAll tests.
@@ -124,19 +121,19 @@ func TestHandleBulkCancelAll_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{"job_id":"job-1"}`, "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+
 	canceled, ok := resp["canceled"].(float64)
-	if !ok || canceled != 2 {
-		t.Fatalf("expected canceled=2, got %v", resp["canceled"])
-	}
+	require.False(t, !ok || canceled !=
+		2,
+	)
 }
 
 func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
@@ -147,12 +144,14 @@ func TestHandleBulkCancelAll_NoFilters(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/runs/bulk-cancel-all", `{}`, "proj-1")
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 	if body := w.Body.String(); !strings.Contains(body, "at least one filter") {
-		t.Fatalf("expected 'at least one filter' in body, got: %s", body)
+		require.Failf(t, "test failure",
+
+			"expected 'at least one filter' in body, got: %s", body)
 	}
 }
 
@@ -176,19 +175,19 @@ func TestHandleBulkCancelWorkflowRuns_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":["wr-1","wr-2"]}`, "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+
 	canceled, ok := resp["canceled"].(float64)
-	if !ok || canceled != 2 {
-		t.Fatalf("expected canceled=2, got %v", resp["canceled"])
-	}
+	require.False(t, !ok || canceled !=
+		2,
+	)
 }
 
 func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
@@ -199,10 +198,9 @@ func TestHandleBulkCancelWorkflowRuns_EmptyIDs(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-cancel", `{"workflow_run_ids":[]}`, "proj-1")
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // handleListRuns payload_contains filter tests.
@@ -222,20 +220,14 @@ func TestHandleListRuns_PayloadContainsFilter(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, `/v1/runs?payload_contains={"key":"val"}`, "", "proj-1")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if capturedPayload == nil {
-		t.Fatal("expected payloadContains to be set, got nil")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotNil(t, capturedPayload)
 
 	var parsed map[string]string
-	if err := json.Unmarshal(capturedPayload, &parsed); err != nil {
-		t.Fatalf("unmarshal payloadContains: %v", err)
-	}
-	if parsed["key"] != "val" {
-		t.Fatalf("expected key=val, got %v", parsed)
-	}
+	require.NoError(t, json.Unmarshal(capturedPayload,
+
+		&parsed))
+	require.Equal(t, "val", parsed["key"])
 }

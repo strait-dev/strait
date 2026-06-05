@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Cross-tenant adversarial tests.
@@ -45,12 +47,11 @@ func TestCrossTenant_GetJob_WrongProjectID_NoLeakThroughStore(t *testing.T) {
 	// projectID doesn't break it — and so the rls_isolation_integration
 	// test covers the real enforcement path.
 	got, err := q.GetJob(ctx, jobA.ID)
-	if err != nil {
-		t.Fatalf("GetJob(own): %v", err)
-	}
-	if got.ID != jobA.ID {
-		t.Fatalf("got %q, want %q", got.ID, jobA.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, jobA.ID,
+
+		got.ID)
+
 }
 
 // ListRunsByProject with a mismatched projectID returns empty
@@ -66,30 +67,23 @@ func TestCrossTenant_ListRunsByProject_WrongProject_Empty(t *testing.T) {
 	jobA := mustCreateJob(t, ctx, q, projA)
 	for range 3 {
 		r := baseRun(jobA, newID())
-		if err := q.CreateRun(ctx, r); err != nil {
-			t.Fatalf("CreateRun A: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			r))
+
 	}
 
 	// Querying project B should return no runs even though the data is
 	// in project A, because ListRunsByProject filters WHERE project_id = $1
 	// in the query itself (application-level filter).
 	runs, err := q.ListRunsByProject(ctx, projB, nil, nil, nil, nil, nil, nil, nil, nil, 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByProject B: %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("project B sees %d runs of project A, want 0", len(runs))
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, 0)
 
 	// Own project still sees its runs.
 	own, err := q.ListRunsByProject(ctx, projA, nil, nil, nil, nil, nil, nil, nil, nil, 100, nil)
-	if err != nil {
-		t.Fatalf("ListRunsByProject A: %v", err)
-	}
-	if len(own) != 3 {
-		t.Fatalf("project A sees %d runs, want 3", len(own))
-	}
+	require.NoError(t, err)
+	require.Len(t, own, 3)
+
 }
 
 // DeleteJob cross-tenant guard
@@ -101,6 +95,8 @@ func TestCrossTenant_DeleteJob_WrongProject_NoOp(t *testing.T) {
 
 	projA := "proj-xt-del-a-" + newID()
 	jobA := mustCreateJob(t, ctx, q, projA)
+	require.Error(t, q.DeleteJob(ctx,
+		""))
 
 	// DeleteJob takes only id; application filtering uses RLS via
 	// context. At the store layer this test documents current
@@ -108,18 +104,14 @@ func TestCrossTenant_DeleteJob_WrongProject_NoOp(t *testing.T) {
 	// regardless (RLS escape hatch matches ''). This will tighten
 	// once the RLS sentinel is applied. Meanwhile, verify that
 	// supplying an empty ID does NOT mass-delete rows.
-	if err := q.DeleteJob(ctx, ""); err == nil {
-		t.Fatal("DeleteJob(\"\") should error")
-	}
 
 	// Sanity: jobA still exists.
 	got, err := q.GetJob(ctx, jobA.ID)
-	if err != nil {
-		t.Fatalf("GetJob after empty-id delete: %v", err)
-	}
-	if got.ID != jobA.ID {
-		t.Fatalf("job ID = %q, want %q", got.ID, jobA.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, jobA.ID,
+
+		got.ID)
+
 }
 
 // CountQueuedRuns / CountActiveRuns tenant scoping
@@ -139,41 +131,29 @@ func TestCrossTenant_CountProjectQueuedRuns_CrossProjectIsolation(t *testing.T) 
 	for range 2 {
 		r := baseRun(jobA, newID())
 		r.Status = domain.StatusQueued
-		if err := q.CreateRun(ctx, r); err != nil {
-			t.Fatalf("CreateRun A: %v", err)
-		}
+		require.NoError(t, q.CreateRun(ctx,
+			r))
+
 	}
 	// One queued run in B.
 	r := baseRun(jobB, newID())
 	r.Status = domain.StatusQueued
-	if err := q.CreateRun(ctx, r); err != nil {
-		t.Fatalf("CreateRun B: %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		r))
 
 	countA, err := q.CountProjectQueuedRuns(ctx, projA)
-	if err != nil {
-		t.Fatalf("CountProjectQueuedRuns A: %v", err)
-	}
-	if countA != 2 {
-		t.Fatalf("project A queued = %d, want 2", countA)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, countA)
 
 	countB, err := q.CountProjectQueuedRuns(ctx, projB)
-	if err != nil {
-		t.Fatalf("CountProjectQueuedRuns B: %v", err)
-	}
-	if countB != 1 {
-		t.Fatalf("project B queued = %d, want 1", countB)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, countB)
 
 	// Non-existent project must return 0, not leak.
 	countEmpty, err := q.CountProjectQueuedRuns(ctx, "proj-doesnotexist-"+newID())
-	if err != nil {
-		t.Fatalf("CountProjectQueuedRuns empty: %v", err)
-	}
-	if countEmpty != 0 {
-		t.Fatalf("empty project queued = %d, want 0", countEmpty)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, countEmpty)
+
 }
 
 // Webhook subscription cross-tenant isolation via RLS
@@ -201,28 +181,28 @@ func TestCrossTenant_GetWebhookSubscription_WrongProject_RLSBlocks(t *testing.T)
 			Secret:     "s",
 			Active:     true,
 		}
-		if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-			t.Fatalf("CreateWebhookSubscription: %v", err)
-		}
+		require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+
 		subID = sub.ID
 	})
 
 	// Correct project sees it.
 	runAsProject(t, ctx, projA, false, func(q *store.Queries) {
 		got, err := q.GetWebhookSubscription(ctx, subID)
-		if err != nil {
-			t.Fatalf("GetWebhookSubscription(own): %v", err)
-		}
-		if got.ID != subID {
-			t.Fatalf("got %q, want %q", got.ID, subID)
-		}
+		require.NoError(t, err)
+		require.Equal(t, subID,
+
+			got.ID)
+
 	})
 
 	// Wrong project: RLS policy excludes the row, so the store method
 	// returns ErrWebhookSubscriptionNotFound.
 	runAsProject(t, ctx, projB, false, func(q *store.Queries) {
 		if _, err := q.GetWebhookSubscription(ctx, subID); !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-			t.Fatalf("cross-tenant GetWebhookSubscription: err = %v, want ErrWebhookSubscriptionNotFound", err)
+			require.Failf(t, "test failure",
+
+				"cross-tenant GetWebhookSubscription: err = %v, want ErrWebhookSubscriptionNotFound", err)
 		}
 	})
 }
@@ -240,23 +220,19 @@ func TestCrossTenant_DeleteEnvironment_OnlyAcceptsByID(t *testing.T) {
 		ProjectID: projA,
 		Name:      "prod",
 	}
-	if err := q.CreateEnvironment(ctx, env); err != nil {
-		t.Fatalf("CreateEnvironment: %v", err)
-	}
+	require.NoError(t, q.CreateEnvironment(ctx,
+		env))
+	require.Error(t, q.DeleteEnvironment(ctx, "", projA))
 
 	// Empty id must error, not mass-delete.
-	if err := q.DeleteEnvironment(ctx, "", projA); err == nil {
-		t.Fatal("DeleteEnvironment(\"\") should error")
-	}
 
 	// Sanity: env still exists.
 	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
-	if err != nil {
-		t.Fatalf("GetEnvironment: %v", err)
-	}
-	if got.ID != env.ID {
-		t.Fatalf("env ID = %q, want %q", got.ID, env.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, env.ID,
+
+		got.ID)
+
 }
 
 // Empty-string / SQL meta hardening on project filters
@@ -270,12 +246,9 @@ func TestCrossTenant_EmptyProjectID_ReturnsEmpty(t *testing.T) {
 	mustCreateJob(t, ctx, q, projA)
 
 	jobs, err := q.ListJobs(ctx, "", 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobs(\"\"): %v", err)
-	}
-	if len(jobs) != 0 {
-		t.Fatalf("ListJobs(\"\") returned %d rows, want 0 (empty project must not leak)", len(jobs))
-	}
+	require.NoError(t, err)
+	require.Len(t, jobs, 0)
+
 }
 
 func TestCrossTenant_SQLMetaInProjectID_ReturnsEmpty(t *testing.T) {
@@ -292,10 +265,7 @@ func TestCrossTenant_SQLMetaInProjectID_ReturnsEmpty(t *testing.T) {
 	// parameter binding.
 	const attack = "' OR '1'='1"
 	jobs, err := q.ListJobs(ctx, attack, 100, nil)
-	if err != nil {
-		t.Fatalf("ListJobs(attack): %v", err)
-	}
-	if len(jobs) != 0 {
-		t.Fatalf("SQL meta project_id returned %d rows, want 0 (parameter binding broken)", len(jobs))
-	}
+	require.NoError(t, err)
+	require.Len(t, jobs, 0)
+
 }

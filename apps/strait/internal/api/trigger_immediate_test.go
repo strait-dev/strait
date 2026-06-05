@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
@@ -47,58 +49,66 @@ func TestNewImmediateTriggerRunBuildsRunEnvelope(t *testing.T) {
 		expiresAt:   expiresAt,
 		status:      domain.StatusDelayed,
 	})
+	require.NotEmpty(t, run.ID)
+	require.False(t, run.JobID !=
+		"job-1" ||
+		run.ProjectID !=
+			"project-1")
+	require.False(t, run.Status !=
+		domain.StatusDelayed ||
+		run.Attempt != 1)
+	require.Equal(t, domain.TriggerManual,
+		run.
+			TriggeredBy,
+	)
+	require.Equal(t, "apikey:trigger",
+		run.CreatedBy,
+	)
+	require.False(t, run.Priority !=
+		8 || run.
+		ConcurrencyKey !=
+		"customer-1" ||
+		run.
+			IdempotencyKey != "idem-1")
+	require.False(t, run.JobVersion !=
+		7 || run.
+		JobVersionID !=
+		"version-7")
+	require.False(t, run.ExecutionMode !=
+		domain.
+			ExecutionModeWorker ||
+		run.QueueName !=
+			"critical")
+	require.False(t, run.ScheduledAt ==
+		nil ||
+		!run.ScheduledAt.
+			Equal(scheduledAt),
+	)
+	require.False(t, run.ExpiresAt ==
+		nil ||
+		!run.ExpiresAt.
+			Equal(expiresAt))
+	require.JSONEq(t, `{"dependency_key":"payload-dep","ok":true}`,
 
-	if run.ID == "" {
-		t.Fatal("run ID must be assigned")
-	}
-	if run.JobID != "job-1" || run.ProjectID != "project-1" {
-		t.Fatalf("job/project = (%q, %q), want (job-1, project-1)", run.JobID, run.ProjectID)
-	}
-	if run.Status != domain.StatusDelayed || run.Attempt != 1 {
-		t.Fatalf("status/attempt = (%s, %d), want (delayed, 1)", run.Status, run.Attempt)
-	}
-	if run.TriggeredBy != domain.TriggerManual {
-		t.Fatalf("triggered_by = %q, want manual", run.TriggeredBy)
-	}
-	if run.CreatedBy != "apikey:trigger" {
-		t.Fatalf("created_by = %q, want apikey:trigger", run.CreatedBy)
-	}
-	if run.Priority != 8 || run.ConcurrencyKey != "customer-1" || run.IdempotencyKey != "idem-1" {
-		t.Fatalf("priority/concurrency/idempotency = (%d, %q, %q)", run.Priority, run.ConcurrencyKey, run.IdempotencyKey)
-	}
-	if run.JobVersion != 7 || run.JobVersionID != "version-7" {
-		t.Fatalf("version = (%d, %q), want (7, version-7)", run.JobVersion, run.JobVersionID)
-	}
-	if run.ExecutionMode != domain.ExecutionModeWorker || run.QueueName != "critical" {
-		t.Fatalf("execution/queue = (%s, %q), want (worker, critical)", run.ExecutionMode, run.QueueName)
-	}
-	if run.ScheduledAt == nil || !run.ScheduledAt.Equal(scheduledAt) {
-		t.Fatalf("scheduled_at = %v, want %s", run.ScheduledAt, scheduledAt)
-	}
-	if run.ExpiresAt == nil || !run.ExpiresAt.Equal(expiresAt) {
-		t.Fatalf("expires_at = %v, want %s", run.ExpiresAt, expiresAt)
-	}
-	if string(run.Payload) != `{"dependency_key":"payload-dep","ok":true}` {
-		t.Fatalf("payload = %s", run.Payload)
-	}
-	if run.Tags["team"] != "platform" || run.Tags["region"] != "eu" {
-		t.Fatalf("tags = %+v, want base plus request override", run.Tags)
-	}
-	if run.Metadata["dependency_key"] != "payload-dep" {
-		t.Fatalf("dependency_key metadata = %q, want payload-dep", run.Metadata["dependency_key"])
-	}
-	if run.Metadata["retention"] != "short" {
-		t.Fatalf("retention metadata = %q, want short", run.Metadata["retention"])
-	}
-	if run.Metadata[domain.RunMetadataSentryRoute] != triggerJobRoute {
-		t.Fatalf("route metadata = %q, want %q", run.Metadata[domain.RunMetadataSentryRoute], triggerJobRoute)
-	}
-	if run.Metadata[domain.RunMetadataTraceParent] != input.Traceparent {
-		t.Fatalf("traceparent metadata = %q, want %q", run.Metadata[domain.RunMetadataTraceParent], input.Traceparent)
-	}
-	if run.Metadata[domain.RunMetadataSentryBaggage] != input.Baggage {
-		t.Fatalf("baggage metadata = %q, want %q", run.Metadata[domain.RunMetadataSentryBaggage], input.Baggage)
-	}
+		string(run.Payload))
+	require.False(t, run.Tags["team"] != "platform" ||
+
+		run.Tags["region"] != "eu",
+	)
+	require.Equal(t, "payload-dep",
+		run.Metadata["dependency_key"])
+	require.Equal(t, "short", run.
+		Metadata["retention"])
+	require.Equal(t, triggerJobRoute,
+		run.Metadata[domain.
+			RunMetadataSentryRoute])
+	require.Equal(t, input.Traceparent,
+		run.Metadata[domain.
+			RunMetadataTraceParent],
+	)
+	require.Equal(t, input.Baggage,
+		run.Metadata[domain.
+			RunMetadataSentryBaggage])
 }
 
 func TestExtractDependencyKey(t *testing.T) {
@@ -119,9 +129,8 @@ func TestExtractDependencyKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := extractDependencyKey(tt.payload); got != tt.want {
-				t.Fatalf("extractDependencyKey() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, extractDependencyKey(tt.
+				payload))
 		})
 	}
 }

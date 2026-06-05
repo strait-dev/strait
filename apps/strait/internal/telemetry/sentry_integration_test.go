@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationSentryBeforeSendDropsExpectedNoiseAndKeepsServerErrors(t *testing.T) {
@@ -17,15 +18,12 @@ func TestIntegrationSentryBeforeSendDropsExpectedNoiseAndKeepsServerErrors(t *te
 		&sentry.Event{Request: &sentry.Request{URL: "https://api.example.test/v1/jobs"}},
 		&sentry.EventHint{OriginalException: testStatusError{status: http.StatusNotFound}},
 	)
-	if dropped != nil {
-		t.Fatal("expected request 4xx error to be dropped")
-	}
+	require.Nil(t, dropped)
 
 	kept := BeforeSend(
 		&sentry.Event{Message: "dispatch failed"},
 		&sentry.EventHint{OriginalException: errors.New("dispatch panic")},
 	)
-	if kept == nil {
-		t.Fatal("expected dispatch panic to be kept")
-	}
+	require.NotNil(t, kept)
+
 }

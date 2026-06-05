@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -46,9 +47,7 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 	configureGRPCSentryWorkerScope(ctx, "worker-1", "Worker One", "host-a", "go", "1.2.3")
 
 	event := hub.Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil {
-		t.Fatal("expected event")
-	}
+	require.NotNil(t, event)
 
 	wantTags := map[string]string{
 		"project_id":     "proj-1",
@@ -73,16 +72,18 @@ func TestGRPCSentryScope_AttachesAPIKeyProjectWorkerAndTrace(t *testing.T) {
 		"span_id":        spanID.String(),
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(
+			t, want, event.
+				Tags[key])
 	}
-	if event.User.ID != "apikey:key-1" {
-		t.Fatalf("user id = %q, want apikey:key-1", event.User.ID)
-	}
-	if event.Contexts["grpc.request"]["project_id"] != "proj-1" {
-		t.Fatalf("grpc.request project_id = %v, want proj-1", event.Contexts["grpc.request"]["project_id"])
-	}
+	require.Equal(
+		t, "apikey:key-1",
+		event.
+			User.ID)
+	require.Equal(
+		t, "proj-1",
+		event.Contexts["grpc.request"]["project_id"],
+	)
 }
 
 func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
@@ -96,12 +97,10 @@ func TestStreamSentryInterceptorSetsHubOnWrappedContext(t *testing.T) {
 		sawHub = sentry.GetHubFromContext(ss.Context()) != nil
 		return status.Error(codes.InvalidArgument, "bad worker message")
 	})
-	if err == nil {
-		t.Fatal("expected handler error")
-	}
-	if !sawHub {
-		t.Fatal("expected wrapped stream context to contain Sentry hub")
-	}
+	require.Error(
+		t, err)
+	require.True(t,
+		sawHub)
 }
 
 func TestGRPCSentryScopeContinuesIncomingSentryTrace(t *testing.T) {
@@ -121,11 +120,13 @@ func TestGRPCSentryScopeContinuesIncomingSentryTrace(t *testing.T) {
 	})
 
 	traceparent := hub.GetTraceparent()
-	if !strings.Contains(traceparent, "0123456789abcdef0123456789abcdef") {
-		t.Fatalf("traceparent = %q, want continued incoming Sentry trace", traceparent)
-	}
+	require.Contains(t,
+		traceparent, "0123456789abcdef0123456789abcdef")
+
 	if baggage := hub.GetBaggage(); !strings.Contains(baggage, "sentry-release=test-release") {
-		t.Fatalf("baggage = %q, want continued Sentry baggage", baggage)
+		require.Failf(t, "test failure",
+
+			"baggage = %q, want continued Sentry baggage", baggage)
 	}
 }
 
@@ -138,36 +139,37 @@ func TestUnarySentryInterceptorAddsBreadcrumb(t *testing.T) {
 	_, err := interceptor(ctx, nil, info, func(context.Context, any) (any, error) {
 		return nil, status.Error(codes.Unavailable, "worker unavailable")
 	})
-	if err == nil {
-		t.Fatal("expected handler error")
-	}
+	require.Error(
+		t, err)
 
 	event := sentry.GetHubFromContext(ctx).Scope().ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event == nil || len(event.Breadcrumbs) != 1 {
-		t.Fatalf("breadcrumbs = %v, want one breadcrumb", event)
-	}
+	require.False(
+		t, event ==
+			nil || len(
+			event.Breadcrumbs) != 1)
+
 	bc := event.Breadcrumbs[0]
-	if bc.Category != "grpc.server" {
-		t.Fatalf("category = %q, want grpc.server", bc.Category)
-	}
-	if got := bc.Data["grpc_code"]; got != codes.Unavailable.String() {
-		t.Fatalf("grpc_code = %v, want %s", got, codes.Unavailable.String())
-	}
-	if got := bc.Data["rpc"]; got != "Heartbeat" {
-		t.Fatalf("rpc = %v, want Heartbeat", got)
-	}
+	require.Equal(
+		t, "grpc.server",
+		bc.Category,
+	)
+	require.Equal(
+		t, codes.Unavailable.
+			String(), bc.Data["grpc_code"])
+	require.Equal(
+		t, "Heartbeat",
+		bc.Data["rpc"])
 }
 
 func TestShouldCaptureGRPCSentryError_OnlyServerSideCodes(t *testing.T) {
 	t.Parallel()
-
-	if !shouldCaptureGRPCSentryError(status.Error(codes.Internal, "boom")) {
-		t.Fatal("expected Internal to be captured")
-	}
-	if shouldCaptureGRPCSentryError(status.Error(codes.InvalidArgument, "bad request")) {
-		t.Fatal("expected InvalidArgument to be ignored")
-	}
-	if shouldCaptureGRPCSentryError(status.Error(codes.Unauthenticated, "missing auth")) {
-		t.Fatal("expected Unauthenticated to be ignored")
-	}
+	require.True(t,
+		shouldCaptureGRPCSentryError(status.Error(codes.Internal,
+			"boom")))
+	require.False(
+		t, shouldCaptureGRPCSentryError(status.Error(codes.InvalidArgument,
+			"bad request")))
+	require.False(
+		t, shouldCaptureGRPCSentryError(status.Error(codes.Unauthenticated,
+			"missing auth")))
 }

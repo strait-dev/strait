@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPlanGate_RoadmapFeaturesDoNotReturnUpgradeCTA(t *testing.T) {
@@ -36,16 +38,12 @@ func TestPlanGate_RoadmapFeaturesDoNotReturnUpgradeCTA(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := srv.checkFeatureAllowed(context.Background(), "proj-1", tt.feature, tt.featureName)
-			if err == nil {
-				t.Fatal("expected roadmap feature rejection")
-			}
+			require.Error(t, err)
+
 			msg := err.Error()
-			if !strings.Contains(msg, "roadmap/contact-sales only at launch") {
-				t.Fatalf("roadmap rejection should explain launch status, got: %s", msg)
-			}
-			if strings.Contains(strings.ToLower(msg), "upgrade") {
-				t.Fatalf("roadmap rejection must not return an upgrade CTA, got: %s", msg)
-			}
+			require.Contains(
+				t, msg, "roadmap/contact-sales only at launch")
+			require.NotContains(t, strings.ToLower(msg), "upgrade")
 		})
 	}
 }
@@ -60,12 +58,10 @@ func TestPlanGate_FeatureOrgLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
-	if err == nil {
-		t.Fatal("expected feature gate to fail closed when org lookup fails")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestPlanGate_FeaturePlanLookupErrorFailsClosed(t *testing.T) {
@@ -77,10 +73,8 @@ func TestPlanGate_FeaturePlanLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkFeatureAllowed(context.Background(), "proj-1", billing.FeatureAuditLogs, "Audit logs")
-	if err == nil {
-		t.Fatal("expected feature gate to fail closed when plan lookup fails")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }

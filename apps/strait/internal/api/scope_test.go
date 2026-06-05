@@ -11,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 // API Key tests.
@@ -30,10 +31,8 @@ func TestRequirePermission_APIKey_AllowsWildcard(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
@@ -51,10 +50,8 @@ func TestRequirePermission_APIKey_AllowsMatchingScope(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
@@ -72,10 +69,8 @@ func TestRequirePermission_APIKey_BlocksMissingScope(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
@@ -93,10 +88,8 @@ func TestRequirePermission_APIKey_EmptyScopesAllowAll(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (empty scopes should allow all)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
@@ -114,10 +107,8 @@ func TestRequirePermission_APIKey_NilScopesAllowAll(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (nil scopes = full access)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
@@ -135,10 +126,8 @@ func TestRequirePermission_APIKey_MultipleScopesWithMatch(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // Internal secret tests.
@@ -156,10 +145,8 @@ func TestRequirePermission_InternalSecret_AllowsAll(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (internal secret should pass)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
@@ -180,10 +167,8 @@ func TestRequirePermission_InternalSecret_WithActorHeaders(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (internal secret + actor headers = allowed)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // Unknown actor type.
@@ -204,10 +189,8 @@ func TestRequirePermission_UnknownActorType_Rejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (unknown actor type should be rejected)", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 // User permission tests.
@@ -235,10 +218,8 @@ func TestRequirePermission_User_WithMatchingPermission(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
@@ -262,10 +243,8 @@ func TestRequirePermission_User_OIDCScopesDoNotBypassProjectRBAC(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.T) {
@@ -289,10 +268,8 @@ func TestRequirePermission_User_OIDCScopesAndProjectRBACBothRequired(t *testing.
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_User_MissingPermission(t *testing.T) {
@@ -310,10 +287,8 @@ func TestRequirePermission_User_MissingPermission(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testing.T) {
@@ -324,9 +299,13 @@ func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testi
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	ms.GetResourcePoliciesFunc = func(_ context.Context, projectID, resourceType, resourceID, userID string) ([]string, error) {
-		if projectID != "proj-1" || resourceType != "job" || resourceID != "job-1" || userID != "user-1" {
-			t.Fatalf("unexpected resource policy lookup: project=%s type=%s id=%s user=%s", projectID, resourceType, resourceID, userID)
-		}
+		require.False(t, projectID !=
+			"proj-1" || resourceType !=
+			"job" ||
+			resourceID !=
+				"job-1" || userID !=
+			"user-1")
+
 		return nil, nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -341,13 +320,11 @@ func TestRequirePermission_User_MissingResourcePolicyDoesNotGrantAccess(t *testi
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
-	if len(ms.GetResourcePoliciesCalls()) != 1 {
-		t.Fatalf("resource policy lookups = %d, want 1", len(ms.GetResourcePoliciesCalls()))
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.Len(t,
+		ms.GetResourcePoliciesCalls(),
+		1)
 }
 
 func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T) {
@@ -372,10 +349,8 @@ func TestRequirePermission_User_ExplicitResourcePolicyGrantsAccess(t *testing.T)
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testing.T) {
@@ -386,7 +361,9 @@ func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testin
 		return []string{domain.ScopeJobsRead}, nil
 	}
 	ms.GetResourcePoliciesFunc = func(context.Context, string, string, string, string) ([]string, error) {
-		t.Fatal("resource policy lookup must not run below Advanced RBAC")
+		require.Fail(t,
+
+			"resource policy lookup must not run below Advanced RBAC")
 		return []string{domain.ScopeJobsWrite}, nil
 	}
 	enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanPro)}
@@ -402,10 +379,8 @@ func TestRequirePermission_User_ResourcePolicyIgnoredBelowAdvancedRBAC(t *testin
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_NoRole(t *testing.T) {
@@ -423,10 +398,8 @@ func TestRequirePermission_User_NoRole(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (no role = forbidden)", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_DBError(t *testing.T) {
@@ -444,10 +417,9 @@ func TestRequirePermission_User_DBError(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
-	}
+		w.Code)
 }
 
 func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
@@ -467,10 +439,8 @@ func TestRequirePermission_User_MissingProjectContext(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (missing project context)", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_CacheHit(t *testing.T) {
@@ -496,21 +466,17 @@ func TestRequirePermission_User_CacheHit(t *testing.T) {
 
 	// First call — cache miss, hits DB
 	w1 := makeReq()
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first call status = %d, want %d", w1.Code, http.StatusOK)
-	}
-	if c := callCount.Load(); c != 1 {
-		t.Fatalf("DB calls = %d, want 1", c)
-	}
+	require.Equal(t, http.StatusOK,
+		w1.Code)
+	require.EqualValues(t, 1, callCount.
+		Load())
 
 	// Second call — cache hit, no DB call
 	w2 := makeReq()
-	if w2.Code != http.StatusOK {
-		t.Fatalf("second call status = %d, want %d", w2.Code, http.StatusOK)
-	}
-	if c := callCount.Load(); c != 1 {
-		t.Fatalf("DB calls after cache hit = %d, want 1", c)
-	}
+	require.Equal(t, http.StatusOK,
+		w2.Code)
+	require.EqualValues(t, 1, callCount.
+		Load())
 }
 
 func TestRequirePermission_User_MissingActorID(t *testing.T) {
@@ -530,10 +496,8 @@ func TestRequirePermission_User_MissingActorID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (missing actor ID)", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_WildcardPermission(t *testing.T) {
@@ -554,10 +518,8 @@ func TestRequirePermission_User_WildcardPermission(t *testing.T) {
 		r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("scope %q: status = %d, want %d", scope, w.Code, http.StatusOK)
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	}
 }
 
@@ -579,25 +541,22 @@ func TestRequirePermission_User_CacheInvalidationReloads(t *testing.T) {
 		r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	}
 
 	// First call populates cache.
 	makeReq()
-	if c := callCount.Load(); c != 1 {
-		t.Fatalf("DB calls = %d, want 1", c)
-	}
+	require.EqualValues(t, 1, callCount.
+		Load())
 
 	// Invalidate cache.
 	srv.permCache.Invalidate("proj-1", "user-1")
 
 	// Next call should hit DB again.
 	makeReq()
-	if c := callCount.Load(); c != 2 {
-		t.Fatalf("DB calls after invalidation = %d, want 2", c)
-	}
+	require.EqualValues(t, 2, callCount.
+		Load())
 }
 
 func TestRequirePermission_ChainedMiddleware(t *testing.T) {
@@ -620,10 +579,8 @@ func TestRequirePermission_ChainedMiddleware(t *testing.T) {
 	r := userCtx(httptest.NewRequest(http.MethodGet, "/", nil), "proj-1", "user-1")
 	w := httptest.NewRecorder()
 	chained.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("chained status = %d, want %d (second middleware should block)", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
@@ -648,11 +605,10 @@ func TestRequirePermission_User_TokenScopesEnforced(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 
 	// Token only has jobs:read, so jobs:write should be denied.
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (token scopes should restrict permissions)", w.Code, http.StatusForbidden)
-	}
 }
 
 func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testing.T) {
@@ -678,13 +634,11 @@ func TestRequirePermission_User_EmptyTokenScopesDenyEvenWithProjectRBAC(t *testi
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
-	if len(ms.GetUserPermissionsCalls()) != 0 {
-		t.Fatal("explicit empty OIDC scopes must deny before project RBAC lookup")
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.Empty(t,
+		ms.GetUserPermissionsCalls(),
+	)
 }
 
 func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
@@ -711,8 +665,6 @@ func TestRequirePermission_User_TokenScopesAllow(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (token has required scope)", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }

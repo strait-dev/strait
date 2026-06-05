@@ -6,6 +6,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUsageReportCandidate_EligiblePaidOptInEndedPeriod(t *testing.T) {
@@ -20,19 +22,18 @@ func TestUsageReportCandidate_EligiblePaidOptInEndedPeriod(t *testing.T) {
 	}
 
 	candidate, ok := newUsageReportCandidate("org-1", sub, todayStart)
-	if !ok {
-		t.Fatal("expected eligible usage report candidate")
-	}
-	if candidate.orgID != "org-1" {
-		t.Fatalf("orgID = %q, want org-1", candidate.orgID)
-	}
-	if candidate.sub != sub {
-		t.Fatal("candidate did not preserve subscription pointer")
-	}
+	require.True(t, ok)
+	require.Equal(t, "org-1",
+		candidate.
+			orgID)
+	require.Equal(t, sub,
+		candidate.
+			sub)
+
 	wantPeriodEnd := time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC)
-	if !candidate.periodEnd.Equal(wantPeriodEnd) {
-		t.Fatalf("periodEnd = %s, want %s", candidate.periodEnd, wantPeriodEnd)
-	}
+	require.True(t, candidate.
+		periodEnd.
+		Equal(wantPeriodEnd))
 }
 
 func TestUsageReportCandidate_IneligibleRules(t *testing.T) {
@@ -94,7 +95,9 @@ func TestUsageReportCandidate_IneligibleRules(t *testing.T) {
 			t.Parallel()
 
 			if _, ok := newUsageReportCandidate("org-1", tc.sub, todayStart); ok {
-				t.Fatal("expected ineligible usage report candidate")
+				require.Fail(t,
+
+					"expected ineligible usage report candidate")
 			}
 		})
 	}

@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockGraceEnforcerStore struct {
@@ -181,13 +184,13 @@ func TestGraceEnforcer_PastGrace_RestrictsToFree(t *testing.T) {
 	enforcer := newTestEnforcer(t)
 	g := NewGracePeriodEnforcer(store, enforcer, time.Hour)
 	g.enforce(context.Background())
+	assert.Equal(t, "restricted",
 
-	if store.updatedStatuses["org-expired"] != "restricted" {
-		t.Errorf("expected restricted status, got %q", store.updatedStatuses["org-expired"])
-	}
-	if store.updatedPlans["org-expired"] != "free" {
-		t.Errorf("expected free plan, got %q", store.updatedPlans["org-expired"])
-	}
+		store.
+			updatedStatuses["org-expired"])
+	assert.Equal(t, "free",
+		store.
+			updatedPlans["org-expired"])
 }
 
 func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
@@ -208,13 +211,14 @@ func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
+	require.Equal(t, "restricted",
 
-	if store.updatedStatuses["org-expired-cleanup"] != "restricted" {
-		t.Fatalf("expected restricted status, got %q", store.updatedStatuses["org-expired-cleanup"])
-	}
-	if store.updatedPlans["org-expired-cleanup"] != "free" {
-		t.Fatalf("expected free plan, got %q", store.updatedPlans["org-expired-cleanup"])
-	}
+		store.
+			updatedStatuses["org-expired-cleanup"])
+	require.Equal(t, "free",
+		store.
+			updatedPlans["org-expired-cleanup"])
+
 	got := make(map[string]bool)
 	for _, op := range store.cleanupOps {
 		got[op] = true
@@ -228,9 +232,7 @@ func TestGraceEnforcer_PastGrace_EnforcesFreeTierResourceCleanup(t *testing.T) {
 		"notification:project-a",
 		"notification:project-b",
 	} {
-		if !got[want] {
-			t.Fatalf("expected free-tier cleanup op %q, got %v", want, store.cleanupOps)
-		}
+		require.True(t, got[want])
 	}
 }
 
@@ -245,13 +247,10 @@ func TestGraceEnforcer_WithinGrace_NoAction(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
-
-	if len(store.updatedStatuses) != 0 {
-		t.Errorf("expected no status updates, got %d", len(store.updatedStatuses))
-	}
-	if len(store.updatedPlans) != 0 {
-		t.Errorf("expected no plan updates, got %d", len(store.updatedPlans))
-	}
+	assert.Empty(t, store.
+		updatedStatuses)
+	assert.Empty(t, store.
+		updatedPlans)
 }
 
 func TestGraceEnforcer_NoOrgsInGrace_NoOp(t *testing.T) {
@@ -263,10 +262,8 @@ func TestGraceEnforcer_NoOrgsInGrace_NoOp(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
-
-	if len(store.updatedStatuses) != 0 {
-		t.Errorf("expected no updates, got %d", len(store.updatedStatuses))
-	}
+	assert.Empty(t, store.
+		updatedStatuses)
 }
 
 func TestGraceEnforcer_MultipleOrgs_IndependentProcessing(t *testing.T) {
@@ -288,14 +285,17 @@ func TestGraceEnforcer_MultipleOrgs_IndependentProcessing(t *testing.T) {
 
 	// org-a should fail, org-b should succeed.
 	if _, ok := store.updatedStatuses["org-a"]; ok {
-		t.Error("expected org-a status update to be skipped due to error")
+		assert.Fail(t,
+
+			"expected org-a status update to be skipped due to error")
 	}
-	if store.updatedStatuses["org-b"] != "restricted" {
-		t.Errorf("expected org-b restricted, got %q", store.updatedStatuses["org-b"])
-	}
-	if store.updatedPlans["org-b"] != "free" {
-		t.Errorf("expected org-b free plan, got %q", store.updatedPlans["org-b"])
-	}
+	assert.Equal(t, "restricted",
+
+		store.
+			updatedStatuses["org-b"])
+	assert.Equal(t, "free",
+		store.
+			updatedPlans["org-b"])
 }
 
 func TestGraceEnforcer_AtomicRestrictionIneligibleSkipsCacheReset(t *testing.T) {
@@ -312,13 +312,10 @@ func TestGraceEnforcer_AtomicRestrictionIneligibleSkipsCacheReset(t *testing.T) 
 	enforcer := newTestEnforcer(t)
 	g := NewGracePeriodEnforcer(store, enforcer, time.Hour)
 	g.enforce(context.Background())
-
-	if len(store.updatedStatuses) != 0 {
-		t.Fatalf("expected no status updates when atomic restriction loses the race, got %d", len(store.updatedStatuses))
-	}
-	if len(store.updatedPlans) != 0 {
-		t.Fatalf("expected no plan updates when atomic restriction loses the race, got %d", len(store.updatedPlans))
-	}
+	require.Empty(t, store.
+		updatedStatuses)
+	require.Empty(t, store.
+		updatedPlans)
 }
 
 func TestGraceEnforcer_AlreadyRestricted_Skipped(t *testing.T) {
@@ -338,12 +335,10 @@ func TestGraceEnforcer_AlreadyRestricted_Skipped(t *testing.T) {
 
 	g := NewGracePeriodEnforcer(store, nil, time.Hour)
 	g.enforce(context.Background())
+	assert.Empty(t, store.
+		updatedStatuses)
+	assert.Empty(t, store.
+		updatedPlans)
 
 	// Already restricted orgs should be skipped entirely.
-	if len(store.updatedStatuses) != 0 {
-		t.Errorf("expected no status updates for already-restricted org, got %d", len(store.updatedStatuses))
-	}
-	if len(store.updatedPlans) != 0 {
-		t.Errorf("expected no plan updates for already-restricted org, got %d", len(store.updatedPlans))
-	}
 }

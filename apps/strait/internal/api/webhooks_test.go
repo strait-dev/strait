@@ -13,6 +13,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
@@ -35,21 +36,14 @@ func TestHandleTestWebhook_TargetUnreachable(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 even for failed connection, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response: %v", err)
-	}
-	if resp["success"] != false {
-		t.Fatalf("expected success=false for unreachable target, got %v", resp["success"])
-	}
-	if resp["error"] == nil || resp["error"] == "" {
-		t.Fatal("expected error field for unreachable target")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, false, resp["success"])
+	require.False(t, resp["error"] ==
+		nil || resp["error"] == "")
 }
 
 func TestHandleTestWebhook_InvalidURL(t *testing.T) {
@@ -62,10 +56,9 @@ func TestHandleTestWebhook_InvalidURL(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
@@ -78,18 +71,16 @@ func TestHandleTestWebhook_URLValidationErrorIsGeneric(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 	response := w.Body.String()
-	if !strings.Contains(response, "invalid webhook URL") {
-		t.Fatalf("response = %q, want generic invalid webhook URL message", response)
-	}
+	require.Contains(
+		t, response, "invalid webhook URL")
+
 	for _, leaked := range []string{"127.0.0.1", "token=secret", "private", "loopback"} {
-		if strings.Contains(response, leaked) {
-			t.Fatalf("response leaked validation detail %q: %s", leaked, response)
-		}
+		require.NotContains(t, response, leaked)
 	}
 }
 
@@ -102,10 +93,9 @@ func TestHandleTestWebhook_MissingURL(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleTestWebhook)(w, r)
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing url, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
@@ -142,18 +132,15 @@ func TestHandleReplayWebhookDelivery_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "token=secret") ||
-		strings.Contains(w.Body.String(), "user:pass") ||
-		strings.Contains(w.Body.String(), "/private/path") {
-		t.Fatalf("replay response leaked webhook URL secret: %s", w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "https://hooks.example.com") {
-		t.Fatalf("replay response should keep redacted webhook host, got: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.False(t, strings.Contains(w.Body.String(), "token=secret") || strings.Contains(w.Body.
+		String(), "user:pass") ||
+		strings.Contains(w.Body.String(),
+			"/private/path"))
+	require.Contains(
+		t, w.Body.String(), "https://hooks.example.com")
 }
 
 func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
@@ -176,10 +163,9 @@ func TestHandleReplayWebhookDelivery_WrongProject(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for wrong project, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnvironment(t *testing.T) {
@@ -192,7 +178,9 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnv
 			return &domain.Job{ID: "job-1", ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
-			t.Fatal("ReplayWebhookDelivery should not be called for a mismatched environment")
+			require.Fail(t,
+
+				"ReplayWebhookDelivery should not be called for a mismatched environment")
 			return nil, nil
 		},
 	}
@@ -201,9 +189,9 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayOtherEnv
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for environment mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
 }
 
 func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscopedSubscriptionDelivery(t *testing.T) {
@@ -213,7 +201,9 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscoped
 			return &domain.WebhookDelivery{ID: "del-1", ProjectID: "proj-1", SubscriptionID: "sub-1"}, nil
 		},
 		ReplayWebhookDeliveryFunc: func(_ context.Context, _ string) (*domain.WebhookDelivery, error) {
-			t.Fatal("ReplayWebhookDelivery should not be called for an env-scoped caller without job environment")
+			require.Fail(t,
+
+				"ReplayWebhookDelivery should not be called for an env-scoped caller without job environment")
 			return nil, nil
 		},
 	}
@@ -222,9 +212,9 @@ func TestHandleReplayWebhookDelivery_EnvironmentScopedCallerCannotReplayUnscoped
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleReplayWebhookDelivery(ctx, &ReplayWebhookDeliveryInput{ID: "del-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for env-scoped subscription delivery replay, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusNotFound))
 }
 
 func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
@@ -243,8 +233,7 @@ func TestHandleReplayWebhookDelivery_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusCreated, srv.handleReplayWebhookDelivery)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }

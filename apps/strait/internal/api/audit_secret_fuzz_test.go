@@ -3,6 +3,8 @@ package api
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // FuzzSecretScanner_NeverPanics asserts the scanner is total — for any
@@ -78,8 +80,6 @@ func FuzzSecretScanner_KnownPrefixesAreDetected(f *testing.F) {
 
 		payload := prefix + cs
 		hits := scanForSecrets(payload)
-		if len(hits) == 0 {
-			t.Errorf("expected detection of %q, got no hits", payload)
-		}
+		assert.NotEmpty(t, hits)
 	})
 }

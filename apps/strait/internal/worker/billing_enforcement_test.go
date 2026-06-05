@@ -17,6 +17,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockBillingEnforcerStore satisfies billing.Store for testing.
@@ -258,20 +260,19 @@ func TestBillingEnforcement_CloudNilEnforcerFailsClosed(t *testing.T) {
 	}
 
 	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
-	if ok {
-		t.Fatal("expected missing cloud billing enforcer to block dispatch")
-	}
-	if release != nil {
-		t.Fatal("blocked dispatch must not return a billing release callback")
-	}
+	require.False(t,
+		ok)
+	require.Nil(t, release)
+
 	execStore.mu.Lock()
 	defer execStore.mu.Unlock()
-	if len(execStore.statusCalls) != 1 {
-		t.Fatalf("status calls = %d, want 1", len(execStore.statusCalls))
-	}
-	if got := execStore.statusCalls[0].to; got != domain.StatusSystemFailed {
-		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
-	}
+	require.Len(t, execStore.
+		statusCalls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		execStore.statusCalls[0].to)
 }
 
 func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
@@ -300,17 +301,14 @@ func TestBillingEnforcement_CommunityNilEnforcerAllows(t *testing.T) {
 	}
 
 	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
-	if !ok {
-		t.Fatal("expected community nil billing enforcer to allow dispatch")
-	}
-	if release != nil {
-		t.Fatal("community nil enforcer should not return a billing release callback")
-	}
+	require.True(t,
+		ok)
+	require.Nil(t, release)
+
 	execStore.mu.Lock()
 	defer execStore.mu.Unlock()
-	if len(execStore.statusCalls) != 0 {
-		t.Fatalf("status calls = %d, want 0", len(execStore.statusCalls))
-	}
+	require.Empty(t, execStore.
+		statusCalls)
 }
 
 func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
@@ -348,20 +346,19 @@ func TestBillingEnforcement_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
 	}
 
 	release, ok := exec.enforceDispatchBilling(context.Background(), run, job)
-	if ok {
-		t.Fatal("expected billing org lookup error to block dispatch")
-	}
-	if release != nil {
-		t.Fatal("blocked dispatch must not return a billing release callback")
-	}
+	require.False(t,
+		ok)
+	require.Nil(t, release)
+
 	execStore.mu.Lock()
 	defer execStore.mu.Unlock()
-	if len(execStore.statusCalls) != 1 {
-		t.Fatalf("status calls = %d, want 1", len(execStore.statusCalls))
-	}
-	if got := execStore.statusCalls[0].to; got != domain.StatusSystemFailed {
-		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
-	}
+	require.Len(t, execStore.
+		statusCalls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		execStore.statusCalls[0].to)
 }
 
 // TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount verifies
@@ -386,9 +383,13 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 	// Free tier allows ConcurrentFree concurrent runs; set at the cap so the
 	// next increment exceeds it and the check rejects.
 	concurrentKey := "strait:org_concurrent:org-monthly-concurrent"
-	if err := mr.Set(concurrentKey, strconv.Itoa(billing.ConcurrentFree)); err != nil {
-		t.Fatalf("seed concurrent count: %v", err)
-	}
+	require.NoError(
+		t, mr.Set(concurrentKey,
+			strconv.
+				Itoa(billing.
+					ConcurrentFree,
+				)))
+
 	mr.SetTTL(concurrentKey, 24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -438,17 +439,15 @@ func TestBillingEnforcement_ConcurrentLimitFails_RollbackMonthlyCount(t *testing
 			break
 		}
 	}
-	if !foundFailure {
-		t.Error("expected run to be marked as system_failed when concurrent limit exceeded")
-	}
+	assert.True(t, foundFailure)
 
 	// Verify the monthly run counter was rolled back (decremented after the
 	// concurrent limit abort).
 	monthlyKey := "strait:org_monthly_runs:org-monthly-concurrent:" + time.Now().UTC().Format("2006-01")
 	val, err := mr.Get(monthlyKey)
-	if err == nil && val != "0" {
-		t.Errorf("monthly run counter should be 0 after concurrent limit abort, got %s", val)
-	}
+	assert.False(t,
+		err == nil && val !=
+			"0")
 }
 
 // TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount
@@ -474,9 +473,13 @@ func TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount(t 
 	// Pre-fill the monthly counter at the free-tier cap so
 	// CheckMonthlyRunLimit hard-rejects on the next call.
 	monthlyKey := "strait:org_monthly_runs:org-monthly-cap:" + time.Now().UTC().Format("2006-01")
-	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthFree)); err != nil {
-		t.Fatalf("seed monthly count: %v", err)
-	}
+	require.NoError(
+		t, mr.Set(monthlyKey,
+			strconv.
+				Itoa(billing.
+					MaxRunsPerMonthFree,
+				)))
+
 	mr.SetTTL(monthlyKey, 62*24*time.Hour)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -526,17 +529,15 @@ func TestBillingEnforcement_MonthlyLimitExceeded_DoesNotIncrementMonthlyCount(t 
 			break
 		}
 	}
-	if !foundFailure {
-		t.Error("expected run to be marked as system_failed when monthly limit exceeded")
-	}
+	assert.True(t, foundFailure)
 
 	val, err := mr.Get(monthlyKey)
-	if err != nil {
-		t.Fatalf("expected monthly counter to remain present: %v", err)
-	}
-	if val != strconv.Itoa(billing.MaxRunsPerMonthFree) {
-		t.Errorf("monthly run counter = %s, want %d after monthly limit abort", val, billing.MaxRunsPerMonthFree)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		strconv.Itoa(billing.
+			MaxRunsPerMonthFree,
+		), val)
 }
 
 func TestBillingEnforcement_AutomaticRetryDoesNotIncrementMonthlyRunCount(t *testing.T) {
@@ -573,14 +574,15 @@ func TestBillingEnforcement_AutomaticRetryDoesNotIncrementMonthlyRunCount(t *tes
 		ProjectID:     run.ProjectID,
 		ExecutionMode: domain.ExecutionModeWorker,
 	}
-
-	if !exec.checkDispatchBillingLimits(context.Background(), run, job, orgID) {
-		t.Fatal("retry dispatch should remain eligible for non-usage billing gates")
-	}
+	require.True(t,
+		exec.checkDispatchBillingLimits(context.
+			Background(), run, job, orgID))
 
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
 	if val, err := mr.Get(monthlyKey); err == nil && val != "0" {
-		t.Fatalf("automatic retry must not increment monthly run counter, got %s", val)
+		require.Failf(t, "test failure",
+
+			"automatic retry must not increment monthly run counter, got %s", val)
 	}
 }
 
@@ -618,19 +620,16 @@ func TestBillingEnforcement_FirstAttemptIncrementsMonthlyRunCount(t *testing.T) 
 		ProjectID:     run.ProjectID,
 		ExecutionMode: domain.ExecutionModeWorker,
 	}
-
-	if !exec.checkDispatchBillingLimits(context.Background(), run, job, orgID) {
-		t.Fatal("first dispatch attempt should pass billing gates")
-	}
+	require.True(t,
+		exec.checkDispatchBillingLimits(context.
+			Background(), run, job, orgID))
 
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
 	val, err := mr.Get(monthlyKey)
-	if err != nil {
-		t.Fatalf("expected first dispatch attempt to create monthly counter: %v", err)
-	}
-	if val != "1" {
-		t.Fatalf("first dispatch attempt monthly counter = %s, want 1", val)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t,
+		"1", val)
 }
 
 func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) {
@@ -672,28 +671,32 @@ func TestBillingEnforcement_TerminalFailureRecordsBillableRunCost(t *testing.T) 
 		MaxAttempts:   1,
 		TimeoutSecs:   30,
 	}
-	if err := enforcer.CheckMonthlyRunLimitForRun(context.Background(), orgID, run.ID); err != nil {
-		t.Fatalf("mark monthly run overage: %v", err)
-	}
+	require.NoError(
+		t, enforcer.CheckMonthlyRunLimitForRun(
+			context.Background(), orgID, run.
+				ID))
+
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
-	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1)); err != nil {
-		t.Fatalf("seed monthly run count: %v", err)
-	}
+	require.NoError(
+		t, mr.Set(monthlyKey,
+			strconv.
+				Itoa(billing.
+					MaxRunsPerMonthPro+
+					1)))
+	require.True(t,
+		exec.handleFailure(context.
+			Background(),
+			run, job,
+			executionPolicy{maxAttempts: 1,
+				timeoutSecs: 30,
+				retryBackoff: domain.
+					RetryBackoffExponential,
+				retryInitialSecs: 1, retryMaxSecs: 60}, context.DeadlineExceeded,
+			nil))
 
-	if !exec.handleFailure(context.Background(), run, job, executionPolicy{
-		maxAttempts:      1,
-		timeoutSecs:      30,
-		retryBackoff:     domain.RetryBackoffExponential,
-		retryInitialSecs: 1,
-		retryMaxSecs:     60,
-	}, context.DeadlineExceeded, nil) {
-		t.Fatal("expected terminal failure transition to succeed")
-	}
 	exec.stripeUsageWG.Wait()
-
-	if got := bStore.usageRecords.Load(); got != 1 {
-		t.Fatalf("terminal failed run cost records = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, bStore.usageRecords.
+		Load())
 }
 
 func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) {
@@ -734,13 +737,18 @@ func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) 
 		MaxAttempts:   1,
 		TimeoutSecs:   30,
 	}
-	if err := enforcer.CheckMonthlyRunLimitForRun(context.Background(), orgID, run.ID); err != nil {
-		t.Fatalf("mark monthly run overage: %v", err)
-	}
+	require.NoError(
+		t, enforcer.CheckMonthlyRunLimitForRun(
+			context.Background(), orgID, run.
+				ID))
+
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
-	if err := mr.Set(monthlyKey, strconv.Itoa(billing.MaxRunsPerMonthPro+1)); err != nil {
-		t.Fatalf("seed monthly run count: %v", err)
-	}
+	require.NoError(
+		t, mr.Set(monthlyKey,
+			strconv.
+				Itoa(billing.
+					MaxRunsPerMonthPro+
+					1)))
 
 	exec.handleTimeout(context.Background(), run, job, executionPolicy{
 		maxAttempts:      1,
@@ -750,10 +758,8 @@ func TestBillingEnforcement_TerminalTimeoutRecordsBillableRunCost(t *testing.T) 
 		retryMaxSecs:     60,
 	}, nil)
 	exec.stripeUsageWG.Wait()
-
-	if got := bStore.usageRecords.Load(); got != 1 {
-		t.Fatalf("terminal timed-out run cost records = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, bStore.usageRecords.
+		Load())
 }
 
 // TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter pins the fix for
@@ -777,9 +783,8 @@ func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
 	limits := billing.GetPlanLimits(domain.PlanFree)
 	limits.AllowsHTTPMode = false
 	entitlements, err := json.Marshal(limits)
-	if err != nil {
-		t.Fatalf("marshal entitlements: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	sub := &billing.OrgSubscription{
 		OrgID:        orgID,
@@ -841,9 +846,8 @@ func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
 		}
 	}
 	ms.mu.Unlock()
-	if !foundFailure {
-		t.Fatal("expected run to be marked as system_failed when HTTP mode is not allowed")
-	}
+	require.True(t,
+		foundFailure)
 
 	// The concurrent counter must be balanced: CheckConcurrentRunLimit INCRed
 	// it from 0 to 1 (script returns count, not -1) and the deferred
@@ -856,9 +860,8 @@ func TestExecuteInner_HTTPModeGateRebalancesConcurrentCounter(t *testing.T) {
 		// collects zero values).
 		return
 	}
-	if val != "0" {
-		t.Errorf("concurrent counter must be balanced after HTTP-mode gate rejection, got %s (leak indicates the DecrConcurrentRunCount defer was not registered before the gate)", val)
-	}
+	assert.Equal(t,
+		"0", val)
 }
 
 func TestBillingEnforcement_HTTPModePlanLookupErrorFailsClosedAndRollsBackCounters(t *testing.T) {
@@ -894,30 +897,36 @@ func TestBillingEnforcement_HTTPModePlanLookupErrorFailsClosedAndRollsBackCounte
 	}
 	monthlyKey := "strait:org_monthly_runs:" + orgID + ":" + time.Now().UTC().Format("2006-01")
 	concurrentKey := "strait:org_concurrent:" + orgID
-	if err := mr.Set(monthlyKey, "1"); err != nil {
-		t.Fatalf("seed monthly run count: %v", err)
-	}
-	if err := mr.Set(concurrentKey, "1"); err != nil {
-		t.Fatalf("seed concurrent run count: %v", err)
-	}
-
-	if exec.checkDispatchHTTPModeAllowed(context.Background(), run, job, orgID, true) {
-		t.Fatal("expected HTTP-mode plan lookup error to block dispatch")
-	}
+	require.NoError(
+		t, mr.Set(monthlyKey,
+			"1"))
+	require.NoError(
+		t, mr.Set(concurrentKey,
+			"1",
+		))
+	require.False(t,
+		exec.checkDispatchHTTPModeAllowed(context.
+			Background(), run, job, orgID,
+			true))
 
 	execStore.mu.Lock()
 	statusCalls := append([]statusUpdateCall(nil), execStore.statusCalls...)
 	execStore.mu.Unlock()
-	if len(statusCalls) != 1 {
-		t.Fatalf("status calls = %d, want 1", len(statusCalls))
-	}
-	if got := statusCalls[0].to; got != domain.StatusSystemFailed {
-		t.Fatalf("status = %s, want %s", got, domain.StatusSystemFailed)
-	}
+	require.Len(t, statusCalls,
+		1)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		statusCalls[0].to)
+
 	if val, err := mr.Get(monthlyKey); err == nil && val != "0" {
-		t.Fatalf("monthly counter after rollback = %s, want 0 or missing", val)
+		require.Failf(t, "test failure",
+
+			"monthly counter after rollback = %s, want 0 or missing", val)
 	}
 	if val, err := mr.Get(concurrentKey); err == nil && val != "0" {
-		t.Fatalf("concurrent counter after rollback = %s, want 0 or missing", val)
+		require.Failf(t, "test failure",
+
+			"concurrent counter after rollback = %s, want 0 or missing", val)
 	}
 }

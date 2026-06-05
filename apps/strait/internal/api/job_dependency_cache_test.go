@@ -9,6 +9,8 @@ import (
 
 	straitcache "strait/internal/cache"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing.T) {
@@ -33,30 +35,21 @@ func TestJobDependencyCache_PreservesMaxDependencyCacheVersionInRedis(t *testing
 		return straitcache.Versioned[[]domain.JobDependency]{Value: deps, Version: jobDependenciesCacheVersion(deps)}, nil
 	}
 	got, err := cache.List(t.Context(), key, loader)
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("List() len = %d, want 2", len(got))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		got, 2)
 
 	redisKey := "strait:cache:" + jobDependencyCacheNamespace + ":" + jobDepsCacheKeyString(key)
 	raw, err := deps.Redis.Get(t.Context(), redisKey).Bytes()
-	if err != nil {
-		t.Fatalf("read redis entry: %v", err)
-	}
+	require.NoError(t, err)
+
 	var envelope struct {
 		Version int64 `json:"version"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		t.Fatalf("decode redis entry: %v", err)
-	}
-	if envelope.Version != 12 {
-		t.Fatalf("redis version = %d, want 12", envelope.Version)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	require.EqualValues(t, 12, envelope.
+		Version)
+	require.EqualValues(t, 1, loads.Load())
 }
 
 func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
@@ -87,7 +80,9 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 	}
 	for _, limit := range jobDependencyCachedPageLimits {
 		if _, err := cache.List(t.Context(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
-			t.Fatalf("prime limit %d: %v", limit, err)
+			require.Failf(t, "test failure",
+
+				"prime limit %d: %v", limit, err)
 		}
 	}
 
@@ -96,12 +91,14 @@ func TestJobDependencyCache_InvalidateJobClearsKnownPageShapes(t *testing.T) {
 
 	for _, limit := range jobDependencyCachedPageLimits {
 		if _, err := cache.List(t.Context(), jobDepsCacheKey{JobID: "job-known", Limit: limit}, loader); err != nil {
-			t.Fatalf("reload limit %d: %v", limit, err)
+			require.Failf(t, "test failure",
+
+				"reload limit %d: %v", limit, err)
 		}
 	}
-	if loads.Load() != int64(len(jobDependencyCachedPageLimits)*2) {
-		t.Fatalf("loader calls = %d, want %d", loads.Load(), len(jobDependencyCachedPageLimits)*2)
-	}
+	require.Equal(t, int64(len(jobDependencyCachedPageLimits)*2),
+		loads.
+			Load())
 }
 
 func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
@@ -131,15 +128,11 @@ func TestJobDependencyCache_RefreshJobWritesEmptyTombstone(t *testing.T) {
 		}, nil
 	}
 	got, err := cache.List(t.Context(), key, loader)
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("List() len = %d, want empty tombstone", len(got))
-	}
-	if staleLoads.Load() != 0 {
-		t.Fatalf("stale loader calls = %d, want 0", staleLoads.Load())
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		got)
+	require.EqualValues(t, 0, staleLoads.
+		Load())
 }
 
 func TestJobDependencyCache_StrongBarrierRejectsStaleListFill(t *testing.T) {
@@ -162,9 +155,7 @@ func TestJobDependencyCache_StrongBarrierRejectsStaleListFill(t *testing.T) {
 		}, nil
 	}
 	_, err := cache.List(t.Context(), key, loader)
-	if err == nil {
-		t.Fatal("List() error = nil, want stale version rejection")
-	}
+	require.Error(t, err)
 }
 
 func TestJobDependencyCache_StrongBarrierAllowsEqualVersionEmptyList(t *testing.T) {
@@ -183,12 +174,9 @@ func TestJobDependencyCache_StrongBarrierAllowsEqualVersionEmptyList(t *testing.
 		return straitcache.Versioned[[]domain.JobDependency]{Value: nil, Version: 12}, nil
 	}
 	got, err := cache.List(t.Context(), key, loader)
-	if err != nil {
-		t.Fatalf("List() error = %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("List() len = %d, want empty", len(got))
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		got)
 }
 
 func TestJobDependenciesCacheVersion(t *testing.T) {
@@ -212,9 +200,8 @@ func TestJobDependenciesCacheVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := jobDependenciesCacheVersion(tt.deps); got != tt.want {
-				t.Fatalf("jobDependenciesCacheVersion() = %d, want %d", got, tt.want)
-			}
+			require.Equal(t, tt.want, jobDependenciesCacheVersion(tt.
+				deps))
 		})
 	}
 }

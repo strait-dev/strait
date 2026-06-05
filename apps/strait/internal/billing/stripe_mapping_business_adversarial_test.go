@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Simulates the Stripe webhook path: when a subscription.created event
@@ -20,9 +23,9 @@ func TestWithBusinessPrices_NoSilentFallthroughToFree(t *testing.T) {
 		WithBusinessPrices("biz-m", "biz-y"),
 	)
 	tier, ok := m.TierForPrice("biz-m")
-	if !ok || tier != domain.PlanBusiness {
-		t.Fatalf("Business monthly resolved to (%q, %v), want Business", tier, ok)
-	}
+	require.False(t,
+		!ok || tier != domain.PlanBusiness,
+	)
 }
 
 // When the Business env vars are empty but a Business price ID arrives
@@ -36,12 +39,9 @@ func TestWithBusinessPrices_EmptyEnvUnresolved(t *testing.T) {
 		WithBusinessPrices("", ""),
 	)
 	tier, ok := m.TierForPrice("price_live_business_id")
-	if ok {
-		t.Errorf("ok = true for unresolved Business price; mapping must signal unknown")
-	}
-	if tier != domain.PlanFree {
-		t.Errorf("tier = %q, want %q (fail-closed default)", tier, domain.PlanFree)
-	}
+	assert.False(t, ok)
+	assert.Equal(t, domain.
+		PlanFree, tier)
 }
 
 // Sandbox price IDs in a live-configured mapping (or vice versa) must
@@ -55,8 +55,8 @@ func TestWithBusinessPrices_EnvironmentMismatchDoesNotResolve(t *testing.T) {
 	)
 	for _, sandboxID := range []string{"price_test_biz_m", "price_test_biz_y", "price_1TUlbKCY4bMQR1xeozU9kimD"} {
 		tier, ok := live.TierForPrice(sandboxID)
-		if ok || tier != domain.PlanFree {
-			t.Errorf("sandbox ID %q resolved against live mapping: (%q, %v)", sandboxID, tier, ok)
-		}
+		assert.False(t, ok ||
+			tier != domain.PlanFree,
+		)
 	}
 }

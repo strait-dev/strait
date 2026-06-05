@@ -17,6 +17,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -31,14 +32,18 @@ func getRunsFilterTestDB(t *testing.T) *testutil.TestDB {
 		ctx := context.Background()
 		var err error
 		runsFilterTestDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "api-runs-filter")
-		if err != nil {
-			t.Fatalf("SetupTestDB() error = %v", err)
-		}
-	})
+		require.NoError(
+			t,
+			err)
 
-	if runsFilterTestDB == nil || runsFilterTestDB.Pool == nil {
-		t.Fatal("runsFilterTestDB is not initialized")
-	}
+	})
+	require.False(t,
+
+		runsFilterTestDB ==
+			nil || runsFilterTestDB.
+			Pool ==
+			nil)
+
 	return runsFilterTestDB
 }
 
@@ -49,9 +54,11 @@ func runsFilterStoreForTest(t *testing.T) *store.Queries {
 
 func cleanRunsFilterTables(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := getRunsFilterTestDB(t).CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(
+		t,
+		getRunsFilterTestDB(t).CleanTables(
+			ctx))
+
 }
 
 func createRunsFilterJob(t *testing.T, ctx context.Context, st *store.Queries, projectID string, mode domain.ExecutionMode) *domain.Job {
@@ -69,9 +76,11 @@ func createRunsFilterJob(t *testing.T, ctx context.Context, st *store.Queries, p
 		ExecutionMode: mode,
 		Queue:         "default",
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(
+		t,
+		st.CreateJob(ctx,
+			job))
+
 	return job
 }
 
@@ -96,9 +105,10 @@ func createRunsFilterRun(t *testing.T, ctx context.Context, st *store.Queries, j
 	if status != domain.StatusExecuting {
 		run.Status = domain.StatusExecuting
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(
+		t,
+		st.CreateRun(ctx,
+			run))
 
 	if status != domain.StatusExecuting {
 		fields := map[string]any{
@@ -108,9 +118,13 @@ func createRunsFilterRun(t *testing.T, ctx context.Context, st *store.Queries, j
 			fields["error"] = "integration failure"
 			fields["error_class"] = errorClass
 		}
-		if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, status, fields); err != nil {
-			t.Fatalf("UpdateRunStatus() error = %v", err)
-		}
+		require.NoError(
+			t,
+			st.UpdateRunStatus(ctx, run.ID, domain.
+				StatusExecuting,
+				status, fields,
+			))
+
 	}
 
 	return run
@@ -122,9 +136,11 @@ func decodeRunListResponse(t *testing.T, body []byte) []domain.JobRun {
 	var resp struct {
 		Data []domain.JobRun `json:"data"`
 	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		t.Fatalf("unmarshal run list response: %v", err)
-	}
+	require.NoError(
+		t,
+		json.Unmarshal(body,
+			&resp))
+
 	return resp.Data
 }
 
@@ -148,18 +164,22 @@ func TestHandleListRuns_TagFilterComposesWithOtherFilters(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/runs?tag_key=team&tag_value=infra&status=failed&triggered_by=api&error_class=timeout&limit=10", "", projectID)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t,
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+		http.StatusOK,
+		w.Code,
+	)
 
 	runs := decodeRunListResponse(t, w.Body.Bytes())
-	if len(runs) != 1 {
-		t.Fatalf("len(runs) = %d, want 1", len(runs))
-	}
-	if runs[0].ID != matching.ID {
-		t.Fatalf("run ID = %q, want %q", runs[0].ID, matching.ID)
-	}
+	require.Len(t, runs,
+
+		1)
+	require.Equal(t,
+
+		matching.
+			ID, runs[0].
+			ID)
+
 }
 
 func TestHandleListRuns_StatusesMultiValueFiltersResults(t *testing.T) {
@@ -183,21 +203,24 @@ func TestHandleListRuns_StatusesMultiValueFiltersResults(t *testing.T) {
 	req := authedProjectRequest(http.MethodGet, "/v1/runs?tag_key=team&tag_value=infra&statuses[]=failed&statuses[]=timed_out&execution_mode=worker&limit=10", "", projectID)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t,
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+		http.StatusOK,
+		w.Code,
+	)
 
 	runs := decodeRunListResponse(t, w.Body.Bytes())
-	if len(runs) != 2 {
-		t.Fatalf("len(runs) = %d, want 2", len(runs))
-	}
+	require.Len(t, runs,
+
+		2)
 
 	gotIDs := []string{runs[0].ID, runs[1].ID}
 	slices.Sort(gotIDs)
 	wantIDs := []string{failedRun.ID, timedOutRun.ID}
 	slices.Sort(wantIDs)
-	if !slices.Equal(gotIDs, wantIDs) {
-		t.Fatalf("run IDs = %v, want %v", gotIDs, wantIDs)
-	}
+	require.True(t,
+		slices.
+			Equal(gotIDs,
+				wantIDs))
+
 }

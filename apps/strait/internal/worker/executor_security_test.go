@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/httputil"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
@@ -31,11 +33,9 @@ func TestNewExecutor_DefaultHTTPClientBlocksPrivateDNSAtDispatch(t *testing.T) {
 		Attempt: 1,
 		Payload: json.RawMessage(`{"ok":true}`),
 	}, nil)
-	if err == nil {
-		t.Fatal("expected SSRF-safe executor client to reject private DNS answer")
-		return
-	}
-	if !strings.Contains(err.Error(), "blocked private") && !strings.Contains(err.Error(), "resolves to private") {
-		t.Fatalf("expected private-address rejection, got %v", err)
-	}
+	require.Error(t,
+		err)
+	require.False(t,
+		!strings.Contains(err.Error(), "blocked private") &&
+			!strings.Contains(err.Error(), "resolves to private"))
 }

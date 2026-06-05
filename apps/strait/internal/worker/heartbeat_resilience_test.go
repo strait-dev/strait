@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // failableHeartbeatStore implements HeartbeatStore with a configurable batch function.
@@ -51,13 +52,14 @@ func TestHeartbeat_FlushTimeout_DoesNotBlockTicker(t *testing.T) {
 	start := time.Now()
 	hm.flush(parentCtx)
 	elapsed := time.Since(start)
+	require.False(t, elapsed >=
+		6*
+			time.Second,
+	)
 
 	// flush creates its own 5s timeout derived from parentCtx.
 	// Since parentCtx expires in 100ms, the effective deadline is ~100ms.
 	// Must complete well under 6s (the assignment threshold).
-	if elapsed >= 6*time.Second {
-		t.Fatalf("flush blocked for %v; expected < 6s", elapsed)
-	}
 
 	// Verify the next flush still works (ticker not permanently stuck).
 	store.batchFn = func(context.Context, []string) error { return nil }
@@ -68,10 +70,11 @@ func TestHeartbeat_FlushTimeout_DoesNotBlockTicker(t *testing.T) {
 	start = time.Now()
 	hm.flush(freshCtx)
 	elapsed = time.Since(start)
+	require.False(t, elapsed >=
+		2*
+			time.Second,
+	)
 
-	if elapsed >= 2*time.Second {
-		t.Fatalf("second flush blocked for %v; expected near-instant", elapsed)
-	}
 }
 
 func TestHeartbeat_ConsecutiveFailures_ResetsOnSuccess(t *testing.T) {
@@ -94,17 +97,20 @@ func TestHeartbeat_ConsecutiveFailures_ResetsOnSuccess(t *testing.T) {
 	// 3 failing flushes.
 	for i := 1; i <= 3; i++ {
 		hm.flush(ctx)
-		if hm.consecutiveFailures != i {
-			t.Fatalf("after failure %d: consecutiveFailures = %d, want %d",
-				i, hm.consecutiveFailures, i)
-		}
+		require.Equal(t, i,
+
+			hm.consecutiveFailures,
+		)
+
 	}
 
 	// 1 successful flush resets the counter.
 	hm.flush(ctx)
-	if hm.consecutiveFailures != 0 {
-		t.Fatalf("after success: consecutiveFailures = %d, want 0", hm.consecutiveFailures)
-	}
+	require.EqualValues(t, 0,
+
+		hm.consecutiveFailures,
+	)
+
 }
 
 func TestHeartbeat_FlushWithEmptyActiveSet(t *testing.T) {
@@ -119,10 +125,8 @@ func TestHeartbeat_FlushWithEmptyActiveSet(t *testing.T) {
 	hm := NewHeartbeatManager(store, 30*time.Second)
 
 	hm.flush(context.Background())
+	require.False(t, called)
 
-	if called {
-		t.Fatal("BatchUpdateHeartbeat called with no active runs; expected no-op")
-	}
 }
 
 func TestHeartbeat_CollectActiveIDs_ConcurrentSafety(t *testing.T) {

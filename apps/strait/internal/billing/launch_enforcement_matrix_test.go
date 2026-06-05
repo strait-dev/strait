@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 type launchPromiseStatus string
@@ -100,31 +102,37 @@ func TestLaunchEnforcementMatrixHasEvidenceForActivePromises(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, row := range launchEnforcementMatrix {
-		if row.promise == "" {
-			t.Fatal("launch enforcement matrix contains an unnamed promise")
-		}
-		if seen[row.promise] {
-			t.Fatalf("duplicate launch enforcement promise %q", row.promise)
-		}
+		require.NotEmpty(t, row.promise)
+		require.False(t,
+			seen[row.promise])
+
 		seen[row.promise] = true
 
 		switch row.status {
 		case launchPromiseRuntime, launchPromiseMetered, launchPromiseDisplay:
 			if strings.TrimSpace(row.gate) == "" {
-				t.Fatalf("%q is %s but has no gate evidence", row.promise, row.status)
+				require.Failf(t, "test failure",
+
+					"%q is %s but has no gate evidence", row.promise, row.status)
 			}
 			if !strings.HasPrefix(row.test, "Test") {
-				t.Fatalf("%q is %s but has no test evidence: %q", row.promise, row.status, row.test)
+				require.Failf(t, "test failure",
+
+					"%q is %s but has no test evidence: %q", row.promise, row.status, row.test)
 			}
 		case launchPromiseRoadmap:
 			if row.roadmapGate == "" {
-				t.Fatalf("%q is roadmap but has no roadmap feature gate", row.promise)
+				require.Failf(t, "test failure",
+
+					"%q is roadmap but has no roadmap feature gate", row.promise)
 			}
 			if !IsRoadmapFeature(row.roadmapGate) {
-				t.Fatalf("%q roadmap gate %q is not registered as roadmap", row.promise, row.roadmapGate)
+				require.Failf(t, "test failure",
+
+					"%q roadmap gate %q is not registered as roadmap", row.promise, row.roadmapGate)
 			}
 		default:
-			t.Fatalf("%q has unknown launch status %q", row.promise, row.status)
+			require.Failf(t, "test failure", "%q has unknown launch status %q", row.promise, row.status)
 		}
 	}
 }
@@ -138,9 +146,11 @@ func TestLaunchEnforcementMatrixRoadmapFeaturesStayInactive(t *testing.T) {
 			continue
 		}
 		for _, tier := range domain.AllPlanTiers() {
-			if registry.AllowsFeature(tier, row.roadmapGate) {
-				t.Fatalf("%s enables roadmap feature %q for %s", row.promise, row.roadmapGate, tier)
-			}
+			require.False(t,
+				registry.
+					AllowsFeature(tier, row.
+						roadmapGate,
+					))
 		}
 	}
 }
@@ -155,9 +165,8 @@ func TestLaunchEnforcementMatrixCoversEveryRoadmapFeature(t *testing.T) {
 		}
 	}
 	for _, feature := range allRegistryFeatures() {
-		if IsRoadmapFeature(feature) && !covered[feature] {
-			t.Fatalf("roadmap feature %q is missing launch matrix coverage", feature)
-		}
+		require.False(t,
+			IsRoadmapFeature(feature) && !covered[feature])
 	}
 }
 
@@ -183,9 +192,9 @@ func TestLaunchEnforcementMatrixCoversEveryLaunchActiveFeature(t *testing.T) {
 				break
 			}
 		}
-		if active && !covered[feature] {
-			t.Fatalf("launch-active feature %q is missing launch matrix evidence", feature)
-		}
+		require.False(t,
+			active &&
+				!covered[feature])
 	}
 }
 
@@ -197,9 +206,8 @@ func TestLaunchEnforcementMatrixEvidenceTestsExist(t *testing.T) {
 		if row.status == launchPromiseRoadmap {
 			continue
 		}
-		if !testNames[row.test] {
-			t.Fatalf("%q cites missing evidence test %q", row.promise, row.test)
-		}
+		require.True(t,
+			testNames[row.test])
 	}
 }
 
@@ -264,15 +272,12 @@ func TestLaunchPricingDoesNotWireLegacyDailyRunQuota(t *testing.T) {
 				return readErr
 			}
 			for _, token := range forbidden {
-				if strings.Contains(string(body), token) {
-					t.Fatalf("%s wires legacy daily run quota token %q; launch billing must use monthly run allowance", path, token)
-				}
+				require.NotContains(t,
+					string(body), token)
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for legacy daily run quota wiring: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -284,18 +289,16 @@ func TestLaunchDocsDoNotAdvertisePlanGatedRBACAsUniversal(t *testing.T) {
 		"../../../docs/guides/authentication.mdx",
 	} {
 		bodyBytes, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		body := string(bodyBytes)
 		for _, phrase := range []string{
 			"you can create custom roles per-project",
 			"You can also create custom roles with any combination of scopes",
 			"RBAC also supports role inheritance and policy-based grants",
 		} {
-			if strings.Contains(body, phrase) {
-				t.Fatalf("%s advertises plan-gated RBAC as universal with phrase %q", path, phrase)
-			}
+			require.NotContains(t,
+				body, phrase)
 		}
 	}
 }
@@ -311,9 +314,8 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 		"../../../docs/sdks/ruby.mdx",
 	} {
 		bodyBytes, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		body := string(bodyBytes)
 		for _, phrase := range []string{
 			"multi-region",
@@ -321,9 +323,8 @@ func TestLaunchDocsDoNotAdvertiseRegionRoutingAsLaunchActive(t *testing.T) {
 			"data residency is included",
 			"client.regions",
 		} {
-			if strings.Contains(body, phrase) {
-				t.Fatalf("%s advertises region routing/residency as launch-active with phrase %q", path, phrase)
-			}
+			require.NotContains(t,
+				body, phrase)
 		}
 	}
 }
@@ -355,15 +356,12 @@ func TestLaunchCopyDoesNotAdvertiseHTTPModeAsPaidUpgrade(t *testing.T) {
 				"HTTP mode requires the Pro plan",
 				"HTTP mode requires Pro",
 			} {
-				if strings.Contains(body, phrase) {
-					t.Fatalf("%s advertises HTTP mode as a paid upgrade with phrase %q", path, phrase)
-				}
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for HTTP mode paid-upgrade copy: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -406,15 +404,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsIncluded(t *testing.T)
 				"dedicated compute included",
 				"priority queue included",
 			} {
-				if strings.Contains(body, phrase) {
-					t.Fatalf("%s advertises launch-roadmap security/enterprise feature as included with phrase %q", path, phrase)
-				}
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for roadmap feature copy: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -480,15 +475,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRoadmapSecurityAsActive(t *testing.T) {
 				"priority queue enabled",
 				"priority queue supported",
 			} {
-				if strings.Contains(body, phrase) {
-					t.Fatalf("%s advertises launch-roadmap security/enterprise feature as active with phrase %q", path, phrase)
-				}
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for active roadmap feature copy: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -529,15 +521,12 @@ func TestLaunchPublicCopyDoesNotAdvertiseRetiredModelOrKeyFeatures(t *testing.T)
 				strings.Join([]string{"A", "I", " usage"}, ""),
 				strings.Join([]string{"A", "I", " cost"}, ""),
 			} {
-				if strings.Contains(body, phrase) {
-					t.Fatalf("%s advertises retired model/key launch feature with phrase %q", path, phrase)
-				}
+				require.NotContains(t,
+					body, phrase)
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for retired model/key copy: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -545,9 +534,8 @@ func TestLaunchBillingEmailsDoNotAdvertiseSelfServeTrials(t *testing.T) {
 	t.Parallel()
 
 	bodyBytes, err := os.ReadFile("billing_emails.go")
-	if err != nil {
-		t.Fatalf("read billing email copy: %v", err)
-	}
+	require.NoError(t, err)
+
 	body := string(bodyBytes)
 	for _, phrase := range []string{
 		"Your trial",
@@ -555,9 +543,8 @@ func TestLaunchBillingEmailsDoNotAdvertiseSelfServeTrials(t *testing.T) {
 		"after your trial",
 		"Trial ending soon",
 	} {
-		if strings.Contains(body, phrase) {
-			t.Fatalf("billing email copy advertises self-serve trials with phrase %q", phrase)
-		}
+		require.NotContains(t,
+			body, phrase)
 	}
 }
 
@@ -583,13 +570,11 @@ func TestLaunchPricingDoesNotRequireRetiredModelTelemetryInCoreInterfaces(t *tes
 	}
 	for _, path := range []string{"../api/server.go", "../store/store.go"} {
 		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		for _, token := range forbidden {
-			if strings.Contains(string(body), token) {
-				t.Fatalf("%s requires retired model telemetry token %q; launch API/store contracts must stay orchestration-only", path, token)
-			}
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -607,13 +592,11 @@ func TestLaunchPricingDoesNotExportRetiredModelUsageToClickHouse(t *testing.T) {
 	}
 	for _, path := range []string{"../../cmd/strait/services.go", "../worker/subscriber_clickhouse.go"} {
 		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		for _, token := range forbidden {
-			if strings.Contains(string(body), token) {
-				t.Fatalf("%s wires retired model usage export token %q; launch ClickHouse subscriber must stay orchestration-only", path, token)
-			}
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -622,18 +605,16 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForBillingUsage(t *testing.T) 
 	t.Parallel()
 
 	body, err := os.ReadFile("../billing/pg_store.go")
-	if err != nil {
-		t.Fatalf("read billing pg store: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, token := range []string{
 		"FROM run_usage",
 		"JOIN run_usage",
 		"ru.total_tokens",
 		"ru.cost_microusd",
 	} {
-		if strings.Contains(string(body), token) {
-			t.Fatalf("billing usage reads retired model usage token %q; launch billing usage must use orchestration-run records only", token)
-		}
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -641,9 +622,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresCostAnalytics(t *te
 	t.Parallel()
 
 	body, err := os.ReadFile("../store/cost_analytics.go")
-	if err != nil {
-		t.Fatalf("read store cost analytics: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, token := range []string{
 		"run_usage",
 		"u.cost_microusd",
@@ -655,9 +635,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresCostAnalytics(t *te
 		"ByModel",
 		"TotalTokens",
 	} {
-		if strings.Contains(string(body), token) {
-			t.Fatalf("Postgres cost analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
-		}
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -665,9 +644,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresPerformanceAnalytic
 	t.Parallel()
 
 	body, err := os.ReadFile("../store/analytics.go")
-	if err != nil {
-		t.Fatalf("read store analytics: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, token := range []string{
 		"run_usage",
 		"u.cost_microusd",
@@ -675,9 +653,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForPostgresPerformanceAnalytic
 		"SUM(ru.cost_microusd)",
 		"SUM(u.cost_microusd)",
 	} {
-		if strings.Contains(string(body), token) {
-			t.Fatalf("Postgres performance analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
-		}
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -685,28 +662,24 @@ func TestLaunchPricingCostBudgetSumsDoNotReadRetiredModelUsage(t *testing.T) {
 	t.Parallel()
 
 	bodyBytes, err := os.ReadFile("../store/runs.go")
-	if err != nil {
-		t.Fatalf("read store runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	body := string(bodyBytes)
 	for _, fn := range []string{"SumRunCostMicrousd", "SumProjectDailyCostMicrousd"} {
 		start := strings.Index(body, "func (q *Queries) "+fn)
-		if start < 0 {
-			t.Fatalf("store runs missing %s", fn)
-		}
+		require.GreaterOrEqual(t, start, 0)
+
 		next := strings.Index(body[start+1:], "\nfunc ")
-		if next < 0 {
-			t.Fatalf("store runs missing function boundary after %s", fn)
-		}
+		require.GreaterOrEqual(t, next, 0)
+
 		fnBody := body[start : start+1+next]
 		for _, token := range []string{"run_usage", "cost_microusd) FROM run_usage", "u.cost_microusd"} {
-			if strings.Contains(fnBody, token) {
-				t.Fatalf("%s reads retired model usage token %q; launch cost budgets must use billing cost events", fn, token)
-			}
+			require.NotContains(t,
+				fnBody, token,
+			)
 		}
-		if !strings.Contains(fnBody, "billing_cost_events") {
-			t.Fatalf("%s must read billing_cost_events for launch cost budgets", fn)
-		}
+		require.Contains(t,
+			fnBody, "billing_cost_events")
 	}
 }
 
@@ -715,9 +688,8 @@ func TestLaunchPricingDoesNotDefineLegacyRunTelemetryCode(t *testing.T) {
 
 	for _, path := range []string{"../store/runs.go", "../domain/types.go"} {
 		bodyBytes, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		body := string(bodyBytes)
 		for _, token := range []string{
 			"RunUsage",
@@ -735,9 +707,8 @@ func TestLaunchPricingDoesNotDefineLegacyRunTelemetryCode(t *testing.T) {
 			"completion_tokens",
 			"total_tokens",
 		} {
-			if strings.Contains(body, token) {
-				t.Fatalf("%s defines retired model telemetry token %q; launch code must not expose retired model telemetry", path, token)
-			}
+			require.NotContains(t,
+				body, token)
 		}
 	}
 }
@@ -746,9 +717,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForClickHouseAnalytics(t *test
 	t.Parallel()
 
 	body, err := os.ReadFile("../clickhouse/analytics.go")
-	if err != nil {
-		t.Fatalf("read ClickHouse analytics: %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, token := range []string{
 		"run_usage_events",
 		"prompt_tokens",
@@ -763,9 +733,8 @@ func TestLaunchPricingDoesNotReadRetiredModelUsageForClickHouseAnalytics(t *test
 		"ByModel",
 		"TotalTokens",
 	} {
-		if strings.Contains(string(body), token) {
-			t.Fatalf("ClickHouse analytics reads retired model usage token %q; launch analytics must use orchestration-run records only", token)
-		}
+		require.NotContains(t,
+			string(body), token)
 	}
 }
 
@@ -774,9 +743,8 @@ func TestLaunchPricingDoesNotDefineRetiredModelUsageClickHouseExport(t *testing.
 
 	for _, path := range []string{"../clickhouse/exporter.go", "../clickhouse/schema.go"} {
 		body, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
+		require.NoError(t, err)
+
 		for _, token := range []string{
 			"RunUsageEventRecord",
 			"run_usage_events",
@@ -785,9 +753,8 @@ func TestLaunchPricingDoesNotDefineRetiredModelUsageClickHouseExport(t *testing.
 			"total_tokens",
 			"insertRunUsageEvents",
 		} {
-			if strings.Contains(string(body), token) {
-				t.Fatalf("%s defines retired model usage export token %q; launch ClickHouse export must stay orchestration-only", path, token)
-			}
+			require.NotContains(t,
+				string(body), token)
 		}
 	}
 }
@@ -839,13 +806,13 @@ func TestLaunchSourceDoesNotExposeRetiredModelOrKeyMarketingTerms(t *testing.T) 
 				return readErr
 			}
 			if match := forbidden.Find(body); len(match) > 0 {
-				t.Fatalf("%s exposes retired model/key marketing token %q", path, string(match))
+				require.Failf(t, "test failure",
+
+					"%s exposes retired model/key marketing token %q", path, string(match))
 			}
 			return nil
 		})
-		if err != nil {
-			t.Fatalf("scan %s for retired model/key launch surfaces: %v", root, err)
-		}
+		require.NoError(t, err)
 	}
 }
 
@@ -870,8 +837,7 @@ func collectRepoTestNames(t *testing.T) map[string]bool {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("collect repo test names: %v", err)
-	}
+	require.NoError(t, err)
+
 	return names
 }

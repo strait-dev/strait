@@ -11,6 +11,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -32,22 +34,29 @@ func TestProjectBudgetIntegration_BlockAtCapRejects(t *testing.T) {
 	t.Cleanup(func() { rdb.Close() })
 
 	orgID := "org-pb-block-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.
+				PlanPro),
+
+			"active"))
 
 	p := createProject(t, ctx, q, orgID, "PB-Block")
-	if err := pgStore.SetProjectOrgID(ctx, p.ID, orgID); err != nil {
-		t.Fatalf("set project org: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectOrgID(ctx,
+			p.ID, orgID,
+		))
 
-	const budget = int64(2_500_000) // $2.50
-	if err := pgStore.SetProjectBudget(ctx, p.ID, budget, "block"); err != nil {
-		t.Fatalf("set project budget: %v", err)
-	}
+	const budget = int64(2_500_000)
+	require.NoError(t, pgStore.
+		SetProjectBudget(ctx,
+			p.ID, budget,
+			"block",
+		))
+
+	// $2.50
 
 	// Two days of $1.25 lands the SUM at the cap, and the period
 	// window catches both rows (today and yesterday).
@@ -61,27 +70,28 @@ func TestProjectBudgetIntegration_BlockAtCapRejects(t *testing.T) {
 			RunsCount:        1,
 			ComputeCostMicro: budget / 2,
 		}
-		if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
-			t.Fatalf("seed usage_records: %v", err)
-		}
+		require.NoError(t, pgStore.
+			UpsertUsageRecord(ctx,
+				rec))
+
 	}
 
 	enforcer := billing.NewEnforcer(pgStore, rdb, slog.Default())
 
 	err := enforcer.CheckProjectBudgetLimit(ctx, p.ID)
-	if err == nil {
-		t.Fatalf("expected project budget rejection at cap, got nil")
-	}
+	require.Error(t, err)
+
 	var lim *billing.LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *billing.LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "project_budget_reached" {
-		t.Errorf("LimitError.Code = %q, want project_budget_reached", lim.Code)
-	}
-	if lim.Limit != budget {
-		t.Errorf("LimitError.Limit = %d, want %d", lim.Limit, budget)
-	}
+	require.True(t, errors.As(
+		err, &lim,
+	))
+	assert.Equal(t, "project_budget_reached",
+
+		lim.
+			Code)
+	assert.Equal(t, budget, lim.
+		Limit)
+
 }
 
 // TestProjectBudgetIntegration_NotifyAtCapAllows is the negative half:
@@ -98,22 +108,27 @@ func TestProjectBudgetIntegration_NotifyAtCapAllows(t *testing.T) {
 	t.Cleanup(func() { rdb.Close() })
 
 	orgID := "org-pb-notify-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.
+				PlanPro),
+
+			"active"))
 
 	p := createProject(t, ctx, q, orgID, "PB-Notify")
-	if err := pgStore.SetProjectOrgID(ctx, p.ID, orgID); err != nil {
-		t.Fatalf("set project org: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectOrgID(ctx,
+			p.ID, orgID,
+		))
 
 	const budget = int64(2_500_000)
-	if err := pgStore.SetProjectBudget(ctx, p.ID, budget, "notify"); err != nil {
-		t.Fatalf("set project budget: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectBudget(ctx,
+			p.ID, budget,
+			"notify",
+		))
 
 	rec := &billing.UsageRecord{
 		ID:               newID(),
@@ -123,14 +138,15 @@ func TestProjectBudgetIntegration_NotifyAtCapAllows(t *testing.T) {
 		RunsCount:        2,
 		ComputeCostMicro: budget,
 	}
-	if err := pgStore.UpsertUsageRecord(ctx, rec); err != nil {
-		t.Fatalf("seed usage_records: %v", err)
-	}
+	require.NoError(t, pgStore.
+		UpsertUsageRecord(ctx,
+			rec))
 
 	enforcer := billing.NewEnforcer(pgStore, rdb, slog.Default())
-	if err := enforcer.CheckProjectBudgetLimit(ctx, p.ID); err != nil {
-		t.Errorf("notify-at-cap must allow dispatch, got %v", err)
-	}
+	assert.NoError(t, enforcer.
+		CheckProjectBudgetLimit(ctx,
+			p.ID))
+
 }
 
 // TestProjectBudgetIntegration_NoQuotaRowAllows confirms that a
@@ -146,20 +162,24 @@ func TestProjectBudgetIntegration_NoQuotaRowAllows(t *testing.T) {
 	t.Cleanup(func() { rdb.Close() })
 
 	orgID := "org-pb-noquota-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.
+				PlanPro),
+
+			"active"))
 
 	p := createProject(t, ctx, q, orgID, "PB-NoQuota")
-	if err := pgStore.SetProjectOrgID(ctx, p.ID, orgID); err != nil {
-		t.Fatalf("set project org: %v", err)
-	}
+	require.NoError(t, pgStore.
+		SetProjectOrgID(ctx,
+			p.ID, orgID,
+		))
 
 	enforcer := billing.NewEnforcer(pgStore, rdb, slog.Default())
-	if err := enforcer.CheckProjectBudgetLimit(ctx, p.ID); err != nil {
-		t.Errorf("no quota row must fall through; got %v", err)
-	}
+	assert.NoError(t, enforcer.
+		CheckProjectBudgetLimit(ctx,
+			p.ID))
+
 }

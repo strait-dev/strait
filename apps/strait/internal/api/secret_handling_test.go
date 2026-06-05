@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // capturingHandler is a slog.Handler that captures all log records for inspection.
@@ -92,9 +94,10 @@ func TestSecrets_APIKeyHashNeverInLog(t *testing.T) {
 	body := `{"project_id":"proj-1","name":"test-key","scopes":["jobs:read"],"expires_in_days":30}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys", body))
-	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
-		t.Fatalf("create api key: unexpected status %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusCreated &&
+		w.Code !=
+			http.StatusOK)
 
 	// Revoke the key to exercise another logging path.
 	w2 := httptest.NewRecorder()
@@ -102,9 +105,7 @@ func TestSecrets_APIKeyHashNeverInLog(t *testing.T) {
 	// Status may be 200 or 204; we just want logs.
 
 	logText := handler.allLogText()
-	if strings.Contains(logText, keyHash) {
-		t.Fatalf("full key hash %q found in log output:\n%s", keyHash, logText)
-	}
+	require.NotContains(t, logText, keyHash)
 }
 
 // TestSecrets_JWTKeyNotInErrors verifies that sending an invalid JWT to runTokenAuth
@@ -124,9 +125,7 @@ func TestSecrets_JWTKeyNotInErrors(t *testing.T) {
 	srv.ServeHTTP(w, req)
 
 	respBody := w.Body.String()
-	if strings.Contains(respBody, signingKey) {
-		t.Fatalf("JWT signing key %q leaked in error response:\n%s", signingKey, respBody)
-	}
+	require.NotContains(t, respBody, signingKey)
 }
 
 // TestSecrets_WebhookSecretIsServerGenerated verifies that creating a webhook
@@ -149,26 +148,22 @@ func TestSecrets_WebhookSecretIsServerGenerated(t *testing.T) {
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"],"secret":"` + clientSuppliedSecret + `"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
-
-	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
-		t.Fatalf("create webhook subscription: unexpected status %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusCreated &&
+		w.Code !=
+			http.StatusOK)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 
 	got, ok := resp["signing_secret"].(string)
-	if !ok || got == "" {
-		t.Fatalf("response missing server-generated signing_secret: %s", w.Body.String())
-	}
-	if got == clientSuppliedSecret {
-		t.Fatalf("server echoed client-supplied secret %q instead of generating one", clientSuppliedSecret)
-	}
-	if len(got) != len("whsec_")+64 || got[:6] != "whsec_" {
-		t.Fatalf("signing_secret %q does not match whsec_ + 64 hex char shape", got)
-	}
+	require.False(t, !ok || got ==
+		"")
+	require.NotEqual(t, clientSuppliedSecret,
+
+		got)
+	require.False(t, len(got) != len("whsec_")+
+		64 || got[:6] != "whsec_")
 }
 
 // TestSecrets_APIKeyPrefixOnlyInLog verifies that log entries contain at most the
@@ -183,9 +178,7 @@ func TestSecrets_APIKeyPrefixOnlyInLog(t *testing.T) {
 
 	// Generate a real key to test with.
 	rawKey, err := generateAPIKey()
-	if err != nil {
-		t.Fatalf("generateAPIKey() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// The prefix is the first 12 chars (e.g. "strait_aabb").
 	prefix := rawKey[:12]
@@ -216,16 +209,12 @@ func TestSecrets_APIKeyPrefixOnlyInLog(t *testing.T) {
 	srv.ServeHTTP(w2, authedRequest(http.MethodDelete, "/v1/api-keys/key-002", ""))
 
 	logText := handler.allLogText()
+	require.NotContains(t, logText, rawKey)
+	require.NotContains(t, logText, remainder)
 
 	// The full raw key must never appear.
-	if strings.Contains(logText, rawKey) {
-		t.Fatalf("full raw API key found in log output")
-	}
 
 	// The remainder after the prefix must not appear (ensures only prefix is logged, if anything).
-	if strings.Contains(logText, remainder) {
-		t.Fatalf("API key material beyond prefix found in log output")
-	}
 
 	// Prefix may or may not appear in logs; that is acceptable.
 	_ = prefix
@@ -247,17 +236,11 @@ func TestSecrets_PasswordFieldsNotSerialized(t *testing.T) {
 	}
 
 	data, err := json.Marshal(apiKey)
-	if err != nil {
-		t.Fatalf("json.Marshal(APIKey) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	jsonStr := string(data)
-	if strings.Contains(jsonStr, "key_hash") {
-		t.Fatalf("APIKey JSON contains key_hash field: %s", jsonStr)
-	}
-	if strings.Contains(jsonStr, apiKey.KeyHash) {
-		t.Fatalf("APIKey JSON contains raw hash value: %s", jsonStr)
-	}
+	require.NotContains(t, jsonStr, "key_hash")
+	require.NotContains(t, jsonStr, apiKey.KeyHash)
 
 	// domain.JobSecret has EncryptedValue tagged json:"-".
 	secret := domain.JobSecret{
@@ -269,15 +252,9 @@ func TestSecrets_PasswordFieldsNotSerialized(t *testing.T) {
 	}
 
 	data2, err := json.Marshal(secret)
-	if err != nil {
-		t.Fatalf("json.Marshal(JobSecret) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	jsonStr2 := string(data2)
-	if strings.Contains(jsonStr2, "encrypted_value") {
-		t.Fatalf("JobSecret JSON contains encrypted_value field: %s", jsonStr2)
-	}
-	if strings.Contains(jsonStr2, secret.EncryptedValue) {
-		t.Fatalf("JobSecret JSON contains raw encrypted value: %s", jsonStr2)
-	}
+	require.NotContains(t, jsonStr2, "encrypted_value")
+	require.NotContains(t, jsonStr2, secret.EncryptedValue)
 }

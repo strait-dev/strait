@@ -12,6 +12,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // snapshotMatchesCompute is the central equality check for entitlements: at
@@ -28,24 +31,21 @@ func snapshotMatchesCompute(
 ) (matches bool, got, want billing.OrgPlanLimits) {
 	t.Helper()
 	sub, err := pgStore.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		t.Fatalf("GetOrgSubscription: %v", err)
-	}
+	require.NoError(t, err)
+
 	addons, err := pgStore.ListActiveAddons(ctx, orgID)
-	if err != nil {
-		t.Fatalf("ListActiveAddons: %v", err)
-	}
+	require.NoError(t, err)
+
 	want = billing.ComputeEntitlements(sub, addons)
 
 	var raw []byte
-	if err := testDB.Pool.QueryRow(ctx,
-		`SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
-		orgID).Scan(&raw); err != nil {
-		t.Fatalf("read column: %v", err)
-	}
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal column: %v (raw=%s)", err, string(raw))
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx, `SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
+
+		orgID).Scan(&raw))
+	require.NoError(t, json.Unmarshal(raw,
+		&got))
+
 	return reflect.DeepEqual(got, want), got, want
 }
 
@@ -56,11 +56,9 @@ func assertSnapshotMatches(
 	orgID, label string,
 ) {
 	t.Helper()
-	ok, got, want := snapshotMatchesCompute(t, ctx, pgStore, orgID)
-	if !ok {
-		t.Errorf("[%s] entitlements drift\n persisted: %+v\n computed:  %+v",
-			label, got, want)
-	}
+	ok, _, _ := snapshotMatchesCompute(t, ctx, pgStore, orgID)
+	assert.True(t, ok)
+
 }
 
 // TestEntitlementsConsistency_FixtureChain runs the canonical lifecycle
@@ -104,9 +102,8 @@ func TestEntitlementsConsistency_FixtureChain(t *testing.T) {
 	}
 
 	for _, s := range steps {
-		if err := s.do(); err != nil {
-			t.Fatalf("step %q: %v", s.name, err)
-		}
+		require.NoError(t, s.do())
+
 		assertSnapshotMatches(t, ctx, pgStore, orgID, s.name)
 	}
 }
@@ -121,9 +118,8 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-cons-walk-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
 
 	tiers := []domain.PlanTier{
 		domain.PlanFree, domain.PlanStarter, domain.PlanPro,
@@ -147,7 +143,9 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 			tier := tiers[r.IntN(len(tiers))]
 			label = "plan_change=" + string(tier)
 			if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(tier), "active"); err != nil {
-				t.Fatalf("step %d %s: %v", i, label, err)
+				require.Failf(t, "test failure",
+
+					"step %d %s: %v", i, label, err)
 			}
 		case choice < 6:
 			at := addonTypes[r.IntN(len(addonTypes))]
@@ -157,7 +155,9 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 				ID: id, OrgID: orgID, AddonType: at,
 				Quantity: 1 + r.IntN(3), Active: true,
 			}); err != nil {
-				t.Fatalf("step %d %s: %v", i, label, err)
+				require.Failf(t, "test failure",
+
+					"step %d %s: %v", i, label, err)
 			}
 			activeAddons[id] = struct{}{}
 		case choice < 8 && len(activeAddons) > 0:
@@ -169,19 +169,25 @@ func TestEntitlementsConsistency_RandomWalk(t *testing.T) {
 			delete(activeAddons, id)
 			label = "addon_deactivate"
 			if err := pgStore.DeactivateAddon(ctx, id); err != nil {
-				t.Fatalf("step %d %s: %v", i, label, err)
+				require.Failf(t, "test failure",
+
+					"step %d %s: %v", i, label, err)
 			}
 		case choice < 9:
 			label = "restrict"
 			grace := time.Now().Add(7 * 24 * time.Hour)
 			if err := billing.RestrictOrgTx(ctx, testDB.Pool, orgID, &grace); err != nil {
-				t.Fatalf("step %d %s: %v", i, label, err)
+				require.Failf(t, "test failure",
+
+					"step %d %s: %v", i, label, err)
 			}
 		default:
 			tier := tiers[1+r.IntN(len(tiers)-1)] // skip Free
 			label = "resume_to=" + string(tier)
 			if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(tier), "active"); err != nil {
-				t.Fatalf("step %d %s: %v", i, label, err)
+				require.Failf(t, "test failure",
+
+					"step %d %s: %v", i, label, err)
 			}
 		}
 		assertSnapshotMatches(t, ctx, pgStore, orgID, label)
@@ -199,16 +205,19 @@ func TestEntitlementsConsistency_GuardCatchesInjectedDrift(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-cons-drift-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("ensure: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx, orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx, orgID,
+			string(domain.
+				PlanPro), "active",
+		))
 
 	// Sanity: snapshot is consistent for Pro before the injection.
 	if ok, _, _ := snapshotMatchesCompute(t, ctx, pgStore, orgID); !ok {
-		t.Fatalf("baseline mismatch — fixture pollution invalidates the drift test")
+		require.Failf(t, "test failure",
+
+			"baseline mismatch — fixture pollution invalidates the drift test")
 	}
 
 	// Inject drift: hand-write Enterprise limits without going through any
@@ -216,13 +225,11 @@ func TestEntitlementsConsistency_GuardCatchesInjectedDrift(t *testing.T) {
 	// leaves the column in exactly this state.
 	enterprise := billing.GetPlanLimits(domain.PlanEnterprise)
 	raw, err := json.Marshal(enterprise)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t, err)
+
 	writeRawEntitlements(t, ctx, orgID, raw)
 
-	ok, got, want := snapshotMatchesCompute(t, ctx, pgStore, orgID)
-	if ok {
-		t.Errorf("consistency guard did NOT detect injected drift; check is broken\n got:  %+v\n want: %+v", got, want)
-	}
+	ok, _, _ := snapshotMatchesCompute(t, ctx, pgStore, orgID)
+	assert.False(t, ok)
+
 }

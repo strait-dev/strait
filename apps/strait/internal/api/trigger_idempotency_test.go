@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTriggerIdempotencyKeyPrefersPrimaryHeader(t *testing.T) {
@@ -17,24 +18,20 @@ func TestTriggerIdempotencyKeyPrefersPrimaryHeader(t *testing.T) {
 		XIdempotencyKey:   "primary-key",
 		IdempotencyKeyAlt: "standard-key",
 	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if key != "primary-key" {
-		t.Fatalf("expected primary header key, got %q", key)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "primary-key",
+		key,
+	)
 }
 
 func TestTriggerIdempotencyKeyFallsBackToStandardHeader(t *testing.T) {
 	t.Parallel()
 
 	key, err := triggerIdempotencyKey(&TriggerJobInput{IdempotencyKeyAlt: "standard-key"})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if key != "standard-key" {
-		t.Fatalf("expected standard header key, got %q", key)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "standard-key",
+		key,
+	)
 }
 
 func TestTriggerIdempotencyKeyRejectsTooLong(t *testing.T) {
@@ -43,12 +40,10 @@ func TestTriggerIdempotencyKeyRejectsTooLong(t *testing.T) {
 	_, err := triggerIdempotencyKey(&TriggerJobInput{
 		XIdempotencyKey: strings.Repeat("x", maxIdempotencyKeyLength+1),
 	})
-	if err == nil {
-		t.Fatal("expected error for too-long idempotency key")
-	}
-	if !strings.Contains(err.Error(), "idempotency key must be 256 characters or fewer") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "idempotency key must be 256 characters or fewer")
 }
 
 func TestTriggerIdempotencyHitReturnsExistingRun(t *testing.T) {
@@ -56,20 +51,18 @@ func TestTriggerIdempotencyHitReturnsExistingRun(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if jobID != "job-1" {
-				t.Fatalf("expected job ID job-1, got %q", jobID)
-			}
-			if key != "idem-key" {
-				t.Fatalf("expected idempotency key idem-key, got %q", key)
-			}
+			require.Equal(t, "job-1",
+				jobID)
+			require.Equal(t, "idem-key",
+				key)
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusQueued}, nil
 		},
 	}}
 
 	hit, err := srv.triggerIdempotencyHit(context.Background(), &domain.Job{ID: "job-1"}, "idem-key")
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.NoError(t, err)
+
 	assertIdempotencyResponse(t, hit, "run-existing", domain.StatusQueued)
 }
 
@@ -78,12 +71,11 @@ func TestResolveTriggerIdempotencyConflictReturnsWinningRun(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
-			if jobID != "job-1" {
-				t.Fatalf("expected job ID job-1, got %q", jobID)
-			}
-			if key != "idem-key" {
-				t.Fatalf("expected idempotency key idem-key, got %q", key)
-			}
+			require.Equal(t, "job-1",
+				jobID)
+			require.Equal(t, "idem-key",
+				key)
+
 			return &domain.JobRun{ID: "run-winner", Status: domain.StatusExecuting}, nil
 		},
 	}}
@@ -96,33 +88,27 @@ func TestResolveTriggerIdempotencyConflictReturnsWinningRun(t *testing.T) {
 	)
 
 	var statusErr *rawStatusError
-	if !errors.As(err, &statusErr) {
-		t.Fatalf("expected raw status error, got %T: %v", err, err)
-	}
+	require.ErrorAs(
+		t, err, &statusErr)
+
 	assertIdempotencyResponse(t, statusErr, "run-winner", domain.StatusExecuting)
 }
 
 func assertIdempotencyResponse(t *testing.T, err *rawStatusError, runID string, status domain.RunStatus) {
 	t.Helper()
+	require.Error(t, err)
+	require.Equal(t, http.StatusOK,
+		err.
+			status)
 
-	if err == nil {
-		t.Fatal("expected idempotency response, got nil")
-		return
-	}
-	if err.status != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", err.status)
-	}
 	body, ok := err.body.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map response body, got %T", err.body)
-	}
-	if body["id"] != runID {
-		t.Fatalf("expected run ID %q, got %v", runID, body["id"])
-	}
-	if body["status"] != status {
-		t.Fatalf("expected run status %q, got %v", status, body["status"])
-	}
-	if body["idempotency_hit"] != true {
-		t.Fatalf("expected idempotency hit response, got %v", body["idempotency_hit"])
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, runID,
+		body["id"])
+	require.Equal(t, status,
+		body["status"])
+	require.Equal(t, true,
+		body["idempotency_hit"],
+	)
 }

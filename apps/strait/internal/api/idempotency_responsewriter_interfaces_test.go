@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCaptureWriterImplementsFlusher verifies the type assertion that
@@ -19,9 +21,8 @@ func TestCaptureWriterImplementsFlusher(t *testing.T) {
 	cw := &captureWriter{ResponseWriter: rec}
 
 	f, ok := any(cw).(http.Flusher)
-	if !ok {
-		t.Fatal("captureWriter does not implement http.Flusher")
-	}
+	require.True(t, ok)
+
 	// Must not panic when the underlying writer is a Flusher.
 	f.Flush()
 }
@@ -43,7 +44,9 @@ func TestCaptureWriterImplementsHijacker(t *testing.T) {
 
 	cw := &captureWriter{ResponseWriter: &nonFlushingWriter{}}
 	if _, ok := any(cw).(http.Hijacker); !ok {
-		t.Fatal("captureWriter does not implement http.Hijacker")
+		require.Fail(t,
+
+			"captureWriter does not implement http.Hijacker")
 	}
 }
 
@@ -56,15 +59,16 @@ func TestCaptureWriterHijackForwardsToUnderlying(t *testing.T) {
 	cw := &captureWriter{ResponseWriter: mock}
 
 	hj, ok := any(cw).(http.Hijacker)
-	if !ok {
-		t.Fatal("captureWriter does not implement http.Hijacker")
-	}
+	require.True(t, ok)
+
 	if _, _, err := hj.Hijack(); err != nil {
-		t.Fatalf("Hijack returned error: %v", err)
+		require.Failf(t, "test failure",
+
+			"Hijack returned error: %v", err)
 	}
-	if !mock.hijacked {
-		t.Fatal("expected underlying Hijack to have been invoked")
-	}
+	require.True(t, mock.
+		hijacked,
+	)
 }
 
 // TestCaptureWriterHijackReportsUnsupported pins the error sentinel:
@@ -77,13 +81,10 @@ func TestCaptureWriterHijackReportsUnsupported(t *testing.T) {
 
 	cw := &captureWriter{ResponseWriter: &nonFlushingWriter{}}
 	hj, ok := any(cw).(http.Hijacker)
-	if !ok {
-		t.Fatal("captureWriter does not implement http.Hijacker")
-	}
+	require.True(t, ok)
+
 	_, _, err := hj.Hijack()
-	if !errors.Is(err, http.ErrNotSupported) {
-		t.Fatalf("Hijack() = %v, want http.ErrNotSupported", err)
-	}
+	require.ErrorIs(t, err, http.ErrNotSupported)
 }
 
 // TestCaptureWriterImplementsPusher pins the type assertion for
@@ -93,7 +94,9 @@ func TestCaptureWriterImplementsPusher(t *testing.T) {
 
 	cw := &captureWriter{ResponseWriter: &nonFlushingWriter{}}
 	if _, ok := any(cw).(http.Pusher); !ok {
-		t.Fatal("captureWriter does not implement http.Pusher")
+		require.Fail(t,
+
+			"captureWriter does not implement http.Pusher")
 	}
 }
 
@@ -105,7 +108,9 @@ func TestCaptureWriterPushReportsUnsupported(t *testing.T) {
 	cw := &captureWriter{ResponseWriter: &nonFlushingWriter{}}
 	p, _ := any(cw).(http.Pusher)
 	if err := p.Push("/foo", nil); !errors.Is(err, http.ErrNotSupported) {
-		t.Fatalf("Push() = %v, want http.ErrNotSupported", err)
+		require.Failf(t, "test failure",
+
+			"Push() = %v, want http.ErrNotSupported", err)
 	}
 }
 
@@ -118,20 +123,19 @@ func TestCaptureWriterFlushDoesNotCorruptCapturedBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	cw := &captureWriter{ResponseWriter: rec}
 
-	if _, err := cw.Write([]byte("hello ")); err != nil {
-		t.Fatal(err)
-	}
+	_, err := cw.Write([]byte("hello "))
+	require.NoError(t, err)
 	cw.Flush()
-	if _, err := cw.Write([]byte("world")); err != nil {
-		t.Fatal(err)
-	}
+	_, err = cw.Write([]byte("world"))
+	require.NoError(t, err)
+	require.Equal(t, "hello world",
 
-	if got := cw.body.String(); got != "hello world" {
-		t.Fatalf("captured body = %q, want %q", got, "hello world")
-	}
-	if got := rec.Body.String(); got != "hello world" {
-		t.Fatalf("client body = %q, want %q", got, "hello world")
-	}
+		cw.body.
+			String())
+	require.Equal(t, "hello world",
+
+		rec.Body.
+			String())
 }
 
 // nonFlushingWriter is a minimal ResponseWriter that does not implement

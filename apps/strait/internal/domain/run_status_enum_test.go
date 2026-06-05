@@ -1,8 +1,10 @@
 package domain
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunStatus_IsValid(t *testing.T) {
@@ -12,40 +14,38 @@ func TestRunStatus_IsValid(t *testing.T) {
 		StatusCanceled, StatusExpired, StatusDeadLetter, StatusReplayStaged, StatusPaused,
 	}
 	for _, s := range valid {
-		if !s.IsValid() {
-			t.Errorf("%q should be valid", s)
-		}
+		assert.True(t,
+			s.IsValid(),
+		)
 	}
 	invalid := []RunStatus{"", "pending", "dlq_overflow", "DEAD_LETTER", "Queued"}
 	for _, s := range invalid {
-		if s.IsValid() {
-			t.Errorf("%q should be invalid", s)
-		}
+		assert.False(t,
+			s.IsValid())
 	}
 }
 
 func TestRunStatus_IsActive(t *testing.T) {
 	active := []RunStatus{StatusDequeued, StatusExecuting}
 	for _, s := range active {
-		if !s.IsActive() {
-			t.Errorf("%q should be active", s)
-		}
+		assert.True(t,
+			s.IsActive())
 	}
 	inactive := []RunStatus{StatusQueued, StatusCompleted, StatusDeadLetter, StatusDelayed}
 	for _, s := range inactive {
-		if s.IsActive() {
-			t.Errorf("%q should not be active", s)
-		}
+		assert.False(t,
+			s.IsActive(),
+		)
 	}
 }
 
 func TestRunStatus_IsClaimable(t *testing.T) {
-	if !StatusQueued.IsClaimable() {
-		t.Error("queued should be claimable")
-	}
-	if StatusDequeued.IsClaimable() {
-		t.Error("dequeued should not be claimable")
-	}
+	assert.True(t,
+		StatusQueued.
+			IsClaimable())
+	assert.False(t,
+		StatusDequeued.
+			IsClaimable())
 }
 
 func TestRunStatus_IsTerminal(t *testing.T) {
@@ -70,19 +70,17 @@ func TestRunStatus_IsTerminal(t *testing.T) {
 		StatusPaused:     false,
 	}
 	for s, want := range cases {
-		if got := s.IsTerminal(); got != want {
-			t.Errorf("%q IsTerminal = %v, want %v", s, got, want)
-		}
+		assert.Equal(t, want, s.IsTerminal())
 	}
 }
 
 func TestRunStatus_IsDeadLetter(t *testing.T) {
-	if !StatusDeadLetter.IsDeadLetter() {
-		t.Error("dead_letter should be dead letter")
-	}
-	if StatusFailed.IsDeadLetter() {
-		t.Error("failed is not dead_letter")
-	}
+	assert.True(t,
+		StatusDeadLetter.
+			IsDeadLetter())
+	assert.False(t,
+		StatusFailed.
+			IsDeadLetter())
 }
 
 func TestRunStatus_IsFailure(t *testing.T) {
@@ -90,15 +88,15 @@ func TestRunStatus_IsFailure(t *testing.T) {
 		StatusFailed, StatusTimedOut, StatusCrashed, StatusSystemFailed, StatusDeadLetter,
 	}
 	for _, s := range failures {
-		if !s.IsFailure() {
-			t.Errorf("%q should be failure", s)
-		}
+		assert.True(t,
+			s.IsFailure(),
+		)
 	}
 	nonFailures := []RunStatus{StatusCompleted, StatusCanceled, StatusExpired, StatusQueued}
 	for _, s := range nonFailures {
-		if s.IsFailure() {
-			t.Errorf("%q should not be failure", s)
-		}
+		assert.False(t,
+			s.IsFailure(),
+		)
 	}
 }
 
@@ -121,47 +119,46 @@ func TestRunStatus_Scan(t *testing.T) {
 			var s RunStatus
 			err := s.Scan(c.src)
 			if c.wantErr {
-				if err == nil {
-					t.Errorf("want error, got %q", s)
-				}
+				assert.Error(t,
+					err)
+
 				return
 			}
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-			if s != c.want {
-				t.Errorf("got %q, want %q", s, c.want)
-			}
+			require.NoError(
+				t, err)
+			assert.Equal(t,
+				c.want, s)
 		})
 	}
 }
 
 func TestRunStatus_Value(t *testing.T) {
 	v, err := StatusQueued.Value()
-	if err != nil {
-		t.Fatalf("value: %v", err)
-	}
-	if v != "queued" {
-		t.Errorf("value = %v, want queued", v)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		"queued",
+		v)
+
 	emptyV, err := RunStatus("").Value()
-	if err != nil || emptyV != nil {
-		t.Errorf("empty status should be nil, got %v %v", emptyV, err)
-	}
-	if _, err := RunStatus("garbage").Value(); err == nil {
-		t.Error("garbage should error")
-	}
+	assert.False(t,
+		err != nil ||
+
+			emptyV != nil)
+
+	_, err = RunStatus("garbage").Value()
+	assert.Error(t, err)
 }
 
 func TestParseRunStatus(t *testing.T) {
 	got, err := ParseRunStatus("queued")
-	if err != nil || got != StatusQueued {
-		t.Errorf("got %q %v", got, err)
-	}
+	assert.False(t,
+		err != nil ||
+
+			got != StatusQueued)
+
 	_, err = ParseRunStatus("dlq_overflow")
-	if !errors.Is(err, ErrUnknownRunStatus) {
-		t.Errorf("want ErrUnknownRunStatus, got %v", err)
-	}
+	assert.ErrorIs(t,
+		err, ErrUnknownRunStatus)
 }
 
 // FuzzRunStatusScan must not panic on any input and must either accept the
@@ -174,12 +171,13 @@ func FuzzRunStatusScan(f *testing.F) {
 		var s RunStatus
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Scan panicked on %q: %v", raw, r)
+				require.Failf(t, "Scan panicked", "raw=%q panic=%v", raw, r)
 			}
 		}()
 		err := s.Scan(raw)
-		if err == nil && raw != "" && !s.IsValid() {
-			t.Errorf("Scan accepted invalid %q → %q", raw, s)
-		}
+		assert.False(t,
+			err == nil &&
+
+				raw != "" && !s.IsValid())
 	})
 }

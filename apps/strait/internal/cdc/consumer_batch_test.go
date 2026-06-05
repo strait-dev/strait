@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // collectableHandlerFunc implements CollectableHandler for testing.
@@ -100,31 +103,25 @@ func TestConsumerPoll_BatchCollection_AcksAfterPublish(t *testing.T) {
 			}, nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	pub.mu.Lock()
-	if pub.batchCalls != 1 {
-		t.Errorf("batch calls = %d, want 1", pub.batchCalls)
-	}
-	if pub.totalMsgs != 2 {
-		t.Errorf("total messages = %d, want 2", pub.totalMsgs)
-	}
+	assert.Equal(t, 1, pub.batchCalls)
+	assert.Equal(t, 2, pub.totalMsgs)
+
 	pub.mu.Unlock()
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 2 {
-		t.Errorf("ack IDs = %v, want 2 items", ackIDs)
-	}
-	if !slices.Contains(ackIDs, "a1") || !slices.Contains(ackIDs, "a2") {
-		t.Errorf("ack IDs should contain a1 and a2, got %v", ackIDs)
-	}
-	if len(nackIDs) != 0 {
-		t.Errorf("nack IDs should be empty, got %v", nackIDs)
-	}
+	assert.Len(t,
+		ackIDs, 2)
+	assert.False(
+		t, !slices.Contains(ackIDs,
+			"a1") || !slices.
+			Contains(ackIDs, "a2"))
+	assert.Empty(t,
+		nackIDs)
 }
 
 func TestConsumerPoll_BatchPublishFailure_AcksProjectionOnlyMessage(t *testing.T) {
@@ -163,21 +160,20 @@ func TestConsumerPoll_BatchPublishFailure_AcksProjectionOnlyMessage(t *testing.T
 			return &pubsub.PubSubMessage{Channel: "ch", Data: msg.Record}, nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
+	assert.False(
+		t, len(ackIDs) !=
+			1 || ackIDs[0] != "a1",
+	)
+	assert.Empty(t,
+		nackIDs)
+
 	// Projection publish is best-effort. Without a durable additional handler
 	// failure, the message is ACKed to avoid redelivery amplification.
-	if len(ackIDs) != 1 || ackIDs[0] != "a1" {
-		t.Errorf("ack IDs should contain a1 on publish failure, got %v", ackIDs)
-	}
-	if len(nackIDs) != 0 {
-		t.Errorf("nack IDs should be empty on projection publish failure, got %v", nackIDs)
-	}
 }
 
 func TestConsumerPoll_BatchPublishFailure_NacksAdditionalHandlerFailure(t *testing.T) {
@@ -222,19 +218,17 @@ func TestConsumerPoll_BatchPublishFailure_NacksAdditionalHandlerFailure(t *testi
 			return errors.New("durable side effect failed")
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 0 {
-		t.Errorf("ack IDs should be empty on durable handler failure, got %v", ackIDs)
-	}
-	if len(nackIDs) != 1 || nackIDs[0] != "a1" {
-		t.Errorf("nack IDs should contain a1 on durable handler failure, got %v", nackIDs)
-	}
+	assert.Empty(t,
+		ackIDs)
+	assert.False(
+		t, len(nackIDs) !=
+			1 || nackIDs[0] != "a1",
+	)
 }
 
 func TestConsumerPoll_CollectError_NacksMessage(t *testing.T) {
@@ -324,7 +318,7 @@ func TestConsumerPoll_MixedHandlers_BatchAndInline(t *testing.T) {
 			mu.Unlock()
 		case "/api/http_pull_consumers/mix/nack":
 			// Should not be called.
-			t.Error("nack should not be called")
+			assert.Fail(t, "nack should not be called")
 		}
 	}))
 	defer ts.Close()
@@ -351,42 +345,32 @@ func TestConsumerPoll_MixedHandlers_BatchAndInline(t *testing.T) {
 			return nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	pub.mu.Lock()
-	if pub.batchCalls != 1 {
-		t.Errorf("batch calls = %d, want 1 (for job_runs)", pub.batchCalls)
-	}
-	if pub.totalMsgs != 1 {
-		t.Errorf("batch messages = %d, want 1", pub.totalMsgs)
-	}
+	assert.Equal(t, 1, pub.batchCalls)
+	assert.Equal(t, 1, pub.totalMsgs)
+
 	pub.mu.Unlock()
 
 	mu.Lock()
 	defer mu.Unlock()
-	if inlineHandled != 1 {
-		t.Errorf("inline handled = %d, want 1 (for workflows)", inlineHandled)
-	}
-	if len(ackIDs) != 2 {
-		t.Errorf("ack IDs = %v, want 2 (both batch and inline)", ackIDs)
-	}
+	assert.Equal(t, 1, inlineHandled)
+	assert.Len(t,
+		ackIDs, 2)
 }
 
 func TestConsumerSetPublisher(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://example.com", "c", ""), ConsumerConfig{ConsumerName: "c"}, slog.Default())
-	if consumer.publisher != nil {
-		t.Fatal("publisher should be nil initially")
-	}
+	require.Nil(t, consumer.
+		publisher,
+	)
 
 	pub := &trackingPublisher{}
 	consumer.SetPublisher(pub)
-	if consumer.publisher == nil {
-		t.Fatal("publisher should be set after SetPublisher")
-	}
+	require.NotNil(t, consumer.publisher)
 }
 
 // decodeAckIDs is defined in consumer_test.go.

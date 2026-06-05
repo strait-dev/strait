@@ -14,6 +14,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Mock stores for reaper optional-interface tests.
@@ -173,10 +175,8 @@ func TestIntegration_MonitorQueueDepth_WithItems(t *testing.T) {
 
 	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
 	r.ReapOnce(ctx)
+	require.True(t, called.Load())
 
-	if !called.Load() {
-		t.Fatal("expected ListQueueDepthByJob to be called")
-	}
 }
 
 func TestIntegration_MonitorQueueDepth_Empty(t *testing.T) {
@@ -234,10 +234,8 @@ func TestIntegration_MonitorDLQDepth_WithFailedRuns(t *testing.T) {
 
 	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
 	r.ReapOnce(ctx)
+	require.True(t, called.Load())
 
-	if !called.Load() {
-		t.Fatal("expected ListDLQDepthByJob to be called")
-	}
 }
 
 func TestIntegration_MonitorDLQDepth_Empty(t *testing.T) {
@@ -292,9 +290,11 @@ func TestIntegration_ReapOrphanedStepRuns_CompletedParent(t *testing.T) {
 	var completedCalls atomic.Int32
 	wfCallback := &intMockWorkflowCallback{
 		onStepCompletedFn: func(_ context.Context, wfRunID, stepRunID string) {
-			if wfRunID != "wfr-1" || stepRunID != "sr-1" {
-				t.Errorf("unexpected callback args: wfRunID=%s, stepRunID=%s", wfRunID, stepRunID)
-			}
+			assert.False(t, wfRunID !=
+				"wfr-1" ||
+				stepRunID !=
+					"sr-1")
+
 			completedCalls.Add(1)
 		},
 	}
@@ -315,10 +315,9 @@ func TestIntegration_ReapOrphanedStepRuns_CompletedParent(t *testing.T) {
 
 	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, wfCallback)
 	r.ReapOnce(ctx)
+	require.EqualValues(t, 1, completedCalls.
+		Load())
 
-	if completedCalls.Load() != 1 {
-		t.Fatalf("expected 1 OnStepCompleted call, got %d", completedCalls.Load())
-	}
 }
 
 func TestIntegration_ReapOrphanedStepRuns_FailedParent(t *testing.T) {
@@ -326,9 +325,11 @@ func TestIntegration_ReapOrphanedStepRuns_FailedParent(t *testing.T) {
 	var failedCalls atomic.Int32
 	wfCallback := &intMockWorkflowCallback{
 		onStepFailedFn: func(_ context.Context, wfRunID, stepRunID string) {
-			if wfRunID != "wfr-2" || stepRunID != "sr-2" {
-				t.Errorf("unexpected callback args: wfRunID=%s, stepRunID=%s", wfRunID, stepRunID)
-			}
+			assert.False(t, wfRunID !=
+				"wfr-2" ||
+				stepRunID !=
+					"sr-2")
+
 			failedCalls.Add(1)
 		},
 	}
@@ -349,10 +350,9 @@ func TestIntegration_ReapOrphanedStepRuns_FailedParent(t *testing.T) {
 
 	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, wfCallback)
 	r.ReapOnce(ctx)
+	require.EqualValues(t, 1, failedCalls.
+		Load())
 
-	if failedCalls.Load() != 1 {
-		t.Fatalf("expected 1 OnStepFailed call, got %d", failedCalls.Load())
-	}
 }
 
 func TestIntegration_ReapOrphanedStepRuns_NoOrphans(t *testing.T) {
@@ -382,10 +382,10 @@ func TestIntegration_ReapStuckWebhookDeliveries_ResetsStuck(t *testing.T) {
 
 	r := scheduler.NewReaper(ms, time.Second, 5*time.Minute, 0, 0, false, nil)
 	r.ReapOnce(ctx)
+	require.EqualValues(t, 3, resetCount.
+		Load(),
+	)
 
-	if resetCount.Load() != 3 {
-		t.Fatalf("expected 3 webhooks reset, got %d", resetCount.Load())
-	}
 }
 
 func TestIntegration_ReapStuckWebhookDeliveries_NoneStuck(t *testing.T) {
@@ -451,7 +451,7 @@ func TestIntegration_StatsAggregator_ContextCancellation(t *testing.T) {
 	case <-done:
 		// success
 	case <-time.After(5 * time.Second):
-		t.Fatal("StatsAggregator.Run did not exit after context cancellation")
+		require.Fail(t, "StatsAggregator.Run did not exit after context cancellation")
 	}
 }
 
@@ -483,9 +483,8 @@ func TestIntegration_RecordCronDrift_ValidCronExpr(t *testing.T) {
 	})
 
 	cs := scheduler.NewCronScheduler(ctx, st, q, nil)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
+	require.NoError(t, cs.LoadJobs(ctx))
+
 	// Start and stop without waiting for a full minute --
 	// the point is that LoadJobs + Start/Stop with a valid cron expr does not panic
 	// even when metrics are nil.
@@ -558,10 +557,11 @@ func TestIntegration_CheckRunLimitWarnings_NilEnforcer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	bm.Run(ctx)
+	require.EqualValues(t, 0, rlStore.
+		deliveryCalls.
+		Load(),
+	)
 
-	if rlStore.deliveryCalls.Load() != 0 {
-		t.Fatalf("expected 0 notification deliveries without enforcer, got %d", rlStore.deliveryCalls.Load())
-	}
 }
 
 // Shared helpers and mocks

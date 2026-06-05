@@ -1,8 +1,9 @@
 package clickhouse
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSafeRunFailureReason_DoesNotReturnRawMessages(t *testing.T) {
@@ -45,13 +46,11 @@ func TestSafeRunFailureReason_DoesNotReturnRawMessages(t *testing.T) {
 			t.Parallel()
 
 			got := safeRunFailureReason(tt.message)
-			if got != tt.want {
-				t.Fatalf("safeRunFailureReason() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.
+				want, got)
+
 			for _, leaked := range []string{"secret-token", "user:pass", "api_key", "hunter2", "token=abc"} {
-				if strings.Contains(got, leaked) {
-					t.Fatalf("safe failure reason leaked %q in %q", leaked, got)
-				}
+				require.NotContains(t, got, leaked)
 			}
 		})
 	}

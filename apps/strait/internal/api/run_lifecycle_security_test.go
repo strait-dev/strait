@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
-	"strait/internal/store"
 )
 
 // TestRunLifecycle_CancelTerminalRun verifies that canceling a run already in a
@@ -36,13 +36,12 @@ func TestRunLifecycle_CancelTerminalRun(t *testing.T) {
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-terminal/", ""))
+			require.Equal(t, http.StatusBadRequest,
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("status %s: expected 400, got %d: %s", status, w.Code, w.Body.String())
-			}
-			if !strings.Contains(w.Body.String(), "terminal") {
-				t.Fatalf("expected terminal state error, got: %s", w.Body.String())
-			}
+				w.Code)
+			require.Contains(
+				t, w.Body.
+					String(), "terminal")
 		})
 	}
 }
@@ -91,9 +90,8 @@ func TestRunLifecycle_CancelConcurrent(t *testing.T) {
 			successes++
 		}
 	}
-	if successes > 1 {
-		t.Fatalf("expected at most 1 success, got %d", successes)
-	}
+	require.LessOrEqual(t, successes,
+		1)
 }
 
 // TestRunLifecycle_ReplayNonTerminalRun verifies that replaying a run in a
@@ -124,10 +122,9 @@ func TestRunLifecycle_ReplayNonTerminalRun(t *testing.T) {
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-nr/replay", ""))
+			require.Equal(t, http.StatusBadRequest,
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("status %s: expected 400, got %d: %s", status, w.Code, w.Body.String())
-			}
+				w.Code)
 		})
 	}
 }
@@ -152,10 +149,9 @@ func TestRunLifecycle_ReplayDeadLetterRun(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-dead/dlq-replay", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 }
 
 // TestRunLifecycle_RestartMaxDepth verifies that restart works for a run
@@ -185,10 +181,9 @@ func TestRunLifecycle_RestartMaxDepth(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-restart/restart", `{}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 }
 
 // TestRunLifecycle_RestartLineageOverflow verifies a restart request for a run
@@ -218,11 +213,11 @@ func TestRunLifecycle_RestartLineageOverflow(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-overflow/restart", `{}`))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	// Should succeed without panic; the handler does not check lineage depth.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 // TestRunLifecycle_CancelChildRuns verifies that canceling a parent run also
@@ -261,13 +256,12 @@ func TestRunLifecycle_CancelChildRuns(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-parent/", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !childCancelCalled.Load() {
-		t.Fatal("expected child cancel to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.True(
+		t, childCancelCalled.
+			Load())
 }
 
 // TestRunLifecycle_CancelMaxDepthExceeded verifies that the recursive child
@@ -300,14 +294,13 @@ func TestRunLifecycle_CancelMaxDepthExceeded(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-deep/", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.LessOrEqual(t, depth.Load(),
+		int64(20))
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	// maxCancelDepth is 20.
-	if d := depth.Load(); d > 20 {
-		t.Fatalf("cancel recursion depth = %d, expected <= 20", d)
-	}
 }
 
 // TestRunLifecycle_SnoozeNegativeDuration verifies that the snooze endpoint does
@@ -319,11 +312,13 @@ func TestRunLifecycle_SnoozeNegativeDuration(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/snooze", `{"duration_secs":-60}`))
+	require.False(t, w.Code == http.
+		StatusOK ||
+		w.Code ==
+			http.StatusCreated,
+	)
 
 	// Snooze is not an API route, so expect 404 or 405.
-	if w.Code == http.StatusOK || w.Code == http.StatusCreated {
-		t.Fatalf("expected non-success for snooze route, got %d", w.Code)
-	}
 }
 
 // TestRunLifecycle_SnoozeMaxDuration is a companion to the negative duration test,
@@ -334,10 +329,11 @@ func TestRunLifecycle_SnoozeMaxDuration(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/snooze", `{"duration_secs":9999999999}`))
-
-	if w.Code == http.StatusOK || w.Code == http.StatusCreated {
-		t.Fatalf("expected non-success for snooze route, got %d", w.Code)
-	}
+	require.False(t, w.Code == http.
+		StatusOK ||
+		w.Code ==
+			http.StatusCreated,
+	)
 }
 
 // TestRunLifecycle_PauseResumeRace sends concurrent pause and resume requests to
@@ -387,12 +383,12 @@ func TestRunLifecycle_CompletionWithHugeResult(t *testing.T) {
 
 	// Just verify the JSON round-trips without issue.
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		t.Fatalf("failed to unmarshal huge result: %v", err)
-	}
-	if len(parsed["data"].(string)) != 10*1024*1024 {
-		t.Fatalf("unexpected data length")
-	}
+	require.NoError(t, json.Unmarshal(result,
+		&parsed,
+	))
+	require.Len(t,
+		parsed["data"].(string), 10*1024*
+			1024)
 }
 
 // TestRunLifecycle_CompletionWithNullResult verifies that a null JSON result
@@ -402,12 +398,10 @@ func TestRunLifecycle_CompletionWithNullResult(t *testing.T) {
 
 	result := json.RawMessage(`null`)
 	var parsed any
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		t.Fatalf("failed to unmarshal null result: %v", err)
-	}
-	if parsed != nil {
-		t.Fatalf("expected nil, got %v", parsed)
-	}
+	require.NoError(t, json.Unmarshal(result,
+		&parsed,
+	))
+	require.Nil(t, parsed)
 }
 
 // TestRunLifecycle_DoubleCompletion verifies that attempting to cancel (simulate
@@ -443,16 +437,16 @@ func TestRunLifecycle_DoubleCompletion(t *testing.T) {
 	// First cancel succeeds.
 	w1 := httptest.NewRecorder()
 	srv.ServeHTTP(w1, authedRequest(http.MethodDelete, "/v1/runs/run-double/", ""))
-	if w1.Code != http.StatusOK {
-		t.Fatalf("first cancel: expected 200, got %d", w1.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w1.Code,
+	)
 
 	// Second cancel fails because run is now terminal.
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, authedRequest(http.MethodDelete, "/v1/runs/run-double/", ""))
-	if w2.Code != http.StatusBadRequest {
-		t.Fatalf("second cancel: expected 400, got %d: %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+
+		w2.Code)
 }
 
 // FuzzRunLifecycleTransitions fuzzes random status strings as query parameters
@@ -479,5 +473,4 @@ func FuzzRunLifecycleTransitions(f *testing.F) {
 	})
 }
 
-// Ensure we use the store import to avoid unused-import errors.
-var _ = store.ErrRunNotFound
+// Ensure we use the store import to avoid unused-import errors.var _ = store.ErrRunNotFound

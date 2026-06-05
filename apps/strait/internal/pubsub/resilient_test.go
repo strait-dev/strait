@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockPublisher struct {
@@ -99,20 +101,18 @@ func TestResilientPublisher_PublishFailOpenAndDegrade(t *testing.T) {
 		slog.Default(),
 		2,
 	)
+	require.NoError(
+		t, rp.Publish(t.Context(), "events",
 
-	if err := rp.Publish(t.Context(), "events", []byte("payload")); err != nil {
-		t.Fatalf("Publish() error = %v, want nil", err)
-	}
-	if !rp.IsHealthy() {
-		t.Fatal("publisher unhealthy after first failure, want healthy")
-	}
+			[]byte("payload")))
+	require.True(t,
+		rp.IsHealthy())
+	require.NoError(
+		t, rp.Publish(t.Context(), "events",
 
-	if err := rp.Publish(t.Context(), "events", []byte("payload")); err != nil {
-		t.Fatalf("Publish() error = %v, want nil", err)
-	}
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after threshold failures, want degraded")
-	}
+			[]byte("payload")))
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_SubscribeFailOpenReturnsClosedChannel(t *testing.T) {
@@ -127,25 +127,19 @@ func TestResilientPublisher_SubscribeFailOpenReturnsClosedChannel(t *testing.T) 
 	)
 
 	sub, err := rp.Subscribe(t.Context(), "events")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v, want nil", err)
-	}
-	if sub == nil {
-		t.Fatal("Subscribe() returned nil subscription")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		sub)
 
 	select {
 	case _, ok := <-sub.Ch:
-		if ok {
-			t.Fatal("subscription channel open, want closed")
-		}
+		require.False(t, ok)
 	default:
-		t.Fatal("subscription channel read blocked, want closed channel")
+		require.FailNow(t, "subscription channel read blocked, want closed channel")
 	}
-
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after failure at threshold=1, want degraded")
-	}
+	require.False(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_RecoveryAfterSuccessResetsFailures(t *testing.T) {
@@ -168,19 +162,16 @@ func TestResilientPublisher_RecoveryAfterSuccessResetsFailures(t *testing.T) {
 
 	_ = rp.Publish(t.Context(), "events", []byte("first"))
 	_ = rp.Publish(t.Context(), "events", []byte("second"))
-	if rp.IsHealthy() {
-		t.Fatal("publisher healthy after two failures, want degraded")
-	}
+	require.False(t,
+		rp.IsHealthy())
 
 	_ = rp.Publish(t.Context(), "events", []byte("recover"))
-	if !rp.IsHealthy() {
-		t.Fatal("publisher degraded after successful publish, want healthy")
-	}
+	require.True(t,
+		rp.IsHealthy())
 
 	_ = rp.Publish(t.Context(), "events", []byte("post-recovery"))
-	if !rp.IsHealthy() {
-		t.Fatal("publisher degraded after one failure post-recovery, want healthy")
-	}
+	require.True(t,
+		rp.IsHealthy())
 }
 
 func TestResilientPublisher_PingDelegatesAndReturnsSentinel(t *testing.T) {
@@ -196,15 +187,13 @@ func TestResilientPublisher_PingDelegatesAndReturnsSentinel(t *testing.T) {
 	)
 
 	err := rp.Ping(t.Context())
-	if err == nil {
-		t.Fatal("Ping() error = nil, want error")
-	}
-	if !errors.Is(err, ErrRedisUnavailable) {
-		t.Fatalf("Ping() error %v does not match ErrRedisUnavailable", err)
-	}
-	if !errors.Is(err, innerErr) {
-		t.Fatalf("Ping() error %v does not include underlying error", err)
-	}
+	require.Error(t,
+		err)
+	require.ErrorIs(t,
+		err, ErrRedisUnavailable,
+	)
+	require.ErrorIs(t,
+		err, innerErr)
 }
 
 func TestResilientPublisher_PingWithoutUnderlyingSupport(t *testing.T) {
@@ -213,7 +202,7 @@ func TestResilientPublisher_PingWithoutUnderlyingSupport(t *testing.T) {
 	rp := NewResilientPublisher(&mockPublisherNoPing{}, slog.Default(), 3)
 
 	err := rp.Ping(t.Context())
-	if !errors.Is(err, ErrRedisUnavailable) {
-		t.Fatalf("Ping() error = %v, want ErrRedisUnavailable", err)
-	}
+	require.ErrorIs(t,
+		err, ErrRedisUnavailable,
+	)
 }

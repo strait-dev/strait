@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -12,6 +11,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // successMockDB returns a mockDBTX that simulates a successful enqueue.
@@ -61,12 +62,11 @@ func TestEnqueue_AdversarialIdempotencyKey(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with null bytes in idempotency key: %v", err)
-	}
-	if run.Status != domain.StatusQueued {
-		t.Errorf("Status = %q, want %q", run.Status, domain.StatusQueued)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		domain.StatusQueued,
+		run.Status,
+	)
 }
 
 func TestEnqueue_LongIdempotencyKey(t *testing.T) {
@@ -84,9 +84,7 @@ func TestEnqueue_LongIdempotencyKey(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with 10KB idempotency key: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
@@ -110,12 +108,10 @@ func TestEnqueue_EmptyIdempotencyKey(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err == nil {
-		t.Fatal("expected error for ErrNoRows with empty idempotency key")
-	}
-	if errors.Is(err, domain.ErrIdempotencyConflict) {
-		t.Fatal("empty idempotency key should not produce ErrIdempotencyConflict")
-	}
+	require.Error(t,
+		err)
+	require.NotErrorIs(t,
+		err, domain.ErrIdempotencyConflict)
 }
 
 func TestPriority_IntMin(t *testing.T) {
@@ -131,16 +127,18 @@ func TestPriority_IntMin(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with MinInt32 priority: %v", err)
-	}
-	if run.Priority != math.MinInt32 {
-		t.Errorf("Priority = %d, want %d", run.Priority, math.MinInt32)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		math.MinInt32, run.
+			Priority,
+	)
+
 	// Verify the priority was passed as arg index 16 (0-based).
 	if len(capturedArgs) > 16 {
 		if p, ok := capturedArgs[16].(int); ok && p != math.MinInt32 {
-			t.Errorf("captured priority arg = %d, want %d", p, math.MinInt32)
+			assert.Failf(t, "test failure",
+
+				"captured priority arg = %d, want %d", p, math.MinInt32)
 		}
 	}
 }
@@ -158,12 +156,11 @@ func TestPriority_IntMax(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with MaxInt32 priority: %v", err)
-	}
-	if run.Priority != math.MaxInt32 {
-		t.Errorf("Priority = %d, want %d", run.Priority, math.MaxInt32)
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		math.MaxInt32, run.
+			Priority,
+	)
 }
 
 func TestConcurrencyKey_SpecialChars(t *testing.T) {
@@ -187,9 +184,8 @@ func TestConcurrencyKey_SpecialChars(t *testing.T) {
 		}
 
 		err := q.Enqueue(context.Background(), run)
-		if err != nil {
-			t.Errorf("Enqueue() with concurrency key %q: %v", key, err)
-		}
+		assert.NoError(
+			t, err)
 	}
 }
 
@@ -206,9 +202,7 @@ func TestConcurrencyKey_ExtremelyLong(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with 10KB concurrency key: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestConcurrencyKey_EmptyString(t *testing.T) {
@@ -223,9 +217,7 @@ func TestConcurrencyKey_EmptyString(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with empty concurrency key: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func FuzzEnqueuePriority(f *testing.F) {
@@ -251,9 +243,9 @@ func FuzzEnqueuePriority(f *testing.F) {
 		if err != nil {
 			t.Skipf("DB mock returned error for priority %d: %v", priority, err)
 		}
-		if run.Priority != priority {
-			t.Errorf("Priority = %d, want %d", run.Priority, priority)
-		}
+		assert.Equal(t,
+			priority, run.Priority,
+		)
 	})
 }
 
@@ -298,13 +290,11 @@ func TestEnqueue_TagsMarshalError(t *testing.T) {
 	}
 
 	err := q.Enqueue(context.Background(), run)
-	if err != nil {
-		t.Fatalf("Enqueue() with valid tags: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify tags are marshalled correctly by confirming the run was accepted.
 	tagsJSON, _ := json.Marshal(run.Tags)
-	if string(tagsJSON) != `{"key":"value"}` {
-		t.Errorf("tags JSON = %s, want %s", tagsJSON, `{"key":"value"}`)
-	}
+	assert.JSONEq(t,
+		`{"key":"value"}`,
+		string(tagsJSON))
 }

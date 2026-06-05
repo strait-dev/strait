@@ -473,14 +473,31 @@ func (q *PgQueQueue) activeBatchLocked(ctx context.Context, state *pgQueRouteSta
 	if batch := state.activeBatch; batch != nil && (len(batch.Messages) > 0 || batch.InFlight > 0 || batch.Closing) {
 		return batch, nil
 	}
-	messages, err := q.pgque(q.db).receive(ctx, queueName, pgQueReceiveAll)
-	if err != nil {
-		return nil, err
+	client := q.pgque(q.db)
+	for range pgQueMaxCatchUpBatches {
+		messages, err := client.receive(ctx, queueName, pgQueReceiveAll)
+		if err != nil {
+			return nil, err
+		}
+		if len(messages) > 0 {
+			if lag, lagErr := client.consumerLag(ctx, queueName); lagErr == nil {
+				recordPgQueConsumerLag(ctx, lag)
+			} else {
+				q.logBackgroundError(ctx, "consumer_lag", "pgque consumer lag probe failed", lagErr)
+			}
+			batch := &pgQueActiveBatch{BatchID: messages[0].BatchID, Messages: messages}
+			state.activeBatch = batch
+			return batch, nil
+		}
+
+		lag, err := client.consumerLag(ctx, queueName)
+		if err != nil {
+			return nil, err
+		}
+		recordPgQueConsumerLag(ctx, lag)
+		if lag == 0 {
+			return nil, errPgQueNoMessages
+		}
 	}
-	if len(messages) == 0 {
-		return nil, errPgQueNoMessages
-	}
-	batch := &pgQueActiveBatch{BatchID: messages[0].BatchID, Messages: messages}
-	state.activeBatch = batch
-	return batch, nil
+	return nil, errPgQueNoMessages
 }

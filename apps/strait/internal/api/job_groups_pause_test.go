@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPauseAllJobsByGroup_Success(t *testing.T) {
@@ -17,9 +19,9 @@ func TestPauseAllJobsByGroup_Success(t *testing.T) {
 			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
 		},
 		PauseJobsByGroupFunc: func(_ context.Context, groupID string) error {
-			if groupID != "group-1" {
-				t.Fatalf("expected groupID group-1, got %s", groupID)
-			}
+			require.Equal(t, "group-1",
+				groupID)
+
 			pauseCalled = true
 			return nil
 		},
@@ -30,13 +32,11 @@ func TestPauseAllJobsByGroup_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/pause-all", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !pauseCalled {
-		t.Fatal("expected PauseJobsByGroup to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, pauseCalled,
+	)
 }
 
 func TestResumeAllJobsByGroup_Success(t *testing.T) {
@@ -47,9 +47,9 @@ func TestResumeAllJobsByGroup_Success(t *testing.T) {
 			return &domain.JobGroup{ID: id, ProjectID: "test-project"}, nil
 		},
 		ResumeJobsByGroupFunc: func(_ context.Context, groupID string) error {
-			if groupID != "group-1" {
-				t.Fatalf("expected groupID group-1, got %s", groupID)
-			}
+			require.Equal(t, "group-1",
+				groupID)
+
 			resumeCalled = true
 			return nil
 		},
@@ -60,11 +60,9 @@ func TestResumeAllJobsByGroup_Success(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/group-1/resume-all", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !resumeCalled {
-		t.Fatal("expected ResumeJobsByGroup to be called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, resumeCalled,
+	)
 }

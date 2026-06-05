@@ -11,6 +11,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 // ListJobSLOs.
@@ -29,20 +31,18 @@ func TestSLO_ListJobSLOs_HappyPath(t *testing.T) {
 		Target:      99.9,
 		WindowHours: 24,
 	}
-	if err := q.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobSLO(ctx, slo))
 
 	results, err := q.ListJobSLOs(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("ListJobSLOs() error = %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("len = %d, want 1", len(results))
-	}
-	if results[0].Metric != "success_rate" {
-		t.Fatalf("metric = %q, want success_rate", results[0].Metric)
-	}
+	require.NoError(t, err)
+	require.Len(t, results,
+
+		1)
+	require.Equal(t, "success_rate",
+
+		results[0].
+			Metric)
+
 }
 
 func TestSLO_ListJobSLOs_Empty(t *testing.T) {
@@ -51,12 +51,11 @@ func TestSLO_ListJobSLOs_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	results, err := q.ListJobSLOs(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListJobSLOs() error = %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("len = %d, want 0", len(results))
-	}
+	require.NoError(t, err)
+	require.Len(t, results,
+
+		0)
+
 }
 
 func TestSLO_ListJobSLOs_WithEvaluation(t *testing.T) {
@@ -73,9 +72,7 @@ func TestSLO_ListJobSLOs_WithEvaluation(t *testing.T) {
 		Target:      5.0,
 		WindowHours: 168,
 	}
-	if err := q.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobSLO(ctx, slo))
 
 	eval := &domain.JobSLOEvaluation{
 		ID:              newID(),
@@ -84,20 +81,19 @@ func TestSLO_ListJobSLOs_WithEvaluation(t *testing.T) {
 		BudgetRemaining: 0.5,
 		EvaluatedAt:     time.Now().UTC(),
 	}
-	if err := q.InsertSLOEvaluation(ctx, eval); err != nil {
-		t.Fatalf("InsertSLOEvaluation() error = %v", err)
-	}
+	require.NoError(t, q.InsertSLOEvaluation(ctx,
+		eval))
 
 	results, err := q.ListJobSLOs(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("ListJobSLOs() error = %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("len = %d, want 1", len(results))
-	}
-	if results[0].CurrentValue == nil || *results[0].CurrentValue != 4.5 {
-		t.Fatalf("current_value = %v, want 4.5", results[0].CurrentValue)
-	}
+	require.NoError(t, err)
+	require.Len(t, results,
+
+		1)
+	require.False(t, results[0].CurrentValue ==
+		nil || *results[0].CurrentValue !=
+		4.5,
+	)
+
 }
 
 // DeleteJobSLO.
@@ -116,21 +112,13 @@ func TestSLO_DeleteJobSLO_HappyPath(t *testing.T) {
 		Target:      99.0,
 		WindowHours: 24,
 	}
-	if err := q.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
-
-	if err := q.DeleteJobSLO(ctx, slo.ID); err != nil {
-		t.Fatalf("DeleteJobSLO() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobSLO(ctx, slo))
+	require.NoError(t, q.DeleteJobSLO(ctx, slo.ID))
 
 	got, err := q.GetJobSLO(ctx, slo.ID)
-	if err != nil {
-		t.Fatalf("GetJobSLO() error = %v", err)
-	}
-	if got != nil {
-		t.Fatal("expected nil after delete")
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 func TestSLO_DeleteJobSLO_NotFound(t *testing.T) {
@@ -139,9 +127,8 @@ func TestSLO_DeleteJobSLO_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.DeleteJobSLO(ctx, newID())
-	if err == nil {
-		t.Fatal("expected error for nonexistent SLO")
-	}
+	require.Error(t, err)
+
 }
 
 func TestSLO_DeleteJobSLO_Idempotent(t *testing.T) {
@@ -158,17 +145,14 @@ func TestSLO_DeleteJobSLO_Idempotent(t *testing.T) {
 		Target:      99.0,
 		WindowHours: 24,
 	}
-	if err := q.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobSLO(ctx, slo))
+	require.NoError(t, q.DeleteJobSLO(ctx, slo.ID))
+	require.Error(t, q.DeleteJobSLO(ctx,
+		slo.ID),
+	)
 
-	if err := q.DeleteJobSLO(ctx, slo.ID); err != nil {
-		t.Fatalf("DeleteJobSLO() first error = %v", err)
-	}
 	// Second delete should error.
-	if err := q.DeleteJobSLO(ctx, slo.ID); err == nil {
-		t.Fatal("expected error on second delete")
-	}
+
 }
 
 // GetJobSLO.
@@ -187,23 +171,18 @@ func TestSLO_GetJobSLO_HappyPath(t *testing.T) {
 		Target:      1.0,
 		WindowHours: 720,
 	}
-	if err := q.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
+	require.NoError(t, q.CreateJobSLO(ctx, slo))
 
 	got, err := q.GetJobSLO(ctx, slo.ID)
-	if err != nil {
-		t.Fatalf("GetJobSLO() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil SLO")
-	}
-	if got.Metric != "p99_latency_secs" {
-		t.Fatalf("metric = %q, want p99_latency_secs", got.Metric)
-	}
-	if got.Target != 1.0 {
-		t.Fatalf("target = %f, want 1.0", got.Target)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "p99_latency_secs",
+
+		got.Metric,
+	)
+	require.EqualValues(t, 1.0, got.
+		Target)
+
 }
 
 func TestSLO_GetJobSLO_NotFound(t *testing.T) {
@@ -212,12 +191,9 @@ func TestSLO_GetJobSLO_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.GetJobSLO(ctx, newID())
-	if err != nil {
-		t.Fatalf("GetJobSLO() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("expected nil, got %+v", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 // ListAllJobSLOs.
@@ -239,18 +215,16 @@ func TestSLO_ListAllJobSLOs_HappyPath(t *testing.T) {
 			Target:      99.0,
 			WindowHours: 24,
 		}
-		if err := q.CreateJobSLO(ctx, slo); err != nil {
-			t.Fatalf("CreateJobSLO() error = %v", err)
-		}
+		require.NoError(t, q.CreateJobSLO(ctx, slo))
+
 	}
 
 	all, err := q.ListAllJobSLOs(ctx)
-	if err != nil {
-		t.Fatalf("ListAllJobSLOs() error = %v", err)
-	}
-	if len(all) < 2 {
-		t.Fatalf("len = %d, want >= 2", len(all))
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(
+		t,
+		len(all), 2)
+
 }
 
 func TestSLO_ListAllJobSLOs_Empty(t *testing.T) {
@@ -259,12 +233,9 @@ func TestSLO_ListAllJobSLOs_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	all, err := q.ListAllJobSLOs(ctx)
-	if err != nil {
-		t.Fatalf("ListAllJobSLOs() error = %v", err)
-	}
-	if len(all) != 0 {
-		t.Fatalf("len = %d, want 0", len(all))
-	}
+	require.NoError(t, err)
+	require.Len(t, all, 0)
+
 }
 
 // GetEndpointHealthScore.
@@ -283,23 +254,19 @@ func TestHealth_GetEndpointHealthScore_HappyPath(t *testing.T) {
 		TotalRequests: 100,
 		LastLatencyMs: 120.5,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, score); err != nil {
-		t.Fatalf("UpsertEndpointHealthScore() error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, score))
 
 	got, err := q.GetEndpointHealthScore(ctx, "https://example.com/health-get")
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil score")
-	}
-	if got.HealthScore != 85.0 {
-		t.Fatalf("health_score = %f, want 85.0", got.HealthScore)
-	}
-	if got.TotalRequests != 100 {
-		t.Fatalf("total_requests = %d, want 100", got.TotalRequests)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.EqualValues(t, 85.0,
+		got.
+			HealthScore,
+	)
+	require.EqualValues(t, 100, got.
+		TotalRequests,
+	)
+
 }
 
 func TestHealth_GetEndpointHealthScore_NotFound(t *testing.T) {
@@ -308,12 +275,9 @@ func TestHealth_GetEndpointHealthScore_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.GetEndpointHealthScore(ctx, "https://nonexistent.example.com/health")
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("expected nil, got %+v", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 // UpsertEndpointHealthScore.
@@ -332,20 +296,16 @@ func TestHealth_UpsertEndpointHealthScore_Insert(t *testing.T) {
 		TotalRequests: 50,
 		LastLatencyMs: 80.0,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, score); err != nil {
-		t.Fatalf("UpsertEndpointHealthScore() error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, score))
 
 	got, err := q.GetEndpointHealthScore(ctx, score.EndpointURL)
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil")
-	}
-	if got.SuccessRate != 0.98 {
-		t.Fatalf("success_rate = %f, want 0.98", got.SuccessRate)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.EqualValues(t, 0.98,
+		got.
+			SuccessRate,
+	)
+
 }
 
 func TestHealth_UpsertEndpointHealthScore_Update(t *testing.T) {
@@ -363,26 +323,23 @@ func TestHealth_UpsertEndpointHealthScore_Update(t *testing.T) {
 		TotalRequests: 10,
 		LastLatencyMs: 200.0,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, initial); err != nil {
-		t.Fatalf("insert error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, initial))
+
 	gotInitial, err := q.GetEndpointHealthScore(ctx, endpoint)
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore(initial) error = %v", err)
-	}
-	if gotInitial == nil {
-		t.Fatal("GetEndpointHealthScore(initial) returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, gotInitial)
+
 	initialUpdatedAt := gotInitial.UpdatedAt
 	var xminBeforeNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM endpoint_health_scores
 		WHERE endpoint_url = $1`,
+
 		endpoint,
-	).Scan(&xminBeforeNoop); err != nil {
-		t.Fatalf("query endpoint_health_scores xmin before no-op: %v", err)
-	}
+	).Scan(&xminBeforeNoop))
 
 	same := &domain.EndpointHealthScore{
 		EndpointURL:   endpoint,
@@ -393,31 +350,29 @@ func TestHealth_UpsertEndpointHealthScore_Update(t *testing.T) {
 		TotalRequests: 10,
 		LastLatencyMs: 200.0,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, same); err != nil {
-		t.Fatalf("no-op error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, same))
+
 	var xminAfterNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM endpoint_health_scores
 		WHERE endpoint_url = $1`,
+
 		endpoint,
-	).Scan(&xminAfterNoop); err != nil {
-		t.Fatalf("query endpoint_health_scores xmin after no-op: %v", err)
-	}
-	if xminAfterNoop != xminBeforeNoop {
-		t.Fatalf("endpoint_health_scores no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
-	}
+	).Scan(&xminAfterNoop))
+	require.Equal(t, xminBeforeNoop,
+
+		xminAfterNoop,
+	)
+
 	gotSame, err := q.GetEndpointHealthScore(ctx, endpoint)
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore(no-op) error = %v", err)
-	}
-	if gotSame == nil {
-		t.Fatal("GetEndpointHealthScore(no-op) returned nil")
-	}
-	if !gotSame.UpdatedAt.Equal(initialUpdatedAt) {
-		t.Fatalf("endpoint_health_scores no-op updated_at = %v, want %v", gotSame.UpdatedAt, initialUpdatedAt)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, gotSame)
+	require.True(t, gotSame.
+		UpdatedAt.
+		Equal(initialUpdatedAt))
 
 	updated := &domain.EndpointHealthScore{
 		EndpointURL:   endpoint,
@@ -428,20 +383,18 @@ func TestHealth_UpsertEndpointHealthScore_Update(t *testing.T) {
 		TotalRequests: 200,
 		LastLatencyMs: 50.0,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, updated); err != nil {
-		t.Fatalf("update error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, updated))
 
 	got, err := q.GetEndpointHealthScore(ctx, endpoint)
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore() error = %v", err)
-	}
-	if got.HealthScore != 90.0 {
-		t.Fatalf("health_score = %f, want 90.0", got.HealthScore)
-	}
-	if got.TotalRequests != 200 {
-		t.Fatalf("total_requests = %d, want 200", got.TotalRequests)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 90.0,
+		got.
+			HealthScore,
+	)
+	require.EqualValues(t, 200, got.
+		TotalRequests,
+	)
+
 }
 
 func TestHealth_UpsertEndpointHealthScore_ZeroValues(t *testing.T) {
@@ -458,17 +411,12 @@ func TestHealth_UpsertEndpointHealthScore_ZeroValues(t *testing.T) {
 		TotalRequests: 0,
 		LastLatencyMs: 0.0,
 	}
-	if err := q.UpsertEndpointHealthScore(ctx, score); err != nil {
-		t.Fatalf("UpsertEndpointHealthScore() error = %v", err)
-	}
+	require.NoError(t, q.UpsertEndpointHealthScore(ctx, score))
 
 	got, err := q.GetEndpointHealthScore(ctx, score.EndpointURL)
-	if err != nil {
-		t.Fatalf("GetEndpointHealthScore() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
 }
 
 // CreateWorkflowRunBootstrap.
@@ -499,21 +447,18 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_HappyPath(t *testing.T) {
 		},
 	}
 	now := time.Now().UTC()
-
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, stepRuns, now); err != nil {
-		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunBootstrap(ctx, run, stepRuns,
+		now),
+	)
 
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusRunning {
-		t.Fatalf("status = %s, want running", got.Status)
-	}
-	if got.StartedAt == nil {
-		t.Fatal("started_at should be set")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusRunning,
+		got.
+			Status)
+	require.NotNil(t, got.StartedAt)
+
 }
 
 func TestWorkflowRun_CreateWorkflowRunBootstrap_MultipleSteps(t *testing.T) {
@@ -540,18 +485,17 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_MultipleSteps(t *testing.T) {
 		{ID: newID(), WorkflowRunID: run.ID, WorkflowStepID: stepA.ID, StepRef: "step-a", Status: domain.StepPending},
 		{ID: newID(), WorkflowRunID: run.ID, WorkflowStepID: stepB.ID, StepRef: "step-b", Status: domain.StepPending},
 	}
-
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, stepRuns, time.Now().UTC()); err != nil {
-		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunBootstrap(ctx, run, stepRuns,
+		time.
+			Now().UTC()))
 
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusRunning {
-		t.Fatalf("status = %s, want running", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusRunning,
+		got.
+			Status)
+
 }
 
 func TestWorkflowRun_CreateWorkflowRunBootstrap_NoSteps(t *testing.T) {
@@ -565,17 +509,17 @@ func TestWorkflowRun_CreateWorkflowRunBootstrap_NoSteps(t *testing.T) {
 	})
 
 	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
-	if err := q.CreateWorkflowRunBootstrap(ctx, run, nil, time.Now().UTC()); err != nil {
-		t.Fatalf("CreateWorkflowRunBootstrap() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRunBootstrap(ctx, run, nil,
+		time.Now().UTC()),
+	)
 
 	got, err := q.GetWorkflowRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowRun() error = %v", err)
-	}
-	if got.Status != domain.WfStatusRunning {
-		t.Fatalf("status = %s, want running", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusRunning,
+		got.
+			Status)
+
 }
 
 // ListStalledWorkflowRuns.
@@ -592,18 +536,17 @@ func TestWorkflowRun_ListStalledWorkflowRuns_HappyPath(t *testing.T) {
 
 	// Create a running workflow run with started_at in the past.
 	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
-	if err := q.CreateWorkflowRun(ctx, run); err != nil {
-		t.Fatalf("CreateWorkflowRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		run))
+
 	past := time.Now().UTC().Add(-2 * time.Hour)
-	if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": past}); err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus() error = %v", err)
-	}
+	require.NoError(t, q.UpdateWorkflowRunStatus(ctx, run.ID, domain.
+		WfStatusPending,
+
+		domain.WfStatusRunning, map[string]any{"started_at": past}))
 
 	stalled, err := q.ListStalledWorkflowRuns(ctx, 1*time.Hour)
-	if err != nil {
-		t.Fatalf("ListStalledWorkflowRuns() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, r := range stalled {
@@ -611,9 +554,8 @@ func TestWorkflowRun_ListStalledWorkflowRuns_HappyPath(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("stalled run %s not found in results (len=%d)", run.ID, len(stalled))
-	}
+	require.True(t, found)
+
 }
 
 func TestWorkflowRun_ListStalledWorkflowRuns_ExcludesRecentRuns(t *testing.T) {
@@ -628,21 +570,20 @@ func TestWorkflowRun_ListStalledWorkflowRuns_ExcludesRecentRuns(t *testing.T) {
 
 	// Create a recently started running workflow.
 	run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
-	if err := q.CreateWorkflowRun(ctx, run); err != nil {
-		t.Fatalf("CreateWorkflowRun() error = %v", err)
-	}
-	if err := q.UpdateWorkflowRunStatus(ctx, run.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": time.Now().UTC()}); err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		run))
+	require.NoError(t, q.UpdateWorkflowRunStatus(ctx, run.ID, domain.
+		WfStatusPending,
+
+		domain.WfStatusRunning, map[string]any{"started_at": time.Now().UTC()}))
 
 	stalled, err := q.ListStalledWorkflowRuns(ctx, 1*time.Hour)
-	if err != nil {
-		t.Fatalf("ListStalledWorkflowRuns() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	for _, r := range stalled {
-		if r.ID == run.ID {
-			t.Fatal("recently started run should not be stalled")
-		}
+		require.NotEqual(t, run.
+			ID, r.ID)
+
 	}
 }
 
@@ -652,12 +593,11 @@ func TestWorkflowRun_ListStalledWorkflowRuns_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	stalled, err := q.ListStalledWorkflowRuns(ctx, 1*time.Hour)
-	if err != nil {
-		t.Fatalf("ListStalledWorkflowRuns() error = %v", err)
-	}
-	if len(stalled) != 0 {
-		t.Fatalf("len = %d, want 0", len(stalled))
-	}
+	require.NoError(t, err)
+	require.Len(t, stalled,
+
+		0)
+
 }
 
 // CountActiveWorkflowRunsByVersion.
@@ -677,18 +617,15 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_HappyPath(t *testing.T) {
 	for range 2 {
 		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 		run.WorkflowVersionID = versionID
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
-			t.Fatalf("CreateWorkflowRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateWorkflowRun(ctx,
+			run))
+
 	}
 
 	count, err := q.CountActiveWorkflowRunsByVersion(ctx, wf.ID, versionID)
-	if err != nil {
-		t.Fatalf("CountActiveWorkflowRunsByVersion() error = %v", err)
-	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
 }
 
 func TestWorkflowRun_CountActiveWorkflowRunsByVersion_ExcludesTerminal(t *testing.T) {
@@ -705,26 +642,21 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_ExcludesTerminal(t *testin
 	// One pending, one completed.
 	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	pending.WorkflowVersionID = versionID
-	if err := q.CreateWorkflowRun(ctx, pending); err != nil {
-		t.Fatalf("CreateWorkflowRun(pending) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		pending))
 
 	completed := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{
 		ProjectID: new(projectID),
 		Status:    testutil.Ptr(domain.WfStatusCompleted),
 	})
 	completed.WorkflowVersionID = versionID
-	if err := q.CreateWorkflowRun(ctx, completed); err != nil {
-		t.Fatalf("CreateWorkflowRun(completed) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		completed))
 
 	count, err := q.CountActiveWorkflowRunsByVersion(ctx, wf.ID, versionID)
-	if err != nil {
-		t.Fatalf("CountActiveWorkflowRunsByVersion() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("count = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }
 
 func TestWorkflowRun_CountActiveWorkflowRunsByVersion_Zero(t *testing.T) {
@@ -733,12 +665,9 @@ func TestWorkflowRun_CountActiveWorkflowRunsByVersion_Zero(t *testing.T) {
 	mustClean(t, ctx)
 
 	count, err := q.CountActiveWorkflowRunsByVersion(ctx, newID(), "v-nonexistent")
-	if err != nil {
-		t.Fatalf("CountActiveWorkflowRunsByVersion() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 // ListActiveWorkflowVersions.
@@ -758,18 +687,17 @@ func TestWorkflowRun_ListActiveWorkflowVersions_HappyPath(t *testing.T) {
 	for _, vid := range []string{vID1, vID2} {
 		run := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 		run.WorkflowVersionID = vid
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
-			t.Fatalf("CreateWorkflowRun() error = %v", err)
-		}
+		require.NoError(t, q.CreateWorkflowRun(ctx,
+			run))
+
 	}
 
 	versions, err := q.ListActiveWorkflowVersions(ctx, wf.ID)
-	if err != nil {
-		t.Fatalf("ListActiveWorkflowVersions() error = %v", err)
-	}
-	if len(versions) < 2 {
-		t.Fatalf("len = %d, want >= 2", len(versions))
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(
+		t,
+		len(versions), 2)
+
 }
 
 func TestWorkflowRun_ListActiveWorkflowVersions_Empty(t *testing.T) {
@@ -778,12 +706,11 @@ func TestWorkflowRun_ListActiveWorkflowVersions_Empty(t *testing.T) {
 	mustClean(t, ctx)
 
 	versions, err := q.ListActiveWorkflowVersions(ctx, newID())
-	if err != nil {
-		t.Fatalf("ListActiveWorkflowVersions() error = %v", err)
-	}
-	if len(versions) != 0 {
-		t.Fatalf("len = %d, want 0", len(versions))
-	}
+	require.NoError(t, err)
+	require.Len(t, versions,
+
+		0)
+
 }
 
 func TestWorkflowRun_ListActiveWorkflowVersions_StatusCounts(t *testing.T) {
@@ -800,42 +727,34 @@ func TestWorkflowRun_ListActiveWorkflowVersions_StatusCounts(t *testing.T) {
 	// 1 pending, 1 running.
 	pending := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	pending.WorkflowVersionID = vid
-	if err := q.CreateWorkflowRun(ctx, pending); err != nil {
-		t.Fatalf("CreateWorkflowRun(pending) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		pending))
 
 	running := testutil.BuildWorkflowRun(wf.ID, &testutil.WorkflowRunOpts{ProjectID: new(projectID)})
 	running.WorkflowVersionID = vid
-	if err := q.CreateWorkflowRun(ctx, running); err != nil {
-		t.Fatalf("CreateWorkflowRun(running) error = %v", err)
-	}
-	if err := q.UpdateWorkflowRunStatus(ctx, running.ID, domain.WfStatusPending, domain.WfStatusRunning, map[string]any{"started_at": time.Now().UTC()}); err != nil {
-		t.Fatalf("UpdateWorkflowRunStatus() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		running))
+	require.NoError(t, q.UpdateWorkflowRunStatus(ctx, running.ID,
+		domain.WfStatusPending,
+
+		domain.WfStatusRunning,
+		map[string]any{"started_at": time.Now().UTC()}))
 
 	versions, err := q.ListActiveWorkflowVersions(ctx, wf.ID)
-	if err != nil {
-		t.Fatalf("ListActiveWorkflowVersions() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	found := false
 	for _, v := range versions {
 		if v.VersionID == vid {
 			found = true
-			if v.Pending != 1 {
-				t.Fatalf("pending = %d, want 1", v.Pending)
-			}
-			if v.Running != 1 {
-				t.Fatalf("running = %d, want 1", v.Running)
-			}
-			if v.Total != 2 {
-				t.Fatalf("total = %d, want 2", v.Total)
-			}
+			require.EqualValues(t, 1, v.Pending)
+			require.EqualValues(t, 1, v.Running)
+			require.EqualValues(t, 2, v.Total)
+
 		}
 	}
-	if !found {
-		t.Fatal("version not found in results")
-	}
+	require.True(t, found)
+
 }
 
 // GetWorkflowSnapshot.
@@ -858,26 +777,22 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_HappyPath(t *testing.T) {
 		Slug:      wf.Slug,
 		Version:   1,
 	}, nil)
-	if err != nil {
-		t.Fatalf("GetOrCreateWorkflowSnapshot() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := q.GetWorkflowSnapshot(ctx, snapshot.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowSnapshot() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil snapshot")
-	}
-	if got.WorkflowID != wf.ID {
-		t.Fatalf("workflow_id = %q, want %q", got.WorkflowID, wf.ID)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, wf.ID,
+
+		got.WorkflowID,
+	)
 
 	// Verify definition is valid JSON.
 	var def json.RawMessage
-	if err := json.Unmarshal(got.Definition, &def); err != nil {
-		t.Fatalf("definition is not valid JSON: %v", err)
-	}
+	require.NoError(t, json.
+		Unmarshal(got.Definition,
+			&def))
+
 }
 
 func TestWorkflowSnapshot_GetWorkflowSnapshot_NotFound(t *testing.T) {
@@ -886,12 +801,9 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.GetWorkflowSnapshot(ctx, newID())
-	if err != nil {
-		t.Fatalf("GetWorkflowSnapshot() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("expected nil, got %+v", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
@@ -901,9 +813,9 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
 
 	projectID := "project-wf-snapshot-dedup-" + newID()
 	versionID := "vid-" + newID()
-	if err := q.SetProjectContext(ctx, projectID); err != nil {
-		t.Fatalf("SetProjectContext() error = %v", err)
-	}
+	require.NoError(t, q.SetProjectContext(ctx,
+		projectID))
+
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
 		ProjectID: new(projectID),
 	})
@@ -918,18 +830,15 @@ func TestWorkflowSnapshot_GetWorkflowSnapshot_Dedup(t *testing.T) {
 	}
 
 	snap1, err := q.GetOrCreateWorkflowSnapshot(ctx, wfObj, nil)
-	if err != nil {
-		t.Fatalf("first GetOrCreateWorkflowSnapshot() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	snap2, err := q.GetOrCreateWorkflowSnapshot(ctx, wfObj, nil)
-	if err != nil {
-		t.Fatalf("second GetOrCreateWorkflowSnapshot() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, snap2.
+		ID,
+		snap1.
+			ID)
 
-	if snap1.ID != snap2.ID {
-		t.Fatalf("snapshots should be deduped: %q != %q", snap1.ID, snap2.ID)
-	}
 }
 
 func TestWorkflowSnapshot_DedupIncludesStepOverrides(t *testing.T) {
@@ -939,9 +848,9 @@ func TestWorkflowSnapshot_DedupIncludesStepOverrides(t *testing.T) {
 
 	projectID := "project-wf-snapshot-override-" + newID()
 	versionID := "vid-" + newID()
-	if err := q.SetProjectContext(ctx, projectID); err != nil {
-		t.Fatalf("SetProjectContext() error = %v", err)
-	}
+	require.NoError(t, q.SetProjectContext(ctx,
+		projectID))
+
 	wf := testutil.MustCreateWorkflow(t, ctx, q, &testutil.WorkflowOpts{
 		ProjectID: new(projectID),
 	})
@@ -958,36 +867,31 @@ func TestWorkflowSnapshot_DedupIncludesStepOverrides(t *testing.T) {
 	stepB := domain.WorkflowStep{ID: newID(), WorkflowID: wf.ID, StepRef: "b", JobID: newID(), DependsOn: []string{"a"}}
 
 	full, err := q.GetOrCreateWorkflowSnapshot(ctx, wfObj, []domain.WorkflowStep{stepA, stepB})
-	if err != nil {
-		t.Fatalf("GetOrCreateWorkflowSnapshot(full) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	override, err := q.GetOrCreateWorkflowSnapshot(ctx, wfObj, []domain.WorkflowStep{stepA})
-	if err != nil {
-		t.Fatalf("GetOrCreateWorkflowSnapshot(override) error = %v", err)
-	}
-	if full.ID == override.ID {
-		t.Fatalf("override snapshot reused full snapshot %q", full.ID)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, override.
+		ID,
+		full.ID)
 
 	overrideAgain, err := q.GetOrCreateWorkflowSnapshot(ctx, wfObj, []domain.WorkflowStep{stepA})
-	if err != nil {
-		t.Fatalf("GetOrCreateWorkflowSnapshot(override again) error = %v", err)
-	}
-	if overrideAgain.ID != override.ID {
-		t.Fatalf("identical override snapshots should be deduped: %q != %q", overrideAgain.ID, override.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, override.
+		ID, overrideAgain.
+		ID)
 
 	got, err := q.GetWorkflowSnapshot(ctx, override.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowSnapshot(override) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	def, err := store.ParseSnapshotDefinition(got.Definition)
-	if err != nil {
-		t.Fatalf("ParseSnapshotDefinition(override) error = %v", err)
-	}
-	if len(def.Steps) != 1 || def.Steps[0].StepRef != "a" {
-		t.Fatalf("override snapshot steps = %+v, want only step a", def.Steps)
-	}
+	require.NoError(t, err)
+	require.False(t, len(def.
+		Steps) !=
+		1 || def.
+		Steps[0].StepRef !=
+		"a")
+
 }
 
 // ReplayWebhookDelivery.
@@ -1001,23 +905,23 @@ func TestWebhookDelivery_ReplayWebhookDelivery_HappyPath(t *testing.T) {
 	run := mustCreateRun(t, ctx, q, job)
 
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
-	if err != nil {
-		t.Fatalf("EnqueueRunWebhook() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
-	if err != nil {
-		t.Fatalf("ReplayWebhookDelivery() error = %v", err)
-	}
-	if replayed.ID == original.ID {
-		t.Fatal("replayed should have a new ID")
-	}
-	if replayed.Status != domain.WebhookStatusPending {
-		t.Fatalf("status = %q, want pending", replayed.Status)
-	}
-	if replayed.Attempts != 0 {
-		t.Fatalf("attempts = %d, want 0", replayed.Attempts)
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, original.
+		ID,
+		replayed.ID,
+	)
+	require.Equal(t, domain.
+		WebhookStatusPending,
+
+		replayed.Status,
+	)
+	require.EqualValues(t, 0, replayed.
+		Attempts,
+	)
+
 }
 
 func TestWebhookDelivery_ReplayWebhookDelivery_NotFound(t *testing.T) {
@@ -1026,9 +930,8 @@ func TestWebhookDelivery_ReplayWebhookDelivery_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	_, err := q.ReplayWebhookDelivery(ctx, newID())
-	if err == nil {
-		t.Fatal("expected error for nonexistent delivery")
-	}
+	require.Error(t, err)
+
 }
 
 func TestWebhookDelivery_ReplayWebhookDelivery_PreservesJobID(t *testing.T) {
@@ -1040,17 +943,15 @@ func TestWebhookDelivery_ReplayWebhookDelivery_PreservesJobID(t *testing.T) {
 	run := mustCreateRun(t, ctx, q, job)
 
 	original, err := q.EnqueueRunWebhook(ctx, job, run, 3)
-	if err != nil {
-		t.Fatalf("EnqueueRunWebhook() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	replayed, err := q.ReplayWebhookDelivery(ctx, original.ID)
-	if err != nil {
-		t.Fatalf("ReplayWebhookDelivery() error = %v", err)
-	}
-	if replayed.JobID != original.JobID {
-		t.Fatalf("job_id = %q, want %q", replayed.JobID, original.JobID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, original.
+		JobID,
+		replayed.JobID,
+	)
+
 }
 
 // CountPendingWebhookDeliveries.
@@ -1064,16 +965,18 @@ func TestWebhookDelivery_CountPendingWebhookDeliveries_HappyPath(t *testing.T) {
 	run := mustCreateRun(t, ctx, q, job)
 
 	if _, err := q.EnqueueRunWebhook(ctx, job, run, 3); err != nil {
-		t.Fatalf("EnqueueRunWebhook() error = %v", err)
+		require.Failf(t, "test failure",
+
+			"EnqueueRunWebhook() error = %v", err)
 	}
 
 	count, err := q.CountPendingWebhookDeliveries(ctx)
-	if err != nil {
-		t.Fatalf("CountPendingWebhookDeliveries() error = %v", err)
-	}
-	if count < 1 {
-		t.Fatalf("count = %d, want >= 1", count)
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(
+		t,
+		count,
+		int64(1))
+
 }
 
 func TestWebhookDelivery_CountPendingWebhookDeliveries_Zero(t *testing.T) {
@@ -1082,12 +985,9 @@ func TestWebhookDelivery_CountPendingWebhookDeliveries_Zero(t *testing.T) {
 	mustClean(t, ctx)
 
 	count, err := q.CountPendingWebhookDeliveries(ctx)
-	if err != nil {
-		t.Fatalf("CountPendingWebhookDeliveries() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestWebhookDelivery_CountPendingWebhookDeliveries_ExcludesDelivered(t *testing.T) {
@@ -1099,23 +999,17 @@ func TestWebhookDelivery_CountPendingWebhookDeliveries_ExcludesDelivered(t *test
 	run := mustCreateRun(t, ctx, q, job)
 
 	delivery, err := q.EnqueueRunWebhook(ctx, job, run, 3)
-	if err != nil {
-		t.Fatalf("EnqueueRunWebhook() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Mark as delivered.
 	now := time.Now().UTC()
 	delivery.Status = domain.WebhookStatusDelivered
 	delivery.DeliveredAt = &now
-	if err := q.UpdateWebhookDelivery(ctx, delivery); err != nil {
-		t.Fatalf("UpdateWebhookDelivery() error = %v", err)
-	}
+	require.NoError(t, q.UpdateWebhookDelivery(ctx,
+		delivery))
 
 	count, err := q.CountPendingWebhookDeliveries(ctx)
-	if err != nil {
-		t.Fatalf("CountPendingWebhookDeliveries() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("count = %d, want 0", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }

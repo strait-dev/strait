@@ -12,6 +12,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSharedDedupe_SuppressesAcrossInstances(t *testing.T) {
@@ -23,13 +24,8 @@ func TestSharedDedupe_SuppressesAcrossInstances(t *testing.T) {
 	shared := NewSharedDedupeStore(rdb, time.Minute)
 	a := newRecentDedupe(16).WithShared(shared, nil)
 	b := newRecentDedupe(16).WithShared(shared, nil)
-
-	if !a.Remember("cdc:key-1") {
-		t.Fatal("first Remember() = false, want true")
-	}
-	if b.Remember("cdc:key-1") {
-		t.Fatal("second instance Remember() = true, want false")
-	}
+	require.True(t, a.Remember("cdc:key-1"))
+	require.False(t, b.Remember("cdc:key-1"))
 }
 
 func TestSharedDedupe_TTLExpiryAllowsReprocessing(t *testing.T) {
@@ -41,14 +37,20 @@ func TestSharedDedupe_TTLExpiryAllowsReprocessing(t *testing.T) {
 	shared := NewSharedDedupeStore(rdb, time.Second)
 
 	if ok, err := shared.Claim(context.Background(), "ttl-key"); err != nil || !ok {
-		t.Fatalf("Claim(first) = %v, %v; want true, nil", ok, err)
+		require.Failf(t, "test failure",
+
+			"Claim(first) = %v, %v; want true, nil", ok, err)
 	}
 	if ok, err := shared.Claim(context.Background(), "ttl-key"); err != nil || ok {
-		t.Fatalf("Claim(duplicate) = %v, %v; want false, nil", ok, err)
+		require.Failf(t, "test failure",
+
+			"Claim(duplicate) = %v, %v; want false, nil", ok, err)
 	}
 	mr.FastForward(2 * time.Second)
 	if ok, err := shared.Claim(context.Background(), "ttl-key"); err != nil || !ok {
-		t.Fatalf("Claim(after ttl) = %v, %v; want true, nil", ok, err)
+		require.Failf(t, "test failure",
+
+			"Claim(after ttl) = %v, %v; want true, nil", ok, err)
 	}
 }
 
@@ -61,16 +63,11 @@ func TestSharedDedupe_RedisFailureFallsBackToLocalDedupe(t *testing.T) {
 	d := newRecentDedupe(16).WithShared(NewSharedDedupeStore(rdb, time.Minute), func(error) {
 		fallbacks.Add(1)
 	})
-
-	if !d.Remember("redis-down") {
-		t.Fatal("Remember(first) = false, want local fallback true")
-	}
-	if d.Remember("redis-down") {
-		t.Fatal("Remember(second local) = true, want false")
-	}
-	if fallbacks.Load() == 0 {
-		t.Fatal("fallback callback was not called")
-	}
+	require.True(t, d.Remember("redis-down"))
+	require.False(t, d.Remember("redis-down"))
+	require.NotEqual(t, 0,
+		fallbacks.Load(),
+	)
 }
 
 func TestWebhookReceiver_SharedDedupeSuppressesAcrossReceivers(t *testing.T) {
@@ -98,21 +95,18 @@ func TestWebhookReceiver_SharedDedupeSuppressesAcrossReceivers(t *testing.T) {
 			IdempotencyKey: "idem-1",
 		},
 	})
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, receiver := range []*WebhookReceiver{a, b} {
 		req := httptest.NewRequest(http.MethodPost, "/cdc/webhook", bytes.NewReader(body))
 		rec := httptest.NewRecorder()
 		receiver.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("ServeHTTP() status = %d body = %s", rec.Code, rec.Body.String())
-		}
+		require.Equal(t, http.
+			StatusOK, rec.Code,
+		)
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("handler calls = %d, want 1", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.
+		Load())
 }
 
 func FuzzSharedDedupeKeys(f *testing.F) {

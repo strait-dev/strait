@@ -22,6 +22,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type blockingWorkerStream struct {
@@ -151,31 +152,39 @@ func seedGRPCAPIKey(t *testing.T, ctx context.Context, q *store.Queries, project
 
 func seedGRPCAPIKeyWithExpiry(t *testing.T, ctx context.Context, q *store.Queries, projectID, keyID, rawKey string, expiresAt *time.Time) {
 	t.Helper()
-	if err := q.CreateProject(ctx, &domain.Project{
-		ID:    projectID,
-		OrgID: "org-" + projectID,
-		Name:  projectID,
-	}); err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	if err := q.CreateAPIKey(ctx, &domain.APIKey{
-		ID:        keyID,
-		ProjectID: projectID,
-		Name:      "worker-key",
-		KeyHash:   hashGRPCAPIKey(rawKey),
-		KeyPrefix: "strait",
-		Scopes:    []string{"*"},
-		ExpiresAt: expiresAt,
-	}); err != nil {
-		t.Fatalf("CreateAPIKey: %v", err)
-	}
+	require.NoError(t,
+
+		q.CreateProject(ctx,
+			&domain.
+				Project{ID: projectID,
+				OrgID: "org-" +
+					projectID, Name: projectID},
+		))
+	require.NoError(t,
+
+		q.CreateAPIKey(ctx,
+			&domain.APIKey{
+				ID:        keyID,
+				ProjectID: projectID,
+
+				Name: "worker-key", KeyHash: hashGRPCAPIKey(rawKey), KeyPrefix: "strait", Scopes: []string{"*"},
+
+				ExpiresAt: expiresAt}))
+
 }
 
 func newLifecycleBillingEnforcer(t *testing.T, env *testutil.TestEnv) *billing.Enforcer {
 	t.Helper()
-	if env == nil || env.Redis == nil || env.Redis.Client == nil {
-		t.Fatal("test Redis is not initialized")
-	}
+	require.False(t,
+		env ==
+			nil ||
+			env.Redis ==
+				nil ||
+			env.
+				Redis.Client ==
+				nil,
+	)
+
 	return billing.NewEnforcer(billing.NewPgStore(env.DB.Pool), env.Redis.Client, nil)
 }
 
@@ -203,11 +212,17 @@ func TestIntegration_StreamTasks_SubscribeFailureRejectsWorker(t *testing.T) {
 	}
 
 	err := svc.StreamTasks(stream)
-	if status.Code(err) != codes.Unavailable {
-		t.Fatalf("StreamTasks error = %v, want Unavailable", err)
-	}
+	require.Equal(t,
+		codes.
+			Unavailable,
+		status.
+			Code(
+				err))
+
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("subscribe failure mutated registry: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"subscribe failure mutated registry: got %d workers", len(got))
 	}
 }
 
@@ -259,12 +274,14 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	select {
 	case msg := <-stream.sentCh:
 		if msg.GetAck() == nil {
-			t.Fatalf("first server message = %T, want ack", msg.Payload)
+			require.Failf(t, "test failure",
+
+				"first server message = %T, want ack", msg.Payload)
 		}
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration ack: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for registration ack")
+		require.Fail(t, "timed out waiting for registration ack")
 	}
 
 	svc.registry.CloseByAPIKey(apiKeyID)
@@ -272,17 +289,19 @@ func TestIntegration_StreamTasks_APIKeyRevokeReturnsWithoutClientRecv(t *testing
 	select {
 	case err := <-done:
 		if err == nil || !errors.Is(err, errAPIKeyRevoked) {
-			t.Fatalf("StreamTasks error = %v, want api key revoked", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want api key revoked", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("StreamTasks did not return after API-key revoke signal")
+		require.Fail(t, "StreamTasks did not return after API-key revoke signal")
 	}
 
 	cancel()
 	select {
 	case <-stream.recvDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("recv loop did not exit after test context cancellation")
+		require.Fail(t, "recv loop did not exit after test context cancellation")
 	}
 }
 
@@ -321,25 +340,31 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	select {
 	case <-stream.recvWait:
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration wait: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration wait: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pre-registration recv")
+		require.Fail(t, "timed out waiting for pre-registration recv")
 	}
+	require.NoError(t,
 
-	if err := q.RevokeAPIKey(ctx, apiKeyID); err != nil {
-		t.Fatalf("RevokeAPIKey: %v", err)
-	}
-	if err := pub.Publish(ctx, "apikey:revoked:"+apiKeyID, []byte(apiKeyID)); err != nil {
-		t.Fatalf("publish revoke: %v", err)
-	}
+		q.RevokeAPIKey(ctx,
+			apiKeyID),
+	)
+	require.NoError(t,
+
+		pub.Publish(ctx, "apikey:revoked:"+
+			apiKeyID,
+			[]byte(apiKeyID)),
+	)
 
 	select {
 	case err := <-done:
 		if !errors.Is(err, errAPIKeyRevoked) {
-			t.Fatalf("StreamTasks error = %v, want api key revoked", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want api key revoked", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("StreamTasks did not return after pre-registration revoke")
+		require.Fail(t, "StreamTasks did not return after pre-registration revoke")
 	}
 
 	stream.recvCh <- &workerv1.WorkerMessage{
@@ -358,11 +383,13 @@ func TestIntegration_StreamTasks_RevokeBeforeRegistrationRejectsWorker(t *testin
 	}
 	cancel()
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("revoked pre-registration stream mutated registry: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"revoked pre-registration stream mutated registry: got %d workers", len(got))
 	}
 	select {
 	case msg := <-stream.sentCh:
-		t.Fatalf("revoked pre-registration stream sent message: %T", msg.Payload)
+		require.Failf(t, "test failure", "revoked pre-registration stream sent message: %T", msg.Payload)
 	default:
 	}
 }
@@ -416,31 +443,37 @@ func TestIntegration_StreamTasks_APIKeyExpiryClosesRegisteredStream(t *testing.T
 	select {
 	case msg := <-stream.sentCh:
 		if msg.GetAck() == nil {
-			t.Fatalf("first server message = %T, want ack", msg.Payload)
+			require.Failf(t, "test failure",
+
+				"first server message = %T, want ack", msg.Payload)
 		}
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration ack: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for registration ack")
+		require.Fail(t, "timed out waiting for registration ack")
 	}
 
 	select {
 	case err := <-done:
 		if err == nil || !errors.Is(err, errAPIKeyExpired) {
-			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want api key expired", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("StreamTasks did not return after API-key expiry")
+		require.Fail(t, "StreamTasks did not return after API-key expiry")
 	}
 
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("expired stream left registered worker: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"expired stream left registered worker: got %d workers", len(got))
 	}
 	cancel()
 	select {
 	case <-stream.recvDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("recv loop did not exit after test context cancellation")
+		require.Fail(t, "recv loop did not exit after test context cancellation")
 	}
 }
 
@@ -493,35 +526,44 @@ func TestIntegration_StreamTasks_APIKeyRotationGraceSignalClosesRegisteredStream
 	select {
 	case msg := <-stream.sentCh:
 		if msg.GetAck() == nil {
-			t.Fatalf("first server message = %T, want ack", msg.Payload)
+			require.Failf(t, "test failure",
+
+				"first server message = %T, want ack", msg.Payload)
 		}
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration ack: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration ack: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for registration ack")
+		require.Fail(t, "timed out waiting for registration ack")
 	}
 
 	graceExpiresAt := time.Now().Add(250 * time.Millisecond)
-	if err := pub.Publish(ctx, "apikey:expires:"+apiKeyID, []byte(graceExpiresAt.UTC().Format(time.RFC3339Nano))); err != nil {
-		t.Fatalf("publish expiry signal: %v", err)
-	}
+	require.NoError(t,
+
+		pub.Publish(ctx, "apikey:expires:"+
+			apiKeyID,
+			[]byte(graceExpiresAt.
+				UTC().Format(time.RFC3339Nano))))
 
 	select {
 	case err := <-done:
 		if err == nil || !errors.Is(err, errAPIKeyExpired) {
-			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want api key expired", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("StreamTasks did not return after rotation grace expiry signal")
+		require.Fail(t, "StreamTasks did not return after rotation grace expiry signal")
 	}
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("rotation-expired stream left registered worker: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"rotation-expired stream left registered worker: got %d workers", len(got))
 	}
 	cancel()
 	select {
 	case <-stream.recvDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("recv loop did not exit after test context cancellation")
+		require.Fail(t, "recv loop did not exit after test context cancellation")
 	}
 }
 
@@ -559,25 +601,29 @@ func TestIntegration_StreamTasks_APIKeyExpiryBeforeRegistrationRejectsWorker(t *
 	select {
 	case <-stream.recvWait:
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration wait: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration wait: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pre-registration recv")
+		require.Fail(t, "timed out waiting for pre-registration recv")
 	}
 
 	select {
 	case err := <-done:
 		if err == nil || !errors.Is(err, errAPIKeyExpired) {
-			t.Fatalf("StreamTasks error = %v, want api key expired", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want api key expired", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("StreamTasks did not return after pre-registration API-key expiry")
+		require.Fail(t, "StreamTasks did not return after pre-registration API-key expiry")
 	}
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("expired pre-registration stream mutated registry: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"expired pre-registration stream mutated registry: got %d workers", len(got))
 	}
 	select {
 	case msg := <-stream.sentCh:
-		t.Fatalf("expired pre-registration stream sent message: %T", msg.Payload)
+		require.Failf(t, "test failure", "expired pre-registration stream sent message: %T", msg.Payload)
 	default:
 	}
 }
@@ -616,13 +662,15 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	select {
 	case <-stream.recvWait:
 	case err := <-done:
-		t.Fatalf("StreamTasks returned before registration wait: %v", err)
+		require.Failf(t, "test failure", "StreamTasks returned before registration wait: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for pre-registration recv")
+		require.Fail(t, "timed out waiting for pre-registration recv")
 	}
-	if err := q.RevokeAPIKey(ctx, apiKeyID); err != nil {
-		t.Fatalf("RevokeAPIKey: %v", err)
-	}
+	require.NoError(t,
+
+		q.RevokeAPIKey(ctx,
+			apiKeyID),
+	)
 
 	stream.recvCh <- &workerv1.WorkerMessage{
 		Payload: &workerv1.WorkerMessage_Registration{
@@ -642,13 +690,17 @@ func TestIntegration_StreamTasks_RevalidatesAPIKeyAfterDelayedRegistration(t *te
 	select {
 	case err := <-done:
 		if status.Code(err) != codes.Unauthenticated {
-			t.Fatalf("StreamTasks error = %v, want Unauthenticated", err)
+			require.Failf(t, "test failure",
+
+				"StreamTasks error = %v, want Unauthenticated", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("StreamTasks did not revalidate revoked key")
+		require.Fail(t, "StreamTasks did not revalidate revoked key")
 	}
 	if got := svc.registry.Snapshot(); len(got) != 0 {
-		t.Fatalf("stale registration mutated registry: got %d workers", len(got))
+		require.Failf(t, "test failure",
+
+			"stale registration mutated registry: got %d workers", len(got))
 	}
 }
 
@@ -687,25 +739,34 @@ func TestIntegration_StreamTasks_PreRegistrationStreamsCountTowardAPIKeyQuota(t 
 	select {
 	case <-firstStream.recvWait:
 	case err := <-firstDone:
-		t.Fatalf("first StreamTasks returned before registration wait: %v", err)
+		require.Failf(t, "test failure", "first StreamTasks returned before registration wait: %v", err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for first pre-registration recv")
+		require.Fail(t, "timed out waiting for first pre-registration recv")
 	}
 
 	secondStream := newBlockingWorkerStream(ctx, rawKey)
 	err := svc.StreamTasks(secondStream)
-	if status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("second StreamTasks error = %v, want ResourceExhausted", err)
-	}
+	require.Equal(t,
+		codes.
+			ResourceExhausted,
+
+		status.
+			Code(
+				err))
 
 	firstCancel()
 	select {
 	case <-firstDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("first pre-registration stream did not exit after cancellation")
+		require.Fail(t, "first pre-registration stream did not exit after cancellation")
 	}
-	if err := svc.registry.ReservePendingStream(projectID, apiKeyID); err != nil {
-		t.Fatalf("pending quota was not released after canceled stream: %v", err)
-	}
+	require.NoError(t,
+
+		svc.registry.
+			ReservePendingStream(projectID,
+
+				apiKeyID),
+	)
+
 	svc.registry.ReleasePendingStream(projectID, apiKeyID)
 }

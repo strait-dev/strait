@@ -18,6 +18,8 @@ import (
 	"strait/internal/pubsub"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type webhookMockHandler struct {
@@ -89,13 +91,11 @@ func TestWebhookReceiver_DispatchesByTable(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(h.handled) != 1 {
-		t.Fatalf("expected 1 handled message, got %d", len(h.handled))
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
+	require.Len(t, h.handled,
+		1)
 }
 
 func TestWebhookReceiver_UnknownTable_Returns200(t *testing.T) {
@@ -109,10 +109,9 @@ func TestWebhookReceiver_UnknownTable_Returns200(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for unknown table, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
 }
 
 func TestWebhookReceiver_InvalidJSON_Returns400(t *testing.T) {
@@ -122,10 +121,9 @@ func TestWebhookReceiver_InvalidJSON_Returns400(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", bytes.NewReader([]byte("not json")))
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		rr.Code)
 }
 
 func TestWebhookReceiver_HandlerError_Returns500(t *testing.T) {
@@ -141,10 +139,10 @@ func TestWebhookReceiver_HandlerError_Returns500(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+		rr.Code,
+	)
 }
 
 func TestWebhookReceiver_CollectAndPublish(t *testing.T) {
@@ -165,19 +163,16 @@ func TestWebhookReceiver_CollectAndPublish(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
+	require.Len(t, h.collected,
+		1)
+	require.Len(t, pub.calls,
+		1)
+	assert.Equal(t, "cdc:project:p1:job_runs",
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if len(h.collected) != 1 {
-		t.Fatalf("expected 1 collected message, got %d", len(h.collected))
-	}
-	if len(pub.calls) != 1 {
-		t.Fatalf("expected 1 published message, got %d", len(pub.calls))
-	}
-	if pub.calls[0].channel != "cdc:project:p1:job_runs" {
-		t.Errorf("unexpected channel: %s", pub.calls[0].channel)
-	}
+		pub.calls[0].channel)
 }
 
 func TestWebhookReceiver_PublishFailureStillAcksProjection(t *testing.T) {
@@ -200,16 +195,13 @@ func TestWebhookReceiver_PublishFailureStillAcksProjection(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 despite projection publish failure, got %d", rr.Code)
-	}
-	if len(h.collected) != 1 {
-		t.Fatalf("expected 1 collected message, got %d", len(h.collected))
-	}
-	if len(pub.calls) != 1 {
-		t.Fatalf("expected 1 publish attempt, got %d", len(pub.calls))
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
+	require.Len(t, h.collected,
+		1)
+	require.Len(t, pub.calls,
+		1)
 }
 
 func TestWebhookReceiver_PublishFailureStillRetriesAdditionalHandlerFailure(t *testing.T) {
@@ -234,13 +226,12 @@ func TestWebhookReceiver_PublishFailureStillRetriesAdditionalHandlerFailure(t *t
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for durable side-effect failure, got %d", rr.Code)
-	}
-	if len(sideEffect.handled) != 1 {
-		t.Fatalf("expected side-effect handler to run once, got %d", len(sideEffect.handled))
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+		rr.Code,
+	)
+	require.Len(t, sideEffect.
+		handled, 1)
 }
 
 func TestDeepSecWebhookReceiver_RejectsNonPost(t *testing.T) {
@@ -250,10 +241,9 @@ func TestDeepSecWebhookReceiver_RejectsNonPost(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/internal/cdc/webhook", nil)
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusMethodNotAllowed,
+		rr.Code)
 }
 
 func TestDeepSecWebhookReceiver_RejectsOversizedBody(t *testing.T) {
@@ -263,10 +253,10 @@ func TestDeepSecWebhookReceiver_RejectsOversizedBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", strings.NewReader(strings.Repeat("a", maxWebhookBodyBytes+1)))
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("expected 413, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusRequestEntityTooLarge,
+		rr.
+			Code)
 }
 
 func TestDeepSecWebhookReceiver_RejectsInvalidAction(t *testing.T) {
@@ -279,10 +269,9 @@ func TestDeepSecWebhookReceiver_RejectsInvalidAction(t *testing.T) {
 	}
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		rr.Code)
 }
 
 func TestDeepSecWebhookReceiver_RejectsReadAndEmptyActions(t *testing.T) {
@@ -304,10 +293,9 @@ func TestDeepSecWebhookReceiver_RejectsReadAndEmptyActions(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 			wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-			if rr.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d", rr.Code)
-			}
+			require.Equal(t, http.
+				StatusBadRequest,
+				rr.Code)
 		})
 	}
 }
@@ -330,28 +318,27 @@ func TestDeepSecWebhookReceiver_VerifiesHMACSignature(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("missing signature: got %d, want 401", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		rr.Code)
 
 	req = httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", bytes.NewReader(body))
 	req.Header.Set("X-Sequin-Signature", "sha256=bad")
 	rr = httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("bad signature: got %d, want 401", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		rr.Code)
 
 	req = httptest.NewRequest(http.MethodPost, "/internal/cdc/webhook", bytes.NewReader(body))
 	req.Header.Set("X-Sequin-Signature", signWebhookBody(secret, body))
 	rr = httptest.NewRecorder()
 	wr.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("valid signature: got %d, want 200", rr.Code)
-	}
-	if len(h.handled) != 1 {
-		t.Fatalf("handled = %d, want 1", len(h.handled))
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
+	require.Len(t, h.handled,
+		1)
 }
 
 func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) {
@@ -370,13 +357,12 @@ func TestDeepSecWebhookReceiver_SuppressesDuplicateIdempotencyKey(t *testing.T) 
 	for range 2 {
 		rr := httptest.NewRecorder()
 		wr.ServeHTTP(rr, makeWebhookRequest(msg))
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rr.Code)
-		}
+		require.Equal(t, http.
+			StatusOK, rr.Code,
+		)
 	}
-	if len(h.handled) != 1 {
-		t.Fatalf("handled duplicate count = %d, want 1", len(h.handled))
-	}
+	require.Len(t, h.handled,
+		1)
 }
 
 func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *testing.T) {
@@ -407,28 +393,28 @@ func TestDeepSecWebhookReceiver_SuppressesConcurrentDuplicateIdempotencyKey(t *t
 	select {
 	case <-h.entered:
 	case <-time.After(time.Second):
-		t.Fatal("first webhook did not enter handler")
+		require.Fail(t, "first webhook did not enter handler")
 	}
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("concurrent duplicate status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
 
 	close(h.release)
 	select {
 	case code := <-firstDone:
 		if code != http.StatusOK {
-			t.Fatalf("first webhook status = %d, want 200", code)
+			require.Failf(t, "test failure",
+
+				"first webhook status = %d, want 200", code)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("first webhook did not finish")
+		require.Fail(t, "first webhook did not finish")
 	}
-
-	if got := h.count.Load(); got != 1 {
-		t.Fatalf("handler count = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, h.
+		count.Load())
 }
 
 func TestDeepSecWebhookReceiver_DoesNotMarkFailedDeliverySeen(t *testing.T) {
@@ -446,19 +432,19 @@ func TestDeepSecWebhookReceiver_DoesNotMarkFailedDeliverySeen(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+		rr.Code,
+	)
 
 	h.err = nil
 	rr = httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected retry to process after failure, got %d", rr.Code)
-	}
-	if len(h.handled) != 2 {
-		t.Fatalf("handler attempts = %d, want 2", len(h.handled))
-	}
+	require.Equal(t, http.
+		StatusOK, rr.Code,
+	)
+	require.Len(t, h.handled,
+		2)
 }
 
 func TestDeepSecWebhookReceiver_AdditionalHandlerFailureRetriesDelivery(t *testing.T) {
@@ -477,8 +463,8 @@ func TestDeepSecWebhookReceiver_AdditionalHandlerFailureRetriesDelivery(t *testi
 	}
 	rr := httptest.NewRecorder()
 	wr.ServeHTTP(rr, makeWebhookRequest(msg))
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for side-effect failure, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusInternalServerError,
+		rr.Code,
+	)
 }

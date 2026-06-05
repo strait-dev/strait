@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestStreamAuditJSON_EmitsCapMarker verifies that the JSON streaming
@@ -36,26 +39,21 @@ func TestStreamAuditJSON_EmitsCapMarker(t *testing.T) {
 	var buf bytes.Buffer
 	exported, capped, err := srv.streamAuditJSON(context.Background(), &buf, nil, false,
 		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
-	if err != nil {
-		t.Fatalf("streamAuditJSON: %v", err)
-	}
-	if !capped {
-		t.Error("expected capped=true")
-	}
-	if exported != 5 {
-		t.Errorf("exported = %d, want 5", exported)
-	}
+	require.NoError(t, err)
+	assert.True(t, capped)
+	assert.Equal(t, 5, exported)
 
 	var parsed []map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
-		t.Fatalf("parse json: %v\nbody: %s", err, buf.String())
-	}
-	if len(parsed) != 6 {
-		t.Fatalf("parsed len = %d, want 6 (5 rows + cap marker)", len(parsed))
-	}
+	require.NoError(t, json.
+		Unmarshal(buf.Bytes(), &parsed))
+	require.Len(t, parsed,
+		6)
+
 	last := parsed[len(parsed)-1]
 	if capped, _ := last["_capped"].(bool); !capped {
-		t.Errorf("last element missing _capped marker: %v", last)
+		assert.Failf(t, "test failure",
+
+			"last element missing _capped marker: %v", last)
 	}
 }
 
@@ -82,15 +80,9 @@ func TestStreamAuditNDJSON_EmitsCapMarker(t *testing.T) {
 	var buf bytes.Buffer
 	exported, capped, err := srv.streamAuditNDJSON(context.Background(), &buf, nil, false,
 		"proj-1", "", "", time.Now().Add(-time.Hour), time.Now(), cap)
-	if err != nil {
-		t.Fatalf("streamAuditNDJSON: %v", err)
-	}
-	if !capped {
-		t.Error("expected capped=true")
-	}
-	if exported != 3 {
-		t.Errorf("exported = %d, want 3", exported)
-	}
+	require.NoError(t, err)
+	assert.True(t, capped)
+	assert.Equal(t, 3, exported)
 }
 
 // itoaBench is a local int-to-string helper.

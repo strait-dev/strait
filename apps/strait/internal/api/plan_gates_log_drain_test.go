@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // tunableLimitsEnforcer allows individual tests to override the plan limits
@@ -93,16 +96,13 @@ func TestCreateLogDrain_FreeTier_RejectsZeroCap(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "not available") {
-		t.Errorf("error message must say feature is not available, got: %s", w.Body.String())
-	}
-	if got := createCalls.Load(); got != 0 {
-		t.Errorf("CreateLogDrain called %d times before plan-gate rejection; want 0", got)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
+	assert.Contains(t,
+		w.Body.String(), "not available")
+	assert.EqualValues(t, 0, createCalls.
+		Load())
 }
 
 // TestCreateLogDrain_ProTier_BlocksAtCap verifies that on Pro (cap=5) the 6th
@@ -123,14 +123,15 @@ func TestCreateLogDrain_ProTier_BlocksAtCap(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "5 log drains") || !strings.Contains(body, "have 5") {
-		t.Errorf("error message must report cap and current count, got: %s", body)
-	}
+	assert.False(
+		t, !strings.Contains(body, "5 log drains") || !strings.Contains(body,
+			"have 5",
+		))
 }
 
 // TestCreateLogDrain_ProTier_BelowCap_Succeeds verifies that on Pro (cap=5)
@@ -152,10 +153,9 @@ func TestCreateLogDrain_ProTier_BelowCap_Succeeds(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
 }
 
 // TestCreateLogDrain_EnterpriseUnlimited_NoCountLookup verifies that an
@@ -179,13 +179,11 @@ func TestCreateLogDrain_EnterpriseUnlimited_NoCountLookup(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if got := countCalls.Load(); got != 0 {
-		t.Errorf("CountLogDrainsByOrg called %d times for unlimited tier; want 0", got)
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
+	assert.EqualValues(t, 0, countCalls.
+		Load())
 }
 
 // TestCreateLogDrain_NilEnforcer_FailsOpen confirms that community-edition
@@ -203,10 +201,9 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("nil enforcer must fail open; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code)
 }
 
 func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
@@ -214,11 +211,15 @@ func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CountLogDrainsByOrgFunc: func(_ context.Context, _ string) (int, error) {
-			t.Fatal("empty org lookup must fail before the count query")
+			require.Fail(t,
+
+				"empty org lookup must fail before the count query")
 			return 0, nil
 		},
 		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
-			t.Fatal("empty org lookup must fail before create")
+			require.Fail(t,
+
+				"empty org lookup must fail before create")
 			return nil
 		},
 	}
@@ -230,10 +231,10 @@ func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("empty org lookup must fail closed; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusServiceUnavailable,
+		w.Code,
+	)
 }
 
 // TestCreateLogDrain_CountQueryFails_FailsClosed ensures a transient store
@@ -254,8 +255,8 @@ func TestCreateLogDrain_CountQueryFails_FailsClosed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("count failure must fail closed; got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusServiceUnavailable,
+		w.Code,
+	)
 }

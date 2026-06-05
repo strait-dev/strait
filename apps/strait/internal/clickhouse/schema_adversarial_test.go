@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // CreateSchema error paths
@@ -16,21 +19,17 @@ func TestCreateSchema_FailsOnFirstTable(t *testing.T) {
 
 	client := newFailingClient(t)
 	err := CreateSchema(context.Background(), client)
-	if err == nil {
-		t.Fatal("expected error from CreateSchema with failing client")
-	}
-	if !strings.Contains(err.Error(), "create table") {
-		t.Errorf("expected 'create table' in error, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "create table")
 }
 
 func TestCreateSchema_CanceledContext(t *testing.T) {
 	t.Parallel()
 
 	db, dbErr := newOpenDB(t)
-	if dbErr != nil {
-		t.Fatal(dbErr)
-	}
+	require.NoError(t, dbErr)
+
 	defer db.Close()
 
 	client := &Client{db: db, logger: slog.Default()}
@@ -39,9 +38,7 @@ func TestCreateSchema_CanceledContext(t *testing.T) {
 	cancel()
 
 	err := CreateSchema(ctx, client)
-	if err == nil {
-		t.Fatal("expected error from CreateSchema with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestCreateSchema_ErrorMessageContainsTableName(t *testing.T) {
@@ -49,9 +46,7 @@ func TestCreateSchema_ErrorMessageContainsTableName(t *testing.T) {
 
 	client := newFailingClient(t)
 	err := CreateSchema(context.Background(), client)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, err)
 
 	// The error should wrap the table name for debuggability.
 	errMsg := err.Error()
@@ -88,12 +83,14 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	for _, d := range ddls {
 		t.Run(d.name, func(t *testing.T) {
 			t.Parallel()
-			if strings.TrimSpace(d.ddl) == "" {
-				t.Errorf("%s is empty", d.name)
-			}
-			if !strings.Contains(d.ddl, "IF NOT EXISTS") && !strings.Contains(d.ddl, "AS") {
-				t.Errorf("%s missing IF NOT EXISTS clause", d.name)
-			}
+			assert.NotEmpty(t, strings.TrimSpace(d.ddl))
+			assert.False(t, !strings.Contains(
+				d.ddl, "IF NOT EXISTS",
+			) &&
+				!strings.Contains(
+					d.
+						ddl,
+					"AS"))
 		})
 	}
 }
@@ -109,16 +106,15 @@ func TestSchemaDDL_DoesNotCreateRetiredModelUsageEvents(t *testing.T) {
 		"sum(total_tokens)",
 		"sum(cost_microusd) AS usage_cost_microusd",
 	} {
-		if strings.Contains(CostDailyTable, token) || strings.Contains(CostDailyMV, token) {
-			t.Fatalf("cost daily schema contains retired model usage token %q", token)
-		}
+		require.False(t, strings.Contains(
+			CostDailyTable,
+			token) ||
+			strings.Contains(CostDailyMV,
+
+				token))
 	}
-	if !strings.Contains(CostDailyMV, "FROM run_analytics") {
-		t.Fatal("cost daily materialized view must use run_analytics")
-	}
-	if !strings.Contains(CostDailyMV, "sum(compute_cost_microusd)") {
-		t.Fatal("cost daily materialized view must use compute cost")
-	}
+	require.Contains(t, CostDailyMV, "FROM run_analytics")
+	require.Contains(t, CostDailyMV, "sum(compute_cost_microusd)")
 }
 
 // Schema alterations are well-formed
@@ -126,13 +122,12 @@ func TestSchemaDDL_DoesNotCreateRetiredModelUsageEvents(t *testing.T) {
 func TestSchemaAlterations_AreIdempotent(t *testing.T) {
 	t.Parallel()
 
-	for i, alt := range schemaAlterations {
-		if alt.table == "" {
-			t.Errorf("alteration %d has empty table name", i)
-		}
-		if !strings.Contains(alt.ddl, "ADD COLUMN IF NOT EXISTS") {
-			t.Errorf("alteration %d for table %q is not idempotent (missing IF NOT EXISTS): %s", i, alt.table, alt.ddl)
-		}
+	for _, alt := range schemaAlterations {
+		assert.NotEmpty(t, alt.
+			table)
+		assert.Contains(t, alt.
+			ddl, "ADD COLUMN IF NOT EXISTS",
+		)
 	}
 }
 
@@ -140,21 +135,24 @@ func TestSchemaDDL_UsesRedactedLongLivedAnalyticsColumns(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []string{"message String", "metadata String", "webhook_url String"} {
-		if strings.Contains(RunEventsTable, raw) || strings.Contains(WebhookDeliveryEventsTable, raw) {
-			t.Fatalf("schema still declares raw sensitive analytics column %q", raw)
-		}
+		require.False(t, strings.Contains(
+			RunEventsTable,
+			raw) ||
+			strings.Contains(WebhookDeliveryEventsTable,
+
+				raw))
 	}
 	for _, safe := range []string{"message_class LowCardinality(String)", "metadata_redacted String DEFAULT '{}'", "webhook_host String"} {
-		if !strings.Contains(RunEventsTable, safe) && !strings.Contains(WebhookDeliveryEventsTable, safe) {
-			t.Fatalf("schema missing safe analytics column %q", safe)
-		}
+		require.False(t, !strings.Contains(RunEventsTable,
+			safe) &&
+			!strings.Contains(WebhookDeliveryEventsTable,
+
+				safe,
+			),
+		)
 	}
-	if strings.Contains(WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_url") {
-		t.Fatal("webhook analytics table still orders by raw webhook_url")
-	}
-	if !strings.Contains(WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_host") {
-		t.Fatal("webhook analytics table does not order by redacted webhook_host")
-	}
+	require.NotContains(t, WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_url")
+	require.Contains(t, WebhookDeliveryEventsTable, "ORDER BY (project_id, webhook_host")
 }
 
 func TestSchemaAlterations_AddRedactedAnalyticsColumns(t *testing.T) {
@@ -172,9 +170,7 @@ func TestSchemaAlterations_AddRedactedAnalyticsColumns(t *testing.T) {
 			}
 		}
 	}
-	for prefix, found := range required {
-		if !found {
-			t.Fatalf("schema alterations missing %q", prefix)
-		}
+	for _, found := range required {
+		require.True(t, found)
 	}
 }

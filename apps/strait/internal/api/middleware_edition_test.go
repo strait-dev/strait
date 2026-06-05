@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequireCloudEdition_Community(t *testing.T) {
@@ -18,24 +21,22 @@ func TestRequireCloudEdition_Community(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
-
-	if rr.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402, got %d", rr.Code)
-	}
+	require.Equal(t, http.
+		StatusPaymentRequired,
+		rr.Code,
+	)
 
 	var body map[string]string
-	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body["error"] != "this feature requires Strait Cloud" {
-		t.Errorf("unexpected error message: %s", body["error"])
-	}
-	if body["edition"] != "community" {
-		t.Errorf("unexpected edition: %s", body["edition"])
-	}
-	if body["upgrade"] != "https://strait.dev/pricing" {
-		t.Errorf("unexpected upgrade URL: %s", body["upgrade"])
-	}
+	require.NoError(t,
+		json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, "this feature requires Strait Cloud",
+
+		body["error"])
+	assert.Equal(t, "community",
+		body["edition"])
+	assert.Equal(t, "https://strait.dev/pricing",
+
+		body["upgrade"])
 }
 
 func TestRequireCloudEdition_Cloud(t *testing.T) {
@@ -49,11 +50,8 @@ func TestRequireCloudEdition_Cloud(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-	if !called {
-		t.Fatal("next handler was not called for cloud edition")
-	}
+	require.Equal(t, http.
+		StatusOK,
+		rr.Code)
+	require.True(t, called)
 }

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCanonicalizeIdempotencyPath is the unit-level table for the
@@ -37,9 +39,9 @@ func TestCanonicalizeIdempotencyPath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := canonicalizeIdempotencyPath(tc.in); got != tc.want {
-				t.Fatalf("canonicalizeIdempotencyPath(%q) = %q, want %q", tc.in, got, tc.want)
-			}
+			require.Equal(t, tc.want,
+				canonicalizeIdempotencyPath(
+					tc.in))
 		})
 	}
 }
@@ -93,13 +95,10 @@ func TestIdempotencyKeySurvivesPathCosmetics(t *testing.T) {
 
 			mu.Lock()
 			defer mu.Unlock()
-			if len(acquireKeys) != 2 {
-				t.Fatalf("acquire calls = %d, want 2", len(acquireKeys))
-			}
-			if acquireKeys[0] != acquireKeys[1] {
-				t.Fatalf("paths %q and %q must canonicalize to the same composite key, got %q vs %q",
-					pair[0], pair[1], acquireKeys[0], acquireKeys[1])
-			}
+			require.Len(t,
+				acquireKeys,
+				2)
+			require.Equal(t, acquireKeys[1], acquireKeys[0])
 		})
 	}
 }
@@ -150,13 +149,10 @@ func TestIdempotencyKeyDistinguishesDifferentResources(t *testing.T) {
 
 			mu.Lock()
 			defer mu.Unlock()
-			if len(acquireKeys) != 2 {
-				t.Fatalf("acquire calls = %d, want 2", len(acquireKeys))
-			}
-			if acquireKeys[0] == acquireKeys[1] {
-				t.Fatalf("distinct paths %q and %q produced identical composite key %q",
-					pair[0], pair[1], acquireKeys[0])
-			}
+			require.Len(t,
+				acquireKeys,
+				2)
+			require.NotEqual(t, acquireKeys[1], acquireKeys[0])
 		})
 	}
 }

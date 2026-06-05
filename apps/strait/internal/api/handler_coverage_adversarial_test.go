@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // 1. handleProjectActivityStream (SSE streaming)
@@ -31,10 +32,9 @@ func TestHandlerActivityStream_MissingProjectID(t *testing.T) {
 	r := authedRequest(http.MethodGet, "/v1/projects//activity/stream/", "")
 	// Manually invoke the handler without chi routing so projectID is empty.
 	srv.handleProjectActivityStream(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing projectID, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerActivityStream_NoPubSub(t *testing.T) {
@@ -50,17 +50,18 @@ func TestHandlerActivityStream_NoPubSub(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	srv.handleProjectActivityStream(w, r)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 when pubsub is nil, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerActivityStream_EnvironmentScopedCallerRejectedBeforeSubscribe(t *testing.T) {
 	t.Parallel()
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("environment-scoped activity stream must be rejected before subscribing")
+			require.Fail(t,
+
+				"environment-scoped activity stream must be rejected before subscribing")
 			return nil, nil
 		},
 	}
@@ -76,20 +77,21 @@ func TestHandlerActivityStream_EnvironmentScopedCallerRejectedBeforeSubscribe(t 
 	r = r.WithContext(ctx)
 
 	srv.handleProjectActivityStream(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for environment-scoped activity stream, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "project-wide key") {
-		t.Fatalf("expected project-wide key error, got: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.
+			Code)
+	require.Contains(
+		t, w.Body.
+			String(), "project-wide key")
 }
 
 func TestHandlerActivityStream_RequiresWorkflowAndJobReadScopes(t *testing.T) {
 	t.Parallel()
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("activity stream must not subscribe before all stream scopes are authorized")
+			require.Fail(t,
+
+				"activity stream must not subscribe before all stream scopes are authorized")
 			return nil, nil
 		},
 	}
@@ -117,10 +119,9 @@ func TestHandlerActivityStream_RequiresWorkflowAndJobReadScopes(t *testing.T) {
 			r = r.WithContext(ctx)
 
 			handler.ServeHTTP(w, r)
-
-			if w.Code != http.StatusForbidden {
-				t.Fatalf("status = %d, want 403; body: %s", w.Code, w.Body.String())
-			}
+			require.Equal(t, http.StatusForbidden,
+				w.
+					Code)
 		})
 	}
 }
@@ -146,14 +147,13 @@ func TestHandlerActivityStream_SubscribeError(t *testing.T) {
 	// Cancel immediately so the handler exits its event loop after subscribe attempts.
 	cancel()
 	srv.handleProjectActivityStream(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "text/event-stream",
+		w.
+			Header().Get("Content-Type"))
 
 	// Handler sets SSE headers and flushes 200 even when subscribes fail.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE headers already sent), got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("expected Content-Type text/event-stream, got %s", ct)
-	}
 }
 
 func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
@@ -190,12 +190,10 @@ func TestHandlerActivityStream_ReceivesMessage(t *testing.T) {
 	srv.handleProjectActivityStream(w, r)
 
 	body := w.Body.String()
-	if !strings.Contains(body, "event: activity") {
-		t.Fatalf("expected SSE activity event in body, got: %s", body)
-	}
-	if !strings.Contains(body, `{"type":"run_completed"}`) {
-		t.Fatalf("expected message payload in body, got: %s", body)
-	}
+	require.Contains(
+		t, body, "event: activity")
+	require.Contains(
+		t, body, `{"type":"run_completed"}`)
 }
 
 // 2. handleRollbackDeploymentVersion
@@ -218,17 +216,13 @@ func TestHandlerRollbackDeploymentVersion_HappyPath(t *testing.T) {
 	body := `{"project_id":"proj-1","environment":"production"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "dep-1" {
-		t.Fatalf("expected id=dep-1, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "dep-1", resp["id"])
 }
 
 func TestHandlerRollbackDeploymentVersion_MissingProjectID(t *testing.T) {
@@ -238,10 +232,9 @@ func TestHandlerRollbackDeploymentVersion_MissingProjectID(t *testing.T) {
 	body := `{"environment":"production"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing project_id, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerRollbackDeploymentVersion_MissingEnvironment(t *testing.T) {
@@ -251,10 +244,9 @@ func TestHandlerRollbackDeploymentVersion_MissingEnvironment(t *testing.T) {
 	body := `{"project_id":"proj-1"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing environment, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerRollbackDeploymentVersion_NotFound(t *testing.T) {
@@ -269,10 +261,9 @@ func TestHandlerRollbackDeploymentVersion_NotFound(t *testing.T) {
 	body := `{"project_id":"proj-1","environment":"production"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-404/rollback", body))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerRollbackDeploymentVersion_StoreError(t *testing.T) {
@@ -287,10 +278,9 @@ func TestHandlerRollbackDeploymentVersion_StoreError(t *testing.T) {
 	body := `{"project_id":"proj-1","environment":"production"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerRollbackDeploymentVersion_MalformedJSON(t *testing.T) {
@@ -299,10 +289,9 @@ func TestHandlerRollbackDeploymentVersion_MalformedJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/deployments/dep-1/rollback", `{broken`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // 3. handleGetJobVersion
@@ -324,17 +313,13 @@ func TestHandlerGetJobVersion_HappyPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/versions/ver-1", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "ver-1" {
-		t.Fatalf("expected id=ver-1, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "ver-1", resp["id"])
 }
 
 func TestHandlerGetJobVersion_VersionNotFound(t *testing.T) {
@@ -348,10 +333,9 @@ func TestHandlerGetJobVersion_VersionNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/versions/ver-missing", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerGetJobVersion_JobIDMismatch(t *testing.T) {
@@ -368,10 +352,9 @@ func TestHandlerGetJobVersion_JobIDMismatch(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/versions/ver-1", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for job ID mismatch, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerGetJobVersion_StoreError(t *testing.T) {
@@ -385,10 +368,9 @@ func TestHandlerGetJobVersion_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/versions/ver-1", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // 4. handleListNotificationDeliveries
@@ -397,9 +379,8 @@ func TestHandlerListNotificationDeliveries_HappyPath(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListNotificationDeliveriesFunc: func(_ context.Context, projectID string, limit int, cursor *time.Time) ([]domain.NotificationDelivery, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("unexpected project_id: %s", projectID)
-			}
+			require.Equal(t, "proj-1", projectID)
+
 			return []domain.NotificationDelivery{
 				{ID: "del-1", ProjectID: projectID, Status: "delivered"},
 			}, nil
@@ -409,17 +390,15 @@ func TestHandlerListNotificationDeliveries_HappyPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-deliveries", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp) != 1 || resp[0]["id"] != "del-1" {
-		t.Fatalf("unexpected response: %v", resp)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.False(t, len(resp) !=
+		1 || resp[0]["id"] != "del-1",
+	)
 }
 
 func TestHandlerListNotificationDeliveries_MissingProjectID(t *testing.T) {
@@ -429,10 +408,9 @@ func TestHandlerListNotificationDeliveries_MissingProjectID(t *testing.T) {
 	w := httptest.NewRecorder()
 	// No X-Project-Id header.
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/notification-deliveries", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing project_id, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerListNotificationDeliveries_StoreError(t *testing.T) {
@@ -446,10 +424,9 @@ func TestHandlerListNotificationDeliveries_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/notification-deliveries", "", "proj-1"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
@@ -469,16 +446,10 @@ func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
 	url := fmt.Sprintf("/v1/notification-deliveries?limit=10&cursor=%s", cursorTime.Format(time.RFC3339Nano))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, url, "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if gotLimit != 10 {
-		t.Fatalf("expected limit=10, got %d", gotLimit)
-	}
-	if gotCursor == nil {
-		t.Fatal("expected non-nil cursor")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, 10, gotLimit)
+	require.NotNil(t, gotCursor)
 }
 
 // 6. handleRunChunkStream (SSE streaming)
@@ -513,10 +484,9 @@ func TestHandlerRunChunkStream_RunNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequest("missing"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerRunChunkStream_TerminalRun(t *testing.T) {
@@ -533,10 +503,9 @@ func TestHandlerRunChunkStream_TerminalRun(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequest("run-done"))
-
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusGone,
+		w.Code,
+	)
 }
 
 func TestHandlerRunChunkStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
@@ -554,7 +523,9 @@ func TestHandlerRunChunkStream_EnvironmentScopedCallerCannotStreamForeignEnviron
 	}
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("mismatched environment must be rejected before subscribing")
+			require.Fail(t,
+
+				"mismatched environment must be rejected before subscribing")
 			return nil, nil
 		},
 	}
@@ -562,10 +533,9 @@ func TestHandlerRunChunkStream_EnvironmentScopedCallerCannotStreamForeignEnviron
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequestForEnvironment("run-1", "env-prod"))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerRunChunkStream_NoPubSub(t *testing.T) {
@@ -582,14 +552,12 @@ func TestHandlerRunChunkStream_NoPubSub(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE headers), got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "streaming not available") {
-		t.Fatalf("expected streaming not available error in SSE body, got: %s", body)
-	}
+	require.Contains(
+		t, body, "streaming not available")
 }
 
 func TestHandlerRunChunkStream_StoreError(t *testing.T) {
@@ -603,10 +571,9 @@ func TestHandlerRunChunkStream_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerRunChunkStream_SubscribeError(t *testing.T) {
@@ -628,14 +595,12 @@ func TestHandlerRunChunkStream_SubscribeError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE), got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, "failed to subscribe") {
-		t.Fatalf("expected subscribe error in SSE body, got: %s", body)
-	}
+	require.Contains(
+		t, body, "failed to subscribe")
 }
 
 func TestHandlerRunChunkStream_ReceivesMessage(t *testing.T) {
@@ -654,9 +619,11 @@ func TestHandlerRunChunkStream_ReceivesMessage(t *testing.T) {
 	_, subCancel := context.WithCancel(context.Background())
 	pub := &mockPublisher{
 		subscribeFn: func(_ context.Context, channel string) (*pubsub.Subscription, error) {
-			if !strings.HasPrefix(channel, "run_stream:") {
-				t.Fatalf("unexpected channel: %s", channel)
-			}
+			require.True(
+				t, strings.HasPrefix(channel,
+					"run_stream:",
+				))
+
 			return pubsub.NewSubscription(dataCh, subCancel), nil
 		},
 	}
@@ -678,9 +645,9 @@ func TestHandlerRunChunkStream_ReceivesMessage(t *testing.T) {
 	srv.handleRunChunkStream(w, r)
 
 	body := w.Body.String()
-	if !strings.Contains(body, `{"chunk":"hello"}`) {
-		t.Fatalf("expected chunk in SSE data, got: %s", body)
-	}
+	require.Contains(
+		t, body, `{"chunk":"hello"}`,
+	)
 }
 
 // 7. handleBulkReplayWorkflowRuns
@@ -735,17 +702,13 @@ func TestHandlerBulkReplayWorkflowRuns_HappyPath(t *testing.T) {
 	body := `{"workflow_run_ids":["wr-1","wr-2"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["replayed"].(float64)) != 2 {
-		t.Fatalf("expected replayed=2, got %v", resp["replayed"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, 2, int(resp["replayed"].(float64)))
 }
 
 func TestHandlerBulkReplayWorkflowRuns_EmptyIDs(t *testing.T) {
@@ -756,10 +719,9 @@ func TestHandlerBulkReplayWorkflowRuns_EmptyIDs(t *testing.T) {
 	body := `{"workflow_run_ids":[]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for empty IDs, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerBulkReplayWorkflowRuns_NoWorkflowEngine(t *testing.T) {
@@ -769,10 +731,9 @@ func TestHandlerBulkReplayWorkflowRuns_NoWorkflowEngine(t *testing.T) {
 	body := `{"workflow_run_ids":["wr-1"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerBulkReplayWorkflowRuns_PartialFailure(t *testing.T) {
@@ -795,20 +756,14 @@ func TestHandlerBulkReplayWorkflowRuns_PartialFailure(t *testing.T) {
 	body := `{"workflow_run_ids":["wr-1","wr-bad","wr-2"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if int(resp["replayed"].(float64)) != 2 {
-		t.Fatalf("expected replayed=2, got %v", resp["replayed"])
-	}
-	if int(resp["total"].(float64)) != 3 {
-		t.Fatalf("expected total=3, got %v", resp["total"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, 2, int(resp["replayed"].(float64)))
+	require.Equal(t, 3, int(resp["total"].(float64)))
 }
 
 func TestHandlerBulkReplayWorkflowRuns_MalformedJSON(t *testing.T) {
@@ -818,10 +773,9 @@ func TestHandlerBulkReplayWorkflowRuns_MalformedJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", `{broken`, "proj-1"))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerBulkReplayWorkflowRuns_MissingField(t *testing.T) {
@@ -832,10 +786,9 @@ func TestHandlerBulkReplayWorkflowRuns_MissingField(t *testing.T) {
 	body := `{}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/workflow-runs/bulk-replay", body, "proj-1"))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for missing workflow_run_ids, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // 8. handleCheckOrgLimit
@@ -903,17 +856,13 @@ func TestHandlerCheckOrgLimit_HappyPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1&plan_tier=free", ""))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["status"] != "allowed" {
-		t.Fatalf("expected status=allowed, got %v", resp["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "allowed", resp["status"])
 }
 
 func TestHandlerCheckOrgLimit_MissingUserID(t *testing.T) {
@@ -923,10 +872,9 @@ func TestHandlerCheckOrgLimit_MissingUserID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?plan_tier=free", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing user_id, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerCheckOrgLimit_DefaultsToFreeTier(t *testing.T) {
@@ -943,13 +891,11 @@ func TestHandlerCheckOrgLimit_DefaultsToFreeTier(t *testing.T) {
 	w := httptest.NewRecorder()
 	// No plan_tier parameter.
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedTier != domain.PlanFree {
-		t.Fatalf("expected plan_tier to default to free, got %s", capturedTier)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, domain.PlanFree,
+		capturedTier,
+	)
 }
 
 func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
@@ -969,21 +915,21 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1&plan_tier=free", ""))
+	require.Equal(t, http.StatusPaymentRequired,
 
-	if w.Code != http.StatusPaymentRequired {
-		t.Fatalf("expected 402 for limit exceeded, got %d: %s", w.Code, w.Body.String())
-	}
+		w.
+			Code)
 
 	var resp QuotaExceededBody
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Code != "quota_exceeded" {
-		t.Fatalf("expected code 'quota_exceeded', got %q", resp.Code)
-	}
-	if resp.Kind != "org_limit_exceeded" {
-		t.Fatalf("expected kind 'org_limit_exceeded', got %q", resp.Kind)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Equal(t, "quota_exceeded",
+		resp.
+			Code)
+	require.Equal(t, "org_limit_exceeded",
+		resp.
+			Kind,
+	)
 }
 
 func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
@@ -993,10 +939,8 @@ func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandlerCheckOrgLimit_CloudNoBillingEnforcerFailsClosed(t *testing.T) {
@@ -1007,10 +951,9 @@ func TestHandlerCheckOrgLimit_CloudNoBillingEnforcerFailsClosed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerCheckOrgLimit_StoreError(t *testing.T) {
@@ -1024,10 +967,9 @@ func TestHandlerCheckOrgLimit_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // 9. handleListRunState
@@ -1039,9 +981,8 @@ func TestHandlerListRunState_HappyPath(t *testing.T) {
 			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
 		},
 		ListRunStateFunc: func(_ context.Context, runID string) ([]domain.RunState, error) {
-			if runID != "run-1" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-1", runID)
+
 			return []domain.RunState{
 				{RunID: runID, StateKey: "key1", Value: json.RawMessage(`"val1"`)},
 				{RunID: runID, StateKey: "key2", Value: json.RawMessage(`42`)},
@@ -1052,17 +993,14 @@ func TestHandlerListRunState_HappyPath(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/state", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	var resp []map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(resp))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp))
+	require.Len(t,
+		resp, 2)
 }
 
 func TestHandlerListRunState_StoreError(t *testing.T) {
@@ -1079,10 +1017,9 @@ func TestHandlerListRunState_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/state", "", "proj-1"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerListRunState_EmptyResult(t *testing.T) {
@@ -1099,10 +1036,8 @@ func TestHandlerListRunState_EmptyResult(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/state", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // 10. handleSDKDeleteMemory
@@ -1126,16 +1061,13 @@ func TestHandlerSDKDeleteMemory_HappyPath(t *testing.T) {
 	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-1/memory/cache-key", "run-1", "")
 	chi.RouteContext(r.Context()).URLParams.Add("key", "cache-key")
 	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteMemory)(w, r)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedJobID != "job-1" {
-		t.Fatalf("expected jobID=job-1, got %s", deletedJobID)
-	}
-	if deletedKey != "cache-key" {
-		t.Fatalf("expected key=cache-key, got %s", deletedKey)
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.
+			Code)
+	require.Equal(t, "job-1", deletedJobID)
+	require.Equal(t, "cache-key",
+		deletedKey,
+	)
 }
 
 func TestHandlerSDKDeleteMemory_RunNotFound(t *testing.T) {
@@ -1151,10 +1083,9 @@ func TestHandlerSDKDeleteMemory_RunNotFound(t *testing.T) {
 	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-missing/memory/k", "run-missing", "")
 	chi.RouteContext(r.Context()).URLParams.Add("key", "k")
 	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteMemory)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandlerSDKDeleteMemory_GetRunStoreError(t *testing.T) {
@@ -1170,10 +1101,9 @@ func TestHandlerSDKDeleteMemory_GetRunStoreError(t *testing.T) {
 	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-1/memory/k", "run-1", "")
 	chi.RouteContext(r.Context()).URLParams.Add("key", "k")
 	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteMemory)(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandlerSDKDeleteMemory_DeleteStoreError(t *testing.T) {
@@ -1192,10 +1122,9 @@ func TestHandlerSDKDeleteMemory_DeleteStoreError(t *testing.T) {
 	r := sdkRequest(t, http.MethodDelete, "/sdk/v1/runs/run-1/memory/k", "run-1", "")
 	chi.RouteContext(r.Context()).URLParams.Add("key", "k")
 	TypedHandler(srv, http.StatusNoContent, srv.handleSDKDeleteMemory)(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 // 11. orgAdvisoryLockID (pure function)
@@ -1204,18 +1133,14 @@ func TestHandlerOrgAdvisoryLockID_Deterministic(t *testing.T) {
 	t.Parallel()
 	id1 := orgAdvisoryLockID("org-1")
 	id2 := orgAdvisoryLockID("org-1")
-	if id1 != id2 {
-		t.Fatalf("expected deterministic result, got %d and %d", id1, id2)
-	}
+	require.Equal(t, id2, id1)
 }
 
 func TestHandlerOrgAdvisoryLockID_DifferentOrgsProduceDifferentIDs(t *testing.T) {
 	t.Parallel()
 	id1 := orgAdvisoryLockID("org-alpha")
 	id2 := orgAdvisoryLockID("org-beta")
-	if id1 == id2 {
-		t.Fatalf("expected different IDs for different org IDs, both got %d", id1)
-	}
+	require.NotEqual(t, id2, id1)
 }
 
 func TestHandlerOrgAdvisoryLockID_EmptyString(t *testing.T) {
@@ -1241,9 +1166,7 @@ func TestHandlerOrgAdvisoryLockID_SpecialCharacters(t *testing.T) {
 	t.Parallel()
 	id1 := orgAdvisoryLockID("org/with/slashes")
 	id2 := orgAdvisoryLockID("org-with-dashes")
-	if id1 == id2 {
-		t.Fatalf("expected different IDs for different org strings, both got %d", id1)
-	}
+	require.NotEqual(t, id2, id1)
 }
 
 func TestHandlerOrgAdvisoryLockID_UnicodeOrgID(t *testing.T) {

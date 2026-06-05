@@ -7,6 +7,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCompleteCapturesHandlerHeaders pins the contract that the handler
@@ -61,26 +64,26 @@ func TestCompleteCapturesHandlerHeaders(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !completeHit {
-		t.Fatal("CompleteIdempotencyKey was not invoked")
-	}
-	if gotStatus != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", gotStatus)
-	}
-	if string(gotBody) != "<ok/>" {
-		t.Fatalf("body = %q, want <ok/>", gotBody)
-	}
-	if got := gotHeaders.Get("Content-Type"); got != "application/xml" {
-		t.Fatalf("Content-Type = %q, want application/xml", got)
-	}
-	if got := gotHeaders.Get("Location"); got != "/v1/jobs/abc" {
-		t.Fatalf("Location = %q, want /v1/jobs/abc", got)
-	}
-	if got := gotHeaders.Get("X-Custom"); got != "alpha" {
-		t.Fatalf("X-Custom = %q, want alpha", got)
-	}
+	require.True(
+		t, completeHit,
+	)
+	require.Equal(t, http.StatusCreated,
+		gotStatus,
+	)
+	require.Equal(t, "<ok/>",
+		string(gotBody))
+	require.Equal(t, "application/xml",
+		gotHeaders.
+			Get("Content-Type"))
+	require.Equal(t, "/v1/jobs/abc",
+		gotHeaders.Get("Location"))
+	require.Equal(t, "alpha",
+		gotHeaders.Get("X-Custom"))
+
 	if got := gotHeaders.Values("Set-Cookie"); len(got) != 2 || got[0] != "session=1" || got[1] != "csrf=2" {
-		t.Fatalf("Set-Cookie = %v, want [session=1 csrf=2]", got)
+		require.Failf(t, "test failure",
+
+			"Set-Cookie = %v, want [session=1 csrf=2]", got)
 	}
 }
 
@@ -126,12 +129,10 @@ func TestCompleteSnapshotsHeadersAtWriteHeader(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if got := gotHeaders.Get("X-Snapshot-State"); got != "before" {
-		t.Fatalf("X-Snapshot-State = %q, want before (snapshot must be taken at WriteHeader)", got)
-	}
-	if got := gotHeaders.Get("X-Late"); got != "" {
-		t.Fatalf("X-Late = %q, want empty (post-WriteHeader mutation must not leak)", got)
-	}
+	require.Equal(t, "before",
+		gotHeaders.Get("X-Snapshot-State"))
+	require.Empty(t, gotHeaders.
+		Get("X-Late"))
 }
 
 // TestReplayWritesCachedHeadersVerbatim verifies that a "completed"
@@ -158,7 +159,9 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	handler := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler must not run on replay")
+		assert.Fail(t,
+
+			"handler must not run on replay")
 	})
 	wrapped := srv.idempotencyMiddleware(handler)
 
@@ -167,31 +170,27 @@ func TestReplayWritesCachedHeadersVerbatim(t *testing.T) {
 	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.Equal(t, "application/xml",
+		w.Header().
+			Get("Content-Type"))
+	require.Equal(t, "/v1/runs/xyz",
+		w.Header().Get("Location"))
+	require.Equal(t, `"v1"`,
+		w.Header().Get("Etag"))
+	require.Equal(t, "hello",
+		w.Header().Get("X-Custom-Header"))
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", w.Code)
-	}
-	if got := w.Header().Get("Content-Type"); got != "application/xml" {
-		t.Fatalf("Content-Type = %q, want application/xml", got)
-	}
-	if got := w.Header().Get("Location"); got != "/v1/runs/xyz" {
-		t.Fatalf("Location = %q, want /v1/runs/xyz", got)
-	}
-	if got := w.Header().Get("Etag"); got != `"v1"` {
-		t.Fatalf("Etag = %q, want \"v1\"", got)
-	}
-	if got := w.Header().Get("X-Custom-Header"); got != "hello" {
-		t.Fatalf("X-Custom-Header = %q, want hello", got)
-	}
 	if got := w.Header().Values("Set-Cookie"); len(got) != 2 || got[0] != "session=abc" || got[1] != "csrf=def" {
-		t.Fatalf("Set-Cookie = %v, want [session=abc csrf=def]", got)
+		require.Failf(t, "test failure",
+
+			"Set-Cookie = %v, want [session=abc csrf=def]", got)
 	}
-	if got := w.Header().Get("Idempotency-Replayed"); got != "true" {
-		t.Fatalf("Idempotency-Replayed = %q, want true", got)
-	}
-	if got := w.Body.String(); got != "<replay/>" {
-		t.Fatalf("body = %q, want <replay/>", got)
-	}
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
+	require.Equal(t, "<replay/>",
+		w.Body.String())
 }
 
 // TestReplayLegacyRowFallsBackToJSON regresses the migration safety
@@ -210,7 +209,9 @@ func TestReplayLegacyRowFallsBackToJSON(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler must not run on replay")
+		assert.Fail(t,
+
+			"handler must not run on replay")
 	}))
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
@@ -218,19 +219,14 @@ func TestReplayLegacyRowFallsBackToJSON(t *testing.T) {
 	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	if got := w.Header().Get("Content-Type"); got != "application/json" {
-		t.Fatalf("Content-Type = %q, want application/json (legacy fallback)", got)
-	}
-	if got := w.Header().Get("Idempotency-Replayed"); got != "true" {
-		t.Fatalf("Idempotency-Replayed = %q, want true", got)
-	}
-	if got := w.Body.String(); got != `{"legacy":true}` {
-		t.Fatalf("body = %q, want legacy JSON", got)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "application/json",
+		w.Header().Get("Content-Type"))
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
+	require.Equal(t, `{"legacy":true}`,
+		w.Body.String())
 }
 
 // TestReplayDoesNotEmitContentTypeWhenCachedHasNone is the adversarial
@@ -251,7 +247,9 @@ func TestReplayDoesNotEmitContentTypeWhenCachedHasNone(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	wrapped := srv.idempotencyMiddleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("handler must not run on replay")
+		assert.Fail(t,
+
+			"handler must not run on replay")
 	}))
 
 	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", nil)
@@ -259,17 +257,11 @@ func TestReplayDoesNotEmitContentTypeWhenCachedHasNone(t *testing.T) {
 	r = r.WithContext(idempotencyTestCtx(r.Context(), "proj-1"))
 	w := httptest.NewRecorder()
 	wrapped.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", w.Code)
-	}
-	if got := w.Header().Get("Content-Type"); got != "" {
-		t.Fatalf("Content-Type = %q, want empty (cache had none, must not fabricate)", got)
-	}
-	if got := w.Header().Get("X-Custom"); got != "yes" {
-		t.Fatalf("X-Custom = %q, want yes", got)
-	}
-	if got := w.Header().Get("Idempotency-Replayed"); got != "true" {
-		t.Fatalf("Idempotency-Replayed = %q, want true", got)
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code)
+	require.Empty(t, w.Header().Get("Content-Type"))
+	require.Equal(t, "yes", w.
+		Header().Get("X-Custom"))
+	require.Equal(t, "true",
+		w.Header().Get("Idempotency-Replayed"))
 }

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExporter_Start_PanicRecovery(t *testing.T) {
@@ -39,7 +41,7 @@ func TestExporter_Start_PanicRecovery(t *testing.T) {
 	case <-exporter.done:
 		// success
 	case <-time.After(2 * time.Second):
-		t.Fatal("exporter did not stop after context cancel")
+		require.Fail(t, "exporter did not stop after context cancel")
 	}
 }
 
@@ -86,7 +88,7 @@ func TestExporter_StopWithoutStart_DoesNotDeadlock(t *testing.T) {
 	case <-done:
 		// success: Stop returned without deadlock
 	case <-time.After(1 * time.Second):
-		t.Fatal("Stop() without Start() deadlocked (did not return within 1 second)")
+		require.Fail(t, "Stop() without Start() deadlocked (did not return within 1 second)")
 	}
 }
 
@@ -112,10 +114,8 @@ func TestExporter_EnqueuesNewRecordTypes(t *testing.T) {
 		ProjectID: "proj-1",
 		Slug:      "my-job",
 	})
-
-	if exporter.PendingCount() != 2 {
-		t.Errorf("expected 2 pending records, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 2, exporter.
+		PendingCount())
 }
 
 func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
@@ -130,10 +130,8 @@ func TestExporter_InsertBatch_UnknownType_Warns(t *testing.T) {
 	exporter.Enqueue("unknown-type-string")
 
 	exporter.flush(context.Background())
-
-	if exporter.PendingCount() != 0 {
-		t.Errorf("expected 0 pending after flush, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 0, exporter.
+		PendingCount())
 }
 
 func TestExporter_EnqueuesEventTriggerEvent(t *testing.T) {
@@ -157,10 +155,8 @@ func TestExporter_EnqueuesEventTriggerEvent(t *testing.T) {
 		CreatedAt:      now,
 		ReceivedAt:     &now,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
@@ -185,10 +181,8 @@ func TestExporter_EnqueuesWorkflowRunAnalytics(t *testing.T) {
 		StartedAt:     &now,
 		FinishedAt:    &now,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_EnqueuesWorkflowStepAnalytics(t *testing.T) {
@@ -215,10 +209,8 @@ func TestExporter_EnqueuesWorkflowStepAnalytics(t *testing.T) {
 		StartedAt:     &now,
 		FinishedAt:    &now,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
@@ -245,10 +237,8 @@ func TestExporter_EnqueuesWebhookDeliveryEvent(t *testing.T) {
 		CreatedAt:      now,
 		DeliveredAt:    &now,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_NilExporter_NoPanic(t *testing.T) {
@@ -258,12 +248,8 @@ func TestExporter_NilExporter_NoPanic(t *testing.T) {
 	// All methods must be safe on nil receiver.
 	exporter.Start(context.Background())
 	exporter.Stop()
-	if got := exporter.Enqueue(RunEventRecord{}); got {
-		t.Error("expected Enqueue to return false on nil exporter")
-	}
-	if got := exporter.PendingCount(); got != 0 {
-		t.Errorf("expected PendingCount 0 on nil exporter, got %d", got)
-	}
+	assert.False(t, exporter.Enqueue(RunEventRecord{}))
+	assert.Equal(t, 0, exporter.PendingCount())
 }
 
 func TestExporter_EnqueuesBillingEvent(t *testing.T) {
@@ -281,10 +267,8 @@ func TestExporter_EnqueuesBillingEvent(t *testing.T) {
 		EventType: "plan_changed",
 		PlanTier:  "pro",
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_BillingEventWithAllFields(t *testing.T) {
@@ -305,10 +289,8 @@ func TestExporter_BillingEventWithAllFields(t *testing.T) {
 		PlanTier:  "starter",
 		Details:   `{"reason":"plan_limit"}`,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending record, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.
+		PendingCount())
 }
 
 func TestExporter_BillingEventMixedWithOtherTypes(t *testing.T) {
@@ -338,8 +320,6 @@ func TestExporter_BillingEventMixedWithOtherTypes(t *testing.T) {
 		EventType: "plan_changed",
 		PlanTier:  "scale",
 	})
-
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending records, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 3, exporter.
+		PendingCount())
 }

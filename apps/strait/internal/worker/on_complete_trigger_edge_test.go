@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -29,17 +31,15 @@ func TestApplyPayloadMapping_DeeplyNestedPaths(t *testing.T) {
 	mapping := json.RawMessage(`{"deep_val": "level1.level2.level3.level4.value"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["deep_val"] != "deep" {
-		t.Errorf("deep_val = %v, want %q", out["deep_val"], "deep")
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"deep", out["deep_val"])
 }
 
 func TestApplyPayloadMapping_MissingPaths(t *testing.T) {
@@ -48,17 +48,19 @@ func TestApplyPayloadMapping_MissingPaths(t *testing.T) {
 	mapping := json.RawMessage(`{"out": "nonexistent.path"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+
 	// Missing paths should produce no output key.
 	if _, ok := out["out"]; ok {
-		t.Error("missing path should not produce output key")
+		assert.Fail(t,
+
+			"missing path should not produce output key")
 	}
 }
 
@@ -72,23 +74,23 @@ func TestApplyPayloadMapping_MixedExistingAndMissing(t *testing.T) {
 	}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["user_id"] != "u1" {
-		t.Errorf("user_id = %v, want u1", out["user_id"])
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"u1", out["user_id"])
+
 	if _, ok := out["missing_field"]; ok {
-		t.Error("missing_field should not be present")
+		assert.Fail(t,
+
+			"missing_field should not be present")
 	}
-	if out["version"] != float64(2) {
-		t.Errorf("version = %v, want 2", out["version"])
-	}
+	assert.InDelta(t,
+		float64(2), out["version"], 1e-9)
 }
 
 func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
@@ -97,17 +99,15 @@ func TestApplyPayloadMapping_TopLevelKeys(t *testing.T) {
 	mapping := json.RawMessage(`{"s": "status", "c": "count"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["s"] != "ok" {
-		t.Errorf("s = %v, want ok", out["s"])
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Equal(t,
+		"ok", out["s"])
 }
 
 func TestApplyPayloadMapping_InvalidMapping(t *testing.T) {
@@ -116,9 +116,8 @@ func TestApplyPayloadMapping_InvalidMapping(t *testing.T) {
 	mapping := json.RawMessage(`not valid json`)
 
 	_, err := applyPayloadMapping(result, mapping)
-	if err == nil {
-		t.Fatal("expected error for invalid mapping JSON")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestApplyPayloadMapping_EmptyMapping(t *testing.T) {
@@ -127,17 +126,15 @@ func TestApplyPayloadMapping_EmptyMapping(t *testing.T) {
 	mapping := json.RawMessage(`{}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+
 	// Empty mapping -> empty output.
 	var out map[string]any
-	if err := json.Unmarshal(mapped, &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(out) != 0 {
-		t.Errorf("empty mapping should produce empty output, got %v", out)
-	}
+	require.NoError(
+		t, json.Unmarshal(mapped,
+			&out))
+	assert.Empty(t, out)
 }
 
 func TestApplyPayloadMapping_ArrayResult(t *testing.T) {
@@ -147,12 +144,10 @@ func TestApplyPayloadMapping_ArrayResult(t *testing.T) {
 	mapping := json.RawMessage(`{"first": "0"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(mapped) != string(result) {
-		t.Errorf("array result should pass through, got %s", mapped)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		string(result), string(mapped))
 }
 
 func TestApplyPayloadMapping_ScalarResult(t *testing.T) {
@@ -161,12 +156,10 @@ func TestApplyPayloadMapping_ScalarResult(t *testing.T) {
 	mapping := json.RawMessage(`{"val": "key"}`)
 
 	mapped, err := applyPayloadMapping(result, mapping)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(mapped) != string(result) {
-		t.Errorf("scalar result should pass through, got %s", mapped)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		string(result), string(mapped))
 }
 
 // extractPath edge cases.
@@ -175,19 +168,18 @@ func TestExtractPath_EmptyPath(t *testing.T) {
 	t.Parallel()
 	data := map[string]any{"key": "value", "": "empty_key"}
 	got := extractPath(data, "")
+	assert.Equal(t,
+		"empty_key", got)
+
 	// Empty path looks up empty string key.
-	if got != "empty_key" {
-		t.Errorf("extractPath('') = %v, want 'empty_key'", got)
-	}
 }
 
 func TestExtractPath_SingleLevel(t *testing.T) {
 	t.Parallel()
 	data := map[string]any{"key": "value"}
 	got := extractPath(data, "key")
-	if got != "value" {
-		t.Errorf("extractPath('key') = %v, want 'value'", got)
-	}
+	assert.Equal(t,
+		"value", got)
 }
 
 func TestExtractPath_NestedArray(t *testing.T) {
@@ -195,21 +187,17 @@ func TestExtractPath_NestedArray(t *testing.T) {
 	data := map[string]any{"items": []any{1, 2, 3}}
 	got := extractPath(data, "items")
 	arr, ok := got.([]any)
-	if !ok {
-		t.Fatalf("expected []any, got %T", got)
-	}
-	if len(arr) != 3 {
-		t.Errorf("len = %d, want 3", len(arr))
-	}
+	require.True(t,
+		ok)
+	assert.Len(t, arr,
+		3)
 }
 
 func TestExtractPath_IntermediateNonMap(t *testing.T) {
 	t.Parallel()
 	data := map[string]any{"a": "string_value"}
 	got := extractPath(data, "a.b.c")
-	if got != nil {
-		t.Errorf("expected nil for path through non-map, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 // OnCompleteTrigger advanced scenarios.
@@ -235,9 +223,8 @@ func TestOnCompleteTrigger_EmptyResult(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 1)
 }
 
 func TestOnCompleteTrigger_LargePayload(t *testing.T) {
@@ -267,12 +254,11 @@ func TestOnCompleteTrigger_LargePayload(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(trigger.calls))
-	}
-	if len(trigger.calls[0].payload) < 1000 {
-		t.Error("large payload should be passed through")
-	}
+	require.Len(t, trigger.
+		calls, 1)
+	assert.GreaterOrEqual(t, len(trigger.
+		calls[0].payload,
+	), 1000)
 }
 
 func TestOnCompleteTrigger_PayloadMappingError(t *testing.T) {
@@ -298,13 +284,13 @@ func TestOnCompleteTrigger_PayloadMappingError(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(trigger.calls))
-	}
+	require.Len(t, trigger.
+		calls, 1)
+	assert.Equal(t,
+		string(result), string(trigger.
+			calls[0].payload))
+
 	// Should have received the full result as fallback.
-	if string(trigger.calls[0].payload) != string(result) {
-		t.Errorf("expected full result as fallback, got %s", trigger.calls[0].payload)
-	}
 }
 
 func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
@@ -335,9 +321,8 @@ func TestOnCompleteTrigger_ConcurrentTriggers(t *testing.T) {
 
 	trigger.mu.Lock()
 	defer trigger.mu.Unlock()
-	if len(trigger.calls) != 20 {
-		t.Errorf("expected 20 concurrent triggers, got %d", len(trigger.calls))
-	}
+	assert.Len(t, trigger.
+		calls, 20)
 }
 
 func TestOnCompleteTrigger_AllNonCompletedStatuses(t *testing.T) {
@@ -371,9 +356,8 @@ func TestOnCompleteTrigger_AllNonCompletedStatuses(t *testing.T) {
 
 			trigger.mu.Lock()
 			defer trigger.mu.Unlock()
-			if len(trigger.calls) != 0 {
-				t.Errorf("status %s should not trigger workflow", status)
-			}
+			assert.Empty(t, trigger.
+				calls)
 		})
 	}
 }

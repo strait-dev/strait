@@ -4,8 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTypedHandler_ValidatesInput locks in that TypedHandler enforces the input
@@ -36,13 +37,11 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := authedRequest(http.MethodPost, "/x", `{"name":"toolongvalue"}`)
 		h(rec, req)
+		require.False(t, ran)
+		require.Equal(t, http.StatusUnprocessableEntity,
 
-		if ran {
-			t.Fatal("handler ran despite invalid input")
-		}
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
-		}
+			rec.Code,
+		)
 	})
 
 	t.Run("missing required field is rejected", func(t *testing.T) {
@@ -56,13 +55,11 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := authedRequest(http.MethodPost, "/x", `{}`)
 		h(rec, req)
+		require.False(t, ran)
+		require.Equal(t, http.StatusUnprocessableEntity,
 
-		if ran {
-			t.Fatal("handler ran despite missing required field")
-		}
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnprocessableEntity)
-		}
+			rec.Code,
+		)
 	})
 
 	t.Run("valid body passes to handler", func(t *testing.T) {
@@ -76,12 +73,8 @@ func TestTypedHandler_ValidatesInput(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := authedRequest(http.MethodPost, "/x", `{"name":"ok"}`)
 		h(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, strings.TrimSpace(rec.Body.String()))
-		}
-		if got != "ok" {
-			t.Fatalf("handler received name = %q, want %q", got, "ok")
-		}
+		require.Equal(t, http.StatusOK,
+			rec.Code)
+		require.Equal(t, "ok", got)
 	})
 }

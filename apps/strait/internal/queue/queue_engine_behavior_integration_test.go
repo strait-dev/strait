@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/queue"
+
+	"github.com/stretchr/testify/require"
 )
 
 type queueEngineBehaviorCase struct {
@@ -42,12 +44,11 @@ func queueEngineBehaviorCases() []queueEngineBehaviorCase {
 			afterEnqueue: func(t *testing.T, ctx context.Context, q queue.Queue) {
 				t.Helper()
 				pq, ok := q.(*queue.PgQueQueue)
-				if !ok {
-					t.Fatalf("queue = %T, want *PgQueQueue", q)
-				}
-				if err := pq.ForceTick(ctx, "http"); err != nil {
-					t.Fatalf("ForceTick: %v", err)
-				}
+				require.True(t, ok)
+				require.NoError(t, pq.ForceTick(ctx,
+					"http"),
+				)
+
 			},
 		},
 	}
@@ -66,20 +67,19 @@ func TestPgQueBehavior_PriorityAndProjectIsolation(t *testing.T) {
 			low := &domain.JobRun{ID: newID(), JobID: priorityJob.ID, ProjectID: priorityJob.ProjectID, Priority: 1}
 			high := &domain.JobRun{ID: newID(), JobID: priorityJob.ID, ProjectID: priorityJob.ProjectID, Priority: 9}
 			for _, run := range []*domain.JobRun{low, high} {
-				if err := q.Enqueue(ctx, run); err != nil {
-					t.Fatalf("Enqueue(%s): %v", run.ID, err)
-				}
+				require.NoError(t, q.Enqueue(ctx,
+					run))
+
 			}
 			if tc.afterEnqueue != nil {
 				tc.afterEnqueue(t, ctx, q)
 			}
 			first, err := q.DequeueN(ctx, 1)
-			if err != nil {
-				t.Fatalf("DequeueN priority: %v", err)
-			}
-			if len(first) != 1 || first[0].ID != high.ID {
-				t.Fatalf("priority dequeue = %+v, want high priority run %s", first, high.ID)
-			}
+			require.NoError(t, err)
+			require.False(t, len(first) != 1 ||
+				first[0].
+					ID !=
+					high.ID)
 
 			mustClean(t, ctx)
 			q = tc.build(t)
@@ -88,25 +88,26 @@ func TestPgQueBehavior_PriorityAndProjectIsolation(t *testing.T) {
 			projectRunA := &domain.JobRun{ID: newID(), JobID: jobA.ID, ProjectID: jobA.ProjectID, Priority: 1}
 			projectRunB := &domain.JobRun{ID: newID(), JobID: jobB.ID, ProjectID: jobB.ProjectID, Priority: 10}
 			for _, run := range []*domain.JobRun{projectRunA, projectRunB} {
-				if err := q.Enqueue(ctx, run); err != nil {
-					t.Fatalf("Enqueue(%s): %v", run.ID, err)
-				}
+				require.NoError(t, q.Enqueue(ctx,
+					run))
+
 			}
 			if tc.afterEnqueue != nil {
 				tc.afterEnqueue(t, ctx, q)
 			}
 
 			projectRuns, err := q.DequeueNByProject(ctx, 2, jobA.ProjectID)
-			if err != nil {
-				t.Fatalf("DequeueNByProject: %v", err)
-			}
-			if len(projectRuns) != 1 {
-				t.Fatalf("DequeueNByProject len = %d, want 1", len(projectRuns))
-			}
+			require.NoError(t, err)
+			require.Len(t, projectRuns,
+
+				1)
+
 			for _, run := range projectRuns {
-				if run.ProjectID != jobA.ProjectID {
-					t.Fatalf("project run project_id = %q, want %q", run.ProjectID, jobA.ProjectID)
-				}
+				require.Equal(t, jobA.ProjectID,
+
+					run.ProjectID,
+				)
+
 			}
 		})
 	}
@@ -123,9 +124,10 @@ func TestPgQueBehavior_ConcurrentClaimsAreUnique(t *testing.T) {
 			q := tc.build(t)
 
 			for range 50 {
-				if err := q.Enqueue(ctx, &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}); err != nil {
-					t.Fatalf("Enqueue: %v", err)
-				}
+				require.NoError(t, q.Enqueue(ctx,
+					&domain.JobRun{ID: newID(), JobID: job.
+						ID, ProjectID: job.ProjectID}))
+
 			}
 			if tc.afterEnqueue != nil {
 				tc.afterEnqueue(t, ctx, q)
@@ -154,7 +156,9 @@ func TestPgQueBehavior_ConcurrentClaimsAreUnique(t *testing.T) {
 			wg.Wait()
 			close(errCh)
 			for err := range errCh {
-				t.Fatalf("concurrent dequeue: %v", err)
+				require.Failf(t, "test failure",
+
+					"concurrent dequeue: %v", err)
 			}
 		})
 	}

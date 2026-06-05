@@ -4,7 +4,6 @@ package scheduler_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
@@ -13,6 +12,8 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupHeartbeatGC(t *testing.T) (*testutil.TestDB, *store.Queries) {
@@ -27,9 +28,8 @@ func setupHeartbeatGCIsolated(t *testing.T) (*testutil.TestDB, *store.Queries) {
 	t.Helper()
 	ctx := context.Background()
 	tdb, err := testutil.SetupTestDB(ctx, "../../migrations")
-	if err != nil {
-		t.Fatalf("setup isolated test db: %v", err)
-	}
+	require.NoError(t, err)
+
 	t.Cleanup(func() { tdb.Cleanup(context.Background()) })
 	return tdb, store.New(tdb.Pool)
 }
@@ -46,9 +46,9 @@ func hbGCMakeJob(t *testing.T, st *store.Queries, ctx context.Context, projectID
 		TimeoutSecs: 60,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("create job: %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -59,9 +59,12 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 	// Create a job and two runs.
 	projectID := "gc-" + uuid.Must(uuid.NewV7()).String()
 	var ready int
-	if err := tdb.Pool.QueryRow(ctx, `SELECT 1`).Scan(&ready); err != nil {
-		t.Fatalf("probe db: %v", err)
-	}
+	require.NoError(t, tdb.Pool.
+		QueryRow(
+			ctx, `SELECT 1`,
+		).Scan(
+		&ready))
+
 	job := hbGCMakeJob(t, st, ctx, projectID)
 
 	liveID := uuid.Must(uuid.NewV7()).String()
@@ -73,28 +76,24 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, started_at)
 			VALUES ($1, $2, $3, 'executing', 1, 'manual', NOW(), NOW())
 		`, id, job.ID, job.ProjectID)
-		if err != nil {
-			t.Fatalf("insert run %s: %v", id, err)
-		}
+		require.NoError(t, err)
+
 	}
+	require.NoError(t, st.BatchUpsertHeartbeatSideTable(ctx, []string{liveID,
+
+		orphanID}))
+
 	// Register both heartbeats.
-	if err := st.BatchUpsertHeartbeatSideTable(ctx, []string{liveID, orphanID}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+
 	// Transition the orphan to completed.
 	_, err := tdb.Pool.Exec(ctx, `UPDATE job_runs SET status='completed', finished_at=NOW() WHERE id=$1`, orphanID)
-	if err != nil {
-		t.Fatalf("complete: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Run GC.
 	gc := scheduler.NewHeartbeatGC(st, scheduler.HeartbeatGCConfig{})
-	if err := gc.RunOnceForTest(ctx); err != nil {
-		t.Fatalf("runOnce: %v", err)
-	}
-	if gc.TotalDeleted() != 2 {
-		t.Errorf("deleted = %d, want 2", gc.TotalDeleted())
-	}
+	require.NoError(t, gc.RunOnceForTest(
+		ctx))
+	assert.EqualValues(t, 2, gc.TotalDeleted())
 
 	// live row still present.
 	var count int
@@ -108,9 +107,8 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 			LIMIT 1
 		) latest
 		WHERE cleared = FALSE`, liveID).Scan(&count)
-	if count != 1 {
-		t.Errorf("live heartbeat count = %d, want 1", count)
-	}
+	assert.EqualValues(t, 1, count)
+
 	// orphan is logically cleared.
 	_ = tdb.Pool.QueryRow(ctx, `
 		SELECT COUNT(*)
@@ -122,9 +120,8 @@ func TestHeartbeatGC_DeletesOrphansPreservesLive(t *testing.T) {
 			LIMIT 1
 		) latest
 		WHERE cleared = FALSE`, orphanID).Scan(&count)
-	if count != 0 {
-		t.Errorf("orphan heartbeat count = %d, want 0", count)
-	}
+	assert.EqualValues(t, 0, count)
+
 }
 
 func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
@@ -141,31 +138,27 @@ func TestHeartbeatGC_BatchLimitRespected(t *testing.T) {
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 			VALUES ($1, $2, $3, 'completed', 1, 'manual', NOW(), NOW())
 		`, id, job.ID, job.ProjectID)
-		if err != nil {
-			t.Fatalf("insert: %v", err)
-		}
+		require.NoError(t, err)
+
 		ids = append(ids, id)
 	}
-	if err := st.BatchUpsertHeartbeatSideTable(ctx, ids); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
+	require.NoError(t, st.BatchUpsertHeartbeatSideTable(ctx, ids))
 
 	gc := scheduler.NewHeartbeatGC(st, scheduler.HeartbeatGCConfig{BatchLimit: 5})
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 10 {
-		t.Errorf("first tick deleted = %d, want 10", gc.TotalDeleted())
-	}
+	assert.EqualValues(t, 10, gc.TotalDeleted())
+
 	_ = gc.RunOnceForTest(ctx)
-	if gc.TotalDeleted() != 20 {
-		t.Errorf("second tick total = %d, want 20", gc.TotalDeleted())
-	}
+	assert.EqualValues(t, 20, gc.TotalDeleted())
+
 }
 
 func TestEnsureQueueTriggersPresent_Happy(t *testing.T) {
 	tdb, _ := setupHeartbeatGCIsolated(t)
-	if err := scheduler.EnsureQueueTriggersPresent(context.Background(), tdb.Pool); err != nil {
-		t.Errorf("expected triggers present, got %v", err)
-	}
+	assert.NoError(t, scheduler.
+		EnsureQueueTriggersPresent(context.
+			Background(), tdb.Pool))
+
 }
 
 func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
@@ -173,26 +166,24 @@ func TestEnsureQueueTriggersPresent_MissingFailsLoud(t *testing.T) {
 	ctx := context.Background()
 	// Drop one trigger and assert the check fails.
 	_, err := tdb.Pool.Exec(ctx, `DROP TRIGGER IF EXISTS trg_job_runs_queue_wake_insert_notify ON job_runs`)
-	if err != nil {
-		t.Fatalf("drop: %v", err)
-	}
+	require.NoError(t, err)
+
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_insert_notify") {
-		t.Errorf("expected missing-trigger error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trg_job_runs_queue_wake_insert_notify")
+
 }
 
 func TestEnsureQueueTriggersPresent_DisabledFailsLoud(t *testing.T) {
 	tdb, _ := setupHeartbeatGCIsolated(t)
 	ctx := context.Background()
 	_, err := tdb.Pool.Exec(ctx, `ALTER TABLE job_run_state DISABLE TRIGGER job_run_state_active_counts_trg`)
-	if err != nil {
-		t.Fatalf("disable: %v", err)
-	}
+	require.NoError(t, err)
+
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "job_run_state_active_counts_trg") {
-		t.Errorf("expected disabled-trigger error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "job_run_state_active_counts_trg")
+
 }
 
 func TestEnsureQueueTriggersPresent_DecoyTriggerDoesNotPass(t *testing.T) {
@@ -207,11 +198,10 @@ func TestEnsureQueueTriggersPresent_DecoyTriggerDoesNotPass(t *testing.T) {
 		FOR EACH STATEMENT
 		EXECUTE FUNCTION notify_queue_wake_insert_stmt();
 	`)
-	if err != nil {
-		t.Fatalf("create decoy trigger: %v", err)
-	}
+	require.NoError(t, err)
+
 	err = scheduler.EnsureQueueTriggersPresent(ctx, tdb.Pool)
-	if err == nil || !strings.Contains(err.Error(), "trg_job_runs_queue_wake_insert_notify") {
-		t.Errorf("expected decoy-trigger error, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "trg_job_runs_queue_wake_insert_notify")
+
 }

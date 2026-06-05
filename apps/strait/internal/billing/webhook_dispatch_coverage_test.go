@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 )
 
@@ -307,13 +308,11 @@ func TestWebhookDispatchCoverage_AllEvents(t *testing.T) {
 			payload := tc.buildPayload(tc.newStoreOrgID)
 			eventID := "evt_cov_" + tc.name
 			rr := fireWebhookWithID(t, handler, eventID, tc.eventType, payload)
+			require.Equal(t, http.StatusOK,
 
-			if rr.Code != http.StatusOK {
-				t.Fatalf("%s: expected 200, got %d (body=%s)", tc.eventType, rr.Code, rr.Body.String())
-			}
-			if got := tc.sideEffectHits(store, audit); got < 1 {
-				t.Fatalf("%s: expected at least one %s side effect, got %d", tc.eventType, tc.sideEffectName, got)
-			}
+				rr.Code)
+			require.GreaterOrEqual(
+				t, tc.sideEffectHits(store, audit), 1)
 		})
 	}
 }
@@ -331,22 +330,19 @@ func TestWebhookDispatchCoverage_UnknownEvent(t *testing.T) {
 
 	payload := mustJSON(t, map[string]any{"id": "obj_unknown"})
 	rr := fireWebhookWithID(t, handler, "evt_unknown_1", "customer.tax_id.created", payload)
+	require.Equal(t, http.StatusOK,
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for unhandled event, got %d", rr.Code)
-	}
-	if store.upsertCount != 0 {
-		t.Fatalf("unhandled event must not upsert subscription, got upsertCount=%d", store.upsertCount)
-	}
-	if store.lastPlanUpdate != nil {
-		t.Fatalf("unhandled event must not update plan, got %+v", store.lastPlanUpdate)
-	}
-	if store.lastPaymentStatusUpdate != nil {
-		t.Fatalf("unhandled event must not update payment status, got %+v", store.lastPaymentStatusUpdate)
-	}
-	if len(audit.events) != 0 {
-		t.Fatalf("unhandled event must not record audit events, got %d", len(audit.events))
-	}
+		rr.Code)
+	require.Equal(t, 0, store.
+		upsertCount,
+	)
+	require.Nil(t, store.
+		lastPlanUpdate,
+	)
+	require.Nil(t, store.
+		lastPaymentStatusUpdate,
+	)
+	require.Empty(t, audit.events)
 }
 
 // TestWebhookIdempotency_ReplayThreeTimes verifies that for every dispatched
@@ -371,21 +367,17 @@ func TestWebhookIdempotency_ReplayThreeTimes(t *testing.T) {
 
 			for i := 1; i <= 3; i++ {
 				rr := fireWebhookWithID(t, handler, eventID, tc.eventType, payload)
-				if rr.Code != http.StatusOK {
-					t.Fatalf("replay %d: %s expected 200, got %d (body=%s)",
-						i, tc.eventType, rr.Code, rr.Body.String())
-				}
+				require.Equal(t, http.StatusOK,
+
+					rr.Code)
 			}
 
 			hits := tc.sideEffectHits(store, audit)
-			if hits != 1 {
-				t.Fatalf("%s: expected exactly one %s side effect after 3 replays, got %d",
-					tc.eventType, tc.sideEffectName, hits)
-			}
-			if store.upsertCount > 1 {
-				t.Fatalf("%s: replay must not upsert more than once, got upsertCount=%d",
-					tc.eventType, store.upsertCount)
-			}
+			require.Equal(t, 1, hits)
+			require.LessOrEqual(t,
+				store.upsertCount,
+
+				1)
 		})
 	}
 }
@@ -411,12 +403,11 @@ func TestWebhookIdempotency_DistinctEventIDsAllProcess(t *testing.T) {
 			Metadata:   map[string]string{"org_id": orgID},
 		})
 		rr := fireWebhookWithID(t, handler, eventID, "customer.subscription.created", payload)
-		if rr.Code != http.StatusOK {
-			t.Fatalf("delivery %d: expected 200, got %d (body=%s)", i, rr.Code, rr.Body.String())
-		}
-	}
+		require.Equal(t, http.StatusOK,
 
-	if store.upsertCount != 3 {
-		t.Fatalf("expected 3 distinct upserts, got %d", store.upsertCount)
+			rr.Code)
 	}
+	require.Equal(t, 3, store.
+		upsertCount,
+	)
 }

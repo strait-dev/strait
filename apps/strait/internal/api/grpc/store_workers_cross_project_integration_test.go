@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows
@@ -33,9 +36,10 @@ func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *t
 		Version:   "1.0.0",
 		Status:    domain.WorkerStatusActive,
 	}
-	if err := q.RegisterWorker(ctx, wA); err != nil {
-		t.Fatalf("register A: %v", err)
-	}
+	require.NoError(t,
+
+		q.RegisterWorker(ctx,
+			wA))
 
 	wB := &domain.Worker{
 		ID:        workerID,
@@ -45,9 +49,10 @@ func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *t
 		Version:   "9.9.9",
 		Status:    domain.WorkerStatusDraining,
 	}
-	if err := q.RegisterWorker(ctx, wB); err != nil {
-		t.Fatalf("register B: %v", err)
-	}
+	require.NoError(t,
+
+		q.RegisterWorker(ctx,
+			wB))
 
 	rows, err := env.DB.Pool.Query(ctx,
 		`SELECT project_id, queue_name, hostname, version, status
@@ -56,9 +61,10 @@ func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *t
 		 ORDER BY project_id`,
 		workerID,
 	)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	defer rows.Close()
 
 	type workerRow struct {
@@ -71,23 +77,32 @@ func TestIntegration_RegisterWorker_SameIDAcrossProjectsCreatesSeparateRows(t *t
 	var got []workerRow
 	for rows.Next() {
 		var row workerRow
-		if err := rows.Scan(&row.projectID, &row.queue, &row.hostname, &row.version, &row.status); err != nil {
-			t.Fatalf("scan worker row: %v", err)
-		}
+		require.NoError(t,
+
+			rows.Scan(&row.projectID,
+				&row.
+					queue, &row.hostname, &row.
+					version, &row.status))
+
 		got = append(got, row)
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows err: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("workers with shared id = %d, want 2: %+v", len(got), got)
-	}
-	if got[0] != (workerRow{projectID: projectA, queue: "queue-a", hostname: "host-a", version: "1.0.0", status: string(domain.WorkerStatusActive)}) {
-		t.Fatalf("project A row mismatch: %+v", got[0])
-	}
-	if got[1] != (workerRow{projectID: projectB, queue: "queue-b", hostname: "host-b", version: "9.9.9", status: string(domain.WorkerStatusDraining)}) {
-		t.Fatalf("project B row mismatch: %+v", got[1])
-	}
+	require.NoError(t,
+
+		rows.Err())
+	require.Len(t, got,
+
+		2)
+	require.Equal(t,
+		(workerRow{projectID: projectA,
+			queue: "queue-a", hostname: "host-a", version: "1.0.0",
+
+			status: string(domain.WorkerStatusActive)}), got[0])
+	require.Equal(t,
+		(workerRow{projectID: projectB,
+			queue: "queue-b", hostname: "host-b", version: "9.9.9",
+
+			status: string(domain.WorkerStatusDraining)}), got[1])
+
 }
 
 // TestIntegration_RegisterWorker_SameProjectStillUpserts confirms the
@@ -99,28 +114,20 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 	q := store.New(env.DB.Pool)
 	const workerID = "stable-id"
 	const projectID = "proj-stable"
+	require.NoError(t,
 
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectID,
-		QueueName: "old-queue",
-		Hostname:  "old-host",
-		Version:   "0.1.0",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("first register: %v", err)
-	}
+		q.RegisterWorker(ctx,
+			&domain.
+				Worker{ID: workerID, ProjectID: projectID, QueueName: "old-queue",
+				Hostname: "old-host", Version: "0.1.0", Status: domain.WorkerStatusActive,
+			}))
+	require.NoError(t,
 
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: projectID,
-		QueueName: "new-queue",
-		Hostname:  "new-host",
-		Version:   "0.2.0",
-		Status:    domain.WorkerStatusDraining,
-	}); err != nil {
-		t.Fatalf("second register: %v", err)
-	}
+		q.RegisterWorker(ctx,
+			&domain.
+				Worker{ID: workerID, ProjectID: projectID, QueueName: "new-queue",
+				Hostname: "new-host", Version: "0.2.0", Status: domain.WorkerStatusDraining,
+			}))
 
 	var (
 		gotQueue, gotHostname, gotVersion, gotStatus string
@@ -129,16 +136,18 @@ func TestIntegration_RegisterWorker_SameProjectStillUpserts(t *testing.T) {
 		`SELECT queue_name, hostname, version, status FROM workers WHERE id = $1 AND project_id = $2`,
 		workerID, projectID,
 	).Scan(&gotQueue, &gotHostname, &gotVersion, &gotStatus)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if gotQueue != "new-queue" || gotHostname != "new-host" || gotVersion != "0.2.0" {
-		t.Errorf("same-project re-register failed to upsert: queue=%q host=%q version=%q",
-			gotQueue, gotHostname, gotVersion)
-	}
-	if gotStatus != string(domain.WorkerStatusDraining) {
-		t.Errorf("status not upserted: got %q want %q", gotStatus, domain.WorkerStatusDraining)
-	}
+	require.NoError(t,
+
+		err)
+	assert.False(t, gotQueue !=
+		"new-queue" ||
+		gotHostname !=
+			"new-host" || gotVersion !=
+		"0.2.0")
+	assert.Equal(t, string(domain.
+		WorkerStatusDraining,
+	), gotStatus)
+
 }
 
 func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
@@ -147,14 +156,13 @@ func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
 
 	q := store.New(env.DB.Pool)
 	const workerID = "shared-id"
-	if err := q.RegisterWorker(ctx, &domain.Worker{
-		ID:        workerID,
-		ProjectID: "proj-a",
-		QueueName: "q",
-		Status:    domain.WorkerStatusActive,
-	}); err != nil {
-		t.Fatalf("register worker: %v", err)
-	}
+	require.NoError(t,
+
+		q.RegisterWorker(ctx,
+			&domain.
+				Worker{ID: workerID, ProjectID: "proj-a", QueueName: "q",
+
+				Status: domain.WorkerStatusActive}))
 
 	err := q.CreateWorkerTask(ctx, &domain.WorkerTask{
 		ID:        "task-cross-project",
@@ -164,9 +172,10 @@ func TestIntegration_WorkerTasksReferenceProjectScopedWorker(t *testing.T) {
 		Attempt:   1,
 		Status:    domain.WorkerTaskStatusAssigned,
 	})
-	if err == nil {
-		t.Fatal("expected project-scoped worker FK to reject task for same worker_id in another project")
-	}
+	require.Error(t,
+		err,
+	)
+
 }
 
 // TestIntegration_GetWorkerProjectByID_NotFoundIsClean confirms the lookup
@@ -177,11 +186,12 @@ func TestIntegration_GetWorkerProjectByID_NotFoundIsClean(t *testing.T) {
 	env := cleanIntegrationEnv(t, ctx)
 
 	q := store.New(env.DB.Pool)
-	proj, ok, err := q.GetWorkerProjectByID(ctx, "does-not-exist")
-	if err != nil {
-		t.Fatalf("unexpected err on missing row: %v", err)
-	}
-	if ok {
-		t.Fatalf("expected ok=false for missing row, got proj=%q", proj)
-	}
+	_, ok, err := q.GetWorkerProjectByID(ctx, "does-not-exist")
+	require.NoError(t,
+
+		err)
+	require.False(t,
+		ok,
+	)
+
 }

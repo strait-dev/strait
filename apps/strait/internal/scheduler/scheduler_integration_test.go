@@ -18,6 +18,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -38,9 +40,12 @@ func getTestDB(t *testing.T) *testutil.TestDB {
 		// the first test finishes, destroying the container for all other tests.
 		// Testcontainers Reaper handles container cleanup at process exit.
 	})
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+		nil ||
+		testDB.
+			Pool ==
+			nil)
+
 	return testDB
 }
 
@@ -65,9 +70,8 @@ func intTestQueue(t *testing.T) *queue.PgQueQueue {
 
 func intTestClean(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := getTestDB(t).CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(t, getTestDB(t).CleanTables(ctx))
+
 }
 
 func intNewID() string {
@@ -89,9 +93,9 @@ func intCreateJob(t *testing.T, ctx context.Context, st *store.Queries, projectI
 	for _, fn := range mutate {
 		fn(job)
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -100,21 +104,18 @@ func intClaimRuns(t *testing.T, ctx context.Context, q *queue.PgQueQueue, want i
 	claimed := make([]domain.JobRun, 0, want)
 	deadline := time.Now().Add(5 * time.Second)
 	for len(claimed) < want && time.Now().Before(deadline) {
-		if err := q.ForceTick(ctx, "http"); err != nil {
-			t.Fatalf("ForceTick() error = %v", err)
-		}
+		require.NoError(t, q.ForceTick(ctx, "http"))
+
 		runs, err := q.DequeueN(ctx, want-len(claimed))
-		if err != nil {
-			t.Fatalf("DequeueN() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		claimed = append(claimed, runs...)
 		if len(claimed) < want {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	if len(claimed) != want {
-		t.Fatalf("claimed runs = %d, want %d", len(claimed), want)
-	}
+	require.Len(t, claimed, want)
+
 	return claimed
 }
 
@@ -141,9 +142,7 @@ func TestIntegration_CronLoadJobs(t *testing.T) {
 	})
 
 	cs := scheduler.NewCronScheduler(ctx, st, q, nil)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
+	require.NoError(t, cs.LoadJobs(ctx))
 
 	// Start and immediately stop to verify no panic.
 	cs.Start()
@@ -168,9 +167,8 @@ func TestIntegration_CronTriggerEnqueuesRun(t *testing.T) {
 	})
 
 	cs := scheduler.NewCronScheduler(ctx, st, q, nil)
-	if err := cs.LoadJobs(ctx); err != nil {
-		t.Fatalf("LoadJobs() error = %v", err)
-	}
+	require.NoError(t, cs.LoadJobs(ctx))
+
 	cs.Start()
 	defer func() {
 		stopCtx := cs.Stop()
@@ -186,11 +184,13 @@ func TestIntegration_CronTriggerEnqueuesRun(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for cron run to be enqueued for job %s", job.ID)
+			require.Failf(t, "test failure", "timed out waiting for cron run to be enqueued for job %s", job.ID)
 		case <-ticker.C:
 			runs, err := q.DequeueN(ctx, 10)
 			if err != nil {
-				t.Fatalf("DequeueN() error = %v", err)
+				require.Failf(t, "test failure",
+
+					"DequeueN() error = %v", err)
 			}
 			for _, r := range runs {
 				if r.JobID == job.ID {
@@ -204,11 +204,15 @@ func TestIntegration_CronTriggerEnqueuesRun(t *testing.T) {
 	}
 done:
 	if dequeued[0].TriggeredBy != domain.TriggerCron {
-		t.Errorf("triggered_by = %q, want %q", dequeued[0].TriggeredBy, domain.TriggerCron)
+		assert.Failf(t, "test failure",
+
+			"triggered_by = %q, want %q", dequeued[0].TriggeredBy, domain.TriggerCron)
 	}
-	if dequeued[0].ProjectID != job.ProjectID {
-		t.Errorf("project_id = %q, want %q", dequeued[0].ProjectID, job.ProjectID)
-	}
+	assert.Equal(t, job.ProjectID,
+
+		dequeued[0].ProjectID,
+	)
+
 }
 
 // 3. Batch flusher with real DB: items are flushed into a run.
@@ -235,19 +239,15 @@ func TestIntegration_BatchFlusher(t *testing.T) {
 			Priority:    1,
 			TriggeredBy: "api",
 		}
-		if err := st.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, st.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	// Verify items are flushable.
 	batches, err := st.ListFlushableBatches(ctx)
-	if err != nil {
-		t.Fatalf("ListFlushableBatches() error = %v", err)
-	}
-	if len(batches) == 0 {
-		t.Fatal("expected at least one flushable batch")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, batches)
 
 	// Run the batch flusher for a short interval and wait for it to process.
 	flusher := scheduler.NewBatchFlusher(st, q, 200*time.Millisecond)
@@ -264,32 +264,30 @@ func TestIntegration_BatchFlusher(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for batch flusher to enqueue a run")
+			require.Fail(t, "timed out waiting for batch flusher to enqueue a run")
 		case <-tick.C:
 			runs, dErr := q.DequeueN(ctx, 10)
 			if dErr != nil {
-				t.Fatalf("DequeueN() error = %v", dErr)
+				require.Failf(t, "test failure",
+
+					"DequeueN() error = %v", dErr)
 			}
 			for _, r := range runs {
 				if r.JobID == job.ID {
-					if r.Payload == nil {
-						t.Fatal("batch run payload is nil")
-					}
+					require.NotNil(t, r.Payload)
+
 					var payload map[string][]json.RawMessage
-					if jErr := json.Unmarshal(r.Payload, &payload); jErr != nil {
-						t.Fatalf("unmarshal batch payload: %v", jErr)
-					}
-					if len(payload["items"]) != 3 {
-						t.Fatalf("expected 3 items in batch payload, got %d", len(payload["items"]))
-					}
+					require.Nil(t, json.
+						Unmarshal(
+							r.Payload,
+							&payload))
+					require.Len(t, payload["items"], 3)
+
 					// Batch buffer should be drained.
 					count, cErr := st.CountBatchBufferItems(ctx, job.ID, "default")
-					if cErr != nil {
-						t.Fatalf("CountBatchBufferItems() error = %v", cErr)
-					}
-					if count != 0 {
-						t.Fatalf("expected 0 remaining buffer items, got %d", count)
-					}
+					require.Nil(t, cErr)
+					require.EqualValues(t, 0, count)
+
 					return
 				}
 			}
@@ -315,9 +313,7 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 		ProjectID: job.ProjectID,
 		Priority:  1,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx, run))
 
 	// Dequeue to move to dequeued status.
 	_ = intClaimRuns(t, ctx, q, 1)
@@ -330,13 +326,17 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 		SET status = $2, started_at = $3, heartbeat_at = $4, finished_at = NULL, updated_at = NOW()
 		WHERE run_id = $1
 	`, run.ID, domain.StatusExecuting, startedAt, staleHeartbeat); err != nil {
-		t.Fatalf("seed stale executing state: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed stale executing state: %v", err)
 	}
 	if _, err := getTestDB(t).Pool.Exec(ctx, `
 		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
 		VALUES ($1, $2, FALSE)
 	`, run.ID, staleHeartbeat); err != nil {
-		t.Fatalf("age heartbeat row: %v", err)
+		require.Failf(t, "test failure",
+
+			"age heartbeat row: %v", err)
 	}
 
 	// Create a reaper with a 5-minute stale threshold.
@@ -345,35 +345,32 @@ func TestIntegration_ReaperStaleRunDetection_RetriesWhenAttemptsRemain(t *testin
 
 	// Verify the stale execution was requeued instead of terminally crashed.
 	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusQueued {
-		t.Fatalf("run status = %q, want %q", got.Status, domain.StatusQueued)
-	}
-	if got.Attempt != 2 {
-		t.Fatalf("run attempt = %d, want 2", got.Attempt)
-	}
-	if got.FinishedAt != nil {
-		t.Fatal("finished_at should remain nil for retryable stale run")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusQueued,
+
+		got.Status,
+	)
+	require.EqualValues(t, 2, got.Attempt)
+	require.Nil(t, got.FinishedAt)
 
 	var retryAttempt int
 	var nextRetryAt time.Time
-	if err := getTestDB(t).Pool.QueryRow(ctx, `
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`
 		SELECT attempt, next_retry_at
 		FROM job_retries
 		WHERE run_id = $1 AND cleared = FALSE
 		ORDER BY id DESC
-		LIMIT 1`, run.ID).Scan(&retryAttempt, &nextRetryAt); err != nil {
-		t.Fatalf("query scheduled retry: %v", err)
-	}
-	if retryAttempt != 2 {
-		t.Fatalf("retry attempt = %d, want 2", retryAttempt)
-	}
-	if !nextRetryAt.After(time.Now().Add(-time.Second)) {
-		t.Fatalf("next_retry_at = %s, want a future retry", nextRetryAt)
-	}
+		LIMIT 1`,
+
+			run.ID,
+		).Scan(&retryAttempt, &nextRetryAt))
+	require.EqualValues(t, 2, retryAttempt)
+	require.True(t, nextRetryAt.
+		After(time.
+			Now().Add(-time.Second)))
+
 }
 
 func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *testing.T) {
@@ -392,9 +389,7 @@ func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *tes
 		ProjectID: job.ProjectID,
 		Priority:  1,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx, run))
 
 	_ = intClaimRuns(t, ctx, q, 1)
 
@@ -405,28 +400,30 @@ func TestIntegration_ReaperStaleRunDetection_CrashesWhenAttemptsExhausted(t *tes
 		SET status = $2, started_at = $3, heartbeat_at = $4, finished_at = NULL, updated_at = NOW()
 		WHERE run_id = $1
 	`, run.ID, domain.StatusExecuting, startedAt, staleHeartbeat); err != nil {
-		t.Fatalf("seed stale executing state: %v", err)
+		require.Failf(t, "test failure",
+
+			"seed stale executing state: %v", err)
 	}
 	if _, err := getTestDB(t).Pool.Exec(ctx, `
 		INSERT INTO job_run_heartbeats (run_id, heartbeat_at, cleared)
 		VALUES ($1, $2, FALSE)
 	`, run.ID, staleHeartbeat); err != nil {
-		t.Fatalf("age heartbeat row: %v", err)
+		require.Failf(t, "test failure",
+
+			"age heartbeat row: %v", err)
 	}
 
 	reaper := scheduler.NewReaper(st, time.Second, 5*time.Minute, 30*24*time.Hour, 90*24*time.Hour, false, nil)
 	reaper.ReapOnce(ctx)
 
 	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusCrashed {
-		t.Fatalf("run status = %q, want %q", got.Status, domain.StatusCrashed)
-	}
-	if got.FinishedAt == nil {
-		t.Fatal("expected finished_at to be set on exhausted stale run")
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusCrashed,
+
+		got.Status,
+	)
+	require.NotNil(t, got.FinishedAt)
+
 }
 
 // 5. Advisory lock behavior: verify only one scheduler instance processes.
@@ -437,15 +434,13 @@ func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 
 	// Use two separate connections to simulate two scheduler instances.
 	pool1, err := pgxpool.New(ctx, tdb.ConnStr)
-	if err != nil {
-		t.Fatalf("create pool1: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer pool1.Close()
 
 	pool2, err := pgxpool.New(ctx, tdb.ConnStr)
-	if err != nil {
-		t.Fatalf("create pool2: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer pool2.Close()
 
 	st1 := store.New(pool1)
@@ -455,39 +450,26 @@ func TestIntegration_AdvisoryLockExclusivity(t *testing.T) {
 
 	// First instance acquires the lock.
 	acquired1, err := st1.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock(1) error = %v", err)
-	}
-	if !acquired1 {
-		t.Fatal("expected first instance to acquire advisory lock")
-	}
+	require.NoError(t, err)
+	require.True(t, acquired1)
 
 	// Second instance should fail to acquire the same lock.
 	acquired2, err := st2.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock(2) error = %v", err)
-	}
-	if acquired2 {
-		t.Fatal("expected second instance to NOT acquire advisory lock held by first")
-	}
+	require.NoError(t, err)
+	require.False(t, acquired2)
+	require.NoError(t, st1.ReleaseAdvisoryLock(ctx,
+		lockID))
 
 	// After releasing, second instance can acquire.
-	if err := st1.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock(1) error = %v", err)
-	}
 
 	acquired3, err := st2.TryAdvisoryLock(ctx, lockID)
-	if err != nil {
-		t.Fatalf("TryAdvisoryLock(2 retry) error = %v", err)
-	}
-	if !acquired3 {
-		t.Fatal("expected second instance to acquire advisory lock after release")
-	}
+	require.NoError(t, err)
+	require.True(t, acquired3)
+	require.NoError(t, st2.ReleaseAdvisoryLock(ctx,
+		lockID))
 
 	// Clean up.
-	if err := st2.ReleaseAdvisoryLock(ctx, lockID); err != nil {
-		t.Fatalf("ReleaseAdvisoryLock(2) error = %v", err)
-	}
+
 }
 
 // 6. SLO evaluation with real metrics stored in DB.
@@ -523,9 +505,9 @@ func TestIntegration_SLOEvaluation(t *testing.T) {
 		if targetStatus == domain.StatusFailed {
 			run.Error = "simulated failure"
 		}
-		if err := st.CreateRun(ctx, run); err != nil {
-			t.Fatalf("CreateRun() error = %v", err)
-		}
+		require.NoError(t, st.CreateRun(ctx,
+			run))
+
 	}
 
 	// Create an SLO: 99% success rate over 24 hours.
@@ -537,54 +519,38 @@ func TestIntegration_SLOEvaluation(t *testing.T) {
 		Target:      0.99,
 		WindowHours: 24,
 	}
-	if err := st.CreateJobSLO(ctx, slo); err != nil {
-		t.Fatalf("CreateJobSLO() error = %v", err)
-	}
+	require.NoError(t, st.CreateJobSLO(ctx,
+		slo))
 
 	// Verify the SLO was created.
 	allSLOs, err := st.ListAllJobSLOs(ctx)
-	if err != nil {
-		t.Fatalf("ListAllJobSLOs() error = %v", err)
-	}
-	if len(allSLOs) != 1 {
-		t.Fatalf("expected 1 SLO, got %d", len(allSLOs))
-	}
+	require.NoError(t, err)
+	require.Len(t, allSLOs, 1)
 
 	// Run the SLO evaluator.
 	evaluator := scheduler.NewSLOEvaluator(st, nil)
-	if err := evaluator.Evaluate(ctx); err != nil {
-		t.Fatalf("Evaluate() error = %v", err)
-	}
+	require.NoError(t, evaluator.
+		Evaluate(ctx))
 
 	// Check that an evaluation was recorded.
 	statuses, err := st.ListJobSLOs(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("ListJobSLOs() error = %v", err)
-	}
-	if len(statuses) != 1 {
-		t.Fatalf("expected 1 SLO status, got %d", len(statuses))
-	}
-	if statuses[0].CurrentValue == nil {
-		t.Fatal("expected CurrentValue to be set after evaluation")
-	}
-	if statuses[0].BudgetRemaining == nil {
-		t.Fatal("expected BudgetRemaining to be set after evaluation")
-	}
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	require.NotNil(t, statuses[0].CurrentValue)
+	require.NotNil(t, statuses[0].BudgetRemaining)
+	assert.LessOrEqual(t, *statuses[0].BudgetRemaining,
+
+		0.01)
 
 	// With 80% success (8/10) and 99% target, budget should be depleted.
 	// success_rate from DB is percentage, metricValue divides by 100 -> 0.8
 	// budget = 1 - ((1-0.8)/(1-0.99)) = 1 - (0.2/0.01) = 1 - 20 = clamped to 0
-	if *statuses[0].BudgetRemaining > 0.01 {
-		t.Errorf("budget_remaining = %f, expected near 0 (budget depleted)", *statuses[0].BudgetRemaining)
-	}
 
 	// Verify pruning works without error.
 	pruned, err := st.PruneSLOEvaluations(ctx, 1)
-	if err != nil {
-		t.Fatalf("PruneSLOEvaluations() error = %v", err)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, pruned)
+
 	// We only have 1 evaluation and keep=1, so nothing should be pruned.
-	if pruned != 0 {
-		t.Errorf("expected 0 pruned evaluations, got %d", pruned)
-	}
+
 }

@@ -7,9 +7,11 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // AnalyticsStore construction
@@ -18,29 +20,17 @@ func TestNewAnalyticsStore_NilBoth(t *testing.T) {
 	t.Parallel()
 
 	s := NewAnalyticsStore(nil, nil)
-	if s == nil {
-		t.Fatal("expected non-nil store")
-		return
-	}
-	if s.client != nil {
-		t.Error("expected nil client")
-	}
-	if s.pgFallback != nil {
-		t.Error("expected nil pgFallback")
-	}
+	require.NotNil(t, s)
+	assert.Nil(t, s.client)
+	assert.Nil(t, s.pgFallback)
 }
 
 func TestNewPgHealthAdapter(t *testing.T) {
 	t.Parallel()
 
 	a := NewPgHealthAdapter(nil)
-	if a == nil {
-		t.Fatal("expected non-nil adapter")
-		return
-	}
-	if a.pool != nil {
-		t.Error("expected nil pool")
-	}
+	require.NotNil(t, a)
+	assert.Nil(t, a.pool)
 }
 
 // AnalyticsStore methods with nil client -- only for methods that call
@@ -181,9 +171,7 @@ func TestAnalyticsStore_NilClient_QueryMethods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
-			if err == nil {
-				t.Fatal("expected error from nil client")
-			}
+			require.Error(t, err)
 		})
 	}
 }
@@ -233,9 +221,7 @@ func TestAnalyticsStore_ClosedDB_QueryRowMethods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
-			if err == nil {
-				t.Fatal("expected error from closed db")
-			}
+			require.Error(t, err)
 		})
 	}
 }
@@ -248,12 +234,9 @@ func TestAnalyticsStore_ClosedDB_GetPerformanceAnalytics(t *testing.T) {
 	client := newClosedDBClient(t)
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", 24)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
-	if !strings.Contains(err.Error(), "slowest jobs") {
-		t.Errorf("expected 'slowest jobs' in error, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "slowest jobs")
 }
 
 func TestAnalyticsStore_ClosedDB_GetCostAnalytics(t *testing.T) {
@@ -263,9 +246,7 @@ func TestAnalyticsStore_ClosedDB_GetCostAnalytics(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	now := time.Now()
 	_, err := s.GetCostAnalytics(context.Background(), "proj-1", now.Add(-24*time.Hour), now)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // AnalyticsStore with failing pgFallback
@@ -293,9 +274,7 @@ func TestAnalyticsStore_PgFallback_CountJobsError(t *testing.T) {
 	}
 	s := NewAnalyticsStore(nil, fallback)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", 24)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, err)
 }
 
 // isShortPeriod edge cases
@@ -305,9 +284,8 @@ func TestIsShortPeriod_Exact24Hours(t *testing.T) {
 
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-	if !isShortPeriod(from, to) {
-		t.Error("exactly 24 hours should be considered short")
-	}
+	assert.True(t, isShortPeriod(from,
+		to))
 }
 
 func TestIsShortPeriod_OneNanosecondOver(t *testing.T) {
@@ -315,28 +293,27 @@ func TestIsShortPeriod_OneNanosecondOver(t *testing.T) {
 
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := from.Add(24*time.Hour + time.Nanosecond)
-	if isShortPeriod(from, to) {
-		t.Error("24h + 1ns should NOT be considered short")
-	}
+	assert.False(t, isShortPeriod(from,
+		to))
 }
 
 func TestIsShortPeriod_ZeroDuration(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	if !isShortPeriod(now, now) {
-		t.Error("zero duration should be considered short")
-	}
+	assert.True(t, isShortPeriod(now,
+		now))
 }
 
 func TestIsShortPeriod_NegativeDuration(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	assert.True(t, isShortPeriod(now,
+		now.Add(-time.
+			Hour)))
+
 	// from > to: negative duration should be "short" (less than 24h).
-	if !isShortPeriod(now, now.Add(-time.Hour)) {
-		t.Error("negative duration should be considered short")
-	}
 }
 
 // Bucket parameter variations for timeline queries with closed db
@@ -349,9 +326,7 @@ func TestAnalyticsStore_CostTrends_ShortPeriod(t *testing.T) {
 	now := time.Now()
 	// Short period (< 24h) exercises the toStartOfHour branch.
 	_, err := s.GetCostTrends(context.Background(), "proj-1", now.Add(-time.Hour), now)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
@@ -362,9 +337,7 @@ func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
 	now := time.Now()
 	// Long period (> 24h) exercises the toStartOfDay branch.
 	_, err := s.GetCostTrends(context.Background(), "proj-1", now.Add(-7*24*time.Hour), now)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // Helpers
@@ -372,9 +345,8 @@ func TestAnalyticsStore_CostTrends_LongPeriod(t *testing.T) {
 func newClosedDBClient(t *testing.T) *Client {
 	t.Helper()
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	db.Close()
 	return &Client{db: db, logger: slog.Default()}
 }

@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Section separator.
@@ -38,10 +40,8 @@ func TestAnomalyMonitor_WithAdvisoryLock_NotAcquired(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
-
-	if checkCalled.Load() {
-		t.Fatal("expected check to be skipped when lock not acquired")
-	}
+	require.False(t, checkCalled.
+		Load())
 }
 
 func TestAnomalyMonitor_WithAdvisoryLock_AcquireError(t *testing.T) {
@@ -63,10 +63,8 @@ func TestAnomalyMonitor_WithAdvisoryLock_AcquireError(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
-
-	if checkCalled.Load() {
-		t.Fatal("expected check to be skipped on lock error")
-	}
+	require.False(t, checkCalled.
+		Load())
 }
 
 func TestAnomalyMonitor_WithAdvisoryLock_Acquired_ReleasedAfter(t *testing.T) {
@@ -91,28 +89,28 @@ func TestAnomalyMonitor_WithAdvisoryLock_Acquired_ReleasedAfter(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
-
-	if !lockReleased.Load() {
-		t.Fatal("expected advisory lock to be released")
-	}
+	require.True(t, lockReleased.
+		Load())
 }
 
 func TestAnomalyMonitor_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	am := NewAnomalyMonitor(&mockAnomalyMonitorStore{}, 0)
-	if am.interval != 15*time.Minute {
-		t.Fatalf("expected default interval 15m, got %v", am.interval)
-	}
+	require.Equal(t, 15*
+		time.Minute,
+		am.
+			interval)
 }
 
 func TestAnomalyMonitor_NegativeInterval_DefaultsTo15Min(t *testing.T) {
 	t.Parallel()
 
 	am := NewAnomalyMonitor(&mockAnomalyMonitorStore{}, -1*time.Minute)
-	if am.interval != 15*time.Minute {
-		t.Fatalf("expected default interval 15m, got %v", am.interval)
-	}
+	require.Equal(t, 15*
+		time.Minute,
+		am.
+			interval)
 }
 
 func TestAnomalyMonitor_CooldownCheckError_SkipsOrg(t *testing.T) {
@@ -137,10 +135,8 @@ func TestAnomalyMonitor_CooldownCheckError_SkipsOrg(t *testing.T) {
 
 	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cd)
 	am.check(context.Background())
-
-	if alertFired.Load() {
-		t.Fatal("expected no alert when cooldown check fails")
-	}
+	require.False(t, alertFired.
+		Load())
 }
 
 func TestAnomalyMonitor_SetCooldownError_ContinuesWithoutPanic(t *testing.T) {
@@ -195,14 +191,12 @@ func TestCalculateErrorBudget_NaNInput_ReturnsZero(t *testing.T) {
 
 	nan := math.NaN()
 	got := CalculateErrorBudget(nan, 0.99, domain.SLOMetricSuccessRate)
-	if got != 0.0 {
-		t.Errorf("expected 0.0 for NaN current, got %v", got)
-	}
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 
 	got = CalculateErrorBudget(0.95, nan, domain.SLOMetricSuccessRate)
-	if got != 0.0 {
-		t.Errorf("expected 0.0 for NaN target, got %v", got)
-	}
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_InfInput_ReturnsZero(t *testing.T) {
@@ -210,63 +204,60 @@ func TestCalculateErrorBudget_InfInput_ReturnsZero(t *testing.T) {
 
 	inf := math.Inf(1)
 	got := CalculateErrorBudget(inf, 0.99, domain.SLOMetricSuccessRate)
-	if got != 0.0 {
-		t.Errorf("expected 0.0 for Inf current, got %v", got)
-	}
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_P95Latency_HalfTarget(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.5, 1.0, domain.SLOMetricP95LatencySecs)
-	if got < 0.49 || got > 0.51 {
-		t.Errorf("expected ~0.5, got %v", got)
-	}
+	assert.False(t, got <
+		0.49 ||
+		got > 0.51,
+	)
 }
 
 func TestCalculateErrorBudget_P99Latency_OverTarget(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(3.0, 2.0, domain.SLOMetricP99LatencySecs)
-	if got != 0.0 {
-		t.Errorf("expected 0.0 for over-target latency, got %v", got)
-	}
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_SuccessRate_995vs99(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.995, 0.99, domain.SLOMetricSuccessRate)
-	if got < 0.49 || got > 0.51 {
-		t.Errorf("expected ~0.5, got %v", got)
-	}
+	assert.False(t, got <
+		0.49 ||
+		got > 0.51,
+	)
 }
 
 func TestCalculateErrorBudget_SuccessRate_BothZero(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.0, 0.0, domain.SLOMetricSuccessRate)
-	if got != 0.0 {
-		t.Errorf("expected 0.0, got %v", got)
-	}
+	assert.InDelta(t, 0.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_ZeroCurrent(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.0, 1.0, domain.SLOMetricP95LatencySecs)
-	if got != 1.0 {
-		t.Errorf("expected 1.0, got %v", got)
-	}
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 func TestCalculateErrorBudget_Latency_NegativeTarget(t *testing.T) {
 	t.Parallel()
 
 	got := CalculateErrorBudget(0.5, -1.0, domain.SLOMetricP95LatencySecs)
-	if got != 1.0 {
-		t.Errorf("expected 1.0 for negative target, got %v", got)
-	}
+	assert.InDelta(t, 1.0,
+		got, 1e-9)
 }
 
 // Section separator.
@@ -288,17 +279,14 @@ func TestStatsAggregator_CostAggregation_Called(t *testing.T) {
 	}
 
 	a := NewStatsAggregator(s)
-	if a.store == nil {
-		t.Fatal("expected store to be set")
-	}
-
-	if err := a.store.AggregateCostStatsHourly(context.Background(), time.Now()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !costCalled.Load() {
-		t.Fatal("expected AggregateCostStatsHourly to be called")
-	}
+	require.NotNil(t, a.
+		store)
+	require.NoError(t,
+		a.store.AggregateCostStatsHourly(
+			context.Background(),
+			time.Now()))
+	require.True(t, costCalled.
+		Load())
 }
 
 func TestStatsAggregator_AggregateError_NoPanic(t *testing.T) {
@@ -313,9 +301,7 @@ func TestStatsAggregator_AggregateError_NoPanic(t *testing.T) {
 	a := NewStatsAggregator(s)
 	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
 	err := a.store.AggregateHourlyStats(context.Background(), previousHour)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, err)
 }
 
 func TestStatsAggregator_WithAdvisoryLocker_LockError(t *testing.T) {
@@ -334,18 +320,20 @@ func TestStatsAggregator_WithAdvisoryLocker_LockError(t *testing.T) {
 	}
 
 	a := NewStatsAggregator(s).WithAdvisoryLocker(locker)
-	if a.advisoryLocker == nil {
-		t.Fatal("expected advisory locker to be set")
-	}
+	require.NotNil(t, a.
+		advisoryLocker,
+	)
 }
 
 func TestStatsAggregator_HourTruncation(t *testing.T) {
 	t.Parallel()
 
 	previousHour := time.Now().Add(-time.Hour).Truncate(time.Hour)
-	if previousHour.Minute() != 0 || previousHour.Second() != 0 {
-		t.Fatalf("expected hour to be truncated, got %v", previousHour)
-	}
+	require.False(t, previousHour.
+		Minute() != 0 || previousHour.
+		Second() !=
+
+		0)
 }
 
 // Section separator.
@@ -373,7 +361,7 @@ func TestConcurrentReconciler_Run_StopsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 

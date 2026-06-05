@@ -11,6 +11,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Adversarial tests for concurrent and edge-case run operations.
@@ -38,18 +39,14 @@ func TestAdv_ConcurrentCreateRuns(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent CreateRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	runs, err := q.ListRunsByJob(ctx, job.ID, 1000, 0)
-	if err != nil {
-		t.Fatalf("ListRuns() error = %v", err)
-	}
-	if len(runs) != n {
-		t.Fatalf("len = %d, want %d", len(runs), n)
-	}
+	require.NoError(t, err)
+	require.Len(t, runs, n)
+
 }
 
 // TestAdv_ConcurrentStatusTransitions verifies that concurrent status updates
@@ -63,9 +60,8 @@ func TestAdv_ConcurrentStatusTransitions(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-adv-concurrent-status")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	const n = 10
 	results := make(chan error, n)
@@ -84,19 +80,18 @@ func TestAdv_ConcurrentStatusTransitions(t *testing.T) {
 	close(results)
 
 	for err := range results {
-		if err != nil {
-			t.Fatalf("UpdateRunStatus() error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	// Verify the final state is completed.
 	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.Status != domain.StatusCompleted {
-		t.Fatalf("status = %s, want completed", got.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		StatusCompleted,
+		got.
+			Status)
+
 }
 
 // TestAdv_DeleteJobWhileRunsExist ensures deletion fails when active runs exist.
@@ -108,14 +103,14 @@ func TestAdv_DeleteJobWhileRunsExist(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-adv-delete-active")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusQueued
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	err := q.DeleteJob(ctx, job.ID)
-	if !errors.Is(err, store.ErrJobHasActiveRuns) {
-		t.Fatalf("DeleteJob() error = %v, want ErrJobHasActiveRuns", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrJobHasActiveRuns,
+	))
+
 }
 
 // TestAdv_UpdateRunStatus_InvalidTransition verifies that an invalid
@@ -128,9 +123,8 @@ func TestAdv_UpdateRunStatus_InvalidTransition(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-adv-invalid-transition")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	// completed -> executing is not valid in practice, but depends on store implementation.
 	err := q.UpdateRunStatus(ctx, run.ID, domain.StatusCompleted, domain.StatusExecuting, nil)
@@ -138,9 +132,13 @@ func TestAdv_UpdateRunStatus_InvalidTransition(t *testing.T) {
 	if err == nil {
 		// Check if it actually changed.
 		got, _ := q.GetRun(ctx, run.ID)
-		if got != nil && got.Status == domain.StatusExecuting {
-			t.Fatal("should not allow transitioning from completed to executing")
-		}
+		require.False(t, got !=
+
+			nil && got.
+			Status ==
+			domain.StatusExecuting,
+		)
+
 	}
 }
 
@@ -153,18 +151,14 @@ func TestAdv_GetRunAfterJobDelete(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-adv-run-after-delete")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusCompleted
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
-
-	if err := q.DeleteJob(ctx, job.ID); err != nil {
-		t.Fatalf("DeleteJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
+	require.NoError(t, q.DeleteJob(ctx,
+		job.ID))
 
 	_, err := q.GetRun(ctx, run.ID)
-	if err == nil {
-		t.Fatal("expected error getting run after job deletion")
-	}
+	require.Error(t, err)
+
 }
 
 // TestAdv_ConcurrentBatchInserts ensures concurrent batch buffer inserts succeed.
@@ -196,15 +190,13 @@ func TestAdv_ConcurrentBatchInserts(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 
 	count, _ := q.CountBatchBufferItems(ctx, job.ID, "concurrent-key")
-	if count != n {
-		t.Fatalf("count = %d, want %d", count, n)
-	}
+	require.Equal(t, n, count)
+
 }
 
 // TestAdv_DrainBatchConcurrent ensures concurrent drains do not return duplicates.
@@ -223,9 +215,9 @@ func TestAdv_DrainBatchConcurrent(t *testing.T) {
 			Tags:        []byte(`{}`),
 			TriggeredBy: "manual",
 		}
-		if err := q.InsertBatchBufferItem(ctx, item); err != nil {
-			t.Fatalf("InsertBatchBufferItem() error = %v", err)
-		}
+		require.NoError(t, q.InsertBatchBufferItem(ctx,
+			item))
+
 	}
 
 	type result struct {
@@ -246,15 +238,13 @@ func TestAdv_DrainBatchConcurrent(t *testing.T) {
 
 	totalDrained := 0
 	for r := range results {
-		if r.err != nil {
-			t.Fatalf("DrainBatchBuffer() error = %v", r.err)
-		}
+		require.Nil(t, r.
+			err)
+
 		totalDrained += len(r.items)
 	}
+	require.EqualValues(t, 10, totalDrained)
 
-	if totalDrained != 10 {
-		t.Fatalf("total drained = %d, want 10", totalDrained)
-	}
 }
 
 // TestAdv_CreateRunWithEmptyPayload validates that empty payloads are handled.
@@ -266,17 +256,13 @@ func TestAdv_CreateRunWithEmptyPayload(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "project-adv-empty-payload")
 	run := baseRun(job, newID())
 	run.Payload = nil
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() with nil payload error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	got, err := q.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil run")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+
 }
 
 // TestAdv_ConcurrentJobMemoryUpserts ensures concurrent memory upserts
@@ -308,8 +294,7 @@ func TestAdv_ConcurrentJobMemoryUpserts(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent UpsertJobMemoryWithQuota() error = %v", err)
-		}
+		require.NoError(t, err)
+
 	}
 }

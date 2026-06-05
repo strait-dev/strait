@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditSIEMDrain_PayloadMatchesSchema constructs one sample AuditEvent
@@ -25,27 +27,26 @@ func TestAuditSIEMDrain_PayloadMatchesSchema(t *testing.T) {
 	t.Parallel()
 
 	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t,
+		ok)
+
 	// apps/strait/internal/logdrain -> apps/strait/internal/api/audit_schema_generated.json
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 	schemaPath := filepath.Join(repoRoot, "internal", "api", "audit_schema_generated.json")
 	schemaBytes, err := os.ReadFile(schemaPath)
-	if err != nil {
-		t.Fatalf("read schema: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	compiler := jsonschema.NewCompiler()
-	if err := compiler.AddResource("audit_schema.json", bytes.NewReader(schemaBytes)); err != nil {
-		t.Fatalf("add schema resource: %v", err)
-	}
+	require.NoError(
+		t, compiler.AddResource(
+			"audit_schema.json",
+			bytes.
+				NewReader(schemaBytes)))
 
 	actions := domain.KnownAuditActions()
 	sort.Strings(actions)
-	if len(actions) == 0 {
-		t.Fatal("no registered audit actions")
-	}
+	require.NotEmpty(t, actions)
 
 	events := make([]domain.AuditEvent, 0, len(actions))
 	for _, action := range actions {
@@ -53,33 +54,32 @@ func TestAuditSIEMDrain_PayloadMatchesSchema(t *testing.T) {
 	}
 
 	payload, err := encodeNDJSONBatch(events)
-	if err != nil {
-		t.Fatalf("encode NDJSON: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	lines := splitNDJSON(payload)
-	if len(lines) != len(events) {
-		t.Fatalf("ndjson line count mismatch: got %d want %d", len(lines), len(events))
-	}
+	require.Len(t, lines,
+		len(events),
+	)
 
 	for i, line := range lines {
 		action := events[i].Action
 		var ev map[string]any
-		if err := json.Unmarshal(line, &ev); err != nil {
-			t.Fatalf("%s: unmarshal wire line: %v", action, err)
-		}
+		require.NoError(
+			t, json.Unmarshal(line,
+				&ev))
+
 		details, _ := ev["details"].(map[string]any)
 		if details == nil {
 			details = map[string]any{}
 		}
 		schema, err := compiler.Compile(fmt.Sprintf("audit_schema.json#/$defs/%s", action))
 		if err != nil {
-			t.Errorf("%s: compile schema: %v", action, err)
+			require.NoErrorf(t, err, "%s: compile schema", action)
 			continue
 		}
-		if err := schema.Validate(details); err != nil {
-			t.Errorf("%s: payload fails schema validation: %v\npayload=%s", action, err, string(line))
-		}
+		assert.NoError(t,
+			schema.Validate(details))
 	}
 }
 
@@ -89,17 +89,17 @@ func TestAuditSIEMDrain_PayloadMatchesSchema(t *testing.T) {
 func buildSampleEvent(t *testing.T, action string) domain.AuditEvent {
 	t.Helper()
 	schema, ok := domain.AuditActionSchemas[action]
-	if !ok {
-		t.Fatalf("no schema registered for action %q", action)
-	}
+	require.True(t,
+		ok)
+
 	details := make(map[string]string, len(schema.Required))
 	for _, key := range schema.Required {
 		details[key] = "sample"
 	}
 	raw, err := json.Marshal(details)
-	if err != nil {
-		t.Fatalf("marshal details for %s: %v", action, err)
-	}
+	require.NoError(
+		t, err)
+
 	return domain.AuditEvent{
 		ID:            "ev-" + action,
 		ProjectID:     "p1",

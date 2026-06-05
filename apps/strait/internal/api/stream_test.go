@@ -14,6 +14,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func runStreamRequestWithEnvironment(path, runID, projectID, environmentID string) *http.Request {
@@ -45,14 +46,14 @@ func TestHandleRunStream_CrossProjectReturns404(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream", "", "proj-attacker"))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 (cross-project must not leak run existence), got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
+
 	body := w.Body.String()
-	if strings.Contains(body, "event: ") || strings.Contains(strings.ToLower(body), "subscribe") {
-		t.Fatalf("response leaked SSE subscription evidence: %s", body)
-	}
+	require.False(t, strings.Contains(body,
+		"event: ") || strings.Contains(strings.ToLower(
+		body), "subscribe"))
 }
 
 func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
@@ -69,10 +70,9 @@ func TestHandleRunLogStream_CrossProjectReturns404(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/victim-run/stream/logs", "", "proj-attacker"))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 (cross-project log stream must not leak), got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
@@ -86,15 +86,17 @@ func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t
 			}, nil
 		},
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != "job-staging" {
-				t.Fatalf("GetJob id = %q, want job-staging", id)
-			}
+			require.Equal(t, "job-staging",
+				id)
+
 			return &domain.Job{ID: id, ProjectID: "proj-1", EnvironmentID: "env-staging"}, nil
 		},
 	}
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("mismatched environment must be rejected before subscribing")
+			require.Fail(t,
+
+				"mismatched environment must be rejected before subscribing")
 			return nil, nil
 		},
 	}
@@ -103,10 +105,9 @@ func TestHandleRunStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t
 	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream", "run-1", "proj-1", "env-prod")
 
 	srv.handleRunStream(w, r)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
@@ -125,7 +126,9 @@ func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironmen
 	}
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("mismatched environment must be rejected before subscribing")
+			require.Fail(t,
+
+				"mismatched environment must be rejected before subscribing")
 			return nil, nil
 		},
 	}
@@ -134,10 +137,9 @@ func TestHandleRunLogStream_EnvironmentScopedCallerCannotStreamForeignEnvironmen
 	r := runStreamRequestWithEnvironment("/v1/runs/run-1/stream/logs", "run-1", "proj-1", "env-prod")
 
 	srv.handleRunLogStream(w, r)
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunStream_RunNotFound(t *testing.T) {
@@ -151,10 +153,9 @@ func TestHandleRunStream_RunNotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/missing-run/stream", "", "proj-1"))
+	require.Equal(t, http.StatusNotFound,
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunStream_StoreError(t *testing.T) {
@@ -168,10 +169,9 @@ func TestHandleRunStream_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunStream_TerminalRun(t *testing.T) {
@@ -191,10 +191,9 @@ func TestHandleRunStream_TerminalRun(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-done/stream", "", "proj-1"))
-
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusGone,
+		w.
+			Code)
 }
 
 func TestHandleRunStream_NoPubSub(t *testing.T) {
@@ -215,18 +214,18 @@ func TestHandleRunStream_NoPubSub(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "text/event-stream",
+
+		w.Header().Get("Content-Type"))
 
 	// When pubsub is nil, handler writes SSE headers then error event
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE response), got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
-	}
+
 	body := w.Body.String()
-	if !strings.Contains(body, "event: error") {
-		t.Fatalf("expected error event in body, got: %s", body)
-	}
+	require.Contains(
+		t, body, "event: error")
 }
 
 func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
@@ -245,24 +244,26 @@ func TestHandleRunStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
 	}
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("must reject before subscribing when SSE connection cap is exhausted")
+			require.Fail(t,
+
+				"must reject before subscribing when SSE connection cap is exhausted")
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	srv.config.SSEMaxConnsPerProject = 1
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("failed to reserve test SSE connection")
-	}
+	require.True(
+		t, srv.acquireSSEConn(
+			"proj-1"))
+
 	defer srv.releaseSSEConn("proj-1")
 
 	w := httptest.NewRecorder()
 	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream", "run-123", "proj-1", "")
 	srv.handleRunStream(w, r)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
@@ -281,24 +282,26 @@ func TestHandleRunLogStream_RejectsWhenProjectSSELimitExceeded(t *testing.T) {
 	}
 	pub := &mockPublisher{
 		subscribeFn: func(context.Context, string) (*pubsub.Subscription, error) {
-			t.Fatal("must reject log stream before subscribing when SSE connection cap is exhausted")
+			require.Fail(t,
+
+				"must reject log stream before subscribing when SSE connection cap is exhausted")
 			return nil, nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	srv.config.SSEMaxConnsPerProject = 1
-	if !srv.acquireSSEConn("proj-1") {
-		t.Fatal("failed to reserve test SSE connection")
-	}
+	require.True(
+		t, srv.acquireSSEConn(
+			"proj-1"))
+
 	defer srv.releaseSSEConn("proj-1")
 
 	w := httptest.NewRecorder()
 	r := runStreamRequestWithEnvironment("/v1/runs/run-123/stream/logs", "run-123", "proj-1", "")
 	srv.handleRunLogStream(w, r)
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRunStream_SubscribeError(t *testing.T) {
@@ -323,15 +326,15 @@ func TestHandleRunStream_SubscribeError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	// Handler writes SSE headers then error event for subscribe failure
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE), got %d: %s", w.Code, w.Body.String())
-	}
+
 	body := w.Body.String()
-	if !strings.Contains(body, "event: error") {
-		t.Fatalf("expected error event for subscribe failure, got: %s", body)
-	}
+	require.Contains(
+		t, body, "event: error")
 }
 
 func TestHandleRunStream_ReceivesMessage(t *testing.T) {
@@ -364,14 +367,13 @@ func TestHandleRunStream_ReceivesMessage(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
 	body := w.Body.String()
-	if !strings.Contains(body, `data: {"status":"completed"}`) {
-		t.Fatalf("expected data event with message, got: %s", body)
-	}
+	require.Contains(
+		t, body, `data: {"status":"completed"}`)
 }
 
 func TestHandleRunStream_ClientDisconnect(t *testing.T) {
@@ -408,11 +410,11 @@ func TestHandleRunStream_ClientDisconnect(t *testing.T) {
 	r = r.WithContext(ctx)
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
 
 	// Handler should return after seeing cancelled context
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (SSE), got %d", w.Code)
-	}
 }
 
 func TestHandleRunStream_TerminalStatuses(t *testing.T) {
@@ -443,10 +445,9 @@ func TestHandleRunStream_TerminalStatuses(t *testing.T) {
 			srv := newTestServer(t, ms, &mockQueue{}, nil)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
-
-			if w.Code != http.StatusGone {
-				t.Fatalf("status %s: expected 410, got %d", status, w.Code)
-			}
+			require.Equal(t, http.StatusGone,
+				w.
+					Code)
 		})
 	}
 }
@@ -478,22 +479,18 @@ func TestHandleRunStream_SSEHeaders(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-123/stream", "", "proj-1"))
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.Equal(t, "text/event-stream",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
-	}
-	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
-		t.Fatalf("Cache-Control = %q, want no-cache", cc)
-	}
-	if conn := w.Header().Get("Connection"); conn != "keep-alive" {
-		t.Fatalf("Connection = %q, want keep-alive", conn)
-	}
-	if xab := w.Header().Get("X-Accel-Buffering"); xab != "no" {
-		t.Fatalf("X-Accel-Buffering = %q, want no", xab)
-	}
+		w.Header().Get("Content-Type"))
+	require.Equal(t, "no-cache",
+		w.Header().Get("Cache-Control"))
+	require.Equal(t, "keep-alive",
+		w.Header().Get("Connection"))
+	require.Equal(t, "no",
+		w.Header().Get("X-Accel-Buffering"))
 }
 
 func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
@@ -534,11 +531,11 @@ func TestHandleRunStream_NonTerminalStatuses(t *testing.T) {
 			srv := newTestServer(t, ms, &mockQueue{}, pub)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/run-1/stream", "", "proj-1"))
+			require.NotEqual(t, http.
+				StatusGone,
+				w.Code)
 
 			// Should NOT return 410 for non-terminal statuses
-			if w.Code == http.StatusGone {
-				t.Fatalf("status %s: got 410, should allow streaming", status)
-			}
 		})
 	}
 }

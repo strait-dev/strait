@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -17,6 +16,8 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Cron parsing edge cases
@@ -29,9 +30,8 @@ func TestCron_DSTBoundary_SpringForward(t *testing.T) {
 	expr := "CRON_TZ=America/New_York 30 2 * * *"
 	c := cron.New()
 	_, err := c.AddFunc(expr, func() {})
-	if err != nil {
-		t.Fatalf("expected DST spring-forward cron to parse, got: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestCron_DSTBoundary_FallBack(t *testing.T) {
@@ -42,9 +42,8 @@ func TestCron_DSTBoundary_FallBack(t *testing.T) {
 	expr := "CRON_TZ=America/New_York 30 1 * * *"
 	c := cron.New()
 	_, err := c.AddFunc(expr, func() {})
-	if err != nil {
-		t.Fatalf("expected DST fall-back cron to parse, got: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestCron_Feb29_LeapYear(t *testing.T) {
@@ -53,16 +52,18 @@ func TestCron_Feb29_LeapYear(t *testing.T) {
 	// Schedule for Feb 29 -- only fires on leap years.
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	sched, err := parser.Parse("0 0 29 2 *")
-	if err != nil {
-		t.Fatalf("expected Feb 29 cron to parse, got: %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	// From Jan 1, 2027 (not a leap year), next Feb 29 is 2028.
 	from := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 	next := sched.Next(from)
-	if next.Year() != 2028 || next.Month() != 2 || next.Day() != 29 {
-		t.Fatalf("expected 2028-02-29, got %v", next)
-	}
+	require.False(t, next.
+		Year() != 2028 ||
+		next.Month() !=
+			2 || next.
+		Day() !=
+		29)
 }
 
 func TestCron_InvalidTimezone(t *testing.T) {
@@ -71,9 +72,7 @@ func TestCron_InvalidTimezone(t *testing.T) {
 	expr := "CRON_TZ=Mars/Olympus_Mons 0 * * * *"
 	c := cron.New()
 	_, err := c.AddFunc(expr, func() {})
-	if err == nil {
-		t.Fatal("expected error for invalid timezone, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestCron_EverySecondDescriptor(t *testing.T) {
@@ -81,9 +80,8 @@ func TestCron_EverySecondDescriptor(t *testing.T) {
 
 	c := cron.New()
 	_, err := c.AddFunc("@every 1s", func() {})
-	if err != nil {
-		t.Fatalf("expected @every 1s to parse, got: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestCron_OverflowFields(t *testing.T) {
@@ -102,9 +100,7 @@ func TestCron_OverflowFields(t *testing.T) {
 	}
 	for _, expr := range overflows {
 		_, err := parser.Parse(expr)
-		if err == nil {
-			t.Errorf("expected error for overflow cron %q, got nil", expr)
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -115,9 +111,7 @@ func TestCron_EmptyExpression(t *testing.T) {
 	empties := []string{"", "     ", "\t\n"}
 	for _, expr := range empties {
 		_, err := parser.Parse(expr)
-		if err == nil {
-			t.Errorf("expected error for empty cron %q, got nil", expr)
-		}
+		assert.Error(t, err)
 	}
 }
 
@@ -135,12 +129,9 @@ func TestCronScheduler_LoadJobs_InvalidCronExpression(t *testing.T) {
 	}
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
-	if err == nil {
-		t.Fatal("expected error for invalid cron expression in LoadJobs")
-	}
-	if !strings.Contains(err.Error(), "register cron job") {
-		t.Fatalf("expected register error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "register cron job")
 }
 
 func TestCronScheduler_LoadJobs_WorkflowListError(t *testing.T) {
@@ -153,12 +144,9 @@ func TestCronScheduler_LoadJobs_WorkflowListError(t *testing.T) {
 	}
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, nil)
 	err := cs.LoadJobs(context.Background())
-	if err == nil {
-		t.Fatal("expected error when workflow store fails")
-	}
-	if !strings.Contains(err.Error(), "list cron workflows") {
-		t.Fatalf("expected list cron workflows error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "list cron workflows")
 }
 
 func TestCronScheduler_LoadJobs_InvalidWorkflowCron(t *testing.T) {
@@ -174,12 +162,9 @@ func TestCronScheduler_LoadJobs_InvalidWorkflowCron(t *testing.T) {
 	}
 	cs := NewCronScheduler(context.Background(), ms, &mockQueue{}, wt)
 	err := cs.LoadJobs(context.Background())
-	if err == nil {
-		t.Fatal("expected error for invalid workflow cron expression")
-	}
-	if !strings.Contains(err.Error(), "register cron workflow") {
-		t.Fatalf("expected register cron workflow error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.
+		Error(), "register cron workflow")
 }
 
 // Overlapping schedules / cron overlap policies
@@ -208,10 +193,8 @@ func TestCronScheduler_TriggerJob_SkipPolicy_ActiveRuns(t *testing.T) {
 		Cron:              "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
-
-	if enqueued.Load() != 0 {
-		t.Fatal("expected skip policy to prevent enqueue when active runs exist")
-	}
+	require.EqualValues(t, 0,
+		enqueued.Load())
 }
 
 func TestCronScheduler_TriggerJob_SkipPolicy_CountError(t *testing.T) {
@@ -238,10 +221,8 @@ func TestCronScheduler_TriggerJob_SkipPolicy_CountError(t *testing.T) {
 		Cron:              "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
-
-	if enqueued.Load() != 0 {
-		t.Fatal("expected error in count to prevent enqueue")
-	}
+	require.EqualValues(t, 0,
+		enqueued.Load())
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_CancelErrorAfterEnqueue(t *testing.T) {
@@ -268,10 +249,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_CancelErrorAfterEnqueue(t *testi
 		Cron:              "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
-
-	if enqueued.Load() != 1 {
-		t.Fatal("expected replacement run to stay enqueued when post-enqueue cancel fails")
-	}
+	require.EqualValues(t, 1,
+		enqueued.Load())
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
@@ -310,9 +289,8 @@ func TestCronScheduler_TriggerJob_CancelRunning_WorkflowCallback(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(callbackIDs) != 2 {
-		t.Fatalf("expected 2 callback calls, got %d", len(callbackIDs))
-	}
+	require.Len(t, callbackIDs,
+		2)
 }
 
 func TestCronScheduler_TriggerJob_CancelRunning_CallbackError(t *testing.T) {
@@ -363,10 +341,8 @@ func TestCronScheduler_TriggerJob_AllowPolicy(t *testing.T) {
 		Cron:              "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
-
-	if enqueued.Load() != 1 {
-		t.Fatal("expected allow policy to enqueue the run")
-	}
+	require.EqualValues(t, 1,
+		enqueued.Load())
 }
 
 func TestCronScheduler_TriggerJob_UnknownPolicy(t *testing.T) {
@@ -389,10 +365,8 @@ func TestCronScheduler_TriggerJob_UnknownPolicy(t *testing.T) {
 		Cron:              "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
-
-	if enqueued.Load() != 1 {
-		t.Fatal("expected unknown policy to behave like allow")
-	}
+	require.EqualValues(t, 1,
+		enqueued.Load())
 }
 
 func TestCronScheduler_TriggerJob_EnqueueError(t *testing.T) {
@@ -435,14 +409,19 @@ func TestCronScheduler_TriggerJob_TTLFromJob(t *testing.T) {
 		Cron:       "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil,
+	)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set from job RunTTLSecs")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
-	if delta < 4*time.Minute || delta > 6*time.Minute {
-		t.Fatalf("expected ExpiresAt ~5m from now, got %v", delta)
-	}
+	require.False(t, delta <
+		4*time.Minute ||
+		delta >
+			6*time.
+				Minute)
 }
 
 func TestCronScheduler_TriggerJob_TTLFromDefault(t *testing.T) {
@@ -465,14 +444,19 @@ func TestCronScheduler_TriggerJob_TTLFromDefault(t *testing.T) {
 		Cron:      "* * * * *",
 	}
 	cs.triggerJob(context.Background(), job)
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil,
+	)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set from default TTL")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
-	if delta < 9*time.Minute || delta > 11*time.Minute {
-		t.Fatalf("expected ExpiresAt ~10m from now, got %v", delta)
-	}
+	require.False(t, delta <
+		9*time.Minute ||
+		delta >
+			11*time.
+				Minute)
 }
 
 // CronScheduler.triggerWorkflow edge cases
@@ -501,10 +485,9 @@ func TestCronScheduler_TriggerWorkflow_CountRunningError(t *testing.T) {
 		SkipIfRunning: true,
 	}
 	cs.triggerWorkflow(context.Background(), wf)
-
-	if triggered.Load() != 0 {
-		t.Fatal("expected count error to prevent trigger")
-	}
+	require.EqualValues(t, 0,
+		triggered.Load(),
+	)
 }
 
 func TestCronScheduler_TriggerWorkflow_TriggerError(t *testing.T) {
@@ -547,10 +530,9 @@ func TestCronScheduler_TriggerWorkflow_NoSkipPolicy(t *testing.T) {
 		SkipIfRunning: false,
 	}
 	cs.triggerWorkflow(context.Background(), wf)
-
-	if triggered.Load() != 1 {
-		t.Fatal("expected workflow to be triggered when SkipIfRunning is false")
-	}
+	require.EqualValues(t, 1,
+		triggered.Load(),
+	)
 }
 
 // Batch operation abuse
@@ -558,17 +540,17 @@ func TestCronScheduler_TriggerWorkflow_NoSkipPolicy(t *testing.T) {
 func TestBatchFlusher_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	f := NewBatchFlusher(nil, nil, 0)
-	if f.interval != time.Second {
-		t.Fatalf("expected zero interval clamped to 1s, got %v", f.interval)
-	}
+	require.Equal(t, time.
+		Second, f.interval,
+	)
 }
 
 func TestBatchFlusher_NegativeInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	f := NewBatchFlusher(nil, nil, -5*time.Minute)
-	if f.interval != time.Second {
-		t.Fatalf("expected negative interval clamped to 1s, got %v", f.interval)
-	}
+	require.Equal(t, time.
+		Second, f.interval,
+	)
 }
 
 func TestBatchFlusher_SingleItemBatch(t *testing.T) {
@@ -595,19 +577,18 @@ func TestBatchFlusher_SingleItemBatch(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if len(enqueued) != 1 {
-		t.Fatalf("expected 1 batch run for single-item batch, got %d", len(enqueued))
-	}
+	require.Len(t, enqueued,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(enqueued[0].Payload, &payload); err != nil {
-		t.Fatalf("invalid batch payload: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(enqueued[0].
+			Payload,
+			&payload))
+
 	items := payload["items"].([]any)
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item in batch payload, got %d", len(items))
-	}
+	require.Len(t, items,
+		1)
 }
 
 func TestBatchFlusher_ZeroBatchMaxSize_UsesItemCount(t *testing.T) {
@@ -634,10 +615,8 @@ func TestBatchFlusher_ZeroBatchMaxSize_UsesItemCount(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if len(enqueued) != 1 {
-		t.Fatalf("expected 1 run when BatchMaxSize is 0, got %d", len(enqueued))
-	}
+	require.Len(t, enqueued,
+		1)
 }
 
 func TestBatchFlusher_RunTTL_OverridesTimeout(t *testing.T) {
@@ -664,14 +643,20 @@ func TestBatchFlusher_RunTTL_OverridesTimeout(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
+	require.False(t, capturedRun ==
+		nil ||
+		capturedRun.
+			ExpiresAt ==
+			nil,
+	)
 
-	if capturedRun == nil || capturedRun.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
 	delta := time.Until(*capturedRun.ExpiresAt)
-	if delta < 55*time.Minute || delta > 65*time.Minute {
-		t.Fatalf("expected ExpiresAt ~1h from now, got %v", delta)
-	}
+	require.False(t, delta <
+		55*time.Minute ||
+		delta >
+			65*
+				time.Minute,
+	)
 }
 
 func TestBatchFlusher_MultipleBatches(t *testing.T) {
@@ -701,10 +686,8 @@ func TestBatchFlusher_MultipleBatches(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if enqueued.Load() != 3 {
-		t.Fatalf("expected 3 batch runs for 3 flushable batches, got %d", enqueued.Load())
-	}
+	require.EqualValues(t, 3,
+		enqueued.Load())
 }
 
 func TestBatchFlusher_AdvisoryLockError(t *testing.T) {
@@ -728,10 +711,8 @@ func TestBatchFlusher_AdvisoryLockError(t *testing.T) {
 	}
 	flusher := NewBatchFlusher(bs, q, time.Second)
 	flusher.poll(context.Background())
-
-	if enqueued.Load() != 0 {
-		t.Fatal("expected no enqueue when advisory lock errors")
-	}
+	require.EqualValues(t, 0,
+		enqueued.Load())
 }
 
 func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
@@ -754,7 +735,7 @@ func TestBatchFlusher_RunStopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -777,10 +758,7 @@ func TestAnomalyMonitor_AdvisoryLockerNotAcquired(t *testing.T) {
 	}
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
-
-	if checked {
-		t.Fatal("expected check to be skipped when lock not acquired")
-	}
+	require.False(t, checked)
 }
 
 func TestAnomalyMonitor_AdvisoryLockerError(t *testing.T) {
@@ -800,10 +778,7 @@ func TestAnomalyMonitor_AdvisoryLockerError(t *testing.T) {
 	}
 	am := NewAnomalyMonitor(s, time.Minute).WithAdvisoryLocker(locker)
 	am.check(context.Background())
-
-	if checked {
-		t.Fatal("expected check to be skipped on locker error")
-	}
+	require.False(t, checked)
 }
 
 func TestAnomalyMonitor_CooldownError_SkipsOrg(t *testing.T) {
@@ -828,10 +803,7 @@ func TestAnomalyMonitor_CooldownError_SkipsOrg(t *testing.T) {
 	}
 	am := NewAnomalyMonitor(s, time.Minute).WithCooldown(cooldown)
 	am.check(context.Background())
-
-	if subscriptionChecked {
-		t.Fatal("expected org to be skipped due to cooldown")
-	}
+	require.False(t, subscriptionChecked)
 }
 
 func TestAnomalyMonitor_EmptyOrgList(t *testing.T) {
@@ -863,17 +835,17 @@ func TestAnomalyMonitor_ListOrgsError(t *testing.T) {
 func TestRedisCooldown_ZeroTTL_ClampsToDefault(t *testing.T) {
 	t.Parallel()
 	rc := NewRedisCooldown(&advMockRedisClient{}, 0)
-	if rc.ttl != 4*time.Hour {
-		t.Fatalf("expected default TTL 4h, got %v", rc.ttl)
-	}
+	require.Equal(t, 4*
+		time.Hour, rc.ttl,
+	)
 }
 
 func TestRedisCooldown_NegativeTTL_ClampsToDefault(t *testing.T) {
 	t.Parallel()
 	rc := NewRedisCooldown(&advMockRedisClient{}, -time.Hour)
-	if rc.ttl != 4*time.Hour {
-		t.Fatalf("expected default TTL 4h, got %v", rc.ttl)
-	}
+	require.Equal(t, 4*
+		time.Hour, rc.ttl,
+	)
 }
 
 func TestRedisCooldown_InCooldown_KeyNotFound(t *testing.T) {
@@ -885,12 +857,9 @@ func TestRedisCooldown_InCooldown_KeyNotFound(t *testing.T) {
 	}
 	rc := NewRedisCooldown(client, time.Hour)
 	cooled, err := rc.InCooldown(context.Background(), "org-1")
-	if err != nil {
-		t.Fatalf("expected nil error for key-not-found, got %v", err)
-	}
-	if cooled {
-		t.Fatal("expected not in cooldown for missing key")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, cooled)
 }
 
 func TestRedisCooldown_InCooldown_KeyExists(t *testing.T) {
@@ -902,12 +871,9 @@ func TestRedisCooldown_InCooldown_KeyExists(t *testing.T) {
 	}
 	rc := NewRedisCooldown(client, time.Hour)
 	cooled, err := rc.InCooldown(context.Background(), "org-1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !cooled {
-		t.Fatal("expected in cooldown when key exists")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, cooled)
 }
 
 func TestRedisCooldown_SetCooldown(t *testing.T) {
@@ -920,21 +886,23 @@ func TestRedisCooldown_SetCooldown(t *testing.T) {
 		},
 	}
 	rc := NewRedisCooldown(client, time.Hour)
-	if err := rc.SetCooldown(context.Background(), "org-1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		rc.SetCooldown(context.
+			Background(),
+			"org-1"))
+
 	expected := "strait:anomaly_cooldown:org-1"
-	if setKey != expected {
-		t.Fatalf("expected key %q, got %q", expected, setKey)
-	}
+	require.Equal(t, expected,
+		setKey)
 }
 
 func TestCooldownKey_Format(t *testing.T) {
 	t.Parallel()
 	key := cooldownKey("org-abc")
-	if key != "strait:anomaly_cooldown:org-abc" {
-		t.Fatalf("unexpected cooldown key: %s", key)
-	}
+	require.Equal(t, "strait:anomaly_cooldown:org-abc",
+
+		key,
+	)
 }
 
 // Budget monitor concurrency and edge cases
@@ -959,9 +927,7 @@ func TestBudgetMonitor_ConcurrentCheckAndCleanup(t *testing.T) {
 
 	bm.alertedMu.Lock()
 	for k := range bm.alerted {
-		if strings.Contains(k, "1970-01-01") {
-			t.Errorf("stale entry %q not cleaned up", k)
-		}
+		assert.NotContains(t, k, "1970-01-01")
 	}
 	bm.alertedMu.Unlock()
 }
@@ -1084,12 +1050,11 @@ func TestCalculateErrorBudget_InfInputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			budget := CalculateErrorBudget(tt.current, tt.target, tt.metric)
-			if math.IsNaN(budget) {
-				t.Errorf("budget should not be NaN for %s", tt.name)
-			}
-			if budget < 0 || budget > 1 {
-				t.Errorf("budget out of [0,1] for %s: %v", tt.name, budget)
-			}
+			assert.False(t, math.
+				IsNaN(budget))
+			assert.False(t, budget <
+				0 || budget >
+				1)
 		})
 	}
 }
@@ -1098,32 +1063,28 @@ func TestCalculateErrorBudget_TargetOne_SuccessRate(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(1.0, 1.0, domain.SLOMetricSuccessRate)
-	if budget != 1.0 {
-		t.Errorf("expected 1.0 for perfect score with target=1.0, got %v", budget)
-	}
+	assert.InDelta(t, 1.0,
+		budget, 1e-9)
 
 	budget = CalculateErrorBudget(0.99, 1.0, domain.SLOMetricSuccessRate)
-	if budget != 0.0 {
-		t.Errorf("expected 0.0 for imperfect score with target=1.0, got %v", budget)
-	}
+	assert.InDelta(t, 0.0,
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_ZeroTarget_Latency(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(5.0, 0.0, domain.SLOMetricP95LatencySecs)
-	if budget != 1.0 {
-		t.Errorf("expected 1.0 for zero target latency, got %v", budget)
-	}
+	assert.InDelta(t, 1.0,
+		budget, 1e-9)
 }
 
 func TestCalculateErrorBudget_P99Latency(t *testing.T) {
 	t.Parallel()
 
 	budget := CalculateErrorBudget(0.5, 1.0, domain.SLOMetricP99LatencySecs)
-	if budget != 0.5 {
-		t.Errorf("expected 0.5 for 50%% of target latency, got %v", budget)
-	}
+	assert.InDelta(t, 0.5,
+		budget, 1e-9)
 }
 
 // Maintenance loop edge cases
@@ -1141,18 +1102,18 @@ func TestMaintenanceLoop_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
 
 	loop := NewMaintenanceLoop("zero-int", 0, nil, func(_ context.Context) {})
-	if loop.interval != time.Second {
-		t.Fatalf("expected zero interval clamped to 1s, got %v", loop.interval)
-	}
+	require.Equal(t, time.
+		Second, loop.interval,
+	)
 }
 
 func TestMaintenanceLoop_NegativeInterval_Clamped(t *testing.T) {
 	t.Parallel()
 
 	loop := NewMaintenanceLoop("neg-int", -5*time.Second, nil, func(_ context.Context) {})
-	if loop.interval != time.Second {
-		t.Fatalf("expected negative interval clamped to 1s, got %v", loop.interval)
-	}
+	require.Equal(t, time.
+		Second, loop.interval,
+	)
 }
 
 // Index maintenance edge cases
@@ -1161,18 +1122,18 @@ func TestIndexMaintainer_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	s := &advMockIndexStore{}
 	im := NewIndexMaintainer(s, 0)
-	if im.interval != 24*time.Hour {
-		t.Fatalf("expected zero interval clamped to 24h, got %v", im.interval)
-	}
+	require.Equal(t, 24*
+		time.Hour, im.
+		interval)
 }
 
 func TestIndexMaintainer_NegativeInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	s := &advMockIndexStore{}
 	im := NewIndexMaintainer(s, -time.Hour)
-	if im.interval != 24*time.Hour {
-		t.Fatalf("expected negative interval clamped to 24h, got %v", im.interval)
-	}
+	require.Equal(t, 24*
+		time.Hour, im.
+		interval)
 }
 
 // Memory cleanup edge cases
@@ -1181,9 +1142,9 @@ func TestMemoryCleanup_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	s := &advMockMemoryStore{}
 	mc := NewMemoryCleanup(s, 0)
-	if mc.interval != 5*time.Minute {
-		t.Fatalf("expected zero interval clamped to 5m, got %v", mc.interval)
-	}
+	require.Equal(t, 5*
+		time.Minute, mc.
+		interval)
 }
 
 func TestMemoryCleanup_StoreError(t *testing.T) {
@@ -1213,17 +1174,19 @@ func TestMemoryCleanup_DeletesExpired(t *testing.T) {
 func TestUsageFlusher_ZeroInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	uf := NewUsageFlusher(nil, 0)
-	if uf.interval != 60*time.Second {
-		t.Fatalf("expected zero interval clamped to 60s, got %v", uf.interval)
-	}
+	require.Equal(t, 60*
+		time.Second, uf.
+		interval,
+	)
 }
 
 func TestUsageFlusher_NegativeInterval_Clamped(t *testing.T) {
 	t.Parallel()
 	uf := NewUsageFlusher(nil, -time.Minute)
-	if uf.interval != 60*time.Second {
-		t.Fatalf("expected negative interval clamped to 60s, got %v", uf.interval)
-	}
+	require.Equal(t, 60*
+		time.Second, uf.
+		interval,
+	)
 }
 
 func TestUsageFlusher_WithAdvisoryLocker(t *testing.T) {
@@ -1231,9 +1194,9 @@ func TestUsageFlusher_WithAdvisoryLocker(t *testing.T) {
 	uf := NewUsageFlusher(nil, time.Minute)
 	locker := &mockAdvisoryLocker{}
 	uf2 := uf.WithAdvisoryLocker(locker)
-	if uf2.advisoryLocker == nil {
-		t.Fatal("expected advisory locker to be set")
-	}
+	require.NotNil(t, uf2.
+		advisoryLocker,
+	)
 }
 
 // Stale subscription checker edge cases
@@ -1242,9 +1205,9 @@ func TestStaleSubscriptionChecker_BasicConstruction(t *testing.T) {
 	t.Parallel()
 	s := &advMockStaleSubStore{}
 	c := NewStaleSubscriptionChecker(s, time.Minute)
-	if c.interval != time.Minute {
-		t.Fatalf("expected interval 1m, got %v", c.interval)
-	}
+	require.Equal(t, time.
+		Minute, c.interval,
+	)
 }
 
 func TestStaleSubscriptionChecker_WithAdvisoryLocker(t *testing.T) {
@@ -1253,9 +1216,8 @@ func TestStaleSubscriptionChecker_WithAdvisoryLocker(t *testing.T) {
 	c := NewStaleSubscriptionChecker(s, time.Minute)
 	locker := &mockAdvisoryLocker{}
 	c2 := c.WithAdvisoryLocker(locker)
-	if c2.advisoryLocker == nil {
-		t.Fatal("expected advisory locker to be set")
-	}
+	require.NotNil(t, c2.
+		advisoryLocker)
 }
 
 func TestStaleSubscriptionChecker_Check_NoSubs(t *testing.T) {
@@ -1310,9 +1272,7 @@ func TestStaleSubscriptionChecker_Check_LockerNotAcquired(t *testing.T) {
 	}
 	c := NewStaleSubscriptionChecker(s, time.Minute).WithAdvisoryLocker(locker)
 	c.check(context.Background())
-	if checked {
-		t.Fatal("expected check skipped when lock not acquired")
-	}
+	require.False(t, checked)
 }
 
 func TestStaleSubscriptionChecker_Run_StopsOnCancel(t *testing.T) {
@@ -1333,7 +1293,7 @@ func TestStaleSubscriptionChecker_Run_StopsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop on context cancel")
+		require.Fail(t, "Run did not stop on context cancel")
 	}
 }
 
@@ -1389,9 +1349,7 @@ func TestDowngradeApplier_LockerNotAcquired(t *testing.T) {
 	}
 	d := NewDowngradeApplier(advStore, nil, time.Minute).WithAdvisoryLocker(locker)
 	d.apply(context.Background())
-	if applied {
-		t.Fatal("expected apply skipped when lock not acquired")
-	}
+	require.False(t, applied)
 }
 
 func TestDowngradeApplier_LockerError(t *testing.T) {
@@ -1410,9 +1368,7 @@ func TestDowngradeApplier_LockerError(t *testing.T) {
 	}
 	d := NewDowngradeApplier(advStore, nil, time.Minute).WithAdvisoryLocker(locker)
 	d.apply(context.Background())
-	if applied {
-		t.Fatal("expected apply skipped on locker error")
-	}
+	require.False(t, applied)
 }
 
 func TestDowngradeApplier_StoreListError(t *testing.T) {
@@ -1459,9 +1415,9 @@ func TestDowngradeApplier_EmptyList(t *testing.T) {
 func TestConcurrentReconciler_Construction(t *testing.T) {
 	t.Parallel()
 	r := NewConcurrentReconciler(nil, nil, time.Minute)
-	if r.interval != time.Minute {
-		t.Fatalf("expected interval 1m, got %v", r.interval)
-	}
+	require.Equal(t, time.
+		Minute, r.interval,
+	)
 }
 
 // FormatBudgetAlertKey edge cases
@@ -1469,17 +1425,16 @@ func TestConcurrentReconciler_Construction(t *testing.T) {
 func TestFormatBudgetAlertKey_EmptyProject(t *testing.T) {
 	t.Parallel()
 	key := FormatBudgetAlertKey("", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	if key != ":2026-01-01" {
-		t.Fatalf("expected ':2026-01-01', got %q", key)
-	}
+	require.Equal(t, ":2026-01-01",
+		key)
 }
 
 func TestFormatBudgetAlertKey_FarFutureDate(t *testing.T) {
 	t.Parallel()
 	key := FormatBudgetAlertKey("proj-1", time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC))
-	if key != "proj-1:9999-12-31" {
-		t.Fatalf("expected 'proj-1:9999-12-31', got %q", key)
-	}
+	require.Equal(t, "proj-1:9999-12-31",
+
+		key)
 }
 
 // Mock types used only by adversarial tests (prefixed with "adv" to avoid conflicts)

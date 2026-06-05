@@ -8,33 +8,30 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestInitLogBridge_NoEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "", "test")
-	if err != nil {
-		t.Fatalf("InitLogBridge() error = %v", err)
-	}
-	if logger != nil {
-		t.Error("expected nil logger when endpoint is empty")
-	}
-	if err := shutdown(ctx); err != nil {
-		t.Errorf("shutdown() error = %v", err)
-	}
+	require.NoError(t,
+		err)
+	assert.Nil(t, logger)
+	assert.NoError(t,
+		shutdown(ctx))
 }
 
 func TestInitLogBridge_WithEndpoint(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "http://localhost:4318", "dev")
-	if err != nil {
-		t.Fatalf("InitLogBridge() error = %v", err)
-	}
-	if logger == nil {
-		t.Fatal("expected non-nil logger")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		logger)
+
 	// Log something to verify no panic.
 	logger.Info("test log line", "key", "value")
 	// Shutdown may return an error because no real endpoint is listening;
@@ -52,41 +49,33 @@ func TestInitLogBridge_RedactsCredentialedEndpointInStartupLog(t *testing.T) {
 	})
 
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "http://user:pass@localhost:4318/v1/logs?token=secret&tenant=prod", "dev")
-	if err != nil {
-		t.Fatalf("InitLogBridge() error = %v", err)
-	}
-	if logger == nil {
-		t.Fatal("expected non-nil logger")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		logger)
+
 	_ = shutdown(ctx)
 
 	out := buf.String()
-	if !strings.Contains(out, "otel log bridge enabled") {
-		t.Fatalf("startup log missing enable message: %s", out)
-	}
+	require.Contains(t, out, "otel log bridge enabled")
+
 	for _, leaked := range []string{"user", "pass", "secret"} {
-		if strings.Contains(out, leaked) {
-			t.Fatalf("startup log leaked %q: %s", leaked, out)
-		}
+		require.NotContains(t,
+			out, leaked)
 	}
-	if !strings.Contains(out, "token=%5Bredacted%5D") {
-		t.Fatalf("startup log missing redacted token query: %s", out)
-	}
-	if !strings.Contains(out, "tenant=prod") {
-		t.Fatalf("startup log should preserve non-sensitive query params: %s", out)
-	}
+	require.Contains(t, out, "token=%5Bredacted%5D")
+	require.Contains(t, out, "tenant=prod")
 }
 
 func TestInitLogBridge_EmptyEnvironment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	logger, shutdown, err := InitLogBridge(ctx, "test-service", "http://localhost:4318", "")
-	if err != nil {
-		t.Fatalf("InitLogBridge() error = %v", err)
-	}
-	if logger == nil {
-		t.Fatal("expected non-nil logger")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		logger)
+
 	_ = shutdown(ctx)
 }
 
@@ -101,13 +90,8 @@ func TestTeeHandler_FansOut(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("hello", "key", "value")
-
-	if !strings.Contains(buf1.String(), "hello") {
-		t.Errorf("handler 1 did not receive log: %s", buf1.String())
-	}
-	if !strings.Contains(buf2.String(), "hello") {
-		t.Errorf("handler 2 did not receive log: %s", buf2.String())
-	}
+	assert.Contains(t, buf1.String(), "hello")
+	assert.Contains(t, buf2.String(), "hello")
 }
 
 func TestTeeHandler_Enabled(t *testing.T) {
@@ -116,13 +100,16 @@ func TestTeeHandler_Enabled(t *testing.T) {
 	var buf bytes.Buffer
 	h := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
 	tee := NewTeeHandler(h)
-
-	if tee.Enabled(context.Background(), slog.LevelDebug) {
-		t.Error("should not be enabled for debug level")
-	}
-	if !tee.Enabled(context.Background(), slog.LevelWarn) {
-		t.Error("should be enabled for warn level")
-	}
+	assert.False(t, tee.
+		Enabled(
+			context.Background(), slog.
+				LevelDebug,
+		))
+	assert.True(t, tee.
+		Enabled(context.
+			Background(), slog.
+			LevelWarn,
+		))
 }
 
 func TestTeeHandler_WithAttrs(t *testing.T) {
@@ -135,10 +122,7 @@ func TestTeeHandler_WithAttrs(t *testing.T) {
 	withAttrs := tee.WithAttrs([]slog.Attr{slog.String("run_id", "run-123")})
 	logger := slog.New(withAttrs)
 	logger.Info("test")
-
-	if !strings.Contains(buf.String(), "run_id") {
-		t.Errorf("expected run_id in output: %s", buf.String())
-	}
+	assert.Contains(t, buf.String(), "run_id")
 }
 
 func TestTeeHandler_WithGroup(t *testing.T) {
@@ -151,10 +135,7 @@ func TestTeeHandler_WithGroup(t *testing.T) {
 	withGroup := tee.WithGroup("request")
 	logger := slog.New(withGroup)
 	logger.Info("test", "method", "GET")
-
-	if !strings.Contains(buf.String(), "request.method") {
-		t.Errorf("expected grouped key in output: %s", buf.String())
-	}
+	assert.Contains(t, buf.String(), "request.method")
 }
 
 func TestTeeHandler_LevelFiltering(t *testing.T) {
@@ -168,13 +149,10 @@ func TestTeeHandler_LevelFiltering(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("info message")
-
-	if strings.Contains(warnBuf.String(), "info message") {
-		t.Error("warn handler should not receive info-level message")
-	}
-	if !strings.Contains(infoBuf.String(), "info message") {
-		t.Error("info handler should receive info-level message")
-	}
+	assert.NotContains(t, warnBuf.
+		String(), "info message")
+	assert.Contains(t, infoBuf.
+		String(), "info message")
 }
 
 func TestNewTeeHandler_SingleHandler(t *testing.T) {
@@ -187,13 +165,8 @@ func TestNewTeeHandler_SingleHandler(t *testing.T) {
 	logger := slog.New(tee)
 
 	logger.Info("single handler test", "k", "v")
-
-	if !strings.Contains(buf.String(), "single handler test") {
-		t.Errorf("single handler did not receive log: %s", buf.String())
-	}
-	if !strings.Contains(buf.String(), "k=v") {
-		t.Errorf("single handler missing attribute: %s", buf.String())
-	}
+	assert.Contains(t, buf.String(), "single handler test")
+	assert.Contains(t, buf.String(), "k=v")
 }
 
 func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
@@ -218,11 +191,8 @@ func TestNewTeeHandler_ConcurrentLogging(t *testing.T) {
 	out2 := buf2.String()
 	count1 := strings.Count(out1, "concurrent log")
 	count2 := strings.Count(out2, "concurrent log")
-
-	if count1 != 100 {
-		t.Errorf("handler 1 received %d logs, want 100", count1)
-	}
-	if count2 != 100 {
-		t.Errorf("handler 2 received %d logs, want 100", count2)
-	}
+	assert.Equal(t, 100,
+		count1)
+	assert.Equal(t, 100,
+		count2)
 }

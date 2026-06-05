@@ -4,6 +4,9 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type mockAnomalyStore struct {
@@ -20,12 +23,9 @@ func TestAnomalyDetector_DetectAnomalies_NoHistory(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Fatalf("expected no alerts with no history, got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
@@ -56,23 +56,23 @@ func TestAnomalyDetector_DetectAnomalies_Spike(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
 
 	alert := alerts[0]
-	if alert.OrgID != "org-1" {
-		t.Errorf("expected org_id org-1, got %s", alert.OrgID)
-	}
-	if alert.Severity != AnomalySeverityHigh {
-		t.Errorf("expected severity high for 5x spike, got %s", alert.Severity)
-	}
-	if alert.SpikeRatio != 5.0 {
-		t.Errorf("expected spike ratio 5.0, got %f", alert.SpikeRatio)
-	}
+	assert.Equal(t, "org-1",
+		alert.
+			OrgID,
+	)
+	assert.Equal(t, AnomalySeverityHigh,
+
+		alert.
+			Severity)
+	assert.InDelta(t, 5.0,
+		alert.SpikeRatio, 1e-9,
+	)
 }
 
 func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
@@ -100,12 +100,9 @@ func TestAnomalyDetector_DetectAnomalies_NoSpike(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Fatalf("expected no alerts for 2x spend, got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_DetectAnomalies_IgnoresUsageCost(t *testing.T) {
@@ -132,12 +129,9 @@ func TestAnomalyDetector_DetectAnomalies_IgnoresUsageCost(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-usage"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Fatalf("expected no alerts from usage cost, got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, alerts)
 }
 
 func TestClassifySeverity(t *testing.T) {
@@ -155,9 +149,9 @@ func TestClassifySeverity(t *testing.T) {
 
 	for _, tt := range tests {
 		got := classifySeverity(tt.ratio)
-		if got != tt.expected {
-			t.Errorf("classifySeverity(%f) = %s, want %s", tt.ratio, got, tt.expected)
-		}
+		assert.Equal(t, tt.
+			expected,
+			got)
 	}
 }
 
@@ -189,18 +183,16 @@ func TestAnomalyDetector_CustomThresholds_Warning(t *testing.T) {
 	})
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].Severity != AnomalySeverityWarning {
-		t.Errorf("expected severity warning, got %s", alerts[0].Severity)
-	}
-	if alerts[0].SpikeRatio != 2.5 {
-		t.Errorf("expected spike ratio 2.5, got %f", alerts[0].SpikeRatio)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.Equal(t, AnomalySeverityWarning,
+
+		alerts[0].Severity)
+	assert.InDelta(t, 2.5,
+		alerts[0].SpikeRatio, 1e-9,
+	)
 }
 
 func TestAnomalyDetector_CustomThresholds_Critical(t *testing.T) {
@@ -231,18 +223,16 @@ func TestAnomalyDetector_CustomThresholds_Critical(t *testing.T) {
 	})
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].Severity != AnomalySeverityCritical {
-		t.Errorf("expected severity critical, got %s", alerts[0].Severity)
-	}
-	if alerts[0].SpikeRatio != 7.0 {
-		t.Errorf("expected spike ratio 7.0, got %f", alerts[0].SpikeRatio)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.Equal(t, AnomalySeverityCritical,
+
+		alerts[0].Severity)
+	assert.InDelta(t, 7.0,
+		alerts[0].SpikeRatio, 1e-9,
+	)
 }
 
 func TestAnomalyDetector_CustomThresholds_BelowWarning(t *testing.T) {
@@ -273,12 +263,9 @@ func TestAnomalyDetector_CustomThresholds_BelowWarning(t *testing.T) {
 	})
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Fatalf("expected no alerts for 1.5x spike with 2.0 warning threshold, got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, alerts)
 }
 
 func TestAnomalyDetector_CustomThresholds_HighAutoComputed(t *testing.T) {
@@ -311,18 +298,16 @@ func TestAnomalyDetector_CustomThresholds_HighAutoComputed(t *testing.T) {
 	})
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].Severity != AnomalySeverityHigh {
-		t.Errorf("expected severity high for 6x spike (high threshold 5.0), got %s", alerts[0].Severity)
-	}
-	if alerts[0].SpikeRatio != 6.0 {
-		t.Errorf("expected spike ratio 6.0, got %f", alerts[0].SpikeRatio)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.Equal(t, AnomalySeverityHigh,
+
+		alerts[0].Severity)
+	assert.InDelta(t, 6.0,
+		alerts[0].SpikeRatio, 1e-9,
+	)
 }
 
 func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
@@ -354,26 +339,28 @@ func TestAnomalyDetector_DefaultConfig_BackwardsCompatible(t *testing.T) {
 	detectorWithConfig := NewAnomalyDetectorWithConfig(store, DefaultAnomalyConfig())
 
 	alertsDefault, err := detectorDefault.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error from default detector: %v", err)
-	}
-	alertsWithConfig, err := detectorWithConfig.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error from config detector: %v", err)
-	}
+	require.NoError(t,
+		err)
 
-	if len(alertsDefault) != len(alertsWithConfig) {
-		t.Fatalf("alert count mismatch: default=%d, withConfig=%d", len(alertsDefault), len(alertsWithConfig))
-	}
-	if len(alertsDefault) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alertsDefault))
-	}
-	if alertsDefault[0].Severity != alertsWithConfig[0].Severity {
-		t.Errorf("severity mismatch: default=%s, withConfig=%s", alertsDefault[0].Severity, alertsWithConfig[0].Severity)
-	}
-	if alertsDefault[0].SpikeRatio != alertsWithConfig[0].SpikeRatio {
-		t.Errorf("spike ratio mismatch: default=%f, withConfig=%f", alertsDefault[0].SpikeRatio, alertsWithConfig[0].SpikeRatio)
-	}
+	alertsWithConfig, err := detectorWithConfig.DetectAnomalies(context.Background(), []string{"org-1"})
+	require.NoError(t,
+		err)
+	require.Len(t, alertsDefault,
+
+		len(alertsWithConfig))
+	require.Len(t, alertsDefault,
+
+		1)
+	assert.Equal(t, alertsWithConfig[0].
+		Severity,
+
+		alertsDefault[0].Severity,
+	)
+	assert.InDelta(t, alertsWithConfig[0].
+		SpikeRatio,
+
+		alertsDefault[0].SpikeRatio, 1e-9,
+	)
 }
 
 func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) {
@@ -403,21 +390,19 @@ func TestAnomalyDetector_MixedComputeAndUsageSpendUsesComputeOnly(t *testing.T) 
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-mixed"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].SpikeRatio != 6.0 {
-		t.Errorf("expected spike ratio 6.0, got %f", alerts[0].SpikeRatio)
-	}
-	if alerts[0].TodaySpend != 3000 {
-		t.Errorf("expected today spend 3000, got %d", alerts[0].TodaySpend)
-	}
-	if alerts[0].Avg7dSpend != 500 {
-		t.Errorf("expected avg7d 500, got %d", alerts[0].Avg7dSpend)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.InDelta(t, 6.0,
+		alerts[0].SpikeRatio, 1e-9,
+	)
+	assert.EqualValues(t, 3000,
+		alerts[0].TodaySpend,
+	)
+	assert.EqualValues(t, 500,
+		alerts[0].Avg7dSpend,
+	)
 }
 
 func TestAnomalyDetector_ExactWarningThreshold_Triggers(t *testing.T) {
@@ -445,17 +430,16 @@ func TestAnomalyDetector_ExactWarningThreshold_Triggers(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.Equal(t, AnomalySeverityWarning,
+
+		alerts[0].Severity)
+
 	// spikeRatio == 3.0, threshold is 3.0. Condition is `<`, so 3.0 is NOT less
 	// than 3.0 — it should trigger.
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert at exact threshold, got %d", len(alerts))
-	}
-	if alerts[0].Severity != AnomalySeverityWarning {
-		t.Errorf("expected warning severity, got %s", alerts[0].Severity)
-	}
 }
 
 func TestAnomalyDetector_TopContributor_MultipleRecords(t *testing.T) {
@@ -481,18 +465,17 @@ func TestAnomalyDetector_TopContributor_MultipleRecords(t *testing.T) {
 	detector := NewAnomalyDetector(store)
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 1 {
-		t.Fatalf("expected 1 alert, got %d", len(alerts))
-	}
-	if alerts[0].TopContributor != "proj-b" {
-		t.Errorf("expected top contributor proj-b, got %s", alerts[0].TopContributor)
-	}
-	if alerts[0].TodaySpend != 7000 {
-		t.Errorf("expected today spend 7000, got %d", alerts[0].TodaySpend)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, alerts,
+		1)
+	assert.Equal(t, "proj-b",
+		alerts[0].
+			TopContributor,
+	)
+	assert.EqualValues(t, 7000,
+		alerts[0].TodaySpend,
+	)
 }
 
 func TestAnomalyDetector_ZeroThresholds_NoAlerts(t *testing.T) {
@@ -524,10 +507,7 @@ func TestAnomalyDetector_ZeroThresholds_NoAlerts(t *testing.T) {
 	})
 
 	alerts, err := detector.DetectAnomalies(context.Background(), []string{"org-1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(alerts) != 0 {
-		t.Fatalf("expected no alerts for 2x spike with zero thresholds (defaults to 3.0), got %d", len(alerts))
-	}
+	require.NoError(t,
+		err)
+	require.Empty(t, alerts)
 }

@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestEval_DeeplyNestedPath tests a nested dot-separated path against a deeply nested payload.
@@ -26,24 +29,16 @@ func TestEval_DeeplyNestedPath(t *testing.T) {
 
 	filter := fmt.Sprintf(`{"eq":[[%q,"leaf"]]}`, deepPath)
 	match, err := Eval(json.RawMessage(filter), json.RawMessage(payload))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected deeply nested path to match")
-	}
+	require.NoError(t, err)
+	assert.True(t, match)
 
 	// A missing deep path within the allowed depth should not match.
 	missingParts := append([]string(nil), parts...)
 	missingParts[len(missingParts)-1] = "missing"
 	filter = fmt.Sprintf(`{"has":[%q]}`, strings.Join(missingParts, "."))
 	match, err = Eval(json.RawMessage(filter), json.RawMessage(payload))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if match {
-		t.Fatal("expected missing deep path to not match")
-	}
+	require.NoError(t, err)
+	assert.False(t, match)
 }
 
 // TestEval_HugeEqArray tests that excessive eq conditions fail closed.
@@ -56,18 +51,12 @@ func TestEval_HugeEqArray(t *testing.T) {
 	}
 	expr := FilterExpr{Eq: conditions}
 	filterBytes, err := json.Marshal(expr)
-	if err != nil {
-		t.Fatalf("failed to marshal filter: %v", err)
-	}
+	require.NoError(t, err)
 
 	payload := json.RawMessage(`{"status":"ok"}`)
 	match, err := Eval(json.RawMessage(filterBytes), payload)
-	if match {
-		t.Fatal("expected excessive eq conditions to fail closed")
-	}
-	if err == nil {
-		t.Fatal("expected excessive eq conditions to return an error")
-	}
+	assert.False(t, match)
+	require.Error(t, err)
 }
 
 // TestEval_HugeHasArray tests that excessive has conditions fail closed.
@@ -80,18 +69,12 @@ func TestEval_HugeHasArray(t *testing.T) {
 	}
 	expr := FilterExpr{Has: fields}
 	filterBytes, err := json.Marshal(expr)
-	if err != nil {
-		t.Fatalf("failed to marshal filter: %v", err)
-	}
+	require.NoError(t, err)
 
 	payload := json.RawMessage(`{"status":"ok"}`)
 	match, err := Eval(json.RawMessage(filterBytes), payload)
-	if match {
-		t.Fatal("expected excessive has conditions to fail closed")
-	}
-	if err == nil {
-		t.Fatal("expected excessive has conditions to return an error")
-	}
+	assert.False(t, match)
+	require.Error(t, err)
 }
 
 // TestEval_TypeConfusion tests numeric vs string comparison behavior.
@@ -102,34 +85,22 @@ func TestEval_TypeConfusion(t *testing.T) {
 	filter := json.RawMessage(`{"eq":[["count","42"]]}`)
 	payload := json.RawMessage(`{"count":42}`)
 	match, err := Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected numeric 42 to match string '42' via Sprintf")
-	}
+	require.NoError(t, err)
+	assert.True(t, match)
 
 	// Boolean true vs string "true".
 	filter = json.RawMessage(`{"eq":[["active","true"]]}`)
 	payload = json.RawMessage(`{"active":true}`)
 	match, err = Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected boolean true to match string 'true' via Sprintf")
-	}
+	require.NoError(t, err)
+	assert.True(t, match)
 
 	// Null value vs string "<nil>".
 	filter = json.RawMessage(`{"eq":[["val","<nil>"]]}`)
 	payload = json.RawMessage(`{"val":null}`)
 	match, err = Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !match {
-		t.Fatal("expected null to match '<nil>' via Sprintf")
-	}
+	require.NoError(t, err)
+	assert.True(t, match)
 }
 
 // TestEval_NullValueInPath tests that a nil intermediate in a path is handled.
@@ -140,22 +111,14 @@ func TestEval_NullValueInPath(t *testing.T) {
 	filter := json.RawMessage(`{"has":["a.b.c"]}`)
 	payload := json.RawMessage(`{"a":{"b":null}}`)
 	match, err := Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if match {
-		t.Fatal("expected null intermediate to not match has condition")
-	}
+	require.NoError(t, err)
+	assert.False(t, match)
 
 	// eq on null intermediate should not match.
 	filter = json.RawMessage(`{"eq":[["a.b.c","value"]]}`)
 	match, err = Eval(filter, payload)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if match {
-		t.Fatal("expected null intermediate to not match eq condition")
-	}
+	require.NoError(t, err)
+	assert.False(t, match)
 }
 
 // TestEval_EmptyFieldPath tests empty string as a field path.
@@ -165,14 +128,12 @@ func TestEval_EmptyFieldPath(t *testing.T) {
 	// Empty paths are rejected before evaluation.
 	filter := json.RawMessage(`{"has":[""]}`)
 	payload := json.RawMessage(`{"":"secret"}`)
-	if _, err := Eval(filter, payload); err == nil {
-		t.Fatal("expected empty field path to be rejected")
-	}
+	_, err := Eval(filter, payload)
+	require.Error(t, err)
 
 	payload = json.RawMessage(`{"a":"b"}`)
-	if _, err := Eval(filter, payload); err == nil {
-		t.Fatal("expected empty field path to be rejected")
-	}
+	_, err = Eval(filter, payload)
+	require.Error(t, err)
 }
 
 // TestEval_PathWithOnlyDots tests a path consisting entirely of dots.
@@ -186,15 +147,12 @@ func TestEval_PathWithOnlyDots(t *testing.T) {
 		filter := fmt.Sprintf(`{"has":[%q]}`, p)
 		// Must not panic.
 		_, err := Eval(json.RawMessage(filter), payload)
-		if err != nil {
-			t.Fatalf("unexpected error for path %q: %v", p, err)
-		}
+		require.NoError(t, err)
 	}
 
 	filter := fmt.Sprintf(`{"has":[%q]}`, strings.Repeat(".", 100))
-	if _, err := Eval(json.RawMessage(filter), payload); err == nil {
-		t.Fatal("expected over-segmented dotted path to be rejected")
-	}
+	_, err := Eval(json.RawMessage(filter), payload)
+	require.Error(t, err)
 }
 
 // FuzzEvalAdversarial fuzzes filter expressions and payloads for panics.
@@ -257,16 +215,10 @@ func TestEval_SpecialCharsInFieldNames(t *testing.T) {
 
 			filter := FilterExpr{Eq: [][2]string{{tc.key, "val"}}}
 			filterBytes, err := json.Marshal(filter)
-			if err != nil {
-				t.Fatalf("failed to marshal filter: %v", err)
-			}
+			require.NoError(t, err)
 			match, err := Eval(json.RawMessage(filterBytes), json.RawMessage(tc.payload))
-			if err != nil {
-				t.Fatalf("unexpected error for key %q: %v", tc.key, err)
-			}
-			if !match {
-				t.Fatalf("expected special char key %q to match", tc.key)
-			}
+			require.NoError(t, err)
+			assert.True(t, match)
 		})
 	}
 }

@@ -15,6 +15,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // GetCurrentUsage LIVED mutants.
@@ -28,12 +30,12 @@ func TestGetCurrentUsage_DailyRunErrorSilenced(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Usage.RunsToday.Used != 0 {
-		t.Errorf("RunsToday.Used = %d, want 0 (error silenced to 0)", resp.Usage.RunsToday.Used)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 0,
+		resp.Usage.
+			RunsToday.
+			Used)
 }
 
 func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
@@ -42,12 +44,13 @@ func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.Usage.RetentionDays != RetentionFree {
-		t.Errorf("RetentionDays = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, RetentionFree,
+
+		resp.Usage.
+			RetentionDays,
+	)
 }
 
 func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
@@ -71,21 +74,22 @@ func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-e")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.EnterpriseTier != string(EnterpriseTierStarter) {
-		t.Errorf("EnterpriseTier = %q, want %q", resp.EnterpriseTier, EnterpriseTierStarter)
-	}
-	if resp.PeriodSpendMicro != 100_000_000 {
-		t.Errorf("PeriodSpendMicro = %d, want 100000000", resp.PeriodSpendMicro)
-	}
-	if resp.OverageDiscountPct != 10 {
-		t.Errorf("OverageDiscountPct = %d, want 10", resp.OverageDiscountPct)
-	}
-	if resp.OverageMicro != 90_000_000 {
-		t.Errorf("OverageMicro = %d, want 90000000", resp.OverageMicro)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, string(EnterpriseTierStarter),
+		resp.EnterpriseTier,
+	)
+	assert.EqualValues(t, 100_000_000,
+
+		resp.PeriodSpendMicro,
+	)
+	assert.Equal(t, 10,
+		resp.OverageDiscountPct,
+	)
+	assert.EqualValues(t, 90_000_000,
+
+		resp.OverageMicro,
+	)
 }
 
 func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
@@ -101,13 +105,14 @@ func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	want := CreditStarterMicrousd - 1_000_000
-	if resp.OverageMicro != want {
-		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, want)
-	}
+	assert.Equal(t, want,
+		resp.
+			OverageMicro,
+	)
 }
 
 func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
@@ -123,12 +128,12 @@ func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.OverageMicro != CreditStarterMicrousd {
-		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, CreditStarterMicrousd)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, CreditStarterMicrousd,
+
+		resp.OverageMicro,
+	)
 }
 
 func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
@@ -144,12 +149,12 @@ func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.OverageMicro != CreditStarterMicrousd+1 {
-		t.Errorf("OverageMicro = %d, want %d (all spend is overage)", resp.OverageMicro, CreditStarterMicrousd+1)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, CreditStarterMicrousd+
+		1, resp.
+		OverageMicro,
+	)
 }
 
 func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
@@ -162,15 +167,15 @@ func TestGetCurrentUsage_ActiveAddonsPopulated(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(resp.ActiveAddons) != 1 {
-		t.Fatalf("ActiveAddons len = %d, want 1", len(resp.ActiveAddons))
-	}
-	if resp.ActiveAddons[0].Quantity != 2 {
-		t.Errorf("addon quantity = %d, want 2", resp.ActiveAddons[0].Quantity)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, resp.
+		ActiveAddons,
+		1)
+	assert.Equal(t, 2,
+		resp.ActiveAddons[0].
+			Quantity,
+	)
 }
 
 func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
@@ -187,22 +192,22 @@ func TestGetCurrentUsage_OverageAlertMessage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, spend,
+		resp.
+			OverageMicro,
+	)
+
 	// Orchestration-only: all spend is overage (no included compute credit).
-	if resp.OverageMicro != spend {
-		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, spend)
-	}
+
 	var found bool
 	for _, a := range resp.Alerts {
 		if a.Dimension == "overage" {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected overage alert for paid plan with overage spend")
-	}
+	assert.True(t, found)
 }
 
 // GetUsageForecast LIVED mutants.
@@ -219,13 +224,13 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-f")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 30*
+		30, forecast.
+		ProjectedMonthlyRuns,
+	)
 
-	if forecast.ProjectedMonthlyRuns != 30*30 {
-		t.Errorf("ProjectedMonthlyRuns = %d, want %d", forecast.ProjectedMonthlyRuns, 30*30)
-	}
 	assertFloatApprox(t, forecast.ProjectedMonthlySpendUsd, 90.0)
 }
 
@@ -242,17 +247,21 @@ func TestGetUsageForecast_DaysUntilLimit_UsesMonthlyRunAllowance(t *testing.T) {
 		},
 	}
 	svc, enforcer := newUsageServiceTest(t, store)
-	if err := enforcer.rdb.Set(context.Background(), monthlyRunKey("org-s", now), "49980", time.Hour).Err(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		enforcer.
+			rdb.Set(context.
+			Background(), monthlyRunKey("org-s",
+			now), "49980",
+			time.Hour,
+		).Err())
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.DaysUntilLimit != 2 {
-		t.Errorf("DaysUntilLimit = %d, want 2 based on monthly run allowance", forecast.DaysUntilLimit)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, 2,
+		forecast.
+			DaysUntilLimit,
+	)
 }
 
 func TestGetUsageForecast_ProjectedOverage(t *testing.T) {
@@ -270,15 +279,17 @@ func TestGetUsageForecast_ProjectedOverage(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	// Orchestration-only: no included credit; all projected spend is overage.
 	projectedMicro := int64(5_000_000) * 30
 	expectedOverage := computeOverageSpend(projectedMicro, 0)
-	if forecast.ProjectedOverageMicro != expectedOverage {
-		t.Errorf("ProjectedOverageMicro = %d, want %d", forecast.ProjectedOverageMicro, expectedOverage)
-	}
+	assert.Equal(t, expectedOverage,
+
+		forecast.
+			ProjectedOverageMicro,
+	)
 }
 
 func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
@@ -298,15 +309,16 @@ func TestGetUsageForecast_AddonSpendIncluded(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-p")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	pack := AddonPacks[AddonConcurrency100]
 	expectedAddonMicro := int64(pack.PriceCents) * 2 * 10000
-	if forecast.AddonSpendMicro != expectedAddonMicro {
-		t.Errorf("AddonSpendMicro = %d, want %d", forecast.AddonSpendMicro, expectedAddonMicro)
-	}
+	assert.Equal(t, expectedAddonMicro,
+
+		forecast.
+			AddonSpendMicro,
+	)
 }
 
 func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
@@ -323,12 +335,12 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.AddonSpendMicro != 0 {
-		t.Errorf("AddonSpendMicro = %d, want 0 for inactive addon", forecast.AddonSpendMicro)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 0,
+		forecast.
+			AddonSpendMicro,
+	)
 }
 
 func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
@@ -346,12 +358,12 @@ func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.AddonSpendMicro != 0 {
-		t.Errorf("AddonSpendMicro = %d, want 0 for roadmap addons", forecast.AddonSpendMicro)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 0,
+		forecast.
+			AddonSpendMicro,
+	)
 }
 
 func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
@@ -372,15 +384,16 @@ func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-p")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	totalProSpend := int64(PriceProMonthlyCents)*10000 + forecast.AddonSpendMicro + forecast.ProjectedOverageMicro
 	expectedBreakeven := totalProSpend >= CreditScaleMicrousd
-	if forecast.ScaleBreakeven != expectedBreakeven {
-		t.Errorf("ScaleBreakeven = %v, want %v (totalProSpend=%d, ScaleCredit=%d)",
-			forecast.ScaleBreakeven, expectedBreakeven, totalProSpend, CreditScaleMicrousd)
-	}
+	assert.Equal(t, expectedBreakeven,
+
+		forecast.
+			ScaleBreakeven,
+	)
 }
 
 func TestGetUsageForecast_ScaleBreakeven_NonPro_AlwaysFalse(t *testing.T) {
@@ -397,12 +410,11 @@ func TestGetUsageForecast_ScaleBreakeven_NonPro_AlwaysFalse(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.ScaleBreakeven {
-		t.Error("ScaleBreakeven should be false for non-Pro tiers")
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, forecast.
+		ScaleBreakeven,
+	)
 }
 
 func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
@@ -418,24 +430,24 @@ func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-ci")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+	assert.Less(t, forecast.
+		ProjectedMonthlySpendLowUsd, forecast.
+		ProjectedMonthlySpendUsd,
+	)
+	assert.Greater(t, forecast.
+		ProjectedMonthlySpendHighUsd, forecast.
+		ProjectedMonthlySpendUsd,
+	)
+	assert.GreaterOrEqual(t, forecast.
+		ProjectedMonthlySpendLowUsd,
 
-	if forecast.ProjectedMonthlySpendLowUsd >= forecast.ProjectedMonthlySpendUsd {
-		t.Errorf("Low = %f should be < Projected = %f",
-			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendUsd)
-	}
-	if forecast.ProjectedMonthlySpendHighUsd <= forecast.ProjectedMonthlySpendUsd {
-		t.Errorf("High = %f should be > Projected = %f",
-			forecast.ProjectedMonthlySpendHighUsd, forecast.ProjectedMonthlySpendUsd)
-	}
-	if forecast.ProjectedMonthlySpendLowUsd < 0 {
-		t.Errorf("Low = %f should be >= 0", forecast.ProjectedMonthlySpendLowUsd)
-	}
-	if forecast.ConfidencePct != 87 {
-		t.Errorf("ConfidencePct = %d, want 87", forecast.ConfidencePct)
-	}
+		0.0)
+	assert.Equal(t, 87,
+		forecast.
+			ConfidencePct,
+	)
 }
 
 func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
@@ -450,13 +462,14 @@ func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-id")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forecast.ProjectedMonthlySpendLowUsd != forecast.ProjectedMonthlySpendHighUsd {
-		t.Errorf("Low (%f) != High (%f) for identical daily spend",
-			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendHighUsd)
-	}
+	require.NoError(t,
+		err)
+	assert.InDelta(t, forecast.
+		ProjectedMonthlySpendHighUsd,
+
+		forecast.
+			ProjectedMonthlySpendLowUsd, 1e-9,
+	)
 }
 
 // DetectAnomalies LIVED mutants.
@@ -481,23 +494,23 @@ func TestDetectAnomalies_WithSpendingLimitAndForecast(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	alerts, err := svc.DetectAnomalies(context.Background(), "org-a")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	var foundBudgetAlert bool
 	for _, a := range alerts {
 		if a.Severity == AnomalySeverityWarning && a.TodaySpend == 0 && a.Avg7dSpend == 0 {
 			foundBudgetAlert = true
-			if a.OrgID != "org-a" {
-				t.Errorf("alert OrgID = %q, want org-a", a.OrgID)
-			}
+			assert.Equal(t, "org-a",
+				a.
+					OrgID)
 		}
 	}
 	projectedMicro := int64(5_000_000) * 30
-	if projectedMicro > 10_000_000 && !foundBudgetAlert {
-		t.Error("expected projected budget exceeded alert when forecast exceeds spending limit")
-	}
+	assert.False(t, projectedMicro >
+		10_000_000 &&
+		!foundBudgetAlert,
+	)
 }
 
 func TestDetectAnomalies_CustomThresholdsFromSubscription(t *testing.T) {
@@ -516,9 +529,8 @@ func TestDetectAnomalies_CustomThresholdsFromSubscription(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	_, err := svc.DetectAnomalies(context.Background(), "org-c")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestDetectAnomalies_NoSpendingLimit_NoBudgetAlert(t *testing.T) {
@@ -535,13 +547,16 @@ func TestDetectAnomalies_NoSpendingLimit_NoBudgetAlert(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	alerts, err := svc.DetectAnomalies(context.Background(), "org-b")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, a := range alerts {
-		if a.Severity == AnomalySeverityWarning && a.TodaySpend == 0 && a.Avg7dSpend == 0 {
-			t.Error("should not have budget alert when spending limit is 0")
-		}
+		assert.False(t, a.
+			Severity ==
+			AnomalySeverityWarning &&
+			a.TodaySpend ==
+				0 && a.Avg7dSpend ==
+			0)
 	}
 }
 
@@ -557,15 +572,16 @@ func TestGetAnomalyConfig_ZeroWarning_FallsBackToDefault(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.WarningThreshold != spikeWarning {
-		t.Errorf("WarningThreshold = %f, want %f (default for zero)", resp.WarningThreshold, spikeWarning)
-	}
-	if resp.CriticalThreshold != 12.0 {
-		t.Errorf("CriticalThreshold = %f, want 12.0", resp.CriticalThreshold)
-	}
+	require.NoError(t,
+		err)
+	assert.InDelta(t, spikeWarning,
+
+		resp.WarningThreshold, 1e-9,
+	)
+	assert.InDelta(t, 12.0,
+		resp.
+			CriticalThreshold, 1e-9,
+	)
 }
 
 func TestGetAnomalyConfig_ZeroCritical_FallsBackToDefault(t *testing.T) {
@@ -578,15 +594,15 @@ func TestGetAnomalyConfig_ZeroCritical_FallsBackToDefault(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetAnomalyConfig(context.Background(), "org-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.WarningThreshold != 2.5 {
-		t.Errorf("WarningThreshold = %f, want 2.5", resp.WarningThreshold)
-	}
-	if resp.CriticalThreshold != spikeCritical {
-		t.Errorf("CriticalThreshold = %f, want %f (default for zero)", resp.CriticalThreshold, spikeCritical)
-	}
+	require.NoError(t,
+		err)
+	assert.InDelta(t, 2.5,
+		resp.WarningThreshold, 1e-9,
+	)
+	assert.InDelta(t, spikeCritical,
+
+		resp.CriticalThreshold, 1e-9,
+	)
 }
 
 // GetProjectBudget LIVED mutant.
@@ -604,12 +620,13 @@ func TestGetProjectBudget_PositiveBudget_PercentCalculated(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetProjectBudget(context.Background(), "proj-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.MonthlyBudgetMicro != 10_000_000 {
-		t.Errorf("MonthlyBudgetMicro = %d, want 10000000", resp.MonthlyBudgetMicro)
-	}
+	require.NoError(t,
+		err)
+	assert.EqualValues(t, 10_000_000,
+
+		resp.MonthlyBudgetMicro,
+	)
+
 	assertFloatApprox(t, resp.PercentUsed, 50.0)
 }
 
@@ -626,12 +643,11 @@ func TestGetProjectBudget_ZeroBudget_ZeroPercent(t *testing.T) {
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetProjectBudget(context.Background(), "proj-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.PercentUsed != 0 {
-		t.Errorf("PercentUsed = %f, want 0 for zero budget", resp.PercentUsed)
-	}
+	require.NoError(t,
+		err)
+	assert.InDelta(t, 0,
+		resp.PercentUsed, 1e-9,
+	)
 }
 
 // SetSpendingLimit LIVED mutants.
@@ -647,9 +663,8 @@ func TestSetSpendingLimit_ExactMaxLimit(t *testing.T) {
 
 	maxLimit := MaxSpendingLimit(domain.PlanStarter)
 	err := svc.SetSpendingLimit(context.Background(), "org-1", maxLimit, "notify")
-	if err != nil {
-		t.Fatalf("setting spending limit at exact max should succeed: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestSetSpendingLimit_AboveMaxLimit(t *testing.T) {
@@ -663,9 +678,8 @@ func TestSetSpendingLimit_AboveMaxLimit(t *testing.T) {
 
 	maxLimit := MaxSpendingLimit(domain.PlanStarter)
 	err := svc.SetSpendingLimit(context.Background(), "org-1", maxLimit+1, "notify")
-	if err == nil {
-		t.Fatal("setting spending limit above max should fail")
-	}
+	require.Error(t,
+		err)
 }
 
 // stddev LIVED mutant.
@@ -673,19 +687,18 @@ func TestSetSpendingLimit_AboveMaxLimit(t *testing.T) {
 func TestStddev_KnownVariance(t *testing.T) {
 	t.Parallel()
 	result := stddev([]float64{2, 4, 4, 4, 5, 5, 7, 9})
-	if math.Abs(result-2.0) > 0.01 {
-		t.Errorf("stddev = %f, want ~2.0", result)
-	}
+	assert.LessOrEqual(t, math.
+		Abs(result-
+			2.0), 0.01,
+	)
 }
 
 func TestStddev_SingleAndEmpty(t *testing.T) {
 	t.Parallel()
-	if got := stddev(nil); got != 0 {
-		t.Errorf("stddev(nil) = %f, want 0", got)
-	}
-	if got := stddev([]float64{42}); got != 0 {
-		t.Errorf("stddev([42]) = %f, want 0", got)
-	}
+	assert.InDelta(t, 0,
+		stddev(nil), 1e-9)
+	assert.InDelta(t, 0,
+		stddev([]float64{42}), 1e-9)
 }
 
 // Export LIVED mutants.
@@ -702,9 +715,8 @@ func TestExportPDF_SubscriptionAffectsOutput(t *testing.T) {
 
 	noSubStore := &mockExportStore{usageRecords: records}
 	noSubData, err := ExportPDF(context.Background(), noSubStore, "org-1", period)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
 
 	withSubStore := &mockExportStore{
 		mockBillingStore: mockBillingStore{
@@ -715,12 +727,9 @@ func TestExportPDF_SubscriptionAffectsOutput(t *testing.T) {
 		usageRecords: records,
 	}
 	withSubData, err := ExportPDF(context.Background(), withSubStore, "org-1", period)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(noSubData) == len(withSubData) && string(noSubData) == string(withSubData) {
-		t.Error("expected different PDF output when subscription changes plan tier from free to pro")
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, len(noSubData) == len(withSubData) && string(noSubData) == string(withSubData))
 }
 
 func TestExportCSV_ArithmeticTotals(t *testing.T) {
@@ -737,16 +746,12 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 	}
 
 	data, err := ExportCSV(context.Background(), store, "org-1", period)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	content := string(data)
-	if !strings.Contains(content, "7.000000") {
-		t.Error("CSV should contain row total 7.000000")
-	}
-	if !strings.Contains(content, "3.000000") {
-		t.Error("CSV should contain row total 3.000000")
-	}
+	assert.Contains(t, content, "7.000000")
+	assert.Contains(t, content, "3.000000")
 }
 
 // PostHog LIVED mutants.
@@ -776,12 +781,13 @@ func TestPostHogCapture_StatusBoundary_399_NoWarn(t *testing.T) {
 func TestPostHogClient_Timeout_Positive(t *testing.T) {
 	t.Parallel()
 	c := NewPostHogClient("key", "http://localhost:1", nil)
-	if c.client.Timeout <= 0 {
-		t.Errorf("client timeout = %v, want > 0", c.client.Timeout)
-	}
-	if c.client.Timeout != 5*time.Second {
-		t.Errorf("client timeout = %v, want 5s", c.client.Timeout)
-	}
+	assert.Positive(t, c.
+		client.Timeout)
+	assert.Equal(t, 5*
+		time.Second,
+		c.client.
+			Timeout,
+	)
 }
 
 func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
@@ -801,16 +807,13 @@ func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 	}
 
 	err := enforcer.ReconcileAllConcurrentCounts(context.Background(), counter)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	val, getErr := rdb.Get(context.Background(), "strait:org_concurrent:org-1").Int()
-	if getErr != nil {
-		t.Fatal(getErr)
-	}
-	if val != 7 {
-		t.Errorf("reconciled counter = %d, want 7", val)
-	}
+	require.NoError(t, getErr)
+	assert.Equal(t, 7,
+		val)
 }
 
 // Enterprise LIVED mutant.
@@ -818,34 +821,38 @@ func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 func TestApplyOverageDiscount_ZeroDiscountReturnsCost(t *testing.T) {
 	t.Parallel()
 	cost := ApplyOverageDiscount(1_000_000, 0)
-	if cost != 1_000_000 {
-		t.Errorf("ApplyOverageDiscount(1000000, 0) = %d, want 1000000", cost)
-	}
+	assert.EqualValues(t, 1_000_000,
+
+		cost)
 }
 
 func TestApplyOverageDiscount_OnePercentDiscount(t *testing.T) {
 	t.Parallel()
 	cost := ApplyOverageDiscount(1_000_000, 1)
 	expected := int64(1_000_000 * 99 / 100)
-	if cost != expected {
-		t.Errorf("ApplyOverageDiscount(1000000, 1) = %d, want %d", cost, expected)
-	}
+	assert.Equal(t, expected,
+		cost,
+	)
 }
 
 // Plans LIVED mutant.
 
 func TestIsDowngrade_ScaleToPro_IsDowngrade(t *testing.T) {
 	t.Parallel()
-	if !IsDowngrade(domain.PlanScale, domain.PlanPro) {
-		t.Error("scale -> pro should be a downgrade (concurrent runs decrease)")
-	}
+	assert.True(t, IsDowngrade(
+		domain.PlanScale,
+		domain.
+			PlanPro,
+	))
 }
 
 func TestIsDowngrade_ProToStarter_IsDowngrade(t *testing.T) {
 	t.Parallel()
-	if !IsDowngrade(domain.PlanPro, domain.PlanStarter) {
-		t.Error("pro -> starter should be a downgrade")
-	}
+	assert.True(t, IsDowngrade(
+		domain.PlanPro,
+		domain.
+			PlanStarter,
+	))
 }
 
 // EffectiveLimits boundary mutants.
@@ -857,10 +864,12 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 		{AddonType: AddonConcurrency100, Quantity: 0, Active: true},
 	}
 	result := EffectiveLimits(base, addons)
-	if result.MaxConcurrentRuns != base.MaxConcurrentRuns {
-		t.Errorf("zero quantity should be ignored: got %d, want %d",
-			result.MaxConcurrentRuns, base.MaxConcurrentRuns)
-	}
+	assert.Equal(t, base.
+		MaxConcurrentRuns,
+
+		result.
+			MaxConcurrentRuns,
+	)
 }
 
 func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
@@ -872,9 +881,10 @@ func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 	}
 	result := EffectiveLimits(base, addons)
 	want := base.RetentionDays + pack.PackSize*3
-	if result.RetentionDays != want {
-		t.Errorf("retention = %d, want %d", result.RetentionDays, want)
-	}
+	assert.Equal(t, want,
+		result.
+			RetentionDays,
+	)
 }
 
 // Downgrade boundary mutants.
@@ -890,13 +900,15 @@ func TestPreviewDowngrade_ZeroHTTPJobs_NoImpact(t *testing.T) {
 		},
 	}
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, imp := range impact.Impacts {
-		if imp.Resource == "http_mode_jobs" {
-			t.Error("expected no http_mode_jobs impact when count is 0")
-		}
+		assert.NotEqual(t,
+			"http_mode_jobs",
+			imp.
+				Resource,
+		)
 	}
 }
 
@@ -910,12 +922,10 @@ func TestEnforcer_SuspendExcessProjects_UnlimitedSkips(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", -1)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("SuspendExcessProjects(-1) = %d, want 0", n)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, 0,
+		n)
 }
 
 func TestEnforcer_SuspendExcessProjects_PositiveLimit(t *testing.T) {
@@ -926,12 +936,10 @@ func TestEnforcer_SuspendExcessProjects_PositiveLimit(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	n, err := enforcer.SuspendExcessProjects(context.Background(), "org-1", 2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("SuspendExcessProjects(2) = %d, want 0", n)
-	}
+	require.NoError(t,
+		err)
+	assert.Equal(t, 0,
+		n)
 }
 
 func TestEnforcer_CheckProjectSuspended_EmptyProjectID(t *testing.T) {
@@ -940,10 +948,9 @@ func TestEnforcer_CheckProjectSuspended_EmptyProjectID(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
-
-	if err := enforcer.CheckProjectSuspended(context.Background(), ""); err != nil {
-		t.Fatalf("empty project ID should return nil: %v", err)
-	}
+	require.NoError(t,
+		enforcer.
+			CheckProjectSuspended(context.Background(), ""))
 }
 
 func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
@@ -952,15 +959,14 @@ func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
-
-	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-1"); err != nil {
-		t.Fatalf("non-suspended project should return nil: %v", err)
-	}
+	require.NoError(t,
+		enforcer.
+			CheckProjectSuspended(context.Background(), "proj-1"))
+	require.NoError(t,
+		enforcer.
+			CheckProjectSuspended(context.Background(), "proj-1"))
 
 	// Second call should hit the cache.
-	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-1"); err != nil {
-		t.Fatalf("cached non-suspended project should return nil: %v", err)
-	}
 }
 
 func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
@@ -973,16 +979,15 @@ func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckProjectSuspended(context.Background(), "proj-read-error")
-	if err == nil {
-		t.Fatal("expected project suspension check to fail closed when status cannot be loaded")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if le.Code != "service_degraded" {
-		t.Fatalf("Code = %q, want service_degraded", le.Code)
-	}
+	require.ErrorAs(t, err, &le)
+	require.Equal(t,
+		"service_degraded",
+		le.
+			Code)
 }
 
 func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
@@ -991,91 +996,89 @@ func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	store := &mockBillingStore{}
 	enforcer := NewEnforcer(store, rdb, slog.Default())
+	require.NoError(t,
+		enforcer.
+			CheckProjectSuspended(context.Background(), "proj-flush"))
 
-	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-flush"); err != nil {
-		t.Fatal(err)
-	}
 	enforcer.InvalidateProjectSuspendedCache("proj-flush")
 	enforcer.FlushSuspendedCacheForOrg([]string{"proj-flush"})
-
-	if err := enforcer.CheckProjectSuspended(context.Background(), "proj-flush"); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		enforcer.
+			CheckProjectSuspended(context.Background(), "proj-flush"))
 }
 
 // Enterprise boundary LIVED mutants.
 
 func TestApplyOverageDiscount_NegativeCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyOverageDiscount(-100, 10); got != 0 {
-		t.Errorf("ApplyOverageDiscount(-100, 10) = %d, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		ApplyOverageDiscount(-100, 10))
 }
 
 func TestApplyOverageDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyOverageDiscount(0, 10); got != 0 {
-		t.Errorf("ApplyOverageDiscount(0, 10) = %d, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		ApplyOverageDiscount(0, 10))
 }
 
 func TestApplyOverageDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyOverageDiscount(1_000_000, 100); got != 0 {
-		t.Errorf("ApplyOverageDiscount(1000000, 100) = %d, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		ApplyOverageDiscount(1_000_000,
+			100))
 }
 
 func TestApplyOverageDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyOverageDiscount(1_000_000, 150); got != 0 {
-		t.Errorf("ApplyOverageDiscount(1000000, 150) = %d, want 0", got)
-	}
+	assert.EqualValues(t, 0,
+		ApplyOverageDiscount(1_000_000,
+			150))
 }
 
 func TestApplyOverageDiscount_OneCost_OnePct(t *testing.T) {
 	t.Parallel()
 	got := ApplyOverageDiscount(1, 1)
-	if got < 0 || got > 1 {
-		t.Errorf("ApplyOverageDiscount(1, 1) = %d, want 0 or 1", got)
-	}
+	assert.False(t, got <
+		0 ||
+		got > 1)
 }
 
 func TestCalculateSLACredit_AtTarget_ZeroCredit(t *testing.T) {
 	t.Parallel()
-	if got := CalculateSLACredit(99.9, 99.9); got != 0 {
-		t.Errorf("CalculateSLACredit(99.9, 99.9) = %d, want 0", got)
-	}
+	assert.Equal(t, 0,
+		CalculateSLACredit(99.9,
+			99.9,
+		))
 }
 
 func TestCalculateSLACredit_AboveTarget_ZeroCredit(t *testing.T) {
 	t.Parallel()
-	if got := CalculateSLACredit(99.95, 99.9); got != 0 {
-		t.Errorf("CalculateSLACredit(99.95, 99.9) = %d, want 0", got)
-	}
+	assert.Equal(t, 0,
+		CalculateSLACredit(99.95,
+			99.9,
+		))
 }
 
 func TestCalculateSLACredit_JustBelowTarget_TenPct(t *testing.T) {
 	t.Parallel()
 	got := CalculateSLACredit(99.89, 99.9)
-	if got != 10 {
-		t.Errorf("CalculateSLACredit(99.89, 99.9) = %d, want 10", got)
-	}
+	assert.Equal(t, 10,
+		got)
 }
 
 func TestCalculateSLACredit_BelowNinety_FiftyPct(t *testing.T) {
 	t.Parallel()
-	if got := CalculateSLACredit(89.9, 99.9); got != 50 {
-		t.Errorf("CalculateSLACredit(89.9, 99.9) = %d, want 50", got)
-	}
+	assert.Equal(t, 50,
+		CalculateSLACredit(
+			89.9, 99.9,
+		))
 }
 
 func TestCalculateSLACredit_HigherTarget_ExtendedRange(t *testing.T) {
 	t.Parallel()
 	got := CalculateSLACredit(99.91, 99.95)
-	if got != 10 {
-		t.Errorf("CalculateSLACredit(99.91, 99.95) = %d, want 10 (extended top tier)", got)
-	}
+	assert.Equal(t, 10,
+		got)
 }
 
 func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
@@ -1094,10 +1097,9 @@ func TestCalculateSLACredit_BoundaryTiers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := CalculateSLACredit(tt.uptime, tt.target)
-		if got != tt.expected {
-			t.Errorf("CalculateSLACredit(%.2f, %.1f) = %d, want %d",
-				tt.uptime, tt.target, got, tt.expected)
-		}
+		assert.Equal(t, tt.
+			expected,
+			got)
 	}
 }
 
@@ -1124,16 +1126,12 @@ func TestEnforcer_CheckSpendingLimit_MessageContainsDollarAmount(t *testing.T) {
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-spend")
-	if err == nil {
-		t.Fatal("expected spending limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	if !strings.Contains(le.Message, "$50.00") {
-		t.Errorf("message should contain $50.00, got: %s", le.Message)
-	}
+	require.ErrorAs(t, err, &le)
+	assert.Contains(t, le.Message, "$50.00")
 }
 
 func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T) {
@@ -1149,17 +1147,19 @@ func TestEnforcer_CheckSpendingLimit_FreeTierMessageContainsBudget(t *testing.T)
 	enforcer := NewEnforcer(store, rdb, slog.Default())
 
 	err := enforcer.CheckSpendingLimit(context.Background(), "org-free-over")
-	if err == nil {
-		t.Fatal("expected free-tier spending limit error")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
+	require.ErrorAs(t, err, &le)
+	assert.False(t, !strings.Contains(le.Message,
+		"budget",
+	) &&
+		!strings.Contains(le.
+			Message, "compute",
+		))
+
 	// Message should reference budget being reached (no dollar amount for $0 credit).
-	if !strings.Contains(le.Message, "budget") && !strings.Contains(le.Message, "compute") {
-		t.Errorf("message should reference compute budget, got: %s", le.Message)
-	}
 }
 
 // DecrDailyRunCount and DecrConcurrentRunCount nil guards.
@@ -1212,12 +1212,13 @@ func TestPreviewDowngrade_NoRegionImpactInRegressionSuite(t *testing.T) {
 		},
 	}
 	impact, err := PreviewDowngrade(context.Background(), store, "org-1", domain.PlanFree)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, imp := range impact.Impacts {
-		if imp.Resource == "regions" {
-			t.Fatalf("downgrade preview exposed launch-inactive regions impact: %#v", imp)
-		}
+		require.NotEqual(
+			t, "regions",
+			imp.Resource,
+		)
 	}
 }

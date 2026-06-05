@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type stubSecretDecryptor struct {
@@ -59,22 +61,29 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		WithAllowPrivateEndpoints(true).
 		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: plaintext})
 	r.rotationWebhookClient = server.Client()
+	require.NoError(t,
+		r.notifyRotationWebhook(
+			context.Background(), server.URL,
+			[]byte("ciphertext"), "old-key",
+			"new-key", "strait_secret",
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err != nil {
-		t.Fatalf("notifyRotationWebhook: %v", err)
-	}
+			"strait_secre",
+			"proj-1",
+		))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if gotTS == "" || gotDelivery == "" {
-		t.Fatalf("missing X-Strait-Timestamp or X-Strait-Delivery-ID; ts=%q deliv=%q", gotTS, gotDelivery)
-	}
-	if gotSig == "" {
-		t.Fatal("missing X-Strait-Signature")
-	}
-	if !strings.HasPrefix(gotSig, "t="+gotTS+",d="+gotDelivery+",v1=") {
-		t.Fatalf("X-Strait-Signature wrong shape: %q", gotSig)
-	}
+	require.False(t,
+		gotTS == "" ||
+			gotDelivery ==
+				"")
+	require.NotEmpty(
+		t, gotSig,
+	)
+	require.True(t, strings.HasPrefix(gotSig, "t="+
+		gotTS+",d="+gotDelivery+
+		",v1=",
+	))
 
 	mac := hmac.New(sha256.New, signingSecret)
 	mac.Write([]byte(gotTS))
@@ -84,15 +93,15 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 	mac.Write(gotBody)
 	wantSig := hex.EncodeToString(mac.Sum(nil))
 	wantStructured := "t=" + gotTS + ",d=" + gotDelivery + ",v1=" + wantSig
-	if gotSig != wantStructured {
-		t.Fatalf("X-Strait-Signature: got %q, want %q", gotSig, wantStructured)
-	}
-	if gotSig256 != "sha256="+wantSig {
-		t.Fatalf("X-Strait-Signature-256: got %q, want %q", gotSig256, "sha256="+wantSig)
-	}
-	if !bytes.Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)) {
-		t.Fatalf("unexpected body: %s", gotBody)
-	}
+	require.Equal(t,
+		wantStructured,
+		gotSig)
+	require.Equal(t,
+		"sha256="+
+			wantSig, gotSig256,
+	)
+	require.True(t, bytes.
+		Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)))
 }
 
 func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
@@ -126,18 +135,15 @@ func TestNotifyRotationWebhook_DoesNotFollowRedirects(t *testing.T) {
 	r.rotationWebhookClient = redirector.Client()
 
 	err := r.notifyRotationWebhook(context.Background(), redirector.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1")
-	if err == nil {
-		t.Fatal("expected redirect response to fail the rotation webhook")
-	}
+	require.Error(t,
+		err)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if !redirectCalled {
-		t.Fatal("expected initial webhook endpoint to be called")
-	}
-	if targetCalled {
-		t.Fatal("rotation webhook followed redirect target")
-	}
+	require.True(t, redirectCalled)
+	require.False(t,
+		targetCalled,
+	)
 }
 
 func TestNotifyRotationWebhook_MissingSecretFailsClosed(t *testing.T) {
@@ -154,14 +160,18 @@ func TestNotifyRotationWebhook_MissingSecretFailsClosed(t *testing.T) {
 		WithAllowPrivateEndpoints(true).
 		WithRotationSecretDecryptor(stubSecretDecryptor{plaintext: []byte("unused")})
 	r.rotationWebhookClient = server.Client()
-
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, nil, "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
-		t.Fatal("expected missing signing secret to fail")
-	}
-
-	if called.Load() {
-		t.Fatal("webhook endpoint was called despite missing signing secret")
-	}
+	require.Error(t,
+		r.notifyRotationWebhook(context.
+			Background(), server.URL, nil,
+			"old-key",
+			"new-key",
+			"strait_secret",
+			"strait_secre",
+			"proj-1",
+		),
+	)
+	require.False(t,
+		called.Load())
 }
 
 func TestNotifyRotationWebhook_DecryptFailureFailsClosed(t *testing.T) {
@@ -178,14 +188,16 @@ func TestNotifyRotationWebhook_DecryptFailureFailsClosed(t *testing.T) {
 		WithAllowPrivateEndpoints(true).
 		WithRotationSecretDecryptor(stubSecretDecryptor{err: errors.New("kms unavailable")})
 	r.rotationWebhookClient = server.Client()
+	require.Error(t,
+		r.notifyRotationWebhook(context.
+			Background(), server.URL, []byte("ciphertext"), "old-key",
+			"new-key", "strait_secret",
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
-		t.Fatal("expected decrypt failure to fail")
-	}
-
-	if called.Load() {
-		t.Fatal("webhook endpoint was called despite decrypt failure")
-	}
+			"strait_secre",
+			"proj-1",
+		))
+	require.False(t,
+		called.Load())
 }
 
 func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
@@ -201,12 +213,14 @@ func TestNotifyRotationWebhook_NoDecryptorFailsClosed(t *testing.T) {
 	r := NewReaper(&mockReaperStore{}, time.Second, 30*time.Second, 0, 0, false, nil).
 		WithAllowPrivateEndpoints(true)
 	r.rotationWebhookClient = server.Client()
+	require.Error(t,
+		r.notifyRotationWebhook(context.
+			Background(), server.URL, []byte("ciphertext"), "old-key",
+			"new-key", "strait_secret",
 
-	if err := r.notifyRotationWebhook(context.Background(), server.URL, []byte("ciphertext"), "old-key", "new-key", "strait_secret", "strait_secre", "proj-1"); err == nil {
-		t.Fatal("expected missing decryptor to fail")
-	}
-
-	if called.Load() {
-		t.Fatal("webhook endpoint was called despite missing decryptor")
-	}
+			"strait_secre",
+			"proj-1",
+		))
+	require.False(t,
+		called.Load())
 }

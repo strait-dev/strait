@@ -4,22 +4,22 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAnalyticsStore(t *testing.T) {
 	t.Parallel()
 
 	store := NewAnalyticsStore(nil, nil)
-	if store == nil {
-		t.Fatal("expected non-nil store")
-		return
-	}
-	if store.client != nil {
-		t.Error("expected nil client")
-	}
-	if store.pgFallback != nil {
-		t.Error("expected nil pgFallback")
-	}
+	require.NotNil(t, store)
+	assert.Nil(t,
+		store.client,
+	)
+	assert.Nil(t,
+		store.pgFallback,
+	)
 }
 
 func TestNewAnalyticsStore_WithPgFallback(t *testing.T) {
@@ -27,9 +27,9 @@ func TestNewAnalyticsStore_WithPgFallback(t *testing.T) {
 
 	mock := &mockPgHealthQuerier{}
 	store := NewAnalyticsStore(nil, mock)
-	if store.pgFallback == nil {
-		t.Fatal("expected non-nil pgFallback")
-	}
+	require.NotNil(t, store.
+		pgFallback,
+	)
 }
 
 func TestIsShortPeriod(t *testing.T) {
@@ -52,9 +52,7 @@ func TestIsShortPeriod(t *testing.T) {
 			t.Parallel()
 			from := mustParseTime(t, tt.from)
 			to := mustParseTime(t, tt.to)
-			if got := isShortPeriod(from, to); got != tt.want {
-				t.Errorf("isShortPeriod(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.want)
-			}
+			assert.Equal(t, tt.want, isShortPeriod(from, to))
 		})
 	}
 }
@@ -77,8 +75,7 @@ func (m *mockPgHealthQuerier) QueueDepth(_ context.Context, _ string) (int, erro
 func mustParseTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		t.Fatalf("failed to parse time %q: %v", s, err)
-	}
+	require.NoError(t, err)
+
 	return parsed
 }

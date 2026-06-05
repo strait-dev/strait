@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewEncryptor_AcceptsRaw32ByteKey(t *testing.T) {
@@ -14,12 +16,8 @@ func TestNewEncryptor_AcceptsRaw32ByteKey(t *testing.T) {
 
 	key := "0123456789abcdef0123456789abcdef"
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor() error = %v", err)
-	}
-	if enc == nil {
-		t.Fatal("NewEncryptor() returned nil encryptor")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, enc)
 }
 
 func TestNewEncryptor_AcceptsHexKey(t *testing.T) {
@@ -29,36 +27,32 @@ func TestNewEncryptor_AcceptsHexKey(t *testing.T) {
 	hexKey := hex.EncodeToString([]byte(raw))
 
 	enc, err := NewEncryptor(hexKey)
-	if err != nil {
-		t.Fatalf("NewEncryptor() error = %v", err)
-	}
-	if enc == nil {
-		t.Fatal("NewEncryptor() returned nil encryptor")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, enc)
 }
 
 func TestNewEncryptor_InvalidKeyLength(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewEncryptor("short")
-	if err == nil {
-		t.Fatal("NewEncryptor() expected error, got nil")
-	}
-	if err.Error() != "invalid key length" {
-		t.Fatalf("NewEncryptor() error = %q, want %q", err.Error(), "invalid key length")
-	}
+	require.Error(
+		t, err)
+	require.Equal(
+		t, "invalid key length",
+		err.
+			Error())
 }
 
 func TestNewEncryptor_InvalidHexKey(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewEncryptor(strings.Repeat("z", 64))
-	if err == nil {
-		t.Fatal("NewEncryptor() expected error, got nil")
-	}
-	if err.Error() != "invalid key length" {
-		t.Fatalf("NewEncryptor() error = %q, want %q", err.Error(), "invalid key length")
-	}
+	require.Error(
+		t, err)
+	require.Equal(
+		t, "invalid key length",
+		err.
+			Error())
 }
 
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
@@ -68,20 +62,16 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 	plaintext := []byte("webhook-secret-value")
 
 	ciphertext, err := enc.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
-	if len(ciphertext) <= 12 {
-		t.Fatalf("Encrypt() ciphertext length = %d, want > 12", len(ciphertext))
-	}
+	require.NoError(t, err)
+	require.Greater(
+		t, len(ciphertext), 12)
 
 	decrypted, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if !bytes.Equal(decrypted, plaintext) {
-		t.Fatalf("Decrypt(Encrypt(x)) = %q, want %q", string(decrypted), string(plaintext))
-	}
+	require.NoError(t, err)
+	require.True(t,
+		bytes.Equal(decrypted,
+			plaintext,
+		))
 }
 
 func TestEncryptDecrypt_EmptyPlaintext(t *testing.T) {
@@ -90,17 +80,12 @@ func TestEncryptDecrypt_EmptyPlaintext(t *testing.T) {
 	enc := mustEncryptor(t, "0123456789abcdef0123456789abcdef")
 
 	ciphertext, err := enc.Encrypt(nil)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if len(decrypted) != 0 {
-		t.Fatalf("Decrypt() length = %d, want 0", len(decrypted))
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		decrypted)
 }
 
 func TestDecrypt_WrongKey(t *testing.T) {
@@ -110,17 +95,14 @@ func TestDecrypt_WrongKey(t *testing.T) {
 	encryptorB := mustEncryptor(t, "fedcba9876543210fedcba9876543210")
 
 	ciphertext, err := encryptorA.Encrypt([]byte("secret"))
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = encryptorB.Decrypt(ciphertext)
-	if err == nil {
-		t.Fatal("Decrypt() expected error, got nil")
-	}
-	if err.Error() != "decrypt failed" {
-		t.Fatalf("Decrypt() error = %q, want %q", err.Error(), "decrypt failed")
-	}
+	require.Error(
+		t, err)
+	require.Equal(
+		t, "decrypt failed",
+		err.Error())
 }
 
 func TestDecrypt_TruncatedCiphertext(t *testing.T) {
@@ -129,12 +111,13 @@ func TestDecrypt_TruncatedCiphertext(t *testing.T) {
 	enc := mustEncryptor(t, "0123456789abcdef0123456789abcdef")
 
 	_, err := enc.Decrypt([]byte("short"))
-	if err == nil {
-		t.Fatal("Decrypt() expected error, got nil")
-	}
-	if err.Error() != "ciphertext too short" {
-		t.Fatalf("Decrypt() error = %q, want %q", err.Error(), "ciphertext too short")
-	}
+	require.Error(
+		t, err)
+	require.Equal(
+		t, "ciphertext too short",
+
+		err.Error(),
+	)
 }
 
 func TestEncryptStringDecryptString_RoundTrip(t *testing.T) {
@@ -144,20 +127,14 @@ func TestEncryptStringDecryptString_RoundTrip(t *testing.T) {
 	plaintext := "x-api-key: abc123"
 
 	ciphertext, err := enc.EncryptString(plaintext)
-	if err != nil {
-		t.Fatalf("EncryptString() error = %v", err)
-	}
-	if strings.TrimSpace(ciphertext) == "" {
-		t.Fatal("EncryptString() returned empty ciphertext")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, strings.TrimSpace(ciphertext))
 
 	decrypted, err := enc.DecryptString(ciphertext)
-	if err != nil {
-		t.Fatalf("DecryptString() error = %v", err)
-	}
-	if decrypted != plaintext {
-		t.Fatalf("DecryptString(EncryptString(x)) = %q, want %q", decrypted, plaintext)
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, plaintext, decrypted,
+	)
 }
 
 func TestEncryptor_ConcurrentUse(t *testing.T) {
@@ -175,18 +152,17 @@ func TestEncryptor_ConcurrentUse(t *testing.T) {
 				plaintext := []byte("payload-" + strings.Repeat("x", i+j))
 				ciphertext, err := enc.Encrypt(plaintext)
 				if err != nil {
-					t.Errorf("Encrypt() error = %v", err)
+					require.NoError(t, err)
 					return
 				}
 
 				decrypted, err := enc.Decrypt(ciphertext)
 				if err != nil {
-					t.Errorf("Decrypt() error = %v", err)
+					require.NoError(t, err)
 					return
 				}
 
-				if !bytes.Equal(decrypted, plaintext) {
-					t.Errorf("roundtrip mismatch: got %q want %q", decrypted, plaintext)
+				if !assert.Equal(t, plaintext, decrypted) {
 					return
 				}
 			}
@@ -203,23 +179,18 @@ func TestKeyRotator_EncryptUsesPrimary(t *testing.T) {
 	oldKey := []byte("fedcba9876543210fedcba9876543210")
 
 	rotator, err := NewKeyRotator(primaryKey, oldKey)
-	if err != nil {
-		t.Fatalf("NewKeyRotator() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	plaintext := []byte("key-rotation-payload")
 	ciphertext, err := rotator.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := rotator.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if !bytes.Equal(decrypted, plaintext) {
-		t.Fatalf("Decrypt(Encrypt(x)) = %q, want %q", string(decrypted), string(plaintext))
-	}
+	require.NoError(t, err)
+	require.True(t,
+		bytes.Equal(decrypted,
+			plaintext,
+		))
 }
 
 func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
@@ -229,27 +200,20 @@ func TestKeyRotator_DecryptWithOldKey(t *testing.T) {
 	oldKey := []byte("fedcba9876543210fedcba9876543210")
 
 	oldEncryptor, err := newEncryptorFromBytes(oldKey)
-	if err != nil {
-		t.Fatalf("newEncryptorFromBytes() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ciphertext, err := oldEncryptor.Encrypt([]byte("legacy-secret"))
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	rotator, err := NewKeyRotator(primaryKey, oldKey)
-	if err != nil {
-		t.Fatalf("NewKeyRotator() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decrypted, err := rotator.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if string(decrypted) != "legacy-secret" {
-		t.Fatalf("Decrypt() = %q, want %q", string(decrypted), "legacy-secret")
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, "legacy-secret",
+		string(
+			decrypted))
 }
 
 func TestNewKeyRotatorFromStrings_DecryptsOldStringKey(t *testing.T) {
@@ -257,33 +221,27 @@ func TestNewKeyRotatorFromStrings_DecryptsOldStringKey(t *testing.T) {
 
 	oldEncryptor := mustEncryptor(t, "fedcba9876543210fedcba9876543210")
 	ciphertext, err := oldEncryptor.Encrypt([]byte("legacy-secret"))
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	rotator, err := NewKeyRotatorFromStrings("0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210")
-	if err != nil {
-		t.Fatalf("NewKeyRotatorFromStrings() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	decrypted, err := rotator.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if string(decrypted) != "legacy-secret" {
-		t.Fatalf("Decrypt() = %q, want %q", string(decrypted), "legacy-secret")
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, "legacy-secret",
+		string(
+			decrypted))
 
 	encryptedString, err := rotator.EncryptString("new-secret")
-	if err != nil {
-		t.Fatalf("EncryptString() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	decryptedString, err := rotator.DecryptString(encryptedString)
-	if err != nil {
-		t.Fatalf("DecryptString() error = %v", err)
-	}
-	if decryptedString != "new-secret" {
-		t.Fatalf("DecryptString() = %q, want %q", decryptedString, "new-secret")
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, "new-secret",
+		decryptedString,
+	)
 }
 
 func TestKeyRotator_RotateKeyFlow(t *testing.T) {
@@ -293,48 +251,34 @@ func TestKeyRotator_RotateKeyFlow(t *testing.T) {
 	newPrimary := []byte("1234567890abcdef1234567890abcdef")
 
 	rotator, err := NewKeyRotator(oldPrimary)
-	if err != nil {
-		t.Fatalf("NewKeyRotator() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	beforeRotation, err := rotator.Encrypt([]byte("before-rotation"))
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
-
-	if err := rotator.RotateKey(newPrimary); err != nil {
-		t.Fatalf("RotateKey() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, rotator.RotateKey(newPrimary))
 
 	afterRotation, err := rotator.Encrypt([]byte("after-rotation"))
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	plainBefore, err := rotator.Decrypt(beforeRotation)
-	if err != nil {
-		t.Fatalf("Decrypt(before) error = %v", err)
-	}
-	if string(plainBefore) != "before-rotation" {
-		t.Fatalf("Decrypt(before) = %q, want %q", string(plainBefore), "before-rotation")
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, "before-rotation",
+		string(plainBefore))
 
 	plainAfter, err := rotator.Decrypt(afterRotation)
-	if err != nil {
-		t.Fatalf("Decrypt(after) error = %v", err)
-	}
-	if string(plainAfter) != "after-rotation" {
-		t.Fatalf("Decrypt(after) = %q, want %q", string(plainAfter), "after-rotation")
-	}
+	require.NoError(t, err)
+	require.Equal(
+		t, "after-rotation",
+		string(plainAfter),
+	)
 }
 
 func mustEncryptor(t *testing.T, key string) *Encryptor {
 	t.Helper()
 
 	enc, err := NewEncryptor(key)
-	if err != nil {
-		t.Fatalf("NewEncryptor() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	return enc
 }

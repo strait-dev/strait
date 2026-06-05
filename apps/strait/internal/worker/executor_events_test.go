@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCompletedRunEvent_UsesTransitionAndRunState(t *testing.T) {
@@ -28,34 +30,41 @@ func TestCompletedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 	}
 
 	event := newCompletedRunEvent(run, job, trace, transition)
+	require.Equal(t,
+		EventCompleted,
 
-	if event.Type != EventCompleted {
-		t.Fatalf("type = %s, want %s", event.Type, EventCompleted)
-	}
-	if event.Run != run {
-		t.Fatal("event run did not preserve run pointer")
-	}
-	if event.Job != job {
-		t.Fatal("event job did not preserve job pointer")
-	}
-	if event.FromStatus != domain.StatusExecuting {
-		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusExecuting)
-	}
-	if event.ToStatus != domain.StatusCompleted {
-		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusCompleted)
-	}
-	if event.ExecTrace != trace {
-		t.Fatal("event trace did not preserve trace pointer")
-	}
-	if event.ExecDur != 1500*time.Millisecond {
-		t.Fatalf("execDur = %s, want 1.5s", event.ExecDur)
-	}
-	if event.Attempt != 2 {
-		t.Fatalf("attempt = %d, want 2", event.Attempt)
-	}
-	if event.QueueWait != 250*time.Millisecond {
-		t.Fatalf("queueWait = %s, want 250ms", event.QueueWait)
-	}
+		event.Type)
+	require.Equal(t,
+		run, event.
+			Run)
+	require.Equal(t,
+		job, event.
+			Job)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+		event.FromStatus,
+	)
+	require.Equal(t,
+		domain.
+			StatusCompleted,
+		event.ToStatus,
+	)
+	require.Equal(t,
+		trace,
+		event.
+			ExecTrace)
+	require.Equal(t,
+		1500*
+			time.
+				Millisecond, event.ExecDur,
+	)
+	require.Equal(t, 2, event.
+		Attempt)
+	require.Equal(t,
+		250*time.
+			Millisecond, event.QueueWait,
+	)
 }
 
 func TestTerminalRunEvent_UsesTerminalStatusAndRunState(t *testing.T) {
@@ -75,34 +84,38 @@ func TestTerminalRunEvent_UsesTerminalStatusAndRunState(t *testing.T) {
 	job := &domain.Job{ID: "job-1"}
 
 	event := newTerminalRunEvent(EventTimedOut, run, job, domain.StatusTimedOut, trace)
+	require.Equal(t,
+		EventTimedOut,
 
-	if event.Type != EventTimedOut {
-		t.Fatalf("type = %s, want %s", event.Type, EventTimedOut)
-	}
-	if event.Run != run {
-		t.Fatal("event run did not preserve run pointer")
-	}
-	if event.Job != job {
-		t.Fatal("event job did not preserve job pointer")
-	}
-	if event.FromStatus != domain.StatusExecuting {
-		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusExecuting)
-	}
-	if event.ToStatus != domain.StatusTimedOut {
-		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusTimedOut)
-	}
-	if event.ExecTrace != trace {
-		t.Fatal("event trace did not preserve trace pointer")
-	}
-	if event.ExecDur != 0 {
-		t.Fatalf("execDur = %s, want 0", event.ExecDur)
-	}
-	if event.Attempt != 3 {
-		t.Fatalf("attempt = %d, want 3", event.Attempt)
-	}
-	if event.QueueWait != 300*time.Millisecond {
-		t.Fatalf("queueWait = %s, want 300ms", event.QueueWait)
-	}
+		event.Type)
+	require.Equal(t,
+		run, event.
+			Run)
+	require.Equal(t,
+		job, event.
+			Job)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+		event.FromStatus,
+	)
+	require.Equal(t,
+		domain.
+			StatusTimedOut,
+		event.ToStatus,
+	)
+	require.Equal(t,
+		trace,
+		event.
+			ExecTrace)
+	require.EqualValues(t, 0, event.
+		ExecDur)
+	require.Equal(t, 3, event.
+		Attempt)
+	require.Equal(t,
+		300*time.
+			Millisecond, event.QueueWait,
+	)
 }
 
 func TestTerminalRunEvent_DeadLettered(t *testing.T) {
@@ -117,19 +130,19 @@ func TestTerminalRunEvent_DeadLettered(t *testing.T) {
 	job := &domain.Job{ID: "job-1"}
 
 	event := newTerminalRunEvent(EventDeadLettered, run, job, domain.StatusDeadLetter, nil)
+	require.Equal(t,
+		EventDeadLettered,
 
-	if event.Type != EventDeadLettered {
-		t.Fatalf("type = %s, want %s", event.Type, EventDeadLettered)
-	}
-	if event.ToStatus != domain.StatusDeadLetter {
-		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusDeadLetter)
-	}
-	if event.Attempt != 4 {
-		t.Fatalf("attempt = %d, want 4", event.Attempt)
-	}
-	if event.QueueWait != 0 {
-		t.Fatalf("queueWait = %s, want 0", event.QueueWait)
-	}
+		event.Type)
+	require.Equal(t,
+		domain.
+			StatusDeadLetter,
+		event.ToStatus,
+	)
+	require.Equal(t, 4, event.
+		Attempt)
+	require.EqualValues(t, 0, event.
+		QueueWait)
 }
 
 func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
@@ -149,34 +162,38 @@ func TestRetriedRunEvent_UsesNextAttemptAndRunState(t *testing.T) {
 	job := &domain.Job{ID: "job-1"}
 
 	event := newRetriedRunEvent(run, job, trace)
+	require.Equal(t,
+		EventRetried,
 
-	if event.Type != EventRetried {
-		t.Fatalf("type = %s, want %s", event.Type, EventRetried)
-	}
-	if event.Run != run {
-		t.Fatal("event run did not preserve run pointer")
-	}
-	if event.Job != job {
-		t.Fatal("event job did not preserve job pointer")
-	}
-	if event.FromStatus != domain.StatusExecuting {
-		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusExecuting)
-	}
-	if event.ToStatus != domain.StatusQueued {
-		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusQueued)
-	}
-	if event.ExecTrace != trace {
-		t.Fatal("event trace did not preserve trace pointer")
-	}
-	if event.Attempt != 3 {
-		t.Fatalf("attempt = %d, want 3", event.Attempt)
-	}
-	if event.QueueWait != 400*time.Millisecond {
-		t.Fatalf("queueWait = %s, want 400ms", event.QueueWait)
-	}
-	if event.ExecDur != 0 {
-		t.Fatalf("execDur = %s, want 0", event.ExecDur)
-	}
+		event.Type)
+	require.Equal(t,
+		run, event.
+			Run)
+	require.Equal(t,
+		job, event.
+			Job)
+	require.Equal(t,
+		domain.
+			StatusExecuting,
+		event.FromStatus,
+	)
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		event.ToStatus,
+	)
+	require.Equal(t,
+		trace,
+		event.
+			ExecTrace)
+	require.Equal(t, 3, event.
+		Attempt)
+	require.Equal(t,
+		400*time.
+			Millisecond, event.QueueWait,
+	)
+	require.EqualValues(t, 0, event.
+		ExecDur)
 }
 
 func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
@@ -198,32 +215,33 @@ func TestSystemFailedRunEvent_UsesTransitionAndRunState(t *testing.T) {
 	}
 
 	event := newSystemFailedRunEvent(run, transition)
+	require.Equal(t,
+		EventSystemFailed,
 
-	if event.Type != EventSystemFailed {
-		t.Fatalf("type = %s, want %s", event.Type, EventSystemFailed)
-	}
-	if event.Run != run {
-		t.Fatal("event run did not preserve run pointer")
-	}
-	if event.Job != nil {
-		t.Fatalf("event job = %#v, want nil", event.Job)
-	}
-	if event.FromStatus != domain.StatusQueued {
-		t.Fatalf("from = %s, want %s", event.FromStatus, domain.StatusQueued)
-	}
-	if event.ToStatus != domain.StatusSystemFailed {
-		t.Fatalf("to = %s, want %s", event.ToStatus, domain.StatusSystemFailed)
-	}
-	if event.Attempt != 5 {
-		t.Fatalf("attempt = %d, want 5", event.Attempt)
-	}
-	if event.QueueWait != 500*time.Millisecond {
-		t.Fatalf("queueWait = %s, want 500ms", event.QueueWait)
-	}
-	if event.ExecTrace != nil {
-		t.Fatalf("execTrace = %#v, want nil", event.ExecTrace)
-	}
-	if event.ExecDur != 0 {
-		t.Fatalf("execDur = %s, want 0", event.ExecDur)
-	}
+		event.Type)
+	require.Equal(t,
+		run, event.
+			Run)
+	require.Nil(t, event.
+		Job)
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		event.FromStatus,
+	)
+	require.Equal(t,
+		domain.
+			StatusSystemFailed,
+		event.ToStatus,
+	)
+	require.Equal(t, 5, event.
+		Attempt)
+	require.Equal(t,
+		500*time.
+			Millisecond, event.QueueWait,
+	)
+	require.Nil(t, event.
+		ExecTrace)
+	require.EqualValues(t, 0, event.
+		ExecDur)
 }

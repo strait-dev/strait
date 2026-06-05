@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
@@ -49,15 +51,11 @@ func TestDispatch_ExpiredTTL_StillDispatches(t *testing.T) {
 	run.ExpiresAt = &past
 
 	exec.execute(context.Background(), run)
-
-	if endpointCalled.Load() == 0 {
-		t.Fatal("expected endpoint to be called for expired TTL run (TTL is queue-level concern)")
-	}
+	require.NotEqual(t, 0, endpointCalled.
+		Load())
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update call")
-	}
+	require.NotEmpty(t, calls)
 }
 
 // dispatch: unreachable endpoint URL -- should fail/retry
@@ -84,15 +82,18 @@ func TestDispatch_ConnectionRefused_Fails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) < 2 {
-		t.Fatalf("expected at least 2 status updates, got %d", len(calls))
-	}
+	require.GreaterOrEqual(t, len(calls), 2)
 
 	// Last status update should be a terminal failure.
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter && last.to != domain.StatusSystemFailed && last.to != domain.StatusFailed {
-		t.Fatalf("expected terminal status, got %s", last.to)
-	}
+	require.False(t,
+		last.to != domain.
+			StatusDeadLetter &&
+			last.to !=
+				domain.StatusSystemFailed &&
+			last.to !=
+				domain.StatusFailed,
+	)
 }
 
 // dispatch: nil job reference -- should handle gracefully
@@ -115,9 +116,8 @@ func TestDispatch_NilJobLookup_PanicsOnNilReturn(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic from nil job dereference, but none occurred")
-		}
+		require.NotNil(t,
+			r)
 	}()
 	exec.execute(context.Background(), run)
 }
@@ -136,12 +136,11 @@ func TestDispatch_JobLookupError_SystemFails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for job lookup error")
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("expected system_failed, got %s", calls[0].to)
-	}
+	require.NotEmpty(t, calls)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
 }
 
 // dispatch: zero max_attempts -- should still execute once
@@ -166,16 +165,15 @@ func TestDispatch_ZeroMaxAttempts_ExecutesOnce(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) < 2 {
-		t.Fatalf("expected at least 2 status updates, got %d", len(calls))
-	}
+	require.GreaterOrEqual(t, len(calls), 2)
 
 	// With 0 max_attempts, run.Attempt(1) >= maxAttempts(0) so no retry.
 	// Should go directly to dead_letter.
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Fatalf("expected dead_letter with zero max_attempts, got %s", last.to)
-	}
+	require.Equal(t,
+		domain.StatusDeadLetter,
+		last.
+			to)
 }
 
 // dispatch: context cancellation during execution
@@ -208,18 +206,19 @@ func TestDispatch_ContextCancellation_HandledGracefully(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
+	require.NotEmpty(t, calls)
+	require.False(t,
+		calls[0].from !=
+			domain.StatusDequeued ||
+			calls[0].to != domain.StatusExecuting,
+	)
+	require.GreaterOrEqual(t, len(calls), 2)
+
 	// Should have at least the executing transition.
-	if len(calls) == 0 {
-		t.Fatal("expected at least one status update")
-	}
+
 	// First transition should be dequeued -> executing.
-	if calls[0].from != domain.StatusDequeued || calls[0].to != domain.StatusExecuting {
-		t.Fatalf("expected dequeued->executing, got %s->%s", calls[0].from, calls[0].to)
-	}
+
 	// Should time out and get re-enqueued or timed_out.
-	if len(calls) < 2 {
-		t.Fatal("expected timeout transition")
-	}
 }
 
 // dispatch: concurrent dispatch of same run ID -- idempotency via status transitions
@@ -261,12 +260,11 @@ func TestDispatch_ConcurrentSameRunID_OnlyOneExecutes(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.GreaterOrEqual(t, updateCount.
+		Load(), int32(1))
 
 	// Only the first goroutine should have successfully transitioned to executing.
 	// Others should have silently exited on the status conflict error.
-	if updateCount.Load() < 1 {
-		t.Fatal("expected at least one successful status transition")
-	}
 }
 
 // dispatch: very large payload -- should not crash
@@ -305,10 +303,10 @@ func TestDispatch_LargePayload_NoOOMPanic(t *testing.T) {
 	run.Payload = json.RawMessage(bigPayload)
 
 	exec.execute(context.Background(), run)
-
-	if receivedSize < 512*1024 {
-		t.Fatalf("endpoint received %d bytes, expected >= %d", receivedSize, 512*1024)
-	}
+	require.GreaterOrEqual(t, receivedSize,
+		512*
+			1024,
+	)
 
 	calls := st.statusUpdates()
 	found := false
@@ -318,9 +316,8 @@ func TestDispatch_LargePayload_NoOOMPanic(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected run to complete with large payload")
-	}
+	require.True(t,
+		found)
 }
 
 // dispatch: all retry strategies (exponential, fixed)
@@ -347,9 +344,7 @@ func TestDispatch_RetryStrategy_Exponential_RetriesOnFailure(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) < 2 {
-		t.Fatalf("expected at least 2 status updates for failed run, got %d", len(calls))
-	}
+	require.GreaterOrEqual(t, len(calls), 2)
 
 	// Should transition to executing then to queued (retry) since attempt < maxAttempts.
 	hasRetry := false
@@ -359,9 +354,8 @@ func TestDispatch_RetryStrategy_Exponential_RetriesOnFailure(t *testing.T) {
 			break
 		}
 	}
-	if !hasRetry {
-		t.Fatal("expected retry (queued transition) for exponential backoff with attempts remaining")
-	}
+	require.True(t,
+		hasRetry)
 }
 
 func TestDispatch_RetryStrategy_Fixed_RetriesOnFailure(t *testing.T) {
@@ -418,9 +412,8 @@ func TestDispatch_RetryStrategy_Fixed_RetriesOnFailure(t *testing.T) {
 			break
 		}
 	}
-	if !hasRetry {
-		t.Fatal("expected retry with fixed backoff policy")
-	}
+	require.True(t,
+		hasRetry)
 }
 
 // dispatch: endpoint returns non-JSON response -- should not panic
@@ -453,9 +446,8 @@ func TestDispatch_NonJSONResponse_Completes(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected run to complete even with non-JSON response")
-	}
+	require.True(t,
+		found)
 }
 
 // dispatch: circuit breaker open -- should snooze
@@ -478,13 +470,12 @@ func TestDispatch_CircuitBreakerOpen_Snoozes(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for circuit breaker snooze")
-	}
+	require.NotEmpty(t, calls)
+	require.Equal(t,
+		domain.StatusQueued,
+		calls[0].to)
+
 	// Should snooze back to queued.
-	if calls[0].to != domain.StatusQueued {
-		t.Fatalf("expected queued (snooze), got %s", calls[0].to)
-	}
 }
 
 // dispatch: circuit breaker check error -- system failure
@@ -506,12 +497,11 @@ func TestDispatch_CircuitBreakerCheckError_SystemFails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for circuit breaker error")
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("expected system_failed, got %s", calls[0].to)
-	}
+	require.NotEmpty(t, calls)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
 }
 
 // dispatch: empty endpoint URL -- should fail on HTTP dispatch
@@ -530,14 +520,14 @@ func TestDispatch_EmptyEndpointURL_Fails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) < 2 {
-		t.Fatalf("expected at least 2 status updates, got %d", len(calls))
-	}
+	require.GreaterOrEqual(t, len(calls), 2)
+
 	// Should fail because empty URL causes HTTP dispatch error.
 	last := calls[len(calls)-1]
-	if last.to == domain.StatusCompleted {
-		t.Fatal("run should not complete with empty endpoint URL")
-	}
+	require.NotEqual(t, domain.StatusCompleted,
+
+		last.to,
+	)
 }
 
 // dispatch: endpoint returns 429 -- should be classified as transient
@@ -569,9 +559,8 @@ func TestDispatch_Endpoint429_Retries(t *testing.T) {
 			break
 		}
 	}
-	if !hasRetry {
-		t.Fatal("expected retry on 429 with attempts remaining")
-	}
+	require.True(t,
+		hasRetry)
 }
 
 // dispatch: endpoint returns 200 with empty body -- should complete
@@ -602,9 +591,8 @@ func TestDispatch_EmptyResponseBody_Completes(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected run to complete with empty response body")
-	}
+	require.True(t,
+		found)
 }
 
 // dispatch: unknown execution mode -- system failure
@@ -625,12 +613,11 @@ func TestDispatch_UnknownExecutionMode_SystemFails(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for unknown execution mode")
-	}
-	if calls[0].to != domain.StatusSystemFailed {
-		t.Fatalf("expected system_failed for unknown execution mode, got %s", calls[0].to)
-	}
+	require.NotEmpty(t, calls)
+	require.Equal(t,
+		domain.StatusSystemFailed,
+
+		calls[0].to)
 }
 
 // ingestStripeUsageEvent: with compute usage metadata (realistic data)
@@ -680,10 +667,9 @@ func TestDispatch_StatusUpdateFails_StopsProcessing(t *testing.T) {
 	run := testRun(1)
 
 	exec.execute(context.Background(), run)
-
-	if httpCalled.Load() > 0 {
-		t.Fatal("endpoint should not be called when status transition fails")
-	}
+	require.LessOrEqual(t, httpCalled.
+		Load(), int32(0),
+	)
 }
 
 // dispatch: bulkhead at capacity -- should snooze
@@ -692,7 +678,9 @@ func TestDispatch_BulkheadFull_Snoozes(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Fatal("endpoint should not be called when bulkhead is full")
+		assert.Fail(t,
+
+			"endpoint should not be called when bulkhead is full")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -713,12 +701,10 @@ func TestDispatch_BulkheadFull_Snoozes(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update for bulkhead snooze")
-	}
-	if calls[0].to != domain.StatusQueued {
-		t.Fatalf("expected queued (snooze), got %s", calls[0].to)
-	}
+	require.NotEmpty(t, calls)
+	require.Equal(t,
+		domain.StatusQueued,
+		calls[0].to)
 
 	// Release the slot.
 	exec.bulkhead.Release("job-1", 1)
@@ -753,9 +739,8 @@ func TestDispatch_Endpoint503_RetriesWithAttemptsRemaining(t *testing.T) {
 			break
 		}
 	}
-	if !hasRetry {
-		t.Fatal("expected retry on 503 with attempts remaining")
-	}
+	require.True(t,
+		hasRetry)
 }
 
 // dispatch: adaptive timeout with health stats
@@ -797,9 +782,8 @@ func TestDispatch_AdaptiveTimeout_CompletesWithP95Stats(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected run to complete with adaptive timeout enabled")
-	}
+	require.True(t,
+		found)
 }
 
 // dispatchToEndpoint: request build error with malformed URL
@@ -817,12 +801,11 @@ func TestDispatchToEndpoint_MalformedURL_ReturnsError(t *testing.T) {
 
 	// A URL with control characters triggers request build failure.
 	_, err := e.dispatchToEndpoint(context.Background(), "http://\x00invalid", run, nil)
-	if err == nil {
-		t.Fatal("expected error for malformed URL")
-	}
-	if !strings.Contains(err.Error(), "build request") {
-		t.Fatalf("expected 'build request' error, got: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "build request",
+	)
 }
 
 // dispatchToEndpoint: extra headers are injected
@@ -856,19 +839,17 @@ func TestDispatchToEndpoint_ExtraHeaders_Injected(t *testing.T) {
 	}
 
 	_, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, extras)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
-
-	if captured.Get("X-Secret-API_KEY") != "super-secret" {
-		t.Errorf("X-Secret-API_KEY = %q, want %q", captured.Get("X-Secret-API_KEY"), "super-secret")
-	}
-	if captured.Get("X-Custom") != "custom-value" {
-		t.Errorf("X-Custom = %q, want %q", captured.Get("X-Custom"), "custom-value")
-	}
+	assert.Equal(t,
+		"super-secret", captured.
+			Get("X-Secret-API_KEY"))
+	assert.Equal(t,
+		"custom-value", captured.
+			Get("X-Custom"))
 }
 
 // dispatchToEndpoint: response body > 1MB is truncated
@@ -894,12 +875,9 @@ func TestDispatchToEndpoint_LargeResponseBody_Truncated(t *testing.T) {
 	}
 
 	result, err := e.dispatchToEndpoint(t.Context(), srv.URL, run, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
+	require.LessOrEqual(t, len(result), 1<<20)
 
 	// LimitReader caps at 1MB.
-	if len(result) > 1<<20 {
-		t.Fatalf("response body should be capped at 1MB, got %d bytes", len(result))
-	}
 }

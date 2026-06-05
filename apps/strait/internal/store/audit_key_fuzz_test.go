@@ -7,6 +7,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // FuzzDeriveAuditSigningKey asserts that DeriveAuditSigningKey is total
@@ -27,24 +30,17 @@ func FuzzDeriveAuditSigningKey(f *testing.F) {
 	f.Fuzz(func(t *testing.T, secret string) {
 		key, err := store.DeriveAuditSigningKey(secret)
 		if secret == "" {
-			if err == nil {
-				t.Errorf("empty secret should error")
-			}
+			assert.Error(t, err)
+
 			return
 		}
-		if err != nil {
-			t.Errorf("derive failed for non-empty secret: %v", err)
-			return
-		}
-		if len(key) != 32 {
-			t.Errorf("key length = %d, want 32", len(key))
-		}
+		require.NoError(t, err)
+		assert.Len(t, key, 32)
 
 		// Determinism: same input produces same key.
 		key2, _ := store.DeriveAuditSigningKey(secret)
-		if string(key) != string(key2) {
-			t.Error("derive is not deterministic")
-		}
+		assert.Equal(t, string(key2), string(
+			key))
 	})
 }
 
@@ -73,13 +69,9 @@ func FuzzComputeAuditSignature(f *testing.F) {
 		}
 
 		sig := store.ComputeAuditSignature(ev, key)
-		if len(sig) != 64 {
-			t.Errorf("sig length = %d, want 64", len(sig))
-		}
+		assert.Len(t, sig, 64)
 
 		sig2 := store.ComputeAuditSignature(ev, key)
-		if sig != sig2 {
-			t.Error("sig is not deterministic for identical input")
-		}
+		assert.Equal(t, sig2, sig)
 	})
 }

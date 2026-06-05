@@ -13,6 +13,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleCreateSSEToken_Success(t *testing.T) {
@@ -32,36 +34,31 @@ func TestHandleCreateSSEToken_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if resp.Token == "" {
-		t.Fatal("empty token")
-	}
-	if resp.ExpiresAt.Before(time.Now()) {
-		t.Error("expires_at is in the past")
-	}
-	if resp.ExpiresAt.After(time.Now().Add(6 * time.Minute)) {
-		t.Error("expires_at exceeds 5-minute TTL")
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&resp))
+	require.NotEmpty(t, resp.Token)
+	assert.False(
+		t, resp.ExpiresAt.
+			Before(time.
+				Now()))
+	assert.False(
+		t, resp.ExpiresAt.
+			After(time.
+				Now().Add(6*time.Minute)))
 
 	claims := srv.parseSSEToken(resp.Token)
-	if claims == nil {
-		t.Fatal("created token did not parse")
-		return
-	}
-	if claims.ProjectID != "proj-1" {
-		t.Fatalf("project_id = %q, want proj-1", claims.ProjectID)
-	}
+	require.NotNil(t, claims)
+	require.Equal(t, "proj-1", claims.
+		ProjectID,
+	)
 }
 
 func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
@@ -82,25 +79,21 @@ func TestHandleCreateSSEToken_PreservesEnvironmentScope(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&resp))
+
 	claims := srv.parseSSEToken(resp.Token)
-	if claims == nil {
-		t.Fatal("created token did not parse")
-		return
-	}
-	if claims.EnvironmentID != "env-prod" {
-		t.Fatalf("environment_id = %q, want env-prod", claims.EnvironmentID)
-	}
+	require.NotNil(t, claims)
+	require.Equal(t, "env-prod", claims.
+		EnvironmentID,
+	)
 }
 
 func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
@@ -108,9 +101,10 @@ func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetUserPermissionsFunc: func(_ context.Context, projectID, actorID string) ([]string, error) {
-			if projectID != "proj-1" || actorID != "user-1" {
-				t.Fatalf("unexpected permission lookup: project=%q actor=%q", projectID, actorID)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				actorID != "user-1")
+
 			return []string{domain.ScopeRunsRead}, nil
 		},
 	}
@@ -128,25 +122,23 @@ func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&resp))
+
 	claims := srv.parseSSEToken(resp.Token)
-	if claims == nil {
-		t.Fatal("created token did not parse")
-		return
-	}
-	if !domain.HasScopeStrict(claims.Scopes, domain.ScopeRunsRead) {
-		t.Fatalf("minted token scopes %v do not include %s", claims.Scopes, domain.ScopeRunsRead)
-	}
+	require.NotNil(t, claims)
+	require.True(
+		t, domain.HasScopeStrict(claims.
+			Scopes, domain.ScopeRunsRead,
+		),
+	)
 
 	tokenCtx := context.WithValue(context.Background(), ctxProjectIDKey, claims.ProjectID)
 	tokenCtx = context.WithValue(tokenCtx, ctxActorTypeKey, "sse_token")
@@ -157,10 +149,9 @@ func TestHandleCreateSSEToken_UserRBACPermissionsMintUsableToken(t *testing.T) {
 	srv.requirePermission(domain.ScopeRunsRead)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(tokenW, tokenReq)
-
-	if tokenW.Code != http.StatusNoContent {
-		t.Fatalf("minted token should be usable for runs:read, got %d: %s", tokenW.Code, tokenW.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		tokenW.
+			Code)
 }
 
 func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing.T) {
@@ -186,25 +177,22 @@ func TestHandleCreateSSEToken_UserScopesRespectExplicitOIDCUpperBound(t *testing
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.Body).
+		Decode(&resp))
+
 	claims := srv.parseSSEToken(resp.Token)
-	if claims == nil {
-		t.Fatal("created token did not parse")
-		return
-	}
-	if len(claims.Scopes) != 1 || claims.Scopes[0] != domain.ScopeRunsRead {
-		t.Fatalf("scopes = %v, want only [%s]", claims.Scopes, domain.ScopeRunsRead)
-	}
+	require.NotNil(t, claims)
+	require.False(t, len(claims.Scopes) != 1 ||
+		claims.Scopes[0] !=
+			domain.ScopeRunsRead,
+	)
 }
 
 func TestParseSSEToken_Valid(t *testing.T) {
@@ -233,21 +221,19 @@ func TestParseSSEToken_Valid(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("sign error: %v", err)
-	}
+	require.NoError(t, err)
 
 	parsed := srv.parseSSEToken(signed)
-	if parsed == nil {
-		t.Fatal("expected valid claims, got nil")
-		return
-	}
-	if parsed.ProjectID != "proj-1" {
-		t.Errorf("project_id = %q, want %q", parsed.ProjectID, "proj-1")
-	}
-	if len(parsed.Scopes) != 1 || parsed.Scopes[0] != domain.ScopeRunsRead {
-		t.Errorf("scopes = %v, want [runs:read]", parsed.Scopes)
-	}
+	require.NotNil(t, parsed)
+	assert.Equal(
+		t, "proj-1", parsed.
+			ProjectID,
+	)
+	assert.False(
+		t, len(parsed.Scopes) != 1 ||
+			parsed.Scopes[0] !=
+				domain.ScopeRunsRead,
+	)
 }
 
 func TestParseSSEToken_Expired(t *testing.T) {
@@ -277,9 +263,7 @@ func TestParseSSEToken_Expired(t *testing.T) {
 	signed, _ := token.SignedString([]byte(testJWTSigningKey))
 
 	parsed := srv.parseSSEToken(signed)
-	if parsed != nil {
-		t.Error("expected nil for expired token")
-	}
+	assert.Nil(t, parsed)
 }
 
 func TestParseSSEToken_WrongIssuer(t *testing.T) {
@@ -309,9 +293,7 @@ func TestParseSSEToken_WrongIssuer(t *testing.T) {
 	signed, _ := token.SignedString([]byte(testJWTSigningKey))
 
 	parsed := srv.parseSSEToken(signed)
-	if parsed != nil {
-		t.Error("expected nil for wrong issuer")
-	}
+	assert.Nil(t, parsed)
 }
 
 func TestParseSSEToken_WrongKey(t *testing.T) {
@@ -340,9 +322,7 @@ func TestParseSSEToken_WrongKey(t *testing.T) {
 	signed, _ := token.SignedString([]byte("wrong-key-that-is-32-chars-long!"))
 
 	parsed := srv.parseSSEToken(signed)
-	if parsed != nil {
-		t.Error("expected nil for wrong signing key")
-	}
+	assert.Nil(t, parsed)
 }
 
 func TestParseSSEToken_GarbageInput(t *testing.T) {
@@ -361,9 +341,7 @@ func TestParseSSEToken_GarbageInput(t *testing.T) {
 
 	inputs := []string{"", "not-a-jwt", "a.b.c", "strait_realkey123", strings.Repeat("x", 1000)}
 	for _, input := range inputs {
-		if srv.parseSSEToken(input) != nil {
-			t.Errorf("expected nil for garbage input %q", input[:min(len(input), 20)])
-		}
+		assert.Nil(t, srv.parseSSEToken(input))
 	}
 }
 
@@ -401,11 +379,11 @@ func TestSSETokenAuth_ShortLivedJWT_BypassesAPIKeyAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token="+signed, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusUnauthorized,
+
+		w.Code)
 
 	// Should not be 401 (unauthenticated) -- the SSE token should have authenticated.
-	if w.Code == http.StatusUnauthorized {
-		t.Errorf("SSE token should bypass API key auth, got 401; body: %s", w.Body.String())
-	}
 }
 
 func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
@@ -435,19 +413,16 @@ func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("sign error: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := srv.sseTokenAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := projectIDFromContext(r.Context()); got != "proj-1" {
-			t.Fatalf("project_id = %q, want proj-1", got)
-		}
-		if got := environmentIDFromContext(r.Context()); got != "env-prod" {
-			t.Fatalf("environment_id = %q, want env-prod", got)
-		}
+		assert.Equal(t, "proj-1", projectIDFromContext(r.Context()))
+		assert.Equal(t, "env-prod", environmentIDFromContext(r.Context()))
+
 		if got := scopesFromContext(r.Context()); len(got) != 1 || got[0] != domain.ScopeJobsRead {
-			t.Fatalf("scopes = %v, want [%s]", got, domain.ScopeJobsRead)
+			assert.Failf(t, "test failure",
+
+				"scopes = %v, want [%s]", got, domain.ScopeJobsRead)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -455,10 +430,9 @@ func TestSSETokenAuth_RestoresEnvironmentScope(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token="+signed, nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204; body: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
@@ -466,7 +440,9 @@ func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetAPIKeyByHashFunc: func(context.Context, string) (*domain.APIKey, error) {
-			t.Fatal("raw API key query token must not be promoted into Authorization")
+			require.Fail(t,
+
+				"raw API key query token must not be promoted into Authorization")
 			return nil, nil
 		},
 	}
@@ -475,13 +451,12 @@ func TestSSETokenAuth_RawAPIKeyQueryParamRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/events/test-key/stream?token=strait_someapikey", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("raw API key query token: status = %d, want 401", w.Code)
-	}
-	if len(ms.GetAPIKeyByHashCalls()) != 0 {
-		t.Fatal("raw API key query token reached API key lookup")
-	}
+	assert.Equal(
+		t, http.StatusUnauthorized,
+		w.
+			Code)
+	require.Empty(t,
+		ms.GetAPIKeyByHashCalls())
 }
 
 func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
@@ -501,10 +476,9 @@ func TestRequirePermission_SSETokenEmptyScopesRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
@@ -523,10 +497,9 @@ func TestRequirePermission_SSETokenNilScopesRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusForbidden)
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
@@ -546,10 +519,8 @@ func TestRequirePermission_SSETokenExplicitScopeAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func FuzzParseSSEToken(f *testing.F) {

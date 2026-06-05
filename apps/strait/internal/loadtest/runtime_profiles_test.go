@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCaptureRuntimeProfiles_WritesRequestedArtifacts(t *testing.T) {
@@ -20,58 +22,53 @@ func TestCaptureRuntimeProfiles_WritesRequestedArtifacts(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("CaptureRuntimeProfiles() error = %v", err)
-	}
-	if len(artifacts) != 2 {
-		t.Fatalf("artifacts len = %d, want 2", len(artifacts))
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, artifacts,
+
+		2)
 
 	for _, artifact := range artifacts {
-		if artifact.Name != "Trigger Storm" {
-			t.Fatalf("artifact name = %q, want Trigger Storm", artifact.Name)
-		}
-		if artifact.Kind == "" {
-			t.Fatal("artifact kind is empty")
-		}
-		if filepath.Dir(artifact.Path) != dir {
-			t.Fatalf("artifact path = %q, want under %q", artifact.Path, dir)
-		}
+		require.Equal(t, "Trigger Storm",
+
+			artifact.
+				Name)
+		require.NotEmpty(t,
+			artifact.Kind)
+		require.Equal(t, dir,
+			filepath.
+				Dir(artifact.
+					Path))
+
 		info, statErr := os.Stat(artifact.Path)
-		if statErr != nil {
-			t.Fatalf("stat artifact %q: %v", artifact.Path, statErr)
-		}
-		if info.Size() == 0 {
-			t.Fatalf("artifact %q is empty", artifact.Path)
-		}
+		require.NoError(t,
+			statErr,
+		)
+		require.NotEqual(t,
+			0, info.
+				Size())
 	}
 }
 
 func TestCaptureRuntimeProfiles_ValidatesInput(t *testing.T) {
 	t.Parallel()
 
-	if _, err := CaptureRuntimeProfiles(context.Background(), RuntimeProfileCapture{}); err == nil {
-		t.Fatal("CaptureRuntimeProfiles() error = nil, want name validation")
-	}
-	if _, err := CaptureRuntimeProfiles(context.Background(), RuntimeProfileCapture{Name: "x"}); err == nil {
-		t.Fatal("CaptureRuntimeProfiles() error = nil, want dir validation")
-	}
+	_, err := CaptureRuntimeProfiles(context.Background(), RuntimeProfileCapture{})
+	require.Error(t, err)
+	_, err = CaptureRuntimeProfiles(context.Background(), RuntimeProfileCapture{Name: "x"})
+	require.Error(t, err)
 	if _, err := CaptureRuntimeProfiles(context.Background(), RuntimeProfileCapture{
 		Name:  "x",
 		Dir:   t.TempDir(),
 		Kinds: []RuntimeProfileKind{"unknown"},
 	}); err == nil {
-		t.Fatal("CaptureRuntimeProfiles() error = nil, want unsupported profile kind")
+		require.Fail(t, "CaptureRuntimeProfiles() error = nil, want unsupported profile kind")
 	}
 }
 
 func TestSafeProfileFilename(t *testing.T) {
 	t.Parallel()
 
-	if got := safeProfileFilename("Trigger Storm / Core API", string(RuntimeProfileCPU)); got != "trigger-storm---core-api.cpu.pprof" {
-		t.Fatalf("safeProfileFilename() = %q", got)
-	}
-	if got := safeProfileFilename("trace", string(RuntimeProfileTrace)); got != "trace.trace.out" {
-		t.Fatalf("safeProfileFilename(trace) = %q", got)
-	}
+	require.Equal(t, "trigger-storm---core-api.cpu.pprof", safeProfileFilename("Trigger Storm / Core API", string(RuntimeProfileCPU)))
+	require.Equal(t, "trace.trace.out", safeProfileFilename("trace", string(RuntimeProfileTrace)))
 }

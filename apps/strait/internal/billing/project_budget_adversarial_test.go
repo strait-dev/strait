@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestProjectBudget_RaceUnderConcurrency drives 50 concurrent
@@ -50,10 +51,8 @@ func TestProjectBudget_RaceUnderConcurrency(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if calls.Load() != int32(n) {
-		t.Errorf("expected all %d calls to return; got %d", n, calls.Load())
-	}
+	assert.Equal(t, int32(n), calls.
+		Load())
 }
 
 // TestProjectBudget_OrgLimitVsProjectLimit_DistinctErrors locks the
@@ -78,15 +77,16 @@ func TestProjectBudget_OrgLimitVsProjectLimit_DistinctErrors(t *testing.T) {
 
 	err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb")
 	var lim *LimitError
-	if !errors.As(err, &lim) {
-		t.Fatalf("expected *LimitError, got %T: %v", err, err)
-	}
-	if lim.Code != "project_budget_reached" {
-		t.Errorf("project rejection must use project_budget_reached, not %q", lim.Code)
-	}
-	if lim.Code == "spending_limit_reached" {
-		t.Errorf("project rejection must NOT reuse the org-level spending_limit_reached code")
-	}
+	require.ErrorAs(t, err, &lim)
+	assert.Equal(t, "project_budget_reached",
+
+		lim.Code,
+	)
+	assert.NotEqual(t,
+		"spending_limit_reached",
+
+		lim.Code,
+	)
 }
 
 // TestProjectBudget_NotifyActionDoesNotLeakIntoBlock is a regression
@@ -110,10 +110,9 @@ func TestProjectBudget_NotifyActionDoesNotLeakIntoBlock(t *testing.T) {
 	store.getProjectPeriodSpendFn = func(_ context.Context, _ string, _ time.Time) (int64, error) {
 		return 100_000, nil
 	}
-
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb"); err != nil {
-		t.Errorf("notify action must not block; got %v", err)
-	}
+	assert.NoError(t,
+		enforcer.
+			CheckProjectBudgetLimit(context.Background(), "proj-pb"))
 }
 
 // TestProjectBudget_UnknownActionTreatedAsNotify documents the
@@ -138,8 +137,7 @@ func TestProjectBudget_UnknownActionTreatedAsNotify(t *testing.T) {
 	store.getProjectPeriodSpendFn = func(_ context.Context, _ string, _ time.Time) (int64, error) {
 		return 200, nil
 	}
-
-	if err := enforcer.CheckProjectBudgetLimit(context.Background(), "proj-pb"); err != nil {
-		t.Errorf("unknown action must default to non-blocking; got %v", err)
-	}
+	assert.NoError(t,
+		enforcer.
+			CheckProjectBudgetLimit(context.Background(), "proj-pb"))
 }

@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestNormalizeLegacyArgs(t *testing.T) {
 	t.Parallel()
@@ -18,15 +22,10 @@ func TestNormalizeLegacyArgs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			got := normalizeLegacyArgs(tc.in)
-			if len(got) != len(tc.want) {
-				t.Fatalf("len(got)=%d len(want)=%d", len(got), len(tc.want))
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("arg[%d]=%q want %q", i, got[i], tc.want[i])
-				}
-			}
+
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

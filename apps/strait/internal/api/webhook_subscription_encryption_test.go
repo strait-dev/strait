@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 	"strait/internal/pubsub"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // mockEncryptor is a deterministic encryptor for testing that prepends a known
@@ -54,16 +56,11 @@ func newTestServerWithEncryptor(t *testing.T, s APIStore, q *mockQueue, enc Encr
 func requireBase64EncryptedSecretPlaintext(t *testing.T, enc Encryptor, encrypted, want string) {
 	t.Helper()
 	ciphertext, err := base64.StdEncoding.DecodeString(encrypted)
-	if err != nil {
-		t.Fatalf("stored secret should be base64 ciphertext: %v", err)
-	}
+	require.NoError(t, err)
+
 	plaintext, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("failed to decrypt stored secret: %v", err)
-	}
-	if string(plaintext) != want {
-		t.Fatalf("decrypted stored secret = %q, want %q", string(plaintext), want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, want, string(plaintext))
 }
 
 func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
@@ -84,35 +81,27 @@ func TestHandleCreateWebhookSubscription_EncryptsSecret(t *testing.T) {
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if storedSub == nil {
-		t.Fatal("CreateWebhookSubscription was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.NotNil(t, storedSub)
+	require.False(t, len(storedSub.Secret) >= 6 &&
+		storedSub.Secret[:6] == "whsec_",
+	)
 
 	// Stored secret must be text-safe encrypted ciphertext rather than the
 	// plaintext whsec_ value the server returns once.
-	if len(storedSub.Secret) >= 6 && storedSub.Secret[:6] == "whsec_" {
-		t.Fatalf("stored secret %q is plaintext, expected encrypted value", storedSub.Secret)
-	}
 
 	// Decrypting the stored value yields the server-generated whsec_-prefixed
 	// signing secret.
 	ciphertext, err := base64.StdEncoding.DecodeString(storedSub.Secret)
-	if err != nil {
-		t.Fatalf("stored secret should be base64 ciphertext: %v", err)
-	}
+	require.NoError(t, err)
+
 	enc := &mockEncryptor{}
 	decrypted, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("failed to decrypt stored secret: %v", err)
-	}
-	if len(decrypted) < 6 || string(decrypted[:6]) != "whsec_" {
-		t.Fatalf("decrypted secret %q should start with whsec_", string(decrypted))
-	}
+	require.NoError(t, err)
+	require.False(t, len(decrypted) <
+		6 || string(decrypted[:6]) != "whsec_",
+	)
 }
 
 func TestHandleCreateWebhookSubscription_WithoutEncryptorFailsClosed(t *testing.T) {
@@ -120,7 +109,9 @@ func TestHandleCreateWebhookSubscription_WithoutEncryptorFailsClosed(t *testing.
 
 	ms := &APIStoreMock{
 		CreateWebhookSubscriptionFunc: func(_ context.Context, sub *domain.WebhookSubscription) error {
-			t.Fatal("CreateWebhookSubscription should not be called without webhook secret encryption")
+			require.Fail(t,
+
+				"CreateWebhookSubscription should not be called without webhook secret encryption")
 			return nil
 		},
 	}
@@ -131,10 +122,9 @@ func TestHandleCreateWebhookSubscription_WithoutEncryptorFailsClosed(t *testing.
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/hook","event_types":["run.completed"]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleRotateWebhookSecret_EncryptsSecret(t *testing.T) {
@@ -163,33 +153,24 @@ func TestHandleRotateWebhookSecret_EncryptsSecret(t *testing.T) {
 	body := `{"grace_period_minutes":60}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/webhooks/subscriptions/sub-rotate-1/rotate-secret", body, "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotEmpty(t, rotatedSecret)
 
 	// The stored secret should be encrypted (starts with "encrypted:" prefix from mock).
-	if rotatedSecret == "" {
-		t.Fatal("RotateWebhookSecret was not called")
-	}
 
 	enc := &mockEncryptor{}
 	ciphertext, err := base64.StdEncoding.DecodeString(rotatedSecret)
-	if err != nil {
-		t.Fatalf("rotated secret should be base64 ciphertext: %v", err)
-	}
+	require.NoError(t, err)
+
 	decrypted, err := enc.Decrypt(ciphertext)
-	if err != nil {
-		t.Fatalf("failed to decrypt rotated secret: %v", err)
-	}
+	require.NoError(t, err)
 
 	decryptedStr := string(decrypted)
-	if len(decryptedStr) < 6 || decryptedStr[:6] != "whsec_" {
-		t.Fatalf("decrypted rotated secret should start with whsec_, got %q", decryptedStr)
-	}
+	require.False(t, len(decryptedStr) < 6 || decryptedStr[:6] != "whsec_")
+	require.False(t, len(rotatedSecret) >= 6 &&
+		rotatedSecret[:6] ==
+			"whsec_")
 
 	// The stored value should NOT start with whsec_ (it should be encrypted).
-	if len(rotatedSecret) >= 6 && rotatedSecret[:6] == "whsec_" {
-		t.Fatal("rotated secret was stored in plaintext, expected encrypted value")
-	}
 }

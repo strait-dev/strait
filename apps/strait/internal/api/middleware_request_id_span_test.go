@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -30,9 +32,9 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, span := tracer.Start(r.Context(), "child")
 		defer span.End()
-		if reqID := requestIDFromContext(r.Context()); reqID == "" {
-			t.Error("request id missing from context")
-		}
+		assert.NotEmpty(t, requestIDFromContext(r.
+			Context()))
+
 		w.WriteHeader(http.StatusOK)
 	})))
 
@@ -46,9 +48,7 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 	parent.End()
 
 	spans := exporter.GetSpans()
-	if len(spans) == 0 {
-		t.Fatal("no spans recorded")
-	}
+	require.NotEmpty(t, spans)
 
 	// Find the parent span (the one started here) — that's the active span
 	// at the moment attachAuditContext stamps the attribute.
@@ -59,34 +59,31 @@ func TestAttachAuditContext_RequestIDOnSpan(t *testing.T) {
 			break
 		}
 	}
-	if parentAttrs == nil {
-		t.Fatal("parent span not found in exporter")
-	}
+	require.NotNil(t, parentAttrs)
 
 	found := false
 	for _, kv := range parentAttrs {
-		if kv.Key == "http.request_id" {
-			t.Fatalf("legacy http.request_id attribute key leaked back into output: %+v", kv)
-		}
+		require.NotEqual(t, "http.request_id",
+			kv.Key)
+
 		if kv.Key == attrRequestID {
-			if kv.Value.AsString() == "" {
-				t.Fatalf("%s span attribute is empty", attrRequestID)
-			}
+			require.NotEmpty(t, kv.
+				Value.AsString())
+
 			found = true
 		}
 	}
-	if !found {
-		t.Fatalf("%s attribute not set on span; got %+v", attrRequestID, parentAttrs)
-	}
+	require.True(
+		t, found)
 }
 
 // TestAttachAuditContext_AttrKeyIsVendorNamespaced is the regression test for
 // review item 2: the attribute key must be vendor-namespaced so it cannot
 // collide with the OTel semconv `http.request.id` if it graduates.
 func TestAttachAuditContext_AttrKeyIsVendorNamespaced(t *testing.T) {
-	if attrRequestID != "strait.request_id" {
-		t.Fatalf("attrRequestID = %q, want strait.request_id (vendor-namespaced)", attrRequestID)
-	}
+	require.Equal(t, "strait.request_id",
+		attrRequestID,
+	)
 }
 
 // TestAttachAuditContext_NoSpanWhenTracingDisabled verifies that calling
@@ -98,16 +95,13 @@ func TestAttachAuditContext_NoSpanWhenTracingDisabled(t *testing.T) {
 	called := false
 	handler := chimw.RequestID(srv.attachAuditContext(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		called = true
-		if reqID := requestIDFromContext(r.Context()); reqID == "" {
-			t.Error("request id missing from context")
-		}
+		assert.NotEmpty(t, requestIDFromContext(r.
+			Context()))
 	})))
 
 	req := httptest.NewRequest(http.MethodGet, "/whatever", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-
-	if !called {
-		t.Fatal("handler not called")
-	}
+	require.True(
+		t, called)
 }

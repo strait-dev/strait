@@ -9,6 +9,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Backoff tests (9).
@@ -23,9 +25,7 @@ func FuzzNextRetryDelay_ExtremeAttempts(f *testing.F) {
 	f.Add(math.MinInt)
 	f.Fuzz(func(t *testing.T, attempt int) {
 		d := NextRetryDelay(attempt)
-		if d <= 0 {
-			t.Fatalf("NextRetryDelay(%d) returned non-positive duration %v", attempt, d)
-		}
+		require.Positive(t, d)
 	})
 }
 
@@ -38,9 +38,7 @@ func FuzzNextRetryDelayWithStrategy(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, attempt int, strategy string) {
 		d := NextRetryDelayWithStrategy(attempt, strategy, nil)
-		if d <= 0 {
-			t.Fatalf("NextRetryDelayWithStrategy(%d, %q, nil) = %v, want > 0", attempt, strategy, d)
-		}
+		require.Positive(t, d)
 	})
 }
 
@@ -63,39 +61,38 @@ func FuzzNextRetryDelayWithPolicy_Overflow(f *testing.F) {
 func TestBackoff_AttemptZero(t *testing.T) {
 	t.Parallel()
 	d := NextRetryDelay(0)
-	if d <= 0 {
-		t.Fatalf("NextRetryDelay(0) = %v, want > 0", d)
-	}
+	require.Positive(t, d)
+	assert.False(
+		t, d < 800*
+			time.Millisecond ||
+
+			d > 1200*time.Millisecond)
+
 	// With jitter, base=1s should yield roughly 0.8s-1.2s.
-	if d < 800*time.Millisecond || d > 1200*time.Millisecond {
-		t.Errorf("NextRetryDelay(0) = %v, expected near 1s", d)
-	}
 }
 
 // TestBackoff_AttemptNegative verifies that attempt=-1 is clamped to 1.
 func TestBackoff_AttemptNegative(t *testing.T) {
 	t.Parallel()
 	d := NextRetryDelay(-1)
-	if d <= 0 {
-		t.Fatalf("NextRetryDelay(-1) = %v, want > 0", d)
-	}
-	if d < 800*time.Millisecond || d > 1200*time.Millisecond {
-		t.Errorf("NextRetryDelay(-1) = %v, expected near 1s", d)
-	}
+	require.Positive(t, d)
+	assert.False(
+		t, d < 800*
+			time.Millisecond ||
+
+			d > 1200*time.Millisecond)
 }
 
 // TestBackoff_AttemptMaxInt verifies no overflow or panic for math.MaxInt.
 func TestBackoff_AttemptMaxInt(t *testing.T) {
 	t.Parallel()
 	d := NextRetryDelay(math.MaxInt)
-	if d <= 0 {
-		t.Fatalf("NextRetryDelay(MaxInt) = %v, want > 0", d)
-	}
+	require.Positive(t, d)
+
 	// Should be capped at maxDelay (1 hour) +/- 20% jitter.
 	upper := time.Hour + time.Hour/5 + time.Second
-	if d > upper {
-		t.Errorf("NextRetryDelay(MaxInt) = %v, expected <= ~1h12m", d)
-	}
+	assert.LessOrEqual(t, d,
+		upper)
 }
 
 // TestBackoff_CustomDelaysEmpty verifies fallback to exponential when custom delays are nil or empty.
@@ -112,9 +109,7 @@ func TestBackoff_CustomDelaysEmpty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			d := NextRetryDelayWithStrategy(1, RetryCustom, tc.delays)
-			if d <= 0 {
-				t.Fatalf("custom with %s: got %v, want > 0", tc.name, d)
-			}
+			require.Positive(t, d)
 		})
 	}
 }
@@ -123,27 +118,26 @@ func TestBackoff_CustomDelaysEmpty(t *testing.T) {
 func TestBackoff_CustomDelaysNegative(t *testing.T) {
 	t.Parallel()
 	d := NextRetryDelayWithStrategy(1, RetryCustom, []int{-100, -200})
-	if d <= 0 {
-		t.Fatalf("custom with negative delays: got %v, want > 0", d)
-	}
+	require.Positive(t, d)
+	assert.False(
+		t, d < 800*
+			time.Millisecond ||
+
+			d > 1200*time.Millisecond)
+
 	// Negative delay is floored to base (1s), so expect near 1s with jitter.
-	if d < 800*time.Millisecond || d > 1200*time.Millisecond {
-		t.Errorf("custom with negative delays: got %v, expected near 1s", d)
-	}
 }
 
 // TestBackoff_CustomDelaysOverflow verifies that math.MaxInt custom delays are capped.
 func TestBackoff_CustomDelaysOverflow(t *testing.T) {
 	t.Parallel()
 	d := NextRetryDelayWithStrategy(1, RetryCustom, []int{math.MaxInt, math.MaxInt})
-	if d <= 0 {
-		t.Fatalf("custom with MaxInt delays: got %v, want > 0", d)
-	}
+	require.Positive(t, d)
+
 	// Should be capped at maxDelay (1 hour) +/- 20% jitter.
 	upper := time.Hour + time.Hour/5 + time.Second
-	if d > upper {
-		t.Errorf("custom with MaxInt delays: got %v, expected <= ~1h12m", d)
-	}
+	assert.LessOrEqual(t, d,
+		upper)
 }
 
 // Circuit breaker tests (5).
@@ -178,7 +172,7 @@ func TestCircuitBreaker_ConcurrentTransitions(t *testing.T) {
 	case circuitClosed, circuitOpen, circuitHalfOpen:
 		// Valid.
 	default:
-		t.Fatalf("unexpected state %q after concurrent transitions", state)
+		require.Failf(t, "test failure", "unexpected state %q after concurrent transitions", state)
 	}
 }
 
@@ -194,15 +188,13 @@ func TestCircuitBreaker_ExactThreshold(t *testing.T) {
 	for i := range threshold {
 		cb.RecordFailure()
 		if i < threshold-1 {
-			if cb.State() != circuitClosed {
-				t.Fatalf("state = %q after %d failures, want closed", cb.State(), i+1)
-			}
+			require.Equal(t, circuitClosed,
+				cb.
+					State())
 		}
 	}
-
-	if cb.State() != circuitOpen {
-		t.Fatalf("state = %q after %d failures, want open", cb.State(), threshold)
-	}
+	require.Equal(t, circuitOpen,
+		cb.State())
 }
 
 // TestCircuitBreaker_ThresholdMinusOne verifies the breaker stays closed at threshold-1 failures.
@@ -217,13 +209,12 @@ func TestCircuitBreaker_ThresholdMinusOne(t *testing.T) {
 	for range threshold - 1 {
 		cb.RecordFailure()
 	}
-
-	if cb.State() != circuitClosed {
-		t.Fatalf("state = %q after %d failures, want closed", cb.State(), threshold-1)
-	}
-	if cb.ConsecutiveFailures() != threshold-1 {
-		t.Fatalf("consecutive failures = %d, want %d", cb.ConsecutiveFailures(), threshold-1)
-	}
+	require.Equal(t, circuitClosed,
+		cb.
+			State())
+	require.Equal(t, threshold-
+		1, cb.
+		ConsecutiveFailures())
 }
 
 // TestCircuitBreaker_RapidOpenClose cycles the breaker through 1000 open/close transitions.
@@ -237,24 +228,23 @@ func TestCircuitBreaker_RapidOpenClose(t *testing.T) {
 	for range 1000 {
 		// Open it.
 		cb.RecordFailure()
-		if cb.State() != circuitOpen {
-			t.Fatal("expected open after failure")
-		}
+		require.Equal(t, circuitOpen,
+			cb.State())
 
 		// Wait for open duration to elapse, then Allow transitions to half-open.
 		time.Sleep(time.Microsecond)
-		if !cb.Allow() {
-			t.Fatal("expected Allow to return true after open duration")
-		}
-		if cb.State() != circuitHalfOpen {
-			t.Fatalf("state = %q, want half_open", cb.State())
-		}
+		require.True(
+			t, cb.Allow())
+		require.Equal(t, circuitHalfOpen,
+			cb.
+				State(),
+		)
 
 		// Close it.
 		cb.RecordSuccess()
-		if cb.State() != circuitClosed {
-			t.Fatalf("state = %q, want closed after success in half_open", cb.State())
-		}
+		require.Equal(t, circuitClosed,
+			cb.
+				State())
 	}
 }
 
@@ -270,15 +260,14 @@ func TestCircuitBreaker_ZeroThreshold(t *testing.T) {
 	for range 4 {
 		cb.RecordFailure()
 	}
-	if cb.State() != circuitClosed {
-		t.Fatalf("state = %q after 4 failures with zero threshold config, want closed", cb.State())
-	}
+	require.Equal(t, circuitClosed,
+		cb.
+			State())
 
 	// The fifth failure should trip it open (default threshold is 5).
 	cb.RecordFailure()
-	if cb.State() != circuitOpen {
-		t.Fatalf("state = %q after 5 failures with zero threshold config, want open", cb.State())
-	}
+	require.Equal(t, circuitOpen,
+		cb.State())
 }
 
 // Health score tests (5).
@@ -289,12 +278,12 @@ func TestHealthScore_NaN(t *testing.T) {
 	score := ThrottledConcurrency(&domain.EndpointHealthScore{
 		HealthScore: math.NaN(),
 	}, 10)
+	require.GreaterOrEqual(t,
+		score, 0)
+
 	// NaN comparisons are always false, so score < unhealthy is false, score > degraded is false.
 	// The function should not panic; it returns 0 because NaN < 30 is false, NaN > 60 is false,
 	// and it falls into the degraded path.
-	if score < 0 {
-		t.Fatalf("ThrottledConcurrency with NaN health score returned negative: %d", score)
-	}
 }
 
 // TestHealthScore_Inf verifies that +Inf latency does not cause a panic.
@@ -303,10 +292,9 @@ func TestHealthScore_Inf(t *testing.T) {
 	score := ThrottledConcurrency(&domain.EndpointHealthScore{
 		HealthScore: math.Inf(1),
 	}, 10)
+	assert.Equal(t, 10, score)
+
 	// +Inf > 60, so should return maxConcurrency unchanged.
-	if score != 10 {
-		t.Errorf("ThrottledConcurrency with +Inf health score = %d, want 10", score)
-	}
 }
 
 // TestHealthScore_NegativeLatency verifies that a negative health score returns 0.
@@ -315,10 +303,9 @@ func TestHealthScore_NegativeLatency(t *testing.T) {
 	score := ThrottledConcurrency(&domain.EndpointHealthScore{
 		HealthScore: -50.0,
 	}, 10)
+	assert.Equal(t, 0, score)
+
 	// -50 < 30, so endpoint is unhealthy and concurrency should be 0.
-	if score != 0 {
-		t.Errorf("ThrottledConcurrency with negative health score = %d, want 0", score)
-	}
 }
 
 // TestHealthScore_ZeroTimeout verifies behavior with zero timeout in dispatch result.
@@ -333,13 +320,12 @@ func TestHealthScore_ZeroTimeout(t *testing.T) {
 		LatencyMs:    500,
 		JobTimeoutMs: 0,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	assert.InDelta(t, 1.0, result.
+		LatencyScore, 1e-9,
+	)
+
 	// Latency score should stay at 1.0 since no timeout means latencyVal=1.0.
-	if result.LatencyScore != 1.0 {
-		t.Errorf("latency score = %v, want 1.0 for zero timeout", result.LatencyScore)
-	}
 }
 
 // FuzzHealthScoreCalculation fuzzes all fields of DispatchResult.
@@ -361,14 +347,13 @@ func FuzzHealthScoreCalculation(f *testing.F) {
 			LatencyMs:    latencyMs,
 			JobTimeoutMs: jobTimeoutMs,
 		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
+
 		if result.HealthScore < 0 || result.HealthScore > 100 {
+			assert.True(t,
+				math.IsNaN(result.HealthScore))
+
 			// NaN propagation is acceptable but out-of-range finite values are not.
-			if !math.IsNaN(result.HealthScore) {
-				t.Errorf("health score %v out of [0, 100]", result.HealthScore)
-			}
 		}
 	})
 }
@@ -393,16 +378,14 @@ func TestBulkhead_AdversarialJobIDs(t *testing.T) {
 	}
 
 	for _, id := range adversarialIDs {
-		if !b.TryAcquire(id, 1) {
-			t.Errorf("TryAcquire(%q, 1) = false on first acquire", id)
-		}
-		if b.TryAcquire(id, 1) {
-			t.Errorf("TryAcquire(%q, 1) = true on second acquire with limit 1", id)
-		}
+		assert.True(t,
+			b.TryAcquire(id, 1))
+		assert.False(
+			t, b.TryAcquire(id, 1),
+		)
+
 		b.Release(id, 1)
-		if b.ActiveCount(id) != 0 {
-			t.Errorf("ActiveCount(%q) = %d after release, want 0", id, b.ActiveCount(id))
-		}
+		assert.Equal(t, 0, b.ActiveCount(id))
 	}
 }
 
@@ -410,17 +393,13 @@ func TestBulkhead_AdversarialJobIDs(t *testing.T) {
 func TestBulkhead_EmptyJobID(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(2)
+	require.True(
+		t, b.TryAcquire("", 1),
+	)
+	require.False(t, b.TryAcquire("", 1))
 
-	if !b.TryAcquire("", 1) {
-		t.Fatal("TryAcquire(\"\", 1) = false on first acquire")
-	}
-	if b.TryAcquire("", 1) {
-		t.Fatal("TryAcquire(\"\", 1) = true on second acquire with limit 1")
-	}
 	b.Release("", 1)
-	if b.ActiveCount("") != 0 {
-		t.Fatalf("ActiveCount(\"\") = %d after release, want 0", b.ActiveCount(""))
-	}
+	require.Equal(t, 0, b.ActiveCount(""))
 }
 
 // TestBulkhead_LongJobID tests a 100KB job ID.
@@ -428,17 +407,13 @@ func TestBulkhead_LongJobID(t *testing.T) {
 	t.Parallel()
 	b := NewShardedBulkhead(10)
 	longID := strings.Repeat("x", 100*1024)
+	require.True(
+		t, b.TryAcquire(longID,
+			1))
+	require.Equal(t, 1, b.ActiveCount(longID))
 
-	if !b.TryAcquire(longID, 1) {
-		t.Fatal("TryAcquire with 100KB ID = false on first acquire")
-	}
-	if b.ActiveCount(longID) != 1 {
-		t.Fatalf("ActiveCount = %d, want 1", b.ActiveCount(longID))
-	}
 	b.Release(longID, 1)
-	if b.ActiveCount(longID) != 0 {
-		t.Fatalf("ActiveCount = %d after release, want 0", b.ActiveCount(longID))
-	}
+	require.Equal(t, 0, b.ActiveCount(longID))
 }
 
 // TestBulkhead_ConcurrentAcquireRelease tests 100 goroutines acquiring and releasing.
@@ -455,19 +430,16 @@ func TestBulkhead_ConcurrentAcquireRelease(t *testing.T) {
 				if b.TryAcquire(jobID, limit) {
 					// Verify we never exceed the limit.
 					count := b.ActiveCount(jobID)
-					if count > limit {
-						t.Errorf("active count %d exceeded limit %d", count, limit)
-					}
+					assert.LessOrEqual(t, count,
+						limit)
+
 					b.Release(jobID, limit)
 				}
 			}
 		})
 	}
 	wg.Wait()
-
-	if b.ActiveCount(jobID) != 0 {
-		t.Fatalf("active count = %d after all goroutines finished, want 0", b.ActiveCount(jobID))
-	}
+	require.Equal(t, 0, b.ActiveCount(jobID))
 }
 
 // URL validation tests (4).
@@ -515,12 +487,14 @@ func TestValidateEndpointURL_AlternateIPFormats(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateEndpointURL(tc.url)
-			if tc.wantErr && err == nil {
-				t.Errorf("ValidateEndpointURL(%q) = nil, want error", tc.url)
-			}
-			if !tc.wantErr && err != nil {
-				t.Errorf("ValidateEndpointURL(%q) = %v, want nil", tc.url, err)
-			}
+			assert.False(
+				t, tc.wantErr &&
+					err ==
+						nil)
+			assert.False(
+				t, !tc.wantErr &&
+					err !=
+						nil)
 		})
 	}
 }
@@ -537,9 +511,8 @@ func TestValidateEndpointURL_InternalMetadataURLs(t *testing.T) {
 		t.Run(u, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateEndpointURL(u)
-			if err == nil {
-				t.Errorf("ValidateEndpointURL(%q) = nil, want error for metadata URL", u)
-			}
+			assert.Error(
+				t, err)
 		})
 	}
 }
@@ -563,9 +536,8 @@ func TestValidateEndpointURL_EmptyAndInvalid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := ValidateEndpointURL(tc.url)
-			if err == nil {
-				t.Errorf("ValidateEndpointURL(%q) = nil, want error", tc.url)
-			}
+			assert.Error(
+				t, err)
 		})
 	}
 }

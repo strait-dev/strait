@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestChunkStreamReturnsSSEHeadersThroughRouter exercises
@@ -33,9 +36,10 @@ func TestChunkStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
 	_, subCancel := context.WithCancel(context.Background())
 	pub := &mockPublisher{
 		subscribeFn: func(_ context.Context, channel string) (*pubsub.Subscription, error) {
-			if !strings.HasPrefix(channel, "run_stream:") {
-				t.Fatalf("unexpected pubsub channel: %s", channel)
-			}
+			require.True(
+				t, strings.HasPrefix(channel, "run_stream:"),
+			)
+
 			return pubsub.NewSubscription(dataCh, subCancel), nil
 		},
 	}
@@ -48,16 +52,14 @@ func TestChunkStreamReturnsSSEHeadersThroughRouter(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 through router, got %d: %s", w.Code, w.Body.String())
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
-		t.Fatalf("expected Content-Type=text/event-stream, got %q", ct)
-	}
-	if cc := w.Header().Get("Cache-Control"); cc != "no-cache" {
-		t.Errorf("expected Cache-Control=no-cache, got %q", cc)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "text/event-stream",
+		w.Header().Get("Content-Type"),
+	)
+	assert.Equal(
+		t, "no-cache",
+		w.Header().Get("Cache-Control"))
 }
 
 // TestChunkStreamRouteAcceptsSSEAcceptHeader pins the regression where
@@ -80,15 +82,14 @@ func TestChunkStreamRouteAcceptsSSEAcceptHeader(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
+	require.NotEqual(t, http.
+		StatusNotAcceptable,
+		w.Code)
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
-	if w.Code == http.StatusNotAcceptable {
-		t.Fatalf("got 406 for text/event-stream Accept; route is still wrapped by JSON Accept gate")
-	}
 	// pubsub is nil so handler emits a 200 with an SSE error body. The
 	// important assertion is that we cleared the JSON Accept gate.
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (handler-level SSE error), got %d", w.Code)
-	}
 }
 
 // TestChunkStreamPreservesTerminalGuard confirms the run-state guard at
@@ -110,10 +111,8 @@ func TestChunkStreamPreservesTerminalGuard(t *testing.T) {
 	req := authedRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", "")
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusGone {
-		t.Fatalf("expected 410 Gone for terminal run, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusGone,
+		w.Code)
 }
 
 // TestChunkStreamRequiresAuth ensures the moved route still rejects
@@ -128,8 +127,7 @@ func TestChunkStreamRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/runs/run-1/stream/chunks", nil)
 	req.Header.Set("Accept", "text/event-stream")
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 without auth, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusUnauthorized,
+		w.Code,
+	)
 }

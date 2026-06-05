@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // seedSubsForBackfill creates n org_subscriptions rows with mixed tiers and
@@ -27,27 +29,37 @@ func seedSubsForBackfill(t *testing.T, ctx context.Context, pgStore *billing.PgS
 	for i := range n {
 		id := "org-bf-" + newID()
 		ids[i] = id
-		if err := pgStore.EnsureOrgSubscription(ctx, id); err != nil {
-			t.Fatalf("ensure %s: %v", id, err)
-		}
+		require.NoError(t, pgStore.
+			EnsureOrgSubscription(ctx,
+				id))
+
 		tier := tiers[i%len(tiers)]
 		if tier != domain.PlanFree {
-			if err := pgStore.UpdateOrgSubscriptionPlan(ctx, id, string(tier), "active"); err != nil {
-				t.Fatalf("update plan %s: %v", id, err)
-			}
+			require.NoError(t, pgStore.
+				UpdateOrgSubscriptionPlan(ctx,
+					id, string(
+						tier), "active",
+				))
+
 		}
 		// Seed an addon on every third row to exercise the addon path.
 		if i%3 == 0 && tier != domain.PlanFree {
-			if err := pgStore.CreateAddon(ctx, &billing.Addon{
-				ID: newID(), OrgID: id, AddonType: billing.AddonConcurrency100, Quantity: 1, Active: true,
-			}); err != nil {
-				t.Fatalf("create addon %s: %v", id, err)
-			}
+			require.NoError(t, pgStore.
+				CreateAddon(ctx, &billing.
+					Addon{ID: newID(), OrgID: id,
+
+					AddonType: billing.AddonConcurrency100,
+					Quantity:  1,
+
+					Active: true}))
+
 		}
 	}
 	// Blank entitlements on all rows so the backfill has work to do.
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE organization_subscriptions SET entitlements = '{}'::jsonb`); err != nil {
-		t.Fatalf("blank entitlements: %v", err)
+		require.Failf(t, "test failure",
+
+			"blank entitlements: %v", err)
 	}
 	return ids
 }
@@ -61,26 +73,24 @@ func TestBackfillEntitlements_PopulatesAllRows(t *testing.T) {
 	ids := seedSubsForBackfill(t, ctx, pgStore, n)
 
 	stats, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 7, false, "", nil)
-	if err != nil {
-		t.Fatalf("backfill: %v", err)
-	}
-	if stats.Scanned != int64(n) {
-		t.Errorf("scanned = %d, want %d", stats.Scanned, n)
-	}
-	if stats.Updated != int64(n) {
-		t.Errorf("updated = %d, want %d", stats.Updated, n)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, int64(n),
+
+		stats.Scanned,
+	)
+	assert.Equal(t, int64(n),
+
+		stats.Updated,
+	)
 
 	// Every row's snapshot must equal ComputeEntitlements over its current state.
 	for _, id := range ids {
 		sub, err := pgStore.GetOrgSubscription(ctx, id)
-		if err != nil {
-			t.Fatalf("get %s: %v", id, err)
-		}
+		require.NoError(t, err)
+
 		addons, err := pgStore.ListActiveAddons(ctx, id)
-		if err != nil {
-			t.Fatalf("list addons %s: %v", id, err)
-		}
+		require.NoError(t, err)
+
 		want := billing.ComputeEntitlements(sub, addons)
 		got := readEntitlements(t, ctx, id)
 		mustEqualLimits(t, got, want, "after backfill: "+id)
@@ -96,23 +106,18 @@ func TestBackfillEntitlements_IsIdempotent(t *testing.T) {
 
 	// First run writes everything.
 	first, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, false, "", nil)
-	if err != nil {
-		t.Fatalf("first backfill: %v", err)
-	}
-	if first.Updated != 20 {
-		t.Errorf("first run updated = %d, want 20", first.Updated)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 20, first.
+		Updated)
+
 	// Second run is a no-op because the snapshots already match.
 	second, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, false, "", nil)
-	if err != nil {
-		t.Fatalf("second backfill: %v", err)
-	}
-	if second.Updated != 0 {
-		t.Errorf("second run updated = %d, want 0 (idempotent)", second.Updated)
-	}
-	if second.Scanned != 20 {
-		t.Errorf("second run scanned = %d, want 20", second.Scanned)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, second.
+		Updated)
+	assert.EqualValues(t, 20, second.
+		Scanned)
+
 }
 
 func TestBackfillEntitlements_DryRunWritesNothing(t *testing.T) {
@@ -123,22 +128,19 @@ func TestBackfillEntitlements_DryRunWritesNothing(t *testing.T) {
 	ids := seedSubsForBackfill(t, ctx, pgStore, 10)
 
 	stats, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, true, "", nil)
-	if err != nil {
-		t.Fatalf("dry run: %v", err)
-	}
-	if stats.Updated != 10 {
-		t.Errorf("dry-run reported %d would-update, want 10", stats.Updated)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 10, stats.
+		Updated)
+
 	// Column must still be blank.
 	for _, id := range ids {
 		var raw []byte
-		if err := testDB.Pool.QueryRow(ctx,
-			`SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`, id).Scan(&raw); err != nil {
-			t.Fatalf("read %s: %v", id, err)
-		}
-		if string(raw) != "{}" {
-			t.Errorf("dry-run wrote to %s: got %q, want {}", id, string(raw))
-		}
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx, `SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
+
+			id).Scan(&raw))
+		assert.Equal(t, "{}", string(raw))
+
 	}
 }
 
@@ -151,26 +153,28 @@ func TestBackfillEntitlements_SingleOrgScope(t *testing.T) {
 
 	target := ids[2]
 	stats, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 100, false, target, nil)
-	if err != nil {
-		t.Fatalf("single-org backfill: %v", err)
-	}
-	if stats.Scanned != 1 || stats.Updated != 1 {
-		t.Errorf("single-org stats = %+v, want {1, 1}", stats)
-	}
+	require.NoError(t, err)
+	assert.False(t, stats.Scanned !=
+		1 ||
+		stats.Updated !=
+			1)
 
 	// Target row populated; others still blank.
 	for i, id := range ids {
 		var raw []byte
-		if err := testDB.Pool.QueryRow(ctx,
-			`SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`, id).Scan(&raw); err != nil {
-			t.Fatalf("read %s: %v", id, err)
-		}
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx, `SELECT entitlements FROM organization_subscriptions WHERE org_id = $1`,
+
+			id).Scan(&raw))
+
 		if i == 2 {
-			if string(raw) == "{}" {
-				t.Errorf("target row not populated: %s", id)
-			}
+			assert.NotEqual(t, "{}",
+				string(raw))
+
 		} else if string(raw) != "{}" {
-			t.Errorf("non-target row %s was touched: %q", id, string(raw))
+			assert.Failf(t, "test failure",
+
+				"non-target row %s was touched: %q", id, string(raw))
 		}
 	}
 }
@@ -181,33 +185,32 @@ func TestUpdateEntitlementsIfUnchanged_SkipsStaleBackfillWrite(t *testing.T) {
 	pgStore := billing.NewPgStore(testDB.Pool)
 
 	orgID := "org-backfill-freshness-" + newID()
-	if err := pgStore.EnsureOrgSubscription(ctx, orgID); err != nil {
-		t.Fatalf("EnsureOrgSubscription: %v", err)
-	}
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanPro), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan(pro): %v", err)
-	}
-	observed, err := pgStore.GetOrgSubscription(ctx, orgID)
-	if err != nil {
-		t.Fatalf("GetOrgSubscription: %v", err)
-	}
-	staleProSnapshot := billing.GetPlanLimits(domain.PlanPro)
+	require.NoError(t, pgStore.
+		EnsureOrgSubscription(ctx,
+			orgID))
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.PlanPro), "active"))
 
-	if err := pgStore.UpdateOrgSubscriptionPlan(ctx, orgID, string(domain.PlanFree), "active"); err != nil {
-		t.Fatalf("UpdateOrgSubscriptionPlan(free): %v", err)
-	}
+	observed, err := pgStore.GetOrgSubscription(ctx, orgID)
+	require.NoError(t, err)
+
+	staleProSnapshot := billing.GetPlanLimits(domain.PlanPro)
+	require.NoError(t, pgStore.
+		UpdateOrgSubscriptionPlan(ctx,
+			orgID, string(domain.PlanFree), "active"))
+
 	updated, err := billing.UpdateEntitlementsIfUnchanged(ctx, testDB.Pool, orgID, staleProSnapshot, observed.UpdatedAt)
-	if err != nil {
-		t.Fatalf("UpdateEntitlementsIfUnchanged: %v", err)
-	}
-	if updated {
-		t.Fatal("stale backfill write updated row after live plan change")
-	}
+	require.NoError(t, err)
+	require.False(t, updated)
 
 	got := readEntitlements(t, ctx, orgID)
-	if got.PlanTier != domain.PlanFree {
-		t.Fatalf("persisted plan tier = %s, want %s", got.PlanTier, domain.PlanFree)
-	}
+	require.Equal(t, domain.PlanFree,
+
+		got.
+			PlanTier,
+	)
+
 }
 
 // TestBackfillEntitlements_AdversarialConcurrentWebhookWriter races the
@@ -243,27 +246,29 @@ func TestBackfillEntitlements_AdversarialConcurrentWebhookWriter(t *testing.T) {
 	if _, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, false, "", nil); err != nil {
 		stop.Store(true)
 		wg.Wait()
-		t.Fatalf("backfill: %v", err)
+		require.Failf(t, "test failure",
+
+			"backfill: %v", err)
 	}
 	stop.Store(true)
 	wg.Wait()
 
 	// One final consistent backfill pass to settle everything.
 	if _, err := billing.BackfillEntitlements(ctx, testDB.Pool, pgStore, 5, false, "", nil); err != nil {
-		t.Fatalf("final backfill: %v", err)
+		require.Failf(t, "test failure",
+
+			"final backfill: %v", err)
 	}
 
 	// Now every row's snapshot must equal what ComputeEntitlements returns
 	// for its current state.
 	for _, id := range ids {
 		sub, err := pgStore.GetOrgSubscription(ctx, id)
-		if err != nil {
-			t.Fatalf("get %s: %v", id, err)
-		}
+		require.NoError(t, err)
+
 		addons, err := pgStore.ListActiveAddons(ctx, id)
-		if err != nil {
-			t.Fatalf("list addons %s: %v", id, err)
-		}
+		require.NoError(t, err)
+
 		want := billing.ComputeEntitlements(sub, addons)
 		got := readEntitlements(t, ctx, id)
 		mustEqualLimits(t, got, want, "post-race: "+id)

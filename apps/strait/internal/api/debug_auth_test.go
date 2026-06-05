@@ -12,6 +12,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -38,10 +40,10 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/debug/statsviz/", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusUnauthorized,
+			w.Code,
+		)
 	})
 
 	t.Run("wrong secret returns 401", func(t *testing.T) {
@@ -50,10 +52,10 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "wrong-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusUnauthorized,
+			w.Code,
+		)
 	})
 
 	t.Run("correct secret returns 200", func(t *testing.T) {
@@ -62,10 +64,9 @@ func TestDebugStatsviz_RequiresAuth(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusOK,
+			w.Code)
 	})
 }
 
@@ -89,10 +90,9 @@ func TestDebugStatsviz_Disabled_Returns404(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 when DebugStatsviz=false", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusNotFound,
+		w.Code)
 }
 
 func TestPprof_RequiresAuth(t *testing.T) {
@@ -116,10 +116,10 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusUnauthorized,
+			w.Code,
+		)
 	})
 
 	t.Run("wrong secret returns 401", func(t *testing.T) {
@@ -128,10 +128,10 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "wrong-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusUnauthorized,
+			w.Code,
+		)
 	})
 
 	t.Run("correct secret returns 200", func(t *testing.T) {
@@ -140,10 +140,9 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusOK,
+			w.Code)
 	})
 
 	t.Run("bearer secret returns 200", func(t *testing.T) {
@@ -152,10 +151,9 @@ func TestPprof_RequiresAuth(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusOK,
+			w.Code)
 	})
 }
 
@@ -182,10 +180,10 @@ func TestPprof_ProfilingSecretOverridesInternalSecret(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want 401", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusUnauthorized,
+			w.Code,
+		)
 	})
 
 	t.Run("profiling secret authorizes pprof", func(t *testing.T) {
@@ -194,10 +192,9 @@ func TestPprof_ProfilingSecretOverridesInternalSecret(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "pprof-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusOK,
+			w.Code)
 	})
 }
 
@@ -236,18 +233,17 @@ func TestPprof_AuthLimiterScopeIsDedicated(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("pprof status = %d, want 429 after profiling failures", w.Code)
-	}
+	require.Equal(t, http.StatusTooManyRequests,
+		w.
+			Code)
 
 	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	req.RemoteAddr = "198.51.100.10:1234"
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("metrics status = %d, want 200 despite profiling lockout", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestPprof_AuthLimiterScopeIsDedicatedWithProfilingSecret(t *testing.T) {
@@ -286,18 +282,17 @@ func TestPprof_AuthLimiterScopeIsDedicatedWithProfilingSecret(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("metrics status = %d, want 429 after internal-secret failures", w.Code)
-	}
+	require.Equal(t, http.StatusTooManyRequests,
+		w.
+			Code)
 
 	req = httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine", nil)
 	req.RemoteAddr = "198.51.100.20:1234"
 	req.Header.Set("X-Internal-Secret", "pprof-secret-value")
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("pprof status = %d, want 200 despite internal-secret lockout", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestPprof_RequestsMetricRecordsEndpointAndStatus(t *testing.T) {
@@ -308,9 +303,8 @@ func TestPprof_RequestsMetricRecordsEndpointAndStatus(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
 
 	counter, err := provider.Meter("pprof-test").Int64Counter("strait_pprof_requests_total")
-	if err != nil {
-		t.Fatalf("Int64Counter() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	handler := NewProfilingHandler(ProfilingHandlerDeps{
 		Config: &config.Config{
 			InternalSecret:   "test-secret-value",
@@ -325,17 +319,16 @@ func TestPprof_RequestsMetricRecordsEndpointAndStatus(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if !hasPprofRequestMetric(rm, "goroutine", "200") {
-		t.Fatalf("strait_pprof_requests_total missing endpoint=goroutine,status=200: %#v", rm)
-	}
+	require.NoError(t, reader.
+		Collect(context.Background(), &rm))
+	require.True(
+		t, hasPprofRequestMetric(rm, "goroutine",
+			"200",
+		))
 }
 
 func TestPprof_AllowedCIDRs(t *testing.T) {
@@ -362,10 +355,9 @@ func TestPprof_AllowedCIDRs(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Errorf("status = %d, want 200", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusOK,
+			w.Code)
 	})
 
 	t.Run("disallowed remote ip returns 403", func(t *testing.T) {
@@ -375,10 +367,9 @@ func TestPprof_AllowedCIDRs(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusForbidden {
-			t.Errorf("status = %d, want 403", w.Code)
-		}
+		assert.Equal(
+			t, http.StatusForbidden,
+			w.Code)
 	})
 }
 
@@ -402,10 +393,9 @@ func TestPprof_TextDebugOutputRejected(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusBadRequest,
+		w.Code)
 }
 
 func TestPprof_ExploratoryEndpointsNotExposed(t *testing.T) {
@@ -429,10 +419,9 @@ func TestPprof_ExploratoryEndpointsNotExposed(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusNotFound {
-			t.Errorf("GET %s status = %d, want 404", path, w.Code)
-		}
+		assert.Equal(
+			t, http.StatusNotFound,
+			w.Code)
 	}
 }
 
@@ -464,9 +453,8 @@ func TestPprof_ManagementHandlerOnlyExposesPprofRoutes(t *testing.T) {
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
-		if w.Code != tt.want {
-			t.Fatalf("GET %s status = %d, want %d", tt.path, w.Code, tt.want)
-		}
+		require.Equal(t, tt.want,
+			w.Code)
 	}
 }
 
@@ -496,9 +484,8 @@ func TestPprof_APIListenerCanBeDisabledForManagementOnly(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404 when API pprof listener is disabled", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code)
 }
 
 func TestPprof_Disabled_Returns404(t *testing.T) {
@@ -521,10 +508,9 @@ func TestPprof_Disabled_Returns404(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 when ProfilingEnabled=false", w.Code)
-	}
+	assert.Equal(
+		t, http.StatusNotFound,
+		w.Code)
 }
 
 func hasPprofRequestMetric(rm metricdata.ResourceMetrics, endpoint, status string) bool {

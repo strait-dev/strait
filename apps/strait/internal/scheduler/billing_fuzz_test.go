@@ -9,6 +9,8 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Section separator.
@@ -27,12 +29,12 @@ func FuzzSLOEvaluator_ErrorBudget(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, current, target float64, metric string) {
 		got := CalculateErrorBudget(current, target, metric)
-		if math.IsNaN(got) {
-			t.Errorf("CalculateErrorBudget(%v, %v, %q) = NaN", current, target, metric)
-		}
-		if math.IsInf(got, 0) {
-			t.Errorf("CalculateErrorBudget(%v, %v, %q) = Inf", current, target, metric)
-		}
+		assert.False(t, math.
+			IsNaN(
+				got))
+		assert.False(t, math.
+			IsInf(
+				got, 0))
 	})
 }
 
@@ -47,12 +49,12 @@ func FuzzSLOEvaluator_LatencyBudget(f *testing.F) {
 	f.Fuzz(func(t *testing.T, current, target float64) {
 		for _, metric := range []string{domain.SLOMetricP95LatencySecs, domain.SLOMetricP99LatencySecs} {
 			got := CalculateErrorBudget(current, target, metric)
-			if math.IsNaN(got) {
-				t.Errorf("CalculateErrorBudget(%v, %v, %q) = NaN", current, target, metric)
-			}
-			if math.IsInf(got, 0) {
-				t.Errorf("CalculateErrorBudget(%v, %v, %q) = Inf", current, target, metric)
-			}
+			assert.False(t, math.
+				IsNaN(
+					got))
+			assert.False(t, math.
+				IsInf(
+					got, 0))
 		}
 	})
 }
@@ -130,10 +132,8 @@ func FuzzUsageReportEmailer_HTML(f *testing.F) {
 
 		// Must not panic on any input combination.
 		html := buildUsageReportHTML(orgID, planTier, periodStart, periodEnd, creditMicro, addonCount, overageMicro)
-
-		if !utf8.ValidString(html) {
-			t.Error("expected valid UTF-8 output")
-		}
+		assert.True(t, utf8.
+			ValidString(html))
 	})
 }
 

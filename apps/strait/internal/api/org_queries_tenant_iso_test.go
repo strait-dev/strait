@@ -6,11 +6,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID rejects empty and
@@ -42,19 +43,12 @@ func TestTenantIso_OrgQueries_InternalSecret_RequiresOrgID(t *testing.T) {
 		"00000000-0000-0000-0000",
 	} {
 		_, err := srv.handleListOrgRuns(ctx, &ListOrgRunsInput{OrgID: badOrg})
-		if err == nil {
-			t.Fatalf("expected error for non-uuid org_id %q", badOrg)
-		}
-		if called {
-			t.Fatalf("store must not be called for non-uuid org_id %q", badOrg)
-		}
+		require.Error(t, err)
+		require.False(t, called)
+
 		_, err = srv.handleListOrgJobs(ctx, &ListOrgJobsInput{OrgID: badOrg})
-		if err == nil {
-			t.Fatalf("expected error for non-uuid org_id %q (jobs)", badOrg)
-		}
-		if called {
-			t.Fatalf("store must not be called for non-uuid org_id %q (jobs)", badOrg)
-		}
+		require.Error(t, err)
+		require.False(t, called)
 	}
 }
 
@@ -83,26 +77,20 @@ func TestTenantIso_OrgQueries_InternalSecret_AuditEmitted(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/runs", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 from runs list, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
+
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, authedRequest(http.MethodGet, "/v1/organizations/"+orgUUID+"/jobs", ""))
-	if w2.Code != http.StatusOK {
-		t.Fatalf("expected 200 from jobs list, got %d: %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK, w2.
+		Code)
 
 	logs := buf.String()
-	if !strings.Contains(logs, "org_queries internal-secret listing") {
-		t.Fatalf("expected internal-secret audit log line, got: %s", logs)
-	}
-	if !strings.Contains(logs, "op=ListOrgRuns") {
-		t.Fatalf("expected ListOrgRuns op log, got: %s", logs)
-	}
-	if !strings.Contains(logs, "op=ListOrgJobs") {
-		t.Fatalf("expected ListOrgJobs op log, got: %s", logs)
-	}
-	if !strings.Contains(logs, "org_id="+orgUUID) {
-		t.Fatalf("expected org_id field in log, got: %s", logs)
-	}
+	require.Contains(t, logs, "org_queries internal-secret listing")
+	require.Contains(t, logs, "op=ListOrgRuns")
+	require.Contains(t, logs, "op=ListOrgJobs")
+	require.Contains(t, logs, "org_id="+
+		orgUUID)
 }

@@ -7,6 +7,7 @@ import (
 
 	"strait/internal/queue"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -30,51 +31,39 @@ func TestWorkflowRuntimeMetrics_RecordStepLifecycle(t *testing.T) {
 
 	transition := metricByName(t, reader, "strait_workflow_step_transitions_total")
 	transitionData, ok := transition.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("transition data = %T, want Sum[int64]", transition.Data)
-	}
-	if got := sumInt64WithAttrs(transitionData, map[string]string{"from": "pending", "to": "running"}); got != 1 {
-		t.Fatalf("transition count = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.EqualValues(t, 1,
+		sumInt64WithAttrs(
+			transitionData, map[string]string{"from": "pending", "to": "running"}))
 
 	stepDuration := metricByName(t, reader, "strait_workflow_step_duration_seconds")
 	stepDurationData, ok := stepDuration.Data.(metricdata.Histogram[float64])
-	if !ok {
-		t.Fatalf("step duration data = %T, want Histogram[float64]", stepDuration.Data)
-	}
-	if got := histogramCountWithAttrs(stepDurationData, map[string]string{"step_kind": "job", "outcome": "success"}); got != 1 {
-		t.Fatalf("step duration count = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.EqualValues(t, 1,
+		histogramCountWithAttrs(stepDurationData, map[string]string{"step_kind": "job", "outcome": "success"}))
 
 	durableWait := metricByName(t, reader, "strait_workflow_durable_wait_duration_seconds")
 	durableWaitData, ok := durableWait.Data.(metricdata.Histogram[float64])
-	if !ok {
-		t.Fatalf("durable wait data = %T, want Histogram[float64]", durableWait.Data)
-	}
-	if got := histogramCountWithAttrs(durableWaitData, nil); got != 1 {
-		t.Fatalf("durable wait count = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.EqualValues(t, 1,
+		histogramCountWithAttrs(durableWaitData, nil))
 
 	compensation := metricByName(t, reader, "strait_workflow_compensation_runs_total")
 	compensationData, ok := compensation.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("compensation data = %T, want Sum[int64]", compensation.Data)
-	}
-	if got := sumInt64WithAttrs(compensationData, map[string]string{"outcome": "success"}); got != 1 {
-		t.Fatalf("compensation count = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.EqualValues(t, 1,
+		sumInt64WithAttrs(
+			compensationData, map[string]string{"outcome": "success"}))
 
 	activeRuns := metricByName(t, reader, "strait_workflow_active_runs")
 	activeRunsData, ok := activeRuns.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("active runs data = %T, want Sum[int64]", activeRuns.Data)
-	}
-	if activeRunsData.IsMonotonic {
-		t.Fatal("active runs must be non-monotonic")
-	}
-	if got := sumInt64WithAttrs(activeRunsData, map[string]string{"project": "project-a"}); got != 1 {
-		t.Fatalf("active runs = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.False(t, activeRunsData.
+		IsMonotonic,
+	)
+	require.EqualValues(t, 1,
+		sumInt64WithAttrs(
+			activeRunsData, map[string]string{"project": "project-a"}))
 }
 
 func TestWorkflowRuntimeMetrics_BoundsProjectLabels(t *testing.T) {
@@ -86,15 +75,14 @@ func TestWorkflowRuntimeMetrics_BoundsProjectLabels(t *testing.T) {
 
 	activeRuns := metricByName(t, reader, "strait_workflow_active_runs")
 	activeRunsData, ok := activeRuns.Data.(metricdata.Sum[int64])
-	if !ok {
-		t.Fatalf("active runs data = %T, want Sum[int64]", activeRuns.Data)
-	}
-	if got := sumInt64WithAttrs(activeRunsData, map[string]string{"project": "project-a"}); got != 1 {
-		t.Fatalf("allowlisted active runs = %d, want 1", got)
-	}
-	if got := sumInt64WithAttrs(activeRunsData, map[string]string{"project": "_other"}); got != 1 {
-		t.Fatalf("fallback active runs = %d, want 1", got)
-	}
+	require.True(t, ok)
+	require.EqualValues(t, 1,
+		sumInt64WithAttrs(
+			activeRunsData, map[string]string{"project": "project-a"}))
+	require.EqualValues(t, 1,
+		sumInt64WithAttrs(
+			activeRunsData, map[string]string{"project": "_other"},
+		))
 }
 
 func setupWorkflowRuntimeMetrics(t *testing.T, projectLabelLimit int) *sdkmetric.ManualReader {
@@ -113,9 +101,10 @@ func setupWorkflowRuntimeMetrics(t *testing.T, projectLabelLimit int) *sdkmetric
 		workflowMetrics = oldMetrics
 		workflowProjectLabels = oldProjectLabels
 		otel.SetMeterProvider(oldProvider)
-		if err := provider.Shutdown(context.Background()); err != nil {
-			t.Fatalf("shutdown meter provider: %v", err)
-		}
+		require.NoError(t,
+			provider.Shutdown(
+				context.
+					Background()))
 	})
 	return reader
 }
@@ -123,9 +112,10 @@ func setupWorkflowRuntimeMetrics(t *testing.T, projectLabelLimit int) *sdkmetric
 func metricByName(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Metrics {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect metrics: %v", err)
-	}
+	require.NoError(t,
+		reader.Collect(context.
+			Background(), &rm))
+
 	for _, sm := range rm.ScopeMetrics {
 		for _, metric := range sm.Metrics {
 			if metric.Name == name {
@@ -133,7 +123,9 @@ func metricByName(t *testing.T, reader *sdkmetric.ManualReader, name string) met
 			}
 		}
 	}
-	t.Fatalf("metric %q not collected", name)
+	require.Failf(t, "test failure",
+
+		"metric %q not collected", name)
 	return metricdata.Metrics{}
 }
 

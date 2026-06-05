@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditRLS_CrossTenantBlocked(t *testing.T) {
@@ -18,9 +20,8 @@ func TestAuditRLS_CrossTenantBlocked(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("rls-test-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projA := "proj-rls-audit-a-" + newID()
@@ -35,9 +36,7 @@ func TestAuditRLS_CrossTenantBlocked(t *testing.T) {
 		ResourceID:   "job-a",
 		Details:      json.RawMessage(`{"project":"a"}`),
 	}
-	if err := q.CreateAuditEvent(ctx, evA); err != nil {
-		t.Fatalf("CreateAuditEvent(A): %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, evA))
 
 	evB := &domain.AuditEvent{
 		ProjectID:    projB,
@@ -48,21 +47,16 @@ func TestAuditRLS_CrossTenantBlocked(t *testing.T) {
 		ResourceID:   "job-b",
 		Details:      json.RawMessage(`{"project":"b"}`),
 	}
-	if err := q.CreateAuditEvent(ctx, evB); err != nil {
-		t.Fatalf("CreateAuditEvent(B): %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, evB))
 
 	count := countAsProject(t, ctx, testDB.Pool, projA,
 		"SELECT COUNT(*) FROM audit_events WHERE project_id = $1", projB)
-	if count != 0 {
-		t.Fatalf("project A can see %d events from project B, want 0 (RLS bypass)", count)
-	}
+	require.EqualValues(t, 0, count)
 
 	countOwn := countAsProject(t, ctx, testDB.Pool, projB,
 		"SELECT COUNT(*) FROM audit_events WHERE project_id = $1", projB)
-	if countOwn != 1 {
-		t.Fatalf("project B sees %d of its own events, want 1", countOwn)
-	}
+	require.EqualValues(t, 1, countOwn)
+
 }
 
 func TestAuditRLS_SameProjectAllowed(t *testing.T) {
@@ -71,9 +65,8 @@ func TestAuditRLS_SameProjectAllowed(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("rls-same-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projA := "proj-rls-same-" + newID()
@@ -88,14 +81,12 @@ func TestAuditRLS_SameProjectAllowed(t *testing.T) {
 			ResourceID:   "job-" + newID(),
 			Details:      json.RawMessage(`{"i":` + strconv.Itoa(i) + `}`),
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent[%d]: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	count := countAsProject(t, ctx, testDB.Pool, projA,
 		"SELECT COUNT(*) FROM audit_events WHERE project_id = $1", projA)
-	if count != 3 {
-		t.Fatalf("project A sees %d of its own events, want 3", count)
-	}
+	require.EqualValues(t, 3, count)
+
 }

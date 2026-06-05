@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironmentEndpoint(t *testing.T) {
@@ -20,7 +22,9 @@ func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironme
 			return nil, nil
 		},
 		UpdateJobEndpointFunc: func(_ context.Context, _, _, _, _ string) error {
-			t.Fatal("UpdateJobEndpoint should not be called for a mismatched environment")
+			require.Fail(t,
+
+				"UpdateJobEndpoint should not be called for a mismatched environment")
 			return nil
 		},
 	}
@@ -32,9 +36,11 @@ func TestHandleSetJobEndpoint_EnvironmentScopedCallerCannotReplaceOtherEnvironme
 		JobID: "job-1",
 		Body:  SetJobEndpointRequest{EndpointURL: "https://executor.example.com/run"},
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for environment mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
 }
 
 func TestHandleVerifyJobEndpoint_EnvironmentScopedCallerCannotVerifyOtherEnvironmentEndpoint(t *testing.T) {
@@ -55,7 +61,9 @@ func TestHandleVerifyJobEndpoint_EnvironmentScopedCallerCannotVerifyOtherEnviron
 	ctx = context.WithValue(ctx, ctxEnvironmentIDKey, "env-prod")
 
 	_, err := srv.handleVerifyJobEndpoint(ctx, &VerifyJobEndpointInput{JobID: "job-1"})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404 for environment mismatch, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusNotFound,
+		))
 }

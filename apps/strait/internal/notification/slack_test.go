@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/jarcoal/httpmock"
+	"github.com/stretchr/testify/require"
 )
 
 func newSlackChannel(webhookURL string) *domain.NotificationChannel {
@@ -36,9 +37,7 @@ func TestSlackSender_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestSlackSender_EmptyWebhookURL(t *testing.T) {
@@ -50,9 +49,7 @@ func TestSlackSender_EmptyWebhookURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for empty webhook URL")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_InvalidConfig(t *testing.T) {
@@ -67,9 +64,7 @@ func TestSlackSender_InvalidConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for invalid config JSON")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_StatusBoundary200(t *testing.T) {
@@ -86,9 +81,7 @@ func TestSlackSender_StatusBoundary200(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("status 200 should succeed, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestSlackSender_StatusBoundary199(t *testing.T) {
@@ -105,9 +98,7 @@ func TestSlackSender_StatusBoundary199(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("status 199 should be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_StatusBoundary299(t *testing.T) {
@@ -124,9 +115,7 @@ func TestSlackSender_StatusBoundary299(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("status 299 should succeed, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestSlackSender_StatusBoundary300(t *testing.T) {
@@ -143,17 +132,14 @@ func TestSlackSender_StatusBoundary300(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("status 300 should be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_NilClient(t *testing.T) {
 	t.Parallel()
 	sender := NewSlackSender(nil)
-	if sender.client == nil {
-		t.Fatal("expected default client when nil is passed")
-	}
+	require.NotNil(t, sender.
+		client)
 }
 
 func TestSlackSender_ContextCancellation(t *testing.T) {
@@ -176,9 +162,7 @@ func TestSlackSender_ContextCancellation(t *testing.T) {
 	cancel()
 
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_Non2xxStatus(t *testing.T) {
@@ -195,9 +179,7 @@ func TestSlackSender_Non2xxStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for 400 status")
-	}
+	require.Error(t, err)
 }
 
 func TestSlackSender_NetworkError(t *testing.T) {
@@ -214,7 +196,5 @@ func TestSlackSender_NetworkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
+	require.Error(t, err)
 }

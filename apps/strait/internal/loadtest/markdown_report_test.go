@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteMarkdownReport_CreatesFileWithMetrics(t *testing.T) {
@@ -27,19 +30,22 @@ func TestWriteMarkdownReport_CreatesFileWithMetrics(t *testing.T) {
 		QueueDepthPeak: 2500,
 		Notes:          []string{"circuit breaker stayed closed"},
 	})
-	if err != nil {
-		t.Fatalf("WriteMarkdownReport: %v", err)
-	}
-	if !strings.HasSuffix(path, ".md") {
-		t.Errorf("path does not end in .md: %s", path)
-	}
-	if filepath.Dir(path) != dir {
-		t.Errorf("wrong dir: %s", path)
-	}
+	require.NoError(t,
+
+		err)
+	assert.True(t, strings.HasSuffix(path,
+		".md"))
+	assert.Equal(t, dir,
+
+		filepath.
+			Dir(
+				path))
+
 	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	s := string(body)
 	for _, want := range []string{
 		"# Load test: backpressure_ceiling",
@@ -50,26 +56,29 @@ func TestWriteMarkdownReport_CreatesFileWithMetrics(t *testing.T) {
 		"circuit breaker stayed closed",
 		"2026-04-12T10:30:00Z",
 	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("missing %q in report:\n%s", want, s)
-		}
+		assert.True(t, strings.Contains(s,
+			want))
+
 	}
 }
 
 func TestWriteMarkdownReport_ZeroValuesRenderNA(t *testing.T) {
 	dir := t.TempDir()
 	path, err := WriteMarkdownReport(dir, MarkdownSummary{Scenario: "empty"})
-	if err != nil {
-		t.Fatalf("WriteMarkdownReport: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	s := string(body)
-	if !strings.Contains(s, "| Error rate | n/a |") {
-		t.Errorf("expected n/a for error rate:\n%s", s)
-	}
+	assert.True(t, strings.Contains(s,
+		"| Error rate | n/a |",
+	))
+
 }
 
 func TestSafeFilename(t *testing.T) {
@@ -80,9 +89,7 @@ func TestSafeFilename(t *testing.T) {
 		"":              "scenario",
 	}
 	for in, want := range cases {
-		if got := safeFilename(in); got != want {
-			t.Errorf("safeFilename(%q) = %q, want %q", in, got, want)
-		}
+		assert.Equal(t, want, safeFilename(in))
 	}
 }
 
@@ -97,8 +104,7 @@ func TestNewScenarioRegistry(t *testing.T) {
 		"outbox_burst",
 		"partition_cycle_matrix",
 	} {
-		if !names[want] {
-			t.Errorf("AllScenarios missing %s", want)
-		}
+		assert.True(t, names[want])
+
 	}
 }

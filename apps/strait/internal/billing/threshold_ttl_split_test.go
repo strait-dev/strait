@@ -8,15 +8,17 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL locks the cadence
 // detection: a "YYYY-MM-DD" period is daily and should select the 36h TTL.
 func TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL(t *testing.T) {
 	t.Parallel()
-	if got := usageThresholdTTLFor("2026-05-10"); got != usageThresholdDailyTTL {
-		t.Errorf("daily period must use daily TTL, got %s", got)
-	}
+	assert.Equal(t, usageThresholdDailyTTL,
+
+		usageThresholdTTLFor("2026-05-10"))
 }
 
 // TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL locks the monthly
@@ -24,9 +26,9 @@ func TestUsageThresholdTTLFor_DailyPeriodReturnsShortTTL(t *testing.T) {
 // plus clock skew.
 func TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL(t *testing.T) {
 	t.Parallel()
-	if got := usageThresholdTTLFor("2026-05"); got != usageThresholdMonthlyTTL {
-		t.Errorf("monthly period must use monthly TTL, got %s", got)
-	}
+	assert.Equal(t, usageThresholdMonthlyTTL,
+
+		usageThresholdTTLFor("2026-05"))
 }
 
 // TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly proves a future
@@ -35,9 +37,9 @@ func TestUsageThresholdTTLFor_MonthlyPeriodReturnsLongTTL(t *testing.T) {
 func TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly(t *testing.T) {
 	t.Parallel()
 	for _, p := range []string{"", "2026", "2026-W19", "2026-05-10T00", "weird"} {
-		if got := usageThresholdTTLFor(p); got != usageThresholdMonthlyTTL {
-			t.Errorf("period %q: expected monthly fallback TTL, got %s", p, got)
-		}
+		assert.Equal(t, usageThresholdMonthlyTTL,
+
+			usageThresholdTTLFor(p))
 	}
 }
 
@@ -47,9 +49,10 @@ func TestUsageThresholdTTLFor_UnknownShapeFallsBackToMonthly(t *testing.T) {
 // monthly TTL the savings vanish — fail the build before that lands.
 func TestUsageThresholdTTLFor_DailyTTLNoLongerThan48h(t *testing.T) {
 	t.Parallel()
-	if usageThresholdDailyTTL > 48*time.Hour {
-		t.Errorf("daily dedupe TTL must stay short (got %s) — defeats the split", usageThresholdDailyTTL)
-	}
+	assert.LessOrEqual(t, usageThresholdDailyTTL,
+
+		48*
+			time.Hour)
 }
 
 // TestUsageThresholdTTLFor_MonthlyTTLAtLeast31DaysPlusSkew is the correctness
@@ -58,9 +61,9 @@ func TestUsageThresholdTTLFor_DailyTTLNoLongerThan48h(t *testing.T) {
 // billing window.
 func TestUsageThresholdTTLFor_MonthlyTTLAtLeast31DaysPlusSkew(t *testing.T) {
 	t.Parallel()
-	if usageThresholdMonthlyTTL < 32*24*time.Hour {
-		t.Errorf("monthly dedupe TTL too short to outlast a 31-day month, got %s", usageThresholdMonthlyTTL)
-	}
+	assert.GreaterOrEqual(t, usageThresholdMonthlyTTL,
+
+		32*24*time.Hour)
 }
 
 // TestMaybeEmitUsageThreshold_DailyKeyHasShortTTL proves the wiring: the
@@ -80,17 +83,16 @@ func TestMaybeEmitUsageThreshold_DailyKeyHasShortTTL(t *testing.T) {
 
 	key := usageThresholdKey("org-daily", "daily_runs", 80, "2026-05-10")
 	ttl := mr.TTL(key)
-	if ttl == 0 {
-		t.Fatalf("expected daily key %q to be set with a TTL", key)
-	}
+	require.NotEqual(
+		t, 0, ttl)
+	assert.LessOrEqual(t, ttl, usageThresholdDailyTTL+
+		time.Minute)
+	assert.GreaterOrEqual(t, ttl,
+		usageThresholdDailyTTL-
+			time.Minute)
+
 	// miniredis returns the *remaining* TTL on read; allow some slack but
 	// reject any value within an hour of the monthly TTL.
-	if ttl > usageThresholdDailyTTL+time.Minute {
-		t.Errorf("daily key TTL too long: got %s, expected ~%s", ttl, usageThresholdDailyTTL)
-	}
-	if ttl < usageThresholdDailyTTL-time.Minute {
-		t.Errorf("daily key TTL too short: got %s, expected ~%s", ttl, usageThresholdDailyTTL)
-	}
 }
 
 // TestMaybeEmitUsageThreshold_MonthlyKeyHasLongTTL is the symmetric guard
@@ -108,13 +110,11 @@ func TestMaybeEmitUsageThreshold_MonthlyKeyHasLongTTL(t *testing.T) {
 
 	key := usageThresholdKey("org-monthly", "monthly_runs", 80, "2026-05")
 	ttl := mr.TTL(key)
-	if ttl == 0 {
-		t.Fatalf("expected monthly key %q to be set with a TTL", key)
-	}
-	if ttl > usageThresholdMonthlyTTL+time.Minute {
-		t.Errorf("monthly key TTL too long: got %s, expected ~%s", ttl, usageThresholdMonthlyTTL)
-	}
-	if ttl < usageThresholdMonthlyTTL-time.Minute {
-		t.Errorf("monthly key TTL too short: got %s, expected ~%s", ttl, usageThresholdMonthlyTTL)
-	}
+	require.NotEqual(
+		t, 0, ttl)
+	assert.LessOrEqual(t, ttl, usageThresholdMonthlyTTL+
+		time.Minute)
+	assert.GreaterOrEqual(t, ttl,
+		usageThresholdMonthlyTTL-
+			time.Minute)
 }

@@ -6,9 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // adversarialHMACSHA256 is a test helper that computes a sha256=<hex> HMAC header value.
@@ -37,9 +38,7 @@ func TestSignature_NullBytesInPayload(t *testing.T) {
 	header := adversarialHMACSHA256(secret, body)
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
-	if err != nil {
-		t.Fatalf("expected valid signature with null bytes in payload, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSignature_EmptyPayload verifies that an empty payload validates correctly.
@@ -51,9 +50,7 @@ func TestSignature_EmptyPayload(t *testing.T) {
 	header := adversarialHMACSHA256(secret, body)
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
-	if err != nil {
-		t.Fatalf("expected valid signature with empty payload, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSignature_HugePayload verifies that a 10MB payload validates correctly.
@@ -68,9 +65,7 @@ func TestSignature_HugePayload(t *testing.T) {
 	header := adversarialHMACSHA256(secret, body)
 
 	err := ValidateSignature("hmac-sha256", secret, body, header)
-	if err != nil {
-		t.Fatalf("expected valid signature with 10MB payload, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestStripeSignature_FutureTimestamp verifies that a far-future timestamp (year 2100) is rejected.
@@ -84,12 +79,8 @@ func TestStripeSignature_FutureTimestamp(t *testing.T) {
 	header := adversarialStripeSignature(secret, body, futureTS)
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
-	if err == nil {
-		t.Fatal("expected error for far-future timestamp, got nil")
-	}
-	if !strings.Contains(err.Error(), "timestamp too old") {
-		t.Fatalf("expected timestamp rejection error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timestamp too old")
 }
 
 // TestStripeSignature_NegativeTimestamp verifies that timestamp=-1 is rejected.
@@ -101,13 +92,10 @@ func TestStripeSignature_NegativeTimestamp(t *testing.T) {
 	header := adversarialStripeSignature(secret, body, -1)
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
-	if err == nil {
-		t.Fatal("expected error for negative timestamp, got nil")
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timestamp too old")
+
 	// The age will be very large, so it should be rejected as too old.
-	if !strings.Contains(err.Error(), "timestamp too old") {
-		t.Fatalf("expected timestamp rejection error, got: %v", err)
-	}
 }
 
 // TestStripeSignature_ZeroTimestamp verifies that timestamp=0 is rejected as too old.
@@ -119,12 +107,8 @@ func TestStripeSignature_ZeroTimestamp(t *testing.T) {
 	header := adversarialStripeSignature(secret, body, 0)
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
-	if err == nil {
-		t.Fatal("expected error for zero timestamp, got nil")
-	}
-	if !strings.Contains(err.Error(), "timestamp too old") {
-		t.Fatalf("expected timestamp rejection error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "timestamp too old")
 }
 
 // TestStripeSignature_MaxIntTimestamp verifies that MaxInt64 timestamp is rejected.
@@ -136,9 +120,7 @@ func TestStripeSignature_MaxIntTimestamp(t *testing.T) {
 	header := adversarialStripeSignature(secret, body, math.MaxInt64)
 
 	err := ValidateSignature("stripe-v1", secret, body, header)
-	if err == nil {
-		t.Fatal("expected error for MaxInt64 timestamp, got nil")
-	}
+	require.Error(t, err)
 }
 
 // FuzzHMACSHA256Adversarial fuzzes HMAC-SHA256 validation with arbitrary secrets, payloads, and signatures.
@@ -171,13 +153,10 @@ func TestSigning_NullBytesInBody(t *testing.T) {
 	t.Parallel()
 	body := []byte("before\x00middle\x00\x00after")
 	sig := ComputeHMACSHA256("secret", body)
-	if len(sig) != 64 {
-		t.Fatalf("expected 64 hex chars, got %d", len(sig))
-	}
+	require.Len(t, sig, 64)
+
 	err := ValidateSignature("hmac-sha256", "secret", body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("signature with null bytes should validate, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSigning_HugeBody_10MB verifies signing a 10MB payload.
@@ -188,13 +167,10 @@ func TestSigning_HugeBody_10MB(t *testing.T) {
 		body[i] = byte(i % 256)
 	}
 	sig := ComputeHMACSHA256("test-secret", body)
-	if len(sig) != 64 {
-		t.Fatalf("expected 64 hex chars, got %d", len(sig))
-	}
+	require.Len(t, sig, 64)
+
 	err := ValidateSignature("hmac-sha256", "test-secret", body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("10MB body signature should validate, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSigning_UnicodeSecret verifies that Unicode secrets produce valid signatures.
@@ -203,13 +179,10 @@ func TestSigning_UnicodeSecret(t *testing.T) {
 	secret := "geheimnis-\u00e4\u00f6\u00fc-\u4e16\u754c-\U0001f512"
 	body := []byte(`{"event":"unicode-test"}`)
 	sig := ComputeHMACSHA256(secret, body)
-	if len(sig) != 64 {
-		t.Fatalf("expected 64 hex chars, got %d", len(sig))
-	}
+	require.Len(t, sig, 64)
+
 	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("unicode secret signature should validate, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSigning_BinaryPayload verifies signing of non-JSON binary data.
@@ -220,13 +193,10 @@ func TestSigning_BinaryPayload(t *testing.T) {
 		body[i] = byte(i % 256)
 	}
 	sig := ComputeHMACSHA256("binary-secret", body)
-	if len(sig) != 64 {
-		t.Fatalf("expected 64 hex chars, got %d", len(sig))
-	}
+	require.Len(t, sig, 64)
+
 	err := ValidateSignature("hmac-sha256", "binary-secret", body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("binary payload signature should validate, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // TestSigning_Deterministic verifies that signing the same input twice gives the same result.
@@ -235,7 +205,6 @@ func TestSigning_Deterministic(t *testing.T) {
 	body := []byte(`{"stable":"true"}`)
 	sig1 := ComputeHMACSHA256("stable-key", body)
 	sig2 := ComputeHMACSHA256("stable-key", body)
-	if sig1 != sig2 {
-		t.Fatalf("same input must produce same signature: %q != %q", sig1, sig2)
-	}
+	require.Equal(t, sig2,
+		sig1)
 }

@@ -2,10 +2,11 @@ package api
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // unmarshalable is a sentinel value json.Marshal cannot encode (channels
@@ -31,12 +32,9 @@ func TestBuildAuditEventReturnsMarshalErrorOnInvalidDetails(t *testing.T) {
 	ev, err := srv.buildAuditEvent(ctx, domain.AuditActionRoleCreated, "role", "r-1", map[string]any{
 		"bad": unmarshalableForAudit{Ch: make(chan int)},
 	})
-	if ev != nil {
-		t.Fatalf("event = %+v, want nil on marshal failure", ev)
-	}
-	if !errors.Is(err, errAuditDetailsMarshal) {
-		t.Fatalf("err = %v, want errAuditDetailsMarshal", err)
-	}
+	require.Nil(t, ev)
+	require.ErrorIs(
+		t, err, errAuditDetailsMarshal)
 }
 
 // TestBuildAuditEventReturnsNilNilOnIntentionalSkip pins the other half
@@ -50,17 +48,17 @@ func TestBuildAuditEventReturnsNilNilOnIntentionalSkip(t *testing.T) {
 
 	// Unknown action -> (nil, nil).
 	ev, err := srv.buildAuditEvent(context.Background(), "definitely.not.a.real.action", "x", "y", nil)
-	if ev != nil || err != nil {
-		t.Fatalf("unknown action: ev=%v err=%v, want (nil, nil)", ev, err)
-	}
+	require.False(t, ev !=
+		nil || err !=
+		nil)
 
 	// Authenticated request with missing actor (api_key with no ID) -> (nil, nil).
 	ctx := context.WithValue(context.Background(), ctxProjectIDKey, "proj-1")
 	ctx = context.WithValue(ctx, ctxActorTypeKey, "api_key")
 	ev, err = srv.buildAuditEvent(ctx, domain.AuditActionRoleCreated, "role", "r-1", nil)
-	if ev != nil || err != nil {
-		t.Fatalf("missing actor: ev=%v err=%v, want (nil, nil)", ev, err)
-	}
+	require.False(t, ev !=
+		nil || err !=
+		nil)
 }
 
 // TestEmitAuditEventDropsOnMarshalFailure regresses the fire-and-forget
@@ -84,8 +82,5 @@ func TestEmitAuditEventDropsOnMarshalFailure(t *testing.T) {
 	srv.emitAuditEvent(ctx, domain.AuditActionRoleCreated, "role", "r-1", map[string]any{
 		"bad": unmarshalableForAudit{Ch: make(chan int)},
 	})
-
-	if writes != 0 {
-		t.Fatalf("CreateAuditEvent calls = %d, want 0 (marshal failed; nothing to persist)", writes)
-	}
+	require.Equal(t, 0, writes)
 }

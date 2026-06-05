@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -28,9 +28,8 @@ func TestEnforcer_FailOpen_FirstError_Allows(t *testing.T) {
 	e, _ := setupFailOpenEnforcer(t)
 
 	err := e.boundedFailOpen(context.Background(), "org-1", "daily_run", "db_error")
-	if err != nil {
-		t.Fatalf("first fail-open should allow, got: %v", err)
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestEnforcer_FailOpen_ThresholdExceeded_Blocks(t *testing.T) {
@@ -40,22 +39,20 @@ func TestEnforcer_FailOpen_ThresholdExceeded_Blocks(t *testing.T) {
 	ctx := context.Background()
 	for range maxConsecutiveFailOpen {
 		err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
-		if err != nil {
-			t.Fatalf("fail-open should allow under threshold, got: %v", err)
-		}
+		require.NoError(t,
+			err)
 	}
 
 	err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
-	if err == nil {
-		t.Fatal("expected fail-closed after threshold exceeded")
-	}
+	require.Error(t,
+		err)
+
 	var le *LimitError
-	if !errors.As(err, &le) {
-		t.Fatalf("expected *LimitError, got %T", err)
-	}
-	if le.Code != "service_degraded" {
-		t.Fatalf("expected service_degraded code, got %q", le.Code)
-	}
+	require.ErrorAs(t, err, &le)
+	require.Equal(t,
+		"service_degraded",
+
+		le.Code)
 }
 
 func TestEnforcer_FailOpen_ResetOnSuccess(t *testing.T) {
@@ -71,9 +68,8 @@ func TestEnforcer_FailOpen_ResetOnSuccess(t *testing.T) {
 
 	for range maxConsecutiveFailOpen {
 		err := e.boundedFailOpen(ctx, "org-1", "daily_run", "db_error")
-		if err != nil {
-			t.Fatalf("after reset, fail-open should allow, got: %v", err)
-		}
+		require.NoError(t,
+			err)
 	}
 }
 
@@ -87,9 +83,8 @@ func TestEnforcer_FailOpen_DifferentOrgs_Independent(t *testing.T) {
 	}
 
 	err := e.boundedFailOpen(ctx, "org-B", "daily_run", "db_error")
-	if err != nil {
-		t.Fatal("org-B should not be affected by org-A failures")
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestEnforcer_FailOpen_DifferentCheckTypes_Independent(t *testing.T) {
@@ -102,9 +97,8 @@ func TestEnforcer_FailOpen_DifferentCheckTypes_Independent(t *testing.T) {
 	}
 
 	err := e.boundedFailOpen(ctx, "org-1", "spending_limit", "db_error")
-	if err != nil {
-		t.Fatal("spending_limit should not be affected by daily_run failures")
-	}
+	require.NoError(t,
+		err)
 }
 
 func TestEnforcer_FailOpen_Concurrent(t *testing.T) {
@@ -131,13 +125,12 @@ func TestEnforcer_FailOpen_Concurrent(t *testing.T) {
 	for range errs {
 		blocked++
 	}
-
-	if blocked == 0 {
-		t.Fatal("expected some requests to be blocked after 100 concurrent fail-opens")
-	}
-	if blocked == 100 {
-		t.Fatal("all requests blocked, expected some to pass under threshold")
-	}
+	require.NotEqual(
+		t, 0, blocked,
+	)
+	require.NotEqual(
+		t, 100, blocked,
+	)
 }
 
 func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
@@ -166,15 +159,13 @@ func TestEnforcer_FailOpen_AllCheckTypes(t *testing.T) {
 
 			for range maxConsecutiveFailOpen {
 				err := e.boundedFailOpen(ctx, "org-1", tt.checkType, "test_error")
-				if err != nil {
-					t.Fatalf("fail-open for %s should allow under threshold, got: %v", tt.checkType, err)
-				}
+				require.NoError(t,
+					err)
 			}
 
 			err := e.boundedFailOpen(ctx, "org-1", tt.checkType, "test_error")
-			if err == nil {
-				t.Fatalf("expected fail-closed for %s after threshold", tt.checkType)
-			}
+			require.Error(t,
+				err)
 		})
 	}
 }

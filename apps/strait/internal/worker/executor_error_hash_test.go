@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorHash_ASCIIBeyondLimitTruncatesAtByte200(t *testing.T) {
@@ -15,10 +17,8 @@ func TestErrorHash_ASCIIBeyondLimitTruncatesAtByte200(t *testing.T) {
 	msg := strings.Repeat("a", 250)
 	want := sha256.Sum256([]byte(strings.Repeat("a", 200)))
 	wantHex := hex.EncodeToString(want[:8])
-
-	if got := errorHash(msg); got != wantHex {
-		t.Fatalf("got %q, want %q", got, wantHex)
-	}
+	require.Equal(t, wantHex,
+		errorHash(msg))
 }
 
 func TestErrorHash_MultibyteUnderRuneLimitFullyHashed(t *testing.T) {
@@ -30,10 +30,8 @@ func TestErrorHash_MultibyteUnderRuneLimitFullyHashed(t *testing.T) {
 	msg := strings.Repeat("漢", 100)
 	want := sha256.Sum256([]byte(msg))
 	wantHex := hex.EncodeToString(want[:8])
-
-	if got := errorHash(msg); got != wantHex {
-		t.Fatalf("multi-byte under 200 runes should hash as full string; got %q, want %q", got, wantHex)
-	}
+	require.Equal(t, wantHex,
+		errorHash(msg))
 }
 
 func TestErrorHash_MultibyteOverRuneLimitTruncatedByRune(t *testing.T) {
@@ -44,16 +42,13 @@ func TestErrorHash_MultibyteOverRuneLimitTruncatedByRune(t *testing.T) {
 	prefix := strings.Repeat("漢", 200)
 	want := sha256.Sum256([]byte(prefix))
 	wantHex := hex.EncodeToString(want[:8])
-
-	if got := errorHash(msg); got != wantHex {
-		t.Fatalf("got %q, want %q (rune-truncated)", got, wantHex)
-	}
+	require.Equal(t, wantHex,
+		errorHash(msg))
 
 	// Appending more runes past the 200-rune boundary must not change the hash.
 	more := msg + strings.Repeat("漢", 5)
-	if got := errorHash(more); got != wantHex {
-		t.Fatalf("hash must be stable past truncation; got %q, want %q", got, wantHex)
-	}
+	require.Equal(t, wantHex,
+		errorHash(more))
 }
 
 func TestErrorHash_EmojiTruncationStable(t *testing.T) {
@@ -64,10 +59,8 @@ func TestErrorHash_EmojiTruncationStable(t *testing.T) {
 	msg := strings.Repeat("🚀", 60)
 	want := sha256.Sum256([]byte(msg))
 	wantHex := hex.EncodeToString(want[:8])
-
-	if got := errorHash(msg); got != wantHex {
-		t.Fatalf("got %q, want %q", got, wantHex)
-	}
+	require.Equal(t, wantHex,
+		errorHash(msg))
 }
 
 func TestErrorHash_Stable(t *testing.T) {
@@ -76,7 +69,6 @@ func TestErrorHash_Stable(t *testing.T) {
 	msg := "connection refused"
 	first := errorHash(msg)
 	second := errorHash(msg)
-	if first != second {
-		t.Fatalf("errorHash must be deterministic: %q vs %q", first, second)
-	}
+	require.Equal(t, second,
+		first)
 }

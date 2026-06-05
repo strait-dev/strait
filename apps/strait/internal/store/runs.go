@@ -978,6 +978,15 @@ func (q *Queries) SnoozeRunWithLock(ctx context.Context, id string, from, to dom
 				if actual != from {
 					return fmt.Errorf("%w: id %s from %s actual %s", ErrRunConflict, id, from, actual)
 				}
+				if activeClaimRunStateShouldRequeue(from, to) {
+					moved, moveErr := txQ.requeueActiveClaimRunState(ctx, id, from, to, fields, nil)
+					if moveErr != nil {
+						return moveErr
+					}
+					if moved {
+						return nil
+					}
+				}
 				return ErrRunLocked
 			}
 			return fmt.Errorf("snooze run with lock: select: %w", err)
@@ -1190,103 +1199,117 @@ func (q *Queries) tryRequeueActiveClaimRunState(
 	attempt *int,
 ) (bool, error) {
 	if _, ok := q.db.(TxBeginner); !ok {
+		if _, inTx := q.db.(pgx.Tx); inTx {
+			return q.requeueActiveClaimRunState(ctx, id, from, to, fields, attempt)
+		}
 		return false, nil
 	}
 
 	moved := false
 	err := q.withTx(ctx, func(txQ *Queries) error {
-		stateColumns := map[string]struct{}{
-			"attempt":         {},
-			"scheduled_at":    {},
-			"started_at":      {},
-			"finished_at":     {},
-			"heartbeat_at":    {},
-			"next_retry_at":   {},
-			"expires_at":      {},
-			"priority":        {},
-			"concurrency_key": {},
-			"execution_mode":  {},
-		}
-		stateSet := []string{"status = $1", "updated_at = NOW()", "ready_generation = s.ready_generation + 1"}
-		args := []any{to, id, nil}
-		param := 4
-		if attempt != nil {
-			args[2] = *attempt
-		}
-
-		ledgerFields := make(map[string]any)
-		keys := lo.Keys(fields)
-		sort.Strings(keys)
-		for _, key := range keys {
-			value := fields[key]
-			if _, ok := stateColumns[key]; ok {
-				if key == "concurrency_key" || key == "execution_mode" {
-					if text, ok := value.(string); ok {
-						value = dbscan.NilIfEmptyString(text)
-					}
-				}
-				stateSet = append(stateSet, fmt.Sprintf("%s = $%d", key, param))
-				args = append(args, value)
-				param++
-				continue
-			}
-			if _, ok := runLedgerFields(fields)[key]; ok {
-				ledgerFields[key] = value
-			}
-		}
-
-		query := fmt.Sprintf(`
-			WITH selected AS MATERIALIZED (
-				SELECT
-					s.run_id,
-					COALESCE(c.attempt, s.attempt) AS event_attempt,
-					s.ready_generation
-				FROM job_run_state s
-				JOIN job_run_active_claims c
-				  ON c.run_id = s.run_id
-				 AND c.ready_generation = s.ready_generation
-				WHERE s.run_id = $2
-					  AND s.status = 'queued'
-					  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-					  AND ($3::int IS NULL OR c.attempt = $3)
-					FOR UPDATE OF s
-			),
-			updated AS (
-				UPDATE job_run_state s
-				SET %s
-				FROM selected picked
-				WHERE s.run_id = picked.run_id
-				RETURNING picked.event_attempt
-				)
-				SELECT event_attempt FROM updated`,
-			strings.Join(stateSet, ", "),
-		)
-
-		var eventAttempt int
-		if scanErr := txQ.db.QueryRow(ctx, query, args...).Scan(&eventAttempt); scanErr != nil {
-			if errors.Is(scanErr, pgx.ErrNoRows) {
-				return nil
-			}
-			return fmt.Errorf("requeue active claim run state: %w", scanErr)
-		}
-		if err := txQ.bumpRunCacheVersion(ctx, id); err != nil {
-			return err
-		}
-		if err := txQ.appendRunLifecycleEvent(ctx, id, from, to, fields, &eventAttempt); err != nil {
-			return err
-		}
-		if len(ledgerFields) > 0 {
-			if err := txQ.updateRunLedgerFields(ctx, id, ledgerFields); err != nil {
-				return err
-			}
-		}
-		moved = true
-		return nil
+		var moveErr error
+		moved, moveErr = txQ.requeueActiveClaimRunState(ctx, id, from, to, fields, attempt)
+		return moveErr
 	})
 	if err != nil {
 		return false, err
 	}
 	return moved, nil
+}
+
+func (q *Queries) requeueActiveClaimRunState(
+	ctx context.Context,
+	id string,
+	from, to domain.RunStatus,
+	fields map[string]any,
+	attempt *int,
+) (bool, error) {
+	stateColumns := map[string]struct{}{
+		"attempt":         {},
+		"scheduled_at":    {},
+		"started_at":      {},
+		"finished_at":     {},
+		"heartbeat_at":    {},
+		"next_retry_at":   {},
+		"expires_at":      {},
+		"priority":        {},
+		"concurrency_key": {},
+		"execution_mode":  {},
+	}
+	stateSet := []string{"status = $1", "updated_at = NOW()", "ready_generation = s.ready_generation + 1"}
+	args := []any{to, id, nil}
+	param := 4
+	if attempt != nil {
+		args[2] = *attempt
+	}
+
+	ledgerFields := make(map[string]any)
+	keys := lo.Keys(fields)
+	sort.Strings(keys)
+	for _, key := range keys {
+		value := fields[key]
+		if _, ok := stateColumns[key]; ok {
+			if key == "concurrency_key" || key == "execution_mode" {
+				if text, ok := value.(string); ok {
+					value = dbscan.NilIfEmptyString(text)
+				}
+			}
+			stateSet = append(stateSet, fmt.Sprintf("%s = $%d", key, param))
+			args = append(args, value)
+			param++
+			continue
+		}
+		if _, ok := runLedgerFields(fields)[key]; ok {
+			ledgerFields[key] = value
+		}
+	}
+
+	query := fmt.Sprintf(`
+		WITH selected AS MATERIALIZED (
+			SELECT
+				s.run_id,
+				COALESCE(c.attempt, s.attempt) AS event_attempt,
+				s.ready_generation
+			FROM job_run_state s
+			JOIN job_run_active_claims c
+			  ON c.run_id = s.run_id
+			 AND c.ready_generation = s.ready_generation
+			WHERE s.run_id = $2
+				  AND s.status = 'queued'
+				  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
+				  AND ($3::int IS NULL OR c.attempt = $3)
+				FOR UPDATE OF s
+		),
+		updated AS (
+			UPDATE job_run_state s
+			SET %s
+			FROM selected picked
+			WHERE s.run_id = picked.run_id
+			RETURNING picked.event_attempt
+			)
+			SELECT event_attempt FROM updated`,
+		strings.Join(stateSet, ", "),
+	)
+
+	var eventAttempt int
+	if scanErr := q.db.QueryRow(ctx, query, args...).Scan(&eventAttempt); scanErr != nil {
+		if errors.Is(scanErr, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("requeue active claim run state: %w", scanErr)
+	}
+	if err := q.bumpRunCacheVersion(ctx, id); err != nil {
+		return false, err
+	}
+	if err := q.appendRunLifecycleEvent(ctx, id, from, to, fields, &eventAttempt); err != nil {
+		return false, err
+	}
+	if len(ledgerFields) > 0 {
+		if err := q.updateRunLedgerFields(ctx, id, ledgerFields); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (q *Queries) bumpRunCacheVersion(ctx context.Context, id string) error {
@@ -2018,11 +2041,11 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 	// exists yet — the window between claim and the first worker tick —
 	// we fall back to started_at to avoid flagging a fresh run as stale.
 	query := "/* action=reaper */ " + fmt.Sprintf(`
-		SELECT r.id, r.job_id, r.project_id, s.status, s.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
-		       r.triggered_by, s.scheduled_at, s.started_at, s.finished_at, COALESCE(hb.last_hb, s.heartbeat_at),
-		       s.next_retry_at, s.expires_at, r.parent_run_id, s.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, s.concurrency_key, s.execution_mode, r.is_rollback, r.replayed_run_id
+		SELECT r.id, r.job_id, r.project_id, rs.status, rs.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
+		       r.triggered_by, rs.scheduled_at, rs.started_at, rs.finished_at, COALESCE(hb.last_hb, rs.heartbeat_at),
+		       rs.next_retry_at, rs.expires_at, r.parent_run_id, rs.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, rs.concurrency_key, rs.execution_mode, r.is_rollback, r.replayed_run_id
 		FROM job_runs r
-		JOIN job_run_state s ON s.run_id = r.id
+		JOIN job_run_read_state rs ON rs.run_id = r.id
 		LEFT JOIN LATERAL (
 			SELECT heartbeat_at AS last_hb
 			FROM job_run_heartbeats h
@@ -2031,13 +2054,13 @@ func (q *Queries) ListStaleRuns(ctx context.Context, threshold time.Duration) ([
 			ORDER BY h.id DESC
 			LIMIT 1
 		) hb ON true
-		WHERE s.status = '%s'
-		  AND s.execution_mode != 'worker'
-		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = s.run_id)
-		  AND COALESCE(hb.last_hb, s.heartbeat_at, s.started_at) < NOW() - $1::interval
-		  AND s.finished_at IS NULL
-		  AND s.started_at IS NOT NULL
-		ORDER BY COALESCE(hb.last_hb, s.heartbeat_at, s.started_at) ASC
+		WHERE rs.status = '%s'
+		  AND rs.execution_mode != 'worker'
+		  AND NOT EXISTS (SELECT 1 FROM job_run_terminal_state t WHERE t.run_id = rs.run_id)
+		  AND COALESCE(hb.last_hb, rs.heartbeat_at, rs.started_at) < NOW() - $1::interval
+		  AND rs.finished_at IS NULL
+		  AND rs.started_at IS NOT NULL
+		ORDER BY COALESCE(hb.last_hb, rs.heartbeat_at, rs.started_at) ASC
 		LIMIT 1000`, domain.StatusExecuting)
 
 	rows, err := q.db.Query(ctx, query, threshold.String())
@@ -2102,14 +2125,15 @@ func (q *Queries) ListExpiredRuns(ctx context.Context) ([]domain.JobRun, error) 
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		SELECT id, job_id, project_id, status, attempt, payload, result, metadata, error, error_class,
-		       triggered_by, scheduled_at, started_at, finished_at, heartbeat_at,
-		       next_retry_at, expires_at, parent_run_id, priority, idempotency_key, job_version, created_at, workflow_step_run_id, execution_trace, debug_mode, continuation_of, lineage_depth, tags, job_version_id, created_by, batch_id, concurrency_key, execution_mode, is_rollback, replayed_run_id
-		FROM job_runs
-		WHERE status IN ('%s', '%s')
-		  AND expires_at IS NOT NULL
-		  AND expires_at <= NOW()
-		ORDER BY expires_at ASC
+		SELECT r.id, r.job_id, r.project_id, rs.status, rs.attempt, r.payload, r.result, r.metadata, r.error, r.error_class,
+		       r.triggered_by, rs.scheduled_at, rs.started_at, rs.finished_at, rs.heartbeat_at,
+		       rs.next_retry_at, rs.expires_at, r.parent_run_id, rs.priority, r.idempotency_key, r.job_version, r.created_at, r.workflow_step_run_id, r.execution_trace, r.debug_mode, r.continuation_of, r.lineage_depth, r.tags, r.job_version_id, r.created_by, r.batch_id, rs.concurrency_key, rs.execution_mode, r.is_rollback, r.replayed_run_id
+		FROM job_runs r
+		JOIN job_run_read_state rs ON rs.run_id = r.id
+		WHERE rs.status IN ('%s', '%s')
+		  AND rs.expires_at IS NOT NULL
+		  AND rs.expires_at <= NOW()
+		ORDER BY rs.expires_at ASC
 		LIMIT 1000`, domain.StatusDelayed, domain.StatusQueued)
 
 	rows, err := q.db.Query(ctx, query)

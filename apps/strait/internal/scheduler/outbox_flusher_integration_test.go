@@ -17,6 +17,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type outboxTestQueue struct {
@@ -83,9 +84,8 @@ func TestOutboxFlusher_ConcurrentFlushersSameIdempotencyKeyNoDuplicateRuns(t *te
 	close(start)
 
 	for range 2 {
-		if err := <-errCh; err != nil {
-			t.Fatalf("FlushOnceForTest() error = %v", err)
-		}
+		require.NoError(t, <-errCh)
+
 	}
 
 	assertRunCount(t, ctx, job.ID, "shared-key", 1)
@@ -119,27 +119,26 @@ func TestOutboxFlusher_TerminalFailureMarksErrorAndConsumes(t *testing.T) {
 	intWriteOutboxEntries(t, ctx, entries)
 
 	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, poisonJob.ID); err != nil {
-		t.Fatalf("delete poison job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete poison job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 10,
 	})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, true, true)
 	assertOutboxState(t, ctx, entries[1].ID, false, true)
 	assertRunsForJob(t, ctx, goodJob.ID, 1)
 
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 0 after terminal quarantine", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
@@ -162,25 +161,20 @@ func TestOutboxFlusher_RetryableFailureLeavesRowUnconsumed(t *testing.T) {
 			return context.DeadlineExceeded
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, false, false)
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after retryable failure", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
 
 	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
-	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("retry FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, successFlusher.
+		FlushOnceForTest(ctx))
 
 	assertOutboxState(t, ctx, entries[0].ID, false, true)
 	assertRunsForJob(t, ctx, job.ID, 1)
@@ -206,25 +200,20 @@ func TestOutboxFlusher_UnknownEnqueueFailureLeavesRowUnconsumed(t *testing.T) {
 			return errors.New("network path disappeared while promoting outbox row")
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, false, false)
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after unknown enqueue failure", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
 
 	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
-	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("retry FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, successFlusher.
+		FlushOnceForTest(ctx))
 
 	assertOutboxState(t, ctx, entries[0].ID, false, true)
 	assertRunsForJob(t, ctx, job.ID, 1)
@@ -250,23 +239,19 @@ func TestOutboxFlusher_BackpressureThrottleLeavesRowUnconsumed(t *testing.T) {
 			return queue.ErrEnqueueThrottled
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, false, false)
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 after throttle", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
 
 	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("retry FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, successFlusher.
+		FlushOnceForTest(ctx))
+
 	assertOutboxState(t, ctx, entries[0].ID, false, true)
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
@@ -295,15 +280,12 @@ func TestOutboxFlusher_PanicReturnsErrorAndLeavesRowUnconsumed(t *testing.T) {
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
 
 	err := flusher.FlushOnceForTest(ctx)
-	if err == nil {
-		t.Fatal("FlushOnceForTest() error = nil, want recovered panic error")
-	}
-	if flusher.Errors() != 1 {
-		t.Fatalf("Errors() = %d, want 1", flusher.Errors())
-	}
-	if flusher.Iterations() != 1 {
-		t.Fatalf("Iterations() = %d, want 1", flusher.Iterations())
-	}
+	require.Error(t, err)
+	require.EqualValues(t, 1, flusher.
+		Errors())
+	require.EqualValues(t, 1, flusher.
+		Iterations())
+
 	assertOutboxState(t, ctx, entry.ID, false, false)
 	assertRunCount(t, ctx, job.ID, entry.IdempotencyKey, 0)
 }
@@ -334,19 +316,20 @@ func TestOutboxFlusher_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
 			return nil
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, domain.ExecutionModeWorker,
 
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected outbox flusher to enqueue a run")
-	}
-	if captured.ExecutionMode != domain.ExecutionModeWorker {
-		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
-	}
-	if captured.QueueName != "priority" {
-		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
-	}
+		captured.
+			ExecutionMode,
+	)
+	require.Equal(t, "priority",
+
+		captured.
+			QueueName)
+
 }
 
 func TestOutboxFlusher_InvalidMetadataQuarantinesRow(t *testing.T) {
@@ -372,13 +355,11 @@ func TestOutboxFlusher_InvalidMetadataQuarantinesRow(t *testing.T) {
 			return nil
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
+	require.False(t, enqueueCalled)
 
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
-	if enqueueCalled {
-		t.Fatal("invalid metadata row was enqueued")
-	}
 	assertOutboxState(t, ctx, entry.ID, true, true)
 	assertRunsForJob(t, ctx, job.ID, 0)
 }
@@ -439,9 +420,9 @@ func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testin
 			}
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: len(entries)})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, false, true)
 	assertOutboxState(t, ctx, entries[1].ID, false, false)
@@ -454,12 +435,9 @@ func TestOutboxFlusher_MixedBatchContinuesPastRetryableAndTerminalRows(t *testin
 	assertRunsForJob(t, ctx, goodJobB.ID, 1)
 
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 1 with only retryable row left", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }
 
 func TestOutboxFlusher_PoisonRowDoesNotStarveFollowingRows(t *testing.T) {
@@ -488,15 +466,17 @@ func TestOutboxFlusher_PoisonRowDoesNotStarveFollowingRows(t *testing.T) {
 	intWriteOutboxEntries(t, ctx, entries)
 
 	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, poisonJob.ID); err != nil {
-		t.Fatalf("delete poison job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete poison job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 2,
 	})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entries[0].ID, true, true)
 	assertOutboxState(t, ctx, entries[1].ID, false, true)
@@ -524,15 +504,17 @@ func TestOutboxFlusher_RetryClonePromotesAfterUnderlyingIssueIsFixed(t *testing.
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 
 	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, poisonJob.ID); err != nil {
-		t.Fatalf("delete poison job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete poison job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("first FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entry.ID, true, true)
 
@@ -541,33 +523,30 @@ func TestOutboxFlusher_RetryClonePromotesAfterUnderlyingIssueIsFixed(t *testing.
 		job.Name = "job-restored-" + intNewID()
 		job.Slug = "slug-restored-" + intNewID()
 	})
-	if restoredJob.ID != poisonJob.ID {
-		t.Fatalf("restored job ID = %q, want %q", restoredJob.ID, poisonJob.ID)
-	}
+	require.Equal(t, poisonJob.
+		ID,
+		restoredJob.
+			ID)
 
 	cloned, err := st.RetryQuarantinedOutbox(ctx, poisonJob.ProjectID, entry.ID)
-	if err != nil {
-		t.Fatalf("RetryQuarantinedOutbox() error = %v", err)
-	}
-	if cloned.RetryOfOutboxID == nil || *cloned.RetryOfOutboxID != entry.ID {
-		t.Fatalf("RetryOfOutboxID = %v, want %q", cloned.RetryOfOutboxID, entry.ID)
-	}
-
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("second FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, cloned.RetryOfOutboxID ==
+		nil ||
+		*cloned.RetryOfOutboxID !=
+			entry.
+				ID)
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	assertOutboxState(t, ctx, entry.ID, true, true)
 	assertOutboxState(t, ctx, cloned.ID, false, true)
 	assertRunCount(t, ctx, poisonJob.ID, entry.IdempotencyKey, 1)
 
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 0 after retry clone promotion", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func TestOutboxFlusherClaimLog_ConcurrentFlushersDoNotDoublePromote(t *testing.T) {
@@ -603,9 +582,8 @@ func TestOutboxFlusherClaimLog_ConcurrentFlushersDoNotDoublePromote(t *testing.T
 	close(start)
 	concWG.Wait()
 	for range 2 {
-		if err := <-errCh; err != nil {
-			t.Fatalf("FlushOnceForTest() error = %v", err)
-		}
+		require.NoError(t, <-errCh)
+
 	}
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
@@ -630,23 +608,24 @@ func TestOutboxFlusherClaimLog_RetryableFailureStaysClaimable(t *testing.T) {
 			return context.DeadlineExceeded
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := failFlusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("failed FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, failFlusher.
+		FlushOnceForTest(
+			ctx))
+
 	assertOutboxState(t, ctx, entry.ID, false, false)
 
 	var claimStatus string
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
-		t.Fatalf("claim status: %v", err)
-	}
-	if claimStatus != "ready" {
-		t.Fatalf("claim status = %q, want ready", claimStatus)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT status FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&claimStatus))
+	require.Equal(t, "ready", claimStatus)
 
 	successFlusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := successFlusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("success FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, successFlusher.
+		FlushOnceForTest(ctx))
+
 	assertRunsForJob(t, ctx, job.ID, 1)
 }
 
@@ -666,12 +645,13 @@ func TestOutboxFlusherClaimLog_WriteCreatesClaimBeforeFlush(t *testing.T) {
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 
 	var status string
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&status); err != nil {
-		t.Fatalf("claim status: %v", err)
-	}
-	if status != "ready" {
-		t.Fatalf("claim status = %q, want ready", status)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT status FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&status))
+	require.Equal(t, "ready", status)
+
 }
 
 func TestOutboxFlusherClaimLog_EmptyClaimDoesNotCreateBatch(t *testing.T) {
@@ -680,33 +660,28 @@ func TestOutboxFlusherClaimLog_EmptyClaimDoesNotCreateBatch(t *testing.T) {
 
 	intTestClean(t, ctx)
 	var before int
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&before); err != nil {
-		t.Fatalf("count outbox batches before: %v", err)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM outbox_batches`,
+		).Scan(&before))
+
 	tx, err := getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	rows, err := store.ClaimOutboxInTx(ctx, tx, 10, "test-flusher", time.Second)
-	if err != nil {
-		t.Fatalf("ClaimOutboxInTx: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("claimed rows = %d, want 0", len(rows))
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit tx: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, rows, 0)
+	require.NoError(t, tx.Commit(ctx))
 
 	var batches int
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&batches); err != nil {
-		t.Fatalf("count outbox batches: %v", err)
-	}
-	if batches != before {
-		t.Fatalf("outbox_batches count = %d, want unchanged %d", batches, before)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM outbox_batches`,
+		).Scan(&batches))
+	require.Equal(t, before, batches)
+
 }
 
 func TestOutboxFlusherClaimLog_ClaimDoesNotCreateBatchMetadataRows(t *testing.T) {
@@ -725,40 +700,38 @@ func TestOutboxFlusherClaimLog_ClaimDoesNotCreateBatchMetadataRows(t *testing.T)
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 
 	var before int
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&before); err != nil {
-		t.Fatalf("count outbox batches before: %v", err)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM outbox_batches`,
+		).Scan(&before))
+
 	tx, err := getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	rows, err := store.ClaimOutboxInTx(ctx, tx, 10, "test-flusher", time.Minute)
-	if err != nil {
-		t.Fatalf("ClaimOutboxInTx: %v", err)
-	}
-	if len(rows) != 1 || rows[0].ID != entry.ID {
-		t.Fatalf("claimed rows = %+v, want entry %s", rows, entry.ID)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit tx: %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, len(rows) !=
+		1 || rows[0].ID !=
+		entry.ID)
+	require.NoError(t, tx.Commit(ctx))
 
 	var batches int
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_batches`).Scan(&batches); err != nil {
-		t.Fatalf("count outbox batches: %v", err)
-	}
-	if batches != before {
-		t.Fatalf("outbox_batches count = %d, want unchanged %d", batches, before)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM outbox_batches`,
+		).Scan(&batches))
+	require.Equal(t, before, batches)
+
 	var batchID *int64
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT batch_id FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&batchID); err != nil {
-		t.Fatalf("select outbox claim batch_id: %v", err)
-	}
-	if batchID != nil {
-		t.Fatalf("outbox claim batch_id = %d, want nil", *batchID)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT batch_id FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&batchID))
+	require.Nil(t, batchID)
+
 }
 
 func TestOutboxFlusherClaimLog_ReclaimExpiredLeaseRedelivers(t *testing.T) {
@@ -777,60 +750,46 @@ func TestOutboxFlusherClaimLog_ReclaimExpiredLeaseRedelivers(t *testing.T) {
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 
 	tx, err := getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin claim tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 	rows, err := store.ClaimOutboxInTx(ctx, tx, 1, "test-flusher", time.Hour)
-	if err != nil {
-		t.Fatalf("initial ClaimOutboxInTx: %v", err)
-	}
-	if len(rows) != 1 || rows[0].ID != entry.ID {
-		t.Fatalf("initial claimed rows = %+v, want entry %s", rows, entry.ID)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit initial claim: %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, len(rows) !=
+		1 || rows[0].ID !=
+		entry.ID)
+	require.NoError(t, tx.Commit(ctx))
 
 	if _, err := getTestDB(t).Pool.Exec(ctx, `
 		UPDATE outbox_claims
 		SET lease_expires_at = NOW() - INTERVAL '1 second'
 		WHERE outbox_id = $1
 	`, entry.ID); err != nil {
-		t.Fatalf("expire lease: %v", err)
+		require.Failf(t, "test failure",
+
+			"expire lease: %v", err)
 	}
 
 	tx, err = getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin reclaim tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 	reclaimed, err := store.ReclaimExpiredOutboxClaimsInTx(ctx, tx)
-	if err != nil {
-		t.Fatalf("ReclaimExpiredOutboxClaimsInTx: %v", err)
-	}
-	if reclaimed != 1 {
-		t.Fatalf("reclaimed = %d, want 1", reclaimed)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit reclaim: %v", err)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, reclaimed)
+	require.NoError(t, tx.Commit(ctx))
 
 	tx, err = getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin second claim tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 	rows, err = store.ClaimOutboxInTx(ctx, tx, 1, "test-flusher", time.Hour)
-	if err != nil {
-		t.Fatalf("second ClaimOutboxInTx: %v", err)
-	}
-	if len(rows) != 1 || rows[0].ID != entry.ID {
-		t.Fatalf("second claimed rows = %+v, want entry %s", rows, entry.ID)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit second claim: %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, len(rows) !=
+		1 || rows[0].ID !=
+		entry.ID)
+	require.NoError(t, tx.Commit(ctx))
+
 }
 
 func TestOutboxFlusherClaimLog_PropagatesWorkerExecutionModeAndQueue(t *testing.T) {
@@ -859,19 +818,20 @@ func TestOutboxFlusherClaimLog_PropagatesWorkerExecutionModeAndQueue(t *testing.
 			return nil
 		},
 	}, scheduler.OutboxFlusherConfig{BatchSize: 1})
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, domain.ExecutionModeWorker,
 
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
-	if captured == nil {
-		t.Fatal("expected outbox flusher to enqueue a run")
-	}
-	if captured.ExecutionMode != domain.ExecutionModeWorker {
-		t.Fatalf("ExecutionMode = %q, want %q", captured.ExecutionMode, domain.ExecutionModeWorker)
-	}
-	if captured.QueueName != "priority" {
-		t.Fatalf("QueueName = %q, want priority", captured.QueueName)
-	}
+		captured.
+			ExecutionMode,
+	)
+	require.Equal(t, "priority",
+
+		captured.
+			QueueName)
+
 }
 
 func TestOutboxFlusherClaimLog_TerminalFailureQuarantinesOnce(t *testing.T) {
@@ -889,24 +849,28 @@ func TestOutboxFlusherClaimLog_TerminalFailureQuarantinesOnce(t *testing.T) {
 	}
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
-		t.Fatalf("delete job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("second FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
+
 	assertOutboxState(t, ctx, entry.ID, true, true)
 	var claimStatus string
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
-		t.Fatalf("claim status: %v", err)
-	}
-	if claimStatus != "acked" {
-		t.Fatalf("claim status = %q, want acked", claimStatus)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT status FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&claimStatus))
+	require.Equal(t, "acked", claimStatus)
+
 }
 
 func TestOutboxArchiver_PromotedClaimLogRowsArchivedHistoryVisible(t *testing.T) {
@@ -925,64 +889,73 @@ func TestOutboxArchiver_PromotedClaimLogRowsArchivedHistoryVisible(t *testing.T)
 	intWriteOutboxEntries(t, ctx, []queue.OutboxEntry{entry})
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{BatchSize: 1})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	var hotCount, historyCount int
 	var consumedAt *time.Time
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
-		t.Fatalf("hot count: %v", err)
-	}
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
-		t.Fatalf("history count: %v", err)
-	}
-	if hotCount != 1 || historyCount != 0 {
-		t.Fatalf("hot/history counts after flush = %d/%d, want 1/0", hotCount, historyCount)
-	}
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT consumed_at FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&consumedAt); err != nil {
-		t.Fatalf("consumed_at after flush: %v", err)
-	}
-	if consumedAt == nil {
-		t.Fatal("consumed_at after claim-log flush = nil, want promoted row consumed")
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`,
+
+			entry.ID).Scan(&hotCount))
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`,
+
+			entry.ID).Scan(&historyCount))
+	require.False(t, hotCount !=
+
+		1 || historyCount !=
+		0)
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT consumed_at FROM enqueue_outbox WHERE id = $1`,
+
+			entry.ID).Scan(&consumedAt))
+	require.NotNil(t, consumedAt)
+
 	var claimStatus string
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT status FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimStatus); err != nil {
-		t.Fatalf("claim status after flush: %v", err)
-	}
-	if claimStatus != "acked" {
-		t.Fatalf("claim status after flush = %q, want acked", claimStatus)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT status FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&claimStatus))
+	require.Equal(t, "acked", claimStatus)
+
 	claimable, err := st.CountClaimableOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountClaimableOutbox() error = %v", err)
-	}
-	if claimable != 0 {
-		t.Fatalf("claimable claim-log outbox = %d, want 0 after ack", claimable)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, claimable)
 
 	archiver := scheduler.NewOutboxArchiver(store.New(getTestDB(t).Pool), scheduler.OutboxArchiverConfig{
 		BatchSize: 10,
 	})
-	if err := archiver.ArchiveOnceForTest(ctx); err != nil {
-		t.Fatalf("ArchiveOnceForTest() error = %v", err)
-	}
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, entry.ID).Scan(&hotCount); err != nil {
-		t.Fatalf("hot count after archive: %v", err)
-	}
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`, entry.ID).Scan(&historyCount); err != nil {
-		t.Fatalf("history count after archive: %v", err)
-	}
-	if hotCount != 0 || historyCount != 1 {
-		t.Fatalf("hot/history counts after archive = %d/%d, want 0/1", hotCount, historyCount)
-	}
+	require.NoError(t, archiver.
+		ArchiveOnceForTest(ctx))
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`,
+
+			entry.ID).Scan(&hotCount))
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM enqueue_outbox_history WHERE id = $1`,
+
+			entry.ID).Scan(&historyCount))
+	require.False(t, hotCount !=
+
+		0 || historyCount !=
+		1)
+
 	var claimCount int
-	if err := getTestDB(t).Pool.QueryRow(ctx, `SELECT COUNT(*) FROM outbox_claims WHERE outbox_id = $1`, entry.ID).Scan(&claimCount); err != nil {
-		t.Fatalf("claim count after archive: %v", err)
-	}
-	if claimCount != 0 {
-		t.Fatalf("claim count after archive = %d, want 0", claimCount)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM outbox_claims WHERE outbox_id = $1`,
+
+			entry.ID).Scan(&claimCount))
+	require.EqualValues(t, 0, claimCount)
+
 }
 
 func BenchmarkOutbox(b *testing.B) {
@@ -1044,40 +1017,35 @@ func TestOutboxCountUnconsumed_ExcludesTerminalErroredRows(t *testing.T) {
 	intWriteOutboxEntries(t, ctx, entries)
 
 	if _, err := getTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
-		t.Fatalf("delete job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getTestDB(t).Pool, intTestQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(t, flusher.
+		FlushOnceForTest(ctx),
+	)
 
 	count, err := st.CountUnconsumedOutbox(ctx)
-	if err != nil {
-		t.Fatalf("CountUnconsumedOutbox() error = %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("CountUnconsumedOutbox() = %d, want 0 for terminal errored row", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, count)
+
 }
 
 func intWriteOutboxEntries(t *testing.T, ctx context.Context, entries []queue.OutboxEntry) {
 	t.Helper()
 
 	tx, err := getTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin outbox tx: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, err)
 
-	if err := queue.WriteOutboxInTx(ctx, tx, entries); err != nil {
-		t.Fatalf("WriteOutboxInTx() error = %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit outbox tx: %v", err)
-	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, queue.WriteOutboxInTx(ctx, tx,
+		entries))
+	require.NoError(t, tx.Commit(ctx))
+
 }
 
 func getTestDBTB(tb testing.TB) *testutil.TestDB {
@@ -1135,30 +1103,27 @@ func assertRunCount(t *testing.T, ctx context.Context, jobID, key string, want i
 	t.Helper()
 
 	var got int
-	if err := getTestDB(t).Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND idempotency_key = $2`,
-		jobID, key,
-	).Scan(&got); err != nil {
-		t.Fatalf("count job_runs: %v", err)
-	}
-	if got != want {
-		t.Fatalf("job_runs count = %d, want %d", got, want)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM job_runs WHERE job_id = $1 AND idempotency_key = $2`,
+
+			jobID,
+			key).Scan(&got))
+	require.Equal(t, want, got)
+
 }
 
 func assertRunsForJob(t *testing.T, ctx context.Context, jobID string, want int) {
 	t.Helper()
 
 	var got int
-	if err := getTestDB(t).Pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM job_runs WHERE job_id = $1`,
-		jobID,
-	).Scan(&got); err != nil {
-		t.Fatalf("count job runs for job %s: %v", jobID, err)
-	}
-	if got != want {
-		t.Fatalf("job %s run count = %d, want %d", jobID, got, want)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT COUNT(*) FROM job_runs WHERE job_id = $1`,
+
+			jobID).Scan(&got))
+	require.Equal(t, want, got)
+
 }
 
 func assertOutboxState(t *testing.T, ctx context.Context, id string, wantError bool, wantConsumed bool) {
@@ -1166,19 +1131,21 @@ func assertOutboxState(t *testing.T, ctx context.Context, id string, wantError b
 
 	var errorText *string
 	var consumedAt *time.Time
-	if err := getTestDB(t).Pool.QueryRow(ctx,
-		`SELECT error, consumed_at FROM enqueue_outbox WHERE id = $1`,
-		id,
-	).Scan(&errorText, &consumedAt); err != nil {
-		t.Fatalf("read outbox state %s: %v", id, err)
-	}
+	require.NoError(t, getTestDB(t).Pool.
+		QueryRow(ctx,
+			`SELECT error, consumed_at FROM enqueue_outbox WHERE id = $1`,
+
+			id).Scan(&errorText,
+		&consumedAt))
 
 	gotError := errorText != nil && *errorText != ""
 	gotConsumed := consumedAt != nil
-	if gotError != wantError {
-		t.Fatalf("outbox %s hasError=%v, want %v (error=%v)", id, gotError, wantError, errorText)
-	}
-	if gotConsumed != wantConsumed {
-		t.Fatalf("outbox %s consumed=%v, want %v", id, gotConsumed, wantConsumed)
-	}
+	require.Equal(t, wantError,
+
+		gotError)
+	require.Equal(t, wantConsumed,
+
+		gotConsumed,
+	)
+
 }

@@ -11,6 +11,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // seedAuditEvent inserts a raw audit_events row with a caller-controlled
@@ -27,9 +29,8 @@ func seedAuditEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, proje
 			'{}'::jsonb, '', '', $3
 		)
 	`, "seed-"+projectID+"-"+createdAt.Format("20060102150405.000000"), projectID, createdAt)
-	if err != nil {
-		t.Fatalf("seed audit event: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 // seedProjectQuotaRetention inserts an explicit project_quotas retention
@@ -43,9 +44,8 @@ func seedProjectQuotaRetention(t *testing.T, ctx context.Context, pool *pgxpool.
 			audit_retention_days = EXCLUDED.audit_retention_days,
 			audit_retention_override_set = TRUE
 	`, projectID, days)
-	if err != nil {
-		t.Fatalf("seed project_quotas: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func seedDefaultQuotaRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string) {
@@ -55,19 +55,18 @@ func seedDefaultQuotaRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		VALUES ($1, 10)
 		ON CONFLICT (project_id) DO UPDATE SET max_queued_runs = EXCLUDED.max_queued_runs
 	`, projectID)
-	if err != nil {
-		t.Fatalf("seed default project_quotas row: %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func countAuditEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string) int {
 	t.Helper()
 	var n int
-	if err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`, projectID,
-	).Scan(&n); err != nil {
-		t.Fatalf("count audit events: %v", err)
-	}
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1`,
+
+		projectID).Scan(&n))
+
 	return n
 }
 
@@ -78,11 +77,12 @@ func countAuditEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pro
 func countNonAnchorAuditEvents(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID string) int {
 	t.Helper()
 	var n int
-	if err := pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND is_anchor = FALSE`, projectID,
-	).Scan(&n); err != nil {
-		t.Fatalf("count non-anchor audit events: %v", err)
-	}
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND is_anchor = FALSE`,
+
+		projectID,
+	).Scan(&n))
+
 	return n
 }
 
@@ -106,13 +106,13 @@ func TestReapAuditEvents_HonorsPerProjectOverride(t *testing.T) {
 	r := scheduler.NewReaper(q, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.ReapOnce(ctx)
+	assert.EqualValues(t, 0, countNonAnchorAuditEvents(t,
+		ctx, pool,
+		projA))
+	assert.EqualValues(t, 1, countAuditEvents(t,
+		ctx, pool,
+		projB))
 
-	if got := countNonAnchorAuditEvents(t, ctx, pool, projA); got != 0 {
-		t.Errorf("proj-a non-anchor rows after reap = %d, want 0 (30-day override)", got)
-	}
-	if got := countAuditEvents(t, ctx, pool, projB); got != 1 {
-		t.Errorf("proj-b rows after reap = %d, want 1 (default 365)", got)
-	}
 }
 
 func TestReapAuditEvents_ZeroDaysDisables(t *testing.T) {
@@ -132,10 +132,10 @@ func TestReapAuditEvents_ZeroDaysDisables(t *testing.T) {
 	r := scheduler.NewReaper(q, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(30)
 	r.ReapOnce(ctx)
+	assert.EqualValues(t, 1, countAuditEvents(t,
+		ctx, pool,
+		projID))
 
-	if got := countAuditEvents(t, ctx, pool, projID); got != 1 {
-		t.Errorf("rows after reap with days=0 = %d, want 1 (trim disabled)", got)
-	}
 }
 
 func TestReapAuditEvents_DefaultQuotaRowInheritsDefaultRetention(t *testing.T) {
@@ -154,10 +154,10 @@ func TestReapAuditEvents_DefaultQuotaRowInheritsDefaultRetention(t *testing.T) {
 	r := scheduler.NewReaper(q, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(30)
 	r.ReapOnce(ctx)
+	assert.EqualValues(t, 0, countNonAnchorAuditEvents(t,
+		ctx, pool,
+		projID))
 
-	if got := countNonAnchorAuditEvents(t, ctx, pool, projID); got != 0 {
-		t.Errorf("non-anchor rows after reap = %d, want 0 (default quota row inherits global retention)", got)
-	}
 }
 
 func TestReapAuditEvents_MetricEmitted(t *testing.T) {
@@ -178,20 +178,17 @@ func TestReapAuditEvents_MetricEmitted(t *testing.T) {
 	r := scheduler.NewReaper(rec, time.Second, time.Minute, 0, 0, false, nil).
 		WithAuditRetention(365)
 	r.ReapOnce(ctx)
+	require.EqualValues(t, 0, countNonAnchorAuditEvents(t,
+		ctx, pool,
+		projID),
+	)
+	assert.EqualValues(t, 1, rec.perProjectDeleteCalls[projID])
+	assert.True(t, rec.sawExcludingCall)
 
 	// Direct assertion: the row for projID is gone and the wrapping store saw the call.
 	// Use the non-anchor count so the tombstone DeleteAuditEventsBefore writes
 	// after a successful trim does not skew the assertion.
-	if got := countNonAnchorAuditEvents(t, ctx, pool, projID); got != 0 {
-		t.Fatalf("non-anchor rows after reap = %d, want 0", got)
-	}
-	if rec.perProjectDeleteCalls[projID] != 1 {
-		t.Errorf("DeleteAuditEventsBefore(%s) calls = %d, want 1",
-			projID, rec.perProjectDeleteCalls[projID])
-	}
-	if !rec.sawExcludingCall {
-		t.Errorf("default sweep via DeleteAuditEventsBeforeExcluding not observed")
-	}
+
 }
 
 // retentionRecorderStore wraps *store.Queries and records which retention

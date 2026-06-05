@@ -12,6 +12,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/ratelimit"
 	"strait/internal/testutil"
@@ -48,9 +50,9 @@ func newConcurrencyLimiter(t *testing.T) *ratelimit.RedisConcurrencyLimiter {
 
 func flushRedis(t *testing.T) {
 	t.Helper()
-	if err := testRedis.FlushAll(context.Background()); err != nil {
-		t.Fatalf("flush redis: %v", err)
-	}
+	require.NoError(t, testRedis.
+		FlushAll(context.Background()))
+
 }
 
 func TestAllow_WithinLimit(t *testing.T) {
@@ -64,16 +66,15 @@ func TestAllow_WithinLimit(t *testing.T) {
 
 	for i := range limit {
 		res, err := rl.Allow(ctx, key, limit, window)
-		if err != nil {
-			t.Fatalf("Allow() call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("Allow() call %d denied, want allowed", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 		wantRemaining := limit - 1 - i
-		if res.Remaining != wantRemaining {
-			t.Errorf("Allow() call %d remaining = %d, want %d", i, res.Remaining, wantRemaining)
-		}
+		assert.Equal(t, wantRemaining,
+
+			res.Remaining,
+		)
+
 	}
 }
 
@@ -87,27 +88,19 @@ func TestAllow_ExceedsLimit(t *testing.T) {
 	window := 10 * time.Second
 
 	// Exhaust the limit.
-	for i := range limit {
+	for range limit {
 		res, err := rl.Allow(ctx, key, limit, window)
-		if err != nil {
-			t.Fatalf("Allow() call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("Allow() call %d denied prematurely", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 	}
 
 	// Next request should be denied.
 	res, err := rl.Allow(ctx, key, limit, window)
-	if err != nil {
-		t.Fatalf("Allow() over-limit error = %v", err)
-	}
-	if res.Allowed {
-		t.Error("Allow() over-limit allowed, want denied")
-	}
-	if res.Remaining != 0 {
-		t.Errorf("Allow() over-limit remaining = %d, want 0", res.Remaining)
-	}
+	require.NoError(t, err)
+	assert.False(t, res.Allowed)
+	assert.Equal(t, 0, res.Remaining)
+
 }
 
 func TestAllow_WindowExpiry(t *testing.T) {
@@ -120,36 +113,26 @@ func TestAllow_WindowExpiry(t *testing.T) {
 	window := 500 * time.Millisecond
 
 	// Exhaust the limit.
-	for i := range limit {
+	for range limit {
 		res, err := rl.Allow(ctx, key, limit, window)
-		if err != nil {
-			t.Fatalf("Allow() call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("Allow() call %d denied prematurely", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 	}
 
 	// Denied immediately.
 	res, err := rl.Allow(ctx, key, limit, window)
-	if err != nil {
-		t.Fatalf("Allow() over-limit error = %v", err)
-	}
-	if res.Allowed {
-		t.Error("Allow() should deny after limit exhausted")
-	}
+	require.NoError(t, err)
+	assert.False(t, res.Allowed)
 
 	// Wait for the window to expire.
 	time.Sleep(600 * time.Millisecond)
 
 	// Should be allowed again.
 	res, err = rl.Allow(ctx, key, limit, window)
-	if err != nil {
-		t.Fatalf("Allow() after expiry error = %v", err)
-	}
-	if !res.Allowed {
-		t.Error("Allow() denied after window expiry, want allowed")
-	}
+	require.NoError(t, err)
+	assert.True(t, res.Allowed)
+
 }
 
 func TestAllow_ConcurrentAccess(t *testing.T) {
@@ -169,8 +152,7 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			res, err := rl.AllowStrict(ctx, key, limit, window)
-			if err != nil {
-				t.Errorf("Allow() error = %v", err)
+			if !assert.NoError(t, err) {
 				return
 			}
 			mu.Lock()
@@ -183,13 +165,11 @@ func TestAllow_ConcurrentAccess(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t, limit, allowed)
+	assert.Equal(t, goroutines-
+		limit, denied,
+	)
 
-	if allowed != limit {
-		t.Errorf("concurrent allowed = %d, want %d", allowed, limit)
-	}
-	if denied != goroutines-limit {
-		t.Errorf("concurrent denied = %d, want %d", denied, goroutines-limit)
-	}
 }
 
 func TestAllow_MultipleKeys(t *testing.T) {
@@ -200,36 +180,24 @@ func TestAllow_MultipleKeys(t *testing.T) {
 	window := 10 * time.Second
 
 	// Two independent keys should have independent limits.
-	for i := range 3 {
+	for range 3 {
 		res, err := rl.Allow(ctx, "test:key-a", 3, window)
-		if err != nil {
-			t.Fatalf("key-a call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("key-a call %d denied, want allowed", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 	}
 
 	// key-a is now exhausted.
 	res, err := rl.Allow(ctx, "test:key-a", 3, window)
-	if err != nil {
-		t.Fatalf("key-a over-limit error = %v", err)
-	}
-	if res.Allowed {
-		t.Error("key-a should be denied after exhaustion")
-	}
+	require.NoError(t, err)
+	assert.False(t, res.Allowed)
 
 	// key-b should still be fully available.
 	res, err = rl.Allow(ctx, "test:key-b", 3, window)
-	if err != nil {
-		t.Fatalf("key-b error = %v", err)
-	}
-	if !res.Allowed {
-		t.Error("key-b denied, want allowed (independent from key-a)")
-	}
-	if res.Remaining != 2 {
-		t.Errorf("key-b remaining = %d, want 2", res.Remaining)
-	}
+	require.NoError(t, err)
+	assert.True(t, res.Allowed)
+	assert.Equal(t, 2, res.Remaining)
+
 }
 
 func TestAllow_MultipleClients(t *testing.T) {
@@ -244,43 +212,30 @@ func TestAllow_MultipleClients(t *testing.T) {
 	window := 10 * time.Second
 
 	// Client 1 uses 2 of the 4 slots.
-	for i := range 2 {
+	for range 2 {
 		res, err := rl1.Allow(ctx, key, limit, window)
-		if err != nil {
-			t.Fatalf("rl1 call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("rl1 call %d denied prematurely", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 	}
 
 	// Client 2 uses the remaining 2 slots.
-	for i := range 2 {
+	for range 2 {
 		res, err := rl2.Allow(ctx, key, limit, window)
-		if err != nil {
-			t.Fatalf("rl2 call %d error = %v", i, err)
-		}
-		if !res.Allowed {
-			t.Fatalf("rl2 call %d denied prematurely", i)
-		}
+		require.NoError(t, err)
+		require.True(t, res.Allowed)
+
 	}
 
 	// Both clients should now be denied.
 	res, err := rl1.Allow(ctx, key, limit, window)
-	if err != nil {
-		t.Fatalf("rl1 over-limit error = %v", err)
-	}
-	if res.Allowed {
-		t.Error("rl1 allowed after limit exhausted by shared counter")
-	}
+	require.NoError(t, err)
+	assert.False(t, res.Allowed)
 
 	res, err = rl2.Allow(ctx, key, limit, window)
-	if err != nil {
-		t.Fatalf("rl2 over-limit error = %v", err)
-	}
-	if res.Allowed {
-		t.Error("rl2 allowed after limit exhausted by shared counter")
-	}
+	require.NoError(t, err)
+	assert.False(t, res.Allowed)
+
 }
 
 func TestAllow_DisabledLimiter(t *testing.T) {
@@ -291,12 +246,9 @@ func TestAllow_DisabledLimiter(t *testing.T) {
 	ctx := context.Background()
 
 	res, err := rl.Allow(ctx, "test:disabled", 1, time.Second)
-	if err != nil {
-		t.Fatalf("Allow() error = %v", err)
-	}
-	if !res.Allowed {
-		t.Error("disabled limiter denied a request, want allowed")
-	}
+	require.NoError(t, err)
+	assert.True(t, res.Allowed)
+
 }
 
 func TestConcurrency_AcquireRelease(t *testing.T) {
@@ -310,53 +262,31 @@ func TestConcurrency_AcquireRelease(t *testing.T) {
 
 	// Acquire first slot.
 	token1, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() #1 error = %v", err)
-	}
-	if !ok {
-		t.Fatal("Acquire() #1 denied, want allowed")
-	}
-	if token1 == "" {
-		t.Fatal("Acquire() #1 returned empty token")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotEqual(t, "", token1)
 
 	// Acquire second slot.
 	token2, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() #2 error = %v", err)
-	}
-	if !ok {
-		t.Fatal("Acquire() #2 denied, want allowed")
-	}
-	if token2 == "" {
-		t.Fatal("Acquire() #2 returned empty token")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotEqual(t, "", token2)
 
 	// Third acquire should be denied (all slots taken).
 	_, ok, err = cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() #3 error = %v", err)
-	}
-	if ok {
-		t.Error("Acquire() #3 allowed, want denied (all slots taken)")
-	}
+	require.NoError(t, err)
+	assert.False(t, ok)
+	require.NoError(t, cl.Release(ctx, key,
+		token1))
 
 	// Release first slot.
-	if err := cl.Release(ctx, key, token1); err != nil {
-		t.Fatalf("Release() error = %v", err)
-	}
 
 	// Now acquire should succeed again.
 	token3, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() #4 error = %v", err)
-	}
-	if !ok {
-		t.Error("Acquire() #4 denied after release, want allowed")
-	}
-	if token3 == "" {
-		t.Error("Acquire() #4 returned empty token")
-	}
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.NotEqual(t, "", token3)
+
 }
 
 func TestConcurrency_TokenExpiration(t *testing.T) {
@@ -370,33 +300,22 @@ func TestConcurrency_TokenExpiration(t *testing.T) {
 
 	// Acquire the only slot.
 	_, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() error = %v", err)
-	}
-	if !ok {
-		t.Fatal("Acquire() denied, want allowed")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	// Slot is taken.
 	_, ok, err = cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() while taken error = %v", err)
-	}
-	if ok {
-		t.Error("Acquire() allowed while slot taken, want denied")
-	}
+	require.NoError(t, err)
+	assert.False(t, ok)
 
 	// Wait for TTL to expire.
 	time.Sleep(700 * time.Millisecond)
 
 	// Slot should be available again after TTL expiry.
 	_, ok, err = cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() after TTL error = %v", err)
-	}
-	if !ok {
-		t.Error("Acquire() denied after TTL expiry, want allowed")
-	}
+	require.NoError(t, err)
+	assert.True(t, ok)
+
 }
 
 func TestConcurrency_ConcurrentAcquire(t *testing.T) {
@@ -417,8 +336,7 @@ func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 	for range goroutines {
 		wg.Go(func() {
 			token, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-			if err != nil {
-				t.Errorf("Acquire() error = %v", err)
+			if !assert.NoError(t, err) {
 				return
 			}
 			mu.Lock()
@@ -430,28 +348,23 @@ func TestConcurrency_ConcurrentAcquire(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t, maxConcurrent,
 
-	if acquired != maxConcurrent {
-		t.Errorf("concurrent acquired = %d, want %d", acquired, maxConcurrent)
-	}
+		acquired,
+	)
 
 	// Release all and verify we can acquire again.
 	for _, token := range tokens {
-		if err := cl.Release(ctx, key, token); err != nil {
-			t.Errorf("Release(%q) error = %v", token, err)
-		}
+		assert.NoError(t, cl.Release(ctx, key,
+			token))
+
 	}
 
 	token, ok, err := cl.Acquire(ctx, key, maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire() after release-all error = %v", err)
-	}
-	if !ok {
-		t.Error("Acquire() denied after releasing all slots")
-	}
-	if token == "" {
-		t.Error("Acquire() returned empty token after release-all")
-	}
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.NotEqual(t, "", token)
+
 }
 
 func TestConcurrency_IndependentKeys(t *testing.T) {
@@ -464,21 +377,14 @@ func TestConcurrency_IndependentKeys(t *testing.T) {
 
 	// Acquire slot on key-a.
 	_, ok, err := cl.Acquire(ctx, "test:conc-key-a", maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire(key-a) error = %v", err)
-	}
-	if !ok {
-		t.Fatal("Acquire(key-a) denied")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	// Key-b should be independent and available.
 	_, ok, err = cl.Acquire(ctx, "test:conc-key-b", maxConcurrent, ttl)
-	if err != nil {
-		t.Fatalf("Acquire(key-b) error = %v", err)
-	}
-	if !ok {
-		t.Error("Acquire(key-b) denied, want allowed (independent key)")
-	}
+	require.NoError(t, err)
+	assert.True(t, ok)
+
 }
 
 func TestConcurrency_DisabledLimiter(t *testing.T) {
@@ -489,10 +395,7 @@ func TestConcurrency_DisabledLimiter(t *testing.T) {
 	ctx := context.Background()
 
 	_, ok, err := cl.Acquire(ctx, "test:disabled-conc", 1, time.Second)
-	if err != nil {
-		t.Fatalf("Acquire() error = %v", err)
-	}
-	if !ok {
-		t.Error("disabled concurrency limiter denied, want allowed")
-	}
+	require.NoError(t, err)
+	assert.True(t, ok)
+
 }

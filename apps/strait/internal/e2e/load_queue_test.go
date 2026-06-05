@@ -14,6 +14,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func loadVolume() int {
@@ -48,17 +50,19 @@ func TestLoadQueue_EnqueueThroughput(t *testing.T) {
 		`{"project_id":"%s","name":"queue-enq","slug":"queue-enq-%d","endpoint_url":"https://example.com/enq","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	start := time.Now()
 	for i := range volume {
 		run := makeRun(jobID, projectID, fmt.Sprintf(`{"i":%d}`, i))
-		if err := testQueue.Enqueue(ctx, run); err != nil {
-			t.Fatalf("enqueue %d: %v", i, err)
-		}
+		require.NoError(t, testQueue.
+			Enqueue(ctx,
+				run))
+
 	}
 	elapsed := time.Since(start)
 	t.Logf("Enqueued %d items in %v (%.0f/sec)", volume, elapsed, float64(volume)/elapsed.Seconds())
@@ -74,26 +78,29 @@ func TestLoadQueue_DequeueThroughput(t *testing.T) {
 		`{"project_id":"%s","name":"queue-deq","slug":"queue-deq-%d","endpoint_url":"https://example.com/deq","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	for i := range volume {
 		run := makeRun(jobID, projectID, fmt.Sprintf(`{"i":%d}`, i))
-		if err := testQueue.Enqueue(ctx, run); err != nil {
-			t.Fatalf("enqueue %d: %v", i, err)
-		}
+		require.NoError(t, testQueue.
+			Enqueue(ctx,
+				run))
+
 	}
 
 	start := time.Now()
 	dequeued := len(dequeueRunsEventually(t, testQueue, volume))
 	elapsed := time.Since(start)
 	t.Logf("Dequeued %d items in %v (%.0f/sec)", dequeued, elapsed, float64(dequeued)/elapsed.Seconds())
+	assert.GreaterOrEqual(
+		t, dequeued,
+		volume/
+			2)
 
-	if dequeued < volume/2 {
-		t.Errorf("expected at least %d dequeued, got %d", volume/2, dequeued)
-	}
 }
 
 func TestLoadQueue_ConcurrentEnqueue(t *testing.T) {
@@ -105,9 +112,10 @@ func TestLoadQueue_ConcurrentEnqueue(t *testing.T) {
 		`{"project_id":"%s","name":"queue-cenq","slug":"queue-cenq-%d","endpoint_url":"https://example.com/cenq","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const workers = 20
@@ -135,10 +143,11 @@ func TestLoadQueue_ConcurrentEnqueue(t *testing.T) {
 
 	t.Logf("Concurrent enqueue: %d workers x %d items = %d total in %v (%.0f/sec, %d failures)",
 		workers, perWorker, total, elapsed, float64(total)/elapsed.Seconds(), failCount)
+	assert.LessOrEqual(t,
 
-	if failCount > int64(total)/10 {
-		t.Errorf("too many failures: %d/%d", failCount, total)
-	}
+		failCount,
+		int64(total)/10)
+
 }
 
 func TestLoadQueue_ConcurrentDequeue(t *testing.T) {
@@ -151,16 +160,18 @@ func TestLoadQueue_ConcurrentDequeue(t *testing.T) {
 		`{"project_id":"%s","name":"queue-cdeq","slug":"queue-cdeq-%d","endpoint_url":"https://example.com/cdeq","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	for i := range volume {
 		run := makeRun(jobID, projectID, fmt.Sprintf(`{"i":%d}`, i))
-		if err := testQueue.Enqueue(ctx, run); err != nil {
-			t.Fatalf("enqueue %d: %v", i, err)
-		}
+		require.NoError(t, testQueue.
+			Enqueue(ctx,
+				run))
+
 	}
 
 	const workers = 10
@@ -196,9 +207,10 @@ func TestLoadQueue_EnqueueDequeueInterleaved(t *testing.T) {
 		`{"project_id":"%s","name":"queue-inter","slug":"queue-inter-%d","endpoint_url":"https://example.com/inter","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	const duration = 5 * time.Second
@@ -254,17 +266,19 @@ func TestLoadQueue_FSMTransitionThroughput(t *testing.T) {
 		`{"project_id":"%s","name":"queue-fsm","slug":"queue-fsm-%d","endpoint_url":"https://example.com/fsm","max_attempts":3,"timeout_secs":60}`,
 		projectID, time.Now().UnixNano(),
 	))
-	if w.Code != 201 {
-		t.Fatalf("create job: %d %s", w.Code, w.Body.String())
-	}
+	require.EqualValues(t, 201,
+
+		w.Code)
+
 	jobID := asString(t, mustDecodeObject(t, w), "id")
 
 	runIDs := make([]string, volume)
 	for i := range volume {
 		run := makeRun(jobID, projectID, fmt.Sprintf(`{"i":%d}`, i))
-		if err := testQueue.Enqueue(ctx, run); err != nil {
-			t.Fatalf("enqueue %d: %v", i, err)
-		}
+		require.NoError(t, testQueue.
+			Enqueue(ctx,
+				run))
+
 	}
 
 	dequeuedRuns := dequeueRunsEventually(t, testQueue, volume)

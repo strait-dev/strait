@@ -1,6 +1,10 @@
 package worker
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestValidateEndpointURL_Valid(t *testing.T) {
 	t.Parallel()
@@ -10,9 +14,7 @@ func TestValidateEndpointURL_Valid(t *testing.T) {
 		"https://93.184.216.34/endpoint",
 	}
 	for _, u := range urls {
-		if err := validateEndpointURL(u); err != nil {
-			t.Errorf("validateEndpointURL(%q) = %v, want nil", u, err)
-		}
+		assert.NoError(t, validateEndpointURL(u))
 	}
 }
 
@@ -24,9 +26,9 @@ func TestValidateEndpointURL_PrivateIP(t *testing.T) {
 		"http://172.16.0.1/secret",
 	}
 	for _, u := range urls {
-		if err := validateEndpointURL(u); err == nil {
-			t.Errorf("validateEndpointURL(%q) = nil, want error for private IP", u)
-		}
+		assert.Error(
+			t,
+			validateEndpointURL(u))
 	}
 }
 
@@ -37,38 +39,39 @@ func TestValidateEndpointURL_Loopback(t *testing.T) {
 		"http://127.0.0.1:9000/admin",
 	}
 	for _, u := range urls {
-		if err := validateEndpointURL(u); err == nil {
-			t.Errorf("validateEndpointURL(%q) = nil, want error for loopback", u)
-		}
+		assert.Error(
+			t,
+			validateEndpointURL(u))
 	}
 }
 
 func TestValidateEndpointURL_LinkLocal(t *testing.T) {
 	t.Parallel()
-	if err := validateEndpointURL("http://169.254.169.254/latest/meta-data/"); err == nil {
-		t.Error("validateEndpointURL(link-local) = nil, want error")
-	}
+	assert.Error(
+		t,
+		validateEndpointURL("http://169.254.169.254/latest/meta-data/"),
+	)
 }
 
 func TestValidateEndpointURL_InvalidScheme(t *testing.T) {
 	t.Parallel()
-	if err := validateEndpointURL("ftp://example.com/file"); err == nil {
-		t.Error("validateEndpointURL(ftp) = nil, want error for non-http(s) scheme")
-	}
+	assert.Error(
+		t,
+		validateEndpointURL("ftp://example.com/file"))
 }
 
 func TestValidateEndpointURL_MissingHost(t *testing.T) {
 	t.Parallel()
-	if err := validateEndpointURL("http:///path"); err == nil {
-		t.Error("validateEndpointURL(no host) = nil, want error")
-	}
+	assert.Error(
+		t,
+		validateEndpointURL("http:///path"))
 }
 
 func TestValidateEndpointURL_CloudMetadata(t *testing.T) {
 	t.Parallel()
-	if err := validateEndpointURL("http://169.254.169.254/latest/meta-data/iam/security-credentials/"); err == nil {
-		t.Error("validateEndpointURL(AWS metadata) = nil, want error for link-local address")
-	}
+	assert.Error(
+		t,
+		validateEndpointURL("http://169.254.169.254/latest/meta-data/iam/security-credentials/"))
 }
 
 func TestValidateEndpointURL_CGNAT(t *testing.T) {
@@ -79,9 +82,9 @@ func TestValidateEndpointURL_CGNAT(t *testing.T) {
 		"http://100.127.255.254/secret",
 	}
 	for _, u := range urls {
-		if err := validateEndpointURL(u); err == nil {
-			t.Errorf("validateEndpointURL(%q) = nil, want error for CGNAT address", u)
-		}
+		assert.Error(
+			t,
+			validateEndpointURL(u))
 	}
 }
 
@@ -93,20 +96,16 @@ func TestValidateEndpointURL_IPv6ULA(t *testing.T) {
 		"http://[fdff:ffff:ffff::1]/secret",
 	}
 	for _, u := range urls {
-		if err := validateEndpointURL(u); err == nil {
-			t.Errorf("validateEndpointURL(%q) = nil, want error for IPv6 ULA address", u)
-		}
+		assert.Error(
+			t,
+			validateEndpointURL(u))
 	}
 }
 
 func TestValidateEndpointURL_CGNATBoundary(t *testing.T) {
 	t.Parallel()
-	if err := validateEndpointURL("http://100.63.255.255/ok"); err != nil {
-		t.Errorf("validateEndpointURL(just below CGNAT) = %v, want nil", err)
-	}
-	if err := validateEndpointURL("http://100.128.0.0/ok"); err != nil {
-		t.Errorf("validateEndpointURL(just above CGNAT) = %v, want nil", err)
-	}
+	assert.NoError(t, validateEndpointURL("http://100.63.255.255/ok"))
+	assert.NoError(t, validateEndpointURL("http://100.128.0.0/ok"))
 }
 
 func FuzzValidateEndpointURL(f *testing.F) {

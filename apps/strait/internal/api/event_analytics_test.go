@@ -12,6 +12,9 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestServerWithAnalytics(t *testing.T, s APIStore, as AnalyticsStore, q *mockQueue) *Server {
@@ -39,9 +42,8 @@ func TestHandleEventVolume_Success(t *testing.T) {
 	t.Parallel()
 	as := &AnalyticsStoreMock{
 		GetEventVolumeFunc: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.EventVolumeBucket, error) {
-			if bucket != "day" {
-				t.Fatalf("expected default bucket 'day', got %q", bucket)
-			}
+			require.Equal(t, "day", bucket)
+
 			return []store.EventVolumeBucket{
 				{Period: "2026-01-01T00:00:00Z", Created: 100, Received: 90, TimedOut: 10},
 			}, nil
@@ -50,9 +52,7 @@ func TestHandleEventVolume_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleEventVolume_InvalidBucket(t *testing.T) {
@@ -60,9 +60,7 @@ func TestHandleEventVolume_InvalidBucket(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo(), "bucket", "week"), "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleEventVolume_MissingParams(t *testing.T) {
@@ -70,9 +68,7 @@ func TestHandleEventVolume_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/events/volume", "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleEventVolume_StoreError(t *testing.T) {
@@ -85,9 +81,7 @@ func TestHandleEventVolume_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/volume", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleEventLatency_Success(t *testing.T) {
@@ -102,16 +96,12 @@ func TestHandleEventLatency_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.Code)
+
 	var result store.EventLatencyStats
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if result.Count != 1000 {
-		t.Errorf("expected count 1000, got %d", result.Count)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &result))
+	assert.Equal(t, 1000, result.Count)
 }
 
 func TestHandleEventLatency_StoreError(t *testing.T) {
@@ -124,9 +114,7 @@ func TestHandleEventLatency_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("events/latency", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.Equal(t, 500, w.Code)
 }
 
 func TestHandleCostForecast_Success(t *testing.T) {
@@ -139,9 +127,7 @@ func TestHandleCostForecast_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/forecast", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.Code)
 }
 
 func TestHandleCostForecast_MissingParams(t *testing.T) {
@@ -149,9 +135,7 @@ func TestHandleCostForecast_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/costs/forecast", "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.Code)
 }
 
 func TestHandleCostByTrigger_Success(t *testing.T) {
@@ -167,7 +151,5 @@ func TestHandleCostByTrigger_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, as, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("costs/by-trigger", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.Code)
 }

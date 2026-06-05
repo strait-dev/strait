@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDeleteWorkflowRunsFinishedBefore_IncludesAllTerminalStatuses(t *testing.T) {
@@ -19,9 +21,7 @@ func TestDeleteWorkflowRunsFinishedBefore_IncludesAllTerminalStatuses(t *testing
 
 	projectID := "project-wf-retention-terminal-" + newID()
 	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-retention-terminal", Slug: "wf-retention-terminal-" + newID(), Enabled: true, Version: 1}
-	if err := q.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("CreateWorkflow() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflow(ctx, wf))
 
 	oldFinishedAt := time.Now().UTC().Add(-72 * time.Hour)
 	terminalStatuses := []domain.WorkflowRunStatus{
@@ -32,39 +32,44 @@ func TestDeleteWorkflowRunsFinishedBefore_IncludesAllTerminalStatuses(t *testing
 	deletedIDs := make([]string, 0, len(terminalStatuses))
 	for _, status := range terminalStatuses {
 		run := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: status, TriggeredBy: domain.TriggerManual}
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
-			t.Fatalf("CreateWorkflowRun(%s) error = %v", status, err)
-		}
+		require.NoError(t, q.CreateWorkflowRun(ctx,
+			run))
+
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET finished_at = $1 WHERE id = $2`, oldFinishedAt, run.ID); err != nil {
-			t.Fatalf("set finished_at for %s: %v", status, err)
+			require.Failf(t, "test failure",
+
+				"set finished_at for %s: %v", status, err)
 		}
 		deletedIDs = append(deletedIDs, run.ID)
 	}
 
 	active := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: domain.WfStatusCompensating, TriggeredBy: domain.TriggerManual}
-	if err := q.CreateWorkflowRun(ctx, active); err != nil {
-		t.Fatalf("CreateWorkflowRun(compensating) error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowRun(ctx,
+		active))
+
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET finished_at = $1 WHERE id = $2`, oldFinishedAt, active.ID); err != nil {
-		t.Fatalf("set finished_at for compensating: %v", err)
+		require.Failf(t, "test failure",
+
+			"set finished_at for compensating: %v", err)
 	}
 
 	deleted, err := q.DeleteWorkflowRunsFinishedBefore(ctx, time.Now().UTC().Add(-24*time.Hour), 100)
-	if err != nil {
-		t.Fatalf("DeleteWorkflowRunsFinishedBefore() error = %v", err)
-	}
-	if deleted != int64(len(deletedIDs)) {
-		t.Fatalf("deleted = %d, want %d", deleted, len(deletedIDs))
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(
+		len(deletedIDs)), deleted,
+	)
 
 	for _, id := range deletedIDs {
 		_, err := q.GetWorkflowRun(ctx, id)
-		if !errors.Is(err, store.ErrWorkflowRunNotFound) {
-			t.Fatalf("GetWorkflowRun(%s) error = %v, want ErrWorkflowRunNotFound", id, err)
-		}
+		require.True(t, errors.Is(err, store.
+			ErrWorkflowRunNotFound,
+		))
+
 	}
 	if _, err := q.GetWorkflowRun(ctx, active.ID); err != nil {
-		t.Fatalf("GetWorkflowRun(active compensating) error = %v", err)
+		require.Failf(t, "test failure",
+
+			"GetWorkflowRun(active compensating) error = %v", err)
 	}
 }
 
@@ -75,13 +80,12 @@ func TestDeleteWorkflowRunsByOrgOlderThan_IncludesAllTerminalStatuses(t *testing
 
 	orgID := "org-wf-retention-terminal-" + newID()
 	projectID := "proj-wf-retention-terminal-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: orgID, Name: "P"}); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+		OrgID: orgID, Name: "P"}))
+
 	wf := &domain.Workflow{ID: newID(), ProjectID: projectID, Name: "wf-org-retention", Slug: "wf-org-retention-" + newID(), Enabled: true, Version: 1}
-	if err := q.CreateWorkflow(ctx, wf); err != nil {
-		t.Fatalf("CreateWorkflow() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflow(ctx, wf))
 
 	oldFinishedAt := time.Now().UTC().Add(-72 * time.Hour)
 	terminalStatuses := []domain.WorkflowRunStatus{
@@ -92,27 +96,28 @@ func TestDeleteWorkflowRunsByOrgOlderThan_IncludesAllTerminalStatuses(t *testing
 	deletedIDs := make([]string, 0, len(terminalStatuses))
 	for _, status := range terminalStatuses {
 		run := &domain.WorkflowRun{ID: newID(), WorkflowID: wf.ID, ProjectID: projectID, Status: status, TriggeredBy: domain.TriggerManual}
-		if err := q.CreateWorkflowRun(ctx, run); err != nil {
-			t.Fatalf("CreateWorkflowRun(%s) error = %v", status, err)
-		}
+		require.NoError(t, q.CreateWorkflowRun(ctx,
+			run))
+
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE workflow_runs SET finished_at = $1 WHERE id = $2`, oldFinishedAt, run.ID); err != nil {
-			t.Fatalf("set finished_at for %s: %v", status, err)
+			require.Failf(t, "test failure",
+
+				"set finished_at for %s: %v", status, err)
 		}
 		deletedIDs = append(deletedIDs, run.ID)
 	}
 
 	deleted, err := q.DeleteWorkflowRunsByOrgOlderThan(ctx, orgID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("DeleteWorkflowRunsByOrgOlderThan() error = %v", err)
-	}
-	if deleted != int64(len(deletedIDs)) {
-		t.Fatalf("deleted = %d, want %d", deleted, len(deletedIDs))
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(
+		len(deletedIDs)), deleted,
+	)
 
 	for _, id := range deletedIDs {
 		_, err := q.GetWorkflowRun(ctx, id)
-		if !errors.Is(err, store.ErrWorkflowRunNotFound) {
-			t.Fatalf("GetWorkflowRun(%s) error = %v, want ErrWorkflowRunNotFound", id, err)
-		}
+		require.True(t, errors.Is(err, store.
+			ErrWorkflowRunNotFound,
+		))
+
 	}
 }

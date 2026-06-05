@@ -3,6 +3,8 @@ package pubsub
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSubscription_Close(t *testing.T) {
@@ -15,9 +17,7 @@ func TestSubscription_Close(t *testing.T) {
 	}
 
 	sub.Close()
-	if !called {
-		t.Error("Close() did not invoke cancel function")
-	}
+	assert.True(t, called)
 }
 
 func TestSubscription_Close_Idempotent(t *testing.T) {
@@ -54,7 +54,8 @@ func TestSubscription_ChannelType(t *testing.T) {
 	ch <- []byte("test-message")
 
 	got := <-sub.Ch
-	if string(got) != "test-message" {
-		t.Errorf("received %q, want %q", got, "test-message")
-	}
+	assert.Equal(t,
+		"test-message",
+
+		string(got))
 }

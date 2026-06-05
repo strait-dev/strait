@@ -8,6 +8,8 @@ import (
 	"testing"
 	"testing/quick"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestCaptureWriterAllowsUnderCap regression-tests the happy path:
@@ -59,24 +61,17 @@ func TestCaptureWriterAllowsUnderCap(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.Equal(t, len(body), w.Body.Len())
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("response code = %d, want 201", w.Code)
-	}
-	if w.Body.Len() != len(body) {
-		t.Fatalf("response body length = %d, want %d", w.Body.Len(), len(body))
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !completeCalled {
-		t.Fatal("expected CompleteIdempotencyKey under cap")
-	}
-	if completedBytes != len(body) {
-		t.Fatalf("CompleteIdempotencyKey body length = %d, want %d", completedBytes, len(body))
-	}
-	if deleteCalled {
-		t.Fatal("DeleteIdempotencyKey must not run on success path under cap")
-	}
+	require.True(
+		t, completeCalled,
+	)
+	require.Equal(t, len(body), completedBytes)
+	require.False(t, deleteCalled)
 }
 
 // TestCaptureWriterDropsCacheOnOverflow pins the overflow contract:
@@ -129,21 +124,16 @@ func TestCaptureWriterDropsCacheOnOverflow(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	wrapped.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.Equal(t, len(body), w.Body.Len())
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("response code = %d, want 201 (caller still succeeds on overflow)", w.Code)
-	}
-	if w.Body.Len() != len(body) {
-		t.Fatalf("response body bytes = %d, want %d (caller must receive full bytes)", w.Body.Len(), len(body))
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	if completeCalled {
-		t.Fatal("CompleteIdempotencyKey must not run when response overflows the cap")
-	}
-	if !deleteCalled {
-		t.Fatal("DeleteIdempotencyKey must clear the pending row on overflow so retries can proceed")
-	}
+	require.False(t, completeCalled)
+	require.True(
+		t, deleteCalled,
+	)
 }
 
 // TestCaptureWriterBuffersAtMostCap ensures the in-memory buffer
@@ -160,22 +150,19 @@ func TestCaptureWriterBuffersAtMostCap(t *testing.T) {
 	// but never balloon the test process to 32 MiB. Re-using one chunk
 	// keeps allocator pressure flat at 1 MiB.
 	iterations := (maxIdempotencyResponseBytes / len(chunk)) + 1
-	for i := range iterations {
+	for range iterations {
 		n, err := cw.Write(chunk)
-		if err != nil {
-			t.Fatalf("Write iteration %d returned err = %v", i, err)
-		}
-		if n != len(chunk) {
-			t.Fatalf("Write iteration %d wrote %d bytes, want %d (caller bytes must always pass through)", i, n, len(chunk))
-		}
+		require.NoError(t, err)
+		require.Equal(t, len(chunk), n)
+
 		totalWritten += n
 	}
-	if cw.body.Len() > maxIdempotencyResponseBytes {
-		t.Fatalf("captureWriter buffered %d bytes, want <= cap %d", cw.body.Len(), maxIdempotencyResponseBytes)
-	}
-	if !cw.overflow {
-		t.Fatalf("captureWriter overflow flag not set after writing %d bytes (cap = %d)", totalWritten, maxIdempotencyResponseBytes)
-	}
+	require.LessOrEqual(t, cw.
+		body.Len(), maxIdempotencyResponseBytes,
+	)
+	require.True(
+		t, cw.overflow,
+	)
 }
 
 // FuzzCaptureWriterBoundedBufferSize exercises the buffer-cap
@@ -197,18 +184,13 @@ func FuzzCaptureWriterBoundedBufferSize(f *testing.F) {
 		cw := &captureWriter{ResponseWriter: httptest.NewRecorder()}
 		chunk := make([]byte, size)
 		n, err := cw.Write(chunk)
-		if err != nil {
-			t.Fatalf("Write returned err = %v (caller bytes must always pass through)", err)
-		}
-		if n != int(size) {
-			t.Fatalf("Write returned n=%d, want %d", n, size)
-		}
-		if cw.body.Len() > maxIdempotencyResponseBytes {
-			t.Fatalf("buffered %d bytes, cap %d", cw.body.Len(), maxIdempotencyResponseBytes)
-		}
-		if size > uint32(maxIdempotencyResponseBytes) && !cw.overflow {
-			t.Fatal("overflow flag should be set when size > cap")
-		}
+		require.NoError(t, err)
+		require.Equal(t, int(size), n)
+		require.LessOrEqual(t, cw.
+			body.Len(), maxIdempotencyResponseBytes,
+		)
+		require.False(t, size > uint32(maxIdempotencyResponseBytes) && !cw.
+			overflow)
 	})
 }
 
@@ -226,7 +208,6 @@ func TestCaptureWriterPropertyBoundedBuffer(t *testing.T) {
 		_, _ = cw.Write(make([]byte, size))
 		return cw.body.Len() <= maxIdempotencyResponseBytes
 	}
-	if err := quick.Check(prop, &quick.Config{MaxCount: 200}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, quick.
+		Check(prop, &quick.Config{MaxCount: 200}))
 }

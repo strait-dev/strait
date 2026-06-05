@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Helper: assert that calling UpdateLogDrain with the given patch returns a
@@ -15,32 +18,32 @@ func assertLogDrainFieldError(t *testing.T, patch map[string]any, wantField stri
 	t.Helper()
 	q := &Queries{} // nil db -- we expect rejection before any SQL execution
 	err := q.UpdateLogDrain(t.Context(), "drain-1", "proj-1", patch)
-	if err == nil {
-		t.Fatalf("expected FieldError for column %q, got nil", wantField)
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
-	if fe.Field != wantField {
-		t.Fatalf("expected FieldError.Field=%q, got %q", wantField, fe.Field)
-	}
+	require.ErrorAs(t,
+		err, &fe)
+	require.Equal(
+		t, wantField,
+		fe.Field,
+	)
 }
 
 func assertEventSourceFieldError(t *testing.T, patch map[string]any, wantField string) {
 	t.Helper()
 	q := &Queries{} // nil db -- we expect rejection before any SQL execution
 	err := q.UpdateEventSource(t.Context(), "src-1", "proj-1", patch)
-	if err == nil {
-		t.Fatalf("expected FieldError for column %q, got nil", wantField)
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
-	if fe.Field != wantField {
-		t.Fatalf("expected FieldError.Field=%q, got %q", wantField, fe.Field)
-	}
+	require.ErrorAs(t,
+		err, &fe)
+	require.Equal(
+		t, wantField,
+		fe.Field,
+	)
 }
 
 // UpdateLogDrain: SQL injection vectors
@@ -84,9 +87,9 @@ func TestUpdateLogDrain_AcceptsAllValidColumns(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				if errors.As(err, &fe) {
-					t.Fatalf("valid column %q was rejected as FieldError", col)
-				}
+				require.NotErrorAs(
+					t, err, &fe,
+				)
 			}()
 		})
 	}
@@ -106,18 +109,20 @@ func TestUpdateLogDrain_MixedValidInvalid(t *testing.T) {
 		"name":         "ok",
 		"admin_access": true,
 	})
-	if err == nil {
-		t.Fatal("expected error for mixed valid/invalid patch, got nil")
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
 	if !errors.As(err, &fe) {
 		// Acceptable: could be nil db panic if valid key was processed first.
 		// But if we get a FieldError it must be for the bad key.
 		return
 	}
-	if fe.Field != "admin_access" {
-		t.Fatalf("expected FieldError for admin_access, got %q", fe.Field)
-	}
+	require.Equal(
+		t, "admin_access",
+		fe.
+			Field,
+	)
 }
 
 // UpdateEventSource: SQL injection vectors
@@ -156,9 +161,9 @@ func TestUpdateEventSource_AcceptsAllValidColumns(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				if errors.As(err, &fe) {
-					t.Fatalf("valid column %q was rejected as FieldError", col)
-				}
+				require.NotErrorAs(
+					t, err, &fe,
+				)
 			}()
 		})
 	}
@@ -177,16 +182,17 @@ func TestUpdateRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 	err := q.UpdateRunStatus(t.Context(), "run-1", domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"admin_column": "hack",
 	})
-	if err == nil {
-		t.Fatal("expected error for unknown column, got nil")
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
-	if fe.Field != "admin_column" {
-		t.Fatalf("expected FieldError.Field=admin_column, got %q", fe.Field)
-	}
+	require.ErrorAs(t,
+		err, &fe)
+	require.Equal(
+		t, "admin_column",
+		fe.
+			Field,
+	)
 }
 
 func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
@@ -213,9 +219,9 @@ func TestUpdateRunStatus_AllowlistAcceptsAllKnown(t *testing.T) {
 					return
 				}
 				var fe *domain.FieldError
-				if errors.As(err, &fe) {
-					t.Fatalf("known column %q was rejected as FieldError", col)
-				}
+				require.NotErrorAs(
+					t, err, &fe,
+				)
 			}()
 		})
 	}
@@ -227,13 +233,12 @@ func TestUpdateStepRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 	err := q.UpdateStepRunStatus(t.Context(), "step-1", domain.StepRunning, map[string]any{
 		"admin_column": "hack",
 	})
-	if err == nil {
-		t.Fatal("expected error for unknown column, got nil")
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 func TestUpdateWorkflowRunStatus_AllowlistRejectsUnknown(t *testing.T) {
@@ -242,13 +247,12 @@ func TestUpdateWorkflowRunStatus_AllowlistRejectsUnknown(t *testing.T) {
 	err := q.UpdateWorkflowRunStatus(t.Context(), "wf-1", domain.WfStatusPending, domain.WfStatusRunning, map[string]any{
 		"admin_column": "hack",
 	})
-	if err == nil {
-		t.Fatal("expected error for unknown column, got nil")
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 // Fuzz: column name strings for UpdateLogDrain
@@ -283,18 +287,20 @@ func FuzzUpdateLogDrainColumnName(f *testing.F) {
 		if allowed[colName] {
 			// Allowed columns: should NOT return a FieldError (panic from nil db is fine).
 			var fe *domain.FieldError
-			if !panicked && errors.As(resultErr, &fe) {
-				t.Errorf("allowed column %q rejected: %v", colName, resultErr)
-			}
+			assert.False(t,
+				!panicked &&
+					errors.As(resultErr, &fe))
 		} else {
 			// Disallowed columns: must return a FieldError (never reach SQL).
 			var fe *domain.FieldError
 			if panicked {
-				t.Errorf("disallowed column %q caused a panic instead of FieldError", colName)
+				assert.Failf(t, "test failure",
+
+					"disallowed column %q caused a panic instead of FieldError", colName)
 			} else if !errors.As(resultErr, &fe) {
-				if resultErr == nil {
-					t.Errorf("disallowed column %q was accepted without error", colName)
-				}
+				assert.Error(
+					t, resultErr,
+				)
 			}
 		}
 	})
@@ -330,17 +336,19 @@ func FuzzUpdateEventSourceColumnName(f *testing.F) {
 
 		if allowed[colName] {
 			var fe *domain.FieldError
-			if !panicked && errors.As(resultErr, &fe) {
-				t.Errorf("allowed column %q rejected: %v", colName, resultErr)
-			}
+			assert.False(t,
+				!panicked &&
+					errors.As(resultErr, &fe))
 		} else {
 			var fe *domain.FieldError
 			if panicked {
-				t.Errorf("disallowed column %q caused a panic instead of FieldError", colName)
+				assert.Failf(t, "test failure",
+
+					"disallowed column %q caused a panic instead of FieldError", colName)
 			} else if !errors.As(resultErr, &fe) {
-				if resultErr == nil {
-					t.Errorf("disallowed column %q was accepted without error", colName)
-				}
+				assert.Error(
+					t, resultErr,
+				)
 			}
 		}
 	})
@@ -356,13 +364,12 @@ func TestDynamicUpdate_ManyKeys(t *testing.T) {
 	}
 	q := &Queries{}
 	err := q.UpdateLogDrain(t.Context(), "drain-1", "proj-1", patch)
-	if err == nil {
-		t.Fatal("expected rejection for 100 unknown columns")
-	}
+	require.Error(
+		t, err)
+
 	var fe *domain.FieldError
-	if !errors.As(err, &fe) {
-		t.Fatalf("expected *domain.FieldError, got %T: %v", err, err)
-	}
+	require.ErrorAs(t,
+		err, &fe)
 }
 
 func TestDynamicUpdate_NullByteInColumn(t *testing.T) {

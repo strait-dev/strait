@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,7 +19,7 @@ func artifactPath(t *testing.T, name string) string {
 	t.Helper()
 	p := filepath.Join("..", "..", "monitoring", "grafana", name)
 	if _, err := os.Stat(p); err != nil {
-		t.Fatalf("artifact %s not found: %v", p, err)
+		require.NoErrorf(t, err, "artifact %s not found", p)
 	}
 	return p
 }
@@ -26,17 +28,13 @@ func TestAuditDashboard_JSONValid(t *testing.T) {
 	t.Parallel()
 
 	raw, err := os.ReadFile(artifactPath(t, "audit-events.json"))
-	if err != nil {
-		t.Fatalf("read dashboard: %v", err)
-	}
+	require.NoError(t, err)
 
 	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		t.Fatalf("dashboard JSON does not parse: %v", err)
-	}
-	if _, ok := parsed["dashboard"]; !ok {
-		t.Fatalf("dashboard JSON missing top-level 'dashboard' key")
-	}
+	require.NoError(t, json.Unmarshal(raw,
+		&parsed))
+
+	require.Contains(t, parsed, "dashboard")
 
 	// Each metric the dashboard documents must appear textually at least once.
 	want := []string{
@@ -58,9 +56,8 @@ func TestAuditDashboard_JSONValid(t *testing.T) {
 	}
 	body := string(raw)
 	for _, m := range want {
-		if !strings.Contains(body, m) {
-			t.Errorf("dashboard JSON missing expected metric reference: %s", m)
-		}
+		assert.Contains(t,
+			body, m)
 	}
 }
 
@@ -80,13 +77,12 @@ type alertFile struct {
 func loadAlerts(t *testing.T) alertFile {
 	t.Helper()
 	raw, err := os.ReadFile(artifactPath(t, "audit-alerts.yaml"))
-	if err != nil {
-		t.Fatalf("read alerts: %v", err)
-	}
+	require.NoError(t, err)
+
 	var af alertFile
-	if err := yaml.Unmarshal(raw, &af); err != nil {
-		t.Fatalf("alerts YAML does not parse: %v", err)
-	}
+	require.NoError(t, yaml.Unmarshal(raw,
+		&af))
+
 	return af
 }
 
@@ -99,25 +95,23 @@ func TestAuditAlerts_PromQLParses(t *testing.T) {
 	t.Parallel()
 
 	af := loadAlerts(t)
-	if len(af.Groups) == 0 {
-		t.Fatal("no alert groups parsed")
-	}
+	require.NotEmpty(t, af.Groups)
 
 	metricIdent := regexp.MustCompile(`[a-zA-Z_:][a-zA-Z0-9_:]*`)
 
 	for _, g := range af.Groups {
 		for _, r := range g.Rules {
 			if r.Alert == "" {
-				t.Errorf("rule in group %q missing alert name", g.Name)
+				assert.Failf(t, "rule missing alert name", "group=%q", g.Name)
 				continue
 			}
 			if strings.TrimSpace(r.Expr) == "" {
-				t.Errorf("alert %q has empty expr", r.Alert)
+				assert.Failf(t, "alert has empty expr", "%q", r.Alert)
 				continue
 			}
-			if !metricIdent.MatchString(r.Expr) {
-				t.Errorf("alert %q expr has no metric-like identifier: %s", r.Alert, r.Expr)
-			}
+			assert.True(t,
+				metricIdent.MatchString(r.Expr))
+
 			// Balanced parentheses.
 			depth := 0
 			for _, c := range r.Expr {
@@ -131,9 +125,8 @@ func TestAuditAlerts_PromQLParses(t *testing.T) {
 					break
 				}
 			}
-			if depth != 0 {
-				t.Errorf("alert %q expr has unbalanced parentheses: %s", r.Alert, r.Expr)
-			}
+			assert.Equal(
+				t, 0, depth)
 		}
 	}
 }
@@ -156,8 +149,7 @@ func TestAuditAlerts_RequiredAlertsPresent(t *testing.T) {
 		"AuditChainVerificationFailed",
 	}
 	for _, name := range required {
-		if !seen[name] {
-			t.Errorf("required alert %q not present in audit-alerts.yaml", name)
-		}
+		assert.True(t,
+			seen[name])
 	}
 }

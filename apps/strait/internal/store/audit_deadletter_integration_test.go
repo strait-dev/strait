@@ -14,6 +14,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditDeadletter_RoundTrip(t *testing.T) {
@@ -22,9 +24,8 @@ func TestAuditDeadletter_RoundTrip(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-test-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	ev := &domain.AuditEvent{
@@ -38,51 +39,41 @@ func TestAuditDeadletter_RoundTrip(t *testing.T) {
 		Details:      json.RawMessage(`{"run_id":"r1"}`),
 		CreatedAt:    time.Now().UTC(),
 	}
-
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "db down", 3); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "db down",
+		3))
 
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("count = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
 
 	// Direct SELECT to verify the stored fields.
 	var storedAction, lastErr string
 	var retryCount int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT action, last_error, retry_count
 		FROM audit_events_deadletter WHERE id = $1
-	`, "dlq-ev-1").Scan(&storedAction, &lastErr, &retryCount); err != nil {
-		t.Fatalf("query deadletter row: %v", err)
-	}
+	`,
 
-	if storedAction != domain.AuditActionJobTriggered {
-		t.Errorf("action = %q, want %q", storedAction, domain.AuditActionJobTriggered)
-	}
-	if lastErr != "db down" {
-		t.Errorf("last_error = %q, want 'db down'", lastErr)
-	}
-	if retryCount != 3 {
-		t.Errorf("retry_count = %d, want 3", retryCount)
-	}
+		"dlq-ev-1").Scan(&storedAction, &lastErr, &retryCount))
+	assert.Equal(t, domain.
+		AuditActionJobTriggered,
+
+		storedAction)
+	assert.Equal(t, "db down",
+
+		lastErr,
+	)
+	assert.EqualValues(t, 3, retryCount)
 
 	// Round-trip via the main chain is unaffected — deadletter does not
 	// participate in the signed chain.
 	vc, err := q.VerifyAuditChain(ctx, "proj-dlq")
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !vc.Valid {
-		t.Errorf("main chain should be valid (empty) despite deadletter rows: %s", vc.Error)
-	}
-	if vc.EventsChecked != 0 {
-		t.Errorf("events_checked = %d, want 0 (deadletter is separate)", vc.EventsChecked)
-	}
+	require.NoError(t, err)
+	assert.True(t, vc.Valid)
+	assert.EqualValues(t, 0, vc.EventsChecked)
+
 }
 
 // TestAuditDeadletter_AttemptCountIncrement asserts the per-row attempt
@@ -102,32 +93,28 @@ func TestAuditDeadletter_AttemptCountIncrement(t *testing.T) {
 		Details:   json.RawMessage(`{"run_id":"r1"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 3); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+		3))
 
 	// Attempt-aware list returns attempt_count=0, reclaimed_event_id=nil.
 	_, _, infos, err := q.ListAuditEventsDeadletterWithAttempts(ctx, 100)
-	if err != nil {
-		t.Fatalf("ListAuditEventsDeadletterWithAttempts: %v", err)
-	}
-	if len(infos) != 1 || infos[0].AttemptCount != 0 || infos[0].ReclaimedEventID != nil {
-		t.Fatalf("initial info = %+v, want attempt=0 marker=nil", infos[0])
-	}
+	require.NoError(t, err)
+	require.False(t, len(infos) != 1 ||
+		infos[0].
+			AttemptCount !=
+			0 || infos[0].ReclaimedEventID !=
+		nil,
+	)
 
 	// Three increments → attempt_count = 3.
 	for range 3 {
-		if err := q.IncrementAuditDeadletterAttempt(ctx, "dlq-attempt-1"); err != nil {
-			t.Fatalf("Increment: %v", err)
-		}
+		require.NoError(t, q.IncrementAuditDeadletterAttempt(ctx, "dlq-attempt-1"))
+
 	}
 	_, _, infos, err = q.ListAuditEventsDeadletterWithAttempts(ctx, 100)
-	if err != nil {
-		t.Fatalf("re-list: %v", err)
-	}
-	if infos[0].AttemptCount != 3 {
-		t.Errorf("attempt_count after 3 increments = %d, want 3", infos[0].AttemptCount)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, infos[0].AttemptCount)
+
 }
 
 // TestAuditDeadletter_MarkReclaimed_PersistsMarker asserts the
@@ -147,27 +134,26 @@ func TestAuditDeadletter_MarkReclaimed_PersistsMarker(t *testing.T) {
 		Details:   json.RawMessage(`{"run_id":"r1"}`),
 		CreatedAt: time.Now().UTC(),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
-	if err := q.MarkAuditDeadletterReclaimed(ctx, "dlq-marker-1", "ev-new-1"); err != nil {
-		t.Fatalf("Mark: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+		1))
+	require.NoError(t, q.MarkAuditDeadletterReclaimed(ctx, "dlq-marker-1",
+
+		"ev-new-1",
+	))
+
 	got, err := q.GetAuditEventDeadletter(ctx, "dlq-marker-1", "proj-marker")
-	if err != nil {
-		t.Fatalf("GetAuditEventDeadletter after reclaim marker: %v", err)
-	}
-	if got != nil {
-		t.Fatalf("GetAuditEventDeadletter returned reclaimed row %+v; replay fetch must hide it", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
 
 	_, _, infos, err := q.ListAuditEventsDeadletterWithAttempts(ctx, 100)
-	if err != nil {
-		t.Fatalf("re-list: %v", err)
-	}
-	if len(infos) != 1 || infos[0].ReclaimedEventID == nil || *infos[0].ReclaimedEventID != "ev-new-1" {
-		t.Fatalf("reclaimed_event_id = %+v, want ptr to ev-new-1", infos[0].ReclaimedEventID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(infos) != 1 ||
+		infos[0].
+			ReclaimedEventID ==
+			nil ||
+		*infos[0].ReclaimedEventID !=
+			"ev-new-1")
+
 }
 
 func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
@@ -177,9 +163,8 @@ func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
 	mustClean(t, ctx)
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-replay-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	ev := &domain.AuditEvent{
@@ -193,9 +178,8 @@ func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
 		Details:      json.RawMessage(`{"run_id":"r1"}`),
 		CreatedAt:    time.Now().UTC(),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+		1))
 
 	type outcome struct {
 		replayed bool
@@ -222,41 +206,37 @@ func TestReplayAuditEventDeadletter_ConcurrentReplayInsertsOnce(t *testing.T) {
 
 	var replayed, skipped int
 	for result := range results {
-		if result.err != nil {
-			t.Fatalf("ReplayAuditEventDeadletter concurrent error: %v", result.err)
-		}
+		require.Nil(t, result.
+			err)
+
 		if result.replayed {
 			replayed++
 		} else {
 			skipped++
 		}
 	}
-	if replayed != 1 || skipped != 1 {
-		t.Fatalf("replayed/skipped = %d/%d, want 1/1", replayed, skipped)
-	}
+	require.False(t, replayed !=
+		1 ||
+		skipped !=
+			1)
 
 	var chainRows, dlqRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 			(SELECT COUNT(*) FROM audit_events WHERE project_id = $1 AND action = $2),
 			(SELECT COUNT(*) FROM audit_events_deadletter WHERE project_id = $1)
-	`, ev.ProjectID, ev.Action).Scan(&chainRows, &dlqRows); err != nil {
-		t.Fatalf("count replay results: %v", err)
-	}
-	if chainRows != 1 {
-		t.Fatalf("audit_events replayed rows = %d, want 1", chainRows)
-	}
-	if dlqRows != 0 {
-		t.Fatalf("audit_events_deadletter rows = %d, want 0", dlqRows)
-	}
+	`,
+
+		ev.ProjectID, ev.Action).Scan(&chainRows, &dlqRows))
+	require.EqualValues(t, 1, chainRows)
+	require.EqualValues(t, 0, dlqRows)
 
 	vc, err := q.VerifyAuditChain(ctx, ev.ProjectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !vc.Valid {
-		t.Fatalf("chain invalid after atomic replay: %s", vc.Error)
-	}
+	require.NoError(t, err)
+	require.True(t, vc.Valid)
+
 }
 
 func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T) {
@@ -265,9 +245,8 @@ func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T
 
 	q := store.NewWithContextRouting(testDB.Pool)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-context-routed-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	ev := &domain.AuditEvent{
@@ -281,39 +260,42 @@ func TestReplayAuditEventDeadletter_ContextRoutedStoreUsesAmbientTx(t *testing.T
 		Details:      json.RawMessage(`{"run_id":"r1"}`),
 		CreatedAt:    time.Now().UTC(),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 1); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+		1))
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin ambient tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer tx.Rollback(ctx) //nolint:errcheck
 	txCtx := store.ContextWithTx(ctx, tx)
 
 	replayedEvent, replayed, err := q.ReplayAuditEventDeadletter(txCtx, ev.ID, ev.ProjectID, "audit-context-routed-1")
-	if err != nil {
-		t.Fatalf("ReplayAuditEventDeadletter: %v", err)
-	}
-	if !replayed || replayedEvent == nil || replayedEvent.ID != "audit-context-routed-1" {
-		t.Fatalf("replayedEvent=%+v replayed=%v, want replay into ambient tx", replayedEvent, replayed)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit ambient tx: %v", err)
-	}
+	require.NoError(t, err)
+	require.False(t, !replayed ||
+		replayedEvent ==
+			nil || replayedEvent.
+		ID !=
+		"audit-context-routed-1",
+	)
+	require.NoError(t, tx.Commit(ctx))
 
 	var chainRows, dlqRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 			(SELECT COUNT(*) FROM audit_events WHERE id = $1 AND project_id = $2),
 			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $3 AND project_id = $2)
-	`, "audit-context-routed-1", ev.ProjectID, ev.ID).Scan(&chainRows, &dlqRows); err != nil {
-		t.Fatalf("count replay results: %v", err)
-	}
-	if chainRows != 1 || dlqRows != 0 {
-		t.Fatalf("chain/deadletter rows = %d/%d, want 1/0", chainRows, dlqRows)
-	}
+	`,
+
+		"audit-context-routed-1",
+		ev.ProjectID, ev.ID).
+		Scan(&chainRows, &dlqRows))
+	require.False(t, chainRows !=
+		1 ||
+		dlqRows !=
+			0)
+
 }
 
 func TestListAuditEventsDeadletterByProject_PaginatesSameQueuedAtRows(t *testing.T) {
@@ -336,34 +318,29 @@ func TestListAuditEventsDeadletterByProject_PaginatesSameQueuedAtRows(t *testing
 			Details:      json.RawMessage(`{}`),
 			CreatedAt:    time.Now().UTC(),
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
-			t.Fatalf("CreateAuditEventDeadletter(%s): %v", id, err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+			0))
+
 		if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET queued_at = $2 WHERE id = $1`, id, queuedAt); err != nil {
-			t.Fatalf("pin queued_at(%s): %v", id, err)
+			require.Failf(t, "test failure",
+
+				"pin queued_at(%s): %v", id, err)
 		}
 	}
 
 	page1, _, cursors, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, "")
-	if err != nil {
-		t.Fatalf("ListAuditEventsDeadletterByProject page1: %v", err)
-	}
-	if len(page1) != 2 {
-		t.Fatalf("page1 len = %d, want 2", len(page1))
-	}
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+
 	page2, _, _, err := q.ListAuditEventsDeadletterByProject(ctx, projectID, 2, cursors[len(cursors)-1])
-	if err != nil {
-		t.Fatalf("ListAuditEventsDeadletterByProject page2: %v", err)
-	}
-	if len(page2) != 1 {
-		t.Fatalf("page2 len = %d, want 1; queued_at-only cursor skipped tied rows", len(page2))
-	}
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
 
 	got := []string{page1[0].ID, page1[1].ID, page2[0].ID}
 	for i, want := range ids {
-		if got[i] != want {
-			t.Fatalf("paged ids = %v, want %v", got, ids)
-		}
+		require.Equal(t, want,
+			got[i])
+
 	}
 }
 
@@ -372,9 +349,8 @@ func TestDropAuditEventDeadletterWithAudit_InsertsAuditAndDeletesRow(t *testing.
 	mustClean(t, ctx)
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-atomic-drop-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projectID := "proj-dlq-atomic-drop"
@@ -390,9 +366,8 @@ func TestDropAuditEventDeadletterWithAudit_InsertsAuditAndDeletesRow(t *testing.
 		Details:      json.RawMessage(`{}`),
 		CreatedAt:    time.Now().UTC(),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "down", 0); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "down",
+		0))
 
 	auditEvent := &domain.AuditEvent{
 		ID:           "audit-dlq-drop-1",
@@ -406,24 +381,28 @@ func TestDropAuditEventDeadletterWithAudit_InsertsAuditAndDeletesRow(t *testing.
 		CreatedAt:    time.Now().UTC(),
 	}
 	dropped, err := q.DropAuditEventDeadletterWithAudit(ctx, dlqID, projectID, auditEvent)
-	if err != nil {
-		t.Fatalf("DropAuditEventDeadletterWithAudit: %v", err)
-	}
-	if !dropped {
-		t.Fatal("DropAuditEventDeadletterWithAudit dropped=false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, dropped)
 
 	var dlqRows, auditRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1 AND project_id = $2),
 			(SELECT COUNT(*) FROM audit_events WHERE id = $3 AND project_id = $2 AND action = $4 AND resource_id = $1)
-	`, dlqID, projectID, auditEvent.ID, domain.AuditActionDeadletterDropped).Scan(&dlqRows, &auditRows); err != nil {
-		t.Fatalf("count drop results: %v", err)
-	}
-	if dlqRows != 0 || auditRows != 1 {
-		t.Fatalf("dlq/audit rows = %d/%d, want 0/1", dlqRows, auditRows)
-	}
+	`,
+
+		dlqID, projectID,
+		auditEvent.
+			ID,
+		domain.AuditActionDeadletterDropped,
+	).Scan(&dlqRows, &auditRows))
+	require.False(t, dlqRows !=
+		0 ||
+		auditRows !=
+			1)
+
 }
 
 // TestAuditDeadletter_DeleteOlderThan_PerProjectCounts asserts the
@@ -445,9 +424,9 @@ func TestAuditDeadletter_DeleteOlderThan_PerProjectCounts(t *testing.T) {
 			Details:   json.RawMessage(`{}`),
 			CreatedAt: when,
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "x",
+			0))
+
 	}
 	mk("old-a-1", "proj-a", old)
 	mk("old-a-2", "proj-a", old)
@@ -456,23 +435,23 @@ func TestAuditDeadletter_DeleteOlderThan_PerProjectCounts(t *testing.T) {
 
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
 	dropped, err := q.DeleteAuditDeadletterOlderThan(ctx, cutoff)
-	if err != nil {
-		t.Fatalf("DeleteAuditDeadletterOlderThan: %v", err)
-	}
+	require.NoError(t, err)
+
 	if got, want := dropped["proj-a"], int64(2); got != want {
-		t.Errorf("proj-a dropped = %d, want %d", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-a dropped = %d, want %d", got, want)
 	}
 	if got, want := dropped["proj-b"], int64(1); got != want {
-		t.Errorf("proj-b dropped = %d, want %d", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-b dropped = %d, want %d", got, want)
 	}
 	// young-a-1 must still be present.
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("count: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("remaining = %d, want 1 (young row should survive)", count)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, count)
+
 }
 
 func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t *testing.T) {
@@ -480,9 +459,8 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 	mustClean(t, ctx)
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-with-audit-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	old := time.Now().UTC().Add(-90 * 24 * time.Hour)
@@ -500,9 +478,9 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 			Details:      json.RawMessage(`{}`),
 			CreatedAt:    when,
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
-			t.Fatalf("seed: %v", err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "x",
+			0))
+
 	}
 	mk("old-a-with-audit-1", "proj-retention-a", old)
 	mk("old-a-with-audit-2", "proj-retention-a", old)
@@ -511,23 +489,22 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 
 	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
 	dropped, err := q.DeleteAuditDeadletterOlderThanWithAudit(ctx, cutoff, 30)
-	if err != nil {
-		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit: %v", err)
-	}
+	require.NoError(t, err)
+
 	if got, want := dropped["proj-retention-a"], int64(2); got != want {
-		t.Errorf("proj-retention-a dropped = %d, want %d", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-retention-a dropped = %d, want %d", got, want)
 	}
 	if got, want := dropped["proj-retention-b"], int64(1); got != want {
-		t.Errorf("proj-retention-b dropped = %d, want %d", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-retention-b dropped = %d, want %d", got, want)
 	}
 
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("remaining DLQ rows = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
 
 	rows, err := testDB.Pool.Query(ctx, `
 		SELECT project_id, details
@@ -537,9 +514,8 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 		  AND resource_id = 'retention'
 		ORDER BY project_id
 	`, domain.AuditActionDeadletterAged)
-	if err != nil {
-		t.Fatalf("query retention audit markers: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer rows.Close()
 
 	markers := map[string]struct {
@@ -550,13 +526,15 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 	for rows.Next() {
 		var projectID string
 		var raw json.RawMessage
-		if err := rows.Scan(&projectID, &raw); err != nil {
-			t.Fatalf("scan retention marker: %v", err)
-		}
+		require.NoError(t, rows.
+			Scan(&projectID,
+				&raw,
+			))
+
 		var details map[string]any
-		if err := json.Unmarshal(raw, &details); err != nil {
-			t.Fatalf("unmarshal retention marker: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(raw, &details))
+
 		markers[projectID] = struct {
 			droppedCount float64
 			maxAgeDays   float64
@@ -567,26 +545,33 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_WritesMarkersBeforeDeleting(t 
 			reason:       details["reason"].(string),
 		}
 	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("iterate retention markers: %v", err)
-	}
+	require.NoError(t, rows.
+		Err())
 
 	if got, want := len(markers), 2; got != want {
-		t.Fatalf("marker count = %d, want %d", got, want)
+		require.Failf(t, "test failure",
+
+			"marker count = %d, want %d", got, want)
 	}
 	if got, want := markers["proj-retention-a"].droppedCount, float64(2); got != want {
-		t.Errorf("proj-retention-a marker dropped_count = %v, want %v", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-retention-a marker dropped_count = %v, want %v", got, want)
 	}
 	if got, want := markers["proj-retention-b"].droppedCount, float64(1); got != want {
-		t.Errorf("proj-retention-b marker dropped_count = %v, want %v", got, want)
+		assert.Failf(t, "test failure",
+
+			"proj-retention-b marker dropped_count = %v, want %v", got, want)
 	}
-	for projectID, marker := range markers {
-		if marker.maxAgeDays != 30 {
-			t.Errorf("%s marker max_age_days = %v, want 30", projectID, marker.maxAgeDays)
-		}
-		if marker.reason != "max_age_exceeded" {
-			t.Errorf("%s marker reason = %q, want max_age_exceeded", projectID, marker.reason)
-		}
+	for _, marker := range markers {
+		assert.EqualValues(t, 30, marker.
+			maxAgeDays,
+		)
+		assert.Equal(t, "max_age_exceeded",
+
+			marker.reason,
+		)
+
 	}
 }
 
@@ -595,9 +580,8 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_RollsBackWhenMarkerFails(t *te
 	mustClean(t, ctx)
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("dlq-retention-rollback-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	ev := &domain.AuditEvent{
@@ -611,9 +595,8 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_RollsBackWhenMarkerFails(t *te
 		Details:      json.RawMessage(`{}`),
 		CreatedAt:    time.Now().UTC().Add(-90 * 24 * time.Hour),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "x",
+		0))
 
 	forced := errors.New("forced audit marker failure")
 	store.SetAuditEventPostInsertHookForTest(q, func(context.Context) error {
@@ -622,27 +605,25 @@ func TestAuditDeadletter_DeleteOlderThanWithAudit_RollsBackWhenMarkerFails(t *te
 	t.Cleanup(func() { store.SetAuditEventPostInsertHookForTest(q, nil) })
 
 	_, err = q.DeleteAuditDeadletterOlderThanWithAudit(ctx, time.Now().UTC().Add(-30*24*time.Hour), 30)
-	if err == nil {
-		t.Fatal("DeleteAuditDeadletterOlderThanWithAudit: expected forced marker error, got nil")
-	}
-	if !errors.Is(err, forced) {
-		t.Fatalf("DeleteAuditDeadletterOlderThanWithAudit err = %v, want forced marker failure", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, forced))
 
 	var dlqRows, markerRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT
 			(SELECT COUNT(*) FROM audit_events_deadletter WHERE id = $1),
 			(SELECT COUNT(*) FROM audit_events WHERE project_id = $2 AND action = $3)
-	`, ev.ID, ev.ProjectID, domain.AuditActionDeadletterAged).Scan(&dlqRows, &markerRows); err != nil {
-		t.Fatalf("count rollback rows: %v", err)
-	}
-	if dlqRows != 1 {
-		t.Fatalf("DLQ rows after marker failure = %d, want 1", dlqRows)
-	}
-	if markerRows != 0 {
-		t.Fatalf("marker rows after marker failure = %d, want 0", markerRows)
-	}
+	`,
+
+		ev.ID, ev.ProjectID, domain.AuditActionDeadletterAged,
+	).Scan(&dlqRows,
+		&markerRows),
+	)
+	require.EqualValues(t, 1, dlqRows)
+	require.EqualValues(t, 0, markerRows)
+
 }
 
 func TestAuditDeadletter_DeleteOlderThan_SkipsZeroCreatedAtRows(t *testing.T) {
@@ -656,26 +637,23 @@ func TestAuditDeadletter_DeleteOlderThan_SkipsZeroCreatedAtRows(t *testing.T) {
 		ResourceType: "job", ResourceID: "j",
 		Details: json.RawMessage(`{}`),
 	}
-	if err := q.CreateAuditEventDeadletter(ctx, ev, "x", 0); err != nil {
-		t.Fatalf("CreateAuditEventDeadletter: %v", err)
-	}
+	require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "x",
+		0))
 
 	if _, err := testDB.Pool.Exec(ctx, `UPDATE audit_events_deadletter SET created_at = TIMESTAMPTZ '0001-01-01 00:00:00+00' WHERE id = $1`, ev.ID); err != nil {
-		t.Fatalf("force zero created_at: %v", err)
+		require.Failf(t, "test failure",
+
+			"force zero created_at: %v", err)
 	}
 
 	dropped, err := q.DeleteAuditDeadletterOlderThan(ctx, time.Now().UTC().Add(-30*24*time.Hour))
-	if err != nil {
-		t.Fatalf("DeleteAuditDeadletterOlderThan: %v", err)
-	}
-	if len(dropped) != 0 {
-		t.Fatalf("zero created_at row should not be aged out, dropped=%v", dropped)
-	}
+	require.NoError(t, err)
+	require.Len(t, dropped,
+
+		0)
+
 	count, err := q.CountAuditEventsDeadletter(ctx)
-	if err != nil {
-		t.Fatalf("CountAuditEventsDeadletter: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("remaining = %d, want 1", count)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
 }

@@ -12,6 +12,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockEventLister implements EventLister for testing.
@@ -48,10 +50,7 @@ func TestClickHouseSubscriber_NonTerminalEvent(t *testing.T) {
 		Type: EventSnoozed,
 		Run:  &domain.JobRun{ID: "run-1"},
 	})
-
-	if exporter.PendingCount() != 0 {
-		t.Errorf("expected 0 pending for non-terminal event, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 0, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilRun(t *testing.T) {
@@ -66,10 +65,7 @@ func TestClickHouseSubscriber_NilRun(t *testing.T) {
 		Type: EventCompleted,
 		Run:  nil,
 	})
-
-	if exporter.PendingCount() != 0 {
-		t.Errorf("expected 0 pending for nil run, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 0, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
@@ -102,10 +98,7 @@ func TestClickHouseSubscriber_TerminalEvent_EnqueuesRecord(t *testing.T) {
 		},
 		QueueWait: 200 * time.Millisecond,
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending for terminal event, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
@@ -134,10 +127,7 @@ func TestClickHouseSubscriber_TagsAndVersionPopulated(t *testing.T) {
 			JobVersionID: "ver-123",
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
@@ -157,10 +147,7 @@ func TestClickHouseSubscriber_EmptyTags(t *testing.T) {
 			Status:    domain.StatusCompleted,
 		},
 	})
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending, got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_AllTerminalTypes(t *testing.T) {
@@ -180,10 +167,7 @@ func TestClickHouseSubscriber_AllTerminalTypes(t *testing.T) {
 				Type: et,
 				Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 			})
-
-			if exporter.PendingCount() != 1 {
-				t.Errorf("expected 1 pending for %s, got %d", et, exporter.PendingCount())
-			}
+			assert.Equal(t, 1, exporter.PendingCount())
 		})
 	}
 }
@@ -218,10 +202,7 @@ func TestClickHouseSubscriber_EnqueuesRunEvents(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending (1 analytics + 2 events), got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 3, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
@@ -237,10 +218,7 @@ func TestClickHouseSubscriber_NilEventLister(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
 	handle.Wait()
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending (analytics only), got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestClickHouseSubscriber_EventListError(t *testing.T) {
@@ -260,10 +238,7 @@ func TestClickHouseSubscriber_EventListError(t *testing.T) {
 		Run:  &domain.JobRun{ID: "run-1", ProjectID: "proj-1"},
 	})
 	handle.Wait()
-
-	if exporter.PendingCount() != 1 {
-		t.Errorf("expected 1 pending (analytics only, event fetch failed), got %d", exporter.PendingCount())
-	}
+	assert.Equal(t, 1, exporter.PendingCount())
 }
 
 func TestRunEventsFromDomain(t *testing.T) {
@@ -296,26 +271,32 @@ func TestRunEventsFromDomain(t *testing.T) {
 	}
 
 	records := runEventsFromDomain(run, events)
-
-	if len(records) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(records))
-	}
+	require.Len(t, records,
+		2)
 
 	r := records[0]
-	if r.EventID != "evt-1" || r.RunID != "run-1" || r.ProjectID != "proj-1" || r.JobID != "job-1" {
-		t.Errorf("record 0 IDs mismatch: %+v", r)
-	}
-	if r.EventType != "log" || r.Level != "info" || r.Message != "hello" {
-		t.Errorf("record 0 fields mismatch: %+v", r)
-	}
-	if r.Metadata != `{"key":"val"}` {
-		t.Errorf("record 0 metadata = %q, want %q", r.Metadata, `{"key":"val"}`)
-	}
+	assert.False(t,
+		r.EventID != "evt-1" ||
+			r.RunID !=
+				"run-1" ||
+			r.ProjectID !=
+				"proj-1" || r.JobID != "job-1",
+	)
+	assert.False(t,
+		r.EventType != "log" ||
+			r.Level !=
+				"info" ||
+			r.Message !=
+				"hello",
+	)
+	assert.JSONEq(t,
+		`{"key":"val"}`,
+		r.Metadata,
+	)
 
 	r2 := records[1]
-	if r2.Metadata != "" {
-		t.Errorf("record 1 metadata = %q, want empty", r2.Metadata)
-	}
+	assert.Empty(t,
+		r2.Metadata)
 }
 
 func TestRunAnalyticsRecordFromLifecycleEvent(t *testing.T) {
@@ -341,22 +322,43 @@ func TestRunAnalyticsRecordFromLifecycleEvent(t *testing.T) {
 		Job:       &domain.Job{ExecutionMode: domain.ExecutionModeHTTP},
 		QueueWait: 250 * time.Millisecond,
 	}, createdAt)
+	require.False(t,
+		record.RunID !=
+			"run-1" ||
+			record.JobID !=
+				"job-1" ||
+			record.
+				ProjectID != "proj-1")
+	require.False(t,
+		record.Status !=
+			string(domain.
+				StatusCompleted,
+			) ||
+			record.
+				ExecutionMode != string(domain.
+				ExecutionModeHTTP))
+	require.False(t,
+		record.Attempt !=
+			2 || record.
+			DurationMs !=
+			1500 ||
+			record.
+				QueueWaitMs != 250)
+	require.False(t,
+		record.TriggeredBy !=
+			"manual" ||
+			record.
+				Tags !=
+				`{"env":"prod"}` ||
+			record.JobVersionID !=
+				"version-1")
+	require.False(t,
+		!record.CreatedAt.
+			Equal(createdAt) ||
+			record.StartedAt !=
 
-	if record.RunID != "run-1" || record.JobID != "job-1" || record.ProjectID != "proj-1" {
-		t.Fatalf("record IDs mismatch: %+v", record)
-	}
-	if record.Status != string(domain.StatusCompleted) || record.ExecutionMode != string(domain.ExecutionModeHTTP) {
-		t.Fatalf("record status/mode mismatch: %+v", record)
-	}
-	if record.Attempt != 2 || record.DurationMs != 1500 || record.QueueWaitMs != 250 {
-		t.Fatalf("record timing mismatch: %+v", record)
-	}
-	if record.TriggeredBy != "manual" || record.Tags != `{"env":"prod"}` || record.JobVersionID != "version-1" {
-		t.Fatalf("record metadata mismatch: %+v", record)
-	}
-	if !record.CreatedAt.Equal(createdAt) || record.StartedAt != &startedAt || record.FinishedAt != &finishedAt {
-		t.Fatalf("record timestamps mismatch: %+v", record)
-	}
+				&startedAt || record.FinishedAt !=
+			&finishedAt)
 }
 
 func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
@@ -394,7 +396,7 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 		select {
 		case <-slowLister.started:
 		case <-time.After(2 * time.Second):
-			t.Fatal("not all goroutines entered ListEvents within 2s")
+			require.Fail(t, "not all goroutines entered ListEvents within 2s")
 		}
 	}
 
@@ -413,10 +415,12 @@ func TestClickHouseSubscriber_SemaphoreWaitsBeforeDropping(t *testing.T) {
 	case <-done:
 		elapsed := time.Since(start)
 		if elapsed < 100*time.Millisecond {
-			t.Errorf("subscriber returned too quickly (%v), expected to wait on semaphore", elapsed)
+			assert.Failf(t, "test failure",
+
+				"subscriber returned too quickly (%v), expected to wait on semaphore", elapsed)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("subscriber did not return within expected timeout")
+		require.Fail(t, "subscriber did not return within expected timeout")
 	}
 
 	cancelAll()
@@ -480,13 +484,11 @@ func TestClickHouseSubscriberHandle_WaitDrainsGoroutines(t *testing.T) {
 	case <-done:
 		// All goroutines drained successfully.
 	case <-time.After(5 * time.Second):
-		t.Fatal("Wait did not return within 5 seconds")
+		require.Fail(t, "Wait did not return within 5 seconds")
 	}
+	assert.Equal(t, 2, exporter.PendingCount())
 
 	// Verify the events were enqueued: 1 analytics + 1 event record = 2.
-	if exporter.PendingCount() != 2 {
-		t.Errorf("expected 2 pending (1 analytics + 1 event), got %d", exporter.PendingCount())
-	}
 }
 
 func TestClickHouseSubscriberHandle_WaitNoGoroutines(t *testing.T) {
@@ -506,7 +508,7 @@ func TestClickHouseSubscriberHandle_WaitNoGoroutines(t *testing.T) {
 	case <-done:
 		// Returned immediately.
 	case <-time.After(time.Second):
-		t.Fatal("Wait blocked on handle with no goroutines")
+		require.Fail(t, "Wait blocked on handle with no goroutines")
 	}
 }
 
@@ -527,9 +529,9 @@ func TestIsTerminalEvent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(string(tt.eventType), func(t *testing.T) {
 			t.Parallel()
-			if got := isTerminalEvent(tt.eventType); got != tt.want {
-				t.Errorf("isTerminalEvent(%s) = %v, want %v", tt.eventType, got, tt.want)
-			}
+			assert.Equal(t,
+				tt.want, isTerminalEvent(tt.
+					eventType))
 		})
 	}
 }

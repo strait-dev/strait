@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeRetentionRow / fakeRetentionDB exists to capture the surface contract
@@ -61,13 +63,12 @@ func TestDeleteAuditEventsBeforeExcluding_EnumeratesInAutocommit(t *testing.T) {
 	q := New(fake)
 
 	_, err := q.DeleteAuditEventsBeforeExcluding(context.Background(), time.Now().UTC(), nil)
-	if err == nil {
-		t.Fatal("expected enumeration error from fake, got nil")
-	}
-	if !fake.queryCalled {
-		t.Fatal("expected enumeration SELECT via q.db.Query; not observed")
-	}
-	if fake.beginCalled {
-		t.Error("DeleteAuditEventsBeforeExcluding opened a surrounding tx; expected per-project chunking via DeleteAuditEventsBefore instead")
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		fake.queryCalled,
+	)
+	assert.False(t,
+		fake.beginCalled,
+	)
 }

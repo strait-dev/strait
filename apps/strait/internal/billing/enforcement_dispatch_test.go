@@ -3,7 +3,6 @@ package billing
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newFakeDispatcherEnforcer returns an Enforcer wired to a mockBillingStore
@@ -50,18 +51,21 @@ func TestCheckSpendingLimit_DispatchesCapWarningAt80Pct(t *testing.T) {
 	t.Parallel()
 
 	sub := newPaidSubscription("org_warn", string(domain.PlanPro), 1_000_000, "block") // $1.00 cap
-	e, _, d := newFakeDispatcherEnforcer(t, sub, 850_000)                              // 85% of cap
+	e, _, d := newFakeDispatcherEnforcer(t, sub, 850_000)
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.
+			OrgID))
 
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("CheckSpendingLimit err = %v", err)
-	}
+	// 85% of cap
+
 	got := dispatchedEventTypes(d)
-	if !contains(got, domain.WebhookEventBillingCapWarning) {
-		t.Errorf("cap_warning not dispatched; got events %v", got)
-	}
-	if contains(got, domain.WebhookEventBillingCapReached) {
-		t.Errorf("cap_reached should not dispatch under 100%%; got %v", got)
-	}
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingCapWarning,
+	))
+	assert.False(t, contains(got, domain.
+		WebhookEventBillingCapReached,
+	))
 }
 
 func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T) {
@@ -73,26 +77,29 @@ func TestCheckSpendingLimit_DispatchesCapReachedAndOverageDisabled(t *testing.T)
 
 	err := e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	var limitErr *LimitError
-	if !errors.As(err, &limitErr) {
-		t.Fatalf("CheckSpendingLimit err = %v, want *LimitError", err)
-	}
+	require.ErrorAs(t, err, &limitErr)
+
 	got := dispatchedEventTypes(d)
-	if !contains(got, domain.WebhookEventBillingCapReached) {
-		t.Errorf("cap_reached not dispatched; got %v", got)
-	}
-	if !contains(got, domain.WebhookEventBillingOverageDisabled) {
-		t.Errorf("overage_disabled not dispatched on action=block; got %v", got)
-	}
-	if contains(got, domain.WebhookEventBillingCapDisabled) {
-		t.Errorf("cap_disabled should not fire on action=block; got %v", got)
-	}
-	if store.pausedOrgID != sub.OrgID || store.pausedReason != "quota_exceeded" {
-		t.Fatalf("spending cap should pause org schedules with quota_exceeded, got org=%q reason=%q",
-			store.pausedOrgID, store.pausedReason)
-	}
-	if cnt := countEvent(got, domain.WebhookEventScheduleSuspended); cnt != 2 {
-		t.Fatalf("schedule.suspended events = %d, want 2 for paused schedules", cnt)
-	}
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingCapReached,
+	))
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingOverageDisabled,
+	))
+	assert.False(t, contains(got, domain.
+		WebhookEventBillingCapDisabled,
+	))
+	require.False(t,
+		store.pausedOrgID !=
+			sub.OrgID ||
+			store.
+				pausedReason !=
+				"quota_exceeded",
+	)
+	require.Equal(t, 2, countEvent(got,
+		domain.WebhookEventScheduleSuspended,
+	),
+	)
 }
 
 func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
@@ -116,23 +123,23 @@ func TestCheckMonthlyRunLimit_FreeCapPausesSchedules(t *testing.T) {
 	e := NewEnforcer(store, rdb, nil, WithBillingDispatcher(d))
 
 	key := monthlyRunKey(orgID, time.Now())
-	if err := mr.Set(key, "5000"); err != nil {
-		t.Fatalf("seed monthly run count: %v", err)
-	}
+	require.NoError(t,
+		mr.Set(key, "5000"))
+
 	mr.SetTTL(key, time.Hour)
 
 	err := e.CheckMonthlyRunLimitForRun(context.Background(), orgID, "run-free-cap")
 	var limitErr *LimitError
-	if !errors.As(err, &limitErr) {
-		t.Fatalf("CheckMonthlyRunLimitForRun err = %v, want *LimitError", err)
-	}
-	if store.pausedOrgID != orgID || store.pausedReason != "quota_exceeded" {
-		t.Fatalf("free monthly cap should pause org schedules with quota_exceeded, got org=%q reason=%q",
-			store.pausedOrgID, store.pausedReason)
-	}
-	if got := countEvent(dispatchedEventTypes(d), domain.WebhookEventScheduleSuspended); got != 1 {
-		t.Fatalf("schedule.suspended events = %d, want 1", got)
-	}
+	require.ErrorAs(t, err, &limitErr)
+	require.False(t,
+		store.pausedOrgID !=
+			orgID ||
+			store.pausedReason !=
+				"quota_exceeded",
+	)
+	require.Equal(t, 1, countEvent(dispatchedEventTypes(d),
+		domain.WebhookEventScheduleSuspended,
+	))
 }
 
 func TestDeepSecCheckSpendingLimitNotifyDispatchesWithoutRejecting(t *testing.T) {
@@ -140,17 +147,18 @@ func TestDeepSecCheckSpendingLimitNotifyDispatchesWithoutRejecting(t *testing.T)
 
 	sub := newPaidSubscription("org_notify", string(domain.PlanPro), 1_000_000, "notify")
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.
+			OrgID))
 
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("notify spending cap should not reject dispatch, got %v", err)
-	}
 	got := dispatchedEventTypes(d)
-	if !contains(got, domain.WebhookEventBillingCapReached) {
-		t.Errorf("cap_reached not dispatched for notify cap; got %v", got)
-	}
-	if contains(got, domain.WebhookEventBillingOverageDisabled) {
-		t.Errorf("notify cap must not dispatch overage_disabled; got %v", got)
-	}
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingCapReached,
+	))
+	assert.False(t, contains(got, domain.
+		WebhookEventBillingOverageDisabled,
+	))
 }
 
 func TestDeepSecCheckSpendingLimitRejectActionRejects(t *testing.T) {
@@ -160,13 +168,15 @@ func TestDeepSecCheckSpendingLimitRejectActionRejects(t *testing.T) {
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 1_500_000)
 
 	var limitErr *LimitError
-	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &limitErr) {
-		t.Fatal("reject spending cap should return LimitError")
-	}
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
+		Background(), sub.
+		OrgID,
+	), &limitErr)
+
 	got := dispatchedEventTypes(d)
-	if !contains(got, domain.WebhookEventBillingOverageDisabled) {
-		t.Errorf("reject cap should dispatch overage_disabled; got %v", got)
-	}
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingOverageDisabled,
+	))
 }
 
 func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
@@ -176,16 +186,18 @@ func TestCheckSpendingLimit_DispatchesCapDisabledOnDisableAction(t *testing.T) {
 	e, _, d := newFakeDispatcherEnforcer(t, sub, 7_000_000) // 140% of cap
 
 	var capErr *LimitError
-	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &capErr) {
-		t.Fatal("expected LimitError when cap reached")
-	}
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
+		Background(), sub.
+		OrgID,
+	), &capErr)
+
 	got := dispatchedEventTypes(d)
-	if !contains(got, domain.WebhookEventBillingCapDisabled) {
-		t.Errorf("cap_disabled not dispatched on action=disable; got %v", got)
-	}
-	if contains(got, domain.WebhookEventBillingOverageDisabled) {
-		t.Errorf("overage_disabled should not fire on action=disable; got %v", got)
-	}
+	assert.True(t, contains(got, domain.
+		WebhookEventBillingCapDisabled,
+	))
+	assert.False(t, contains(got, domain.
+		WebhookEventBillingOverageDisabled,
+	))
 }
 
 func TestCheckSpendingLimit_DedupPerPeriod(t *testing.T) {
@@ -198,9 +210,10 @@ func TestCheckSpendingLimit_DedupPerPeriod(t *testing.T) {
 		_ = e.CheckSpendingLimit(context.Background(), sub.OrgID)
 	}
 	got := dispatchedEventTypes(d)
-	if cnt := countEvent(got, domain.WebhookEventBillingCapWarning); cnt != 1 {
-		t.Errorf("cap_warning dispatched %d times across 5 calls; want exactly 1", cnt)
-	}
+	assert.Equal(t, 1,
+		countEvent(got,
+			domain.WebhookEventBillingCapWarning,
+		))
 }
 
 func TestCheckSpendingLimit_PeriodRolloverResetsDedup(t *testing.T) {
@@ -208,10 +221,10 @@ func TestCheckSpendingLimit_PeriodRolloverResetsDedup(t *testing.T) {
 
 	sub := newPaidSubscription("org_roll", string(domain.PlanPro), 1_000_000, "block")
 	e, store, d := newFakeDispatcherEnforcer(t, sub, 850_000)
-
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("first check err = %v", err)
-	}
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.
+			OrgID))
 
 	// Simulate period rollover by upserting a subscription with a new
 	// current_period_start; the mock store mirrors PgStore semantics by
@@ -221,14 +234,16 @@ func TestCheckSpendingLimit_PeriodRolloverResetsDedup(t *testing.T) {
 	rolled.CurrentPeriodStart = &newPeriodStart
 	delete(store.capEventMarks, sub.OrgID)
 	store.subscriptions[sub.OrgID] = &rolled
+	require.NoError(t,
+		e.CheckSpendingLimit(context.
+			Background(), sub.
+			OrgID))
 
-	if err := e.CheckSpendingLimit(context.Background(), sub.OrgID); err != nil {
-		t.Fatalf("second period check err = %v", err)
-	}
 	got := dispatchedEventTypes(d)
-	if cnt := countEvent(got, domain.WebhookEventBillingCapWarning); cnt != 2 {
-		t.Errorf("cap_warning dispatched %d times across two periods; want 2", cnt)
-	}
+	assert.Equal(t, 2,
+		countEvent(got,
+			domain.WebhookEventBillingCapWarning,
+		))
 }
 
 func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
@@ -241,9 +256,11 @@ func TestCheckSpendingLimit_NoDispatcherIsNoOp(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, nil) // no dispatcher
 	var noDispErr *LimitError
-	if !errors.As(e.CheckSpendingLimit(context.Background(), sub.OrgID), &noDispErr) {
-		t.Fatal("expected LimitError")
-	}
+	require.ErrorAs(t, e.CheckSpendingLimit(context.
+		Background(), sub.
+		OrgID,
+	), &noDispErr)
+
 	// No panic, no dispatch — already implied by reaching here.
 }
 

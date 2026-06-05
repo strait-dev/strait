@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStandardLoadTestJobConfigsIncludeEnduranceAndErrorJobs(t *testing.T) {
@@ -18,16 +20,15 @@ func TestStandardLoadTestJobConfigsIncludeEnduranceAndErrorJobs(t *testing.T) {
 	}
 
 	for _, slug := range []string{"loadtest-fast-echo", "loadtest-slow-process", "loadtest-errors"} {
-		if _, ok := bySlug[slug]; !ok {
-			t.Fatalf("missing standard load-test job slug %q", slug)
-		}
+		require.Contains(t, bySlug, slug)
 	}
-	if bySlug["loadtest-errors"].EndpointURL != "http://127.0.0.1:9000/error-scenario" {
-		t.Fatalf("error scenario endpoint = %q", bySlug["loadtest-errors"].EndpointURL)
-	}
-	if _, ok := bySlug["loadtest-slow-cpu"]; ok {
-		t.Fatal("obsolete loadtest-slow-cpu slug should not be configured")
-	}
+	require.Equal(t, "http://127.0.0.1:9000/error-scenario",
+
+		bySlug["loadtest-errors"].
+			EndpointURL,
+	)
+
+	require.NotContains(t, bySlug, "loadtest-slow-cpu")
 }
 
 func TestHarnessResolveJobIDUsesSetupIDs(t *testing.T) {
@@ -36,12 +37,8 @@ func TestHarnessResolveJobIDUsesSetupIDs(t *testing.T) {
 			"loadtest-fast-echo": "job-uuid",
 		},
 	}
-	if got := h.ResolveJobID("loadtest-fast-echo"); got != "job-uuid" {
-		t.Fatalf("ResolveJobID() = %q, want job-uuid", got)
-	}
-	if got := h.ResolveJobID("ad-hoc"); got != "ad-hoc" {
-		t.Fatalf("ResolveJobID() fallback = %q, want ad-hoc", got)
-	}
+	require.Equal(t, "job-uuid", h.ResolveJobID("loadtest-fast-echo"))
+	require.Equal(t, "ad-hoc", h.ResolveJobID("ad-hoc"))
 }
 
 func TestHarnessGetQueueStats_RejectsHTTPErrorPayload(t *testing.T) {
@@ -56,12 +53,9 @@ func TestHarnessGetQueueStats_RejectsHTTPErrorPayload(t *testing.T) {
 
 	h := NewHarness(HarnessConfig{StraitURL: srv.URL})
 	_, err := h.GetQueueStats(context.Background(), "project-1")
-	if err == nil {
-		t.Fatal("expected stats request to fail on non-2xx response")
-	}
-	if !strings.Contains(err.Error(), "status 500") {
-		t.Fatalf("error = %v, want status 500 context", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "status 500"))
+
 }
 
 func TestHarnessGetQueueStats_RejectsJSONErrorEnvelope(t *testing.T) {
@@ -75,21 +69,16 @@ func TestHarnessGetQueueStats_RejectsJSONErrorEnvelope(t *testing.T) {
 
 	h := NewHarness(HarnessConfig{StraitURL: srv.URL})
 	_, err := h.GetQueueStats(context.Background(), "project-1")
-	if err == nil {
-		t.Fatal("expected stats request to fail on JSON error envelope")
-	}
-	if !strings.Contains(err.Error(), "stats disabled") {
-		t.Fatalf("error = %v, want envelope message", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "stats disabled"))
+
 }
 
 func TestHarnessGetQueueStats_DecodesValidStats(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("X-Project-Id"); got != "project-1" {
-			t.Fatalf("X-Project-Id = %q, want project-1", got)
-		}
+		require.Equal(t, "project-1", r.Header.Get("X-Project-Id"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"queued":2,"executing":1,"delayed":3,"failed":4,"completed":5}`))
 	}))
@@ -97,10 +86,16 @@ func TestHarnessGetQueueStats_DecodesValidStats(t *testing.T) {
 
 	h := NewHarness(HarnessConfig{StraitURL: srv.URL})
 	stats, err := h.GetQueueStats(context.Background(), "project-1")
-	if err != nil {
-		t.Fatalf("GetQueueStats() error = %v", err)
-	}
-	if stats.QueueDepth() != 5 || stats.Executing != 1 || stats.Failed != 4 || stats.Completed != 5 {
-		t.Fatalf("stats = %+v, want decoded counters", *stats)
-	}
+	require.NoError(t,
+
+		err)
+	require.False(t, stats.
+		QueueDepth() !=
+		5 || stats.Executing !=
+		1 || stats.
+		Failed !=
+		4 || stats.
+		Completed !=
+		5)
+
 }

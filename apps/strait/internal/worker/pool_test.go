@@ -2,26 +2,24 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPool_MinimumConcurrency(t *testing.T) {
 	t.Parallel()
 	p0 := NewPool(0)
-	if got := p0.Available(); got != 1 {
-		t.Fatalf("NewPool(0) available = %d, want %d", got, 1)
-	}
+	require.Equal(t, 1, p0.Available())
+
 	_ = p0.Shutdown(context.Background())
 
 	pNeg := NewPool(-1)
-	if got := pNeg.Available(); got != 1 {
-		t.Fatalf("NewPool(-1) available = %d, want %d", got, 1)
-	}
+	require.Equal(t, 1, pNeg.Available())
+
 	_ = pNeg.Shutdown(context.Background())
 }
 
@@ -37,7 +35,7 @@ func TestPool_Submit_ExecutesWork(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("work not executed within timeout")
+		require.Fail(t, "work not executed within timeout")
 	}
 
 	_ = p.Shutdown(context.Background())
@@ -61,13 +59,10 @@ func TestPool_ConcurrencyLimit(t *testing.T) {
 		select {
 		case <-started:
 		case <-time.After(time.Second):
-			t.Fatal("expected first two tasks to start")
+			require.Fail(t, "expected first two tasks to start")
 		}
 	}
-
-	if got := p.ActiveCount(); got != 2 {
-		t.Fatalf("ActiveCount() = %d, want %d", got, 2)
-	}
+	require.Equal(t, 2, p.ActiveCount())
 
 	close(block)
 	_ = p.Shutdown(context.Background())
@@ -89,7 +84,7 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("task did not start")
+		require.Fail(t, "task did not start")
 	}
 
 	shutdownReturned := make(chan struct{})
@@ -100,7 +95,7 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 
 	select {
 	case <-shutdownReturned:
-		t.Fatal("Shutdown returned before in-flight task completed")
+		require.Fail(t, "Shutdown returned before in-flight task completed")
 	case <-time.After(150 * time.Millisecond):
 	}
 
@@ -109,7 +104,7 @@ func TestPool_Shutdown_WaitsForInFlight(t *testing.T) {
 	select {
 	case <-shutdownReturned:
 	case <-time.After(time.Second):
-		t.Fatal("Shutdown did not return after task completion")
+		require.Fail(t, "Shutdown did not return after task completion")
 	}
 }
 
@@ -125,9 +120,8 @@ func TestPool_Submit_CanceledContext(t *testing.T) {
 	})
 
 	time.Sleep(50 * time.Millisecond)
-	if ran.Load() {
-		t.Fatal("work executed despite canceled context")
-	}
+	require.False(t,
+		ran.Load())
 
 	_ = p.Shutdown(context.Background())
 }
@@ -150,13 +144,10 @@ func TestPool_ActiveCount(t *testing.T) {
 		select {
 		case <-started:
 		case <-time.After(time.Second):
-			t.Fatal("tasks did not start in time")
+			require.Fail(t, "tasks did not start in time")
 		}
 	}
-
-	if got := p.ActiveCount(); got != 2 {
-		t.Fatalf("ActiveCount() = %d, want %d", got, 2)
-	}
+	require.Equal(t, 2, p.ActiveCount())
 
 	close(release)
 	_ = p.Shutdown(context.Background())
@@ -178,12 +169,10 @@ func TestPool_Shutdown_RespectsContext(t *testing.T) {
 	defer cancel()
 
 	err := p.Shutdown(ctx)
-	if err == nil {
-		t.Fatal("expected timeout error from Shutdown, got nil")
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
-	}
+	require.Error(t,
+		err)
+	require.ErrorIs(t,
+		err, context.DeadlineExceeded)
 }
 
 func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
@@ -194,9 +183,8 @@ func TestPool_Shutdown_ReturnsNilOnSuccess(t *testing.T) {
 	<-done
 
 	err := p.Shutdown(context.Background())
-	if err != nil {
-		t.Fatalf("expected nil error from Shutdown, got %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestPool_Metrics(t *testing.T) {
@@ -216,23 +204,13 @@ func TestPool_Metrics(t *testing.T) {
 
 	<-started
 	<-started
-
-	if got := p.RunningWorkers(); got != 2 {
-		t.Fatalf("RunningWorkers() = %d, want 2", got)
-	}
-	if got := p.SubmittedTasks(); got != 2 {
-		t.Fatalf("SubmittedTasks() = %d, want 2", got)
-	}
+	require.EqualValues(t, 2, p.RunningWorkers())
+	require.EqualValues(t, 2, p.SubmittedTasks())
 
 	close(release)
 	_ = p.Shutdown(context.Background())
-
-	if got := p.CompletedTasks(); got != 2 {
-		t.Fatalf("CompletedTasks() = %d, want 2", got)
-	}
-	if got := p.SuccessfulTasks(); got != 2 {
-		t.Fatalf("SuccessfulTasks() = %d, want 2", got)
-	}
+	require.EqualValues(t, 2, p.CompletedTasks())
+	require.EqualValues(t, 2, p.SuccessfulTasks())
 }
 
 func TestPool_WithQueueSize(t *testing.T) {
@@ -252,8 +230,5 @@ func TestPool_WithQueueSize(t *testing.T) {
 
 	close(block)
 	_ = p.Shutdown(context.Background())
-
-	if got := p.SubmittedTasks(); got != 3 {
-		t.Fatalf("SubmittedTasks() = %d, want 3", got)
-	}
+	require.EqualValues(t, 3, p.SubmittedTasks())
 }

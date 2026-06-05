@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/pubsub"
 
@@ -51,12 +53,10 @@ func TestConsumerRegisterHandler(t *testing.T) {
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
 
 	h, ok := consumer.handlers["job_runs"]
-	if !ok {
-		t.Fatal("handler not registered")
-	}
-	if h.Table() != "job_runs" {
-		t.Fatalf("handler table = %q, want %q", h.Table(), "job_runs")
-	}
+	assert.True(
+		t, ok)
+	assert.Equal(t, "job_runs", h.
+		Table())
 }
 
 func TestConsumerRegisterMultipleHandlers(t *testing.T) {
@@ -64,10 +64,9 @@ func TestConsumerRegisterMultipleHandlers(t *testing.T) {
 	consumer := NewConsumer(NewClient("http://example.com", "consumer", ""), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
 	consumer.RegisterHandler(HandlerFunc{TableName: "jobs", Fn: func(context.Context, Message) error { return nil }})
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
-
-	if len(consumer.handlers) != 2 {
-		t.Fatalf("len(handlers) = %d, want 2", len(consumer.handlers))
-	}
+	assert.Len(t,
+		consumer.handlers,
+		2)
 }
 
 func TestConsumerBatchPublishFailureSentryScope(t *testing.T) {
@@ -78,18 +77,14 @@ func TestConsumerBatchPublishFailureSentryScope(t *testing.T) {
 	consumer.applyBatchPublishFailureSentryScope(scope, 3)
 
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
-	if event.Tags["subsystem"] != "cdc" {
-		t.Fatalf("subsystem tag = %q, want cdc", event.Tags["subsystem"])
-	}
-	if event.Tags["consumer"] != "cdc-consumer" {
-		t.Fatalf("consumer tag = %q, want cdc-consumer", event.Tags["consumer"])
-	}
-	if event.Tags["operation"] != "publish_batch" {
-		t.Fatalf("operation tag = %q, want publish_batch", event.Tags["operation"])
-	}
-	if event.Contexts["cdc.batch"]["batch_count"] != 3 {
-		t.Fatalf("batch_count context = %v, want 3", event.Contexts["cdc.batch"]["batch_count"])
-	}
+	assert.Equal(t, "cdc", event.
+		Tags["subsystem"])
+	assert.Equal(t, "cdc-consumer",
+		event.Tags["consumer"])
+	assert.Equal(t, "publish_batch",
+		event.
+			Tags["operation"])
+	assert.EqualValues(t, 3, event.Contexts["cdc.batch"]["batch_count"])
 }
 
 func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
@@ -111,7 +106,7 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 		case "/api/http_pull_consumers/c1/nack":
 			nackCalls++
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -120,29 +115,22 @@ func TestConsumerPollRoutesByTableAndAcksSuccess(t *testing.T) {
 	consumer.RegisterHandler(HandlerFunc{
 		TableName: "job_runs",
 		Fn: func(_ context.Context, msg Message) error {
-			if msg.AckID != "a1" {
-				t.Fatalf("ack id = %q, want %q", msg.AckID, "a1")
-			}
+			assert.Equal(t, "a1", msg.AckID)
+
 			handled.Add(1)
 			return nil
 		},
 	})
+	require.NoError(t, consumer.poll(context.
+		Background()))
+	assert.EqualValues(t, 1, handled.Load())
 
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
-
-	if handled.Load() != 1 {
-		t.Fatalf("handled = %d, want 1", handled.Load())
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 1 || len(ackIDs[0]) != 1 || ackIDs[0][0] != "a1" {
-		t.Fatalf("ackIDs = %#v, want [[\"a1\"]]", ackIDs)
-	}
-	if nackCalls != 0 {
-		t.Fatalf("nackCalls = %d, want 0", nackCalls)
-	}
+	assert.False(t, len(ackIDs) !=
+		1 || len(ackIDs[0]) !=
+		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, 0, nackCalls)
 }
 
 func TestConsumerPollHandlerFailureNacks(t *testing.T) {
@@ -163,7 +151,7 @@ func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 			nackIDs = append(nackIDs, ids)
 			mu.Unlock()
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -173,19 +161,14 @@ func TestConsumerPollHandlerFailureNacks(t *testing.T) {
 		TableName: "job_runs",
 		Fn:        func(context.Context, Message) error { return errors.New("boom") },
 	})
+	require.NoError(t, consumer.poll(context.
+		Background()))
+	assert.Equal(t, 0, ackCalls)
 
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
-
-	if ackCalls != 0 {
-		t.Fatalf("ackCalls = %d, want 0", ackCalls)
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(nackIDs) != 1 || len(nackIDs[0]) != 1 || nackIDs[0][0] != "a1" {
-		t.Fatalf("nackIDs = %#v, want [[\"a1\"]]", nackIDs)
-	}
+	assert.False(t, len(nackIDs) !=
+		1 || len(nackIDs[0]) != 1 || nackIDs[0][0] != "a1")
 }
 
 func TestConsumerPollUnknownTableAcks(t *testing.T) {
@@ -206,24 +189,21 @@ func TestConsumerPollUnknownTableAcks(t *testing.T) {
 		case "/api/http_pull_consumers/c3/nack":
 			nackCalls++
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
 
 	consumer := NewConsumer(NewClient(ts.URL, "c3", "token"), ConsumerConfig{ConsumerName: "c3", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 1 || len(ackIDs[0]) != 1 || ackIDs[0][0] != "a1" {
-		t.Fatalf("ackIDs = %#v, want [[\"a1\"]]", ackIDs)
-	}
-	if nackCalls != 0 {
-		t.Fatalf("nackCalls = %d, want 0", nackCalls)
-	}
+	assert.False(t, len(ackIDs) !=
+		1 || len(ackIDs[0]) !=
+		1 || ackIDs[0][0] != "a1")
+	assert.Equal(t, 0, nackCalls)
 }
 
 func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
@@ -244,7 +224,7 @@ func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
 		case "/api/http_pull_consumers/c-empty/nack":
 			nackCalls++
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -255,21 +235,18 @@ func TestConsumerPollEmptyTableAcksWithoutWarn(t *testing.T) {
 		ConsumerConfig{ConsumerName: "c-empty", BatchSize: 10, WaitTimeMs: 1},
 		slog.New(logs),
 	)
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 1 || len(ackIDs[0]) != 1 || ackIDs[0][0] != "a-empty" {
-		t.Fatalf("ackIDs = %#v, want [[\"a-empty\"]]", ackIDs)
-	}
-	if nackCalls != 0 {
-		t.Fatalf("nackCalls = %d, want 0", nackCalls)
-	}
-	if logs.warnCount.Load() != 0 {
-		t.Fatalf("warn count = %d, want 0 for empty table event", logs.warnCount.Load())
-	}
+	assert.False(t, len(ackIDs) !=
+		1 || len(ackIDs[0]) !=
+		1 || ackIDs[0][0] != "a-empty",
+	)
+	assert.Equal(t, 0, nackCalls)
+	assert.EqualValues(t, 0, logs.warnCount.
+		Load())
 }
 
 func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
@@ -293,7 +270,7 @@ func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
 			nackIDs = append(nackIDs, ids...)
 			mu.Unlock()
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -308,22 +285,18 @@ func TestConsumerPollMixedBatchAckNackSplit(t *testing.T) {
 			return nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 2 {
-		t.Fatalf("len(ackIDs) = %d, want 2", len(ackIDs))
-	}
-	if !slices.Contains(ackIDs, "a1") || !slices.Contains(ackIDs, "a3") {
-		t.Fatalf("ackIDs = %v, want [a1 a3]", ackIDs)
-	}
-	if len(nackIDs) != 1 || nackIDs[0] != "a2" {
-		t.Fatalf("nackIDs = %v, want [a2]", nackIDs)
-	}
+	assert.Len(t,
+		ackIDs, 2)
+	assert.False(t, !slices.Contains(ackIDs,
+		"a1") || !slices.Contains(ackIDs, "a3"))
+	assert.False(t, len(nackIDs) !=
+		1 || nackIDs[0] !=
+		"a2")
 }
 
 func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
@@ -340,22 +313,17 @@ func TestConsumerPollEmptyBatchNoAckNack(t *testing.T) {
 		case "/api/http_pull_consumers/c5/nack":
 			nackCalls.Add(1)
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
 
 	consumer := NewConsumer(NewClient(ts.URL, "c5", "token"), ConsumerConfig{ConsumerName: "c5", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
-
-	if ackCalls.Load() != 0 {
-		t.Fatalf("ackCalls = %d, want 0", ackCalls.Load())
-	}
-	if nackCalls.Load() != 0 {
-		t.Fatalf("nackCalls = %d, want 0", nackCalls.Load())
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
+	assert.EqualValues(t, 0, ackCalls.Load())
+	assert.EqualValues(t, 0, nackCalls.
+		Load())
 }
 
 func TestConsumerRunStopsOnContextCancel(t *testing.T) {
@@ -370,7 +338,9 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":[]}`))
 			return
 		}
-		t.Fatalf("unexpected path: %s", r.URL.Path)
+		assert.Failf(t, "test failure",
+
+			"unexpected path: %s", r.URL.Path)
 	}))
 	defer ts.Close()
 
@@ -387,7 +357,7 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 	for receiveCalls.Load() < 1 {
 		select {
 		case <-deadline:
-			t.Fatal("consumer never called /receive within 2s")
+			assert.Fail(t, "consumer never called /receive within 2s")
 		default:
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -397,12 +367,10 @@ func TestConsumerRunStopsOnContextCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("consumer did not stop after context cancellation")
+		assert.Fail(t, "consumer did not stop after context cancellation")
 	}
-
-	if receiveCalls.Load() < 1 {
-		t.Fatalf("receiveCalls = %d, want at least 1", receiveCalls.Load())
-	}
+	assert.GreaterOrEqual(t, receiveCalls.
+		Load(), int32(1))
 }
 
 func TestConsumer_Shutdown_Idle(t *testing.T) {
@@ -411,10 +379,7 @@ func TestConsumer_Shutdown_Idle(t *testing.T) {
 	consumer := NewConsumer(NewClient("http://example.com", "consumer", "token"), ConsumerConfig{ConsumerName: "consumer"}, slog.Default())
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
-
-	if err := consumer.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v, want nil", err)
-	}
+	assert.NoError(t, consumer.Shutdown(shutdownCtx))
 }
 
 func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
@@ -426,9 +391,9 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	allowPollExit := make(chan struct{})
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/http_pull_consumers/c-shutdown/receive" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
+		assert.Equal(t, "/api/http_pull_consumers/c-shutdown/receive",
+
+			r.URL.Path)
 
 		select {
 		case <-pollStarted:
@@ -462,7 +427,7 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	select {
 	case <-pollStarted:
 	case <-time.After(time.Second):
-		t.Fatal("poll did not start")
+		assert.Fail(t, "poll did not start")
 	}
 
 	shutdownDone := make(chan error, 1)
@@ -474,7 +439,7 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 
 	select {
 	case err := <-shutdownDone:
-		t.Fatalf("Shutdown returned early with err=%v", err)
+		assert.Failf(t, "test failure", "Shutdown returned early with err=%v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -483,16 +448,18 @@ func TestConsumer_Shutdown_WaitsForPoll(t *testing.T) {
 	select {
 	case err := <-shutdownDone:
 		if err != nil {
-			t.Fatalf("Shutdown() error = %v, want nil", err)
+			assert.Failf(t, "test failure",
+
+				"Shutdown() error = %v, want nil", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Shutdown did not return after poll completed")
+		assert.Fail(t, "Shutdown did not return after poll completed")
 	}
 
 	select {
 	case <-runDone:
 	case <-time.After(time.Second):
-		t.Fatal("consumer did not stop after shutdown")
+		assert.Fail(t, "consumer did not stop after shutdown")
 	}
 }
 
@@ -501,9 +468,10 @@ func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
 	var calls atomic.Int32
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/http_pull_consumers/c7/receive" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
+		assert.Equal(t, "/api/http_pull_consumers/c7/receive",
+
+			r.URL.Path,
+		)
 
 		if calls.Add(1) == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -520,10 +488,9 @@ func TestConsumerRunContinuesAfterRecoverableError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 6200*time.Millisecond)
 	defer cancel()
 	consumer.Run(ctx)
-
-	if calls.Load() < 2 {
-		t.Fatalf("receive calls = %d, want at least 2", calls.Load())
-	}
+	assert.GreaterOrEqual(t, calls.
+		Load(),
+		int32(2))
 }
 
 func TestConsumer_ProcessMessages_AckError(t *testing.T) {
@@ -536,9 +503,9 @@ func TestConsumer_ProcessMessages_AckError(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("ack failed"))
 		case "/api/http_pull_consumers/c-ack/nack":
-			t.Fatal("nack should not be called")
+			assert.Fail(t, "nack should not be called")
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -547,12 +514,10 @@ func TestConsumer_ProcessMessages_AckError(t *testing.T) {
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return nil }})
 
 	err := consumer.poll(context.Background())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "ack cdc messages") {
-		t.Errorf("error = %v, want ack context", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "ack cdc messages",
+	)
 }
 
 func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
@@ -563,7 +528,7 @@ func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("receive failed"))
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -571,12 +536,9 @@ func TestConsumerPoll_ReceiveErrorWrapped(t *testing.T) {
 	consumer := NewConsumer(NewClient(ts.URL, "c-receive", "token"), ConsumerConfig{ConsumerName: "c-receive", BatchSize: 10, WaitTimeMs: 1}, slog.Default())
 
 	err := consumer.poll(context.Background())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "receive cdc messages") {
-		t.Errorf("error = %v, want receive context", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "receive cdc messages")
 }
 
 func TestConsumerPoll_NackErrorWrapped(t *testing.T) {
@@ -586,12 +548,12 @@ func TestConsumerPoll_NackErrorWrapped(t *testing.T) {
 		case "/api/http_pull_consumers/c-nack/receive":
 			_, _ = w.Write([]byte(`{"data":[{"ack_id":"a1","record":{"id":1},"action":"update","metadata":{"table_name":"job_runs"}}]}`))
 		case "/api/http_pull_consumers/c-nack/ack":
-			t.Fatal("ack should not be called")
+			assert.Fail(t, "ack should not be called")
 		case "/api/http_pull_consumers/c-nack/nack":
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte("nack failed"))
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -600,49 +562,44 @@ func TestConsumerPoll_NackErrorWrapped(t *testing.T) {
 	consumer.RegisterHandler(HandlerFunc{TableName: "job_runs", Fn: func(context.Context, Message) error { return errors.New("boom") }})
 
 	err := consumer.poll(context.Background())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "nack cdc messages") {
-		t.Errorf("error = %v, want nack context", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.Error(), "nack cdc messages")
 }
 
 func decodeAckIDs(t *testing.T, r *http.Request) []string {
 	t.Helper()
-	if r.Method != http.MethodPost {
-		t.Fatalf("method = %q, want %q", r.Method, http.MethodPost)
-	}
-	if r.Header.Get("Content-Type") != "application/json" {
-		t.Fatalf("Content-Type = %q, want %q", r.Header.Get("Content-Type"), "application/json")
-	}
-	if got := r.Header.Get("Authorization"); got == "" {
-		t.Fatal("Authorization header not set")
-	}
+	assert.Equal(t, http.MethodPost,
+		r.Method,
+	)
+	assert.Equal(t, "application/json",
+		r.Header.
+			Get("Content-Type"))
+	assert.NotEmpty(t, r.Header.
+		Get("Authorization"))
 
 	var body struct {
 		AckIDs []string `json:"ack_ids"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
+	assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+
 	return body.AckIDs
 }
 
 func TestConsumerDefaultWaitTimeMs(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
-	if consumer.config.WaitTimeMs != 1000 {
-		t.Fatalf("default WaitTimeMs = %d, want 1000", consumer.config.WaitTimeMs)
-	}
+	assert.Equal(t, 1000, consumer.
+		config.WaitTimeMs,
+	)
 }
 
 func TestConsumerDefaultBatchSize(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://localhost", "c1", "token"), ConsumerConfig{ConsumerName: "c1"}, nil)
-	if consumer.config.BatchSize != 200 {
-		t.Fatalf("default BatchSize = %d, want 200", consumer.config.BatchSize)
-	}
+	assert.Equal(t, 200, consumer.
+		config.BatchSize,
+	)
 }
 
 func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
@@ -664,7 +621,9 @@ func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
 				BatchSize int `json:"batch_size"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Errorf("decode receive body: %v", err)
+				assert.Failf(t, "test failure",
+
+					"decode receive body: %v", err)
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -691,9 +650,9 @@ func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
 				ackedIDs.Store(id, struct{}{})
 			}
 		case "/api/http_pull_consumers/c-bs/nack":
-			t.Errorf("unexpected nack call")
+			assert.Failf(t, "test failure", "unexpected nack call")
 		default:
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+			assert.Failf(t, "test failure", "unexpected path: %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
@@ -710,22 +669,20 @@ func TestConsumerPoll_LargeBatchSize_HonoredAndRoutedInOnePoll(t *testing.T) {
 			return nil
 		},
 	})
+	require.NoError(t, consumer.poll(context.
+		Background()))
+	assert.Equal(t, wantBatchSize,
+		int(seenBatchSz.
+			Load()))
+	assert.Equal(t, messageCount,
+		int(handled.
+			Load()))
 
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll returned error: %v", err)
-	}
-
-	if got := int(seenBatchSz.Load()); got != wantBatchSize {
-		t.Fatalf("server saw batch_size = %d, want %d", got, wantBatchSize)
-	}
-	if got := int(handled.Load()); got != messageCount {
-		t.Fatalf("handled = %d, want %d (all messages in one poll)", got, messageCount)
-	}
 	ackedCount := 0
 	ackedIDs.Range(func(_, _ any) bool { ackedCount++; return true })
-	if ackedCount != messageCount {
-		t.Fatalf("acked = %d, want %d", ackedCount, messageCount)
-	}
+	assert.Equal(t, messageCount,
+		ackedCount,
+	)
 }
 
 func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
@@ -764,7 +721,7 @@ func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
 	for receiveCalls.Load() < 1 {
 		select {
 		case <-deadline:
-			t.Fatal("receive was never called")
+			assert.Fail(t, "receive was never called")
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -773,14 +730,12 @@ func TestConsumer_ShutdownDuringErrorBackoff(t *testing.T) {
 	// Shutdown while consumer is in 5s error backoff.
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	if err := consumer.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown during error backoff: %v", err)
-	}
+	require.NoError(t, consumer.Shutdown(shutdownCtx))
 
 	select {
 	case <-runDone:
 	case <-time.After(10 * time.Second):
-		t.Fatal("consumer did not stop after shutdown during error backoff")
+		assert.Fail(t, "consumer did not stop after shutdown during error backoff")
 	}
 }
 
@@ -852,31 +807,25 @@ func TestConsumer_CollectReturnsNilMessage_AcksWithoutPublish(t *testing.T) {
 			return nil, nil
 		},
 	})
-
-	if err := consumer.poll(context.Background()); err != nil {
-		t.Fatalf("poll error: %v", err)
-	}
+	require.NoError(t, consumer.poll(context.
+		Background()))
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(ackIDs) != 1 || ackIDs[0] != "a1" {
-		t.Fatalf("ackIDs = %v, want [a1]", ackIDs)
-	}
-	if nackCalls != 0 {
-		t.Fatalf("nackCalls = %d, want 0", nackCalls)
-	}
+	assert.False(t, len(ackIDs) !=
+		1 || ackIDs[0] != "a1",
+	)
+	assert.Equal(t, 0, nackCalls)
+
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
-	if pub.batchCalls != 0 {
-		t.Fatalf("PublishBatch called %d times, want 0 (nil collect should not trigger batch)", pub.batchCalls)
-	}
+	assert.Equal(t, 0, pub.batchCalls)
 }
 
 func TestConsumer_RegisterHandler_Nil(t *testing.T) {
 	t.Parallel()
 	consumer := NewConsumer(NewClient("http://example.com", "c", ""), ConsumerConfig{ConsumerName: "c"}, nil)
 	consumer.RegisterHandler(nil)
-	if len(consumer.handlers) != 0 {
-		t.Fatalf("expected 0 handlers after registering nil, got %d", len(consumer.handlers))
-	}
+	assert.Empty(t,
+		consumer.handlers)
 }

@@ -13,6 +13,8 @@ import (
 	"strait/internal/billing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestPgSLACreditStore_ConcurrentInsert_OneWinner asserts the UNIQUE
@@ -66,24 +68,18 @@ func TestPgSLACreditStore_ConcurrentInsert_OneWinner(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
-
-	if got := winners.Load(); got != 1 {
-		t.Errorf("winners = %d, want 1", got)
-	}
-	if got := alreadyIssued.Load(); got != goroutines-1 {
-		t.Errorf("ErrSLACreditAlreadyIssued count = %d, want %d", got, goroutines-1)
-	}
-	if got := otherErr.Load(); got != 0 {
-		t.Errorf("unexpected other errors = %d, want 0", got)
-	}
+	assert.EqualValues(t, 1, winners.
+		Load())
+	assert.EqualValues(t, goroutines-
+		1, alreadyIssued.
+		Load())
+	assert.EqualValues(t, 0, otherErr.
+		Load())
 
 	row, err := store.GetSLACredit(ctx, orgID, periodStart, periodEnd)
-	if err != nil {
-		t.Fatalf("GetSLACredit: %v", err)
-	}
-	if row == nil {
-		t.Fatal("expected exactly one row to persist")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, row)
+
 }
 
 // TestPgSLACreditStore_ConcurrentDifferentPeriods_AllPersist asserts that
@@ -120,21 +116,17 @@ func TestPgSLACreditStore_ConcurrentDifferentPeriods_AllPersist(t *testing.T) {
 				CreditMicrousd: 10_000_000,
 				IssuedAt:       now,
 			})
-			if err != nil {
-				t.Errorf("insert for [%v, %v): %v", p.start, p.end, err)
-			}
+			assert.NoError(t, err)
+
 		})
 	}
 	wg.Wait()
 
 	for _, p := range periods {
 		row, err := store.GetSLACredit(ctx, orgID, p.start, p.end)
-		if err != nil {
-			t.Fatalf("GetSLACredit [%v, %v): %v", p.start, p.end, err)
-		}
-		if row == nil {
-			t.Errorf("missing row for period [%v, %v)", p.start, p.end)
-		}
+		require.NoError(t, err)
+		assert.NotNil(t, row)
+
 	}
 }
 
@@ -153,34 +145,15 @@ func TestPgSLACreditStore_ReInsertSameID_Idempotent(t *testing.T) {
 	periodEnd := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 2, 2, 0, 0, 0, 0, time.UTC)
 	originalID := uuid.Must(uuid.NewV7()).String()
-
-	if err := store.InsertSLACredit(ctx, billing.SLACreditRow{
-		ID:             originalID,
-		OrgID:          orgID,
-		PeriodStart:    periodStart,
-		PeriodEnd:      periodEnd,
-		UptimePct:      90.0,
-		TargetPct:      99.9,
-		CreditPct:      50,
-		CreditMicrousd: 50_000_000,
-		IssuedAt:       now,
-	}); err != nil {
-		t.Fatalf("first insert: %v", err)
-	}
-
-	if err := store.InsertSLACredit(ctx, billing.SLACreditRow{
-		ID:             originalID,
-		OrgID:          orgID,
-		PeriodStart:    periodStart,
-		PeriodEnd:      periodEnd,
-		UptimePct:      90.0,
-		TargetPct:      99.9,
-		CreditPct:      50,
-		CreditMicrousd: 50_000_000,
-		IssuedAt:       now,
-	}); err != nil {
-		t.Errorf("re-insert with same ID = %v, want nil (cached-state retry should be a no-op)", err)
-	}
+	require.NoError(t, store.
+		InsertSLACredit(ctx,
+			billing.SLACreditRow{ID: originalID,
+				OrgID: orgID, PeriodStart: periodStart, PeriodEnd: periodEnd, UptimePct: 90.0, TargetPct: 99.9, CreditPct: 50, CreditMicrousd: 50_000_000, IssuedAt: now}))
+	assert.NoError(t, store.InsertSLACredit(ctx, billing.
+		SLACreditRow{ID: originalID,
+		OrgID:       orgID,
+		PeriodStart: periodStart, PeriodEnd: periodEnd, UptimePct: 90.0,
+		TargetPct: 99.9, CreditPct: 50, CreditMicrousd: 50_000_000, IssuedAt: now}))
 
 	if err := store.InsertSLACredit(ctx, billing.SLACreditRow{
 		ID:             uuid.Must(uuid.NewV7()).String(),
@@ -193,6 +166,8 @@ func TestPgSLACreditStore_ReInsertSameID_Idempotent(t *testing.T) {
 		CreditMicrousd: 50_000_000,
 		IssuedAt:       now,
 	}); !errors.Is(err, billing.ErrSLACreditAlreadyIssued) {
-		t.Errorf("re-insert with new ID = %v, want ErrSLACreditAlreadyIssued", err)
+		assert.Failf(t, "test failure",
+
+			"re-insert with new ID = %v, want ErrSLACreditAlreadyIssued", err)
 	}
 }

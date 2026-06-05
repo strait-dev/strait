@@ -5,19 +5,20 @@ import (
 	cryptorand "crypto/rand"
 	mathrand "math/rand/v2"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testEncryptor creates an Encryptor with a random 32-byte key for testing.
 func testEncryptor(t *testing.T) *Encryptor {
 	t.Helper()
 	key := make([]byte, 32)
-	if _, err := cryptorand.Read(key); err != nil {
-		t.Fatalf("generating random key: %v", err)
-	}
+	_, err := cryptorand.Read(key)
+	require.NoError(t, err)
 	enc, err := newEncryptorFromBytes(key)
-	if err != nil {
-		t.Fatalf("creating encryptor: %v", err)
-	}
+	require.NoError(t, err)
+
 	return enc
 }
 
@@ -35,18 +36,11 @@ func TestProperty_EncryptionRoundTrip(t *testing.T) {
 		}
 
 		ciphertext, err := enc.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt failed for len=%d: %v", length, err)
-		}
+		require.NoError(t, err)
 
 		decrypted, err := enc.Decrypt(ciphertext)
-		if err != nil {
-			t.Fatalf("Decrypt failed for len=%d: %v", length, err)
-		}
-
-		if !bytes.Equal(plaintext, decrypted) {
-			t.Fatalf("round-trip failed for len=%d: plaintext != decrypted", length)
-		}
+		require.NoError(t, err)
+		assert.True(t, bytes.Equal(plaintext, decrypted))
 	}
 }
 
@@ -64,17 +58,10 @@ func TestProperty_EncryptionDifferentNonce(t *testing.T) {
 		}
 
 		ct1, err := enc.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt (1) failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		ct2, err := enc.Encrypt(plaintext)
-		if err != nil {
-			t.Fatalf("Encrypt (2) failed: %v", err)
-		}
-
-		if bytes.Equal(ct1, ct2) {
-			t.Fatalf("two encryptions of same plaintext (len=%d) produced identical ciphertext", length)
-		}
+		require.NoError(t, err)
+		require.NotEqual(t, ct1, ct2)
 	}
 }

@@ -11,6 +11,9 @@ import (
 
 	"strait/internal/queue"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestListQuarantinedOutbox_ReturnsNewestFirst(t *testing.T) {
@@ -20,29 +23,26 @@ func TestListQuarantinedOutbox_ReturnsNewestFirst(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-list")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-older", time.Now().Add(-2*time.Minute), "older")
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-newer", time.Now().Add(-time.Minute), "newer")
 
 	rows, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListQuarantinedOutbox() error = %v", err)
-	}
-	if len(rows) != 2 {
-		t.Fatalf("rows len = %d, want 2", len(rows))
-	}
-	if rows[0].ID != "outbox-newer" || rows[1].ID != "outbox-older" {
-		t.Fatalf("row order = [%s %s], want [outbox-newer outbox-older]", rows[0].ID, rows[1].ID)
-	}
-	if rows[0].Error != "newer" {
-		t.Fatalf("first row error = %q, want %q", rows[0].Error, "newer")
-	}
-	if rows[0].RetryOfOutboxID != nil {
-		t.Fatalf("first row RetryOfOutboxID = %v, want nil", *rows[0].RetryOfOutboxID)
-	}
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.False(t, rows[0].
+		ID != "outbox-newer" ||
+		rows[1].ID !=
+			"outbox-older",
+	)
+	require.Equal(t, "newer",
+
+		rows[0].
+			Error)
+	require.Nil(t, rows[0].RetryOfOutboxID)
+
 }
 
 func TestListQuarantinedOutbox_PaginatesWithCompositeCursor(t *testing.T) {
@@ -52,33 +52,30 @@ func TestListQuarantinedOutbox_PaginatesWithCompositeCursor(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-pagination")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-a", time.Now().Add(-3*time.Minute), "a")
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-b", time.Now().Add(-2*time.Minute), "b")
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-c", time.Now().Add(-time.Minute), "c")
 
 	firstPage, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 2, nil, "")
-	if err != nil {
-		t.Fatalf("first ListQuarantinedOutbox() error = %v", err)
-	}
-	if len(firstPage) != 2 {
-		t.Fatalf("first page len = %d, want 2", len(firstPage))
-	}
+	require.NoError(t, err)
+	require.Len(t, firstPage,
+
+		2)
 
 	cursorConsumedAt := firstPage[1].ConsumedAt
 	secondPage, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 2, &cursorConsumedAt, firstPage[1].ID)
-	if err != nil {
-		t.Fatalf("second ListQuarantinedOutbox() error = %v", err)
-	}
-	if len(secondPage) != 1 {
-		t.Fatalf("second page len = %d, want 1", len(secondPage))
-	}
-	if secondPage[0].ID != "outbox-a" {
-		t.Fatalf("second page id = %s, want outbox-a", secondPage[0].ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, secondPage,
+
+		1)
+	require.Equal(t, "outbox-a",
+
+		secondPage[0].ID,
+	)
+
 }
 
 func TestGetQuarantinedOutbox_ReturnsStoredRow(t *testing.T) {
@@ -88,22 +85,21 @@ func TestGetQuarantinedOutbox_ReturnsStoredRow(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-get")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-get", time.Now().Add(-time.Minute), "terminal failure")
 
 	row, err := q.GetQuarantinedOutbox(ctx, job.ProjectID, "outbox-get")
-	if err != nil {
-		t.Fatalf("GetQuarantinedOutbox() error = %v", err)
-	}
-	if row.Error != "terminal failure" {
-		t.Fatalf("row.Error = %q, want %q", row.Error, "terminal failure")
-	}
-	if row.RetryOfOutboxID != nil {
-		t.Fatalf("row.RetryOfOutboxID = %v, want nil", *row.RetryOfOutboxID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "terminal failure",
+
+		row.Error,
+	)
+	require.Nil(t, row.
+		RetryOfOutboxID,
+	)
+
 }
 
 func TestGetQuarantinedOutbox_NotFound(t *testing.T) {
@@ -113,9 +109,10 @@ func TestGetQuarantinedOutbox_NotFound(t *testing.T) {
 
 	q := mustStore(t)
 	_, err := q.GetQuarantinedOutbox(ctx, "project-outbox-missing", "missing")
-	if !errors.Is(err, store.ErrOutboxRowNotFound) {
-		t.Fatalf("GetQuarantinedOutbox() error = %v, want %v", err, store.ErrOutboxRowNotFound)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrOutboxRowNotFound,
+	))
+
 }
 
 func TestRetryQuarantinedOutbox_CopiesEnqueueFieldsAndTracksLineage(t *testing.T) {
@@ -125,9 +122,8 @@ func TestRetryQuarantinedOutbox_CopiesEnqueueFieldsAndTracksLineage(t *testing.T
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-retry")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	idempotencyKey := "retry-key"
 	scheduledAt := time.Now().UTC().Truncate(time.Second)
@@ -136,59 +132,68 @@ func TestRetryQuarantinedOutbox_CopiesEnqueueFieldsAndTracksLineage(t *testing.T
 	writeCustomQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-source", time.Now().Add(-time.Minute), "terminal failure", payload, metadata, &idempotencyKey, &scheduledAt, 7, nil)
 
 	cloned, err := q.RetryQuarantinedOutbox(ctx, job.ProjectID, "outbox-source")
-	if err != nil {
-		t.Fatalf("RetryQuarantinedOutbox() error = %v", err)
-	}
-	if cloned.ID == "" || cloned.ID == "outbox-source" {
-		t.Fatalf("cloned.ID = %q, want fresh id", cloned.ID)
-	}
-	if cloned.ProjectID != job.ProjectID || cloned.JobID != job.ID {
-		t.Fatalf("cloned identifiers = (%s,%s), want (%s,%s)", cloned.ProjectID, cloned.JobID, job.ProjectID, job.ID)
-	}
-	if !jsonEqual(cloned.Payload, payload) {
-		t.Fatalf("cloned.Payload = %s, want %s", cloned.Payload, payload)
-	}
+	require.NoError(t, err)
+	require.False(t, cloned.
+		ID == "" ||
+		cloned.ID ==
+			"outbox-source",
+	)
+	require.False(t, cloned.
+		ProjectID !=
+		job.ProjectID ||
+		cloned.
+			JobID != job.
+			ID)
+	require.True(t, jsonEqual(cloned.
+		Payload, payload,
+	))
+
 	wantMetadata, _ := json.Marshal(metadata)
-	if !jsonEqual(cloned.Metadata, wantMetadata) {
-		t.Fatalf("cloned.Metadata = %s, want %s", cloned.Metadata, wantMetadata)
-	}
-	if cloned.IdempotencyKey == nil || *cloned.IdempotencyKey != idempotencyKey {
-		t.Fatalf("cloned.IdempotencyKey = %v, want %q", cloned.IdempotencyKey, idempotencyKey)
-	}
-	if cloned.ScheduledAt == nil || !cloned.ScheduledAt.Equal(scheduledAt) {
-		t.Fatalf("cloned.ScheduledAt = %v, want %v", cloned.ScheduledAt, scheduledAt)
-	}
-	if cloned.Priority != 7 {
-		t.Fatalf("cloned.Priority = %d, want 7", cloned.Priority)
-	}
-	if cloned.RetryOfOutboxID == nil || *cloned.RetryOfOutboxID != "outbox-source" {
-		t.Fatalf("cloned.RetryOfOutboxID = %v, want outbox-source", cloned.RetryOfOutboxID)
-	}
+	require.True(t, jsonEqual(cloned.
+		Metadata, wantMetadata,
+	))
+	require.False(t, cloned.
+		IdempotencyKey ==
+		nil ||
+		*cloned.IdempotencyKey !=
+			idempotencyKey,
+	)
+	require.False(t, cloned.
+		ScheduledAt ==
+		nil ||
+		!cloned.ScheduledAt.
+			Equal(scheduledAt))
+	require.EqualValues(t, 7, cloned.
+		Priority,
+	)
+	require.False(t, cloned.
+		RetryOfOutboxID ==
+		nil ||
+		*cloned.RetryOfOutboxID !=
+			"outbox-source",
+	)
 
 	rows, err := q.ClaimUnconsumedOutbox(ctx, 10)
-	if err != nil {
-		t.Fatalf("ClaimUnconsumedOutbox() error = %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("unconsumed rows len = %d, want 1", len(rows))
-	}
-	if rows[0].ID != cloned.ID {
-		t.Fatalf("unconsumed row id = %s, want %s", rows[0].ID, cloned.ID)
-	}
-	if rows[0].RetryOfOutboxID == nil || *rows[0].RetryOfOutboxID != "outbox-source" {
-		t.Fatalf("claimed RetryOfOutboxID = %v, want outbox-source", rows[0].RetryOfOutboxID)
-	}
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, cloned.
+		ID, rows[0].ID)
+	require.False(t, rows[0].
+		RetryOfOutboxID ==
+		nil || *rows[0].RetryOfOutboxID !=
+		"outbox-source",
+	)
 
 	source, err := q.GetQuarantinedOutbox(ctx, job.ProjectID, "outbox-source")
-	if err != nil {
-		t.Fatalf("GetQuarantinedOutbox(source) error = %v", err)
-	}
-	if source.Error != "terminal failure" {
-		t.Fatalf("source.Error = %q, want terminal failure", source.Error)
-	}
-	if source.RetryOfOutboxID != nil {
-		t.Fatalf("source.RetryOfOutboxID = %v, want nil", source.RetryOfOutboxID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "terminal failure",
+
+		source.
+			Error)
+	require.Nil(t, source.
+		RetryOfOutboxID,
+	)
+
 }
 
 func TestRetryQuarantinedOutbox_ConflictsWhenActiveCloneExists(t *testing.T) {
@@ -198,24 +203,22 @@ func TestRetryQuarantinedOutbox_ConflictsWhenActiveCloneExists(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-retry-conflict")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-source", time.Now().Add(-time.Minute), "terminal failure")
 
 	first, err := q.RetryQuarantinedOutbox(ctx, job.ProjectID, "outbox-source")
-	if err != nil {
-		t.Fatalf("first RetryQuarantinedOutbox() error = %v", err)
-	}
-	if first.ID == "" {
-		t.Fatal("first retry clone id should not be empty")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "",
+
+		first.ID)
 
 	_, err = q.RetryQuarantinedOutbox(ctx, job.ProjectID, "outbox-source")
-	if !errors.Is(err, store.ErrOutboxRowConflict) {
-		t.Fatalf("second RetryQuarantinedOutbox() error = %v, want %v", err, store.ErrOutboxRowConflict)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrOutboxRowConflict,
+	))
+
 }
 
 func TestPurgeQuarantinedOutbox_RemovesOnlyTargetedRow(t *testing.T) {
@@ -225,28 +228,26 @@ func TestPurgeQuarantinedOutbox_RemovesOnlyTargetedRow(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-purge")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-delete", time.Now().Add(-2*time.Minute), "delete me")
 	writeQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-keep", time.Now().Add(-time.Minute), "keep me")
 
 	deleted, err := q.PurgeQuarantinedOutbox(ctx, job.ProjectID, "outbox-delete")
-	if err != nil {
-		t.Fatalf("PurgeQuarantinedOutbox() error = %v", err)
-	}
-	if deleted.ID != "outbox-delete" {
-		t.Fatalf("deleted.ID = %s, want outbox-delete", deleted.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "outbox-delete",
+
+		deleted.ID,
+	)
 
 	rows, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListQuarantinedOutbox() error = %v", err)
-	}
-	if len(rows) != 1 || rows[0].ID != "outbox-keep" {
-		t.Fatalf("remaining rows = %+v, want only outbox-keep", rows)
-	}
+	require.NoError(t, err)
+	require.False(t, len(rows) != 1 ||
+		rows[0].ID !=
+			"outbox-keep",
+	)
+
 }
 
 func TestPurgeQuarantinedOutbox_RejectsNonQuarantinedRow(t *testing.T) {
@@ -256,32 +257,28 @@ func TestPurgeQuarantinedOutbox_RejectsNonQuarantinedRow(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-purge-conflict")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
-		ID:        "outbox-pending",
-		ProjectID: job.ProjectID,
-		JobID:     job.ID,
-		Payload:   json.RawMessage(`{"ok":true}`),
-		Metadata:  map[string]any{"source": "test"},
-	}}); err != nil {
-		t.Fatalf("WriteOutboxInTx() error = %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
+	require.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, []queue.OutboxEntry{{
+				ID: "outbox-pending",
+
+				ProjectID: job.ProjectID,
+				JobID:     job.ID, Payload: json.
+						RawMessage(`{"ok":true}`), Metadata: map[string]any{"source": "test"}}}))
+	require.NoError(t, tx.Commit(ctx))
 
 	_, err = q.PurgeQuarantinedOutbox(ctx, job.ProjectID, "outbox-pending")
-	if !errors.Is(err, store.ErrOutboxRowConflict) {
-		t.Fatalf("PurgeQuarantinedOutbox() error = %v, want %v", err, store.ErrOutboxRowConflict)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrOutboxRowConflict,
+	))
+
 }
 
 func TestListAndGetQuarantinedOutbox_IncludeRetryLineage(t *testing.T) {
@@ -291,31 +288,28 @@ func TestListAndGetQuarantinedOutbox_IncludeRetryLineage(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-lineage")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	lineage := "source-outbox"
 	writeCustomQuarantinedOutboxRow(t, ctx, job.ProjectID, job.ID, "outbox-lineage", time.Now().Add(-time.Minute), "terminal failure", json.RawMessage(`{"ok":true}`), map[string]any{"source": "test"}, nil, nil, 0, &lineage)
 
 	rows, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListQuarantinedOutbox() error = %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("rows len = %d, want 1", len(rows))
-	}
-	if rows[0].RetryOfOutboxID == nil || *rows[0].RetryOfOutboxID != lineage {
-		t.Fatalf("rows[0].RetryOfOutboxID = %v, want %q", rows[0].RetryOfOutboxID, lineage)
-	}
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.False(t, rows[0].
+		RetryOfOutboxID ==
+		nil || *rows[0].RetryOfOutboxID !=
+		lineage,
+	)
 
 	row, err := q.GetQuarantinedOutbox(ctx, job.ProjectID, "outbox-lineage")
-	if err != nil {
-		t.Fatalf("GetQuarantinedOutbox() error = %v", err)
-	}
-	if row.RetryOfOutboxID == nil || *row.RetryOfOutboxID != lineage {
-		t.Fatalf("row.RetryOfOutboxID = %v, want %q", row.RetryOfOutboxID, lineage)
-	}
+	require.NoError(t, err)
+	require.False(t, row.RetryOfOutboxID ==
+		nil ||
+		*row.RetryOfOutboxID !=
+			lineage)
+
 }
 
 func writeQuarantinedOutboxRow(t *testing.T, ctx context.Context, projectID, jobID, id string, consumedAt time.Time, errText string) {
@@ -339,42 +333,39 @@ func writeCustomQuarantinedOutboxRow(
 	t.Helper()
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var idempotencyValue string
 	if idempotencyKey != nil {
 		idempotencyValue = *idempotencyKey
 	}
+	require.NoError(t, queue.
+		WriteOutboxInTx(ctx,
+			tx, []queue.OutboxEntry{{
+				ID: id, ProjectID: projectID,
+				JobID: jobID, Payload: payload, Metadata: metadata,
+				IdempotencyKey: idempotencyValue, ScheduledAt: scheduledAt,
+				Priority: priority}}))
 
-	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
-		ID:             id,
-		ProjectID:      projectID,
-		JobID:          jobID,
-		Payload:        payload,
-		Metadata:       metadata,
-		IdempotencyKey: idempotencyValue,
-		ScheduledAt:    scheduledAt,
-		Priority:       priority,
-	}}); err != nil {
-		t.Fatalf("WriteOutboxInTx() error = %v", err)
-	}
 	if retryOf != nil {
 		if _, err := tx.Exec(ctx, `UPDATE enqueue_outbox SET retry_of_outbox_id = $2 WHERE id = $1`, id, *retryOf); err != nil {
-			t.Fatalf("set retry_of_outbox_id: %v", err)
+			require.Failf(t, "test failure",
+
+				"set retry_of_outbox_id: %v", err)
 		}
 	}
-	if err := store.MarkOutboxErroredInTx(ctx, tx, id, errText); err != nil {
-		t.Fatalf("MarkOutboxErroredInTx() error = %v", err)
-	}
+	require.NoError(t, store.
+		MarkOutboxErroredInTx(ctx, tx, id, errText))
+
 	if _, err := tx.Exec(ctx, `UPDATE enqueue_outbox SET consumed_at = $2 WHERE id = $1`, id, consumedAt.UTC()); err != nil {
-		t.Fatalf("force consumed_at: %v", err)
+		require.Failf(t, "test failure",
+
+			"force consumed_at: %v", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
+	require.NoError(t, tx.Commit(ctx))
+
 }
 
 func TestArchiveConsumedOutboxBatch_PreservesQuarantinedRows(t *testing.T) {
@@ -384,9 +375,8 @@ func TestArchiveConsumedOutboxBatch_PreservesQuarantinedRows(t *testing.T) {
 
 	q := mustStore(t)
 	job := baseJob(newID(), "project-outbox-archive")
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	past := time.Now().Add(-10 * time.Minute)
 
@@ -395,9 +385,8 @@ func TestArchiveConsumedOutboxBatch_PreservesQuarantinedRows(t *testing.T) {
 
 	// Write a normally consumed row (consumed without error).
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("Begin: %v", err)
-	}
+	require.NoError(t, err)
+
 	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{{
 		ID:        "consumed-1",
 		ProjectID: job.ProjectID,
@@ -405,47 +394,44 @@ func TestArchiveConsumedOutboxBatch_PreservesQuarantinedRows(t *testing.T) {
 		Payload:   json.RawMessage(`{"ok":true}`),
 	}}); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("WriteOutboxInTx: %v", err)
+		require.Failf(t, "test failure",
+
+			"WriteOutboxInTx: %v", err)
 	}
 	if err := store.MarkOutboxConsumedInTx(ctx, tx, []string{"consumed-1"}); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("MarkOutboxConsumedInTx: %v", err)
+		require.Failf(t, "test failure",
+
+			"MarkOutboxConsumedInTx: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE enqueue_outbox SET consumed_at = $2 WHERE id = $1`, "consumed-1", past.UTC()); err != nil {
 		_ = tx.Rollback(ctx)
-		t.Fatalf("force consumed_at: %v", err)
+		require.Failf(t, "test failure",
+
+			"force consumed_at: %v", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	require.NoError(t, tx.Commit(ctx))
 
 	// Archive: should move consumed-1 but NOT quarantined-1.
 	archived, err := q.ArchiveConsumedOutboxBatch(ctx, time.Minute, 100)
-	if err != nil {
-		t.Fatalf("ArchiveConsumedOutboxBatch: %v", err)
-	}
-	if archived != 1 {
-		t.Errorf("archived = %d, want 1", archived)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, archived)
 
 	// Quarantined row should still be visible to the admin API.
 	rows, err := q.ListQuarantinedOutbox(ctx, job.ProjectID, 10, nil, "")
-	if err != nil {
-		t.Fatalf("ListQuarantinedOutbox: %v", err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("quarantined rows = %d, want 1", len(rows))
-	}
-	if rows[0].ID != "quarantined-1" {
-		t.Errorf("quarantined row ID = %q, want %q", rows[0].ID, "quarantined-1")
-	}
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "quarantined-1",
+
+		rows[0].ID)
 
 	// Consumed row should be gone from the hot table.
 	var hotCount int
-	if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`, "consumed-1").Scan(&hotCount); err != nil {
-		t.Fatalf("count consumed-1: %v", err)
-	}
-	if hotCount != 0 {
-		t.Error("consumed row should be gone from hot table after archive")
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM enqueue_outbox WHERE id = $1`,
+
+		"consumed-1").Scan(&hotCount))
+	assert.EqualValues(t, 0, hotCount)
+
 }

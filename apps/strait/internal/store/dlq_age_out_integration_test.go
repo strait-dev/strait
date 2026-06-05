@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMaskOldDLQRows_MasksOnlyStale(t *testing.T) {
@@ -16,61 +19,59 @@ func TestMaskOldDLQRows_MasksOnlyStale(t *testing.T) {
 	mustClean(t, ctx)
 
 	projectID := "proj-dlq-age-" + newID()
-	if err := q.CreateProject(ctx, &domain.Project{ID: projectID, OrgID: "org", Name: "p"}); err != nil {
-		t.Fatalf("project: %v", err)
-	}
+	require.NoError(t, q.CreateProject(ctx, &domain.
+		Project{ID: projectID,
+
+		OrgID: "org", Name: "p",
+	}))
+
 	job := baseJob(newID(), projectID)
-	if err := q.CreateJob(ctx, job); err != nil {
-		t.Fatalf("job: %v", err)
-	}
+	require.NoError(t, q.CreateJob(ctx,
+		job))
 
 	// Insert 3 DLQ rows: one old, one borderline, one fresh.
 	ages := []time.Duration{48 * time.Hour, 26 * time.Hour, 1 * time.Hour}
 	var ids []string
-	for i, age := range ages {
+	for _, age := range ages {
 		id := newID()
 		_, err := testDB.Pool.Exec(ctx, `
 			INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 			VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW() - $4::interval)
 		`, id, job.ID, projectID, age.String())
-		if err != nil {
-			t.Fatalf("insert %d: %v", i, err)
-		}
+		require.NoError(t, err)
+
 		ids = append(ids, id)
 	}
 
 	// Mask older than 24h.
 	n, err := q.MaskOldDLQRows(ctx, 24*time.Hour, 100)
-	if err != nil {
-		t.Fatalf("mask: %v", err)
-	}
-	if n != 2 {
-		t.Errorf("masked = %d, want 2", n)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, n)
 
 	// Verify masking is append-only: the two old rows get visibility events,
 	// while the fat ledger rows stay untouched.
 	for i, id := range ids {
 		var ledgerVisible *time.Time
-		if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, id).Scan(&ledgerVisible); err != nil {
-			t.Fatalf("query ledger visibility %d: %v", i, err)
-		}
-		if ledgerVisible != nil {
-			t.Fatalf("ledger visible_until for row %d = %v, want nil", i, *ledgerVisible)
-		}
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
+			`SELECT visible_until FROM job_runs WHERE id = $1`,
+
+			id).Scan(&ledgerVisible))
+		require.Nil(t, ledgerVisible)
 
 		var events int
-		if err := testDB.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`, id).Scan(&events); err != nil {
-			t.Fatalf("query visibility events %d: %v", i, err)
-		}
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM job_run_visibility_events WHERE run_id = $1`,
+
+			id).Scan(&events))
+
 		if i < 2 {
-			if events != 1 {
-				t.Errorf("row %d visibility events = %d, want 1", i, events)
-			}
+			assert.EqualValues(t, 1, events)
+
 		} else {
-			if events != 0 {
-				t.Errorf("row %d visibility events = %d, want 0", i, events)
-			}
+			assert.EqualValues(t, 0, events)
+
 		}
 	}
 }
@@ -83,62 +84,59 @@ func TestMaskOldDLQRows_UsesSplitTerminalState(t *testing.T) {
 	job := mustCreateJob(t, ctx, q, "proj-dlq-age-split")
 	run := baseRun(job, newID())
 	run.Status = domain.StatusExecuting
-	if err := q.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, q.CreateRun(ctx,
+		run))
 
 	finishedAt := time.Now().UTC().Add(-48 * time.Hour).Truncate(time.Microsecond)
-	if err := q.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusDeadLetter, map[string]any{
-		"finished_at": finishedAt,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus(dead_letter) error = %v", err)
-	}
+	require.NoError(t, q.UpdateRunStatus(ctx, run.
+		ID, domain.
+		StatusExecuting,
+
+		domain.StatusDeadLetter,
+
+		map[string]any{"finished_at": finishedAt}))
 
 	var ledgerStatus domain.RunStatus
-	if err := testDB.Pool.QueryRow(ctx, `SELECT status FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerStatus); err != nil {
-		t.Fatalf("query ledger status: %v", err)
-	}
-	if ledgerStatus != domain.StatusExecuting {
-		t.Fatalf("job_runs status = %q, want immutable executing ledger status", ledgerStatus)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT status FROM job_runs WHERE id = $1`,
+
+		run.
+			ID).Scan(&ledgerStatus))
+	require.Equal(t, domain.
+		StatusExecuting,
+		ledgerStatus,
+	)
 
 	masked, err := q.MaskOldDLQRows(ctx, 24*time.Hour, 100)
-	if err != nil {
-		t.Fatalf("MaskOldDLQRows() error = %v", err)
-	}
-	if masked != 1 {
-		t.Fatalf("masked = %d, want 1", masked)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, masked)
 
 	var ledgerVisibleUntil *time.Time
-	if err := testDB.Pool.QueryRow(ctx, `SELECT visible_until FROM job_runs WHERE id = $1`, run.ID).Scan(&ledgerVisibleUntil); err != nil {
-		t.Fatalf("query ledger visible_until: %v", err)
-	}
-	if ledgerVisibleUntil != nil {
-		t.Fatalf("ledger visible_until = %v, want NULL", *ledgerVisibleUntil)
-	}
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`SELECT visible_until FROM job_runs WHERE id = $1`,
+
+		run.ID).Scan(&ledgerVisibleUntil))
+	require.Nil(t, ledgerVisibleUntil)
 
 	var eventVisibleUntil *time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT visible_until
 		FROM job_run_visibility_events
 		WHERE run_id = $1
 		ORDER BY id DESC
 		LIMIT 1
-	`, run.ID).Scan(&eventVisibleUntil); err != nil {
-		t.Fatalf("query visibility event: %v", err)
-	}
-	if eventVisibleUntil == nil {
-		t.Fatalf("event visible_until = NULL, want masked timestamp")
-	}
+	`,
+		run.ID).Scan(&eventVisibleUntil))
+	require.NotNil(t, eventVisibleUntil)
 
 	depth, err := q.DLQDepth(ctx, job.ProjectID, job.ID)
-	if err != nil {
-		t.Fatalf("DLQDepth() error = %v", err)
-	}
-	if depth != 0 {
-		t.Fatalf("DLQDepth after mask = %d, want 0", depth)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, depth)
+
 }
 
 func TestMaskOldDLQRows_Idempotent(t *testing.T) {
@@ -155,15 +153,15 @@ func TestMaskOldDLQRows_Idempotent(t *testing.T) {
 		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 		VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW() - INTERVAL '48 hours')
 	`, newID(), job.ID, projectID)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
-	}
+	require.NoError(t, err)
 
 	first, _ := q.MaskOldDLQRows(ctx, 24*time.Hour, 100)
 	second, _ := q.MaskOldDLQRows(ctx, 24*time.Hour, 100)
-	if first != 1 || second != 0 {
-		t.Errorf("first=%d second=%d, want 1,0", first, second)
-	}
+	assert.False(t, first !=
+
+		1 || second !=
+		0)
+
 }
 
 func TestMaskOldDLQRows_DecrementsCounterViaTrigger(t *testing.T) {
@@ -180,24 +178,21 @@ func TestMaskOldDLQRows_DecrementsCounterViaTrigger(t *testing.T) {
 		INSERT INTO job_runs (id, job_id, project_id, status, attempt, triggered_by, created_at, finished_at)
 		VALUES ($1, $2, $3, 'dead_letter', 1, 'manual', NOW(), NOW() - INTERVAL '48 hours')
 	`, newID(), job.ID, projectID)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
-	}
+	require.NoError(t, err)
 
 	var before, after int
 	_ = testDB.Pool.QueryRow(ctx, `SELECT COALESCE(count, 0) FROM dlq_counts WHERE job_id = $1`, job.ID).Scan(&before)
-	if before != 1 {
-		t.Fatalf("dlq counter before = %d, want 1", before)
-	}
+	require.EqualValues(t, 1, before)
 
 	if _, err := q.MaskOldDLQRows(ctx, 24*time.Hour, 100); err != nil {
-		t.Fatalf("mask: %v", err)
+		require.Failf(t, "test failure",
+
+			"mask: %v", err)
 	}
 
 	_ = testDB.Pool.QueryRow(ctx, `SELECT COALESCE(count, 0) FROM dlq_counts WHERE job_id = $1`, job.ID).Scan(&after)
-	if after != 0 {
-		t.Errorf("dlq counter after = %d, want 0", after)
-	}
+	assert.EqualValues(t, 0, after)
+
 }
 
 func TestMaskOldDLQRows_RespectsLimit(t *testing.T) {
@@ -218,11 +213,9 @@ func TestMaskOldDLQRows_RespectsLimit(t *testing.T) {
 	}
 
 	first, _ := q.MaskOldDLQRows(ctx, 24*time.Hour, 3)
-	if first != 3 {
-		t.Errorf("first tick masked %d, want 3", first)
-	}
+	assert.EqualValues(t, 3, first)
+
 	second, _ := q.MaskOldDLQRows(ctx, 24*time.Hour, 3)
-	if second != 3 {
-		t.Errorf("second tick = %d, want 3", second)
-	}
+	assert.EqualValues(t, 3, second)
+
 }

@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWriteTypedError_LimitError_402 covers the boundary case STR-462 cares
@@ -30,47 +33,54 @@ func TestWriteTypedError_LimitError_402(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/runs", nil)
 	writeTypedError(rec, req, le)
+	require.Equal(t,
 
-	if rec.Code != http.StatusPaymentRequired {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPaymentRequired)
-	}
-	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
+		http.StatusPaymentRequired,
+
+		rec.Code)
+	assert.Equal(t,
+		"application/json",
+
+		rec.Header().Get("Content-Type"))
 
 	var got map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
+	require.NoError(
+		t,
+		json.NewDecoder(rec.Body).Decode(&got))
+	assert.Equal(t,
+		"quota_exceeded",
+
+		got["code"])
+	assert.Equal(t,
+		"plan_cap_reached",
+
+		got["kind"])
+	assert.Equal(t,
+		"monthly run cap reached",
+
+		got["message"])
+	assert.EqualValues(t, 10_000,
+		got["limit"].(float64))
+	assert.EqualValues(t, 10_001,
+		got["current"].(float64))
+	assert.Equal(t,
+		"starter",
+
+		got["plan"])
+	assert.Equal(t,
+		"https://strait.dev/upgrade",
+
+		got["upgrade_url"])
 
 	// The bridge must emit the canonical envelope with `code: quota_exceeded`
 	// at the top level and the granular reason preserved in `kind`.
-	if got["code"] != "quota_exceeded" {
-		t.Errorf("code = %v, want quota_exceeded", got["code"])
-	}
-	if got["kind"] != "plan_cap_reached" {
-		t.Errorf("kind = %v, want plan_cap_reached", got["kind"])
-	}
-	if got["message"] != "monthly run cap reached" {
-		t.Errorf("message = %v", got["message"])
-	}
-	if got["limit"].(float64) != 10_000 {
-		t.Errorf("limit = %v, want 10000", got["limit"])
-	}
-	if got["current"].(float64) != 10_001 {
-		t.Errorf("current = %v, want 10001", got["current"])
-	}
-	if got["plan"] != "starter" {
-		t.Errorf("plan = %v, want starter", got["plan"])
-	}
-	if got["upgrade_url"] != "https://strait.dev/upgrade" {
-		t.Errorf("upgrade_url = %v", got["upgrade_url"])
-	}
 
 	// The standard envelope keys must NOT be present — the SDK expects a
 	// raw quota_exceeded body, not an ErrorResponse wrapper.
 	if _, ok := got["error"]; ok {
-		t.Errorf("envelope leaked: response contains `error` field")
+		assert.Failf(t, "test failure",
+
+			"envelope leaked: response contains `error` field")
 	}
 }
 
@@ -89,19 +99,24 @@ func TestWriteTypedError_LimitError_ServiceDegraded_503(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/runs", nil)
 	writeTypedError(rec, req, le)
+	require.Equal(t,
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
-	}
+		http.StatusServiceUnavailable,
+
+		rec.Code,
+	)
 
 	var got map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if got["code"] != "service_degraded" {
-		t.Errorf("code = %v, want service_degraded", got["code"])
-	}
-	if got["kind"] != "service_degraded" {
-		t.Errorf("kind = %v, want service_degraded", got["kind"])
-	}
+	require.NoError(
+		t,
+		json.NewDecoder(rec.Body).Decode(&got))
+	assert.Equal(t,
+		"service_degraded",
+
+		got["code"])
+	assert.Equal(t,
+		"service_degraded",
+
+		got["kind"])
+
 }

@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 var grpcTestEnv *testutil.TestEnv
@@ -29,11 +31,14 @@ func TestMain(m *testing.M) {
 
 func cleanIntegrationEnv(t *testing.T, ctx context.Context) *testutil.TestEnv {
 	t.Helper()
-	if grpcTestEnv == nil {
-		t.Fatal("grpc test env is not initialized")
-	}
-	if err := grpcTestEnv.Clean(ctx); err != nil {
-		t.Fatalf("clean test env: %v", err)
-	}
+	require.NotNil(t,
+
+		grpcTestEnv,
+	)
+	require.NoError(t,
+
+		grpcTestEnv.
+			Clean(ctx))
+
 	return grpcTestEnv
 }

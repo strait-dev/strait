@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -64,27 +66,27 @@ func TestWebhookTrigger_CompletedRun_CreatesDelivery(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
-	}
-	if store.deliveries[0].WebhookURL != "https://example.com/hook" {
-		t.Errorf("unexpected URL: %s", store.deliveries[0].WebhookURL)
-	}
-	if store.deliveries[0].SubscriptionID != "sub-1" {
-		t.Errorf("expected subscription_id=sub-1, got %q", store.deliveries[0].SubscriptionID)
-	}
-	if store.deliveries[0].WebhookSecret != "whsec" {
-		t.Fatal("expected webhook signing secret to be copied to delivery")
-	}
-	if store.deliveries[0].DedupeKey == "" {
-		t.Fatal("expected dedupe key to be set")
-	}
-	if len(store.deliveries[0].Payload) == 0 {
-		t.Fatal("expected payload to be set")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
+	assert.Equal(
+		t, "https://example.com/hook",
+
+		store.
+			deliveries[0].WebhookURL)
+	assert.Equal(
+		t, "sub-1", store.
+			deliveries[0].SubscriptionID,
+	)
+	require.Equal(t, "whsec", store.
+		deliveries[0].WebhookSecret,
+	)
+	require.NotEmpty(t, store.
+		deliveries[0].DedupeKey,
+	)
+	require.NotEmpty(t, store.deliveries[0].
+		Payload)
 }
 
 func TestWebhookTrigger_FailedRun_CreatesDelivery(t *testing.T) {
@@ -97,12 +99,10 @@ func TestWebhookTrigger_FailedRun_CreatesDelivery(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
 }
 
 func TestWebhookTrigger_TimedOutRun_CreatesDelivery(t *testing.T) {
@@ -115,12 +115,10 @@ func TestWebhookTrigger_TimedOutRun_CreatesDelivery(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("timed_out", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
 }
 
 func TestWebhookTrigger_NonTerminalStatus_Skipped(t *testing.T) {
@@ -134,13 +132,10 @@ func TestWebhookTrigger_NonTerminalStatus_Skipped(t *testing.T) {
 
 	for _, status := range []string{"queued", "executing", "dequeued", "delayed"} {
 		err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-1", "job-1"))
-		if err != nil {
-			t.Fatalf("unexpected error for status %s: %v", status, err)
-		}
+		require.NoError(t, err)
 	}
-	if len(store.deliveries) != 0 {
-		t.Fatalf("expected 0 deliveries for non-terminal statuses, got %d", len(store.deliveries))
-	}
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_InsertAction_Skipped(t *testing.T) {
@@ -156,12 +151,9 @@ func TestWebhookTrigger_InsertAction_Skipped(t *testing.T) {
 	msg.Action = ActionInsert
 
 	err := h.Handle(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries for insert action")
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_NoSubscriptions_NoDelivery(t *testing.T) {
@@ -170,12 +162,9 @@ func TestWebhookTrigger_NoSubscriptions_NoDelivery(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries when no subscriptions")
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_FilteredSubscription_Skipped(t *testing.T) {
@@ -189,12 +178,9 @@ func TestWebhookTrigger_FilteredSubscription_Skipped(t *testing.T) {
 
 	// Send a failed event but subscription only watches completed.
 	err := h.Handle(context.Background(), cdcUpdateMsg("failed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries when event type doesn't match subscription")
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_MultipleSubscriptions_AllFired(t *testing.T) {
@@ -209,13 +195,12 @@ func TestWebhookTrigger_MultipleSubscriptions_AllFired(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		2)
+
 	// sub-1 and sub-2 match (run.completed), sub-3 doesn't (run.failed).
-	if len(store.deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries, got %d", len(store.deliveries))
-	}
 }
 
 func TestDeepSecWebhookTrigger_StoreErrorReturnsForRetry(t *testing.T) {
@@ -226,9 +211,7 @@ func TestDeepSecWebhookTrigger_StoreErrorReturnsForRetry(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on store failure")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookTrigger_InvalidJSON_ReturnsError(t *testing.T) {
@@ -243,9 +226,7 @@ func TestWebhookTrigger_InvalidJSON_ReturnsError(t *testing.T) {
 	}
 
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookTrigger_MissingProjectID_Skipped(t *testing.T) {
@@ -258,12 +239,9 @@ func TestWebhookTrigger_MissingProjectID_Skipped(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries when project_id is empty")
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_InactiveSubscription_Skipped(t *testing.T) {
@@ -276,12 +254,9 @@ func TestWebhookTrigger_InactiveSubscription_Skipped(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 0 {
-		t.Fatal("expected no deliveries for inactive subscription")
-	}
+	require.NoError(t, err)
+	require.Empty(t,
+		store.deliveries)
 }
 
 func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
@@ -294,27 +269,23 @@ func TestWebhookTrigger_PayloadContainsRunData(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-42", "job-7"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(store.deliveries) != 1 {
-		t.Fatal("expected 1 delivery")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("payload is not valid JSON: %v", err)
-	}
-	if payload["run_id"] != "run-42" {
-		t.Errorf("expected run_id=run-42, got %v", payload["run_id"])
-	}
-	if payload["job_id"] != "job-7" {
-		t.Errorf("expected job_id=job-7, got %v", payload["job_id"])
-	}
-	if payload["event_type"] != "run.completed" {
-		t.Errorf("expected event_type=run.completed, got %v", payload["event_type"])
-	}
+	require.NoError(t, json.Unmarshal(store.
+		deliveries[0].Payload,
+
+		&payload))
+	assert.Equal(
+		t, "run-42", payload["run_id"])
+	assert.Equal(
+		t, "job-7", payload["job_id"])
+	assert.Equal(
+		t, "run.completed",
+		payload["event_type"])
 }
 
 func TestDeepSecWebhookTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) {
@@ -329,9 +300,7 @@ func TestDeepSecWebhookTrigger_CreateDeliveryErrorReturnsForRetry(t *testing.T) 
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("completed", "p1", "run-1", "job-1"))
-	if err == nil {
-		t.Fatal("expected error on delivery creation failure")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
@@ -344,20 +313,19 @@ func TestWebhookTrigger_CanceledRun_CreatesDelivery(t *testing.T) {
 	h := NewWebhookTriggerHandler(store, nil)
 
 	err := h.Handle(context.Background(), cdcUpdateMsg("canceled", "p1", "run-1", "job-1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(store.deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(store.deliveries))
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		store.deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("payload is not valid JSON: %v", err)
-	}
-	if payload["event_type"] != "run.canceled" {
-		t.Errorf("expected event_type=run.canceled, got %v", payload["event_type"])
-	}
+	require.NoError(t, json.Unmarshal(store.
+		deliveries[0].Payload,
+
+		&payload))
+	assert.Equal(
+		t, "run.canceled",
+		payload["event_type"])
 }
 
 func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T) {
@@ -372,26 +340,27 @@ func TestWebhookTrigger_FailureTerminalStatusesCreateFailedDelivery(t *testing.T
 				},
 			}
 			h := NewWebhookTriggerHandler(store, nil)
+			require.NoError(t, h.Handle(context.
+				Background(),
+				cdcUpdateMsg(status, "p1", "run-"+status,
 
-			if err := h.Handle(context.Background(), cdcUpdateMsg(status, "p1", "run-"+status, "job-1")); err != nil {
-				t.Fatalf("Handle() error = %v", err)
-			}
-			if len(store.deliveries) != 1 {
-				t.Fatalf("deliveries len = %d, want 1", len(store.deliveries))
-			}
-			if got := store.deliveries[0].DedupeKey; got == "" {
-				t.Fatal("expected dedupe key")
-			}
+					"job-1")))
+			require.Len(t,
+				store.deliveries,
+				1)
+			require.NotEmpty(t, store.
+				deliveries[0].DedupeKey,
+			)
+
 			var payload map[string]any
-			if err := json.Unmarshal(store.deliveries[0].Payload, &payload); err != nil {
-				t.Fatalf("payload is not valid JSON: %v", err)
-			}
-			if payload["event_type"] != domain.WebhookEventRunFailed {
-				t.Fatalf("event_type = %v, want %s", payload["event_type"], domain.WebhookEventRunFailed)
-			}
-			if payload["status"] != status {
-				t.Fatalf("status = %v, want original status %s", payload["status"], status)
-			}
+			require.NoError(t, json.Unmarshal(store.
+				deliveries[0].Payload,
+
+				&payload))
+			require.Equal(t, domain.WebhookEventRunFailed,
+
+				payload["event_type"])
+			require.Equal(t, status, payload["status"])
 		})
 	}
 }
@@ -419,7 +388,7 @@ func TestWebhookTrigger_ConcurrentEvents(t *testing.T) {
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if len(store.deliveries) != 10 {
-		t.Fatalf("expected 10 deliveries from concurrent events, got %d", len(store.deliveries))
-	}
+	require.Len(t,
+		store.deliveries,
+		10)
 }

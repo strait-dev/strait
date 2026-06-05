@@ -6,6 +6,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkflowProgressionEvents_ClaimAndAck(t *testing.T) {
@@ -13,110 +15,112 @@ func TestWorkflowProgressionEvents_ClaimAndAck(t *testing.T) {
 	defer cancel()
 	mustClean(t, ctx)
 	q := mustStore(t)
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-1",
 
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-1", "step-run-1", "step-a", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent() error = %v", err)
-	}
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-1", "step-run-1", "step-a", "completed"); err != nil {
-		t.Fatalf("duplicate CreateWorkflowProgressionEvent() error = %v", err)
-	}
+		"step-run-1", "step-a", "completed"))
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-1",
+
+		"step-run-1", "step-a", "completed"))
+
 	events, err := q.ClaimWorkflowProgressionEvents(ctx, 10)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents() error = %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("ClaimWorkflowProgressionEvents() len = %d, want 1", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
+
 	var xminAfterClaim string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_progression_events
 		WHERE id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterClaim); err != nil {
-		t.Fatalf("query workflow progression event after claim: %v", err)
-	}
-	if err := q.MarkWorkflowProgressionEventProcessed(ctx, events[0].ID); err != nil {
-		t.Fatalf("MarkWorkflowProgressionEventProcessed() error = %v", err)
-	}
+		events[0].
+			ID).Scan(&xminAfterClaim))
+	require.NoError(t, q.MarkWorkflowProgressionEventProcessed(ctx,
+		events[0].ID))
+
 	var xminAfterFirstMark string
 	var processedAt time.Time
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT wpe.xmin::text, processed.processed_at
 		FROM workflow_progression_events wpe
 		JOIN workflow_progression_event_processed processed ON processed.event_id = wpe.id
 		WHERE wpe.id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterFirstMark, &processedAt); err != nil {
-		t.Fatalf("query workflow progression event after first mark: %v", err)
-	}
-	if processedAt.IsZero() {
-		t.Fatal("processed_at is zero after first mark")
-	}
-	if xminAfterFirstMark != xminAfterClaim {
-		t.Fatalf("processed mark changed event xmin from %s to %s", xminAfterClaim, xminAfterFirstMark)
-	}
+
+		events[0].ID).Scan(&xminAfterFirstMark, &processedAt))
+	require.False(t, processedAt.
+		IsZero())
+	require.Equal(t, xminAfterClaim,
+
+		xminAfterFirstMark,
+	)
+
 	var claimRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM workflow_progression_event_claims
 		WHERE event_id = $1`,
-		events[0].ID,
-	).Scan(&claimRows); err != nil {
-		t.Fatalf("query progression claim rows after mark: %v", err)
-	}
-	if claimRows != 0 {
-		t.Fatalf("progression claim rows after mark = %d, want 0", claimRows)
-	}
-	if err := q.MarkWorkflowProgressionEventProcessed(ctx, events[0].ID); err != nil {
-		t.Fatalf("duplicate MarkWorkflowProgressionEventProcessed() error = %v", err)
-	}
+
+		events[0].ID).Scan(&claimRows))
+	require.EqualValues(t, 0, claimRows)
+	require.NoError(t, q.MarkWorkflowProgressionEventProcessed(ctx,
+		events[0].ID))
+
 	var xminAfterDuplicateMark string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_progression_events
 		WHERE id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterDuplicateMark); err != nil {
-		t.Fatalf("query workflow progression event after duplicate mark: %v", err)
-	}
-	if xminAfterDuplicateMark != xminAfterFirstMark {
-		t.Fatalf("duplicate processed mark changed xmin from %s to %s", xminAfterFirstMark, xminAfterDuplicateMark)
-	}
-	if err := q.MarkWorkflowProgressionEventsProcessed(ctx, []int64{events[0].ID}); err != nil {
-		t.Fatalf("duplicate MarkWorkflowProgressionEventsProcessed() error = %v", err)
-	}
+		events[0].
+			ID).Scan(&xminAfterDuplicateMark))
+	require.Equal(t, xminAfterFirstMark,
+
+		xminAfterDuplicateMark,
+	)
+	require.NoError(t, q.MarkWorkflowProgressionEventsProcessed(ctx,
+
+		[]int64{events[0].ID}))
+
 	var xminAfterDuplicateBatchMark string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_progression_events
 		WHERE id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterDuplicateBatchMark); err != nil {
-		t.Fatalf("query workflow progression event after duplicate batch mark: %v", err)
-	}
-	if xminAfterDuplicateBatchMark != xminAfterFirstMark {
-		t.Fatalf("duplicate batch processed mark changed xmin from %s to %s", xminAfterFirstMark, xminAfterDuplicateBatchMark)
-	}
+		events[0].
+			ID).Scan(&xminAfterDuplicateBatchMark))
+	require.Equal(t, xminAfterFirstMark,
+
+		xminAfterDuplicateBatchMark,
+	)
+
 	var processedRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM workflow_progression_event_processed
 		WHERE event_id = $1`,
-		events[0].ID,
-	).Scan(&processedRows); err != nil {
-		t.Fatalf("query processed side rows: %v", err)
-	}
-	if processedRows != 1 {
-		t.Fatalf("processed side rows = %d, want 1", processedRows)
-	}
+
+		events[0].ID).Scan(&processedRows))
+	require.EqualValues(t, 1, processedRows)
+
 	events, err = q.ClaimWorkflowProgressionEvents(ctx, 10)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents() after ack error = %v", err)
-	}
-	if len(events) != 0 {
-		t.Fatalf("ClaimWorkflowProgressionEvents() after ack len = %d, want 0", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		0,
+	)
+
 }
 
 func TestWorkflowProgressionEvents_ReleaseSkipsUnlockedEvents(t *testing.T) {
@@ -124,32 +128,36 @@ func TestWorkflowProgressionEvents_ReleaseSkipsUnlockedEvents(t *testing.T) {
 	defer cancel()
 	mustClean(t, ctx)
 	q := mustStore(t)
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-release",
 
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-release", "step-run-release-single", "step-a", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent(single) error = %v", err)
-	}
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-release", "step-run-release-batch", "step-b", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent(batch) error = %v", err)
-	}
+		"step-run-release-single", "step-a", "completed"))
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-release",
+
+		"step-run-release-batch", "step-b", "completed"))
 
 	eventID := func(stepRunID string) int64 {
 		t.Helper()
 		var id int64
-		if err := testDB.Pool.QueryRow(ctx, `
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
+			`
 			SELECT id
 			FROM workflow_progression_events
 			WHERE step_run_id = $1`,
 			stepRunID,
-		).Scan(&id); err != nil {
-			t.Fatalf("query workflow progression event id for %s: %v", stepRunID, err)
-		}
+		).Scan(&id))
+
 		return id
 	}
 	eventState := func(id int64) (string, bool) {
 		t.Helper()
 		var xmin string
 		var locked bool
-		if err := testDB.Pool.QueryRow(ctx, `
+		require.NoError(t, testDB.
+			Pool.QueryRow(ctx,
+			`
 			SELECT wpe.xmin::text,
 			       EXISTS (
 			           SELECT 1
@@ -158,89 +166,78 @@ func TestWorkflowProgressionEvents_ReleaseSkipsUnlockedEvents(t *testing.T) {
 			       )
 			FROM workflow_progression_events wpe
 			WHERE wpe.id = $1`,
-			id,
-		).Scan(&xmin, &locked); err != nil {
-			t.Fatalf("query workflow progression event state for %d: %v", id, err)
-		}
+
+			id).Scan(&xmin, &locked))
+
 		return xmin, locked
 	}
 
 	singleID := eventID("step-run-release-single")
 	batchID := eventID("step-run-release-batch")
 	singleXminBefore, singleLocked := eventState(singleID)
-	if singleLocked {
-		t.Fatal("single release event is locked before claim")
-	}
-	batchXminBefore, batchLocked := eventState(batchID)
-	if batchLocked {
-		t.Fatal("batch release event is locked before claim")
-	}
+	require.False(t, singleLocked)
 
-	if err := q.ReleaseWorkflowProgressionEvent(ctx, singleID); err != nil {
-		t.Fatalf("ReleaseWorkflowProgressionEvent(unlocked) error = %v", err)
-	}
-	if err := q.ReleaseWorkflowProgressionEvents(ctx, []int64{batchID}); err != nil {
-		t.Fatalf("ReleaseWorkflowProgressionEvents(unlocked) error = %v", err)
-	}
+	batchXminBefore, batchLocked := eventState(batchID)
+	require.False(t, batchLocked)
+	require.NoError(t, q.ReleaseWorkflowProgressionEvent(ctx,
+		singleID,
+	))
+	require.NoError(t, q.ReleaseWorkflowProgressionEvents(ctx,
+		[]int64{batchID}))
 
 	singleXminAfterNoOp, singleLocked := eventState(singleID)
-	if singleLocked {
-		t.Fatal("single release event is locked after no-op release")
-	}
-	if singleXminAfterNoOp != singleXminBefore {
-		t.Fatalf("single release changed unlocked event xmin from %s to %s", singleXminBefore, singleXminAfterNoOp)
-	}
+	require.False(t, singleLocked)
+	require.Equal(t, singleXminBefore,
+
+		singleXminAfterNoOp,
+	)
+
 	batchXminAfterNoOp, batchLocked := eventState(batchID)
-	if batchLocked {
-		t.Fatal("batch release event is locked after no-op release")
-	}
-	if batchXminAfterNoOp != batchXminBefore {
-		t.Fatalf("batch release changed unlocked event xmin from %s to %s", batchXminBefore, batchXminAfterNoOp)
-	}
+	require.False(t, batchLocked)
+	require.Equal(t, batchXminBefore,
+
+		batchXminAfterNoOp,
+	)
 
 	events, err := q.ClaimWorkflowProgressionEvents(ctx, 10)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents() error = %v", err)
-	}
-	if len(events) != 2 {
-		t.Fatalf("ClaimWorkflowProgressionEvents() len = %d, want 2", len(events))
-	}
-	singleXminAfterClaim, singleLocked := eventState(singleID)
-	if !singleLocked {
-		t.Fatal("single release event is unlocked after claim")
-	}
-	if singleXminAfterClaim != singleXminBefore {
-		t.Fatalf("single claim changed event xmin from %s to %s", singleXminBefore, singleXminAfterClaim)
-	}
-	batchXminAfterClaim, batchLocked := eventState(batchID)
-	if !batchLocked {
-		t.Fatal("batch release event is unlocked after claim")
-	}
-	if batchXminAfterClaim != batchXminBefore {
-		t.Fatalf("batch claim changed event xmin from %s to %s", batchXminBefore, batchXminAfterClaim)
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		2,
+	)
 
-	if err := q.ReleaseWorkflowProgressionEvent(ctx, singleID); err != nil {
-		t.Fatalf("ReleaseWorkflowProgressionEvent(locked) error = %v", err)
-	}
-	if err := q.ReleaseWorkflowProgressionEvents(ctx, []int64{batchID}); err != nil {
-		t.Fatalf("ReleaseWorkflowProgressionEvents(locked) error = %v", err)
-	}
+	singleXminAfterClaim, singleLocked := eventState(singleID)
+	require.True(t, singleLocked)
+	require.Equal(t, singleXminBefore,
+
+		singleXminAfterClaim,
+	)
+
+	batchXminAfterClaim, batchLocked := eventState(batchID)
+	require.True(t, batchLocked)
+	require.Equal(t, batchXminBefore,
+
+		batchXminAfterClaim,
+	)
+	require.NoError(t, q.ReleaseWorkflowProgressionEvent(ctx,
+		singleID,
+	))
+	require.NoError(t, q.ReleaseWorkflowProgressionEvents(ctx,
+		[]int64{batchID}))
 
 	singleXminAfterRelease, singleLocked := eventState(singleID)
-	if singleLocked {
-		t.Fatal("single release event is locked after release")
-	}
-	if singleXminAfterRelease != singleXminAfterClaim {
-		t.Fatalf("single release changed event xmin from %s to %s", singleXminAfterClaim, singleXminAfterRelease)
-	}
+	require.False(t, singleLocked)
+	require.Equal(t, singleXminAfterClaim,
+
+		singleXminAfterRelease,
+	)
+
 	batchXminAfterRelease, batchLocked := eventState(batchID)
-	if batchLocked {
-		t.Fatal("batch release event is locked after release")
-	}
-	if batchXminAfterRelease != batchXminAfterClaim {
-		t.Fatalf("batch release changed event xmin from %s to %s", batchXminAfterClaim, batchXminAfterRelease)
-	}
+	require.False(t, batchLocked)
+	require.Equal(t, batchXminAfterClaim,
+
+		batchXminAfterRelease,
+	)
+
 }
 
 func TestWorkflowProgressionEvents_StaleSideClaimIsReclaimed(t *testing.T) {
@@ -248,26 +245,26 @@ func TestWorkflowProgressionEvents_StaleSideClaimIsReclaimed(t *testing.T) {
 	defer cancel()
 	mustClean(t, ctx)
 	q := mustStore(t)
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-stale",
 
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-stale", "step-run-stale", "step-a", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent() error = %v", err)
-	}
+		"step-run-stale", "step-a", "completed"))
+
 	events, err := q.ClaimWorkflowProgressionEvents(ctx, 1)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents() error = %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("initial claim len = %d, want 1", len(events))
-	}
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
+
 	var xminAfterClaim string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_progression_events
 		WHERE id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterClaim); err != nil {
-		t.Fatalf("query event xmin after initial claim: %v", err)
-	}
+		events[0].
+			ID).Scan(&xminAfterClaim))
 
 	staleLockedAt := time.Now().UTC().Add(-time.Minute)
 	if _, err := testDB.Pool.Exec(ctx, `
@@ -277,19 +274,22 @@ func TestWorkflowProgressionEvents_StaleSideClaimIsReclaimed(t *testing.T) {
 		staleLockedAt,
 		events[0].ID,
 	); err != nil {
-		t.Fatalf("age progression claim: %v", err)
+		require.Failf(t, "test failure",
+
+			"age progression claim: %v", err)
 	}
 
 	reclaimed, err := q.ClaimWorkflowProgressionEvents(ctx, 1)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents() stale reclaim error = %v", err)
-	}
-	if len(reclaimed) != 1 || reclaimed[0].ID != events[0].ID {
-		t.Fatalf("reclaimed events = %+v, want event %d", reclaimed, events[0].ID)
-	}
+	require.NoError(t, err)
+	require.False(t, len(reclaimed) !=
+		1 || reclaimed[0].ID !=
+		events[0].ID)
+
 	var xminAfterReclaim string
 	var claimRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT wpe.xmin::text,
 		       (
 		           SELECT COUNT(*)
@@ -298,16 +298,14 @@ func TestWorkflowProgressionEvents_StaleSideClaimIsReclaimed(t *testing.T) {
 		       )
 		FROM workflow_progression_events wpe
 		WHERE wpe.id = $1`,
-		events[0].ID,
-	).Scan(&xminAfterReclaim, &claimRows); err != nil {
-		t.Fatalf("query event after stale reclaim: %v", err)
-	}
-	if xminAfterReclaim != xminAfterClaim {
-		t.Fatalf("stale reclaim changed event xmin from %s to %s", xminAfterClaim, xminAfterReclaim)
-	}
-	if claimRows != 1 {
-		t.Fatalf("claim rows after stale reclaim = %d, want 1", claimRows)
-	}
+
+		events[0].ID).Scan(&xminAfterReclaim, &claimRows))
+	require.Equal(t, xminAfterClaim,
+
+		xminAfterReclaim,
+	)
+	require.EqualValues(t, 1, claimRows)
+
 }
 
 func TestWorkflowProgressionEvents_DeleteProcessedUsesSideStateAndLegacyState(t *testing.T) {
@@ -315,20 +313,19 @@ func TestWorkflowProgressionEvents_DeleteProcessedUsesSideStateAndLegacyState(t 
 	defer cancel()
 	mustClean(t, ctx)
 	q := mustStore(t)
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-delete",
 
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-delete", "step-run-side", "step-a", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent(side) error = %v", err)
-	}
+		"step-run-side", "step-a", "completed"))
+
 	sideEvents, err := q.ClaimWorkflowProgressionEvents(ctx, 1)
-	if err != nil {
-		t.Fatalf("ClaimWorkflowProgressionEvents(side) error = %v", err)
-	}
-	if len(sideEvents) != 1 {
-		t.Fatalf("side claim len = %d, want 1", len(sideEvents))
-	}
-	if err := q.MarkWorkflowProgressionEventProcessed(ctx, sideEvents[0].ID); err != nil {
-		t.Fatalf("MarkWorkflowProgressionEventProcessed(side) error = %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, sideEvents,
+
+		1)
+	require.NoError(t, q.MarkWorkflowProgressionEventProcessed(ctx,
+		sideEvents[0].ID))
+
 	oldProcessedAt := time.Now().UTC().Add(-time.Hour)
 	if _, err := testDB.Pool.Exec(ctx, `
 		UPDATE workflow_progression_event_processed
@@ -337,52 +334,46 @@ func TestWorkflowProgressionEvents_DeleteProcessedUsesSideStateAndLegacyState(t 
 		oldProcessedAt,
 		sideEvents[0].ID,
 	); err != nil {
-		t.Fatalf("age side processed event: %v", err)
-	}
+		require.Failf(t, "test failure",
 
-	if err := q.CreateWorkflowProgressionEvent(ctx, "wf-run-delete", "step-run-legacy", "step-b", "completed"); err != nil {
-		t.Fatalf("CreateWorkflowProgressionEvent(legacy) error = %v", err)
+			"age side processed event: %v", err)
 	}
+	require.NoError(t, q.CreateWorkflowProgressionEvent(ctx,
+		"wf-run-delete",
+
+		"step-run-legacy", "step-b", "completed"))
+
 	var legacyID int64
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		UPDATE workflow_progression_events
 		SET processed_at = $1
 		WHERE step_run_id = 'step-run-legacy'
 		RETURNING id`,
-		oldProcessedAt,
-	).Scan(&legacyID); err != nil {
-		t.Fatalf("mark legacy processed event: %v", err)
-	}
+		oldProcessedAt).Scan(&legacyID))
 
 	deleted, err := q.DeleteProcessedWorkflowProgressionEvents(ctx, 30*time.Minute, 10)
-	if err != nil {
-		t.Fatalf("DeleteProcessedWorkflowProgressionEvents() error = %v", err)
-	}
-	if deleted != 2 {
-		t.Fatalf("deleted events = %d, want 2", deleted)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 2, deleted)
 
 	var remainingEvents, remainingSideRows int
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM workflow_progression_events
 		WHERE id = ANY($1)`,
-		[]int64{sideEvents[0].ID, legacyID},
-	).Scan(&remainingEvents); err != nil {
-		t.Fatalf("query remaining progression events: %v", err)
-	}
-	if remainingEvents != 0 {
-		t.Fatalf("remaining progression events = %d, want 0", remainingEvents)
-	}
-	if err := testDB.Pool.QueryRow(ctx, `
+		[]int64{sideEvents[0].ID, legacyID}).Scan(&remainingEvents))
+	require.EqualValues(t, 0, remainingEvents)
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT COUNT(*)
 		FROM workflow_progression_event_processed
 		WHERE event_id = $1`,
-		sideEvents[0].ID,
-	).Scan(&remainingSideRows); err != nil {
-		t.Fatalf("query remaining side rows: %v", err)
-	}
-	if remainingSideRows != 0 {
-		t.Fatalf("remaining processed side rows = %d, want 0 cascade cleanup", remainingSideRows)
-	}
+
+		sideEvents[0].ID).Scan(&remainingSideRows))
+	require.EqualValues(t, 0, remainingSideRows)
+
 }

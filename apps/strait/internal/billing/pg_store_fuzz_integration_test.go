@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // F1: Fuzz EnsureOrgSubscription with unusual org IDs
@@ -95,9 +97,8 @@ func TestFuzz_RecordProcessedWebhook(t *testing.T) {
 			t.Logf("IsWebhookProcessed(%q) = %v (acceptable)", input, err)
 			continue
 		}
-		if !processed {
-			t.Errorf("IsWebhookProcessed(%q) = false after recording", input)
-		}
+		assert.True(t, processed)
+
 	}
 }
 
@@ -150,9 +151,11 @@ func TestFuzz_UpsertOrgSubscription(t *testing.T) {
 				t.Logf("GetOrgSubscription(%q) = %v (acceptable)", tc.name, err)
 				return
 			}
-			if got.PlanTier != tc.plan {
-				t.Errorf("plan = %q, want %q", got.PlanTier, tc.plan)
-			}
+			assert.Equal(t, tc.plan,
+				got.
+					PlanTier,
+			)
+
 		})
 	}
 }
@@ -198,9 +201,8 @@ func TestFuzz_CreateAddon(t *testing.T) {
 				t.Logf("ListActiveAddons after %q = %v", tc.name, err)
 				return
 			}
-			if len(addons) != 1 {
-				t.Errorf("ListActiveAddons = %d, want 1", len(addons))
-			}
+			assert.Len(t, addons, 1)
+
 		})
 	}
 }

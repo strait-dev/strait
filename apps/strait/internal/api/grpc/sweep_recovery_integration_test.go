@@ -10,6 +10,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 type sweepRecoveryFinalizer struct {
@@ -56,43 +58,51 @@ func TestIntegration_RecoverDurableResultHandoffs_FinalizesPersistedResult(t *te
 		[]byte(`{"recovered":true}`),
 		25,
 	)
-	if err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceivedByAssignment: %v", err)
-	}
-	if !marked {
-		t.Fatal("expected durable result handoff to be marked")
-	}
+	require.NoError(t,
+
+		err)
+	require.True(t, marked)
+
 	if _, err := env.DB.Pool.Exec(ctx, `UPDATE worker_tasks SET result_received_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, taskID); err != nil {
-		t.Fatalf("age result handoff: %v", err)
+		require.Failf(t, "test failure",
+
+			"age result handoff: %v", err)
 	}
 
 	finalizer := &sweepRecoveryFinalizer{q: q}
 	recoverDurableResultHandoffs(ctx, q, func() WorkerRunResultFinalizer { return finalizer }, time.Now().Add(-5*time.Minute))
+	require.EqualValues(t, 1,
+		finalizer.
+			called)
 
-	if finalizer.called != 1 {
-		t.Fatalf("finalizer calls = %d, want 1", finalizer.called)
-	}
 	run, err := q.GetRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("GetRun: %v", err)
-	}
-	if run.Status != domain.StatusCompleted {
-		t.Fatalf("run status = %q, want completed", run.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			StatusCompleted,
+
+		run.Status)
+
 	var output map[string]bool
-	if err := json.Unmarshal(run.Result, &output); err != nil {
-		t.Fatalf("unmarshal run result: %v", err)
-	}
-	if !output["recovered"] {
-		t.Fatalf("run result = %s, want recovered=true", string(run.Result))
-	}
+	require.NoError(t,
+
+		json.Unmarshal(run.
+			Result, &output))
+	require.True(t, output["recovered"])
+
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusCompleted {
-		t.Fatalf("worker task status = %q, want completed", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusCompleted,
+
+		task.
+			Status)
+
 }
 
 func TestIntegration_RecoverDurableResultHandoffs_RetryableAfterFinalizerFailure(t *testing.T) {
@@ -102,12 +112,18 @@ func TestIntegration_RecoverDurableResultHandoffs_RetryableAfterFinalizerFailure
 	q := store.New(env.DB.Pool)
 	projectID, workerID, runID, taskID := seedRunWithTask(t, ctx, q, env)
 	if marked, err := q.MarkWorkerTaskResultReceivedByAssignment(ctx, taskID, workerID, projectID, runID, 1, "failed", "boom", nil, 10); err != nil {
-		t.Fatalf("MarkWorkerTaskResultReceivedByAssignment: %v", err)
+		require.Failf(t, "test failure",
+
+			"MarkWorkerTaskResultReceivedByAssignment: %v", err)
 	} else if !marked {
-		t.Fatal("expected durable result handoff to be marked")
+		require.Fail(t,
+
+			"expected durable result handoff to be marked")
 	}
 	if _, err := env.DB.Pool.Exec(ctx, `UPDATE worker_tasks SET result_received_at = NOW() - INTERVAL '10 minutes' WHERE id = $1`, taskID); err != nil {
-		t.Fatalf("age result handoff: %v", err)
+		require.Failf(t, "test failure",
+
+			"age result handoff: %v", err)
 	}
 
 	recoverDurableResultHandoffs(ctx, q, func() WorkerRunResultFinalizer {
@@ -115,12 +131,16 @@ func TestIntegration_RecoverDurableResultHandoffs_RetryableAfterFinalizerFailure
 	}, time.Now().Add(-5*time.Minute))
 
 	task, err := q.GetWorkerTask(ctx, taskID)
-	if err != nil {
-		t.Fatalf("GetWorkerTask: %v", err)
-	}
-	if task.Status != domain.WorkerTaskStatusResultReceived {
-		t.Fatalf("worker task status = %q, want result_received after retryable failure", task.Status)
-	}
+	require.NoError(t,
+
+		err)
+	require.Equal(t,
+		domain.
+			WorkerTaskStatusResultReceived,
+
+		task.Status,
+	)
+
 }
 
 type failingFinalizer struct{}

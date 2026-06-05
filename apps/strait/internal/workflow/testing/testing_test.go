@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Parser tests.
@@ -25,33 +28,23 @@ func TestParseTestSuite_ValidJSON(t *testing.T) {
 	}`)
 
 	suite, err := ParseTestSuiteJSON(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(suite.Tests) != 1 {
-		t.Fatalf("expected 1 test, got %d", len(suite.Tests))
-	}
-	if suite.Tests[0].Name != "happy path" {
-		t.Errorf("name = %q, want 'happy path'", suite.Tests[0].Name)
-	}
+	require.NoError(t, err)
+	require.Len(t, suite.Tests, 1)
+	assert.Equal(t, "happy path", suite.Tests[0].Name)
 }
 
 func TestParseTestSuite_MissingWorkflow(t *testing.T) {
 	t.Parallel()
 	data := []byte(`{"tests": [{"name": "test", "assertions": [{"step": "a", "status": "ok"}]}]}`)
 	_, err := ParseTestSuiteJSON(data)
-	if err == nil {
-		t.Error("expected error for missing workflow")
-	}
+	assert.Error(t, err)
 }
 
 func TestParseTestSuite_EmptyAssertions(t *testing.T) {
 	t.Parallel()
 	data := []byte(`{"tests": [{"name": "test", "workflow": "wf", "assertions": []}]}`)
 	_, err := ParseTestSuiteJSON(data)
-	if err == nil {
-		t.Error("expected error for empty assertions")
-	}
+	assert.Error(t, err)
 }
 
 func TestParseTestSuite_MultipleTests(t *testing.T) {
@@ -64,28 +57,20 @@ func TestParseTestSuite_MultipleTests(t *testing.T) {
 	}`)
 
 	suite, err := ParseTestSuiteJSON(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(suite.Tests) != 2 {
-		t.Fatalf("expected 2 tests, got %d", len(suite.Tests))
-	}
+	require.NoError(t, err)
+	assert.Len(t, suite.Tests, 2)
 }
 
 func TestParseTestSuite_EmptyData(t *testing.T) {
 	t.Parallel()
 	_, err := ParseTestSuiteJSON(nil)
-	if err == nil {
-		t.Error("expected error for empty data")
-	}
+	assert.Error(t, err)
 }
 
 func TestParseTestSuite_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	_, err := ParseTestSuiteJSON([]byte(`not valid json`))
-	if err == nil {
-		t.Error("expected error for invalid JSON")
-	}
+	assert.Error(t, err)
 }
 
 func TestParseTestSuite_InvalidMockConfig(t *testing.T) {
@@ -100,12 +85,8 @@ func TestParseTestSuite_InvalidMockConfig(t *testing.T) {
 	}`)
 
 	suite, err := ParseTestSuiteJSON(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if suite.Tests[0].Mocks["service"].StatusCode != 200 {
-		t.Error("mock status code not parsed")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 200, suite.Tests[0].Mocks["service"].StatusCode)
 }
 
 // FilterTests.
@@ -114,9 +95,7 @@ func TestFilterTests_EmptyPattern(t *testing.T) {
 	t.Parallel()
 	suite := &TestSuite{Tests: []TestCase{{Name: "a"}, {Name: "b"}}}
 	filtered := FilterTests(suite, "")
-	if len(filtered) != 2 {
-		t.Errorf("expected 2, got %d", len(filtered))
-	}
+	assert.Len(t, filtered, 2)
 }
 
 func TestFilterTests_MatchPattern(t *testing.T) {
@@ -127,9 +106,7 @@ func TestFilterTests_MatchPattern(t *testing.T) {
 		{Name: "order processing"},
 	}}
 	filtered := FilterTests(suite, "payment")
-	if len(filtered) != 2 {
-		t.Errorf("expected 2, got %d", len(filtered))
-	}
+	assert.Len(t, filtered, 2)
 }
 
 // Runner tests.
@@ -149,12 +126,8 @@ func TestRunner_HappyPath(t *testing.T) {
 	outputs := map[string]string{}
 
 	result := RunTestCase(tc, statuses, "completed", outputs, 5*time.Second)
-	if !result.Passed {
-		t.Error("expected all assertions to pass")
-	}
-	if len(result.Assertions) != 3 {
-		t.Errorf("expected 3 assertions, got %d", len(result.Assertions))
-	}
+	assert.True(t, result.Passed)
+	assert.Len(t, result.Assertions, 3)
 }
 
 func TestRunner_StepStatusAssertion_Fail(t *testing.T) {
@@ -169,12 +142,9 @@ func TestRunner_StepStatusAssertion_Fail(t *testing.T) {
 	statuses := map[string]string{"charge": "failed"}
 
 	result := RunTestCase(tc, statuses, "failed", nil, 0)
-	if result.Passed {
-		t.Error("expected failure")
-	}
-	if result.Assertions[0].Actual != "failed" {
-		t.Errorf("actual = %q, want failed", result.Assertions[0].Actual)
-	}
+	assert.False(t, result.Passed)
+	require.NotEmpty(t, result.Assertions)
+	assert.Equal(t, "failed", result.Assertions[0].Actual)
 }
 
 func TestRunner_OutputContains_Pass(t *testing.T) {
@@ -189,9 +159,7 @@ func TestRunner_OutputContains_Pass(t *testing.T) {
 	outputs := map[string]string{"charge": `{"transaction_id":"txn-456","amount":99}`}
 
 	result := RunTestCase(tc, nil, "", outputs, 0)
-	if !result.Passed {
-		t.Error("expected pass")
-	}
+	assert.True(t, result.Passed)
 }
 
 func TestRunner_OutputContains_Fail(t *testing.T) {
@@ -206,9 +174,7 @@ func TestRunner_OutputContains_Fail(t *testing.T) {
 	outputs := map[string]string{"charge": `{"transaction_id":"txn-456"}`}
 
 	result := RunTestCase(tc, nil, "", outputs, 0)
-	if result.Passed {
-		t.Error("expected failure")
-	}
+	assert.False(t, result.Passed)
 }
 
 func TestRunner_DurationUnder_Pass(t *testing.T) {
@@ -222,9 +188,7 @@ func TestRunner_DurationUnder_Pass(t *testing.T) {
 	}
 
 	result := RunTestCase(tc, nil, "", nil, 10*time.Second)
-	if !result.Passed {
-		t.Error("expected pass")
-	}
+	assert.True(t, result.Passed)
 }
 
 func TestRunner_DurationUnder_Fail(t *testing.T) {
@@ -238,9 +202,7 @@ func TestRunner_DurationUnder_Fail(t *testing.T) {
 	}
 
 	result := RunTestCase(tc, nil, "", nil, 10*time.Second)
-	if result.Passed {
-		t.Error("expected failure")
-	}
+	assert.False(t, result.Passed)
 }
 
 func TestRunner_WorkflowStatus_Pass(t *testing.T) {
@@ -252,9 +214,7 @@ func TestRunner_WorkflowStatus_Pass(t *testing.T) {
 	}
 
 	result := RunTestCase(tc, nil, "completed", nil, 0)
-	if !result.Passed {
-		t.Error("expected pass")
-	}
+	assert.True(t, result.Passed)
 }
 
 // JUnit output tests.
@@ -267,15 +227,9 @@ func TestOutput_JUnitXML_AllPass(t *testing.T) {
 	}
 
 	out, err := FormatJUnitXML("suite", results)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), `failures="0"`) {
-		t.Error("expected 0 failures")
-	}
-	if !strings.Contains(string(out), `tests="2"`) {
-		t.Error("expected 2 tests")
-	}
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `failures="0"`)
+	assert.Contains(t, string(out), `tests="2"`)
 }
 
 func TestOutput_JUnitXML_SomeFailures(t *testing.T) {
@@ -288,15 +242,9 @@ func TestOutput_JUnitXML_SomeFailures(t *testing.T) {
 	}
 
 	out, err := FormatJUnitXML("suite", results)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), `failures="1"`) {
-		t.Error("expected 1 failure")
-	}
-	if !strings.Contains(string(out), "step status") {
-		t.Error("failure message should contain assertion description")
-	}
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `failures="1"`)
+	assert.Contains(t, string(out), "step status")
 }
 
 func TestOutput_JUnitXML_Escaping(t *testing.T) {
@@ -308,15 +256,11 @@ func TestOutput_JUnitXML_Escaping(t *testing.T) {
 	}
 
 	out, err := FormatJUnitXML("suite", results)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify valid XML.
 	var suite junitTestSuite
-	if xmlErr := xml.Unmarshal(out, &suite); xmlErr != nil {
-		t.Fatalf("generated XML is not valid: %v", xmlErr)
-	}
+	require.NoError(t, xml.Unmarshal(out, &suite))
 }
 
 // Fuzz tests.
@@ -347,17 +291,13 @@ func TestTestSuite_100TestCases(t *testing.T) {
 		}
 	}
 	suite := &TestSuite{Tests: tests}
-	if err := suite.Validate(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, suite.Validate())
 }
 
 func TestTestSuite_MalformedYAML(t *testing.T) {
 	t.Parallel()
 	_, err := ParseTestSuiteYAML([]byte(`{{{ invalid yaml`))
-	if err == nil {
-		t.Error("expected error for malformed YAML")
-	}
+	assert.Error(t, err)
 }
 
 func TestTestSuite_LargeMockResponse(t *testing.T) {
@@ -375,12 +315,8 @@ func TestTestSuite_LargeMockResponse(t *testing.T) {
 	})
 
 	suite, err := ParseTestSuiteJSON(data)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(suite.Tests[0].Mocks["service"].Response) < 1024*1024 {
-		t.Error("large mock response should be preserved")
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(suite.Tests[0].Mocks["service"].Response), 1024*1024)
 }
 
 func TestRunner_InvalidDurationFormat(t *testing.T) {
@@ -394,9 +330,7 @@ func TestRunner_InvalidDurationFormat(t *testing.T) {
 	}
 
 	result := RunTestCase(tc, nil, "", nil, 0)
-	if result.Passed {
-		t.Error("expected failure for invalid duration")
-	}
+	assert.False(t, result.Passed)
 }
 
 func TestValidate_NoName(t *testing.T) {
@@ -406,9 +340,7 @@ func TestValidate_NoName(t *testing.T) {
 		Assertions: []Assertion{{Step: "a", Status: "ok"}},
 	}}}
 	err := suite.Validate()
-	if err == nil {
-		t.Error("expected error for missing name")
-	}
+	assert.Error(t, err)
 }
 
 func TestValidate_AssertionMissingStepAndWorkflowStatus(t *testing.T) {
@@ -419,7 +351,5 @@ func TestValidate_AssertionMissingStepAndWorkflowStatus(t *testing.T) {
 		Assertions: []Assertion{{Status: "completed"}}, // missing step and workflow_status
 	}}}
 	err := suite.Validate()
-	if err == nil {
-		t.Error("expected error for assertion without step or workflow_status")
-	}
+	assert.Error(t, err)
 }

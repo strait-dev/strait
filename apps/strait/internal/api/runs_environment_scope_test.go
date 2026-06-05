@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -108,16 +109,15 @@ func TestRunEnvironmentScope_MutatingHandlersRejectEnvironmentMismatch(t *testin
 					return err
 				}
 				raw, marshalErr := json.Marshal(out.Body["results"])
-				if marshalErr != nil {
-					t.Fatalf("marshal bulk replay results: %v", marshalErr)
-				}
+				require.NoError(t, marshalErr)
+
 				var results []map[string]any
-				if unmarshalErr := json.Unmarshal(raw, &results); unmarshalErr != nil {
-					t.Fatalf("unmarshal bulk replay results: %v", unmarshalErr)
-				}
-				if len(results) != 1 || results[0]["status"] != "failed" {
-					t.Fatalf("bulk replay env mismatch result = %#v, want failed item", out.Body["results"])
-				}
+				require.NoError(t, json.Unmarshal(raw,
+					&results,
+				))
+				require.False(t, len(results) !=
+					1 || results[0]["status"] != "failed")
+
 				return huma.Error404NotFound("run not found")
 			},
 		},
@@ -128,12 +128,9 @@ func TestRunEnvironmentScope_MutatingHandlersRejectEnvironmentMismatch(t *testin
 			t.Parallel()
 			srv := newEnvScopedRunServer(t)
 			err := tc.call(srv, envScopedRunCtx())
-			if err == nil {
-				t.Fatal("expected environment mismatch to reject request")
-			}
-			if !isNotFound(err) {
-				t.Fatalf("expected 404-style rejection, got %v", err)
-			}
+			require.Error(t, err)
+			require.True(
+				t, isNotFound(err))
 		})
 	}
 }
@@ -162,17 +159,15 @@ func TestHandleListRuns_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	out, err := srv.handleListRuns(envScopedRunCtx(), &ListRunsInput{Limit: "10"})
-	if err != nil {
-		t.Fatalf("handleListRuns: %v", err)
-	}
+	require.NoError(t, err)
 
 	runs, ok := out.Body.Data.([]domain.JobRun)
-	if !ok {
-		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
-	}
-	if len(runs) != 1 || runs[0].ID != "run-prod" {
-		t.Fatalf("filtered runs = %+v, want only env-prod run", runs)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(runs) !=
+		1 || runs[0].ID !=
+		"run-prod",
+	)
 }
 
 func TestHandleBulkReplayDeadLetterRuns_ProjectModeFiltersEnvironment(t *testing.T) {
@@ -206,15 +201,10 @@ func TestHandleBulkReplayDeadLetterRuns_ProjectModeFiltersEnvironment(t *testing
 	out, err := srv.handleBulkReplayDeadLetterRuns(envScopedRunCtx(), &BulkReplayDeadLetterRunsInput{
 		Body: BulkReplayDeadLetterRunsRequest{ProjectID: "proj-1", Limit: 10},
 	})
-	if err != nil {
-		t.Fatalf("handleBulkReplayDeadLetterRuns: %v", err)
-	}
-	if out == nil {
-		t.Fatal("expected output")
-	}
-	if len(replayedRunIDs) != 1 || replayedRunIDs[0] != "run-prod" {
-		t.Fatalf("replayed run IDs = %v, want only env-prod dead-letter run", replayedRunIDs)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.False(t, len(replayedRunIDs) != 1 ||
+		replayedRunIDs[0] != "run-prod")
 }
 
 func TestHandleListDeadLetterRuns_EnvironmentScopeFiltersForeignRuns(t *testing.T) {
@@ -241,15 +231,13 @@ func TestHandleListDeadLetterRuns_EnvironmentScopeFiltersForeignRuns(t *testing.
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	out, err := srv.handleListDeadLetterRuns(envScopedRunCtx(), &ListDeadLetterRunsInput{Limit: "10"})
-	if err != nil {
-		t.Fatalf("handleListDeadLetterRuns: %v", err)
-	}
+	require.NoError(t, err)
 
 	runs, ok := out.Body.Data.([]domain.JobRun)
-	if !ok {
-		t.Fatalf("unexpected runs payload type: %T", out.Body.Data)
-	}
-	if len(runs) != 1 || runs[0].ID != "run-prod" {
-		t.Fatalf("filtered DLQ runs = %+v, want only env-prod run", runs)
-	}
+	require.True(
+		t, ok)
+	require.False(t, len(runs) !=
+		1 || runs[0].ID !=
+		"run-prod",
+	)
 }

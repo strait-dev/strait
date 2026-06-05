@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -17,16 +19,12 @@ import (
 
 func TestMetrics_SingletonIsShared(t *testing.T) {
 	a, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	b, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
-	if a != b {
-		t.Error("Metrics() should return the same instance on repeat calls")
-	}
+	require.NoError(t, err)
+	assert.Equal(t,
+		b, a)
 }
 
 func TestRecordPartitionStats_NilSafe(t *testing.T) {
@@ -37,9 +35,8 @@ func TestRecordPartitionStats_NilSafe(t *testing.T) {
 
 func TestRecordPartitionStats_HotRatioNoDivByZero(t *testing.T) {
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	// TotalUpdates=0 must not panic, must not record a ratio.
 	m.RecordPartitionStats(context.Background(), "job_runs_p_empty", PartitionStats{
 		LiveTuples:   100,
@@ -50,9 +47,8 @@ func TestRecordPartitionStats_HotRatioNoDivByZero(t *testing.T) {
 
 func TestRecordPartitionStats_BasicRatio(t *testing.T) {
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	m.RecordPartitionStats(context.Background(), "job_runs_p2026_04", PartitionStats{
 		LiveTuples:     500,
 		DeadTuples:     50,
@@ -64,17 +60,12 @@ func TestRecordPartitionStats_BasicRatio(t *testing.T) {
 
 func TestResetMetricsForTest_AllowsReinit(t *testing.T) {
 	m1, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	ResetMetricsForTest()
 	m2, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
-	if m1 == m2 {
-		t.Error("ResetMetricsForTest should yield a fresh instance")
-	}
+	require.NoError(t, err)
+	assert.NotSame(t, m1, m2)
 }
 
 func TestQueueMetrics_AllFieldsInitialized(t *testing.T) {
@@ -82,17 +73,15 @@ func TestQueueMetrics_AllFieldsInitialized(t *testing.T) {
 	defer ResetMetricsForTest()
 
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	rv := reflect.ValueOf(m).Elem()
 	rt := rv.Type()
 	for i := range rt.NumField() {
 		f := rv.Field(i)
-		if f.IsNil() {
-			t.Errorf("QueueMetrics.%s is nil after init", rt.Field(i).Name)
-		}
+		assert.False(t,
+			f.IsNil(),
+		)
 	}
 }
 
@@ -107,7 +96,9 @@ func TestQueueMetrics_NoBannedFieldNames(t *testing.T) {
 
 	for _, f := range reflect.VisibleFields(reflect.TypeFor[QueueMetrics]()) {
 		if _, ok := banned[f.Name]; ok {
-			t.Errorf("QueueMetrics should not have field %q (high-cardinality label risk)", f.Name)
+			assert.Failf(t, "test failure",
+
+				"QueueMetrics should not have field %q (high-cardinality label risk)", f.Name)
 		}
 	}
 }
@@ -118,13 +109,20 @@ func TestPgQueBackgroundErrorIncrementsBoundedCounter(t *testing.T) {
 	q := NewPgQueQueue(&mockDBTX{}, nil, PgQueConfig{})
 	q.logBackgroundError(context.Background(), "ticker", "pgque ticker failed", errors.New("tick failed"))
 	q.logBackgroundError(context.Background(), "route:tenant-a", "pgque custom failed", errors.New("custom failed"))
+	require.EqualValues(t, 1, pgQueBackgroundErrorSum(t,
+		reader,
+		"ticker"))
+	require.EqualValues(t, 1, pgQueBackgroundErrorSum(t,
+		reader,
+		"other"))
+}
 
-	if got := pgQueBackgroundErrorSum(t, reader, "ticker"); got != 1 {
-		t.Fatalf("pgque background errors for ticker = %d, want 1", got)
-	}
-	if got := pgQueBackgroundErrorSum(t, reader, "other"); got != 1 {
-		t.Fatalf("pgque background errors for other = %d, want 1", got)
-	}
+func TestPgQueConsumerLagRecordsGauge(t *testing.T) {
+	reader := setupQueueMetricsReader(t)
+
+	recordPgQueConsumerLag(context.Background(), 17)
+
+	require.Equal(t, int64(17), pgQueConsumerLagValue(t, reader))
 }
 
 func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
@@ -139,9 +137,8 @@ func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	t.Cleanup(func() {
 		ResetMetricsForTest()
 		otel.SetMeterProvider(oldProvider)
-		if err := provider.Shutdown(context.Background()); err != nil {
-			t.Fatalf("shutdown meter provider: %v", err)
-		}
+		require.NoError(t, provider.
+			Shutdown(context.Background()))
 	})
 	return reader
 }
@@ -150,18 +147,19 @@ func pgQueBackgroundErrorSum(t *testing.T, reader *sdkmetric.ManualReader, opera
 	t.Helper()
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect metrics: %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.
+			Background(), &rm))
+
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
 			if m.Name != "strait_queue_pgque_background_errors_total" {
 				continue
 			}
 			data, ok := m.Data.(metricdata.Sum[int64])
-			if !ok {
-				t.Fatalf("pgque background errors data = %T, want Sum[int64]", m.Data)
-			}
+			require.True(t,
+				ok)
+
 			var total int64
 			for _, dp := range data.DataPoints {
 				if queueMetricAttrEq(dp.Attributes, "operation", operation) {
@@ -174,6 +172,27 @@ func pgQueBackgroundErrorSum(t *testing.T, reader *sdkmetric.ManualReader, opera
 	return 0
 }
 
+func pgQueConsumerLagValue(t *testing.T, reader *sdkmetric.ManualReader) int64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "strait_queue_pgque_consumer_lag_ticks" {
+				continue
+			}
+			data, ok := m.Data.(metricdata.Gauge[int64])
+			require.Truef(t, ok, "pgque consumer lag data = %T, want Gauge[int64]", m.Data)
+			if len(data.DataPoints) == 0 {
+				return 0
+			}
+			return data.DataPoints[len(data.DataPoints)-1].Value
+		}
+	}
+	return 0
+}
+
 func queueMetricAttrEq(set attribute.Set, key, want string) bool {
 	got, ok := set.Value(attribute.Key(key))
 	return ok && got.AsString() == want
@@ -181,9 +200,8 @@ func queueMetricAttrEq(set attribute.Set, key, want string) bool {
 
 func TestRecordPartitionStats_AllGaugesExercised(t *testing.T) {
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	m.RecordPartitionStats(context.Background(), "job_runs_p2026_04", PartitionStats{
 		LiveTuples:     1000,
 		DeadTuples:     100,
@@ -195,9 +213,8 @@ func TestRecordPartitionStats_AllGaugesExercised(t *testing.T) {
 
 func TestRecordPartitionStats_ZeroLiveTuples(t *testing.T) {
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	m.RecordPartitionStats(context.Background(), "job_runs_empty", PartitionStats{
 		LiveTuples:     0,
 		DeadTuples:     0,
@@ -209,9 +226,8 @@ func TestRecordPartitionStats_ZeroLiveTuples(t *testing.T) {
 
 func TestRecordPartitionStats_MaxValues(t *testing.T) {
 	m, err := Metrics()
-	if err != nil {
-		t.Fatalf("Metrics(): %v", err)
-	}
+	require.NoError(t, err)
+
 	m.RecordPartitionStats(context.Background(), "job_runs_big", PartitionStats{
 		LiveTuples:     1<<62 - 1,
 		DeadTuples:     1<<62 - 1,
@@ -232,9 +248,8 @@ func TestPartitionMetricLabel_BoundsCardinality(t *testing.T) {
 		"job_runs_p2026_04_x":   "other",
 	}
 	for partition, want := range tests {
-		if got := partitionMetricLabel(partition); got != want {
-			t.Errorf("partitionMetricLabel(%q) = %q, want %q", partition, got, want)
-		}
+		assert.Equal(t,
+			want, partitionMetricLabel(partition))
 	}
 }
 
@@ -248,9 +263,10 @@ func TestPartitionMetricLabel_FuzzSeedsCollapseUnboundedNames(t *testing.T) {
 		"tenant_c_jobs",
 	} {
 		got := partitionMetricLabel(partition)
-		if got != "job_runs_partition" && got != "other" {
-			t.Errorf("partitionMetricLabel(%q) = %q, want bounded label", partition, got)
-		}
+		assert.False(t,
+			got != "job_runs_partition" &&
+				got !=
+					"other")
 	}
 }
 
@@ -272,17 +288,14 @@ func FuzzPartitionLabelCardinality(f *testing.F) {
 			"unknown":            true,
 			"other":              true,
 		}
-		if !allowed[got] {
-			t.Fatalf("partitionMetricLabel(%q) = %q, want bounded label", label, got)
-		}
+		require.True(t,
+			allowed[got])
+
 		m, err := Metrics()
-		if err != nil {
-			t.Fatalf("Metrics(): %v", err)
-		}
+		require.NoError(t, err)
+
 		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("RecordPartitionStats panicked on %q: %v", label, r)
-			}
+			require.Nil(t, recover())
 		}()
 		m.RecordPartitionStats(context.Background(), label, PartitionStats{
 			LiveTuples:   10,

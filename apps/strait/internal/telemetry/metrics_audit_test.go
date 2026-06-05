@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -30,9 +32,8 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	t.Parallel()
 
 	m, _, shutdown, err := telemetry.InitMetrics("strait-audit-test", "test")
-	if err != nil {
-		t.Fatalf("InitMetrics: %v", err)
-	}
+	require.NoError(t, err)
+
 	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	// Increment counters so the SDK exports a data point for each.
@@ -55,26 +56,23 @@ func TestAuditMetrics_Registered(t *testing.T) {
 	// assert the callback wiring end-to-end. This mirrors how the
 	// ObserveAuditDrainer callback binds to any passed meter.
 	depth, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_depth")
-	if err != nil {
-		t.Fatalf("create depth gauge: %v", err)
-	}
+	require.NoError(t, err)
+
 	capacity, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_capacity")
-	if err != nil {
-		t.Fatalf("create capacity gauge: %v", err)
-	}
+	require.NoError(t, err)
+
 	drainer := &stubDrainer{depth: 42, capacity: 4096}
-	if _, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
 		o.ObserveInt64(depth, drainer.AuditDrainerQueueDepth())
 		o.ObserveInt64(capacity, drainer.AuditDrainerQueueCapacity())
 		return nil
-	}, depth, capacity); err != nil {
-		t.Fatalf("register callback: %v", err)
-	}
+	}, depth, capacity)
+	require.NoError(t, err)
 
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("collect: %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.
+			Background(), &rm))
 
 	seen := map[string]int64{}
 	for _, sm := range rm.ScopeMetrics {
@@ -86,31 +84,20 @@ func TestAuditMetrics_Registered(t *testing.T) {
 			}
 		}
 	}
-	if got := seen["strait_audit_drainer_queue_depth"]; got != 42 {
-		t.Errorf("drainer_queue_depth = %d, want 42", got)
-	}
-	if got := seen["strait_audit_drainer_queue_capacity"]; got != 4096 {
-		t.Errorf("drainer_queue_capacity = %d, want 4096", got)
-	}
+	assert.EqualValues(
+		t, 42, seen["strait_audit_drainer_queue_depth"])
+	assert.EqualValues(
+		t, 4096, seen["strait_audit_drainer_queue_capacity"])
+
+	assert.NotNil(t, m.AuditDrainerQueueDepth)
+	assert.NotNil(t, m.AuditDrainerQueueCapacity)
+	assert.NotNil(t, m.AuditEventsExportCapped)
+	assert.NotNil(t, m.AuditChainVerifyTotal)
+	assert.NotNil(t, m.AuditChainVerifyFailed)
 
 	// Validate that the InitMetrics struct actually exposes the four
 	// counter handles — protects against future refactors that might
 	// drop an assignment from the struct literal.
-	if m.AuditDrainerQueueDepth == nil {
-		t.Error("AuditDrainerQueueDepth instrument not registered")
-	}
-	if m.AuditDrainerQueueCapacity == nil {
-		t.Error("AuditDrainerQueueCapacity instrument not registered")
-	}
-	if m.AuditEventsExportCapped == nil {
-		t.Error("AuditEventsExportCapped instrument not registered")
-	}
-	if m.AuditChainVerifyTotal == nil {
-		t.Error("AuditChainVerifyTotal instrument not registered")
-	}
-	if m.AuditChainVerifyFailed == nil {
-		t.Error("AuditChainVerifyFailed instrument not registered")
-	}
 }
 
 // TestObserveAuditDrainer_CallbackReflectsLiveState asserts that each
@@ -124,28 +111,24 @@ func TestObserveAuditDrainer_CallbackReflectsLiveState(t *testing.T) {
 	meter := provider.Meter("audit-drainer-live")
 
 	depth, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_depth")
-	if err != nil {
-		t.Fatalf("create depth gauge: %v", err)
-	}
+	require.NoError(t, err)
+
 	capacity, err := meter.Int64ObservableGauge("strait_audit_drainer_queue_capacity")
-	if err != nil {
-		t.Fatalf("create capacity gauge: %v", err)
-	}
+	require.NoError(t, err)
 
 	m := &telemetry.Metrics{
 		AuditDrainerQueueDepth:    depth,
 		AuditDrainerQueueCapacity: capacity,
 	}
 	d := &stubDrainer{depth: 1, capacity: 8}
-	if err := m.ObserveAuditDrainer(meter, d); err != nil {
-		t.Fatalf("ObserveAuditDrainer: %v", err)
-	}
+	require.NoError(t, m.ObserveAuditDrainer(meter, d))
 
 	readDepth := func() int64 {
 		var rm metricdata.ResourceMetrics
-		if err := reader.Collect(context.Background(), &rm); err != nil {
-			t.Fatalf("collect: %v", err)
-		}
+		require.NoError(t, reader.
+			Collect(context.
+				Background(), &rm))
+
 		for _, sm := range rm.ScopeMetrics {
 			for _, inst := range sm.Metrics {
 				if inst.Name == "strait_audit_drainer_queue_depth" {
@@ -159,12 +142,10 @@ func TestObserveAuditDrainer_CallbackReflectsLiveState(t *testing.T) {
 		}
 		return -1
 	}
+	assert.EqualValues(
+		t, 1, readDepth())
 
-	if got := readDepth(); got != 1 {
-		t.Errorf("initial depth = %d, want 1", got)
-	}
 	d.depth = 99
-	if got := readDepth(); got != 99 {
-		t.Errorf("post-update depth = %d, want 99", got)
-	}
+	assert.EqualValues(
+		t, 99, readDepth())
 }

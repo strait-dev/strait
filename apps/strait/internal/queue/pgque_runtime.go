@@ -230,6 +230,15 @@ func (q *PgQueQueue) logBackgroundError(ctx context.Context, operation, message 
 	logger.Warn(message, "error", err)
 }
 
+func recordPgQueConsumerLag(ctx context.Context, lag int64) {
+	if ctx.Err() != nil {
+		return
+	}
+	if qm, metricErr := Metrics(); metricErr == nil && qm != nil {
+		qm.PgQueConsumerLag.Record(ctx, lag)
+	}
+}
+
 func pgQueBackgroundOperationLabel(operation string) string {
 	switch operation {
 	case "ticker", "maintenance", "nack":

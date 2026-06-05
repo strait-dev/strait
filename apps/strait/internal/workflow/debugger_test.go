@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func makeTime(s string) *time.Time {
@@ -36,15 +39,12 @@ func TestDebugView_AllStepsIncluded(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(view.Steps) != 2 {
-		t.Fatalf("expected 2 steps, got %d", len(view.Steps))
-	}
-	if view.TotalDuration != 10000 {
-		t.Errorf("total duration = %d ms, want 10000", view.TotalDuration)
-	}
+	require.NoError(t, err)
+	require.Len(t, view.Steps,
+		2)
+	assert.EqualValues(t, 10000, view.
+		TotalDuration,
+	)
 }
 
 func TestDebugView_FailedStepHasError(t *testing.T) {
@@ -56,12 +56,12 @@ func TestDebugView_FailedStepHasError(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if view.Steps[0].Error != "connection refused" {
-		t.Errorf("error = %q, want 'connection refused'", view.Steps[0].Error)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "connection refused",
+
+		view.
+			Steps[0].Error,
+	)
 }
 
 func TestDebugView_CostPerStep(t *testing.T) {
@@ -78,15 +78,12 @@ func TestDebugView_CostPerStep(t *testing.T) {
 	costs := map[string]int64{"sr-a": 1000, "sr-b": 2500}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, costs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if view.Steps[0].Cost != 1000 {
-		t.Errorf("step a cost = %d, want 1000", view.Steps[0].Cost)
-	}
-	if view.TotalCost != 3500 {
-		t.Errorf("total cost = %d, want 3500", view.TotalCost)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 1000, view.
+		Steps[0].Cost)
+	assert.EqualValues(t, 3500, view.
+		TotalCost,
+	)
 }
 
 func TestDebugView_DataFlowEdges(t *testing.T) {
@@ -102,18 +99,17 @@ func TestDebugView_DataFlowEdges(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(view.DataFlow) != 1 {
-		t.Fatalf("expected 1 data flow edge, got %d", len(view.DataFlow))
-	}
-	if view.DataFlow[0].FromStepRef != "a" || view.DataFlow[0].ToStepRef != "b" {
-		t.Errorf("edge = %s->%s, want a->b", view.DataFlow[0].FromStepRef, view.DataFlow[0].ToStepRef)
-	}
-	if view.DataFlow[0].DataSize == 0 {
-		t.Error("data size should be > 0 when output exists")
-	}
+	require.NoError(t, err)
+	require.Len(t, view.DataFlow,
+		1,
+	)
+	assert.False(t, view.DataFlow[0].FromStepRef !=
+		"a" ||
+		view.DataFlow[0].ToStepRef != "b",
+	)
+	assert.NotEqual(t, 0, view.
+		DataFlow[0].DataSize,
+	)
 }
 
 func TestDebugView_PendingStepsIncluded(t *testing.T) {
@@ -129,15 +125,13 @@ func TestDebugView_PendingStepsIncluded(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(view.Steps) != 2 {
-		t.Fatalf("pending step should be included")
-	}
-	if view.Steps[1].Status != "pending" {
-		t.Errorf("step b status = %q, want pending", view.Steps[1].Status)
-	}
+	require.NoError(t, err)
+	require.Len(t, view.Steps,
+		2)
+	assert.Equal(t, "pending",
+		view.
+			Steps[1].Status,
+	)
 }
 
 func TestDebugView_StepTimingAccuracy(t *testing.T) {
@@ -150,20 +144,16 @@ func TestDebugView_StepTimingAccuracy(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if view.Steps[0].Duration != 5000 {
-		t.Errorf("step duration = %d ms, want 5000", view.Steps[0].Duration)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 5000, view.
+		Steps[0].Duration,
+	)
 }
 
 func TestDebugView_NilRun(t *testing.T) {
 	t.Parallel()
 	_, err := BuildDebugView(nil, nil, nil, nil)
-	if err == nil {
-		t.Error("expected error for nil run")
-	}
+	assert.Error(t, err)
 }
 
 // Compare tests.
@@ -180,12 +170,10 @@ func TestCompare_IdenticalRuns(t *testing.T) {
 	}
 
 	comp := CompareRuns(runA, stepsA, runB, stepsB)
-	if comp.StatusDiff != nil {
-		t.Error("identical statuses should have no status diff")
-	}
-	if len(comp.StepDiffs) != 0 {
-		t.Errorf("identical runs should have no step diffs, got %d", len(comp.StepDiffs))
-	}
+	assert.Nil(t, comp.
+		StatusDiff,
+	)
+	assert.Empty(t, comp.StepDiffs)
 }
 
 func TestCompare_DifferentStatuses(t *testing.T) {
@@ -194,12 +182,12 @@ func TestCompare_DifferentStatuses(t *testing.T) {
 	runB := &domain.WorkflowRun{ID: "b", Status: domain.WfStatusFailed}
 
 	comp := CompareRuns(runA, nil, runB, nil)
-	if comp.StatusDiff == nil {
-		t.Fatal("expected status diff")
-	}
-	if comp.StatusDiff.A != "completed" || comp.StatusDiff.B != "failed" {
-		t.Errorf("diff = %v, want completed vs failed", comp.StatusDiff)
-	}
+	require.NotNil(t, comp.StatusDiff)
+	assert.False(t, comp.StatusDiff.
+		A != "completed" ||
+		comp.
+			StatusDiff.
+			B != "failed")
 }
 
 func TestCompare_DifferentTiming(t *testing.T) {
@@ -214,12 +202,13 @@ func TestCompare_DifferentTiming(t *testing.T) {
 	}
 
 	comp := CompareRuns(runA, stepsA, runB, stepsB)
-	if len(comp.StepDiffs) != 1 {
-		t.Fatalf("expected 1 diff, got %d", len(comp.StepDiffs))
-	}
-	if comp.StepDiffs[0].DurationA != 5000 || comp.StepDiffs[0].DurationB != 10000 {
-		t.Errorf("durations = %d/%d, want 5000/10000", comp.StepDiffs[0].DurationA, comp.StepDiffs[0].DurationB)
-	}
+	require.Len(t, comp.StepDiffs,
+
+		1)
+	assert.False(t, comp.StepDiffs[0].DurationA !=
+		5000 ||
+		comp.StepDiffs[0].DurationB != 10000,
+	)
 }
 
 func TestCompare_MissingSteps(t *testing.T) {
@@ -241,9 +230,7 @@ func TestCompare_MissingSteps(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected s2 to be marked as only_in_a")
-	}
+	assert.True(t, found)
 }
 
 func TestCompare_MissingStepsInA(t *testing.T) {
@@ -265,9 +252,7 @@ func TestCompare_MissingStepsInA(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected s2 to be marked as only_in_b")
-	}
+	assert.True(t, found)
 }
 
 // Adversarial tests.
@@ -284,12 +269,9 @@ func TestDebugView_1000StepWorkflow(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(view.Steps) != 1000 {
-		t.Errorf("expected 1000 steps, got %d", len(view.Steps))
-	}
+	require.NoError(t, err)
+	assert.Len(t, view.Steps,
+		1000)
 }
 
 func TestDebugView_CrossProjectAccess(t *testing.T) {
@@ -298,12 +280,10 @@ func TestDebugView_CrossProjectAccess(t *testing.T) {
 	// But it should correctly pass through project context.
 	wfRun := &domain.WorkflowRun{ID: "wfr-1", WorkflowID: "wf-1", Status: domain.WfStatusCompleted}
 	view, err := BuildDebugView(wfRun, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if view.WorkflowID != "wf-1" {
-		t.Errorf("workflow_id = %q, want wf-1", view.WorkflowID)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "wf-1",
+		view.WorkflowID,
+	)
 }
 
 func TestDebugView_RunInProgress(t *testing.T) {
@@ -324,16 +304,15 @@ func TestDebugView_RunInProgress(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if view.Status != "running" {
-		t.Errorf("status = %q, want running", view.Status)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "running",
+		view.
+			Status)
+	assert.EqualValues(t, 0, view.
+		TotalDuration,
+	)
+
 	// TotalDuration should be 0 since workflow hasn't finished.
-	if view.TotalDuration != 0 {
-		t.Errorf("total duration should be 0 for running workflow, got %d", view.TotalDuration)
-	}
 }
 
 func TestDebugView_LargeOutputPayload(t *testing.T) {
@@ -346,12 +325,13 @@ func TestDebugView_LargeOutputPayload(t *testing.T) {
 	}
 
 	view, err := BuildDebugView(wfRun, steps, stepRuns, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(view.Steps[0].Output) < 1024*1024 {
-		t.Error("large output should be preserved in debug view")
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t,
+		len(view.
+			Steps[0].
+			Output), 1024*
+			1024,
+	)
 }
 
 func BenchmarkBuildDebugView_DataFlowChain1000(b *testing.B) {

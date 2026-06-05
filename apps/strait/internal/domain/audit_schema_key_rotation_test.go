@@ -3,6 +3,9 @@ package domain
 import (
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestAuditActionKeyRotated_Registered asserts the audit.key_rotated
@@ -10,20 +13,16 @@ import (
 // expected required keys and forbidden-key coverage.
 func TestAuditActionKeyRotated_Registered(t *testing.T) {
 	t.Parallel()
-
-	if !IsKnownAuditAction(AuditActionKeyRotated) {
-		t.Fatal("audit.key_rotated is not registered in allAuditActions")
-	}
+	require.True(t,
+		IsKnownAuditAction(AuditActionKeyRotated))
 
 	schema, ok := AuditActionSchemas[AuditActionKeyRotated]
-	if !ok {
-		t.Fatal("audit.key_rotated has no schema entry")
-	}
+	require.True(t,
+		ok)
 
 	for _, required := range []string{"previous_epoch", "new_epoch", "rotated_by"} {
-		if !slices.Contains(schema.Required, required) {
-			t.Errorf("schema.Required missing %q, have %v", required, schema.Required)
-		}
+		assert.True(t,
+			slices.Contains(schema.Required, required))
 	}
 
 	// ForbiddenKeysFor must union action-specific and common forbidden keys;
@@ -31,8 +30,7 @@ func TestAuditActionKeyRotated_Registered(t *testing.T) {
 	// to audit.key_rotated too as defense-in-depth.
 	forbidden := ForbiddenKeysFor(AuditActionKeyRotated)
 	for _, must := range []string{"secret", "token", "private_key", "key", "new_key"} {
-		if !slices.Contains(forbidden, must) {
-			t.Errorf("ForbiddenKeysFor(audit.key_rotated) missing %q, have %v", must, forbidden)
-		}
+		assert.True(t,
+			slices.Contains(forbidden, must))
 	}
 }

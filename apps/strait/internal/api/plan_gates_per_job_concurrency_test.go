@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCheckPerJobConcurrencyLimit_ZeroValues_NoOp pins the platform-default
@@ -17,10 +19,9 @@ func TestCheckPerJobConcurrencyLimit_ZeroValues_NoOp(t *testing.T) {
 	t.Parallel()
 	enforcer := &tunableLimitsEnforcer{limits: freeLimits()}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
-
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 0, 0); err != nil {
-		t.Fatalf("zero settings must not be capped; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkPerJobConcurrencyLimit(context.Background(),
+			"proj-1", 0, 0))
 }
 
 // TestCheckPerJobConcurrencyLimit_FreeAtLimit_Allows verifies the cap is
@@ -31,13 +32,15 @@ func TestCheckPerJobConcurrencyLimit_FreeAtLimit_Allows(t *testing.T) {
 	limits := freeLimits()
 	enforcer := &tunableLimitsEnforcer{limits: limits}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+	require.NoError(t, srv.
+		checkPerJobConcurrencyLimit(context.Background(),
+			"proj-1", limits.MaxConcurrentRuns,
 
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", limits.MaxConcurrentRuns, 0); err != nil {
-		t.Fatalf("max_concurrency at exact org cap must be allowed; got %v", err)
-	}
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 0, limits.MaxConcurrentRuns); err != nil {
-		t.Fatalf("max_concurrency_per_key at exact org cap must be allowed; got %v", err)
-	}
+			0))
+	require.NoError(t, srv.
+		checkPerJobConcurrencyLimit(context.Background(),
+			"proj-1", 0, limits.MaxConcurrentRuns,
+		))
 }
 
 // TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsMaxConcurrency walks
@@ -50,13 +53,12 @@ func TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsMaxConcurrency(t *test
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", limits.MaxConcurrentRuns+1, 0)
-	if err == nil {
-		t.Fatal("over-cap max_concurrency must be rejected")
-	}
+	require.Error(t, err)
+
 	for _, fragment := range []string{limits.DisplayName, "max_concurrency"} {
-		if !strings.Contains(err.Error(), fragment) {
-			t.Errorf("error message missing %q, got: %v", fragment, err)
-		}
+		assert.Contains(t,
+			err.
+				Error(), fragment)
 	}
 }
 
@@ -71,12 +73,10 @@ func TestCheckPerJobConcurrencyLimit_FreeOverLimit_RejectsPerKey(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 0, limits.MaxConcurrentRuns+1)
-	if err == nil {
-		t.Fatal("over-cap max_concurrency_per_key must be rejected")
-	}
-	if !strings.Contains(err.Error(), "max_concurrency_per_key") {
-		t.Errorf("error message must name max_concurrency_per_key, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.
+			Error(), "max_concurrency_per_key")
 }
 
 // TestCheckPerJobConcurrencyLimit_EnterpriseUnlimited_Allows confirms the
@@ -85,10 +85,10 @@ func TestCheckPerJobConcurrencyLimit_EnterpriseUnlimited_Allows(t *testing.T) {
 	t.Parallel()
 	enforcer := &tunableLimitsEnforcer{limits: enterpriseLimits()}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
-
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 100_000, 100_000); err != nil {
-		t.Fatalf("unlimited tier must never reject; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkPerJobConcurrencyLimit(context.Background(),
+			"proj-1", 100_000, 100_000,
+		))
 }
 
 func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -97,9 +97,10 @@ func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 	srv.edition = domain.EditionCloud
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999_999, 999_999)
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.
+		Error(), "billing enforcement unavailable",
+	)
 }
 
 // TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen confirms
@@ -107,10 +108,10 @@ func TestCheckPerJobConcurrencyLimit_CloudNilEnforcerFailsClosed(t *testing.T) {
 func TestCheckPerJobConcurrencyLimit_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 	srv := &Server{edition: domain.EditionCommunity}
-
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999_999, 999_999); err != nil {
-		t.Fatalf("community nil enforcer must fail open; got %v", err)
-	}
+	require.NoError(t, srv.
+		checkPerJobConcurrencyLimit(context.Background(),
+			"proj-1", 999_999, 999_999,
+		))
 }
 
 func TestCheckPerJobConcurrencyLimit_OrgLookupErrorFailsClosed(t *testing.T) {
@@ -119,12 +120,10 @@ func TestCheckPerJobConcurrencyLimit_OrgLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
-	if err == nil {
-		t.Fatal("expected org lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 func TestCheckPerJobConcurrencyLimit_PlanLookupErrorFailsClosed(t *testing.T) {
@@ -133,12 +132,10 @@ func TestCheckPerJobConcurrencyLimit_PlanLookupErrorFailsClosed(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 999, 0)
-	if err == nil {
-		t.Fatal("expected plan lookup error to fail closed")
-	}
-	if !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("error = %v, want billing enforcement unavailable", err)
-	}
+	require.Error(t, err)
+	require.Contains(
+		t, err.
+			Error(), "billing enforcement unavailable")
 }
 
 // TestCheckPerJobConcurrencyLimit_FirstFieldRejects_DoesNotEvaluateSecond
@@ -153,10 +150,8 @@ func TestCheckPerJobConcurrencyLimit_FirstFieldRejects_DoesNotEvaluateSecond(t *
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", 10, 10)
-	if err == nil {
-		t.Fatal("expected rejection on both fields over cap")
-	}
-	if !strings.Contains(err.Error(), "max_concurrency") {
-		t.Errorf("error must name max_concurrency on first overage, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.
+			Error(), "max_concurrency")
 }

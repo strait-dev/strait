@@ -14,6 +14,7 @@ import (
 	"strait/internal/store"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRotateWebhookSecret_Success(t *testing.T) {
@@ -46,31 +47,28 @@ func TestRotateWebhookSecret_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if rotatedID != "sub-1" {
-		t.Fatalf("expected rotated ID sub-1, got %s", rotatedID)
-	}
-	if rotatedSecret == "" || rotatedSecret == "old-secret" {
-		t.Fatal("expected new secret to be generated")
-	}
-	if time.Until(rotatedGrace) < 119*time.Minute {
-		t.Fatalf("grace period too short: %v", rotatedGrace)
-	}
+	require.Equal(t, http.
+		StatusOK, w.Code)
+	require.Equal(t, "sub-1",
+		rotatedID)
+	require.False(t, rotatedSecret ==
+		"" ||
+		rotatedSecret ==
+			"old-secret",
+	)
+	require.GreaterOrEqual(t, time.Until(rotatedGrace), 119*time.
+		Minute)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if resp["new_secret"] == nil {
-		t.Fatal("response should contain new_secret")
-	}
+	require.NoError(t, json.
+		Unmarshal(w.Body.
+			Bytes(),
+			&resp))
+	require.NotNil(t, resp["new_secret"])
+
 	newSecret, ok := resp["new_secret"].(string)
-	if !ok {
-		t.Fatalf("new_secret has unexpected type %T", resp["new_secret"])
-	}
+	require.True(t, ok)
+
 	requireBase64EncryptedSecretPlaintext(t, enc, rotatedSecret, newSecret)
 }
 
@@ -98,14 +96,11 @@ func TestRotateWebhookSecret_DefaultGracePeriod(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
+	require.Equal(t, http.
+		StatusOK, w.Code)
+	require.GreaterOrEqual(t, graceMins, 59.0)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	// Default is 60 minutes.
-	if graceMins < 59 {
-		t.Fatalf("default grace should be ~60 min, got %.1f", graceMins)
-	}
 }
 
 func TestRotateWebhookSecret_MaxGracePeriodExceeded(t *testing.T) {
@@ -127,10 +122,9 @@ func TestRotateWebhookSecret_MaxGracePeriodExceeded(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for exceeded grace period, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestRotateWebhookSecret_NotFound(t *testing.T) {
@@ -151,10 +145,9 @@ func TestRotateWebhookSecret_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound, w.
+		Code)
 }
 
 func TestRotateWebhookSecret_WrongProject(t *testing.T) {
@@ -175,10 +168,9 @@ func TestRotateWebhookSecret_WrongProject(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for wrong project, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusNotFound, w.
+		Code)
 }
 
 func TestRotateWebhookSecret_StoreError(t *testing.T) {
@@ -202,8 +194,8 @@ func TestRotateWebhookSecret_StoreError(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	TypedHandler(srv, http.StatusOK, srv.handleRotateWebhookSecret)(w, r)
+	require.Equal(t, http.
+		StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code)
 }

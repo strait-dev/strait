@@ -2,60 +2,47 @@ package billing
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWelcomeEmailHTML_EscapesHTMLInPlanName(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("<script>alert(1)</script>", "$49.99")
-	if strings.Contains(output, "<script>") {
-		t.Fatal("HTML injection not escaped in plan name")
-	}
-	if !strings.Contains(output, "&lt;script&gt;") {
-		t.Fatal("expected escaped script tag")
-	}
+	require.NotContains(t,
+		output, "<script>")
+	require.Contains(t, output, "&lt;script&gt;")
 }
 
 func TestWelcomeEmailHTML_EscapesHTMLInCredit(t *testing.T) {
 	t.Parallel()
 	injection := "<img src=x onerror=alert(1)>"
 	output := welcomeEmailHTML("Pro", injection)
+	require.NotContains(t,
+		output, injection)
+	require.Contains(t, output, "&lt;img src=x onerror=alert(1)&gt;")
+
 	// The raw injection string should not appear unescaped.
 	// html.EscapeString turns "<" and ">" into "&lt;" and "&gt;".
-	if strings.Contains(output, injection) {
-		t.Fatal("HTML injection not escaped in credit")
-	}
-	if !strings.Contains(output, "&lt;img src=x onerror=alert(1)&gt;") {
-		t.Fatal("expected escaped img tag in credit")
-	}
 }
 
 func TestWelcomeEmailHTML_NormalValues(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("Pro", "1000000")
-	if !strings.Contains(output, "Welcome to Strait Pro!") {
-		t.Fatal("expected plan name in output")
-	}
-	if !strings.Contains(output, "1000000") {
-		t.Fatal("expected run allowance in output")
-	}
+	require.Contains(t, output, "Welcome to Strait Pro!")
+	require.Contains(t, output, "1000000")
 }
 
 func TestWelcomeEmailHTML_ContainsStructure(t *testing.T) {
 	t.Parallel()
 	output := welcomeEmailHTML("Starter", "$19.99")
-	if !strings.Contains(output, "Set spending limit") {
-		t.Fatal("expected spending limit CTA")
-	}
-	if !strings.Contains(output, "support@strait.dev") {
-		t.Fatal("expected support email")
-	}
-	if !strings.Contains(output, "billing") {
-		t.Fatal("expected billing link")
-	}
+	require.Contains(t, output, "Set spending limit")
+	require.Contains(t, output, "support@strait.dev")
+	require.Contains(t, output, "billing")
 }
 
 func FuzzWelcomeEmailHTML(f *testing.F) {
@@ -66,102 +53,79 @@ func FuzzWelcomeEmailHTML(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, planName, credit string) {
 		result := welcomeEmailHTML(planName, credit)
-		if strings.Contains(result, "<script>") {
-			t.Error("unescaped script tag in output")
-		}
+		assert.NotContains(t, result, "<script>")
 	})
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsCSM(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "Customer Success Manager") {
-		t.Fatal("enterprise welcome email should mention CSM")
-	}
+	require.Contains(t, output, "Customer Success Manager")
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsOnboarding(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "onboarding") {
-		t.Fatal("enterprise welcome email should mention onboarding")
-	}
+	require.Contains(t, output, "onboarding")
 }
 
 func TestEnterpriseWelcomeEmailHTML_MarksSSOAsRoadmap(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "Roadmap and contact-sales items such as SSO/SAML") {
-		t.Fatal("enterprise welcome email should mark SSO as roadmap/contact-sales")
-	}
-	if strings.Contains(output, "SSO/SAML + SCIM") {
-		t.Fatal("enterprise welcome email must not promise SSO/SCIM setup as an included launch entitlement")
-	}
+	require.Contains(t, output, "Roadmap and contact-sales items such as SSO/SAML")
+	require.NotContains(t,
+		output, "SSO/SAML + SCIM")
 }
 
 func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseNetworkControls(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if strings.Contains(output, "Static IPs, VPC peering, data residency") {
-		t.Fatal("enterprise welcome email must not list network controls as included launch entitlements")
-	}
+	require.NotContains(t,
+		output, "Static IPs, VPC peering, data residency")
 }
 
 func TestEnterpriseWelcomeEmailHTML_ContainsSLA(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if !strings.Contains(output, "SLA") {
-		t.Fatal("enterprise welcome email should mention SLA")
-	}
+	require.Contains(t, output, "SLA")
 }
 
 func TestEnterpriseWelcomeEmailHTML_DoesNotPromiseDedicatedCompute(t *testing.T) {
 	t.Parallel()
 	output := enterpriseWelcomeEmailHTML()
-	if strings.Contains(output, "Dedicated compute") {
-		t.Fatal("enterprise welcome email must not promise dedicated compute as an included launch entitlement")
-	}
+	require.NotContains(t,
+		output, "Dedicated compute")
 }
 
 func TestRunAllowanceDisplay_Enterprise(t *testing.T) {
 	t.Parallel()
 	got := runAllowanceDisplay("enterprise")
-	if got != "Custom (per contract)" {
-		t.Errorf("runAllowanceDisplay(enterprise) = %q, want %q", got, "Custom (per contract)")
-	}
+	assert.Equal(t, "Custom (per contract)",
+
+		got)
 }
 
 func TestRunAllowanceDisplay_Starter(t *testing.T) {
 	t.Parallel()
 	got := runAllowanceDisplay("starter")
-	if got != "50000" {
-		t.Errorf("runAllowanceDisplay(starter) = %q, want %q", got, "50000")
-	}
+	assert.Equal(t, "50000",
+		got,
+	)
 }
 
 func TestContractRenewalHTML_ContainsDate(t *testing.T) {
 	t.Parallel()
 	output := contractRenewalHTML("April 1, 2027", 30)
-	if !strings.Contains(output, "April 1, 2027") {
-		t.Fatal("contract renewal email should contain the end date")
-	}
-	if !strings.Contains(output, "auto-renew") {
-		t.Fatal("contract renewal email should mention auto-renew")
-	}
+	require.Contains(t, output, "April 1, 2027")
+	require.Contains(t, output, "auto-renew")
 }
 
 func TestContractExpiryHTML_ContainsDate(t *testing.T) {
 	t.Parallel()
 	output := contractExpiryHTML("April 1, 2027", 7)
-	if !strings.Contains(output, "April 1, 2027") {
-		t.Fatal("contract expiry email should contain the end date")
-	}
-	if !strings.Contains(output, "expires") {
-		t.Fatal("contract expiry email should mention expiration")
-	}
-	if !strings.Contains(output, "Scale") {
-		t.Fatal("contract expiry email should mention fallback to Scale plan")
-	}
+	require.Contains(t, output, "April 1, 2027")
+	require.Contains(t, output, "expires")
+	require.Contains(t, output, "Scale")
 }
 
 func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
@@ -182,9 +146,9 @@ func TestRunAllowanceDisplay_AllTiers(t *testing.T) {
 		t.Run(tt.tier, func(t *testing.T) {
 			t.Parallel()
 			got := runAllowanceDisplay(domain.PlanTier(tt.tier))
-			if got != tt.want {
-				t.Errorf("runAllowanceDisplay(%q) = %q, want %q", tt.tier, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got,
+			)
 		})
 	}
 }
@@ -206,9 +170,9 @@ func TestPlanDisplayName_AllTiers(t *testing.T) {
 		t.Run(tt.tier, func(t *testing.T) {
 			t.Parallel()
 			got := planDisplayName(domain.PlanTier(tt.tier))
-			if got != tt.want {
-				t.Errorf("planDisplayName(%q) = %q, want %q", tt.tier, got, tt.want)
-			}
+			assert.Equal(t, tt.
+				want, got,
+			)
 		})
 	}
 }
@@ -217,9 +181,8 @@ func TestNewResendWelcomeEmailFunc_InvalidEmail(t *testing.T) {
 	t.Parallel()
 	fn := NewResendWelcomeEmailFunc("re_test_key", "")
 	err := fn(context.Background(), "org-1", domain.PlanStarter, "not-an-email")
-	if err == nil {
-		t.Fatal("expected error for invalid email")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestNewResendWelcomeEmailFunc_DefaultFromEmail(t *testing.T) {

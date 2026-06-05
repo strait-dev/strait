@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // endpointErrHash returns the error hash for an EndpointError, matching the
@@ -100,20 +103,18 @@ func TestErrorHash(t *testing.T) {
 			t.Parallel()
 			ha := errorHash(tc.a)
 			hb := errorHash(tc.b)
-
-			if ha == "" {
-				t.Fatal("errorHash returned empty string")
-			}
-			if len(ha) != 16 {
-				t.Errorf("expected 16-char hex hash, got %d chars: %q", len(ha), ha)
-			}
-
-			if tc.expect == "same" && ha != hb {
-				t.Errorf("expected same hash, got %q vs %q", ha, hb)
-			}
-			if tc.expect == "different" && ha == hb {
-				t.Errorf("expected different hashes for %q vs %q, both got %q", tc.a, tc.b, ha)
-			}
+			require.NotEmpty(t, ha)
+			assert.Len(t, ha,
+				16)
+			assert.False(t,
+				tc.expect ==
+					"same" &&
+					ha !=
+						hb)
+			assert.False(t,
+				tc.expect ==
+					"different" &&
+					ha == hb)
 		})
 	}
 }
@@ -161,7 +162,7 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 			expectCount:  "2",
 		},
 		{
-			name:           "same endpoint status with different body hits threshold",
+			name:           "same endpoint status with different body still hits threshold",
 			threshold:      new(3),
 			attempt:        3,
 			maxAttempts:    10,
@@ -322,29 +323,27 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 			exec.handleFailure(context.Background(), run, job, policy, tc.errInput, nil)
 
 			calls := st.statusUpdates()
-			if len(calls) == 0 {
-				t.Fatal("expected at least one status update")
-			}
+			require.NotEmpty(t, calls)
+
 			last := calls[len(calls)-1]
-			if last.to != tc.expectStatus {
-				t.Errorf("expected status %s, got %s", tc.expectStatus, last.to)
-			}
+			assert.Equal(t,
+				tc.expectStatus,
+
+				last.to)
 
 			if tc.expectPoisoned {
 				errField, _ := last.fields["error"].(string)
-				if !strings.Contains(errField, "poison pill detected") {
-					t.Errorf("expected 'poison pill detected' in error field, got %q", errField)
-				}
+				assert.Contains(t, errField, "poison pill detected")
 			}
 
 			if tc.expectCount != "" {
 				meta, ok := last.fields["metadata"].(map[string]string)
-				if !ok {
-					t.Fatal("expected metadata in fields")
-				}
-				if meta["_error_hash_count"] != tc.expectCount {
-					t.Errorf("expected _error_hash_count=%q, got %q", tc.expectCount, meta["_error_hash_count"])
-				}
+				require.True(t,
+					ok)
+				assert.Equal(t,
+					tc.expectCount,
+
+					meta["_error_hash_count"])
 			}
 		})
 	}
@@ -435,13 +434,18 @@ func TestPoisonPill_DisabledDoesNotWriteMetadata(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusQueued {
-		t.Fatalf("expected queued, got %s", last.to)
-	}
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
+
 	// metadata must NOT be in the update fields when poison pill is disabled,
 	// otherwise a nil/empty metadata would overwrite existing DB metadata.
 	if _, exists := last.fields["metadata"]; exists {
-		t.Error("metadata should not be in update fields when poison pill is disabled")
+		assert.Fail(t,
+
+			"metadata should not be in update fields when poison pill is disabled")
 	}
 }
 
@@ -464,7 +468,9 @@ func TestPoisonPill_DisabledNilMetadataDoesNotOverwrite(t *testing.T) {
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
 	if _, exists := last.fields["metadata"]; exists {
-		t.Error("nil metadata should not be sent to DB when poison pill is disabled")
+		assert.Fail(t,
+
+			"nil metadata should not be sent to DB when poison pill is disabled")
 	}
 }
 
@@ -486,11 +492,16 @@ func TestPoisonPill_DLQWithoutPoisonPillDoesNotWriteMetadata(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Fatalf("expected dead_letter, got %s", last.to)
-	}
+	require.Equal(t,
+		domain.
+			StatusDeadLetter,
+
+		last.to)
+
 	if _, exists := last.fields["metadata"]; exists {
-		t.Error("metadata should not be in DLQ fields when poison pill was not active")
+		assert.Fail(t,
+
+			"metadata should not be in DLQ fields when poison pill was not active")
 	}
 }
 
@@ -514,18 +525,20 @@ func TestPoisonPill_CorruptMetadataCount(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errBody}, nil)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update")
-	}
+	require.NotEmpty(t, calls)
+
 	last := calls[len(calls)-1]
+	assert.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
+
 	// corrupt count should reset to 1, so still below threshold=3 -> retry
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (retry after corrupt count reset), got %s", last.to)
-	}
+
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "1" {
-		t.Errorf("expected count reset to 1, got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"1", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_NegativeCount(t *testing.T) {
@@ -549,14 +562,17 @@ func TestPoisonPill_NegativeCount(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
+	assert.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
+
 	// -5 + 1 = -4, still < 3, so retries normally
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (negative count incremented), got %s", last.to)
-	}
+
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "-4" {
-		t.Errorf("expected count -4, got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"-4", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_VeryLargeCount(t *testing.T) {
@@ -580,10 +596,13 @@ func TestPoisonPill_VeryLargeCount(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
+	assert.Equal(t,
+		domain.
+			StatusDeadLetter,
+		last.
+			to)
+
 	// 2147483647 >= 3, so poison pill triggers
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected dead_letter (large count exceeds threshold), got %s", last.to)
-	}
 }
 
 func TestPoisonPill_EmptyErrorString(t *testing.T) {
@@ -609,9 +628,11 @@ func TestPoisonPill_EmptyErrorString(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected dead_letter for empty error hitting threshold, got %s", last.to)
-	}
+	assert.Equal(t,
+		domain.
+			StatusDeadLetter,
+		last.
+			to)
 }
 
 func TestPoisonPill_NilMetadataMap(t *testing.T) {
@@ -630,20 +651,20 @@ func TestPoisonPill_NilMetadataMap(t *testing.T) {
 	exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: "fail"}, nil)
 
 	calls := st.statusUpdates()
-	if len(calls) == 0 {
-		t.Fatal("expected status update")
-	}
+	require.NotEmpty(t, calls)
+
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (first attempt), got %s", last.to)
-	}
+	assert.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
+
 	meta, ok := last.fields["metadata"].(map[string]string)
-	if !ok {
-		t.Fatal("expected metadata to be initialized in fields")
-	}
-	if meta["_error_hash_count"] != "1" {
-		t.Errorf("expected count 1, got %q", meta["_error_hash_count"])
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		"1", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_HashCollisionByDesign(t *testing.T) {
@@ -675,9 +696,8 @@ func TestPoisonPill_HashCollisionByDesign(t *testing.T) {
 	last := calls[len(calls)-1]
 	// By design, same first 200 chars = same hash, so count increments
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "2" {
-		t.Errorf("expected count 2 (same hash by design), got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"2", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_MetadataPreservesExistingKeys(t *testing.T) {
@@ -701,18 +721,17 @@ func TestPoisonPill_MetadataPreservesExistingKeys(t *testing.T) {
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["user_tag"] != "important" {
-		t.Errorf("expected user_tag preserved, got %q", meta["user_tag"])
-	}
-	if meta["region"] != "us-east" {
-		t.Errorf("expected region preserved, got %q", meta["region"])
-	}
-	if meta["_error_hash"] == "" {
-		t.Error("expected _error_hash to be set")
-	}
-	if meta["_error_hash_count"] != "1" {
-		t.Errorf("expected count 1, got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"important",
+		meta["user_tag"])
+	assert.Equal(t,
+		"us-east",
+		meta["region"])
+	assert.NotEmpty(
+		t, meta["_error_hash"],
+	)
+	assert.Equal(t,
+		"1", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
@@ -722,9 +741,8 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
 	})
 
-	// Previous and current failures share a stable endpoint status but use
-	// different bodies. The body is attacker-controlled, so it must not reset
-	// poison-pill counting.
+	// Previous error was "500: db timeout" (server class).
+	// Current error is "500: null pointer" (same endpoint status, different body).
 	prevMsg := "500: db timeout"
 	run := &domain.JobRun{
 		ID: "run-1", JobID: "job-1", Attempt: 3,
@@ -739,17 +757,17 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected dead_letter (same status reaches threshold), got %s", last.to)
-	}
+	assert.Equal(t,
+		domain.
+			StatusDeadLetter,
+		last.
+			to)
+
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "3" {
-		t.Errorf("expected count 3, got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"3", meta["_error_hash_count"])
 	errField, _ := last.fields["error"].(string)
-	if !strings.Contains(errField, "poison pill detected") {
-		t.Errorf("expected poison pill message, got %q", errField)
-	}
+	assert.Contains(t, errField, "poison pill detected")
 }
 
 func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
@@ -773,41 +791,42 @@ func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-
-	if last.from != domain.StatusExecuting {
-		t.Errorf("expected from=executing, got %s", last.from)
-	}
-	if last.to != domain.StatusDeadLetter {
-		t.Errorf("expected to=dead_letter, got %s", last.to)
-	}
+	assert.Equal(t,
+		domain.
+			StatusExecuting,
+		last.
+			from)
+	assert.Equal(t,
+		domain.
+			StatusDeadLetter,
+		last.
+			to)
 
 	errField, _ := last.fields["error"].(string)
-	if !strings.Contains(errField, "poison pill detected (same error 3 times)") {
-		t.Errorf("expected poison pill message with count, got %q", errField)
-	}
-	if !strings.Contains(errField, "endpoint returned 500") {
-		t.Errorf("expected redacted endpoint status in message, got %q", errField)
-	}
-	if strings.Contains(errField, errBody) {
-		t.Errorf("expected endpoint body to be redacted from message, got %q", errField)
-	}
+	assert.Contains(t, errField, "poison pill detected (same error 3 times)")
+	assert.Contains(t, errField, "endpoint returned 500")
+	assert.NotContains(t,
+		errField, errBody)
 
 	errClass, _ := last.fields["error_class"].(string)
-	if errClass != domain.ErrorClassServer {
-		t.Errorf("expected error_class=server, got %q", errClass)
-	}
+	assert.Equal(t,
+		domain.
+			ErrorClassServer,
+		errClass,
+	)
 
 	if _, ok := last.fields["finished_at"]; !ok {
-		t.Error("expected finished_at in DLQ fields")
+		assert.Fail(t,
+
+			"expected finished_at in DLQ fields")
 	}
 
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash"] == "" {
-		t.Error("expected _error_hash in DLQ metadata")
-	}
-	if meta["_error_hash_count"] != "3" {
-		t.Errorf("expected _error_hash_count=3 in DLQ metadata, got %q", meta["_error_hash_count"])
-	}
+	assert.NotEmpty(
+		t, meta["_error_hash"],
+	)
+	assert.Equal(t,
+		"3", meta["_error_hash_count"])
 }
 
 func TestPoisonPill_DoesNotInterfereWithCircuitBreaker(t *testing.T) {
@@ -837,12 +856,13 @@ func TestPoisonPill_DoesNotInterfereWithCircuitBreaker(t *testing.T) {
 
 	// Poison pill triggered DLQ, but circuit breaker should still have been called
 	calls := st.statusUpdates()
-	if calls[len(calls)-1].to != domain.StatusDeadLetter {
-		t.Error("expected dead_letter from poison pill")
-	}
-	if !circuitFailureCalled {
-		t.Error("expected circuit breaker failure to be recorded even when poison pill triggers")
-	}
+	assert.Equal(t,
+		domain.
+			StatusDeadLetter,
+		calls[len(calls)-1].
+			to,
+	)
+	assert.True(t, circuitFailureCalled)
 }
 
 func TestPoisonPill_TimeoutBypassesPoisonPill(t *testing.T) {
@@ -867,10 +887,13 @@ func TestPoisonPill_TimeoutBypassesPoisonPill(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
+	assert.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
+
 	// Should retry normally, not DLQ
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (timeout bypasses poison pill), got %s", last.to)
-	}
 }
 
 func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
@@ -897,24 +920,24 @@ func TestPoisonPill_RetryPriorityBoostPreserved(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	if last.to != domain.StatusQueued {
-		t.Fatalf("expected queued, got %s", last.to)
-	}
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		last.
+			to)
 
 	// Check priority boost is present
 	priority, ok := last.fields["priority"].(int)
-	if !ok {
-		t.Fatal("expected priority field in retry")
-	}
-	if priority != 5 { // 3 + 2
-		t.Errorf("expected priority 5, got %d", priority)
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t, 5, priority)
+
+	// 3 + 2
 
 	// Check metadata is also present
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "2" {
-		t.Errorf("expected count 2, got %q", meta["_error_hash_count"])
-	}
+	assert.Equal(t,
+		"2", meta["_error_hash_count"])
 }
 
 // Integration-style tests
@@ -941,13 +964,14 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	}
 	exec.handleFailure(context.Background(), run, job, policy, endpointErr, nil)
 	calls := st.statusUpdates()
-	if calls[0].to != domain.StatusQueued {
-		t.Fatalf("attempt 1: expected queued, got %s", calls[0].to)
-	}
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		calls[0].to)
+
 	meta1, _ := calls[0].fields["metadata"].(map[string]string)
-	if meta1["_error_hash_count"] != "1" {
-		t.Fatalf("attempt 1: expected count=1, got %q", meta1["_error_hash_count"])
-	}
+	require.Equal(t,
+		"1", meta1["_error_hash_count"])
 
 	// Attempt 2: second failure with metadata from attempt 1
 	run2 := &domain.JobRun{
@@ -959,13 +983,14 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	}
 	exec.handleFailure(context.Background(), run2, job, policy, endpointErr, nil)
 	calls = st.statusUpdates()
-	if calls[1].to != domain.StatusQueued {
-		t.Fatalf("attempt 2: expected queued, got %s", calls[1].to)
-	}
+	require.Equal(t,
+		domain.
+			StatusQueued,
+		calls[1].to)
+
 	meta2, _ := calls[1].fields["metadata"].(map[string]string)
-	if meta2["_error_hash_count"] != "2" {
-		t.Fatalf("attempt 2: expected count=2, got %q", meta2["_error_hash_count"])
-	}
+	require.Equal(t,
+		"2", meta2["_error_hash_count"])
 
 	// Attempt 3: third failure -> should DLQ
 	run3 := &domain.JobRun{
@@ -977,13 +1002,15 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	}
 	exec.handleFailure(context.Background(), run3, job, policy, endpointErr, nil)
 	calls = st.statusUpdates()
-	if calls[2].to != domain.StatusDeadLetter {
-		t.Fatalf("attempt 3: expected dead_letter, got %s", calls[2].to)
-	}
+	require.Equal(t,
+		domain.
+			StatusDeadLetter,
+
+		calls[2].to,
+	)
+
 	errField, _ := calls[2].fields["error"].(string)
-	if !strings.Contains(errField, "poison pill detected") {
-		t.Errorf("attempt 3: expected poison pill message, got %q", errField)
-	}
+	assert.Contains(t, errField, "poison pill detected")
 }
 
 func TestPoisonPill_Integration_VaryingEndpointBodiesCannotBypassThreshold(t *testing.T) {
@@ -1014,17 +1041,19 @@ func TestPoisonPill_Integration_VaryingEndpointBodiesCannotBypassThreshold(t *te
 		if i == 3 {
 			wantStatus = domain.StatusDeadLetter
 		}
-		if last.to != wantStatus {
-			t.Fatalf("attempt %d: got %s, want %s", i, last.to, wantStatus)
-		}
+		require.Equal(t,
+			wantStatus,
+			last.
+				to)
+
+		// Update meta for next iteration
 		meta, _ = last.fields["metadata"].(map[string]string)
-		if meta["_error_hash_count"] != fmt.Sprintf("%d", i) {
-			t.Fatalf("attempt %d: expected count=%d, got %q", i, i, meta["_error_hash_count"])
-		}
+		require.Equal(t,
+			fmt.Sprintf("%d", i), meta["_error_hash_count"])
 	}
 }
 
-func TestPoisonPill_Integration_StatusChangeResetsEndpointCount(t *testing.T) {
+func TestPoisonPill_Integration_ErrorThenRecoveryThenSameError(t *testing.T) {
 	t.Parallel()
 	st := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
@@ -1037,34 +1066,37 @@ func TestPoisonPill_Integration_StatusChangeResetsEndpointCount(t *testing.T) {
 	}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	errors := []struct {
-		status int
-		body   string
-		count  string
-	}{
-		{status: 500, body: "error A", count: "1"},
-		{status: 500, body: "error B", count: "2"},
-		{status: 503, body: "error C", count: "1"},
-		{status: 503, body: "error D", count: "2"},
+	// Sequence: status 500 x2, status 503 x1, status 500 x2.
+	// Different endpoint statuses produce different poison hashes.
+	errors := []domain.EndpointError{
+		{StatusCode: 500, Body: "error A"},
+		{StatusCode: 500, Body: "error A changed"},
+		{StatusCode: 503, Body: "error B"},
+		{StatusCode: 500, Body: "error A returns"},
+		{StatusCode: 500, Body: "error A changed again"},
 	}
+	expectedCounts := []string{"1", "2", "1", "1", "2"}
 
 	meta := map[string]string{}
-	for i, failure := range errors {
+	for i, endpointErr := range errors {
 		run := &domain.JobRun{
 			ID: "run-1", JobID: "job-1", Attempt: i + 1,
 			Metadata: copyMap(meta),
 		}
-		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: failure.status, Body: failure.body}, nil)
+		exec.handleFailure(context.Background(), run, job, policy, &endpointErr, nil)
 
 		calls := st.statusUpdates()
 		last := calls[len(calls)-1]
-		if last.to != domain.StatusQueued {
-			t.Fatalf("step %d (%q): expected queued, got %s", i, failure.body, last.to)
-		}
+		require.Equal(t,
+			domain.
+				StatusQueued,
+			last.
+				to)
+
 		meta, _ = last.fields["metadata"].(map[string]string)
-		if meta["_error_hash_count"] != failure.count {
-			t.Fatalf("step %d (%q): expected count=%s, got %q", i, failure.body, failure.count, meta["_error_hash_count"])
-		}
+		require.Equal(t,
+			expectedCounts[i], meta["_error_hash_count"],
+		)
 	}
 }
 

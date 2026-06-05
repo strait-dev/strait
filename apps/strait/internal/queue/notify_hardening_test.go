@@ -5,6 +5,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for notifier hardening state. Integration tests for
@@ -12,15 +15,12 @@ import (
 
 func TestQueueNotifier_InitialStateIsClean(t *testing.T) {
 	n := NewQueueNotifier("postgres://unused", nil)
-	if n.Reconnects() != 0 {
-		t.Errorf("reconnects = %d, want 0", n.Reconnects())
-	}
-	if n.ConnectionAge() != 0 {
-		t.Errorf("connection age on fresh notifier = %v, want 0", n.ConnectionAge())
-	}
+	assert.EqualValues(t, 0, n.Reconnects())
+	assert.EqualValues(t, 0, n.ConnectionAge())
+
 	select {
 	case <-n.Degraded():
-		t.Error("Degraded channel should not be closed on fresh notifier")
+		assert.Fail(t, "Degraded channel should not be closed on fresh notifier")
 	default:
 	}
 }
@@ -34,7 +34,7 @@ func TestQueueNotifier_MarkDegradedIsIdempotent(t *testing.T) {
 	case <-n.Degraded():
 		// expected
 	default:
-		t.Error("Degraded channel should be closed after markDegraded")
+		assert.Fail(t, "Degraded channel should be closed after markDegraded")
 	}
 }
 
@@ -44,14 +44,14 @@ func TestQueueNotifier_DegradedResetAllowsReuse(t *testing.T) {
 	select {
 	case <-n.Degraded():
 	default:
-		t.Fatal("expected degraded after markDegraded")
+		require.Fail(t, "expected degraded after markDegraded")
 	}
 
 	n.DegradedReset()
 
 	select {
 	case <-n.Degraded():
-		t.Error("Degraded should be reset; channel should be open")
+		assert.Fail(t, "Degraded should be reset; channel should be open")
 	default:
 	}
 
@@ -60,7 +60,7 @@ func TestQueueNotifier_DegradedResetAllowsReuse(t *testing.T) {
 	select {
 	case <-n.Degraded():
 	default:
-		t.Error("markDegraded after reset should close the channel")
+		assert.Fail(t, "markDegraded after reset should close the channel")
 	}
 }
 
@@ -70,7 +70,7 @@ func TestQueueNotifier_DegradedResetNoOpWhenNotDegraded(t *testing.T) {
 
 	select {
 	case <-n.Degraded():
-		t.Error("Degraded channel should still be open after no-op reset")
+		assert.Fail(t, "Degraded channel should still be open after no-op reset")
 	default:
 	}
 }
@@ -80,14 +80,10 @@ func TestDisconnectStartForFailedListenResetsAfterReconnect(t *testing.T) {
 	newOutage := time.Now()
 
 	got := disconnectStartForFailedListen(oldOutage, true, newOutage)
-	if !got.Equal(newOutage) {
-		t.Fatalf("disconnect start after connected listen = %v, want %v", got, newOutage)
-	}
+	require.True(t, got.Equal(newOutage))
 
 	stillDown := disconnectStartForFailedListen(oldOutage, false, newOutage)
-	if !stillDown.Equal(oldOutage) {
-		t.Fatalf("ongoing outage start = %v, want original %v", stillDown, oldOutage)
-	}
+	require.True(t, stillDown.Equal(oldOutage))
 }
 
 func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
@@ -104,10 +100,9 @@ func TestQueueNotifier_ReconnectCountIsAtomic(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if got := n.Reconnects(); got != numGoroutines*100 {
-		t.Errorf("reconnects = %d, want %d", got, numGoroutines*100)
-	}
+	assert.EqualValues(t, numGoroutines*
+		100, n.
+		Reconnects())
 }
 
 // incReconnects mirrors the atomic increment the production Run loop
@@ -155,7 +150,7 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 	ch1 := n.Degraded()
 	select {
 	case <-ch1:
-		t.Fatal("channel should be open on fresh notifier")
+		require.Fail(t, "channel should be open on fresh notifier")
 	default:
 	}
 
@@ -164,7 +159,7 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 	select {
 	case <-n.Degraded():
 	default:
-		t.Fatal("channel should be closed after markDegraded")
+		require.Fail(t, "channel should be closed after markDegraded")
 	}
 
 	// Reset simulates reconnect.
@@ -172,7 +167,7 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 	ch2 := n.Degraded()
 	select {
 	case <-ch2:
-		t.Fatal("fresh channel after reset should be open")
+		require.Fail(t, "fresh channel after reset should be open")
 	default:
 	}
 
@@ -181,7 +176,7 @@ func TestDegradedRecoveryReArmsWithFreshChannel(t *testing.T) {
 	case <-ch1:
 		// expected: old channel stays closed
 	default:
-		t.Error("old channel should remain closed after reset")
+		assert.Fail(t, "old channel should remain closed after reset")
 	}
 }
 
@@ -192,19 +187,18 @@ func TestQueueNotifier_SuccessfulListenClearsDegradedImmediately(t *testing.T) {
 	select {
 	case <-old:
 	default:
-		t.Fatal("old degraded channel should be closed")
+		require.Fail(t, "old degraded channel should be closed")
 	}
 
 	n.markListenConnected()
 	fresh := n.Degraded()
 	select {
 	case <-fresh:
-		t.Fatal("successful listen should replace degraded channel immediately")
+		require.Fail(t, "successful listen should replace degraded channel immediately")
 	default:
 	}
-	if atomic.LoadInt64(&n.lastConnectedUnixNano) == 0 {
-		t.Fatal("successful listen should record connection timestamp")
-	}
+	require.NotEqual(t, 0, atomic.
+		LoadInt64(&n.lastConnectedUnixNano))
 }
 
 // Verify that QueueNotifier satisfies the DegradedNotifier interface.
@@ -215,7 +209,8 @@ func TestQueueNotifier_ConnectionAgeAfterSet(t *testing.T) {
 	// Simulate a successful listenLoop.
 	atomic.StoreInt64(&n.lastConnectedUnixNano, time.Now().UnixNano())
 	time.Sleep(5 * time.Millisecond)
-	if age := n.ConnectionAge(); age < 5*time.Millisecond {
-		t.Errorf("age = %v, want >= 5ms", age)
-	}
+	assert.GreaterOrEqual(t, n.
+		ConnectionAge(), 5*
+		time.
+			Millisecond)
 }

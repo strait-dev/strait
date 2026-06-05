@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // dispatchRecordingEnforcer captures DispatchBilling calls so plan-gate tests
@@ -59,30 +62,36 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_RunTTL(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	maxTTL := limits.RetentionDays * 86400
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", maxTTL+1); err == nil {
-		t.Fatal("expected rejection above run TTL cap")
-	}
+	require.Error(t, srv.checkRunTTLLimit(context.
+		Background(), "proj-1", maxTTL+1))
 
 	calls := enforcer.snapshot()
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 dispatch, got %d", len(calls))
-	}
+	require.Len(t,
+		calls, 1,
+	)
+
 	c := calls[0]
-	if c.eventType != domain.WebhookEventWorkflowRegistrationRejected {
-		t.Errorf("event type: got %q, want %q", c.eventType, domain.WebhookEventWorkflowRegistrationRejected)
-	}
-	if c.planTier != limits.PlanTier {
-		t.Errorf("plan tier: got %q, want %q", c.planTier, limits.PlanTier)
-	}
-	if c.detail["reason"] != "run_ttl_limit" {
-		t.Errorf("reason: got %v, want run_ttl_limit", c.detail["reason"])
-	}
-	if c.detail["requested_value"] != maxTTL+1 {
-		t.Errorf("requested_value: got %v, want %d", c.detail["requested_value"], maxTTL+1)
-	}
-	if c.detail["cap"] != maxTTL {
-		t.Errorf("cap: got %v, want %d", c.detail["cap"], maxTTL)
-	}
+	assert.Equal(
+		t, domain.
+			WebhookEventWorkflowRegistrationRejected,
+
+		c.eventType)
+	assert.Equal(
+		t, limits.
+			PlanTier, c.
+			planTier,
+	)
+	assert.Equal(
+		t, "run_ttl_limit",
+		c.
+			detail["reason"])
+	assert.Equal(
+		t, maxTTL+
+			1, c.detail["requested_value"],
+	)
+	assert.Equal(
+		t, maxTTL,
+		c.detail["cap"])
 }
 
 // TestPlanGate_DispatchesWorkflowRegistrationRejected_PerJobConcurrency walks
@@ -97,17 +106,18 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_PerJobConcurrency(t *te
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	overCap := limits.MaxConcurrentRuns + 1
-	if err := srv.checkPerJobConcurrencyLimit(context.Background(), "proj-1", overCap, 0); err == nil {
-		t.Fatal("expected rejection above per-job concurrency cap")
-	}
+	require.Error(t, srv.checkPerJobConcurrencyLimit(context.
+		Background(), "proj-1", overCap,
+		0))
 
 	calls := enforcer.snapshot()
-	if len(calls) != 1 || calls[0].detail["reason"] != "per_job_concurrency" {
-		t.Fatalf("expected per_job_concurrency dispatch, got %+v", calls)
-	}
-	if calls[0].detail["cap"] != limits.MaxConcurrentRuns {
-		t.Errorf("cap: got %v, want %d", calls[0].detail["cap"], limits.MaxConcurrentRuns)
-	}
+	require.False(t, len(calls) != 1 ||
+		calls[0].detail["reason"] != "per_job_concurrency",
+	)
+	assert.Equal(
+		t, limits.
+			MaxConcurrentRuns,
+		calls[0].detail["cap"])
 }
 
 // TestPlanGate_AllowedRequest_NoDispatch confirms that a request that passes
@@ -123,12 +133,10 @@ func TestPlanGate_AllowedRequest_NoDispatch(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	maxTTL := limits.RetentionDays * 86400
-	if err := srv.checkRunTTLLimit(context.Background(), "proj-1", maxTTL); err != nil {
-		t.Fatalf("at-cap TTL must not error: %v", err)
-	}
-	if got := len(enforcer.snapshot()); got != 0 {
-		t.Errorf("expected zero dispatches on allowed request, got %d", got)
-	}
+	require.NoError(t, srv.
+		checkRunTTLLimit(context.
+			Background(), "proj-1", maxTTL))
+	assert.Empty(t, enforcer.snapshot())
 }
 
 // TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy
@@ -142,14 +150,12 @@ func TestPlanGate_DispatchesWorkflowRegistrationRejected_CronOverlapPolicy(t *te
 		tunableLimitsEnforcer: tunableLimitsEnforcer{limits: limits},
 	}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+	require.Error(t, srv.checkCronOverlapPolicy(context.Background(), "proj-1", "skip"))
 
-	if err := srv.checkCronOverlapPolicy(context.Background(), "proj-1", "skip"); err == nil {
-		t.Fatal("free tier must reject non-allow overlap policy")
-	}
 	calls := enforcer.snapshot()
-	if len(calls) != 1 || calls[0].detail["reason"] != "cron_overlap_policy" || calls[0].detail["requested_value"] != "skip" {
-		t.Fatalf("expected cron_overlap_policy dispatch with requested=skip, got %+v", calls)
-	}
+	require.False(t, len(calls) != 1 ||
+		calls[0].detail["reason"] != "cron_overlap_policy" ||
+		calls[0].detail["requested_value"] != "skip")
 }
 
 func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
@@ -161,7 +167,9 @@ func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
 	}
 	ms := &APIStoreMock{
 		CreateJobFunc: func(context.Context, *domain.Job) error {
-			t.Fatal("CreateJob must not be called for a batch item rejected by cron overlap policy")
+			require.Fail(t,
+
+				"CreateJob must not be called for a batch item rejected by cron overlap policy")
 			return nil
 		},
 	}
@@ -176,17 +184,18 @@ func TestPlanGate_BatchCreateRejectsCronOverlapPolicy(t *testing.T) {
 			CronOverlapPolicy: "skip",
 		}},
 	}})
-	if err == nil {
-		t.Fatal("expected batch create to fail when every item violates cron overlap policy")
-	}
+	require.Error(t, err)
+
 	var rse *rawStatusError
-	if !errors.As(err, &rse) || rse.status != http.StatusBadRequest {
-		t.Fatalf("expected raw 400 error, got %T %v", err, err)
-	}
+	require.False(t, !errors.As(err, &rse) || rse.
+		status !=
+
+		http.StatusBadRequest)
+
 	calls := enforcer.snapshot()
-	if len(calls) != 1 || calls[0].detail["reason"] != "cron_overlap_policy" || calls[0].detail["requested_value"] != "skip" {
-		t.Fatalf("expected cron_overlap_policy dispatch with requested=skip, got %+v", calls)
-	}
+	require.False(t, len(calls) != 1 ||
+		calls[0].detail["reason"] != "cron_overlap_policy" ||
+		calls[0].detail["requested_value"] != "skip")
 }
 
 func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
@@ -208,7 +217,9 @@ func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
 			enforcer := &tunableLimitsEnforcer{limits: billing.GetPlanLimits(domain.PlanFree)}
 			ms := &APIStoreMock{
 				CreateJobFunc: func(context.Context, *domain.Job) error {
-					t.Fatal("CreateJob must not be called when on_failure chaining is not available")
+					require.Fail(t,
+
+						"CreateJob must not be called when on_failure chaining is not available")
 					return nil
 				},
 			}
@@ -222,9 +233,11 @@ func TestPlanGate_CreateJobRejectsOnFailureChaining(t *testing.T) {
 				OnFailureTriggerJob:      tt.triggerJob,
 				OnFailureTriggerWorkflow: tt.triggerWorkflow,
 			}})
-			if !isHumaStatusError(err, http.StatusForbidden) {
-				t.Fatalf("expected 403 for unavailable on_failure chaining, got %v", err)
-			}
+			require.True(
+				t, isHumaStatusError(err,
+					http.
+						StatusForbidden,
+				))
 		})
 	}
 }
@@ -247,7 +260,9 @@ func TestPlanGate_CloneJobRejectsOnFailureChaining(t *testing.T) {
 			return source, nil
 		},
 		CreateJobFunc: func(context.Context, *domain.Job) error {
-			t.Fatal("CreateJob must not be called when cloned on_failure chaining is not available")
+			require.Fail(t,
+
+				"CreateJob must not be called when cloned on_failure chaining is not available")
 			return nil
 		},
 	}
@@ -258,7 +273,9 @@ func TestPlanGate_CloneJobRejectsOnFailureChaining(t *testing.T) {
 		JobID: "job-source",
 		Body:  CloneJobRequest{Name: "Clone", Slug: "clone"},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for cloned on_failure chaining, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
 }

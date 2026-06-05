@@ -9,57 +9,59 @@ import (
 	"strait/internal/queue"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/require"
 )
 
 func TestClassifyOutboxEnqueueError_ContextDeadlineExceeded(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, outboxEnqueueRetryable,
 
-	if classifyOutboxEnqueueError(context.DeadlineExceeded) != outboxEnqueueRetryable {
-		t.Fatal("context deadline exceeded should be retryable")
-	}
+		classifyOutboxEnqueueError(context.DeadlineExceeded),
+	)
 }
 
 func TestClassifyOutboxEnqueueError_IdempotencyConflictIsTerminal(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, outboxEnqueueTerminal,
 
-	if classifyOutboxEnqueueError(domain.ErrIdempotencyConflict) != outboxEnqueueTerminal {
-		t.Fatal("idempotency conflict should be terminal")
-	}
+		classifyOutboxEnqueueError(
+			domain.ErrIdempotencyConflict,
+		))
 }
 
 func TestClassifyOutboxEnqueueError_BackpressureThrottleIsRetryable(t *testing.T) {
 	t.Parallel()
 
 	err := errors.Join(errors.New("wrapped"), queue.ErrEnqueueThrottled)
-	if classifyOutboxEnqueueError(err) != outboxEnqueueRetryable {
-		t.Fatal("backpressure throttle should be retryable")
-	}
+	require.Equal(t, outboxEnqueueRetryable,
+
+		classifyOutboxEnqueueError(err))
 }
 
 func TestClassifyOutboxEnqueueError_ForeignKeyViolationIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	err := &pgconn.PgError{Code: "23503"}
-	if classifyOutboxEnqueueError(err) != outboxEnqueueTerminal {
-		t.Fatal("foreign key violation should be terminal")
-	}
+	require.Equal(t, outboxEnqueueTerminal,
+
+		classifyOutboxEnqueueError(
+			err))
 }
 
 func TestClassifyOutboxEnqueueError_SerializationFailureIsRetryable(t *testing.T) {
 	t.Parallel()
 
 	err := errors.Join(errors.New("wrapped"), &pgconn.PgError{Code: "40001"})
-	if classifyOutboxEnqueueError(err) != outboxEnqueueRetryable {
-		t.Fatal("serialization failure should be retryable")
-	}
+	require.Equal(t, outboxEnqueueRetryable,
+
+		classifyOutboxEnqueueError(err))
 }
 
 func TestClassifyOutboxEnqueueError_UnknownErrorIsRetryable(t *testing.T) {
 	t.Parallel()
+	require.Equal(t, outboxEnqueueRetryable,
 
-	if classifyOutboxEnqueueError(errors.New("temporary unknown enqueue failure")) != outboxEnqueueRetryable {
-		t.Fatal("unknown enqueue errors should be retried instead of quarantining outbox rows")
-	}
+		classifyOutboxEnqueueError(errors.New("temporary unknown enqueue failure")))
 }
 
 func FuzzOutbox(f *testing.F) {
@@ -75,15 +77,21 @@ func FuzzOutbox(f *testing.F) {
 		switch {
 		case code == "40001" || code == "40P01" || code == "55P03" || code == "57014":
 			if disp != outboxEnqueueRetryable {
-				t.Fatalf("code %q classified as %v, want retryable", code, disp)
+				require.Failf(t, "test failure",
+
+					"code %q classified as %v, want retryable", code, disp)
 			}
 		case len(code) >= 2 && code[:2] == "08":
 			if disp != outboxEnqueueRetryable {
-				t.Fatalf("code %q classified as %v, want retryable", code, disp)
+				require.Failf(t, "test failure",
+
+					"code %q classified as %v, want retryable", code, disp)
 			}
 		case len(code) >= 2 && (code[:2] == "22" || code[:2] == "23"):
 			if disp != outboxEnqueueTerminal {
-				t.Fatalf("code %q classified as %v, want terminal", code, disp)
+				require.Failf(t, "test failure",
+
+					"code %q classified as %v, want terminal", code, disp)
 			}
 		}
 	})

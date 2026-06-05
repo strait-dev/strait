@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateBulkTriggerRequestRejectsTooManyItems(t *testing.T) {
@@ -44,11 +46,6 @@ func TestValidateBulkTriggerItemAppliesPayloadSchema(t *testing.T) {
 
 func TestBulkHasIdempotencyKey(t *testing.T) {
 	t.Parallel()
-
-	if bulkHasIdempotencyKey([]BulkTriggerItem{{}, {Payload: json.RawMessage(`{}`)}}) {
-		t.Fatal("bulkHasIdempotencyKey() = true, want false")
-	}
-	if !bulkHasIdempotencyKey([]BulkTriggerItem{{}, {IdempotencyKey: "k"}}) {
-		t.Fatal("bulkHasIdempotencyKey() = false, want true")
-	}
+	require.False(t, bulkHasIdempotencyKey([]BulkTriggerItem{{}, {Payload: json.RawMessage(`{}`)}}))
+	require.True(t, bulkHasIdempotencyKey([]BulkTriggerItem{{}, {IdempotencyKey: "k"}}))
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/jarcoal/httpmock"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestChannel(url, secret string) *domain.NotificationChannel {
@@ -63,9 +64,7 @@ func TestWebhookSender_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestWebhookSender_NonOKStatus(t *testing.T) {
@@ -82,9 +81,7 @@ func TestWebhookSender_NonOKStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for 500 status")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_4xxStatus(t *testing.T) {
@@ -101,9 +98,7 @@ func TestWebhookSender_4xxStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for 400 status")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_NetworkError(t *testing.T) {
@@ -120,9 +115,7 @@ func TestWebhookSender_NetworkError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_NetworkErrorRedactsSecretURL(t *testing.T) {
@@ -144,18 +137,13 @@ func TestWebhookSender_NetworkErrorRedactsSecretURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for network failure")
-	}
+	require.Error(t, err)
+
 	errText := err.Error()
 	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
-		if strings.Contains(errText, leaked) {
-			t.Fatalf("error leaked URL secret %q: %s", leaked, errText)
-		}
+		require.NotContains(t, errText, leaked)
 	}
-	if !strings.Contains(errText, "connection refused") {
-		t.Fatalf("error omitted sanitized transport reason: %s", errText)
-	}
+	require.Contains(t, errText, "connection refused")
 }
 
 func TestWebhookSender_HMACSignature(t *testing.T) {
@@ -185,18 +173,14 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("Send failed: %v", err)
-	}
-	if capturedTimestamp == "" {
-		t.Fatal("expected X-Strait-Timestamp header")
-	}
-	if _, parseErr := time.Parse(time.RFC3339, capturedTimestamp); parseErr != nil {
-		t.Fatalf("timestamp header is not RFC3339: %v", parseErr)
-	}
-	if capturedDeliveryID != del.ID {
-		t.Fatalf("delivery id header = %q, want %q", capturedDeliveryID, del.ID)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, capturedTimestamp)
+
+	_, parseErr := time.Parse(time.RFC3339, capturedTimestamp)
+	require.NoError(t, parseErr)
+	require.Equal(t, del.ID,
+		capturedDeliveryID,
+	)
 
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(capturedTimestamp))
@@ -205,13 +189,16 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	mac.Write([]byte("."))
 	mac.Write(payload)
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
-	if capturedSig != expected {
-		t.Fatalf("signature mismatch:\n  got:  %s\n  want: %s", capturedSig, expected)
-	}
-	if capturedStraitSig == "" || !strings.Contains(capturedStraitSig, "t="+capturedTimestamp) || !strings.Contains(capturedStraitSig, "d="+del.ID) {
-		t.Fatalf("structured Strait signature missing timestamp/delivery id: %q", capturedStraitSig)
-	}
+	require.Equal(t, expected,
+		capturedSig,
+	)
+	require.False(t, capturedStraitSig ==
+		"" || !strings.Contains(capturedStraitSig,
+		"t="+capturedTimestamp,
+	) ||
+		!strings.Contains(capturedStraitSig,
+			"d="+del.
+				ID))
 }
 
 func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
@@ -232,19 +219,21 @@ func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := sender.Send(ctx, ch, &domain.NotificationDelivery{ID: "del-1", EventType: "run.completed", Payload: payload}); err != nil {
-		t.Fatalf("first Send failed: %v", err)
-	}
-	if err := sender.Send(ctx, ch, &domain.NotificationDelivery{ID: "del-2", EventType: "run.completed", Payload: payload}); err != nil {
-		t.Fatalf("second Send failed: %v", err)
-	}
+	require.NoError(t, sender.
+		Send(ctx, ch,
+			&domain.NotificationDelivery{ID: "del-1", EventType: "run.completed",
 
-	if len(signatures) != 2 {
-		t.Fatalf("captured signatures = %d, want 2", len(signatures))
-	}
-	if signatures[0] == signatures[1] {
-		t.Fatal("signatures for different delivery ids should differ")
-	}
+				Payload: payload,
+			}))
+	require.NoError(t, sender.
+		Send(ctx, ch,
+			&domain.NotificationDelivery{ID: "del-2", EventType: "run.completed",
+
+				Payload: payload,
+			}))
+	require.Len(t, signatures,
+		2)
+	require.NotEqual(t, signatures[1], signatures[0])
 }
 
 func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
@@ -254,7 +243,7 @@ func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
 	var hasSigHeader bool
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			hasSigHeader = req.Header.Get("X-Strait-Signature-256") != "" || req.Header.Get("X-Signature-256") != ""
+			hasSigHeader = req.Header.Get("X-Strait-Signature-256") != ""
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 
@@ -265,10 +254,7 @@ func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
-
-	if hasSigHeader {
-		t.Fatal("expected no signature header when secret is empty")
-	}
+	require.False(t, hasSigHeader)
 }
 
 func TestWebhookSender_EventTypeHeader(t *testing.T) {
@@ -289,10 +275,9 @@ func TestWebhookSender_EventTypeHeader(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
-
-	if capturedEventType != "run.completed" {
-		t.Fatalf("X-Event-Type = %q, want %q", capturedEventType, "run.completed")
-	}
+	require.Equal(t, "run.completed",
+		capturedEventType,
+	)
 }
 
 func TestWebhookSender_ContentTypeJSON(t *testing.T) {
@@ -313,10 +298,10 @@ func TestWebhookSender_ContentTypeJSON(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
+	require.Equal(t, "application/json",
 
-	if capturedContentType != "application/json" {
-		t.Fatalf("Content-Type = %q, want %q", capturedContentType, "application/json")
-	}
+		capturedContentType,
+	)
 }
 
 func TestWebhookSender_RequestBody(t *testing.T) {
@@ -338,10 +323,7 @@ func TestWebhookSender_RequestBody(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
-
-	if string(capturedBody) != string(payload) {
-		t.Fatalf("body mismatch:\n  got:  %s\n  want: %s", capturedBody, payload)
-	}
+	require.Equal(t, string(payload), string(capturedBody))
 }
 
 func TestWebhookSender_ContextCancellation(t *testing.T) {
@@ -364,9 +346,7 @@ func TestWebhookSender_ContextCancellation(t *testing.T) {
 	cancel()
 
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_EmptyURL(t *testing.T) {
@@ -379,18 +359,15 @@ func TestWebhookSender_EmptyURL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for empty webhook URL")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_NilClient(t *testing.T) {
 	t.Parallel()
 
 	sender := NewWebhookSender(nil)
-	if sender.client == nil {
-		t.Fatal("expected default client when nil is passed")
-	}
+	require.NotNil(t, sender.
+		client)
 }
 
 func TestWebhookSender_EmptyPayload(t *testing.T) {
@@ -411,13 +388,9 @@ func TestWebhookSender_EmptyPayload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("Send with nil payload failed: %v", err)
-	}
-
-	if string(capturedBody) != "{}" {
-		t.Fatalf("expected {} for nil payload, got: %s", capturedBody)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "{}",
+		string(capturedBody))
 }
 
 func TestWebhookSender_ServerHitCount(t *testing.T) {
@@ -439,10 +412,8 @@ func TestWebhookSender_ServerHitCount(t *testing.T) {
 	defer cancel()
 	_ = sender.Send(ctx, ch, del)
 	_ = sender.Send(ctx, ch, del)
-
-	if hits.Load() != 2 {
-		t.Fatalf("server hits = %d, want 2", hits.Load())
-	}
+	require.Equal(t, int32(2), hits.
+		Load())
 }
 
 func testRetryPolicy() retrypolicy.RetryPolicy[*http.Response] {
@@ -480,12 +451,9 @@ func TestWebhookSender_RetriesOn503(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success after retry, got: %v", err)
-	}
-	if hits.Load() != 2 {
-		t.Fatalf("server hits = %d, want 2", hits.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(2), hits.
+		Load())
 }
 
 func TestWebhookSender_RetriesOn500(t *testing.T) {
@@ -510,12 +478,9 @@ func TestWebhookSender_RetriesOn500(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success after retry, got: %v", err)
-	}
-	if hits.Load() != 2 {
-		t.Fatalf("server hits = %d, want 2", hits.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(2), hits.
+		Load())
 }
 
 func TestWebhookSender_NoRetryOn400(t *testing.T) {
@@ -537,12 +502,9 @@ func TestWebhookSender_NoRetryOn400(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for 400 status")
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("server hits = %d, want 1 (no retry on 4xx)", hits.Load())
-	}
+	require.Error(t, err)
+	require.Equal(t, int32(1), hits.
+		Load())
 }
 
 func TestWebhookSender_RetriesOn429(t *testing.T) {
@@ -567,12 +529,9 @@ func TestWebhookSender_RetriesOn429(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success after retry on 429, got: %v", err)
-	}
-	if hits.Load() != 2 {
-		t.Fatalf("server hits = %d, want 2 (1 initial 429 + 1 retry success)", hits.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(2), hits.
+		Load())
 }
 
 func TestWebhookSender_NoRetryOn200(t *testing.T) {
@@ -594,12 +553,9 @@ func TestWebhookSender_NoRetryOn200(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success, got: %v", err)
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("server hits = %d, want 1 (no retry on 200)", hits.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(1), hits.
+		Load())
 }
 
 func TestWebhookSender_ExhaustsRetries(t *testing.T) {
@@ -621,12 +577,9 @@ func TestWebhookSender_ExhaustsRetries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error after exhausting retries")
-	}
-	if hits.Load() != 3 {
-		t.Fatalf("server hits = %d, want 3 (1 initial + 2 retries)", hits.Load())
-	}
+	require.Error(t, err)
+	require.Equal(t, int32(3), hits.
+		Load())
 }
 
 func TestWebhookSender_StatusBoundary200(t *testing.T) {
@@ -643,9 +596,7 @@ func TestWebhookSender_StatusBoundary200(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("status 200 should succeed, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestWebhookSender_StatusBoundary199(t *testing.T) {
@@ -662,9 +613,7 @@ func TestWebhookSender_StatusBoundary199(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("status 199 should be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_StatusBoundary299(t *testing.T) {
@@ -681,9 +630,7 @@ func TestWebhookSender_StatusBoundary299(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("status 299 should succeed, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestWebhookSender_StatusBoundary300(t *testing.T) {
@@ -700,9 +647,7 @@ func TestWebhookSender_StatusBoundary300(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("status 300 should be rejected")
-	}
+	require.Error(t, err)
 }
 
 func TestWebhookSender_DefaultRetryPolicy_500IsRetried(t *testing.T) {
@@ -726,12 +671,9 @@ func TestWebhookSender_DefaultRetryPolicy_500IsRetried(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success after retry on 500 with default policy, got: %v", err)
-	}
-	if hits.Load() < 2 {
-		t.Fatalf("server hits = %d, want >= 2 (default policy should retry on 500)", hits.Load())
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, hits.Load(),
+		int32(2))
 }
 
 func TestWebhookSender_DefaultRetryPolicy_499NotRetried(t *testing.T) {
@@ -752,12 +694,9 @@ func TestWebhookSender_DefaultRetryPolicy_499NotRetried(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected error for 499 status")
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("server hits = %d, want 1 (default policy should not retry on 499)", hits.Load())
-	}
+	require.Error(t, err)
+	require.Equal(t, int32(1), hits.
+		Load())
 }
 
 func TestWebhookSender_DefaultRetryPolicy_429IsRetried(t *testing.T) {
@@ -781,12 +720,9 @@ func TestWebhookSender_DefaultRetryPolicy_429IsRetried(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err != nil {
-		t.Fatalf("expected success after retry on 429 with default policy, got: %v", err)
-	}
-	if hits.Load() < 2 {
-		t.Fatalf("server hits = %d, want >= 2 (default policy should retry on 429)", hits.Load())
-	}
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, hits.Load(),
+		int32(2))
 }
 
 func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
@@ -809,15 +745,12 @@ func TestWebhookSender_DefaultClientBlocksDNSRebindingAtSendTime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected DNS rebinding attempt to be blocked")
-	}
-	if !strings.Contains(err.Error(), "private address") && !strings.Contains(err.Error(), "resolves to private") {
-		t.Fatalf("expected private-address rejection, got %v", err)
-	}
-	if lookups.Load() < 2 {
-		t.Fatalf("expected validation and dial-time DNS lookups, got %d", lookups.Load())
-	}
+	require.Error(t, err)
+	require.False(t, !strings.Contains(err.
+		Error(), "private address",
+	) &&
+		!strings.Contains(err.Error(), "resolves to private"))
+	require.GreaterOrEqual(t, lookups.Load(), int32(2))
 }
 
 func TestWebhookSender_BlocksPrivateEndpointByDefault(t *testing.T) {
@@ -837,12 +770,9 @@ func TestWebhookSender_BlocksPrivateEndpointByDefault(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err := sender.Send(ctx, ch, del)
-	if err == nil {
-		t.Fatal("expected private webhook endpoint to be blocked")
-	}
-	if hits.Load() != 0 {
-		t.Fatalf("private webhook endpoint received %d requests, want 0", hits.Load())
-	}
+	require.Error(t, err)
+	require.Equal(t, int32(0), hits.
+		Load())
 }
 
 func TestWebhookSender_AllowsPrivateEndpointWhenConfigured(t *testing.T) {
@@ -861,10 +791,9 @@ func TestWebhookSender_AllowsPrivateEndpointWhenConfigured(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := sender.Send(ctx, ch, del); err != nil {
-		t.Fatalf("Send with private endpoints enabled failed: %v", err)
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("private webhook endpoint received %d requests, want 1", hits.Load())
-	}
+	require.NoError(t, sender.
+		Send(ctx, ch,
+			del))
+	require.Equal(t, int32(1), hits.
+		Load())
 }

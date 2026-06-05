@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"strings"
 	"testing"
 
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 type publishCall struct {
@@ -42,9 +43,8 @@ func (m *mockPublisher) PublishBatch(ctx context.Context, messages []pubsub.PubS
 func TestJobRunHandlerTable(t *testing.T) {
 	t.Parallel()
 	h := NewJobRunHandler(nil, nil)
-	if got := h.Table(); got != "job_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "job_runs")
-	}
+	require.Equal(t, "job_runs",
+		h.Table())
 }
 
 func TestJobRunHandlerHandlePublishes(t *testing.T) {
@@ -73,44 +73,40 @@ func TestJobRunHandlerHandlePublishes(t *testing.T) {
 					CommitTimestamp: "2026-01-01T00:00:00Z",
 				},
 			}
-
-			if err := h.Handle(context.Background(), msg); err != nil {
-				t.Fatalf("Handle returned error: %v", err)
-			}
-
-			if len(pub.calls) != 1 {
-				t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-			}
+			require.NoError(t, h.Handle(context.Background(),
+				msg))
+			require.Len(t, pub.calls,
+				1)
 
 			call := pub.calls[0]
-			if call.channel != "cdc:project:proj_1:job_runs" {
-				t.Fatalf("channel = %q, want %q", call.channel, "cdc:project:proj_1:job_runs")
-			}
+			require.Equal(t, "cdc:project:proj_1:job_runs",
+
+				call.
+					channel)
 
 			var event ChangeEvent
-			if err := json.Unmarshal(call.data, &event); err != nil {
-				t.Fatalf("unmarshal published event: %v", err)
-			}
-			if event.Table != "job_runs" {
-				t.Fatalf("event table = %q, want %q", event.Table, "job_runs")
-			}
-			if event.Action != tt.action {
-				t.Fatalf("event action = %q, want %q", event.Action, tt.action)
-			}
-			if string(event.Record) != string(msg.Record) {
-				t.Fatalf("event record = %s, want %s", string(event.Record), string(msg.Record))
-			}
-			if string(event.Changes) != string(msg.Changes) {
-				t.Fatalf("event changes = %s, want %s", string(event.Changes), string(msg.Changes))
-			}
-			if event.Timestamp != msg.Metadata.CommitTimestamp {
-				t.Fatalf("event timestamp = %q, want %q", event.Timestamp, msg.Metadata.CommitTimestamp)
-			}
+			require.NoError(t, json.
+				Unmarshal(call.
+					data, &event,
+				))
+			require.Equal(t, "job_runs",
+				event.Table,
+			)
+			require.Equal(t, tt.action,
+				event.Action,
+			)
+			require.Equal(t, string(msg.Record), string(event.
+				Record))
+			require.Equal(t, string(msg.Changes), string(event.
+				Changes))
+			require.Equal(t, msg.Metadata.
+				CommitTimestamp,
+				event.
+					Timestamp,
+			)
 
 			if tt.action == ActionUpdate {
-				if !strings.Contains(logs.String(), `"action":"update"`) {
-					t.Fatalf("logs do not contain update action: %s", logs.String())
-				}
+				require.Contains(t, logs.String(), `"action":"update"`)
 			}
 		})
 	}
@@ -124,10 +120,8 @@ func TestJobRunHandlerHandleNilPublisher(t *testing.T) {
 		Action: ActionInsert,
 		Record: json.RawMessage(`{"id":"run_1","job_id":"job_1","project_id":"proj_1","status":"queued"}`),
 	}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
 }
 
 func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
@@ -136,12 +130,8 @@ func TestJobRunHandlerHandleInvalidRecord(t *testing.T) {
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{`)}
 
 	err := h.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "decode job_run record") {
-		t.Fatalf("error = %q, want decode job_run record", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode job_run record")
 }
 
 func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -153,24 +143,18 @@ func TestJobRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 		Action: ActionInsert,
 		Record: json.RawMessage(`{"id":"run_1","job_id":"job_1","project_id":"proj_1","status":"queued"}`),
 	}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
-	if len(pub.calls) != 1 {
-		t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-	}
-	if !strings.Contains(logs.String(), "failed to publish cdc event") {
-		t.Fatalf("warning log not found: %s", logs.String())
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
+	require.Len(t, pub.calls,
+		1)
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestWorkflowRunHandlerTable(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowRunHandler(nil, nil)
-	if got := h.Table(); got != "workflow_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "workflow_runs")
-	}
+	require.Equal(t, "workflow_runs",
+		h.Table())
 }
 
 func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
@@ -197,39 +181,37 @@ func TestWorkflowRunHandlerHandlePatterns(t *testing.T) {
 					CommitTimestamp: "2026-01-01T00:00:00Z",
 				},
 			}
-
-			if err := h.Handle(context.Background(), msg); err != nil {
-				t.Fatalf("Handle returned error: %v", err)
-			}
-
-			if len(pub.calls) != 1 {
-				t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-			}
+			require.NoError(t, h.Handle(context.Background(),
+				msg))
+			require.Len(t, pub.calls,
+				1)
 
 			call := pub.calls[0]
-			if call.channel != "cdc:project:proj_9:workflow_runs" {
-				t.Fatalf("channel = %q, want %q", call.channel, "cdc:project:proj_9:workflow_runs")
-			}
+			require.Equal(t, "cdc:project:proj_9:workflow_runs",
+
+				call.channel,
+			)
 
 			var event ChangeEvent
-			if err := json.Unmarshal(call.data, &event); err != nil {
-				t.Fatalf("unmarshal published event: %v", err)
-			}
-			if event.Table != "workflow_runs" {
-				t.Fatalf("event table = %q, want %q", event.Table, "workflow_runs")
-			}
-			if event.Action != tt.action {
-				t.Fatalf("event action = %q, want %q", event.Action, tt.action)
-			}
-			if string(event.Record) != string(msg.Record) {
-				t.Fatalf("event record = %s, want %s", string(event.Record), string(msg.Record))
-			}
-			if string(event.Changes) != string(msg.Changes) {
-				t.Fatalf("event changes = %s, want %s", string(event.Changes), string(msg.Changes))
-			}
-			if event.Timestamp != msg.Metadata.CommitTimestamp {
-				t.Fatalf("event timestamp = %q, want %q", event.Timestamp, msg.Metadata.CommitTimestamp)
-			}
+			require.NoError(t, json.
+				Unmarshal(call.
+					data, &event,
+				))
+			require.Equal(t, "workflow_runs",
+				event.
+					Table)
+			require.Equal(t, tt.action,
+				event.Action,
+			)
+			require.Equal(t, string(msg.Record), string(event.
+				Record))
+			require.Equal(t, string(msg.Changes), string(event.
+				Changes))
+			require.Equal(t, msg.Metadata.
+				CommitTimestamp,
+				event.
+					Timestamp,
+			)
 		})
 	}
 }
@@ -238,21 +220,16 @@ func TestWorkflowRunHandlerHandleNilPublisher(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowRunHandler(nil, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"wf_run_1","workflow_id":"wf_1","project_id":"proj_9","status":"running"}`)}
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
 }
 
 func TestWorkflowRunHandlerHandleInvalidRecord(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "decode workflow_run record") {
-		t.Fatalf("error = %q, want decode workflow_run record", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode workflow_run record")
 }
 
 func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -261,24 +238,19 @@ func TestWorkflowRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 	logger, logs := newBufferedLogger()
 	h := NewWorkflowRunHandler(pub, logger)
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"wf_run_1","workflow_id":"wf_1","project_id":"proj_9","status":"running"}`)}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
-	if len(pub.calls) != 1 {
-		t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-	}
-	if !strings.Contains(logs.String(), "failed to publish cdc event") {
-		t.Fatalf("warning log not found: %s", logs.String())
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
+	require.Len(t, pub.calls,
+		1)
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestWorkflowStepRunHandlerTable(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowStepRunHandler(nil, nil)
-	if got := h.Table(); got != "workflow_step_runs" {
-		t.Fatalf("Table() = %q, want %q", got, "workflow_step_runs")
-	}
+	require.Equal(t, "workflow_step_runs",
+
+		h.Table())
 }
 
 func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
@@ -305,39 +277,38 @@ func TestWorkflowStepRunHandlerHandlePatterns(t *testing.T) {
 					CommitTimestamp: "2026-01-01T00:00:00Z",
 				},
 			}
-
-			if err := h.Handle(context.Background(), msg); err != nil {
-				t.Fatalf("Handle returned error: %v", err)
-			}
-
-			if len(pub.calls) != 1 {
-				t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-			}
+			require.NoError(t, h.Handle(context.Background(),
+				msg))
+			require.Len(t, pub.calls,
+				1)
 
 			call := pub.calls[0]
-			if call.channel != "cdc:workflow_run:wf_run_123:steps" {
-				t.Fatalf("channel = %q, want %q", call.channel, "cdc:workflow_run:wf_run_123:steps")
-			}
+			require.Equal(t, "cdc:workflow_run:wf_run_123:steps",
+
+				call.channel,
+			)
 
 			var event ChangeEvent
-			if err := json.Unmarshal(call.data, &event); err != nil {
-				t.Fatalf("unmarshal published event: %v", err)
-			}
-			if event.Table != "workflow_step_runs" {
-				t.Fatalf("event table = %q, want %q", event.Table, "workflow_step_runs")
-			}
-			if event.Action != tt.action {
-				t.Fatalf("event action = %q, want %q", event.Action, tt.action)
-			}
-			if string(event.Record) != string(msg.Record) {
-				t.Fatalf("event record = %s, want %s", string(event.Record), string(msg.Record))
-			}
-			if string(event.Changes) != string(msg.Changes) {
-				t.Fatalf("event changes = %s, want %s", string(event.Changes), string(msg.Changes))
-			}
-			if event.Timestamp != msg.Metadata.CommitTimestamp {
-				t.Fatalf("event timestamp = %q, want %q", event.Timestamp, msg.Metadata.CommitTimestamp)
-			}
+			require.NoError(t, json.
+				Unmarshal(call.
+					data, &event,
+				))
+			require.Equal(t, "workflow_step_runs",
+
+				event.Table,
+			)
+			require.Equal(t, tt.action,
+				event.Action,
+			)
+			require.Equal(t, string(msg.Record), string(event.
+				Record))
+			require.Equal(t, string(msg.Changes), string(event.
+				Changes))
+			require.Equal(t, msg.Metadata.
+				CommitTimestamp,
+				event.
+					Timestamp,
+			)
 		})
 	}
 }
@@ -346,21 +317,16 @@ func TestWorkflowStepRunHandlerHandleNilPublisher(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowStepRunHandler(nil, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"step_run_1","workflow_run_id":"wf_run_123","step_ref":"build","status":"running"}`)}
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
 }
 
 func TestWorkflowStepRunHandlerHandleInvalidRecord(t *testing.T) {
 	t.Parallel()
 	h := NewWorkflowStepRunHandler(&mockPublisher{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)))
 	err := h.Handle(context.Background(), Message{Action: ActionInsert, Record: json.RawMessage(`{`)})
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "decode workflow_step_run record") {
-		t.Fatalf("error = %q, want decode workflow_step_run record", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "decode workflow_step_run record")
 }
 
 func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
@@ -369,16 +335,11 @@ func TestWorkflowStepRunHandlerHandlePublisherErrorBestEffort(t *testing.T) {
 	logger, logs := newBufferedLogger()
 	h := NewWorkflowStepRunHandler(pub, logger)
 	msg := Message{Action: ActionInsert, Record: json.RawMessage(`{"id":"step_run_1","workflow_run_id":"wf_run_123","step_ref":"build","status":"running"}`)}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle returned error: %v", err)
-	}
-	if len(pub.calls) != 1 {
-		t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-	}
-	if !strings.Contains(logs.String(), "failed to publish cdc event") {
-		t.Fatalf("warning log not found: %s", logs.String())
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
+	require.Len(t, pub.calls,
+		1)
+	require.Contains(t, logs.String(), "failed to publish cdc event")
 }
 
 func TestChangeEventMarshalWithChanges(t *testing.T) {
@@ -392,13 +353,8 @@ func TestChangeEventMarshalWithChanges(t *testing.T) {
 	}
 
 	data, err := json.Marshal(e)
-	if err != nil {
-		t.Fatalf("marshal ChangeEvent: %v", err)
-	}
-
-	if !strings.Contains(string(data), `"changes":{`) {
-		t.Fatalf("marshaled event missing changes field: %s", string(data))
-	}
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"changes":{`)
 }
 
 func TestChangeEventMarshalOmitsNilChanges(t *testing.T) {
@@ -411,13 +367,8 @@ func TestChangeEventMarshalOmitsNilChanges(t *testing.T) {
 	}
 
 	data, err := json.Marshal(e)
-	if err != nil {
-		t.Fatalf("marshal ChangeEvent: %v", err)
-	}
-
-	if strings.Contains(string(data), `"changes":`) {
-		t.Fatalf("marshaled event should omit changes when nil: %s", string(data))
-	}
+	require.NoError(t, err)
+	require.NotContains(t, string(data), `"changes":`)
 }
 
 func newBufferedLogger() (*slog.Logger, *bytes.Buffer) {
@@ -428,9 +379,8 @@ func newBufferedLogger() (*slog.Logger, *bytes.Buffer) {
 func TestEventTriggerHandlerTable(t *testing.T) {
 	t.Parallel()
 	h := NewEventTriggerHandler(nil, nil)
-	if got := h.Table(); got != "event_triggers" {
-		t.Fatalf("Table() = %q, want %q", got, "event_triggers")
-	}
+	require.Equal(t, "event_triggers",
+		h.Table())
 }
 
 func TestEventTriggerHandlerHandlePublishes(t *testing.T) {
@@ -460,36 +410,29 @@ func TestEventTriggerHandlerHandlePublishes(t *testing.T) {
 				},
 				AckID: "ack-1",
 			}
+			require.NoError(t, h.Handle(context.Background(),
+				msg))
+			require.Len(t, pub.calls,
+				1)
+			require.Equal(t, "cdc:project:proj_1:event_triggers",
 
-			if err := h.Handle(context.Background(), msg); err != nil {
-				t.Fatalf("Handle() error = %v", err)
-			}
-
-			if len(pub.calls) != 1 {
-				t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-			}
-			if pub.calls[0].channel != "cdc:project:proj_1:event_triggers" {
-				t.Fatalf("channel = %q, want %q", pub.calls[0].channel, "cdc:project:proj_1:event_triggers")
-			}
+				pub.calls[0].channel,
+			)
 
 			var event ChangeEvent
-			if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
-				t.Fatalf("unmarshal published event: %v", err)
-			}
-			if event.Table != "event_triggers" {
-				t.Fatalf("event.Table = %q, want %q", event.Table, "event_triggers")
-			}
-			if event.Action != tt.action {
-				t.Fatalf("event.Action = %q, want %q", event.Action, tt.action)
-			}
+			require.NoError(t, json.
+				Unmarshal(pub.calls[0].data,
+					&event))
+			require.Equal(t, "event_triggers",
+				event.
+					Table)
+			require.Equal(t, tt.action,
+				event.Action,
+			)
 
 			logOutput := logs.String()
-			if !strings.Contains(logOutput, "cdc event_trigger change") {
-				t.Fatalf("expected log to contain 'cdc event_trigger change', got: %s", logOutput)
-			}
-			if !strings.Contains(logOutput, "aml:app-1") {
-				t.Fatalf("expected log to contain event key, got: %s", logOutput)
-			}
+			require.Contains(t, logOutput, "cdc event_trigger change")
+			require.Contains(t, logOutput, "aml:app-1")
 		})
 	}
 }
@@ -503,14 +446,8 @@ func TestEventTriggerHandlerBadRecord(t *testing.T) {
 		Action: ActionInsert,
 		Record: json.RawMessage(`{invalid`),
 	}
-
-	if err := h.Handle(context.Background(), msg); err == nil {
-		t.Fatal("expected error for bad record")
-	}
-
-	if len(pub.calls) != 0 {
-		t.Fatalf("publish calls = %d, want 0", len(pub.calls))
-	}
+	require.Error(t, h.Handle(context.Background(), msg))
+	require.Empty(t, pub.calls)
 }
 
 func TestEventTriggerHandlerNilPublisher(t *testing.T) {
@@ -525,10 +462,8 @@ func TestEventTriggerHandlerNilPublisher(t *testing.T) {
 			CommitTimestamp: "2026-01-01T00:00:00Z",
 		},
 	}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle() with nil publisher should not error, got: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
 }
 
 func TestEventTriggerHandlerPublishError(t *testing.T) {
@@ -549,16 +484,13 @@ func TestEventTriggerHandlerPublishError(t *testing.T) {
 			CommitTimestamp: "2026-01-01T00:00:00Z",
 		},
 	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
 
 	// Should not return error (publish errors are logged, not returned)
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle() should not return publish error, got: %v", err)
-	}
 
 	logOutput := logs.String()
-	if !strings.Contains(logOutput, "failed to publish cdc event") {
-		t.Fatalf("expected log about publish failure, got: %s", logOutput)
-	}
+	require.Contains(t, logOutput, "failed to publish cdc event")
 }
 
 func TestChangeEventSourceField(t *testing.T) {
@@ -574,22 +506,17 @@ func TestChangeEventSourceField(t *testing.T) {
 			CommitTimestamp: "2026-01-01T00:00:00Z",
 		},
 	}
-
-	if err := h.Handle(context.Background(), msg); err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
-
-	if len(pub.calls) != 1 {
-		t.Fatalf("publish calls = %d, want 1", len(pub.calls))
-	}
+	require.NoError(t, h.Handle(context.Background(),
+		msg))
+	require.Len(t, pub.calls,
+		1)
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if event.Source != "cdc" {
-		t.Fatalf("event.Source = %q, want %q", event.Source, "cdc")
-	}
+	require.NoError(t, json.
+		Unmarshal(pub.calls[0].data,
+			&event))
+	require.Equal(t, "cdc",
+		event.Source)
 }
 
 func TestAllHandlersIncludeSource(t *testing.T) {
@@ -622,21 +549,17 @@ func TestAllHandlersIncludeSource(t *testing.T) {
 			Record:   records[table],
 			Metadata: Metadata{TableName: table, CommitTimestamp: "2026-01-01T00:00:00Z"},
 		}
-
-		if err := handler.Handle(context.Background(), msg); err != nil {
-			t.Fatalf("Handle(%s) error = %v", table, err)
-		}
-
-		if len(pub.calls) != 1 {
-			t.Fatalf("publish calls for %s = %d, want 1", table, len(pub.calls))
-		}
+		require.NoError(t, handler.
+			Handle(context.
+				Background(), msg))
+		require.Len(t, pub.calls,
+			1)
 
 		var event ChangeEvent
-		if err := json.Unmarshal(pub.calls[0].data, &event); err != nil {
-			t.Fatalf("unmarshal %s event: %v", table, err)
-		}
-		if event.Source != "cdc" {
-			t.Fatalf("%s event.Source = %q, want %q", table, event.Source, "cdc")
-		}
+		require.NoError(t, json.
+			Unmarshal(pub.calls[0].data,
+				&event))
+		require.Equal(t, "cdc",
+			event.Source)
 	}
 }

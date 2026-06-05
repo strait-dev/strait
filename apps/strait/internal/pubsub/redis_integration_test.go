@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/pubsub"
 )
@@ -18,23 +20,21 @@ func TestRedisPublisher_SinglePublishSubscribeRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:roundtrip")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	want := []byte(`{"action":"ping"}`)
-	if err := pub.Publish(ctx, "test:roundtrip", want); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+	require.NoError(t, pub.Publish(ctx,
+		"test:roundtrip",
+
+		want))
 
 	select {
 	case got := <-sub.Ch:
-		if string(got) != string(want) {
-			t.Errorf("received %q, want %q", got, want)
-		}
+		assert.Equal(t, string(want), string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for message")
+		require.FailNow(t, "timed out waiting for message")
 	}
 }
 
@@ -43,9 +43,8 @@ func TestRedisPublisher_PublishBatch_MultipleMessages(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:batch")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	messages := []pubsub.PubSubMessage{
@@ -53,19 +52,14 @@ func TestRedisPublisher_PublishBatch_MultipleMessages(t *testing.T) {
 		{Channel: "test:batch", Data: []byte("batch-2")},
 		{Channel: "test:batch", Data: []byte("batch-3")},
 	}
-
-	if err := pub.PublishBatch(ctx, messages); err != nil {
-		t.Fatalf("PublishBatch() error = %v", err)
-	}
+	require.NoError(t, pub.PublishBatch(ctx, messages))
 
 	for i, want := range messages {
 		select {
 		case got := <-sub.Ch:
-			if string(got) != string(want.Data) {
-				t.Errorf("message[%d] = %q, want %q", i, got, want.Data)
-			}
+			assert.Equal(t, string(want.Data), string(got), "message %d", i)
 		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out waiting for batch message %d", i)
+			require.FailNowf(t, "timed out waiting for batch message", "%d", i)
 		}
 	}
 }
@@ -75,41 +69,33 @@ func TestRedisPublisher_PublishBatch_SingleMessage(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:batch-single")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	// Single message batch uses the non-pipeline Publish path.
 	messages := []pubsub.PubSubMessage{
 		{Channel: "test:batch-single", Data: []byte("only-one")},
 	}
-
-	if err := pub.PublishBatch(ctx, messages); err != nil {
-		t.Fatalf("PublishBatch() error = %v", err)
-	}
+	require.NoError(t, pub.PublishBatch(ctx, messages))
 
 	select {
 	case got := <-sub.Ch:
-		if string(got) != "only-one" {
-			t.Errorf("received %q, want %q", got, "only-one")
-		}
+		assert.Equal(t, "only-one", string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for single batch message")
+		require.FailNow(t, "timed out waiting for single batch message")
 	}
 }
 
 func TestRedisPublisher_PublishBatch_Empty(t *testing.T) {
 	pub := newPublisher(t)
 	ctx := context.Background()
+	require.NoError(t, pub.PublishBatch(ctx, nil))
+	require.NoError(t, pub.PublishBatch(ctx, []pubsub.
+		PubSubMessage{}))
 
 	// Empty batch should be a no-op.
-	if err := pub.PublishBatch(ctx, nil); err != nil {
-		t.Fatalf("PublishBatch(nil) error = %v", err)
-	}
-	if err := pub.PublishBatch(ctx, []pubsub.PubSubMessage{}); err != nil {
-		t.Fatalf("PublishBatch([]) error = %v", err)
-	}
+
 }
 
 func TestRedisPublisher_PublishBatch_MultipleChannels(t *testing.T) {
@@ -117,42 +103,33 @@ func TestRedisPublisher_PublishBatch_MultipleChannels(t *testing.T) {
 	ctx := context.Background()
 
 	subA, err := pub.Subscribe(ctx, "test:batch-chan-a")
-	if err != nil {
-		t.Fatalf("Subscribe(chan-a) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subA.Close()
 
 	subB, err := pub.Subscribe(ctx, "test:batch-chan-b")
-	if err != nil {
-		t.Fatalf("Subscribe(chan-b) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subB.Close()
 
 	messages := []pubsub.PubSubMessage{
 		{Channel: "test:batch-chan-a", Data: []byte("for-a")},
 		{Channel: "test:batch-chan-b", Data: []byte("for-b")},
 	}
-
-	if err := pub.PublishBatch(ctx, messages); err != nil {
-		t.Fatalf("PublishBatch() error = %v", err)
-	}
+	require.NoError(t, pub.PublishBatch(ctx, messages))
 
 	select {
 	case got := <-subA.Ch:
-		if string(got) != "for-a" {
-			t.Errorf("subA received %q, want %q", got, "for-a")
-		}
+		assert.Equal(t, "for-a", string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("subA timed out")
+		require.FailNow(t, "subA timed out")
 	}
 
 	select {
 	case got := <-subB.Ch:
-		if string(got) != "for-b" {
-			t.Errorf("subB received %q, want %q", got, "for-b")
-		}
+		assert.Equal(t, "for-b", string(got))
 	case <-time.After(5 * time.Second):
-		t.Fatal("subB timed out")
+		require.FailNow(t, "subB timed out")
 	}
 }
 
@@ -163,15 +140,11 @@ func TestRedisPublisher_CloseWhileSubscribed(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:close-while-sub")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, pub.Close())
 
 	// Close the publisher -- the subscription goroutine should detect
 	// the closed connection and close the channel.
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
 
 	// The subscription channel should eventually close.
 	select {
@@ -180,15 +153,13 @@ func TestRedisPublisher_CloseWhileSubscribed(t *testing.T) {
 			// May receive buffered data; try again.
 			select {
 			case _, ok2 := <-sub.Ch:
-				if ok2 {
-					t.Error("channel still open after second read")
-				}
+				assert.False(t, ok2)
 			case <-time.After(5 * time.Second):
-				t.Fatal("channel did not close after publisher Close()")
+				require.FailNow(t, "channel did not close after publisher Close()")
 			}
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("channel did not close after publisher Close()")
+		require.FailNow(t, "channel did not close after publisher Close()")
 	}
 
 	sub.Close()
@@ -197,71 +168,53 @@ func TestRedisPublisher_CloseWhileSubscribed(t *testing.T) {
 func TestRedisPublisher_PublishToClosedPublisher(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
-
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, pub.Close())
 
 	// Publishing after Close should return an error.
 	err := pub.Publish(context.Background(), "test:closed", []byte("hello"))
-	if err == nil {
-		t.Error("Publish() after Close() returned nil, want error")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestRedisPublisher_PublishBatchToClosedPublisher(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
-
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, pub.Close())
 
 	// PublishBatch after Close should return an error.
 	err := pub.PublishBatch(context.Background(), []pubsub.PubSubMessage{
 		{Channel: "test:closed", Data: []byte("hello")},
 		{Channel: "test:closed", Data: []byte("world")},
 	})
-	if err == nil {
-		t.Error("PublishBatch() after Close() returned nil, want error")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestRedisPublisher_Ping(t *testing.T) {
 	pub := newPublisher(t)
 	ctx := context.Background()
+	require.NoError(t, pub.Ping(ctx))
 
-	if err := pub.Ping(ctx); err != nil {
-		t.Fatalf("Ping() error = %v", err)
-	}
 }
 
 func TestRedisPublisher_PingAfterClose(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
-
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, pub.Close())
 
 	err := pub.Ping(context.Background())
-	if err == nil {
-		t.Error("Ping() after Close() returned nil, want error")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestRedisPublisher_SubscribeAfterClose(t *testing.T) {
 	client := redis.NewClient(testRedis.Options())
 	pub := pubsub.NewRedisPublisher(client)
-
-	if err := pub.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+	require.NoError(t, pub.Close())
 
 	_, err := pub.Subscribe(context.Background(), "test:closed-sub")
-	if err == nil {
-		t.Error("Subscribe() after Close() returned nil, want error")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestRedisPublisher_LargePayload(t *testing.T) {
@@ -269,9 +222,8 @@ func TestRedisPublisher_LargePayload(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:large-payload")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	// 64KB payload.
@@ -279,18 +231,17 @@ func TestRedisPublisher_LargePayload(t *testing.T) {
 	for i := range payload {
 		payload[i] = byte(i % 256)
 	}
+	require.NoError(t, pub.Publish(ctx,
+		"test:large-payload",
 
-	if err := pub.Publish(ctx, "test:large-payload", payload); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+		payload,
+	))
 
 	select {
 	case got := <-sub.Ch:
-		if len(got) != len(payload) {
-			t.Errorf("received %d bytes, want %d", len(got), len(payload))
-		}
+		assert.Len(t, got, len(payload))
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for large payload")
+		require.FailNow(t, "timed out waiting for large payload")
 	}
 }
 
@@ -299,31 +250,28 @@ func TestRedisPublisher_MultipleSubscribersSameChannel(t *testing.T) {
 	ctx := context.Background()
 
 	sub1, err := pub.Subscribe(ctx, "test:multi-sub")
-	if err != nil {
-		t.Fatalf("Subscribe() sub1 error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub1.Close()
 
 	sub2, err := pub.Subscribe(ctx, "test:multi-sub")
-	if err != nil {
-		t.Fatalf("Subscribe() sub2 error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub2.Close()
 
 	want := []byte("shared-message")
-	if err := pub.Publish(ctx, "test:multi-sub", want); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
+	require.NoError(t, pub.Publish(ctx,
+		"test:multi-sub",
+
+		want))
 
 	// Both subscribers should receive the message.
 	for i, sub := range []*pubsub.Subscription{sub1, sub2} {
 		select {
 		case got := <-sub.Ch:
-			if string(got) != string(want) {
-				t.Errorf("sub%d received %q, want %q", i+1, got, want)
-			}
+			assert.Equal(t, string(want), string(got), "subscriber %d", i+1)
 		case <-time.After(5 * time.Second):
-			t.Fatalf("sub%d timed out", i+1)
+			require.FailNowf(t, "subscriber timed out", "%d", i+1)
 		}
 	}
 }
@@ -333,9 +281,8 @@ func TestRedisPublisher_PublishBatch_LargeCount(t *testing.T) {
 	ctx := context.Background()
 
 	sub, err := pub.Subscribe(ctx, "test:batch-large")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	const count = 50
@@ -346,10 +293,7 @@ func TestRedisPublisher_PublishBatch_LargeCount(t *testing.T) {
 			Data:    fmt.Appendf(nil, "msg-%03d", i),
 		}
 	}
-
-	if err := pub.PublishBatch(ctx, messages); err != nil {
-		t.Fatalf("PublishBatch() error = %v", err)
-	}
+	require.NoError(t, pub.PublishBatch(ctx, messages))
 
 	received := 0
 	for received < count {
@@ -357,7 +301,7 @@ func TestRedisPublisher_PublishBatch_LargeCount(t *testing.T) {
 		case <-sub.Ch:
 			received++
 		case <-time.After(5 * time.Second):
-			t.Fatalf("timed out: received %d/%d messages", received, count)
+			require.FailNowf(t, "timed out waiting for messages", "received %d/%d", received, count)
 		}
 	}
 }

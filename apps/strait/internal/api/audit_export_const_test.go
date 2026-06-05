@@ -3,13 +3,15 @@ package api
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultMaxExportRows_IsOneMillionDefault(t *testing.T) {
 	t.Parallel()
-	if defaultMaxExportRows != 1_000_000 {
-		t.Fatalf("expected 1_000_000, got %d", defaultMaxExportRows)
-	}
+	require.EqualValues(t, 1_000_000,
+
+		defaultMaxExportRows)
 }
 
 func TestResolveExportRowCap_FallsToDefault(t *testing.T) {
@@ -21,9 +23,9 @@ func TestResolveExportRowCap_FallsToDefault(t *testing.T) {
 	}
 	srv := newTestServer(t, ms, nil, nil)
 	cap := srv.resolveExportRowCap(context.Background(), "proj-1")
-	if cap != defaultMaxExportRows {
-		t.Fatalf("expected %d, got %d", defaultMaxExportRows, cap)
-	}
+	require.Equal(t, defaultMaxExportRows,
+
+		cap)
 }
 
 func TestResolveExportRowCap_ConfigOverride(t *testing.T) {
@@ -36,7 +38,5 @@ func TestResolveExportRowCap_ConfigOverride(t *testing.T) {
 	srv := newTestServer(t, ms, nil, nil)
 	srv.config.AuditExportRowCapDefault = 500
 	cap := srv.resolveExportRowCap(context.Background(), "proj-1")
-	if cap != 500 {
-		t.Fatalf("expected 500, got %d", cap)
-	}
+	require.EqualValues(t, 500, cap)
 }

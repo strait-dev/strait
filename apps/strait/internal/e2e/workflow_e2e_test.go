@@ -16,13 +16,16 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/workflow"
+
+	"github.com/stretchr/testify/require"
 )
 
 func mustCleanWf(t *testing.T) {
 	t.Helper()
-	if err := testEnv.DB.CleanTables(context.Background()); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	require.NoError(t, testEnv.
+		DB.CleanTables(
+		context.Background()))
+
 }
 
 func wfSetup(t *testing.T) *api.Server {
@@ -71,21 +74,20 @@ func wfDoReq(t *testing.T, srv *api.Server, method, path, body string) *httptest
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("marshal json: %v", err)
-	}
+	require.NoError(t, err)
+
 	return string(b)
 }
 
 func wfEnsureProject(t *testing.T, projectID string) {
 	t.Helper()
-	if err := testStore.CreateProject(context.Background(), &domain.Project{
-		ID:    projectID,
-		OrgID: "org-" + projectID,
-		Name:  projectID,
-	}); err != nil {
-		t.Fatalf("create workflow test project: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateProject(context.Background(), &domain.
+			Project{ID: projectID, OrgID: "org-" +
+			projectID,
+			Name: projectID,
+		}))
+
 }
 
 func wfCreateJob(t *testing.T, srv *api.Server, projectID, name, slug string) map[string]any {
@@ -103,9 +105,11 @@ func wfCreateJob(t *testing.T, srv *api.Server, projectID, name, slug string) ma
 		"run_ttl_secs":   600,
 	}
 	w := wfDoReq(t, srv, http.MethodPost, "/v1/jobs/", mustJSON(t, body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -119,9 +123,11 @@ func wfCreateWorkflow(t *testing.T, srv *api.Server, projectID, name, slug strin
 		"steps":      steps,
 	}
 	w := wfDoReq(t, srv, http.MethodPost, "/v1/workflows/", mustJSON(t, body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create workflow status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -136,9 +142,11 @@ func wfTriggerWorkflow(t *testing.T, srv *api.Server, workflowID, projectID stri
 	}
 
 	w := wfDoReq(t, srv, http.MethodPost, "/v1/workflows/"+workflowID+"/trigger", mustJSON(t, body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("trigger workflow status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -149,7 +157,9 @@ func findStepRunByRef(t *testing.T, stepRuns []domain.WorkflowStepRun, stepRef s
 			return sr
 		}
 	}
-	t.Fatalf("step run not found for %s", stepRef)
+	require.Failf(t, "test failure",
+
+		"step run not found for %s", stepRef)
 	return domain.WorkflowStepRun{}
 }
 
@@ -171,60 +181,69 @@ func TestE2E_WorkflowRetryFromFailed(t *testing.T) {
 	originalRunID := asString(t, triggered, "id")
 
 	origStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, originalRunID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list original step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	stepA := findStepRunByRef(t, origStepRuns, "A")
 	stepB := findStepRunByRef(t, origStepRuns, "B")
+	require.NoError(t, testStore.
+		UpdateStepRunStatus(ctx, stepA.
+			ID, domain.
+			StepCompleted,
+			map[string]any{"finished_at": time.Now().
+				UTC(),
+				"output": json.RawMessage(`{"ok":true}`)}))
+	require.NoError(t, testStore.
+		UpdateStepRunStatus(ctx, stepB.
+			ID, domain.
+			StepFailed,
+			map[string]any{"finished_at": time.
+				Now().UTC(), "error": "step b failed"}))
+	require.NoError(t, testStore.
+		UpdateWorkflowRunStatus(ctx, originalRunID,
 
-	if err := testStore.UpdateStepRunStatus(ctx, stepA.ID, domain.StepCompleted, map[string]any{
-		"finished_at": time.Now().UTC(),
-		"output":      json.RawMessage(`{"ok":true}`),
-	}); err != nil {
-		t.Fatalf("complete step A: %v", err)
-	}
-
-	if err := testStore.UpdateStepRunStatus(ctx, stepB.ID, domain.StepFailed, map[string]any{
-		"finished_at": time.Now().UTC(),
-		"error":       "step b failed",
-	}); err != nil {
-		t.Fatalf("fail step B: %v", err)
-	}
-
-	if err := testStore.UpdateWorkflowRunStatus(ctx, originalRunID, domain.WfStatusRunning, domain.WfStatusFailed, map[string]any{
-		"finished_at": time.Now().UTC(),
-		"error":       "failed for retry test",
-	}); err != nil {
-		t.Fatalf("fail workflow run: %v", err)
-	}
+			domain.WfStatusRunning,
+			domain.
+				WfStatusFailed,
+			map[string]any{
+				"finished_at": time.Now().UTC(), "error": "failed for retry test",
+			}))
 
 	retryResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflow-runs/"+originalRunID+"/retry", "")
-	if retryResp.Code != http.StatusCreated {
-		t.Fatalf("retry workflow run status = %d, body = %s", retryResp.Code, retryResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		retryResp.
+			Code)
+
 	newRun := mustDecodeObject(t, retryResp)
 	newRunID := asString(t, newRun, "id")
+	require.Equal(t, string(domain.
+		WfStatusRunning,
+	), asString(t,
+		newRun, "status",
+	))
+	require.Equal(t, originalRunID,
 
-	if asString(t, newRun, "status") != string(domain.WfStatusRunning) {
-		t.Fatalf("expected new run status running, got %s", asString(t, newRun, "status"))
-	}
-	if asString(t, newRun, "retry_of_run_id") != originalRunID {
-		t.Fatalf("expected retry_of_run_id=%s, got %s", originalRunID, asString(t, newRun, "retry_of_run_id"))
-	}
+		asString(t,
+			newRun, "retry_of_run_id",
+		))
 
 	newStepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, newRunID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list retry step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	newStepA := findStepRunByRef(t, newStepRuns, "A")
 	newStepB := findStepRunByRef(t, newStepRuns, "B")
+	require.Equal(t, domain.
+		StepCompleted,
+		newStepA.
+			Status)
+	require.False(t, newStepB.
+		Status !=
+		domain.
+			StepPending && newStepB.
+		Status !=
+		domain.
+			StepRunning)
 
-	if newStepA.Status != domain.StepCompleted {
-		t.Fatalf("expected step A completed on retry, got %s", newStepA.Status)
-	}
-	if newStepB.Status != domain.StepPending && newStepB.Status != domain.StepRunning {
-		t.Fatalf("expected step B pending/running on retry, got %s", newStepB.Status)
-	}
 }
 
 func TestE2E_WorkflowSkipStep(t *testing.T) {
@@ -241,26 +260,27 @@ func TestE2E_WorkflowSkipStep(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	skipResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflow-runs/"+runID+"/steps/A/skip", `{"reason":"testing"}`)
-	if skipResp.Code != http.StatusOK {
-		t.Fatalf("skip step status = %d, body = %s", skipResp.Code, skipResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		skipResp.Code,
+	)
 
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	stepA := findStepRunByRef(t, stepRuns, "A")
-	if stepA.Status != domain.StepSkipped {
-		t.Fatalf("expected step A skipped, got %s", stepA.Status)
-	}
+	require.Equal(t, domain.
+		StepSkipped,
+		stepA.
+			Status)
 
 	run, err := testStore.GetWorkflowRun(ctx, runID)
-	if err != nil {
-		t.Fatalf("get workflow run: %v", err)
-	}
-	if run.Status != domain.WfStatusCompleted {
-		t.Fatalf("expected completed workflow run, got %s", run.Status)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		WfStatusCompleted,
+
+		run.Status)
+
 }
 
 func TestE2E_WorkflowForceCompleteStep(t *testing.T) {
@@ -277,26 +297,28 @@ func TestE2E_WorkflowForceCompleteStep(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	forceResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflow-runs/"+runID+"/steps/A/force-complete", `{"result":{"key":"value"}}`)
-	if forceResp.Code != http.StatusOK {
-		t.Fatalf("force-complete step status = %d, body = %s", forceResp.Code, forceResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		forceResp.
+			Code)
 
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	stepA := findStepRunByRef(t, stepRuns, "A")
-	if stepA.Status != domain.StepCompleted {
-		t.Fatalf("expected step A completed, got %s", stepA.Status)
-	}
+	require.Equal(t, domain.
+		StepCompleted,
+		stepA.
+			Status)
 
 	var output map[string]any
-	if err := json.Unmarshal(stepA.Output, &output); err != nil {
-		t.Fatalf("unmarshal step output: %v", err)
-	}
-	if output["key"] != "value" {
-		t.Fatalf("expected output key=value, got %v", output)
-	}
+	require.NoError(t, json.
+		Unmarshal(stepA.Output,
+			&output))
+	require.Equal(t, "value",
+
+		output["key"])
+
 }
 
 func TestE2E_WorkflowClone(t *testing.T) {
@@ -315,45 +337,51 @@ func TestE2E_WorkflowClone(t *testing.T) {
 
 	cloneReq := map[string]any{"name": "cloned", "slug": "cloned-slug"}
 	cloneResp := wfDoReq(t, srv, http.MethodPost, "/v1/workflows/"+originalID+"/clone", mustJSON(t, cloneReq))
-	if cloneResp.Code != http.StatusCreated {
-		t.Fatalf("clone workflow status = %d, body = %s", cloneResp.Code, cloneResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		cloneResp.
+			Code)
+
 	cloned := mustDecodeObject(t, cloneResp)
 	clonedID := asString(t, cloned, "id")
+	require.NotEqual(t, originalID,
 
-	if clonedID == originalID {
-		t.Fatal("expected cloned workflow to have different id")
-	}
-	if asString(t, cloned, "name") != "cloned" {
-		t.Fatalf("expected name cloned, got %s", asString(t, cloned, "name"))
-	}
-	if asString(t, cloned, "slug") != "cloned-slug" {
-		t.Fatalf("expected slug cloned-slug, got %s", asString(t, cloned, "slug"))
-	}
+		clonedID)
+	require.Equal(t, "cloned",
+
+		asString(t, cloned,
+			"name"))
+	require.Equal(t, "cloned-slug",
+
+		asString(t,
+			cloned, "slug"),
+	)
 
 	wOrig := wfDoReq(t, srv, http.MethodGet, "/v1/workflows/"+originalID+"/", "")
-	if wOrig.Code != http.StatusOK {
-		t.Fatalf("get original workflow status = %d, body = %s", wOrig.Code, wOrig.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		wOrig.Code,
+	)
+
 	origBody := mustDecodeObject(t, wOrig)
 
 	wClone := wfDoReq(t, srv, http.MethodGet, "/v1/workflows/"+clonedID+"/", "")
-	if wClone.Code != http.StatusOK {
-		t.Fatalf("get cloned workflow status = %d, body = %s", wClone.Code, wClone.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		wClone.Code,
+	)
+
 	cloneBody := mustDecodeObject(t, wClone)
 
 	origSteps, ok := origBody["steps"].([]any)
-	if !ok {
-		t.Fatalf("original steps is not an array: %T", origBody["steps"])
-	}
+	require.True(t, ok)
+
 	cloneSteps, ok := cloneBody["steps"].([]any)
-	if !ok {
-		t.Fatalf("cloned steps is not an array: %T", cloneBody["steps"])
-	}
-	if len(origSteps) != len(cloneSteps) {
-		t.Fatalf("expected cloned workflow to keep %d steps, got %d", len(origSteps), len(cloneSteps))
-	}
+	require.True(t, ok)
+	require.Len(t, origSteps,
+
+		len(cloneSteps))
+
 }
 
 func TestE2E_WorkflowRunLabels(t *testing.T) {
@@ -371,34 +399,36 @@ func TestE2E_WorkflowRunLabels(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	emptyResp := wfDoReq(t, srv, http.MethodGet, "/v1/workflow-runs/"+runID+"/labels", "")
-	if emptyResp.Code != http.StatusOK {
-		t.Fatalf("get labels status = %d, body = %s", emptyResp.Code, emptyResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		emptyResp.
+			Code)
+
 	emptyLabelsBody := mustDecodeObject(t, emptyResp)
 	emptyLabels, ok := emptyLabelsBody["labels"].(map[string]any)
-	if !ok {
-		t.Fatalf("labels is not object: %T", emptyLabelsBody["labels"])
-	}
-	if len(emptyLabels) != 0 {
-		t.Fatalf("expected empty labels, got %v", emptyLabels)
-	}
+	require.True(t, ok)
+	require.Len(t, emptyLabels,
 
-	if err := testStore.CreateWorkflowRunLabels(ctx, runID, map[string]string{"env": "test", "owner": "e2e"}); err != nil {
-		t.Fatalf("create workflow run labels: %v", err)
-	}
+		0)
+	require.NoError(t, testStore.
+		CreateWorkflowRunLabels(ctx, runID,
+			map[string]string{
+				"env": "test", "owner": "e2e"}))
 
 	labelsResp := wfDoReq(t, srv, http.MethodGet, "/v1/workflow-runs/"+runID+"/labels", "")
-	if labelsResp.Code != http.StatusOK {
-		t.Fatalf("get labels status = %d, body = %s", labelsResp.Code, labelsResp.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		labelsResp.
+			Code)
+
 	labelsBody := mustDecodeObject(t, labelsResp)
 	labels, ok := labelsBody["labels"].(map[string]any)
-	if !ok {
-		t.Fatalf("labels is not object: %T", labelsBody["labels"])
-	}
-	if labels["env"] != "test" || labels["owner"] != "e2e" {
-		t.Fatalf("unexpected labels: %v", labels)
-	}
+	require.True(t, ok)
+	require.False(t, labels["env"] !=
+		"test" ||
+		labels["owner"] !=
+			"e2e")
+
 }
 
 func TestE2E_WorkflowTemplateSubstitution(t *testing.T) {
@@ -423,29 +453,30 @@ func TestE2E_WorkflowTemplateSubstitution(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
+	require.NoError(t, err)
+
 	stepA := findStepRunByRef(t, stepRuns, "A")
-	if stepA.JobRunID == "" {
-		t.Fatal("expected step A job run id to be set")
-	}
+	require.NotEqual(t, "",
+
+		stepA.JobRunID,
+	)
 
 	jobRun, err := testStore.GetRun(ctx, stepA.JobRunID)
-	if err != nil {
-		t.Fatalf("get job run: %v", err)
-	}
+	require.NoError(t, err)
 
 	var payload map[string]any
-	if err := json.Unmarshal(jobRun.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal job run payload: %v", err)
-	}
-	if payload["message"] != "hello resolved_value" {
-		t.Fatalf("expected rendered message, got %v", payload["message"])
-	}
-	if payload["value"] != "resolved_value" {
-		t.Fatalf("expected rendered value, got %v", payload["value"])
-	}
+	require.NoError(t, json.
+		Unmarshal(jobRun.Payload,
+			&payload),
+	)
+	require.Equal(t, "hello resolved_value",
+
+		payload["message"],
+	)
+	require.Equal(t, "resolved_value",
+
+		payload["value"])
+
 }
 
 func TestE2E_WorkflowStepOverrides(t *testing.T) {
@@ -466,13 +497,12 @@ func TestE2E_WorkflowStepOverrides(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	stepRuns, err := testStore.ListStepRunsByWorkflowRun(ctx, runID, 10000, nil)
-	if err != nil {
-		t.Fatalf("list step runs: %v", err)
-	}
-	if len(stepRuns) != 1 {
-		t.Fatalf("expected exactly 1 step run after override, got %d", len(stepRuns))
-	}
-	if stepRuns[0].StepRef != "A" {
-		t.Fatalf("expected only step A, got %s", stepRuns[0].StepRef)
-	}
+	require.NoError(t, err)
+	require.Len(t, stepRuns,
+
+		1)
+	require.Equal(t, "A",
+
+		stepRuns[0].StepRef)
+
 }

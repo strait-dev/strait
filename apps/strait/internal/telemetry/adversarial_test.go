@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -14,9 +15,9 @@ import (
 func initTestMetrics(t *testing.T) *Metrics {
 	t.Helper()
 	m, _, shutdown, err := InitMetrics("test-service", "test")
-	if err != nil {
-		t.Fatalf("InitMetrics failed: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	t.Cleanup(func() {
 		_ = shutdown(context.Background())
 	})
@@ -69,15 +70,12 @@ func TestLogBridge_NewlineInjection(t *testing.T) {
 	t.Parallel()
 	// InitLogBridge with empty endpoint returns nil logger and noop shutdown.
 	logger, shutdown, err := InitLogBridge(context.Background(), "test", "", "test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if logger != nil {
-		t.Fatal("expected nil logger for empty endpoint")
-	}
-	if err := shutdown(context.Background()); err != nil {
-		t.Fatalf("shutdown error: %v", err)
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, logger)
+	require.NoError(t,
+		shutdown(context.Background()),
+	)
 }
 
 // FuzzMetricValues fuzzes float64 histogram recording for panics.
@@ -92,9 +90,9 @@ func FuzzMetricValues(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, val float64) {
 		m, _, shutdown, err := InitMetrics("fuzz-svc", "test")
-		if err != nil {
-			t.Fatalf("InitMetrics failed: %v", err)
-		}
+		require.NoError(t,
+			err)
+
 		defer func() { _ = shutdown(context.Background()) }()
 
 		ctx := context.Background()

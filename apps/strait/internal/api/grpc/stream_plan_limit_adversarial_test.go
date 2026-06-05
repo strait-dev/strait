@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestStreamGating_RaceAtCap simulates many simultaneous connect attempts
@@ -38,9 +39,8 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 	for i := range 5 {
 		w := makeWorker(fmt.Sprintf("seed-%d", i), "proj-a", fmt.Sprintf("key-seed-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
-		if err := r.Register(w); err != nil {
-			t.Fatalf("seed register %d: %v", i, err)
-		}
+		require.NoError(t, r.
+			Register(w))
 	}
 
 	const attempts = 50
@@ -59,13 +59,12 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 		})
 	}
 	wg.Wait()
-
-	if got := allowed.Load(); got != 0 {
-		t.Fatalf("at-cap concurrent attempts allowed = %d, want 0", got)
-	}
-	if got := blocked.Load(); got != attempts {
-		t.Fatalf("at-cap concurrent attempts blocked = %d, want %d", got, attempts)
-	}
+	require.EqualValues(t, 0, allowed.
+		Load())
+	require.EqualValues(
+		t, attempts,
+		blocked.
+			Load())
 }
 
 // TestStreamGating_ReconnectStorm verifies that when N existing connections
@@ -91,9 +90,9 @@ func TestStreamGating_ReconnectStorm(t *testing.T) {
 	for i := range 5 {
 		w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("k-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
-		if err := r.Register(w); err != nil {
-			t.Fatalf("seed register %d: %v", i, err)
-		}
+		require.NoError(t, r.
+			Register(w))
+
 		tokens[i] = w.regToken
 	}
 
@@ -119,12 +118,13 @@ func TestStreamGating_ReconnectStorm(t *testing.T) {
 	// state: once the storm settles, the count is exactly 5 and a new
 	// connect is rejected.
 	wg.Wait()
+	require.Equal(t, 5, r.
+		CountByOrg("org-1"))
 
-	if got := r.CountByOrg("org-1"); got != 5 {
-		t.Fatalf("post-storm CountByOrg(org-1) = %d, want 5", got)
-	}
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
-		t.Fatal("post-storm new connect at cap was allowed; want blocked")
+		require.Fail(t,
+
+			"post-storm new connect at cap was allowed; want blocked")
 	}
 }
 
@@ -152,17 +152,20 @@ func TestStreamGating_OrgScopingCannotBeSpoofedViaProjectID(t *testing.T) {
 	// Saturated org: 1/1.
 	w := makeWorker("seed", "proj-saturated", "k-seed", []string{"q"}, 1)
 	w.OrgID = "org-saturated"
-	if err := r.Register(w); err != nil {
-		t.Fatalf("seed register: %v", err)
-	}
+	require.NoError(t, r.
+		Register(w))
 
 	// Connect attempts for saturated org → blocked.
 	if orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-saturated"); !blocked || orgID != "org-saturated" {
-		t.Fatalf("saturated org gating: orgID=%q blocked=%v, want org-saturated true", orgID, blocked)
+		require.Failf(t, "test failure",
+
+			"saturated org gating: orgID=%q blocked=%v, want org-saturated true", orgID, blocked)
 	}
 	// Connect attempts for spacious org → allowed.
 	if orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-spacious"); blocked || orgID != "org-spacious" {
-		t.Fatalf("spacious org gating: orgID=%q blocked=%v, want org-spacious false", orgID, blocked)
+		require.Failf(t, "test failure",
+
+			"spacious org gating: orgID=%q blocked=%v, want org-spacious false", orgID, blocked)
 	}
 }
 
@@ -183,17 +186,17 @@ func TestStreamGating_EmptyOrgIDCannotBeUsedToBypass(t *testing.T) {
 
 	// One worker registered with empty OrgID (should not count for org-1).
 	wEmpty := makeWorker("ghost", "proj-a", "k-ghost", []string{"q"}, 1)
-	if err := r.Register(wEmpty); err != nil {
-		t.Fatalf("register ghost: %v", err)
-	}
-	if got := r.CountByOrg("org-1"); got != 0 {
-		t.Fatalf("CountByOrg(org-1) with only empty-org worker = %d, want 0", got)
-	}
+	require.NoError(t, r.
+		Register(wEmpty))
+	require.Equal(t, 0, r.
+		CountByOrg("org-1"))
 
 	// New connect for org-1: count is 0/1 → allowed (the ghost did not pad
 	// the org's count). This confirms the gate evaluates the real org-1 set.
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
-		t.Fatal("empty-org worker should not pad org-1 count; gate must allow")
+		require.Fail(t,
+
+			"empty-org worker should not pad org-1 count; gate must allow")
 	}
 }
 
@@ -213,26 +216,25 @@ func TestStreamGating_DowngradeMidSession(t *testing.T) {
 	for i := range 5 {
 		w := makeWorker(fmt.Sprintf("w-%d", i), "proj-a", fmt.Sprintf("k-%d", i), []string{"q"}, 1)
 		w.OrgID = "org-1"
-		if err := r.Register(w); err != nil {
-			t.Fatalf("seed register %d: %v", i, err)
-		}
+		require.NoError(t, r.
+			Register(w))
 	}
-	if got := r.CountByOrg("org-1"); got != 5 {
-		t.Fatalf("pre-downgrade count = %d, want 5", got)
-	}
+	require.Equal(t, 5, r.
+		CountByOrg("org-1"))
 
 	// Downgrade: cap drops to 1. Existing connections survive (we don't evict).
 	enforcer.mu.Lock()
 	enforcer.limit = 1
 	enforcer.mu.Unlock()
+	require.Equal(t, 5, r.
+		CountByOrg("org-1"))
 
 	// Existing connections still in the registry.
-	if got := r.CountByOrg("org-1"); got != 5 {
-		t.Fatalf("post-downgrade pre-connect count = %d, want 5 (no eviction)", got)
-	}
 
 	// New connect: 5 active, cap 1 → blocked.
 	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
-		t.Fatal("post-downgrade new connect was allowed; want blocked")
+		require.Fail(t,
+
+			"post-downgrade new connect was allowed; want blocked")
 	}
 }

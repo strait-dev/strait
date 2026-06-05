@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.T) {
@@ -18,7 +20,9 @@ func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.
 			return &domain.APIKey{ID: "key-runs", ProjectID: "proj-1", Scopes: []string{domain.ScopeRunsWrite}}, nil
 		},
 		CreateWebhookSubscriptionFunc: func(_ context.Context, _ *domain.WebhookSubscription) error {
-			t.Fatal("runs:write must not authorize webhook subscription creation")
+			require.Fail(t,
+
+				"runs:write must not authorize webhook subscription creation")
 			return nil
 		},
 	}
@@ -31,9 +35,8 @@ func TestWebhookSubscriptions_RunsWriteScopeCannotCreateSubscription(t *testing.
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing.T) {
@@ -59,12 +62,10 @@ func TestWebhookSubscriptions_WebhooksWriteScopeCanCreateSubscription(t *testing
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !called {
-		t.Fatal("CreateWebhookSubscription was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
+	require.True(
+		t, called)
 }
 
 func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
@@ -83,9 +84,8 @@ func TestWebhookTest_RunsWriteScopeCannotTestWebhook(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
 }
 
 func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
@@ -104,12 +104,12 @@ func TestWebhookTest_WebhooksWriteScopeReachesValidation(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 
 	srv.ServeHTTP(w, r)
-	if w.Code == http.StatusForbidden {
-		t.Fatalf("webhooks:write should authorize webhook test endpoint: %s", w.Body.String())
-	}
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected authorized request to reach body validation, got %d: %s", w.Code, w.Body.String())
-	}
+	require.NotEqual(t, http.
+		StatusForbidden, w.Code,
+	)
+	require.Equal(t, http.StatusUnprocessableEntity,
+
+		w.Code)
 }
 
 // webhookSubStore returns an APIStoreMock suitable for webhook subscription
@@ -144,10 +144,8 @@ func TestWebhookSub_LocalhostURL(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for localhost URL, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 // TestWebhookSub_PrivateIPURL verifies that private IP addresses (RFC 1918)
@@ -167,10 +165,8 @@ func TestWebhookSub_PrivateIPURL(t *testing.T) {
 			t.Parallel()
 			body := `{"project_id":"proj-1","webhook_url":"` + u + `","event_types":["run.completed"],"secret":"s3cret"}`
 			w := postWebhookSub(t, body)
-
-			if w.Code < 400 {
-				t.Fatalf("expected 4xx for private IP URL %s, got %d: %s", u, w.Code, w.Body.String())
-			}
+			require.GreaterOrEqual(t,
+				w.Code, 400)
 		})
 	}
 }
@@ -186,10 +182,8 @@ func TestWebhookSub_MetadataURL(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for metadata URL, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 func TestWebhookSub_DNSPrivateURL(t *testing.T) {
@@ -201,10 +195,8 @@ func TestWebhookSub_DNSPrivateURL(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for hostname resolving to private IP, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
@@ -216,10 +208,8 @@ func TestWebhookSub_RequireTLSRejectsHTTP(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"project_id":"proj-1","webhook_url":"http://example.com/hook","event_types":["run.completed"],"secret":"s3cret"}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/webhooks/subscriptions", body))
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx when WEBHOOK_REQUIRE_TLS rejects HTTP subscription, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 // TestWebhookSub_FileScheme verifies that non-HTTP schemes like file:// are
@@ -233,10 +223,8 @@ func TestWebhookSub_FileScheme(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for file:// scheme, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 // TestWebhookSub_EmbeddedCredentials verifies that a URL with embedded
@@ -251,10 +239,9 @@ func TestWebhookSub_EmbeddedCredentials(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 200 || w.Code >= 600 {
-		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code <
+		200 || w.Code >= 600,
+	)
 }
 
 // TestWebhookSub_EmptyEventTypes verifies that an empty event_types array is
@@ -268,10 +255,8 @@ func TestWebhookSub_EmptyEventTypes(t *testing.T) {
 		"event_types": [],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 400 {
-		t.Fatalf("expected 4xx for empty event_types, got %d: %s", w.Code, w.Body.String())
-	}
+	require.GreaterOrEqual(t,
+		w.Code, 400)
 }
 
 // TestWebhookSub_InvalidEventType verifies that an unknown event type string
@@ -286,10 +271,9 @@ func TestWebhookSub_InvalidEventType(t *testing.T) {
 		"event_types": ["totally.bogus.event"],
 		"secret": "s3cret"
 	}`)
-
-	if w.Code < 200 || w.Code >= 600 {
-		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code <
+		200 || w.Code >= 600,
+	)
 }
 
 // TestWebhookSub_ClientSecretIgnored verifies that a client-supplied secret
@@ -304,10 +288,9 @@ func TestWebhookSub_ClientSecretIgnored(t *testing.T) {
 		"event_types": ["run.completed"],
 		"secret": ""
 	}`)
-
-	if w.Code != 201 && w.Code != 200 {
-		t.Fatalf("expected 201/200 (server generates secret), got %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code !=
+		201 && w.Code != 200,
+	)
 }
 
 // TestWebhookSub_NullByteInURL verifies that a null byte embedded in the
@@ -318,10 +301,9 @@ func TestWebhookSub_NullByteInURL(t *testing.T) {
 	// Build a JSON body with a literal null byte inside the URL value.
 	body := `{"project_id":"proj-1","webhook_url":"https://example.com/\u0000hook","event_types":["run.completed"],"secret":"s3cret"}`
 	w := postWebhookSub(t, body)
-
-	if w.Code < 200 || w.Code >= 600 {
-		t.Fatalf("unexpected status %d: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code <
+		200 || w.Code >= 600,
+	)
 }
 
 // FuzzWebhookSubURL fuzzes the webhook URL field to ensure the handler never
@@ -350,10 +332,10 @@ func FuzzWebhookSubURL(f *testing.F) {
 		r.Header.Set("X-Internal-Secret", "test-secret-value")
 		r.Header.Set("Content-Type", "application/json")
 		srv.ServeHTTP(w, r)
+		require.False(t, w.Code <
+			200 || w.Code >= 600,
+		)
 
 		// Must not panic and must return a valid HTTP status.
-		if w.Code < 200 || w.Code >= 600 {
-			t.Fatalf("unexpected status %d for URL %q", w.Code, rawURL)
-		}
 	})
 }

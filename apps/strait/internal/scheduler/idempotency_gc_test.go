@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeIdempotencyGCStore struct {
@@ -26,24 +28,22 @@ func (f *fakeIdempotencyGCStore) DeleteExpiredIdempotencyEntries(_ context.Conte
 
 func TestIdempotencyGC_Defaults(t *testing.T) {
 	g := NewIdempotencyGC(&fakeIdempotencyGCStore{}, IdempotencyGCConfig{})
-	if g.interval != time.Hour {
-		t.Errorf("interval = %v", g.interval)
-	}
-	if g.batchLimit != 10000 {
-		t.Errorf("batchLimit = %d", g.batchLimit)
-	}
+	assert.Equal(t, time.
+		Hour, g.
+		interval)
+	assert.Equal(t, 10000,
+		g.batchLimit,
+	)
 }
 
 func TestIdempotencyGC_RunOnceAccumulates(t *testing.T) {
 	s := &fakeIdempotencyGCStore{deleted: 23}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{})
 	_ = g.runOnce(context.Background())
-	if g.TotalDeleted() != 23 {
-		t.Errorf("total = %d, want 23", g.TotalDeleted())
-	}
-	if s.calls != 1 {
-		t.Errorf("calls = %d", s.calls)
-	}
+	assert.EqualValues(t, 23,
+		g.TotalDeleted())
+	assert.Equal(t, 1,
+		s.calls)
 }
 
 func TestIdempotencyGC_LockNotAcquired(t *testing.T) {
@@ -51,9 +51,8 @@ func TestIdempotencyGC_LockNotAcquired(t *testing.T) {
 	locker := &fakeLocker{acquireOK: false}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	if s.calls != 0 {
-		t.Errorf("store should not be called when lock not acquired, got %d", s.calls)
-	}
+	assert.Equal(t, 0,
+		s.calls)
 }
 
 func TestIdempotencyGC_LockAcquiredAndReleased(t *testing.T) {
@@ -61,29 +60,29 @@ func TestIdempotencyGC_LockAcquiredAndReleased(t *testing.T) {
 	locker := &fakeLocker{acquireOK: true}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{}).WithAdvisoryLocker(locker)
 	_ = g.runOnce(context.Background())
-	if s.calls != 1 || !locker.acquired || !locker.released {
-		t.Errorf("lock workflow broken: calls=%d acquired=%v released=%v",
-			s.calls, locker.acquired, locker.released)
-	}
+	assert.False(t, s.calls !=
+		1 ||
+		!locker.
+			acquired ||
+		!locker.released)
 }
 
 func TestIdempotencyGC_DeleteError(t *testing.T) {
 	s := &fakeIdempotencyGCStore{err: errors.New("boom")}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Error("expected error propagation")
-	}
+	assert.Error(t, g.runOnce(context.
+		Background()))
 }
 
 func TestIdempotencyGC_PanicReturnsError(t *testing.T) {
 	s := &fakeIdempotencyGCStore{panicRun: true}
 	g := NewIdempotencyGC(s, IdempotencyGCConfig{})
-	if err := g.runOnce(context.Background()); err == nil {
-		t.Fatal("runOnce error = nil, want recovered panic error")
-	}
-	if g.Iterations() != 1 {
-		t.Fatalf("iterations = %d, want 1", g.Iterations())
-	}
+	require.Error(t, g.
+		runOnce(context.
+			Background()),
+	)
+	require.EqualValues(t, 1,
+		g.Iterations())
 }
 
 func TestIdempotencyGC_RunExitsOnCancel(t *testing.T) {
@@ -102,9 +101,8 @@ func TestIdempotencyGC_RunExitsOnCancel(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("did not exit on cancel")
+		require.Fail(t, "did not exit on cancel")
 	}
-	if g.Iterations() < 2 {
-		t.Errorf("iterations = %d", g.Iterations())
-	}
+	assert.GreaterOrEqual(t, g.Iterations(),
+		int64(2))
 }

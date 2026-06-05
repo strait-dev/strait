@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestJobRunHandler_Collect(t *testing.T) {
@@ -20,27 +23,24 @@ func TestJobRunHandler_Collect(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if pubMsg == nil {
-		t.Fatal("Collect() returned nil message")
-		return
-	}
-	if pubMsg.Channel != "cdc:project:proj-1:job_runs" {
-		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project:proj-1:job_runs")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, pubMsg)
+	assert.Equal(
+		t, "cdc:project:proj-1:job_runs",
+
+		pubMsg.Channel)
 
 	var event ChangeEvent
-	if err := json.Unmarshal(pubMsg.Data, &event); err != nil {
-		t.Fatalf("unmarshal event: %v", err)
-	}
-	if event.Table != "job_runs" {
-		t.Errorf("event.Table = %q, want %q", event.Table, "job_runs")
-	}
-	if event.Source != "cdc" {
-		t.Errorf("event.Source = %q, want %q", event.Source, "cdc")
-	}
+	require.NoError(t, json.Unmarshal(pubMsg.
+		Data,
+
+		&event))
+	assert.Equal(
+		t, "job_runs", event.
+			Table)
+	assert.Equal(
+		t, "cdc", event.Source,
+	)
 }
 
 func TestWorkflowRunHandler_Collect(t *testing.T) {
@@ -57,12 +57,11 @@ func TestWorkflowRunHandler_Collect(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if pubMsg.Channel != "cdc:project:proj-2:workflow_runs" {
-		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project:proj-2:workflow_runs")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "cdc:project:proj-2:workflow_runs",
+
+		pubMsg.Channel)
 }
 
 func TestWorkflowStepRunHandler_Collect(t *testing.T) {
@@ -79,12 +78,11 @@ func TestWorkflowStepRunHandler_Collect(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if pubMsg.Channel != "cdc:workflow_run:wfr-1:steps" {
-		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:workflow_run:wfr-1:steps")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "cdc:workflow_run:wfr-1:steps",
+
+		pubMsg.Channel)
 }
 
 func TestEventTriggerHandler_Collect(t *testing.T) {
@@ -101,12 +99,11 @@ func TestEventTriggerHandler_Collect(t *testing.T) {
 	}
 
 	pubMsg, err := h.Collect(context.Background(), msg)
-	if err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
-	if pubMsg.Channel != "cdc:project:proj-3:event_triggers" {
-		t.Errorf("Channel = %q, want %q", pubMsg.Channel, "cdc:project:proj-3:event_triggers")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "cdc:project:proj-3:event_triggers",
+
+		pubMsg.Channel)
 }
 
 func TestCollect_InvalidRecord(t *testing.T) {
@@ -122,9 +119,7 @@ func TestCollect_InvalidRecord(t *testing.T) {
 	}
 
 	_, err := h.Collect(context.Background(), msg)
-	if err == nil {
-		t.Fatal("Collect() with invalid record should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestCollectableHandler_Interface(t *testing.T) {
@@ -140,9 +135,7 @@ func TestCollectableHandler_Interface(t *testing.T) {
 	}
 
 	for _, h := range handlers {
-		if h.Table() == "" {
-			t.Errorf("handler %T has empty table", h)
-		}
+		assert.NotEmpty(t, h.Table())
 	}
 }
 
@@ -157,13 +150,11 @@ func TestCollectChangeEvent(t *testing.T) {
 	}
 
 	msg, err := collectChangeEvent(event, "cdc:project:p1:job_runs")
-	if err != nil {
-		t.Fatalf("collectChangeEvent() error = %v", err)
-	}
-	if msg.Channel != "cdc:project:p1:job_runs" {
-		t.Errorf("Channel = %q, want %q", msg.Channel, "cdc:project:p1:job_runs")
-	}
-	if len(msg.Data) == 0 {
-		t.Error("Data should not be empty")
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, "cdc:project:p1:job_runs",
+
+		msg.
+			Channel)
+	assert.NotEmpty(t, msg.Data)
 }

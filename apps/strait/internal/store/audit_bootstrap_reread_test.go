@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeDBTXForBootstrap implements DBTX and simulates the pathological
@@ -72,13 +74,12 @@ func TestResolveSigningKeyForEpoch_InsertedButNotReadBack_Errors(t *testing.T) {
 	q.auditSigningKey = globalKey
 
 	_, err := q.resolveSigningKeyForEpoch(context.Background(), "proj-ghost", 0)
-	if err == nil {
-		t.Fatal("expected error when re-read returns nothing after INSERT, got nil")
-	}
-	if !strings.Contains(err.Error(), "refusing to sign under global key") {
-		t.Errorf("error = %v, expected 'refusing to sign under global key' signal", err)
-	}
-	if !fake.insertCalled {
-		t.Error("expected INSERT to have been attempted before the re-read failure")
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t,
+		err.
+			Error(), "refusing to sign under global key")
+	assert.True(t,
+		fake.insertCalled,
+	)
 }

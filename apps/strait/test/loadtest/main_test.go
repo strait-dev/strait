@@ -26,6 +26,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -207,20 +209,24 @@ func doAttack(t *testing.T, name string, tgt vegeta.Targeter, pacer vegeta.Pacer
 // assertLatencySLA checks p95 and p99 against configured SLA thresholds.
 func assertLatencySLA(t *testing.T, m vegeta.Metrics) {
 	t.Helper()
-	if m.Latencies.P95 > cfg.MaxP95 {
-		t.Errorf("p95 latency %v exceeds SLA %v", m.Latencies.P95, cfg.MaxP95)
-	}
-	if m.Latencies.P99 > cfg.MaxP99 {
-		t.Errorf("p99 latency %v exceeds SLA %v", m.Latencies.P99, cfg.MaxP99)
-	}
+	assert.LessOrEqual(
+		t, m.Latencies.
+			P95,
+		cfg.MaxP95)
+	assert.LessOrEqual(
+		t, m.Latencies.
+			P99,
+		cfg.MaxP99)
+
 }
 
 // assertSuccessRate checks that the success ratio meets the minimum.
 func assertSuccessRate(t *testing.T, m vegeta.Metrics, minRate float64) {
 	t.Helper()
-	if m.Success < minRate {
-		t.Errorf("success rate %.4f below minimum %.4f", m.Success, minRate)
-	}
+	assert.GreaterOrEqual(t, m.Success,
+		minRate,
+	)
+
 }
 
 // assertStatusCodes checks that only the specified status codes appear.
@@ -230,20 +236,19 @@ func assertStatusCodes(t *testing.T, m vegeta.Metrics, allowed ...string) {
 	for _, c := range allowed {
 		allowedSet[c] = true
 	}
-	for code, count := range m.StatusCodes {
-		if !allowedSet[code] {
-			t.Errorf("unexpected status code %s (%d occurrences)", code, count)
-		}
+	for code := range m.StatusCodes {
+		assert.True(t, allowedSet[code])
+
 	}
 }
 
 // assertNoServerErrors checks that no 5xx responses were received.
 func assertNoServerErrors(t *testing.T, m vegeta.Metrics) {
 	t.Helper()
-	for code, count := range m.StatusCodes {
-		if len(code) > 0 && code[0] == '5' {
-			t.Errorf("server error %s occurred %d times", code, count)
-		}
+	for code := range m.StatusCodes {
+		assert.False(t, len(code) >
+			0 && code[0] == '5')
+
 	}
 }
 
@@ -395,9 +400,10 @@ func seedRun(t *testing.T, jobID string) (runID, runToken string) {
 	body := `{"payload":{"load":"test"}}`
 	resp := httpDo(t, "POST", "/v1/jobs/"+jobID+"/trigger", body, nil)
 	runID, ok := resp["id"].(string)
-	if !ok || runID == "" {
-		t.Fatalf("trigger response missing id: %#v", resp)
-	}
+	require.False(t, !ok ||
+		runID ==
+			"")
+
 	return runID, mintRunToken(t, runID)
 }
 
@@ -414,9 +420,10 @@ func mintRunToken(t *testing.T, runID string) string {
 		},
 	})
 	signed, err := token.SignedString([]byte(testJWTSigningKey))
-	if err != nil {
-		t.Fatalf("mint run token: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	return signed
 }
 
@@ -443,14 +450,14 @@ func seedRunTerminal(t *testing.T, jobID string, status domain.RunStatus) string
 	err := testStore.UpdateRunStatus(ctx, id, domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("seedRunTerminal dequeued: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	err = testStore.UpdateRunStatus(ctx, id, domain.StatusDequeued, domain.StatusExecuting, map[string]any{})
-	if err != nil {
-		t.Fatalf("seedRunTerminal executing: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	switch status {
 	case domain.StatusCompleted:
@@ -463,11 +470,12 @@ func seedRunTerminal(t *testing.T, jobID string, status domain.RunStatus) string
 			"error":       "load test failure",
 		})
 	default:
-		t.Fatalf("seedRunTerminal: unsupported terminal status %s", status)
+		require.Failf(t, "test failure", "seedRunTerminal: unsupported terminal status %s", status)
 	}
-	if err != nil {
-		t.Fatalf("seedRunTerminal %s: %v", status, err)
-	}
+	require.NoError(t,
+
+		err)
+
 	return id
 }
 
@@ -492,9 +500,10 @@ func seedSecret(t *testing.T, projectID string) string {
 	)
 	resp := httpDo(t, "POST", "/v1/secrets/", body, nil)
 	secretID, ok := resp["id"].(string)
-	if !ok || secretID == "" {
-		t.Fatalf("seedSecret: missing id in response: %v", resp)
-	}
+	require.False(t, !ok ||
+		secretID ==
+			"")
+
 	return secretID
 }
 
@@ -506,9 +515,11 @@ func seedWorkflowRun(t *testing.T, projectID string) string {
 	if !ok || wfRunID == "" {
 		wfRunID, _ = resp["workflow_run_id"].(string)
 	}
-	if wfRunID == "" {
-		t.Fatalf("seedWorkflowRun: no workflow_run_id in response: %v", resp)
-	}
+	require.NotEqual(t,
+
+		"", wfRunID,
+	)
+
 	return wfRunID
 }
 
@@ -586,9 +597,14 @@ func seedEventTrigger(t *testing.T, projectID string) (triggerID, eventKey strin
 		RequestedAt: time.Now(),
 		ExpiresAt:   time.Now().Add(time.Hour),
 	}
-	if err := testStore.CreateEventTrigger(context.Background(), trigger); err != nil {
-		t.Fatalf("seedEventTrigger: %v", err)
-	}
+	require.NoError(t,
+
+		testStore.
+			CreateEventTrigger(context.
+				Background(),
+				trigger,
+			))
+
 	return triggerID, eventKey
 }
 
@@ -613,23 +629,26 @@ func httpDo(t *testing.T, method, path, body string, extraHeaders http.Header) m
 	}
 
 	req, err := http.NewRequest(method, baseURL+path, r)
-	if err != nil {
-		t.Fatalf("httpDo new request: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	req.Header.Set("X-Internal-Secret", "test-secret-value")
 	req.Header.Set("Content-Type", "application/json")
 	maps.Copy(req.Header, extraHeaders)
 
 	resp, err := httpClient.Do(req)
-	if err != nil {
-		t.Fatalf("httpDo %s %s: %v", method, path, err)
-	}
+	require.NoError(t,
+
+		err)
+
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 {
-		t.Fatalf("httpDo %s %s: status %d body=%s", method, path, resp.StatusCode, string(respBody))
-	}
+	require.False(t, resp.
+		StatusCode >=
+		400,
+	)
 
 	var result map[string]any
 	if len(respBody) > 0 {
@@ -648,9 +667,12 @@ func newID() string {
 
 func mustClean(t *testing.T) {
 	t.Helper()
-	if err := testEnv.DB.CleanTables(context.Background()); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
+	require.NoError(t,
+
+		testEnv.DB.
+			CleanTables(context.Background()),
+	)
+
 }
 
 func envInt(key string, fallback int) int {

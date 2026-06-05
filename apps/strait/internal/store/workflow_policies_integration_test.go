@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpsertWorkflowPolicy(t *testing.T) {
@@ -21,35 +23,33 @@ func TestUpsertWorkflowPolicy(t *testing.T) {
 		ForbiddenStepTypes:       []string{"dangerous"},
 		RequireApprovalForDeploy: true,
 	}
-	if err := q.UpsertWorkflowPolicy(ctx, policy); err != nil {
-		t.Fatalf("UpsertWorkflowPolicy() error = %v", err)
-	}
-	if policy.ID == "" {
-		t.Fatal("UpsertWorkflowPolicy() did not set ID")
-	}
-	if policy.CreatedAt.IsZero() {
-		t.Fatal("UpsertWorkflowPolicy() did not set CreatedAt")
-	}
+	require.NoError(t, q.UpsertWorkflowPolicy(ctx,
+		policy))
+	require.NotEqual(t, "",
+
+		policy.ID,
+	)
+	require.False(t, policy.
+		CreatedAt.
+		IsZero())
 
 	got, err := q.GetWorkflowPolicyByProject(ctx, "project-workflow-policy")
-	if err != nil {
-		t.Fatalf("GetWorkflowPolicyByProject() error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("GetWorkflowPolicyByProject() returned nil")
-	}
-	if got.MaxFanOut != 10 {
-		t.Fatalf("MaxFanOut = %d, want 10", got.MaxFanOut)
-	}
-	if got.MaxDepth != 5 {
-		t.Fatalf("MaxDepth = %d, want 5", got.MaxDepth)
-	}
-	if !got.RequireApprovalForDeploy {
-		t.Fatal("RequireApprovalForDeploy = false, want true")
-	}
-	if len(got.ForbiddenStepTypes) != 1 || got.ForbiddenStepTypes[0] != "dangerous" {
-		t.Fatalf("ForbiddenStepTypes = %v, want [dangerous]", got.ForbiddenStepTypes)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.EqualValues(t, 10, got.
+		MaxFanOut,
+	)
+	require.EqualValues(t, 5, got.
+		MaxDepth)
+	require.True(t, got.RequireApprovalForDeploy)
+	require.False(t, len(got.
+		ForbiddenStepTypes,
+	) !=
+		1 || got.
+		ForbiddenStepTypes[0] !=
+		"dangerous",
+	)
+
 }
 
 func TestUpsertWorkflowPolicy_Update(t *testing.T) {
@@ -62,47 +62,50 @@ func TestUpsertWorkflowPolicy_Update(t *testing.T) {
 		MaxFanOut: 5,
 		MaxDepth:  3,
 	}
-	if err := q.UpsertWorkflowPolicy(ctx, policy); err != nil {
-		t.Fatalf("UpsertWorkflowPolicy() error = %v", err)
-	}
+	require.NoError(t, q.UpsertWorkflowPolicy(ctx,
+		policy))
+
 	initialID := policy.ID
 	initialUpdatedAt := policy.UpdatedAt
 	var xminBeforeNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_policies
 		WHERE project_id = $1`,
+
 		"project-workflow-policy-update",
-	).Scan(&xminBeforeNoop); err != nil {
-		t.Fatalf("query workflow_policies xmin before no-op: %v", err)
-	}
+	).Scan(&xminBeforeNoop))
 
 	same := &domain.WorkflowPolicy{
 		ProjectID: "project-workflow-policy-update",
 		MaxFanOut: 5,
 		MaxDepth:  3,
 	}
-	if err := q.UpsertWorkflowPolicy(ctx, same); err != nil {
-		t.Fatalf("UpsertWorkflowPolicy(no-op) error = %v", err)
-	}
+	require.NoError(t, q.UpsertWorkflowPolicy(ctx,
+		same))
+
 	var xminAfterNoop string
-	if err := testDB.Pool.QueryRow(ctx, `
+	require.NoError(t, testDB.
+		Pool.QueryRow(ctx,
+		`
 		SELECT xmin::text
 		FROM workflow_policies
 		WHERE project_id = $1`,
+
 		"project-workflow-policy-update",
-	).Scan(&xminAfterNoop); err != nil {
-		t.Fatalf("query workflow_policies xmin after no-op: %v", err)
-	}
-	if xminAfterNoop != xminBeforeNoop {
-		t.Fatalf("workflow_policies no-op changed xmin from %s to %s", xminBeforeNoop, xminAfterNoop)
-	}
-	if same.ID != initialID {
-		t.Fatalf("workflow_policies no-op id = %q, want %q", same.ID, initialID)
-	}
-	if !same.UpdatedAt.Equal(initialUpdatedAt) {
-		t.Fatalf("workflow_policies no-op updated_at = %v, want %v", same.UpdatedAt, initialUpdatedAt)
-	}
+	).Scan(&xminAfterNoop))
+	require.Equal(t, xminBeforeNoop,
+
+		xminAfterNoop,
+	)
+	require.Equal(t, initialID,
+
+		same.
+			ID)
+	require.True(t, same.UpdatedAt.
+		Equal(initialUpdatedAt))
 
 	// Update.
 	updated := &domain.WorkflowPolicy{
@@ -110,20 +113,19 @@ func TestUpsertWorkflowPolicy_Update(t *testing.T) {
 		MaxFanOut: 20,
 		MaxDepth:  10,
 	}
-	if err := q.UpsertWorkflowPolicy(ctx, updated); err != nil {
-		t.Fatalf("UpsertWorkflowPolicy(update) error = %v", err)
-	}
+	require.NoError(t, q.UpsertWorkflowPolicy(ctx,
+		updated),
+	)
 
 	got, err := q.GetWorkflowPolicyByProject(ctx, "project-workflow-policy-update")
-	if err != nil {
-		t.Fatalf("GetWorkflowPolicyByProject() error = %v", err)
-	}
-	if got.MaxFanOut != 20 {
-		t.Fatalf("MaxFanOut = %d, want 20", got.MaxFanOut)
-	}
-	if got.MaxDepth != 10 {
-		t.Fatalf("MaxDepth = %d, want 10", got.MaxDepth)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 20, got.
+		MaxFanOut,
+	)
+	require.EqualValues(t, 10, got.
+		MaxDepth,
+	)
+
 }
 
 func TestGetWorkflowPolicyByProject_NotFound(t *testing.T) {
@@ -132,10 +134,7 @@ func TestGetWorkflowPolicyByProject_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.GetWorkflowPolicyByProject(ctx, "nonexistent-project")
-	if err != nil {
-		t.Fatalf("GetWorkflowPolicyByProject() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("GetWorkflowPolicyByProject() = %+v, want nil", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }

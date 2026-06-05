@@ -8,17 +8,18 @@ import (
 	"testing"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestReindexIndexConcurrently(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
 	mustClean(t, ctx)
+	require.NoError(t, q.ReindexIndexConcurrently(ctx, "projects_pkey"))
 
 	// Reindex a known index. projects_pkey should always exist.
-	if err := q.ReindexIndexConcurrently(ctx, "projects_pkey"); err != nil {
-		t.Fatalf("ReindexIndexConcurrently() error = %v", err)
-	}
+
 }
 
 func TestReindexIndexConcurrently_EmptyNameReturnsError(t *testing.T) {
@@ -27,9 +28,8 @@ func TestReindexIndexConcurrently_EmptyNameReturnsError(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.ReindexIndexConcurrently(ctx, "")
-	if err == nil {
-		t.Fatal("ReindexIndexConcurrently(empty) expected error, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 func TestReindexIndexConcurrently_MissingIndexReturnsErrIndexNotFound(t *testing.T) {
@@ -38,7 +38,9 @@ func TestReindexIndexConcurrently_MissingIndexReturnsErrIndexNotFound(t *testing
 	mustClean(t, ctx)
 
 	err := q.ReindexIndexConcurrently(ctx, "idx_strait_missing_for_security_test")
-	if !errors.Is(err, store.ErrIndexNotFound) {
-		t.Fatalf("ReindexIndexConcurrently(missing) error = %v, want ErrIndexNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrIndexNotFound,
+	),
+	)
+
 }

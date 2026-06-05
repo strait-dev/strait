@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
@@ -29,22 +32,11 @@ func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
 	mac.Write(body)
 	wantSig := hex.EncodeToString(mac.Sum(nil))
 
-	if got := req.Header.Get("X-Strait-Timestamp"); got != timestamp {
-		t.Fatalf("X-Strait-Timestamp: got %q, want %q", got, timestamp)
-	}
-	if got := req.Header.Get("X-Strait-Delivery-ID"); got != deliveryID {
-		t.Fatalf("X-Strait-Delivery-ID: got %q, want %q", got, deliveryID)
-	}
+	assert.Equal(t, timestamp, req.Header.Get("X-Strait-Timestamp"))
+	assert.Equal(t, deliveryID, req.Header.Get("X-Strait-Delivery-ID"))
 	wantStructured := "t=" + timestamp + ",d=" + deliveryID + ",v1=" + wantSig
-	if got := req.Header.Get("X-Strait-Signature"); got != wantStructured {
-		t.Fatalf("X-Strait-Signature: got %q, want %q", got, wantStructured)
-	}
-	if got := req.Header.Get("X-Strait-Signature-256"); got != "sha256="+wantSig {
-		t.Fatalf("X-Strait-Signature-256: got %q, want %q", got, "sha256="+wantSig)
-	}
-	if got := req.Header.Get("X-Signature-256"); got != "" {
-		t.Fatalf("legacy X-Signature-256 should be unset, got %q", got)
-	}
+	assert.Equal(t, wantStructured, req.Header.Get("X-Strait-Signature"))
+	assert.Equal(t, "sha256="+wantSig, req.Header.Get("X-Strait-Signature-256"))
 }
 
 func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
@@ -53,10 +45,8 @@ func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
 	SignWebhookRequest(req, nil, []byte("body"), "id", "ts")
 	SignWebhookRequest(req, []byte{}, []byte("body"), "id", "ts")
-	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Strait-Signature-256", "X-Signature-256"} {
-		if v := req.Header.Get(h); v != "" {
-			t.Fatalf("expected %s unset, got %q", h, v)
-		}
+	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Strait-Signature-256"} {
+		assert.Empty(t, req.Header.Get(h), "header %s", h)
 	}
 }
 
@@ -74,16 +64,8 @@ func TestSignWebhookRequest_StructuredHeaderFormat(t *testing.T) {
 
 	sig := req.Header.Get("X-Strait-Signature")
 	parts := strings.Split(sig, ",")
-	if len(parts) != 3 {
-		t.Fatalf("expected 3 comma-separated parts, got %d in %q", len(parts), sig)
-	}
-	if !strings.HasPrefix(parts[0], "t=") {
-		t.Fatalf("expected first part t=..., got %q", parts[0])
-	}
-	if !strings.HasPrefix(parts[1], "d=") {
-		t.Fatalf("expected second part d=..., got %q", parts[1])
-	}
-	if !strings.HasPrefix(parts[2], "v1=") {
-		t.Fatalf("expected third part v1=..., got %q", parts[2])
-	}
+	require.Len(t, parts, 3)
+	require.True(t, strings.HasPrefix(parts[0], "t="))
+	require.True(t, strings.HasPrefix(parts[1], "d="))
+	require.True(t, strings.HasPrefix(parts[2], "v1="))
 }

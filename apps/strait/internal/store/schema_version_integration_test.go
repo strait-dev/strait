@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Schema version mismatch integration tests.
@@ -18,15 +21,16 @@ func TestSchemaVersion_MatchAfterMigrations(t *testing.T) {
 	q := mustStore(t)
 
 	version, err := q.GetSchemaVersion(ctx)
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t,
+
+		version,
+		196)
+
 	// After all migrations, the version should be >= 196 (or whatever the
 	// latest migration set it to). We don't hard-code 197 here because
 	// future migrations in parallel PRs could bump it further.
-	if version < 196 {
-		t.Errorf("version = %d, want >= 196", version)
-	}
+
 }
 
 func TestSchemaVersion_MismatchDetected(t *testing.T) {
@@ -35,18 +39,19 @@ func TestSchemaVersion_MismatchDetected(t *testing.T) {
 
 	// Tamper the version to simulate a binary-behind scenario.
 	_, err := testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = 999 WHERE id = 1`)
-	if err != nil {
-		t.Fatalf("tamper: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() {
 		// Restore so other tests aren't affected.
 		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = $1 WHERE id = 1`, domain.ExpectedSchemaVersion)
 	}()
 
 	err = q.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion)
-	if !errors.Is(err, store.ErrSchemaMismatch) {
-		t.Errorf("expected ErrSchemaMismatch, got %v", err)
-	}
+	assert.True(t, errors.Is(err, store.
+		ErrSchemaMismatch,
+	),
+	)
+
 }
 
 func TestSchemaVersion_BinaryAheadDetected(t *testing.T) {
@@ -54,15 +59,16 @@ func TestSchemaVersion_BinaryAheadDetected(t *testing.T) {
 	q := mustStore(t)
 
 	_, err := testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = 100 WHERE id = 1`)
-	if err != nil {
-		t.Fatalf("tamper: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() {
 		_, _ = testDB.Pool.Exec(ctx, `UPDATE schema_version SET version = $1 WHERE id = 1`, domain.ExpectedSchemaVersion)
 	}()
 
 	err = q.CheckSchemaVersion(ctx, domain.ExpectedSchemaVersion)
-	if !errors.Is(err, store.ErrSchemaMismatch) {
-		t.Errorf("expected ErrSchemaMismatch, got %v", err)
-	}
+	assert.True(t, errors.Is(err, store.
+		ErrSchemaMismatch,
+	),
+	)
+
 }

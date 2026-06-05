@@ -37,6 +37,8 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/testutil"
 )
@@ -66,60 +68,42 @@ func captureSchema(t *testing.T, ctx context.Context, db *testutil.TestDB) schem
 		FROM information_schema.tables
 		WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
 	`)
-	if err != nil {
-		t.Fatalf("capture tables: %v", err)
-	}
+	require.NoError(t, err)
 	defer rows.Close()
 	for rows.Next() {
 		var n string
-		if err := rows.Scan(&n); err != nil {
-			t.Fatalf("scan table: %v", err)
-		}
+		require.NoError(t, rows.Scan(&n))
 		s.tables[n] = true
 	}
-	if rows.Err() != nil {
-		t.Fatalf("iter tables: %v", rows.Err())
-	}
+	require.NoError(t, rows.Err())
 
 	rows2, err := db.Pool.Query(ctx, `
 		SELECT table_name || '.' || column_name
 		FROM information_schema.columns
 		WHERE table_schema = 'public'
 	`)
-	if err != nil {
-		t.Fatalf("capture columns: %v", err)
-	}
+	require.NoError(t, err)
 	defer rows2.Close()
 	for rows2.Next() {
 		var c string
-		if err := rows2.Scan(&c); err != nil {
-			t.Fatalf("scan column: %v", err)
-		}
+		require.NoError(t, rows2.Scan(&c))
 		s.columns[c] = true
 	}
-	if rows2.Err() != nil {
-		t.Fatalf("iter columns: %v", rows2.Err())
-	}
+	require.NoError(t, rows2.Err())
 
 	rows3, err := db.Pool.Query(ctx, `
 		SELECT constraint_name
 		FROM information_schema.table_constraints
 		WHERE constraint_schema = 'public'
 	`)
-	if err != nil {
-		t.Fatalf("capture constraints: %v", err)
-	}
+	require.NoError(t, err)
 	defer rows3.Close()
 	for rows3.Next() {
 		var c string
-		if err := rows3.Scan(&c); err != nil {
-			t.Fatalf("scan constraint: %v", err)
-		}
+		require.NoError(t, rows3.Scan(&c))
 		s.constraints[c] = true
 	}
-	if rows3.Err() != nil {
-		t.Fatalf("iter constraints: %v", rows3.Err())
-	}
+	require.NoError(t, rows3.Err())
 
 	return s
 }
@@ -154,13 +138,11 @@ func sourceURL() string {
 func migrateToVersion(t *testing.T, connStr string, version uint) {
 	t.Helper()
 	m, err := migrate.New(sourceURL(), connStr)
-	if err != nil {
-		t.Fatalf("create migrator: %v", err)
-	}
+	require.NoError(t, err)
 	defer func() { _, _ = m.Close() }()
 
 	if err := m.Migrate(version); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		t.Fatalf("migrate to version %d: %v", version, err)
+		require.NoErrorf(t, err, "migrate to version %d", version)
 	}
 }
 
@@ -180,9 +162,7 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	defer cancel()
 
 	tdb, err := testutil.SetupSharedTestDB(ctx, migrationsRelPath, "migrationlint-roundtrip")
-	if err != nil {
-		t.Fatalf("setup test db: %v", err)
-	}
+	require.NoError(t, err)
 	defer tdb.Cleanup(ctx)
 
 	resetPublicSchema(t, ctx, tdb)
@@ -211,13 +191,13 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 		if ignoreRoundtripDownDiff(targetVersion, d) {
 			continue
 		}
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 	for _, d := range diffSets("columns down→baseline", postDown.columns, baseline.columns) {
 		if ignoreRoundtripDownDiff(targetVersion, d) {
 			continue
 		}
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 
 	// Re-applying must return to the same post-up schema.
@@ -225,10 +205,10 @@ func runRoundtrip(t *testing.T, targetVersion uint, extraChecks func(t *testing.
 	postReUp := captureSchema(t, ctx, tdb)
 
 	for _, d := range diffSets("tables re-up→post-up", postReUp.tables, postUp.tables) {
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 	for _, d := range diffSets("columns re-up→post-up", postReUp.columns, postUp.columns) {
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 }
 
@@ -238,7 +218,7 @@ func resetPublicSchema(t *testing.T, ctx context.Context, db *testutil.TestDB) {
 		DROP SCHEMA public CASCADE;
 		CREATE SCHEMA public;
 	`); err != nil {
-		t.Fatalf("reset public schema: %v", err)
+		require.NoError(t, err)
 	}
 }
 
@@ -266,12 +246,8 @@ func ignoreRoundtripDownDiff(targetVersion uint, diff string) bool {
 func TestMigrationRoundtrip_000227_DropRunComputeUsage(t *testing.T) {
 	runRoundtrip(t, 227, func(t *testing.T, postUp schemaState) {
 		t.Helper()
-		if postUp.tables["run_compute_usage"] {
-			t.Error("post-up: run_compute_usage table should be dropped")
-		}
-		if postUp.columns["project_quotas.compute_daily_cost_limit_microusd"] {
-			t.Error("post-up: project_quotas.compute_daily_cost_limit_microusd should be dropped")
-		}
+		assert.False(t, postUp.tables["run_compute_usage"], "post-up: run_compute_usage table should be dropped")
+		assert.False(t, postUp.columns["project_quotas.compute_daily_cost_limit_microusd"], "post-up: project_quotas.compute_daily_cost_limit_microusd should be dropped")
 	})
 }
 
@@ -284,9 +260,7 @@ func TestMigrationRoundtrip_000227_DropRunComputeUsage(t *testing.T) {
 func TestMigrationRoundtrip_000228_DropJobPresetRecommendations(t *testing.T) {
 	runRoundtrip(t, 228, func(t *testing.T, postUp schemaState) {
 		t.Helper()
-		if postUp.tables["job_preset_recommendations"] {
-			t.Error("post-up: job_preset_recommendations table should be dropped")
-		}
+		assert.False(t, postUp.tables["job_preset_recommendations"], "post-up: job_preset_recommendations table should be dropped")
 	})
 }
 
@@ -303,9 +277,7 @@ func TestMigrationRoundtrip_000228_DropJobPresetRecommendations(t *testing.T) {
 func TestMigrationRoundtrip_000229_DropCodeDeployments(t *testing.T) {
 	runRoundtrip(t, 229, func(t *testing.T, postUp schemaState) {
 		t.Helper()
-		if postUp.tables["code_deployments"] {
-			t.Error("post-up: code_deployments table should be dropped")
-		}
+		assert.False(t, postUp.tables["code_deployments"], "post-up: code_deployments table should be dropped")
 		for _, col := range []string{
 			"job_runs.deployment_id",
 			"job_runs.pinned_image_uri",
@@ -315,9 +287,7 @@ func TestMigrationRoundtrip_000229_DropCodeDeployments(t *testing.T) {
 			"jobs.active_deployment_id",
 			"jobs.rollback_source_deployment_id",
 		} {
-			if postUp.columns[col] {
-				t.Errorf("post-up: column %s should be dropped", col)
-			}
+			assert.Falsef(t, postUp.columns[col], "post-up: column %s should be dropped", col)
 		}
 	})
 }
@@ -348,17 +318,11 @@ func TestMigrationRoundtrip_000230_DropMachineColumns(t *testing.T) {
 			"job_versions.region",
 			"job_runs.machine_id",
 		} {
-			if postUp.columns[col] {
-				t.Errorf("post-up: column %s should be dropped", col)
-			}
+			assert.Falsef(t, postUp.columns[col], "post-up: column %s should be dropped", col)
 		}
 		// Tightened CHECK constraints.
-		if !postUp.constraints["jobs_execution_mode_check"] {
-			t.Error("post-up: jobs_execution_mode_check constraint should be present")
-		}
-		if !postUp.constraints["job_runs_execution_mode_check"] {
-			t.Error("post-up: job_runs_execution_mode_check constraint should be present")
-		}
+		assert.True(t, postUp.constraints["jobs_execution_mode_check"], "post-up: jobs_execution_mode_check constraint should be present")
+		assert.True(t, postUp.constraints["job_runs_execution_mode_check"], "post-up: job_runs_execution_mode_check constraint should be present")
 	})
 }
 
@@ -377,9 +341,7 @@ func TestMigrationRoundtrip_000231_AddQueueName(t *testing.T) {
 			"job_runs.queue_name",
 			"job_run_queue.queue_name",
 		} {
-			if !postUp.columns[col] {
-				t.Errorf("post-up: column %s should exist", col)
-			}
+			assert.Truef(t, postUp.columns[col], "post-up: column %s should exist", col)
 		}
 	})
 }
@@ -396,9 +358,7 @@ func TestMigrationRoundtrip_000232_AddWorkersTables(t *testing.T) {
 	runRoundtrip(t, 232, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, tbl := range []string{"workers", "worker_tasks"} {
-			if !postUp.tables[tbl] {
-				t.Errorf("post-up: table %s should exist", tbl)
-			}
+			assert.Truef(t, postUp.tables[tbl], "post-up: table %s should exist", tbl)
 		}
 		for _, col := range []string{
 			"workers.id",
@@ -418,9 +378,7 @@ func TestMigrationRoundtrip_000232_AddWorkersTables(t *testing.T) {
 			"worker_tasks.accepted_at",
 			"worker_tasks.finished_at",
 		} {
-			if !postUp.columns[col] {
-				t.Errorf("post-up: column %s should exist", col)
-			}
+			assert.Truef(t, postUp.columns[col], "post-up: column %s should exist", col)
 		}
 	})
 }
@@ -435,9 +393,7 @@ func TestMigrationRoundtrip_000232_AddWorkersTables(t *testing.T) {
 func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	runRoundtrip(t, 233, func(t *testing.T, postUp schemaState) {
 		t.Helper()
-		if !postUp.columns["jobs.endpoint_signing_secret"] {
-			t.Error("post-up: jobs.endpoint_signing_secret should exist")
-		}
+		assert.True(t, postUp.columns["jobs.endpoint_signing_secret"], "post-up: jobs.endpoint_signing_secret should exist")
 	})
 }
 
@@ -459,9 +415,7 @@ func TestMigrationRoundtrip_000339_DeprecateAgentGuardrailColumns(t *testing.T) 
 			"project_quotas.max_tool_calls_per_run",
 			"project_quotas.max_iterations_per_run",
 		} {
-			if postUp.columns[stale] {
-				t.Errorf("post-up: stale agent guardrail column %s should be renamed", stale)
-			}
+			assert.Falsef(t, postUp.columns[stale], "post-up: stale agent guardrail column %s should be renamed", stale)
 		}
 		for _, renamed := range []string{
 			"jobs.deprecated_agent_token_cap",
@@ -478,9 +432,7 @@ func TestMigrationRoundtrip_000339_DeprecateAgentGuardrailColumns(t *testing.T) 
 			"project_quotas.deprecated_agent_tool_call_cap",
 			"project_quotas.deprecated_agent_iteration_cap",
 		} {
-			if !postUp.columns[renamed] {
-				t.Errorf("post-up: deprecated replacement column %s should exist", renamed)
-			}
+			assert.Truef(t, postUp.columns[renamed], "post-up: deprecated replacement column %s should exist", renamed)
 		}
 	})
 }
@@ -492,13 +444,9 @@ func TestMigrationRoundtrip_000340_EnterpriseContractOverageTerms(t *testing.T) 
 			"enterprise_contracts.included_credit_microusd",
 			"enterprise_contracts.compute_discount_pct",
 		} {
-			if postUp.columns[stale] {
-				t.Errorf("post-up: retired enterprise contract column %s should not exist", stale)
-			}
+			assert.Falsef(t, postUp.columns[stale], "post-up: retired enterprise contract column %s should not exist", stale)
 		}
-		if !postUp.columns["enterprise_contracts.overage_discount_pct"] {
-			t.Error("post-up: enterprise_contracts.overage_discount_pct should exist")
-		}
+		assert.True(t, postUp.columns["enterprise_contracts.overage_discount_pct"], "post-up: enterprise_contracts.overage_discount_pct should exist")
 	})
 }
 
@@ -506,9 +454,7 @@ func TestMigrationRoundtrip_000341_DropRetiredUsageColumns(t *testing.T) {
 	runRoundtrip(t, 341, func(t *testing.T, postUp schemaState) {
 		t.Helper()
 		for _, retired := range retiredUsageColumnNames() {
-			if postUp.columns[retired] {
-				t.Errorf("post-up: retired launch column %s should not exist", retired)
-			}
+			assert.Falsef(t, postUp.columns[retired], "post-up: retired launch column %s should not exist", retired)
 		}
 	})
 }
@@ -521,9 +467,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	defer cancel()
 
 	tdb, err := testutil.SetupSharedTestDB(ctx, migrationsRelPath, "migrationlint-roundtrip")
-	if err != nil {
-		t.Fatalf("setup test db: %v", err)
-	}
+	require.NoError(t, err)
 	defer tdb.Cleanup(ctx)
 
 	resetPublicSchema(t, ctx, tdb)
@@ -535,9 +479,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 
 	// Verify schema additions.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
-		if !postAll.tables[tbl] {
-			t.Errorf("post-all: table %s missing", tbl)
-		}
+		assert.Truef(t, postAll.tables[tbl], "post-all: table %s missing", tbl)
 	}
 	for _, col := range []string{
 		"jobs.queue_name",
@@ -545,20 +487,14 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 		"job_run_queue.queue_name",
 		"jobs.endpoint_signing_secret",
 	} {
-		if !postAll.columns[col] {
-			t.Errorf("post-all: column %s missing", col)
-		}
+		assert.Truef(t, postAll.columns[col], "post-all: column %s missing", col)
 	}
 	// Verify schema removals.
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
-		if postAll.tables[tbl] {
-			t.Errorf("post-all: dropped table %s still present", tbl)
-		}
+		assert.Falsef(t, postAll.tables[tbl], "post-all: dropped table %s still present", tbl)
 	}
 	for _, col := range retiredUsageColumnNames() {
-		if postAll.columns[col] {
-			t.Errorf("post-all: retired launch column %s still present", col)
-		}
+		assert.Falsef(t, postAll.columns[col], "post-all: retired launch column %s still present", col)
 	}
 
 	// Roll back all seven migrations: migrate to version 226 (before 000227).
@@ -567,9 +503,7 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 
 	// Added tables should be gone.
 	for _, tbl := range []string{"workers", "worker_tasks"} {
-		if postRollback.tables[tbl] {
-			t.Errorf("post-rollback: table %s should be dropped", tbl)
-		}
+		assert.Falsef(t, postRollback.tables[tbl], "post-rollback: table %s should be dropped", tbl)
 	}
 	// Added columns should be gone.
 	for _, col := range []string{
@@ -578,15 +512,11 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 		"job_run_queue.queue_name",
 		"jobs.endpoint_signing_secret",
 	} {
-		if postRollback.columns[col] {
-			t.Errorf("post-rollback: column %s should be dropped", col)
-		}
+		assert.Falsef(t, postRollback.columns[col], "post-rollback: column %s should be dropped", col)
 	}
 	// Previously-dropped tables should be restored by their down migrations.
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
-		if !postRollback.tables[tbl] {
-			t.Errorf("post-rollback: table %s should be restored", tbl)
-		}
+		assert.Truef(t, postRollback.tables[tbl], "post-rollback: table %s should be restored", tbl)
 	}
 
 	// Re-apply this migration range.
@@ -599,13 +529,13 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 		if strings.Contains(d, "schema_migrations") {
 			continue
 		}
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 	for _, d := range diffSets("columns re-apply→post-all", postReApply.columns, postAll.columns) {
 		if strings.Contains(d, "schema_migrations") {
 			continue
 		}
-		t.Error(d)
+		assert.Fail(t, d)
 	}
 }
 

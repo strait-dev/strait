@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestApplyOutputTransform(t *testing.T) {
@@ -112,23 +114,19 @@ func TestApplyOutputTransform(t *testing.T) {
 			got, err := ApplyOutputTransform(tt.rawOutput, tt.transformPath)
 
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Fatalf("error = %v, want containing %q", err, tt.wantErrContains)
-				}
+				require.Error(t, err)
+				require.False(t, tt.wantErrContains !=
+					"" && !strings.Contains(err.Error(), tt.wantErrContains),
+				)
+
 				return
 			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err)
 
 			gotStr := string(got)
-			if gotStr != tt.wantTransformed {
-				t.Fatalf("transformed = %s, want %s", gotStr, tt.wantTransformed)
-			}
+			require.Equal(t, tt.wantTransformed,
+
+				gotStr)
 		})
 	}
 }

@@ -2,6 +2,8 @@ package domain
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEndpointHealthScore_HealthLevel_Boundaries(t *testing.T) {
@@ -23,30 +25,32 @@ func TestEndpointHealthScore_HealthLevel_Boundaries(t *testing.T) {
 
 	for _, tt := range tests {
 		h := &EndpointHealthScore{HealthScore: tt.score}
-		if got := h.HealthLevel(); got != tt.want {
-			t.Errorf("HealthLevel(%.2f) = %q, want %q", tt.score, got, tt.want)
-		}
+		assert.Equal(t, tt.want, h.HealthLevel())
 	}
 }
 
 func TestTriggerJobCompletion_Constant(t *testing.T) {
 	t.Parallel()
-	if TriggerJobCompletion != "job_completion" {
-		t.Errorf("TriggerJobCompletion = %q, want %q", TriggerJobCompletion, "job_completion")
-	}
+	assert.Equal(t,
+		"job_completion",
+
+		TriggerJobCompletion)
 }
 
 func TestSLOMetricConstants_Values(t *testing.T) {
 	t.Parallel()
-	if SLOMetricSuccessRate != "success_rate" {
-		t.Errorf("SLOMetricSuccessRate = %q", SLOMetricSuccessRate)
-	}
-	if SLOMetricP95LatencySecs != "p95_latency_secs" {
-		t.Errorf("SLOMetricP95LatencySecs = %q", SLOMetricP95LatencySecs)
-	}
-	if SLOMetricP99LatencySecs != "p99_latency_secs" {
-		t.Errorf("SLOMetricP99LatencySecs = %q", SLOMetricP99LatencySecs)
-	}
+	assert.Equal(t,
+		"success_rate",
+
+		SLOMetricSuccessRate)
+	assert.Equal(t,
+		"p95_latency_secs",
+
+		SLOMetricP95LatencySecs)
+	assert.Equal(t,
+		"p99_latency_secs",
+
+		SLOMetricP99LatencySecs)
 }
 
 func TestJobSLOStatus_NilEvaluation(t *testing.T) {
@@ -59,13 +63,8 @@ func TestJobSLOStatus_NilEvaluation(t *testing.T) {
 			WindowHours: 24,
 		},
 	}
-
-	if status.CurrentValue != nil {
-		t.Error("CurrentValue should be nil without evaluation")
-	}
-	if status.BudgetRemaining != nil {
-		t.Error("BudgetRemaining should be nil without evaluation")
-	}
+	assert.Nil(t, status.CurrentValue)
+	assert.Nil(t, status.BudgetRemaining)
 }
 
 func TestJobSLOStatus_WithEvaluation(t *testing.T) {
@@ -81,24 +80,27 @@ func TestJobSLOStatus_WithEvaluation(t *testing.T) {
 		CurrentValue:    &cv,
 		BudgetRemaining: &br,
 	}
+	assert.InDelta(t,
+		0.95,
 
-	if *status.CurrentValue != 0.95 {
-		t.Errorf("CurrentValue = %v, want 0.95", *status.CurrentValue)
-	}
-	if *status.BudgetRemaining != 0.6 {
-		t.Errorf("BudgetRemaining = %v, want 0.6", *status.BudgetRemaining)
-	}
+		*status.CurrentValue, 1e-9)
+	assert.InDelta(t,
+		0.6,
+
+		*status.BudgetRemaining, 1e-9)
 }
 
 func TestEndpointHealthScore_DefaultValues(t *testing.T) {
 	t.Parallel()
 	h := &EndpointHealthScore{}
-	if h.HealthScore != 0 {
-		t.Errorf("default HealthScore = %v, want 0", h.HealthScore)
-	}
-	if h.HealthLevel() != "unhealthy" {
-		t.Errorf("default HealthLevel = %q, want unhealthy", h.HealthLevel())
-	}
+	assert.InDelta(t,
+		float64(0),
+
+		h.HealthScore, 1e-9)
+	assert.Equal(t,
+		"unhealthy",
+
+		h.HealthLevel())
 }
 
 func TestJobSLO_ValidWindowHours(t *testing.T) {
@@ -106,8 +108,9 @@ func TestJobSLO_ValidWindowHours(t *testing.T) {
 	valid := []int{24, 168, 720}
 	for _, w := range valid {
 		slo := JobSLO{WindowHours: w}
-		if slo.WindowHours != w {
-			t.Errorf("WindowHours = %d, want %d", slo.WindowHours, w)
-		}
+		assert.Equal(t,
+			w,
+
+			slo.WindowHours)
 	}
 }

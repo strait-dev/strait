@@ -14,6 +14,8 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUpdateWorkflowStepApproval(t *testing.T) {
@@ -31,31 +33,30 @@ func TestUpdateWorkflowStepApproval(t *testing.T) {
 		Status:            "pending",
 		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	now := time.Now().UTC()
-	if err := q.UpdateWorkflowStepApproval(ctx, approval.ID, "approved", "user-a", &now, ""); err != nil {
-		t.Fatalf("UpdateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.UpdateWorkflowStepApproval(ctx, approval.
+		ID, "approved",
+		"user-a",
+
+		&now, ""))
 
 	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
-	}
-	if got.Status != "approved" {
-		t.Fatalf("status = %q, want %q", got.Status, "approved")
-	}
-	if got.ApprovedBy != "user-a" {
-		t.Fatalf("approved_by = %q, want %q", got.ApprovedBy, "user-a")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "approved",
+
+		got.
+			Status)
+	require.Equal(t, "user-a",
+
+		got.ApprovedBy,
+	)
 
 	// Not found.
 	err = q.UpdateWorkflowStepApproval(ctx, newID(), "approved", "user-a", &now, "")
-	if err == nil {
-		t.Fatal("UpdateWorkflowStepApproval(notfound) expected error, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 func TestUpdateWorkflowStepApproval_RejectsStaleDecision(t *testing.T) {
@@ -73,30 +74,33 @@ func TestUpdateWorkflowStepApproval_RejectsStaleDecision(t *testing.T) {
 		Status:            domain.ApprovalStatusPending,
 		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	now := time.Now().UTC()
-	if err := q.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusApproved, "user-a", &now, ""); err != nil {
-		t.Fatalf("first UpdateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.UpdateWorkflowStepApproval(ctx, approval.
+		ID, domain.
+		ApprovalStatusApproved,
+
+		"user-a", &now, "",
+	))
 
 	err := q.UpdateWorkflowStepApproval(ctx, approval.ID, domain.ApprovalStatusRejected, "user-b", &now, "late rejection")
-	if !errors.Is(err, store.ErrRunConflict) {
-		t.Fatalf("second UpdateWorkflowStepApproval() error = %v, want ErrRunConflict", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrRunConflict,
+	))
 
 	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
-	}
-	if got.Status != domain.ApprovalStatusApproved {
-		t.Fatalf("status = %q, want %q", got.Status, domain.ApprovalStatusApproved)
-	}
-	if got.ApprovedBy != "user-a" {
-		t.Fatalf("approved_by = %q, want user-a", got.ApprovedBy)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		ApprovalStatusApproved,
+
+		got.Status,
+	)
+	require.Equal(t, "user-a",
+
+		got.ApprovedBy,
+	)
+
 }
 
 func TestUpdateWorkflowStepApproval_ConcurrentApprovalHasSingleWinner(t *testing.T) {
@@ -114,9 +118,7 @@ func TestUpdateWorkflowStepApproval_ConcurrentApprovalHasSingleWinner(t *testing
 		Status:            domain.ApprovalStatusPending,
 		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	const contenders = 24
 	var successes int64
@@ -133,26 +135,24 @@ func TestUpdateWorkflowStepApproval_ConcurrentApprovalHasSingleWinner(t *testing
 			case errors.Is(err, store.ErrRunConflict):
 				atomic.AddInt64(&conflicts, 1)
 			default:
-				t.Errorf("contender %d UpdateWorkflowStepApproval() error = %v", i, err)
+				assert.Failf(t, "test failure", "contender %d UpdateWorkflowStepApproval() error = %v", i, err)
 			}
 		})
 	}
 	wg.Wait()
-
-	if successes != 1 {
-		t.Fatalf("successes = %d, want 1", successes)
-	}
-	if conflicts != contenders-1 {
-		t.Fatalf("conflicts = %d, want %d", conflicts, contenders-1)
-	}
+	require.EqualValues(t, 1, successes)
+	require.EqualValues(t, contenders-
+		1,
+		conflicts)
 
 	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, stepRun.ID)
-	if err != nil {
-		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
-	}
-	if got.Status != domain.ApprovalStatusApproved {
-		t.Fatalf("status = %q, want %q", got.Status, domain.ApprovalStatusApproved)
-	}
+	require.NoError(t, err)
+	require.Equal(t, domain.
+		ApprovalStatusApproved,
+
+		got.Status,
+	)
+
 }
 
 func TestListApprovalsPastReminderPoint(t *testing.T) {
@@ -174,20 +174,17 @@ func TestListApprovalsPastReminderPoint(t *testing.T) {
 		RequestedAt:       requestedAt,
 		ExpiresAt:         &expiresAt,
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	approvals, err := q.ListApprovalsPastReminderPoint(ctx)
-	if err != nil {
-		t.Fatalf("ListApprovalsPastReminderPoint() error = %v", err)
-	}
-	if len(approvals) != 1 {
-		t.Fatalf("ListApprovalsPastReminderPoint() len = %d, want 1", len(approvals))
-	}
-	if approvals[0].ID != approval.ID {
-		t.Fatalf("ListApprovalsPastReminderPoint() id = %q, want %q", approvals[0].ID, approval.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, approvals,
+
+		1)
+	require.Equal(t, approval.
+		ID, approvals[0].ID,
+	)
+
 }
 
 func TestGetApprovalStats(t *testing.T) {
@@ -221,31 +218,26 @@ func TestGetApprovalStats(t *testing.T) {
 		Status:            "pending",
 		RequestedAt:       now.Add(-5 * time.Minute),
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	from := now.Add(-1 * time.Hour)
 	to := now.Add(1 * time.Hour)
 	stats, err := q.GetApprovalStats(ctx, projectID, from, to)
-	if err != nil {
-		t.Fatalf("GetApprovalStats() error = %v", err)
-	}
-	if stats.TotalRequested != 1 {
-		t.Fatalf("TotalRequested = %d, want 1", stats.TotalRequested)
-	}
-	if stats.TotalPending != 1 {
-		t.Fatalf("TotalPending = %d, want 1", stats.TotalPending)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.
+		TotalRequested,
+	)
+	require.EqualValues(t, 1, stats.
+		TotalPending,
+	)
 
 	// Empty range.
 	emptyStats, err := q.GetApprovalStats(ctx, projectID, now.Add(-2*time.Hour), now.Add(-1*time.Hour))
-	if err != nil {
-		t.Fatalf("GetApprovalStats(empty) error = %v", err)
-	}
-	if emptyStats.TotalRequested != 0 {
-		t.Fatalf("GetApprovalStats(empty) TotalRequested = %d, want 0", emptyStats.TotalRequested)
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 0, emptyStats.
+		TotalRequested,
+	)
+
 }
 
 func TestGetStepRunByWorkflowRunAndRef_LookupAndNotFound(t *testing.T) {
@@ -256,18 +248,15 @@ func TestGetStepRunByWorkflowRunAndRef_LookupAndNotFound(t *testing.T) {
 	_, wfRun, stepRun := mustCreateWorkflowStepFixture(t, ctx, q, "project-step-run-by-ref", domain.StepPending)
 
 	got, err := q.GetStepRunByWorkflowRunAndRef(ctx, wfRun.ID, stepRun.StepRef)
-	if err != nil {
-		t.Fatalf("GetStepRunByWorkflowRunAndRef() error = %v", err)
-	}
-	if got.ID != stepRun.ID {
-		t.Fatalf("GetStepRunByWorkflowRunAndRef() id = %q, want %q", got.ID, stepRun.ID)
-	}
+	require.NoError(t, err)
+	require.Equal(t, stepRun.
+		ID, got.
+		ID)
 
 	// Not found.
 	_, err = q.GetStepRunByWorkflowRunAndRef(ctx, wfRun.ID, "nonexistent-ref")
-	if err == nil {
-		t.Fatal("GetStepRunByWorkflowRunAndRef(notfound) expected error, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 func TestGetWorkflowStepApprovalByStepRunID_NotFound(t *testing.T) {
@@ -276,12 +265,9 @@ func TestGetWorkflowStepApprovalByStepRunID_NotFound(t *testing.T) {
 	mustClean(t, ctx)
 
 	got, err := q.GetWorkflowStepApprovalByStepRunID(ctx, newID())
-	if err != nil {
-		t.Fatalf("GetWorkflowStepApprovalByStepRunID() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("GetWorkflowStepApprovalByStepRunID() = %+v, want nil", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 }
 
 func TestListExpiredWorkflowStepApprovals_Integration(t *testing.T) {
@@ -302,20 +288,17 @@ func TestListExpiredWorkflowStepApprovals_Integration(t *testing.T) {
 		RequestedAt:       time.Now().UTC().Add(-10 * time.Minute),
 		ExpiresAt:         &expired,
 	}
-	if err := q.CreateWorkflowStepApproval(ctx, approval); err != nil {
-		t.Fatalf("CreateWorkflowStepApproval() error = %v", err)
-	}
+	require.NoError(t, q.CreateWorkflowStepApproval(ctx, approval))
 
 	approvals, err := q.ListExpiredWorkflowStepApprovals(ctx)
-	if err != nil {
-		t.Fatalf("ListExpiredWorkflowStepApprovals() error = %v", err)
-	}
-	if len(approvals) != 1 {
-		t.Fatalf("ListExpiredWorkflowStepApprovals() len = %d, want 1", len(approvals))
-	}
-	if approvals[0].ID != approval.ID {
-		t.Fatalf("ListExpiredWorkflowStepApprovals() id = %q, want %q", approvals[0].ID, approval.ID)
-	}
+	require.NoError(t, err)
+	require.Len(t, approvals,
+
+		1)
+	require.Equal(t, approval.
+		ID, approvals[0].ID,
+	)
+
 }
 
 // mustCreateWorkflowStepFixtureApproval helper is intentionally not added;

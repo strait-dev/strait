@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 )
@@ -27,9 +29,8 @@ func TestExtractPath_FiveLevelDeep(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "a.b.c.d.e")
-	if got != "five-deep" {
-		t.Errorf("extractPath('a.b.c.d.e') = %v, want 'five-deep'", got)
-	}
+	assert.Equal(t,
+		"five-deep", got)
 }
 
 func TestExtractPath_SixLevelDeep(t *testing.T) {
@@ -48,9 +49,7 @@ func TestExtractPath_SixLevelDeep(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "l1.l2.l3.l4.l5.l6")
-	if got != 42.0 {
-		t.Errorf("extractPath 6-level = %v, want 42", got)
-	}
+	assert.InDelta(t, 42.0, got, 1e-9)
 }
 
 func TestExtractPath_MissingIntermediateKey_Level2(t *testing.T) {
@@ -61,9 +60,7 @@ func TestExtractPath_MissingIntermediateKey_Level2(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "a.missing.c.d")
-	if got != nil {
-		t.Errorf("expected nil for missing intermediate key, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 func TestExtractPath_IntermediateIsArray(t *testing.T) {
@@ -74,9 +71,7 @@ func TestExtractPath_IntermediateIsArray(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "a.b.c")
-	if got != nil {
-		t.Errorf("expected nil when intermediate is array, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 func TestExtractPath_IntermediateIsString(t *testing.T) {
@@ -87,9 +82,7 @@ func TestExtractPath_IntermediateIsString(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "a.b.c")
-	if got != nil {
-		t.Errorf("expected nil when intermediate is string, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 func TestExtractPath_IntermediateIsNumber(t *testing.T) {
@@ -98,9 +91,7 @@ func TestExtractPath_IntermediateIsNumber(t *testing.T) {
 		"a": 42,
 	}
 	got := extractPath(data, "a.b")
-	if got != nil {
-		t.Errorf("expected nil when intermediate is number, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 func TestExtractPath_IntermediateIsNil(t *testing.T) {
@@ -111,9 +102,7 @@ func TestExtractPath_IntermediateIsNil(t *testing.T) {
 		},
 	}
 	got := extractPath(data, "a.b.c")
-	if got != nil {
-		t.Errorf("expected nil when intermediate is nil, got %v", got)
-	}
+	assert.Nil(t, got)
 }
 
 func TestExtractPath_DeepValueIsMap(t *testing.T) {
@@ -129,12 +118,10 @@ func TestExtractPath_DeepValueIsMap(t *testing.T) {
 	}
 	got := extractPath(data, "a.b.c")
 	m, ok := got.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map at 'a.b.c', got %T", got)
-	}
-	if m["nested_key"] != "nested_val" {
-		t.Errorf("nested_key = %v, want 'nested_val'", m["nested_key"])
-	}
+	require.True(t,
+		ok)
+	assert.Equal(t,
+		"nested_val", m["nested_key"])
 }
 
 // MaybeTriggerOnFailure edge cases not covered by job_chaining_test.go.
@@ -164,9 +151,8 @@ func TestMaybeTriggerOnFailure_NoTriggerConfigured(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 calls when no trigger configured, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestMaybeTriggerOnFailure_TriggersJobAndWorkflow(t *testing.T) {
@@ -198,15 +184,15 @@ func TestMaybeTriggerOnFailure_TriggersJobAndWorkflow(t *testing.T) {
 	oct.MaybeTriggerOnFailure(context.Background(), run, job, "oom killed")
 
 	wfTrigger.mu.Lock()
-	if len(wfTrigger.calls) != 1 {
-		t.Errorf("expected 1 workflow trigger, got %d", len(wfTrigger.calls))
-	}
+	assert.Len(t, wfTrigger.
+		calls, 1)
+
 	wfTrigger.mu.Unlock()
 
 	enqueuer.mu.Lock()
-	if len(enqueuer.calls) != 1 {
-		t.Errorf("expected 1 job enqueue, got %d", len(enqueuer.calls))
-	}
+	assert.Len(t, enqueuer.
+		calls, 1)
+
 	enqueuer.mu.Unlock()
 }
 
@@ -238,16 +224,16 @@ func TestMaybeTriggerOnFailure_WorkflowLookupError_ContinuesToJob(t *testing.T) 
 
 	// Workflow trigger should have been attempted but failed silently.
 	wfTrigger.mu.Lock()
-	if len(wfTrigger.calls) != 0 {
-		t.Errorf("expected 0 workflow trigger calls (lookup failed), got %d", len(wfTrigger.calls))
-	}
+	assert.Empty(t, wfTrigger.
+		calls)
+
 	wfTrigger.mu.Unlock()
 
 	// Job trigger should still succeed.
 	enqueuer.mu.Lock()
-	if len(enqueuer.calls) != 1 {
-		t.Errorf("expected 1 job enqueue despite workflow lookup failure, got %d", len(enqueuer.calls))
-	}
+	assert.Len(t, enqueuer.
+		calls, 1)
+
 	enqueuer.mu.Unlock()
 }
 
@@ -277,9 +263,8 @@ func TestMaybeTriggerOnFailure_ChainDepthLimit(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 0 {
-		t.Fatalf("expected 0 calls when at max chain depth, got %d", len(enqueuer.calls))
-	}
+	require.Empty(t, enqueuer.
+		calls)
 }
 
 func TestMaybeTriggerOnFailure_JobEnqueueError_NoPanic(t *testing.T) {
@@ -332,23 +317,25 @@ func TestMaybeTriggerOnFailure_FailurePayloadMapping(t *testing.T) {
 
 	enqueuer.mu.Lock()
 	defer enqueuer.mu.Unlock()
-	if len(enqueuer.calls) != 1 {
-		t.Fatalf("expected 1 call, got %d", len(enqueuer.calls))
-	}
+	require.Len(t, enqueuer.
+		calls, 1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(enqueuer.calls[0].run.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if payload["err"] != "request timeout" {
-		t.Errorf("err = %v, want 'request timeout'", payload["err"])
-	}
-	if payload["cls"] != "timeout" {
-		t.Errorf("cls = %v, want 'timeout'", payload["cls"])
-	}
+	require.NoError(
+		t, json.Unmarshal(enqueuer.
+			calls[0].
+			run.Payload, &payload))
+	assert.Equal(t,
+		"request timeout",
+		payload["err"])
+	assert.Equal(t,
+		"timeout", payload["cls"])
+
 	// Mapped payload should only have the mapped keys.
 	if _, has := payload["source_run_id"]; has {
-		t.Error("mapped payload should not include unmapped keys")
+		assert.Fail(t,
+
+			"mapped payload should not include unmapped keys")
 	}
 }
 
@@ -384,15 +371,15 @@ func TestMaybeTrigger_BothWorkflowAndJob(t *testing.T) {
 	oct.MaybeTrigger(context.Background(), run, job, result)
 
 	wfTrigger.mu.Lock()
-	if len(wfTrigger.calls) != 1 {
-		t.Errorf("expected 1 workflow trigger, got %d", len(wfTrigger.calls))
-	}
+	assert.Len(t, wfTrigger.
+		calls, 1)
+
 	wfTrigger.mu.Unlock()
 
 	enqueuer.mu.Lock()
-	if len(enqueuer.calls) != 1 {
-		t.Errorf("expected 1 job enqueue, got %d", len(enqueuer.calls))
-	}
+	assert.Len(t, enqueuer.
+		calls, 1)
+
 	enqueuer.mu.Unlock()
 }
 
@@ -443,7 +430,7 @@ func TestMaybeTrigger_ConcurrentCalls(t *testing.T) {
 
 	wfTrigger.mu.Lock()
 	defer wfTrigger.mu.Unlock()
-	if len(wfTrigger.calls) != 20 {
-		t.Errorf("expected 20 calls from concurrent triggers, got %d", len(wfTrigger.calls))
-	}
+	assert.Len(t, wfTrigger.
+		calls, 20,
+	)
 }

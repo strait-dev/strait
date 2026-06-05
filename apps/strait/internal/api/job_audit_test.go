@@ -1,6 +1,10 @@
 package api
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestSanitizedJobUpdateAuditChangesRedactsSigningCredentials(t *testing.T) {
 	t.Parallel()
@@ -14,16 +18,14 @@ func TestSanitizedJobUpdateAuditChangesRedactsSigningCredentials(t *testing.T) {
 		WebhookSecret:         &webhookSecret,
 		EndpointSigningSecret: &endpointSecret,
 	})
+	require.Equal(t, name, changes["name"])
+	require.Equal(t, true, changes["signing_credential_changed"])
 
-	if changes["name"] != name {
-		t.Fatalf("changes[name] = %v, want %q", changes["name"], name)
-	}
-	if changes["signing_credential_changed"] != true {
-		t.Fatalf("signing_credential_changed = %v, want true", changes["signing_credential_changed"])
-	}
 	for _, forbidden := range []string{"webhook_secret", "endpoint_signing_secret"} {
 		if _, ok := changes[forbidden]; ok {
-			t.Fatalf("changes includes secret field %q: %#v", forbidden, changes)
+			require.Failf(t, "test failure",
+
+				"changes includes secret field %q: %#v", forbidden, changes)
 		}
 	}
 }
@@ -34,11 +36,11 @@ func TestSanitizedJobUpdateAuditChangesOmitsSigningMarkerWhenUnchanged(t *testin
 	enabled := true
 
 	changes := sanitizedJobUpdateAuditChanges(UpdateJobRequest{Enabled: &enabled})
+	require.Equal(t, true, changes["enabled"])
 
-	if changes["enabled"] != true {
-		t.Fatalf("changes[enabled] = %v, want true", changes["enabled"])
-	}
 	if _, ok := changes["signing_credential_changed"]; ok {
-		t.Fatalf("signing_credential_changed present for non-secret update: %#v", changes)
+		require.Failf(t, "test failure",
+
+			"signing_credential_changed present for non-secret update: %#v", changes)
 	}
 }

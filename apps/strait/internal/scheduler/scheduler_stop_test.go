@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {
@@ -38,12 +38,13 @@ func TestSchedulerStop_ReturnsAfterComponentTimeout(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Stop did not return after the configured timeout")
+		require.Fail(t, "Stop did not return after the configured timeout")
 	}
-
-	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
-		t.Fatalf("Stop elapsed=%v, want bounded return well under 250ms", elapsed)
-	}
+	require.LessOrEqual(t, time.
+		Since(start),
+		250*time.
+			Millisecond,
+	)
 
 	close(blocked)
 	s.wg.Wait()
@@ -74,16 +75,16 @@ func TestSchedulerStop_NoTimeoutWhenComponentsExitCleanly(t *testing.T) {
 	start := time.Now()
 	s.Stop()
 	elapsed := time.Since(start)
-
-	if elapsed < 20*time.Millisecond {
-		t.Fatalf("Stop elapsed=%v, want it to wait for the component to exit cleanly", elapsed)
-	}
-	if elapsed > 250*time.Millisecond {
-		t.Fatalf("Stop elapsed=%v, want clean completion before timeout", elapsed)
-	}
-	if strings.Contains(logs.String(), "scheduler component exceeded shutdown deadline") {
-		t.Fatalf("unexpected shutdown timeout log: %s", logs.String())
-	}
+	require.GreaterOrEqual(t, elapsed,
+		20*
+			time.Millisecond,
+	)
+	require.LessOrEqual(t, elapsed,
+		250*time.
+			Millisecond,
+	)
+	require.NotContains(t,
+		logs.String(), "scheduler component exceeded shutdown deadline")
 }
 
 func TestSchedulerStop_ReportsTimedOutComponentCount(t *testing.T) {
@@ -107,15 +108,9 @@ func TestSchedulerStop_ReportsTimedOutComponentCount(t *testing.T) {
 	s.Stop()
 
 	output := logs.String()
-	if !strings.Contains(output, "component=stuck_a") {
-		t.Fatalf("expected timeout log for stuck_a, got %s", output)
-	}
-	if !strings.Contains(output, "component=stuck_b") {
-		t.Fatalf("expected timeout log for stuck_b, got %s", output)
-	}
-	if !strings.Contains(output, "timed_out_components=2") {
-		t.Fatalf("expected timed_out_components=2 in logs, got %s", output)
-	}
+	require.Contains(t, output, "component=stuck_a")
+	require.Contains(t, output, "component=stuck_b")
+	require.Contains(t, output, "timed_out_components=2")
 
 	close(blocked)
 	s.wg.Wait()

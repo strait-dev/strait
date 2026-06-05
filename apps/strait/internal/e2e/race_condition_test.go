@@ -19,6 +19,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRace_DoubleDequeue enqueues a single run and races two goroutines to
@@ -46,10 +48,9 @@ func TestRace_DoubleDequeue(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 1, gotRun.
+		Load())
 
-	if gotRun.Load() != 1 {
-		t.Fatalf("expected exactly 1 goroutine to dequeue the run, got %d", gotRun.Load())
-	}
 }
 
 // TestRace_ConcurrentEnqueueDequeueInterleaving runs 10 enqueue and 10 dequeue
@@ -82,11 +83,13 @@ func TestRace_ConcurrentEnqueueDequeueInterleaving(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.LessOrEqual(t,
+
+		dequeuedTotal.
+			Load(), int32(half))
 
 	// Dequeued should not exceed enqueued.
-	if dequeuedTotal.Load() > half {
-		t.Fatalf("dequeued %d runs, but only %d were enqueued", dequeuedTotal.Load(), half)
-	}
+
 }
 
 // TestRace_ConcurrentJobPauseAndTrigger pauses a job while a trigger is
@@ -117,11 +120,17 @@ func TestRace_ConcurrentJobPauseAndTrigger(t *testing.T) {
 	wg.Wait()
 
 	code := triggerStatus.Load()
+	require.False(t, code !=
+		http.StatusCreated &&
+		code != http.
+			StatusBadRequest &&
+		code != http.
+			StatusConflict,
+	)
+
 	// Trigger either succeeded (201), was blocked by pause (400 "job is
 	// disabled/paused"), or hit a conflict (409).
-	if code != http.StatusCreated && code != http.StatusBadRequest && code != http.StatusConflict {
-		t.Fatalf("unexpected trigger status during pause race: %d", code)
-	}
+
 }
 
 // TestRace_AdvisoryLockContention puts heavy concurrent pressure on
@@ -159,12 +168,13 @@ func TestRace_AdvisoryLockContention(t *testing.T) {
 
 	// No deadlock or panic means success. Some quota errors are expected.
 	totalSize, err := testStore.SumJobMemorySizeBytes(ctx, job.ID)
-	if err != nil {
-		t.Fatalf("SumJobMemorySizeBytes error: %v", err)
-	}
-	if totalSize > maxPerJob {
-		t.Fatalf("total memory %d exceeds per-job quota %d", totalSize, maxPerJob)
-	}
+	require.NoError(t, err)
+	require.LessOrEqual(t,
+
+		totalSize,
+		maxPerJob,
+	)
+
 }
 
 // TestRace_PubSubSubscribeUnsubscribe concurrently subscribes, publishes, and
@@ -239,9 +249,9 @@ func TestRace_CacheInvalidationDuringRead(t *testing.T) {
 	for range readers {
 		wg.Go(func() {
 			w := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID, "")
-			if w.Code >= 500 {
-				t.Errorf("server error reading job during concurrent update: %d", w.Code)
-			}
+			assert.False(t, w.Code >=
+				500)
+
 		})
 	}
 
@@ -270,9 +280,9 @@ func TestRace_ConcurrentAPIKeyRotation(t *testing.T) {
 		Scopes:    []string{"*"},
 		CreatedAt: time.Now(),
 	}
-	if err := testStore.CreateAPIKey(ctx, apiKey); err != nil {
-		t.Fatalf("CreateAPIKey error: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateAPIKey(
+			ctx, apiKey))
 
 	var wg conc.WaitGroup
 
@@ -286,9 +296,9 @@ func TestRace_ConcurrentAPIKeyRotation(t *testing.T) {
 	for range requestors {
 		wg.Go(func() {
 			w := doSDKRequest(t, http.MethodGet, "/v1/jobs/", rawKey, "")
-			if w.Code >= 500 {
-				t.Errorf("server error during key rotation race: %d", w.Code)
-			}
+			assert.False(t, w.Code >=
+				500)
+
 		})
 	}
 
@@ -363,9 +373,8 @@ func TestRace_WebhookDeliveryRetryAndNew(t *testing.T) {
 		Attempts:    1,
 		MaxAttempts: 3,
 	}
-	if err := testStore.CreateWebhookDelivery(ctx, delivery); err != nil {
-		t.Fatalf("CreateWebhookDelivery error: %v", err)
-	}
+	require.NoError(t, testStore.
+		CreateWebhookDelivery(ctx, delivery))
 
 	var wg conc.WaitGroup
 
@@ -419,10 +428,7 @@ func TestRace_CircuitBreakerStateFlip(t *testing.T) {
 
 	// Verify we can still query the circuit state without error.
 	state, err := testStore.GetEndpointCircuitState(ctx, endpointURL)
-	if err != nil {
-		t.Fatalf("GetEndpointCircuitState error: %v", err)
-	}
-	if state == nil {
-		t.Fatal("expected non-nil circuit state after concurrent writes")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBulkTriggerRun_BuildsDelayedRun(t *testing.T) {
@@ -46,58 +48,69 @@ func TestNewBulkTriggerRun_BuildsDelayedRun(t *testing.T) {
 		now:         now,
 		scheduledAt: &scheduledAt,
 	})
+	require.NotEmpty(t, run.ID)
+	require.False(t, run.JobID !=
+		job.ID ||
+		run.ProjectID !=
+			job.
+				ProjectID)
+	require.True(
+		t, maps.Equal(run.
+			Tags, map[string]string{"team": "platform", "tier": "override",
 
-	if run.ID == "" {
-		t.Fatal("run ID must be set")
-	}
-	if run.JobID != job.ID || run.ProjectID != job.ProjectID {
-		t.Fatalf("job/project = (%q, %q), want (%q, %q)", run.JobID, run.ProjectID, job.ID, job.ProjectID)
-	}
-	if !maps.Equal(run.Tags, map[string]string{"team": "platform", "tier": "override", "region": "eu"}) {
-		t.Fatalf("tags = %#v", run.Tags)
-	}
-	if run.Status != domain.StatusDelayed {
-		t.Fatalf("status = %q, want delayed", run.Status)
-	}
-	if run.Attempt != 1 {
-		t.Fatalf("attempt = %d, want 1", run.Attempt)
-	}
-	if string(run.Payload) != `{"n":1}` {
-		t.Fatalf("payload = %s", run.Payload)
-	}
-	if run.TriggeredBy != domain.TriggerManual {
-		t.Fatalf("triggered_by = %q, want manual", run.TriggeredBy)
-	}
-	if run.ScheduledAt == nil || !run.ScheduledAt.Equal(scheduledAt) {
-		t.Fatalf("scheduled_at = %v, want %v", run.ScheduledAt, scheduledAt)
-	}
-	if run.Priority != item.Priority {
-		t.Fatalf("priority = %d, want %d", run.Priority, item.Priority)
-	}
-	if run.IdempotencyKey != item.IdempotencyKey {
-		t.Fatalf("idempotency key = %q, want %q", run.IdempotencyKey, item.IdempotencyKey)
-	}
-	if run.JobVersion != job.Version || run.JobVersionID != job.VersionID {
-		t.Fatalf("version = (%d, %q), want (%d, %q)", run.JobVersion, run.JobVersionID, job.Version, job.VersionID)
-	}
-	if run.CreatedBy != "user-bulk" {
-		t.Fatalf("created_by = %q, want user-bulk", run.CreatedBy)
-	}
-	if run.BatchID != "batch-1" {
-		t.Fatalf("batch_id = %q, want batch-1", run.BatchID)
-	}
-	if run.ExpiresAt == nil || !run.ExpiresAt.Equal(now.Add(120*time.Second)) {
-		t.Fatalf("expires_at = %v, want %v", run.ExpiresAt, now.Add(120*time.Second))
-	}
-	if run.ExecutionMode != domain.ExecutionModeWorker || run.QueueName != "priority" {
-		t.Fatalf("execution = (%q, %q), want worker/priority", run.ExecutionMode, run.QueueName)
-	}
-	if run.ConcurrencyKey != item.ConcurrencyKey {
-		t.Fatalf("concurrency key = %q, want %q", run.ConcurrencyKey, item.ConcurrencyKey)
-	}
-	if !maps.Equal(run.Metadata, job.DefaultRunMetadata) {
-		t.Fatalf("metadata = %#v, want %#v", run.Metadata, job.DefaultRunMetadata)
-	}
+			"region": "eu"}))
+	require.Equal(t, domain.StatusDelayed,
+
+		run.Status,
+	)
+	require.Equal(t, 1, run.Attempt)
+	require.Equal(t, `{"n":1}`, string(run.
+		Payload))
+	require.Equal(t, domain.TriggerManual,
+
+		run.TriggeredBy,
+	)
+	require.False(t, run.ScheduledAt ==
+		nil ||
+		!run.ScheduledAt.
+			Equal(scheduledAt))
+	require.Equal(t, item.Priority,
+		run.Priority,
+	)
+	require.Equal(t, item.IdempotencyKey,
+
+		run.IdempotencyKey,
+	)
+	require.False(t, run.JobVersion !=
+		job.
+			Version ||
+		run.JobVersionID !=
+			job.VersionID)
+	require.Equal(t, "user-bulk",
+		run.CreatedBy,
+	)
+	require.Equal(t, "batch-1", run.
+		BatchID,
+	)
+	require.False(t, run.ExpiresAt ==
+		nil ||
+		!run.ExpiresAt.
+			Equal(now.Add(120*time.Second)),
+	)
+	require.False(t, run.ExecutionMode !=
+		domain.ExecutionModeWorker ||
+		run.QueueName !=
+			"priority",
+	)
+	require.Equal(t, item.ConcurrencyKey,
+
+		run.ConcurrencyKey,
+	)
+	require.True(
+		t, maps.Equal(run.
+			Metadata,
+			job.DefaultRunMetadata,
+		))
 }
 
 func TestNewBulkTriggerRun_BuildsQueuedRun(t *testing.T) {
@@ -115,13 +128,10 @@ func TestNewBulkTriggerRun_BuildsQueuedRun(t *testing.T) {
 		batchID: "batch-1",
 		now:     now,
 	})
+	require.Equal(t, domain.StatusQueued,
 
-	if run.Status != domain.StatusQueued {
-		t.Fatalf("status = %q, want queued", run.Status)
-	}
-	if run.ScheduledAt != nil {
-		t.Fatalf("scheduled_at = %v, want nil", run.ScheduledAt)
-	}
+		run.Status)
+	require.Nil(t, run.ScheduledAt)
 }
 
 func TestBulkTriggerExpiresAt_Precedence(t *testing.T) {
@@ -132,16 +142,22 @@ func TestBulkTriggerExpiresAt_Precedence(t *testing.T) {
 	ttlSecs := 120
 
 	if got := bulkTriggerExpiresAt(job, BulkTriggerItem{TTLSecs: &ttlSecs}, now); !got.Equal(now.Add(120 * time.Second)) {
-		t.Fatalf("item ttl expires_at = %v, want %v", got, now.Add(120*time.Second))
+		require.Failf(t, "test failure",
+
+			"item ttl expires_at = %v, want %v", got, now.Add(120*time.Second))
 	}
 
 	zeroTTL := 0
 	if got := bulkTriggerExpiresAt(job, BulkTriggerItem{TTLSecs: &zeroTTL}, now); !got.Equal(now.Add(600 * time.Second)) {
-		t.Fatalf("job ttl expires_at = %v, want %v", got, now.Add(600*time.Second))
+		require.Failf(t, "test failure",
+
+			"job ttl expires_at = %v, want %v", got, now.Add(600*time.Second))
 	}
 
 	job.RunTTLSecs = 0
 	if got := bulkTriggerExpiresAt(job, BulkTriggerItem{}, now); !got.Equal(now.Add(90 * time.Second)) {
-		t.Fatalf("timeout expires_at = %v, want %v", got, now.Add(90*time.Second))
+		require.Failf(t, "test failure",
+
+			"timeout expires_at = %v, want %v", got, now.Add(90*time.Second))
 	}
 }

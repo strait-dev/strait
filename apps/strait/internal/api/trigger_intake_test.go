@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateTriggerJobInputAcceptsValidInput(t *testing.T) {
@@ -30,10 +32,9 @@ func TestValidateTriggerJobInputAcceptsValidInput(t *testing.T) {
 		SentryTrace: strings.Repeat("r", maxTraceHeaderLen),
 		Baggage:     strings.Repeat("g", maxTraceHeaderLen),
 	}
-
-	if err := srv.validateTriggerJobInput(input, &req); err != nil {
-		t.Fatalf("validateTriggerJobInput() error = %v", err)
-	}
+	require.NoError(t,
+		srv.validateTriggerJobInput(input,
+			&req))
 }
 
 func TestValidateTriggerJobInputRejectsOversizeTraceHeader(t *testing.T) {
@@ -54,13 +55,14 @@ func TestMergedRunTagsOverlayWins(t *testing.T) {
 	overlay := map[string]string{"env": "staging", "request": "manual"}
 
 	got := mergedRunTags(base, overlay)
+	require.False(t, got["team"] !=
+		"platform" ||
+		got["env"] != "staging" ||
+		got["request"] !=
 
-	if got["team"] != "platform" || got["env"] != "staging" || got["request"] != "manual" {
-		t.Fatalf("merged tags = %#v", got)
-	}
-	if base["env"] != "prod" {
-		t.Fatalf("base tags mutated: %#v", base)
-	}
+			"manual")
+	require.Equal(t, "prod",
+		base["env"])
 }
 
 func TestMergeRunMetadataDefaultsDoNotOverrideRequestMetadata(t *testing.T) {
@@ -70,43 +72,33 @@ func TestMergeRunMetadataDefaultsDoNotOverrideRequestMetadata(t *testing.T) {
 	defaults := map[string]string{"tenant": "default", "region": "eu"}
 
 	got := mergeRunMetadata(metadata, defaults)
-
-	if got["tenant"] != "acme" || got["region"] != "eu" {
-		t.Fatalf("merged metadata = %#v", got)
-	}
-	if metadata["tenant"] != "acme" {
-		t.Fatalf("request metadata mutated: %#v", metadata)
-	}
+	require.False(t, got["tenant"] !=
+		"acme" ||
+		got["region"] !=
+			"eu",
+	)
+	require.Equal(t, "acme",
+		metadata["tenant"])
 }
 
 func TestMergeRunMetadataReturnsNilForEmptyInputs(t *testing.T) {
 	t.Parallel()
-
-	if got := mergeRunMetadata(nil, nil); got != nil {
-		t.Fatalf("mergeRunMetadata(nil, nil) = %#v, want nil", got)
-	}
+	require.Nil(t, mergeRunMetadata(nil,
+		nil))
 }
 
 func TestEnsureJobTriggerableRejectsDisabledJob(t *testing.T) {
 	t.Parallel()
 
 	err := ensureJobTriggerable(&domain.Job{Enabled: false})
-	if err == nil {
-		t.Fatal("expected disabled job error")
-	}
-	if !strings.Contains(err.Error(), "job is disabled") {
-		t.Fatalf("error = %q, want disabled job message", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "job is disabled")
 }
 
 func TestEnsureJobTriggerableRejectsPausedJob(t *testing.T) {
 	t.Parallel()
 
 	err := ensureJobTriggerable(&domain.Job{Enabled: true, Paused: true})
-	if err == nil {
-		t.Fatal("expected paused job error")
-	}
-	if !strings.Contains(err.Error(), "job is paused") {
-		t.Fatalf("error = %q, want paused job message", err.Error())
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "job is paused")
 }

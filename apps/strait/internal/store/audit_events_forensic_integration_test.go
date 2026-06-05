@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditForensic_RoundTrip(t *testing.T) {
@@ -18,9 +21,8 @@ func TestAuditForensic_RoundTrip(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("forensic-roundtrip-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projectID := "proj-forensic-" + newID()
@@ -39,45 +41,48 @@ func TestAuditForensic_RoundTrip(t *testing.T) {
 		TraceID:       "trace-def-456",
 		SchemaVersion: 2,
 	}
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent: %v", err)
-	}
-	if ev.ID == "" {
-		t.Fatal("event ID was not populated after insert")
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
+	require.NotEqual(t, "",
+
+		ev.ID)
 
 	events, err := q.ListAuditEvents(ctx, projectID, "", "", "", 10, nil, nil, nil, false)
-	if err != nil {
-		t.Fatalf("ListAuditEvents: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
-	}
-	got := events[0]
+	require.NoError(t, err)
+	require.Len(t, events,
+		1,
+	)
 
-	if got.RemoteIP != ev.RemoteIP {
-		t.Errorf("remote_ip = %q, want %q", got.RemoteIP, ev.RemoteIP)
-	}
-	if got.UserAgent != ev.UserAgent {
-		t.Errorf("user_agent = %q, want %q", got.UserAgent, ev.UserAgent)
-	}
-	if got.RequestID != ev.RequestID {
-		t.Errorf("request_id = %q, want %q", got.RequestID, ev.RequestID)
-	}
-	if got.TraceID != ev.TraceID {
-		t.Errorf("trace_id = %q, want %q", got.TraceID, ev.TraceID)
-	}
+	got := events[0]
+	assert.Equal(t, ev.RemoteIP,
+
+		got.
+			RemoteIP)
+	assert.Equal(t, ev.UserAgent,
+
+		got.
+			UserAgent)
+	assert.Equal(t, ev.RequestID,
+
+		got.
+			RequestID)
+	assert.Equal(t, ev.TraceID,
+
+		got.TraceID,
+	)
+	assert.EqualValues(t, 4, got.
+		SchemaVersion,
+	)
+	assert.NotEqual(t, "",
+		got.
+			Signature,
+	)
+
 	// CreateAuditEvent auto-derives shard_id from resource_type for
 	// non-anchor events and force-bumps the canonical schema to v4 so
 	// the HMAC binds shard_id. Callers cannot opt out of the bump; it is
 	// the invariant that prevents a shard_id flip from leaving a v3
 	// signature intact. Asserting v4 here pins that contract.
-	if got.SchemaVersion != 4 {
-		t.Errorf("schema_version = %d, want 4 (auto-bumped from v2 because resource_type=%q triggers sharded canonical)", got.SchemaVersion, ev.ResourceType)
-	}
-	if got.Signature == "" {
-		t.Error("signature is empty, expected HMAC to be computed")
-	}
+
 }
 
 func TestAuditForensic_ChainVerifiesWithForensicFields(t *testing.T) {
@@ -86,9 +91,8 @@ func TestAuditForensic_ChainVerifiesWithForensicFields(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("forensic-chain-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projectID := "proj-forensic-chain-" + newID()
@@ -108,21 +112,19 @@ func TestAuditForensic_ChainVerifiesWithForensicFields(t *testing.T) {
 			TraceID:       "trace-" + newID(),
 			SchemaVersion: 2,
 		}
-		if err := q.CreateAuditEvent(ctx, ev); err != nil {
-			t.Fatalf("CreateAuditEvent[%d]: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, ev))
+
 	}
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid: %s (broken at %q)", result.Error, result.BrokenAtID)
-	}
-	if result.EventsChecked != 5 {
-		t.Errorf("events_checked = %d, want 5", result.EventsChecked)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+	assert.EqualValues(t, 5, result.
+		EventsChecked,
+	)
+
 }
 
 func TestAuditForensic_DefaultsForOldEvents(t *testing.T) {
@@ -131,9 +133,8 @@ func TestAuditForensic_DefaultsForOldEvents(t *testing.T) {
 
 	q := mustStore(t)
 	signingKey, err := store.DeriveAuditSigningKey("forensic-compat-secret")
-	if err != nil {
-		t.Fatalf("derive signing key: %v", err)
-	}
+	require.NoError(t, err)
+
 	q.SetAuditSigningKey(signingKey)
 
 	projectID := "proj-forensic-compat-" + newID()
@@ -148,15 +149,12 @@ func TestAuditForensic_DefaultsForOldEvents(t *testing.T) {
 		Details:       json.RawMessage(`{"legacy":true}`),
 		SchemaVersion: 1,
 	}
-	if err := q.CreateAuditEvent(ctx, ev); err != nil {
-		t.Fatalf("CreateAuditEvent (v1): %v", err)
-	}
+	require.NoError(t, q.CreateAuditEvent(ctx, ev))
 
 	result, err := q.VerifyAuditChain(ctx, projectID)
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !result.Valid {
-		t.Fatalf("chain invalid for v1 event: %s (broken at %q)", result.Error, result.BrokenAtID)
-	}
+	require.NoError(t, err)
+	require.True(t, result.
+		Valid,
+	)
+
 }

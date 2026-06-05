@@ -17,6 +17,8 @@ import (
 	"strait/internal/store"
 	"strait/internal/testutil"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	otelTrace "go.opentelemetry.io/otel/trace"
@@ -264,9 +266,14 @@ func TestTriggerWorkflow(t *testing.T) {
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusPending || to != domain.WfStatusRunning {
-					t.Fatalf("unexpected workflow transition %s -> %s", from, to)
-				}
+				require.False(t,
+					from != domain.
+						WfStatusPending ||
+						to !=
+							domain.
+								WfStatusRunning,
+				)
+
 				return nil
 			},
 			createWorkflowStepRunFn: func(_ context.Context, sr *domain.WorkflowStepRun) error {
@@ -276,9 +283,10 @@ func TestTriggerWorkflow(t *testing.T) {
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
 				if id == "sr-a" {
-					if status != domain.StepRunning {
-						t.Fatalf("root step should move to running, got %s", status)
-					}
+					require.Equal(t,
+						domain.StepRunning,
+						status)
+
 					updateStepCalls++
 				}
 				return nil
@@ -288,30 +296,34 @@ func TestTriggerWorkflow(t *testing.T) {
 			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 				enqueued++
 				run.ID = "run-a"
-				if run.JobID != "job-a" || run.WorkflowStepRunID != "sr-a" {
-					t.Fatalf("unexpected enqueued run: %+v", run)
-				}
+				require.False(t,
+					run.JobID !=
+						"job-a" || run.
+						WorkflowStepRunID !=
+						"sr-a")
+
 				return nil
 			},
 		}
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", json.RawMessage(`{"k":"v"}`), "manual", nil, nil)
-		if err != nil {
-			t.Fatalf("TriggerWorkflow() error = %v", err)
-		}
-		if wfRun == nil || wfRun.ID != "wr-1" || wfRun.Status != domain.WfStatusRunning {
-			t.Fatalf("unexpected workflow run: %+v", wfRun)
-		}
-		if enqueued != 1 {
-			t.Fatalf("enqueued = %d, want 1", enqueued)
-		}
-		if updateStepCalls == 0 {
-			t.Fatal("expected root step status update")
-		}
-		if stepRunsCreated["b"].Status != domain.StepWaiting {
-			t.Fatalf("dependent step status = %s, want waiting", stepRunsCreated["b"].Status)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			wfRun == nil ||
+				wfRun.ID !=
+					"wr-1" ||
+				wfRun.
+					Status != domain.
+					WfStatusRunning,
+		)
+		require.Equal(t, 1, enqueued)
+		require.NotEqual(t, 0, updateStepCalls)
+		require.Equal(t,
+			domain.StepWaiting,
+			stepRunsCreated["b"].Status,
+		)
 	})
 
 	t.Run("root steps with same concurrency_key do not run in parallel", func(t *testing.T) {
@@ -347,12 +359,10 @@ func TestTriggerWorkflow(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "manual", nil, nil)
-		if err != nil {
-			t.Fatalf("TriggerWorkflow() error = %v", err)
-		}
-		if len(started) != 1 {
-			t.Fatalf("running root steps = %d, want 1", len(started))
-		}
+		require.NoError(
+			t, err)
+		require.Len(t, started,
+			1)
 	})
 
 	t.Run("disabled workflow", func(t *testing.T) {
@@ -364,9 +374,10 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "disabled") {
-			t.Fatalf("expected disabled error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "disabled")
 	})
 
 	t.Run("empty steps", func(t *testing.T) {
@@ -381,9 +392,11 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "at least one step") {
-			t.Fatalf("expected empty steps error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "at least one step",
+		)
 	})
 
 	t.Run("project mismatch", func(t *testing.T) {
@@ -395,9 +408,11 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-b", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "does not belong") {
-			t.Fatalf("expected project mismatch error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "does not belong",
+		)
 	})
 
 	t.Run("inactive project", func(t *testing.T) {
@@ -408,9 +423,10 @@ func TestTriggerWorkflow(t *testing.T) {
 				return &domain.Workflow{ID: "wf", ProjectID: "proj-1", Enabled: true}, nil
 			},
 			isProjectRunnableFn: func(_ context.Context, projectID string) (bool, error) {
-				if projectID != "proj-1" {
-					t.Fatalf("projectID = %q, want proj-1", projectID)
-				}
+				require.Equal(t,
+					"proj-1",
+					projectID)
+
 				return false, nil
 			},
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
@@ -420,12 +436,14 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "not active") {
-			t.Fatalf("expected inactive project error, got %v", err)
-		}
-		if listedSteps {
-			t.Fatal("inactive project should fail before loading workflow steps")
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "not active",
+		)
+		require.False(t,
+			listedSteps,
+		)
 	})
 
 	t.Run("GetWorkflow error", func(t *testing.T) {
@@ -437,9 +455,11 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "get workflow") {
-			t.Fatalf("expected get workflow error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "get workflow",
+		)
 	})
 
 	t.Run("ListStepsByWorkflowVersion error", func(t *testing.T) {
@@ -454,9 +474,11 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "list workflow steps by version") {
-			t.Fatalf("expected list steps error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "list workflow steps by version",
+		)
 	})
 
 	t.Run("CreateWorkflowStepRun error", func(t *testing.T) {
@@ -481,9 +503,11 @@ func TestTriggerWorkflow(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "", nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "create step run") {
-			t.Fatalf("expected create step run error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "create step run",
+		)
 	})
 	t.Run("bootstrap path sets workflow_run_id on step runs", func(t *testing.T) {
 		t.Parallel()
@@ -501,21 +525,20 @@ func TestTriggerWorkflow(t *testing.T) {
 				}, nil
 			},
 			createWorkflowRunBootstrapFn: func(_ context.Context, run *domain.WorkflowRun, stepRuns []domain.WorkflowStepRun, startedAt time.Time) error {
-				if run.ID == "" {
-					t.Fatal("expected workflow run ID to be set before bootstrap")
-				}
-				if startedAt.IsZero() {
-					t.Fatal("expected non-zero bootstrap start time")
-				}
+				require.NotEmpty(t, run.
+					ID)
+				require.False(t,
+					startedAt.
+						IsZero())
+
 				capturedRunID = run.ID
 				capturedStepRuns = append(capturedStepRuns[:0], stepRuns...)
 				for _, sr := range stepRuns {
-					if sr.WorkflowRunID != run.ID {
-						t.Fatalf("step run %s workflow_run_id = %q, want %q", sr.StepRef, sr.WorkflowRunID, run.ID)
-					}
-					if sr.ID == "" {
-						t.Fatalf("step run %s ID must be set", sr.StepRef)
-					}
+					require.Equal(t,
+						run.ID, sr.
+							WorkflowRunID)
+					require.NotEmpty(t, sr.
+						ID)
 				}
 				return nil
 			},
@@ -530,18 +553,16 @@ func TestTriggerWorkflow(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		wfRun, err := engine.TriggerWorkflow(context.Background(), "wf", "proj-1", nil, "manual", nil, nil)
-		if err != nil {
-			t.Fatalf("TriggerWorkflow() error = %v", err)
-		}
-		if wfRun.ID == "" {
-			t.Fatal("expected non-empty workflow run ID")
-		}
-		if wfRun.ID != capturedRunID {
-			t.Fatalf("returned workflow run ID = %q, bootstrap captured %q", wfRun.ID, capturedRunID)
-		}
-		if len(capturedStepRuns) != 2 {
-			t.Fatalf("captured step runs = %d, want 2", len(capturedStepRuns))
-		}
+		require.NoError(
+			t, err)
+		require.NotEmpty(t, wfRun.
+			ID)
+		require.Equal(t,
+			capturedRunID,
+			wfRun.ID)
+		require.Len(t, capturedStepRuns,
+
+			2)
 	})
 }
 
@@ -560,9 +581,10 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 			}, nil
 		},
 		getActiveCanaryDeploymentFn: func(_ context.Context, workflowID string) (*domain.CanaryDeployment, error) {
-			if workflowID != "wf-1" {
-				t.Fatalf("canary workflowID = %q, want wf-1", workflowID)
-			}
+			require.Equal(t,
+				"wf-1", workflowID,
+			)
+
 			return &domain.CanaryDeployment{
 				WorkflowID:    "wf-1",
 				ProjectID:     "proj-1",
@@ -573,9 +595,11 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 			}, nil
 		},
 		getWorkflowVersionFn: func(_ context.Context, workflowID string, version int) (*domain.WorkflowVersion, error) {
-			if workflowID != "wf-1" || version != 2 {
-				t.Fatalf("GetWorkflowVersion(%q, %d), want wf-1,2", workflowID, version)
-			}
+			require.False(t,
+				workflowID !=
+					"wf-1" || version !=
+					2)
+
 			return &domain.WorkflowVersion{
 				WorkflowID:        "wf-1",
 				ProjectID:         "proj-1",
@@ -589,9 +613,10 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 			}, nil
 		},
 		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
-			if workflowID != "wf-1" {
-				t.Fatalf("workflowID = %q, want wf-1", workflowID)
-			}
+			require.Equal(t,
+				"wf-1", workflowID,
+			)
+
 			listedVersion = version
 			return []domain.WorkflowStep{{ID: "step-v2", JobID: "job-v2", StepRef: "root"}}, nil
 		},
@@ -609,18 +634,19 @@ func TestTriggerWorkflow_AppliesActiveCanaryRouting(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if listedVersion != 2 {
-		t.Fatalf("listedVersion = %d, want canary target version 2", listedVersion)
-	}
-	if createdVersion != 2 || createdVersionID != "wf-v2" {
-		t.Fatalf("created workflow run version = %d/%q, want 2/wf-v2", createdVersion, createdVersionID)
-	}
-	if wfRun.WorkflowVersion != 2 || wfRun.WorkflowVersionID != "wf-v2" {
-		t.Fatalf("returned workflow run version = %d/%q, want 2/wf-v2", wfRun.WorkflowVersion, wfRun.WorkflowVersionID)
-	}
+	require.NoError(
+		t, err)
+	require.Equal(t, 2, listedVersion)
+	require.False(t,
+		createdVersion !=
+			2 || createdVersionID !=
+			"wf-v2",
+	)
+	require.False(t,
+		wfRun.WorkflowVersion !=
+			2 ||
+			wfRun.WorkflowVersionID !=
+				"wf-v2")
 }
 
 func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
@@ -656,15 +682,18 @@ func TestTriggerWorkflow_SnapshotIDPopulated(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 	wfRun, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if wfRun.WorkflowSnapshotID != "snap-test" {
-		t.Errorf("WorkflowSnapshotID = %q, want snap-test", wfRun.WorkflowSnapshotID)
-	}
-	if capturedRun != nil && capturedRun.WorkflowSnapshotID != "snap-test" {
-		t.Errorf("captured run WorkflowSnapshotID = %q, want snap-test", capturedRun.WorkflowSnapshotID)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		"snap-test",
+		wfRun.WorkflowSnapshotID,
+	)
+	assert.False(t,
+		capturedRun !=
+			nil && capturedRun.
+			WorkflowSnapshotID !=
+			"snap-test",
+	)
 }
 
 func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
@@ -685,12 +714,10 @@ func TestTriggerWorkflow_SnapshotFailureIsFatal(t *testing.T) {
 
 	engine := NewWorkflowEngine(&snapshotFailStore{mockEngineStore: ms}, &mockEngineQueue{}, slog.Default())
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err == nil {
-		t.Fatal("expected error when snapshot creation fails")
-	}
-	if !strings.Contains(err.Error(), "create workflow snapshot") {
-		t.Errorf("error = %q, want it to contain 'create workflow snapshot'", err.Error())
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t, err.Error(), "create workflow snapshot")
+
 	_ = snapshotCalled
 }
 
@@ -748,12 +775,10 @@ func TestTriggerWorkflow_NestingDepthExceeded(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 	_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "parent-run", "")
-	if err == nil {
-		t.Fatal("expected nesting depth error")
-	}
-	if !strings.Contains(err.Error(), "nesting depth") {
-		t.Fatalf("error = %v, want nesting depth context", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "nesting depth")
 }
 
 func TestTriggerWorkflow_ConcurrencyLimitReached(t *testing.T) {
@@ -774,12 +799,10 @@ func TestTriggerWorkflow_ConcurrencyLimitReached(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
-	if err == nil {
-		t.Fatal("expected concurrency limit error")
-	}
-	if !strings.Contains(err.Error(), "max concurrent runs") {
-		t.Fatalf("error = %v, want max concurrent runs context", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "max concurrent runs")
 }
 
 func TestMergePayloads(t *testing.T) {
@@ -793,42 +816,45 @@ func TestMergePayloads(t *testing.T) {
 		)
 
 		var got map[string]any
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
-		}
-		if got["shared"] != "step" {
-			t.Fatalf("shared = %v, want step", got["shared"])
-		}
-		if got["a"] != float64(1) || got["b"] != float64(2) {
-			t.Fatalf("missing merged keys: %+v", got)
-		}
+		require.NoError(
+			t, json.Unmarshal(out, &got),
+		)
+		require.Equal(t,
+			"step", got["shared"])
+		require.False(t,
+			got["a"] !=
+				float64(1) || got["b"] !=
+				float64(2))
+
 		if _, ok := got["parent_outputs"]; !ok {
-			t.Fatalf("missing parent_outputs: %+v", got)
+			require.Failf(t, "test failure",
+
+				"missing parent_outputs: %+v", got)
 		}
 	})
 
 	t.Run("step payload overrides non-object fallback", func(t *testing.T) {
 		t.Parallel()
 		out := mergePayloads(json.RawMessage(`{"a":1}`), json.RawMessage(`"step"`), nil)
-		if string(out) != `"step"` {
-			t.Fatalf("got %s, want step payload", string(out))
-		}
+		require.Equal(t,
+			`"step"`,
+			string(out))
 	})
 
 	t.Run("empty step payload keeps trigger payload", func(t *testing.T) {
 		t.Parallel()
 		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, nil)
-		if string(out) != `{"a":1}` {
-			t.Fatalf("got %s, want trigger payload", string(out))
-		}
+		require.Equal(t,
+			`{"a":1}`,
+			string(out))
 	})
 
 	t.Run("empty trigger payload keeps step payload", func(t *testing.T) {
 		t.Parallel()
 		out := mergePayloads(nil, json.RawMessage(`{"step":true}`), nil)
-		if string(out) != `{"step":true}` {
-			t.Fatalf("got %s, want step payload", string(out))
-		}
+		require.Equal(t,
+			`{"step":true}`,
+			string(out))
 	})
 
 	t.Run("parent outputs added when trigger has payload and step is empty", func(t *testing.T) {
@@ -836,14 +862,17 @@ func TestMergePayloads(t *testing.T) {
 		out := mergePayloads(json.RawMessage(`{"a":1}`), nil, json.RawMessage(`{"p":true}`))
 
 		var got map[string]any
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
-		}
-		if got["a"] != float64(1) {
-			t.Fatalf("a = %v, want 1", got["a"])
-		}
+		require.NoError(
+			t, json.Unmarshal(out, &got),
+		)
+		require.InDelta(t,
+			float64(1),
+			got["a"], 1e-9)
+
 		if _, ok := got["parent_outputs"]; !ok {
-			t.Fatalf("missing parent_outputs: %+v", got)
+			require.Failf(t, "test failure",
+
+				"missing parent_outputs: %+v", got)
 		}
 	})
 
@@ -852,15 +881,14 @@ func TestMergePayloads(t *testing.T) {
 		out := mergePayloads(json.RawMessage(`{"a":1,"keep":true}`), json.RawMessage(`{"a":2}`), nil)
 
 		var got map[string]any
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
-		}
-		if got["a"] != float64(2) {
-			t.Fatalf("a = %v, want 2", got["a"])
-		}
-		if got["keep"] != true {
-			t.Fatalf("keep = %v, want true", got["keep"])
-		}
+		require.NoError(
+			t, json.Unmarshal(out, &got),
+		)
+		require.InDelta(t,
+			float64(2),
+			got["a"], 1e-9)
+		require.Equal(t,
+			true, got["keep"])
 	})
 
 	t.Run("duplicate keys keep last value within each payload", func(t *testing.T) {
@@ -868,15 +896,15 @@ func TestMergePayloads(t *testing.T) {
 		out := mergePayloads(json.RawMessage(`{"a":1,"a":2}`), json.RawMessage(`{"b":1,"b":2}`), nil)
 
 		var got map[string]any
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
-		}
-		if got["a"] != float64(2) {
-			t.Fatalf("a = %v, want 2", got["a"])
-		}
-		if got["b"] != float64(2) {
-			t.Fatalf("b = %v, want 2", got["b"])
-		}
+		require.NoError(
+			t, json.Unmarshal(out, &got),
+		)
+		require.InDelta(t,
+			float64(2),
+			got["a"], 1e-9)
+		require.InDelta(t,
+			float64(2),
+			got["b"], 1e-9)
 	})
 
 	t.Run("escaped keys still merge", func(t *testing.T) {
@@ -884,12 +912,11 @@ func TestMergePayloads(t *testing.T) {
 		out := mergePayloads(json.RawMessage(`{"tenant\u002did":"trigger"}`), json.RawMessage(`{"tenant\u002did":"step"}`), nil)
 
 		var got map[string]any
-		if err := json.Unmarshal(out, &got); err != nil {
-			t.Fatalf("unmarshal output: %v", err)
-		}
-		if got["tenant-id"] != "step" {
-			t.Fatalf("tenant-id = %v, want step", got["tenant-id"])
-		}
+		require.NoError(
+			t, json.Unmarshal(out, &got),
+		)
+		require.Equal(t,
+			"step", got["tenant-id"])
 	})
 }
 
@@ -1436,18 +1463,18 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 	t.Run("nil run no-op", func(t *testing.T) {
 		t.Parallel()
 		cb := NewStepCallback(&mockCallbackStore{}, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.OnJobRunTerminal(context.Background(), nil); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(
+			t, cb.OnJobRunTerminal(context.
+				Background(),
+				nil))
 	})
 
 	t.Run("missing workflow step run id no-op", func(t *testing.T) {
 		t.Parallel()
 		cb := NewStepCallback(&mockCallbackStore{}, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(
+			t, err)
 	})
 
 	t.Run("already terminal step no-op", func(t *testing.T) {
@@ -1461,12 +1488,9 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if getCalled != 1 {
-			t.Fatalf("GetStepRunByJobRunID called %d times, want 1", getCalled)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, getCalled)
 	})
 
 	t.Run("completed run updates step and workflow", func(t *testing.T) {
@@ -1479,11 +1503,15 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
 				if id == "sr-1" {
-					if status != domain.StepCompleted {
-						t.Fatalf("status = %s, want completed", status)
-					}
+					require.Equal(t,
+						domain.StepCompleted,
+						status,
+					)
+
 					if _, ok := fields["output"]; !ok {
-						t.Fatalf("expected output field: %+v", fields)
+						require.Failf(t, "test failure",
+
+							"expected output field: %+v", fields)
 					}
 					stepUpdated = true
 				}
@@ -1502,9 +1530,16 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 				return []domain.WorkflowStep{{ID: "s1", StepRef: "s1"}}, nil
 			},
 			createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
-				if workflowRunID != "wr-1" || stepRunID != "sr-1" || stepRef != "s1" || status != string(domain.StepCompleted) {
-					t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
-				}
+				require.False(t,
+					workflowRunID !=
+						"wr-1" ||
+						stepRunID !=
+							"sr-1" ||
+						stepRef !=
+							"s1" ||
+						status !=
+							string(domain.StepCompleted))
+
 				progressionCreated = true
 				return nil
 			},
@@ -1512,12 +1547,12 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted, Result: json.RawMessage(`{"ok":true}`)})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !stepUpdated || !progressionCreated {
-			t.Fatalf("expected step update and progression event, step=%v progression=%v", stepUpdated, progressionCreated)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			!stepUpdated ||
+				!progressionCreated,
+		)
 	})
 
 	t.Run("failed run applies fail_workflow policy", func(t *testing.T) {
@@ -1529,9 +1564,12 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 				return &domain.WorkflowStepRun{ID: "sr-fail", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepRunning}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id == "sr-fail" && status != domain.StepFailed {
-					t.Fatalf("failed step status = %s, want failed", status)
-				}
+				require.False(t,
+					id == "sr-fail" &&
+						status !=
+							domain.StepFailed,
+				)
+
 				if id == "sr-other" && status == domain.StepCanceled {
 					canceledDependents++
 				}
@@ -1547,9 +1585,14 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 				}, nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow transition %s -> %s", from, to)
-				}
+				require.False(t,
+					from != domain.
+						WfStatusRunning ||
+						to !=
+							domain.
+								WfStatusFailed,
+				)
+
 				workflowFailed = true
 				return nil
 			},
@@ -1563,15 +1606,12 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-fail", Status: domain.StatusFailed, Error: "boom"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !workflowFailed {
-			t.Fatal("expected workflow to fail")
-		}
-		if canceledDependents != 1 {
-			t.Fatalf("canceled dependents = %d, want 1", canceledDependents)
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			workflowFailed,
+		)
+		require.Equal(t, 1, canceledDependents)
 	})
 
 	t.Run("canceled run maps to step canceled", func(t *testing.T) {
@@ -1601,12 +1641,12 @@ func TestStepCallback_OnJobRunTerminal(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCanceled})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if statusSeen != domain.StepCanceled {
-			t.Fatalf("status = %s, want canceled", statusSeen)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t,
+			domain.StepCanceled,
+			statusSeen,
+		)
 	})
 }
 
@@ -1618,9 +1658,13 @@ func TestStepCallback_OnJobRunTerminal_PausedWorkflowDoesNotScheduleChildren(t *
 			return &domain.WorkflowStepRun{ID: "sr-parent", WorkflowRunID: "wr-1", StepRef: "parent", Status: domain.StepRunning}, nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-			if id == "sr-parent" && status != domain.StepCompleted {
-				t.Fatalf("parent status = %s, want completed", status)
-			}
+			require.False(t,
+				id == "sr-parent" &&
+					status !=
+						domain.
+							StepCompleted,
+			)
+
 			return nil
 		},
 		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
@@ -1646,12 +1690,11 @@ func TestStepCallback_OnJobRunTerminal_PausedWorkflowDoesNotScheduleChildren(t *
 
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-parent", Status: domain.StatusCompleted})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if enqueueCalled {
-		t.Fatal("expected no child step scheduling while workflow is paused")
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		enqueueCalled,
+	)
 }
 
 func TestMapRunStatusToStepStatus(t *testing.T) {
@@ -1676,9 +1719,9 @@ func TestMapRunStatusToStepStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			status, _ := mapRunStatusToStepStatus(&domain.JobRun{Status: tt.runStatus, Error: "err", Result: json.RawMessage(`{"ok":true}`)})
-			if status != tt.want {
-				t.Fatalf("mapRunStatusToStepStatus(%s) = %s, want %s", tt.runStatus, status, tt.want)
-			}
+			require.Equal(t,
+				tt.want, status,
+			)
 		})
 	}
 }
@@ -1691,123 +1734,145 @@ func TestMapRunStatusToStepStatus_Exhaustive(t *testing.T) {
 			Status: domain.StatusCompleted,
 			Result: json.RawMessage(`{"ok":true}`),
 		})
-		if status != domain.StepCompleted {
-			t.Fatalf("status = %s, want %s", status, domain.StepCompleted)
-		}
+		require.Equal(t,
+			domain.StepCompleted,
+			status,
+		)
+
 		output, ok := fields["output"]
-		if !ok {
-			t.Fatalf("expected output field, got %+v", fields)
-		}
+		require.True(t,
+			ok)
+
 		raw, ok := output.(json.RawMessage)
-		if !ok || string(raw) != `{"ok":true}` {
-			t.Fatalf("output = %T %v, want json.RawMessage", output, output)
-		}
+		require.False(t,
+			!ok || string(raw) != `{"ok":true}`,
+		)
 	})
 
 	t.Run("StatusCompleted with empty result has no output", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCompleted})
-		if status != domain.StepCompleted {
-			t.Fatalf("status = %s, want %s", status, domain.StepCompleted)
-		}
+		require.Equal(t,
+			domain.StepCompleted,
+			status,
+		)
+
 		if _, ok := fields["output"]; ok {
-			t.Fatalf("did not expect output field, got %+v", fields)
+			require.Failf(t, "test failure",
+
+				"did not expect output field, got %+v", fields)
 		}
 	})
 
 	t.Run("StatusCanceled maps to StepCanceled", func(t *testing.T) {
 		t.Parallel()
 		status, _ := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCanceled})
-		if status != domain.StepCanceled {
-			t.Fatalf("status = %s, want %s", status, domain.StepCanceled)
-		}
+		require.Equal(t,
+			domain.StepCanceled,
+			status,
+		)
 	})
 
 	t.Run("StatusFailed maps to StepFailed and sets error", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		errVal, ok := fields["error"].(string)
-		if !ok || !strings.Contains(errVal, "job run ended with status") {
-			t.Fatalf("error field = %v, want fallback status error", fields["error"])
-		}
+		require.False(t,
+			!ok || !strings.Contains(errVal,
+				"job run ended with status",
+			))
 	})
 
 	t.Run("StatusTimedOut maps to StepFailed and sets error", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusTimedOut})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		if _, ok := fields["error"]; !ok {
-			t.Fatalf("expected error field, got %+v", fields)
+			require.Failf(t, "test failure",
+
+				"expected error field, got %+v", fields)
 		}
 	})
 
 	t.Run("StatusCrashed maps to StepFailed and sets error", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusCrashed})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		if _, ok := fields["error"]; !ok {
-			t.Fatalf("expected error field, got %+v", fields)
+			require.Failf(t, "test failure",
+
+				"expected error field, got %+v", fields)
 		}
 	})
 
 	t.Run("StatusSystemFailed maps to StepFailed and sets error", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusSystemFailed})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		if _, ok := fields["error"]; !ok {
-			t.Fatalf("expected error field, got %+v", fields)
+			require.Failf(t, "test failure",
+
+				"expected error field, got %+v", fields)
 		}
 	})
 
 	t.Run("StatusExpired maps to StepFailed and sets error", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusExpired})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		if _, ok := fields["error"]; !ok {
-			t.Fatalf("expected error field, got %+v", fields)
+			require.Failf(t, "test failure",
+
+				"expected error field, got %+v", fields)
 		}
 	})
 
 	t.Run("StatusFailed with explicit Error uses that string", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed, Error: "boom"})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
-		if fields["error"] != "boom" {
-			t.Fatalf("error = %v, want boom", fields["error"])
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+		require.Equal(t,
+			"boom", fields["error"])
 	})
 
 	t.Run("StatusFailed with empty Error uses fallback message", func(t *testing.T) {
 		t.Parallel()
 		status, fields := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.StatusFailed})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
+
 		errVal, ok := fields["error"].(string)
-		if !ok || !strings.Contains(errVal, "job run ended with status") {
-			t.Fatalf("error field = %v, want fallback status error", fields["error"])
-		}
+		require.False(t,
+			!ok || !strings.Contains(errVal,
+				"job run ended with status",
+			))
 	})
 
 	t.Run("unknown status defaults to StepFailed", func(t *testing.T) {
 		t.Parallel()
 		status, _ := mapRunStatusToStepStatus(&domain.JobRun{Status: domain.RunStatus("bogus")})
-		if status != domain.StepFailed {
-			t.Fatalf("status = %s, want %s", status, domain.StepFailed)
-		}
+		require.Equal(t,
+			domain.StepFailed,
+			status)
 	})
 }
 
@@ -1832,15 +1897,17 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("cancelRemainingSteps() error = %v", err)
-		}
+		require.NoError(
+			t, err)
+
 		testutil.AssertEqual(t, updated, map[string]domain.StepRunStatus{
 			"sr-running": domain.StepCanceled,
 			"sr-pending": domain.StepCanceled,
 		})
 		if _, ok := updated["sr-completed"]; ok {
-			t.Fatal("completed step should not be canceled")
+			require.Fail(t,
+
+				"completed step should not be canceled")
 		}
 	})
 
@@ -1863,12 +1930,9 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("cancelRemainingSteps() error = %v", err)
-		}
-		if updateCalls != 0 {
-			t.Fatalf("update calls = %d, want 0", updateCalls)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 0, updateCalls)
 	})
 
 	t.Run("store list error", func(t *testing.T) {
@@ -1881,9 +1945,11 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "cancel non-terminal step runs") {
-			t.Fatalf("expected list error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cancel non-terminal step runs",
+		)
 	})
 
 	t.Run("store update error", func(t *testing.T) {
@@ -1899,9 +1965,11 @@ func TestCancelRemainingSteps_Engine(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.cancelRemainingSteps(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "cancel non-terminal step runs") {
-			t.Fatalf("expected update error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cancel non-terminal step runs",
+		)
 	})
 }
 
@@ -1914,9 +1982,11 @@ func TestStepCallback_OnJobRunTerminal_GetStepRunError(t *testing.T) {
 	}
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
-	if err == nil || !strings.Contains(err.Error(), "get step run by job run id") {
-		t.Fatalf("expected wrapped error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "get step run by job run id",
+	)
 }
 
 func TestStepCallback_OnJobRunTerminal_UpdateStepRunStatusErrorWrapped(t *testing.T) {
@@ -1939,15 +2009,10 @@ func TestStepCallback_OnJobRunTerminal_UpdateStepRunStatusErrorWrapped(t *testin
 
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "update step run terminal status") {
-		t.Errorf("error = %v, want update step context", err)
-	}
-	if !errors.Is(err, baseErr) {
-		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t, err.Error(), "update step run terminal status")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_CheckStepRetryErrorWrapped(t *testing.T) {
@@ -1967,15 +2032,10 @@ func TestStepCallback_OnJobRunTerminal_CheckStepRetryErrorWrapped(t *testing.T) 
 
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "load workflow context") {
-		t.Errorf("error = %v, want load workflow context", err)
-	}
-	if !errors.Is(err, baseErr) {
-		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t, err.Error(), "load workflow context")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testing.T) {
@@ -2001,15 +2061,10 @@ func TestStepCallback_OnJobRunTerminal_ProcessCompletedStepErrorWrapped(t *testi
 
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "create workflow progression event") {
-		t.Errorf("error = %v, want progression event context", err)
-	}
-	if !errors.Is(err, baseErr) {
-		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t, err.Error(), "create workflow progression event")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.T) {
@@ -2035,15 +2090,10 @@ func TestStepCallback_OnJobRunTerminal_ProcessFailedStepErrorWrapped(t *testing.
 
 	cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "process failed step s1") {
-		t.Errorf("error = %v, want process failed step context", err)
-	}
-	if !errors.Is(err, baseErr) {
-		t.Errorf("errors.Is(err, baseErr) = false, err = %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(t, err.Error(), "process failed step s1")
+	assert.ErrorIs(t, err, baseErr)
 }
 
 func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
@@ -2054,9 +2104,12 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 			return &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepRunning}, nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-			if id == "sr-a" && status != domain.StepCompleted {
-				t.Fatalf("expected parent to complete, got %s", status)
-			}
+			require.False(t,
+				id == "sr-a" &&
+					status != domain.
+						StepCompleted,
+			)
+
 			return nil
 		},
 		incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
@@ -2078,9 +2131,18 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 			return nil
 		},
 		createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
-			if workflowRunID != "wr-1" || stepRunID != "sr-a" || stepRef != "a" || status != string(domain.StepCompleted) {
-				t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
-			}
+			require.False(t,
+				workflowRunID !=
+					"wr-1" ||
+					stepRunID !=
+						"sr-a" ||
+					stepRef !=
+						"a" ||
+					status !=
+						string(
+							domain.StepCompleted,
+						))
+
 			progressionCreated = true
 			return nil
 		},
@@ -2096,12 +2158,11 @@ func TestStepCallback_OnJobRunTerminal_FanInStartsChildren(t *testing.T) {
 	cb := NewStepCallback(ms, engine, slog.Default())
 
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-a", WorkflowStepRunID: "sr-a", Status: domain.StatusCompleted})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !progressionCreated {
-		t.Fatal("expected progression event to be created")
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		progressionCreated,
+	)
 }
 
 func TestStepCallback_checkStepRetry(t *testing.T) {
@@ -2155,15 +2216,12 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 			wantNewAttempt:  2,
 			assertNextRetryAt: func(t *testing.T, got time.Time, before, after time.Time) {
 				t.Helper()
-				if got.IsZero() {
-					t.Fatal("nextRetryAt is zero")
-				}
-				if !got.After(before) {
-					t.Fatalf("nextRetryAt %v is not after start %v", got, before)
-				}
-				if !got.After(after) {
-					t.Fatalf("nextRetryAt %v is not after end %v", got, after)
-				}
+				require.False(t,
+					got.IsZero())
+				require.True(t,
+					got.After(before))
+				require.True(t,
+					got.After(after))
 			},
 		},
 		{
@@ -2221,9 +2279,12 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 			assertNextRetryAt: func(t *testing.T, got time.Time, before, _ time.Time) {
 				t.Helper()
 				delay := got.Sub(before)
-				if delay < 15*time.Second || delay > 25*time.Second {
-					t.Fatalf("delay = %v, want roughly 20s (+-20%%)", delay)
-				}
+				require.False(t,
+					delay < 15*
+						time.Second || delay >
+						25*
+							time.Second,
+				)
 			},
 		},
 		{
@@ -2250,9 +2311,12 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 			assertNextRetryAt: func(t *testing.T, got time.Time, before, _ time.Time) {
 				t.Helper()
 				delay := got.Sub(before)
-				if delay < 6*time.Second || delay > 10*time.Second {
-					t.Fatalf("delay = %v, want roughly 8s (+-20%%)", delay)
-				}
+				require.False(t,
+					delay < 6*
+						time.Second || delay >
+						10*time.
+							Second,
+				)
 			},
 		},
 	}
@@ -2273,21 +2337,24 @@ func TestStepCallback_checkStepRetry(t *testing.T) {
 			after := time.Now()
 
 			if tt.wantErrContains != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Fatalf("expected error containing %q, got %v", tt.wantErrContains, err)
-				}
+				require.Error(t,
+					err)
+				assert.Contains(
+					t, err.Error(), tt.wantErrContains,
+				)
+
 				return
 			}
-
-			if err != nil {
-				t.Fatalf("checkStepRetry() error = %v", err)
-			}
-			if shouldRetry != tt.wantShouldRetry {
-				t.Fatalf("shouldRetry = %v, want %v", shouldRetry, tt.wantShouldRetry)
-			}
-			if newAttempt != tt.wantNewAttempt {
-				t.Fatalf("newAttempt = %d, want %d", newAttempt, tt.wantNewAttempt)
-			}
+			require.NoError(
+				t, err)
+			require.Equal(t,
+				tt.wantShouldRetry,
+				shouldRetry,
+			)
+			require.Equal(t,
+				tt.wantNewAttempt,
+				newAttempt,
+			)
 
 			if tt.assertNextRetryAt != nil {
 				tt.assertNextRetryAt(t, nextRetryAt, before, after)
@@ -2333,24 +2400,31 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 			store := &mockCallbackStore{
 				incrementStepRunAttemptFn: func(_ context.Context, id string, newAttempt int) error {
 					incrementCalled++
-					if id != "sr-1" || newAttempt != 2 {
-						t.Fatalf("unexpected increment args: id=%s newAttempt=%d", id, newAttempt)
-					}
+					require.False(t,
+						id != "sr-1" ||
+							newAttempt !=
+								2)
+
 					return tt.incrementErr
 				},
 				updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 					updateRunCalled++
-					if id != "run-1" {
-						t.Fatalf("unexpected run id %s", id)
-					}
-					if from != domain.StatusFailed || to != domain.StatusDelayed {
-						t.Fatalf("unexpected status transition %s -> %s", from, to)
-					}
-					if fields["attempt"] != 2 {
-						t.Fatalf("expected attempt=2, got %+v", fields)
-					}
+					require.Equal(t,
+						"run-1", id,
+					)
+					require.False(t,
+						from != domain.
+							StatusFailed ||
+							to !=
+								domain.
+									StatusDelayed,
+					)
+					require.EqualValues(t, 2, fields["attempt"])
+
 					if _, ok := fields["next_retry_at"]; ok {
-						t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
+						require.Failf(t, "test failure",
+
+							"next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 					}
 					return tt.updateRunStatusErr
 				},
@@ -2366,22 +2440,25 @@ func TestStepCallback_scheduleStepRetry(t *testing.T) {
 			)
 
 			if tt.wantErrContains != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Fatalf("expected error containing %q, got %v", tt.wantErrContains, err)
-				}
+				require.Error(t,
+					err)
+				assert.Contains(
+					t, err.Error(), tt.wantErrContains,
+				)
 			} else if err != nil {
-				t.Fatalf("scheduleStepRetry() error = %v", err)
-			}
+				require.Failf(t, "test failure",
 
-			if incrementCalled != 1 {
-				t.Fatalf("IncrementStepRunAttempt called %d times, want 1", incrementCalled)
+					"scheduleStepRetry() error = %v", err)
 			}
-			if tt.wantUpdateRunInvoked && updateRunCalled != 1 {
-				t.Fatalf("UpdateRunStatus called %d times, want 1", updateRunCalled)
-			}
-			if !tt.wantUpdateRunInvoked && updateRunCalled != 0 {
-				t.Fatalf("UpdateRunStatus called %d times, want 0", updateRunCalled)
-			}
+			require.Equal(t, 1, incrementCalled)
+			require.False(t,
+				tt.wantUpdateRunInvoked &&
+					updateRunCalled !=
+						1)
+			require.False(t,
+				!tt.wantUpdateRunInvoked &&
+					updateRunCalled !=
+						0)
 		})
 	}
 }
@@ -2404,9 +2481,12 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id == "sr-1" && status != domain.StepFailed {
-					t.Fatalf("unexpected step status: %s", status)
-				}
+				require.False(t,
+					id == "sr-1" &&
+						status != domain.
+							StepFailed,
+				)
+
 				return nil
 			},
 			getWorkflowRunFn: func(_ context.Context, _ string) (*domain.WorkflowRun, error) {
@@ -2424,45 +2504,51 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 			},
 			incrementStepRunAttemptFn: func(_ context.Context, id string, newAttempt int) error {
 				incrementCalled++
-				if id != "sr-1" || newAttempt != 2 {
-					t.Fatalf("unexpected increment args id=%s attempt=%d", id, newAttempt)
-				}
+				require.False(t,
+					id != "sr-1" ||
+						newAttempt !=
+							2)
+
 				return nil
 			},
 			updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, fields map[string]any) error {
 				updateRunCalled++
-				if id != "run-1" || from != domain.StatusFailed || to != domain.StatusDelayed {
-					t.Fatalf("unexpected run transition id=%s %s->%s", id, from, to)
-				}
-				if fields["attempt"] != 2 {
-					t.Fatalf("expected attempt=2, got %+v", fields)
-				}
+				require.False(t,
+					id != "run-1" ||
+						from != domain.
+							StatusFailed ||
+						to != domain.
+							StatusDelayed,
+				)
+				require.EqualValues(t, 2, fields["attempt"])
+
 				if _, ok := fields["next_retry_at"]; ok {
-					t.Fatalf("next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
+					require.Failf(t, "test failure",
+
+						"next_retry_at must not be in UpdateRunStatus fields (side-table only), got %+v", fields)
 				}
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
-				t.Fatal("UpdateWorkflowRunStatus should not be called when retry is scheduled")
+				require.Fail(t,
+
+					"UpdateWorkflowRunStatus should not be called when retry is scheduled")
 				return nil
 			},
 			listStepRunsByWorkflowRun: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-				t.Fatal("ListStepRunsByWorkflowRun should not be called when retry is scheduled")
+				require.Fail(t,
+
+					"ListStepRunsByWorkflowRun should not be called when retry is scheduled")
 				return nil, nil
 			},
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusFailed, Error: "boom"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if incrementCalled != 1 {
-			t.Fatalf("IncrementStepRunAttempt called %d times, want 1", incrementCalled)
-		}
-		if updateRunCalled != 1 {
-			t.Fatalf("UpdateRunStatus called %d times, want 1", updateRunCalled)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, incrementCalled)
+		require.Equal(t, 1, updateRunCalled)
 	})
 
 	t.Run("failed_run_no_retry_falls_through", func(t *testing.T) {
@@ -2481,9 +2567,12 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, _ map[string]any) error {
-				if id == "sr-fail" && status != domain.StepFailed {
-					t.Fatalf("failed step status = %s, want failed", status)
-				}
+				require.False(t,
+					id == "sr-fail" &&
+						status !=
+							domain.StepFailed,
+				)
+
 				if id == "sr-other" && status == domain.StepCanceled {
 					canceledDependents++
 				}
@@ -2500,17 +2589,26 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 				}}, nil
 			},
 			incrementStepRunAttemptFn: func(_ context.Context, _ string, _ int) error {
-				t.Fatal("IncrementStepRunAttempt should not be called when retry is disabled")
+				require.Fail(t,
+
+					"IncrementStepRunAttempt should not be called when retry is disabled")
 				return nil
 			},
 			updateRunStatusFn: func(_ context.Context, _ string, _, _ domain.RunStatus, _ map[string]any) error {
-				t.Fatal("UpdateRunStatus should not be called when retry is disabled")
+				require.Fail(t,
+
+					"UpdateRunStatus should not be called when retry is disabled")
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, from, to domain.WorkflowRunStatus, _ map[string]any) error {
-				if from != domain.WfStatusRunning || to != domain.WfStatusFailed {
-					t.Fatalf("unexpected workflow transition %s -> %s", from, to)
-				}
+				require.False(t,
+					from != domain.
+						WfStatusRunning ||
+						to !=
+							domain.
+								WfStatusFailed,
+				)
+
 				workflowFailed++
 				return nil
 			},
@@ -2524,15 +2622,10 @@ func TestStepCallback_OnJobRunTerminal_RetryIntegration(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-fail", Status: domain.StatusFailed, Error: "boom"})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if workflowFailed != 1 {
-			t.Fatalf("workflow failed updates = %d, want 1", workflowFailed)
-		}
-		if canceledDependents != 1 {
-			t.Fatalf("canceled dependents = %d, want 1", canceledDependents)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, workflowFailed)
+		require.Equal(t, 1, canceledDependents)
 	})
 }
 
@@ -2573,18 +2666,22 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 				{StepRef: "c", DependsOn: []string{"b"}},
 			},
 		)
-		if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(skipCalls) != 2 {
-			t.Fatalf("skip calls = %d, want 2", len(skipCalls))
-		}
-		if skipCalls["sr-b"] != domain.StepSkipped {
-			t.Fatalf("sr-b status = %s, want skipped", skipCalls["sr-b"])
-		}
-		if skipCalls["sr-c"] != domain.StepSkipped {
-			t.Fatalf("sr-c status = %s, want skipped", skipCalls["sr-c"])
-		}
+		require.NoError(
+			t, cb.skipDependentSteps(context.
+				Background(),
+				"wr-1", wc,
+				"a"))
+		require.Len(t, skipCalls,
+			2,
+		)
+		require.Equal(t,
+			domain.StepSkipped,
+			skipCalls["sr-b"],
+		)
+		require.Equal(t,
+			domain.StepSkipped,
+			skipCalls["sr-c"],
+		)
 	})
 
 	t.Run("diamond_A_BC_D", func(t *testing.T) {
@@ -2625,16 +2722,19 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 				{StepRef: "d", DependsOn: []string{"b", "c"}},
 			},
 		)
-		if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(skipCalls) != 3 {
-			t.Fatalf("skip calls = %d, want 3", len(skipCalls))
-		}
+		require.NoError(
+			t, cb.skipDependentSteps(context.
+				Background(),
+				"wr-1", wc,
+				"a"))
+		require.Len(t, skipCalls,
+			3,
+		)
+
 		for _, id := range []string{"sr-b", "sr-c", "sr-d"} {
-			if skipCalls[id] != domain.StepSkipped {
-				t.Fatalf("%s status = %s, want skipped", id, skipCalls[id])
-			}
+			require.Equal(t,
+				domain.StepSkipped,
+				skipCalls[id])
 		}
 	})
 
@@ -2671,12 +2771,14 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 				{StepRef: "leaf", DependsOn: []string{"a"}},
 			},
 		)
-		if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "leaf"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if updateCalled {
-			t.Fatal("expected no UpdateStepRunStatus calls for leaf node")
-		}
+		require.NoError(
+			t, cb.skipDependentSteps(context.
+				Background(),
+				"wr-1", wc,
+				"leaf"))
+		require.False(t,
+			updateCalled,
+		)
 	})
 
 	t.Run("already_terminal_not_skipped", func(t *testing.T) {
@@ -2714,18 +2816,24 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 				{StepRef: "c", DependsOn: []string{"a"}},
 			},
 		)
-		if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(skipCalls) != 1 {
-			t.Fatalf("skip calls = %d, want 1 (only sr-c)", len(skipCalls))
-		}
+		require.NoError(
+			t, cb.skipDependentSteps(context.
+				Background(),
+				"wr-1", wc,
+				"a"))
+		require.Len(t, skipCalls,
+			1,
+		)
+
 		if _, ok := skipCalls["sr-b"]; ok {
-			t.Fatal("sr-b is already terminal and should not be skipped")
+			require.Fail(t,
+
+				"sr-b is already terminal and should not be skipped")
 		}
-		if skipCalls["sr-c"] != domain.StepSkipped {
-			t.Fatalf("sr-c status = %s, want skipped", skipCalls["sr-c"])
-		}
+		require.Equal(t,
+			domain.StepSkipped,
+			skipCalls["sr-c"],
+		)
 	})
 
 	t.Run("skip_step_runs_by_refs_error", func(t *testing.T) {
@@ -2741,9 +2849,11 @@ func TestStepCallback_skipDependentSteps(t *testing.T) {
 			[]domain.WorkflowStep{{StepRef: "a"}, {StepRef: "b", DependsOn: []string{"a"}}},
 		)
 		err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-		if err == nil || !strings.Contains(err.Error(), "skip step runs by refs") {
-			t.Fatalf("expected wrapped error containing 'skip step runs by refs', got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "skip step runs by refs",
+		)
 	})
 }
 
@@ -2753,9 +2863,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		t.Parallel()
 		cb := NewStepCallback(&mockCallbackStore{}, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "")
-		if err == nil || !strings.Contains(err.Error(), "approver is required") {
-			t.Fatalf("expected 'approver is required' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "approver is required",
+		)
 	})
 
 	t.Run("get_step_run_error", func(t *testing.T) {
@@ -2767,9 +2879,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "get step run") {
-			t.Fatalf("expected 'get step run' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "get step run",
+		)
 	})
 
 	t.Run("step_not_found", func(t *testing.T) {
@@ -2781,9 +2895,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "step run not found") {
-			t.Fatalf("expected 'step run not found' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "step run not found",
+		)
 	})
 
 	t.Run("step_already_terminal", func(t *testing.T) {
@@ -2795,9 +2911,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "already in terminal state") {
-			t.Fatalf("expected 'already in terminal state' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "already in terminal state",
+		)
 	})
 
 	t.Run("approval_not_found", func(t *testing.T) {
@@ -2812,9 +2930,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "approval not found") {
-			t.Fatalf("expected 'approval not found' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "approval not found",
+		)
 	})
 
 	t.Run("approval_already_approved", func(t *testing.T) {
@@ -2829,9 +2949,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "already approved") {
-			t.Fatalf("expected 'already approved' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "already approved",
+		)
 	})
 
 	t.Run("unauthorized_approver", func(t *testing.T) {
@@ -2846,9 +2968,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "bob")
-		if err == nil || !strings.Contains(err.Error(), "not allowed") {
-			t.Fatalf("expected 'not allowed' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "not allowed",
+		)
 	})
 
 	t.Run("update_approval_error", func(t *testing.T) {
@@ -2866,9 +2990,11 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err == nil || !strings.Contains(err.Error(), "update approval") {
-			t.Fatalf("expected 'update approval' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "update approval",
+		)
 	})
 
 	t.Run("success", func(t *testing.T) {
@@ -2884,9 +3010,14 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 				return &domain.WorkflowStepApproval{ID: "apr-1", Status: "pending", Approvers: []string{"alice", "bob"}}, nil
 			},
 			updateWorkflowStepApprovalFn: func(_ context.Context, id string, status string, approvedBy string, _ *time.Time, _ string) error {
-				if id != "apr-1" || status != "approved" || approvedBy != "alice" {
-					t.Fatalf("unexpected approval update: id=%s status=%s approvedBy=%s", id, status, approvedBy)
-				}
+				require.False(t,
+					id != "apr-1" ||
+						status !=
+							"approved" ||
+						approvedBy !=
+							"alice",
+				)
+
 				approvalUpdated = true
 				return nil
 			},
@@ -2918,37 +3049,48 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !approvalUpdated {
-			t.Fatal("expected approval to be updated")
-		}
-		if !stepCompleted {
-			t.Fatal("expected step to be marked completed")
-		}
-		if capturedAudit == nil {
-			t.Fatal("expected approval audit event")
-		}
-		if capturedAudit.Action != "workflow.step.approved" {
-			t.Fatalf("expected audit action workflow.step.approved, got %s", capturedAudit.Action)
-		}
-		if capturedAudit.ActorID != "alice" || capturedAudit.ActorType != "user" {
-			t.Fatalf("expected user actor alice, got %s/%s", capturedAudit.ActorID, capturedAudit.ActorType)
-		}
-		if capturedAudit.ResourceType != "workflow_step_approval" || capturedAudit.ResourceID != "apr-1" {
-			t.Fatalf("unexpected audit resource: %s/%s", capturedAudit.ResourceType, capturedAudit.ResourceID)
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			approvalUpdated,
+		)
+		require.True(t,
+			stepCompleted,
+		)
+		require.NotNil(t,
+			capturedAudit,
+		)
+		require.Equal(t,
+			"workflow.step.approved",
+			capturedAudit.
+				Action,
+		)
+		require.False(t,
+			capturedAudit.
+				ActorID != "alice" ||
+				capturedAudit.
+					ActorType !=
+					"user",
+		)
+		require.False(t,
+			capturedAudit.
+				ResourceType !=
+				"workflow_step_approval" ||
+				capturedAudit.
+					ResourceID !=
+					"apr-1")
+
 		var details map[string]any
-		if err := json.Unmarshal(capturedAudit.Details, &details); err != nil {
-			t.Fatalf("unmarshal audit details: %v", err)
-		}
-		if details["decision"] != "approved" {
-			t.Fatalf("expected decision approved, got %v", details["decision"])
-		}
-		if details["step_run_id"] != "sr-1" {
-			t.Fatalf("expected step_run_id sr-1, got %v", details["step_run_id"])
-		}
+		require.NoError(
+			t, json.Unmarshal(capturedAudit.
+				Details,
+				&details,
+			))
+		require.Equal(t,
+			"approved",
+			details["decision"])
+		require.Equal(t,
+			"sr-1", details["step_run_id"])
 	})
 
 	t.Run("audit failure is non-fatal", func(t *testing.T) {
@@ -2988,12 +3130,13 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, logger), logger)
-		if err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(logs.String(), "failed to create approval audit event") {
-			t.Fatalf("expected audit failure log, got %q", logs.String())
-		}
+		require.NoError(
+			t, cb.ApproveStep(context.Background(),
+				"wr-1",
+				"s1", "alice",
+			))
+		require.Contains(t,
+			logs.String(), "failed to create approval audit event")
 	})
 
 	t.Run("cost gate timeout approvals are audited as system decisions", func(t *testing.T) {
@@ -3033,15 +3176,21 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.ApproveStep(context.Background(), "wr-1", "s1", "system:cost-gate-timeout"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if capturedAudit == nil {
-			t.Fatal("expected approval audit event")
-		}
-		if capturedAudit.ActorID != "system:cost-gate-timeout" || capturedAudit.ActorType != "system" {
-			t.Fatalf("expected system cost gate actor, got %s/%s", capturedAudit.ActorID, capturedAudit.ActorType)
-		}
+		require.NoError(
+			t, cb.ApproveStep(context.Background(),
+				"wr-1",
+				"s1", "system:cost-gate-timeout",
+			))
+		require.NotNil(t,
+			capturedAudit,
+		)
+		require.False(t,
+			capturedAudit.
+				ActorID != "system:cost-gate-timeout" ||
+				capturedAudit.
+					ActorType !=
+					"system",
+		)
 	})
 
 	t.Run("success emits approval completed notification with approved decision", func(t *testing.T) {
@@ -3086,27 +3235,36 @@ func TestStepCallback_ApproveStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(engineStore, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.ApproveStep(context.Background(), "wr-1", "s1", "alice"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(deliveries) != 1 {
-			t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-		}
-		if deliveries[0].EventType != domain.NotificationEventApprovalCompleted {
-			t.Fatalf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, deliveries[0].EventType)
-		}
+		require.NoError(
+			t, cb.ApproveStep(context.Background(),
+				"wr-1",
+				"s1", "alice",
+			))
+		require.Len(t, deliveries,
+
+			1)
+		require.Equal(t,
+			domain.NotificationEventApprovalCompleted,
+
+			deliveries[0].
+				EventType,
+		)
+
 		var payload map[string]any
-		if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-			t.Fatalf("unmarshal payload: %v", err)
-		}
-		if payload["decision"] != "approved" {
-			t.Fatalf("expected decision approved, got %v", payload["decision"])
-		}
-		if payload["approved_by"] != "alice" {
-			t.Fatalf("expected approved_by alice, got %v", payload["approved_by"])
-		}
+		require.NoError(
+			t, json.Unmarshal(deliveries[0].Payload,
+				&payload,
+			))
+		require.Equal(t,
+			"approved",
+			payload["decision"])
+		require.Equal(t,
+			"alice", payload["approved_by"])
+
 		if _, ok := payload["approved_at"]; !ok {
-			t.Fatal("expected approved_at in payload")
+			require.Fail(t,
+
+				"expected approved_at in payload")
 		}
 	})
 }
@@ -3124,21 +3282,30 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				return []domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "child", DependsOn: []string{"s1"}}}, nil
 			},
 			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
-				if workflowRunID != "wr-1" || stepRef != "s1" {
-					t.Fatalf("unexpected lookup args: %s %s", workflowRunID, stepRef)
-				}
+				require.False(t,
+					workflowRunID !=
+						"wr-1" ||
+						stepRef !=
+							"s1")
+
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepPending}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-				if id != "sr-1" || status != domain.StepSkipped {
-					t.Fatalf("unexpected step update: id=%s status=%s", id, status)
-				}
+				require.False(t,
+					id != "sr-1" ||
+						status != domain.
+							StepSkipped,
+				)
+
 				if _, ok := fields["finished_at"]; !ok {
-					t.Fatalf("expected finished_at field, got %+v", fields)
+					require.Failf(t, "test failure",
+
+						"expected finished_at field, got %+v", fields)
 				}
-				if fields["error"] != "manual" {
-					t.Fatalf("error field = %v, want manual", fields["error"])
-				}
+				require.Equal(t,
+					"manual",
+					fields["error"])
+
 				updated = true
 				return nil
 			},
@@ -3151,12 +3318,13 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !updated {
-			t.Fatal("expected step update")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "manual",
+				""))
+		require.True(t,
+			updated)
 	})
 
 	t.Run("step in waiting status succeeds", func(t *testing.T) {
@@ -3172,9 +3340,10 @@ func TestStepCallback_SkipStep(t *testing.T) {
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepWaiting}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
-				if status != domain.StepSkipped {
-					t.Fatalf("status = %s, want skipped", status)
-				}
+				require.Equal(t,
+					domain.StepSkipped,
+					status)
+
 				return nil
 			},
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
@@ -3186,9 +3355,11 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "", "",
+			))
 	})
 
 	t.Run("step in running status returns error", func(t *testing.T) {
@@ -3200,9 +3371,11 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.SkipStep(context.Background(), "wr-1", "s1", "", "")
-		if err == nil || !strings.Contains(err.Error(), "cannot skip step in running status") {
-			t.Fatalf("expected running-status error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cannot skip step in running status",
+		)
 	})
 
 	t.Run("step in completed status returns error", func(t *testing.T) {
@@ -3214,9 +3387,11 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.SkipStep(context.Background(), "wr-1", "s1", "", "")
-		if err == nil || !strings.Contains(err.Error(), "cannot skip step in completed status") {
-			t.Fatalf("expected completed-status error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cannot skip step in completed status",
+		)
 	})
 
 	t.Run("skip step with pending approval rejects the approval", func(t *testing.T) {
@@ -3258,24 +3433,36 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin", "user_admin"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if approvalUpdateArgs.id != "apr-1" {
-			t.Fatalf("expected approval apr-1 to be updated, got %s", approvalUpdateArgs.id)
-		}
-		if approvalUpdateArgs.status != domain.ApprovalStatusRejected {
-			t.Fatalf("expected status rejected, got %s", approvalUpdateArgs.status)
-		}
-		if approvalUpdateArgs.approvedBy != "user_admin" {
-			t.Fatalf("expected approvedBy user_admin, got %s", approvalUpdateArgs.approvedBy)
-		}
-		if approvalUpdateArgs.approvedAt == nil {
-			t.Fatal("expected approvedAt to be set on rejection")
-		}
-		if approvalUpdateArgs.errMsg != "rejected by admin" {
-			t.Fatalf("expected errMsg 'rejected by admin', got %s", approvalUpdateArgs.errMsg)
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "rejected by admin",
+
+				"user_admin",
+			))
+		require.Equal(t,
+			"apr-1", approvalUpdateArgs.
+				id)
+		require.Equal(t,
+			domain.ApprovalStatusRejected,
+
+			approvalUpdateArgs.
+				status,
+		)
+		require.Equal(t,
+			"user_admin",
+			approvalUpdateArgs.
+				approvedBy,
+		)
+		require.NotNil(t,
+			approvalUpdateArgs.
+				approvedAt,
+		)
+		require.Equal(t,
+			"rejected by admin",
+			approvalUpdateArgs.
+				errMsg,
+		)
 	})
 
 	t.Run("skip step with pending approval and empty reason", func(t *testing.T) {
@@ -3299,9 +3486,10 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 			updateWorkflowStepApprovalFn: func(_ context.Context, _ string, _ string, _ string, _ *time.Time, errMsg string) error {
 				updateCalled = true
-				if errMsg != "" {
-					t.Fatalf("expected empty errMsg, got %s", errMsg)
-				}
+				require.Empty(t,
+					errMsg,
+				)
+
 				return nil
 			},
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
@@ -3313,12 +3501,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !updateCalled {
-			t.Fatal("expected approval update to be called")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "", "",
+			))
+		require.True(t,
+			updateCalled,
+		)
 	})
 
 	t.Run("skip step with pending approval — approval update fails returns error", func(t *testing.T) {
@@ -3348,12 +3538,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", "")
-		if err == nil || !strings.Contains(err.Error(), "reject approval on skip") {
-			t.Fatalf("expected reject-approval error, got %v", err)
-		}
-		if stepUpdated {
-			t.Fatal("step should not be updated when approval rejection fails")
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "reject approval on skip",
+		)
+		require.False(t,
+			stepUpdated,
+		)
 	})
 
 	t.Run("skip step with pending approval — approval lookup failure aborts skip", func(t *testing.T) {
@@ -3391,15 +3583,17 @@ func TestStepCallback_SkipStep(t *testing.T) {
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.SkipStep(context.Background(), "wr-1", "s1", "reason", "")
-		if err == nil || !strings.Contains(err.Error(), "get workflow step approval") {
-			t.Fatalf("expected approval lookup error, got %v", err)
-		}
-		if updateCalled {
-			t.Fatal("approval update should not be called when lookup fails")
-		}
-		if stepUpdated {
-			t.Fatal("step should not be updated when approval lookup fails")
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "get workflow step approval",
+		)
+		require.False(t,
+			updateCalled,
+		)
+		require.False(t,
+			stepUpdated,
+		)
 	})
 
 	t.Run("skip step without approval skips normally", func(t *testing.T) {
@@ -3434,12 +3628,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if updateCalled {
-			t.Fatal("approval update should not be called when no approval exists")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "manual",
+				""))
+		require.False(t,
+			updateCalled,
+		)
 	})
 
 	t.Run("skip step with already-approved approval does not re-reject", func(t *testing.T) {
@@ -3474,12 +3670,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if updateCalled {
-			t.Fatal("should not update already-approved approval")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "manual",
+				""))
+		require.False(t,
+			updateCalled,
+		)
 	})
 
 	t.Run("skip step with already-rejected approval does not double-reject", func(t *testing.T) {
@@ -3514,12 +3712,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if updateCalled {
-			t.Fatal("should not update already-rejected approval")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "manual",
+				""))
+		require.False(t,
+			updateCalled,
+		)
 	})
 
 	t.Run("skip step with pending approval emits rejection notification", func(t *testing.T) {
@@ -3562,31 +3762,43 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(engineStore, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin", "user_admin"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(deliveries) != 1 {
-			t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-		}
-		if deliveries[0].EventType != domain.NotificationEventApprovalCompleted {
-			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, deliveries[0].EventType)
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "rejected by admin",
+
+				"user_admin",
+			))
+		require.Len(t, deliveries,
+
+			1)
+		assert.Equal(t,
+			domain.NotificationEventApprovalCompleted,
+
+			deliveries[0].
+				EventType)
+
 		var payload map[string]any
-		if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-			t.Fatalf("unmarshal payload: %v", err)
-		}
-		if payload["decision"] != "rejected" {
-			t.Fatalf("expected decision rejected, got %v", payload["decision"])
-		}
-		if payload["rejected_by"] != "user_admin" {
-			t.Errorf("expected rejected_by=user_admin, got %v", payload["rejected_by"])
-		}
+		require.NoError(
+			t, json.Unmarshal(deliveries[0].Payload,
+				&payload,
+			))
+		require.Equal(t,
+			"rejected",
+			payload["decision"])
+		assert.Equal(t,
+			"user_admin",
+			payload["rejected_by"])
+
 		if _, ok := payload["rejected_at"]; !ok {
-			t.Fatal("expected rejected_at in payload")
+			require.Fail(t,
+
+				"expected rejected_at in payload")
 		}
-		if payload["reason"] != "rejected by admin" {
-			t.Errorf("expected reason='rejected by admin', got %v", payload["reason"])
-		}
+		assert.Equal(t,
+			"rejected by admin",
+			payload["reason"],
+		)
 	})
 
 	t.Run("skip step emits approval rejection audit event", func(t *testing.T) {
@@ -3623,28 +3835,40 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "rejected by admin", "user_admin"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if capturedAudit == nil {
-			t.Fatal("expected approval audit event")
-		}
-		if capturedAudit.Action != "workflow.step.rejected" {
-			t.Fatalf("expected audit action workflow.step.rejected, got %s", capturedAudit.Action)
-		}
-		if capturedAudit.ActorID != "user_admin" || capturedAudit.ActorType != "user" {
-			t.Fatalf("expected user actor user_admin, got %s/%s", capturedAudit.ActorID, capturedAudit.ActorType)
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "rejected by admin",
+
+				"user_admin",
+			))
+		require.NotNil(t,
+			capturedAudit,
+		)
+		require.Equal(t,
+			"workflow.step.rejected",
+			capturedAudit.
+				Action,
+		)
+		require.False(t,
+			capturedAudit.
+				ActorID != "user_admin" ||
+				capturedAudit.
+					ActorType !=
+					"user")
+
 		var details map[string]any
-		if err := json.Unmarshal(capturedAudit.Details, &details); err != nil {
-			t.Fatalf("unmarshal audit details: %v", err)
-		}
-		if details["decision"] != "rejected" {
-			t.Fatalf("expected decision rejected, got %v", details["decision"])
-		}
-		if details["reason"] != "rejected by admin" {
-			t.Fatalf("expected reason 'rejected by admin', got %v", details["reason"])
-		}
+		require.NoError(
+			t, json.Unmarshal(capturedAudit.
+				Details,
+				&details,
+			))
+		require.Equal(t,
+			"rejected",
+			details["decision"])
+		require.Equal(t,
+			"rejected by admin",
+			details["reason"])
 	})
 
 	t.Run("skip step falls back to skip actor on reject persistence", func(t *testing.T) {
@@ -3680,15 +3904,17 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "", ""); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if approvedBy != "skip" {
-			t.Fatalf("expected fallback approvedBy skip, got %s", approvedBy)
-		}
-		if approvedAt == nil {
-			t.Fatal("expected approvedAt to be set on fallback reject")
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "", "",
+			))
+		require.Equal(t,
+			"skip", approvedBy,
+		)
+		require.NotNil(t,
+			approvedAt,
+		)
 	})
 
 	t.Run("reject audit failure is non-fatal", func(t *testing.T) {
@@ -3725,12 +3951,14 @@ func TestStepCallback_SkipStep(t *testing.T) {
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, logger), logger)
-		if err := cb.SkipStep(context.Background(), "wr-1", "s1", "manual", "user_admin"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(logs.String(), "failed to create approval audit event") {
-			t.Fatalf("expected audit failure log, got %q", logs.String())
-		}
+		require.NoError(
+			t, cb.SkipStep(context.Background(), "wr-1",
+
+				"s1", "manual",
+				"user_admin",
+			))
+		require.Contains(t,
+			logs.String(), "failed to create approval audit event")
 	})
 }
 
@@ -3747,21 +3975,32 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 				return []domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "child", DependsOn: []string{"s1"}}}, nil
 			},
 			getStepRunByRunAndRefFn: func(_ context.Context, workflowRunID, stepRef string) (*domain.WorkflowStepRun, error) {
-				if workflowRunID != "wr-1" || stepRef != "s1" {
-					t.Fatalf("unexpected lookup args: %s %s", workflowRunID, stepRef)
-				}
+				require.False(t,
+					workflowRunID !=
+						"wr-1" ||
+						stepRef !=
+							"s1")
+
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: workflowRunID, StepRef: stepRef, Status: domain.StepPending}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-				if id != "sr-1" || status != domain.StepCompleted {
-					t.Fatalf("unexpected step update: id=%s status=%s", id, status)
-				}
+				require.False(t,
+					id != "sr-1" ||
+						status != domain.
+							StepCompleted,
+				)
+
 				if _, ok := fields["finished_at"]; !ok {
-					t.Fatalf("expected finished_at field, got %+v", fields)
+					require.Failf(t, "test failure",
+
+						"expected finished_at field, got %+v", fields)
 				}
-				if string(fields["output"].(json.RawMessage)) != `{"ok":true}` {
-					t.Fatalf("output field = %s, want {\"ok\":true}", string(fields["output"].(json.RawMessage)))
-				}
+				require.Equal(t,
+					`{"ok":true}`,
+					string(fields["output"].(json.
+						RawMessage),
+					))
+
 				updated = true
 				return nil
 			},
@@ -3774,12 +4013,13 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", json.RawMessage(`{"ok":true}`)); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !updated {
-			t.Fatal("expected step update")
-		}
+		require.NoError(
+			t, cb.ForceCompleteStep(context.
+				Background(),
+				"wr-1", "s1",
+				json.RawMessage(`{"ok":true}`)))
+		require.True(t,
+			updated)
 	})
 
 	t.Run("step in waiting status succeeds", func(t *testing.T) {
@@ -3795,9 +4035,11 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 				return &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "s1", Status: domain.StepWaiting}, nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, _ string, status domain.StepRunStatus, _ map[string]any) error {
-				if status != domain.StepCompleted {
-					t.Fatalf("status = %s, want completed", status)
-				}
+				require.Equal(t,
+					domain.StepCompleted,
+					status,
+				)
+
 				return nil
 			},
 			incrementStepDepsFn: func(_ context.Context, _, _ string) ([]store.StepDepResult, error) {
@@ -3809,9 +4051,11 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		}
 
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
-		if err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(
+			t, cb.ForceCompleteStep(context.
+				Background(),
+				"wr-1", "s1",
+				nil))
 	})
 
 	t.Run("step in running status returns error", func(t *testing.T) {
@@ -3823,9 +4067,11 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil)
-		if err == nil || !strings.Contains(err.Error(), "cannot force-complete step in running status") {
-			t.Fatalf("expected running-status error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cannot force-complete step in running status",
+		)
 	})
 
 	t.Run("step in completed status returns error", func(t *testing.T) {
@@ -3837,9 +4083,11 @@ func TestStepCallback_ForceCompleteStep(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ForceCompleteStep(context.Background(), "wr-1", "s1", nil)
-		if err == nil || !strings.Contains(err.Error(), "cannot force-complete step in completed status") {
-			t.Fatalf("expected completed-status error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "cannot force-complete step in completed status",
+		)
 	})
 }
 
@@ -3854,9 +4102,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "workflow run not found") {
-			t.Fatalf("expected 'workflow run not found' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "workflow run not found",
+		)
 	})
 
 	t.Run("workflow_run_not_paused", func(t *testing.T) {
@@ -3868,9 +4118,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "not paused") {
-			t.Fatalf("expected 'not paused' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "not paused",
+		)
 	})
 
 	t.Run("get_workflow_run_error", func(t *testing.T) {
@@ -3882,9 +4134,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "get workflow run") {
-			t.Fatalf("expected 'get workflow run' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "get workflow run",
+		)
 	})
 
 	t.Run("update_workflow_run_status_error", func(t *testing.T) {
@@ -3899,9 +4153,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err == nil || !strings.Contains(err.Error(), "resume workflow run") {
-			t.Fatalf("expected 'resume workflow run' error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "resume workflow run",
+		)
 	})
 
 	t.Run("queue_requeue_preferred_when_available", func(t *testing.T) {
@@ -3921,23 +4177,25 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}
 		mq := &mockEngineQueue{
 			requeuePausedRunsFn: func(_ context.Context, workflowRunID string) (int64, error) {
-				if workflowRunID != "wr-1" {
-					t.Fatalf("workflowRunID = %q, want wr-1", workflowRunID)
-				}
+				require.Equal(t,
+					"wr-1", workflowRunID,
+				)
+
 				queueRequeueCalled = true
 				return 2, nil
 			},
 		}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
-		if err := cb.ResumeWorkflowRun(context.Background(), "wr-1"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !queueRequeueCalled {
-			t.Fatal("expected queue-owned requeue path")
-		}
-		if storeRequeueCalled {
-			t.Fatal("store requeue should not run when queue owns the path")
-		}
+		require.NoError(
+			t, cb.ResumeWorkflowRun(context.
+				Background(),
+				"wr-1"))
+		require.True(t,
+			queueRequeueCalled,
+		)
+		require.False(t,
+			storeRequeueCalled,
+		)
 	})
 
 	t.Run("success_starts_ready_steps", func(t *testing.T) {
@@ -3955,9 +4213,10 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		mq := &mockEngineQueue{
 			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 				run.ID = "jr-1"
-				if run.JobID != "job-root" {
-					t.Fatalf("unexpected job id: %s", run.JobID)
-				}
+				require.Equal(t,
+					"job-root",
+					run.JobID)
+
 				enqueueCalled = true
 				return nil
 			},
@@ -3979,15 +4238,14 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		engine := NewWorkflowEngine(engStore, mq, slog.Default())
 		cb := NewStepCallback(ms, engine, slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !enqueueCalled {
-			t.Fatal("expected step job to be enqueued")
-		}
-		if !engStepUpdated {
-			t.Fatal("expected engine to update step run status to running")
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			enqueueCalled,
+		)
+		require.True(t,
+			engStepUpdated,
+		)
 	})
 
 	t.Run("skips_terminal_steps", func(t *testing.T) {
@@ -4013,12 +4271,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if enqueueCalled {
-			t.Fatal("terminal step should not be enqueued")
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			enqueueCalled,
+		)
 	})
 
 	t.Run("skips_deps_not_met", func(t *testing.T) {
@@ -4044,12 +4301,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if enqueueCalled {
-			t.Fatal("step with unmet deps should not be enqueued")
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			enqueueCalled,
+		)
 	})
 
 	t.Run("respects_max_parallel_steps", func(t *testing.T) {
@@ -4081,12 +4337,11 @@ func TestStepCallback_ResumeWorkflowRun(t *testing.T) {
 		}}
 		cb := NewStepCallback(ms, NewWorkflowEngine(&mockEngineStore{}, mq, slog.Default()), slog.Default())
 		err := cb.ResumeWorkflowRun(context.Background(), "wr-1")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if enqueueCalled {
-			t.Fatal("should not start step when max_parallel_steps reached")
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			enqueueCalled,
+		)
 	})
 }
 
@@ -4097,30 +4352,37 @@ func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
 	stepRunningUpdated := false
 	ms := &mockCallbackStore{
 		incrementStepDepsFn: func(_ context.Context, workflowRunID, completedStepRef string) ([]store.StepDepResult, error) {
-			if workflowRunID != "wr-1" || completedStepRef != "a" {
-				t.Fatalf("unexpected increment args: workflowRunID=%s completedStepRef=%s", workflowRunID, completedStepRef)
-			}
+			require.False(t,
+				workflowRunID !=
+					"wr-1" ||
+					completedStepRef !=
+						"a")
+
 			return nil, nil
 		},
 		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
-			if id != "wr-1" {
-				t.Fatalf("workflow run id = %s, want wr-1", id)
-			}
+			require.Equal(t,
+				"wr-1", id,
+			)
+
 			return &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", WorkflowVersion: 1, ProjectID: "proj-1", Status: domain.WfStatusRunning}, nil
 		},
 		listStepsByWorkflowVerFn: func(_ context.Context, workflowID string, version int) ([]domain.WorkflowStep, error) {
-			if workflowID != "wf-1" || version != 1 {
-				t.Fatalf("unexpected workflow/version: %s/%d", workflowID, version)
-			}
+			require.False(t,
+				workflowID !=
+					"wf-1" || version !=
+					1)
+
 			return []domain.WorkflowStep{
 				{ID: "step-a", StepRef: "a", JobID: "job-a", ConcurrencyKey: "db"},
 				{ID: "step-b", StepRef: "b", JobID: "job-b", ConcurrencyKey: "db"},
 			}, nil
 		},
 		listStepRunsByWorkflowRun: func(_ context.Context, workflowRunID string, _ int, _ *time.Time) ([]domain.WorkflowStepRun, error) {
-			if workflowRunID != "wr-1" {
-				t.Fatalf("workflowRunID = %s, want wr-1", workflowRunID)
-			}
+			require.Equal(t,
+				"wr-1", workflowRunID,
+			)
+
 			return []domain.WorkflowStepRun{
 				{ID: "sr-a", WorkflowRunID: "wr-1", WorkflowStepID: "step-a", StepRef: "a", Status: domain.StepCompleted, DepsCompleted: 0, DepsRequired: 0},
 				{ID: "sr-b", WorkflowRunID: "wr-1", WorkflowStepID: "step-b", StepRef: "b", Status: domain.StepWaiting, DepsCompleted: 0, DepsRequired: 0},
@@ -4138,9 +4400,12 @@ func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
 	mq := &mockEngineQueue{enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 		enqueueCalled = true
 		run.ID = "jr-b"
-		if run.JobID != "job-b" || run.WorkflowStepRunID != "sr-b" {
-			t.Fatalf("unexpected enqueued run: %+v", run)
-		}
+		require.False(t,
+			run.JobID !=
+				"job-b" || run.
+				WorkflowStepRunID !=
+				"sr-b")
+
 		return nil
 	}}
 
@@ -4153,15 +4418,14 @@ func TestStepCallback_FanInStartsWaitingRootsWithoutDependents(t *testing.T) {
 		},
 	)
 	err := cb.fanInAndStartReadyChildren(context.Background(), &domain.WorkflowStepRun{ID: "sr-a", WorkflowRunID: "wr-1", StepRef: "a", Status: domain.StepCompleted}, wc)
-	if err != nil {
-		t.Fatalf("fanInAndStartReadyChildren() error = %v", err)
-	}
-	if !enqueueCalled {
-		t.Fatal("expected waiting root step to be enqueued")
-	}
-	if !stepRunningUpdated {
-		t.Fatal("expected waiting root step status to be moved to running")
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		enqueueCalled,
+	)
+	require.True(t,
+		stepRunningUpdated,
+	)
 }
 
 func TestRetryWorkflowRun(t *testing.T) {
@@ -4208,12 +4472,15 @@ func TestRetryWorkflowRun(t *testing.T) {
 			},
 			createWorkflowRunFn: func(_ context.Context, run *domain.WorkflowRun) error {
 				run.ID = "retry-run-1"
-				if run.RetryOfRunID != "orig-run-1" {
-					t.Fatalf("RetryOfRunID = %q, want orig-run-1", run.RetryOfRunID)
-				}
-				if run.TriggeredBy != domain.TriggerRetry {
-					t.Fatalf("TriggeredBy = %q, want retry", run.TriggeredBy)
-				}
+				require.Equal(t,
+					"orig-run-1",
+					run.RetryOfRunID,
+				)
+				require.Equal(t,
+					domain.TriggerRetry,
+					run.TriggeredBy,
+				)
+
 				return nil
 			},
 			updateWorkflowRunStatusFn: func(_ context.Context, _ string, _, _ domain.WorkflowRunStatus, _ map[string]any) error {
@@ -4242,52 +4509,65 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run-1")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t,
+			"retry-run-1",
+			newRun.ID)
+		require.Equal(t,
+			domain.WfStatusRunning,
+			newRun.
+				Status,
+		)
+		require.Equal(t,
+			"orig-run-1",
+			newRun.RetryOfRunID,
+		)
 
 		// Verify retry run properties.
-		if newRun.ID != "retry-run-1" {
-			t.Fatalf("new run ID = %q, want retry-run-1", newRun.ID)
-		}
-		if newRun.Status != domain.WfStatusRunning {
-			t.Fatalf("new run status = %q, want running", newRun.Status)
-		}
-		if newRun.RetryOfRunID != "orig-run-1" {
-			t.Fatalf("RetryOfRunID = %q, want orig-run-1", newRun.RetryOfRunID)
-		}
 
 		// Step a should be pre-completed (copied from original).
 		if sr, ok := stepRunsCreated["a"]; !ok {
-			t.Fatal("step run 'a' not created")
+			require.Fail(t,
+
+				"step run 'a' not created")
 		} else {
-			if sr.Status != domain.StepCompleted {
-				t.Fatalf("step a status = %q, want completed", sr.Status)
-			}
-			if string(sr.Output) != `{"result":"ok"}` {
-				t.Fatalf("step a output = %q, want original output", string(sr.Output))
-			}
+			require.Equal(t,
+				domain.StepCompleted,
+				sr.Status,
+			)
+			require.JSONEq(t,
+				`{"result":"ok"}`,
+				string(sr.Output))
 		}
 
 		// Step b should be fresh (was failed, now re-executed).
 		if sr, ok := stepRunsCreated["b"]; !ok {
-			t.Fatal("step run 'b' not created")
+			require.Fail(t,
+
+				"step run 'b' not created")
 		} else if sr.DepsCompleted != 1 || sr.DepsRequired != 1 {
-			// Step b deps are all complete (a is pre-completed), so it should be started.
-			t.Fatalf("step b deps: completed=%d required=%d, want 1/1", sr.DepsCompleted, sr.DepsRequired)
+			require.Failf(t, "test failure",
+
+				// Step b deps are all complete (a is pre-completed), so it should be started.
+				"step b deps: completed=%d required=%d, want 1/1", sr.DepsCompleted, sr.DepsRequired)
 		}
 
 		// Step c should be waiting (its dep b was not completed in original).
 		if sr, ok := stepRunsCreated["c"]; !ok {
-			t.Fatal("step run 'c' not created")
+			require.Fail(t,
+
+				"step run 'c' not created")
 		} else if sr.Status != domain.StepWaiting {
-			t.Fatalf("step c status = %q, want waiting", sr.Status)
+			require.Failf(t, "test failure",
+
+				"step c status = %q, want waiting", sr.Status)
 		}
+		require.False(t,
+			len(enqueuedJobs) != 1 || enqueuedJobs[0] !=
+				"job-b")
 
 		// Only job-b should be enqueued (step a pre-completed, step c waiting).
-		if len(enqueuedJobs) != 1 || enqueuedJobs[0] != "job-b" {
-			t.Fatalf("enqueued = %v, want [job-b]", enqueuedJobs)
-		}
 	})
 
 	t.Run("cannot retry non-terminal run", func(t *testing.T) {
@@ -4299,9 +4579,11 @@ func TestRetryWorkflowRun(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
-		if err == nil || !strings.Contains(err.Error(), "must be terminal") {
-			t.Fatalf("expected terminal state error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "must be terminal",
+		)
 	})
 
 	t.Run("cannot retry when workflow is disabled", func(t *testing.T) {
@@ -4318,9 +4600,10 @@ func TestRetryWorkflowRun(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
-		if err == nil || !strings.Contains(err.Error(), "disabled") {
-			t.Fatalf("expected disabled error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "disabled")
 	})
 
 	t.Run("retry run not found", func(t *testing.T) {
@@ -4332,9 +4615,10 @@ func TestRetryWorkflowRun(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "no-such-run")
-		if err == nil || !strings.Contains(err.Error(), "not found") {
-			t.Fatalf("expected not found error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "not found")
 	})
 
 	t.Run("retry all-completed run re-starts root steps", func(t *testing.T) {
@@ -4396,28 +4680,25 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
-		if newRun.ID != "retry-run" {
-			t.Fatalf("run ID = %q", newRun.ID)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t,
+			"retry-run",
+			newRun.ID)
 
 		// All steps completed in original — both should be pre-completed.
 		for _, ref := range []string{"a", "b"} {
 			sr, ok := stepRunsCreated[ref]
-			if !ok {
-				t.Fatalf("step %s not created", ref)
-			}
-			if sr.Status != domain.StepCompleted {
-				t.Fatalf("step %s status = %q, want completed", ref, sr.Status)
-			}
+			require.True(t,
+				ok)
+			require.Equal(t,
+				domain.StepCompleted,
+				sr.Status,
+			)
 		}
+		require.Equal(t, 0, enqueueCount)
 
 		// No new jobs should be enqueued since all steps were pre-completed.
-		if enqueueCount != 0 {
-			t.Fatalf("enqueueCount = %d, want 0", enqueueCount)
-		}
 	})
 
 	t.Run("retry respects max parallel steps", func(t *testing.T) {
@@ -4479,17 +4760,13 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
-		if newRun == nil {
-			t.Fatal("expected non-nil run")
-		}
+		require.NoError(
+			t, err)
+		require.NotNil(t,
+			newRun)
+		require.Equal(t, 1, enqueueCount)
 
 		// With max_parallel_steps=1, only 1 step should be enqueued.
-		if enqueueCount != 1 {
-			t.Fatalf("enqueueCount = %d, want 1 (max_parallel_steps=1)", enqueueCount)
-		}
 	})
 
 	t.Run("retry with timeout sets expires_at", func(t *testing.T) {
@@ -4542,12 +4819,13 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
-		if createdRun == nil || createdRun.ExpiresAt == nil {
-			t.Fatal("expected expires_at to be set for workflow with timeout")
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			createdRun ==
+				nil || createdRun.
+				ExpiresAt ==
+				nil)
 	})
 
 	t.Run("retry preserves original payload", func(t *testing.T) {
@@ -4601,12 +4879,12 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
-		if string(capturedPayload) != `{"env":"prod","batch_id":42}` {
-			t.Fatalf("payload = %q, want original payload", string(capturedPayload))
-		}
+		require.NoError(
+			t, err)
+		require.JSONEq(t,
+			`{"env":"prod","batch_id":42}`,
+
+			string(capturedPayload))
 	})
 
 	t.Run("retry canceled run with all steps completed", func(t *testing.T) {
@@ -4660,17 +4938,20 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		newRun, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
-		if newRun == nil {
-			t.Fatal("expected non-nil run")
-		}
+		require.NoError(
+			t, err)
+		require.NotNil(t,
+			newRun)
+
 		// Step a was completed, so should be pre-completed.
 		if sr, ok := stepRunsCreated["a"]; !ok {
-			t.Fatal("step a not created")
+			require.Fail(t,
+
+				"step a not created")
 		} else if sr.Status != domain.StepCompleted {
-			t.Fatalf("step a status = %q, want completed", sr.Status)
+			require.Failf(t, "test failure",
+
+				"step a status = %q, want completed", sr.Status)
 		}
 	})
 
@@ -4683,9 +4964,11 @@ func TestRetryWorkflowRun(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "run-1")
-		if err == nil || !strings.Contains(err.Error(), "database connection error") {
-			t.Fatalf("expected database error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "database connection error",
+		)
 	})
 
 	t.Run("retry with fan-out DAG: a->{b,c} where c failed", func(t *testing.T) {
@@ -4747,21 +5030,23 @@ func TestRetryWorkflowRun(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.RetryWorkflowRun(context.Background(), "orig-run")
-		if err != nil {
-			t.Fatalf("RetryWorkflowRun() error = %v", err)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t,
+			domain.StepCompleted,
+			stepRunsCreated["a"].Status,
+		)
+		require.Equal(t,
+			domain.StepCompleted,
+			stepRunsCreated["b"].Status,
+		)
+		require.False(t,
+			len(enqueuedJobs) != 1 || enqueuedJobs[0] !=
+				"job-c")
 
 		// Step a: pre-completed. Step b: pre-completed. Step c: re-executed.
-		if stepRunsCreated["a"].Status != domain.StepCompleted {
-			t.Fatalf("step a should be pre-completed")
-		}
-		if stepRunsCreated["b"].Status != domain.StepCompleted {
-			t.Fatalf("step b should be pre-completed")
-		}
+
 		// Only step c should be enqueued.
-		if len(enqueuedJobs) != 1 || enqueuedJobs[0] != "job-c" {
-			t.Fatalf("enqueued = %v, want [job-c]", enqueuedJobs)
-		}
 	})
 }
 
@@ -4800,18 +5085,21 @@ func TestTriggerSubWorkflow(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		wfRun, err := engine.TriggerSubWorkflow(context.Background(), "wf-child", "proj-1", json.RawMessage(`{"from":"parent"}`), domain.TriggerWorkflow, "parent-run-1", "")
-		if err != nil {
-			t.Fatalf("TriggerSubWorkflow() error = %v", err)
-		}
-		if wfRun == nil || wfRun.ID != "child-run-1" {
-			t.Fatalf("unexpected workflow run: %+v", wfRun)
-		}
-		if createdRun == nil {
-			t.Fatal("expected child workflow run to be created")
-		}
-		if createdRun.ParentWorkflowRunID != "parent-run-1" {
-			t.Fatalf("ParentWorkflowRunID = %q, want parent-run-1", createdRun.ParentWorkflowRunID)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			wfRun == nil ||
+				wfRun.ID !=
+					"child-run-1",
+		)
+		require.NotNil(t,
+			createdRun,
+		)
+		require.Equal(t,
+			"parent-run-1",
+			createdRun.
+				ParentWorkflowRunID,
+		)
 	})
 
 	t.Run("inherits project ID from parent", func(t *testing.T) {
@@ -4849,15 +5137,16 @@ func TestTriggerSubWorkflow(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-child", parentRun.ProjectID, json.RawMessage(`{"from":"parent"}`), domain.TriggerWorkflow, parentRun.ID, "")
-		if err != nil {
-			t.Fatalf("TriggerSubWorkflow() error = %v", err)
-		}
-		if createdRun == nil {
-			t.Fatal("expected child workflow run to be created")
-		}
-		if createdRun.ProjectID != parentRun.ProjectID {
-			t.Fatalf("ProjectID = %q, want %q", createdRun.ProjectID, parentRun.ProjectID)
-		}
+		require.NoError(
+			t, err)
+		require.NotNil(t,
+			createdRun,
+		)
+		require.Equal(t,
+			parentRun.
+				ProjectID, createdRun.
+				ProjectID,
+		)
 	})
 }
 
@@ -4928,15 +5217,14 @@ func TestStartSubWorkflowStep(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", json.RawMessage(`{"hello":"world"}`), "manual", nil, nil)
-		if err != nil {
-			t.Fatalf("TriggerWorkflow() error = %v", err)
-		}
-		if !stepRunningUpdated {
-			t.Fatal("expected sub-workflow step to be set running")
-		}
-		if !childTriggered {
-			t.Fatal("expected child sub-workflow trigger")
-		}
+		require.NoError(
+			t, err)
+		require.True(t,
+			stepRunningUpdated,
+		)
+		require.True(t,
+			childTriggered,
+		)
 	})
 
 	t.Run("fails when nesting depth exceeded", func(t *testing.T) {
@@ -4978,9 +5266,11 @@ func TestStartSubWorkflowStep(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "ancestor-run", "")
-		if err == nil || !strings.Contains(err.Error(), "nesting depth") {
-			t.Fatalf("expected nesting depth error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "nesting depth",
+		)
 	})
 
 	t.Run("fails when sub-workflow is disabled", func(t *testing.T) {
@@ -5024,9 +5314,10 @@ func TestStartSubWorkflowStep(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "disabled") {
-			t.Fatalf("expected disabled workflow error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "disabled")
 	})
 }
 
@@ -5072,9 +5363,8 @@ func TestGetNestingDepth(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, nil, nil)
-		if err != nil {
-			t.Fatalf("expected depth 0 to succeed, got %v", err)
-		}
+		require.NoError(
+			t, err)
 	})
 
 	t.Run("depth 1 for single parent", func(t *testing.T) {
@@ -5123,9 +5413,8 @@ func TestGetNestingDepth(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p1", "")
-		if err != nil {
-			t.Fatalf("expected depth 1 to succeed, got %v", err)
-		}
+		require.NoError(
+			t, err)
 	})
 
 	t.Run("depth 2 for nested chain", func(t *testing.T) {
@@ -5178,9 +5467,8 @@ func TestGetNestingDepth(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "p2", "")
-		if err != nil {
-			t.Fatalf("expected depth 2 to succeed, got %v", err)
-		}
+		require.NoError(
+			t, err)
 	})
 
 	t.Run("circular reference detected", func(t *testing.T) {
@@ -5225,9 +5513,10 @@ func TestGetNestingDepth(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "B", "")
-		if err == nil || !strings.Contains(err.Error(), "circular") {
-			t.Fatalf("expected circular reference error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "circular")
 	})
 
 	t.Run("parent not found returns depth so far", func(t *testing.T) {
@@ -5272,9 +5561,8 @@ func TestGetNestingDepth(t *testing.T) {
 
 		engine := NewWorkflowEngine(ms, mq, slog.Default())
 		_, err := engine.TriggerSubWorkflow(context.Background(), "wf-parent", "proj-1", nil, domain.TriggerWorkflow, "missing-parent", "")
-		if err != nil {
-			t.Fatalf("expected no error when parent not found, got %v", err)
-		}
+		require.NoError(
+			t, err)
 	})
 }
 
@@ -5284,12 +5572,9 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		t.Parallel()
 		engine := NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default())
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "run-a"})
-		if err != nil {
-			t.Fatalf("getNestingDepth() error = %v", err)
-		}
-		if depth != 0 {
-			t.Fatalf("depth = %d, want 0", depth)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 0, depth)
 	})
 
 	t.Run("single parent", func(t *testing.T) {
@@ -5304,12 +5589,9 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
-		if err != nil {
-			t.Fatalf("getNestingDepth() error = %v", err)
-		}
-		if depth != 1 {
-			t.Fatalf("depth = %d, want 1", depth)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, depth)
 	})
 
 	t.Run("three levels deep", func(t *testing.T) {
@@ -5328,12 +5610,9 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
-		if err != nil {
-			t.Fatalf("getNestingDepth() error = %v", err)
-		}
-		if depth != 2 {
-			t.Fatalf("depth = %d, want 2", depth)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 2, depth)
 	})
 
 	t.Run("circular reference", func(t *testing.T) {
@@ -5352,9 +5631,11 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "run-a", ParentWorkflowRunID: "run-b"})
-		if err == nil || !strings.Contains(err.Error(), "circular parent reference") {
-			t.Fatalf("expected circular parent reference error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "circular parent reference",
+		)
 	})
 
 	t.Run("parent not found", func(t *testing.T) {
@@ -5366,12 +5647,9 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		depth, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "missing"})
-		if err != nil {
-			t.Fatalf("getNestingDepth() error = %v", err)
-		}
-		if depth != 1 {
-			t.Fatalf("depth = %d, want 1", depth)
-		}
+		require.NoError(
+			t, err)
+		require.Equal(t, 1, depth)
 	})
 
 	t.Run("store error", func(t *testing.T) {
@@ -5383,9 +5661,8 @@ func TestGetNestingDepth_Direct(t *testing.T) {
 		}
 		engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 		_, err := engine.getNestingDepth(context.Background(), &domain.WorkflowRun{ID: "child", ParentWorkflowRunID: "parent"})
-		if err == nil {
-			t.Fatal("expected error")
-		}
+		require.Error(t,
+			err)
 	})
 }
 
@@ -5414,9 +5691,13 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			}, nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, id string, status domain.StepRunStatus, fields map[string]any) error {
-			if id == "sr-child-root" && status != domain.StepCompleted {
-				t.Fatalf("child step status = %s, want completed", status)
-			}
+			require.False(t,
+				id == "sr-child-root" &&
+					status !=
+						domain.
+							StepCompleted,
+			)
+
 			return nil
 		},
 		incrementStepDepsFn: func(_ context.Context, _ string, _ string) ([]store.StepDepResult, error) {
@@ -5483,9 +5764,17 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 			return nil, nil
 		},
 		createWorkflowProgressionEventFn: func(_ context.Context, workflowRunID, stepRunID, stepRef, status string) error {
-			if workflowRunID != "child-run-1" || stepRunID != "sr-child-root" || stepRef != "child-root" || status != string(domain.StepCompleted) {
-				t.Fatalf("unexpected progression event: %s %s %s %s", workflowRunID, stepRunID, stepRef, status)
-			}
+			require.False(t,
+				workflowRunID !=
+					"child-run-1" ||
+					stepRunID !=
+						"sr-child-root" ||
+					stepRef !=
+						"child-root" ||
+					status !=
+						string(domain.StepCompleted),
+			)
+
 			progressionCreated = true
 			return nil
 		},
@@ -5500,13 +5789,11 @@ func TestPropagateToParent_ChildCompleted(t *testing.T) {
 		Result:            json.RawMessage(`{"result":"ok"}`),
 		WorkflowStepRunID: "sr-child-root",
 	})
-	if err != nil {
-		t.Fatalf("OnJobRunTerminal() error = %v", err)
-	}
-
-	if !progressionCreated {
-		t.Fatal("expected progression event to be created")
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		progressionCreated,
+	)
 }
 
 func TestPropagateToParent_ChildFailed(t *testing.T) {
@@ -5619,19 +5906,17 @@ func TestPropagateToParent_ChildFailed(t *testing.T) {
 		Error:             "job failed",
 		WorkflowStepRunID: "sr-child-root",
 	})
-	if err != nil {
-		t.Fatalf("OnJobRunTerminal() error = %v", err)
-	}
-
-	if !childWfMarkedFailed {
-		t.Fatal("expected child workflow run to be marked failed")
-	}
-	if !parentStepFailed {
-		t.Fatal("expected parent step run to be marked failed")
-	}
-	if !parentWfMarkedFailed {
-		t.Fatal("expected parent workflow run to be marked failed")
-	}
+	require.NoError(
+		t, err)
+	require.True(t,
+		childWfMarkedFailed,
+	)
+	require.True(t,
+		parentStepFailed,
+	)
+	require.True(t,
+		parentWfMarkedFailed,
+	)
 }
 
 func TestPropagateToParent_NoParent(t *testing.T) {
@@ -5697,13 +5982,11 @@ func TestPropagateToParent_NoParent(t *testing.T) {
 		Result:            json.RawMessage(`{"ok":true}`),
 		WorkflowStepRunID: "sr-1",
 	})
-	if err != nil {
-		t.Fatalf("OnJobRunTerminal() error = %v", err)
-	}
-
-	if parentLookedUp {
-		t.Fatal("expected no parent lookup when ParentWorkflowRunID is empty")
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		parentLookedUp,
+	)
 }
 
 func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
@@ -5778,13 +6061,11 @@ func TestPropagateToParent_ParentAlreadyTerminal(t *testing.T) {
 		Result:            json.RawMessage(`{"ok":true}`),
 		WorkflowStepRunID: "sr-1",
 	})
-	if err != nil {
-		t.Fatalf("OnJobRunTerminal() error = %v", err)
-	}
-
-	if stepRunLookedUp {
-		t.Fatal("expected GetStepRunByWorkflowRunAndRef not to be called when parent is terminal")
-	}
+	require.NoError(
+		t, err)
+	require.False(t,
+		stepRunLookedUp,
+	)
 }
 
 func TestApplyStepOverrides(t *testing.T) {
@@ -5797,32 +6078,36 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 
 		gotNil, err := applyStepOverrides(steps, nil)
-		if err != nil {
-			t.Fatalf("applyStepOverrides() with nil overrides error = %v", err)
-		}
-		if len(gotNil) != len(steps) {
-			t.Fatalf("len(gotNil) = %d, want %d", len(gotNil), len(steps))
-		}
-		if gotNil[0].StepRef != "a" || gotNil[1].StepRef != "b" {
-			t.Fatalf("unexpected step refs with nil overrides: %v, %v", gotNil[0].StepRef, gotNil[1].StepRef)
-		}
-		if len(gotNil[1].DependsOn) != 1 || gotNil[1].DependsOn[0] != "a" {
-			t.Fatalf("unexpected depends_on with nil overrides: %+v", gotNil[1].DependsOn)
-		}
+		require.NoError(
+			t, err)
+		require.Len(t, gotNil,
+			len(
+				steps))
+		require.False(t,
+			gotNil[0].
+				StepRef != "a" ||
+				gotNil[1].
+					StepRef !=
+					"b")
+		require.False(t,
+			len(gotNil[1].DependsOn) !=
+				1 || gotNil[1].DependsOn[0] !=
+				"a")
 
 		gotEmpty, err := applyStepOverrides(steps, []domain.StepOverride{})
-		if err != nil {
-			t.Fatalf("applyStepOverrides() with empty overrides error = %v", err)
-		}
-		if len(gotEmpty) != len(steps) {
-			t.Fatalf("len(gotEmpty) = %d, want %d", len(gotEmpty), len(steps))
-		}
-		if gotEmpty[0].StepRef != "a" || gotEmpty[1].StepRef != "b" {
-			t.Fatalf("unexpected step refs with empty overrides: %v, %v", gotEmpty[0].StepRef, gotEmpty[1].StepRef)
-		}
-		if len(gotEmpty[1].DependsOn) != 1 || gotEmpty[1].DependsOn[0] != "a" {
-			t.Fatalf("unexpected depends_on with empty overrides: %+v", gotEmpty[1].DependsOn)
-		}
+		require.NoError(
+			t, err)
+		require.Len(t, gotEmpty,
+			len(steps))
+		require.False(t,
+			gotEmpty[0].StepRef != "a" ||
+				gotEmpty[1].StepRef !=
+					"b",
+		)
+		require.False(t,
+			len(gotEmpty[1].DependsOn) !=
+				1 || gotEmpty[1].DependsOn[0] != "a",
+		)
 	})
 
 	t.Run("disable one step", func(t *testing.T) {
@@ -5834,18 +6119,16 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 
 		got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
-		if err != nil {
-			t.Fatalf("applyStepOverrides() error = %v", err)
-		}
-		if len(got) != 2 {
-			t.Fatalf("len(got) = %d, want 2", len(got))
-		}
-		if got[0].StepRef != "a" || got[1].StepRef != "c" {
-			t.Fatalf("unexpected filtered step refs: %v, %v", got[0].StepRef, got[1].StepRef)
-		}
-		if len(got[1].DependsOn) != 0 {
-			t.Fatalf("expected c depends_on pruned, got %+v", got[1].DependsOn)
-		}
+		require.NoError(
+			t, err)
+		require.Len(t, got,
+			2)
+		require.False(t,
+			got[0].StepRef !=
+				"a" || got[1].StepRef !=
+				"c",
+		)
+		require.Empty(t, got[1].DependsOn)
 	})
 
 	t.Run("unknown step_ref returns error", func(t *testing.T) {
@@ -5855,9 +6138,11 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 
 		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: false}})
-		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
-			t.Fatalf("expected unknown step_ref error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "unknown step_ref",
+		)
 	})
 
 	t.Run("unknown enabled step_ref returns error", func(t *testing.T) {
@@ -5867,9 +6152,11 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 
 		_, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "nonexistent", Enabled: true}})
-		if err == nil || !strings.Contains(err.Error(), "unknown step_ref") {
-			t.Fatalf("expected unknown step_ref error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "unknown step_ref",
+		)
 	})
 
 	t.Run("all steps disabled returns error", func(t *testing.T) {
@@ -5883,9 +6170,11 @@ func TestApplyStepOverrides(t *testing.T) {
 			{StepRef: "a", Enabled: false},
 			{StepRef: "b", Enabled: false},
 		})
-		if err == nil || !strings.Contains(err.Error(), "all steps disabled") {
-			t.Fatalf("expected all steps disabled error, got %v", err)
-		}
+		require.Error(t,
+			err)
+		assert.Contains(
+			t, err.Error(), "all steps disabled",
+		)
 	})
 
 	t.Run("prunes depends_on for disabled step", func(t *testing.T) {
@@ -5897,18 +6186,18 @@ func TestApplyStepOverrides(t *testing.T) {
 		}
 
 		got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
-		if err != nil {
-			t.Fatalf("applyStepOverrides() error = %v", err)
-		}
-		if len(got) != 2 {
-			t.Fatalf("len(got) = %d, want 2", len(got))
-		}
-		if got[1].StepRef != "c" {
-			t.Fatalf("expected second step ref c, got %s", got[1].StepRef)
-		}
-		if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
-			t.Fatalf("expected c depends_on to be [a], got %+v", got[1].DependsOn)
-		}
+		require.NoError(
+			t, err)
+		require.Len(t, got,
+			2)
+		require.Equal(t,
+			"c", got[1].StepRef)
+		require.False(t,
+			len(got[1].
+				DependsOn) != 1 ||
+				got[1].
+					DependsOn[0] != "a",
+		)
 	})
 }
 
@@ -5993,18 +6282,21 @@ func TestApplyStepOverrides_DoesNotMutateInputDependsOn(t *testing.T) {
 	}
 
 	got, err := applyStepOverrides(steps, []domain.StepOverride{{StepRef: "b", Enabled: false}})
-	if err != nil {
-		t.Fatalf("applyStepOverrides() error = %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("len(got) = %d, want 2", len(got))
-	}
-	if len(got[1].DependsOn) != 1 || got[1].DependsOn[0] != "a" {
-		t.Fatalf("filtered c depends_on = %+v, want [a]", got[1].DependsOn)
-	}
-	if len(steps[2].DependsOn) != 2 || steps[2].DependsOn[0] != "a" || steps[2].DependsOn[1] != "b" {
-		t.Fatalf("input c depends_on mutated: %+v", steps[2].DependsOn)
-	}
+	require.NoError(
+		t, err)
+	require.Len(t, got,
+		2)
+	require.False(t,
+		len(got[1].
+			DependsOn) != 1 ||
+			got[1].
+				DependsOn[0] != "a",
+	)
+	require.False(t,
+		len(steps[2].DependsOn) !=
+			2 || steps[2].DependsOn[0] !=
+			"a" || steps[2].DependsOn[1] !=
+			"b")
 }
 
 func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
@@ -6037,9 +6329,10 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 				return nil
 			},
 			updateStepRunStatusFn: func(_ context.Context, id string, _ domain.StepRunStatus, _ map[string]any) error {
-				if id != "sr-a" {
-					t.Fatalf("unexpected step run status update for %s", id)
-				}
+				require.Equal(t,
+					"sr-a", id,
+				)
+
 				return nil
 			},
 		}
@@ -6048,12 +6341,14 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			enqueueFn: func(_ context.Context, run *domain.JobRun) error {
 				enqueueCount++
 				run.ID = "jr-a"
-				if run.JobID != "job-a" {
-					t.Fatalf("unexpected enqueued job id: %s", run.JobID)
-				}
-				if run.WorkflowStepRunID != "sr-a" {
-					t.Fatalf("unexpected enqueued workflow_step_run_id: %s", run.WorkflowStepRunID)
-				}
+				require.Equal(t,
+					"job-a", run.
+						JobID)
+				require.Equal(t,
+					"sr-a", run.
+						WorkflowStepRunID,
+				)
+
 				return nil
 			},
 		}
@@ -6068,18 +6363,20 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			[]domain.StepOverride{{StepRef: "b", Enabled: false}},
 			nil,
 		)
-		if err != nil {
-			t.Fatalf("TriggerWorkflow() error = %v", err)
-		}
-		if wfRun == nil || wfRun.ID != "wr-override" || wfRun.Status != domain.WfStatusRunning {
-			t.Fatalf("unexpected workflow run: %+v", wfRun)
-		}
-		if len(createdStepRefs) != 1 || createdStepRefs[0] != "a" {
-			t.Fatalf("created step refs = %+v, want [a]", createdStepRefs)
-		}
-		if enqueueCount != 1 {
-			t.Fatalf("enqueue count = %d, want 1", enqueueCount)
-		}
+		require.NoError(
+			t, err)
+		require.False(t,
+			wfRun == nil ||
+				wfRun.ID !=
+					"wr-override" ||
+				wfRun.Status !=
+					domain.
+						WfStatusRunning,
+		)
+		require.False(t,
+			len(createdStepRefs) != 1 ||
+				createdStepRefs[0] != "a")
+		require.Equal(t, 1, enqueueCount)
 	})
 
 	t.Run("unknown override step_ref returns error", func(t *testing.T) {
@@ -6109,15 +6406,13 @@ func TestTriggerWorkflowWithStepOverrides(t *testing.T) {
 			[]domain.StepOverride{{StepRef: "nonexistent", Enabled: false}},
 			nil,
 		)
-		if err == nil {
-			t.Fatal("expected error for unknown override step_ref")
-		}
-		if !strings.Contains(err.Error(), "unknown step_ref") {
-			t.Fatalf("expected unknown step_ref error, got %v", err)
-		}
-		if createWorkflowRunCalled {
-			t.Fatal("expected workflow run not to be created when overrides are invalid")
-		}
+		require.Error(t,
+			err)
+		require.Contains(t,
+			err.Error(), "unknown step_ref")
+		require.False(t,
+			createWorkflowRunCalled,
+		)
 	})
 }
 
@@ -6157,44 +6452,57 @@ func TestStartStep_WaitForEvent_CreatesEventTrigger(t *testing.T) {
 		ProjectID: "proj-1",
 		Payload:   json.RawMessage(`{}`),
 	}
+	require.NoError(
+		t, engine.startStep(context.
+			Background(), stepRun,
+			step,
+			wfRun, nil,
+		))
+	require.Equal(t,
+		domain.StepWaiting,
+		capturedStepStatus,
+	)
+	require.Equal(t,
+		domain.StepWaiting,
+		stepRun.
+			Status)
+	require.NotNil(t,
+		stepRun.StartedAt,
+	)
+	require.NotNil(t,
+		capturedTrigger,
+	)
+	require.Equal(t,
+		"aml-check:app-123",
+		capturedTrigger.
+			EventKey,
+	)
+	require.Equal(t,
+		"workflow_step",
+		capturedTrigger.
+			SourceType,
+	)
+	require.Equal(t,
+		"wr-1", capturedTrigger.
+			WorkflowRunID,
+	)
+	require.Equal(t,
+		"sr-1", capturedTrigger.
+			WorkflowStepRunID,
+	)
+	require.Equal(t,
+		domain.EventTriggerStatusWaiting,
 
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if capturedStepStatus != domain.StepWaiting {
-		t.Fatalf("step status = %s, want waiting", capturedStepStatus)
-	}
-	if stepRun.Status != domain.StepWaiting {
-		t.Fatalf("stepRun.Status = %s, want waiting", stepRun.Status)
-	}
-	if stepRun.StartedAt == nil {
-		t.Fatal("stepRun.StartedAt should be set")
-	}
-	if capturedTrigger == nil {
-		t.Fatal("expected event trigger to be created")
-	}
-	if capturedTrigger.EventKey != "aml-check:app-123" {
-		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml-check:app-123")
-	}
-	if capturedTrigger.SourceType != "workflow_step" {
-		t.Fatalf("source_type = %q, want %q", capturedTrigger.SourceType, "workflow_step")
-	}
-	if capturedTrigger.WorkflowRunID != "wr-1" {
-		t.Fatalf("workflow_run_id = %q, want %q", capturedTrigger.WorkflowRunID, "wr-1")
-	}
-	if capturedTrigger.WorkflowStepRunID != "sr-1" {
-		t.Fatalf("workflow_step_run_id = %q, want %q", capturedTrigger.WorkflowStepRunID, "sr-1")
-	}
-	if capturedTrigger.Status != domain.EventTriggerStatusWaiting {
-		t.Fatalf("status = %q, want %q", capturedTrigger.Status, domain.EventTriggerStatusWaiting)
-	}
-	if capturedTrigger.TimeoutSecs != 7200 {
-		t.Fatalf("timeout_secs = %d, want 7200", capturedTrigger.TimeoutSecs)
-	}
-	if capturedTrigger.ProjectID != "proj-1" {
-		t.Fatalf("project_id = %q, want %q", capturedTrigger.ProjectID, "proj-1")
-	}
+		capturedTrigger.
+			Status,
+	)
+	require.Equal(t, 7200, capturedTrigger.
+		TimeoutSecs,
+	)
+	require.Equal(t,
+		"proj-1",
+		capturedTrigger.ProjectID,
+	)
 }
 
 func TestStartStep_WaitForEvent_RendersTemplateKey(t *testing.T) {
@@ -6226,17 +6534,20 @@ func TestStartStep_WaitForEvent_RendersTemplateKey(t *testing.T) {
 		Payload:   json.RawMessage(`{"app_id":"app-456"}`),
 	}
 	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_aml"}
-
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if capturedTrigger == nil {
-		t.Fatal("expected event trigger to be created")
-	}
-	if capturedTrigger.EventKey != "aml:app-456" {
-		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml:app-456")
-	}
+	require.NoError(
+		t, engine.startStep(context.
+			Background(), stepRun,
+			step,
+			wfRun, nil,
+		))
+	require.NotNil(t,
+		capturedTrigger,
+	)
+	require.Equal(t,
+		"aml:app-456",
+		capturedTrigger.
+			EventKey,
+	)
 }
 
 func TestStartStep_WaitForEvent_DefaultTimeout(t *testing.T) {
@@ -6264,14 +6575,18 @@ func TestStartStep_WaitForEvent_DefaultTimeout(t *testing.T) {
 	}
 	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1", Payload: json.RawMessage(`{}`)}
 	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
+	require.NoError(
+		t, engine.startStep(context.
+			Background(), stepRun,
+			step,
+			wfRun, nil,
+		))
+	require.Equal(t,
+		domain.DefaultEventTimeoutSecs,
 
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if capturedTrigger.TimeoutSecs != domain.DefaultEventTimeoutSecs {
-		t.Fatalf("timeout_secs = %d, want %d", capturedTrigger.TimeoutSecs, domain.DefaultEventTimeoutSecs)
-	}
+		capturedTrigger.
+			TimeoutSecs,
+	)
 }
 
 func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
@@ -6297,12 +6612,10 @@ func TestStartStep_WaitForEvent_StoreError(t *testing.T) {
 	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "create event trigger") {
-		t.Fatalf("expected 'create event trigger' error, got: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "create event trigger")
 }
 
 func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
@@ -6327,16 +6640,15 @@ func TestStartStep_WaitForEvent_EmptyEventKey(t *testing.T) {
 	stepRun := &domain.WorkflowStepRun{ID: "sr-1", WorkflowRunID: "wr-1", StepRef: "wait_step"}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err == nil {
-		t.Fatal("expected error for empty event key")
-	}
-	if !strings.Contains(err.Error(), "event_key is empty") {
-		t.Fatalf("expected 'event_key is empty' error, got: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "event_key is empty")
+	require.False(t,
+		stepStatusUpdated,
+	)
+
 	// Step status should NOT have been updated — fail fast before DB writes.
-	if stepStatusUpdated {
-		t.Fatal("step status should not be updated when event key is empty")
-	}
 }
 
 func TestTriggerWorkflow_WaitForEventStep_RootStep(t *testing.T) {
@@ -6388,21 +6700,21 @@ func TestTriggerWorkflow_WaitForEventStep_RootStep(t *testing.T) {
 		nil,
 		nil,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wfRun == nil {
-		t.Fatal("expected workflow run")
-	}
-	if capturedTrigger == nil {
-		t.Fatal("expected event trigger to be created")
-	}
-	if capturedTrigger.EventKey != "aml-check:app-789" {
-		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "aml-check:app-789")
-	}
-	if capturedTrigger.TimeoutSecs != 86400 {
-		t.Fatalf("timeout_secs = %d, want 86400", capturedTrigger.TimeoutSecs)
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		wfRun)
+	require.NotNil(t,
+		capturedTrigger,
+	)
+	require.Equal(t,
+		"aml-check:app-789",
+		capturedTrigger.
+			EventKey,
+	)
+	require.Equal(t, 86400, capturedTrigger.
+		TimeoutSecs,
+	)
 }
 
 func TestStartStep_Approval_CreatesParallelEventTrigger(t *testing.T) {
@@ -6444,26 +6756,31 @@ func TestStartStep_Approval_CreatesParallelEventTrigger(t *testing.T) {
 		ProjectID: "proj-1",
 		Payload:   json.RawMessage(`{}`),
 	}
+	require.NoError(
+		t, engine.startStep(context.
+			Background(), stepRun,
+			step,
+			wfRun, nil,
+		))
+	require.NotNil(t,
+		capturedApproval,
+	)
+	require.NotNil(t,
+		capturedTrigger,
+	)
+	require.Equal(t,
+		"approval:wr-1:approval_step",
 
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if capturedApproval == nil {
-		t.Fatal("expected approval to be created")
-	}
-	if capturedTrigger == nil {
-		t.Fatal("expected parallel event trigger to be created")
-	}
-	if capturedTrigger.EventKey != "approval:wr-1:approval_step" {
-		t.Fatalf("event_key = %q, want %q", capturedTrigger.EventKey, "approval:wr-1:approval_step")
-	}
-	if capturedTrigger.SourceType != "workflow_step" {
-		t.Fatalf("source_type = %q, want %q", capturedTrigger.SourceType, "workflow_step")
-	}
-	if capturedTrigger.TimeoutSecs != 86400 {
-		t.Fatalf("timeout_secs = %d, want 86400", capturedTrigger.TimeoutSecs)
-	}
+		capturedTrigger.
+			EventKey)
+	require.Equal(t,
+		"workflow_step",
+		capturedTrigger.
+			SourceType,
+	)
+	require.Equal(t, 86400, capturedTrigger.
+		TimeoutSecs,
+	)
 }
 
 func TestStartStep_Approval_EventTriggerFailureNonFatal(t *testing.T) {
@@ -6502,18 +6819,21 @@ func TestStartStep_Approval_EventTriggerFailureNonFatal(t *testing.T) {
 		ProjectID: "proj-1",
 		Payload:   json.RawMessage(`{}`),
 	}
+	require.NoError(
+		t, engine.startStep(context.
+			Background(), stepRun,
+			step,
+			wfRun, nil,
+		))
+	require.True(t,
+		approvalCreated,
+	)
+	require.Equal(t,
+		domain.StepWaiting,
+		stepRun.
+			Status)
 
 	// Should not error even though event trigger creation fails.
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !approvalCreated {
-		t.Fatal("approval should still be created")
-	}
-	if stepRun.Status != domain.StepWaiting {
-		t.Fatalf("step status = %s, want waiting", stepRun.Status)
-	}
 }
 
 func TestApproveStep_SyncsEventTrigger(t *testing.T) {
@@ -6586,13 +6906,15 @@ func TestApproveStep_SyncsEventTrigger(t *testing.T) {
 	}
 
 	cb := NewStepCallback(ms, nil, slog.Default())
-	if err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !triggerSynced {
-		t.Fatal("expected parallel event trigger to be synced to received")
-	}
+	require.NoError(
+		t, cb.ApproveStep(context.Background(),
+			"wr-1",
+			"approval_step",
+			"admin@example.com",
+		))
+	require.True(t,
+		triggerSynced,
+	)
 }
 
 func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
@@ -6652,9 +6974,8 @@ func TestApproveStep_NoEventTrigger_StillSucceeds(t *testing.T) {
 
 	cb := NewStepCallback(ms, nil, slog.Default())
 	err := cb.ApproveStep(context.Background(), "wr-1", "approval_step", "admin@example.com")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
@@ -6683,22 +7004,21 @@ func TestStartStep_Sleep_CreatesTrigger(t *testing.T) {
 	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if captured == nil {
-		t.Fatal("expected event trigger to be created")
-	}
-	if captured.TriggerType != domain.TriggerTypeSleep {
-		t.Fatalf("expected trigger_type=sleep, got %s", captured.TriggerType)
-	}
-	if captured.TimeoutSecs != 300 {
-		t.Fatalf("expected timeout=300, got %d", captured.TimeoutSecs)
-	}
-	if stepRun.Status != domain.StepWaiting {
-		t.Fatalf("expected step status=waiting, got %s", stepRun.Status)
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		captured)
+	require.Equal(t,
+		domain.TriggerTypeSleep,
+		captured.
+			TriggerType,
+	)
+	require.Equal(t, 300, captured.
+		TimeoutSecs)
+	require.Equal(t,
+		domain.StepWaiting,
+		stepRun.
+			Status)
 }
 
 func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
@@ -6706,11 +7026,15 @@ func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
 
 	ms := &mockEngineStore{
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, _ map[string]any) error {
-			t.Fatal("oversized sleep step must not update step status")
+			require.Fail(t,
+
+				"oversized sleep step must not update step status")
 			return nil
 		},
 		createEventTriggerFn: func(_ context.Context, _ *domain.EventTrigger) error {
-			t.Fatal("oversized sleep step must not create an event trigger")
+			require.Fail(t,
+
+				"oversized sleep step must not create an event trigger")
 			return nil
 		},
 	}
@@ -6725,12 +7049,10 @@ func TestStartStep_Sleep_RejectsDurationAboveCap(t *testing.T) {
 	wfRun := &domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"}
 
 	err := engine.startStep(context.Background(), stepRun, step, wfRun, nil)
-	if err == nil {
-		t.Fatal("expected oversized sleep duration error")
-	}
-	if !strings.Contains(err.Error(), "exceeds maximum") {
-		t.Fatalf("expected sleep duration cap error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.Error(), "exceeds maximum")
 }
 
 // Scheduling semantics regression tests.
@@ -6748,9 +7070,9 @@ func TestEffectiveResourceClass(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := effectiveResourceClass(tt.input)
-		if got != tt.want {
-			t.Errorf("effectiveResourceClass(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+		assert.Equal(t,
+			tt.want, got,
+		)
 	}
 }
 
@@ -6761,68 +7083,76 @@ func TestHasResourceClassCapacity(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{}
 		for _, class := range []string{"small", "medium", "large", ""} {
-			if !hasResourceClassCapacity(running, class) {
-				t.Errorf("expected capacity for class %q with empty running", class)
-			}
+			assert.True(t, hasResourceClassCapacity(running,
+				class,
+			))
 		}
 	})
 
 	t.Run("small limit 50", func(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{"small": 49}
-		if !hasResourceClassCapacity(running, "small") {
-			t.Error("expected capacity at 49/50 small")
-		}
+		assert.True(t, hasResourceClassCapacity(running,
+			"small",
+		))
+
 		running["small"] = 50
-		if hasResourceClassCapacity(running, "small") {
-			t.Error("expected no capacity at 50/50 small")
-		}
+		assert.False(t,
+			hasResourceClassCapacity(running,
+				"small",
+			))
 	})
 
 	t.Run("medium limit 20", func(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{"medium": 19}
-		if !hasResourceClassCapacity(running, "medium") {
-			t.Error("expected capacity at 19/20 medium")
-		}
+		assert.True(t, hasResourceClassCapacity(running,
+			"medium",
+		))
+
 		running["medium"] = 20
-		if hasResourceClassCapacity(running, "medium") {
-			t.Error("expected no capacity at 20/20 medium")
-		}
+		assert.False(t,
+			hasResourceClassCapacity(running,
+				"medium",
+			))
 	})
 
 	t.Run("large limit 5", func(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{"large": 4}
-		if !hasResourceClassCapacity(running, "large") {
-			t.Error("expected capacity at 4/5 large")
-		}
+		assert.True(t, hasResourceClassCapacity(running,
+			"large",
+		))
+
 		running["large"] = 5
-		if hasResourceClassCapacity(running, "large") {
-			t.Error("expected no capacity at 5/5 large")
-		}
+		assert.False(t,
+			hasResourceClassCapacity(running,
+				"large",
+			))
 	})
 
 	t.Run("unknown class falls back to small limit", func(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{"small": 50}
-		if hasResourceClassCapacity(running, "unknown") {
-			t.Error("unknown class should fall back to small and be blocked at 50")
-		}
+		assert.False(t,
+			hasResourceClassCapacity(running,
+				"unknown",
+			))
 	})
 
 	t.Run("classes are independent", func(t *testing.T) {
 		t.Parallel()
 		running := map[string]int{"small": 50, "medium": 0, "large": 0}
-		if hasResourceClassCapacity(running, "small") {
-			t.Error("small should be blocked")
-		}
-		if !hasResourceClassCapacity(running, "medium") {
-			t.Error("medium should NOT be blocked by full small")
-		}
-		if !hasResourceClassCapacity(running, "large") {
-			t.Error("large should NOT be blocked by full small")
-		}
+		assert.False(t,
+			hasResourceClassCapacity(running,
+				"small",
+			))
+		assert.True(t, hasResourceClassCapacity(running,
+			"medium",
+		))
+		assert.True(t, hasResourceClassCapacity(running,
+			"large",
+		))
 	})
 }
 
@@ -6909,9 +7239,8 @@ func TestScheduleRunnableSteps_ConcurrencyKeySerialization(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableStepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	// Only one should have transitioned to running since they share a concurrency key.
 	runningCount := 0
@@ -6920,9 +7249,8 @@ func TestScheduleRunnableSteps_ConcurrencyKeySerialization(t *testing.T) {
 			runningCount++
 		}
 	}
-	if runningCount > 1 {
-		t.Fatalf("expected at most 1 running step with same concurrency_key, got %d", runningCount)
-	}
+	require.LessOrEqual(t, runningCount,
+		1)
 }
 
 func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
@@ -6977,9 +7305,8 @@ func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableStepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(
+		t, err)
 
 	runningCount := 0
 	for _, s := range statuses {
@@ -6987,9 +7314,8 @@ func TestScheduleRunnableSteps_MaxParallelSteps(t *testing.T) {
 			runningCount++
 		}
 	}
-	if runningCount > 1 {
-		t.Fatalf("expected at most 1 running step with max_parallel_steps=1, got %d", runningCount)
-	}
+	require.LessOrEqual(t, runningCount,
+		1)
 }
 
 func TestEnqueueApprovalNotification_CreatesDeliveries(t *testing.T) {
@@ -7012,17 +7338,19 @@ func TestEnqueueApprovalNotification_CreatesDeliveries(t *testing.T) {
 	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalCompleted, map[string]any{
 		"approval_id": "appr-1",
 	})
+	require.Len(t, deliveries,
 
-	if len(deliveries) != 2 {
-		t.Fatalf("expected 2 deliveries, got %d", len(deliveries))
-	}
+		2)
+
 	for _, d := range deliveries {
-		if d.EventType != domain.NotificationEventApprovalCompleted {
-			t.Errorf("expected event type %s, got %s", domain.NotificationEventApprovalCompleted, d.EventType)
-		}
-		if d.ProjectID != "proj-1" {
-			t.Errorf("expected project_id proj-1, got %s", d.ProjectID)
-		}
+		assert.Equal(t,
+			domain.NotificationEventApprovalCompleted,
+
+			d.
+				EventType)
+		assert.Equal(t,
+			"proj-1", d.
+				ProjectID)
 	}
 }
 
@@ -7041,10 +7369,9 @@ func TestEnqueueApprovalNotification_NoChannels(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalExpired, map[string]any{})
-
-	if deliveryCalled {
-		t.Fatal("expected no deliveries when no channels")
-	}
+	require.False(t,
+		deliveryCalled,
+	)
 }
 
 func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
@@ -7062,10 +7389,9 @@ func TestEnqueueApprovalNotification_StoreError(t *testing.T) {
 
 	engine := NewWorkflowEngine(ms, &mockEngineQueue{}, slog.Default())
 	engine.enqueueApprovalNotification(context.Background(), "proj-1", domain.NotificationEventApprovalExpired, map[string]any{})
-
-	if deliveryCalled {
-		t.Fatal("expected no deliveries on store error")
-	}
+	require.False(t,
+		deliveryCalled,
+	)
 }
 
 // 4f. Workflow engine trace capture.
@@ -7132,19 +7458,17 @@ func TestTriggerWorkflow_CapturesTraceContext(t *testing.T) {
 	defer span.End()
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+
 	tp, ok := capturedRun.TraceContext["traceparent"]
-	if !ok {
-		t.Fatal("traceparent not found in TraceContext")
-	}
-	if !strings.Contains(tp, inputTraceID) {
-		t.Fatalf("traceparent %q does not contain input trace ID %s", tp, inputTraceID)
-	}
+	require.True(t,
+		ok)
+	require.Contains(t,
+		tp, inputTraceID)
 }
 
 func TestTriggerWorkflow_CapturesTraceState(t *testing.T) {
@@ -7175,19 +7499,18 @@ func TestTriggerWorkflow_CapturesTraceState(t *testing.T) {
 	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+
 	tsVal, ok := capturedRun.TraceContext["tracestate"]
-	if !ok {
-		t.Fatal("tracestate not found in TraceContext")
-	}
-	if tsVal != "vendor=opaque" {
-		t.Fatalf("tracestate = %q, want %q", tsVal, "vendor=opaque")
-	}
+	require.True(t,
+		ok)
+	require.Equal(t,
+		"vendor=opaque",
+		tsVal)
 }
 
 func TestTriggerWorkflow_NoActiveSpan(t *testing.T) {
@@ -7207,15 +7530,14 @@ func TestTriggerWorkflow_NoActiveSpan(t *testing.T) {
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
-	if capturedRun.TraceContext != nil {
-		t.Fatalf("expected nil TraceContext with no active span, got %v", capturedRun.TraceContext)
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+	require.Nil(t, capturedRun.
+		TraceContext,
+	)
 }
 
 func TestTriggerWorkflow_TraceparentFormat(t *testing.T) {
@@ -7237,18 +7559,17 @@ func TestTriggerWorkflow_TraceparentFormat(t *testing.T) {
 	defer span.End()
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+
 	tp := capturedRun.TraceContext["traceparent"]
 	pattern := `^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`
 	matched, _ := regexp.MatchString(pattern, tp)
-	if !matched {
-		t.Fatalf("traceparent %q does not match W3C format %s", tp, pattern)
-	}
+	require.True(t,
+		matched)
 }
 
 func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
@@ -7275,12 +7596,9 @@ func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
 	}
 	tsStr := strings.Join(parts, ",")
 	ts, tsErr := otelTrace.ParseTraceState(tsStr)
-	if tsErr != nil {
-		t.Fatalf("failed to parse trace state: %v", tsErr)
-	}
-	if len(ts.String()) <= 512 {
-		t.Fatalf("tracestate length = %d, need > 512", len(ts.String()))
-	}
+	require.NoError(t, tsErr)
+	require.Greater(t,
+		len(ts.String()), 512)
 
 	traceID := otelTrace.TraceID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
 	spanID := otelTrace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18}
@@ -7294,14 +7612,16 @@ func TestTriggerWorkflow_TraceStateTruncation(t *testing.T) {
 	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+
 	if _, ok := capturedRun.TraceContext["tracestate"]; ok {
-		t.Fatalf("tracestate should be omitted when length exceeds 512, got length %d", len(capturedRun.TraceContext["tracestate"]))
+		require.Failf(t, "test failure",
+
+			"tracestate should be omitted when length exceeds 512, got length %d", len(capturedRun.TraceContext["tracestate"]))
 	}
 }
 
@@ -7323,12 +7643,10 @@ func TestTriggerWorkflow_TraceStateExactly512(t *testing.T) {
 	// Use two members: "aa=<v1>,bb=<v2>" -- "aa=" (3) + v1(250) + "," (1) + "bb=" (3) + v2(255) = 512.
 	tsStr := fmt.Sprintf("aa=%s,bb=%s", strings.Repeat("x", 250), strings.Repeat("y", 255))
 	ts, tsErr := otelTrace.ParseTraceState(tsStr)
-	if tsErr != nil {
-		t.Fatalf("failed to parse trace state: %v", tsErr)
-	}
-	if len(ts.String()) != 512 {
-		t.Fatalf("tracestate length = %d, want 512 (adjust padding)", len(ts.String()))
-	}
+	require.NoError(t, tsErr)
+	require.Len(t, ts.
+		String(),
+		512)
 
 	traceID := otelTrace.TraceID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30}
 	spanID := otelTrace.SpanID{0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28}
@@ -7342,19 +7660,17 @@ func TestTriggerWorkflow_TraceStateExactly512(t *testing.T) {
 	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedRun == nil {
-		t.Fatal("expected captured workflow run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedRun,
+	)
+
 	tsVal, ok := capturedRun.TraceContext["tracestate"]
-	if !ok {
-		t.Fatal("tracestate should be present when length is exactly 512")
-	}
-	if len(tsVal) != 512 {
-		t.Fatalf("tracestate length = %d, want 512", len(tsVal))
-	}
+	require.True(t,
+		ok)
+	require.Len(t, tsVal,
+		512)
 }
 
 // 4g. Workflow step trace propagation.
@@ -7389,33 +7705,31 @@ func TestStartStep_PropagatesTraceContext(t *testing.T) {
 	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
 
 	wfRun, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedJobRun == nil {
-		t.Fatal("expected job run to be enqueued")
-	}
-	if capturedJobRun.Metadata == nil {
-		t.Fatal("expected Metadata to be set on enqueued job run")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedJobRun,
+	)
+	require.NotNil(t,
+		capturedJobRun.
+			Metadata)
 
 	tp, ok := capturedJobRun.Metadata["_trace_parent"]
-	if !ok {
-		t.Fatal("_trace_parent not found in job run metadata")
-	}
+	require.True(t,
+		ok)
+
 	wfTP := wfRun.TraceContext["traceparent"]
-	if tp != wfTP {
-		t.Fatalf("_trace_parent = %q, want %q (from workflow run)", tp, wfTP)
-	}
+	require.Equal(t,
+		wfTP, tp)
 
 	tsVal, ok := capturedJobRun.Metadata["_trace_state"]
-	if !ok {
-		t.Fatal("_trace_state not found in job run metadata")
-	}
+	require.True(t,
+		ok)
+
 	wfTS := wfRun.TraceContext["tracestate"]
-	if tsVal != wfTS {
-		t.Fatalf("_trace_state = %q, want %q", tsVal, wfTS)
-	}
+	require.Equal(t,
+		wfTS, tsVal,
+	)
 }
 
 func TestStartStep_NoTraceContext(t *testing.T) {
@@ -7435,17 +7749,21 @@ func TestStartStep_NoTraceContext(t *testing.T) {
 	engine := NewWorkflowEngine(ms, mq, slog.Default())
 
 	_, err := engine.TriggerWorkflow(context.Background(), "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedJobRun == nil {
-		t.Fatal("expected job run to be enqueued")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedJobRun,
+	)
+
 	if _, ok := capturedJobRun.Metadata["_trace_parent"]; ok {
-		t.Fatal("_trace_parent should not be present when no trace context exists")
+		require.Fail(t,
+
+			"_trace_parent should not be present when no trace context exists")
 	}
 	if _, ok := capturedJobRun.Metadata["_trace_state"]; ok {
-		t.Fatal("_trace_state should not be present when no trace context exists")
+		require.Fail(t,
+
+			"_trace_state should not be present when no trace context exists")
 	}
 }
 
@@ -7476,17 +7794,21 @@ func TestStartStep_OnlyTraceparent(t *testing.T) {
 	ctx := otelTrace.ContextWithRemoteSpanContext(context.Background(), sc)
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if capturedJobRun == nil {
-		t.Fatal("expected job run to be enqueued")
-	}
+	require.NoError(
+		t, err)
+	require.NotNil(t,
+		capturedJobRun,
+	)
+
 	if _, ok := capturedJobRun.Metadata["_trace_parent"]; !ok {
-		t.Fatal("_trace_parent should be present")
+		require.Fail(t,
+
+			"_trace_parent should be present")
 	}
 	if _, ok := capturedJobRun.Metadata["_trace_state"]; ok {
-		t.Fatal("_trace_state should not be present when tracestate is empty")
+		require.Fail(t,
+
+			"_trace_state should not be present when tracestate is empty")
 	}
 }
 
@@ -7535,21 +7857,19 @@ func TestStartStep_MultipleSteps_SameTraceID(t *testing.T) {
 	defer span.End()
 
 	_, err := engine.TriggerWorkflow(ctx, "wf-1", "proj-1", nil, "manual", nil, nil)
-	if err != nil {
-		t.Fatalf("TriggerWorkflow() error = %v", err)
-	}
-	if len(capturedJobRuns) != 3 {
-		t.Fatalf("expected 3 enqueued job runs, got %d", len(capturedJobRuns))
-	}
+	require.NoError(
+		t, err)
+	require.Len(t, capturedJobRuns,
+
+		3)
 
 	firstTP := capturedJobRuns[0].Metadata["_trace_parent"]
-	if firstTP == "" {
-		t.Fatal("first job run missing _trace_parent")
-	}
-	for i, jr := range capturedJobRuns[1:] {
+	require.NotEmpty(t, firstTP)
+
+	for _, jr := range capturedJobRuns[1:] {
 		tp := jr.Metadata["_trace_parent"]
-		if tp != firstTP {
-			t.Fatalf("job run %d _trace_parent = %q, want %q (same as first)", i+1, tp, firstTP)
-		}
+		require.Equal(t,
+			firstTP, tp,
+		)
 	}
 }

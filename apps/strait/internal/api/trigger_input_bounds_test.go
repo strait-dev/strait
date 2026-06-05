@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newTriggerBoundsTestServer(t *testing.T) *Server {
@@ -37,10 +39,11 @@ func TestTrigger_TTLSecsRejectsOverflow(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"ttl_secs":10000000000}`
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body, "proj-1"))
-
-	if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 400/422: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code !=
+		http.StatusBadRequest &&
+		w.Code !=
+			http.StatusUnprocessableEntity,
+	)
 }
 
 func TestTrigger_TTLSecsAcceptsBoundary(t *testing.T) {
@@ -49,15 +52,16 @@ func TestTrigger_TTLSecsAcceptsBoundary(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"ttl_secs":2592000}`, "proj-1"))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("boundary 2592000 status = %d, want 201: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 
 	w2 := httptest.NewRecorder()
 	srv.ServeHTTP(w2, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"ttl_secs":2592001}`, "proj-1"))
-	if w2.Code != http.StatusBadRequest && w2.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("just-over status = %d, want 400/422: %s", w2.Code, w2.Body.String())
-	}
+	require.False(t, w2.Code !=
+		http.StatusBadRequest &&
+		w2.Code !=
+			http.
+				StatusUnprocessableEntity)
 }
 
 func TestTrigger_KeysRejectOversize(t *testing.T) {
@@ -75,9 +79,11 @@ func TestTrigger_KeysRejectOversize(t *testing.T) {
 			t.Parallel()
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body, "proj-1"))
-			if w.Code != http.StatusBadRequest && w.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("%s 257-byte status = %d, want 400/422: %s", name, w.Code, w.Body.String())
-			}
+			require.False(t, w.Code !=
+				http.StatusBadRequest &&
+				w.Code !=
+					http.StatusUnprocessableEntity,
+			)
 		})
 	}
 }
@@ -89,9 +95,8 @@ func TestTrigger_KeysAcceptBoundary(t *testing.T) {
 	atSize := strings.Repeat("a", 256)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/job-1/trigger", `{"concurrency_key":"`+atSize+`"}`, "proj-1"))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("256-byte concurrency_key status = %d, want 201: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 }
 
 func TestTrigger_TraceparentHeaderRejectsOversize(t *testing.T) {
@@ -102,12 +107,11 @@ func TestTrigger_TraceparentHeaderRejectsOversize(t *testing.T) {
 	r.Header.Set("Traceparent", strings.Repeat("a", 257))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("oversize traceparent status = %d, want 400: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "traceparent") {
-		t.Fatalf("body = %q, want traceparent error", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.String(), "traceparent")
 }
 
 func TestTrigger_TracestateHeaderRejectsOversize(t *testing.T) {
@@ -118,12 +122,11 @@ func TestTrigger_TracestateHeaderRejectsOversize(t *testing.T) {
 	r.Header.Set("Tracestate", strings.Repeat("a", 8193))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("oversize tracestate status = %d, want 400: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "tracestate") {
-		t.Fatalf("body = %q, want tracestate error", w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.String(), "tracestate")
 }
 
 func TestTrigger_SentryTraceAndBaggageHeadersRejectOversize(t *testing.T) {
@@ -144,12 +147,11 @@ func TestTrigger_SentryTraceAndBaggageHeadersRejectOversize(t *testing.T) {
 			r.Header.Set(tc.header, strings.Repeat("a", tc.size))
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
-			}
-			if !strings.Contains(w.Body.String(), tc.want) {
-				t.Fatalf("body = %q, want %s in error", w.Body.String(), tc.want)
-			}
+			require.Equal(t, http.StatusBadRequest,
+				w.Code,
+			)
+			require.Contains(
+				t, w.Body.String(), tc.want)
 		})
 	}
 }
@@ -165,9 +167,8 @@ func TestTrigger_TraceHeadersAcceptBoundary(t *testing.T) {
 	r.Header.Set("Baggage", strings.Repeat("a", 8192))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("at-boundary status = %d, want 201: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code)
 }
 
 func TestApplyRunTraceHeaderMetadata_TruncatesOversizeValues(t *testing.T) {
@@ -177,17 +178,12 @@ func TestApplyRunTraceHeaderMetadata_TruncatesOversizeValues(t *testing.T) {
 	tooLongOther := strings.Repeat("x", 9000)
 
 	got := applyRunTraceHeaderMetadata(nil, tooLongTraceparent, tooLongOther, tooLongOther, tooLongOther)
-
-	if l := len(got[domain.RunMetadataTraceParent]); l != maxTraceparentLen {
-		t.Fatalf("traceparent len = %d, want %d", l, maxTraceparentLen)
-	}
-	if l := len(got[domain.RunMetadataTraceState]); l != maxTraceHeaderLen {
-		t.Fatalf("tracestate len = %d, want %d", l, maxTraceHeaderLen)
-	}
-	if l := len(got[domain.RunMetadataSentryTrace]); l != maxTraceHeaderLen {
-		t.Fatalf("sentry-trace len = %d, want %d", l, maxTraceHeaderLen)
-	}
-	if l := len(got[domain.RunMetadataSentryBaggage]); l != maxTraceHeaderLen {
-		t.Fatalf("baggage len = %d, want %d", l, maxTraceHeaderLen)
-	}
+	require.Len(t, got[domain.
+		RunMetadataTraceParent], maxTraceparentLen)
+	require.Len(t, got[domain.
+		RunMetadataTraceState], maxTraceHeaderLen)
+	require.Len(t, got[domain.
+		RunMetadataSentryTrace], maxTraceHeaderLen)
+	require.Len(t, got[domain.
+		RunMetadataSentryBaggage], maxTraceHeaderLen)
 }

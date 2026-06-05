@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateJob_WithRetryPriorityBoost(t *testing.T) {
@@ -37,24 +39,17 @@ func TestCreateJob_WithRetryPriorityBoost(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("CreateJob was not called")
-	}
-	if captured.RetryPriorityBoost != 3 {
-		t.Fatalf("expected retry_priority_boost=3, got %d", captured.RetryPriorityBoost)
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, 3, captured.RetryPriorityBoost)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["retry_priority_boost"] != float64(3) {
-		t.Fatalf("expected retry_priority_boost=3 in response, got %v", resp["retry_priority_boost"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+	require.InDelta(t, float64(3), resp["retry_priority_boost"], 1e-9)
 }
 
 func TestCreateJob_DefaultRetryPriorityBoost(t *testing.T) {
@@ -81,17 +76,13 @@ func TestCreateJob_DefaultRetryPriorityBoost(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("CreateJob was not called")
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, 1, captured.RetryPriorityBoost)
+
 	// When omitted from request, the handler defaults to 1 (matching DB default).
-	if captured.RetryPriorityBoost != 1 {
-		t.Fatalf("expected retry_priority_boost=1 (handler default), got %d", captured.RetryPriorityBoost)
-	}
 }
 
 func TestCreateJob_RetryPriorityBoostZeroDefaultsToOne(t *testing.T) {
@@ -121,16 +112,11 @@ func TestCreateJob_RetryPriorityBoostZeroDefaultsToOne(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("CreateJob was not called")
-	}
-	if captured.RetryPriorityBoost != 1 {
-		t.Fatalf("expected retry_priority_boost=1 (default, 0 is indistinguishable from omitted), got %d", captured.RetryPriorityBoost)
-	}
+		w.Code)
+	require.NotNil(t, captured)
+	require.Equal(t, 1, captured.RetryPriorityBoost)
 }
 
 func TestUpdateJob_RetryPriorityBoost(t *testing.T) {
@@ -167,16 +153,11 @@ func TestUpdateJob_RetryPriorityBoost(t *testing.T) {
 	body := `{"retry_priority_boost": 5}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("UpdateJob was not called")
-	}
-	if captured.RetryPriorityBoost != 5 {
-		t.Fatalf("expected retry_priority_boost=5, got %d", captured.RetryPriorityBoost)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, 5, captured.RetryPriorityBoost)
 }
 
 func TestUpdateJob_RetryPriorityBoostToZero(t *testing.T) {
@@ -213,16 +194,11 @@ func TestUpdateJob_RetryPriorityBoostToZero(t *testing.T) {
 	body := `{"retry_priority_boost": 0}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-456", body))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if captured == nil {
-		t.Fatal("UpdateJob was not called")
-	}
-	if captured.RetryPriorityBoost != 0 {
-		t.Fatalf("expected retry_priority_boost=0, got %d", captured.RetryPriorityBoost)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code,
+	)
+	require.NotNil(t, captured)
+	require.Equal(t, 0, captured.RetryPriorityBoost)
 }
 
 func TestCreateJob_RejectNegativeBoost(t *testing.T) {
@@ -240,10 +216,9 @@ func TestCreateJob_RejectNegativeBoost(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for negative boost, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestCreateJob_RejectBoostOver10(t *testing.T) {
@@ -261,10 +236,9 @@ func TestCreateJob_RejectBoostOver10(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for boost > 10, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestUpdateJob_RejectNegativeBoost(t *testing.T) {
@@ -293,10 +267,9 @@ func TestUpdateJob_RejectNegativeBoost(t *testing.T) {
 	body := `{"retry_priority_boost": -1}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-789", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for negative boost, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestUpdateJob_RejectBoostOver10(t *testing.T) {
@@ -325,10 +298,9 @@ func TestUpdateJob_RejectBoostOver10(t *testing.T) {
 	body := `{"retry_priority_boost": 11}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-789", body))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for boost > 10, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
@@ -368,20 +340,15 @@ func TestBatchCreateJobs_RetryPriorityBoost(t *testing.T) {
 	}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if len(captured) != 2 {
-		t.Fatalf("expected 2 jobs created, got %d", len(captured))
-	}
-	if captured[0].RetryPriorityBoost != 5 {
-		t.Fatalf("batch job 1: expected retry_priority_boost=5, got %d", captured[0].RetryPriorityBoost)
-	}
+		w.Code)
+	require.Len(t,
+		captured, 2)
+	require.Equal(t, 5, captured[0].RetryPriorityBoost)
+	require.Equal(t, 1, captured[1].RetryPriorityBoost)
+
 	// Sending 0 on batch create defaults to 1 (same as omitting).
-	if captured[1].RetryPriorityBoost != 1 {
-		t.Fatalf("batch job 2: expected retry_priority_boost=1 (default), got %d", captured[1].RetryPriorityBoost)
-	}
 }
 
 func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
@@ -421,13 +388,12 @@ func TestBatchCreateJobs_RejectInvalidBoost(t *testing.T) {
 
 	// Batch create should create the valid job and report error for invalid one
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(),
+		&resp))
+
 	errs, _ := resp["errors"].([]any)
-	if len(errs) == 0 {
-		t.Fatal("expected validation error for invalid boost in batch, got none")
-	}
+	require.NotEmpty(t, errs)
 }
 
 func TestCloneJob_PreservesRetryPriorityBoost(t *testing.T) {
@@ -466,16 +432,11 @@ func TestCloneJob_PreservesRetryPriorityBoost(t *testing.T) {
 	body := `{"name": "Cloned Job", "slug": "cloned-job"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", body))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if cloned == nil {
-		t.Fatal("CreateJob was not called for clone")
-	}
-	if cloned.RetryPriorityBoost != 7 {
-		t.Fatalf("expected cloned retry_priority_boost=7 (from source), got %d", cloned.RetryPriorityBoost)
-	}
+		w.Code)
+	require.NotNil(t, cloned)
+	require.Equal(t, 7, cloned.RetryPriorityBoost)
 }
 
 func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
@@ -520,10 +481,9 @@ func TestCreateJob_RetryPriorityBoostBoundaryValues(t *testing.T) {
 			}`, tc.boost, tc.boost, tc.boost)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-			if w.Code != tc.wantStatus {
-				t.Fatalf("boost=%d: expected %d, got %d: %s", tc.boost, tc.wantStatus, w.Code, w.Body.String())
-			}
+			require.Equal(t, tc.wantStatus,
+				w.Code,
+			)
 		})
 	}
 }

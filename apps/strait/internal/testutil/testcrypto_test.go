@@ -6,15 +6,16 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGenerateTestSecret_Length(t *testing.T) {
 	t.Parallel()
 	for _, byteLen := range []int{8, 16, 32, 64} {
 		s := GenerateTestSecret(byteLen)
-		if len(s) != byteLen*2 {
-			t.Errorf("GenerateTestSecret(%d) len = %d, want %d", byteLen, len(s), byteLen*2)
-		}
+		assert.Len(t, s, byteLen*
+			2)
 	}
 }
 
@@ -23,9 +24,8 @@ func TestGenerateTestSecret_Unique(t *testing.T) {
 	seen := make(map[string]bool)
 	for range 100 {
 		s := GenerateTestSecret(16)
-		if seen[s] {
-			t.Fatalf("duplicate secret generated: %s", s)
-		}
+		require.False(t, seen[s])
+
 		seen[s] = true
 	}
 }
@@ -34,18 +34,17 @@ func TestGenerateTestSecret_ValidHex(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestSecret(32)
 	for _, c := range s {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			t.Fatalf("non-hex character %q in secret %q", c, s)
-		}
+		require.False(t, (c < '0' ||
+			c > '9') &&
+			(c < 'a' ||
+				c > 'f'))
 	}
 }
 
 func TestGenerateTestSecret_PanicsOnZero(t *testing.T) {
 	t.Parallel()
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for byteLen=0")
-		}
+		require.NotNil(t, recover())
 	}()
 	GenerateTestSecret(0)
 }
@@ -53,9 +52,7 @@ func TestGenerateTestSecret_PanicsOnZero(t *testing.T) {
 func TestGenerateTestSecret_PanicsOnNegative(t *testing.T) {
 	t.Parallel()
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for byteLen=-1")
-		}
+		require.NotNil(t, recover())
 	}()
 	GenerateTestSecret(-1)
 }
@@ -63,29 +60,25 @@ func TestGenerateTestSecret_PanicsOnNegative(t *testing.T) {
 func TestGenerateTestWebhookSecret_Format(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestWebhookSecret()
-	if !strings.HasPrefix(s, "whsec_") {
-		t.Errorf("should start with whsec_, got %q", s)
-	}
-	if len(s) != 6+32 { // "whsec_" + 16 bytes hex
-		t.Errorf("len = %d, want %d", len(s), 38)
-	}
+	assert.True(t, strings.HasPrefix(s, "whsec_"))
+	assert.Len(t, s, 6+32)
+
+	// "whsec_" + 16 bytes hex
 }
 
 func TestGenerateTestWebhookSecret_Unique(t *testing.T) {
 	t.Parallel()
 	a := GenerateTestWebhookSecret()
 	b := GenerateTestWebhookSecret()
-	if a == b {
-		t.Error("two calls should produce different secrets")
-	}
+	assert.NotEqual(t, b, a)
 }
 
 func TestGenerateTestJWTKey_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestJWTKey()
-	if len(s) != 64 { // 32 bytes = 64 hex chars
-		t.Errorf("len = %d, want 64", len(s))
-	}
+	assert.Len(t, s, 64)
+
+	// 32 bytes = 64 hex chars
 }
 
 func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
@@ -93,82 +86,71 @@ func TestGenerateTestJWTKey_ValidForHMAC(t *testing.T) {
 	key := GenerateTestJWTKey()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{Subject: "test"})
 	signed, err := token.SignedString([]byte(key))
-	if err != nil {
-		t.Fatalf("JWT signing failed: %v", err)
-	}
-	if signed == "" {
-		t.Fatal("signed token is empty")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, signed)
 
 	// Verify it can be parsed back.
 	parsed, err := jwt.Parse(signed, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if err != nil || !parsed.Valid {
-		t.Fatalf("JWT verification failed: %v", err)
-	}
+	require.False(t, err != nil ||
+		!parsed.
+			Valid)
 }
 
 func TestGenerateTestInternalSecret_MinLength(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestInternalSecret()
-	if len(s) < 16 {
-		t.Errorf("internal secret length %d < 16 (minimum required by config)", len(s))
-	}
+	assert.GreaterOrEqual(t, len(s), 16)
 }
 
 func TestGenerateTestAPIKey_Format(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestAPIKey()
-	if !strings.HasPrefix(s, "strait_") {
-		t.Errorf("should start with strait_, got %q", s)
-	}
-	if len(s) != 7+64 { // "strait_" + 32 bytes hex
-		t.Errorf("len = %d, want %d", len(s), 71)
-	}
+	assert.True(t, strings.HasPrefix(s, "strait_"))
+	assert.Len(t, s, 7+64)
+
+	// "strait_" + 32 bytes hex
 }
 
 func TestGenerateTestAPIKey_Unique(t *testing.T) {
 	t.Parallel()
 	a := GenerateTestAPIKey()
 	b := GenerateTestAPIKey()
-	if a == b {
-		t.Error("two calls should produce different keys")
-	}
+	assert.NotEqual(t, b, a)
 }
 
 func TestGenerateTestEncryptionKey_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestEncryptionKey()
-	if len(s) != 64 { // 32 bytes for AES-256
-		t.Errorf("len = %d, want 64", len(s))
-	}
+	assert.Len(t, s, 64)
+
+	// 32 bytes for AES-256
 }
 
 func TestGenerateTestDeviceCode_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestDeviceCode()
-	if len(s) != 64 { // 32 bytes hex
-		t.Errorf("len = %d, want 64", len(s))
-	}
+	assert.Len(t, s, 64)
+
+	// 32 bytes hex
 }
 
 func TestGenerateTestDeviceCode_ValidHex(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestDeviceCode()
 	for _, c := range s {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			t.Fatalf("non-hex character %q in device code", c)
-		}
+		require.False(t, (c < '0' ||
+			c > '9') &&
+			(c < 'a' ||
+				c > 'f'))
 	}
 }
 
 func TestGenerateTestUserCode_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestUserCode()
-	if len(s) != 8 {
-		t.Errorf("len = %d, want 8", len(s))
-	}
+	assert.Len(t, s, 8)
 }
 
 func TestGenerateTestUserCode_ValidAlphabet(t *testing.T) {
@@ -177,9 +159,10 @@ func TestGenerateTestUserCode_ValidAlphabet(t *testing.T) {
 	for range 50 {
 		code := GenerateTestUserCode()
 		for _, c := range code {
-			if !strings.ContainsRune(alphabet, c) {
-				t.Fatalf("invalid character %q in user code %q (not in alphabet)", c, code)
-			}
+			require.True(t, strings.ContainsRune(
+				alphabet, c,
+			),
+			)
 		}
 	}
 }
@@ -189,9 +172,7 @@ func TestGenerateTestUserCode_NoConfusingChars(t *testing.T) {
 	for range 100 {
 		code := GenerateTestUserCode()
 		for _, c := range "01IO" {
-			if strings.ContainsRune(code, c) {
-				t.Fatalf("user code %q contains confusing character %q", code, c)
-			}
+			require.False(t, strings.ContainsRune(code, c))
 		}
 	}
 }
@@ -201,9 +182,8 @@ func TestGenerateTestUserCode_Unique(t *testing.T) {
 	seen := make(map[string]bool)
 	for range 100 {
 		code := GenerateTestUserCode()
-		if seen[code] {
-			t.Fatalf("duplicate user code: %s", code)
-		}
+		require.False(t, seen[code])
+
 		seen[code] = true
 	}
 }
@@ -212,42 +192,33 @@ func TestGenerateTestSignatureSecret_ValidBase64(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestSignatureSecret()
 	decoded, err := base64.StdEncoding.DecodeString(s)
-	if err != nil {
-		t.Fatalf("not valid base64: %v", err)
-	}
-	if len(decoded) != 32 {
-		t.Errorf("decoded length = %d, want 32", len(decoded))
-	}
+	require.NoError(t, err)
+	assert.Len(t, decoded, 32)
 }
 
 func TestGenerateTestSignatureSecret_Unique(t *testing.T) {
 	t.Parallel()
 	a := GenerateTestSignatureSecret()
 	b := GenerateTestSignatureSecret()
-	if a == b {
-		t.Error("two calls should produce different secrets")
-	}
+	assert.NotEqual(t, b, a)
 }
 
 func TestGenerateTestRunToken_Valid(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestRunToken("run-123", key)
-
-	if token == "" {
-		t.Fatal("token is empty")
-	}
+	require.NotEmpty(t, token)
 
 	claims := &jwt.RegisteredClaims{}
 	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if err != nil || !parsed.Valid {
-		t.Fatalf("token verification failed: %v", err)
-	}
-	if claims.Subject != "run-123" {
-		t.Errorf("subject = %q, want %q", claims.Subject, "run-123")
-	}
+	require.False(t, err != nil ||
+		!parsed.
+			Valid)
+	assert.Equal(t, "run-123",
+		claims.Subject,
+	)
 }
 
 func TestGenerateTestRunToken_WrongKey_Fails(t *testing.T) {
@@ -259,19 +230,14 @@ func TestGenerateTestRunToken_WrongKey_Fails(t *testing.T) {
 	_, err := jwt.Parse(token, func(_ *jwt.Token) (any, error) {
 		return []byte(key2), nil
 	})
-	if err == nil {
-		t.Fatal("expected verification to fail with wrong key")
-	}
+	require.Error(t, err)
 }
 
 func TestGenerateTestSSEToken_Valid(t *testing.T) {
 	t.Parallel()
 	key := GenerateTestJWTKey()
 	token := GenerateTestSSEToken("proj-1", []string{"runs:read", "jobs:read"}, key)
-
-	if token == "" {
-		t.Fatal("token is empty")
-	}
+	require.NotEmpty(t, token)
 
 	type sseClaims struct {
 		jwt.RegisteredClaims
@@ -282,18 +248,17 @@ func TestGenerateTestSSEToken_Valid(t *testing.T) {
 	parsed, err := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if err != nil || !parsed.Valid {
-		t.Fatalf("token verification failed: %v", err)
-	}
-	if claims.Issuer != "strait:sse" {
-		t.Errorf("issuer = %q, want %q", claims.Issuer, "strait:sse")
-	}
-	if claims.ProjectID != "proj-1" {
-		t.Errorf("project_id = %q, want %q", claims.ProjectID, "proj-1")
-	}
-	if len(claims.Scopes) != 2 {
-		t.Errorf("scopes len = %d, want 2", len(claims.Scopes))
-	}
+	require.False(t, err != nil ||
+		!parsed.
+			Valid)
+	assert.Equal(t, "strait:sse",
+		claims.
+			Issuer)
+	assert.Equal(t, "proj-1",
+		claims.ProjectID,
+	)
+	assert.Len(t, claims.Scopes,
+		2)
 }
 
 func TestGenerateTestSSEToken_Expires(t *testing.T) {
@@ -305,49 +270,40 @@ func TestGenerateTestSSEToken_Expires(t *testing.T) {
 	parsed, _ := jwt.ParseWithClaims(token, claims, func(_ *jwt.Token) (any, error) {
 		return []byte(key), nil
 	})
-	if !parsed.Valid {
-		t.Fatal("token should be valid")
-	}
-	if claims.ExpiresAt == nil {
-		t.Fatal("token should have expiry")
-	}
+	require.True(t, parsed.Valid)
+	require.NotNil(t, claims.ExpiresAt)
 }
 
 func TestGenerateTestClaimToken_Length(t *testing.T) {
 	t.Parallel()
 	s := GenerateTestClaimToken()
-	if len(s) != 64 { // 32 bytes hex
-		t.Errorf("len = %d, want 64", len(s))
-	}
+	assert.Len(t, s, 64)
+
+	// 32 bytes hex
 }
 
 func TestGenerateTestDatabaseURL_Format(t *testing.T) {
 	t.Parallel()
 	url := GenerateTestDatabaseURL()
-	if !strings.HasPrefix(url, "postgres://") {
-		t.Errorf("should start with postgres://, got %q", url)
-	}
-	if !strings.Contains(url, "sslmode=disable") {
-		t.Error("test DB URL should contain sslmode=disable")
-	}
-	if !strings.Contains(url, "test_") {
-		t.Error("test DB URL should contain random database name with test_ prefix")
-	}
+	assert.True(t, strings.HasPrefix(url,
+		"postgres://",
+	))
+	assert.Contains(t, url, "sslmode=disable")
+	assert.Contains(t, url, "test_")
 }
 
 func TestGenerateTestDatabaseURL_Unique(t *testing.T) {
 	t.Parallel()
 	a := GenerateTestDatabaseURL()
 	b := GenerateTestDatabaseURL()
-	if a == b {
-		t.Error("two calls should produce different URLs")
-	}
+	assert.NotEqual(t, b, a)
 }
 
 func TestGenerateTestRedisURL_Format(t *testing.T) {
 	t.Parallel()
 	url := GenerateTestRedisURL()
-	if !strings.HasPrefix(url, "redis://") {
-		t.Errorf("should start with redis://, got %q", url)
-	}
+	assert.True(t, strings.HasPrefix(url,
+		"redis://",
+	),
+	)
 }

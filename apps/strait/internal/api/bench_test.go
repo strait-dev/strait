@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/config"
 	"strait/internal/domain"
@@ -350,13 +352,11 @@ func TestConcurrentTrigger(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
-	if got := enqueueCount.Load(); got != goroutines {
-		t.Errorf("expected %d enqueues, got %d", goroutines, got)
-	}
+	assert.Equal(
+		t, int64(goroutines), enqueueCount.
+			Load())
 }
 
 func TestConcurrentBulkTrigger(t *testing.T) {
@@ -399,14 +399,12 @@ func TestConcurrentBulkTrigger(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
 	expected := int64(goroutines * itemsPerRequest)
-	if got := enqueueCount.Load(); got != expected {
-		t.Errorf("expected %d enqueues, got %d", expected, got)
-	}
+	assert.Equal(
+		t, expected, enqueueCount.
+			Load())
 }
 
 func TestConcurrentBulkCancel(t *testing.T) {
@@ -477,17 +475,13 @@ func TestConcurrentBulkCancel(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
 	for runID := range runs {
-		if cancelAttempts[runID] == 0 {
-			t.Errorf("expected cancel attempt for %s", runID)
-		}
+		assert.NotEqual(t, 0, cancelAttempts[runID])
 	}
 }
 
@@ -600,13 +594,12 @@ func TestConcurrentMixedOperations(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
-	if got := enqueueCount.Load(); got != goroutines/4 {
-		t.Errorf("expected %d trigger enqueues, got %d", goroutines/4, got)
-	}
+	assert.Equal(
+		t, int64(goroutines/4),
+		enqueueCount.
+			Load())
 }
 
 func TestBurstTraffic(t *testing.T) {
@@ -629,18 +622,17 @@ func TestBurstTraffic(t *testing.T) {
 	var reqCount atomic.Uint64
 
 	const requests = 200
-	for i := range requests {
+	for range requests {
 		w := httptest.NewRecorder()
 		r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"payload":{"burst":true}}`)
 		r.RemoteAddr = uniqueRemoteAddr(&reqCount)
 		srv.ServeHTTP(w, r)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("request %d: expected 201, got %d", i, w.Code)
-		}
+		require.Equal(t, http.StatusCreated,
+
+			w.Code)
 	}
-	if got := enqueueCount.Load(); got != requests {
-		t.Fatalf("expected %d enqueues, got %d", requests, got)
-	}
+	require.EqualValues(t, requests, enqueueCount.
+		Load())
 }
 
 func TestSustainedLoad(t *testing.T) {
@@ -688,13 +680,11 @@ func TestSustainedLoad(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
-	if got := enqueueCount.Load(); got != totalRequests {
-		t.Fatalf("expected %d enqueues, got %d", totalRequests, got)
-	}
+	require.EqualValues(t, totalRequests,
+		enqueueCount.
+			Load())
 }
 
 func TestAPIKeyAuthConcurrent(t *testing.T) {
@@ -738,9 +728,7 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 	wg.Wait()
 
 	for _, err := range errs {
-		if err != nil {
-			t.Error(err)
-		}
+		require.NoError(t, err)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -750,7 +738,6 @@ func TestAPIKeyAuthConcurrent(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := touchCount.Load(); got != goroutines {
-		t.Fatalf("expected %d touch calls, got %d", goroutines, got)
-	}
+	require.EqualValues(t, goroutines, touchCount.
+		Load())
 }

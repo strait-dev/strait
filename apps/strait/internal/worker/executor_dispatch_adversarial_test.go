@@ -11,6 +11,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestDispatchSpendingLimit_RaceUnderConcurrency drives 100 concurrent
@@ -58,9 +59,9 @@ func TestDispatchSpendingLimit_RaceUnderConcurrency(t *testing.T) {
 	// would have made it here.
 	h.store.mu.Lock()
 	defer h.store.mu.Unlock()
-	if len(h.store.statusCalls) == 0 {
-		t.Errorf("no status transitions recorded under concurrency — dispatch path silently swallowed runs")
-	}
+	assert.NotEmpty(
+		t, h.store.
+			statusCalls)
 }
 
 // TestDispatchSpendingLimit_StaleCacheFailsClosed simulates a stale
@@ -84,9 +85,7 @@ func TestDispatchSpendingLimit_StaleCacheFailsClosed(t *testing.T) {
 	h := newDispatchHarness(t, sub, 6_000_000)
 
 	runDispatch(h, "run-stale-cache")
-	if !sawSystemFailed(h.store) {
-		t.Errorf("stale-cache spend over the cap must fail-closed; got allowed dispatch")
-	}
+	assert.True(t, sawSystemFailed(h.store))
 }
 
 // TestDispatchSpendingLimit_NotInfluencedByDailyCounter is a regression
@@ -127,10 +126,10 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	assert.Equal(t,
+		int32(n),
+		hits.Load())
 
-	if hits.Load() != int32(n) {
-		t.Errorf("expected all %d dispatch attempts to return; got %d", n, hits.Load())
-	}
 	// All must have failed via spending limit; daily counter never
 	// incremented because spending check fires first.
 	h.store.mu.Lock()
@@ -141,9 +140,8 @@ func TestDispatchSpendingLimit_NotInfluencedByDailyCounter(t *testing.T) {
 			failed++
 		}
 	}
-	if failed < n {
-		t.Errorf("expected at least %d system_failed transitions when over spending cap; got %d", n, failed)
-	}
+	assert.GreaterOrEqual(t,
+		failed, n)
 }
 
 // itoa avoids strconv import noise — same job for every run, only the

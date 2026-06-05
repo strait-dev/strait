@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testSigningKey is the 32-byte HMAC key used by newTestServer and generateRunToken.
@@ -29,25 +31,25 @@ const wrongSigningKey = "99999999999999999999999999999999"
 func TestResolveSDKCapabilities_V1(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("1.0")
-	if caps.Progress || caps.Checkpoint {
-		t.Fatalf("v1 should have no capabilities, got %+v", caps)
-	}
+	require.False(t, caps.
+		Progress ||
+		caps.Checkpoint)
 }
 
 func TestResolveSDKCapabilities_V2(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("2.0")
-	if !caps.Progress || !caps.Checkpoint {
-		t.Fatalf("v2 should advertise only launch-active capabilities, got %+v", caps)
-	}
+	require.False(t, !caps.
+		Progress ||
+		!caps.Checkpoint)
 }
 
 func TestResolveSDKCapabilities_Empty(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("")
-	if caps.Progress || caps.Checkpoint {
-		t.Fatalf("empty version should have no capabilities, got %+v", caps)
-	}
+	require.False(t, caps.
+		Progress ||
+		caps.Checkpoint)
 }
 
 func TestResolveSDKCapabilities_Malformed(t *testing.T) {
@@ -58,14 +60,15 @@ func TestResolveSDKCapabilities_Malformed(t *testing.T) {
 		// "abc", "v2", "2.x", "-1.0" all fail strconv.Atoi on the major part.
 		// Only numeric majors >= 2 should yield capabilities.
 		if v == "2.x" {
+			require.False(t, !caps.
+				Progress ||
+				!caps.Checkpoint)
+
 			// Major part before "." is "2", which parses to 2.
-			if !caps.Progress || !caps.Checkpoint {
-				t.Fatalf("version %q: expected launch-active capabilities for major=2, got %+v", v, caps)
-			}
 		} else {
-			if caps.Progress || caps.Checkpoint {
-				t.Fatalf("version %q should have no capabilities, got %+v", v, caps)
-			}
+			require.False(t, caps.
+				Progress ||
+				caps.Checkpoint)
 		}
 	}
 }
@@ -73,9 +76,9 @@ func TestResolveSDKCapabilities_Malformed(t *testing.T) {
 func TestResolveSDKCapabilities_LargeVersion(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("99999.0.0")
-	if !caps.Progress || !caps.Checkpoint {
-		t.Fatalf("large major version should advertise only launch-active capabilities, got %+v", caps)
-	}
+	require.False(t, !caps.
+		Progress ||
+		!caps.Checkpoint)
 }
 
 func FuzzResolveSDKCapabilities(f *testing.F) {
@@ -104,27 +107,22 @@ func TestSDKCapabilitiesHeader_AllCombinations(t *testing.T) {
 		for _, c := range bools {
 			caps := SDKCapabilities{Progress: p, Checkpoint: c}
 			header := sdkCapabilitiesHeader(caps)
-			if header == "" {
-				t.Fatal("header must never be empty string")
-			}
+			require.NotEmpty(t, header)
+
 			if !p && !c {
-				if header != "none" {
-					t.Fatalf("all-false should produce 'none', got %q", header)
-				}
+				require.Equal(t, "none",
+					header)
+
 				continue
 			}
-			if p && !strings.Contains(header, "progress") {
-				t.Fatalf("expected 'progress' in header %q", header)
-			}
-			if c && !strings.Contains(header, "checkpoint") {
-				t.Fatalf("expected 'checkpoint' in header %q", header)
-			}
-			if !p && strings.Contains(header, "progress") {
-				t.Fatalf("unexpected 'progress' in header %q", header)
-			}
-			if !c && strings.Contains(header, "checkpoint") {
-				t.Fatalf("unexpected 'checkpoint' in header %q", header)
-			}
+			require.False(t, p &&
+				!strings.Contains(header, "progress"))
+			require.False(t, c &&
+				!strings.Contains(header, "checkpoint"))
+			require.False(t, !p &&
+				strings.Contains(header, "progress"))
+			require.False(t, !c &&
+				strings.Contains(header, "checkpoint"))
 		}
 	}
 }
@@ -171,9 +169,8 @@ func signTokenWithAttempt(t *testing.T, key, subject string, expiry time.Time, a
 		},
 	})
 	signed, err := token.SignedString([]byte(key))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	return signed
 }
 
@@ -296,12 +293,11 @@ func TestRunTokenAuth_MissingAuth(t *testing.T) {
 	// No Authorization header set.
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_InvalidBearer(t *testing.T) {
@@ -315,12 +311,11 @@ func TestRunTokenAuth_InvalidBearer(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer invalid-not-a-jwt")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
@@ -335,12 +330,11 @@ func TestRunTokenAuth_WrongSigningKey(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 // Regression: a token without the "strait:run-token"
@@ -361,19 +355,17 @@ func TestRunTokenAuth_WrongIssuer_Rejected(t *testing.T) {
 		IssuedAt:  jwt.NewNumericDate(time.Now()),
 	})
 	signed, err := token.SignedString([]byte(testSigningKey))
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	r := authRequest(t, "run-1")
 	r.Header.Set("Authorization", "Bearer "+signed)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for wrong-issuer token, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called for wrong-issuer token")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
@@ -407,24 +399,21 @@ func TestRunTokenAuth_BadIssuerDoesNotWriteAudit(t *testing.T) {
 		},
 	})
 	signed, err := token.SignedString([]byte(testSigningKey))
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
 
 	handler := srv.runTokenAuth(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		t.Fatal("next handler should not have been called")
+		assert.Fail(t,
+
+			"next handler should not have been called")
 	}))
 	r := authRequest(t, "run-issuer-audit")
 	r.Header.Set("Authorization", "Bearer "+signed)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for bad issuer token, got %d", w.Code)
-	}
-	if captured != nil {
-		t.Fatalf("rejected JWT wrote unauthenticated audit event: %+v", captured)
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.Nil(t, captured)
 }
 
 // Regression: a token without an `exp` claim must be
@@ -444,19 +433,17 @@ func TestRunTokenAuth_NoExpiration_Rejected(t *testing.T) {
 		// Deliberately no ExpiresAt.
 	})
 	signed, err := token.SignedString([]byte(testSigningKey))
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
+	require.NoError(t, err)
+
 	r := authRequest(t, "run-1")
 	r.Header.Set("Authorization", "Bearer "+signed)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for token with no exp, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called for non-expiring token")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 // Regression: a token bound to a run that has already
@@ -500,12 +487,11 @@ func TestRunTokenAuth_TerminalRun_Rejected(t *testing.T) {
 			r.Header.Set("Authorization", "Bearer "+tok)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if w.Code != http.StatusGone {
-				t.Fatalf("status %s: expected 410 Gone, got %d (body=%s)", status, w.Code, w.Body.String())
-			}
-			if called.Load() {
-				t.Fatalf("status %s: next handler should not have been called", status)
-			}
+			require.Equal(t, http.
+				StatusGone,
+				w.Code)
+			require.False(t, called.
+				Load())
 		})
 	}
 }
@@ -536,13 +522,11 @@ func TestRunTokenAuth_StaleAttemptRejected(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for stale attempt token, got %d: %s", w.Code, w.Body.String())
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *testing.T) {
@@ -616,10 +600,8 @@ func TestRunTokenAuth_AssignmentBoundTokenRequiresActiveMatchingWorkerTask(t *te
 			r.Header.Set("Authorization", "Bearer "+tok)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-
-			if w.Code != tt.want {
-				t.Fatalf("status = %d, want %d: %s", w.Code, tt.want, w.Body.String())
-			}
+			require.Equal(t, tt.want,
+				w.Code)
 		})
 	}
 }
@@ -650,12 +632,11 @@ func TestRunTokenAuth_RunNotFound_Rejected(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d (body=%s)", w.Code, w.Body.String())
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_SubjectMismatch(t *testing.T) {
@@ -671,12 +652,11 @@ func TestRunTokenAuth_SubjectMismatch(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func TestRunTokenAuth_EmptySubject(t *testing.T) {
@@ -691,12 +671,11 @@ func TestRunTokenAuth_EmptySubject(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer "+tok)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
-	if called.Load() {
-		t.Fatal("next handler should not have been called")
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+		w.Code)
+	require.False(t, called.
+		Load())
 }
 
 func FuzzRunTokenAuth_MalformedHeaders(f *testing.F) {
@@ -752,9 +731,9 @@ func TestSDKState_KeyAtMaxLength(t *testing.T) {
 		_ = out
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for key at max length, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKState_KeyOverMaxLength(t *testing.T) {
@@ -771,17 +750,15 @@ func TestSDKState_KeyOverMaxLength(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: key, Value: []byte(`"v"`)},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		if err == nil {
-			t.Fatal("expected error for key over max length")
-		}
-		if !strings.Contains(err.Error(), "256") {
-			t.Fatalf("error should mention 256 limit, got: %v", err)
-		}
+		assert.Error(t, err)
+		assert.Contains(
+			t, err.Error(), "256")
+
 		w.WriteHeader(http.StatusBadRequest)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestSDKState_ValueAtMaxSize(t *testing.T) {
@@ -811,14 +788,13 @@ func TestSDKState_ValueAtMaxSize(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: "mykey", Value: value},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		if err != nil {
-			t.Fatalf("expected success for value at max size, got: %v", err)
-		}
+		assert.NoError(t, err)
+
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKState_ValueOverMaxSize(t *testing.T) {
@@ -840,17 +816,15 @@ func TestSDKState_ValueOverMaxSize(t *testing.T) {
 			Body:  SDKSetStateRequest{Key: "mykey", Value: value},
 		}
 		_, err := srv.handleSDKSetState(ctx, input)
-		if err == nil {
-			t.Fatal("expected error for value over max size")
-		}
-		if !strings.Contains(err.Error(), "64KB") {
-			t.Fatalf("error should mention 64KB limit, got: %v", err)
-		}
+		assert.Error(t, err)
+		assert.Contains(
+			t, err.Error(), "64KB")
+
 		w.WriteHeader(http.StatusBadRequest)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestSDKState_NullByteInKey(t *testing.T) {
@@ -859,10 +833,12 @@ func TestSDKState_NullByteInKey(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{
 		UpsertRunStateFunc: func(_ context.Context, s *domain.RunState) error {
 			upsertCalled.Store(true)
+			assert.Contains(t,
+				s.
+					StateKey, "\x00")
+
 			// Verify the key with null byte was passed through.
-			if !strings.Contains(s.StateKey, "\x00") {
-				t.Errorf("expected null byte in key, got %q", s.StateKey)
-			}
+
 			return nil
 		},
 	}, &mockQueue{}, nil)
@@ -882,10 +858,13 @@ func TestSDKState_NullByteInKey(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
+	require.False(t, w.Code !=
+		http.StatusOK &&
+		w.Code !=
+			http.StatusBadRequest,
+	)
+
 	// Accept either 200 (passed through) or 400 (rejected).
-	if w.Code != http.StatusOK && w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 200 or 400, got %d", w.Code)
-	}
 }
 
 // SDK memory TTL and key limit tests.
@@ -901,9 +880,8 @@ func TestSDKMemory_TTLZero(t *testing.T) {
 			return nil, nil
 		},
 		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, mem *domain.JobMemory, _, _ int) error {
-			if mem.TTLExpiresAt != nil {
-				t.Errorf("TTL=0 should result in nil TTLExpiresAt, got %v", mem.TTLExpiresAt)
-			}
+			assert.Nil(t, mem.TTLExpiresAt)
+
 			return nil
 		},
 	}, &mockQueue{}, nil)
@@ -918,14 +896,13 @@ func TestSDKMemory_TTLZero(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		assert.NoError(t, err)
+
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKMemory_TTLNegative(t *testing.T) {
@@ -939,9 +916,8 @@ func TestSDKMemory_TTLNegative(t *testing.T) {
 			return nil, nil
 		},
 		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, mem *domain.JobMemory, _, _ int) error {
-			if mem.TTLExpiresAt != nil {
-				t.Errorf("TTL=-1 should result in nil TTLExpiresAt, got %v", mem.TTLExpiresAt)
-			}
+			assert.Nil(t, mem.TTLExpiresAt)
+
 			return nil
 		},
 	}, &mockQueue{}, nil)
@@ -956,14 +932,13 @@ func TestSDKMemory_TTLNegative(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		assert.NoError(t, err)
+
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKMemory_TTLMaxInt(t *testing.T) {
@@ -977,9 +952,10 @@ func TestSDKMemory_TTLMaxInt(t *testing.T) {
 			return nil, nil
 		},
 		UpsertJobMemoryWithQuotaFunc: func(_ context.Context, mem *domain.JobMemory, _, _ int) error {
-			if mem.TTLExpiresAt == nil {
-				t.Error("maxint TTL should set a TTLExpiresAt")
-			}
+			assert.NotNil(t, mem.
+				TTLExpiresAt,
+			)
+
 			return nil
 		},
 	}, &mockQueue{}, nil)
@@ -994,14 +970,13 @@ func TestSDKMemory_TTLMaxInt(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"data"`), TTLSecs: &ttl},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		assert.NoError(t, err)
+
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
@@ -1029,14 +1004,13 @@ func TestSDKMemory_KeyAtMaxLength(t *testing.T) {
 			Body:  SDKSetMemoryRequest{Value: []byte(`"val"`)},
 		}
 		_, err := srv.handleSDKSetMemory(ctx, input)
-		if err != nil {
-			t.Fatalf("expected success for key at max length, got: %v", err)
-		}
+		assert.NoError(t, err)
+
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK, w.
+		Code)
 }
 
 func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
@@ -1088,10 +1062,9 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 			r := sdkRequest(t, tt.method, tt.path, "run-1", tt.body)
 
 			srv.ServeHTTP(w, r)
-
-			if w.Code != http.StatusGone {
-				t.Fatalf("expected 410 after terminal race, got %d: %s", w.Code, w.Body.String())
-			}
+			require.Equal(t, http.
+				StatusGone,
+				w.Code)
 		})
 	}
 }

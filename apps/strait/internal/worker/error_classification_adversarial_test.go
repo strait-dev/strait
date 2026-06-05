@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestClassifyError_HTTP399 verifies that a 399 status is not classified as client or server.
@@ -14,9 +16,11 @@ func TestClassifyError_HTTP399(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 399, Body: "not found"}
 	got := classifyError(err)
-	if got == domain.ErrorClassClient || got == domain.ErrorClassServer {
-		t.Fatalf("status 399: expected neither client nor server, got %q", got)
-	}
+	require.False(t,
+		got ==
+			domain.ErrorClassClient ||
+			got == domain.ErrorClassServer,
+	)
 }
 
 // TestClassifyError_HTTP400 verifies that status 400 is classified as client.
@@ -24,9 +28,11 @@ func TestClassifyError_HTTP400(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 400, Body: "bad request"}
 	got := classifyError(err)
-	if got != domain.ErrorClassClient {
-		t.Fatalf("status 400: expected %q, got %q", domain.ErrorClassClient, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassClient,
+		got,
+	)
 }
 
 // TestClassifyError_HTTP401 verifies that status 401 is classified as auth.
@@ -34,9 +40,10 @@ func TestClassifyError_HTTP401(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 401, Body: "unauthorized"}
 	got := classifyError(err)
-	if got != domain.ErrorClassAuth {
-		t.Fatalf("status 401: expected %q, got %q", domain.ErrorClassAuth, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassAuth,
+		got)
 }
 
 // TestClassifyError_HTTP403 verifies that status 403 is classified as auth.
@@ -44,9 +51,10 @@ func TestClassifyError_HTTP403(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 403, Body: "forbidden"}
 	got := classifyError(err)
-	if got != domain.ErrorClassAuth {
-		t.Fatalf("status 403: expected %q, got %q", domain.ErrorClassAuth, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassAuth,
+		got)
 }
 
 // TestClassifyError_HTTP429 verifies that status 429 is classified as rate_limited.
@@ -54,9 +62,11 @@ func TestClassifyError_HTTP429(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 429, Body: "too many requests"}
 	got := classifyError(err)
-	if got != domain.ErrorClassRateLimited {
-		t.Fatalf("status 429: expected %q, got %q", domain.ErrorClassRateLimited, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassRateLimited,
+
+		got)
 }
 
 // TestClassifyError_HTTP499 verifies that status 499 is classified as client.
@@ -64,9 +74,11 @@ func TestClassifyError_HTTP499(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 499, Body: "client closed"}
 	got := classifyError(err)
-	if got != domain.ErrorClassClient {
-		t.Fatalf("status 499: expected %q, got %q", domain.ErrorClassClient, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassClient,
+		got,
+	)
 }
 
 // TestClassifyError_HTTP500 verifies that status 500 is classified as server.
@@ -74,9 +86,11 @@ func TestClassifyError_HTTP500(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 500, Body: "internal server error"}
 	got := classifyError(err)
-	if got != domain.ErrorClassServer {
-		t.Fatalf("status 500: expected %q, got %q", domain.ErrorClassServer, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassServer,
+		got,
+	)
 }
 
 // TestClassifyError_HTTP600 verifies that status 600 is classified as server.
@@ -84,27 +98,34 @@ func TestClassifyError_HTTP600(t *testing.T) {
 	t.Parallel()
 	err := &domain.EndpointError{StatusCode: 600, Body: "non-standard"}
 	got := classifyError(err)
-	if got != domain.ErrorClassServer {
-		t.Fatalf("status 600: expected %q, got %q", domain.ErrorClassServer, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassServer,
+		got,
+	)
 }
 
 // TestClassifyError_ContextDeadline verifies that context.DeadlineExceeded is classified as timeout.
 func TestClassifyError_ContextDeadline(t *testing.T) {
 	t.Parallel()
 	got := classifyError(context.DeadlineExceeded)
-	if got != domain.ErrorClassTimeout {
-		t.Fatalf("DeadlineExceeded: expected %q, got %q", domain.ErrorClassTimeout, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassTimeout,
+		got,
+	)
 }
 
 // TestClassifyError_ContextCanceledAdversarial verifies that context.Canceled is classified as transient.
 func TestClassifyError_ContextCanceledAdversarial(t *testing.T) {
 	t.Parallel()
 	got := classifyError(context.Canceled)
-	if got != domain.ErrorClassTransient {
-		t.Fatalf("Canceled: expected %q, got %q", domain.ErrorClassTransient, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassTransient,
+
+		got,
+	)
 }
 
 // TestClassifyError_ConnectionRefused verifies that connection refused errors are classified as connection.
@@ -112,9 +133,11 @@ func TestClassifyError_ConnectionRefused(t *testing.T) {
 	t.Parallel()
 	err := fmt.Errorf("dial tcp 127.0.0.1:8080: connection refused")
 	got := classifyError(err)
-	if got != domain.ErrorClassConnection {
-		t.Fatalf("connection refused: expected %q, got %q", domain.ErrorClassConnection, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassConnection,
+
+		got)
 }
 
 // TestClassifyError_OOM verifies that out of memory errors are classified as oom.
@@ -122,9 +145,10 @@ func TestClassifyError_OOM(t *testing.T) {
 	t.Parallel()
 	err := fmt.Errorf("process killed: out of memory")
 	got := classifyError(err)
-	if got != domain.ErrorClassOOM {
-		t.Fatalf("out of memory: expected %q, got %q", domain.ErrorClassOOM, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassOOM,
+		got)
 }
 
 // TestClassifyError_BudgetExceeded verifies that budget exceeded errors are classified as budget.
@@ -132,9 +156,11 @@ func TestClassifyError_BudgetExceeded(t *testing.T) {
 	t.Parallel()
 	err := fmt.Errorf("operation failed: budget exceeded for project xyz")
 	got := classifyError(err)
-	if got != domain.ErrorClassBudget {
-		t.Fatalf("budget exceeded: expected %q, got %q", domain.ErrorClassBudget, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassBudget,
+		got,
+	)
 }
 
 // TestClassifyError_DeeplyWrapped verifies classification through 10 levels of error wrapping.
@@ -145,18 +171,22 @@ func TestClassifyError_DeeplyWrapped(t *testing.T) {
 		err = fmt.Errorf("wrap level %d: %w", i, err)
 	}
 	got := classifyError(err)
-	if got != domain.ErrorClassRateLimited {
-		t.Fatalf("deeply wrapped 429: expected %q, got %q", domain.ErrorClassRateLimited, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassRateLimited,
+
+		got)
 }
 
 // TestClassifyError_NilError verifies that nil errors return unknown.
 func TestClassifyError_NilError(t *testing.T) {
 	t.Parallel()
 	got := classifyError(nil)
-	if got != domain.ErrorClassUnknown {
-		t.Fatalf("nil error: expected %q, got %q", domain.ErrorClassUnknown, got)
-	}
+	require.Equal(t,
+		domain.
+			ErrorClassUnknown,
+		got,
+	)
 }
 
 // FuzzClassifyError fuzz-tests classifyError with arbitrary error messages.
@@ -170,9 +200,10 @@ func FuzzClassifyError(f *testing.F) {
 	f.Fuzz(func(t *testing.T, msg string) {
 		err := fmt.Errorf("%s", msg)
 		got := classifyError(err)
-		if !domain.ValidErrorClasses[got] {
-			t.Fatalf("classifyError returned invalid class %q for message %q", got, msg)
-		}
+		require.True(t,
+			domain.
+				ValidErrorClasses[got],
+		)
 	})
 }
 
@@ -198,9 +229,9 @@ func TestShouldRetryForClass_AllClasses(t *testing.T) {
 		t.Run(tc.class, func(t *testing.T) {
 			t.Parallel()
 			got := shouldRetryForClass(tc.class)
-			if got != tc.want {
-				t.Fatalf("shouldRetryForClass(%q) = %v, want %v", tc.class, got, tc.want)
-			}
+			require.Equal(t,
+				tc.want,
+				got)
 		})
 	}
 }
@@ -227,9 +258,9 @@ func TestShouldUseFallbackForClass_AllClasses(t *testing.T) {
 		t.Run(tc.class, func(t *testing.T) {
 			t.Parallel()
 			got := shouldUseFallbackForClass(tc.class)
-			if got != tc.want {
-				t.Fatalf("shouldUseFallbackForClass(%q) = %v, want %v", tc.class, got, tc.want)
-			}
+			require.Equal(t,
+				tc.want,
+				got)
 		})
 	}
 }
@@ -242,23 +273,22 @@ func TestErrorHash_UTF8Truncation(t *testing.T) {
 	// Each rune is 3 bytes in UTF-8, so byte length > 200 but rune count = 200+extra.
 	runes := strings.Repeat("\u4e16", 199) + "\u4e16" + "extra content after boundary"
 	h1 := errorHash(runes)
-	if len(h1) != 16 {
-		t.Fatalf("errorHash returned %d chars, want 16", len(h1))
-	}
+	require.Len(t, h1,
+		16)
+
 	// Hash should be identical when called again.
 	h2 := errorHash(runes)
-	if h1 != h2 {
-		t.Fatalf("errorHash not consistent: %q != %q", h1, h2)
-	}
+	require.Equal(t,
+		h2, h1,
+	)
 }
 
 // TestErrorHash_EmptyMessage verifies that an empty string produces a valid hash.
 func TestErrorHash_EmptyMessage(t *testing.T) {
 	t.Parallel()
 	h := errorHash("")
-	if len(h) != 16 {
-		t.Fatalf("errorHash(\"\") returned %d chars, want 16", len(h))
-	}
+	require.Len(t, h,
+		16)
 }
 
 // TestErrorHash_LongMessage verifies that a 10KB message produces a valid 16-char hash.
@@ -266,9 +296,8 @@ func TestErrorHash_LongMessage(t *testing.T) {
 	t.Parallel()
 	msg := strings.Repeat("x", 10240)
 	h := errorHash(msg)
-	if len(h) != 16 {
-		t.Fatalf("errorHash(10KB) returned %d chars, want 16", len(h))
-	}
+	require.Len(t, h,
+		16)
 }
 
 // TestErrorHash_Consistency verifies that the same message always produces the same hash.
@@ -277,14 +306,14 @@ func TestErrorHash_Consistency(t *testing.T) {
 	msg := "some deterministic error message"
 	h1 := errorHash(msg)
 	h2 := errorHash(msg)
-	if h1 != h2 {
-		t.Fatalf("errorHash not consistent: %q != %q", h1, h2)
-	}
+	require.Equal(t,
+		h2, h1,
+	)
+
 	// Different messages should (almost certainly) produce different hashes.
 	h3 := errorHash("a completely different error message")
-	if h1 == h3 {
-		t.Fatalf("different messages produced same hash: %q", h1)
-	}
+	require.NotEqual(t, h3,
+		h1)
 }
 
 // FuzzErrorHashAdversarial fuzz-tests that errorHash always returns a 16-char hex string
@@ -296,12 +325,12 @@ func FuzzErrorHashAdversarial(f *testing.F) {
 	f.Add("\x00\xff\xfe")
 	f.Fuzz(func(t *testing.T, msg string) {
 		h1 := errorHash(msg)
-		if len(h1) != 16 {
-			t.Fatalf("errorHash returned %d chars, want 16", len(h1))
-		}
+		require.Len(t, h1,
+			16)
+
 		h2 := errorHash(msg)
-		if h1 != h2 {
-			t.Fatalf("errorHash not consistent for input %q: %q != %q", msg, h1, h2)
-		}
+		require.Equal(t,
+			h2, h1,
+		)
 	})
 }

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDebouncePending_BuildsBufferedTrigger(t *testing.T) {
@@ -34,37 +36,47 @@ func TestNewDebouncePending_BuildsBufferedTrigger(t *testing.T) {
 		payload: json.RawMessage(`{"customer_id":"customer-1"}`),
 		now:     now,
 	})
+	require.False(t, pending.JobID !=
+		job.ID ||
+		pending.
+			ProjectID != job.ProjectID,
+	)
+	require.Equal(t, req.DebounceKey,
+		pending.
+			DebounceKey,
+	)
+	require.JSONEq(t, `{"customer_id":"customer-1"}`,
 
-	if pending.JobID != job.ID || pending.ProjectID != job.ProjectID {
-		t.Fatalf("job/project = (%q, %q), want (%q, %q)", pending.JobID, pending.ProjectID, job.ID, job.ProjectID)
-	}
-	if pending.DebounceKey != req.DebounceKey {
-		t.Fatalf("debounce key = %q, want %q", pending.DebounceKey, req.DebounceKey)
-	}
-	if string(pending.Payload) != `{"customer_id":"customer-1"}` {
-		t.Fatalf("payload = %s", pending.Payload)
-	}
-	if !jsonEqual(pending.Tags, json.RawMessage(`{"team":"ops","tier":"gold"}`)) {
-		t.Fatalf("tags = %s", pending.Tags)
-	}
-	if pending.Priority != req.Priority {
-		t.Fatalf("priority = %d, want %d", pending.Priority, req.Priority)
-	}
-	if pending.ConcurrencyKey != req.ConcurrencyKey {
-		t.Fatalf("concurrency key = %q, want %q", pending.ConcurrencyKey, req.ConcurrencyKey)
-	}
-	if pending.TTLSecs == nil || *pending.TTLSecs != ttlSecs {
-		t.Fatalf("ttl_secs = %v, want %d", pending.TTLSecs, ttlSecs)
-	}
-	if pending.TriggeredBy != domain.TriggerDebounce {
-		t.Fatalf("triggered_by = %q, want debounce", pending.TriggeredBy)
-	}
-	if pending.CreatedBy != "user-1" {
-		t.Fatalf("created_by = %q, want user-1", pending.CreatedBy)
-	}
-	if !pending.FireAt.Equal(now.Add(45 * time.Second)) {
-		t.Fatalf("fire_at = %v, want %v", pending.FireAt, now.Add(45*time.Second))
-	}
+		string(pending.Payload))
+	require.True(
+		t, jsonEqual(pending.
+			Tags, json.
+			RawMessage(`{"team":"ops","tier":"gold"}`)))
+	require.Equal(t, req.Priority,
+		pending.Priority,
+	)
+	require.Equal(t, req.ConcurrencyKey,
+		pending.
+			ConcurrencyKey,
+	)
+	require.False(t, pending.TTLSecs ==
+		nil ||
+		*pending.
+			TTLSecs != ttlSecs)
+	require.Equal(t, domain.TriggerDebounce,
+
+		pending.
+			TriggeredBy,
+	)
+	require.Equal(t, "user-1", pending.
+		CreatedBy,
+	)
+	require.True(
+		t, pending.FireAt.
+			Equal(now.
+				Add(45*
+
+					time.Second)))
 }
 
 func TestNewBatchBufferItem_BuildsBufferedTrigger(t *testing.T) {
@@ -86,28 +98,28 @@ func TestNewBatchBufferItem_BuildsBufferedTrigger(t *testing.T) {
 		req:     req,
 		payload: json.RawMessage(`{"n":1}`),
 	})
-
-	if item.JobID != job.ID || item.ProjectID != job.ProjectID {
-		t.Fatalf("job/project = (%q, %q), want (%q, %q)", item.JobID, item.ProjectID, job.ID, job.ProjectID)
-	}
-	if item.BatchKey != req.BatchKey {
-		t.Fatalf("batch key = %q, want %q", item.BatchKey, req.BatchKey)
-	}
-	if string(item.Payload) != `{"n":1}` {
-		t.Fatalf("payload = %s", item.Payload)
-	}
-	if !jsonEqual(item.Tags, json.RawMessage(`{"batch":"daily"}`)) {
-		t.Fatalf("tags = %s", item.Tags)
-	}
-	if item.Priority != req.Priority {
-		t.Fatalf("priority = %d, want %d", item.Priority, req.Priority)
-	}
-	if item.TriggeredBy != domain.TriggerManual {
-		t.Fatalf("triggered_by = %q, want manual", item.TriggeredBy)
-	}
-	if item.CreatedBy != "apikey:batch" {
-		t.Fatalf("created_by = %q, want apikey:batch", item.CreatedBy)
-	}
+	require.False(t, item.JobID !=
+		job.ID ||
+		item.ProjectID !=
+			job.ProjectID)
+	require.Equal(t, req.BatchKey,
+		item.BatchKey,
+	)
+	require.Equal(t, `{"n":1}`, string(item.Payload))
+	require.True(
+		t, jsonEqual(item.
+			Tags, json.
+			RawMessage(`{"batch":"daily"}`)))
+	require.Equal(t, req.Priority,
+		item.Priority,
+	)
+	require.Equal(t, domain.TriggerManual,
+		item.
+			TriggeredBy,
+	)
+	require.Equal(t, "apikey:batch",
+		item.CreatedBy,
+	)
 }
 
 func TestHandleDebounceTriggerSkipsWhenDisabled(t *testing.T) {
@@ -115,19 +127,18 @@ func TestHandleDebounceTriggerSkipsWhenDisabled(t *testing.T) {
 
 	srv := &Server{store: &APIStoreMock{
 		UpsertDebouncePendingFunc: func(context.Context, *domain.DebouncePending) error {
-			t.Fatal("UpsertDebouncePending must not run when debounce is disabled")
+			require.Fail(t,
+
+				"UpsertDebouncePending must not run when debounce is disabled")
 			return nil
 		},
 	}}
 	out, handled, err := srv.handleDebounceTrigger(context.Background(), &triggerRequestState{
 		job: &domain.Job{ID: "job-1", ProjectID: "project-1"},
 	})
-	if err != nil {
-		t.Fatalf("handleDebounceTrigger() error = %v", err)
-	}
-	if handled || out != nil {
-		t.Fatalf("handleDebounceTrigger() = (%v, %v), want nil output and handled=false", out, handled)
-	}
+	require.NoError(t, err)
+	require.False(t, handled || out !=
+		nil)
 }
 
 func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
@@ -137,9 +148,11 @@ func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
 	srv := &Server{store: &APIStoreMock{
 		InsertBatchBufferItemFunc: func(_ context.Context, item *domain.BatchBufferItem) error {
 			inserted = true
-			if item.JobID != "job-batch" || item.BatchKey != "customer-1" {
-				t.Fatalf("buffer item = %+v, want job-batch/customer-1", item)
-			}
+			require.False(t, item.JobID !=
+				"job-batch" ||
+				item.
+					BatchKey != "customer-1")
+
 			return nil
 		},
 	}}
@@ -157,22 +170,16 @@ func TestHandleBatchTriggerBuffersWhenWindowEnabled(t *testing.T) {
 		},
 		payload: json.RawMessage(`{"n":1}`),
 	})
-	if err != nil {
-		t.Fatalf("handleBatchTrigger() error = %v", err)
-	}
-	if !handled {
-		t.Fatal("handleBatchTrigger() handled = false, want true")
-	}
-	if !inserted {
-		t.Fatal("batch buffer item was not inserted")
-	}
+	require.NoError(t, err)
+	require.True(
+		t, handled)
+	require.True(
+		t, inserted)
+
 	body, ok := out.Body.(map[string]any)
-	if !ok {
-		t.Fatalf("output body = %T, want map[string]any", out.Body)
-	}
-	if body["buffered"] != true {
-		t.Fatalf("buffered = %v, want true", body["buffered"])
-	}
+	require.True(
+		t, ok)
+	require.Equal(t, true, body["buffered"])
 }
 
 func jsonEqual(left, right json.RawMessage) bool {

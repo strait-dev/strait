@@ -2,12 +2,13 @@ package ratelimit
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestAuthLimiter(t *testing.T) (*AuthLimiter, *miniredis.Miniredis) {
@@ -29,9 +30,7 @@ func TestAuthLimiter_NotBlocked_BelowThreshold(t *testing.T) {
 	}
 
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
-	if blocked {
-		t.Error("should not be blocked with 9 failures (threshold is 10)")
-	}
+	assert.False(t, blocked)
 }
 
 func TestAuthLimiter_Blocked_At10(t *testing.T) {
@@ -45,12 +44,10 @@ func TestAuthLimiter_Blocked_At10(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 10 failures")
-	}
-	if lockout != 1*time.Minute {
-		t.Errorf("lockout = %v, want 1m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 1*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At25(t *testing.T) {
@@ -64,12 +61,10 @@ func TestAuthLimiter_Blocked_At25(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 25 failures")
-	}
-	if lockout != 5*time.Minute {
-		t.Errorf("lockout = %v, want 5m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 5*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At50(t *testing.T) {
@@ -83,20 +78,19 @@ func TestAuthLimiter_Blocked_At50(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 50 failures")
-	}
-	if lockout != 15*time.Minute {
-		t.Errorf("lockout = %v, want 15m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 15*
+		time.Minute,
+		lockout,
+	)
 }
 
 func TestDefaultAuthThresholds_Values(t *testing.T) {
 	t.Parallel()
+	require.Len(t, DefaultAuthThresholds,
 
-	if len(DefaultAuthThresholds) != 3 {
-		t.Fatalf("expected 3 thresholds, got %d", len(DefaultAuthThresholds))
-	}
+		3)
+
 	want := []AuthLimiterThreshold{
 		{Failures: 50, Lockout: 15 * time.Minute},
 		{Failures: 25, Lockout: 5 * time.Minute},
@@ -104,12 +98,12 @@ func TestDefaultAuthThresholds_Values(t *testing.T) {
 	}
 	for i, w := range want {
 		got := DefaultAuthThresholds[i]
-		if got.Failures != w.Failures {
-			t.Errorf("threshold[%d].Failures = %d, want %d", i, got.Failures, w.Failures)
-		}
-		if got.Lockout != w.Lockout {
-			t.Errorf("threshold[%d].Lockout = %v, want %v", i, got.Lockout, w.Lockout)
-		}
+		assert.Equal(t, w.Failures,
+			got.
+				Failures)
+		assert.Equal(t, w.Lockout,
+			got.
+				Lockout)
 	}
 }
 
@@ -117,10 +111,9 @@ func TestDefaultAuthThresholds_DescendingOrder(t *testing.T) {
 	t.Parallel()
 
 	for i := 1; i < len(DefaultAuthThresholds); i++ {
-		if DefaultAuthThresholds[i].Failures >= DefaultAuthThresholds[i-1].Failures {
-			t.Errorf("thresholds not in descending order at index %d: %d >= %d",
-				i, DefaultAuthThresholds[i].Failures, DefaultAuthThresholds[i-1].Failures)
-		}
+		assert.Less(t, DefaultAuthThresholds[i].
+			Failures, DefaultAuthThresholds[i-1].Failures,
+		)
 	}
 }
 
@@ -135,12 +128,10 @@ func TestAuthLimiter_Blocked_At11(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 11 failures")
-	}
-	if lockout != 1*time.Minute {
-		t.Errorf("lockout = %v, want 1m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 1*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
@@ -154,12 +145,10 @@ func TestAuthLimiter_Blocked_At24_FirstTier(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 24 failures")
-	}
-	if lockout != 1*time.Minute {
-		t.Errorf("lockout = %v, want 1m (first tier, not second)", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 1*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At26(t *testing.T) {
@@ -173,12 +162,10 @@ func TestAuthLimiter_Blocked_At26(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 26 failures")
-	}
-	if lockout != 5*time.Minute {
-		t.Errorf("lockout = %v, want 5m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 5*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
@@ -192,12 +179,10 @@ func TestAuthLimiter_Blocked_At49_SecondTier(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 49 failures")
-	}
-	if lockout != 5*time.Minute {
-		t.Errorf("lockout = %v, want 5m (second tier, not third)", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 5*
+		time.Minute,
+		lockout)
 }
 
 func TestAuthLimiter_Blocked_At51(t *testing.T) {
@@ -211,24 +196,20 @@ func TestAuthLimiter_Blocked_At51(t *testing.T) {
 	}
 
 	blocked, lockout := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at 51 failures")
-	}
-	if lockout != 15*time.Minute {
-		t.Errorf("lockout = %v, want 15m", lockout)
-	}
+	require.True(t, blocked)
+	assert.Equal(t, 15*
+		time.Minute,
+		lockout,
+	)
 }
 
 func TestBlockedError_Format(t *testing.T) {
 	t.Parallel()
 
 	msg := BlockedError(5 * time.Minute)
-	if msg == "" {
-		t.Fatal("expected non-empty error message")
-	}
-	if !strings.Contains(msg, "5m0s") {
-		t.Errorf("expected message to contain lockout duration, got %q", msg)
-	}
+	require.NotEmpty(t,
+		msg)
+	assert.Contains(t, msg, "5m0s")
 }
 
 func TestAuthLimiter_TTL_Expires(t *testing.T) {
@@ -242,16 +223,12 @@ func TestAuthLimiter_TTL_Expires(t *testing.T) {
 	}
 
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked")
-	}
+	require.True(t, blocked)
 
 	mr.FastForward(authFailWindow() + time.Second)
 
 	blocked, _ = limiter.IsBlocked(ctx, "1.2.3.4")
-	if blocked {
-		t.Error("should not be blocked after TTL expires")
-	}
+	assert.False(t, blocked)
 }
 
 // Regression: every RecordFailure must leave a TTL on the
@@ -268,12 +245,8 @@ func TestAuthLimiter_RecordFailure_AlwaysSetsTTL(t *testing.T) {
 	limiter.RecordFailure(ctx, "9.9.9.9")
 
 	ttl := mr.TTL(authFailKey(AuthScopeAPIKey, "9.9.9.9"))
-	if ttl <= 0 {
-		t.Fatalf("RecordFailure left key without TTL: ttl=%s (key would never expire)", ttl)
-	}
-	if ttl > authFailWindow() {
-		t.Fatalf("RecordFailure TTL %s longer than configured window %s", ttl, authFailWindow())
-	}
+	require.Positive(t, ttl)
+	require.LessOrEqual(t, ttl, authFailWindow())
 }
 
 func TestAuthLimiter_Reset(t *testing.T) {
@@ -288,9 +261,7 @@ func TestAuthLimiter_Reset(t *testing.T) {
 	limiter.Reset(ctx, "1.2.3.4")
 
 	blocked, _ := limiter.IsBlocked(ctx, "1.2.3.4")
-	if blocked {
-		t.Error("should not be blocked after reset")
-	}
+	assert.False(t, blocked)
 }
 
 func TestAuthLimiter_LockoutExpiresBeforeFailureWindow(t *testing.T) {
@@ -304,22 +275,19 @@ func TestAuthLimiter_LockoutExpiresBeforeFailureWindow(t *testing.T) {
 	}
 
 	blocked, retryAfter := limiter.IsBlocked(ctx, "1.2.3.4")
-	if !blocked {
-		t.Fatal("should be blocked at first threshold")
-	}
-	if retryAfter != time.Minute {
-		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
-	}
+	require.True(t, blocked)
+	require.Equal(t, time.
+		Minute,
+		retryAfter)
 
 	mr.FastForward(time.Minute + time.Second)
 
 	blocked, _ = limiter.IsBlocked(ctx, "1.2.3.4")
-	if blocked {
-		t.Fatal("should not remain blocked after the advertised lockout expires")
-	}
-	if !mr.Exists(authFailKey(AuthScopeAPIKey, "1.2.3.4")) {
-		t.Fatal("failure window should remain so later failures can reach higher tiers")
-	}
+	require.False(t, blocked)
+	require.True(t, mr.
+		Exists(authFailKey(AuthScopeAPIKey,
+
+			"1.2.3.4")))
 }
 
 func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
@@ -335,17 +303,13 @@ func TestAuthLimiter_ScopedResetDoesNotClearOtherAuthSchemes(t *testing.T) {
 	limiter.ResetScoped(ctx, ip, AuthScopeAPIKey)
 
 	blocked, retryAfter := limiter.IsBlockedScoped(ctx, ip, AuthScopeOIDC)
-	if !blocked {
-		t.Fatal("OIDC failures should survive an unrelated API-key success reset")
-	}
-	if retryAfter != time.Minute {
-		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
-	}
+	require.True(t, blocked)
+	require.Equal(t, time.
+		Minute,
+		retryAfter)
 
 	apiBlocked, _ := limiter.IsBlockedScoped(ctx, ip, AuthScopeAPIKey)
-	if apiBlocked {
-		t.Fatal("API-key scope should not be blocked")
-	}
+	require.False(t, apiBlocked)
 }
 
 func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
@@ -361,17 +325,13 @@ func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
 	limiter.ResetScoped(ctx, ip, AuthScopeInternalSecret)
 
 	profilingBlocked, retryAfter := limiter.IsBlockedScoped(ctx, ip, AuthScopeProfiling)
-	if !profilingBlocked {
-		t.Fatal("profiling failures should survive an unrelated internal-secret success reset")
-	}
-	if retryAfter != time.Minute {
-		t.Fatalf("retryAfter = %v, want 1m", retryAfter)
-	}
+	require.True(t, profilingBlocked)
+	require.Equal(t, time.
+		Minute,
+		retryAfter)
 
 	internalBlocked, _ := limiter.IsBlockedScoped(ctx, ip, AuthScopeInternalSecret)
-	if internalBlocked {
-		t.Fatal("internal-secret scope should not be blocked")
-	}
+	require.False(t, internalBlocked)
 
 	limiter.ResetScoped(ctx, ip, AuthScopeProfiling)
 	for range 10 {
@@ -379,13 +339,10 @@ func TestAuthLimiter_ProfilingScopeIsIsolatedFromInternalSecret(t *testing.T) {
 	}
 
 	profilingBlocked, _ = limiter.IsBlockedScoped(ctx, ip, AuthScopeProfiling)
-	if profilingBlocked {
-		t.Fatal("profiling scope should not be blocked by internal-secret failures")
-	}
+	require.False(t, profilingBlocked)
+
 	internalBlocked, _ = limiter.IsBlockedScoped(ctx, ip, AuthScopeInternalSecret)
-	if !internalBlocked {
-		t.Fatal("internal-secret scope should be blocked")
-	}
+	require.True(t, internalBlocked)
 }
 
 func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
@@ -405,12 +362,11 @@ func TestAuthLimiter_HigherTierReachableAfterShortLockoutExpires(t *testing.T) {
 	}
 
 	blocked, retryAfter := limiter.IsBlocked(ctx, ip)
-	if !blocked {
-		t.Fatal("should be blocked after reaching second threshold")
-	}
-	if retryAfter != 5*time.Minute {
-		t.Fatalf("retryAfter = %v, want 5m", retryAfter)
-	}
+	require.True(t, blocked)
+	require.Equal(t, 5*
+		time.Minute,
+		retryAfter,
+	)
 }
 
 func TestAuthLimiter_IndependentIPs(t *testing.T) {
@@ -424,9 +380,7 @@ func TestAuthLimiter_IndependentIPs(t *testing.T) {
 	}
 
 	blocked, _ := limiter.IsBlocked(ctx, "5.6.7.8")
-	if blocked {
-		t.Error("different IP should not be blocked")
-	}
+	assert.False(t, blocked)
 }
 
 func TestAuthLimiter_Nil_FailsOpen(t *testing.T) {
@@ -434,9 +388,8 @@ func TestAuthLimiter_Nil_FailsOpen(t *testing.T) {
 
 	var limiter *AuthLimiter
 	blocked, _ := limiter.IsBlocked(context.Background(), "1.2.3.4")
-	if blocked {
-		t.Error("nil limiter should not block")
-	}
+	assert.False(t, blocked)
+
 	// Should not panic.
 	limiter.RecordFailure(context.Background(), "1.2.3.4")
 	limiter.Reset(context.Background(), "1.2.3.4")
@@ -447,9 +400,7 @@ func TestAuthLimiter_Disabled_FailsOpen(t *testing.T) {
 
 	limiter := NewAuthLimiter(nil, false)
 	blocked, _ := limiter.IsBlocked(context.Background(), "1.2.3.4")
-	if blocked {
-		t.Error("disabled limiter should not block")
-	}
+	assert.False(t, blocked)
 }
 
 func FuzzAuthLimiter_IP(f *testing.F) {

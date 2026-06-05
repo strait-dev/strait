@@ -11,6 +11,8 @@ import (
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newTestServerWithEncryption(t *testing.T, s APIStore, q *mockQueue) *Server {
@@ -50,23 +52,23 @@ func TestHandleCreateSecret_Success(t *testing.T) {
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"super-secret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "sec-123" {
-		t.Fatalf("expected id=sec-123, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Equal(t, "sec-123", resp["id"])
+
 	if _, ok := resp["encrypted_value"]; ok {
-		t.Fatal("response should not include encrypted_value")
+		require.Fail(t,
+
+			"response should not include encrypted_value")
 	}
 	if _, ok := resp["value"]; ok {
-		t.Fatal("response should not include value")
+		require.Fail(t,
+
+			"response should not include value")
 	}
 }
 
@@ -116,16 +118,14 @@ func TestHandleCreateSecret_LeavesEncryptionToStore(t *testing.T) {
 	body := `{"project_id":"proj-1","job_id":"job-1","environment":"production","secret_key":"API_KEY","value":"super-secret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if storedValue != "super-secret" {
-		t.Fatalf("store should receive plaintext exactly once, got %q", storedValue)
-	}
-	if apiEncryptor.calls != 0 {
-		t.Fatalf("api encryptor should not encrypt job secrets; got %d calls", apiEncryptor.calls)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, "super-secret",
+		storedValue,
+	)
+	require.Equal(t, 0, apiEncryptor.
+		calls)
 }
 
 func TestHandleCreateSecret_MissingFields(t *testing.T) {
@@ -134,19 +134,21 @@ func TestHandleCreateSecret_MissingFields(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", `{"project_id":"proj-1"}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleListSecrets_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, environment string, _ int, _ *time.Time) ([]domain.JobSecret, error) {
-			if projectID != "proj-1" || jobID != "job-1" || environment != "production" {
-				t.Fatalf("unexpected params: %q %q %q", projectID, jobID, environment)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				jobID != "job-1" || environment !=
+				"production",
+			)
+
 			return []domain.JobSecret{{ID: "sec-1", ProjectID: projectID, JobID: jobID, Environment: environment, SecretKey: "API_KEY", KeyVersion: 1}}, nil
 		},
 	}
@@ -155,22 +157,19 @@ func TestHandleListSecrets_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/secrets/?job_id=job-1&environment=production", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleDeleteSecret_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: id, ProjectID: "test-project", SecretKey: "KEY"}, nil
 		},
-		DeleteJobSecretFunc: func(_ context.Context, id string, _ string) error {
-			if id != "sec-1" {
-				t.Fatalf("unexpected id: %q", id)
-			}
+		DeleteJobSecretFunc: func(_ context.Context, id, _ string) error {
+			require.Equal(t, "sec-1", id)
+
 			return nil
 		},
 	}
@@ -179,10 +178,9 @@ func TestHandleDeleteSecret_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/secrets/sec-1", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.Code,
+	)
 }
 
 func TestHandleCreateSecret_NoEncryptionKey_Returns503(t *testing.T) {
@@ -193,8 +191,7 @@ func TestHandleCreateSecret_NoEncryptionKey_Returns503(t *testing.T) {
 	body := `{"project_id":"proj-1","job_id":"job-1","secret_key":"API_KEY","value":"super-secret"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/secrets/", body))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }

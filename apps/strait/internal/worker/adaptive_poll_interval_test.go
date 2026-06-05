@@ -3,29 +3,36 @@ package worker
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAdaptivePoll_BaseOnFreshStart(t *testing.T) {
 	a := NewAdaptivePollInterval(5*time.Second, 200*time.Millisecond, 30*time.Second)
-	if d := a.Next(); d != 5*time.Second {
-		t.Errorf("initial = %v, want base 5s", d)
-	}
+	assert.Equal(t,
+		5*time.
+			Second,
+
+		a.Next())
 }
 
 func TestAdaptivePoll_BacksOffOnEmpty(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 30*time.Second)
 	prev := a.Next()
-	for i := range 4 {
+	for range 4 {
 		a.ObserveEmpty()
 		cur := a.Next()
-		if cur < prev {
-			t.Errorf("empty %d: went backwards %v -> %v", i, prev, cur)
-		}
+		assert.GreaterOrEqual(t,
+			cur,
+
+			prev)
+
 		prev = cur
 	}
-	if prev < 8*time.Second {
-		t.Errorf("after 4 empties = %v, want >= 8s", prev)
-	}
+	assert.GreaterOrEqual(t,
+		prev,
+
+		8*time.Second)
 }
 
 func TestAdaptivePoll_CappedAtMax(t *testing.T) {
@@ -33,24 +40,27 @@ func TestAdaptivePoll_CappedAtMax(t *testing.T) {
 	for range 20 {
 		a.ObserveEmpty()
 	}
-	if d := a.Next(); d > 5*time.Second {
-		t.Errorf("cap broken: %v", d)
-	}
+	assert.LessOrEqual(t, a.
+		Next(), 5*time.Second)
 }
 
 func TestAdaptivePoll_FloorAtMin(t *testing.T) {
 	a := NewAdaptivePollInterval(5*time.Second, 500*time.Millisecond, 30*time.Second)
-	a.ObserveDepth(100000) // huge depth → wants tiny interval
-	if d := a.Next(); d < 500*time.Millisecond {
-		t.Errorf("floor broken: %v", d)
-	}
+	a.ObserveDepth(100000)
+	assert.GreaterOrEqual(t,
+		a.
+			Next(), 500*time.Millisecond)
+
+	// huge depth → wants tiny interval
 }
 
 func TestAdaptivePoll_DepthShortensInterval(t *testing.T) {
 	a := NewAdaptivePollInterval(5*time.Second, 200*time.Millisecond, 30*time.Second)
 	a.ObserveDepth(1000)
 	if d := a.Next(); d >= 5*time.Second {
-		t.Errorf("depth=1000 should shorten, got %v", d)
+		assert.Failf(t, "test failure",
+
+			"depth=1000 should shorten, got %v", d)
 	}
 }
 
@@ -62,12 +72,14 @@ func TestAdaptivePoll_ClaimResetsEmpty(t *testing.T) {
 	before := a.Next()
 	a.ObserveClaim(3)
 	after := a.Next()
-	if after >= before {
-		t.Errorf("claim did not reset empty: before=%v after=%v", before, after)
-	}
-	if after != 1*time.Second {
-		t.Errorf("after claim = %v, want base 1s", after)
-	}
+	assert.Less(t,
+		after, before,
+	)
+	assert.Equal(t,
+		1*time.
+			Second,
+
+		after)
 }
 
 func TestAdaptivePoll_Disable(t *testing.T) {
@@ -76,17 +88,19 @@ func TestAdaptivePoll_Disable(t *testing.T) {
 		a.ObserveEmpty()
 	}
 	a.Disable()
-	if d := a.Next(); d != 2*time.Second {
-		t.Errorf("disabled should return base, got %v", d)
-	}
+	assert.Equal(t,
+		2*time.
+			Second,
+
+		a.Next())
 }
 
 func TestAdaptivePoll_ObserveClaimZero(t *testing.T) {
 	a := NewAdaptivePollInterval(1*time.Second, 200*time.Millisecond, 30*time.Second)
-	a.ObserveClaim(0) // zero claim == empty
-	if a.emptyCount != 1 {
-		t.Errorf("emptyCount = %d, want 1", a.emptyCount)
-	}
+	a.ObserveClaim(0)
+	assert.Equal(t, 1, a.emptyCount)
+
+	// zero claim == empty
 }
 
 // FuzzAdaptivePoll_MonotonicBounds asserts the result is always within
@@ -101,8 +115,9 @@ func FuzzAdaptivePoll_Bounds(f *testing.F) {
 		}
 		a.ObserveDepth(int64(depth) * 100)
 		d := a.Next()
-		if d < 100*time.Millisecond || d > 10*time.Second {
-			t.Errorf("out of bounds: %v", d)
-		}
+		assert.False(t,
+			d < 100*
+				time.
+					Millisecond || d > 10*time.Second)
 	})
 }

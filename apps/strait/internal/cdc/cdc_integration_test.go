@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/cdc"
 	"strait/internal/pubsub"
@@ -33,9 +35,8 @@ func mustRedis(t *testing.T) *testutil.TestRedis {
 	redisOnce.Do(func() {
 		testRedis, redisErr = testutil.SetupSharedTestRedis(context.Background(), "cdc")
 	})
-	if redisErr != nil {
-		t.Fatalf("setup redis: %v", redisErr)
-	}
+	require.Nil(t, redisErr)
+
 	t.Cleanup(func() {
 		// Container cleanup is handled at process exit; individual tests
 		// just need the connection to stay open.
@@ -136,9 +137,8 @@ func TestIntegration_HandlerPublishesToRedis(t *testing.T) {
 
 	channel := "cdc:project:proj-001:job_runs"
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	handler := cdc.NewJobRunHandler(pub, nil)
@@ -148,28 +148,34 @@ func TestIntegration_HandlerPublishesToRedis(t *testing.T) {
 		"project_id": "proj-001",
 		"status":     "running",
 	})
-
-	if err := handler.Handle(ctx, msg); err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
+	require.NoError(t, handler.
+		Handle(ctx, msg))
 
 	select {
 	case data := <-sub.Ch:
 		var event cdc.ChangeEvent
 		if err := json.Unmarshal(data, &event); err != nil {
-			t.Fatalf("unmarshal event: %v", err)
+			require.Failf(t, "test failure",
+
+				"unmarshal event: %v", err)
 		}
 		if event.Table != "job_runs" {
-			t.Errorf("event.Table = %q, want %q", event.Table, "job_runs")
+			assert.Failf(t, "test failure",
+
+				"event.Table = %q, want %q", event.Table, "job_runs")
 		}
 		if event.Action != cdc.ActionInsert {
-			t.Errorf("event.Action = %q, want %q", event.Action, cdc.ActionInsert)
+			assert.Failf(t, "test failure",
+
+				"event.Action = %q, want %q", event.Action, cdc.ActionInsert)
 		}
 		if event.Source != "cdc" {
-			t.Errorf("event.Source = %q, want %q", event.Source, "cdc")
+			assert.Failf(t, "test failure",
+
+				"event.Source = %q, want %q", event.Source, "cdc")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for published event on Redis")
+		require.Fail(t, "timed out waiting for published event on Redis")
 	}
 }
 
@@ -223,7 +229,7 @@ func TestIntegration_ConsumerReceivesAndDispatches(t *testing.T) {
 	for handled.Load() < 2 {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out: handled %d messages, want 2", handled.Load())
+			require.Failf(t, "test failure", "timed out: handled %d messages, want 2", handled.Load())
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -234,10 +240,14 @@ func TestIntegration_ConsumerReceivesAndDispatches(t *testing.T) {
 	_ = consumer.Shutdown(shutdownCtx)
 
 	if _, ok := acked.Load("ack-10"); !ok {
-		t.Error("ack-10 was not acknowledged")
+		assert.Fail(t,
+
+			"ack-10 was not acknowledged")
 	}
 	if _, ok := acked.Load("ack-11"); !ok {
-		t.Error("ack-11 was not acknowledged")
+		assert.Fail(t,
+
+			"ack-11 was not acknowledged")
 	}
 }
 
@@ -286,7 +296,7 @@ func TestIntegration_ConsumerNacksOnHandlerError(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for nack of ack-err-1")
+			require.Fail(t, "timed out waiting for nack of ack-err-1")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -372,7 +382,7 @@ func TestIntegration_ConsumerReconnectsAfterError(t *testing.T) {
 	for handled.Load() < 1 {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out: handled %d messages after %d requests, want at least 1",
+			require.Failf(t, "test failure", "timed out: handled %d messages after %d requests, want at least 1",
 				handled.Load(), requestCount.Load())
 		case <-time.After(100 * time.Millisecond):
 		}
@@ -384,11 +394,14 @@ func TestIntegration_ConsumerReconnectsAfterError(t *testing.T) {
 	_ = consumer.Shutdown(shutdownCtx)
 
 	if _, ok := acked.Load("ack-reconnect"); !ok {
-		t.Error("ack-reconnect was not acknowledged after reconnection")
+		assert.Fail(t,
+
+			"ack-reconnect was not acknowledged after reconnection")
 	}
-	if requestCount.Load() < 3 {
-		t.Errorf("expected at least 3 receive requests (2 errors + 1 success), got %d", requestCount.Load())
-	}
+	assert.GreaterOrEqual(
+		t, requestCount.
+			Load(), int32(3))
+
 }
 
 // Test: Multiple consumers on the same channel via Redis pub/sub fan-out
@@ -399,15 +412,13 @@ func TestIntegration_MultipleConsumersOnSameChannel(t *testing.T) {
 
 	channel := "cdc:project:proj-multi:job_runs"
 	sub1, err := pub.Subscribe(ctx, channel)
-	if err != nil {
-		t.Fatalf("Subscribe(sub1) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub1.Close()
 
 	sub2, err := pub.Subscribe(ctx, channel)
-	if err != nil {
-		t.Fatalf("Subscribe(sub2) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub2.Close()
 
 	handler := cdc.NewJobRunHandler(pub, nil)
@@ -417,23 +428,25 @@ func TestIntegration_MultipleConsumersOnSameChannel(t *testing.T) {
 		"project_id": "proj-multi",
 		"status":     "completed",
 	})
-
-	if err := handler.Handle(ctx, msg); err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
+	require.NoError(t, handler.
+		Handle(ctx, msg))
 
 	for i, sub := range []*pubsub.Subscription{sub1, sub2} {
 		select {
 		case data := <-sub.Ch:
 			var event cdc.ChangeEvent
 			if err := json.Unmarshal(data, &event); err != nil {
-				t.Fatalf("sub%d: unmarshal event: %v", i+1, err)
+				require.Failf(t, "test failure",
+
+					"sub%d: unmarshal event: %v", i+1, err)
 			}
 			if event.Table != "job_runs" {
-				t.Errorf("sub%d: event.Table = %q, want %q", i+1, event.Table, "job_runs")
+				assert.Failf(t, "test failure",
+
+					"sub%d: event.Table = %q, want %q", i+1, event.Table, "job_runs")
 			}
 		case <-time.After(5 * time.Second):
-			t.Fatalf("sub%d: timed out waiting for message", i+1)
+			require.Failf(t, "test failure", "sub%d: timed out waiting for message", i+1)
 		}
 	}
 }
@@ -493,7 +506,7 @@ func TestIntegration_HighVolumeEventProcessing(t *testing.T) {
 	for handled.Load() < totalMessages {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out: handled %d/%d messages", handled.Load(), totalMessages)
+			require.Failf(t, "test failure", "timed out: handled %d/%d messages", handled.Load(), totalMessages)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -502,10 +515,10 @@ func TestIntegration_HighVolumeEventProcessing(t *testing.T) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 	_ = consumer.Shutdown(shutdownCtx)
+	assert.EqualValues(t, totalMessages,
 
-	if got := handled.Load(); got != totalMessages {
-		t.Errorf("handled %d messages, want %d", got, totalMessages)
-	}
+		handled.Load())
+
 }
 
 // Test: Event ordering guarantees within a single batch
@@ -574,7 +587,7 @@ func TestIntegration_EventOrderingWithinBatch(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("timed out: received %d/5 messages", n)
+			require.Failf(t, "test failure", "timed out: received %d/5 messages", n)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -588,9 +601,10 @@ func TestIntegration_EventOrderingWithinBatch(t *testing.T) {
 	defer mu.Unlock()
 	for i := range 5 {
 		want := fmt.Sprintf("run-order-%d", i)
-		if order[i] != want {
-			t.Errorf("order[%d] = %q, want %q", i, order[i], want)
-		}
+		assert.Equal(t, want,
+
+			order[i])
+
 	}
 }
 
@@ -602,9 +616,8 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 
 	channel := "cdc:project:proj-batch:job_runs"
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	var acked sync.Map
@@ -652,14 +665,18 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 		case data := <-sub.Ch:
 			var event cdc.ChangeEvent
 			if err := json.Unmarshal(data, &event); err != nil {
-				t.Fatalf("unmarshal event: %v", err)
+				require.Failf(t, "test failure",
+
+					"unmarshal event: %v", err)
 			}
 			if event.Table != "job_runs" {
-				t.Errorf("event.Table = %q, want %q", event.Table, "job_runs")
+				assert.Failf(t, "test failure",
+
+					"event.Table = %q, want %q", event.Table, "job_runs")
 			}
 			received++
 		case <-deadline:
-			t.Fatalf("timed out: received %d/2 events from Redis", received)
+			require.Failf(t, "test failure", "timed out: received %d/2 events from Redis", received)
 		}
 	}
 
@@ -674,10 +691,14 @@ func TestIntegration_ConsumerBatchCollectPublish(t *testing.T) {
 	_ = consumer.Shutdown(shutdownCtx)
 
 	if _, ok := acked.Load("ack-batch-1"); !ok {
-		t.Error("ack-batch-1 was not acknowledged")
+		assert.Fail(t,
+
+			"ack-batch-1 was not acknowledged")
 	}
 	if _, ok := acked.Load("ack-batch-2"); !ok {
-		t.Error("ack-batch-2 was not acknowledged")
+		assert.Fail(t,
+
+			"ack-batch-2 was not acknowledged")
 	}
 }
 
@@ -689,9 +710,8 @@ func TestIntegration_WebhookReceiverPublishesToRedis(t *testing.T) {
 
 	channel := "cdc:project:proj-wh:job_runs"
 	sub, err := pub.Subscribe(ctx, channel)
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer sub.Close()
 
 	receiver := cdc.NewWebhookReceiver(pub, nil)
@@ -711,25 +731,31 @@ func TestIntegration_WebhookReceiverPublishesToRedis(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	receiver.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("WebhookReceiver responded %d, want %d", rec.Code, http.StatusOK)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		rec.Code,
+	)
 
 	select {
 	case data := <-sub.Ch:
 		var event cdc.ChangeEvent
 		if err := json.Unmarshal(data, &event); err != nil {
-			t.Fatalf("unmarshal event: %v", err)
+			require.Failf(t, "test failure",
+
+				"unmarshal event: %v", err)
 		}
 		if event.Table != "job_runs" {
-			t.Errorf("event.Table = %q, want %q", event.Table, "job_runs")
+			assert.Failf(t, "test failure",
+
+				"event.Table = %q, want %q", event.Table, "job_runs")
 		}
 		if event.Action != cdc.ActionUpdate {
-			t.Errorf("event.Action = %q, want %q", event.Action, cdc.ActionUpdate)
+			assert.Failf(t, "test failure",
+
+				"event.Action = %q, want %q", event.Action, cdc.ActionUpdate)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for webhook event on Redis")
+		require.Fail(t, "timed out waiting for webhook event on Redis")
 	}
 }
 
@@ -775,7 +801,7 @@ func TestIntegration_ConsumerGracefulShutdown(t *testing.T) {
 	for handled.Load() < 1 {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for message to be handled")
+			require.Fail(t, "timed out waiting for message to be handled")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -784,10 +810,9 @@ func TestIntegration_ConsumerGracefulShutdown(t *testing.T) {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
+	require.NoError(t, consumer.
+		Shutdown(shutdownCtx))
 
-	if err := consumer.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
 }
 
 // Test: Messages for unregistered tables are acked silently
@@ -816,7 +841,9 @@ func TestIntegration_UnregisteredTableAckedSilently(t *testing.T) {
 	consumer.RegisterHandler(cdc.HandlerFunc{
 		TableName: "job_runs",
 		Fn: func(_ context.Context, _ cdc.Message) error {
-			t.Error("handler should not be called for unknown_table")
+			assert.Fail(t,
+
+				"handler should not be called for unknown_table")
 			return nil
 		},
 	})
@@ -833,7 +860,7 @@ func TestIntegration_UnregisteredTableAckedSilently(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for ack of unknown table message")
+			require.Fail(t, "timed out waiting for ack of unknown table message")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -876,14 +903,13 @@ func TestIntegration_WebhookReceiverAdditionalHandlers(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	receiver.ServeHTTP(rec, req)
+	require.Equal(t, http.
+		StatusOK,
+		rec.Code,
+	)
+	assert.EqualValues(t, 1, additionalHandled.
+		Load())
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("WebhookReceiver responded %d, want %d", rec.Code, http.StatusOK)
-	}
-
-	if additionalHandled.Load() != 1 {
-		t.Errorf("additional handler called %d times, want 1", additionalHandled.Load())
-	}
 }
 
 // Test: Multiple handler types on the same consumer
@@ -896,15 +922,13 @@ func TestIntegration_MultipleHandlerTypes(t *testing.T) {
 	workflowCh := "cdc:project:proj-mh:workflow_runs"
 
 	subJR, err := pub.Subscribe(ctx, jobRunCh)
-	if err != nil {
-		t.Fatalf("Subscribe(job_runs) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subJR.Close()
 
 	subWF, err := pub.Subscribe(ctx, workflowCh)
-	if err != nil {
-		t.Fatalf("Subscribe(workflow_runs) error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer subWF.Close()
 
 	var acked sync.Map
@@ -949,26 +973,34 @@ func TestIntegration_MultipleHandlerTypes(t *testing.T) {
 	case data := <-subJR.Ch:
 		var event cdc.ChangeEvent
 		if err := json.Unmarshal(data, &event); err != nil {
-			t.Fatalf("unmarshal job_runs event: %v", err)
+			require.Failf(t, "test failure",
+
+				"unmarshal job_runs event: %v", err)
 		}
 		if event.Table != "job_runs" {
-			t.Errorf("job_runs event.Table = %q, want %q", event.Table, "job_runs")
+			assert.Failf(t, "test failure",
+
+				"job_runs event.Table = %q, want %q", event.Table, "job_runs")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for job_runs event")
+		require.Fail(t, "timed out waiting for job_runs event")
 	}
 
 	select {
 	case data := <-subWF.Ch:
 		var event cdc.ChangeEvent
 		if err := json.Unmarshal(data, &event); err != nil {
-			t.Fatalf("unmarshal workflow_runs event: %v", err)
+			require.Failf(t, "test failure",
+
+				"unmarshal workflow_runs event: %v", err)
 		}
 		if event.Table != "workflow_runs" {
-			t.Errorf("workflow_runs event.Table = %q, want %q", event.Table, "workflow_runs")
+			assert.Failf(t, "test failure",
+
+				"workflow_runs event.Table = %q, want %q", event.Table, "workflow_runs")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for workflow_runs event")
+		require.Fail(t, "timed out waiting for workflow_runs event")
 	}
 
 	cancel()

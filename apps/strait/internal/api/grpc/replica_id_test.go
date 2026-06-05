@@ -4,6 +4,8 @@ import (
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestReplicaID_UsesHOSTNAME verifies that HOSTNAME env var is preferred.
@@ -17,9 +19,9 @@ func TestReplicaID_UsesHOSTNAME(t *testing.T) {
 	t.Setenv("HOSTNAME", "test-pod-abc")
 
 	id := ReplicaID()
-	if id != "test-pod-abc" {
-		t.Errorf("expected test-pod-abc, got %s", id)
-	}
+	assert.Equal(t, "test-pod-abc",
+
+		id)
 
 	// Reset again for subsequent tests.
 	replicaIDOnce = sync.Once{}
@@ -35,9 +37,8 @@ func TestReplicaID_FallbackUUID(t *testing.T) {
 	os.Unsetenv("HOSTNAME")
 
 	id := ReplicaID()
-	if id == "" {
-		t.Error("expected non-empty UUID fallback, got empty string")
-	}
+	assert.NotEmpty(t,
+		id)
 
 	// Reset for subsequent tests.
 	replicaIDOnce = sync.Once{}
@@ -54,9 +55,8 @@ func TestReplicaID_Stable(t *testing.T) {
 
 	id1 := ReplicaID()
 	id2 := ReplicaID()
-	if id1 != id2 {
-		t.Errorf("ReplicaID not stable across calls: %q != %q", id1, id2)
-	}
+	assert.Equal(t, id2,
+		id1)
 
 	// Reset after test.
 	replicaIDOnce = sync.Once{}
@@ -71,9 +71,8 @@ func TestReplicaID_NonEmptyAlways(t *testing.T) {
 	// Test with HOSTNAME set.
 	t.Setenv("HOSTNAME", "container-node-1")
 	id := ReplicaID()
-	if id == "" {
-		t.Error("ReplicaID must never return empty string")
-	}
+	assert.NotEmpty(t,
+		id)
 
 	// Reset and test without HOSTNAME.
 	replicaIDOnce = sync.Once{}
@@ -81,9 +80,8 @@ func TestReplicaID_NonEmptyAlways(t *testing.T) {
 	os.Unsetenv("HOSTNAME")
 
 	id = ReplicaID()
-	if id == "" {
-		t.Error("ReplicaID must never return empty string (fallback path)")
-	}
+	assert.NotEmpty(t,
+		id)
 
 	// Cleanup.
 	replicaIDOnce = sync.Once{}

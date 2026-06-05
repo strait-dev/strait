@@ -1,6 +1,17 @@
 -- Create logical replication slot and publication for Sequin CDC.
 -- This runs on first Postgres boot (via docker-entrypoint-initdb.d).
 
+-- Runtime role used by security probes and RLS/audit privilege hardening.
+-- Migrations grant and revoke privileges for this role when it exists, so
+-- create it before Strait applies migrations in local/perf/self-host stacks.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'strait_app') THEN
+        CREATE ROLE strait_app NOLOGIN NOBYPASSRLS;
+    END IF;
+END
+$$;
+
 -- Create replication slot if not exists.
 DO $$
 BEGIN

@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestStripeMapping_EmptyProductIDs verifies that empty string product IDs are silently skipped.
@@ -12,18 +15,15 @@ func TestStripeMapping_EmptyProductIDs(t *testing.T) {
 	t.Parallel()
 
 	m := NewStripeMapping("", "", "", "")
-
-	if m.PriceCount() != 0 {
-		t.Fatalf("expected empty mapping when all product IDs are empty, got %d entries", m.PriceCount())
-	}
+	require.Equal(t, 0, m.PriceCount())
 
 	tier, ok := m.TierForPrice("")
-	if ok {
-		t.Fatal("expected false for empty product ID lookup on empty mapping")
-	}
-	if tier != domain.PlanFree {
-		t.Fatalf("expected PlanFree for unknown product, got %s", tier)
-	}
+	require.False(t,
+		ok)
+	require.Equal(t,
+		domain.PlanFree,
+
+		tier)
 }
 
 // TestStripeMapping_DuplicateProductIDs verifies that the same product ID used
@@ -36,12 +36,11 @@ func TestStripeMapping_DuplicateProductIDs(t *testing.T) {
 	m := NewStripeMapping("dup-id", "starter-yearly", "dup-id", "pro-yearly")
 
 	tier, ok := m.TierForPrice("dup-id")
-	if !ok {
-		t.Fatal("expected true for duplicate product ID lookup")
-	}
-	if tier != domain.PlanPro {
-		t.Fatalf("expected PlanPro (last write wins), got %s", tier)
-	}
+	require.True(t, ok)
+	require.Equal(t,
+		domain.PlanPro,
+
+		tier)
 }
 
 // TestTierForPrice_UnknownProduct verifies that an unknown product ID returns PlanFree and false.
@@ -51,12 +50,12 @@ func TestTierForPrice_UnknownProduct(t *testing.T) {
 	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
 	tier, ok := m.TierForPrice("nonexistent-product-id")
-	if ok {
-		t.Fatal("expected false for unknown product ID")
-	}
-	if tier != domain.PlanFree {
-		t.Fatalf("expected PlanFree for unknown product, got %s", tier)
-	}
+	require.False(t,
+		ok)
+	require.Equal(t,
+		domain.PlanFree,
+
+		tier)
 }
 
 // TestTierForPrice_EmptyString verifies that an empty string product ID returns PlanFree and false.
@@ -66,12 +65,12 @@ func TestTierForPrice_EmptyString(t *testing.T) {
 	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
 	tier, ok := m.TierForPrice("")
-	if ok {
-		t.Fatal("expected false for empty product ID")
-	}
-	if tier != domain.PlanFree {
-		t.Fatalf("expected PlanFree for empty product ID, got %s", tier)
-	}
+	require.False(t,
+		ok)
+	require.Equal(t,
+		domain.PlanFree,
+
+		tier)
 }
 
 // TestTierForPrice_NullBytes verifies that null bytes in a product ID do not cause panics.
@@ -81,12 +80,12 @@ func TestTierForPrice_NullBytes(t *testing.T) {
 	m := NewStripeMapping("starter-m", "starter-y", "pro-m", "pro-y")
 
 	tier, ok := m.TierForPrice("product\x00id")
-	if ok {
-		t.Fatal("expected false for product ID containing null bytes")
-	}
-	if tier != domain.PlanFree {
-		t.Fatalf("expected PlanFree for null-byte product ID, got %s", tier)
-	}
+	require.False(t,
+		ok)
+	require.Equal(t,
+		domain.PlanFree,
+
+		tier)
 }
 
 // TestTierForPrice_AllTiers verifies that each tier product resolves correctly.
@@ -108,12 +107,15 @@ func TestTierForPrice_AllTiers(t *testing.T) {
 	for _, tc := range cases {
 		tier, ok := m.TierForPrice(tc.productID)
 		if !ok {
-			t.Errorf("expected true for product %q", tc.productID)
+			assert.Failf(t, "test failure",
+
+				"expected true for product %q", tc.productID)
 			continue
 		}
-		if tier != tc.wantTier {
-			t.Errorf("product %q: expected tier %s, got %s", tc.productID, tc.wantTier, tier)
-		}
+		assert.Equal(t, tc.
+			wantTier,
+
+			tier)
 	}
 }
 
@@ -128,12 +130,13 @@ func FuzzTierForPrice(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, productID string) {
 		tier, ok := m.TierForPrice(productID)
-		if !ok && tier != domain.PlanFree {
-			t.Errorf("unknown product should return PlanFree, got %s", tier)
-		}
-		if ok && tier != domain.PlanStarter && tier != domain.PlanPro {
-			t.Errorf("known product should be Starter or Pro, got %s", tier)
-		}
+		assert.False(t, !ok && tier !=
+			domain.PlanFree)
+		assert.False(t, ok &&
+			tier !=
+
+				domain.PlanStarter && tier !=
+			domain.PlanPro)
 	})
 }
 
@@ -145,21 +148,18 @@ func TestStripeMapping_CaseSensitivity(t *testing.T) {
 
 	// Exact case should match.
 	tier, ok := m.TierForPrice("Starter-M")
-	if !ok {
-		t.Fatal("expected true for exact-case product ID")
-	}
-	if tier != domain.PlanStarter {
-		t.Fatalf("expected PlanStarter, got %s", tier)
-	}
+	require.True(t, ok)
+	require.Equal(t,
+		domain.PlanStarter,
+
+		tier)
 
 	// Different case should not match.
 	_, ok = m.TierForPrice("starter-m")
-	if ok {
-		t.Fatal("expected false for different-case product ID (case-sensitive)")
-	}
+	require.False(t,
+		ok)
 
 	_, ok = m.TierForPrice("STARTER-M")
-	if ok {
-		t.Fatal("expected false for uppercase product ID (case-sensitive)")
-	}
+	require.False(t,
+		ok)
 }

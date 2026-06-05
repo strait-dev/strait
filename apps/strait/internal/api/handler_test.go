@@ -19,6 +19,9 @@ import (
 	"strait/internal/pubsub"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // decodePaginatedList decodes a PaginatedResponse body into the given slice pointer.
@@ -108,18 +111,14 @@ func TestHandleHealth(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["status"] != "ok" {
-		t.Fatalf("expected status=ok, got %v", resp["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "ok", resp["status"])
 }
 
 func TestHandleHealth_PublicResponseFields(t *testing.T) {
@@ -140,26 +139,30 @@ func TestHandleHealth_PublicResponseFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/health", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["status"] != "ok" {
-		t.Errorf("expected status=ok, got %v", resp["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	assert.Equal(
+		t, "ok", resp["status"])
+
 	if _, ok := resp["version"]; !ok {
-		t.Error("expected version field in public response")
+		assert.Fail(t,
+
+			"expected version field in public response")
 	}
 	if _, ok := resp["timestamp"]; !ok {
-		t.Error("expected timestamp field in public response")
+		assert.Fail(t,
+
+			"expected timestamp field in public response")
 	}
 	if _, ok := resp["edition"]; ok {
-		t.Error("edition should not be in public response (internal only)")
+		assert.Fail(t,
+
+			"edition should not be in public response (internal only)")
 	}
 }
 
@@ -171,10 +174,10 @@ func TestHandleAuth_MissingSecret(t *testing.T) {
 	// No X-Internal-Secret header
 
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleCreateJob_Success(t *testing.T) {
@@ -200,13 +203,12 @@ func TestHandleCreateJob_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created.Load() {
-		t.Fatal("CreateJob was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, created.Load(),
+	)
 }
 
 func TestHandleCreateJob_MissingFields(t *testing.T) {
@@ -214,10 +216,10 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", `{}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 
 	var resp struct {
 		Error struct {
@@ -226,18 +228,21 @@ func TestHandleCreateJob_MissingFields(t *testing.T) {
 			Details []string `json:"details"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Error.Code != ErrorCodeValidationFailed {
-		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
-	}
-	if resp.Error.Message != "validation failed" {
-		t.Fatalf("expected validation failed message, got %q", resp.Error.Message)
-	}
-	if len(resp.Error.Details) == 0 {
-		t.Fatal("expected validation details")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, ErrorCodeValidationFailed,
+
+		resp.
+			Error.
+			Code)
+	require.Equal(t, "validation failed",
+		resp.
+			Error.
+			Message,
+	)
+	require.NotEmpty(t, resp.Error.
+		Details)
 }
 
 func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
@@ -255,20 +260,17 @@ func TestHandleCreateJob_ValidateTagsTooMany(t *testing.T) {
 		"tags":         tags,
 	}
 	body, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "too many tags (max 20)") {
-		t.Fatalf("expected too-many-tags error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "too many tags (max 20)")
 }
 
 func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
@@ -283,20 +285,17 @@ func TestHandleCreateJob_ValidateTagsKeyTooLong(t *testing.T) {
 		},
 	}
 	body, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "tag key too long (max 64 characters)") {
-		t.Fatalf("expected key-too-long error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "tag key too long (max 64 characters)")
 }
 
 func TestHandleGetJob_Success(t *testing.T) {
@@ -317,18 +316,14 @@ func TestHandleGetJob_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "job-123" {
-		t.Fatalf("expected id=job-123, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "job-123", resp["id"])
 }
 
 func TestHandleGetJob_NotFound(t *testing.T) {
@@ -342,10 +337,9 @@ func TestHandleGetJob_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/nonexistent", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleListJobs_Success(t *testing.T) {
@@ -362,16 +356,13 @@ func TestHandleListJobs_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs/", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 2)
 }
 
 func TestHandleListJobs_MissingProjectID(t *testing.T) {
@@ -379,10 +370,9 @@ func TestHandleListJobs_MissingProjectID(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJobGroup_Success(t *testing.T) {
@@ -407,13 +397,12 @@ func TestHandleCreateJobGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created.Load() {
-		t.Fatal("CreateJobGroup was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, created.Load(),
+	)
 }
 
 func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
@@ -421,22 +410,24 @@ func TestHandleCreateJobGroup_MissingFields(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/job-groups/", `{}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 
 	var resp struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Error.Code != ErrorCodeValidationFailed {
-		t.Fatalf("expected validation_failed code, got %q", resp.Error.Code)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, ErrorCodeValidationFailed,
+
+		resp.
+			Error.
+			Code)
 }
 
 func TestHandleGetJobGroup_Success(t *testing.T) {
@@ -450,10 +441,8 @@ func TestHandleGetJobGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleGetJobGroup_NotFound(t *testing.T) {
@@ -467,10 +456,9 @@ func TestHandleGetJobGroup_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/missing", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleListJobGroups_Success(t *testing.T) {
@@ -487,16 +475,13 @@ func TestHandleListJobGroups_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/?project_id=proj-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 groups, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 2)
 }
 
 func TestHandleDeleteJobGroup_Success(t *testing.T) {
@@ -515,13 +500,11 @@ func TestHandleDeleteJobGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/job-groups/group-123", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedID != "group-123" {
-		t.Fatalf("expected group id group-123, got %q", deletedID)
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.
+			Code)
+	require.Equal(t, "group-123",
+		deletedID)
 }
 
 func TestHandleListJobsByGroup_Success(t *testing.T) {
@@ -538,25 +521,26 @@ func TestHandleListJobsByGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/job-groups/group-1/jobs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 1)
 }
 
 func TestHandleListJobs_FilterByTag(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListJobsByTagFunc: func(_ context.Context, projectID, tagKey, tagValue string, _ int, _ *time.Time) ([]domain.Job, error) {
-			if projectID != "proj-1" || tagKey != "team" || tagValue != "core" {
-				t.Fatalf("unexpected list by tag args: %q %q %q", projectID, tagKey, tagValue)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				tagKey !=
+					"team" ||
+				tagValue !=
+					"core")
+
 			return []domain.Job{{ID: "job-1", ProjectID: projectID, Name: "Job 1"}}, nil
 		},
 	}
@@ -564,16 +548,13 @@ func TestHandleListJobs_FilterByTag(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/jobs/?tag_key=team&tag_value=core", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 job, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 1)
 }
 
 func TestHandleCreateJobDependency_Success(t *testing.T) {
@@ -583,15 +564,15 @@ func TestHandleCreateJobDependency_Success(t *testing.T) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
 	}
 	ms.CreateJobDependencyFunc = func(_ context.Context, dep *domain.JobDependency) error {
-		if dep.JobID != "job-1" {
-			t.Fatalf("job_id = %q, want %q", dep.JobID, "job-1")
-		}
-		if dep.DependsOnJobID != "job-2" {
-			t.Fatalf("depends_on_job_id = %q, want %q", dep.DependsOnJobID, "job-2")
-		}
-		if dep.Condition != "completed" {
-			t.Fatalf("condition = %q, want %q", dep.Condition, "completed")
-		}
+		require.Equal(t, "job-1", dep.
+			JobID)
+		require.Equal(t, "job-2", dep.
+			DependsOnJobID,
+		)
+		require.Equal(t, "completed",
+			dep.Condition,
+		)
+
 		dep.ID = "dep-1"
 		dep.CreatedAt = time.Now()
 		return nil
@@ -601,18 +582,16 @@ func TestHandleCreateJobDependency_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-2"}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp domain.JobDependency
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.ID != "dep-1" {
-		t.Fatalf("id = %q, want %q", resp.ID, "dep-1")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "dep-1", resp.
+		ID)
 }
 
 func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
@@ -622,7 +601,9 @@ func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
 		return &domain.Job{ID: id, ProjectID: "proj-1", Enabled: true}, nil
 	}
 	ms.CreateJobDependencyFunc = func(_ context.Context, _ *domain.JobDependency) error {
-		t.Fatal("CreateJobDependency should not be called")
+		require.Fail(t,
+
+			"CreateJobDependency should not be called")
 		return nil
 	}
 
@@ -630,10 +611,9 @@ func TestHandleCreateJobDependency_SelfReference(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{"depends_on_job_id":"job-1"}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+		w.Code)
 }
 
 func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
@@ -647,10 +627,10 @@ func TestHandleCreateJobDependency_MissingFields(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/dependencies", `{}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleListJobDependencies_Success(t *testing.T) {
@@ -667,16 +647,13 @@ func TestHandleListJobDependencies_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []domain.JobDependency
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 dependency, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 1)
 }
 
 func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
@@ -690,12 +667,9 @@ func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
 	createdAt := time.Now().UTC()
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 		listCalls.Add(1)
-		if limit != 51 {
-			t.Fatalf("limit = %d, want 51", limit)
-		}
-		if cursor != nil {
-			t.Fatalf("cursor = %v, want nil for cached first page", cursor)
-		}
+		require.Equal(t, 51, limit)
+		require.Nil(t, cursor)
+
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
 	}
 
@@ -705,13 +679,11 @@ func TestHandleListJobDependencies_UsesCacheForFirstPage(t *testing.T) {
 	for range 2 {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies", ""))
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	}
-	if listCalls.Load() != 1 {
-		t.Fatalf("ListJobDependencies calls = %d, want 1", listCalls.Load())
-	}
+	require.EqualValues(t, 1, listCalls.
+		Load())
 }
 
 func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
@@ -725,9 +697,8 @@ func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
 	createdAt := time.Now().UTC()
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, _ int, cursor *time.Time) ([]domain.JobDependency, error) {
 		listCalls.Add(1)
-		if cursor == nil {
-			t.Fatal("cursor = nil, want cursor for uncached page")
-		}
+		require.NotNil(t, cursor)
+
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt}}, nil
 	}
 
@@ -738,13 +709,11 @@ func TestHandleListJobDependencies_CursorBypassesCache(t *testing.T) {
 	for range 2 {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, url, ""))
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	}
-	if listCalls.Load() != 2 {
-		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
-	}
+	require.EqualValues(t, 2, listCalls.
+		Load())
 }
 
 func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
@@ -758,12 +727,9 @@ func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
 	createdAt := time.Now().UTC()
 	ms.ListJobDependenciesFunc = func(_ context.Context, jobID string, limit int, cursor *time.Time) ([]domain.JobDependency, error) {
 		listCalls.Add(1)
-		if limit != 11 {
-			t.Fatalf("limit = %d, want 11", limit)
-		}
-		if cursor != nil {
-			t.Fatalf("cursor = %v, want nil", cursor)
-		}
+		require.Equal(t, 11, limit)
+		require.Nil(t, cursor)
+
 		return []domain.JobDependency{{ID: "dep-1", JobID: jobID, DependsOnJobID: "job-2", Condition: "completed", CreatedAt: createdAt, CacheVersion: 3}}, nil
 	}
 
@@ -773,13 +739,11 @@ func TestHandleListJobDependencies_CustomLimitBypassesCache(t *testing.T) {
 	for range 2 {
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-1/dependencies?limit=10", ""))
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.StatusOK,
+			w.Code)
 	}
-	if listCalls.Load() != 2 {
-		t.Fatalf("ListJobDependencies calls = %d, want 2", listCalls.Load())
-	}
+	require.EqualValues(t, 2, listCalls.
+		Load())
 }
 
 func TestHandleDeleteJobDependency_Success(t *testing.T) {
@@ -801,13 +765,10 @@ func TestHandleDeleteJobDependency_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-1/dependencies/dep-9", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedID != "dep-9" {
-		t.Fatalf("deleted id = %q, want %q", deletedID, "dep-9")
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.
+			Code)
+	require.Equal(t, "dep-9", deletedID)
 }
 
 func TestHandleTriggerJob_Success(t *testing.T) {
@@ -836,24 +797,24 @@ func TestHandleTriggerJob_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] == nil || resp["id"] == "" {
-		t.Fatal("expected non-empty run id")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.False(t, resp["id"] ==
+		nil || resp["id"] == "",
+	)
+
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("trigger response must not expose SDK run_token")
+		require.Fail(t,
+
+			"trigger response must not expose SDK run_token")
 	}
-	if resp["status"] != "queued" {
-		t.Fatalf("expected status=queued, got %v", resp["status"])
-	}
+	require.Equal(t, "queued", resp["status"])
 }
 
 func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
@@ -890,16 +851,13 @@ func TestHandleTriggerJob_WaitsForUnsatisfiedDependencies(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if createdRunStatus != domain.StatusWaiting {
-		t.Fatalf("created run status = %s, want waiting", createdRunStatus)
-	}
-	if enqueueCalled {
-		t.Fatal("enqueue should not be called for waiting dependency run")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, domain.StatusWaiting,
+		createdRunStatus,
+	)
+	require.False(t, enqueueCalled)
 }
 
 func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testing.T) {
@@ -928,9 +886,11 @@ func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testi
 		},
 		GetRunByIdempotencyKeyFunc: func(_ context.Context, jobID, key string) (*domain.JobRun, error) {
 			lookupCalled = true
-			if jobID != "job-123" || key != "same-key" {
-				t.Fatalf("unexpected idempotency lookup args: %s %s", jobID, key)
-			}
+			require.False(t, jobID != "job-123" ||
+				key !=
+					"same-key",
+			)
+
 			return &domain.JobRun{ID: "run-existing", Status: domain.StatusWaiting}, nil
 		},
 	}
@@ -944,35 +904,37 @@ func TestHandleTriggerJob_WaitingDependencyConflictReturnsIdempotentHit(t *testi
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 (idempotent hit), got %d: %s", w.Code, w.Body.String())
-	}
-	if !lookupCalled {
-		t.Fatal("expected idempotency lookup to be called")
-	}
-	if enqueueCalled {
-		t.Fatal("enqueue should not be called for waiting dependency idempotency hit")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, lookupCalled)
+	require.False(t, enqueueCalled)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "run-existing" {
-		t.Fatalf("expected existing run id, got %v", resp["id"])
-	}
-	if resp["status"] != string(domain.StatusWaiting) {
-		t.Fatalf("expected waiting status, got %v", resp["status"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "run-existing",
+		resp["id"])
+	require.Equal(t, string(domain.
+		StatusWaiting,
+	),
+		resp["status"])
+
 	if hit, ok := resp["idempotency_hit"].(bool); !ok || !hit {
-		t.Fatalf("expected idempotency_hit=true, got %v", resp["idempotency_hit"])
+		require.Failf(t, "test failure",
+
+			"expected idempotency_hit=true, got %v", resp["idempotency_hit"])
 	}
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("did not expect run_token for idempotency hit")
+		require.Fail(t,
+
+			"did not expect run_token for idempotency hit")
 	}
 	if _, ok := resp["payload_hash"]; ok {
-		t.Fatal("did not expect payload_hash for idempotency hit")
+		require.Fail(t,
+
+			"did not expect payload_hash for idempotency hit")
 	}
 }
 
@@ -1008,13 +970,13 @@ func TestHandleTriggerJob_WaitingDependencyConflictLookupError(t *testing.T) {
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`)
 	r.Header.Set("X-Idempotency-Key", "same-key")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "internal server error") {
-		t.Fatalf("expected sanitized internal error, got %s", w.Body.String())
-	}
+		w.Code,
+	)
+	require.Contains(
+		t, w.Body.
+			String(), "internal server error")
 }
 
 func TestHandleTriggerJob_QueuesWhenDependenciesSatisfied(t *testing.T) {
@@ -1051,16 +1013,12 @@ func TestHandleTriggerJob_QueuesWhenDependenciesSatisfied(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !enqueueCalled {
-		t.Fatal("expected enqueue to be called")
-	}
-	if createRunCalled {
-		t.Fatal("create run should not be called when dependencies are satisfied")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, enqueueCalled)
+	require.False(t, createRunCalled)
 }
 
 func TestHandleTriggerJob_DisabledJob(t *testing.T) {
@@ -1080,10 +1038,9 @@ func TestHandleTriggerJob_DisabledJob(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
@@ -1094,15 +1051,14 @@ func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
 			return &domain.JobRun{ID: id, JobID: "job-1", Status: domain.StatusWaiting}, nil
 		},
 		ListJobDependenciesFunc: func(_ context.Context, jobID string, _ int, _ *time.Time) ([]domain.JobDependency, error) {
-			if jobID != "job-1" {
-				t.Fatalf("jobID = %s, want job-1", jobID)
-			}
+			require.Equal(t, "job-1", jobID)
+
 			return []domain.JobDependency{{ID: "dep-1", JobID: "job-1", DependsOnJobID: "job-2", Condition: "completed"}}, nil
 		},
 		AreJobDependenciesSatisfiedFunc: func(_ context.Context, run *domain.JobRun) (bool, error) {
-			if run.ID != "run-1" {
-				t.Fatalf("run.ID = %s, want run-1", run.ID)
-			}
+			require.Equal(t, "run-1", run.
+				ID)
+
 			return false, nil
 		},
 	}
@@ -1110,17 +1066,14 @@ func TestHandleGetRunDependencyStatus_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/dependency-status", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["dependencies_satisfied"] != false {
-		t.Fatalf("dependencies_satisfied = %v, want false", resp["dependencies_satisfied"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, false, resp["dependencies_satisfied"])
 }
 
 func TestHandleStats_Success(t *testing.T) {
@@ -1134,18 +1087,14 @@ func TestHandleStats_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/stats", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["queued"] != float64(5) {
-		t.Fatalf("expected queued=5, got %v", resp["queued"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.InDelta(t, float64(5), resp["queued"], 1e-9)
 }
 
 func TestHandleCancelRun_Success(t *testing.T) {
@@ -1170,9 +1119,11 @@ func TestHandleCancelRun_Success(t *testing.T) {
 			}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, _ domain.RunStatus, to domain.RunStatus, _ map[string]any) error {
-			if to != domain.StatusCanceled {
-				t.Errorf("expected transition to canceled, got %s", to)
-			}
+			assert.Equal(
+				t, domain.StatusCanceled,
+				to,
+			)
+
 			return nil
 		},
 		ListChildRunsFunc: func(_ context.Context, _ string, _ int, _ *time.Time) ([]domain.JobRun, error) {
@@ -1183,10 +1134,8 @@ func TestHandleCancelRun_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-123", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleDeleteJob_Success(t *testing.T) {
@@ -1205,13 +1154,10 @@ func TestHandleDeleteJob_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-123", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedID != "job-123" {
-		t.Fatalf("expected DeleteJob called with job-123, got %s", deletedID)
-	}
+	require.Equal(t, http.StatusNoContent,
+		w.
+			Code)
+	require.Equal(t, "job-123", deletedID)
 }
 
 func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
@@ -1228,10 +1174,9 @@ func TestHandleDeleteJob_ActiveRuns(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/jobs/job-123", ""))
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
@@ -1257,13 +1202,10 @@ func TestHandleUpdateJob_ValidEndpointURL(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"endpoint_url": "https://new.example.com/callback"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updated {
-		t.Fatal("UpdateJob was not called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updated)
 }
 
 func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
@@ -1299,10 +1241,9 @@ func TestHandleUpdateJob_SSRFBlocksPrivateIP(t *testing.T) {
 			w := httptest.NewRecorder()
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
+			require.Equal(t, http.StatusBadRequest,
 
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400 for %s, got %d: %s", tt.url, w.Code, w.Body.String())
-			}
+				w.Code)
 		})
 	}
 }
@@ -1329,10 +1270,9 @@ func TestHandleUpdateJob_SSRFBlocksLocalhost(t *testing.T) {
 	// This test verifies the direct IP blocking works.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"endpoint_url": "http://127.0.0.1:8080/callback"}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for loopback IP, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleUpdateJob_InvalidURL(t *testing.T) {
@@ -1369,10 +1309,8 @@ func TestHandleUpdateJob_InvalidURL(t *testing.T) {
 			w := httptest.NewRecorder()
 			body := `{"endpoint_url": "` + tt.url + `"}`
 			srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", body))
-
-			if w.Code != tt.wantStatus {
-				t.Fatalf("expected %d for %q, got %d: %s", tt.wantStatus, tt.url, w.Code, w.Body.String())
-			}
+			require.Equal(t, tt.wantStatus,
+				w.Code)
 		})
 	}
 }
@@ -1401,13 +1339,10 @@ func TestHandleUpdateJob_NilEndpointURL_SkipsValidation(t *testing.T) {
 	// PATCH without endpoint_url should skip URL validation entirely
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", `{"name": "Updated Name"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !updated {
-		t.Fatal("UpdateJob was not called")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, updated)
 }
 
 func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
@@ -1417,7 +1352,9 @@ func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
 		},
 		UpdateJobFunc: func(_ context.Context, _ *domain.Job) error {
-			t.Fatal("UpdateJob should not be called for invalid tags")
+			require.Fail(t,
+
+				"UpdateJob should not be called for invalid tags")
 			return nil
 		},
 	}
@@ -1428,20 +1365,17 @@ func TestHandleUpdateJob_ValidateTagsValueTooLong(t *testing.T) {
 		},
 	}
 	body, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "tag value too long (max 256 characters)") {
-		t.Fatalf("expected value-too-long error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "tag value too long (max 256 characters)")
 }
 
 func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
@@ -1451,7 +1385,9 @@ func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
 			return &domain.Job{ID: id, ProjectID: "proj-1", Name: "Test", Slug: "test", EndpointURL: "https://example.com", Enabled: true}, nil
 		},
 		UpdateJobFunc: func(_ context.Context, _ *domain.Job) error {
-			t.Fatal("UpdateJob should not be called for invalid tags")
+			require.Fail(t,
+
+				"UpdateJob should not be called for invalid tags")
 			return nil
 		},
 	}
@@ -1462,20 +1398,17 @@ func TestHandleUpdateJob_ValidateTagsEmptyKey(t *testing.T) {
 		},
 	}
 	body, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("failed to marshal request: %v", err)
-	}
+	require.NoError(t, err)
 
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-123", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "tag keys must be non-empty") {
-		t.Fatalf("expected empty-key error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "tag keys must be non-empty")
 }
 
 func TestHandleReplayRun_Success(t *testing.T) {
@@ -1495,15 +1428,13 @@ func TestHandleReplayRun_Success(t *testing.T) {
 
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			if id != "run-123" {
-				t.Fatalf("unexpected run id: %s", id)
-			}
+			require.Equal(t, "run-123", id)
+
 			return originalRun, nil
 		},
 		GetJobFunc: func(_ context.Context, id string) (*domain.Job, error) {
-			if id != "job-1" {
-				t.Fatalf("unexpected job id: %s", id)
-			}
+			require.Equal(t, "job-1", id)
+
 			return &domain.Job{ID: id, TimeoutSecs: 60, RunTTLSecs: 0, Enabled: true}, nil
 		},
 	}
@@ -1519,30 +1450,31 @@ func TestHandleReplayRun_Success(t *testing.T) {
 	srv := newTestServer(t, ms, mq, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, originalRun.JobID,
+		enqueued.
+			JobID,
+	)
+	require.Equal(t, originalRun.ProjectID,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueued.JobID != originalRun.JobID {
-		t.Fatalf("expected JobID %q, got %q", originalRun.JobID, enqueued.JobID)
-	}
-	if enqueued.ProjectID != originalRun.ProjectID {
-		t.Fatalf("expected ProjectID %q, got %q", originalRun.ProjectID, enqueued.ProjectID)
-	}
-	if enqueued.Attempt != 1 {
-		t.Fatalf("expected attempt 1, got %d", enqueued.Attempt)
-	}
-	if string(enqueued.Payload) != string(originalRun.Payload) {
-		t.Fatalf("expected payload %s, got %s", string(originalRun.Payload), string(enqueued.Payload))
-	}
+		enqueued.
+			ProjectID,
+	)
+	require.Equal(t, 1, enqueued.Attempt)
+	require.Equal(t, string(originalRun.
+		Payload,
+	), string(
+		enqueued.Payload,
+	))
+	require.Empty(t, enqueued.
+		IdempotencyKey,
+	)
+
 	// Replays should NOT carry the original idempotency key to avoid
 	// conflicts with active runs sharing the same key.
-	if enqueued.IdempotencyKey != "" {
-		t.Fatalf("expected empty idempotency key on replay, got %q", enqueued.IdempotencyKey)
-	}
 }
 
 func TestHandleReplayRun_DisabledJob(t *testing.T) {
@@ -1559,13 +1491,12 @@ func TestHandleReplayRun_DisabledJob(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "job is disabled") {
-		t.Fatalf("expected disabled-job error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "job is disabled")
 }
 
 func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
@@ -1579,22 +1510,20 @@ func TestHandleReplayRun_NonReplayableStatus(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/replay", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListDeadLetterRunsFunc: func(_ context.Context, projectID string, limit int, _ *time.Time) ([]domain.JobRun, error) {
-			if projectID != "proj-1" {
-				t.Fatalf("unexpected project_id: %s", projectID)
-			}
-			if limit != 26 { // handler passes limit+1 for has_more detection
-				t.Fatalf("unexpected limit: %d", limit)
-			}
+			require.Equal(t, "proj-1", projectID)
+			require.Equal(t, 26, limit)
+
+			// handler passes limit+1 for has_more detection
+
 			return []domain.JobRun{{ID: "run-dlq-1", ProjectID: "proj-1", Status: domain.StatusDeadLetter}}, nil
 		},
 	}
@@ -1603,19 +1532,17 @@ func TestHandleListDeadLetterRuns_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs/dlq?limit=25", "", "proj-1"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runs))
-	}
-	if runs[0].Status != domain.StatusDeadLetter {
-		t.Fatalf("expected dead_letter, got %s", runs[0].Status)
-	}
+	require.Len(t,
+		runs, 1)
+	require.Equal(t, domain.StatusDeadLetter,
+
+		runs[0].Status,
+	)
 }
 
 func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
@@ -1625,9 +1552,8 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
 		},
 		ReplayDeadLetterRunFunc: func(_ context.Context, runID string) (*domain.JobRun, error) {
-			if runID != "run-123" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-123", runID)
+
 			return &domain.JobRun{ID: runID, Status: domain.StatusQueued, Attempt: 1}, nil
 		},
 	}
@@ -1642,21 +1568,21 @@ func TestHandleReplayDeadLetterRun_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var run domain.JobRun
-	if err := json.Unmarshal(w.Body.Bytes(), &run); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if run.Status != domain.StatusQueued {
-		t.Fatalf("expected queued status, got %s", run.Status)
-	}
-	if !slices.Equal(enqueuedExisting, []string{"run-123"}) {
-		t.Fatalf("EnqueueExisting calls = %+v, want replayed run", enqueuedExisting)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &run,
+	))
+	require.Equal(t, domain.StatusQueued,
+		run.
+			Status,
+	)
+	require.True(
+		t, slices.Equal(enqueuedExisting,
+
+			[]string{"run-123"}))
 }
 
 func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
@@ -1674,10 +1600,9 @@ func TestHandleReplayDeadLetterRun_NotDeadLetter(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-123/dlq-replay", ""))
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
@@ -1687,15 +1612,13 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
 		},
 		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
-			if len(runIDs) != 2 || runIDs[0] != "run-1" || runIDs[1] != "run-2" {
-				t.Fatalf("unexpected run_ids: %+v", runIDs)
-			}
-			if projectID != "" {
-				t.Fatalf("expected empty project_id, got %q", projectID)
-			}
-			if limit != 0 {
-				t.Fatalf("expected zero limit for run_ids mode, got %d", limit)
-			}
+			require.False(t, len(runIDs) !=
+				2 || runIDs[0] !=
+				"run-1" ||
+				runIDs[1] != "run-2")
+			require.Empty(t, projectID)
+			require.Equal(t, 0, limit)
+
 			return []domain.JobRun{
 				{ID: "run-1", Status: domain.StatusQueued, Attempt: 1},
 				{ID: "run-2", Status: domain.StatusQueued, Attempt: 1},
@@ -1713,27 +1636,25 @@ func TestHandleBulkReplayDeadLetterRuns_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1","run-2"]}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp struct {
 		Count    int             `json:"count"`
 		Replayed []domain.JobRun `json:"replayed"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp.Count != 2 {
-		t.Fatalf("expected count=2, got %d", resp.Count)
-	}
-	if len(resp.Replayed) != 2 {
-		t.Fatalf("expected 2 replayed runs, got %d", len(resp.Replayed))
-	}
-	if !slices.Equal(enqueuedExisting, []string{"run-1", "run-2"}) {
-		t.Fatalf("EnqueueExisting calls = %+v, want both replayed runs", enqueuedExisting)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, 2, resp.Count)
+	require.Len(t,
+		resp.Replayed,
+		2)
+	require.True(
+		t, slices.Equal(enqueuedExisting,
+
+			[]string{"run-1",
+				"run-2"}))
 }
 
 func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t *testing.T) {
@@ -1744,15 +1665,13 @@ func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t 
 			return &domain.JobRun{ID: id, Status: domain.StatusDeadLetter, ProjectID: "proj-1"}, nil
 		},
 		BulkReplayDeadLetterRunsFunc: func(_ context.Context, runIDs []string, projectID string, limit int) ([]domain.JobRun, error) {
-			if len(runIDs) != 1 || runIDs[0] != "run-1" {
-				t.Fatalf("unexpected run_ids: %+v", runIDs)
-			}
-			if projectID != "" {
-				t.Fatalf("run_ids replay must not also pass project_id, got %q", projectID)
-			}
-			if limit != 0 {
-				t.Fatalf("run_ids replay must not also pass limit, got %d", limit)
-			}
+			require.False(t, len(runIDs) !=
+				1 || runIDs[0] !=
+				"run-1",
+			)
+			require.Empty(t, projectID)
+			require.Equal(t, 0, limit)
+
 			return []domain.JobRun{{ID: "run-1", Status: domain.StatusQueued, Attempt: 1}}, nil
 		},
 	}
@@ -1761,10 +1680,8 @@ func TestHandleBulkReplayDeadLetterRuns_RunIDsModeDoesNotSendProjectIDOrLimit(t 
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/bulk-dlq-replay", `{"run_ids":["run-1"],"limit":123}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleTriggerJob_DryRunMode(t *testing.T) {
@@ -1796,28 +1713,28 @@ func TestHandleTriggerJob_DryRunMode(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-123/trigger", `{"dry_run": true}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp DryRunValidationResult
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.False(t, resp.Job == nil ||
+		resp.
+			Job.ID !=
+			"job-123",
+	)
 
-	if resp.Job == nil || resp.Job.ID != "job-123" {
-		t.Fatal("expected non-nil job with id=job-123")
-	}
 	if raw := w.Body.String(); strings.Contains(raw, "endpoint_url") || strings.Contains(raw, "https://example.com/callback") {
-		t.Fatalf("dry-run response leaked endpoint details: %s", raw)
+		require.Failf(t, "test failure",
+
+			"dry-run response leaked endpoint details: %s", raw)
 	}
-	if resp.PayloadHash == "" {
-		t.Fatal("expected non-empty payload_hash")
-	}
-	if resp.ExpiresAt.IsZero() {
-		t.Fatal("expected non-zero expires_at")
-	}
+	require.NotEmpty(t, resp.PayloadHash)
+	require.False(t, resp.ExpiresAt.
+		IsZero(),
+	)
 }
 
 func TestHandleCloneJob_Success(t *testing.T) {
@@ -1850,14 +1767,15 @@ func TestHandleCloneJob_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-source/clone", `{"name":"Cloned Job","slug":"cloned-job"}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
 	var cloned domain.Job
-	if err := json.Unmarshal(w.Body.Bytes(), &cloned); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &cloned,
+	))
+
 	testutil.AssertEqual(t, domain.Job{
 		Name:        cloned.Name,
 		Slug:        cloned.Slug,
@@ -1887,10 +1805,9 @@ func TestHandleCloneJob_NotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/nonexistent/clone", `{"name":"Clone","slug":"clone"}`)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleCloneJob_MissingFields(t *testing.T) {
@@ -1903,10 +1820,9 @@ func TestHandleCloneJob_MissingFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := authedRequest(http.MethodPost, "/v1/jobs/job-1/clone", `{"name":""}`)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
 }
 
 // Batch Job Definition Ops (2.38).
@@ -1931,24 +1847,20 @@ func TestHandleBatchCreateJobs_Success(t *testing.T) {
 	]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
-	if createdCount != 2 {
-		t.Fatalf("expected 2 jobs created, got %d", createdCount)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.Equal(t, 2, createdCount)
 
 	var resp BatchCreateJobsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(resp.Created) != 2 {
-		t.Fatalf("expected 2 created, got %d", len(resp.Created))
-	}
-	if len(resp.Errors) != 0 {
-		t.Fatalf("expected 0 errors, got %d", len(resp.Errors))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Len(t,
+		resp.Created, 2,
+	)
+	require.Empty(t,
+		resp.Errors)
 }
 
 func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
@@ -1970,24 +1882,20 @@ func TestHandleBatchCreateJobs_PartialFailure(t *testing.T) {
 	]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	var resp BatchCreateJobsResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(resp.Created) != 1 {
-		t.Fatalf("expected 1 created, got %d", len(resp.Created))
-	}
-	if len(resp.Errors) != 1 {
-		t.Fatalf("expected 1 error, got %d", len(resp.Errors))
-	}
-	if resp.Errors[0].Index != 1 {
-		t.Fatalf("expected error at index 1, got %d", resp.Errors[0].Index)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Len(t,
+		resp.Created, 1,
+	)
+	require.Len(t,
+		resp.Errors, 1)
+	require.Equal(t, 1, resp.Errors[0].Index)
 }
 
 func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
@@ -2001,10 +1909,9 @@ func TestHandleBatchCreateJobs_AllFail(t *testing.T) {
 	]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusBadRequest, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
@@ -2013,10 +1920,9 @@ func TestHandleBatchCreateJobs_EmptyArray(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", `{"jobs":[]}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
+		w.Code)
 }
 
 func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
@@ -2035,13 +1941,12 @@ func TestHandleBatchCreateJobs_TooManyJobs(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"jobs": jobs})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-	if !strings.Contains(w.Body.String(), "too many jobs in batch") {
-		t.Fatalf("expected too-many error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "too many jobs in batch")
 }
 
 func TestHandleBatchEnableJobs_Success(t *testing.T) {
@@ -2061,27 +1966,20 @@ func TestHandleBatchEnableJobs_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":["job-1","job-2","job-3"]}`, "proj-aaa"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-	if !capturedEnabled {
-		t.Fatal("expected enabled=true")
-	}
-	if len(capturedIDs) != 3 {
-		t.Fatalf("expected 3 ids, got %d", len(capturedIDs))
-	}
-	if capturedProject != "proj-aaa" {
-		t.Fatalf("expected projectID=proj-aaa, got %q", capturedProject)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.True(
+		t, capturedEnabled,
+	)
+	require.Len(t,
+		capturedIDs, 3)
+	require.Equal(t, "proj-aaa", capturedProject)
 
 	var resp BatchUpdateResult
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Updated != 3 {
-		t.Fatalf("expected updated=3, got %d", resp.Updated)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.EqualValues(t, 3, resp.Updated)
 }
 
 func TestHandleBatchDisableJobs_Success(t *testing.T) {
@@ -2097,21 +1995,15 @@ func TestHandleBatchDisableJobs_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodPost, "/v1/jobs/batch-disable", `{"ids":["job-1","job-2"]}`, "proj-aaa"))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
-	if capturedEnabled {
-		t.Fatal("expected enabled=false")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, capturedEnabled)
 
 	var resp BatchUpdateResult
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Updated != 2 {
-		t.Fatalf("expected updated=2, got %d", resp.Updated)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.EqualValues(t, 2, resp.Updated)
 }
 
 func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
@@ -2120,13 +2012,12 @@ func TestHandleBatchEnableJobs_EmptyIDs(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-enable", `{"ids":[]}`))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-	if !strings.Contains(w.Body.String(), "ids array is required") {
-		t.Fatalf("expected empty-ids error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "ids array is required")
 }
 
 func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
@@ -2140,13 +2031,12 @@ func TestHandleBatchDisableJobs_TooManyIDs(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"ids": ids})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/batch-disable", string(body)))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-	if !strings.Contains(w.Body.String(), "too many ids in batch") {
-		t.Fatalf("expected too-many error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "too many ids in batch")
 }
 
 // Job Health Scoring (2.41).
@@ -2175,27 +2065,18 @@ func TestHandleGetJobHealth_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=7d", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp JobHealthResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.JobID != "job-123" {
-		t.Fatalf("job_id = %q, want %q", resp.JobID, "job-123")
-	}
-	if resp.Window != "7d" {
-		t.Fatalf("window = %q, want %q", resp.Window, "7d")
-	}
-	if resp.TotalRuns != 100 {
-		t.Fatalf("total_runs = %d, want %d", resp.TotalRuns, 100)
-	}
-	if resp.SuccessRate != 85.0 {
-		t.Fatalf("success_rate = %f, want %f", resp.SuccessRate, 85.0)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "job-123", resp.
+		JobID)
+	require.Equal(t, "7d", resp.Window)
+	require.Equal(t, 100, resp.TotalRuns)
+	require.InDelta(t, 85.0, resp.SuccessRate, 1e-9)
 }
 
 func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
@@ -2212,18 +2093,14 @@ func TestHandleGetJobHealth_DefaultWindow(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp JobHealthResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if resp.Window != "7d" {
-		t.Fatalf("window = %q, want %q (default)", resp.Window, "7d")
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "7d", resp.Window)
 }
 
 func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
@@ -2237,13 +2114,12 @@ func TestHandleGetJobHealth_InvalidWindow(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/job-123/health?window=2w", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
-	}
-	if !strings.Contains(w.Body.String(), "invalid window") {
-		t.Fatalf("expected invalid-window error, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "invalid window")
 }
 
 func TestHandleGetJobHealth_NotFound(t *testing.T) {
@@ -2257,10 +2133,9 @@ func TestHandleGetJobHealth_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/jobs/missing/health", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleCreateEnvironment_Success(t *testing.T) {
@@ -2286,13 +2161,12 @@ func TestHandleCreateEnvironment_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", body))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if !created.Load() {
-		t.Fatal("CreateEnvironment was not called")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.True(
+		t, created.Load(),
+	)
 }
 
 func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
@@ -2301,10 +2175,10 @@ func TestHandleCreateEnvironment_MissingFields(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/environments/", `{}`))
+	require.Equal(t, http.StatusUnprocessableEntity,
 
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestHandleGetEnvironment_Success(t *testing.T) {
@@ -2320,9 +2194,8 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 			}, nil
 		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
-			if id != "env-1" {
-				t.Fatalf("unexpected environment id: %s", id)
-			}
+			require.Equal(t, "env-1", id)
+
 			return map[string]string{"LOG_LEVEL": "debug", "REGION": "us-east-1"}, nil
 		},
 	}
@@ -2330,25 +2203,23 @@ func TestHandleGetEnvironment_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["id"] != "env-1" {
-		t.Fatalf("expected id=env-1, got %v", resp["id"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "env-1", resp["id"])
+
 	resolved, ok := resp["resolved_variable_keys"].([]any)
-	if !ok {
-		t.Fatalf("expected resolved_variable_keys array, got %T", resp["resolved_variable_keys"])
-	}
-	if !slices.ContainsFunc(resolved, func(v any) bool { return v == "REGION" }) {
-		t.Fatalf("expected resolved REGION key, got %v", resolved)
-	}
+	require.True(
+		t, ok)
+	require.True(
+		t, slices.ContainsFunc(resolved,
+			func(v any) bool {
+				return v == "REGION"
+			}))
 }
 
 func TestHandleListEnvironments_Success(t *testing.T) {
@@ -2365,16 +2236,13 @@ func TestHandleListEnvironments_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/?project_id=proj-1", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp []map[string]any
 	decodePaginatedList(t, w.Body.Bytes(), &resp)
-	if len(resp) != 2 {
-		t.Fatalf("expected 2 environments, got %d", len(resp))
-	}
+	require.Len(t,
+		resp, 2)
 }
 
 func TestHandleGetResolvedVariables_Success(t *testing.T) {
@@ -2384,9 +2252,8 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "test", Slug: "test"}, nil
 		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, id string) (map[string]string, error) {
-			if id != "env-1" {
-				t.Fatalf("unexpected environment id: %s", id)
-			}
+			require.Equal(t, "env-1", id)
+
 			return map[string]string{"API_URL": "https://api.example.com", "LOG_LEVEL": "debug"}, nil
 		},
 	}
@@ -2394,27 +2261,24 @@ func TestHandleGetResolvedVariables_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/environments/env-1/variables", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var resp map[string]map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if resp["variables"]["API_URL"] != "https://api.example.com" {
-		t.Fatalf("expected API_URL variable, got %v", resp["variables"]["API_URL"])
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &resp,
+	))
+	require.Equal(t, "https://api.example.com",
+
+		resp["variables"]["API_URL"])
 }
 
 func TestHandleGetDebugBundle_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetDebugBundleFunc: func(_ context.Context, runID string) (*domain.DebugBundle, error) {
-			if runID != "run-1" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-1", runID)
+
 			return &domain.DebugBundle{
 				Run:         &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted},
 				Events:      []domain.RunEvent{{ID: "evt-1", RunID: "run-1", Message: "started"}},
@@ -2428,24 +2292,21 @@ func TestHandleGetDebugBundle_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var bundle domain.DebugBundle
-	if err := json.Unmarshal(w.Body.Bytes(), &bundle); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if bundle.Run.ID != "run-1" {
-		t.Fatalf("expected run-1, got %s", bundle.Run.ID)
-	}
-	if len(bundle.Events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(bundle.Events))
-	}
-	if len(bundle.Checkpoints) != 1 {
-		t.Fatalf("expected 1 checkpoint, got %d", len(bundle.Checkpoints))
-	}
+	require.NoError(t, json.Unmarshal(w.Body.
+		Bytes(), &bundle,
+	))
+	require.Equal(t, "run-1", bundle.
+		Run.ID)
+	require.Len(t,
+		bundle.Events,
+		1)
+	require.Len(t,
+		bundle.Checkpoints,
+		1)
 }
 
 func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
@@ -2460,10 +2321,9 @@ func TestHandleGetDebugBundle_RunNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/debug-bundle", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleSetDebugMode_Success(t *testing.T) {
@@ -2482,16 +2342,12 @@ func TestHandleSetDebugMode_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if calledRunID != "run-1" {
-		t.Fatalf("expected run-1, got %s", calledRunID)
-	}
-	if !calledDebugMode {
-		t.Fatal("expected debug_mode to be true")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Equal(t, "run-1", calledRunID)
+	require.True(
+		t, calledDebugMode,
+	)
 }
 
 func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
@@ -2506,10 +2362,9 @@ func TestHandleSetDebugMode_RunNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/debug", `{"debug_mode": true}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
@@ -2529,9 +2384,8 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 			return &domain.Job{ID: "job-1", Enabled: true, TimeoutSecs: 30}, nil
 		},
 		ListRunCheckpointsFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.RunCheckpoint, error) {
-			if runID != "run-1" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-1", runID)
+
 			return []domain.RunCheckpoint{
 				{ID: "cp-1", RunID: "run-1", Sequence: 1, State: json.RawMessage(`{"step":1}`)},
 				{ID: "cp-2", RunID: "run-1", Sequence: 2, State: json.RawMessage(`{"step":2}`)},
@@ -2548,19 +2402,17 @@ func TestHandleReplayRun_WithCheckpoint(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=2", ""))
-
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueuedRun == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if string(enqueuedRun.Payload) != `{"step":2}` {
-		t.Fatalf("expected checkpoint state as payload, got %s", string(enqueuedRun.Payload))
-	}
-	if !enqueuedRun.DebugMode {
-		t.Fatal("expected debug_mode to be true for checkpoint replay")
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueuedRun)
+	require.Equal(t, `{"step":2}`,
+		string(enqueuedRun.
+			Payload,
+		))
+	require.True(
+		t, enqueuedRun.DebugMode,
+	)
 }
 
 func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
@@ -2588,10 +2440,9 @@ func TestHandleReplayRun_WithCheckpoint_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=99", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.
+			Code)
 }
 
 func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
@@ -2613,19 +2464,17 @@ func TestHandleReplayRun_InvalidCheckpointParam(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/replay?from_checkpoint=abc", ""))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code)
 }
 
 func TestHandleListRunLineage_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ListRunLineageFunc: func(_ context.Context, runID string, _ int, _ *time.Time) ([]domain.JobRun, error) {
-			if runID != "run-1" {
-				t.Fatalf("expected run-1, got %s", runID)
-			}
+			require.Equal(t, "run-1", runID)
+
 			return []domain.JobRun{
 				{ID: "run-root", LineageDepth: 0},
 				{ID: "run-1", ContinuationOf: "run-root", LineageDepth: 1},
@@ -2636,19 +2485,14 @@ func TestHandleListRunLineage_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 
 	var runs []domain.JobRun
 	decodePaginatedList(t, w.Body.Bytes(), &runs)
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(runs))
-	}
-	if runs[0].ID != "run-root" {
-		t.Fatalf("expected first run to be root, got %s", runs[0].ID)
-	}
+	require.Len(t,
+		runs, 2)
+	require.Equal(t, "run-root", runs[0].ID)
 }
 
 func TestHandleListRunLineage_StoreError(t *testing.T) {
@@ -2662,10 +2506,10 @@ func TestHandleListRunLineage_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/lineage", ""))
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
-	}
+		w.Code,
+	)
 }
 
 // mockPoolStatter is read concurrently by the background backpressure sampler
@@ -2712,13 +2556,11 @@ func TestDBBackpressure_Returns503WhenPoolExhausted(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Header().Get("Retry-After") != "1" {
-		t.Fatalf("expected Retry-After=1, got %s", w.Header().Get("Retry-After"))
-	}
+		w.Code,
+	)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
 }
 
 func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
@@ -2739,10 +2581,10 @@ func TestDBBackpressure_AllowsRequestsWhenPoolHealthy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	require.NotEqual(t, http.StatusServiceUnavailable,
 
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatal("expected request to pass through when pool is healthy")
-	}
+		w.
+			Code)
 }
 
 func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
@@ -2772,13 +2614,11 @@ func TestDBBackpressure_Returns503WhenAcquireWaitSpikes(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/health", ""))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 after acquire wait spike, got %d: %s", w.Code, w.Body.String())
-	}
-	if w.Header().Get("Retry-After") != "1" {
-		t.Fatalf("expected Retry-After=1, got %s", w.Header().Get("Retry-After"))
-	}
+		w.Code,
+	)
+	require.Equal(t, "1", w.Header().Get("Retry-After"))
 }
 
 func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
@@ -2805,10 +2645,10 @@ func TestDBBackpressure_AllowsSmallAcquireWait(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	require.NotEqual(t, http.StatusServiceUnavailable,
 
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatal("expected request to pass through when average acquire wait is below threshold")
-	}
+		w.
+			Code)
 }
 
 func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
@@ -2834,10 +2674,9 @@ func TestHandleUpdateJob_VersionConflict_Returns409(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/jobs/job-1", `{"name":"updated"}`))
-
-	if w.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusConflict,
+		w.
+			Code)
 }
 
 func TestValidateCronFieldCount(t *testing.T) {
@@ -2855,9 +2694,10 @@ func TestValidateCronFieldCount(t *testing.T) {
 	}
 	for _, tt := range tests {
 		err := validateCronFieldCount(tt.expr)
-		if (err != nil) != tt.wantErr {
-			t.Errorf("validateCronFieldCount(%q) error=%v, wantErr=%v", tt.expr, err, tt.wantErr)
-		}
+		assert.Equal(
+			t, tt.wantErr, (err !=
+				nil),
+		)
 	}
 }
 
@@ -2878,10 +2718,10 @@ func TestMetrics_Unauthenticated_Returns401(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for unauthenticated /metrics, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestMetrics_Authenticated_Returns200(t *testing.T) {
@@ -2903,10 +2743,8 @@ func TestMetrics_Authenticated_Returns200(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for authenticated /metrics, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestMetrics_AuthorizationBearerInternalSecret_Returns200(t *testing.T) {
@@ -2928,10 +2766,8 @@ func TestMetrics_AuthorizationBearerInternalSecret_Returns200(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	r.Header.Set("Authorization", "Bearer test-secret-value")
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for bearer internal secret /metrics, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestNullByteStrippingReader(t *testing.T) {
@@ -2939,13 +2775,10 @@ func TestNullByteStrippingReader(t *testing.T) {
 	input := []byte("hello\x00world")
 	reader := &nullByteStrippingReader{r: strings.NewReader(string(input))}
 	out, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+
 	expected := "hello world"
-	if string(out) != expected {
-		t.Fatalf("expected %q, got %q", expected, string(out))
-	}
+	require.Equal(t, expected, string(out))
 }
 
 func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
@@ -2971,11 +2804,12 @@ func TestHandleTriggerJob_NullByteInPayload_DoesNotCrash(t *testing.T) {
 	body := "{\"payload\":{\"key\":\"val\x00ue\"}}"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+	require.NotEqual(t, http.StatusInternalServerError,
+
+		w.
+			Code)
 
 	// Should not return 500 -- 201 or 200 means null byte was stripped
-	if w.Code == http.StatusInternalServerError {
-		t.Fatalf("expected non-500 response, got 500: %s", w.Body.String())
-	}
 }
 
 func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
@@ -2991,13 +2825,12 @@ func TestHandleTriggerJob_PastScheduledAt_Returns400(t *testing.T) {
 	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, pastTime)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "past") {
-		t.Fatalf("expected error about past, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "past")
 }
 
 func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
@@ -3013,11 +2846,10 @@ func TestHandleTriggerJob_ScheduledAtTooFar_Returns400(t *testing.T) {
 	body := fmt.Sprintf(`{"scheduled_at":"%s"}`, futureTime)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
+	require.Equal(t, http.StatusBadRequest,
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "30 days") {
-		t.Fatalf("expected error about 30 days, got %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.Body.
+			String(), "30 days")
 }

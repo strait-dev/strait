@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestTenantIso_WorkflowAnalytics_StepDurations_RejectsCrossProject ensures
@@ -28,7 +30,8 @@ func TestTenantIso_WorkflowAnalytics_StepDurations_RejectsCrossProject(t *testin
 		From:       "2024-01-01T00:00:00Z",
 		To:         "2024-01-02T00:00:00Z",
 	})
-	if !isHumaStatusError(err, http.StatusNotFound) {
-		t.Fatalf("expected 404, got %v", err)
-	}
+	require.True(
+		t, isHumaStatusError(err,
+
+			http.StatusNotFound))
 }

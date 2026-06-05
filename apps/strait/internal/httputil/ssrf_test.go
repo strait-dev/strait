@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockLookupHost returns a mock DNS resolver that maps known test hostnames
@@ -105,18 +107,7 @@ func TestValidateExternalURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateExternalURL(tt.url)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tt.errMsg)
-				}
-				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
-					t.Fatalf("error %q does not contain %q", err, tt.errMsg)
-				}
-			} else if err != nil {
-				t.Fatalf("expected no error, got: %v", err)
-			}
+			assertExternalURLValidation(t, tt.url, tt.wantErr, tt.errMsg)
 		})
 	}
 }
@@ -153,9 +144,7 @@ func TestRedactURLForLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := RedactURLForLog(tt.in); got != tt.want {
-				t.Fatalf("RedactURLForLog(%q) = %q, want %q", tt.in, got, tt.want)
-			}
+			assert.Equal(t, tt.want, RedactURLForLog(tt.in))
 		})
 	}
 }
@@ -170,18 +159,13 @@ func TestSanitizeHTTPClientError_RemovesURLSecrets(t *testing.T) {
 	}
 
 	got := SanitizeHTTPClientError(err)
-	if strings.Contains(got, "token=secret") ||
-		strings.Contains(got, "user:pass") ||
-		strings.Contains(got, "/private/path") ||
-		strings.Contains(got, "hooks.example.com") {
-		t.Fatalf("SanitizeHTTPClientError leaked URL data: %q", got)
-	}
-	if !strings.Contains(got, "Post") || !strings.Contains(got, "request failed") {
-		t.Fatalf("SanitizeHTTPClientError() = %q, want operation and generic error", got)
-	}
-	if strings.Contains(got, "lookup failed") {
-		t.Fatalf("SanitizeHTTPClientError leaked transport detail: %q", got)
-	}
+	assert.NotContains(t, got, "token=secret")
+	assert.NotContains(t, got, "user:pass")
+	assert.NotContains(t, got, "/private/path")
+	assert.NotContains(t, got, "hooks.example.com")
+	assert.Contains(t, got, "Post")
+	assert.Contains(t, got, "request failed")
+	assert.NotContains(t, got, "lookup failed")
 }
 
 func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
@@ -198,18 +182,13 @@ func TestSanitizeHTTPClientError_RemovesNestedURLSecrets(t *testing.T) {
 	}
 
 	got := SanitizeHTTPClientError(err)
-	if strings.Contains(got, "outer=secret") ||
-		strings.Contains(got, "inner=secret") ||
-		strings.Contains(got, "user:pass") ||
-		strings.Contains(got, "internal.example.com") {
-		t.Fatalf("SanitizeHTTPClientError leaked nested URL data: %q", got)
-	}
-	if !strings.Contains(got, "Get") || !strings.Contains(got, "request failed") {
-		t.Fatalf("SanitizeHTTPClientError() = %q, want nested operation and generic error", got)
-	}
-	if strings.Contains(got, "redirect blocked") {
-		t.Fatalf("SanitizeHTTPClientError leaked nested transport detail: %q", got)
-	}
+	assert.NotContains(t, got, "outer=secret")
+	assert.NotContains(t, got, "inner=secret")
+	assert.NotContains(t, got, "user:pass")
+	assert.NotContains(t, got, "internal.example.com")
+	assert.Contains(t, got, "Get")
+	assert.Contains(t, got, "request failed")
+	assert.NotContains(t, got, "redirect blocked")
 }
 
 func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
@@ -234,18 +213,7 @@ func TestValidateExternalURL_DNSResolvesToPrivate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateExternalURL(tt.url)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tt.errMsg)
-				}
-				if !strings.Contains(err.Error(), tt.errMsg) {
-					t.Fatalf("error %q does not contain %q", err, tt.errMsg)
-				}
-			} else if err != nil {
-				t.Fatalf("expected no error, got: %v", err)
-			}
+			assertExternalURLValidation(t, tt.url, tt.wantErr, tt.errMsg)
 		})
 	}
 }
@@ -259,15 +227,9 @@ func TestValidateExternalURL_DNSLookupFailure(t *testing.T) {
 	// "unknown.example.com" is not in the mock, so lookup returns an error.
 	// The SSRF check must reject the URL to prevent DNS rebinding attacks.
 	err := ValidateExternalURL("https://unknown.example.com/hook")
-	if err == nil {
-		t.Fatal("expected error for DNS lookup failure, got nil")
-	}
-	if !strings.Contains(err.Error(), "DNS lookup failed") {
-		t.Fatalf("error %q does not mention DNS lookup failure", err)
-	}
-	if strings.Contains(err.Error(), "unknown.example.com") {
-		t.Fatalf("error leaked hostname: %q", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DNS lookup failed")
+	assert.NotContains(t, err.Error(), "unknown.example.com")
 }
 
 func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
@@ -278,15 +240,10 @@ func TestSafeDialContext_BlocksPrivateResolvedAddresses(t *testing.T) {
 
 	dial := SafeDialContext(false)
 	_, err := dial(t.Context(), "tcp", "internal.example.com:80")
-	if err == nil {
-		t.Fatal("SafeDialContext resolved private DNS address without error")
-	}
-	if !strings.Contains(err.Error(), "resolves to private") {
-		t.Fatalf("error %q does not mention private DNS answer", err)
-	}
-	if strings.Contains(err.Error(), "internal.example.com") || strings.Contains(err.Error(), "10.0.0.5") {
-		t.Fatalf("error leaked resolved host detail: %q", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolves to private")
+	assert.NotContains(t, err.Error(), "internal.example.com")
+	assert.NotContains(t, err.Error(), "10.0.0.5")
 }
 
 func TestSafeDialContext_BlocksPrivateLiteralAddresses(t *testing.T) {
@@ -294,12 +251,8 @@ func TestSafeDialContext_BlocksPrivateLiteralAddresses(t *testing.T) {
 
 	dial := SafeDialContext(false)
 	_, err := dial(t.Context(), "tcp", "169.254.169.254:80")
-	if err == nil {
-		t.Fatal("SafeDialContext dialed private IP literal without error")
-	}
-	if !strings.Contains(err.Error(), "blocked private") {
-		t.Fatalf("error %q does not mention blocked private address", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked private")
 }
 
 func TestIsPrivateIP(t *testing.T) {
@@ -334,13 +287,9 @@ func TestIsPrivateIP(t *testing.T) {
 		t.Run(tt.ip, func(t *testing.T) {
 			t.Parallel()
 			ip := net.ParseIP(tt.ip)
-			if ip == nil {
-				t.Fatalf("failed to parse IP %q", tt.ip)
-			}
+			require.NotNil(t, ip, "failed to parse IP %q", tt.ip)
 			got := isPrivateIP(ip)
-			if got != tt.private {
-				t.Errorf("isPrivateIP(%s) = %v, want %v", tt.ip, got, tt.private)
-			}
+			assert.Equal(t, tt.private, got)
 		})
 	}
 }
@@ -394,9 +343,7 @@ func TestIsPrivateIP_IPv4CompatibleIPv6(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := isPrivateIP(tt.ip)
-			if got != tt.private {
-				t.Errorf("isPrivateIP(%v) = %v, want %v", tt.ip, got, tt.private)
-			}
+			assert.Equal(t, tt.private, got)
 		})
 	}
 }
@@ -423,9 +370,7 @@ func TestValidateExternalURL_OctalIPBypass(t *testing.T) {
 	for _, payload := range octalPayloads {
 		t.Run(payload, func(t *testing.T) {
 			err := ValidateExternalURL(payload)
-			if err == nil {
-				t.Errorf("expected error for octal/hex IP bypass %q, got nil", payload)
-			}
+			assert.Error(t, err)
 		})
 	}
 
@@ -437,9 +382,7 @@ func TestValidateExternalURL_OctalIPBypass(t *testing.T) {
 	}
 	for _, u := range validURLs {
 		t.Run("valid:"+u, func(t *testing.T) {
-			if err := ValidateExternalURL(u); err != nil {
-				t.Errorf("expected no error for %q, got: %v", u, err)
-			}
+			assert.NoError(t, ValidateExternalURL(u))
 		})
 	}
 }
@@ -482,9 +425,21 @@ func TestLooksLikeNonStandardIP(t *testing.T) {
 		t.Run(tt.host, func(t *testing.T) {
 			t.Parallel()
 			got := looksLikeNonStandardIP(tt.host)
-			if got != tt.expected {
-				t.Errorf("looksLikeNonStandardIP(%q) = %v, want %v", tt.host, got, tt.expected)
-			}
+			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+func assertExternalURLValidation(t *testing.T, rawURL string, wantErr bool, errMsg string) {
+	t.Helper()
+
+	err := ValidateExternalURL(rawURL)
+	if wantErr {
+		require.Error(t, err)
+		if errMsg != "" {
+			assert.Contains(t, err.Error(), errMsg)
+		}
+		return
+	}
+	assert.NoError(t, err)
 }

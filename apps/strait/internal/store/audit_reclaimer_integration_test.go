@@ -10,6 +10,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditReclaimer_ListAndDeleteDeadletter(t *testing.T) {
@@ -32,46 +35,35 @@ func TestAuditReclaimer_ListAndDeleteDeadletter(t *testing.T) {
 			Details:      json.RawMessage(`{}`),
 			CreatedAt:    time.Now().UTC().Truncate(time.Microsecond),
 		}
-		if err := q.CreateAuditEventDeadletter(ctx, ev, "db down", i); err != nil {
-			t.Fatalf("insert deadletter %d: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEventDeadletter(ctx, ev, "db down",
+			i))
+
 	}
 
 	// List should return all 3.
 	events, ids, err := q.ListAuditEventsDeadletter(ctx, 10)
-	if err != nil {
-		t.Fatalf("ListAuditEventsDeadletter: %v", err)
-	}
-	if len(events) != 3 || len(ids) != 3 {
-		t.Fatalf("len = %d/%d, want 3/3", len(events), len(ids))
-	}
+	require.NoError(t, err)
+	require.False(t, len(events) != 3 ||
+		len(ids) != 3)
 
 	// Reclaim: write to primary table, delete from DLQ.
 	for i, ev := range events {
 		evCopy := ev
-		if err := q.CreateAuditEvent(ctx, &evCopy); err != nil {
-			t.Fatalf("reclaim %d CreateAuditEvent: %v", i, err)
-		}
-		if err := q.DeleteAuditEventDeadletter(ctx, ids[i], ev.ProjectID); err != nil {
-			t.Fatalf("reclaim %d DeleteDeadletter: %v", i, err)
-		}
+		require.NoError(t, q.CreateAuditEvent(ctx, &evCopy))
+		require.NoError(t, q.DeleteAuditEventDeadletter(ctx, ids[i],
+			ev.ProjectID,
+		))
+
 	}
 
 	// DLQ should be empty.
 	count, _ := q.CountAuditEventsDeadletter(ctx)
-	if count != 0 {
-		t.Errorf("deadletter count = %d after reclaim, want 0", count)
-	}
+	assert.EqualValues(t, 0, count)
 
 	// Primary chain should be valid.
 	vc, err := q.VerifyAuditChain(ctx, "proj-reclaim")
-	if err != nil {
-		t.Fatalf("VerifyAuditChain: %v", err)
-	}
-	if !vc.Valid {
-		t.Errorf("chain invalid after reclaim: %s", vc.Error)
-	}
-	if vc.EventsChecked != 3 {
-		t.Errorf("events_checked = %d, want 3", vc.EventsChecked)
-	}
+	require.NoError(t, err)
+	assert.True(t, vc.Valid)
+	assert.EqualValues(t, 3, vc.EventsChecked)
+
 }

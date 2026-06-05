@@ -4,9 +4,11 @@ package clickhouse
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Helpers
@@ -46,9 +48,7 @@ func TestGetPerformanceAnalytics_CanceledCtx(t *testing.T) {
 	client := newClosedDBClient(t)
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(canceledCtx(), "proj-1", 24)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetPerformanceAnalytics_EmptyProjectID(t *testing.T) {
@@ -56,9 +56,7 @@ func TestGetPerformanceAnalytics_EmptyProjectID(t *testing.T) {
 	client := newClosedDBClient(t)
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "", 24)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetPerformanceAnalytics_ZeroPeriod(t *testing.T) {
@@ -66,9 +64,7 @@ func TestGetPerformanceAnalytics_ZeroPeriod(t *testing.T) {
 	client := newClosedDBClient(t)
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetPerformanceAnalytics_NegativePeriod(t *testing.T) {
@@ -76,9 +72,7 @@ func TestGetPerformanceAnalytics_NegativePeriod(t *testing.T) {
 	client := newClosedDBClient(t)
 	s := NewAnalyticsStore(client, nil)
 	_, err := s.GetPerformanceAnalytics(context.Background(), "proj-1", -1)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetCostAnalytics
@@ -89,9 +83,7 @@ func TestGetCostAnalytics_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostAnalytics(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostAnalytics_EmptyProjectID(t *testing.T) {
@@ -100,9 +92,7 @@ func TestGetCostAnalytics_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostAnalytics(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostAnalytics_InvertedRange(t *testing.T) {
@@ -111,9 +101,7 @@ func TestGetCostAnalytics_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetCostAnalytics(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetCostTrends
@@ -124,9 +112,7 @@ func TestGetCostTrends_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostTrends(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostTrends_EmptyProjectID(t *testing.T) {
@@ -135,9 +121,7 @@ func TestGetCostTrends_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostTrends(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostTrends_InvertedRange(t *testing.T) {
@@ -146,9 +130,7 @@ func TestGetCostTrends_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetCostTrends(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostTrends_ShortPeriodBranch(t *testing.T) {
@@ -157,9 +139,7 @@ func TestGetCostTrends_ShortPeriodBranch(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetCostTrends(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostTrends_LongPeriodBranch(t *testing.T) {
@@ -168,9 +148,7 @@ func TestGetCostTrends_LongPeriodBranch(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostTrends(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTopCosts
@@ -181,9 +159,7 @@ func TestGetTopCosts_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopCosts(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopCosts_EmptyProjectID(t *testing.T) {
@@ -192,9 +168,7 @@ func TestGetTopCosts_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopCosts(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopCosts_ZeroLimit(t *testing.T) {
@@ -203,9 +177,7 @@ func TestGetTopCosts_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopCosts(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopCosts_InvertedRange(t *testing.T) {
@@ -214,9 +186,7 @@ func TestGetTopCosts_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTopCosts(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetCostOutliers
@@ -227,9 +197,7 @@ func TestGetCostOutliers_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostOutliers(canceledCtx(), "proj-1", from, to, 2.0)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostOutliers_EmptyProjectID(t *testing.T) {
@@ -238,9 +206,7 @@ func TestGetCostOutliers_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostOutliers(context.Background(), "", from, to, 2.0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostOutliers_ZeroThreshold(t *testing.T) {
@@ -249,9 +215,7 @@ func TestGetCostOutliers_ZeroThreshold(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostOutliers(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostOutliers_NegativeThreshold(t *testing.T) {
@@ -260,9 +224,7 @@ func TestGetCostOutliers_NegativeThreshold(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostOutliers(context.Background(), "proj-1", from, to, -1.0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostOutliers_InvertedRange(t *testing.T) {
@@ -271,9 +233,7 @@ func TestGetCostOutliers_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetCostOutliers(context.Background(), "proj-1", from, to, 2.0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetRunTimeline
@@ -284,9 +244,7 @@ func TestGetRunTimeline_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunTimeline(canceledCtx(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunTimeline_EmptyProjectID(t *testing.T) {
@@ -295,9 +253,7 @@ func TestGetRunTimeline_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunTimeline(context.Background(), "", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunTimeline_HourBucket(t *testing.T) {
@@ -306,9 +262,7 @@ func TestGetRunTimeline_HourBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetRunTimeline(context.Background(), "proj-1", from, to, "hour")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunTimeline_DayBucket(t *testing.T) {
@@ -317,9 +271,7 @@ func TestGetRunTimeline_DayBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunTimeline(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunTimeline_UnknownBucket(t *testing.T) {
@@ -329,9 +281,7 @@ func TestGetRunTimeline_UnknownBucket(t *testing.T) {
 	from, to := longRange()
 	// Unknown bucket value should fall through to default (toStartOfDay).
 	_, err := s.GetRunTimeline(context.Background(), "proj-1", from, to, "unknown")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunTimeline_InvertedRange(t *testing.T) {
@@ -340,9 +290,7 @@ func TestGetRunTimeline_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetRunTimeline(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetRunDurationDistribution
@@ -353,9 +301,7 @@ func TestGetRunDurationDistribution_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunDurationDistribution(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunDurationDistribution_EmptyProjectID(t *testing.T) {
@@ -364,9 +310,7 @@ func TestGetRunDurationDistribution_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunDurationDistribution(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunDurationDistribution_InvertedRange(t *testing.T) {
@@ -375,9 +319,7 @@ func TestGetRunDurationDistribution_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetRunDurationDistribution(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetRunFailureReasons
@@ -388,9 +330,7 @@ func TestGetRunFailureReasons_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunFailureReasons(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunFailureReasons_EmptyProjectID(t *testing.T) {
@@ -399,9 +339,7 @@ func TestGetRunFailureReasons_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunFailureReasons(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunFailureReasons_ZeroLimit(t *testing.T) {
@@ -410,9 +348,7 @@ func TestGetRunFailureReasons_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunFailureReasons(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunFailureReasons_InvertedRange(t *testing.T) {
@@ -421,9 +357,7 @@ func TestGetRunFailureReasons_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetRunFailureReasons(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetRunsByTrigger
@@ -434,9 +368,7 @@ func TestGetRunsByTrigger_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunsByTrigger(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunsByTrigger_EmptyProjectID(t *testing.T) {
@@ -445,9 +377,7 @@ func TestGetRunsByTrigger_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunsByTrigger(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunsByTrigger_InvertedRange(t *testing.T) {
@@ -456,9 +386,7 @@ func TestGetRunsByTrigger_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetRunsByTrigger(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetJobHistory
@@ -469,9 +397,7 @@ func TestGetJobHistory_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobHistory(canceledCtx(), "proj-1", "job-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobHistory_EmptyProjectID(t *testing.T) {
@@ -480,9 +406,7 @@ func TestGetJobHistory_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobHistory(context.Background(), "", "job-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobHistory_EmptyJobID(t *testing.T) {
@@ -491,9 +415,7 @@ func TestGetJobHistory_EmptyJobID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobHistory(context.Background(), "proj-1", "", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobHistory_HourBucket(t *testing.T) {
@@ -502,9 +424,7 @@ func TestGetJobHistory_HourBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetJobHistory(context.Background(), "proj-1", "job-1", from, to, "hour")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobHistory_DayBucket(t *testing.T) {
@@ -513,9 +433,7 @@ func TestGetJobHistory_DayBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobHistory(context.Background(), "proj-1", "job-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobHistory_InvertedRange(t *testing.T) {
@@ -524,9 +442,7 @@ func TestGetJobHistory_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetJobHistory(context.Background(), "proj-1", "job-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetJobComparison
@@ -537,9 +453,7 @@ func TestGetJobComparison_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobComparison(canceledCtx(), "proj-1", []string{"j1", "j2"}, from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobComparison_EmptyProjectID(t *testing.T) {
@@ -548,9 +462,7 @@ func TestGetJobComparison_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobComparison(context.Background(), "", []string{"j1"}, from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobComparison_NilJobIDs(t *testing.T) {
@@ -559,9 +471,7 @@ func TestGetJobComparison_NilJobIDs(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobComparison(context.Background(), "proj-1", nil, from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobComparison_EmptyJobIDs(t *testing.T) {
@@ -570,9 +480,7 @@ func TestGetJobComparison_EmptyJobIDs(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobComparison(context.Background(), "proj-1", []string{}, from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobComparison_InvertedRange(t *testing.T) {
@@ -581,9 +489,7 @@ func TestGetJobComparison_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetJobComparison(context.Background(), "proj-1", []string{"j1"}, from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetJobReliability
@@ -594,9 +500,7 @@ func TestGetJobReliability_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobReliability(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobReliability_EmptyProjectID(t *testing.T) {
@@ -605,9 +509,7 @@ func TestGetJobReliability_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobReliability(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobReliability_ZeroLimit(t *testing.T) {
@@ -616,9 +518,7 @@ func TestGetJobReliability_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobReliability(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobReliability_InvertedRange(t *testing.T) {
@@ -627,9 +527,7 @@ func TestGetJobReliability_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetJobReliability(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetRunsByVersion
@@ -640,9 +538,7 @@ func TestGetRunsByVersion_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunsByVersion(canceledCtx(), "proj-1", "job-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunsByVersion_EmptyProjectID(t *testing.T) {
@@ -651,9 +547,7 @@ func TestGetRunsByVersion_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunsByVersion(context.Background(), "", "job-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunsByVersion_EmptyJobID(t *testing.T) {
@@ -662,9 +556,7 @@ func TestGetRunsByVersion_EmptyJobID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetRunsByVersion(context.Background(), "proj-1", "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetRunsByVersion_InvertedRange(t *testing.T) {
@@ -673,9 +565,7 @@ func TestGetRunsByVersion_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetRunsByVersion(context.Background(), "proj-1", "job-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetJobCostRanking
@@ -686,9 +576,7 @@ func TestGetJobCostRanking_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobCostRanking(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobCostRanking_EmptyProjectID(t *testing.T) {
@@ -697,9 +585,7 @@ func TestGetJobCostRanking_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobCostRanking(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobCostRanking_ZeroLimit(t *testing.T) {
@@ -708,9 +594,7 @@ func TestGetJobCostRanking_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetJobCostRanking(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetJobCostRanking_InvertedRange(t *testing.T) {
@@ -719,9 +603,7 @@ func TestGetJobCostRanking_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetJobCostRanking(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTopFailingJobs
@@ -732,9 +614,7 @@ func TestGetTopFailingJobs_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingJobs(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingJobs_EmptyProjectID(t *testing.T) {
@@ -743,9 +623,7 @@ func TestGetTopFailingJobs_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingJobs(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingJobs_ZeroLimit(t *testing.T) {
@@ -754,9 +632,7 @@ func TestGetTopFailingJobs_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingJobs(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingJobs_InvertedRange(t *testing.T) {
@@ -765,9 +641,7 @@ func TestGetTopFailingJobs_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTopFailingJobs(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTagSummary
@@ -778,9 +652,7 @@ func TestGetTagSummary_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagSummary(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagSummary_EmptyProjectID(t *testing.T) {
@@ -789,9 +661,7 @@ func TestGetTagSummary_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagSummary(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagSummary_ZeroLimit(t *testing.T) {
@@ -800,9 +670,7 @@ func TestGetTagSummary_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagSummary(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagSummary_InvertedRange(t *testing.T) {
@@ -811,9 +679,7 @@ func TestGetTagSummary_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTagSummary(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTopFailingTags
@@ -824,9 +690,7 @@ func TestGetTopFailingTags_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingTags(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingTags_EmptyProjectID(t *testing.T) {
@@ -835,9 +699,7 @@ func TestGetTopFailingTags_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingTags(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingTags_ZeroLimit(t *testing.T) {
@@ -846,9 +708,7 @@ func TestGetTopFailingTags_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingTags(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingTags_InvertedRange(t *testing.T) {
@@ -857,9 +717,7 @@ func TestGetTopFailingTags_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTopFailingTags(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTagCost
@@ -870,9 +728,7 @@ func TestGetTagCost_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagCost(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagCost_EmptyProjectID(t *testing.T) {
@@ -881,9 +737,7 @@ func TestGetTagCost_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagCost(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagCost_ZeroLimit(t *testing.T) {
@@ -892,9 +746,7 @@ func TestGetTagCost_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTagCost(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTagCost_InvertedRange(t *testing.T) {
@@ -903,9 +755,7 @@ func TestGetTagCost_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTagCost(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetWorkflowStepDurations
@@ -916,9 +766,7 @@ func TestGetWorkflowStepDurations_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowStepDurations(canceledCtx(), "proj-1", "wf-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowStepDurations_EmptyProjectID(t *testing.T) {
@@ -927,9 +775,7 @@ func TestGetWorkflowStepDurations_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowStepDurations(context.Background(), "", "wf-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowStepDurations_EmptyWorkflowID(t *testing.T) {
@@ -938,9 +784,7 @@ func TestGetWorkflowStepDurations_EmptyWorkflowID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowStepDurations(context.Background(), "proj-1", "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowStepDurations_InvertedRange(t *testing.T) {
@@ -949,9 +793,7 @@ func TestGetWorkflowStepDurations_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetWorkflowStepDurations(context.Background(), "proj-1", "wf-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetWorkflowCompletionRates
@@ -962,9 +804,7 @@ func TestGetWorkflowCompletionRates_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowCompletionRates(canceledCtx(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowCompletionRates_EmptyProjectID(t *testing.T) {
@@ -973,9 +813,7 @@ func TestGetWorkflowCompletionRates_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowCompletionRates(context.Background(), "", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowCompletionRates_HourBucket(t *testing.T) {
@@ -984,9 +822,7 @@ func TestGetWorkflowCompletionRates_HourBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetWorkflowCompletionRates(context.Background(), "proj-1", from, to, "hour")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowCompletionRates_DayBucket(t *testing.T) {
@@ -995,9 +831,7 @@ func TestGetWorkflowCompletionRates_DayBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWorkflowCompletionRates(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWorkflowCompletionRates_InvertedRange(t *testing.T) {
@@ -1006,9 +840,7 @@ func TestGetWorkflowCompletionRates_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetWorkflowCompletionRates(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetWebhookDeliveryStats
@@ -1019,9 +851,7 @@ func TestGetWebhookDeliveryStats_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWebhookDeliveryStats(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookDeliveryStats_EmptyProjectID(t *testing.T) {
@@ -1030,9 +860,7 @@ func TestGetWebhookDeliveryStats_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWebhookDeliveryStats(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookDeliveryStats_InvertedRange(t *testing.T) {
@@ -1041,9 +869,7 @@ func TestGetWebhookDeliveryStats_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetWebhookDeliveryStats(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetWebhookEndpointHealth
@@ -1054,9 +880,7 @@ func TestGetWebhookEndpointHealth_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWebhookEndpointHealth(canceledCtx(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookEndpointHealth_EmptyProjectID(t *testing.T) {
@@ -1065,9 +889,7 @@ func TestGetWebhookEndpointHealth_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWebhookEndpointHealth(context.Background(), "", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookEndpointHealth_HourBucket(t *testing.T) {
@@ -1076,9 +898,7 @@ func TestGetWebhookEndpointHealth_HourBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetWebhookEndpointHealth(context.Background(), "proj-1", from, to, "hour")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookEndpointHealth_DayBucket(t *testing.T) {
@@ -1087,9 +907,7 @@ func TestGetWebhookEndpointHealth_DayBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetWebhookEndpointHealth(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetWebhookEndpointHealth_InvertedRange(t *testing.T) {
@@ -1098,9 +916,7 @@ func TestGetWebhookEndpointHealth_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetWebhookEndpointHealth(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetTopFailingWebhooks
@@ -1111,9 +927,7 @@ func TestGetTopFailingWebhooks_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingWebhooks(canceledCtx(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingWebhooks_EmptyProjectID(t *testing.T) {
@@ -1122,9 +936,7 @@ func TestGetTopFailingWebhooks_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingWebhooks(context.Background(), "", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingWebhooks_ZeroLimit(t *testing.T) {
@@ -1133,9 +945,7 @@ func TestGetTopFailingWebhooks_ZeroLimit(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetTopFailingWebhooks(context.Background(), "proj-1", from, to, 0)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetTopFailingWebhooks_InvertedRange(t *testing.T) {
@@ -1144,9 +954,7 @@ func TestGetTopFailingWebhooks_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetTopFailingWebhooks(context.Background(), "proj-1", from, to, 10)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetEventVolume
@@ -1157,9 +965,7 @@ func TestGetEventVolume_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetEventVolume(canceledCtx(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetEventVolume_EmptyProjectID(t *testing.T) {
@@ -1168,9 +974,7 @@ func TestGetEventVolume_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetEventVolume(context.Background(), "", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetEventVolume_HourBucket(t *testing.T) {
@@ -1179,9 +983,7 @@ func TestGetEventVolume_HourBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := shortRange()
 	_, err := s.GetEventVolume(context.Background(), "proj-1", from, to, "hour")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetEventVolume_DayBucket(t *testing.T) {
@@ -1190,9 +992,7 @@ func TestGetEventVolume_DayBucket(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetEventVolume(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetEventVolume_InvertedRange(t *testing.T) {
@@ -1201,9 +1001,7 @@ func TestGetEventVolume_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetEventVolume(context.Background(), "proj-1", from, to, "day")
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // GetCostByTrigger
@@ -1214,9 +1012,7 @@ func TestGetCostByTrigger_CanceledCtx(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostByTrigger(canceledCtx(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error with canceled context")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostByTrigger_EmptyProjectID(t *testing.T) {
@@ -1225,9 +1021,7 @@ func TestGetCostByTrigger_EmptyProjectID(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := longRange()
 	_, err := s.GetCostByTrigger(context.Background(), "", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 func TestGetCostByTrigger_InvertedRange(t *testing.T) {
@@ -1236,9 +1030,7 @@ func TestGetCostByTrigger_InvertedRange(t *testing.T) {
 	s := NewAnalyticsStore(client, nil)
 	from, to := invertedRange()
 	_, err := s.GetCostByTrigger(context.Background(), "proj-1", from, to)
-	if err == nil {
-		t.Fatal("expected error from closed db")
-	}
+	require.Error(t, err)
 }
 
 // Table-driven: verify every function returns an error containing its
@@ -1388,12 +1180,9 @@ func TestAnalyticsCoverage_ClosedDB_ErrorMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
-			if err == nil {
-				t.Fatal("expected error from closed db")
-			}
-			if !strings.Contains(err.Error(), tt.wantInErr) {
-				t.Errorf("error %q does not contain %q", err.Error(), tt.wantInErr)
-			}
+			require.Error(t, err)
+			assert.Contains(t, err.
+				Error(), tt.wantInErr)
 		})
 	}
 }
@@ -1514,9 +1303,7 @@ func TestAnalyticsCoverage_NilClient_AllQueryMethods(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			err := tt.fn()
-			if err == nil {
-				t.Fatal("expected error from nil client")
-			}
+			require.Error(t, err)
 		})
 	}
 }

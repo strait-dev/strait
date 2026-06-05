@@ -7,29 +7,27 @@ import (
 	"testing"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_AuditEventsDMLRestricted_DetectsUnsafeColumnUpdateGrant(t *testing.T) {
 	ctx := context.Background()
 
 	got := auditDMLRestrictedAsAppRole(t, ctx, "")
-	if !got {
-		t.Fatal("expected baseline audit_events privileges to be restricted")
-	}
+	require.True(t, got)
 
 	got = auditDMLRestrictedAsAppRole(t, ctx, "GRANT UPDATE (details) ON audit_events TO strait_app")
-	if got {
-		t.Fatal("expected non-signature column UPDATE grant to be reported as unrestricted")
-	}
+	require.False(t, got)
+
 }
 
 func auditDMLRestrictedAsAppRole(t *testing.T, ctx context.Context, extraGrant string) bool {
 	t.Helper()
 
 	tx, err := testDB.Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer func() {
 		if err := tx.Rollback(ctx); err != nil {
 			t.Logf("rollback audit privilege test tx: %v", err)
@@ -48,13 +46,14 @@ func auditDMLRestrictedAsAppRole(t *testing.T, ctx context.Context, extraGrant s
 	stmts = append(stmts, "SET LOCAL ROLE strait_app")
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(ctx, stmt); err != nil {
-			t.Fatalf("exec %q: %v", stmt, err)
+			require.Failf(t, "test failure",
+
+				"exec %q: %v", stmt, err)
 		}
 	}
 
 	got, err := store.New(tx).AuditEventsDMLRestricted(ctx)
-	if err != nil {
-		t.Fatalf("AuditEventsDMLRestricted: %v", err)
-	}
+	require.NoError(t, err)
+
 	return got
 }

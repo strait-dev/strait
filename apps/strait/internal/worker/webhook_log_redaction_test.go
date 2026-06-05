@@ -15,6 +15,7 @@ import (
 	"strait/internal/domain"
 	"strait/internal/httputil"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -37,9 +38,8 @@ func withCapturedSlog(t *testing.T, fn func(t *testing.T)) []map[string]any {
 			continue
 		}
 		var m map[string]any
-		if err := json.Unmarshal(line, &m); err != nil {
-			t.Fatalf("invalid slog line %q: %v", string(line), err)
-		}
+		require.NoError(t, json.Unmarshal(line, &m))
+
 		entries = append(entries, m)
 	}
 	return entries
@@ -61,9 +61,9 @@ func TestLogsEmitOnlySchemeAndHost(t *testing.T) {
 	entries := withCapturedSlog(t, func(t *testing.T) {
 		t.Helper()
 		result := SendWebhookWithRetry(context.Background(), job, run, 1)
-		if !result.Delivered {
-			t.Fatalf("expected delivery to succeed for redaction test, got: %s", result.Error)
-		}
+		require.True(t,
+			result.Delivered,
+		)
 	})
 
 	want := httputil.RedactURLForLog(job.WebhookURL)
@@ -72,12 +72,11 @@ func TestLogsEmitOnlySchemeAndHost(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if strings.Contains(raw, "super-secret-token-abc123") || strings.Contains(raw, "leak-me") {
-			t.Fatalf("log entry leaked URL secret: %v", e)
-		}
-		if raw != want {
-			t.Fatalf("log url = %q, want %q (scheme://host only)", raw, want)
-		}
+		require.False(
+			t, strings.Contains(raw, "super-secret-token-abc123") || strings.Contains(raw, "leak-me"))
+		require.Equal(
+			t, want, raw,
+		)
 	}
 }
 
@@ -115,17 +114,15 @@ func TestOTelAttributeRedacted(t *testing.T) {
 			}
 			seen = true
 			got := attr.Value.AsString()
-			if strings.Contains(got, "super-secret-token-abc123") || strings.Contains(got, "leak-me") {
-				t.Fatalf("span webhook.url leaked secret: %s=%q (span=%q)", attr.Key, got, span.Name)
-			}
-			if got != want {
-				t.Fatalf("span webhook.url = %q, want %q", got, want)
-			}
+			require.False(
+				t, strings.Contains(got, "super-secret-token-abc123") || strings.Contains(got, "leak-me"))
+			require.Equal(
+				t, want, got,
+			)
 		}
 	}
-	if !seen {
-		t.Fatal("expected at least one span with webhook.url attribute")
-	}
+	require.True(t,
+		seen)
 }
 
 // TestErrorStringStripsURL pins SanitizeHTTPClientError on the
@@ -140,9 +137,8 @@ func TestErrorStringStripsURL(t *testing.T) {
 		Err: errors.New("connection reset by peer"),
 	}
 	got := httputil.SanitizeHTTPClientError(urlErr)
-	if strings.Contains(got, "super-secret-token-abc123") || strings.Contains(got, "leak-me") {
-		t.Fatalf("SanitizeHTTPClientError leaked URL secret: %q", got)
-	}
+	require.False(
+		t, strings.Contains(got, "super-secret-token-abc123") || strings.Contains(got, "leak-me"))
 
 	// Wire the same expectation through the worker delivery path: when
 	// the package-level helper sanitizes the http.Client error, the
@@ -155,12 +151,17 @@ func TestErrorStringStripsURL(t *testing.T) {
 		return nil, urlErr
 	})}
 	result := sendWebhookWithClientForTest(context.Background(), leakyClient, job, run, 1)
-	if result.Delivered {
-		t.Fatal("expected delivered=false; mock transport always errors")
-	}
-	if strings.Contains(result.Error, "super-secret-token-abc123") || strings.Contains(result.Error, "leak-me") {
-		t.Fatalf("WebhookResult.Error leaked URL secret: %q", result.Error)
-	}
+	require.False(
+		t, result.Delivered,
+	)
+	require.False(
+		t, strings.Contains(result.Error,
+			"super-secret-token-abc123",
+		) ||
+			strings.Contains(
+				result.Error,
+				"leak-me",
+			))
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)
@@ -185,8 +186,8 @@ func FuzzRedactURLForLogNeverLeaksQuery(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, raw string) {
 		got := httputil.RedactURLForLog(raw)
-		if strings.ContainsAny(got, "?#") {
-			t.Fatalf("RedactURLForLog(%q) = %q -- must not contain ? or #", raw, got)
-		}
+		require.False(
+			t, strings.ContainsAny(got,
+				"?#"))
 	})
 }

@@ -5,13 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"strait/internal/config"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleRotateAPIKey(t *testing.T) {
@@ -23,19 +24,21 @@ func TestHandleRotateAPIKey(t *testing.T) {
 		return &domain.APIKey{ID: id, ProjectID: "proj-1", OrgID: "org-1", Name: "prod key", Scopes: []string{"jobs:read"}, ExpiresAt: &expiresAt}, nil
 	}
 	ms.CreateAPIKeyFunc = func(_ context.Context, key *domain.APIKey) error {
-		if key.ProjectID != "proj-1" {
-			t.Fatalf("project_id mismatch: %s", key.ProjectID)
-		}
-		if key.OrgID != "org-1" {
-			t.Fatalf("org_id mismatch: %s", key.OrgID)
-		}
+		require.Equal(t, "proj-1",
+			key.ProjectID,
+		)
+		require.Equal(t, "org-1",
+			key.OrgID,
+		)
+
 		key.ID = "key-2"
 		return nil
 	}
 	ms.MarkAPIKeyRotatedFunc = func(_ context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
-		if oldKeyID != "key-1" || newKeyID == "" {
-			t.Fatalf("unexpected rotate args: %s %s", oldKeyID, newKeyID)
-		}
+		require.False(t, oldKeyID !=
+			"key-1" ||
+			newKeyID == "")
+
 		return nil
 	}
 
@@ -43,13 +46,12 @@ func TestHandleRotateAPIKey(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/api-keys/key-1/rotate", `{"grace_period_minutes":30}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusCreated, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "grace_expires_at") {
-		t.Fatalf("expected grace_expires_at in response, got: %s", w.Body.String())
-	}
+		w.Code)
+	require.Contains(
+		t, w.
+			Body.String(), "grace_expires_at")
 }
 
 func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
@@ -65,12 +67,12 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 		return nil
 	}
 	ms.MarkAPIKeyRotatedFunc = func(_ context.Context, oldKeyID, newKeyID string, graceExpiresAt time.Time) error {
-		if oldKeyID != "key-old" || newKeyID != "key-new" {
-			t.Fatalf("unexpected rotate args: %s %s", oldKeyID, newKeyID)
-		}
-		if time.Until(graceExpiresAt) <= 0 {
-			t.Fatalf("grace deadline is not in the future: %s", graceExpiresAt)
-		}
+		require.False(t, oldKeyID !=
+			"key-old" ||
+			newKeyID != "key-new",
+		)
+		require.Positive(t, time.Until(graceExpiresAt))
+
 		return nil
 	}
 
@@ -80,9 +82,8 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 		publishedChannel = channel
 		var err error
 		publishedDeadline, err = time.Parse(time.RFC3339Nano, string(data))
-		if err != nil {
-			t.Fatalf("expiry payload is not RFC3339Nano: %q", string(data))
-		}
+		require.NoError(t, err)
+
 		return nil
 	}}
 	srv := newTestServer(t, ms, nil, pub)
@@ -92,15 +93,12 @@ func TestHandleRotateAPIKey_PublishesWorkerExpiryDeadline(t *testing.T) {
 		KeyID: "key-old",
 		Body:  RotateAPIKeyRequest{GracePeriodMinutes: 30},
 	})
-	if err != nil {
-		t.Fatalf("handleRotateAPIKey: %v", err)
-	}
-	if publishedChannel != "apikey:expires:key-old" {
-		t.Fatalf("published channel = %q, want apikey:expires:key-old", publishedChannel)
-	}
-	if time.Until(publishedDeadline) <= 0 {
-		t.Fatalf("published deadline is not in the future: %s", publishedDeadline)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "apikey:expires:key-old",
+
+		publishedChannel,
+	)
+	require.Positive(t, time.Until(publishedDeadline))
 }
 
 func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T) {
@@ -137,16 +135,11 @@ func TestHandleRotateAPIKey_GRPCEnabledRequiresPubSubBeforeRotating(t *testing.T
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/key-old/rotate", `{"grace_period_minutes":30}`))
+	require.Equal(t, http.StatusServiceUnavailable,
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusServiceUnavailable, w.Body.String())
-	}
-	if created {
-		t.Fatal("replacement key was created even though worker-stream expiry broadcast was unavailable")
-	}
-	if rotated {
-		t.Fatal("old key was marked rotated even though worker-stream expiry broadcast was unavailable")
-	}
+		w.Code)
+	require.False(t, created)
+	require.False(t, rotated)
 }
 
 func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
@@ -163,15 +156,18 @@ func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 		return nil
 	}
 	ms.MarkAPIKeyRotatedFunc = func(_ context.Context, oldKeyID, newKeyID string, _ time.Time) error {
-		if oldKeyID != "key-1" || newKeyID != "key-replacement" {
-			t.Fatalf("unexpected rotate args: %s %s", oldKeyID, newKeyID)
-		}
+		require.False(t, oldKeyID !=
+			"key-1" ||
+			newKeyID != "key-replacement",
+		)
+
 		return errors.New("lost rotation race")
 	}
 	ms.RevokeAPIKeyFunc = func(_ context.Context, id string) error {
-		if id != "key-replacement" {
-			t.Fatalf("revoked key = %q, want replacement", id)
-		}
+		require.Equal(t, "key-replacement",
+
+			id)
+
 		revokedReplacement.Store(true)
 		return nil
 	}
@@ -180,13 +176,12 @@ func TestHandleRotateAPIKey_RevokeReplacementWhenMarkFails(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/v1/api-keys/key-1/rotate", `{"grace_period_minutes":30}`)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500, body: %s", w.Code, w.Body.String())
-	}
-	if !revokedReplacement.Load() {
-		t.Fatal("replacement key was not revoked after MarkAPIKeyRotated failed")
-	}
+		w.Code)
+	require.True(
+		t, revokedReplacement.
+			Load())
 }
 
 func TestAPIKeyAuth_RejectsExpiredRotationGrace(t *testing.T) {
@@ -203,8 +198,7 @@ func TestAPIKeyAuth_RejectsExpiredRotationGrace(t *testing.T) {
 	r.Header.Set("Authorization", "Bearer strait_test")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", w.Code, http.StatusUnauthorized)
-	}
+		w.Code)
 }

@@ -17,6 +17,8 @@ import (
 	"strait/internal/store"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // oidcProjectTestServer creates a Server configured for OIDC project validation tests.
@@ -72,10 +74,8 @@ func TestOIDC_ProjectHeaderValidUser(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-valid")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusOK, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 // TestOIDC_ProjectHeaderNoAccess verifies that a user without project membership
@@ -103,10 +103,9 @@ func TestOIDC_ProjectHeaderNoAccess(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-forbidden")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d, body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestOIDC_ProjectHeaderEmpty verifies that omitting the X-Project-Id header
@@ -125,7 +124,9 @@ func TestOIDC_ProjectHeaderEmpty(t *testing.T) {
 	ms := &APIStoreMock{}
 	// UserHasProjectAccessFunc should not be called when no header is set.
 	ms.UserHasProjectAccessFunc = func(_ context.Context, _, _ string) (bool, error) {
-		t.Error("UserHasProjectAccess should not be called when X-Project-Id is empty")
+		assert.Fail(t,
+
+			"UserHasProjectAccess should not be called when X-Project-Id is empty")
 		return false, nil
 	}
 	ms.QueueStatsFunc = func(_ context.Context) (*store.QueueStats, error) {
@@ -142,12 +143,12 @@ func TestOIDC_ProjectHeaderEmpty(t *testing.T) {
 	// No X-Project-Id header.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
+	require.NotEqual(t, http.StatusUnauthorized,
+
+		w.Code)
 
 	// The request proceeds (stats endpoint may return 200 or 403 depending on
 	// permissions, but must not be 401 from missing token).
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("status = %d, should not be unauthorized for valid token", w.Code)
-	}
 }
 
 // TestOIDC_ProjectHeaderStoreError verifies that a store error during the access
@@ -175,10 +176,9 @@ func TestOIDC_ProjectHeaderStoreError(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-err")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d (fail closed), body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestOIDC_ProjectHeaderNullBytes verifies that null bytes in the X-Project-Id
@@ -206,10 +206,9 @@ func TestOIDC_ProjectHeaderNullBytes(t *testing.T) {
 	r.Header.Set("X-Project-Id", "proj-\x00injected")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("status = %d, want %d for null byte injection, body: %s", w.Code, http.StatusForbidden, w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code,
+	)
 }
 
 // TestOIDC_ProjectHeaderSQLInjection verifies that SQL injection attempts in the
@@ -246,10 +245,10 @@ func TestOIDC_ProjectHeaderSQLInjection(t *testing.T) {
 		r.Header.Set("X-Project-Id", payload)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, r)
-
-		if w.Code != http.StatusForbidden {
-			t.Errorf("SQL injection payload %q: status = %d, want %d", payload, w.Code, http.StatusForbidden)
-		}
+		assert.Equal(
+			t, http.StatusForbidden,
+			w.Code,
+		)
 	}
 }
 

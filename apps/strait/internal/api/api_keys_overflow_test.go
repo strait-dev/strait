@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateAPIKey_ExpiresInOverflowRejected(t *testing.T) {
@@ -19,10 +21,11 @@ func TestCreateAPIKey_ExpiresInOverflowRejected(t *testing.T) {
 	srv := newAPIKeyTestServer(t, 365)
 	w := createKeyRequest(t, srv,
 		`{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":1000000}`)
-
-	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusUnprocessableEntity &&
+		w.Code !=
+			http.StatusBadRequest,
+	)
 }
 
 func TestCreateAPIKey_ExpiresInBoundary(t *testing.T) {
@@ -31,15 +34,19 @@ func TestCreateAPIKey_ExpiresInBoundary(t *testing.T) {
 	srv := newAPIKeyTestServer(t, maxAPIKeyDurationDays+1)
 	wOK := createKeyRequest(t, srv,
 		`{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":36500}`)
-	if wOK.Code != http.StatusCreated {
-		t.Fatalf("36500 status = %d, want 201; body: %s", wOK.Code, wOK.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+
+		wOK.Code)
 
 	wTooMuch := createKeyRequest(t, srv,
 		`{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":36501}`)
-	if wTooMuch.Code != http.StatusUnprocessableEntity && wTooMuch.Code != http.StatusBadRequest {
-		t.Fatalf("36501 status = %d, want 400/422; body: %s", wTooMuch.Code, wTooMuch.Body.String())
-	}
+	require.False(t, wTooMuch.Code !=
+		http.
+			StatusUnprocessableEntity &&
+		wTooMuch.
+			Code !=
+			http.
+				StatusBadRequest)
 }
 
 func TestCreateAPIKey_RotationIntervalOverflowRejected(t *testing.T) {
@@ -48,9 +55,11 @@ func TestCreateAPIKey_RotationIntervalOverflowRejected(t *testing.T) {
 	srv := newAPIKeyTestServer(t, 365)
 	w := createKeyRequest(t, srv,
 		`{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":30,"rotation_interval_days":1000000}`)
-	if w.Code != http.StatusUnprocessableEntity && w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400/422; body: %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code != http.
+		StatusUnprocessableEntity &&
+		w.Code !=
+			http.StatusBadRequest,
+	)
 }
 
 func TestCreateAPIKey_QuotaMaxKeyLifetimeClampedDoesNotWrap(t *testing.T) {
@@ -80,25 +89,26 @@ func TestCreateAPIKey_QuotaMaxKeyLifetimeClampedDoesNotWrap(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/api-keys/",
 		`{"project_id":"proj-1","name":"k","scopes":["jobs:read"],"expires_in_days":365}`))
+	require.Equal(t, http.StatusCreated,
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
-	}
-	if captured == nil || captured.ExpiresAt == nil {
-		t.Fatal("expected expires_at to be persisted")
-	}
-	if captured.ExpiresAt.Before(now) {
-		t.Fatalf("expires_at %v is in the past — quota clamp likely wrapped", captured.ExpiresAt)
-	}
+		w.Code)
+	require.False(t, captured == nil ||
+		captured.
+			ExpiresAt ==
+			nil)
+	require.False(t, captured.ExpiresAt.
+		Before(now))
+
 	earliest := now.Add(364 * 24 * time.Hour)
 	latest := now.Add(366 * 24 * time.Hour)
-	if captured.ExpiresAt.Before(earliest) || captured.ExpiresAt.After(latest) {
-		t.Fatalf("expires_at %v is not ~365 days out", captured.ExpiresAt)
-	}
+	require.False(t, captured.ExpiresAt.
+		Before(earliest) || captured.ExpiresAt.
+		After(
+			latest))
 
 	var resp CreateAPIKeyResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
+	require.NoError(t, json.NewDecoder(w.
+		Body).Decode(&resp))
+
 	_ = fmt.Sprintf("%v", resp)
 }

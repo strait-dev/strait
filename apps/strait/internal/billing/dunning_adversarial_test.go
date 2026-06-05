@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Two Tick goroutines running against the same batch must advance each row
@@ -51,13 +53,16 @@ func TestDunner_ConcurrentTicksAdvanceEachRowOnce(t *testing.T) {
 
 	for i := range n {
 		row := store.get(fmtOrgID(i))
-		if row.DunningStep != DunningStepDay3 {
-			t.Errorf("%s step = %d, want %d", row.OrgID, row.DunningStep, DunningStepDay3)
-		}
+		assert.Equal(t, DunningStepDay3,
+
+			row.DunningStep,
+		)
 	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != n {
-		t.Errorf("billing.delinquent dispatches = %d, want %d (one per row, no double-process)", c, n)
-	}
+	assert.Equal(t, n,
+		countEvent(dispatchedEventTypes(
+			disp), domain.
+			WebhookEventBillingDelinquent,
+		))
 }
 
 // A hand-edited row with dunning_entered_at in the future (clock skew or
@@ -78,17 +83,18 @@ func TestDunner_FutureEnteredAtIsSafeNoOp(t *testing.T) {
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Second),
 	)
+	require.NoError(t,
+		d.Tick(context.Background()))
 
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
 	row := store.get("org_future")
-	if row.DunningStep != 3 {
-		t.Errorf("step regressed to %d; future entered_at must not change state", row.DunningStep)
-	}
-	if c := countEvent(dispatchedEventTypes(disp), domain.WebhookEventBillingDelinquent); c != 0 {
-		t.Errorf("no events should be dispatched for future entered_at; got %d", c)
-	}
+	assert.Equal(t, 3,
+		row.DunningStep,
+	)
+	assert.Equal(t, 0,
+		countEvent(dispatchedEventTypes(
+			disp), domain.
+			WebhookEventBillingDelinquent,
+		))
 }
 
 // Stripe webhook replays: handlePaymentFailed delivered twice must only set
@@ -102,16 +108,25 @@ func TestDunner_StartDunningReplayPreservesEnteredAt(t *testing.T) {
 		PlanTier: string(domain.PlanPro),
 	})
 	first := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if err := store.StartDunning(context.Background(), "org_replay", first); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.StartDunning(context.Background(), "org_replay", first.Add(2*time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		store.
+			StartDunning(context.
+				Background(),
+
+				"org_replay", first))
+	require.NoError(t,
+		store.
+			StartDunning(context.
+				Background(),
+
+				"org_replay", first.Add(2*
+					time.
+						Hour)))
+
 	row := store.get("org_replay")
-	if !row.DunningEnteredAt.Equal(first) {
-		t.Errorf("dunning_entered_at = %v, want %v (replay must be idempotent)", row.DunningEnteredAt, first)
-	}
+	assert.True(t, row.
+		DunningEnteredAt.
+		Equal(first))
 }
 
 // A failing dispatcher at step 6 must NOT prevent the payment_status flip to
@@ -133,16 +148,18 @@ func TestDunner_Step6FlipsPaymentStatusWhenDispatcherDown(t *testing.T) {
 		WithDunnerClock(func() time.Time { return clock }),
 		WithDunnerCooldown(1*time.Second),
 	)
-	if err := d.Tick(context.Background()); err != nil {
-		t.Fatalf("Tick err = %v (must swallow dispatcher errors)", err)
-	}
+	require.NoError(t,
+		d.Tick(context.Background()))
+
 	row := store.get("org_dispatch_down")
-	if row.PaymentStatus != "suspended" {
-		t.Errorf("payment_status = %q, want suspended (state machine independent of webhook delivery)", row.PaymentStatus)
-	}
-	if row.DunningStep != DunningStepDay74 {
-		t.Errorf("step = %d, want %d", row.DunningStep, DunningStepDay74)
-	}
+	assert.Equal(t, "suspended",
+
+		row.PaymentStatus,
+	)
+	assert.Equal(t, DunningStepDay74,
+
+		row.DunningStep,
+	)
 }
 
 // failingDispatcher counts attempts so the test asserts the dispatcher *was*

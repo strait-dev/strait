@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetJobEndpoint_SecretBearingJobRequiresSecretsWrite(t *testing.T) {
@@ -23,9 +25,12 @@ func TestSetJobEndpoint_SecretBearingJobRequiresSecretsWrite(t *testing.T) {
 			}, nil
 		},
 		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, environment string, limit int, _ *time.Time) ([]domain.JobSecret, error) {
-			if projectID != "proj-1" || jobID != "job-1" || environment != "env-1" || limit != 1 {
-				t.Fatalf("ListJobSecrets args = (%q, %q, %q, %d)", projectID, jobID, environment, limit)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				jobID !=
+					"job-1" || environment !=
+				"env-1" || limit != 1)
+
 			return []domain.JobSecret{{ID: "sec-1", ProjectID: projectID, JobID: jobID, Environment: environment}}, nil
 		},
 		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
@@ -43,12 +48,12 @@ func TestSetJobEndpoint_SecretBearingJobRequiresSecretsWrite(t *testing.T) {
 		JobID: "job-1",
 		Body:  SetJobEndpointRequest{EndpointURL: "https://attacker.example.com/run"},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for secret-bearing endpoint change without secrets:write, got %v", err)
-	}
-	if updateCalled {
-		t.Fatal("UpdateJobEndpoint must not run without secrets:write")
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
+	require.False(t, updateCalled)
 }
 
 func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
@@ -65,7 +70,9 @@ func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
 			}, nil
 		},
 		ListJobSecretsFunc: func(context.Context, string, string, string, int, *time.Time) ([]domain.JobSecret, error) {
-			t.Fatal("ListJobSecrets should not be called when caller has secrets:write")
+			require.Fail(t,
+
+				"ListJobSecrets should not be called when caller has secrets:write")
 			return nil, nil
 		},
 		UpdateJobEndpointFunc: func(context.Context, string, string, string, string) error {
@@ -83,12 +90,10 @@ func TestSetJobEndpoint_SecretBearingJobAllowsSecretsWrite(t *testing.T) {
 		JobID: "job-1",
 		Body:  SetJobEndpointRequest{EndpointURL: "https://new.example.com/run"},
 	})
-	if err != nil {
-		t.Fatalf("handleSetJobEndpoint: %v", err)
-	}
-	if !updateCalled {
-		t.Fatal("UpdateJobEndpoint was not called")
-	}
+	require.NoError(t, err)
+	require.True(
+		t, updateCalled,
+	)
 }
 
 func TestUpdateJob_SecretBearingEndpointChangeRequiresSecretsWrite(t *testing.T) {
@@ -106,9 +111,12 @@ func TestUpdateJob_SecretBearingEndpointChangeRequiresSecretsWrite(t *testing.T)
 			}, nil
 		},
 		ListJobSecretsFunc: func(_ context.Context, projectID, jobID, environment string, limit int, _ *time.Time) ([]domain.JobSecret, error) {
-			if projectID != "proj-1" || jobID != "job-1" || environment != "env-1" || limit != 1 {
-				t.Fatalf("ListJobSecrets args = (%q, %q, %q, %d)", projectID, jobID, environment, limit)
-			}
+			require.False(t, projectID !=
+				"proj-1" ||
+				jobID !=
+					"job-1" || environment !=
+				"env-1" || limit != 1)
+
 			return []domain.JobSecret{{ID: "sec-1", ProjectID: projectID, JobID: jobID, Environment: environment}}, nil
 		},
 		UpdateJobFunc: func(context.Context, *domain.Job) error {
@@ -127,10 +135,10 @@ func TestUpdateJob_SecretBearingEndpointChangeRequiresSecretsWrite(t *testing.T)
 		JobID: "job-1",
 		Body:  UpdateJobRequest{EndpointURL: &nextEndpoint},
 	})
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 for endpoint update without secrets:write, got %v", err)
-	}
-	if updateCalled {
-		t.Fatal("UpdateJob must not run without secrets:write")
-	}
+	require.True(
+		t, isHumaStatusError(err,
+			http.
+				StatusForbidden,
+		))
+	require.False(t, updateCalled)
 }

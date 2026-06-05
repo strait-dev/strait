@@ -75,6 +75,30 @@ func (c pgQueClient) receive(ctx context.Context, queueName string, maxReturn in
 	return messages, nil
 }
 
+func (c pgQueClient) consumerLag(ctx context.Context, queueName string) (int64, error) {
+	var lag int64
+	if err := c.db.QueryRow(ctx, `
+		SELECT GREATEST(
+			COALESCE(max(t.tick_id), 0) - COALESCE(max(s.sub_last_tick), 0),
+			0
+		)
+		FROM pgque.queue q
+		LEFT JOIN pgque.consumer co
+		  ON co.co_name = $2
+		LEFT JOIN pgque.subscription s
+		  ON s.sub_queue = q.queue_id
+		 AND s.sub_consumer = co.co_id
+		LEFT JOIN pgque.tick t
+		  ON t.tick_queue = q.queue_id
+		WHERE q.queue_name = $1`,
+		queueName,
+		c.consumerName,
+	).Scan(&lag); err != nil {
+		return 0, fmt.Errorf("pgque consumer lag: %w", err)
+	}
+	return lag, nil
+}
+
 func (c pgQueClient) ack(ctx context.Context, batchID int64) error {
 	if _, err := c.db.Exec(ctx, `SELECT pgque.ack($1)`, batchID); err != nil {
 		return fmt.Errorf("pgque ack: %w", err)

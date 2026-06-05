@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleUpdateEnvironment_Success(t *testing.T) {
@@ -37,13 +39,12 @@ func TestHandleUpdateEnvironment_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{"name":"production"}`))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "production",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updatedName != "production" {
-		t.Fatalf("expected name=production, got %q", updatedName)
-	}
+		updatedName)
 }
 
 func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
@@ -57,10 +58,9 @@ func TestHandleUpdateEnvironment_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/missing", `{"name":"x"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
@@ -85,13 +85,11 @@ func TestHandleUpdateEnvironment_UpdateVariables(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{"variables":{"NEW":"val2"}}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updatedVars["NEW"] != "val2" {
-		t.Fatalf("expected variables updated, got %v", updatedVars)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "val2",
+		updatedVars["NEW"])
 }
 
 func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
@@ -105,10 +103,9 @@ func TestHandleUpdateEnvironment_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/environments/env-1", `{invalid`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestHandleDeleteEnvironment_Success(t *testing.T) {
@@ -127,13 +124,12 @@ func TestHandleDeleteEnvironment_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/environments/env-1", ""))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if deletedID != "env-1" {
-		t.Fatalf("expected deleted id env-1, got %q", deletedID)
-	}
+	require.Equal(t, http.
+		StatusNoContent,
+		w.Code)
+	require.Equal(t, "env-1",
+		deletedID,
+	)
 }
 
 func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
@@ -150,10 +146,9 @@ func TestHandleDeleteEnvironment_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/environments/missing", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleUpdateJobGroup_Success(t *testing.T) {
@@ -172,13 +167,12 @@ func TestHandleUpdateJobGroup_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{"name":"Updated"}`))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updatedName != "Updated" {
-		t.Fatalf("expected name=Updated, got %q", updatedName)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "Updated",
+		updatedName,
+	)
 }
 
 func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
@@ -192,10 +186,9 @@ func TestHandleUpdateJobGroup_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/missing", `{"name":"x"}`))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
@@ -214,13 +207,13 @@ func TestHandleUpdateJobGroup_UpdateDescription(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{"description":"A group of core jobs"}`))
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "A group of core jobs",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if updatedDesc != "A group of core jobs" {
-		t.Fatalf("expected description updated, got %q", updatedDesc)
-	}
+		updatedDesc,
+	)
 }
 
 func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
@@ -234,10 +227,9 @@ func TestHandleUpdateJobGroup_InvalidBody(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPatch, "/v1/job-groups/group-1", `{not valid json`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.Code)
 }
 
 func TestHandleListRunCheckpoints_Success(t *testing.T) {
@@ -255,16 +247,14 @@ func TestHandleListRunCheckpoints_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/checkpoints", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var checkpoints []domain.RunCheckpoint
 	decodePaginatedList(t, w.Body.Bytes(), &checkpoints)
-	if len(checkpoints) != 2 {
-		t.Fatalf("expected 2 checkpoints, got %d", len(checkpoints))
-	}
+	require.Len(t, checkpoints,
+		2)
 }
 
 func TestHandleListRunCheckpoints_Empty(t *testing.T) {
@@ -278,16 +268,13 @@ func TestHandleListRunCheckpoints_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/checkpoints", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var checkpoints []domain.RunCheckpoint
 	decodePaginatedList(t, w.Body.Bytes(), &checkpoints)
-	if len(checkpoints) != 0 {
-		t.Fatalf("expected 0 checkpoints, got %d", len(checkpoints))
-	}
+	require.Empty(t, checkpoints)
 }
 
 func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
@@ -301,10 +288,11 @@ func TestHandleListRunCheckpoints_StoreError(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/checkpoints", ""))
+	require.Equal(t, http.
+		StatusInternalServerError,
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+		w.Code,
+	)
 }
 
 func TestListRunUsageRoute_NotRegistered(t *testing.T) {
@@ -313,10 +301,9 @@ func TestListRunUsageRoute_NotRegistered(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/usage", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for launch-inactive usage route, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleListRunToolCalls_RouteLaunchInactive(t *testing.T) {
@@ -325,10 +312,9 @@ func TestHandleListRunToolCalls_RouteLaunchInactive(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/tool-calls", ""))
-
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for launch-inactive tool-calls route, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code)
 }
 
 func TestHandleListRunOutputs_Success(t *testing.T) {
@@ -345,19 +331,17 @@ func TestHandleListRunOutputs_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/outputs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	var outputs []domain.RunOutput
 	decodePaginatedList(t, w.Body.Bytes(), &outputs)
-	if len(outputs) != 1 {
-		t.Fatalf("expected 1 output, got %d", len(outputs))
-	}
-	if outputs[0].OutputKey != "result" {
-		t.Fatalf("expected output_key=result, got %q", outputs[0].OutputKey)
-	}
+	require.Len(t, outputs,
+		1)
+	require.Equal(t, "result",
+		outputs[0].OutputKey,
+	)
 }
 
 func TestHandleListRunOutputs_Empty(t *testing.T) {
@@ -371,10 +355,9 @@ func TestHandleListRunOutputs_Empty(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/runs/run-1/outputs", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestHandleAPIReference_Returns200(t *testing.T) {
@@ -385,14 +368,12 @@ func TestHandleAPIReference_Returns200(t *testing.T) {
 	// API reference endpoint is public (no auth required at route level, but let's use authed for consistency)
 	r := httptest.NewRequest(http.MethodGet, "/reference", nil)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "text/html") {
-		t.Fatalf("expected text/html content type, got %q", contentType)
-	}
+	require.Contains(t, contentType, "text/html")
 }
 
 func TestHandleOpenAPISpec_Returns200(t *testing.T) {
@@ -402,17 +383,15 @@ func TestHandleOpenAPISpec_Returns200(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
 	contentType := w.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "json") {
-		t.Fatalf("expected json content type, got %q", contentType)
-	}
-	if w.Body.Len() == 0 {
-		t.Fatal("expected non-empty OpenAPI spec body")
-	}
+	require.Contains(t, contentType, "json")
+	require.NotEqual(t,
+		0, w.Body.
+			Len())
 }
 
 func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
@@ -422,13 +401,10 @@ func TestHandleOpenAPISpec_ContainsOpenAPI(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "openapi") {
-		t.Fatal("expected response to contain 'openapi'")
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Contains(t, w.Body.String(), "openapi")
 }
 
 func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
@@ -439,32 +415,27 @@ func TestHandleOpenAPISpec_ReturnsPrecompressedGzip(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	r.Header.Set("Accept-Encoding", "gzip")
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+	require.Equal(t, "gzip",
+		w.Header().Get("Content-Encoding"))
+	require.Equal(t, "Accept-Encoding",
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	if got := w.Header().Get("Content-Encoding"); got != "gzip" {
-		t.Fatalf("Content-Encoding = %q, want gzip", got)
-	}
-	if got := w.Header().Get("Vary"); got != "Accept-Encoding" {
-		t.Fatalf("Vary = %q, want Accept-Encoding", got)
-	}
+		w.Header().
+			Get("Vary"))
 
 	zr, err := gzip.NewReader(w.Body)
-	if err != nil {
-		t.Fatalf("gzip.NewReader() error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	defer zr.Close()
 	body, err := io.ReadAll(zr)
-	if err != nil {
-		t.Fatalf("read gzip body: %v", err)
-	}
-	if !strings.Contains(string(body), "openapi") {
-		t.Fatal("expected decompressed response to contain 'openapi'")
-	}
-	if w.Body.Len() >= len(srv.cachedOpenAPISpec) {
-		t.Fatalf("compressed length = %d, uncompressed = %d, want smaller compressed body", w.Body.Len(), len(srv.cachedOpenAPISpec))
-	}
+	require.NoError(t,
+		err)
+	require.Contains(t, string(body), "openapi")
+	require.Less(t, w.
+		Body.Len(), len(srv.cachedOpenAPISpec))
 }
 
 func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
@@ -474,14 +445,16 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.yaml", nil)
 	srv.ServeHTTP(w, r)
+	require.Equal(t, http.
+		StatusMovedPermanently,
+		w.
+			Code)
 
-	if w.Code != http.StatusMovedPermanently {
-		t.Fatalf("expected 301, got %d", w.Code)
-	}
 	loc := w.Header().Get("Location")
-	if loc != "/reference/openapi.json" {
-		t.Fatalf("expected redirect to /reference/openapi.json, got %q", loc)
-	}
+	require.Equal(t, "/reference/openapi.json",
+
+		loc,
+	)
 }
 
 // openAPIPathParams returns the names of path parameters declared on a
@@ -489,17 +462,14 @@ func TestHandleOpenAPISpec_YAMLRedirect(t *testing.T) {
 func openAPIPathParams(t *testing.T, spec map[string]any, path, method string) []string {
 	t.Helper()
 	paths, ok := spec["paths"].(map[string]any)
-	if !ok {
-		t.Fatal("spec missing 'paths'")
-	}
+	require.True(t, ok)
+
 	pathItem, ok := paths[path].(map[string]any)
-	if !ok {
-		t.Fatalf("path %q not found in spec", path)
-	}
+	require.True(t, ok)
+
 	op, ok := pathItem[method].(map[string]any)
-	if !ok {
-		t.Fatalf("method %q not found on path %q", method, path)
-	}
+	require.True(t, ok)
+
 	params, _ := op["parameters"].([]any)
 	var names []string
 	for _, p := range params {
@@ -517,13 +487,14 @@ func fetchOpenAPISpec(t *testing.T) map[string]any {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/reference/openapi.json", nil)
 	srv.ServeHTTP(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	var spec map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &spec); err != nil {
-		t.Fatalf("failed to unmarshal OpenAPI spec: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &spec))
+
 	return spec
 }
 
@@ -537,43 +508,37 @@ func TestOpenAPISpec_DeleteEventSubscription_HasSourceIDParam(t *testing.T) {
 		if _, ok := want[name]; ok {
 			want[name] = true
 		} else {
-			t.Errorf("unexpected path param %q", name)
+			assert.Failf(t, "test failure",
+
+				"unexpected path param %q", name)
 		}
 	}
-	for name, found := range want {
-		if !found {
-			t.Errorf("missing expected path param %q", name)
-		}
+	for _, found := range want {
+		assert.True(t, found)
 	}
-	if len(params) != 2 {
-		t.Errorf("expected exactly 2 path params, got %d: %v", len(params), params)
-	}
+	assert.Len(t, params,
+		2)
 }
 
 func TestOpenAPISpec_RetryWebhookDeliveryLegacy_NoPhantomParams(t *testing.T) {
 	t.Parallel()
 	spec := fetchOpenAPISpec(t)
 	params := openAPIPathParams(t, spec, "/v1/webhook-deliveries/{deliveryID}/retry", "post")
+	require.Len(t, params,
+		1)
+	assert.Equal(t, "deliveryID",
 
-	if len(params) != 1 {
-		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
-	}
-	if params[0] != "deliveryID" {
-		t.Errorf("expected path param 'deliveryID', got %q", params[0])
-	}
+		params[0])
 }
 
 func TestOpenAPISpec_RetryWebhookDelivery_NoPhantomParams(t *testing.T) {
 	t.Parallel()
 	spec := fetchOpenAPISpec(t)
 	params := openAPIPathParams(t, spec, "/v1/webhooks/deliveries/{id}/retry", "post")
-
-	if len(params) != 1 {
-		t.Fatalf("expected exactly 1 path param, got %d: %v", len(params), params)
-	}
-	if params[0] != "id" {
-		t.Errorf("expected path param 'id', got %q", params[0])
-	}
+	require.Len(t, params,
+		1)
+	assert.Equal(t, "id",
+		params[0])
 }
 
 func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
@@ -581,9 +546,7 @@ func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
 	spec := fetchOpenAPISpec(t)
 
 	paths, ok := spec["paths"].(map[string]any)
-	if !ok {
-		t.Fatal("spec missing 'paths'")
-	}
+	require.True(t, ok)
 
 	required := []struct {
 		path   string
@@ -599,11 +562,15 @@ func TestOpenAPISpec_MissingEndpoints_AreRegistered(t *testing.T) {
 	for _, r := range required {
 		pathItem, ok := paths[r.path].(map[string]any)
 		if !ok {
-			t.Errorf("path %q not found in spec", r.path)
+			assert.Failf(t, "test failure",
+
+				"path %q not found in spec", r.path)
 			continue
 		}
 		if _, ok := pathItem[r.method]; !ok {
-			t.Errorf("method %q not found on path %q", r.method, r.path)
+			assert.Failf(t, "test failure",
+
+				"method %q not found on path %q", r.method, r.path)
 		}
 	}
 }
@@ -613,13 +580,10 @@ func TestOpenAPISpec_AdminOutboxRow_ExposesRetryLineageField(t *testing.T) {
 
 	spec := fetchOpenAPISpec(t)
 	components, ok := spec["components"].(map[string]any)
-	if !ok {
-		t.Fatal("spec missing components")
-	}
+	require.True(t, ok)
+
 	schemas, ok := components["schemas"].(map[string]any)
-	if !ok {
-		t.Fatal("spec missing component schemas")
-	}
+	require.True(t, ok)
 
 	var found bool
 	for _, raw := range schemas {
@@ -636,7 +600,5 @@ func TestOpenAPISpec_AdminOutboxRow_ExposesRetryLineageField(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatal("expected retry_of_outbox_id to appear in an OpenAPI schema")
-	}
+	require.True(t, found)
 }

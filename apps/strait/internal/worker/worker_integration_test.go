@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // Lazy init for testcontainers so we do not conflict with the existing
@@ -42,18 +43,16 @@ func mustEnv(t *testing.T) *testutil.TestEnv {
 			log.Fatalf("setup test env: %v", testEnvErr)
 		}
 	})
-	if testEnvErr != nil {
-		t.Fatalf("test env setup failed: %v", testEnvErr)
-	}
+	require.Nil(t, testEnvErr)
+
 	return testEnv
 }
 
 func mustCleanEnv(t *testing.T, ctx context.Context) {
 	t.Helper()
 	env := mustEnv(t)
-	if err := env.Clean(ctx); err != nil {
-		t.Fatalf("clean env: %v", err)
-	}
+	require.NoError(t, env.Clean(ctx))
+
 }
 
 func newID() string {
@@ -72,9 +71,9 @@ func mustCreateJob(t *testing.T, ctx context.Context, st *store.Queries, project
 		TimeoutSecs: 30,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -163,9 +162,8 @@ func TestJobExecutionEndToEnd(t *testing.T) {
 		ProjectID: job.ProjectID,
 		Priority:  1,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	exec, _ := newExecutor(t, env, srv.URL, 4, srv.Client())
 	execCtx, cancel := context.WithCancel(ctx)
@@ -178,26 +176,23 @@ func TestJobExecutionEndToEnd(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for run to complete")
+			require.Fail(t, "timed out waiting for run to complete")
 		default:
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if got.Status == domain.StatusCompleted {
-			if !dispatched.Load() {
-				t.Fatal("run completed but endpoint was never called")
-			}
-			if got.FinishedAt == nil {
-				t.Fatal("completed run has nil finished_at")
-			}
+			require.True(t, dispatched.
+				Load())
+			require.NotNil(t, got.FinishedAt)
+
 			return
 		}
-		if got.Status.IsTerminal() {
-			t.Fatalf("run reached unexpected terminal status %q", got.Status)
-		}
+		require.False(t, got.Status.
+			IsTerminal())
+
 		time.Sleep(50 * time.Millisecond)
 	}
 }
@@ -219,20 +214,25 @@ func TestHeartbeatWithRealRedis(t *testing.T) {
 		JobID:     job.ID,
 		ProjectID: job.ProjectID,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
+
 	// Dequeue to transition to dequeued.
 	dequeued, err := q.Dequeue(ctx)
-	if err != nil || dequeued == nil {
-		t.Fatalf("Dequeue() error = %v, dequeued = %v", err, dequeued)
-	}
+	require.False(t, err !=
+		nil ||
+		dequeued ==
+			nil,
+	)
+	require.NoError(t, st.UpdateRunStatus(ctx, dequeued.
+		ID, domain.
+		StatusDequeued,
+
+		domain.StatusExecuting,
+		map[string]any{"started_at": time.Now()},
+	))
+
 	// Transition to executing.
-	if err := st.UpdateRunStatus(ctx, dequeued.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now(),
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus() error = %v", err)
-	}
 
 	hbm := worker.NewHeartbeatManager(st, 200*time.Millisecond)
 	hbCtx, hbCancel := context.WithCancel(ctx)
@@ -245,12 +245,9 @@ func TestHeartbeatWithRealRedis(t *testing.T) {
 	hbCancel()
 
 	got, err := st.GetRun(ctx, dequeued.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if got.HeartbeatAt == nil {
-		t.Fatal("heartbeat_at was not set after heartbeat manager ran")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, got.HeartbeatAt)
+
 }
 
 // TestDispatchWithRealQueue verifies the executor dequeues from the real
@@ -283,9 +280,9 @@ func TestDispatchWithRealQueue(t *testing.T) {
 			ProjectID: job.ProjectID,
 			Priority:  i,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() run %d error = %v", i, err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	exec, _ := newExecutor(t, env, srv.URL, 4, srv.Client())
@@ -298,23 +295,25 @@ func TestDispatchWithRealQueue(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for all runs to complete")
+			require.Fail(t, "timed out waiting for all runs to complete")
 		default:
 		}
 
 		allDone := true
 		for _, id := range runIDs {
 			got, err := st.GetRun(ctx, id)
-			if err != nil {
-				t.Fatalf("GetRun(%s) error = %v", id, err)
-			}
+			require.NoError(t, err)
+
 			if !got.Status.IsTerminal() {
 				allDone = false
 				break
 			}
-			if got.Status != domain.StatusCompleted {
-				t.Fatalf("run %s has unexpected terminal status %q", id, got.Status)
-			}
+			require.Equal(t, domain.
+				StatusCompleted,
+
+				got.
+					Status)
+
 		}
 		if allDone {
 			break
@@ -325,7 +324,9 @@ func TestDispatchWithRealQueue(t *testing.T) {
 	// Verify the endpoint received all run IDs.
 	for _, id := range runIDs {
 		if _, ok := receivedRunIDs.Load(id); !ok {
-			t.Fatalf("endpoint never received run %s", id)
+			require.Failf(t, "test failure",
+
+				"endpoint never received run %s", id)
 		}
 	}
 }
@@ -368,9 +369,9 @@ func TestConcurrentJobExecution(t *testing.T) {
 			ProjectID: job.ProjectID,
 			Priority:  i,
 		}
-		if err := q.Enqueue(ctx, run); err != nil {
-			t.Fatalf("Enqueue() error = %v", err)
-		}
+		require.NoError(t, q.Enqueue(ctx,
+			run))
+
 	}
 
 	poolSize := 4
@@ -384,15 +385,14 @@ func TestConcurrentJobExecution(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for concurrent runs to complete")
+			require.Fail(t, "timed out waiting for concurrent runs to complete")
 		default:
 		}
 
 		status := domain.StatusCompleted
 		completed, err := st.ListRunsByProject(ctx, job.ProjectID, &status, nil, nil, nil, nil, nil, nil, nil, 20, nil)
-		if err != nil {
-			t.Fatalf("ListRunsByProject() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if len(completed) >= runCount {
 			break
 		}
@@ -400,9 +400,11 @@ func TestConcurrentJobExecution(t *testing.T) {
 	}
 
 	observed := maxInflight.Load()
-	if observed < 2 {
-		t.Fatalf("expected at least 2 concurrent requests, observed peak = %d", observed)
-	}
+	require.GreaterOrEqual(t,
+
+		observed,
+		int32(2))
+
 }
 
 // TestFailedJobHandling verifies that when the endpoint returns an error,
@@ -431,18 +433,16 @@ func TestFailedJobHandling(t *testing.T) {
 		TimeoutSecs: 30,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
 
 	run := &domain.JobRun{
 		ID:        newID(),
 		JobID:     job.ID,
 		ProjectID: job.ProjectID,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	exec, _ := newExecutor(t, env, srv.URL, 4, srv.Client())
 	execCtx, cancel := context.WithCancel(ctx)
@@ -458,21 +458,19 @@ func TestFailedJobHandling(t *testing.T) {
 		select {
 		case <-deadline:
 			got, _ := st.GetRun(ctx, run.ID)
-			t.Fatalf("timed out waiting for run to be dead-lettered; current status = %q", got.Status)
+			require.Failf(t, "test failure", "timed out waiting for run to be dead-lettered; current status = %q", got.Status)
 		default:
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if got.Status == domain.StatusDeadLetter {
-			if got.Error == "" {
-				t.Fatal("dead-lettered run has empty error field")
-			}
-			if got.FinishedAt == nil {
-				t.Fatal("dead-lettered run has nil finished_at")
-			}
+			require.NotEqual(t, "",
+				got.
+					Error)
+			require.NotNil(t, got.FinishedAt)
+
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -509,9 +507,8 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 		JobID:     job.ID,
 		ProjectID: job.ProjectID,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	exec, _ := newExecutor(t, env, srv.URL, 4, srv.Client())
 	execCtx, cancel := context.WithCancel(ctx)
@@ -527,7 +524,7 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 	case <-handlerStarted:
 	case <-time.After(15 * time.Second):
 		cancel()
-		t.Fatal("timed out waiting for handler to start")
+		require.Fail(t, "timed out waiting for handler to start")
 	}
 
 	// Allow the handler to complete while the executor is still running,
@@ -542,24 +539,22 @@ func TestWorkerGracefulShutdown(t *testing.T) {
 	select {
 	case <-execDone:
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting for executor to shut down")
+		require.Fail(t, "timed out waiting for executor to shut down")
 	}
 
 	// Perform explicit shutdown for pool draining.
 	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer shutdownCancel()
-	if err := exec.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
+	require.NoError(t, exec.
+		Shutdown(shutdownCtx),
+	)
 
 	// Verify the run completed successfully despite shutdown.
 	got, err := st.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatalf("GetRun() error = %v", err)
-	}
-	if !got.Status.IsTerminal() {
-		t.Fatalf("expected terminal status after shutdown, got %q", got.Status)
-	}
+	require.NoError(t, err)
+	require.True(t, got.Status.
+		IsTerminal())
+
 	if got.Status == domain.StatusCompleted {
 		// Best case: the in-flight job finished.
 		return
@@ -601,9 +596,8 @@ func TestEndToEndWithPayloadAndResult(t *testing.T) {
 		ProjectID: job.ProjectID,
 		Payload:   payload,
 	}
-	if err := q.Enqueue(ctx, run); err != nil {
-		t.Fatalf("Enqueue() error = %v", err)
-	}
+	require.NoError(t, q.Enqueue(ctx,
+		run))
 
 	exec, _ := newExecutor(t, env, srv.URL, 4, srv.Client())
 	execCtx, cancel := context.WithCancel(ctx)
@@ -615,40 +609,40 @@ func TestEndToEndWithPayloadAndResult(t *testing.T) {
 	for {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for run to complete")
+			require.Fail(t, "timed out waiting for run to complete")
 		default:
 		}
 
 		got, err := st.GetRun(ctx, run.ID)
-		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
-		}
+		require.NoError(t, err)
+
 		if got.Status == domain.StatusCompleted {
-			if receivedPayload == nil {
-				t.Fatal("endpoint did not receive payload")
-			}
+			require.NotNil(t, receivedPayload)
+
 			var p map[string]any
-			if err := json.Unmarshal(receivedPayload, &p); err != nil {
-				t.Fatalf("unmarshal received payload: %v", err)
-			}
-			if p["key"] != "value" {
-				t.Fatalf("payload key = %v, want %q", p["key"], "value")
-			}
-			if got.Result == nil {
-				t.Fatal("completed run has nil result")
-			}
+			require.NoError(t, json.
+				Unmarshal(
+					receivedPayload,
+					&p))
+			require.Equal(t, "value",
+
+				p["key"],
+			)
+			require.NotNil(t, got.Result)
+
 			var result map[string]any
-			if err := json.Unmarshal(got.Result, &result); err != nil {
-				t.Fatalf("unmarshal result: %v", err)
-			}
-			if fmt.Sprintf("%v", result["count"]) != "42" {
-				t.Fatalf("result count = %v, want 42", result["count"])
-			}
+			require.NoError(t, json.
+				Unmarshal(
+					got.Result,
+					&result))
+			require.Equal(t, "42", fmt.
+				Sprintf("%v", result["count"]))
+
 			return
 		}
-		if got.Status.IsTerminal() {
-			t.Fatalf("run reached unexpected terminal status %q", got.Status)
-		}
+		require.False(t, got.Status.
+			IsTerminal())
+
 		time.Sleep(50 * time.Millisecond)
 	}
 }

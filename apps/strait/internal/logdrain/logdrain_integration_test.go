@@ -21,6 +21,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testDB *testutil.TestDB
@@ -45,17 +47,20 @@ func newID() string {
 
 func mustStore(t *testing.T) *store.Queries {
 	t.Helper()
-	if testDB == nil || testDB.Pool == nil {
-		t.Fatal("testDB is not initialized")
-	}
+	require.False(t, testDB ==
+
+		nil || testDB.
+		Pool ==
+		nil)
+
 	return store.New(testDB.Pool)
 }
 
 func mustClean(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := testDB.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(t, testDB.
+		CleanTables(ctx))
+
 }
 
 // seedProject creates a project in the DB for foreign key constraints.
@@ -66,9 +71,10 @@ func seedProject(t *testing.T, ctx context.Context, st *store.Queries, projectID
 		OrgID: "org-" + projectID,
 		Name:  "test-project-" + projectID,
 	}
-	if err := st.CreateProject(ctx, project); err != nil {
-		t.Fatalf("CreateProject() error = %v", err)
-	}
+	require.NoError(t, st.CreateProject(
+		ctx, project,
+	))
+
 }
 
 // seedJob creates a job in the DB for foreign key constraints.
@@ -84,9 +90,9 @@ func seedJob(t *testing.T, ctx context.Context, st *store.Queries, projectID str
 		TimeoutSecs: 120,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(t, st.CreateJob(ctx,
+		job))
+
 	return job
 }
 
@@ -105,26 +111,34 @@ func seedFinishedRun(t *testing.T, ctx context.Context, st *store.Queries, job *
 		Priority:      0,
 		ExecutionMode: domain.ExecutionModeHTTP,
 	}
-	if err := st.CreateRun(ctx, run); err != nil {
-		t.Fatalf("CreateRun() error = %v", err)
-	}
+	require.NoError(t, st.CreateRun(ctx,
+		run))
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusQueued,
+
+		domain.
+			StatusDequeued,
+		nil))
+
 	// Transition queued -> dequeued.
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusQueued, domain.StatusDequeued, nil); err != nil {
-		t.Fatalf("UpdateRunStatus(queued->dequeued) error = %v", err)
-	}
+
 	// Transition dequeued -> executing.
 	startedAt := finishedAt.Add(-10 * time.Second)
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": startedAt,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus(dequeued->executing) error = %v", err)
-	}
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusDequeued,
+
+		domain.
+			StatusExecuting,
+		map[string]any{"started_at": startedAt}))
+	require.NoError(t, st.UpdateRunStatus(ctx, run.
+		ID, domain.StatusExecuting,
+
+		domain.
+			StatusCompleted,
+		map[string]any{"finished_at": finishedAt}))
+
 	// Transition executing -> completed.
-	if err := st.UpdateRunStatus(ctx, run.ID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": finishedAt,
-	}); err != nil {
-		t.Fatalf("UpdateRunStatus(executing->completed) error = %v", err)
-	}
+
 	run.Status = domain.StatusCompleted
 	run.FinishedAt = &finishedAt
 	return run
@@ -141,9 +155,9 @@ func seedEvent(t *testing.T, ctx context.Context, st *store.Queries, runID, mess
 		Message: message,
 		Data:    json.RawMessage(`{}`),
 	}
-	if err := st.InsertEvent(ctx, event); err != nil {
-		t.Fatalf("InsertEvent() error = %v", err)
-	}
+	require.NoError(t, st.InsertEvent(ctx,
+		event))
+
 	return event
 }
 
@@ -161,9 +175,8 @@ func seedLogDrain(t *testing.T, ctx context.Context, st *store.Queries, projectI
 		LevelFilter: []string{},
 		Enabled:     true,
 	}
-	if err := st.CreateLogDrain(ctx, drain); err != nil {
-		t.Fatalf("CreateLogDrain() error = %v", err)
-	}
+	require.NoError(t, st.CreateLogDrain(ctx, drain))
+
 	return drain
 }
 
@@ -219,14 +232,12 @@ func TestWorker_ProcessDrain_WithRealStore(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(received) != 2 {
-		t.Fatalf("expected 2 events, got %d", len(received))
-	}
+	require.Len(t, received, 2)
 
 	ids := map[string]bool{received[0].ID: true, received[1].ID: true}
-	if !ids[evt1.ID] || !ids[evt2.ID] {
-		t.Errorf("expected event IDs %q and %q, got %v", evt1.ID, evt2.ID, ids)
-	}
+	assert.False(t, !ids[evt1.
+		ID] || !ids[evt2.ID])
+
 }
 
 // TestWorker_HTTPDelivery_BearerAuth verifies that the worker sends the
@@ -274,9 +285,11 @@ func TestWorker_HTTPDelivery_BearerAuth(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if capturedAuth != "Bearer test-token" {
-		t.Errorf("Authorization = %q, want %q", capturedAuth, "Bearer test-token")
-	}
+	assert.Equal(t, "Bearer test-token",
+
+		capturedAuth,
+	)
+
 }
 
 // TestWorker_BatchProcessing_MultipleRuns verifies that a single tick
@@ -340,12 +353,12 @@ func TestWorker_BatchProcessing_MultipleRuns(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if deliveryCount != numRuns {
-		t.Errorf("expected %d deliveries, got %d", numRuns, deliveryCount)
-	}
-	if totalEvents != expectedEvents {
-		t.Errorf("expected %d total events, got %d", expectedEvents, totalEvents)
-	}
+	assert.Equal(t, numRuns, deliveryCount)
+	assert.Equal(t, expectedEvents,
+
+		totalEvents,
+	)
+
 }
 
 // TestWorker_FailedDelivery_RetryAndPoisonSkip verifies that a failing endpoint
@@ -396,10 +409,12 @@ func TestWorker_FailedDelivery_RetryAndPoisonSkip(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	assert.GreaterOrEqual(t, callCount,
+
+		3)
+
 	// Should have been called exactly maxRunRetries (3) times, then skipped.
-	if callCount < 3 {
-		t.Errorf("expected at least 3 delivery attempts, got %d", callCount)
-	}
+
 }
 
 // TestWorker_FailedDelivery_SuccessAfterRetry verifies that a temporarily
@@ -462,12 +477,14 @@ func TestWorker_FailedDelivery_SuccessAfterRetry(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if callCount < 2 {
-		t.Fatalf("expected at least 2 delivery attempts, got %d", callCount)
-	}
-	if len(receivedEvents) != 1 {
-		t.Errorf("expected 1 event delivered on retry, got %d", len(receivedEvents))
-	}
+	require.GreaterOrEqual(t,
+		callCount,
+
+		2)
+	assert.Len(t, receivedEvents,
+
+		1)
+
 }
 
 // TestWorker_ConcurrentDrains verifies that the worker processes multiple
@@ -537,9 +554,8 @@ func TestWorker_ConcurrentDrains(t *testing.T) {
 	defer mu.Unlock()
 	for _, runID := range runIDs {
 		events := deliveries[runID]
-		if len(events) != eventsPerProject {
-			t.Errorf("run %s: expected %d events, got %d", runID, eventsPerProject, len(events))
-		}
+		assert.Len(t, events, eventsPerProject)
+
 	}
 }
 
@@ -594,9 +610,7 @@ func TestWorker_LogDrainConfig_StoredInDB(t *testing.T) {
 		LevelFilter: []string{},
 		Enabled:     false,
 	}
-	if err := st.CreateLogDrain(ctx, disabledDrain); err != nil {
-		t.Fatalf("CreateLogDrain(disabled) error = %v", err)
-	}
+	require.NoError(t, st.CreateLogDrain(ctx, disabledDrain))
 
 	svc := logdrain.NewService()
 	w := logdrain.NewWorker(st, svc, 50*time.Millisecond)
@@ -614,12 +628,9 @@ func TestWorker_LogDrainConfig_StoredInDB(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if enabledReceived == 0 {
-		t.Error("enabled drain should have received at least one delivery")
-	}
-	if disabledReceived != 0 {
-		t.Errorf("disabled drain should not have received any deliveries, got %d", disabledReceived)
-	}
+	assert.NotEqual(t, 0, enabledReceived)
+	assert.Equal(t, 0, disabledReceived)
+
 }
 
 // TestWorker_NoFinishedRuns_NoDeliveries verifies the worker does not make
@@ -662,9 +673,8 @@ func TestWorker_NoFinishedRuns_NoDeliveries(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if requestCount != 0 {
-		t.Errorf("expected 0 HTTP requests with no finished runs, got %d", requestCount)
-	}
+	assert.Equal(t, 0, requestCount)
+
 }
 
 // TestWorker_ManyEvents_Pagination verifies that the worker correctly
@@ -722,9 +732,11 @@ func TestWorker_ManyEvents_Pagination(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receivedEvents) != numEvents {
-		t.Errorf("expected %d events, got %d", numEvents, len(receivedEvents))
-	}
+	assert.Len(t, receivedEvents,
+
+		numEvents,
+	)
+
 }
 
 // TestWorker_IdempotentRedelivery verifies that the worker does not re-deliver
@@ -773,10 +785,10 @@ func TestWorker_IdempotentRedelivery(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	assert.Equal(t, 1, deliveryCount)
+
 	// Should only deliver once because the checkpoint advances past the run.
-	if deliveryCount != 1 {
-		t.Errorf("expected exactly 1 delivery (idempotent), got %d", deliveryCount)
-	}
+
 }
 
 // TestService_DrainRunEvents_HTTPEndpoint verifies the Service sends events
@@ -810,21 +822,20 @@ func TestService_DrainRunEvents_HTTPEndpoint(t *testing.T) {
 	}
 
 	svc := logdrain.NewService()
-	if err := svc.DrainRunEvents(context.Background(), drain, events); err != nil {
-		t.Fatalf("DrainRunEvents() error = %v", err)
-	}
+	require.NoError(t, svc.DrainRunEvents(context.Background(), drain,
+		events,
+	))
+	assert.Equal(t, "application/json",
 
-	if capturedContentType != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", capturedContentType)
-	}
+		capturedContentType,
+	)
 
 	var decoded []domain.RunEvent
-	if err := json.Unmarshal(capturedBody, &decoded); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	if len(decoded) != 2 {
-		t.Fatalf("expected 2 events in payload, got %d", len(decoded))
-	}
+	require.NoError(t, json.Unmarshal(capturedBody,
+
+		&decoded))
+	require.Len(t, decoded, 2)
+
 }
 
 // TestService_DrainRunEvents_BasicAuth verifies basic auth credentials are
@@ -847,19 +858,16 @@ func TestService_DrainRunEvents_BasicAuth(t *testing.T) {
 	events := []domain.RunEvent{{ID: "evt-1", RunID: "run-1", Message: "test"}}
 
 	svc := logdrain.NewService()
-	if err := svc.DrainRunEvents(context.Background(), drain, events); err != nil {
-		t.Fatalf("DrainRunEvents() error = %v", err)
-	}
+	require.NoError(t, svc.DrainRunEvents(context.Background(), drain,
+		events,
+	))
+	require.True(t, basicOK)
+	assert.Equal(t, "admin", capturedUser)
+	assert.Equal(t, "secret123",
 
-	if !basicOK {
-		t.Fatal("expected basic auth credentials")
-	}
-	if capturedUser != "admin" {
-		t.Errorf("username = %q, want admin", capturedUser)
-	}
-	if capturedPass != "secret123" {
-		t.Errorf("password = %q, want secret123", capturedPass)
-	}
+		capturedPass,
+	)
+
 }
 
 // TestService_DrainRunEvents_EndpointError verifies that a server error
@@ -879,7 +887,6 @@ func TestService_DrainRunEvents_EndpointError(t *testing.T) {
 
 	svc := logdrain.NewService()
 	err := svc.DrainRunEvents(context.Background(), drain, events)
-	if err == nil {
-		t.Fatal("expected error from 503 endpoint, got nil")
-	}
+	require.Error(t, err)
+
 }

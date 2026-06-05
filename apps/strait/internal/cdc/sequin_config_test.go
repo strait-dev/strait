@@ -9,36 +9,33 @@ import (
 	straitcache "strait/internal/cache"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRequiredConsumerTablesReturnsCopy(t *testing.T) {
 	t.Parallel()
 
 	tables := RequiredConsumerTables()
-	if len(tables) == 0 {
-		t.Fatal("required consumer tables must not be empty")
-	}
+	require.NotEmpty(t,
+		tables)
 
 	firstTable := tables[0]
 	tables[0] = "public.mutated"
-	if RequiredConsumerTables()[0] != firstTable {
-		t.Fatal("required consumer tables must return a defensive copy")
-	}
+	require.Equal(t, firstTable,
+		RequiredConsumerTables()[0])
 }
 
 func TestSequinConfigCoversRequiredConsumerTables(t *testing.T) {
 	t.Parallel()
 
 	raw, err := os.ReadFile("../../../../packages/configs/sequin.yml")
-	if err != nil {
-		t.Fatalf("read sequin config: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	config := string(raw)
 	for _, table := range RequiredConsumerTables() {
 		table := tableName(t, table)
-		if !strings.Contains(config, `table_name: "`+table+`"`) {
-			t.Fatalf("sequin config missing table %s", table)
-		}
+		require.Contains(t, config, `table_name: "`+table+`"`)
 	}
 }
 
@@ -46,15 +43,24 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 	t.Parallel()
 
 	raw, err := os.ReadFile("../../../../packages/configs/postgres-init.sql")
-	if err != nil {
-		t.Fatalf("read postgres init config: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	config := string(raw)
 	for _, table := range RequiredConsumerTables() {
 		table := tableName(t, table)
-		if !strings.Contains(config, "ALTER TABLE public."+table+" REPLICA IDENTITY FULL") {
-			t.Fatalf("postgres init missing replica identity for %s", table)
-		}
+		require.Contains(t, config, "ALTER TABLE public."+table+" REPLICA IDENTITY FULL")
+	}
+}
+
+func TestPostgresInitCreatesStraitAppRole(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile("../../../../packages/configs/postgres-init.sql")
+	require.NoError(t, err)
+	config := string(raw)
+	for _, required := range []string{"CREATE ROLE strait_app", "NOLOGIN", "NOBYPASSRLS"} {
+		require.Contains(t, config, required, "strait_app role contract")
 	}
 }
 
@@ -74,9 +80,10 @@ func TestRuntimeFanoutHandlersExcludeWorkflowStepRuns(t *testing.T) {
 	t.Parallel()
 
 	for _, handler := range NewRuntimeFanoutHandlers(nil, nil) {
-		if handler.Table() == "workflow_step_runs" {
-			t.Fatal("workflow_step_runs fanout channel is launch-inactive; keep it covered by cache read-model handlers only")
-		}
+		require.NotEqual(t,
+			"workflow_step_runs",
+
+			handler.Table())
 	}
 }
 
@@ -101,7 +108,9 @@ func TestRequiredConsumerTablesCoverStrongCachePolicyTables(t *testing.T) {
 	for _, policy := range straitcache.StrongNamespacePolicies {
 		for _, table := range policy.CDCTables {
 			if _, ok := required[table]; !ok {
-				t.Fatalf("strong cache policy %s requires CDC table %s but Sequin consumer does not subscribe to it", policy.Namespace, table)
+				require.Failf(t, "test failure",
+
+					"strong cache policy %s requires CDC table %s but Sequin consumer does not subscribe to it", policy.Namespace, table)
 			}
 		}
 	}
@@ -112,12 +121,13 @@ func assertRequiredConsumerTablesIncludeHandlers(t *testing.T, handlers []Handle
 
 	required := requiredConsumerTableSet(t)
 	for _, handler := range handlers {
-		if handler == nil {
-			t.Fatal("runtime handler must not be nil")
-		}
+		require.NotNil(t, handler)
+
 		table := handler.Table()
 		if _, ok := required[table]; !ok {
-			t.Fatalf("runtime handler for %s is registered without required Sequin subscription", table)
+			require.Failf(t, "test failure",
+
+				"runtime handler for %s is registered without required Sequin subscription", table)
 		}
 	}
 }
@@ -136,8 +146,9 @@ func tableName(t *testing.T, qualifiedTable string) string {
 	t.Helper()
 
 	table, ok := strings.CutPrefix(qualifiedTable, "public.")
-	if !ok || table == "" {
-		t.Fatalf("required consumer table %q must be public schema-qualified", qualifiedTable)
-	}
+	require.False(t, !ok ||
+		table ==
+			"")
+
 	return table
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdminEndpointsReachability guards against the failure mode where an
@@ -64,16 +66,17 @@ func TestAdminEndpointsReachability(t *testing.T) {
 			r := authedProjectRequest(tc.method, tc.path, tc.body, "proj-a")
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
+			require.False(t, w.Code ==
+				http.StatusNotFound &&
+				strings.Contains(w.
+					Body.String(), "404 page not found",
+				))
 
 			// A chi "route not found" returns 404 with a body that chi
 			// writes directly. The Huma/TypedHandler surface produces
 			// structured JSON error bodies. Treat a 404 whose body
 			// indicates chi's default "404 page not found" as the fail
 			// case; any 4xx/5xx from the handler itself is fine.
-			if w.Code == http.StatusNotFound && strings.Contains(w.Body.String(), "404 page not found") {
-				t.Fatalf("%s %s is unreachable: chi returned default 404\nbody: %s",
-					tc.method, tc.path, w.Body.String())
-			}
 		})
 	}
 }

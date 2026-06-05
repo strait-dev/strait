@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractPayload_PrefersPayloadOverLastError(t *testing.T) {
@@ -16,12 +18,12 @@ func TestExtractPayload_PrefersPayloadOverLastError(t *testing.T) {
 		LastError: `{"trigger_id":"t-shadow"}`,
 	}
 	got := extractPayload(d)
-	if string(got) != `{"event_key":"x","project_id":"p"}` {
-		t.Fatalf("payload = %s, want canonical Payload (not LastError)", string(got))
-	}
-	if d.LastError != `{"trigger_id":"t-shadow"}` {
-		t.Fatalf("LastError must not be mutated when Payload is used; got %q", d.LastError)
-	}
+	require.JSONEq(t, `{"event_key":"x","project_id":"p"}`,
+
+		string(got))
+	require.JSONEq(t, `{"trigger_id":"t-shadow"}`,
+
+		d.LastError)
 }
 
 func TestExtractPayload_FallsBackToLastErrorWhenJSON(t *testing.T) {
@@ -32,12 +34,10 @@ func TestExtractPayload_FallsBackToLastErrorWhenJSON(t *testing.T) {
 		LastError: `{"k":"v"}`,
 	}
 	got := extractPayload(d)
-	if string(got) != `{"k":"v"}` {
-		t.Fatalf("payload = %s, want LastError contents", string(got))
-	}
-	if d.LastError != "" {
-		t.Fatalf("LastError should be cleared after lift-out, got %q", d.LastError)
-	}
+	require.JSONEq(t, `{"k":"v"}`,
+		string(got))
+	require.Empty(t, d.
+		LastError)
 }
 
 func TestExtractPayload_FallsBackToMinimalWhenNeither(t *testing.T) {
@@ -49,12 +49,11 @@ func TestExtractPayload_FallsBackToMinimalWhenNeither(t *testing.T) {
 	}
 	got := extractPayload(d)
 	var parsed map[string]any
-	if err := json.Unmarshal(got, &parsed); err != nil {
-		t.Fatalf("minimal payload not valid JSON: %v", err)
-	}
-	if parsed["trigger_id"] != "trig-1" || parsed["delivery_id"] != "del-1" {
-		t.Fatalf("unexpected minimal payload: %s", string(got))
-	}
+	require.NoError(t, json.
+		Unmarshal(
+			got,
+			&parsed))
+	require.False(t, parsed["trigger_id"] != "trig-1" || parsed["delivery_id"] != "del-1")
 }
 
 func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {
@@ -66,7 +65,7 @@ func TestExtractPayload_PrefersPayloadEvenOverInvalidLastError(t *testing.T) {
 		LastError: "connection refused",
 	}
 	got := extractPayload(d)
-	if string(got) != `{"event_key":"x"}` {
-		t.Fatalf("payload = %s, want canonical Payload", string(got))
-	}
+	require.JSONEq(t, `{"event_key":"x"}`,
+
+		string(got))
 }

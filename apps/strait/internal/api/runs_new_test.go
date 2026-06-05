@@ -5,34 +5,33 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleResetIdempotencyKey_Success(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		ResetRunIdempotencyKeyFunc: func(_ context.Context, runID string) error {
-			if runID != "run-abc" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-abc", runID)
+
 			return nil
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-abc/idempotency-key", ""))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), `"status":"reset"`) {
-		t.Fatalf("expected reset status in body, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), `"status":"reset"`)
 }
 
 func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
@@ -45,9 +44,9 @@ func TestHandleResetIdempotencyKey_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodDelete, "/v1/runs/run-missing/idempotency-key", ""))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleRescheduleRun_Success(t *testing.T) {
@@ -55,9 +54,8 @@ func TestHandleRescheduleRun_Success(t *testing.T) {
 	scheduledAt := time.Now().Add(1 * time.Hour).Truncate(time.Second)
 	ms := &APIStoreMock{
 		RescheduleRunFunc: func(_ context.Context, runID string, at time.Time, _ json.RawMessage) error {
-			if runID != "run-r1" {
-				t.Fatalf("unexpected runID: %s", runID)
-			}
+			require.Equal(t, "run-r1", runID)
+
 			return nil
 		},
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -74,12 +72,10 @@ func TestHandleRescheduleRun_Success(t *testing.T) {
 	body := `{"scheduled_at":"` + scheduledAt.Format(time.RFC3339) + `"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-r1/reschedule", body))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "run-r1") {
-		t.Fatalf("expected run ID in response, got %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "run-r1")
 }
 
 func TestHandleRescheduleRun_NotFound(t *testing.T) {
@@ -96,9 +92,9 @@ func TestHandleRescheduleRun_NotFound(t *testing.T) {
 	body := `{"scheduled_at":"` + time.Now().Add(time.Hour).Format(time.RFC3339) + `"}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/reschedule", body))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
@@ -107,9 +103,9 @@ func TestHandleRescheduleRun_InvalidBody(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-x/reschedule", ""))
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusUnprocessableEntity,
+
+		w.Code)
 }
 
 func TestHandleBulkTrigger_WithTTL(t *testing.T) {
@@ -139,24 +135,25 @@ func TestHandleBulkTrigger_WithTTL(t *testing.T) {
 	body := `{"items":[{"ttl_secs":120}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(enqueuedRuns) != 1 {
-		t.Fatalf("expected 1 enqueued run, got %d", len(enqueuedRuns))
-	}
+	require.Len(t,
+		enqueuedRuns, 1,
+	)
+
 	run := enqueuedRuns[0]
-	if run.ExpiresAt == nil {
-		t.Fatal("expected ExpiresAt to be set")
-	}
+	require.NotNil(t, run.ExpiresAt)
+
 	// TTL of 120s means ExpiresAt should be ~120s from now, give generous tolerance.
 	diff := time.Until(*run.ExpiresAt)
-	if diff < 100*time.Second || diff > 130*time.Second {
-		t.Fatalf("expected ExpiresAt ~120s from now, got %v", diff)
-	}
+	require.False(t, diff < 100*time.
+		Second ||
+		diff > 130*time.Second,
+	)
 }
 
 func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
@@ -172,15 +169,10 @@ func TestHandleListRuns_TriggeredByFilter(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?triggered_by=api", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedTriggeredBy == nil {
-		t.Fatal("expected triggeredBy parameter to be passed to store")
-	}
-	if *capturedTriggeredBy != "api" {
-		t.Fatalf("expected triggeredBy=api, got %q", *capturedTriggeredBy)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.NotNil(t, capturedTriggeredBy)
+	require.Equal(t, "api", *capturedTriggeredBy)
 }
 
 func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
@@ -196,12 +188,13 @@ func TestHandleListRuns_ExecutionModeFilter_HTTP(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=http", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedMode == nil || *capturedMode != domain.ExecutionModeHTTP {
-		t.Fatal("expected http execution mode")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, capturedMode ==
+		nil || *capturedMode !=
+		domain.
+			ExecutionModeHTTP,
+	)
 }
 
 func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
@@ -211,9 +204,9 @@ func TestHandleListRuns_ExecutionModeFilter_Invalid(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?execution_mode=invalid", "", "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for invalid execution_mode, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
@@ -229,12 +222,9 @@ func TestHandleListRuns_ExecutionModeFilter_NoFilter(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedMode != nil {
-		t.Fatal("expected nil execution_mode when no filter provided")
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Nil(t, capturedMode)
 }
 
 func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
@@ -255,29 +245,22 @@ func TestHandleListRuns_StatusesMultiValueFiltersResults_Unit(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?statuses[]=failed&statuses[]=timed_out", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if capturedStatus != nil {
-		t.Fatalf("expected no single-status store filter for multi-status query, got %v", *capturedStatus)
-	}
-	if len(ms.ListRunsByTagCalls()) != 0 {
-		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Nil(t, capturedStatus)
+	require.Empty(t,
+		ms.ListRunsByTagCalls())
 
 	var resp struct {
 		Data []domain.JobRun `json:"data"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(resp.Data) != 2 {
-		t.Fatalf("len(resp.Data) = %d, want 2", len(resp.Data))
-	}
-	if resp.Data[0].ID != "run-failed" || resp.Data[1].ID != "run-timed-out" {
-		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t,
+		resp.Data, 2)
+	require.False(t, resp.Data[0].
+		ID != "run-failed" ||
+		resp.Data[1].ID != "run-timed-out",
+	)
 }
 
 func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
@@ -297,25 +280,23 @@ func TestHandleListRuns_TagFilterComposesWithExecutionMode(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?tag_key=team&tag_value=infra&execution_mode=worker", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedMode == nil || *capturedMode != domain.ExecutionModeWorker {
-		t.Fatalf("expected worker execution mode to be passed through, got %v", capturedMode)
-	}
-	if len(ms.ListRunsByTagCalls()) != 0 {
-		t.Fatalf("expected ListRunsByTag not to be used, got %d calls", len(ms.ListRunsByTagCalls()))
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, capturedMode ==
+		nil || *capturedMode !=
+		domain.
+			ExecutionModeWorker,
+	)
+	require.Empty(t,
+		ms.ListRunsByTagCalls())
 
 	var resp struct {
 		Data []domain.JobRun `json:"data"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(resp.Data) != 1 || resp.Data[0].ID != "run-infra" {
-		t.Fatalf("unexpected filtered runs: %+v", resp.Data)
-	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.False(t, len(resp.Data) != 1 || resp.
+		Data[0].ID != "run-infra",
+	)
 }
 
 func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
@@ -345,18 +326,17 @@ func TestHandleBulkTrigger_WithConcurrencyKey(t *testing.T) {
 	body := `{"items":[{"concurrency_key":"tenant-42"}]}`
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(enqueuedRuns) != 1 {
-		t.Fatalf("expected 1 enqueued run, got %d", len(enqueuedRuns))
-	}
-	if enqueuedRuns[0].ConcurrencyKey != "tenant-42" {
-		t.Fatalf("expected ConcurrencyKey=tenant-42, got %q", enqueuedRuns[0].ConcurrencyKey)
-	}
+	require.Len(t,
+		enqueuedRuns, 1,
+	)
+	require.Equal(t, "tenant-42",
+		enqueuedRuns[0].ConcurrencyKey)
 }
 
 func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
@@ -387,18 +367,14 @@ func TestHandleTrigger_DefaultRunMetadataMerge(t *testing.T) {
 	// Payload includes dependency_key which becomes run metadata; it should win over the job default.
 	body := `{"payload":{"dependency_key":"user-dep"}}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if enqueued == nil {
-		t.Fatal("expected run to be enqueued")
-	}
-	if enqueued.Metadata["env"] != "prod" {
-		t.Fatalf("expected env=prod from defaults, got %q", enqueued.Metadata["env"])
-	}
-	if enqueued.Metadata["dependency_key"] != "user-dep" {
-		t.Fatalf("expected dependency_key=user-dep (user override), got %q", enqueued.Metadata["dependency_key"])
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, enqueued)
+	require.Equal(t, "prod", enqueued.
+		Metadata["env"])
+	require.Equal(t, "user-dep", enqueued.
+		Metadata["dependency_key"])
 }
 
 func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
@@ -425,20 +401,19 @@ func TestHandleBulkTrigger_BatchIDSet(t *testing.T) {
 	w := httptest.NewRecorder()
 	body := `{"items":[{},{}]}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/job-1/trigger/bulk", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+
 	mu.Lock()
 	defer mu.Unlock()
-	if len(enqueuedRuns) != 2 {
-		t.Fatalf("expected 2 enqueued runs, got %d", len(enqueuedRuns))
-	}
-	if enqueuedRuns[0].BatchID == "" {
-		t.Fatal("expected non-empty BatchID on first run")
-	}
-	if enqueuedRuns[0].BatchID != enqueuedRuns[1].BatchID {
-		t.Fatalf("expected same BatchID on both runs, got %q and %q", enqueuedRuns[0].BatchID, enqueuedRuns[1].BatchID)
-	}
+	require.Len(t,
+		enqueuedRuns, 2,
+	)
+	require.NotEmpty(t, enqueuedRuns[0].BatchID)
+	require.Equal(t, enqueuedRuns[1].BatchID,
+		enqueuedRuns[0].BatchID,
+	)
 }
 
 func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
@@ -463,15 +438,11 @@ func TestHandleCreateJob_MaxConcurrencyPerKey(t *testing.T) {
 		"max_concurrency_per_key": 5
 	}`
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/jobs/", body))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-	if created == nil {
-		t.Fatal("expected CreateJob to be called")
-	}
-	if created.MaxConcurrencyPerKey != 5 {
-		t.Fatalf("expected MaxConcurrencyPerKey=5, got %d", created.MaxConcurrencyPerKey)
-	}
+	require.Equal(t, http.StatusCreated,
+		w.Code,
+	)
+	require.NotNil(t, created)
+	require.Equal(t, 5, created.MaxConcurrencyPerKey)
 }
 
 func TestParseBracketParam(t *testing.T) {
@@ -497,9 +468,10 @@ func TestParseBracketParam(t *testing.T) {
 		t.Run(tt.param, func(t *testing.T) {
 			t.Parallel()
 			k, ok := parseBracketParam(tt.param, tt.prefix)
-			if ok != tt.wantOK || k != tt.wantK {
-				t.Errorf("parseBracketParam(%q, %q) = (%q, %v), want (%q, %v)", tt.param, tt.prefix, k, ok, tt.wantK, tt.wantOK)
-			}
+			assert.False(
+				t, ok != tt.wantOK ||
+					k != tt.
+						wantK)
 		})
 	}
 }
@@ -524,10 +496,8 @@ func TestHandlePauseRun_HTTPRun_CanBePaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for HTTP run pause, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
@@ -542,10 +512,8 @@ func TestHandlePauseRun_AlreadyPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected idempotent 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandlePauseRun_TerminalRun(t *testing.T) {
@@ -560,10 +528,9 @@ func TestHandlePauseRun_TerminalRun(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/pause", ""))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleResumeRun_RequeuesRun(t *testing.T) {
@@ -579,9 +546,11 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 			return &domain.JobRun{ID: id, Status: domain.StatusQueued, ExecutionMode: domain.ExecutionModeHTTP}, nil
 		},
 		UpdateRunStatusFunc: func(_ context.Context, _ string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusPaused || to != domain.StatusQueued {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
+			require.False(t, from != domain.
+				StatusPaused ||
+				to != domain.StatusQueued,
+			)
+
 			return nil
 		},
 	}
@@ -589,10 +558,8 @@ func TestHandleResumeRun_RequeuesRun(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
 }
 
 func TestHandleResumeRun_NotPaused(t *testing.T) {
@@ -607,10 +574,9 @@ func TestHandleResumeRun_NotPaused(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
@@ -625,10 +591,9 @@ func TestHandleRestartRun_WrongStatus_Rejected(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/restart", `{}`))
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for completed run restart, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandleResumeRun_NotFound(t *testing.T) {
@@ -641,9 +606,9 @@ func TestHandleResumeRun_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/resume", ""))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
@@ -656,9 +621,9 @@ func TestHandleResumeRun_AlreadyQueued(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-1/resume", ""))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for already-queued, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }
 
 func TestHandlePauseRun_NotFound(t *testing.T) {
@@ -671,9 +636,9 @@ func TestHandlePauseRun_NotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/runs/run-gone/pause", ""))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusNotFound,
+		w.Code,
+	)
 }
 
 func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
@@ -688,12 +653,13 @@ func TestHandleListRuns_ErrorClassFilter(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?error_class=timeout", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedErrorClass == nil || *capturedErrorClass != "timeout" {
-		t.Fatalf("expected errorClass=timeout, got %v", capturedErrorClass)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.False(t, capturedErrorClass ==
+		nil ||
+		*capturedErrorClass !=
+			"timeout",
+	)
 }
 
 func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
@@ -708,12 +674,9 @@ func TestHandleListRuns_ErrorClassFilterEmpty(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs", "", "proj-1"))
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if capturedErrorClass != nil {
-		t.Fatalf("expected errorClass=nil, got %v", *capturedErrorClass)
-	}
+	require.Equal(t, http.StatusOK,
+		w.Code)
+	require.Nil(t, capturedErrorClass)
 }
 
 func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
@@ -721,7 +684,7 @@ func TestHandleListRuns_ErrorClassFilterInvalid(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/runs?error_class=invalid_class", "", "proj-1"))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.StatusBadRequest,
+		w.
+			Code)
 }

@@ -4,12 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuditLogs_FreeTierRejected(t *testing.T) {
@@ -17,7 +18,9 @@ func TestAuditLogs_FreeTierRejected(t *testing.T) {
 
 	ms := &APIStoreMock{
 		ListAuditEventsFunc: func(context.Context, string, string, string, string, int, *time.Time, *time.Time, *time.Time, bool) ([]domain.AuditEvent, error) {
-			t.Fatal("ListAuditEvents must not be called when audit-log gate rejects")
+			require.Fail(t,
+
+				"ListAuditEvents must not be called when audit-log gate rejects")
 			return nil, nil
 		},
 	}
@@ -25,13 +28,10 @@ func TestAuditLogs_FreeTierRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/audit-events", "", "proj-1"))
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("free-tier audit log access must be 403, got %d: %s", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "Audit logs") {
-		t.Fatalf("rejection must name the feature, got: %s", w.Body.String())
-	}
+	require.Equal(t, http.StatusForbidden,
+		w.Code)
+	require.Contains(
+		t, w.Body.String(), "Audit logs")
 }
 
 func TestAuditLogs_ScaleTierAllowed(t *testing.T) {
@@ -49,8 +49,7 @@ func TestAuditLogs_ScaleTierAllowed(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest(http.MethodGet, "/v1/audit-events", "", "proj-1"))
-
-	if w.Code == http.StatusForbidden {
-		t.Fatalf("scale-tier audit log access must pass the feature gate, got 403: %s", w.Body.String())
-	}
+	require.NotEqual(t, http.
+		StatusForbidden, w.Code,
+	)
 }

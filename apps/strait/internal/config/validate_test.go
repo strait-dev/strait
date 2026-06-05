@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func validConfig() *Config {
@@ -46,9 +49,8 @@ func validConfig() *Config {
 }
 
 func TestValidate_Happy(t *testing.T) {
-	if err := validConfig().Validate(); err != nil {
-		t.Fatalf("valid config rejected: %v", err)
-	}
+	require.NoError(
+		t, validConfig().Validate())
 }
 
 func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
@@ -58,14 +60,15 @@ func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
 	c.SentryEnvironment = "production"
 	c.SequinWebhookSecret = ""
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "SEQUIN_WEBHOOK_SECRET") {
-		t.Fatalf("Validate() error = %v, want SEQUIN_WEBHOOK_SECRET error", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "SEQUIN_WEBHOOK_SECRET",
+	)
 
 	c.SequinWebhookSecret = "sequin-webhook-secret"
-	if err := c.Validate(); err != nil {
-		t.Fatalf("Validate() rejected production Sequin webhook secret: %v", err)
-	}
+	require.NoError(
+		t, c.Validate())
 }
 
 func TestValidate_RedisURLScheme(t *testing.T) {
@@ -74,9 +77,11 @@ func TestValidate_RedisURLScheme(t *testing.T) {
 	c := validConfig()
 	c.RedisURL = "http://localhost:6379"
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
-		t.Fatalf("Validate() error = %v, want REDIS_URL scheme error", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "REDIS_URL",
+	)
 }
 
 func TestValidate_SequinPollingSettings(t *testing.T) {
@@ -104,9 +109,12 @@ func TestValidate_SequinPollingSettings(t *testing.T) {
 			c := validConfig()
 			tt.mut(c)
 			err := c.Validate()
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Validate() error = %v, want %s", err, tt.want)
-			}
+			require.Error(t,
+				err)
+			assert.Contains(
+				t, err.Error(), tt.
+					want,
+			)
 		})
 	}
 }
@@ -115,17 +123,18 @@ func TestValidate_NegativeDuration(t *testing.T) {
 	c := validConfig()
 	c.HeartbeatInterval = -1 * time.Second
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "HEARTBEAT_INTERVAL") {
-		t.Errorf("want heartbeat error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "HEARTBEAT_INTERVAL",
+	)
 }
 
 func TestValidate_ZeroDuration(t *testing.T) {
 	c := validConfig()
 	c.DBStatementTimeout = 0
-	if err := c.Validate(); err == nil {
-		t.Error("zero statement timeout should fail")
-	}
+	assert.Error(t,
+		c.Validate())
 }
 
 func TestValidate_PollVsHeartbeat(t *testing.T) {
@@ -133,9 +142,11 @@ func TestValidate_PollVsHeartbeat(t *testing.T) {
 	c.PollerInterval = 10 * time.Second
 	c.HeartbeatInterval = 10 * time.Second
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "POLLER_INTERVAL") {
-		t.Errorf("want poller/heartbeat error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "POLLER_INTERVAL",
+	)
 }
 
 func TestValidate_StaleThresholdTooTight(t *testing.T) {
@@ -143,9 +154,11 @@ func TestValidate_StaleThresholdTooTight(t *testing.T) {
 	c.HeartbeatInterval = 10 * time.Second
 	c.StaleThreshold = 15 * time.Second
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "STALE_THRESHOLD") {
-		t.Errorf("want stale threshold error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "STALE_THRESHOLD",
+	)
 }
 
 func TestValidate_WorkerDBSyncIntervalInvariants(t *testing.T) {
@@ -175,9 +188,12 @@ func TestValidate_WorkerDBSyncIntervalInvariants(t *testing.T) {
 			c := validConfig()
 			tt.mutate(c)
 			err := c.Validate()
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("Validate() error = %v, want %s", err, tt.want)
-			}
+			require.Error(t,
+				err)
+			assert.Contains(
+				t, err.Error(), tt.
+					want,
+			)
 		})
 	}
 }
@@ -189,9 +205,11 @@ func TestLoad_WorkerDBSyncIntervalInvariant(t *testing.T) {
 	t.Setenv("WORKER_DB_SYNC_INTERVAL", "10s")
 
 	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "WORKER_DB_SYNC_INTERVAL") {
-		t.Fatalf("Load() error = %v, want WORKER_DB_SYNC_INTERVAL", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "WORKER_DB_SYNC_INTERVAL",
+	)
 }
 
 func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
@@ -200,9 +218,11 @@ func TestLoad_RunsAggregateValidateInvariants(t *testing.T) {
 	t.Setenv("DB_MAX_CONNS", "50")
 
 	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "DB_MIN_CONNS") {
-		t.Fatalf("Load() error = %v, want DB_MIN_CONNS validation error", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "DB_MIN_CONNS",
+	)
 }
 
 func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
@@ -210,9 +230,11 @@ func TestValidate_LockTimeoutExceedsStatementTimeout(t *testing.T) {
 	c.DBLockTimeout = 60 * time.Second
 	c.DBStatementTimeout = 30 * time.Second
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "DB_LOCK_TIMEOUT") {
-		t.Errorf("want lock timeout error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "DB_LOCK_TIMEOUT",
+	)
 }
 
 func TestValidate_MinExceedsMaxConns(t *testing.T) {
@@ -220,9 +242,11 @@ func TestValidate_MinExceedsMaxConns(t *testing.T) {
 	c.DBMinConns = 100
 	c.DBMaxConns = 50
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "DB_MIN_CONNS") {
-		t.Errorf("want min conns error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "DB_MIN_CONNS",
+	)
 }
 
 func TestValidate_DLQCrossCap(t *testing.T) {
@@ -230,45 +254,55 @@ func TestValidate_DLQCrossCap(t *testing.T) {
 	c.DLQMaxPerJob = 99999
 	c.DLQMaxPerProject = 1000
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "DLQ_MAX_PER_JOB") {
-		t.Errorf("want DLQ cross-cap error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "DLQ_MAX_PER_JOB",
+	)
 }
 
 func TestValidate_DLQPolicyValue(t *testing.T) {
 	c := validConfig()
 	c.DLQOverflowPolicy = "burn_it_down"
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "DLQ_OVERFLOW_POLICY") {
-		t.Errorf("want DLQ policy error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "DLQ_OVERFLOW_POLICY",
+	)
 }
 
 func TestValidate_AbsurdDurationsCaught(t *testing.T) {
 	c := validConfig()
 	c.DBStatementTimeout = 8 * 24 * time.Hour
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "exceeds reasonable max") {
-		t.Errorf("want max-reasonable error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "exceeds reasonable max",
+	)
 }
 
 func TestValidate_ZeroWorkerConcurrency(t *testing.T) {
 	c := validConfig()
 	c.WorkerConcurrency = 0
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "WORKER_CONCURRENCY") {
-		t.Errorf("want concurrency error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "WORKER_CONCURRENCY",
+	)
 }
 
 func TestValidate_InvalidExecutionTraceMode(t *testing.T) {
 	c := validConfig()
 	c.ExecutionTraceMode = "always"
 	err := c.Validate()
-	if err == nil || !strings.Contains(err.Error(), "EXECUTION_TRACE_MODE") {
-		t.Errorf("want execution trace mode error, got %v", err)
-	}
+	require.Error(t,
+		err)
+	assert.Contains(
+		t, err.Error(), "EXECUTION_TRACE_MODE",
+	)
 }
 
 func TestValidate_AccumulatesMultipleErrors(t *testing.T) {
@@ -278,15 +312,15 @@ func TestValidate_AccumulatesMultipleErrors(t *testing.T) {
 	c.DBLockTimeout = 100 * time.Hour // above reasonable? actually within 7d
 	c.DLQOverflowPolicy = "bogus"
 	err := c.Validate()
-	if err == nil {
-		t.Fatal("want errors")
-	}
+	require.Error(t,
+		err)
+
 	msg := err.Error()
-	if !strings.Contains(msg, "WORKER_CONCURRENCY") ||
-		!strings.Contains(msg, "DB_STATEMENT_TIMEOUT") ||
-		!strings.Contains(msg, "DLQ_OVERFLOW_POLICY") {
-		t.Errorf("missing accumulated errors: %v", msg)
-	}
+	assert.False(t,
+		!strings.Contains(msg,
+
+			"WORKER_CONCURRENCY") || !strings.Contains(msg,
+			"DB_STATEMENT_TIMEOUT") || !strings.Contains(msg, "DLQ_OVERFLOW_POLICY"))
 }
 
 func FuzzValidateNeverPanics(f *testing.F) {
@@ -299,7 +333,7 @@ func FuzzValidateNeverPanics(f *testing.F) {
 		c.StaleThreshold = time.Duration(d)
 		defer func() {
 			if r := recover(); r != nil {
-				t.Fatalf("Validate panicked: %v", r)
+				require.Failf(t, "Validate panicked", "%v", r)
 			}
 		}()
 		_ = c.Validate()
@@ -324,9 +358,8 @@ func TestValidate_AuditRetentionNegative(t *testing.T) {
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "-1")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for negative audit retention")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditRetentionTooLarge(t *testing.T) {
@@ -334,12 +367,11 @@ func TestValidate_AuditRetentionTooLarge(t *testing.T) {
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "36501")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for oversized audit retention")
-	}
-	if !strings.Contains(err.Error(), "AUDIT_RETENTION_DEFAULT_DAYS") {
-		t.Fatalf("error = %v, want AUDIT_RETENTION_DEFAULT_DAYS", err)
-	}
+	require.Error(t,
+		err)
+	require.Contains(t,
+		err.
+			Error(), "AUDIT_RETENTION_DEFAULT_DAYS")
 }
 
 func TestValidate_AuditBufferTooSmall(t *testing.T) {
@@ -347,9 +379,8 @@ func TestValidate_AuditBufferTooSmall(t *testing.T) {
 	t.Setenv("AUDIT_ASYNC_BUFFER_SIZE", "100")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for buffer size < 256")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditSIEMEndpointWithoutToken(t *testing.T) {
@@ -358,9 +389,8 @@ func TestValidate_AuditSIEMEndpointWithoutToken(t *testing.T) {
 	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for SIEM endpoint without token")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditSIEMEndpointWithToken(t *testing.T) {
@@ -369,9 +399,8 @@ func TestValidate_AuditSIEMEndpointWithToken(t *testing.T) {
 	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "secret-bearer-token")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error for valid SIEM config: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_AuditSIEMEndpointWithUserinfo(t *testing.T) {
@@ -380,9 +409,8 @@ func TestValidate_AuditSIEMEndpointWithUserinfo(t *testing.T) {
 	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "secret-bearer-token")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for SIEM endpoint containing userinfo")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditSIEMEndpointUnparseable(t *testing.T) {
@@ -391,24 +419,22 @@ func TestValidate_AuditSIEMEndpointUnparseable(t *testing.T) {
 	t.Setenv("AUDIT_SIEM_AUTH_TOKEN", "secret-bearer-token")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for unparseable SIEM endpoint")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDefaultsValid(t *testing.T) {
 	setRequiredAuditEnv(t)
 
 	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("unexpected error with valid audit defaults: %v", err)
-	}
-	if cfg.AuditRetentionDefaultDays != 365 {
-		t.Errorf("AuditRetentionDefaultDays = %d, want 365", cfg.AuditRetentionDefaultDays)
-	}
-	if cfg.AuditAsyncBufferSize != 4096 {
-		t.Errorf("AuditAsyncBufferSize = %d, want 4096", cfg.AuditAsyncBufferSize)
-	}
+	require.NoError(
+		t, err)
+	assert.Equal(t,
+		365, cfg.AuditRetentionDefaultDays,
+	)
+	assert.Equal(t,
+		4096, cfg.AuditAsyncBufferSize,
+	)
 }
 
 func TestValidate_AuditDLQReclaimBatchZero(t *testing.T) {
@@ -416,9 +442,8 @@ func TestValidate_AuditDLQReclaimBatchZero(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_RECLAIM_BATCH", "0")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for zero DLQ reclaim batch")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQReclaimBatchOne(t *testing.T) {
@@ -426,9 +451,8 @@ func TestValidate_AuditDLQReclaimBatchOne(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_RECLAIM_BATCH", "1")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("DLQ reclaim batch=1 should be valid: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_AuditBufferExactly256(t *testing.T) {
@@ -436,9 +460,8 @@ func TestValidate_AuditBufferExactly256(t *testing.T) {
 	t.Setenv("AUDIT_ASYNC_BUFFER_SIZE", "256")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("buffer size=256 should be valid: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_AuditBuffer255(t *testing.T) {
@@ -446,9 +469,8 @@ func TestValidate_AuditBuffer255(t *testing.T) {
 	t.Setenv("AUDIT_ASYNC_BUFFER_SIZE", "255")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for buffer size=255")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
@@ -456,9 +478,8 @@ func TestValidate_AuditDLQMaxAgeDaysZero(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "0")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("DLQ max age=0 should be valid (disables sweep): %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
@@ -466,9 +487,8 @@ func TestValidate_AuditDLQMaxAgeDaysTooLarge(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "36501")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for oversized DLQ max age")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQMaxReclaimAttemptsZero(t *testing.T) {
@@ -476,9 +496,8 @@ func TestValidate_AuditDLQMaxReclaimAttemptsZero(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", "0")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("DLQ max reclaim attempts=0 should be valid: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_AuditRetentionZero(t *testing.T) {
@@ -486,9 +505,8 @@ func TestValidate_AuditRetentionZero(t *testing.T) {
 	t.Setenv("AUDIT_RETENTION_DEFAULT_DAYS", "0")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("retention=0 should be valid: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
@@ -496,9 +514,8 @@ func TestValidate_JWTSigningKeyExactly32Chars(t *testing.T) {
 	t.Setenv("JWT_SIGNING_KEY", "exactly-32-characters-key-value!")
 
 	_, err := Load()
-	if err != nil {
-		t.Fatalf("32-char JWT key should be valid: %v", err)
-	}
+	require.NoError(
+		t, err)
 }
 
 func TestValidate_JWTSigningKey31Chars(t *testing.T) {
@@ -506,9 +523,8 @@ func TestValidate_JWTSigningKey31Chars(t *testing.T) {
 	t.Setenv("JWT_SIGNING_KEY", "exactly-31-characters-key-valu")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("31-char JWT key should be rejected")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQMaxAgeDaysNegative(t *testing.T) {
@@ -516,9 +532,8 @@ func TestValidate_AuditDLQMaxAgeDaysNegative(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_MAX_AGE_DAYS", "-1")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for negative DLQ max age days")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQMaxReclaimAttemptsNegative(t *testing.T) {
@@ -526,9 +541,8 @@ func TestValidate_AuditDLQMaxReclaimAttemptsNegative(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_MAX_RECLAIM_ATTEMPTS", "-1")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for negative DLQ max reclaim attempts")
-	}
+	require.Error(t,
+		err)
 }
 
 func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
@@ -536,7 +550,6 @@ func TestValidate_AuditDLQReclaimBatchNegative(t *testing.T) {
 	t.Setenv("AUDIT_DLQ_RECLAIM_BATCH", "-1")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for negative DLQ reclaim batch")
-	}
+	require.Error(t,
+		err)
 }

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // Test for QueueNotifier drop counter. The wake channel is buffered
@@ -34,10 +36,8 @@ func TestQueueNotifier_DroppedNotifications_BufferFull(t *testing.T) {
 	for range 256 {
 		send()
 	}
-
-	if got := n.DroppedNotifications(); got != 256 {
-		t.Errorf("DroppedNotifications = %d, want 256", got)
-	}
+	assert.EqualValues(t, 256, n.
+		DroppedNotifications())
 }
 
 func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
@@ -72,10 +72,7 @@ func TestQueueNotifier_DroppedNotifications_ConcurrentSends(t *testing.T) {
 	total := uint64(senders * perSender)
 	dropped := n.DroppedNotifications()
 	accepted := total - dropped
-	if accepted > 1 {
-		t.Errorf("more than 1 accepted into a buffer=1 channel: accepted=%d dropped=%d", accepted, dropped)
-	}
-	if dropped == 0 {
-		t.Errorf("expected some notifications to be dropped, got 0")
-	}
+	assert.LessOrEqual(t, accepted,
+		uint64(1))
+	assert.NotZero(t, dropped)
 }

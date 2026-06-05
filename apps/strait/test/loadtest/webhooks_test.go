@@ -12,6 +12,7 @@ import (
 
 	"strait/internal/domain"
 
+	"github.com/stretchr/testify/require"
 	vegeta "github.com/tsenart/vegeta/v12/lib"
 )
 
@@ -159,9 +160,11 @@ func TestWebhooks_GetDelivery(t *testing.T) {
 			MaxAttempts: 3,
 			LastError:   "failed delivery",
 		}
-		if err := testStore.CreateWebhookDelivery(ctx, delivery); err != nil {
-			t.Fatalf("seed webhook delivery: %v", err)
-		}
+		require.NoError(t,
+
+			testStore.
+				CreateWebhookDelivery(ctx, delivery))
+
 		deliveryIDs[i] = delivery.ID
 	}
 
@@ -216,9 +219,11 @@ func TestWebhooks_RetryDelivery(t *testing.T) {
 			LastError:   "retry candidate",
 			NextRetryAt: &nextRetry,
 		}
-		if err := testStore.CreateWebhookDelivery(ctx, delivery); err != nil {
-			t.Fatalf("seed webhook retry delivery: %v", err)
-		}
+		require.NoError(t,
+
+			testStore.
+				CreateWebhookDelivery(ctx, delivery))
+
 		deliveryIDs[i] = delivery.ID
 	}
 

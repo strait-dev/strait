@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 var schedulerTestDBOnce = newIntegrationDBOnce()
@@ -27,20 +29,22 @@ func schedulerIntegrationDB(t *testing.T, ctx context.Context) *testutil.TestDB 
 	schedulerTestDBOnce.once.Do(func() {
 		schedulerTestDBOnce.db, schedulerTestDBOnce.err = testutil.SetupSharedTestDB(ctx, "../../migrations", "scheduler")
 	})
-	if schedulerTestDBOnce.err != nil {
-		t.Fatalf("setup test db: %v", schedulerTestDBOnce.err)
-	}
-	if schedulerTestDBOnce.db == nil || schedulerTestDBOnce.db.Pool == nil {
-		t.Fatal("scheduler test db is not initialized")
-	}
+	require.Nil(t, schedulerTestDBOnce.
+		err,
+	)
+	require.False(t, schedulerTestDBOnce.
+		db ==
+		nil || schedulerTestDBOnce.
+		db.Pool == nil)
+
 	return schedulerTestDBOnce.db
 }
 
 func cleanSchedulerIntegrationDB(t *testing.T, ctx context.Context) *testutil.TestDB {
 	t.Helper()
 	tdb := schedulerIntegrationDB(t, ctx)
-	if err := tdb.CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(t, tdb.
+		CleanTables(ctx))
+
 	return tdb
 }

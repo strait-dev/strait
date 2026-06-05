@@ -16,6 +16,8 @@ import (
 	"strait/internal/scheduler"
 	"strait/internal/store"
 	"strait/internal/testutil"
+
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -30,14 +32,18 @@ func getAdminOutboxTestDB(t *testing.T) *testutil.TestDB {
 		ctx := context.Background()
 		var err error
 		adminOutboxTestDB, err = testutil.SetupSharedTestDB(ctx, "../../migrations", "api-admin-outbox")
-		if err != nil {
-			t.Fatalf("SetupTestDB() error = %v", err)
-		}
-	})
+		require.NoError(
+			t,
+			err)
 
-	if adminOutboxTestDB == nil || adminOutboxTestDB.Pool == nil {
-		t.Fatal("adminOutboxTestDB is not initialized")
-	}
+	})
+	require.False(t,
+
+		adminOutboxTestDB ==
+			nil || adminOutboxTestDB.
+			Pool ==
+			nil)
+
 	return adminOutboxTestDB
 }
 
@@ -48,9 +54,10 @@ func adminOutboxStoreForTest(t *testing.T) *store.Queries {
 
 func cleanAdminOutboxTables(t *testing.T, ctx context.Context) {
 	t.Helper()
-	if err := getAdminOutboxTestDB(t).CleanTables(ctx); err != nil {
-		t.Fatalf("CleanTables() error = %v", err)
-	}
+	require.NoError(
+		t,
+		getAdminOutboxTestDB(t).CleanTables(ctx))
+
 }
 
 func newAdminOutboxPgQueQueue(t *testing.T) *queue.PgQueQueue {
@@ -75,9 +82,11 @@ func createAdminOutboxJob(t *testing.T, ctx context.Context, st *store.Queries, 
 		TimeoutSecs: 300,
 		Enabled:     true,
 	}
-	if err := st.CreateJob(ctx, job); err != nil {
-		t.Fatalf("CreateJob() error = %v", err)
-	}
+	require.NoError(
+		t,
+		st.CreateJob(ctx,
+			job))
+
 	return job
 }
 
@@ -85,17 +94,19 @@ func writeAdminOutboxEntry(t *testing.T, ctx context.Context, entry queue.Outbox
 	t.Helper()
 
 	tx, err := getAdminOutboxTestDB(t).Pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(
+		t,
+		err)
 
-	if err := queue.WriteOutboxInTx(ctx, tx, []queue.OutboxEntry{entry}); err != nil {
-		t.Fatalf("WriteOutboxInTx() error = %v", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(
+		t,
+		queue.WriteOutboxInTx(ctx, tx, []queue.
+			OutboxEntry{entry}))
+	require.NoError(
+		t,
+		tx.Commit(ctx))
+
 }
 
 func TestAdminOutboxGet_ReturnsQuarantinedRowFromRealFlusherState(t *testing.T) {
@@ -121,15 +132,18 @@ func TestAdminOutboxGet_ReturnsQuarantinedRowFromRealFlusherState(t *testing.T) 
 	writeAdminOutboxEntry(t, ctx, entry)
 
 	if _, err := getAdminOutboxTestDB(t).Pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, job.ID); err != nil {
-		t.Fatalf("delete job: %v", err)
+		require.Failf(t, "test failure",
+
+			"delete job: %v", err)
 	}
 
 	flusher := scheduler.NewOutboxFlusher(getAdminOutboxTestDB(t).Pool, newAdminOutboxPgQueQueue(t), scheduler.OutboxFlusherConfig{
 		BatchSize: 1,
 	})
-	if err := flusher.FlushOnceForTest(ctx); err != nil {
-		t.Fatalf("FlushOnceForTest() error = %v", err)
-	}
+	require.NoError(
+		t,
+		flusher.
+			FlushOnceForTest(ctx))
 
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	srv.outboxAdminStore = st
@@ -137,40 +151,58 @@ func TestAdminOutboxGet_ReturnsQuarantinedRowFromRealFlusherState(t *testing.T) 
 	w := httptest.NewRecorder()
 	req := authedProjectRequest(http.MethodGet, "/v1/admin/outbox/"+entry.ID, "", job.ProjectID)
 	srv.ServeHTTP(w, req)
+	require.Equal(t,
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+		http.StatusOK,
+		w.Code,
+	)
 
 	var row AdminOutboxRow
-	if err := json.Unmarshal(w.Body.Bytes(), &row); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
+	require.NoError(
+		t,
+		json.Unmarshal(w.Body.
+			Bytes(), &row,
+		))
+	require.Equal(t,
 
-	if row.ID != entry.ID {
-		t.Fatalf("row ID = %q, want %q", row.ID, entry.ID)
-	}
-	if row.ProjectID != job.ProjectID || row.JobID != job.ID {
-		t.Fatalf("unexpected row identity: project=%q job=%q", row.ProjectID, row.JobID)
-	}
-	if row.ConsumedAt.IsZero() {
-		t.Fatal("expected consumed_at to be set")
-	}
-	if row.Error == "" {
-		t.Fatal("expected stored quarantine error")
-	}
-	if row.Priority != entry.Priority {
-		t.Fatalf("Priority = %d, want %d", row.Priority, entry.Priority)
-	}
-	if string(row.Payload) != string(entry.Payload) {
-		t.Fatalf("Payload = %s, want %s", string(row.Payload), string(entry.Payload))
-	}
+		entry.ID,
+		row.ID)
+	require.False(t,
+
+		row.ProjectID !=
+			job.
+				ProjectID || row.
+			JobID != job.
+			ID)
+	require.False(t,
+
+		row.ConsumedAt.
+			IsZero())
+	require.NotEqual(
+		t, "", row.
+			Error)
+	require.Equal(t,
+
+		entry.Priority,
+		row.
+			Priority)
+	require.Equal(t,
+
+		string(entry.
+			Payload,
+		), string(row.Payload))
 
 	var gotMeta map[string]any
-	if err := json.Unmarshal(row.Metadata, &gotMeta); err != nil {
-		t.Fatalf("unmarshal metadata: %v", err)
-	}
-	if gotMeta["source"] != "integration" || gotMeta["kind"] != "admin-readback" {
-		t.Fatalf("unexpected metadata: %+v", gotMeta)
-	}
+	require.NoError(
+		t,
+		json.Unmarshal(row.
+			Metadata, &gotMeta,
+		))
+	require.False(t,
+
+		gotMeta["source"] !=
+			"integration" ||
+			gotMeta["kind"] != "admin-readback",
+	)
+
 }

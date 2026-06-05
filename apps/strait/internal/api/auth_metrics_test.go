@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -35,13 +36,16 @@ func TestAuthRuntimeMetrics_RecordTokenAge(t *testing.T) {
 	metrics.recordTokenAge(context.Background(), "jwt", time.Time{})
 
 	histogram := collectAuthHistogram(t, reader, "strait_auth_token_age_seconds")
-	if len(histogram.DataPoints) != 1 {
-		t.Fatalf("histogram data points = %d, want 1", len(histogram.DataPoints))
-	}
+	require.Len(t,
+		histogram.
+			DataPoints,
+
+		1)
+
 	point := histogram.DataPoints[0]
-	if point.Count != 2 {
-		t.Fatalf("histogram count = %d, want 2", point.Count)
-	}
+	require.EqualValues(t, 2, point.
+		Count)
+
 	assertAttributes(t, point.Attributes.ToSlice(), map[string]string{"kind": "jwt"})
 }
 
@@ -61,9 +65,8 @@ func newAuthMetricsHarness(t *testing.T) (authRuntimeMetrics, *sdkmetric.ManualR
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() {
-		if err := provider.Shutdown(context.Background()); err != nil {
-			t.Fatalf("shutdown meter provider: %v", err)
-		}
+		require.NoError(t, provider.
+			Shutdown(context.Background()))
 	})
 	return newAuthRuntimeMetrics(provider.Meter("auth-metrics-test")), reader
 }
@@ -71,9 +74,9 @@ func newAuthMetricsHarness(t *testing.T) (authRuntimeMetrics, *sdkmetric.ManualR
 func collectAuthSumPoints(t *testing.T, reader *sdkmetric.ManualReader, name string) []metricdata.DataPoint[int64] {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.Background(), &rm))
+
 	for _, scope := range rm.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			if metric.Name != name {
@@ -83,33 +86,37 @@ func collectAuthSumPoints(t *testing.T, reader *sdkmetric.ManualReader, name str
 			case metricdata.Sum[int64]:
 				return data.DataPoints
 			default:
-				t.Fatalf("%s data type = %T, want int64 sum", name, metric.Data)
+				require.Failf(t, "test failure", "%s data type = %T, want int64 sum", name, metric.Data)
 			}
 		}
 	}
-	t.Fatalf("metric %s not collected", name)
+	require.Failf(t, "test failure",
+
+		"metric %s not collected", name)
 	return nil
 }
 
 func collectAuthHistogram(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Histogram[float64] {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &rm); err != nil {
-		t.Fatalf("Collect() error = %v", err)
-	}
+	require.NoError(t, reader.
+		Collect(context.Background(), &rm))
+
 	for _, scope := range rm.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			if metric.Name != name {
 				continue
 			}
 			histogram, ok := metric.Data.(metricdata.Histogram[float64])
-			if !ok {
-				t.Fatalf("%s data type = %T, want histogram", name, metric.Data)
-			}
+			require.True(
+				t, ok)
+
 			return histogram
 		}
 	}
-	t.Fatalf("metric %s not collected", name)
+	require.Failf(t, "test failure",
+
+		"metric %s not collected", name)
 	return metricdata.Histogram[float64]{}
 }
 
@@ -123,14 +130,17 @@ func assertMetricPoint(t *testing.T, points []metricdata.DataPoint[int64], value
 			return
 		}
 	}
-	t.Fatalf("metric point value=%v attrs=%v not found in %#v", value, attrs, points)
+	require.Failf(t, "test failure",
+
+		"metric point value=%v attrs=%v not found in %#v", value, attrs, points)
 }
 
 func assertAttributes(t *testing.T, got []attribute.KeyValue, want map[string]string) {
 	t.Helper()
-	if !authAttrsMatch(got, want) {
-		t.Fatalf("attributes = %v, want at least %v", got, want)
-	}
+	require.True(
+		t, authAttrsMatch(got,
+
+			want))
 }
 
 func authAttrsMatch(got []attribute.KeyValue, want map[string]string) bool {

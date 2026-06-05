@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/domain"
 	"strait/internal/store"
@@ -28,9 +29,8 @@ func createSubForRotation(t *testing.T, ctx context.Context, q *store.Queries, p
 		Secret:     secret,
 		Active:     true,
 	}
-	if err := q.CreateWebhookSubscription(ctx, sub); err != nil {
-		t.Fatalf("CreateWebhookSubscription: %v", err)
-	}
+	require.NoError(t, q.CreateWebhookSubscription(ctx, sub))
+
 	return sub
 }
 
@@ -43,26 +43,29 @@ func TestRotateWebhookSecret_ReplacesCurrentKeepsPrevious(t *testing.T) {
 	sub := createSubForRotation(t, ctx, q, projectID, "secret-original")
 
 	gracePoint := time.Now().Add(time.Hour).UTC()
-	if err := q.RotateWebhookSecret(ctx, sub.ID, "secret-new", gracePoint); err != nil {
-		t.Fatalf("RotateWebhookSecret: %v", err)
-	}
+	require.NoError(t, q.RotateWebhookSecret(ctx,
+		sub.ID,
+		"secret-new",
+		gracePoint,
+	))
 
 	current, previous, grace, err := q.GetWebhookSubscriptionSecrets(ctx, sub.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookSubscriptionSecrets: %v", err)
-	}
-	if current != "secret-new" {
-		t.Fatalf("current = %q, want %q", current, "secret-new")
-	}
-	if previous != "secret-original" {
-		t.Fatalf("previous = %q, want %q", previous, "secret-original")
-	}
-	if grace == nil {
-		t.Fatal("grace_expires_at should be set after rotation")
-	}
-	if !grace.Round(time.Second).Equal(gracePoint.Round(time.Second)) {
-		t.Fatalf("grace = %v, want %v", grace, gracePoint)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "secret-new",
+
+		current,
+	)
+	require.Equal(t, "secret-original",
+
+		previous,
+	)
+	require.NotNil(t, grace)
+	require.True(t, grace.Round(time.
+		Second).Equal(gracePoint.
+		Round(time.
+			Second,
+		)))
+
 }
 
 func TestRotateWebhookSecret_ChainedRotation_LatestTwoSecretsRetained(t *testing.T) {
@@ -72,26 +75,30 @@ func TestRotateWebhookSecret_ChainedRotation_LatestTwoSecretsRetained(t *testing
 
 	projectID := "proj-rot-chain-" + newID()
 	sub := createSubForRotation(t, ctx, q, projectID, "secret-v1")
+	require.NoError(t, q.RotateWebhookSecret(ctx,
+		sub.ID,
+		"secret-v2",
+		time.Now().Add(time.Hour)))
+	require.NoError(t, q.RotateWebhookSecret(ctx,
+		sub.ID,
+		"secret-v3",
+		time.Now().Add(time.Hour)))
 
 	// Rotate v1 -> v2.
-	if err := q.RotateWebhookSecret(ctx, sub.ID, "secret-v2", time.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("first rotation: %v", err)
-	}
+
 	// Rotate v2 -> v3. The previous slot now holds v2, not v1.
-	if err := q.RotateWebhookSecret(ctx, sub.ID, "secret-v3", time.Now().Add(time.Hour)); err != nil {
-		t.Fatalf("second rotation: %v", err)
-	}
 
 	current, previous, _, err := q.GetWebhookSubscriptionSecrets(ctx, sub.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookSubscriptionSecrets: %v", err)
-	}
-	if current != "secret-v3" {
-		t.Fatalf("current = %q, want secret-v3", current)
-	}
-	if previous != "secret-v2" {
-		t.Fatalf("previous = %q, want secret-v2 (v1 should have been overwritten)", previous)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "secret-v3",
+
+		current,
+	)
+	require.Equal(t, "secret-v2",
+
+		previous,
+	)
+
 }
 
 func TestRotateWebhookSecret_NotFound_ReturnsErr(t *testing.T) {
@@ -100,9 +107,10 @@ func TestRotateWebhookSecret_NotFound_ReturnsErr(t *testing.T) {
 	mustClean(t, ctx)
 
 	err := q.RotateWebhookSecret(ctx, "sub-does-not-exist-"+newID(), "secret-x", time.Now().Add(time.Hour))
-	if !errors.Is(err, store.ErrWebhookSubscriptionNotFound) {
-		t.Fatalf("err = %v, want ErrWebhookSubscriptionNotFound", err)
-	}
+	require.True(t, errors.Is(err, store.
+		ErrWebhookSubscriptionNotFound,
+	))
+
 }
 
 func TestRotateWebhookSecret_ConcurrentRotations_BothSucceedFinalStateConsistent(t *testing.T) {
@@ -129,20 +137,20 @@ func TestRotateWebhookSecret_ConcurrentRotations_BothSucceedFinalStateConsistent
 	}
 	wg.Wait()
 
-	for i, e := range errs {
-		if e != nil {
-			t.Fatalf("rotation %d error: %v", i, e)
-		}
+	for _, e := range errs {
+		require.Nil(t, e)
+
 	}
 
 	current, previous, _, err := q.GetWebhookSubscriptionSecrets(ctx, sub.ID)
-	if err != nil {
-		t.Fatalf("GetWebhookSubscriptionSecrets: %v", err)
-	}
-	if current != "secret-race-a" && current != "secret-race-b" {
-		t.Fatalf("current = %q, want one of the race secrets", current)
-	}
-	if previous == "" {
-		t.Fatal("previous should be set after any rotation")
-	}
+	require.NoError(t, err)
+	require.False(t, current !=
+		"secret-race-a" &&
+		current !=
+			"secret-race-b",
+	)
+	require.NotEqual(t, "",
+
+		previous)
+
 }

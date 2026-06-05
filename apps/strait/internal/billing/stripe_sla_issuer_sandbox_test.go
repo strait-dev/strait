@@ -11,6 +11,8 @@ import (
 
 	"strait/internal/billing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/stripe/stripe-go/v82"
 	"github.com/stripe/stripe-go/v82/customer"
 	"github.com/stripe/stripe-go/v82/customerbalancetransaction"
@@ -48,9 +50,8 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 		t.Skip("set STRAIT_STRIPE_INTEGRATION=1 to run; requires STRIPE_SECRET_KEY")
 	}
 	secret := os.Getenv("STRIPE_SECRET_KEY")
-	if secret == "" {
-		t.Fatal("STRIPE_SECRET_KEY must be set when STRAIT_STRIPE_INTEGRATION=1")
-	}
+	require.NotEqual(t, "", secret)
+
 	stripe.Key = secret
 
 	ctx := context.Background()
@@ -59,9 +60,8 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 		Description: stripe.String("strait sla issuer paid-invoice smoke"),
 		Email:       stripe.String("sla-paid-smoke@strait.dev"),
 	})
-	if err != nil {
-		t.Fatalf("create customer: %v", err)
-	}
+	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		if _, err := customer.Del(cus.ID, nil); err != nil {
 			t.Logf("cleanup customer %s: %v", cus.ID, err)
@@ -74,7 +74,9 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 		Currency:    stripe.String("usd"),
 		Description: stripe.String("sla smoke seed line"),
 	}); err != nil {
-		t.Fatalf("create invoice item: %v", err)
+		require.Failf(t, "test failure",
+
+			"create invoice item: %v", err)
 	}
 
 	inv, err := invoice.New(&stripe.InvoiceParams{
@@ -82,13 +84,14 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 		CollectionMethod: stripe.String("send_invoice"),
 		DaysUntilDue:     stripe.Int64(30),
 	})
-	if err != nil {
-		t.Fatalf("create invoice: %v", err)
-	}
+	require.NoError(t, err)
+
 	if _, err := invoice.FinalizeInvoice(inv.ID, &stripe.InvoiceFinalizeInvoiceParams{
 		AutoAdvance: stripe.Bool(false),
 	}); err != nil {
-		t.Fatalf("finalize invoice: %v", err)
+		require.Failf(t, "test failure",
+
+			"finalize invoice: %v", err)
 	}
 
 	orgID := "org-sla-paid-sandbox-" + time.Now().UTC().Format("20060102T150405")
@@ -103,12 +106,8 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 	const creditMicrousd = 10_000_000 // 1000 cents = $10.00
 
 	firstID, err := issuer.IssueCredit(ctx, orgID, creditMicrousd, periodEnd)
-	if err != nil {
-		t.Fatalf("first IssueCredit: %v", err)
-	}
-	if firstID == "" {
-		t.Fatal("first IssueCredit returned empty ID")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", firstID)
 
 	// Verify the returned ID is a customer balance transaction (the
 	// fallback path) — not a credit note. Stripe IDs prefix the object
@@ -116,22 +115,16 @@ func TestStripeSLAIssuer_LiveSandbox_PaidInvoice_FallsThroughToBalanceTxn(t *tes
 	cbt, err := customerbalancetransaction.Get(firstID, &stripe.CustomerBalanceTransactionParams{
 		Customer: stripe.String(cus.ID),
 	})
-	if err != nil {
-		t.Fatalf("retrieve balance transaction %s: %v", firstID, err)
-	}
-	if cbt.Amount != -1000 {
-		t.Errorf("balance transaction amount = %d, want -1000", cbt.Amount)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, -1000, cbt.Amount)
 
 	// Second call with same (orgID, periodEnd) must reuse the
 	// idempotency key and return the same Stripe object ID.
 	secondID, err := issuer.IssueCredit(ctx, orgID, creditMicrousd, periodEnd)
-	if err != nil {
-		t.Fatalf("second IssueCredit: %v", err)
-	}
-	if secondID != firstID {
-		t.Errorf("idempotency dedup failed: first=%s second=%s", firstID, secondID)
-	}
+	require.NoError(t, err)
+	assert.Equal(
+		t, firstID, secondID)
+
 }
 
 // TestStripeSLAIssuer_LiveSandbox_FallsBackToBalanceTransaction covers the
@@ -142,9 +135,8 @@ func TestStripeSLAIssuer_LiveSandbox_FallsBackToBalanceTransaction(t *testing.T)
 		t.Skip("set STRAIT_STRIPE_INTEGRATION=1 to run; requires STRIPE_SECRET_KEY")
 	}
 	secret := os.Getenv("STRIPE_SECRET_KEY")
-	if secret == "" {
-		t.Fatal("STRIPE_SECRET_KEY must be set when STRAIT_STRIPE_INTEGRATION=1")
-	}
+	require.NotEqual(t, "", secret)
+
 	stripe.Key = secret
 
 	ctx := context.Background()
@@ -153,9 +145,8 @@ func TestStripeSLAIssuer_LiveSandbox_FallsBackToBalanceTransaction(t *testing.T)
 		Description: stripe.String("strait sla issuer fallback smoke"),
 		Email:       stripe.String("sla-fallback-smoke@strait.dev"),
 	})
-	if err != nil {
-		t.Fatalf("create customer: %v", err)
-	}
+	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		if _, err := customer.Del(cus.ID, nil); err != nil {
 			t.Logf("cleanup customer %s: %v", cus.ID, err)
@@ -174,20 +165,13 @@ func TestStripeSLAIssuer_LiveSandbox_FallsBackToBalanceTransaction(t *testing.T)
 	const creditMicrousd = 10_000_000 // 1000 cents = $10.00
 
 	id, err := issuer.IssueCredit(ctx, orgID, creditMicrousd, periodEnd)
-	if err != nil {
-		t.Fatalf("IssueCredit: %v", err)
-	}
-	if id == "" {
-		t.Fatal("IssueCredit returned empty ID")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", id)
 
 	cbt, err := customerbalancetransaction.Get(id, &stripe.CustomerBalanceTransactionParams{
 		Customer: stripe.String(cus.ID),
 	})
-	if err != nil {
-		t.Fatalf("retrieve balance transaction %s: %v", id, err)
-	}
-	if cbt.Amount != -1000 {
-		t.Errorf("balance transaction amount = %d, want -1000", cbt.Amount)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, -1000, cbt.Amount)
+
 }

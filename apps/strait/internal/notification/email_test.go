@@ -10,6 +10,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/resend/resend-go/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockResendClient implements ResendEmailAPI for testing.
@@ -46,20 +48,19 @@ func TestEmailSender_SendSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, mock.calls,
+		1)
 
-	if len(mock.calls) != 1 {
-		t.Fatalf("expected 1 send call, got %d", len(mock.calls))
-	}
 	req := mock.calls[0]
-	if len(req.To) != 1 || req.To[0] != "user@example.com" {
-		t.Errorf("expected recipient user@example.com, got %v", req.To)
-	}
-	if req.From != "alerts@strait.dev" {
-		t.Errorf("expected from alerts@strait.dev, got %s", req.From)
-	}
+	assert.False(t, len(req.
+		To) != 1 || req.
+		To[0] !=
+		"user@example.com",
+	)
+	assert.Equal(t, "alerts@strait.dev",
+		req.
+			From)
 }
 
 func TestEmailSender_SendFailure_ReturnsError(t *testing.T) {
@@ -83,21 +84,14 @@ func TestEmailSender_SendFailure_ReturnsError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, err) {
-		t.Errorf("unexpected error type: %v", err)
-	}
+	require.Error(t, err)
 }
 
 func TestEmailSender_MissingAPIKey_Fails(t *testing.T) {
 	t.Parallel()
 
 	_, err := NewEmailSender("", "noreply@strait.dev")
-	if err == nil {
-		t.Fatal("expected error when API key is empty, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
@@ -168,21 +162,17 @@ func TestEmailSender_FormatsBillingAlertBody(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			err := sender.Send(ctx, channel, delivery)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if len(mock.calls) != 1 {
-				t.Fatalf("expected 1 call, got %d", len(mock.calls))
-			}
+			require.NoError(t, err)
+			require.Len(t, mock.calls,
+				1)
 
 			req := mock.calls[0]
-			if !containsStr(req.Subject, tt.wantInSubject) {
-				t.Errorf("subject %q does not contain %q", req.Subject, tt.wantInSubject)
-			}
-			if !containsStr(req.Html, tt.wantInBody) {
-				t.Errorf("body does not contain %q", tt.wantInBody)
-			}
+			assert.True(t, containsStr(req.Subject,
+				tt.wantInSubject,
+			))
+			assert.True(t, containsStr(req.Html, tt.
+				wantInBody,
+			))
 		})
 	}
 }
@@ -203,13 +193,13 @@ func TestEmailSender_SetsCorrectFromAddress(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := sender.Send(ctx, channel, delivery); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if mock.calls[0].From != "custom@example.com" {
-		t.Errorf("expected from custom@example.com, got %s", mock.calls[0].From)
-	}
+	require.NoError(t, sender.
+		Send(ctx, channel,
+			delivery,
+		))
+	assert.Equal(t, "custom@example.com",
+		mock.
+			calls[0].From)
 }
 
 func TestEmailSender_SetsCorrectSubjectLine(t *testing.T) {
@@ -243,13 +233,13 @@ func TestEmailSender_SetsCorrectSubjectLine(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := sender.Send(ctx, channel, delivery); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if mock.calls[0].Subject != tt.expected {
-				t.Errorf("expected subject %q, got %q", tt.expected, mock.calls[0].Subject)
-			}
+			require.NoError(t, sender.
+				Send(ctx, channel,
+					delivery,
+				))
+			assert.Equal(t, tt.expected,
+				mock.calls[0].Subject,
+			)
 		})
 	}
 }
@@ -270,13 +260,13 @@ func TestEmailSender_DefaultFromAddress(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := sender.Send(ctx, channel, delivery); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if mock.calls[0].From != "noreply@strait.dev" {
-		t.Errorf("expected default from noreply@strait.dev, got %s", mock.calls[0].From)
-	}
+	require.NoError(t, sender.
+		Send(ctx, channel,
+			delivery,
+		))
+	assert.Equal(t, "noreply@strait.dev",
+		mock.
+			calls[0].From)
 }
 
 func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {
@@ -296,9 +286,7 @@ func TestEmailSender_EmptyRecipient_Fails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
-	if err == nil {
-		t.Fatal("expected error for empty recipient, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestEmailSender_InvalidConfig_Fails(t *testing.T) {
@@ -318,9 +306,7 @@ func TestEmailSender_InvalidConfig_Fails(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := sender.Send(ctx, channel, delivery)
-	if err == nil {
-		t.Fatal("expected error for invalid config, got nil")
-	}
+	require.Error(t, err)
 }
 
 func containsStr(s, substr string) bool {

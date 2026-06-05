@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleWebhookDeliveryStats_Success(t *testing.T) {
@@ -22,9 +24,8 @@ func TestHandleWebhookDeliveryStats_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/delivery-stats", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.
+		Code)
 }
 
 func TestHandleWebhookDeliveryStats_MissingParams(t *testing.T) {
@@ -32,9 +33,8 @@ func TestHandleWebhookDeliveryStats_MissingParams(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", "/v1/analytics/webhooks/delivery-stats", "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.
+		Code)
 }
 
 func TestHandleWebhookDeliveryStats_StoreError(t *testing.T) {
@@ -47,27 +47,25 @@ func TestHandleWebhookDeliveryStats_StoreError(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/delivery-stats", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 500 {
-		t.Fatalf("expected 500, got %d", w.Code)
-	}
+	require.Equal(t, 500, w.
+		Code)
 }
 
 func TestHandleWebhookEndpointHealth_Success(t *testing.T) {
 	t.Parallel()
 	ms := &AnalyticsStoreMock{
 		GetWebhookEndpointHealthFunc: func(_ context.Context, _ string, _, _ time.Time, bucket string) ([]store.WebhookHealthBucket, error) {
-			if bucket != "day" {
-				t.Fatalf("expected default bucket 'day', got %q", bucket)
-			}
+			require.Equal(t, "day",
+				bucket)
+
 			return []store.WebhookHealthBucket{}, nil
 		},
 	}
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/endpoint-health", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.
+		Code)
 }
 
 func TestHandleWebhookEndpointHealth_InvalidBucket(t *testing.T) {
@@ -75,9 +73,8 @@ func TestHandleWebhookEndpointHealth_InvalidBucket(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/endpoint-health", validFrom(), validTo(), "bucket", "month"), "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.
+		Code)
 }
 
 func TestHandleTopFailingWebhooks_Success(t *testing.T) {
@@ -92,9 +89,8 @@ func TestHandleTopFailingWebhooks_Success(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, ms, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/top-failing", validFrom(), validTo()), "", "proj-1"))
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, 200, w.
+		Code)
 }
 
 func TestHandleTopFailingWebhooks_InvalidLimit(t *testing.T) {
@@ -102,7 +98,6 @@ func TestHandleTopFailingWebhooks_InvalidLimit(t *testing.T) {
 	srv := newTestServerWithAnalytics(t, &APIStoreMock{}, &AnalyticsStoreMock{}, &mockQueue{})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedProjectRequest("GET", analyticsURL("webhooks/top-failing", validFrom(), validTo(), "limit", "999"), "", "proj-1"))
-	if w.Code != 400 {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
+	require.Equal(t, 400, w.
+		Code)
 }

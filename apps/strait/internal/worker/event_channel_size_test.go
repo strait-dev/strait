@@ -9,6 +9,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestResolveEventChannelSize(t *testing.T) {
@@ -24,29 +25,27 @@ func TestResolveEventChannelSize(t *testing.T) {
 		{2048, 2048},
 	}
 	for _, tc := range cases {
-		if got := resolveEventChannelSize(tc.in); got != tc.want {
-			t.Fatalf("resolveEventChannelSize(%d) = %d, want %d", tc.in, got, tc.want)
-		}
+		require.Equal(t,
+			tc.want, resolveEventChannelSize(tc.in))
 	}
 }
 
 func TestNewExecutor_AppliesEventChannelSize(t *testing.T) {
 	t.Parallel()
 	e := NewExecutor(ExecutorConfig{EventChannelSize: 2048})
-	if cap(e.eventCh) != 2048 {
-		t.Fatalf("expected eventCh cap=2048, got %d", cap(e.eventCh))
-	}
-	if e.eventChannelSize != 2048 {
-		t.Fatalf("expected eventChannelSize=2048, got %d", e.eventChannelSize)
-	}
+	require.Equal(t, 2048, cap(e.
+		eventCh))
+	require.Equal(t, 2048, e.eventChannelSize)
 }
 
 func TestNewExecutor_DefaultEventChannelSize(t *testing.T) {
 	t.Parallel()
 	e := NewExecutor(ExecutorConfig{})
-	if cap(e.eventCh) != defaultEventChannelSize {
-		t.Fatalf("expected default cap=%d, got %d", defaultEventChannelSize, cap(e.eventCh))
-	}
+	require.Equal(t,
+		defaultEventChannelSize,
+
+		cap(e.
+			eventCh))
 }
 
 // TestEmit_SaturationDropsAndNoDeadlock fills the channel, then emits enough
@@ -76,27 +75,27 @@ func TestEmit_SaturationDropsAndNoDeadlock(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("emit deadlocked under saturation")
+		require.Fail(t, "emit deadlocked under saturation")
 	}
 }
 
 func TestShouldLogSaturation_Throttles(t *testing.T) {
 	t.Parallel()
 	exec := &Executor{saturationLastWarn: make(map[eventChannelKind]time.Time)}
-	if !exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
-		t.Fatal("first call should log")
-	}
-	if exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
-		t.Fatal("second call within window should be throttled")
-	}
-	if !exec.shouldLogSaturation(eventChannelKind("other")) {
-		t.Fatal("different kind should log once")
-	}
+	require.True(t,
+		exec.shouldLogSaturation(eventChannelKind(EventCompleted)),
+	)
+	require.False(t,
+		exec.shouldLogSaturation(eventChannelKind(EventCompleted)),
+	)
+	require.True(t,
+		exec.shouldLogSaturation(eventChannelKind("other")))
+
 	// Simulate expiry.
 	exec.saturationLastWarn[eventChannelKind(EventCompleted)] = time.Now().Add(-2 * eventChannelWarnInterval)
-	if !exec.shouldLogSaturation(eventChannelKind(EventCompleted)) {
-		t.Fatal("after interval, should log again")
-	}
+	require.True(t,
+		exec.shouldLogSaturation(eventChannelKind(EventCompleted)),
+	)
 }
 
 func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
@@ -106,11 +105,8 @@ func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
 
 	first := exec.resolveInstanceID()
 	second := exec.resolveInstanceID()
-
-	if first == "" {
-		t.Fatal("resolveInstanceID returned empty string")
-	}
-	if second != first {
-		t.Fatalf("resolveInstanceID changed between calls: first=%q second=%q", first, second)
-	}
+	require.NotEmpty(t, first)
+	require.Equal(t,
+		first, second,
+	)
 }

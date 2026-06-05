@@ -9,6 +9,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // S1: Internal secret auth rate limiting.
@@ -19,16 +22,15 @@ func TestInternalSecretAuth_RateLimitedAfterFailures(t *testing.T) {
 	srv := newTestServerWithRedis(t, &APIStoreMock{})
 
 	// Send 10 requests with wrong internal secret from the same IP.
-	for i := range 10 {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
 		req.Header.Set("X-Internal-Secret", "wrong-secret")
 		req.RemoteAddr = "10.0.1.50:9999"
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
+		require.Equal(t, http.StatusUnauthorized,
 
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("request %d: status = %d, want 401", i+1, w.Code)
-		}
+			w.Code)
 	}
 
 	// 11th request should be rate limited (429).
@@ -37,13 +39,11 @@ func TestInternalSecretAuth_RateLimitedAfterFailures(t *testing.T) {
 	req.RemoteAddr = "10.0.1.50:9999"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.Equal(
+		t, http.StatusTooManyRequests,
 
-	if w.Code != http.StatusTooManyRequests {
-		t.Errorf("11th request: status = %d, want 429", w.Code)
-	}
-	if w.Header().Get("Retry-After") == "" {
-		t.Error("missing Retry-After header on 429 response")
-	}
+		w.Code)
+	assert.NotEmpty(t, w.Header().Get("Retry-After"))
 }
 
 func TestInternalSecretAuth_DifferentIP_NotBlocked(t *testing.T) {
@@ -66,10 +66,9 @@ func TestInternalSecretAuth_DifferentIP_NotBlocked(t *testing.T) {
 	req.RemoteAddr = "10.0.2.2:9999"
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
+	assert.NotEqual(t, http.StatusTooManyRequests,
 
-	if w.Code == http.StatusTooManyRequests {
-		t.Error("different IP should not be rate limited")
-	}
+		w.Code)
 }
 
 func TestInternalSecretAuth_ValidSecret_NotRateLimited(t *testing.T) {
@@ -78,16 +77,15 @@ func TestInternalSecretAuth_ValidSecret_NotRateLimited(t *testing.T) {
 	srv := newTestServerWithRedis(t, &APIStoreMock{})
 
 	// Valid secret should always succeed even after many requests.
-	for i := range 20 {
+	for range 20 {
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
 		req.Header.Set("X-Internal-Secret", "test-secret-value")
 		req.RemoteAddr = "10.0.3.1:9999"
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusTooManyRequests,
 
-		if w.Code == http.StatusTooManyRequests {
-			t.Fatalf("request %d: got 429 for valid secret", i+1)
-		}
+			w.Code)
 	}
 }
 
@@ -118,12 +116,10 @@ func TestHandleCreateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
 	}
 
 	_, err := srv.handleCreateRole(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for wildcard escalation, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403 Forbidden, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleCreateRole_WildcardAllowedWithWildcardScope(t *testing.T) {
@@ -150,12 +146,9 @@ func TestHandleCreateRole_WildcardAllowedWithWildcardScope(t *testing.T) {
 	}
 
 	out, err := srv.handleCreateRole(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "role_2" {
-		t.Fatalf("role ID = %q, want %q", out.Body.ID, "role_2")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "role_2", out.
+		Body.ID)
 }
 
 func TestHandleCreateRole_InternalSecretBypassesEscalationCheck(t *testing.T) {
@@ -180,12 +173,9 @@ func TestHandleCreateRole_InternalSecretBypassesEscalationCheck(t *testing.T) {
 	}
 
 	out, err := srv.handleCreateRole(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "role_3" {
-		t.Fatalf("role ID = %q, want %q", out.Body.ID, "role_3")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "role_3", out.
+		Body.ID)
 }
 
 func TestHandleCreateRole_SpecificScopeEscalationBlocked(t *testing.T) {
@@ -207,12 +197,10 @@ func TestHandleCreateRole_SpecificScopeEscalationBlocked(t *testing.T) {
 	}
 
 	_, err := srv.handleCreateRole(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for scope escalation, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleUpdateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
@@ -237,12 +225,10 @@ func TestHandleUpdateRole_WildcardDeniedWithoutWildcardScope(t *testing.T) {
 	}
 
 	_, err := srv.handleUpdateRole(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for wildcard escalation in update, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleAssignMember_SelfAssignmentBlocked(t *testing.T) {
@@ -267,12 +253,10 @@ func TestHandleAssignMember_SelfAssignmentBlocked(t *testing.T) {
 	}
 
 	_, err := srv.handleAssignMember(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for self-assignment, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleAssignMember_EscalationViaRoleBlocked(t *testing.T) {
@@ -297,12 +281,10 @@ func TestHandleAssignMember_EscalationViaRoleBlocked(t *testing.T) {
 	}
 
 	_, err := srv.handleAssignMember(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for escalation via role assignment, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T) {
@@ -313,7 +295,9 @@ func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T)
 		return &domain.ProjectRole{ID: roleID, ProjectID: "proj-1", Permissions: []string{domain.ScopeAll}}, nil
 	}
 	ms.AssignMemberRoleFunc = func(context.Context, *domain.ProjectMemberRole) error {
-		t.Fatal("AssignMemberRole must not be called for self-assignment or escalation")
+		require.Fail(t,
+
+			"AssignMemberRole must not be called for self-assignment or escalation")
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -327,24 +311,21 @@ func TestHandleBulkAssignMembers_BlocksSelfAssignmentAndEscalation(t *testing.T)
 		{UserID: "caller-user", RoleID: "role-admin"},
 		{UserID: "other-user", RoleID: "role-admin"},
 	}}})
-	if err != nil {
-		t.Fatalf("handleBulkAssignMembers() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	body, ok := out.Body.(map[string]any)
-	if !ok {
-		t.Fatalf("response body type = %T, want map[string]any", out.Body)
-	}
+	require.True(
+		t, ok)
+
 	results, ok := body["results"].([]bulkAssignMemberResult)
-	if !ok {
-		t.Fatalf("results type = %T, want []bulkAssignMemberResult", body["results"])
-	}
-	if len(results) != 2 {
-		t.Fatalf("len(results) = %d, want 2", len(results))
-	}
+	require.True(
+		t, ok)
+	require.Len(t,
+		results, 2)
+
 	for _, result := range results {
-		if result.Status != "error" {
-			t.Fatalf("bulk result for %s status = %q, want error", result.UserID, result.Status)
-		}
+		require.Equal(t, "error", result.
+			Status)
 	}
 }
 
@@ -356,7 +337,9 @@ func TestHandleBulkAssignMembers_BlocksCrossProjectRole(t *testing.T) {
 		return &domain.ProjectRole{ID: roleID, ProjectID: "other-project", Permissions: []string{domain.ScopeJobsRead}}, nil
 	}
 	ms.AssignMemberRoleFunc = func(context.Context, *domain.ProjectMemberRole) error {
-		t.Fatal("AssignMemberRole must not be called for a cross-project role")
+		require.Fail(t,
+
+			"AssignMemberRole must not be called for a cross-project role")
 		return nil
 	}
 	srv := newTestServer(t, ms, nil, nil)
@@ -369,13 +352,14 @@ func TestHandleBulkAssignMembers_BlocksCrossProjectRole(t *testing.T) {
 	out, err := srv.handleBulkAssignMembers(ctx, &BulkAssignMembersInput{Body: bulkAssignMembersRequest{Items: []assignMemberRequest{
 		{UserID: "other-user", RoleID: "role-other-project"},
 	}}})
-	if err != nil {
-		t.Fatalf("handleBulkAssignMembers() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	results := out.Body.(map[string]any)["results"].([]bulkAssignMemberResult)
-	if results[0].Status != "error" || results[0].Error != "role not found" {
-		t.Fatalf("result = %+v, want role not found error", results[0])
-	}
+	require.False(t, results[0].Status !=
+		"error" ||
+		results[0].Error !=
+			"role not found",
+	)
 }
 
 func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
@@ -401,12 +385,10 @@ func TestHandleAssignMember_InternalSecretAllowsWildcardRole(t *testing.T) {
 	}
 
 	out, err := srv.handleAssignMember(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.RoleID != "role-admin" {
-		t.Fatalf("role = %q, want %q", out.Body.RoleID, "role-admin")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "role-admin",
+		out.Body.RoleID,
+	)
 }
 
 func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
@@ -414,7 +396,9 @@ func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T
 
 	ms := &APIStoreMock{
 		CreateResourcePolicyFunc: func(context.Context, *domain.ResourcePolicy) error {
-			t.Fatal("CreateResourcePolicy must not be called")
+			require.Fail(t,
+
+				"CreateResourcePolicy must not be called")
 			return nil
 		},
 	}
@@ -430,9 +414,8 @@ func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T
 		UserID:       "user-1",
 		Actions:      []string{domain.ScopeJobsRead},
 	}})
-	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("cross-project resource policy error = %v, want 403", err)
-	}
+	require.False(t, err == nil ||
+		!isHumaStatusError(err, http.StatusForbidden))
 
 	_, err = srv.handleCreateResourcePolicy(ctx, &CreateResourcePolicyInput{Body: createResourcePolicyRequest{
 		ProjectID:    "proj-1",
@@ -441,9 +424,8 @@ func TestHandleCreateResourcePolicy_BlocksCrossProjectAndEscalation(t *testing.T
 		UserID:       "user-1",
 		Actions:      []string{domain.ScopeJobsWrite},
 	}})
-	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("escalating resource policy error = %v, want 403", err)
-	}
+	require.False(t, err == nil ||
+		!isHumaStatusError(err, http.StatusForbidden))
 }
 
 func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
@@ -451,7 +433,9 @@ func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
 
 	ms := &APIStoreMock{
 		CreateTagPolicyFunc: func(context.Context, *domain.TagPolicy) error {
-			t.Fatal("CreateTagPolicy must not be called")
+			require.Fail(t,
+
+				"CreateTagPolicy must not be called")
 			return nil
 		},
 	}
@@ -468,9 +452,8 @@ func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
 		TagValue:     "payments",
 		Actions:      []string{domain.ScopeJobsRead},
 	}})
-	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("cross-project tag policy error = %v, want 403", err)
-	}
+	require.False(t, err == nil ||
+		!isHumaStatusError(err, http.StatusForbidden))
 
 	_, err = srv.handleCreateTagPolicy(ctx, &CreateTagPolicyInput{Body: createTagPolicyRequest{
 		ProjectID:    "proj-1",
@@ -480,9 +463,8 @@ func TestHandleCreateTagPolicy_BlocksCrossProjectAndEscalation(t *testing.T) {
 		TagValue:     "payments",
 		Actions:      []string{domain.ScopeJobsWrite},
 	}})
-	if err == nil || !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("escalating tag policy error = %v, want 403", err)
-	}
+	require.False(t, err == nil ||
+		!isHumaStatusError(err, http.StatusForbidden))
 }
 
 // S3: API key scope escalation -- handler-level tests.
@@ -506,12 +488,10 @@ func TestHandleCreateAPIKey_WildcardScopeDeniedWithoutWildcard(t *testing.T) {
 	}
 
 	_, err := srv.handleCreateAPIKey(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for wildcard scope escalation, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleCreateAPIKey_WildcardScopeAllowedWithWildcard(t *testing.T) {
@@ -540,12 +520,9 @@ func TestHandleCreateAPIKey_WildcardScopeAllowedWithWildcard(t *testing.T) {
 	}
 
 	out, err := srv.handleCreateAPIKey(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "key-new" {
-		t.Fatalf("key ID = %q, want %q", out.Body.ID, "key-new")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "key-new", out.
+		Body.ID)
 }
 
 func TestHandleCreateAPIKey_ScopeEscalationDenied(t *testing.T) {
@@ -568,12 +545,10 @@ func TestHandleCreateAPIKey_ScopeEscalationDenied(t *testing.T) {
 	}
 
 	_, err := srv.handleCreateAPIKey(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for scope escalation, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleCreateAPIKey_SubsetScopesAllowed(t *testing.T) {
@@ -602,12 +577,9 @@ func TestHandleCreateAPIKey_SubsetScopesAllowed(t *testing.T) {
 	}
 
 	out, err := srv.handleCreateAPIKey(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "key-sub" {
-		t.Fatalf("key ID = %q, want %q", out.Body.ID, "key-sub")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "key-sub", out.
+		Body.ID)
 }
 
 func TestHandleCreateAPIKey_InternalSecretBypassesEscalationCheck(t *testing.T) {
@@ -635,12 +607,10 @@ func TestHandleCreateAPIKey_InternalSecretBypassesEscalationCheck(t *testing.T) 
 	}
 
 	out, err := srv.handleCreateAPIKey(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "key-internal" {
-		t.Fatalf("key ID = %q, want %q", out.Body.ID, "key-internal")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "key-internal",
+		out.Body.
+			ID)
 }
 
 // S2: User with DB permissions (OIDC empty scopes) escalation check.
@@ -672,12 +642,10 @@ func TestHandleCreateRole_UserDBPermissions_EscalationBlocked(t *testing.T) {
 	}
 
 	_, err := srv.handleCreateRole(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for wildcard escalation via DB permissions, got nil")
-	}
-	if !isHumaStatusError(err, http.StatusForbidden) {
-		t.Fatalf("expected 403, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(
+		t, isHumaStatusError(err, http.
+			StatusForbidden))
 }
 
 func TestHandleCreateRole_UserDBPermissions_SubsetAllowed(t *testing.T) {
@@ -706,12 +674,9 @@ func TestHandleCreateRole_UserDBPermissions_SubsetAllowed(t *testing.T) {
 	}
 
 	out, err := srv.handleCreateRole(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out.Body.ID != "role_y" {
-		t.Fatalf("role ID = %q, want %q", out.Body.ID, "role_y")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "role_y", out.
+		Body.ID)
 }
 
 // isHumaStatusError checks if the error has a GetStatus() method returning the expected code.
@@ -748,9 +713,8 @@ func TestHandleAssignMember_RoleNotFound_WithEscalationCheck(t *testing.T) {
 	}
 
 	_, err := srv.handleAssignMember(ctx, input)
-	if err == nil {
-		t.Fatal("expected error for missing role, got nil")
-	}
+	require.Error(t, err)
+
 	if !isHumaStatusError(err, http.StatusBadRequest) {
 		// Check error message contains expected text.
 		errMsg := err.Error()

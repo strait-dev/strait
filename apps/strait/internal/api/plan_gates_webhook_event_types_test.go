@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestCheckWebhookEventTypes_NoneTier_RejectsAll verifies that a plan with
@@ -20,15 +22,13 @@ func TestCheckWebhookEventTypes_NoneTier_RejectsAll(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.completed"})
-	if err == nil {
-		t.Fatal("expected rejection on WebhookEventLevel=none, got nil")
-	}
-	if !strings.Contains(err.Error(), "not available") {
-		t.Errorf("expected message to mention unavailability, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "Free") {
-		t.Errorf("expected message to name the plan, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.
+			Error(), "not available")
+	assert.Contains(t,
+		err.
+			Error(), "Free")
 }
 
 // TestCheckWebhookEventTypes_BasicTier_AcceptsBasicEvents asserts the Starter
@@ -42,9 +42,7 @@ func TestCheckWebhookEventTypes_BasicTier_AcceptsBasicEvents(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	for _, et := range []string{"run.completed", "run.failed"} {
-		if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{et}); err != nil {
-			t.Errorf("basic tier must accept %q; got %v", et, err)
-		}
+		assert.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{et}))
 	}
 }
 
@@ -60,15 +58,13 @@ func TestCheckWebhookEventTypes_BasicTier_RejectsUpgradeEvents(t *testing.T) {
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
 
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"})
-	if err == nil {
-		t.Fatal("expected rejection of premium event on basic tier")
-	}
-	if !strings.Contains(err.Error(), "run.timed_out") {
-		t.Errorf("error must name the offending event type, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "Pro") {
-		t.Errorf("error must point at the upgrade target plan, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t,
+		err.
+			Error(), "run.timed_out")
+	assert.Contains(t,
+		err.
+			Error(), "Pro")
 }
 
 // TestCheckWebhookEventTypes_AllTier_AcceptsEverything proves the Pro and
@@ -84,9 +80,7 @@ func TestCheckWebhookEventTypes_AllTier_AcceptsEverything(t *testing.T) {
 	for eventType := range validWebhookEventTypes {
 		all = append(all, eventType)
 	}
-	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", all); err != nil {
-		t.Fatalf("all-tier plan must accept every event type; got %v", err)
-	}
+	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", all))
 }
 
 // TestCheckWebhookEventTypes_AllCustomTier_Accepts confirms enterprise
@@ -97,10 +91,9 @@ func TestCheckWebhookEventTypes_AllCustomTier_Accepts(t *testing.T) {
 	limits := billing.OrgPlanLimits{DisplayName: "Enterprise", WebhookEventLevel: "all_custom"}
 	enforcer := &tunableLimitsEnforcer{limits: limits}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out",
 
-	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out", "workflow.failed"}); err != nil {
-		t.Fatalf("all_custom must accept any event; got %v", err)
-	}
+		"workflow.failed"}))
 }
 
 func TestCheckWebhookEventTypes_CloudNilEnforcerFailsClosed(t *testing.T) {
@@ -109,9 +102,8 @@ func TestCheckWebhookEventTypes_CloudNilEnforcerFailsClosed(t *testing.T) {
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 	srv.edition = domain.EditionCloud
 	err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"})
-	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
-		t.Fatalf("expected billing enforcement unavailable, got %v", err)
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "billing enforcement unavailable")
 }
 
 // TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen confirms self-hosted
@@ -120,9 +112,7 @@ func TestCheckWebhookEventTypes_CommunityNilEnforcerFailsOpen(t *testing.T) {
 	t.Parallel()
 
 	srv := &Server{edition: domain.EditionCommunity}
-	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"}); err != nil {
-		t.Fatalf("community nil enforcer must fail open; got %v", err)
-	}
+	require.NoError(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{"run.timed_out"}))
 }
 
 // TestCheckWebhookEventTypes_EmptyEventList_NoOp documents that a zero-length
@@ -134,11 +124,9 @@ func TestCheckWebhookEventTypes_EmptyEventList_NoOp(t *testing.T) {
 	limits := billing.OrgPlanLimits{DisplayName: "Free", WebhookEventLevel: "none"}
 	enforcer := &tunableLimitsEnforcer{limits: limits}
 	srv := newServerWithEnforcer(t, &APIStoreMock{}, &mockQueue{}, enforcer)
+	require.Error(t, srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{}))
 
-	if err := srv.checkWebhookEventTypes(context.Background(), "proj-1", []string{}); err == nil {
-		// The "none" branch fires before the loop, so even an empty list rejects.
-		// This test pins that behavior so a refactor that moves the loop earlier
-		// does not silently flip the semantics.
-		t.Fatal("WebhookEventLevel=none rejects regardless of list length")
-	}
+	// The "none" branch fires before the loop, so even an empty list rejects.
+	// This test pins that behavior so a refactor that moves the loop earlier
+	// does not silently flip the semantics.
 }

@@ -2,12 +2,13 @@ package worker
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"strait/internal/domain"
 	orcstore "strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExecutor_WorkflowStepVisibilityRaceRequeues(t *testing.T) {
@@ -28,23 +29,22 @@ func TestExecutor_WorkflowStepVisibilityRaceRequeues(t *testing.T) {
 	exec.execute(context.Background(), run)
 
 	retries := store.scheduleRetries()
-	if len(retries) != 1 {
-		t.Fatalf("scheduled retries = %d, want 1", len(retries))
-	}
-	if retries[0].attempt != 1 {
-		t.Fatalf("scheduled retry attempt = %d, want same attempt 1", retries[0].attempt)
-	}
+	require.Len(t, retries,
+		1)
+	require.Equal(t, 1, retries[0].attempt)
 
 	calls := store.statusUpdates()
-	if len(calls) != 1 {
-		t.Fatalf("status updates = %d, want 1", len(calls))
-	}
-	if calls[0].to != domain.StatusQueued {
-		t.Fatalf("status update to = %s, want queued", calls[0].to)
-	}
-	if calls[0].to == domain.StatusSystemFailed {
-		t.Fatal("step visibility race must not system-fail the run")
-	}
+	require.Len(t, calls,
+		1)
+	require.Equal(t,
+		domain.StatusQueued,
+
+		calls[0].
+			to)
+	require.NotEqual(t, domain.
+		StatusSystemFailed,
+
+		calls[0].to)
 }
 
 func TestResolveExecutionPolicy_WrapsMissingStepRunAsTransient(t *testing.T) {
@@ -59,7 +59,7 @@ func TestResolveExecutionPolicy_WrapsMissingStepRunAsTransient(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", WorkflowStepRunID: "wsr-missing"}
 
 	_, err := exec.resolveExecutionPolicy(context.Background(), run, executionPolicy{maxAttempts: 3})
-	if !errors.Is(err, orcstore.ErrWorkflowStepRunNotFound) {
-		t.Fatalf("resolveExecutionPolicy error = %v, want ErrWorkflowStepRunNotFound", err)
-	}
+	require.ErrorIs(t,
+		err, orcstore.
+			ErrWorkflowStepRunNotFound)
 }

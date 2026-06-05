@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestEventRoutes_PermissionEnforcement verifies that /v1/events/ routes
@@ -48,9 +50,9 @@ func TestEventRoutes_RequirePermission_ReadRoutes(t *testing.T) {
 			r = r.WithContext(ctx)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if w.Code != tc.want {
-				t.Errorf("scopes=%v: status=%d, want %d", tc.scopes, w.Code, tc.want)
-			}
+			assert.Equal(
+				t, tc.want,
+				w.Code)
 		})
 	}
 }
@@ -85,9 +87,9 @@ func TestEventRoutes_RequirePermission_WriteRoutes(t *testing.T) {
 			r = r.WithContext(ctx)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if w.Code != tc.want {
-				t.Errorf("scopes=%v: status=%d, want %d", tc.scopes, w.Code, tc.want)
-			}
+			assert.Equal(
+				t, tc.want,
+				w.Code)
 		})
 	}
 }
@@ -123,9 +125,9 @@ func TestEventRoutes_RequirePermission_TriggerRoutes(t *testing.T) {
 			r = r.WithContext(ctx)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, r)
-			if w.Code != tc.want {
-				t.Errorf("scopes=%v: status=%d, want %d", tc.scopes, w.Code, tc.want)
-			}
+			assert.Equal(
+				t, tc.want,
+				w.Code)
 		})
 	}
 }
@@ -162,11 +164,15 @@ func TestEventRoutes_Integration_InternalSecret_AllowsAll(t *testing.T) {
 			r.Header.Set("X-Internal-Secret", "test-secret-value")
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, r)
+			assert.False(
+				t, w.Code ==
+					http.StatusUnauthorized ||
+					w.Code ==
+						http.
+							StatusForbidden,
+			)
 
 			// Internal secret bypasses scope checks -- should never get 401 or 403.
-			if w.Code == http.StatusUnauthorized || w.Code == http.StatusForbidden {
-				t.Errorf("%s %s with internal secret: status=%d, want allowed", route.method, route.path, w.Code)
-			}
 		})
 	}
 }

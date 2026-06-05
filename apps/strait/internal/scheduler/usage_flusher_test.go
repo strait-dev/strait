@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"strait/internal/billing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockUsageFlusherStore implements UsageFlusherStore for testing.
@@ -86,24 +89,22 @@ func TestUsageFlusher_FlushesRecordsForAllOrgs(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-
-	if len(upserted) != 2 {
-		t.Fatalf("expected 2 upserted records, got %d", len(upserted))
-	}
+	require.Len(t, upserted,
+		2)
 
 	r1, ok := upserted["org-1:proj-org-1"]
-	if !ok {
-		t.Fatal("expected record for org-1:proj-org-1")
-	}
-	if r1.RunsCount != 10 {
-		t.Errorf("expected 10 runs, got %d", r1.RunsCount)
-	}
-	if r1.ComputeCostMicro != 5000 {
-		t.Errorf("expected 5000 compute cost, got %d", r1.ComputeCostMicro)
-	}
+	require.True(t, ok)
+	assert.EqualValues(t, 10,
+		r1.RunsCount,
+	)
+	assert.EqualValues(t, 5000,
+		r1.ComputeCostMicro,
+	)
 
 	if _, ok := upserted["org-2:proj-org-2"]; !ok {
-		t.Fatal("expected record for org-2:proj-org-2")
+		require.Fail(t,
+
+			"expected record for org-2:proj-org-2")
 	}
 }
 
@@ -123,10 +124,7 @@ func TestUsageFlusher_EmptyOrgs_NoFlush(t *testing.T) {
 
 	uf := NewUsageFlusher(s, time.Minute)
 	uf.flush(context.Background())
-
-	if upsertCalled {
-		t.Fatal("expected no upsert when org list is empty")
-	}
+	require.False(t, upsertCalled)
 }
 
 func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
@@ -173,9 +171,9 @@ func TestUsageFlusher_ReplacesSnapshotEachFlush(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if upsertCount != 2 {
-		t.Fatalf("expected 2 upsert calls (one per flush), got %d", upsertCount)
-	}
+	require.Equal(t, 2,
+		upsertCount,
+	)
 }
 
 func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
@@ -221,19 +219,12 @@ func TestUsageFlusher_PartialFailure_ContinuesOtherOrgs(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	require.Len(t, upsertedOrgs,
 
-	if len(upsertedOrgs) != 2 {
-		t.Fatalf("expected 2 upserted orgs (skipping org-2), got %d", len(upsertedOrgs))
-	}
-	if !upsertedOrgs["org-1"] {
-		t.Error("expected org-1 to be flushed")
-	}
-	if upsertedOrgs["org-2"] {
-		t.Error("expected org-2 to be skipped due to error")
-	}
-	if !upsertedOrgs["org-3"] {
-		t.Error("expected org-3 to be flushed despite org-2 failure")
-	}
+		2)
+	assert.True(t, upsertedOrgs["org-1"])
+	assert.False(t, upsertedOrgs["org-2"])
+	assert.True(t, upsertedOrgs["org-3"])
 }
 
 func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
@@ -257,11 +248,15 @@ func TestUsageFlusher_DedupesOrgIDsAndSkipsEmpty(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(getCalls) != 2 || getCalls["org-1"] != usageFlusherReconcileLookbackDays || getCalls["org-2"] != usageFlusherReconcileLookbackDays {
-		t.Fatalf("daily usage calls = %v, want lookback window per non-empty org", getCalls)
-	}
+	require.False(t, len(getCalls) != 2 ||
+		getCalls["org-1"] !=
+			usageFlusherReconcileLookbackDays ||
+		getCalls["org-2"] != usageFlusherReconcileLookbackDays)
+
 	if _, ok := getCalls[""]; ok {
-		t.Fatal("empty org ID should not be flushed")
+		require.Fail(t,
+
+			"empty org ID should not be flushed")
 	}
 }
 
@@ -293,21 +288,19 @@ func TestUsageFlusher_FlushesSnapshotsAcrossLookback(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(requested) != usageFlusherReconcileLookbackDays {
-		t.Fatalf("requested dates = %d, want %d", len(requested), usageFlusherReconcileLookbackDays)
-	}
-	if len(upserted) != usageFlusherReconcileLookbackDays {
-		t.Fatalf("upserted dates = %d, want %d", len(upserted), usageFlusherReconcileLookbackDays)
-	}
+	require.Len(t, requested,
+		usageFlusherReconcileLookbackDays,
+	)
+	require.Len(t, upserted,
+		usageFlusherReconcileLookbackDays,
+	)
+
 	for i := 1; i < len(upserted); i++ {
-		if !upserted[i].After(upserted[i-1]) {
-			t.Fatalf("upserted dates are not ascending: %v", upserted)
-		}
+		require.True(t, upserted[i].After(upserted[i-1]))
 	}
 	for i := range requested {
-		if !requested[i].Equal(upserted[i]) {
-			t.Fatalf("requested[%d]=%v, upserted[%d]=%v", i, requested[i], i, upserted[i])
-		}
+		require.True(t, requested[i].
+			Equal(upserted[i]))
 	}
 }
 
@@ -332,13 +325,10 @@ func TestUsageFlusher_ReconcilesFlatUsageCostsAcrossLookback(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(reconciled["org-1"]) != usageFlusherReconcileLookbackDays {
-		t.Fatalf("reconciled dates = %d, want %d", len(reconciled["org-1"]), usageFlusherReconcileLookbackDays)
-	}
+	require.Len(t, reconciled["org-1"], usageFlusherReconcileLookbackDays)
+
 	for i := 1; i < len(reconciled["org-1"]); i++ {
-		if !reconciled["org-1"][i].After(reconciled["org-1"][i-1]) {
-			t.Fatalf("reconciled dates are not ascending: %v", reconciled["org-1"])
-		}
+		require.True(t, reconciled["org-1"][i].After(reconciled["org-1"][i-1]))
 	}
 }
 
@@ -367,17 +357,15 @@ func TestUsageFlusher_NormalizesEmptySnapshotFields(t *testing.T) {
 	}
 
 	NewUsageFlusher(s, time.Minute).flush(context.Background())
-
-	if got == nil {
-		t.Fatal("expected replacement record")
-	}
-	if got.ID == "" {
-		t.Fatal("expected generated ID")
-	}
-	if got.PeriodDate.IsZero() {
-		t.Fatal("expected period date to be set")
-	}
-	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
-		t.Fatalf("expected timestamps to be set: created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
-	}
+	require.NotNil(t, got)
+	require.NotEmpty(t,
+		got.ID,
+	)
+	require.False(t, got.
+		PeriodDate.
+		IsZero())
+	require.False(t, got.
+		CreatedAt.
+		IsZero() || got.UpdatedAt.
+		IsZero())
 }

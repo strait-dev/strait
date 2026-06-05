@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateDAG_CycleDetection(t *testing.T) {
@@ -19,12 +21,8 @@ func TestValidateDAG_CycleDetection(t *testing.T) {
 		{StepRef: "C", DependsOn: []string{"B"}},
 	}
 	err := ValidateDAG(steps)
-	if err == nil {
-		t.Fatal("expected cycle detection error, got nil")
-	}
-	if !strings.Contains(err.Error(), "cycle") {
-		t.Fatalf("expected error mentioning cycle, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cycle")
 }
 
 func TestValidateDAG_SelfLoop(t *testing.T) {
@@ -34,12 +32,8 @@ func TestValidateDAG_SelfLoop(t *testing.T) {
 		{StepRef: "A", DependsOn: []string{"A"}},
 	}
 	err := ValidateDAG(steps)
-	if err == nil {
-		t.Fatal("expected self-loop error, got nil")
-	}
-	if !strings.Contains(err.Error(), "depends on itself") {
-		t.Fatalf("expected 'depends on itself' error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "depends on itself")
 }
 
 func TestValidateDAG_DisconnectedNodes(t *testing.T) {
@@ -52,9 +46,7 @@ func TestValidateDAG_DisconnectedNodes(t *testing.T) {
 		{StepRef: "C", DependsOn: []string{"A"}},
 	}
 	err := ValidateDAG(steps)
-	if err != nil {
-		t.Fatalf("expected disconnected but acyclic DAG to be valid, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestValidateDAG_DuplicateStepRefs(t *testing.T) {
@@ -65,29 +57,19 @@ func TestValidateDAG_DuplicateStepRefs(t *testing.T) {
 		{StepRef: "A"},
 	}
 	err := ValidateDAG(steps)
-	if err == nil {
-		t.Fatal("expected duplicate step_ref error, got nil")
-	}
-	if !strings.Contains(err.Error(), "duplicate step_ref") {
-		t.Fatalf("expected 'duplicate step_ref' error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "duplicate step_ref")
 }
 
 func TestValidateDAG_EmptySteps(t *testing.T) {
 	t.Parallel()
 
 	err := ValidateDAG(nil)
-	if err == nil {
-		t.Fatal("expected error for nil steps, got nil")
-	}
-	if !strings.Contains(err.Error(), "at least one step") {
-		t.Fatalf("expected 'at least one step' error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "at least one step")
 
 	err = ValidateDAG([]domain.WorkflowStep{})
-	if err == nil {
-		t.Fatal("expected error for empty steps, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestValidateDAG_LargeGraph(t *testing.T) {
@@ -104,9 +86,7 @@ func TestValidateDAG_LargeGraph(t *testing.T) {
 		steps[i] = domain.WorkflowStep{StepRef: ref, DependsOn: deps}
 	}
 	err := ValidateDAG(steps)
-	if err != nil {
-		t.Fatalf("expected valid large DAG, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestEvaluateCondition_TypeCoercion(t *testing.T) {
@@ -116,19 +96,13 @@ func TestEvaluateCondition_TypeCoercion(t *testing.T) {
 	cond := json.RawMessage(`{"type":"eq","left":{"value":"42"},"right":{"value":42}}`)
 	statuses := map[string]domain.StepRunStatus{}
 	ok, err := EvaluateCondition(cond, statuses)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected eq to coerce string '42' == number 42 via Sprint, got false")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 
 	// String "42" with gt should fail because gt requires numeric operands.
 	cond = json.RawMessage(`{"type":"gt","left":{"value":"42"},"right":{"value":10}}`)
 	_, err = EvaluateCondition(cond, statuses)
-	if err == nil {
-		t.Fatal("expected error for gt with string left operand, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestEvaluateCondition_DeeplyNested(t *testing.T) {
@@ -140,24 +114,19 @@ func TestEvaluateCondition_DeeplyNested(t *testing.T) {
 	}
 
 	inner := json.RawMessage(`{"type":"step_status","step_ref":"root","status":"completed"}`)
-	for i := range 50 {
+	for range 50 {
 		wrapped, err := json.Marshal(map[string]any{
 			"type":       "all_of",
 			"conditions": []json.RawMessage{inner},
 		})
-		if err != nil {
-			t.Fatalf("failed to marshal nested condition at level %d: %v", i, err)
-		}
+		require.NoError(t, err)
+
 		inner = wrapped
 	}
 
 	ok, err := EvaluateCondition(inner, statuses)
-	if err != nil {
-		t.Fatalf("unexpected error evaluating deeply nested condition: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected deeply nested condition to evaluate to true")
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 }
 
 func TestEvaluateCondition_UnknownType(t *testing.T) {
@@ -166,12 +135,8 @@ func TestEvaluateCondition_UnknownType(t *testing.T) {
 	cond := json.RawMessage(`{"type":"xor","left":true,"right":false}`)
 	statuses := map[string]domain.StepRunStatus{}
 	_, err := EvaluateCondition(cond, statuses)
-	if err == nil {
-		t.Fatal("expected error for unknown condition type, got nil")
-	}
-	if !strings.Contains(err.Error(), "unknown condition type") {
-		t.Fatalf("expected 'unknown condition type' error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown condition type")
 }
 
 func TestRenderTemplateVars_DeeplyNested(t *testing.T) {
@@ -190,20 +155,19 @@ func TestRenderTemplateVars_DeeplyNested(t *testing.T) {
 		current = map[string]any{part: current}
 	}
 	varsBytes, err := json.Marshal(current)
-	if err != nil {
-		t.Fatalf("failed to marshal vars: %v", err)
-	}
+	require.NoError(t, err)
 
 	payload := fmt.Sprintf(`{"val":"{{%s}}"}`, varPath)
 	result := renderTemplateVars(json.RawMessage(payload), varsBytes)
 
 	var out map[string]any
-	if err := json.Unmarshal(result, &out); err != nil {
-		t.Fatalf("failed to unmarshal result: %v", err)
-	}
-	if out["val"] != "leaf_value" {
-		t.Fatalf("expected leaf_value, got %v", out["val"])
-	}
+	require.NoError(t, json.
+		Unmarshal(result,
+			&out))
+	require.Equal(t, "leaf_value",
+
+		out["val"],
+	)
 }
 
 func TestRenderTemplateVars_HugePayload(t *testing.T) {
@@ -217,16 +181,13 @@ func TestRenderTemplateVars_HugePayload(t *testing.T) {
 	result := renderTemplateVars(json.RawMessage(payload), json.RawMessage(vars))
 
 	var out map[string]any
-	if err := json.Unmarshal(result, &out); err != nil {
-		t.Fatalf("failed to unmarshal huge result: %v", err)
-	}
+	require.NoError(t, json.
+		Unmarshal(result,
+			&out))
+
 	data, ok := out["data"].(string)
-	if !ok {
-		t.Fatal("expected data to be string")
-	}
-	if !strings.HasSuffix(data, " world") {
-		t.Fatalf("expected data to end with ' world', got suffix: %q", data[len(data)-20:])
-	}
+	require.True(t, ok)
+	require.True(t, strings.HasSuffix(data, " world"))
 }
 
 func TestRenderTemplateVars_SpecialCharsInVarNames(t *testing.T) {
@@ -239,17 +200,14 @@ func TestRenderTemplateVars_SpecialCharsInVarNames(t *testing.T) {
 	result := renderTemplateVars(json.RawMessage(payload), json.RawMessage(vars))
 
 	var out map[string]any
-	if err := json.Unmarshal(result, &out); err != nil {
-		t.Fatalf("failed to unmarshal result: %v", err)
-	}
+	require.NoError(t, json.
+		Unmarshal(result,
+			&out))
+
 	// The bracket syntax should not be matched by the template regex.
 	val, ok := out["val"].(string)
-	if !ok {
-		t.Fatal("expected val to be string")
-	}
-	if !strings.Contains(val, "{{") {
-		t.Fatalf("expected unresolved template with brackets, got: %s", val)
-	}
+	require.True(t, ok)
+	require.Contains(t, val, "{{")
 }
 
 func FuzzEvaluateConditionAdversarial(f *testing.F) {

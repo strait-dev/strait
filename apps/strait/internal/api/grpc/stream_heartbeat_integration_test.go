@@ -9,6 +9,8 @@ import (
 
 	workerv1 "strait/internal/api/grpc/proto/workerv1"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen pins the
@@ -32,16 +34,18 @@ func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testi
 		INSERT INTO workers (id, project_id, queue_name, hostname, version, status, last_seen_at, registered_at)
 		VALUES ($1, $2, 'q', 'host1', '1.0', 'active', NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')
 	`, workerID, projectID)
-	if err != nil {
-		t.Fatalf("seed worker: %v", err)
-	}
+	require.NoError(t,
+
+		err)
 
 	var beforeTS time.Time
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT last_seen_at FROM workers WHERE id = $1`, workerID,
-	).Scan(&beforeTS); err != nil {
-		t.Fatalf("read seeded last_seen_at: %v", err)
-	}
+	require.NoError(t,
+
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT last_seen_at FROM workers WHERE id = $1`,
+
+				workerID).Scan(
+			&beforeTS))
 
 	svc := &workerService{
 		queries:        q,
@@ -51,25 +55,32 @@ func TestIntegration_Heartbeat_RenewsStreamLeaseWithoutTouchingLastSeen(t *testi
 	}
 
 	hb := &workerv1.Heartbeat{}
-	if err := svc.handleHeartbeat(ctx, workerID, projectID, "", "", hb); err != nil {
-		t.Fatalf("handleHeartbeat: %v", err)
-	}
+	require.NoError(t,
+
+		svc.handleHeartbeat(ctx, workerID,
+			projectID,
+
+			"", "", hb))
 
 	var afterTS time.Time
 	var leaseExpiresAt *time.Time
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT last_seen_at, stream_lease_expires_at FROM workers WHERE id = $1`, workerID,
-	).Scan(&afterTS, &leaseExpiresAt); err != nil {
-		t.Fatalf("read post-heartbeat last_seen_at: %v", err)
-	}
+	require.NoError(t,
 
-	if !afterTS.Equal(beforeTS) {
-		t.Fatalf("heartbeat wrote to workers table: last_seen_at moved from %v to %v",
-			beforeTS, afterTS)
-	}
-	if leaseExpiresAt == nil || !leaseExpiresAt.After(time.Now()) {
-		t.Fatalf("stream lease = %v, want future timestamp", leaseExpiresAt)
-	}
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT last_seen_at, stream_lease_expires_at FROM workers WHERE id = $1`,
+
+				workerID).Scan(
+			&afterTS,
+
+			&leaseExpiresAt))
+	require.True(t, afterTS.
+		Equal(beforeTS))
+	require.False(t,
+		leaseExpiresAt ==
+			nil ||
+			!leaseExpiresAt.
+				After(time.Now()))
+
 }
 
 // TestIntegration_Heartbeat_DBSyncRefreshesLastSeen confirms that with the
@@ -84,19 +95,20 @@ func TestIntegration_Heartbeat_DBSyncRefreshesLastSeen(t *testing.T) {
 
 	reg := NewConnectionRegistry()
 	w := makeWorker("dbsync-worker", "proj-dbsync", "key", []string{"q"}, 4)
-	if err := reg.Register(w); err != nil {
-		t.Fatalf("register: %v", err)
-	}
+	require.NoError(t,
+
+		reg.Register(w))
 
 	// First sync: row gets created.
 	dbSyncOnce(ctx, reg, q)
 
 	var firstTS time.Time
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT last_seen_at FROM workers WHERE id = $1`, w.WorkerID,
-	).Scan(&firstTS); err != nil {
-		t.Fatalf("read first last_seen_at: %v", err)
-	}
+	require.NoError(t,
+
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT last_seen_at FROM workers WHERE id = $1`,
+
+				w.WorkerID).Scan(&firstTS))
 
 	// Postgres NOW() has microsecond resolution but back-to-back calls in
 	// the same statement can return identical values. Force a gap.
@@ -106,14 +118,13 @@ func TestIntegration_Heartbeat_DBSyncRefreshesLastSeen(t *testing.T) {
 	dbSyncOnce(ctx, reg, q)
 
 	var secondTS time.Time
-	if err := env.DB.Pool.QueryRow(ctx,
-		`SELECT last_seen_at FROM workers WHERE id = $1`, w.WorkerID,
-	).Scan(&secondTS); err != nil {
-		t.Fatalf("read second last_seen_at: %v", err)
-	}
+	require.NoError(t,
 
-	if !secondTS.After(firstTS) {
-		t.Fatalf("dbSync did not advance last_seen_at: first=%v second=%v",
-			firstTS, secondTS)
-	}
+		env.DB.Pool.
+			QueryRow(ctx, `SELECT last_seen_at FROM workers WHERE id = $1`,
+
+				w.WorkerID).Scan(&secondTS))
+	require.True(t, secondTS.
+		After(firstTS))
+
 }

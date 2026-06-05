@@ -24,6 +24,7 @@ import (
 	"strait/internal/testutil"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -100,12 +101,12 @@ func resetE2EHarness(ctx context.Context) error {
 
 func mustClean(t *testing.T) {
 	t.Helper()
-	if err := testEnv.DB.CleanTables(context.Background()); err != nil {
-		t.Fatalf("clean tables: %v", err)
-	}
-	if err := resetE2EHarness(context.Background()); err != nil {
-		t.Fatalf("reset e2e harness: %v", err)
-	}
+	require.NoError(t, testEnv.
+		DB.CleanTables(
+		context.Background()))
+	require.NoError(t, resetE2EHarness(context.
+		Background()))
+
 }
 
 func newIsolatedQueue(t testing.TB) *queue.PgQueQueue {
@@ -127,24 +128,20 @@ func primeHTTPQueue(t testing.TB, q *queue.PgQueQueue) {
 	t.Helper()
 
 	run, err := q.Dequeue(context.Background())
-	if err != nil {
-		t.Fatalf("prime pgque http queue: %v", err)
-	}
-	if run != nil {
-		t.Fatalf("prime pgque http queue claimed unexpected run %s", run.ID)
-	}
+	require.NoError(t, err)
+	require.Nil(t, run)
+
 }
 
 func primeWorkerQueue(t testing.TB, q *queue.PgQueQueue, refs []domain.WorkerQueueRef) {
 	t.Helper()
 
 	claimed, err := q.DequeueNForWorkerQueues(context.Background(), 1, refs)
-	if err != nil {
-		t.Fatalf("prime pgque worker queue: %v", err)
-	}
-	if len(claimed) != 0 {
-		t.Fatalf("prime pgque worker queue claimed %d unexpected runs", len(claimed))
-	}
+	require.NoError(t, err)
+	require.Len(t, claimed,
+
+		0)
+
 }
 
 func dequeueRunEventually(t testing.TB, q *queue.PgQueQueue) *domain.JobRun {
@@ -153,15 +150,14 @@ func dequeueRunEventually(t testing.TB, q *queue.PgQueQueue) *domain.JobRun {
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		run, err := q.Dequeue(context.Background())
-		if err != nil {
-			t.Fatalf("dequeue: %v", err)
-		}
+		require.NoError(t, err)
+
 		if run != nil {
 			return run
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("expected dequeued run")
-		}
+		require.False(t, time.
+			Now().After(deadline))
+
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -173,9 +169,8 @@ func dequeueRunsEventually(t testing.TB, q *queue.PgQueQueue, want int) []domain
 	runs := make([]domain.JobRun, 0, want)
 	for len(runs) < want {
 		batch, err := q.DequeueN(context.Background(), want-len(runs))
-		if err != nil {
-			t.Fatalf("dequeue runs: %v", err)
-		}
+		require.NoError(t, err)
+
 		if len(batch) > 0 {
 			runs = append(runs, batch...)
 			continue
@@ -195,18 +190,17 @@ func dequeueWorkerRunsEventually(t testing.TB, q *queue.PgQueQueue, want int, re
 	seen := make(map[string]domain.JobRun, want)
 	for len(seen) < want {
 		claimed, err := q.DequeueNForWorkerQueues(context.Background(), want-len(seen), refs)
-		if err != nil {
-			t.Fatalf("DequeueNForWorkerQueues: %v", err)
-		}
+		require.NoError(t, err)
+
 		for _, run := range claimed {
 			seen[run.ID] = run
 		}
 		if len(seen) >= want {
 			break
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("DequeueNForWorkerQueues returned %d unique runs, want %d", len(seen), want)
-		}
+		require.False(t, time.
+			Now().After(deadline))
+
 		time.Sleep(20 * time.Millisecond)
 	}
 
@@ -257,9 +251,10 @@ func doSDKRequest(t *testing.T, method, path, token, body string) *httptest.Resp
 func mustDecodeObject(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var resp map[string]any
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&resp))
+
 	return resp
 }
 
@@ -268,45 +263,42 @@ func mustDecodeList(t *testing.T, w *httptest.ResponseRecorder) []map[string]any
 	var envelope struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&envelope))
+
 	return envelope.Data
 }
 
 func asString(t *testing.T, m map[string]any, key string) string {
 	t.Helper()
 	v, ok := m[key].(string)
-	if !ok {
-		t.Fatalf("%s is not a string: %T", key, m[key])
-	}
+	require.True(t, ok)
+
 	return v
 }
 
 func asBool(t *testing.T, m map[string]any, key string) bool {
 	t.Helper()
 	v, ok := m[key].(bool)
-	if !ok {
-		t.Fatalf("%s is not a bool: %T", key, m[key])
-	}
+	require.True(t, ok)
+
 	return v
 }
 
 func asInt(t *testing.T, m map[string]any, key string) int {
 	t.Helper()
 	v, ok := m[key].(float64)
-	if !ok {
-		t.Fatalf("%s is not a number: %T", key, m[key])
-	}
+	require.True(t, ok)
+
 	return int(v)
 }
 
 func asObject(t *testing.T, m map[string]any, key string) map[string]any {
 	t.Helper()
 	v, ok := m[key].(map[string]any)
-	if !ok {
-		t.Fatalf("%s is not an object: %T", key, m[key])
-	}
+	require.True(t, ok)
+
 	return v
 }
 
@@ -319,9 +311,11 @@ func createJob(t *testing.T, projectID, name, slug string) map[string]any {
 	body := fmt.Sprintf(`{"project_id":"%s","name":"%s","slug":"%s","description":"%s description","cron":"*/5 * * * *","payload_schema":{"type":"object"},"endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"run_ttl_secs":600}`,
 		projectID, name, slug, name, slug)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -333,9 +327,13 @@ func triggerJob(t *testing.T, jobID, body string, idempotencyKey string) map[str
 	}
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
-	if w.Code != http.StatusCreated && w.Code != http.StatusOK {
-		t.Fatalf("trigger status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code !=
+		http.
+			StatusCreated &&
+		w.Code !=
+			http.StatusOK,
+	)
+
 	return mustDecodeObject(t, w)
 }
 
@@ -344,16 +342,17 @@ func TestE2E_CreateJob(t *testing.T) {
 
 	projectID := "proj-create-" + newID()
 	resp := createJob(t, projectID, "create-job", "create-job-"+newID())
+	require.NotEqual(t, "",
 
-	if asString(t, resp, "id") == "" {
-		t.Fatal("expected non-empty id")
-	}
-	if asInt(t, resp, "version") != 1 {
-		t.Fatalf("expected version 1, got %d", asInt(t, resp, "version"))
-	}
-	if !asBool(t, resp, "enabled") {
-		t.Fatal("expected enabled=true")
-	}
+		asString(t, resp,
+			"id"))
+	require.EqualValues(t, 1, asInt(t, resp,
+		"version",
+	))
+	require.True(t, asBool(t, resp,
+		"enabled"),
+	)
+
 }
 
 func TestE2E_GetJob(t *testing.T) {
@@ -365,23 +364,28 @@ func TestE2E_GetJob(t *testing.T) {
 	jobID := asString(t, created, "id")
 
 	w := doRequest(t, http.MethodGet, "/v1/jobs/"+jobID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	resp := mustDecodeObject(t, w)
-	if asString(t, resp, "id") != jobID {
-		t.Fatalf("expected id %s, got %s", jobID, asString(t, resp, "id"))
-	}
-	if asString(t, resp, "project_id") != projectID {
-		t.Fatalf("expected project_id %s", projectID)
-	}
-	if asString(t, resp, "slug") != slug {
-		t.Fatalf("expected slug %s", slug)
-	}
-	if asString(t, resp, "endpoint_url") == "" {
-		t.Fatal("expected endpoint_url")
-	}
+	require.Equal(t, jobID,
+
+		asString(t, resp,
+			"id"))
+	require.Equal(t, projectID,
+
+		asString(t, resp,
+			"project_id"),
+	)
+	require.Equal(t, slug,
+
+		asString(t, resp, "slug"))
+	require.NotEqual(t, "",
+
+		asString(t, resp,
+			"endpoint_url"))
+
 }
 
 func TestE2E_ListJobs(t *testing.T) {
@@ -393,14 +397,15 @@ func TestE2E_ListJobs(t *testing.T) {
 	createJob(t, projectID, "job-three", "job-three-"+newID())
 
 	w := doRequest(t, http.MethodGet, "/v1/jobs/", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list jobs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	resp := mustDecodeList(t, w)
-	if len(resp) != 3 {
-		t.Fatalf("expected 3 jobs, got %d", len(resp))
-	}
+	require.Len(t, resp,
+		3,
+	)
+
 }
 
 func TestE2E_ListJobsByTag(t *testing.T) {
@@ -414,26 +419,33 @@ func TestE2E_ListJobsByTag(t *testing.T) {
 	bodyOps := fmt.Sprintf(`{"project_id":"%s","name":"Job Ops","slug":"%s","endpoint_url":"https://example.com/%s","max_attempts":3,"timeout_secs":60,"tags":{"team":"ops"}}`, projectID, teamOpsSlug, teamOpsSlug)
 
 	w := doRequest(t, http.MethodPost, "/v1/jobs/", bodyCore)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create tagged core job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	w = doRequest(t, http.MethodPost, "/v1/jobs/", bodyOps)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create tagged ops job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	w = doRequest(t, http.MethodGet, "/v1/jobs/?tag_key=team&tag_value=core", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list jobs by tag status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	resp := mustDecodeList(t, w)
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 tagged job, got %d", len(resp))
-	}
+	require.Len(t, resp,
+		1,
+	)
+
 	tags := asObject(t, resp[0], "tags")
-	if asString(t, tags, "team") != "core" {
-		t.Fatalf("expected team tag core, got %s", asString(t, tags, "team"))
-	}
+	require.Equal(t, "core",
+
+		asString(t, tags,
+			"team"))
+
 }
 
 func TestE2E_UpdateJob(t *testing.T) {
@@ -444,17 +456,19 @@ func TestE2E_UpdateJob(t *testing.T) {
 	jobID := asString(t, created, "id")
 
 	w := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"New Name"}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("update job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	resp := mustDecodeObject(t, w)
-	if asString(t, resp, "name") != "New Name" {
-		t.Fatalf("expected updated name, got %s", asString(t, resp, "name"))
-	}
-	if asInt(t, resp, "version") != 2 {
-		t.Fatalf("expected version 2, got %d", asInt(t, resp, "version"))
-	}
+	require.Equal(t, "New Name",
+
+		asString(t, resp,
+			"name"))
+	require.EqualValues(t, 2, asInt(t, resp,
+		"version",
+	))
+
 }
 
 func TestE2E_DeleteJob(t *testing.T) {
@@ -465,14 +479,17 @@ func TestE2E_DeleteJob(t *testing.T) {
 	jobID := asString(t, created, "id")
 
 	w := doRequest(t, http.MethodDelete, "/v1/jobs/"+jobID+"/", "")
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("delete job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNoContent,
+		w.Code,
+	)
 
 	w = doRequest(t, http.MethodGet, "/v1/jobs/"+jobID+"/", "")
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("get deleted job status = %d, want 404, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		w.Code,
+	)
+
 }
 
 func TestE2E_TriggerJob(t *testing.T) {
@@ -483,14 +500,21 @@ func TestE2E_TriggerJob(t *testing.T) {
 	jobID := asString(t, job, "id")
 
 	resp := triggerJob(t, jobID, `{"payload":{"k":"v"}}`, "")
-	if asString(t, resp, "id") == "" {
-		t.Fatal("expected run id")
-	}
-	if asString(t, resp, "status") != string(domain.StatusQueued) {
-		t.Fatalf("expected queued status, got %s", asString(t, resp, "status"))
-	}
+	require.NotEqual(t, "",
+
+		asString(t, resp,
+			"id"))
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), asString(t, resp,
+		"status",
+	),
+	)
+
 	if _, ok := resp["run_token"]; ok {
-		t.Fatal("trigger response must not expose SDK run_token")
+		require.Fail(t,
+
+			"trigger response must not expose SDK run_token")
 	}
 }
 
@@ -505,27 +529,31 @@ func TestE2E_TriggerAndVerifyRun(t *testing.T) {
 	runID := asString(t, triggerResp, "id")
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	run := mustDecodeObject(t, w)
-	if asString(t, run, "status") != string(domain.StatusQueued) {
-		t.Fatalf("expected queued status, got %s", asString(t, run, "status"))
-	}
-	if asString(t, run, "job_id") != jobID {
-		t.Fatalf("expected job_id %s", jobID)
-	}
-	if asString(t, run, "project_id") != projectID {
-		t.Fatalf("expected project_id %s", projectID)
-	}
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), asString(t, run,
+		"status",
+	))
+	require.Equal(t, jobID,
+
+		asString(t, run, "job_id"))
+	require.Equal(t, projectID,
+
+		asString(t, run,
+			"project_id"))
+
 	payload := asObject(t, run, "payload")
-	if int(payload["answer"].(float64)) != 42 {
-		t.Fatalf("expected payload answer=42, got %v", payload["answer"])
-	}
-	if asInt(t, run, "job_version") != 1 {
-		t.Fatalf("expected job_version=1, got %d", asInt(t, run, "job_version"))
-	}
+	require.EqualValues(t, 42,
+		int(payload["answer"].(float64)))
+	require.EqualValues(t, 1, asInt(t, run,
+		"job_version",
+	))
+
 }
 
 func TestE2E_FullLifecycle(t *testing.T) {
@@ -537,34 +565,40 @@ func TestE2E_FullLifecycle(t *testing.T) {
 	runID := asString(t, triggerResp, "id")
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	run := mustDecodeObject(t, w)
-	if asString(t, run, "status") != string(domain.StatusQueued) {
-		t.Fatalf("expected queued status, got %s", asString(t, run, "status"))
-	}
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), asString(t, run,
+		"status",
+	))
 
 	w = doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs := mustDecodeList(t, w)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runs))
-	}
-	if asString(t, runs[0], "id") != runID {
-		t.Fatalf("expected run id %s in list", runID)
-	}
+	require.Len(t, runs,
+		1,
+	)
+	require.Equal(t, runID,
+
+		asString(t, runs[0], "id"))
 
 	w = doRequest(t, http.MethodGet, "/v1/stats", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("stats status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	stats := mustDecodeObject(t, w)
-	if asInt(t, stats, "queued") != 1 {
-		t.Fatalf("expected queued=1, got %d", asInt(t, stats, "queued"))
-	}
+	require.EqualValues(t, 1, asInt(t, stats,
+		"queued",
+	))
+
 }
 
 func TestE2E_IdempotentTrigger(t *testing.T) {
@@ -577,19 +611,22 @@ func TestE2E_IdempotentTrigger(t *testing.T) {
 
 	first := triggerJob(t, jobID, `{"payload":{"x":1}}`, idempotencyKey)
 	second := triggerJob(t, jobID, `{"payload":{"x":2}}`, idempotencyKey)
-
-	if asString(t, first, "id") != asString(t, second, "id") {
-		t.Fatalf("expected same run id, got %s and %s", asString(t, first, "id"), asString(t, second, "id"))
-	}
+	require.Equal(t, asString(t, second,
+		"id"),
+		asString(t, first,
+			"id",
+		))
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs := mustDecodeList(t, w)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run from idempotent trigger, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		1,
+	)
+
 }
 
 func TestE2E_DelayedRun(t *testing.T) {
@@ -602,24 +639,29 @@ func TestE2E_DelayedRun(t *testing.T) {
 	scheduledAt := time.Now().UTC().Add(30 * time.Minute).Round(time.Second)
 	body := fmt.Sprintf(`{"payload":{"kind":"delayed"},"scheduled_at":"%s"}`, scheduledAt.Format(time.RFC3339))
 	triggerResp := triggerJob(t, jobID, body, "")
-	if asString(t, triggerResp, "status") != string(domain.StatusDelayed) {
-		t.Fatalf("expected delayed status, got %s", asString(t, triggerResp, "status"))
-	}
+	require.Equal(t, string(domain.
+		StatusDelayed,
+	), asString(t,
+		triggerResp,
+		"status",
+	))
 
 	runID := asString(t, triggerResp, "id")
 	w := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get delayed run status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	run := mustDecodeObject(t, w)
 	gotScheduled := asString(t, run, "scheduled_at")
 	parsedScheduled, err := time.Parse(time.RFC3339, gotScheduled)
-	if err != nil {
-		t.Fatalf("parse scheduled_at: %v", err)
-	}
-	if parsedScheduled.Sub(scheduledAt) > time.Second || scheduledAt.Sub(parsedScheduled) > time.Second {
-		t.Fatalf("scheduled_at mismatch: got %s want %s", parsedScheduled.Format(time.RFC3339), scheduledAt.Format(time.RFC3339))
-	}
+	require.NoError(t, err)
+	require.False(t, parsedScheduled.
+		Sub(scheduledAt) > time.Second ||
+		scheduledAt.
+			Sub(parsedScheduled) > time.
+			Second)
+
 }
 
 func TestE2E_PriorityOrdering(t *testing.T) {
@@ -639,12 +681,14 @@ func TestE2E_PriorityOrdering(t *testing.T) {
 	_ = run5
 
 	dequeued := dequeueRunEventually(t, q)
-	if dequeued.Priority != 10 {
-		t.Fatalf("expected priority 10 first, got %d", dequeued.Priority)
-	}
-	if dequeued.ID != asString(t, run10, "id") {
-		t.Fatalf("expected run %s first, got %s", asString(t, run10, "id"), dequeued.ID)
-	}
+	require.EqualValues(t, 10,
+		dequeued.
+			Priority,
+	)
+	require.Equal(t, asString(t, run10,
+		"id"),
+		dequeued.ID)
+
 }
 
 func TestE2E_ListRunsByProject(t *testing.T) {
@@ -657,13 +701,15 @@ func TestE2E_ListRunsByProject(t *testing.T) {
 	triggerJob(t, asString(t, job2, "id"), `{"payload":{"j":2}}`, "")
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs := mustDecodeList(t, w)
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		2,
+	)
+
 }
 
 func TestE2E_ListRunsFilterByStatus(t *testing.T) {
@@ -681,21 +727,22 @@ func TestE2E_ListRunsFilterByStatus(t *testing.T) {
 		"finished_at": time.Now().UTC(),
 		"error":       "canceled in e2e",
 	})
-	if err != nil {
-		t.Fatalf("update run status: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/?status="+string(domain.StatusCanceled), "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs := mustDecodeList(t, w)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 canceled run, got %d", len(runs))
-	}
-	if asString(t, runs[0], "id") != cancelRunID {
-		t.Fatalf("expected canceled run id %s, got %s", cancelRunID, asString(t, runs[0], "id"))
-	}
+	require.Len(t, runs,
+		1,
+	)
+	require.Equal(t, cancelRunID,
+
+		asString(t,
+			runs[0], "id"))
+
 }
 
 func TestE2E_ReplayRun(t *testing.T) {
@@ -711,52 +758,57 @@ func TestE2E_ReplayRun(t *testing.T) {
 	err := testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("update run status to dequeued: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
 		"started_at": time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("update run status to executing: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = testStore.UpdateRunStatus(context.Background(), originalRunID, domain.StatusExecuting, domain.StatusFailed, map[string]any{
 		"finished_at": time.Now().UTC(),
 		"error":       "forced failure for replay",
 	})
-	if err != nil {
-		t.Fatalf("update run status to failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	w := doRequest(t, http.MethodPost, "/v1/runs/"+originalRunID+"/replay", "")
-	if w.Code != http.StatusCreated {
-		t.Fatalf("replay status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
+
 	replay := mustDecodeObject(t, w)
 
 	replayRunID := asString(t, replay, "id")
-	if replayRunID == "" || replayRunID == originalRunID {
-		t.Fatalf("expected distinct replay run id, got %q", replayRunID)
-	}
-	if asString(t, replay, "status") != string(domain.StatusQueued) {
-		t.Fatalf("expected replay status queued, got %s", asString(t, replay, "status"))
-	}
+	require.False(t, replayRunID ==
+		"" || replayRunID ==
+		originalRunID,
+	)
+	require.Equal(t, string(domain.
+		StatusQueued,
+	), asString(t, replay,
+
+		"status",
+	))
+
 	// Replays do NOT copy the original idempotency key to avoid conflicts
 	// with active runs sharing the same key.
 	if replayKey, ok := replay["idempotency_key"].(string); ok && replayKey != "" {
-		t.Fatalf("expected replay idempotency key to be empty, got %q", replayKey)
+		require.Failf(t, "test failure",
+
+			"expected replay idempotency key to be empty, got %q", replayKey)
 	}
 
 	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d, body = %s", lw.Code, lw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	runs := mustDecodeList(t, lw)
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 runs after replay, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		2,
+	)
+
 }
 
 func TestE2E_ListRunsPagination(t *testing.T) {
@@ -771,27 +823,31 @@ func TestE2E_ListRunsPagination(t *testing.T) {
 	}
 
 	w := doRequest(t, http.MethodGet, "/v1/runs/?limit=2", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list runs page1 status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	page1 := mustDecodeList(t, w)
-	if len(page1) != 2 {
-		t.Fatalf("expected 2 runs in page1, got %d", len(page1))
-	}
+	require.Len(t, page1,
+
+		2)
 
 	cursor := asString(t, page1[1], "created_at")
 	w = doRequest(t, http.MethodGet, "/v1/runs/?limit=2&cursor="+url.QueryEscape(cursor), "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list runs page2 status = %d, body = %s", w.Code, w.Body.String())
-	}
-	page2 := mustDecodeList(t, w)
-	if len(page2) != 2 {
-		t.Fatalf("expected 2 runs in page2, got %d", len(page2))
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if asString(t, page1[0], "id") == asString(t, page2[0], "id") {
-		t.Fatal("expected different runs across pages")
-	}
+	page2 := mustDecodeList(t, w)
+	require.Len(t, page2,
+
+		2)
+	require.NotEqual(t, asString(t,
+		page2[0],
+		"id"), asString(t,
+		page1[0], "id",
+	))
+
 }
 
 func TestE2E_RunEvents(t *testing.T) {
@@ -805,21 +861,24 @@ func TestE2E_RunEvents(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", runToken, `{"type":"log","level":"info","message":"Processing started","data":{"step":1}}`)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("sdk log status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	w = doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/events", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("list run events status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	events := mustDecodeList(t, w)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
-	}
-	if asString(t, events[0], "message") != "Processing started" {
-		t.Fatalf("expected event message, got %s", asString(t, events[0], "message"))
-	}
+	require.Len(t, events,
+
+		1)
+	require.Equal(t, "Processing started",
+
+		asString(t, events[0], "message"))
+
 }
 
 func TestE2E_RunAnnotations(t *testing.T) {
@@ -833,26 +892,28 @@ func TestE2E_RunAnnotations(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/annotate", runToken, `{"annotations":{"env":"prod","region":"eu"}}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("sdk annotate status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	w = doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	run := mustDecodeObject(t, w)
 	metadataRaw, ok := run["metadata"]
-	if !ok {
-		t.Fatal("expected metadata field in run response")
-	}
+	require.True(t, ok)
+
 	metadata, ok := metadataRaw.(map[string]any)
-	if !ok {
-		t.Fatalf("metadata type = %T, want map[string]any", metadataRaw)
-	}
-	if asString(t, metadata, "env") != "prod" || asString(t, metadata, "region") != "eu" {
-		t.Fatalf("metadata = %+v, want env=prod region=eu", metadata)
-	}
+	require.True(t, ok)
+	require.False(t, asString(t, metadata,
+		"env",
+	) != "prod" ||
+		asString(t, metadata,
+			"region",
+		) != "eu")
+
 }
 
 func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
@@ -873,35 +934,38 @@ func TestE2E_ListRunsFilterByMetadata(t *testing.T) {
 	activateE2ERun(t, stageRunID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+prodRunID+"/annotate", prodRunToken, `{"annotations":{"env":"prod","region":"eu"}}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("sdk annotate prod status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	w = doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+stageRunID+"/annotate", stageRunToken, `{"annotations":{"env":"stage"}}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("sdk annotate stage status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	w = doRequest(t, http.MethodGet, "/v1/runs/?metadata_key=env&metadata_value=prod", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list filtered runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs := mustDecodeList(t, w)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 prod run, got %d", len(runs))
-	}
-	if asString(t, runs[0], "id") != prodRunID {
-		t.Fatalf("expected run id %s, got %s", prodRunID, asString(t, runs[0], "id"))
-	}
+	require.Len(t, runs,
+		1,
+	)
+	require.Equal(t, prodRunID,
+
+		asString(t, runs[0], "id"))
 
 	w = doRequest(t, http.MethodGet, "/v1/runs/?metadata_key=env", "", projectID)
-	if w.Code != http.StatusOK {
-		t.Fatalf("list metadata key-only runs status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	runs = mustDecodeList(t, w)
-	if len(runs) != 2 {
-		t.Fatalf("expected 2 runs with env metadata key, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		2,
+	)
+
 }
 
 func TestE2E_Health(t *testing.T) {
@@ -910,14 +974,15 @@ func TestE2E_Health(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("health status = %d, body = %s", w.Code, w.Body.String())
-	}
 	resp := mustDecodeObject(t, w)
-	if asString(t, resp, "status") != "ok" {
-		t.Fatalf("expected status=ok, got %s", asString(t, resp, "status"))
-	}
+	require.Equal(t, "ok",
+
+		asString(t, resp, "status"))
+
 }
 
 func TestE2E_HealthReady(t *testing.T) {
@@ -926,10 +991,10 @@ func TestE2E_HealthReady(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("health ready status = %d, body = %s", w.Code, w.Body.String())
-	}
 }
 
 func TestE2E_Stats(t *testing.T) {
@@ -944,19 +1009,21 @@ func TestE2E_Stats(t *testing.T) {
 	triggerJob(t, jobID, fmt.Sprintf(`{"payload":{"kind":"delayed"},"scheduled_at":"%s"}`, scheduledAt), "")
 
 	w := doRequest(t, http.MethodGet, "/v1/stats", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("stats status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	stats := mustDecodeObject(t, w)
-	if asInt(t, stats, "queued") != 1 {
-		t.Fatalf("expected queued=1, got %d", asInt(t, stats, "queued"))
-	}
-	if asInt(t, stats, "delayed") != 1 {
-		t.Fatalf("expected delayed=1, got %d", asInt(t, stats, "delayed"))
-	}
-	if asInt(t, stats, "executing") != 0 {
-		t.Fatalf("expected executing=0, got %d", asInt(t, stats, "executing"))
-	}
+	require.EqualValues(t, 1, asInt(t, stats,
+		"queued",
+	))
+	require.EqualValues(t, 1, asInt(t, stats,
+		"delayed",
+	))
+	require.EqualValues(t, 0, asInt(t, stats,
+		"executing",
+	))
+
 }
 
 func TestE2E_AuthRequired(t *testing.T) {
@@ -965,10 +1032,11 @@ func TestE2E_AuthRequired(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestE2E_AuthInvalidSecret(t *testing.T) {
@@ -979,10 +1047,11 @@ func TestE2E_AuthInvalidSecret(t *testing.T) {
 	req.Header.Set("X-Internal-Secret", "wrong-secret")
 	req.Header.Set("X-Project-Id", "proj")
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusUnauthorized,
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", w.Code)
-	}
+		w.Code)
+
 }
 
 func TestE2E_APIKeyLifecycle(t *testing.T) {
@@ -991,9 +1060,10 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	projectID := "proj-api-key-" + newID()
 	createBody := fmt.Sprintf(`{"project_id":"%s","name":"e2e-key","scopes":["jobs:read","stats:read"],"expires_in_days":30}`, projectID)
 	w := doRequest(t, http.MethodPost, "/v1/api-keys/", createBody)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	created := mustDecodeObject(t, w)
 	apiKeyID := asString(t, created, "id")
@@ -1003,22 +1073,26 @@ func TestE2E_APIKeyLifecycle(t *testing.T) {
 	statsReq.Header.Set("Authorization", "Bearer "+rawKey)
 	statsW := httptest.NewRecorder()
 	testServer.ServeHTTP(statsW, statsReq)
-	if statsW.Code != http.StatusOK {
-		t.Fatalf("stats with api key status = %d, body = %s", statsW.Code, statsW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		statsW.Code,
+	)
 
 	revokeW := doRequest(t, http.MethodDelete, "/v1/api-keys/"+apiKeyID, "")
-	if revokeW.Code != http.StatusOK {
-		t.Fatalf("revoke api key status = %d, body = %s", revokeW.Code, revokeW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		revokeW.Code,
+	)
 
 	revokedReq := httptest.NewRequest(http.MethodGet, "/v1/stats", nil)
 	revokedReq.Header.Set("Authorization", "Bearer "+rawKey)
 	revokedW := httptest.NewRecorder()
 	testServer.ServeHTTP(revokedW, revokedReq)
-	if revokedW.Code != http.StatusUnauthorized {
-		t.Fatalf("expected unauthorized for revoked key, got %d: %s", revokedW.Code, revokedW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusUnauthorized,
+
+		revokedW.Code)
+
 }
 
 // Test hardening: E2E tests for new features
@@ -1034,9 +1108,11 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	// Create API key with ONLY jobs:read (no write, no trigger).
 	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"read-only","scopes":["jobs:read"],"expires_in_days":30}`, projectID)
 	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
-	if kw.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", kw.Code, kw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		kw.Code,
+	)
+
 	keyResp := mustDecodeObject(t, kw)
 	rawKey := asString(t, keyResp, "key")
 
@@ -1045,9 +1121,9 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	getReq.Header.Set("Authorization", "Bearer "+rawKey)
 	getW := httptest.NewRecorder()
 	testServer.ServeHTTP(getW, getReq)
-	if getW.Code != http.StatusOK {
-		t.Fatalf("GET job with jobs:read key: status = %d, body = %s", getW.Code, getW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		getW.Code)
 
 	// PATCH job with read-only key — should be 403.
 	patchReq := httptest.NewRequest(http.MethodPatch, "/v1/jobs/"+jobID+"/", strings.NewReader(`{"name":"Hacked"}`))
@@ -1055,9 +1131,10 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	patchReq.Header.Set("Content-Type", "application/json")
 	patchW := httptest.NewRecorder()
 	testServer.ServeHTTP(patchW, patchReq)
-	if patchW.Code != http.StatusForbidden {
-		t.Fatalf("PATCH job with jobs:read key: status = %d, want 403, body = %s", patchW.Code, patchW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		patchW.
+			Code)
 
 	// POST trigger with read-only key — should be 403.
 	triggerReq := httptest.NewRequest(http.MethodPost, "/v1/jobs/"+jobID+"/trigger", strings.NewReader(`{}`))
@@ -1065,9 +1142,11 @@ func TestE2E_ScopeEnforcement(t *testing.T) {
 	triggerReq.Header.Set("Content-Type", "application/json")
 	triggerW := httptest.NewRecorder()
 	testServer.ServeHTTP(triggerW, triggerReq)
-	if triggerW.Code != http.StatusForbidden {
-		t.Fatalf("trigger job with jobs:read key: status = %d, want 403, body = %s", triggerW.Code, triggerW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusForbidden,
+		triggerW.
+			Code)
+
 }
 
 func TestE2E_EmptyScopesRejected(t *testing.T) {
@@ -1076,9 +1155,11 @@ func TestE2E_EmptyScopesRejected(t *testing.T) {
 	projectID := "proj-empty-scopes-" + newID()
 	keyBody := fmt.Sprintf(`{"project_id":"%s","name":"full-access","scopes":[]}`, projectID)
 	kw := doRequest(t, http.MethodPost, "/v1/api-keys/", keyBody)
-	if kw.Code != http.StatusBadRequest {
-		t.Fatalf("empty scopes create status = %d, want 400; body = %s", kw.Code, kw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusBadRequest,
+		kw.
+			Code)
+
 }
 
 func TestE2E_JobVersionID(t *testing.T) {
@@ -1088,27 +1169,27 @@ func TestE2E_JobVersionID(t *testing.T) {
 	created := createJob(t, projectID, "VID Job", "vid-job-"+newID())
 
 	vid1 := asString(t, created, "version_id")
-	if vid1 == "" {
-		t.Fatal("expected version_id on create")
-	}
-	if !strings.HasPrefix(vid1, "ver_") {
-		t.Fatalf("version_id = %q, want prefix 'ver_'", vid1)
-	}
+	require.NotEqual(t, "",
+
+		vid1)
+	require.True(t, strings.HasPrefix(vid1, "ver_"))
 
 	jobID := asString(t, created, "id")
 	// Update job — should get new version_id.
 	uw := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"VID Job Updated"}`)
-	if uw.Code != http.StatusOK {
-		t.Fatalf("update job status = %d, body = %s", uw.Code, uw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		uw.Code)
+
 	updated := mustDecodeObject(t, uw)
 	vid2 := asString(t, updated, "version_id")
-	if vid2 == "" {
-		t.Fatal("expected version_id on update")
-	}
-	if vid1 == vid2 {
-		t.Fatalf("version_id should change on update: %q == %q", vid1, vid2)
-	}
+	require.NotEqual(t, "",
+
+		vid2)
+	require.NotEqual(t, vid2,
+
+		vid1)
+
 }
 
 func TestE2E_VersionPolicyDefault(t *testing.T) {
@@ -1118,9 +1199,10 @@ func TestE2E_VersionPolicyDefault(t *testing.T) {
 	created := createJob(t, projectID, "VPol Job", "vpol-job-"+newID())
 
 	policy := asString(t, created, "version_policy")
-	if policy != "pin" {
-		t.Fatalf("default version_policy = %q, want 'pin'", policy)
-	}
+	require.Equal(t, "pin",
+
+		policy)
+
 }
 
 func TestE2E_UpdateJobVersionIncrement(t *testing.T) {
@@ -1129,30 +1211,32 @@ func TestE2E_UpdateJobVersionIncrement(t *testing.T) {
 	projectID := "proj-ver-inc-e2e-" + newID()
 	created := createJob(t, projectID, "Inc Job", "inc-job-"+newID())
 	jobID := asString(t, created, "id")
-
-	if asInt(t, created, "version") != 1 {
-		t.Fatalf("initial version = %d, want 1", asInt(t, created, "version"))
-	}
+	require.EqualValues(t, 1, asInt(t, created,
+		"version",
+	))
 
 	// First update.
 	uw1 := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"Inc Job v2"}`)
-	if uw1.Code != http.StatusOK {
-		t.Fatalf("update 1 status = %d", uw1.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		uw1.Code)
+
 	r1 := mustDecodeObject(t, uw1)
-	if asInt(t, r1, "version") != 2 {
-		t.Fatalf("version after 1st update = %d, want 2", asInt(t, r1, "version"))
-	}
+	require.EqualValues(t, 2, asInt(t, r1,
+		"version",
+	))
 
 	// Second update.
 	uw2 := doRequest(t, http.MethodPatch, "/v1/jobs/"+jobID+"/", `{"name":"Inc Job v3"}`)
-	if uw2.Code != http.StatusOK {
-		t.Fatalf("update 2 status = %d", uw2.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		uw2.Code)
+
 	r2 := mustDecodeObject(t, uw2)
-	if asInt(t, r2, "version") != 3 {
-		t.Fatalf("version after 2nd update = %d, want 3", asInt(t, r2, "version"))
-	}
+	require.EqualValues(t, 3, asInt(t, r2,
+		"version",
+	))
+
 }
 
 func TestE2E_JobCreatedBy(t *testing.T) {
@@ -1171,15 +1255,18 @@ func TestE2E_JobCreatedBy(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("create job status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	resp := mustDecodeObject(t, w)
 	createdBy := asString(t, resp, "created_by")
-	if createdBy != "user_leo_123" {
-		t.Fatalf("created_by = %q, want %q", createdBy, "user_leo_123")
-	}
+	require.Equal(t, "user_leo_123",
+
+		createdBy,
+	)
+
 }
 
 func TestE2E_RolesLifecycle(t *testing.T) {
@@ -1188,20 +1275,23 @@ func TestE2E_RolesLifecycle(t *testing.T) {
 	// Create role.
 	createBody := `{"name":"e2e-deployer","description":"Can deploy things","permissions":["jobs:write","jobs:trigger","jobs:read"]}`
 	cw := doRequest(t, http.MethodPost, "/v1/roles", createBody)
-	if cw.Code != http.StatusCreated {
-		t.Fatalf("create role status = %d, body = %s", cw.Code, cw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		cw.Code,
+	)
+
 	created := mustDecodeObject(t, cw)
 	roleID := asString(t, created, "id")
-	if roleID == "" {
-		t.Fatal("expected role ID")
-	}
+	require.NotEqual(t, "",
+
+		roleID)
 
 	// List roles.
 	lw := doRequest(t, http.MethodGet, "/v1/roles", "")
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list roles status = %d", lw.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	roles := mustDecodeList(t, lw)
 	found := false
 	for _, r := range roles {
@@ -1210,56 +1300,61 @@ func TestE2E_RolesLifecycle(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Fatalf("created role %q not found in list", roleID)
-	}
+	require.True(t, found)
 
 	// Get role.
 	gw := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
-	if gw.Code != http.StatusOK {
-		t.Fatalf("get role status = %d, body = %s", gw.Code, gw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		gw.Code)
+
 	got := mustDecodeObject(t, gw)
-	if asString(t, got, "name") != "e2e-deployer" {
-		t.Fatalf("name = %q, want e2e-deployer", asString(t, got, "name"))
-	}
+	require.Equal(t, "e2e-deployer",
+
+		asString(
+			t, got, "name"))
 
 	// Update role.
 	updateBody := `{"name":"e2e-deployer-v2","description":"Updated","permissions":["jobs:write","jobs:trigger","jobs:read","runs:read"]}`
 	uw := doRequest(t, http.MethodPatch, "/v1/roles/"+roleID, updateBody)
-	if uw.Code != http.StatusOK {
-		t.Fatalf("update role status = %d, body = %s", uw.Code, uw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		uw.Code)
 
 	// Assign member.
 	assignBody := fmt.Sprintf(`{"user_id":"e2e-user-1","role_id":"%s"}`, roleID)
 	aw := doRequest(t, http.MethodPost, "/v1/members", assignBody)
-	if aw.Code != http.StatusCreated {
-		t.Fatalf("assign member status = %d, body = %s", aw.Code, aw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		aw.Code,
+	)
 
 	// List members.
 	mw := doRequest(t, http.MethodGet, "/v1/members", "")
-	if mw.Code != http.StatusOK {
-		t.Fatalf("list members status = %d", mw.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		mw.Code)
 
 	// Remove member.
 	rw := doRequest(t, http.MethodDelete, "/v1/members/e2e-user-1", "")
-	if rw.Code != http.StatusNoContent {
-		t.Fatalf("remove member status = %d, body = %s", rw.Code, rw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNoContent,
+		rw.
+			Code)
 
 	// Delete role.
 	dw := doRequest(t, http.MethodDelete, "/v1/roles/"+roleID, "")
-	if dw.Code != http.StatusNoContent {
-		t.Fatalf("delete role status = %d, body = %s", dw.Code, dw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusNoContent,
+		dw.
+			Code)
 
 	gw2 := doRequest(t, http.MethodGet, "/v1/roles/"+roleID, "")
-	if gw2.Code != http.StatusNotFound {
-		t.Fatalf("get deleted role status = %d, want 404", gw2.Code)
-	}
+	require.Equal(t, http.
+		StatusNotFound,
+		gw2.
+			Code)
+
 }
 
 func TestE2E_TagFilteringWorkflows(t *testing.T) {
@@ -1271,25 +1366,29 @@ func TestE2E_TagFilteringWorkflows(t *testing.T) {
 
 	body1 := fmt.Sprintf(`{"project_id":"%s","name":"WF Tagged 1","slug":"%s","enabled":true,"tags":{"team":"core","env":"prod"}}`, projectID, slug1)
 	w1 := doRequest(t, http.MethodPost, "/v1/workflows/", body1)
-	if w1.Code != http.StatusCreated {
-		t.Fatalf("create wf1 status = %d, body = %s", w1.Code, w1.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w1.Code,
+	)
 
 	body2 := fmt.Sprintf(`{"project_id":"%s","name":"WF Tagged 2","slug":"%s","enabled":true,"tags":{"team":"ops"}}`, projectID, slug2)
 	w2 := doRequest(t, http.MethodPost, "/v1/workflows/", body2)
-	if w2.Code != http.StatusCreated {
-		t.Fatalf("create wf2 status = %d, body = %s", w2.Code, w2.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w2.Code,
+	)
 
 	// Filter by team=core.
 	fw := doRequest(t, http.MethodGet, "/v1/workflows/?tag_key=team&tag_value=core", "", projectID)
-	if fw.Code != http.StatusOK {
-		t.Fatalf("filter workflows status = %d, body = %s", fw.Code, fw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		fw.Code)
+
 	filtered := mustDecodeList(t, fw)
-	if len(filtered) != 1 {
-		t.Fatalf("expected 1 filtered workflow, got %d", len(filtered))
-	}
+	require.Len(t, filtered,
+
+		1)
+
 }
 
 func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
@@ -1302,20 +1401,23 @@ func TestE2E_IdempotencyKeyHitReturnsOriginal(t *testing.T) {
 
 	first := triggerJob(t, jobID, `{"payload":{"x":1}}`, key)
 	second := triggerJob(t, jobID, `{"payload":{"x":2}}`, key)
-
-	if asString(t, first, "id") != asString(t, second, "id") {
-		t.Fatalf("expected same run ID, got %s vs %s", asString(t, first, "id"), asString(t, second, "id"))
-	}
+	require.Equal(t, asString(t, second,
+		"id"),
+		asString(t, first,
+			"id",
+		))
 
 	// Only 1 run should exist.
 	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d", lw.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	runs := mustDecodeList(t, lw)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run, got %d", len(runs))
-	}
+	require.Len(t, runs,
+		1,
+	)
+
 }
 
 func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
@@ -1328,10 +1430,12 @@ func TestE2E_IdempotencyKeyPerJobScoping(t *testing.T) {
 
 	runA := triggerJob(t, asString(t, jobA, "id"), `{"payload":{}}`, key)
 	runB := triggerJob(t, asString(t, jobB, "id"), `{"payload":{}}`, key)
+	require.NotEqual(t, asString(t,
+		runB, "id",
+	), asString(t, runA,
+		"id",
+	))
 
-	if asString(t, runA, "id") == asString(t, runB, "id") {
-		t.Fatalf("expected different run IDs for different jobs, both got %s", asString(t, runA, "id"))
-	}
 }
 
 func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
@@ -1347,38 +1451,52 @@ func TestE2E_IdempotencyKeyReusableAfterTerminal(t *testing.T) {
 
 	first := triggerJob(t, jobID, `{"payload":{}}`, key)
 	firstID := asString(t, first, "id")
+	require.NoError(t, testStore.
+		UpdateRunStatus(context.Background(),
+			firstID,
+			domain.StatusQueued,
+			domain.StatusDequeued,
+
+			map[string]any{"started_at": time.
+				Now().UTC()}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(context.Background(),
+			firstID,
+			domain.StatusDequeued,
+			domain.
+				StatusExecuting,
+
+			map[string]any{}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(context.Background(),
+			firstID,
+			domain.StatusExecuting,
+			domain.
+				StatusCompleted,
+
+			map[string]any{"finished_at": time.Now().UTC()}))
 
 	// Transition to terminal.
-	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusQueued, domain.StatusDequeued, map[string]any{
-		"started_at": time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("dequeued: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{}); err != nil {
-		t.Fatalf("executing: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(context.Background(), firstID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("completed: %v", err)
-	}
 
 	// Same key should return the existing completed run (idempotency hit).
 	second := triggerJob(t, jobID, `{"payload":{}}`, key)
 	secondID := asString(t, second, "id")
-	if secondID != firstID {
-		t.Fatalf("expected idempotency hit returning same run %s, got new run %s", firstID, secondID)
-	}
+	require.Equal(t, firstID,
+
+		secondID,
+	)
 
 	// Verify only 1 run exists (no duplicate created).
 	lw := doRequest(t, http.MethodGet, "/v1/runs/", "", projectID)
-	if lw.Code != http.StatusOK {
-		t.Fatalf("list runs status = %d", lw.Code)
-	}
+	require.Equal(t, http.
+		StatusOK,
+		lw.Code)
+
 	runs := mustDecodeList(t, lw)
-	if len(runs) != 1 {
-		t.Fatalf("expected 1 run (idempotency prevented duplicate), got %d", len(runs))
-	}
+	require.Len(t, runs,
+		1,
+	)
+
 }
 
 func TestE2E_IdempotencyKeyTooLong(t *testing.T) {
@@ -1393,10 +1511,11 @@ func TestE2E_IdempotencyKeyTooLong(t *testing.T) {
 	req.Header.Set("X-Idempotency-Key", longKey)
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
+	require.Equal(t, http.
+		StatusBadRequest,
+		w.
+			Code)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for long key, got %d: %s", w.Code, w.Body.String())
-	}
 }
 
 func TestE2E_IdempotencyBulkPerItem(t *testing.T) {
@@ -1414,25 +1533,29 @@ func TestE2E_IdempotencyBulkPerItem(t *testing.T) {
 	keyB := "bulk-key-b-" + newID()
 	body := fmt.Sprintf(`{"items":[{"payload":{},"idempotency_key":"%s"},{"payload":{},"idempotency_key":"%s"}]}`, keyA, keyB)
 	w := doRequest(t, http.MethodPost, "/v1/jobs/"+jobID+"/trigger/bulk", body)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("bulk trigger status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		w.Code,
+	)
 
 	var bulkResp struct {
 		Results []map[string]any `json:"results"`
 		Total   int              `json:"total"`
 		Created int              `json:"created"`
 	}
-	if err := json.NewDecoder(w.Body).Decode(&bulkResp); err != nil {
-		t.Fatalf("decode bulk response: %v", err)
-	}
-	if len(bulkResp.Results) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(bulkResp.Results))
-	}
+	require.NoError(t, json.
+		NewDecoder(w.Body).
+		Decode(&bulkResp))
+	require.Len(t, bulkResp.
+		Results,
+		2)
+
 	// Both should have IDs.
 	for i, r := range bulkResp.Results {
 		if _, ok := r["id"].(string); !ok || r["id"] == "" {
-			t.Fatalf("result[%d] missing id: %v", i, r)
+			require.Failf(t, "test failure",
+
+				"result[%d] missing id: %v", i, r)
 		}
 	}
 }
@@ -1442,9 +1565,11 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 
 	projectID := "proj-analytics-metrics-" + newID()
 	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-metrics-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
-	if keyW.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		keyW.
+			Code)
+
 	keyResp := mustDecodeObject(t, keyW)
 	apiKey := asString(t, keyResp, "key")
 	job := createJob(t, projectID, "Analytics Metrics", "analytics-metrics-"+newID())
@@ -1455,44 +1580,57 @@ func TestAnalyticsEndpoint_ReturnsMetrics(t *testing.T) {
 
 	ctx := context.Background()
 	dequeued := dequeueRunEventually(t, q)
-	if dequeued.ID != runID {
-		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
-	}
+	require.Equal(t, runID,
+
+		dequeued.
+			ID)
 
 	startedAt := time.Now().UTC()
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": startedAt,
-	}); err != nil {
-		t.Fatalf("set executing: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": startedAt.Add(2 * time.Second),
-	}); err != nil {
-		t.Fatalf("set completed: %v", err)
-	}
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusDequeued,
+
+			domain.
+				StatusExecuting, map[string]any{"started_at": startedAt}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusExecuting,
+
+			domain.
+				StatusCompleted, map[string]any{"finished_at": startedAt.
+				Add(2 *
+					time.
+						Second)}))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics/performance?period_hours=24", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("analytics status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	resp := mustDecodeObject(t, w)
 	if _, ok := resp["slowest_jobs"]; !ok {
-		t.Fatal("expected slowest_jobs key")
+		require.Fail(t,
+
+			"expected slowest_jobs key")
 	}
 	if _, ok := resp["throughput"]; !ok {
-		t.Fatal("expected throughput key")
+		require.Fail(t,
+
+			"expected throughput key")
 	}
 	if _, ok := resp["health_summary"]; !ok {
-		t.Fatal("expected health_summary key")
+		require.Fail(t,
+
+			"expected health_summary key")
 	}
 	throughput := asObject(t, resp, "throughput")
-	if asInt(t, throughput, "completed") < 1 {
-		t.Fatalf("expected completed throughput >= 1, got %d", asInt(t, throughput, "completed"))
-	}
+	require.GreaterOrEqual(t, asInt(t, throughput,
+		"completed"),
+		1)
+
 }
 
 func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
@@ -1500,9 +1638,11 @@ func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
 
 	projectID := "proj-analytics-period-" + newID()
 	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-period-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
-	if keyW.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		keyW.
+			Code)
+
 	apiKey := asString(t, mustDecodeObject(t, keyW), "key")
 
 	for _, path := range []string{
@@ -1513,9 +1653,10 @@ func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		w := httptest.NewRecorder()
 		testServer.ServeHTTP(w, req)
-		if w.Code != http.StatusOK {
-			t.Fatalf("analytics %s status = %d, body = %s", path, w.Code, w.Body.String())
-		}
+		require.Equal(t, http.
+			StatusOK,
+			w.Code)
+
 	}
 
 	for _, path := range []string{
@@ -1526,9 +1667,11 @@ func TestAnalyticsEndpoint_PeriodHoursParam(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		w := httptest.NewRecorder()
 		testServer.ServeHTTP(w, req)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("analytics %s status = %d, want 400, body = %s", path, w.Code, w.Body.String())
-		}
+		require.Equal(t, http.
+			StatusBadRequest,
+			w.
+				Code)
+
 	}
 }
 
@@ -1537,31 +1680,44 @@ func TestAnalyticsEndpoint_EmptyData(t *testing.T) {
 
 	projectID := "proj-analytics-empty-" + newID()
 	keyW := doRequest(t, http.MethodPost, "/v1/api-keys/", fmt.Sprintf(`{"project_id":"%s","name":"analytics-empty-key","scopes":["%s"],"expires_in_days":30}`, projectID, domain.ScopeStatsRead))
-	if keyW.Code != http.StatusCreated {
-		t.Fatalf("create api key status = %d, body = %s", keyW.Code, keyW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		keyW.
+			Code)
+
 	apiKey := asString(t, mustDecodeObject(t, keyW), "key")
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics/performance", nil)
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	w := httptest.NewRecorder()
 	testServer.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("analytics empty status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	resp := mustDecodeObject(t, w)
 	slowest, ok := resp["slowest_jobs"].([]any)
-	if !ok {
-		t.Fatalf("slowest_jobs type = %T, want []any", resp["slowest_jobs"])
-	}
-	if len(slowest) != 0 {
-		t.Fatalf("expected empty slowest_jobs, got %d", len(slowest))
-	}
+	require.True(t, ok)
+	require.Len(t, slowest,
+
+		0)
+
 	throughput := asObject(t, resp, "throughput")
-	if asInt(t, throughput, "completed") != 0 || asInt(t, throughput, "failed") != 0 || asInt(t, throughput, "timed_out") != 0 || asInt(t, throughput, "canceled") != 0 {
-		t.Fatalf("expected zero throughput, got %+v", throughput)
-	}
+	require.False(t, asInt(t, throughput,
+		"completed",
+	) != 0 ||
+		asInt(t,
+			throughput,
+			"failed",
+		) != 0 || asInt(t,
+		throughput,
+		"timed_out",
+	) !=
+		0 || asInt(t, throughput,
+
+		"canceled") != 0,
+	)
+
 }
 
 func TestBulkCancel_WithChildRuns(t *testing.T) {
@@ -1586,51 +1742,63 @@ func TestBulkCancel_WithChildRuns(t *testing.T) {
 	ctx := context.Background()
 	for range 3 {
 		dequeued := dequeueRunEventually(t, q)
-		if err := testStore.UpdateRunStatus(ctx, dequeued.ID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-			"started_at": time.Now().UTC(),
-		}); err != nil {
-			t.Fatalf("set executing for %s: %v", dequeued.ID, err)
-		}
+		require.NoError(t, testStore.
+			UpdateRunStatus(ctx, dequeued.
+				ID, domain.
+				StatusDequeued,
+
+				domain.StatusExecuting,
+				map[string]any{"started_at": time.Now().UTC()}))
+
 	}
 
 	childRunIDs := make([]string, 0, 3)
 	for i := range parentRunIDs {
 		spawnBody := fmt.Sprintf(`{"job_slug":"%s","project_id":"%s","payload":{"child":true}}`, childSlug, projectID)
 		w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+parentRunIDs[i]+"/spawn", parentTokens[i], spawnBody)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("spawn child status = %d, body = %s", w.Code, w.Body.String())
-		}
+		require.Equal(t, http.
+			StatusCreated,
+			w.Code,
+		)
+
 		childRunIDs = append(childRunIDs, asString(t, mustDecodeObject(t, w), "id"))
 	}
 
 	body := fmt.Sprintf(`{"run_ids":["%s","%s","%s"]}`, parentRunIDs[0], parentRunIDs[1], parentRunIDs[2])
 	w := doRequest(t, http.MethodPost, "/v1/runs/bulk-cancel", body)
-	if w.Code != http.StatusOK {
-		t.Fatalf("bulk cancel status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
+
 	resp := mustDecodeObject(t, w)
-	if asInt(t, resp, "canceled") != 3 {
-		t.Fatalf("expected canceled=3, got %d", asInt(t, resp, "canceled"))
-	}
+	require.EqualValues(t, 3, asInt(t, resp,
+		"canceled",
+	))
 
 	for _, runID := range parentRunIDs {
 		gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-		if gw.Code != http.StatusOK {
-			t.Fatalf("get parent run %s status = %d, body = %s", runID, gw.Code, gw.Body.String())
-		}
-		if asString(t, mustDecodeObject(t, gw), "status") != string(domain.StatusCanceled) {
-			t.Fatalf("expected parent run %s canceled", runID)
-		}
+		require.Equal(t, http.
+			StatusOK,
+			gw.Code)
+		require.Equal(t, string(domain.
+			StatusCanceled,
+		), asString(t,
+			mustDecodeObject(t, gw),
+			"status"))
+
 	}
 
 	for _, runID := range childRunIDs {
 		gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-		if gw.Code != http.StatusOK {
-			t.Fatalf("get child run %s status = %d, body = %s", runID, gw.Code, gw.Body.String())
-		}
-		if asString(t, mustDecodeObject(t, gw), "status") != string(domain.StatusCanceled) {
-			t.Fatalf("expected child run %s canceled", runID)
-		}
+		require.Equal(t, http.
+			StatusOK,
+			gw.Code)
+		require.Equal(t, string(domain.
+			StatusCanceled,
+		), asString(t,
+			mustDecodeObject(t, gw),
+			"status"))
+
 	}
 }
 
@@ -1645,17 +1813,23 @@ func TestSDK_Heartbeat(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	w := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/heartbeat", token, "")
-	if w.Code != http.StatusOK && w.Code != http.StatusNoContent {
-		t.Fatalf("sdk heartbeat status = %d, body = %s", w.Code, w.Body.String())
-	}
+	require.False(t, w.Code !=
+		http.
+			StatusOK &&
+		w.Code != http.
+			StatusNoContent,
+	)
 
 	gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if gw.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", gw.Code, gw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		gw.Code)
+
 	run := mustDecodeObject(t, gw)
 	if heartbeatRaw, ok := run["heartbeat_at"].(string); !ok || heartbeatRaw == "" {
-		t.Fatalf("expected heartbeat_at to be set, got %v", run["heartbeat_at"])
+		require.Failf(t, "test failure",
+
+			"expected heartbeat_at to be set, got %v", run["heartbeat_at"])
 	}
 }
 
@@ -1670,19 +1844,23 @@ func TestSDK_LogAndProgress(t *testing.T) {
 	activateE2ERun(t, runID)
 
 	logW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/log", token, `{"level":"info","message":"test log"}`)
-	if logW.Code != http.StatusCreated {
-		t.Fatalf("sdk log status = %d, body = %s", logW.Code, logW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		logW.
+			Code)
 
 	progressW := doSDKRequest(t, http.MethodPost, "/sdk/v1/runs/"+runID+"/progress", token, `{"percent":50,"message":"halfway"}`)
-	if progressW.Code != http.StatusCreated {
-		t.Fatalf("sdk progress status = %d, body = %s", progressW.Code, progressW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusCreated,
+		progressW.
+			Code)
 
 	eventsW := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/events", "")
-	if eventsW.Code != http.StatusOK {
-		t.Fatalf("list events status = %d, body = %s", eventsW.Code, eventsW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		eventsW.Code,
+	)
+
 	events := mustDecodeList(t, eventsW)
 
 	foundLog := false
@@ -1695,12 +1873,9 @@ func TestSDK_LogAndProgress(t *testing.T) {
 			foundProgress = true
 		}
 	}
-	if !foundLog {
-		t.Fatalf("expected log event, got %+v", events)
-	}
-	if !foundProgress {
-		t.Fatalf("expected progress event, got %+v", events)
-	}
+	require.True(t, foundLog)
+	require.True(t, foundProgress)
+
 }
 
 func TestDebugMode_CapturesTrace(t *testing.T) {
@@ -1714,43 +1889,48 @@ func TestDebugMode_CapturesTrace(t *testing.T) {
 	runID := asString(t, triggered, "id")
 
 	debugW := doRequest(t, http.MethodPost, "/v1/runs/"+runID+"/debug", `{"debug_mode":true}`)
-	if debugW.Code != http.StatusOK {
-		t.Fatalf("set debug mode status = %d, body = %s", debugW.Code, debugW.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		debugW.Code,
+	)
 
 	ctx := context.Background()
 	dequeued := dequeueRunEventually(t, q)
-	if dequeued.ID != runID {
-		t.Fatalf("expected dequeued run %s, got %s", runID, dequeued.ID)
-	}
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusDequeued, domain.StatusExecuting, map[string]any{
-		"started_at": time.Now().UTC(),
-	}); err != nil {
-		t.Fatalf("set executing: %v", err)
-	}
-	if err := testStore.UpdateRunStatus(ctx, runID, domain.StatusExecuting, domain.StatusCompleted, map[string]any{
-		"finished_at": time.Now().UTC(),
-		"execution_trace": &domain.ExecutionTrace{
-			TotalMs:    150,
-			DispatchMs: 100,
-		},
-	}); err != nil {
-		t.Fatalf("set completed: %v", err)
-	}
+	require.Equal(t, runID,
+
+		dequeued.
+			ID)
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusDequeued,
+
+			domain.
+				StatusExecuting, map[string]any{"started_at": time.
+				Now().UTC()}))
+	require.NoError(t, testStore.
+		UpdateRunStatus(ctx, runID, domain.
+			StatusExecuting,
+
+			domain.
+				StatusCompleted, map[string]any{"finished_at": time.Now().
+				UTC(),
+				"execution_trace": &domain.
+					ExecutionTrace{TotalMs: 150, DispatchMs: 100}}))
 
 	gw := doRequest(t, http.MethodGet, "/v1/runs/"+runID+"/", "")
-	if gw.Code != http.StatusOK {
-		t.Fatalf("get run status = %d, body = %s", gw.Code, gw.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		gw.Code)
+
 	run := mustDecodeObject(t, gw)
-	if !asBool(t, run, "debug_mode") {
-		t.Fatal("expected debug_mode=true")
-	}
+	require.True(t, asBool(t, run,
+		"debug_mode",
+	))
+
 	trace, ok := run["execution_trace"].(map[string]any)
-	if !ok {
-		t.Fatalf("execution_trace type = %T, want map[string]any", run["execution_trace"])
-	}
-	if asInt(t, trace, "total_ms") <= 0 {
-		t.Fatalf("expected execution trace total_ms > 0, got %d", asInt(t, trace, "total_ms"))
-	}
+	require.True(t, ok)
+	require.False(t, asInt(t, trace,
+		"total_ms",
+	) <= 0)
+
 }

@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestHandleStraitJSONSchema_Returns200 verifies the schema endpoint returns 200.
@@ -16,10 +19,9 @@ func TestHandleStraitJSONSchema_Returns200(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 // TestHandleStraitJSONSchema_ContentType verifies the response uses the
@@ -33,9 +35,7 @@ func TestHandleStraitJSONSchema_ContentType(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	ct := w.Header().Get("Content-Type")
-	if !strings.Contains(ct, "application/schema+json") {
-		t.Fatalf("expected Content-Type application/schema+json, got %q", ct)
-	}
+	require.Contains(t, ct, "application/schema+json")
 }
 
 // TestHandleStraitJSONSchema_CacheControl verifies a 24-hour public cache
@@ -49,9 +49,10 @@ func TestHandleStraitJSONSchema_CacheControl(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	cc := w.Header().Get("Cache-Control")
-	if !strings.Contains(cc, "public") || !strings.Contains(cc, "max-age=86400") {
-		t.Fatalf("expected Cache-Control: public, max-age=86400, got %q", cc)
-	}
+	require.False(t, !strings.Contains(cc, "public") ||
+		!strings.Contains(cc,
+			"max-age=86400",
+		))
 }
 
 // TestHandleStraitJSONSchema_IsValidJSON verifies the response body is valid JSON.
@@ -64,12 +65,10 @@ func TestHandleStraitJSONSchema_IsValidJSON(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	var schema map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &schema); err != nil {
-		t.Fatalf("response body is not valid JSON: %v", err)
-	}
-	if len(schema) == 0 {
-		t.Fatal("expected non-empty schema object")
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &schema))
+	require.NotEmpty(t,
+		schema)
 }
 
 // TestHandleStraitJSONSchema_HasRequiredTopLevelKeys verifies the schema
@@ -83,13 +82,14 @@ func TestHandleStraitJSONSchema_HasRequiredTopLevelKeys(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	var schema map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &schema); err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &schema))
 
 	for _, key := range []string{"$schema", "$id", "title", "type", "properties"} {
 		if _, ok := schema[key]; !ok {
-			t.Errorf("schema missing required top-level key %q", key)
+			assert.Failf(t, "test failure",
+
+				"schema missing required top-level key %q", key)
 		}
 	}
 }
@@ -106,15 +106,13 @@ func TestHandleStraitJSONSchema_SchemaIDMatchesRoute(t *testing.T) {
 	srv.ServeHTTP(w, r)
 
 	var schema map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &schema); err != nil {
-		t.Fatalf("failed to parse schema: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(w.Body.Bytes(), &schema))
 
 	id, _ := schema["$id"].(string)
 	const want = "https://api.strait.dev/schemas/v1/strait.json"
-	if id != want {
-		t.Errorf("schema $id = %q, want %q", id, want)
-	}
+	assert.Equal(t, want,
+		id)
 }
 
 // TestHandleStraitJSONSchema_NoAuthRequired verifies the endpoint is public —
@@ -127,13 +125,12 @@ func TestHandleStraitJSONSchema_NoAuthRequired(t *testing.T) {
 	// Deliberately send no Authorization header.
 	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("schema endpoint requires auth but should be public; got 401")
-	}
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
+	require.NotEqual(t,
+		http.StatusUnauthorized,
+		w.Code)
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 }
 
 func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.T) {
@@ -143,10 +140,9 @@ func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/schemas/v1/strait.json", nil)
 	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
+	require.Equal(t, http.
+		StatusOK,
+		w.Code)
 
 	body := w.Body.String()
 	for _, stale := range []string{
@@ -155,8 +151,6 @@ func TestHandleStraitJSONSchema_DoesNotAdvertiseManagedRuntimeBuilds(t *testing.
 		"COMPUTE_RUNTIME",
 		"strait build",
 	} {
-		if strings.Contains(body, stale) {
-			t.Fatalf("strait.json schema contains removed runtime/build wording %q", stale)
-		}
+		require.NotContains(t, body, stale)
 	}
 }

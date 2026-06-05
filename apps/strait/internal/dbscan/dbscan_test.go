@@ -8,50 +8,39 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNilIfEmptyString(t *testing.T) {
 	t.Parallel()
 	t.Run("empty returns nil", func(t *testing.T) {
 		t.Parallel()
-		if got := NilIfEmptyString(""); got != nil {
-			t.Errorf("NilIfEmptyString(%q) = %v, want nil", "", got)
-		}
+		assert.Nil(t, NilIfEmptyString(""))
 	})
 
 	t.Run("non-empty returns value", func(t *testing.T) {
 		t.Parallel()
 		got := NilIfEmptyString("hello")
 		s, ok := got.(string)
-		if !ok {
-			t.Fatalf("NilIfEmptyString(%q) type = %T, want string", "hello", got)
-		}
-		if s != "hello" {
-			t.Errorf("NilIfEmptyString(%q) = %q, want %q", "hello", s, "hello")
-		}
+		require.True(t, ok, "NilIfEmptyString(%q) type = %T, want string", "hello", got)
+		assert.Equal(t, "hello", s)
 	})
 
 	t.Run("whitespace returns value", func(t *testing.T) {
 		t.Parallel()
 		got := NilIfEmptyString(" ")
-		if got == nil {
-			t.Fatal("got nil for whitespace, want non-nil")
-		}
-		if got.(string) != " " {
-			t.Errorf("got %q, want %q", got, " ")
-		}
+		require.NotNil(t, got)
+		assert.Equal(t, " ", got.(string))
 	})
 
 	t.Run("long string returns value", func(t *testing.T) {
 		t.Parallel()
 		input := "this is a longer string with multiple words"
 		got := NilIfEmptyString(input)
-		if got == nil {
-			t.Fatal("got nil, want non-nil")
-		}
-		if got.(string) != input {
-			t.Errorf("got %q, want %q", got, input)
-		}
+		require.NotNil(t, got)
+		assert.Equal(t, input, got.(string))
 	})
 }
 
@@ -77,18 +66,12 @@ func TestNilIfEmptyRawMessage(t *testing.T) {
 			t.Parallel()
 			got := NilIfEmptyRawMessage(tt.input)
 			if tt.isNil {
-				if got != nil {
-					t.Errorf("NilIfEmptyRawMessage() = %v, want nil", got)
-				}
+				assert.Nil(t, got)
 				return
 			}
 			msg, ok := got.(json.RawMessage)
-			if !ok {
-				t.Fatalf("NilIfEmptyRawMessage() type = %T, want json.RawMessage", got)
-			}
-			if string(msg) != string(tt.input) {
-				t.Errorf("NilIfEmptyRawMessage() = %s, want %s", msg, tt.input)
-			}
+			require.True(t, ok, "NilIfEmptyRawMessage() type = %T, want json.RawMessage", got)
+			assert.Equal(t, string(tt.input), string(msg))
 		})
 	}
 }
@@ -97,21 +80,15 @@ func TestNilIfZeroInt(t *testing.T) {
 	t.Parallel()
 	t.Run("zero returns nil", func(t *testing.T) {
 		t.Parallel()
-		if got := NilIfZeroInt(0); got != nil {
-			t.Errorf("NilIfZeroInt(0) = %v, want nil", got)
-		}
+		assert.Nil(t, NilIfZeroInt(0))
 	})
 
 	t.Run("non-zero returns value", func(t *testing.T) {
 		t.Parallel()
 		got := NilIfZeroInt(12)
 		v, ok := got.(int)
-		if !ok {
-			t.Fatalf("NilIfZeroInt(12) type = %T, want int", got)
-		}
-		if v != 12 {
-			t.Errorf("NilIfZeroInt(12) = %d, want 12", v)
-		}
+		require.True(t, ok, "NilIfZeroInt(12) type = %T, want int", got)
+		assert.Equal(t, 12, v)
 	})
 }
 
@@ -120,32 +97,22 @@ func TestNilIfEmptyIntSlice(t *testing.T) {
 
 	t.Run("nil slice returns nil", func(t *testing.T) {
 		t.Parallel()
-		if got := NilIfEmptyIntSlice(nil); got != nil {
-			t.Errorf("NilIfEmptyIntSlice(nil) = %v, want nil", got)
-		}
+		assert.Nil(t, NilIfEmptyIntSlice(nil))
 	})
 
 	t.Run("empty slice returns nil", func(t *testing.T) {
 		t.Parallel()
-		if got := NilIfEmptyIntSlice([]int{}); got != nil {
-			t.Errorf("NilIfEmptyIntSlice([]int{}) = %v, want nil", got)
-		}
+		assert.Nil(t, NilIfEmptyIntSlice([]int{}))
 	})
 
 	t.Run("non-empty slice returns value", func(t *testing.T) {
 		t.Parallel()
 		input := []int{1, 2, 3}
 		got := NilIfEmptyIntSlice(input)
-		if got == nil {
-			t.Fatal("NilIfEmptyIntSlice(non-empty) should not be nil")
-		}
+		require.NotNil(t, got)
 		s, ok := got.([]int)
-		if !ok {
-			t.Fatalf("expected []int, got %T", got)
-		}
-		if len(s) != 3 || s[0] != 1 || s[1] != 2 || s[2] != 3 {
-			t.Errorf("got %v, want [1 2 3]", s)
-		}
+		require.True(t, ok, "expected []int, got %T", got)
+		assert.Equal(t, []int{1, 2, 3}, s)
 	})
 }
 
@@ -180,12 +147,8 @@ func TestScanRun_Error(t *testing.T) {
 	s := &mockScanner{err: scanErr}
 
 	run, err := ScanRun(s)
-	if err == nil {
-		t.Fatal("ScanRun() expected error, got nil")
-	}
-	if run != nil {
-		t.Errorf("ScanRun() run = %v, want nil on error", run)
-	}
+	require.Error(t, err)
+	assert.Nil(t, run)
 }
 
 func TestScanRun_AllFields(t *testing.T) {
@@ -247,103 +210,39 @@ func TestScanRun_AllFields(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err != nil {
-		t.Fatalf("ScanRun() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if run.ID != "run-001" {
-		t.Errorf("ID = %q, want %q", run.ID, "run-001")
-	}
-	if run.JobID != "job-001" {
-		t.Errorf("JobID = %q, want %q", run.JobID, "job-001")
-	}
-	if run.ProjectID != "proj-001" {
-		t.Errorf("ProjectID = %q, want %q", run.ProjectID, "proj-001")
-	}
-	if run.Status != "executing" {
-		t.Errorf("Status = %q, want %q", run.Status, "executing")
-	}
-	if run.Attempt != 2 {
-		t.Errorf("Attempt = %d, want %d", run.Attempt, 2)
-	}
-	if string(run.Payload) != `{"input":"data"}` {
-		t.Errorf("Payload = %s, want %s", run.Payload, `{"input":"data"}`)
-	}
-	if string(run.Result) != `{"output":"ok"}` {
-		t.Errorf("Result = %s, want %s", run.Result, `{"output":"ok"}`)
-	}
-	if run.Error != "partial failure" {
-		t.Errorf("Error = %q, want %q", run.Error, "partial failure")
-	}
-	if run.ErrorClass != "timeout" {
-		t.Errorf("ErrorClass = %q, want %q", run.ErrorClass, "timeout")
-	}
-	if run.Metadata["env"] != "prod" || run.Metadata["region"] != "eu" {
-		t.Errorf("Metadata = %+v, want env=prod region=eu", run.Metadata)
-	}
-	if run.TriggeredBy != "cron" {
-		t.Errorf("TriggeredBy = %q, want %q", run.TriggeredBy, "cron")
-	}
-	if run.ParentRunID != "parent-001" {
-		t.Errorf("ParentRunID = %q, want %q", run.ParentRunID, "parent-001")
-	}
-	if run.Priority != 5 {
-		t.Errorf("Priority = %d, want %d", run.Priority, 5)
-	}
-	if run.IdempotencyKey != "idem-abc" {
-		t.Errorf("IdempotencyKey = %q, want %q", run.IdempotencyKey, "idem-abc")
-	}
-	if run.WorkflowStepRunID != "step-run-001" {
-		t.Errorf("WorkflowStepRunID = %q, want %q", run.WorkflowStepRunID, "step-run-001")
-	}
-	if run.ScheduledAt == nil {
-		t.Error("ScheduledAt is nil, want non-nil")
-	}
-	if run.StartedAt == nil {
-		t.Error("StartedAt is nil, want non-nil")
-	}
-	if run.HeartbeatAt == nil {
-		t.Error("HeartbeatAt is nil, want non-nil")
-	}
-	if run.FinishedAt != nil {
-		t.Errorf("FinishedAt = %v, want nil", run.FinishedAt)
-	}
-	if run.DebugMode != true {
-		t.Errorf("DebugMode = %v, want true", run.DebugMode)
-	}
-	if run.ContinuationOf != "cont-001" {
-		t.Errorf("ContinuationOf = %q, want %q", run.ContinuationOf, "cont-001")
-	}
-	if run.LineageDepth != 2 {
-		t.Errorf("LineageDepth = %d, want %d", run.LineageDepth, 2)
-	}
-	if run.Tags["env"] != "prod" {
-		t.Errorf("Tags = %v, want env=prod", run.Tags)
-	}
-	if run.JobVersionID != "jv-001" {
-		t.Errorf("JobVersionID = %q, want %q", run.JobVersionID, "jv-001")
-	}
-	if run.CreatedBy != "user-1" {
-		t.Errorf("CreatedBy = %q, want %q", run.CreatedBy, "user-1")
-	}
-	if run.BatchID != "batch-001" {
-		t.Errorf("BatchID = %q, want %q", run.BatchID, "batch-001")
-	}
-	if run.ConcurrencyKey != "key-001" {
-		t.Errorf("ConcurrencyKey = %q, want %q", run.ConcurrencyKey, "key-001")
-	}
-	if run.ExecutionMode != domain.ExecutionModeHTTP {
-		t.Errorf("ExecutionMode = %q, want %q", run.ExecutionMode, domain.ExecutionModeHTTP)
-	}
-	if !run.IsRollback {
-		t.Errorf("IsRollback = %v, want true", run.IsRollback)
-	}
-	if run.ReplayedRunID != "run-orig-001" {
-		t.Errorf("ReplayedRunID = %q, want %q", run.ReplayedRunID, "run-orig-001")
-	}
-	if run.ExecutionTrace == nil {
-		t.Error("ExecutionTrace is nil, want non-nil")
-	}
+	assert.Equal(t, "run-001", run.ID)
+	assert.Equal(t, "job-001", run.JobID)
+	assert.Equal(t, "proj-001", run.ProjectID)
+	assert.Equal(t, domain.RunStatus("executing"), run.Status)
+	assert.Equal(t, 2, run.Attempt)
+	assert.JSONEq(t, `{"input":"data"}`, string(run.Payload))
+	assert.JSONEq(t, `{"output":"ok"}`, string(run.Result))
+	assert.Equal(t, "partial failure", run.Error)
+	assert.Equal(t, "timeout", run.ErrorClass)
+	assert.Equal(t, map[string]string{"env": "prod", "region": "eu"}, run.Metadata)
+	assert.Equal(t, "cron", run.TriggeredBy)
+	assert.Equal(t, "parent-001", run.ParentRunID)
+	assert.Equal(t, 5, run.Priority)
+	assert.Equal(t, "idem-abc", run.IdempotencyKey)
+	assert.Equal(t, "step-run-001", run.WorkflowStepRunID)
+	assert.NotNil(t, run.ScheduledAt)
+	assert.NotNil(t, run.StartedAt)
+	assert.NotNil(t, run.HeartbeatAt)
+	assert.Nil(t, run.FinishedAt)
+	assert.True(t, run.DebugMode)
+	assert.Equal(t, "cont-001", run.ContinuationOf)
+	assert.Equal(t, 2, run.LineageDepth)
+	assert.Equal(t, "prod", run.Tags["env"])
+	assert.Equal(t, "jv-001", run.JobVersionID)
+	assert.Equal(t, "user-1", run.CreatedBy)
+	assert.Equal(t, "batch-001", run.BatchID)
+	assert.Equal(t, "key-001", run.ConcurrencyKey)
+	assert.Equal(t, domain.ExecutionModeHTTP, run.ExecutionMode)
+	assert.True(t, run.IsRollback)
+	assert.Equal(t, "run-orig-001", run.ReplayedRunID)
+	assert.NotNil(t, run.ExecutionTrace)
 }
 
 func TestScanRun_NilOptionals(t *testing.T) {
@@ -391,76 +290,30 @@ func TestScanRun_NilOptionals(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err != nil {
-		t.Fatalf("ScanRun() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if run.Payload != nil {
-		t.Errorf("Payload = %s, want nil", run.Payload)
-	}
-	if run.Result != nil {
-		t.Errorf("Result = %s, want nil", run.Result)
-	}
-	if run.Error != "" {
-		t.Errorf("Error = %q, want empty", run.Error)
-	}
-	if run.ErrorClass != "" {
-		t.Errorf("ErrorClass = %q, want empty", run.ErrorClass)
-	}
-	if run.ParentRunID != "" {
-		t.Errorf("ParentRunID = %q, want empty", run.ParentRunID)
-	}
-	if run.IdempotencyKey != "" {
-		t.Errorf("IdempotencyKey = %q, want empty", run.IdempotencyKey)
-	}
-	if run.WorkflowStepRunID != "" {
-		t.Errorf("WorkflowStepRunID = %q, want empty", run.WorkflowStepRunID)
-	}
-	if run.ScheduledAt != nil {
-		t.Errorf("ScheduledAt = %v, want nil", run.ScheduledAt)
-	}
-	if run.StartedAt != nil {
-		t.Errorf("StartedAt = %v, want nil", run.StartedAt)
-	}
-	if run.FinishedAt != nil {
-		t.Errorf("FinishedAt = %v, want nil", run.FinishedAt)
-	}
-	if run.DebugMode != false {
-		t.Errorf("DebugMode = %v, want false", run.DebugMode)
-	}
-	if run.ContinuationOf != "" {
-		t.Errorf("ContinuationOf = %q, want empty", run.ContinuationOf)
-	}
-	if run.LineageDepth != 0 {
-		t.Errorf("LineageDepth = %d, want 0", run.LineageDepth)
-	}
-	if len(run.Tags) != 0 {
-		t.Errorf("Tags = %v, want empty", run.Tags)
-	}
-	if run.JobVersionID != "" {
-		t.Errorf("JobVersionID = %q, want empty", run.JobVersionID)
-	}
-	if run.CreatedBy != "" {
-		t.Errorf("CreatedBy = %q, want empty", run.CreatedBy)
-	}
-	if run.BatchID != "" {
-		t.Errorf("BatchID = %q, want empty", run.BatchID)
-	}
-	if run.ConcurrencyKey != "" {
-		t.Errorf("ConcurrencyKey = %q, want empty", run.ConcurrencyKey)
-	}
-	if run.ExecutionMode != "" {
-		t.Errorf("ExecutionMode = %q, want empty", run.ExecutionMode)
-	}
-	if run.IsRollback {
-		t.Errorf("IsRollback = %v, want false", run.IsRollback)
-	}
-	if run.ReplayedRunID != "" {
-		t.Errorf("ReplayedRunID = %q, want empty", run.ReplayedRunID)
-	}
-	if run.ExecutionTrace != nil {
-		t.Errorf("ExecutionTrace = %v, want nil", run.ExecutionTrace)
-	}
+	assert.Nil(t, run.Payload)
+	assert.Nil(t, run.Result)
+	assert.Empty(t, run.Error)
+	assert.Empty(t, run.ErrorClass)
+	assert.Empty(t, run.ParentRunID)
+	assert.Empty(t, run.IdempotencyKey)
+	assert.Empty(t, run.WorkflowStepRunID)
+	assert.Nil(t, run.ScheduledAt)
+	assert.Nil(t, run.StartedAt)
+	assert.Nil(t, run.FinishedAt)
+	assert.False(t, run.DebugMode)
+	assert.Empty(t, run.ContinuationOf)
+	assert.Zero(t, run.LineageDepth)
+	assert.Empty(t, run.Tags)
+	assert.Empty(t, run.JobVersionID)
+	assert.Empty(t, run.CreatedBy)
+	assert.Empty(t, run.BatchID)
+	assert.Empty(t, run.ConcurrencyKey)
+	assert.Empty(t, run.ExecutionMode)
+	assert.False(t, run.IsRollback)
+	assert.Empty(t, run.ReplayedRunID)
+	assert.Nil(t, run.ExecutionTrace)
 }
 
 func TestScanRun_InvalidMetadataJSON(t *testing.T) {
@@ -474,12 +327,8 @@ func TestScanRun_InvalidMetadataJSON(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err == nil {
-		t.Fatal("ScanRun() expected error for invalid metadata JSON")
-	}
-	if run != nil {
-		t.Errorf("ScanRun() run = %v, want nil on error", run)
-	}
+	require.Error(t, err)
+	assert.Nil(t, run)
 }
 
 func TestScanRun_InvalidExecutionTraceJSON(t *testing.T) {
@@ -493,12 +342,8 @@ func TestScanRun_InvalidExecutionTraceJSON(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err == nil {
-		t.Fatal("ScanRun() expected error for invalid execution trace JSON")
-	}
-	if run != nil {
-		t.Errorf("ScanRun() run = %v, want nil on error", run)
-	}
+	require.Error(t, err)
+	assert.Nil(t, run)
 }
 
 func TestScanRun_InvalidTagsJSON(t *testing.T) {
@@ -512,12 +357,8 @@ func TestScanRun_InvalidTagsJSON(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err == nil {
-		t.Fatal("ScanRun() expected error for invalid tags JSON")
-	}
-	if run != nil {
-		t.Errorf("ScanRun() run = %v, want nil on error", run)
-	}
+	require.Error(t, err)
+	assert.Nil(t, run)
 }
 
 func TestScanRun_EmptyObjectTags(t *testing.T) {
@@ -531,12 +372,8 @@ func TestScanRun_EmptyObjectTags(t *testing.T) {
 	}
 
 	run, err := ScanRun(s)
-	if err != nil {
-		t.Fatalf("ScanRun() error = %v", err)
-	}
-	if len(run.Tags) != 0 {
-		t.Errorf("Tags = %v, want empty for {}", run.Tags)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, run.Tags)
 }
 
 // scanRunValues holds the mutable fields for building mock scanner values.

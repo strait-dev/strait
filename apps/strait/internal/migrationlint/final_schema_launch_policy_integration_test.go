@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"strait/internal/testutil"
 )
 
@@ -16,9 +19,7 @@ func TestFinalSchemaDoesNotRetainRetiredModelOrKeyNames(t *testing.T) {
 	defer cancel()
 
 	tdb, err := testutil.SetupSharedTestDB(ctx, migrationsRelPath, "migrationlint-final-schema")
-	if err != nil {
-		t.Fatalf("setup test db: %v", err)
-	}
+	require.NoError(t, err)
 	defer tdb.Cleanup(ctx)
 
 	retiredModelPrefix := strings.Join([]string{"(^|_)", "a", "i", "($|_)"}, "")
@@ -54,23 +55,15 @@ func TestFinalSchemaDoesNotRetainRetiredModelOrKeyNames(t *testing.T) {
 		   OR name LIKE '%.' || $7
 		ORDER BY kind, name
 	`, retiredModelPrefix, retiredModelNamedPrefix, retiredModelSuffix, retiredKeyAcronym, retiredKeyPhrase, retiredEnterpriseCredit, retiredEnterpriseDiscount)
-	if err != nil {
-		t.Fatalf("query final schema names: %v", err)
-	}
+	require.NoError(t, err)
 	defer rows.Close()
 
 	var stale []string
 	for rows.Next() {
 		var kind, name string
-		if err := rows.Scan(&kind, &name); err != nil {
-			t.Fatalf("scan stale schema name: %v", err)
-		}
+		require.NoError(t, rows.Scan(&kind, &name))
 		stale = append(stale, kind+":"+name)
 	}
-	if rows.Err() != nil {
-		t.Fatalf("iterate stale schema names: %v", rows.Err())
-	}
-	if len(stale) > 0 {
-		t.Fatalf("final migrated schema retains retired model/key names: %s", strings.Join(stale, ", "))
-	}
+	require.NoError(t, rows.Err())
+	assert.Empty(t, stale, "final migrated schema retains retired model/key names: %s", strings.Join(stale, ", "))
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
@@ -27,9 +28,8 @@ func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
 		<-release
 		return nil
 	}, nil, nil)
-	if !ok {
-		t.Fatal("expected first trigger to start")
-	}
+	require.True(t, ok)
+
 	<-started
 
 	secondReturned := make(chan struct{})
@@ -43,7 +43,7 @@ func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
 
 	select {
 	case <-secondReturned:
-		t.Fatal("second trigger should wait for an in-flight slot")
+		require.Fail(t, "second trigger should wait for an in-flight slot")
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -53,7 +53,7 @@ func TestStartTrackedLoadtestTriggerBoundsAndDrains(t *testing.T) {
 	select {
 	case <-secondReturned:
 	case <-time.After(time.Second):
-		t.Fatal("second trigger did not start after the first drained")
+		require.Fail(t, "second trigger did not start after the first drained")
 	}
 	wg.Wait()
 }
@@ -63,12 +63,11 @@ func TestSleepWithContextReturnsOnCancellation(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	if sleepWithContext(ctx, time.Hour) {
-		t.Fatal("sleepWithContext returned true for cancelled context")
-	}
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Fatalf("sleepWithContext took %s after cancellation", elapsed)
-	}
+	require.False(t, sleepWithContext(ctx,
+		time.Hour),
+	)
+
+	require.LessOrEqual(t, time.Since(start), 100*time.Millisecond)
 }
 
 func TestRecordLongRunOutcomeCountsOnlyCompletedTerminalStatus(t *testing.T) {
@@ -78,13 +77,14 @@ func TestRecordLongRunOutcomeCountsOnlyCompletedTerminalStatus(t *testing.T) {
 	recordLongRunOutcome("completed", nil, &completed, &failed)
 	recordLongRunOutcome("failed", nil, &completed, &failed)
 	recordLongRunOutcome("completed", errors.New("poll timeout"), &completed, &failed)
+	require.EqualValues(t, 1,
 
-	if completed.Load() != 1 {
-		t.Fatalf("completed = %d, want 1", completed.Load())
-	}
-	if failed.Load() != 2 {
-		t.Fatalf("failed = %d, want 2", failed.Load())
-	}
+		completed.
+			Load())
+	require.EqualValues(t, 2,
+
+		failed.Load())
+
 }
 
 func TestRecordLongRunOutcomeDoesNotCountAcceptedSubmissionAsCompleted(t *testing.T) {
@@ -92,27 +92,31 @@ func TestRecordLongRunOutcomeDoesNotCountAcceptedSubmissionAsCompleted(t *testin
 
 	var completed, failed atomic.Int32
 	recordLongRunOutcome("", nil, &completed, &failed)
+	require.EqualValues(t, 0,
 
-	if completed.Load() != 0 {
-		t.Fatalf("completed = %d, want 0 for accepted-but-not-terminal run", completed.Load())
-	}
-	if failed.Load() != 1 {
-		t.Fatalf("failed = %d, want 1 for accepted-but-not-terminal run", failed.Load())
-	}
+		completed.
+			Load())
+	require.EqualValues(t, 1,
+
+		failed.Load())
+
 }
 
 func TestEnduranceLongRunsUseTriggerAndWait(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile("endurance.go")
-	if err != nil {
-		t.Fatalf("read endurance.go: %v", err)
-	}
+	require.NoError(t,
+
+		err)
+
 	source := string(data)
-	if !strings.Contains(source, "h.TriggerAndWait(ctx, \"loadtest-project\", slowProcessJobID") {
-		t.Fatal("long-run endurance jobs must wait for terminal status")
-	}
-	if strings.Contains(source, "h.TriggerJob(ctx, \"loadtest-project\", slowProcessJobID") {
-		t.Fatal("long-run endurance jobs still count trigger acceptance as completion")
-	}
+	require.True(t, strings.Contains(source,
+		"h.TriggerAndWait(ctx, \"loadtest-project\", slowProcessJobID",
+	))
+	require.False(t, strings.Contains(source,
+		"h.TriggerJob(ctx, \"loadtest-project\", slowProcessJobID",
+	),
+	)
+
 }
