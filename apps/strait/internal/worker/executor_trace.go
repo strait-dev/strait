@@ -54,21 +54,6 @@ func populateExecutionTraceRunTimings(execTrace *domain.ExecutionTrace, run *dom
 	if run == nil {
 		return
 	}
-	queueWait := max(time.Duration(0), executeStart.Sub(run.CreatedAt))
-	execTrace.QueueWaitMs = durationMillisecondsAtLeastOne(queueWait)
-	if run.StartedAt != nil {
-		dequeue := max(time.Duration(0), executeStart.Sub(*run.StartedAt))
-		execTrace.DequeueMs = durationMillisecondsAtLeastOne(dequeue)
-	}
-}
-
-func durationMillisecondsAtLeastOne(d time.Duration) int64 {
-	if d <= 0 {
-		return 0
-	}
-	ms := d.Milliseconds()
-	if ms == 0 {
-		return 1
-	}
-	return ms
+	execTrace.QueueWaitMs = durationMillisecondsAtLeastOne(runQueueWaitUntil(run, executeStart))
+	execTrace.DequeueMs = durationMillisecondsAtLeastOne(runDequeueDurationUntil(run, executeStart))
 }

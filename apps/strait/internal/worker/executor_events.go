@@ -1,8 +1,6 @@
 package worker
 
 import (
-	"time"
-
 	"strait/internal/domain"
 )
 
@@ -21,7 +19,7 @@ func newCompletedRunEvent(
 		ExecTrace:  execTrace,
 		ExecDur:    transition.execDur,
 		Attempt:    run.Attempt,
-		QueueWait:  queueWait(run),
+		QueueWait:  runStartedQueueWait(run),
 	}
 }
 
@@ -40,7 +38,7 @@ func newTerminalRunEvent(
 		ToStatus:   to,
 		ExecTrace:  execTrace,
 		Attempt:    run.Attempt,
-		QueueWait:  queueWait(run),
+		QueueWait:  runStartedQueueWait(run),
 	}
 }
 
@@ -53,7 +51,7 @@ func newRetriedRunEvent(run *domain.JobRun, job *domain.Job, execTrace *domain.E
 		ToStatus:   domain.StatusQueued,
 		ExecTrace:  execTrace,
 		Attempt:    run.Attempt + 1,
-		QueueWait:  queueWait(run),
+		QueueWait:  runStartedQueueWait(run),
 	}
 }
 
@@ -64,17 +62,6 @@ func newSystemFailedRunEvent(run *domain.JobRun, transition systemFailureTransit
 		FromStatus: transition.from,
 		ToStatus:   transition.to,
 		Attempt:    run.Attempt,
-		QueueWait:  queueWait(run),
+		QueueWait:  runStartedQueueWait(run),
 	}
-}
-
-// queueWait returns the duration a run spent queued (created_at to started_at).
-func queueWait(run *domain.JobRun) time.Duration {
-	if run == nil || run.CreatedAt.IsZero() {
-		return 0
-	}
-	if run.StartedAt == nil {
-		return 0
-	}
-	return run.StartedAt.Sub(run.CreatedAt)
 }
