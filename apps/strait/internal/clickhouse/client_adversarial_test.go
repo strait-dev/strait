@@ -8,6 +8,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Client construction edge cases
@@ -22,12 +25,11 @@ func TestNew_InvalidURL(t *testing.T) {
 		URL:      "clickhouse://host:9000" + string([]byte{0x7f}),
 		Database: "testdb",
 	}, nil)
-	if err == nil {
-		t.Fatal("expected error for invalid URL, got nil")
-	}
-	if !strings.Contains(err.Error(), "clickhouse") {
-		t.Errorf("expected error to mention clickhouse, got: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.
+		Error(),
+		"clickhouse"))
+
 }
 
 func TestNew_DefaultPoolSizes(t *testing.T) {
@@ -43,12 +45,9 @@ func TestNew_DefaultPoolSizes(t *testing.T) {
 	}
 	// sql.Open with the clickhouse driver succeeds even for unreachable hosts.
 	c, err := New(cfg, nil)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if c == nil {
-		t.Fatal("expected non-nil client")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
 	defer c.Close()
 }
 
@@ -56,16 +55,11 @@ func TestNew_NilLogger(t *testing.T) {
 	t.Parallel()
 
 	c, err := New(Config{Enabled: true, URL: "clickhouse://localhost:9000"}, nil)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if c == nil {
-		t.Fatal("expected non-nil client")
-		return
-	}
-	if c.logger == nil {
-		t.Error("expected default logger when nil is passed")
-	}
+	require.NoError(t, err)
+
+	require.NotNil(t, c)
+	assert.NotNil(t, c.logger)
+
 	defer c.Close()
 }
 
@@ -77,12 +71,9 @@ func TestNew_WithDatabase(t *testing.T) {
 		URL:      "clickhouse://localhost:9000",
 		Database: "testdb",
 	}, nil)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if c == nil {
-		t.Fatal("expected non-nil client")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, c)
+
 	defer c.Close()
 }
 
@@ -92,25 +83,24 @@ func TestBuildConnURL_MalformedURL(t *testing.T) {
 	t.Parallel()
 
 	_, err := buildConnURL("://broken", "db")
-	if err == nil {
-		t.Fatal("expected error for malformed URL")
-	}
+	require.Error(t, err)
+
 }
 
 func TestBuildConnURL_URLWithExistingParams(t *testing.T) {
 	t.Parallel()
 
 	got, err := buildConnURL("clickhouse://host:9000?timeout=5s", "mydb")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	assert.True(t, strings.Contains(got,
+		"timeout=5s",
+	))
+	assert.True(t, strings.Contains(got,
+		"database=mydb",
+	))
+
 	// Should contain both existing and new params.
-	if !strings.Contains(got, "timeout=5s") {
-		t.Errorf("expected existing param to be preserved, got %q", got)
-	}
-	if !strings.Contains(got, "database=mydb") {
-		t.Errorf("expected database param to be appended, got %q", got)
-	}
+
 }
 
 func TestBuildConnURL_EmptyURL(t *testing.T) {
@@ -118,12 +108,11 @@ func TestBuildConnURL_EmptyURL(t *testing.T) {
 
 	// Empty URL with a database should still work (url.Parse handles empty string).
 	got, err := buildConnURL("", "analytics")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(got, "database=analytics") {
-		t.Errorf("expected database in URL, got %q", got)
-	}
+	require.NoError(t, err)
+	assert.True(t, strings.Contains(got,
+		"database=analytics",
+	))
+
 }
 
 // Client nil-safety and error paths
@@ -132,33 +121,30 @@ func TestClient_HealthyWithNilDB(t *testing.T) {
 	t.Parallel()
 
 	c := &Client{db: nil, logger: slog.Default()}
-	if c.Healthy(context.Background()) {
-		t.Error("client with nil db should not be healthy")
-	}
+	assert.False(t, c.Healthy(context.
+		Background()))
+
 }
 
 func TestClient_CloseWithNilDB(t *testing.T) {
 	t.Parallel()
 
 	c := &Client{db: nil, logger: slog.Default()}
-	if err := c.Close(); err != nil {
-		t.Errorf("Close with nil db should return nil, got %v", err)
-	}
+	assert.NoError(t, c.Close())
+
 }
 
 func TestClient_DBReturnsUnderlyingDB(t *testing.T) {
 	t.Parallel()
 
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	defer db.Close()
 
 	c := &Client{db: db}
-	if c.DB() != db {
-		t.Error("DB() should return the underlying *sql.DB")
-	}
+	assert.Equal(t, db, c.DB())
+
 }
 
 func TestClient_Query_NilClient(t *testing.T) {
@@ -166,18 +152,12 @@ func TestClient_Query_NilClient(t *testing.T) {
 
 	var c *Client
 	rows, err := c.Query(context.Background(), "SELECT 1")
-	if err == nil {
-		if rows != nil {
-			defer rows.Close()
-			_ = rows.Err()
-		}
-		t.Fatal("expected error from nil client Query")
-	}
+	require.Error(t, err)
 	if rows != nil {
 		defer rows.Close()
 		_ = rows.Err()
-		t.Error("expected nil rows from nil client")
 	}
+	assert.Nil(t, rows)
 }
 
 func TestClient_Query_NilDB(t *testing.T) {
@@ -185,43 +165,34 @@ func TestClient_Query_NilDB(t *testing.T) {
 
 	c := &Client{db: nil}
 	rows, err := c.Query(context.Background(), "SELECT 1")
-	if err == nil {
-		if rows != nil {
-			defer rows.Close()
-			_ = rows.Err()
-		}
-		t.Fatal("expected error from nil-db client Query")
-	}
+	require.Error(t, err)
 	if rows != nil {
 		defer rows.Close()
 		_ = rows.Err()
-		t.Error("expected nil rows from nil-db client")
 	}
+	assert.Nil(t, rows)
 }
 
 func TestClient_Exec_ClosedDB(t *testing.T) {
 	t.Parallel()
 
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	db.Close()
 
 	c := &Client{db: db, logger: slog.Default()}
 	err = c.Exec(context.Background(), "SELECT 1")
-	if err == nil {
-		t.Error("expected error from exec on closed db")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestClient_Query_ClosedDB(t *testing.T) {
 	t.Parallel()
 
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	db.Close()
 
 	c := &Client{db: db, logger: slog.Default()}
@@ -230,18 +201,16 @@ func TestClient_Query_ClosedDB(t *testing.T) {
 		defer rows.Close()
 		_ = rows.Err()
 	}
-	if qErr == nil {
-		t.Error("expected error from query on closed db")
-	}
+	assert.NotNil(t, qErr)
+
 }
 
 func TestClient_Exec_CanceledContext(t *testing.T) {
 	t.Parallel()
 
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	defer db.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -249,22 +218,20 @@ func TestClient_Exec_CanceledContext(t *testing.T) {
 
 	c := &Client{db: db, logger: slog.Default()}
 	err = c.Exec(ctx, "SELECT 1")
-	if err == nil {
-		t.Error("expected error from exec with canceled context")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestClient_Healthy_ClosedDB(t *testing.T) {
 	t.Parallel()
 
 	db, err := sql.Open("clickhouse", "clickhouse://localhost:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	db.Close()
 
 	c := &Client{db: db, logger: slog.Default()}
-	if c.Healthy(context.Background()) {
-		t.Error("client with closed db should not be healthy")
-	}
+	assert.False(t, c.Healthy(context.
+		Background()))
+
 }
