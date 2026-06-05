@@ -341,6 +341,7 @@ func TestStripeSLAIssuer_MissingCustomerID_NoStripeCall(t *testing.T) {
 	require.Error(
 		t,
 		err)
+	require.Empty(t, id)
 	require.Len(t,
 
 		fake.snapshot(), 0)
@@ -449,6 +450,7 @@ func TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError(t *testing.T) {
 	require.Error(
 		t,
 		err)
+	require.Empty(t, id)
 	require.True(t,
 
 		strings.Contains(err.
