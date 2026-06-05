@@ -151,6 +151,7 @@ func TestPrometheusRules_RecordingRulesPresent(t *testing.T) {
 		"strait:http_request_p99_seconds5m":           {},
 		"strait:http_error_rate5m":                    {},
 		"strait:queue_depth":                          {},
+		"strait:pgque_consumer_lag_ticks":             {},
 		"strait:queue_oldest_queued_p95_seconds5m":    {},
 		"strait:queue_claim_p95_seconds5m":            {},
 		"strait:worker_dispatch_p95_seconds5m":        {},

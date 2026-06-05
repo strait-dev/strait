@@ -91,6 +91,28 @@ func (s *Server) handleEventTriggerStream(w http.ResponseWriter, r *http.Request
 	}
 	defer sub.Close()
 
+	trigger, err = s.resolveEventTriggerByKey(r.Context(), eventKey, projectID)
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to get event trigger")
+		return
+	}
+	if trigger == nil {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+	if err := requireProjectMatch(r.Context(), trigger.ProjectID); err != nil {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+	if err := requireEnvironmentMatch(r.Context(), trigger.EnvironmentID); err != nil {
+		respondError(w, r, http.StatusNotFound, "event trigger not found")
+		return
+	}
+	if trigger.Status != domain.EventTriggerStatusWaiting {
+		s.writeTerminalTriggerSSE(w, trigger)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -149,6 +171,8 @@ func (s *Server) writeTerminalTriggerSSE(w http.ResponseWriter, trigger *domain.
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
 	if data, err := json.Marshal(trigger); err == nil {

@@ -32,6 +32,7 @@ func TestIdempotency_HotKey_ExactlyOneWinner(t *testing.T) {
 	ctx := context.Background()
 	cleanIdempotencyKeys(t, ctx)
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 
 	const n = 64
 	projectID := "proj-hot-" + newID()
@@ -185,6 +186,7 @@ func TestIdempotency_CompletedReplayReturnsCachedResponse(t *testing.T) {
 	ctx := context.Background()
 	cleanIdempotencyKeys(t, ctx)
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 
 	projectID := "proj-replay-" + newID()
 	key := "key-replay-" + newID()

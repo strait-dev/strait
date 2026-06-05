@@ -162,15 +162,16 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 			expectCount:  "2",
 		},
 		{
-			name:         "different error resets count",
-			threshold:    new(3),
-			attempt:      3,
-			maxAttempts:  10,
-			prevHash:     endpointErrHash(500, "500 err"),
-			prevCount:    "2",
-			errInput:     &domain.EndpointError{StatusCode: 500, Body: "connection refused"},
-			expectStatus: domain.StatusQueued,
-			expectCount:  "1",
+			name:           "same endpoint status with different body still hits threshold",
+			threshold:      new(3),
+			attempt:        3,
+			maxAttempts:    10,
+			prevHash:       endpointErrHash(500, "500 err"),
+			prevCount:      "2",
+			errInput:       &domain.EndpointError{StatusCode: 500, Body: "connection refused"},
+			expectStatus:   domain.StatusDeadLetter,
+			expectPoisoned: true,
+			expectCount:    "3",
 		},
 		{
 			name:         "threshold nil (disabled)",
@@ -740,8 +741,8 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
 	})
 
-	// Previous error was "500: db timeout" (server class)
-	// Current error is "500: null pointer" (also server class, different message)
+	// Previous error was "500: db timeout" (server class).
+	// Current error is "500: null pointer" (same endpoint status, different body).
 	prevMsg := "500: db timeout"
 	run := &domain.JobRun{
 		ID: "run-1", JobID: "job-1", Attempt: 3,
@@ -758,15 +759,15 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 	last := calls[len(calls)-1]
 	assert.Equal(t,
 		domain.
-			StatusQueued,
+			StatusDeadLetter,
 		last.
 			to)
 
-	// Different messages -> different hashes -> count resets -> retries
-
 	meta, _ := last.fields["metadata"].(map[string]string)
 	assert.Equal(t,
-		"1", meta["_error_hash_count"])
+		"3", meta["_error_hash_count"])
+	errField, _ := last.fields["error"].(string)
+	assert.Contains(t, errField, "poison pill detected")
 }
 
 func TestPoisonPill_DLQFieldsCorrect(t *testing.T) {
@@ -1012,7 +1013,7 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	assert.Contains(t, errField, "poison pill detected")
 }
 
-func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
+func TestPoisonPill_Integration_VaryingEndpointBodiesCannotBypassThreshold(t *testing.T) {
 	t.Parallel()
 	st := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
@@ -1026,7 +1027,7 @@ func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
 	meta := map[string]string{}
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 3; i++ {
 		errBody := fmt.Sprintf("error variant %d", i)
 		run := &domain.JobRun{
 			ID: "run-1", JobID: "job-1", Attempt: i,
@@ -1036,16 +1037,19 @@ func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
 
 		calls := st.statusUpdates()
 		last := calls[len(calls)-1]
+		wantStatus := domain.StatusQueued
+		if i == 3 {
+			wantStatus = domain.StatusDeadLetter
+		}
 		require.Equal(t,
-			domain.
-				StatusQueued,
+			wantStatus,
 			last.
 				to)
 
 		// Update meta for next iteration
 		meta, _ = last.fields["metadata"].(map[string]string)
 		require.Equal(t,
-			"1", meta["_error_hash_count"])
+			fmt.Sprintf("%d", i), meta["_error_hash_count"])
 	}
 }
 
@@ -1062,18 +1066,24 @@ func TestPoisonPill_Integration_ErrorThenRecoveryThenSameError(t *testing.T) {
 	}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	// Sequence: error A x2, error B x1, error A x2
-	// Expected counts: 1, 2, 1(reset), 1, 2
-	errors := []string{"error A", "error A", "error B", "error A", "error A"}
+	// Sequence: status 500 x2, status 503 x1, status 500 x2.
+	// Different endpoint statuses produce different poison hashes.
+	errors := []domain.EndpointError{
+		{StatusCode: 500, Body: "error A"},
+		{StatusCode: 500, Body: "error A changed"},
+		{StatusCode: 503, Body: "error B"},
+		{StatusCode: 500, Body: "error A returns"},
+		{StatusCode: 500, Body: "error A changed again"},
+	}
 	expectedCounts := []string{"1", "2", "1", "1", "2"}
 
 	meta := map[string]string{}
-	for i, errBody := range errors {
+	for i, endpointErr := range errors {
 		run := &domain.JobRun{
 			ID: "run-1", JobID: "job-1", Attempt: i + 1,
 			Metadata: copyMap(meta),
 		}
-		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errBody}, nil)
+		exec.handleFailure(context.Background(), run, job, policy, &endpointErr, nil)
 
 		calls := st.statusUpdates()
 		last := calls[len(calls)-1]

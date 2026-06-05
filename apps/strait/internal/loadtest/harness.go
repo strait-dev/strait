@@ -629,7 +629,7 @@ func (h *Harness) GetRun(ctx context.Context, runID string) (status string, err 
 
 // FindJobBySlug finds a job by slug and returns its UUID.
 func (h *Harness) FindJobBySlug(ctx context.Context, projectID, slug string) (string, error) {
-	url := fmt.Sprintf("%s/v1/jobs?slug=%s", h.Config.StraitURL, slug)
+	url := fmt.Sprintf("%s/v1/jobs?slug=%s", h.Config.StraitURL, url.QueryEscape(slug))
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err

@@ -228,8 +228,6 @@ func TestCDC_DuplicateEvent(t *testing.T) {
 // TestCDC_BackpressureHandling verifies that when a handler returns errors,
 // the consumer nacks the failed messages.
 func TestCDC_BackpressureHandling(t *testing.T) {
-	t.Parallel()
-
 	var mu sync.Mutex
 	var nackIDs []string
 

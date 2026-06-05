@@ -8,7 +8,7 @@ import (
 )
 
 // SignWebhookRequest adds the canonical X-Strait-{Timestamp,Delivery-ID,Signature}
-// headers (plus X-Signature-256 for sha256 receivers) to req. The signature is
+// headers (plus X-Strait-Signature-256 for sha256 receivers) to req. The signature is
 // computed as HMAC-SHA256(secret, timestamp + "." + deliveryID + "." + body)
 // and emitted as the structured header "t=<ts>,d=<id>,v1=<hex>".
 //
@@ -30,5 +30,5 @@ func SignWebhookRequest(req *http.Request, secret []byte, body []byte, deliveryI
 	req.Header.Set("X-Strait-Timestamp", timestamp)
 	req.Header.Set("X-Strait-Delivery-ID", deliveryID)
 	req.Header.Set("X-Strait-Signature", "t="+timestamp+",d="+deliveryID+",v1="+sig)
-	req.Header.Set("X-Signature-256", "sha256="+sig)
+	req.Header.Set("X-Strait-Signature-256", "sha256="+sig)
 }

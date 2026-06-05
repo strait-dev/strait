@@ -353,7 +353,7 @@ func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T)
 		"postgres://localhost/strait?sslmode=disable",
 
 		"development"))
-	require.NoError(t, validateMigrationDatabaseURL(
+	require.Error(t, validateMigrationDatabaseURL(
 		"postgres://localhost/strait?sslmode=disable",
 
 		""))

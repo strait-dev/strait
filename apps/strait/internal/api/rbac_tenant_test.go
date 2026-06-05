@@ -95,10 +95,10 @@ func TestHandleDeleteSecret_CrossProjectBlocked(t *testing.T) {
 
 	deleteCalled := false
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: id, ProjectID: "proj-other", SecretKey: "KEY"}, nil
 		},
-		DeleteJobSecretFunc: func(_ context.Context, _ string) error {
+		DeleteJobSecretFunc: func(_ context.Context, _ string, _ string) error {
 			deleteCalled = true
 			return nil
 		},
@@ -117,10 +117,10 @@ func TestHandleDeleteSecret_SameProjectAllowed(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: id, ProjectID: "proj-mine", SecretKey: "KEY"}, nil
 		},
-		DeleteJobSecretFunc: func(_ context.Context, _ string) error {
+		DeleteJobSecretFunc: func(_ context.Context, _ string, _ string) error {
 			return nil
 		},
 	}

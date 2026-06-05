@@ -2827,7 +2827,7 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	}
 	require.Error(t, q.CreateJobSecret(ctx, dupSecret))
 
-	gotJobSecret, err := q.GetJobSecret(ctx, jobSecret.ID)
+	gotJobSecret, err := q.GetJobSecret(ctx, jobSecret.ID, jobSecret.ProjectID)
 	require.NoError(t, err)
 	require.False(t, gotJobSecret.
 		ID !=
@@ -2844,10 +2844,10 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 	require.Equal(t, "job-value",
 
 		gotJobSecret.
-			EncryptedValue,
+			Value,
 	)
 
-	_, err = q.GetJobSecret(ctx, newID())
+	_, err = q.GetJobSecret(ctx, newID(), projectID)
 	require.True(t, errors.Is(err, store.
 		ErrJobSecretNotFound,
 	))
@@ -2884,14 +2884,15 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		0)
 	require.NoError(t, q.DeleteJobSecret(ctx,
 		jobSecret.ID,
+		jobSecret.ProjectID,
 	))
 
-	_, err = q.GetJobSecret(ctx, jobSecret.ID)
+	_, err = q.GetJobSecret(ctx, jobSecret.ID, jobSecret.ProjectID)
 	require.True(t, errors.Is(err, store.
 		ErrJobSecretNotFound,
 	))
 
-	if err := q.DeleteJobSecret(ctx, newID()); !errors.Is(err, store.ErrJobSecretNotFound) {
+	if err := q.DeleteJobSecret(ctx, newID(), projectID); !errors.Is(err, store.ErrJobSecretNotFound) {
 		require.Failf(t, "test failure",
 
 			"DeleteJobSecret(not found) error = %v, want ErrJobSecretNotFound", err)
@@ -2922,16 +2923,16 @@ func TestSecret_JobSecretDecryptsWithOldEncryptionKey(t *testing.T) {
 	newQ.SetSecretEncryptionKey("new-secret-encryption-key")
 	newQ.SetOldSecretEncryptionKeys([]string{"old-secret-encryption-key"})
 
-	got, err := newQ.GetJobSecret(ctx, secret.ID)
+	got, err := newQ.GetJobSecret(ctx, secret.ID, secret.ProjectID)
 	require.NoError(t, err)
 	require.Equal(t, "legacy-value",
 
-		got.EncryptedValue,
+		got.Value,
 	)
 
 	withoutOld := mustStore(t)
 	withoutOld.SetSecretEncryptionKey("new-secret-encryption-key")
-	if _, err := withoutOld.GetJobSecret(ctx, secret.ID); err == nil {
+	if _, err := withoutOld.GetJobSecret(ctx, secret.ID, secret.ProjectID); err == nil {
 		require.Fail(t,
 
 			"GetJobSecret(without old key) error = nil, want decrypt failure")
@@ -3946,7 +3947,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 	require.False(t, env.UpdatedAt.
 		IsZero())
 
-	gotEnv, err := q.GetEnvironment(ctx, env.ID)
+	gotEnv, err := q.GetEnvironment(ctx, env.ID, projectID)
 	require.NoError(t, err)
 	require.False(t, gotEnv.
 		ID != env.
@@ -3983,7 +3984,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 	require.NoError(t, q.UpdateEnvironment(ctx,
 		env))
 
-	updated, err := q.GetEnvironment(ctx, env.ID)
+	updated, err := q.GetEnvironment(ctx, env.ID, projectID)
 	require.NoError(t, err)
 	require.False(t, updated.
 		Name !=
@@ -4006,16 +4007,15 @@ func TestEnvironment_CRUD(t *testing.T) {
 				Variables[k])
 
 	}
-	require.NoError(t, q.DeleteEnvironment(ctx,
-		env.ID))
+	require.NoError(t, q.DeleteEnvironment(ctx, env.ID, projectID))
 
-	if _, err := q.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if _, err := q.GetEnvironment(ctx, env.ID, projectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		require.Failf(t, "test failure",
 
 			"GetEnvironment() after delete error = %v, want ErrEnvironmentNotFound", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if _, err := q.GetEnvironment(ctx, newID(), projectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		require.Failf(t, "test failure",
 
 			"GetEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
@@ -4028,7 +4028,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 			"UpdateEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
 	}
 
-	if err := q.DeleteEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if err := q.DeleteEnvironment(ctx, newID(), projectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		require.Failf(t, "test failure",
 
 			"DeleteEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
@@ -5745,6 +5745,41 @@ func TestRunMgmt_ListStaleRuns_ExcludesWorkerMode(t *testing.T) {
 
 }
 
+func TestRunMgmt_ListStaleRuns_IncludesActiveClaimOverlay(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-list-stale-active-claim")
+
+	stale := baseRun(job, newID())
+	stale.Status = domain.StatusQueued
+	require.NoError(t, q.CreateRun(ctx, stale))
+	fresh := baseRun(job, newID())
+	fresh.Status = domain.StatusQueued
+	require.NoError(t, q.CreateRun(ctx, fresh))
+
+	insertActiveClaim := func(runID string, startedAt time.Time) {
+		t.Helper()
+		_, err := testDB.Pool.Exec(ctx, `
+			INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+			SELECT run_id, ready_generation, attempt, $2
+			FROM job_run_state
+			WHERE run_id = $1`,
+			runID, startedAt,
+		)
+		require.NoErrorf(t, err, "insert active claim for %s", runID)
+	}
+	insertActiveClaim(stale.ID, time.Now().UTC().Add(-15*time.Minute))
+	insertActiveClaim(fresh.ID, time.Now().UTC().Add(-1*time.Minute))
+
+	runs, err := q.ListStaleRuns(ctx, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, stale.ID, runs[0].ID)
+	require.Equal(t, domain.StatusExecuting, runs[0].Status)
+}
+
 func TestRunMgmt_ListDueRuns(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
@@ -5824,6 +5859,19 @@ func TestRunMgmt_ListExpiredRuns(t *testing.T) {
 		expiredExecuting,
 	),
 	)
+
+	expiredActiveClaim := baseRun(job, newID())
+	expiredActiveClaim.Status = domain.StatusQueued
+	expiredActiveClaim.ExpiresAt = &past
+	require.NoError(t, q.CreateRun(ctx, expiredActiveClaim))
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		SELECT run_id, ready_generation, attempt, NOW()
+		FROM job_run_state
+		WHERE run_id = $1`,
+		expiredActiveClaim.ID,
+	)
+	require.NoError(t, err)
 
 	runs, err := q.ListExpiredRuns(ctx)
 	require.NoError(t, err)

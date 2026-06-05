@@ -17,6 +17,9 @@ groups:
       - record: strait:queue_depth
         expr: sum(strait_queue_depth)
 
+      - record: strait:pgque_consumer_lag_ticks
+        expr: max(strait_queue_pgque_consumer_lag_ticks)
+
       - record: strait:queue_oldest_queued_p95_seconds5m
         expr: histogram_quantile(0.95, sum(rate(strait_queue_oldest_queued_age_seconds_bucket[5m])) by (le))
 
@@ -123,6 +126,21 @@ groups:
             Max queue depth has exceeded 10000 for 5 minutes. The hottest
             partition is backing up and workers may not be keeping pace
             with enqueue rate.
+
+      - alert: StraitPgQueConsumerLagHigh
+        expr: strait:pgque_consumer_lag_ticks > 30
+        for: 5m
+        labels:
+          app: strait
+          owner: platform
+          severity: page
+        annotations:
+          summary: Strait PgQue consumer is behind
+          description: |
+            The PgQue consumer has been more than 30 ticks behind the
+            latest queue tick for 5 minutes. Queue depth can remain below
+            the generic depth alert while workers are stuck catching up
+            through historical batches.
 
       - alert: StraitDLQGrowing
         # strait_dlq_depth is a gauge, so rate() is ill-defined. Use

@@ -94,19 +94,19 @@ type JobGroupStats struct {
 
 type EnvironmentStore interface {
 	CreateEnvironment(ctx context.Context, env *domain.Environment) error
-	GetEnvironment(ctx context.Context, id string) (*domain.Environment, error)
+	GetEnvironment(ctx context.Context, id, projectID string) (*domain.Environment, error)
 	ListEnvironments(ctx context.Context, projectID string, limit int, cursor *time.Time) ([]domain.Environment, error)
 	UpdateEnvironment(ctx context.Context, env *domain.Environment) error
-	DeleteEnvironment(ctx context.Context, id string) error
+	DeleteEnvironment(ctx context.Context, id, projectID string) error
 	GetResolvedEnvironmentVariables(ctx context.Context, id string) (map[string]string, error)
 	CreateStandardEnvironments(ctx context.Context, projectID string) error
 }
 
 type JobSecretStore interface {
 	CreateJobSecret(ctx context.Context, secret *domain.JobSecret) error
-	GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error)
+	GetJobSecret(ctx context.Context, id, projectID string) (*domain.JobSecret, error)
 	ListJobSecrets(ctx context.Context, projectID, jobID, environment string, limit int, cursor *time.Time) ([]domain.JobSecret, error)
-	DeleteJobSecret(ctx context.Context, id string) error
+	DeleteJobSecret(ctx context.Context, id, projectID string) error
 	ListJobSecretsByJob(ctx context.Context, jobID, environment string) ([]domain.JobSecret, error)
 }
 

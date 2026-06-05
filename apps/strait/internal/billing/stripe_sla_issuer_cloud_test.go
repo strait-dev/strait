@@ -164,24 +164,20 @@ func TestStripeSLAIssuer_OpenInvoice_IssuesCreditNote(t *testing.T) {
 
 				r.IdempotencyKey,
 			)
-			require.True(t,
+			require.Contains(t,
 
-				strings.Contains(r.
-					Body, "invoice=in_test_open",
-				))
-			require.True(t,
+				r.
+					Body, "invoice=in_test_open")
+			require.Contains(t,
 
-				strings.Contains(r.
-					Body, "amount=5000",
-				))
-
+				r.
+					Body, "amount=5000")
 		}
 	}
 	require.True(t,
 
 		sawCreditNote,
 	)
-
 }
 
 func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *testing.T) {
@@ -209,7 +205,6 @@ func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *t
 				r.Path ==
 					"/v1/credit_notes",
 		)
-
 	}
 	var sawCBT bool
 	for _, r := range reqs {
@@ -220,7 +215,6 @@ func TestDeepSecStripeSLAIssuer_OpenInvoiceBelowCreditFallsBackToBalanceTxn(t *t
 	require.True(t,
 
 		sawCBT)
-
 }
 
 // TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn guards the
@@ -257,7 +251,6 @@ func TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn(t *testing.T) {
 				r.Path ==
 					"/v1/credit_notes",
 		)
-
 	}
 	var sawCBT bool
 	for _, r := range reqs {
@@ -269,13 +262,11 @@ func TestStripeSLAIssuer_PaidInvoice_FallsThroughToBalanceTxn(t *testing.T) {
 
 				r.IdempotencyKey,
 			)
-
 		}
 	}
 	require.True(t,
 
 		sawCBT)
-
 }
 
 // TestStripeSLAIssuer_NoInvoice_FallsBackToBalanceTxn guards the
@@ -312,23 +303,19 @@ func TestStripeSLAIssuer_NoInvoice_FallsBackToBalanceTxn(t *testing.T) {
 
 				r.IdempotencyKey,
 			)
-			require.True(t,
+			require.Contains(t,
 
-				strings.Contains(r.
-					Body, "amount=-1250",
-				))
-			require.True(t,
+				r.
+					Body, "amount=-1250")
+			require.Contains(t,
 
-				strings.Contains(r.
-					Body, "currency=usd",
-				))
-
+				r.
+					Body, "currency=usd")
 		}
 	}
 	require.True(t,
 
 		sawCBT)
-
 }
 
 // TestStripeSLAIssuer_MissingCustomerID_NoStripeCall ensures we never
@@ -341,10 +328,10 @@ func TestStripeSLAIssuer_MissingCustomerID_NoStripeCall(t *testing.T) {
 	require.Error(
 		t,
 		err)
-	require.Len(t,
+	require.Empty(t, id)
+	require.Empty(t,
 
-		fake.snapshot(), 0)
-
+		fake.snapshot())
 }
 
 // TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls guards the
@@ -382,7 +369,6 @@ func TestStripeSLAIssuer_IdempotencyKeyStableAcrossCalls(t *testing.T) {
 		t,
 		keys[1],
 		keys[0])
-
 }
 
 func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
@@ -429,7 +415,6 @@ func TestStripeSLAIssuer_InvoiceLookupConstrainedToSLAPeriod(t *testing.T) {
 		"cus_period",
 		invoiceQuery.
 			Get("customer"))
-
 }
 
 // TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError guards the
@@ -449,13 +434,11 @@ func TestStripeSLAIssuer_StripeFailure_PropagatesWrappedError(t *testing.T) {
 	require.Error(
 		t,
 		err)
-	require.True(t,
+	require.Empty(t, id)
+	require.Contains(t,
 
-		strings.Contains(err.
-			Error(),
-			"create credit note",
-		))
-
+		err.
+			Error(), "create credit note")
 }
 
 // TestStripeSLAIssuer_StoreError_NoStripeCall guards the lookup-failure
@@ -466,13 +449,12 @@ func TestStripeSLAIssuer_StoreError_NoStripeCall(t *testing.T) {
 	issuer := newTestIssuer(stubLookup{err: sentinel})
 
 	_, err := issuer.IssueCredit(context.Background(), "org-1", 1_000_000, time.Now().UTC())
-	require.True(t,
+	require.ErrorIs(t,
 
-		errors.Is(err, sentinel))
-	require.Len(t,
+		err, sentinel)
+	require.Empty(t,
 
-		fake.snapshot(), 0)
-
+		fake.snapshot())
 }
 
 // TestStripeSLAIssuer_RoundsMicrousdToCents pins the rounding contract.
@@ -497,7 +479,6 @@ func TestStripeSLAIssuer_RoundsMicrousdToCents(t *testing.T) {
 			c.want,
 			microusdToCents(c.in),
 		)
-
 	}
 }
 
@@ -510,5 +491,4 @@ func TestSLACreditPeriodLabel_UsesExclusivePeriodEnd(t *testing.T) {
 		slaCreditPeriodLabel(
 			periodEnd,
 		))
-
 }

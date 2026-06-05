@@ -117,6 +117,14 @@ func TestPgQueBackgroundErrorIncrementsBoundedCounter(t *testing.T) {
 		"other"))
 }
 
+func TestPgQueConsumerLagRecordsGauge(t *testing.T) {
+	reader := setupQueueMetricsReader(t)
+
+	recordPgQueConsumerLag(context.Background(), 17)
+
+	require.Equal(t, int64(17), pgQueConsumerLagValue(t, reader))
+}
+
 func setupQueueMetricsReader(t *testing.T) *sdkmetric.ManualReader {
 	t.Helper()
 	oldProvider := otel.GetMeterProvider()
@@ -159,6 +167,27 @@ func pgQueBackgroundErrorSum(t *testing.T, reader *sdkmetric.ManualReader, opera
 				}
 			}
 			return total
+		}
+	}
+	return 0
+}
+
+func pgQueConsumerLagValue(t *testing.T, reader *sdkmetric.ManualReader) int64 {
+	t.Helper()
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "strait_queue_pgque_consumer_lag_ticks" {
+				continue
+			}
+			data, ok := m.Data.(metricdata.Gauge[int64])
+			require.Truef(t, ok, "pgque consumer lag data = %T, want Gauge[int64]", m.Data)
+			if len(data.DataPoints) == 0 {
+				return 0
+			}
+			return data.DataPoints[len(data.DataPoints)-1].Value
 		}
 	}
 	return 0

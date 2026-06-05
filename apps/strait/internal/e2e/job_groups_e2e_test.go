@@ -306,7 +306,7 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 
 	projectID := "proj-env-create-" + newID()
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Development","slug":"dev-%s","variables":{"REGION":"us-east-1"}}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -315,7 +315,7 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 	created := mustDecodeObject(t, w)
 	envID := asString(t, created, "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "", projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -325,7 +325,7 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 
 		asString(t, env, "id"))
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -347,21 +347,21 @@ func TestE2E_Environment_ListByProject(t *testing.T) {
 	otherProjectID := "proj-env-list-other-" + newID()
 
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Dev","slug":"dev-%s"}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
 	)
 
 	w = doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Prod","slug":"prod-%s"}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
 	)
 
 	w = doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Other","slug":"other-%s"}`,
-		otherProjectID, newID()))
+		otherProjectID, newID()), otherProjectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -384,7 +384,7 @@ func TestE2E_Environment_Inheritance(t *testing.T) {
 
 	projectID := "proj-env-inherit-" + newID()
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Base","slug":"base-%s","variables":{"A":"1","B":"2"}}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -393,7 +393,7 @@ func TestE2E_Environment_Inheritance(t *testing.T) {
 	parentID := asString(t, mustDecodeObject(t, w), "id")
 
 	w = doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Child","slug":"child-%s","parent_id":"%s","variables":{"B":"child","C":"3"}}`,
-		projectID, newID(), parentID))
+		projectID, newID(), parentID), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -401,7 +401,7 @@ func TestE2E_Environment_Inheritance(t *testing.T) {
 
 	childID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+childID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+childID+"/variables", "", projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -432,7 +432,7 @@ func TestE2E_Environment_Delete(t *testing.T) {
 
 	projectID := "proj-env-delete-" + newID()
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Temp","slug":"temp-%s"}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -440,13 +440,13 @@ func TestE2E_Environment_Delete(t *testing.T) {
 
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodDelete, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodDelete, "/v1/environments/"+envID, "", projectID)
 	require.Equal(t, http.
 		StatusNoContent,
 		w.Code,
 	)
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "", projectID)
 	require.Equal(t, http.
 		StatusNotFound,
 		w.Code,
@@ -459,7 +459,7 @@ func TestE2E_Environment_Update(t *testing.T) {
 
 	projectID := "proj-env-update-" + newID()
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Old","slug":"old-%s","variables":{"LOG_LEVEL":"info"}}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -467,7 +467,7 @@ func TestE2E_Environment_Update(t *testing.T) {
 
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodPatch, "/v1/environments/"+envID, `{"name":"New","slug":"new-slug","variables":{"LOG_LEVEL":"debug","REGION":"eu"}}`)
+	w = doRequest(t, http.MethodPatch, "/v1/environments/"+envID, `{"name":"New","slug":"new-slug","variables":{"LOG_LEVEL":"debug","REGION":"eu"}}`, projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -479,7 +479,7 @@ func TestE2E_Environment_Update(t *testing.T) {
 			"name",
 		))
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -498,7 +498,7 @@ func TestE2E_Environment_ResolvedVariablesEndpoint(t *testing.T) {
 
 	projectID := "proj-env-vars-" + newID()
 	w := doRequest(t, http.MethodPost, "/v1/environments/", fmt.Sprintf(`{"project_id":"%s","name":"Base","slug":"base-%s","variables":{"TOKEN":"abc"}}`,
-		projectID, newID()))
+		projectID, newID()), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -506,7 +506,7 @@ func TestE2E_Environment_ResolvedVariablesEndpoint(t *testing.T) {
 
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	require.Equal(t, http.
 		StatusOK,
 		w.Code)
@@ -771,7 +771,7 @@ func TestE2E_Secret_CreateAndList(t *testing.T) {
 
 	secretBody := fmt.Sprintf(`{"project_id":"%s","job_id":"%s","environment":"dev","secret_key":"API_KEY","value":"super-secret"}`,
 		projectID, jobID)
-	w := doRequest(t, http.MethodPost, "/v1/secrets/", secretBody)
+	w := doRequest(t, http.MethodPost, "/v1/secrets/", secretBody, projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -812,7 +812,7 @@ func TestE2E_Secret_Delete(t *testing.T) {
 	jobID := asString(t, job, "id")
 
 	w := doRequest(t, http.MethodPost, "/v1/secrets/", fmt.Sprintf(`{"project_id":"%s","job_id":"%s","environment":"dev","secret_key":"TOKEN","value":"abc123"}`,
-		projectID, jobID))
+		projectID, jobID), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,
@@ -820,7 +820,7 @@ func TestE2E_Secret_Delete(t *testing.T) {
 
 	secretID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodDelete, "/v1/secrets/"+secretID, "")
+	w = doRequest(t, http.MethodDelete, "/v1/secrets/"+secretID, "", projectID)
 	require.Equal(t, http.
 		StatusNoContent,
 		w.Code,
@@ -846,7 +846,7 @@ func TestE2E_Secret_DefaultEnvironment(t *testing.T) {
 	jobID := asString(t, job, "id")
 
 	w := doRequest(t, http.MethodPost, "/v1/secrets/", fmt.Sprintf(`{"project_id":"%s","job_id":"%s","secret_key":"DB_URL","value":"postgres://x"}`,
-		projectID, jobID))
+		projectID, jobID), projectID)
 	require.Equal(t, http.
 		StatusCreated,
 		w.Code,

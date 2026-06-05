@@ -230,7 +230,7 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteAuditEventDeadletterFunc: func(ctx context.Context, id string, projectID string) error {
 //				panic("mock out the DeleteAuditEventDeadletter method")
 //			},
-//			DeleteEnvironmentFunc: func(ctx context.Context, id string) error {
+//			DeleteEnvironmentFunc: func(ctx context.Context, id string, projectID string) error {
 //				panic("mock out the DeleteEnvironment method")
 //			},
 //			DeleteEventSourceFunc: func(ctx context.Context, sourceID string, projectID string) error {
@@ -257,7 +257,7 @@ var _ APIStore = &APIStoreMock{}
 //			DeleteJobMemoryFunc: func(ctx context.Context, jobID string, key string) error {
 //				panic("mock out the DeleteJobMemory method")
 //			},
-//			DeleteJobSecretFunc: func(ctx context.Context, id string) error {
+//			DeleteJobSecretFunc: func(ctx context.Context, id string, projectID string) error {
 //				panic("mock out the DeleteJobSecret method")
 //			},
 //			DeleteLogDrainFunc: func(ctx context.Context, drainID string, projectID string) error {
@@ -353,7 +353,7 @@ var _ APIStore = &APIStoreMock{}
 //			GetDeviceCodeByUserCodeFunc: func(ctx context.Context, userCode string) (*store.DeviceCodeRow, error) {
 //				panic("mock out the GetDeviceCodeByUserCode method")
 //			},
-//			GetEnvironmentFunc: func(ctx context.Context, id string) (*domain.Environment, error) {
+//			GetEnvironmentFunc: func(ctx context.Context, id string, projectID string) (*domain.Environment, error) {
 //				panic("mock out the GetEnvironment method")
 //			},
 //			GetEventSourceFunc: func(ctx context.Context, sourceID string, projectID string) (*domain.EventSource, error) {
@@ -395,7 +395,7 @@ var _ APIStore = &APIStoreMock{}
 //			GetJobMemoryFunc: func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error) {
 //				panic("mock out the GetJobMemory method")
 //			},
-//			GetJobSecretFunc: func(ctx context.Context, id string) (*domain.JobSecret, error) {
+//			GetJobSecretFunc: func(ctx context.Context, id string, projectID string) (*domain.JobSecret, error) {
 //				panic("mock out the GetJobSecret method")
 //			},
 //			GetJobVersionByVersionIDFunc: func(ctx context.Context, versionID string) (*domain.JobVersion, error) {
@@ -1087,7 +1087,7 @@ type APIStoreMock struct {
 	DeleteAuditEventDeadletterFunc func(ctx context.Context, id string, projectID string) error
 
 	// DeleteEnvironmentFunc mocks the DeleteEnvironment method.
-	DeleteEnvironmentFunc func(ctx context.Context, id string) error
+	DeleteEnvironmentFunc func(ctx context.Context, id string, projectID string) error
 
 	// DeleteEventSourceFunc mocks the DeleteEventSource method.
 	DeleteEventSourceFunc func(ctx context.Context, sourceID string, projectID string) error
@@ -1114,7 +1114,7 @@ type APIStoreMock struct {
 	DeleteJobMemoryFunc func(ctx context.Context, jobID string, key string) error
 
 	// DeleteJobSecretFunc mocks the DeleteJobSecret method.
-	DeleteJobSecretFunc func(ctx context.Context, id string) error
+	DeleteJobSecretFunc func(ctx context.Context, id string, projectID string) error
 
 	// DeleteLogDrainFunc mocks the DeleteLogDrain method.
 	DeleteLogDrainFunc func(ctx context.Context, drainID string, projectID string) error
@@ -1210,7 +1210,7 @@ type APIStoreMock struct {
 	GetDeviceCodeByUserCodeFunc func(ctx context.Context, userCode string) (*store.DeviceCodeRow, error)
 
 	// GetEnvironmentFunc mocks the GetEnvironment method.
-	GetEnvironmentFunc func(ctx context.Context, id string) (*domain.Environment, error)
+	GetEnvironmentFunc func(ctx context.Context, id string, projectID string) (*domain.Environment, error)
 
 	// GetEventSourceFunc mocks the GetEventSource method.
 	GetEventSourceFunc func(ctx context.Context, sourceID string, projectID string) (*domain.EventSource, error)
@@ -1252,7 +1252,7 @@ type APIStoreMock struct {
 	GetJobMemoryFunc func(ctx context.Context, jobID string, key string) (*domain.JobMemory, error)
 
 	// GetJobSecretFunc mocks the GetJobSecret method.
-	GetJobSecretFunc func(ctx context.Context, id string) (*domain.JobSecret, error)
+	GetJobSecretFunc func(ctx context.Context, id string, projectID string) (*domain.JobSecret, error)
 
 	// GetJobVersionByVersionIDFunc mocks the GetJobVersionByVersionID method.
 	GetJobVersionByVersionIDFunc func(ctx context.Context, versionID string) (*domain.JobVersion, error)
@@ -2309,6 +2309,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// DeleteEventSource holds details about calls to the DeleteEventSource method.
 		DeleteEventSource []struct {
@@ -2384,6 +2386,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// DeleteLogDrain holds details about calls to the DeleteLogDrain method.
 		DeleteLogDrain []struct {
@@ -2658,6 +2662,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// GetEventSource holds details about calls to the GetEventSource method.
 		GetEventSource []struct {
@@ -2770,6 +2776,8 @@ type APIStoreMock struct {
 			Ctx context.Context
 			// ID is the id argument value.
 			ID string
+			// ProjectID is the projectID argument value.
+			ProjectID string
 		}
 		// GetJobVersionByVersionID holds details about calls to the GetJobVersionByVersionID method.
 		GetJobVersionByVersionID []struct {
@@ -7519,13 +7527,15 @@ func (mock *APIStoreMock) DeleteAuditEventDeadletterCalls() []struct {
 }
 
 // DeleteEnvironment calls DeleteEnvironmentFunc.
-func (mock *APIStoreMock) DeleteEnvironment(ctx context.Context, id string) error {
+func (mock *APIStoreMock) DeleteEnvironment(ctx context.Context, id string, projectID string) error {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
 	}
 	mock.lockDeleteEnvironment.Lock()
 	mock.calls.DeleteEnvironment = append(mock.calls.DeleteEnvironment, callInfo)
@@ -7536,7 +7546,7 @@ func (mock *APIStoreMock) DeleteEnvironment(ctx context.Context, id string) erro
 		)
 		return errOut
 	}
-	return mock.DeleteEnvironmentFunc(ctx, id)
+	return mock.DeleteEnvironmentFunc(ctx, id, projectID)
 }
 
 // DeleteEnvironmentCalls gets all the calls that were made to DeleteEnvironment.
@@ -7544,12 +7554,14 @@ func (mock *APIStoreMock) DeleteEnvironment(ctx context.Context, id string) erro
 //
 //	len(mockedAPIStore.DeleteEnvironmentCalls())
 func (mock *APIStoreMock) DeleteEnvironmentCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ID        string
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}
 	mock.lockDeleteEnvironment.RLock()
 	calls = mock.calls.DeleteEnvironment
@@ -7896,13 +7908,15 @@ func (mock *APIStoreMock) DeleteJobMemoryCalls() []struct {
 }
 
 // DeleteJobSecret calls DeleteJobSecretFunc.
-func (mock *APIStoreMock) DeleteJobSecret(ctx context.Context, id string) error {
+func (mock *APIStoreMock) DeleteJobSecret(ctx context.Context, id string, projectID string) error {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
 	}
 	mock.lockDeleteJobSecret.Lock()
 	mock.calls.DeleteJobSecret = append(mock.calls.DeleteJobSecret, callInfo)
@@ -7913,7 +7927,7 @@ func (mock *APIStoreMock) DeleteJobSecret(ctx context.Context, id string) error 
 		)
 		return errOut
 	}
-	return mock.DeleteJobSecretFunc(ctx, id)
+	return mock.DeleteJobSecretFunc(ctx, id, projectID)
 }
 
 // DeleteJobSecretCalls gets all the calls that were made to DeleteJobSecret.
@@ -7921,12 +7935,14 @@ func (mock *APIStoreMock) DeleteJobSecret(ctx context.Context, id string) error 
 //
 //	len(mockedAPIStore.DeleteJobSecretCalls())
 func (mock *APIStoreMock) DeleteJobSecretCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ID        string
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}
 	mock.lockDeleteJobSecret.RLock()
 	calls = mock.calls.DeleteJobSecret
@@ -9269,13 +9285,15 @@ func (mock *APIStoreMock) GetDeviceCodeByUserCodeCalls() []struct {
 }
 
 // GetEnvironment calls GetEnvironmentFunc.
-func (mock *APIStoreMock) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
+func (mock *APIStoreMock) GetEnvironment(ctx context.Context, id string, projectID string) (*domain.Environment, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
 	}
 	mock.lockGetEnvironment.Lock()
 	mock.calls.GetEnvironment = append(mock.calls.GetEnvironment, callInfo)
@@ -9287,7 +9305,7 @@ func (mock *APIStoreMock) GetEnvironment(ctx context.Context, id string) (*domai
 		)
 		return environmentOut, errOut
 	}
-	return mock.GetEnvironmentFunc(ctx, id)
+	return mock.GetEnvironmentFunc(ctx, id, projectID)
 }
 
 // GetEnvironmentCalls gets all the calls that were made to GetEnvironment.
@@ -9295,12 +9313,14 @@ func (mock *APIStoreMock) GetEnvironment(ctx context.Context, id string) (*domai
 //
 //	len(mockedAPIStore.GetEnvironmentCalls())
 func (mock *APIStoreMock) GetEnvironmentCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ID        string
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}
 	mock.lockGetEnvironment.RLock()
 	calls = mock.calls.GetEnvironment
@@ -9867,13 +9887,15 @@ func (mock *APIStoreMock) GetJobMemoryCalls() []struct {
 }
 
 // GetJobSecret calls GetJobSecretFunc.
-func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error) {
+func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string, projectID string) (*domain.JobSecret, error) {
 	callInfo := struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}{
-		Ctx: ctx,
-		ID:  id,
+		Ctx:       ctx,
+		ID:        id,
+		ProjectID: projectID,
 	}
 	mock.lockGetJobSecret.Lock()
 	mock.calls.GetJobSecret = append(mock.calls.GetJobSecret, callInfo)
@@ -9885,7 +9907,7 @@ func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string) (*domain.
 		)
 		return jobSecretOut, errOut
 	}
-	return mock.GetJobSecretFunc(ctx, id)
+	return mock.GetJobSecretFunc(ctx, id, projectID)
 }
 
 // GetJobSecretCalls gets all the calls that were made to GetJobSecret.
@@ -9893,12 +9915,14 @@ func (mock *APIStoreMock) GetJobSecret(ctx context.Context, id string) (*domain.
 //
 //	len(mockedAPIStore.GetJobSecretCalls())
 func (mock *APIStoreMock) GetJobSecretCalls() []struct {
-	Ctx context.Context
-	ID  string
+	Ctx       context.Context
+	ID        string
+	ProjectID string
 } {
 	var calls []struct {
-		Ctx context.Context
-		ID  string
+		Ctx       context.Context
+		ID        string
+		ProjectID string
 	}
 	mock.lockGetJobSecret.RLock()
 	calls = mock.calls.GetJobSecret

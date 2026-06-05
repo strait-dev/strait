@@ -1663,7 +1663,7 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 			got.LastError, leaked)
 	}
 	require.Contains(t,
-		got.LastError, "connection refused")
+		got.LastError, "request failed")
 }
 
 func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {

@@ -36,7 +36,7 @@ func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
 	assert.Equal(t, deliveryID, req.Header.Get("X-Strait-Delivery-ID"))
 	wantStructured := "t=" + timestamp + ",d=" + deliveryID + ",v1=" + wantSig
 	assert.Equal(t, wantStructured, req.Header.Get("X-Strait-Signature"))
-	assert.Equal(t, "sha256="+wantSig, req.Header.Get("X-Signature-256"))
+	assert.Equal(t, "sha256="+wantSig, req.Header.Get("X-Strait-Signature-256"))
 }
 
 func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
@@ -45,7 +45,7 @@ func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
 	SignWebhookRequest(req, nil, []byte("body"), "id", "ts")
 	SignWebhookRequest(req, []byte{}, []byte("body"), "id", "ts")
-	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Signature-256"} {
+	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Strait-Signature-256"} {
 		assert.Empty(t, req.Header.Get(h), "header %s", h)
 	}
 }

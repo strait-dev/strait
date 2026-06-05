@@ -84,6 +84,50 @@ type fuzzErrRow struct{ err error }
 
 func (r fuzzErrRow) Scan(_ ...any) error { return r.err }
 
+type fuzzCaptureTxBeginner struct {
+	capture *fuzzCaptureDB
+}
+
+func (b *fuzzCaptureTxBeginner) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return b.capture.Exec(ctx, sql, args...)
+}
+
+func (b *fuzzCaptureTxBeginner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return b.capture.Query(ctx, sql, args...)
+}
+
+func (b *fuzzCaptureTxBeginner) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return b.capture.QueryRow(ctx, sql, args...)
+}
+
+func (b *fuzzCaptureTxBeginner) Begin(context.Context) (pgx.Tx, error) {
+	return &fuzzCaptureTx{capture: b.capture}, nil
+}
+
+type fuzzCaptureTx struct {
+	pgx.Tx
+	capture *fuzzCaptureDB
+}
+
+func (t *fuzzCaptureTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(sql, "pg_advisory_xact_lock") {
+		return pgconn.CommandTag{}, nil
+	}
+	return t.capture.Exec(ctx, sql, args...)
+}
+
+func (t *fuzzCaptureTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return t.capture.Query(ctx, sql, args...)
+}
+
+func (t *fuzzCaptureTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return t.capture.QueryRow(ctx, sql, args...)
+}
+
+func (t *fuzzCaptureTx) Commit(context.Context) error { return nil }
+
+func (t *fuzzCaptureTx) Rollback(context.Context) error { return nil }
+
 // argsContain returns true if any of the captured args equals s.
 func argsContain(args []any, s string) bool {
 	for _, a := range args {
@@ -218,7 +262,7 @@ func FuzzTryAcquireIdempotencyKey_KeyPassthrough(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key string) {
 		capture := newFuzzCaptureDB()
-		q := New(capture)
+		q := New(&fuzzCaptureTxBeginner{capture: capture})
 		_, _, _, _, _ = q.TryAcquireIdempotencyKey(context.Background(), "proj-fuzz", key, time.Hour)
 		require.True(t,
 			argsContain(capture.

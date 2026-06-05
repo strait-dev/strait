@@ -110,7 +110,7 @@ func errorHash(errMsg string) string {
 func errorHashForError(err error) string {
 	var endpointErr *domain.EndpointError
 	if errors.As(err, &endpointErr) {
-		return errorHash(fmt.Sprintf("endpoint returned %d: %s", endpointErr.StatusCode, endpointErr.Body))
+		return errorHash(fmt.Sprintf("endpoint returned %d", endpointErr.StatusCode))
 	}
 	return errorHash(err.Error())
 }

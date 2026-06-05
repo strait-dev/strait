@@ -211,7 +211,7 @@ func (q *Queries) ExchangeDeviceCode(ctx context.Context, deviceCode string) (st
 	query := `
 		UPDATE cli_device_codes
 		SET status = 'used', raw_api_key = NULL
-		WHERE device_code = $1 AND status = 'approved'
+		WHERE device_code = $1 AND status = 'approved' AND expires_at > NOW()
 		RETURNING api_key_id`
 
 	var apiKeyID string

@@ -238,7 +238,7 @@ func TestAuditReadAccess_GetSecret(t *testing.T) {
 	var captured []domain.AuditEvent
 
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{
 				ID:        id,
 				ProjectID: "proj-1",

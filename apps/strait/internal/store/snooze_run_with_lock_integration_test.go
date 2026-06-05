@@ -45,6 +45,58 @@ func TestSnoozeRunWithLock_HappyPath(t *testing.T) {
 
 }
 
+func TestSnoozeRunWithLock_RequeuesActiveClaimOverlay(t *testing.T) {
+	ctx := context.Background()
+	q := mustStore(t)
+	mustClean(t, ctx)
+
+	job := mustCreateJob(t, ctx, q, "project-snooze-lock-active-claim")
+	run := baseRun(job, newID())
+	run.Status = domain.StatusQueued
+	require.NoError(t, q.CreateRun(ctx, run))
+
+	var beforeGeneration int64
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `
+		SELECT ready_generation
+		FROM job_run_state
+		WHERE run_id = $1`,
+		run.ID,
+	).Scan(&beforeGeneration))
+	started := time.Now().UTC().Add(-10 * time.Minute)
+	_, err := testDB.Pool.Exec(ctx, `
+		INSERT INTO job_run_active_claims (run_id, ready_generation, attempt, started_at)
+		VALUES ($1, $2, 1, $3)`,
+		run.ID, beforeGeneration, started,
+	)
+	require.NoError(t, err)
+
+	err = q.SnoozeRunWithLock(ctx, run.ID, domain.StatusExecuting, domain.StatusQueued, map[string]any{
+		"error":        nil,
+		"error_class":  nil,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"heartbeat_at": nil,
+	})
+	require.NoError(t, err)
+
+	var stateStatus domain.RunStatus
+	var afterGeneration int64
+	var activeClaims int
+	require.NoError(t, testDB.Pool.QueryRow(ctx, `
+		SELECT s.status, s.ready_generation,
+		       (SELECT COUNT(*) FROM job_run_active_claims WHERE run_id = s.run_id)
+		FROM job_run_state s
+		WHERE s.run_id = $1`,
+		run.ID,
+	).Scan(&stateStatus, &afterGeneration, &activeClaims))
+	require.Equal(t, domain.StatusQueued, stateStatus)
+	require.Equal(t, beforeGeneration+1, afterGeneration)
+	require.Equal(t, 1, activeClaims)
+	got, err := q.GetRun(ctx, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, domain.StatusQueued, got.Status)
+}
+
 // TestSnoozeRunWithLock_RunNotFound verifies a missing row surfaces
 // ErrRunNotFound rather than a generic error.
 func TestSnoozeRunWithLock_RunNotFound(t *testing.T) {

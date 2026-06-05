@@ -849,10 +849,10 @@ func TestHandleCreateProject_ForbiddenForAPIKeyAuth_Adversarial(t *testing.T) {
 func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: id, ProjectID: "test-project", SecretKey: "KEY"}, nil
 		},
-		DeleteJobSecretFunc: func(_ context.Context, id string) error {
+		DeleteJobSecretFunc: func(_ context.Context, id, _ string) error {
 			require.Equal(t, "sec-123", id)
 
 			return nil
@@ -870,10 +870,10 @@ func TestHandleDeleteSecret_Success_Adversarial(t *testing.T) {
 func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, _ string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, _, _ string) (*domain.JobSecret, error) {
 			return nil, store.ErrJobSecretNotFound
 		},
-		DeleteJobSecretFunc: func(_ context.Context, _ string) error {
+		DeleteJobSecretFunc: func(_ context.Context, _, _ string) error {
 			return store.ErrJobSecretNotFound
 		},
 	}
@@ -889,10 +889,10 @@ func TestHandleDeleteSecret_NotFound_Adversarial(t *testing.T) {
 func TestHandleDeleteSecret_StoreError_Adversarial(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: id, ProjectID: "test-project", SecretKey: "KEY"}, nil
 		},
-		DeleteJobSecretFunc: func(_ context.Context, _ string) error {
+		DeleteJobSecretFunc: func(_ context.Context, _, _ string) error {
 			return errors.New("unexpected IO error")
 		},
 	}

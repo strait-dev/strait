@@ -29,10 +29,17 @@ func DefaultWatchedQueries() []WatchedQuery {
 			SQL: `SELECT jr.id FROM job_run_state s
 				JOIN job_runs jr ON jr.id = s.run_id
 				LEFT JOIN job_active_counts jac ON jac.job_id = s.job_id AND jac.concurrency_key = ''
+				LEFT JOIN LATERAL (
+					SELECT e.priority
+					FROM job_run_priority_events e
+					WHERE e.run_id = s.run_id
+					ORDER BY e.id DESC
+					LIMIT 1
+				) priority ON true
 				WHERE s.status = '` + string(domain.StatusQueued) + `'
 				  AND s.job_enabled = true
 				  AND s.job_paused = false
-				ORDER BY COALESCE(s.promoted_priority, s.priority) DESC, jr.created_at ASC
+				ORDER BY COALESCE(priority.priority, s.priority) DESC, jr.created_at ASC
 				LIMIT 10`,
 		},
 		{

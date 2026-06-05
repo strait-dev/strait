@@ -493,8 +493,8 @@ func (q *PgQueQueue) loadWorkerRoutesForPrefix(ctx context.Context, prefix strin
 	rows, err := q.db.Query(ctx, `
 		SELECT route_key
 		FROM strait_pgque_routes
-		WHERE route_key = $1 OR route_key LIKE $2
-		ORDER BY route_key`, prefix, prefix+"%")
+		WHERE route_key = $1 OR route_key LIKE $2 ESCAPE '\'
+		ORDER BY route_key`, prefix, store.EscapePostgresLikePattern(prefix)+"%")
 	if err != nil {
 		return nil, fmt.Errorf("pgque worker route lookup: %w", err)
 	}

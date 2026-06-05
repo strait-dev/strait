@@ -135,7 +135,7 @@ func newIsolationStore() *APIStoreMock {
 			}
 			return nil, nil
 		},
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			if id == "env-a" {
 				return &domain.Environment{ID: "env-a", ProjectID: projectA, Name: "production", Slug: "production", CreatedAt: now, UpdatedAt: now}, nil
 			}
@@ -772,7 +772,7 @@ func TestTenantIsolation_DeleteEnvironment_CrossProject(t *testing.T) {
 	t.Parallel()
 
 	ms := newIsolationStore()
-	ms.DeleteEnvironmentFunc = func(_ context.Context, _ string) error {
+	ms.DeleteEnvironmentFunc = func(_ context.Context, _ string, _ string) error {
 		return nil
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)

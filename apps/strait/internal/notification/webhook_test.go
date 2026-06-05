@@ -159,7 +159,7 @@ func TestWebhookSender_HMACSignature(t *testing.T) {
 	var capturedDeliveryID string
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			capturedSig = req.Header.Get("X-Signature-256")
+			capturedSig = req.Header.Get("X-Strait-Signature-256")
 			capturedStraitSig = req.Header.Get("X-Strait-Signature")
 			capturedTimestamp = req.Header.Get("X-Strait-Timestamp")
 			capturedDeliveryID = req.Header.Get("X-Strait-Delivery-ID")
@@ -210,7 +210,7 @@ func TestWebhookSender_HMACSignatureChangesWithDeliveryID(t *testing.T) {
 	var signatures []string
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			signatures = append(signatures, req.Header.Get("X-Signature-256"))
+			signatures = append(signatures, req.Header.Get("X-Strait-Signature-256"))
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 
@@ -243,7 +243,7 @@ func TestWebhookSender_HMACSignature_NoSecret(t *testing.T) {
 	var hasSigHeader bool
 	transport.RegisterResponder("POST", "https://example.com/hook",
 		func(req *http.Request) (*http.Response, error) {
-			hasSigHeader = req.Header.Get("X-Signature-256") != ""
+			hasSigHeader = req.Header.Get("X-Strait-Signature-256") != ""
 			return httpmock.NewStringResponse(200, "ok"), nil
 		})
 

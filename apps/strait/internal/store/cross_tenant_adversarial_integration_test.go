@@ -222,12 +222,12 @@ func TestCrossTenant_DeleteEnvironment_OnlyAcceptsByID(t *testing.T) {
 	}
 	require.NoError(t, q.CreateEnvironment(ctx,
 		env))
-	require.Error(t, q.DeleteEnvironment(ctx, ""))
+	require.Error(t, q.DeleteEnvironment(ctx, "", projA))
 
 	// Empty id must error, not mass-delete.
 
 	// Sanity: env still exists.
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	require.NoError(t, err)
 	require.Equal(t, env.ID,
 

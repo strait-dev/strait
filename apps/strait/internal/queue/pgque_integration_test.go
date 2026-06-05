@@ -1071,6 +1071,36 @@ func TestPgQue_DequeueWindowDoesNotLoseUnseenBatchMessages(t *testing.T) {
 
 }
 
+func TestPgQue_DequeueCatchesUpAcrossEmptyTickLag(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	mustClean(t, ctx)
+	st := mustStore(t)
+	job := mustCreateJob(t, ctx, st, "project-pgque-empty-tick-lag")
+	q := queue.NewPgQueQueue(testDB.Pool, queue.NewPostgresRunWriter(testDB.Pool), queue.PgQueConfig{
+		TickInterval:  10 * time.Millisecond,
+		ConsumerName:  "test-" + newID(),
+		NackDelay:     10 * time.Millisecond,
+		ReceiveWindow: 10,
+	})
+
+	primed, err := q.DequeueN(ctx, 1)
+	require.NoError(t, err)
+	require.Empty(t, primed)
+	for i := 0; i < 12; i++ {
+		require.NoErrorf(t, q.ForceTick(ctx, "http"), "ForceTick empty %d", i)
+	}
+
+	run := &domain.JobRun{ID: newID(), JobID: job.ID, ProjectID: job.ProjectID}
+	require.NoError(t, q.Enqueue(ctx, run))
+	require.NoError(t, q.ForceTick(ctx, "http"))
+
+	claimed, err := q.DequeueN(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.Equal(t, run.ID, claimed[0].ID)
+}
+
 func TestPgQue_ConcurrentDequeueDrainsSingleBatchWithoutDuplicates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

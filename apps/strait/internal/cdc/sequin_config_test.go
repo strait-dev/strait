@@ -53,6 +53,17 @@ func TestPostgresCDCInitSetsReplicaIdentityForRequiredConsumerTables(t *testing.
 	}
 }
 
+func TestPostgresInitCreatesStraitAppRole(t *testing.T) {
+	t.Parallel()
+
+	raw, err := os.ReadFile("../../../../packages/configs/postgres-init.sql")
+	require.NoError(t, err)
+	config := string(raw)
+	for _, required := range []string{"CREATE ROLE strait_app", "NOLOGIN", "NOBYPASSRLS"} {
+		require.Contains(t, config, required, "strait_app role contract")
+	}
+}
+
 func TestRequiredConsumerTablesCoverRuntimeFanoutHandlers(t *testing.T) {
 	t.Parallel()
 

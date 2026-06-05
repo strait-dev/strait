@@ -56,6 +56,7 @@ type QueueMetrics struct {
 	OutboxClaimTableDeadTuples    metric.Int64Gauge
 	OutboxClaimTableLiveTuples    metric.Int64Gauge
 	PgQueBackgroundErrors         metric.Int64Counter
+	PgQueConsumerLag              metric.Int64Gauge
 }
 
 var (
@@ -277,6 +278,14 @@ func newQueueMetrics() (*QueueMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pgque background errors counter: %w", err)
 	}
+	pgqueConsumerLag, err := meter.Int64Gauge(
+		"strait_queue_pgque_consumer_lag_ticks",
+		metric.WithDescription("PgQue tick lag between the latest queue tick and this consumer's last acknowledged tick"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("pgque consumer lag gauge: %w", err)
+	}
 	m := &QueueMetrics{
 		OldestQueuedAge:             oldestAge,
 		DequeueScanRows:             scanRows,
@@ -302,6 +311,7 @@ func newQueueMetrics() (*QueueMetrics, error) {
 		EventChannelSaturationRatio: eventChannelSaturation,
 		SchedulerShutdownTimeouts:   schedulerShutdownTimeouts,
 		PgQueBackgroundErrors:       pgqueBackgroundErrors,
+		PgQueConsumerLag:            pgqueConsumerLag,
 	}
 	if err := initArchiveMetrics(meter, m); err != nil {
 		return nil, err

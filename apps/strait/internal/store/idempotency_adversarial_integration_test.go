@@ -84,6 +84,7 @@ func TestIdempotency_AcquireThenCompleteThenReacquireAcrossExpiry(t *testing.T) 
 	ctx := context.Background()
 	cleanIdempotencyKeys(t, ctx)
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 
 	projectID := "proj-lifecycle-" + newID()
 	key := "key-lifecycle-" + newID()

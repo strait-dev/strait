@@ -51,7 +51,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		gotSig = r.Header.Get("X-Strait-Signature")
 		gotTS = r.Header.Get("X-Strait-Timestamp")
 		gotDelivery = r.Header.Get("X-Strait-Delivery-ID")
-		gotSig256 = r.Header.Get("X-Signature-256")
+		gotSig256 = r.Header.Get("X-Strait-Signature-256")
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))

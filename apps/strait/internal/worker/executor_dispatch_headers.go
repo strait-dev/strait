@@ -85,7 +85,11 @@ func (e *Executor) dispatchHeaders(ctx context.Context, job *domain.Job, run *do
 func (e *Executor) buildDispatchHeaders(job *domain.Job, run *domain.JobRun, secrets []domain.JobSecret, cp *domain.RunCheckpoint) (map[string]string, error) {
 	headers := make(map[string]string)
 	for _, secret := range secrets {
-		headers[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = secret.EncryptedValue
+		value := secret.Value
+		if value == "" {
+			value = secret.EncryptedValue
+		}
+		headers[fmt.Sprintf("X-Secret-%s", secret.SecretKey)] = value
 	}
 
 	// Generate a JWT run token so the endpoint's SDK can call back to Strait.

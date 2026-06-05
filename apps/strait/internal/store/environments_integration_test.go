@@ -38,7 +38,7 @@ func TestCreateEnvironment(t *testing.T) {
 		IsZero())
 
 	// Round-trip.
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	require.NoError(t, err)
 	require.Equal(t, env.ID,
 
@@ -91,7 +91,7 @@ func TestCreateEnvironment_WithParent(t *testing.T) {
 	require.NoError(t, q.CreateEnvironment(ctx,
 		child))
 
-	got, err := q.GetEnvironment(ctx, child.ID)
+	got, err := q.GetEnvironment(ctx, child.ID, projectID)
 	require.NoError(t, err)
 	require.Equal(t, parent.
 		ID, got.ParentID,
@@ -104,7 +104,7 @@ func TestGetEnvironment_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, err := q.GetEnvironment(ctx, newID())
+	_, err := q.GetEnvironment(ctx, newID(), "proj-missing")
 	require.True(t, errors.Is(err, store.
 		ErrEnvironmentNotFound,
 	))
@@ -185,7 +185,7 @@ func TestUpdateEnvironment(t *testing.T) {
 	require.True(t, env.UpdatedAt.
 		After(origUpdatedAt))
 
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	require.NoError(t, err)
 	require.Equal(t, "Updated",
 
@@ -274,10 +274,9 @@ func TestDeleteEnvironment(t *testing.T) {
 	}
 	require.NoError(t, q.CreateEnvironment(ctx,
 		env))
-	require.NoError(t, q.DeleteEnvironment(ctx,
-		env.ID))
+	require.NoError(t, q.DeleteEnvironment(ctx, env.ID, env.ProjectID))
 
-	_, err := q.GetEnvironment(ctx, env.ID)
+	_, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	require.True(t, errors.Is(err, store.
 		ErrEnvironmentNotFound,
 	))
@@ -289,7 +288,7 @@ func TestDeleteEnvironment_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	if err := q.DeleteEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if err := q.DeleteEnvironment(ctx, newID(), "proj-missing"); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		require.Failf(t, "test failure",
 
 			"DeleteEnvironment(missing) error = %v, want ErrEnvironmentNotFound", err)
@@ -309,7 +308,7 @@ func TestDeleteEnvironment_StandardProtected(t *testing.T) {
 	require.NotEmpty(t, envs)
 
 	// Deleting a standard environment should return ErrStandardEnvironment.
-	if err := q.DeleteEnvironment(ctx, envs[0].ID); !errors.Is(err, store.ErrStandardEnvironment) {
+	if err := q.DeleteEnvironment(ctx, envs[0].ID, projectID); !errors.Is(err, store.ErrStandardEnvironment) {
 		require.Failf(t, "test failure",
 
 			"DeleteEnvironment(standard) error = %v, want ErrStandardEnvironment", err)
@@ -427,7 +426,7 @@ func TestEnvironmentVariablesEncryptedWithoutPlaintextCopy(t *testing.T) {
 		encryptedLen,
 	)
 
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	require.NoError(t, err)
 	require.Equal(t, "super-secret-token",
 
@@ -463,13 +462,13 @@ func TestEnvironmentVariablesDoNotFallbackToPlaintextOnDecryptFailure(t *testing
 			"tamper environment variables: %v", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, env.ID); err == nil {
+	if _, err := q.GetEnvironment(ctx, env.ID, env.ProjectID); err == nil {
 		require.Fail(t,
 
 			"GetEnvironment() error = nil, want decrypt failure instead of plaintext fallback")
 	}
 	qWithoutKey := mustStore(t)
-	if _, err := qWithoutKey.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+	if _, err := qWithoutKey.GetEnvironment(ctx, env.ID, env.ProjectID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
 		require.Failf(t, "test failure",
 
 			"GetEnvironment(without key) error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
@@ -502,7 +501,7 @@ func TestEnvironmentVariablesRejectLegacyPlaintextWithoutCiphertext(t *testing.T
 			"tamper environment variables: %v", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+	if _, err := q.GetEnvironment(ctx, env.ID, env.ProjectID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
 		require.Failf(t, "test failure",
 
 			"GetEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)

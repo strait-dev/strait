@@ -43,6 +43,7 @@ func TestCORS_WildcardWithoutCredentials_Allowed(t *testing.T) {
 	setRequiredRuntimeEnv(t)
 	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "false")
+	t.Setenv("STRAIT_ENV", "development")
 
 	cfg, err := Load()
 	require.NoError(
@@ -119,7 +120,7 @@ func TestCORS_Wildcard_RejectedInProduction(t *testing.T) {
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	setRequiredRuntimeEnv(t)
 	t.Setenv("CORS_ALLOWED_ORIGINS", "*")
-	t.Setenv("SENTRY_ENVIRONMENT", "production")
+	t.Setenv("STRAIT_ENV", "production")
 
 	_, err := Load()
 	require.Error(t,
@@ -138,7 +139,7 @@ func TestSSLMode_Disable_RejectedInProduction(t *testing.T) {
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	setRequiredRuntimeEnv(t)
-	t.Setenv("SENTRY_ENVIRONMENT", "production")
+	t.Setenv("STRAIT_ENV", "production")
 
 	_, err := Load()
 	require.Error(t,
@@ -157,7 +158,7 @@ func TestSSLMode_Disable_AllowedInDev(t *testing.T) {
 	t.Setenv("INTERNAL_SECRET", "test-secret-value-long-enough")
 	t.Setenv("JWT_SIGNING_KEY", "aaaa-test-jwt-signing-key-00000000")
 	setRequiredRuntimeEnv(t)
-	t.Setenv("SENTRY_ENVIRONMENT", "development")
+	t.Setenv("STRAIT_ENV", "development")
 
 	_, err := Load()
 	require.NoError(
