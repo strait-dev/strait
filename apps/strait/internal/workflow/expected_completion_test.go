@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpectedCompletion_LinearDAG(t *testing.T) {
@@ -18,14 +21,13 @@ func TestExpectedCompletion_LinearDAG(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(60 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_ParallelDAG(t *testing.T) {
@@ -39,14 +41,13 @@ func TestExpectedCompletion_ParallelDAG(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(25 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_DiamondDAG(t *testing.T) {
@@ -61,14 +62,13 @@ func TestExpectedCompletion_DiamondDAG(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(30 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_Recalculation(t *testing.T) {
@@ -83,15 +83,14 @@ func TestExpectedCompletion_Recalculation(t *testing.T) {
 	completed := map[string]bool{"a": true}
 
 	got := RecalculateExpectedCompletion(steps, completed, now)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	// Remaining: b(20) -> c(30) = 50s from now.
 	want := now.Add(50 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_NoExpectedDurations(t *testing.T) {
@@ -103,9 +102,8 @@ func TestExpectedCompletion_NoExpectedDurations(t *testing.T) {
 
 	start := time.Now()
 	got := CalculateExpectedCompletion(steps, start)
-	if got != nil {
-		t.Errorf("expected nil when no durations configured, got %v", got)
-	}
+	assert.Nil(t, got)
+
 }
 
 func TestExpectedCompletion_MixedDurations(t *testing.T) {
@@ -118,22 +116,20 @@ func TestExpectedCompletion_MixedDurations(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil when at least one step has duration")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(10 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_EmptySteps(t *testing.T) {
 	t.Parallel()
 	got := CalculateExpectedCompletion(nil, time.Now())
-	if got != nil {
-		t.Errorf("expected nil for empty steps, got %v", got)
-	}
+	assert.Nil(t, got)
+
 }
 
 func TestExpectedCompletion_SingleStep(t *testing.T) {
@@ -144,14 +140,13 @@ func TestExpectedCompletion_SingleStep(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(42 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
@@ -163,14 +158,13 @@ func TestExpectedCompletion_DuplicateDependencyRefs(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(30 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
@@ -182,9 +176,8 @@ func TestRecalculateExpectedCompletion_AllCompleted(t *testing.T) {
 
 	completed := map[string]bool{"a": true, "b": true}
 	got := RecalculateExpectedCompletion(steps, completed, time.Now())
-	if got != nil {
-		t.Errorf("expected nil when all completed, got %v", got)
-	}
+	assert.Nil(t, got)
+
 }
 
 func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *testing.T) {
@@ -198,14 +191,13 @@ func TestRecalculateExpectedCompletion_CompletedParentsUnblockRemainingDAG(t *te
 	now := time.Date(2026, 1, 1, 0, 0, 5, 0, time.UTC)
 	completed := map[string]bool{"a": true}
 	got := RecalculateExpectedCompletion(steps, completed, now)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := now.Add(20 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
@@ -218,14 +210,13 @@ func TestExpectedCompletion_UnorderedDefinitionsUseTopologicalFallback(t *testin
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(60 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
@@ -238,14 +229,13 @@ func TestRecalculateExpectedCompletion_LargeCompletedPrefix(t *testing.T) {
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := RecalculateExpectedCompletion(steps, completed, now)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := now.Add(400 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testing.T) {
@@ -257,14 +247,13 @@ func TestRecalculateExpectedCompletion_NonPrefixCompletionUsesFallback(t *testin
 
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := RecalculateExpectedCompletion(steps, completed, now)
-	if got == nil {
-		t.Fatal("expected non-nil result")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := now.Add(3 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 // Fuzz tests for expected completion.
@@ -328,14 +317,13 @@ func TestExpectedCompletion_MaxIntDuration(t *testing.T) {
 
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil")
-		return
-	}
+	require.NotNil(t, got)
+	assert.False(t,
+		got.Before(start),
+	)
+
 	// Should not panic, just produce a far-future time.
-	if got.Before(start) {
-		t.Error("expected completion should be after start")
-	}
+
 }
 
 func TestExpectedCompletion_ZeroDuration(t *testing.T) {
@@ -348,9 +336,8 @@ func TestExpectedCompletion_ZeroDuration(t *testing.T) {
 	// All zero durations, has steps with ExpectedDurationSecs but all are 0.
 	// hasAny check looks for > 0, so this should return nil.
 	got := CalculateExpectedCompletion(steps, time.Now())
-	if got != nil {
-		t.Errorf("expected nil for all-zero durations, got %v", got)
-	}
+	assert.Nil(t, got)
+
 }
 
 func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
@@ -359,14 +346,13 @@ func TestExpectedCompletion_1000StepWorkflow(t *testing.T) {
 
 	start := time.Now()
 	got := CalculateExpectedCompletion(steps, start)
-	if got == nil {
-		t.Fatal("expected non-nil for 1000-step chain")
-		return
-	}
+	require.NotNil(t, got)
+
 	want := start.Add(1000 * time.Second)
-	if !got.Equal(want) {
-		t.Errorf("got %v, want %v", got, want)
-	}
+	assert.True(t,
+		got.Equal(
+			want))
+
 }
 
 func BenchmarkCalculateExpectedCompletion(b *testing.B) {

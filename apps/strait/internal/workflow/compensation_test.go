@@ -9,6 +9,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Unit tests for BuildCompensationPlan.
@@ -27,23 +30,17 @@ func TestCompensation_ReverseOrder(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if len(plan.Steps) != 2 {
-		t.Fatalf("expected 2 compensation steps, got %d", len(plan.Steps))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Steps,
+		2)
+	assert.Equal(t, "b", plan.
+		Steps[0].StepRef)
+	assert.Equal(t, "a", plan.
+		Steps[1].StepRef)
+
 	// b should be compensated before a (reverse order).
-	if plan.Steps[0].StepRef != "b" {
-		t.Errorf("first compensation step = %q, want b", plan.Steps[0].StepRef)
-	}
-	if plan.Steps[1].StepRef != "a" {
-		t.Errorf("second compensation step = %q, want a", plan.Steps[1].StepRef)
-	}
+
 }
 
 func TestCompensation_OnlyCompletedSteps(t *testing.T) {
@@ -58,19 +55,13 @@ func TestCompensation_OnlyCompletedSteps(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if len(plan.Steps) != 1 {
-		t.Fatalf("expected 1 step (only a completed), got %d", len(plan.Steps))
-	}
-	if plan.Steps[0].StepRef != "a" {
-		t.Errorf("step = %q, want a", plan.Steps[0].StepRef)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Steps,
+		1)
+	assert.Equal(t, "a", plan.
+		Steps[0].StepRef)
+
 }
 
 func BenchmarkBuildCompensationPlan_Chain100(b *testing.B) {
@@ -149,20 +140,15 @@ func TestCompensation_SkipsStepsWithoutCompensation(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Steps,
+		1)
+	assert.Equal(t, "a", plan.
+		Steps[0].StepRef)
+
 	// Only a has compensation (b has none, c failed).
-	if len(plan.Steps) != 1 {
-		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
-	}
-	if plan.Steps[0].StepRef != "a" {
-		t.Errorf("step = %q, want a", plan.Steps[0].StepRef)
-	}
+
 }
 
 func TestCompensation_PassesOriginalOutput(t *testing.T) {
@@ -176,16 +162,14 @@ func TestCompensation_PassesOriginalOutput(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if string(plan.Steps[0].OriginalOutput) != string(output) {
-		t.Errorf("original output = %s, want %s", plan.Steps[0].OriginalOutput, output)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.Equal(t, string(output),
+		string(plan.
+			Steps[0].
+			OriginalOutput,
+		))
+
 }
 
 func TestCompensation_DiamondDAG(t *testing.T) {
@@ -205,16 +189,10 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if len(plan.Steps) != 3 {
-		t.Fatalf("expected 3 compensation steps, got %d", len(plan.Steps))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Steps,
+		3)
 
 	// b and c should come before a. Since b and c are at same topo level,
 	// order between them is deterministic (alphabetical for same-level).
@@ -222,10 +200,10 @@ func TestCompensation_DiamondDAG(t *testing.T) {
 	for i, s := range plan.Steps {
 		refs[i] = s.StepRef
 	}
+	assert.Equal(t, "a", refs[len(refs)-1])
+
 	// Last should be a (root).
-	if refs[len(refs)-1] != "a" {
-		t.Errorf("last step should be a, got %q", refs[len(refs)-1])
-	}
+
 }
 
 func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
@@ -243,22 +221,18 @@ func TestCompensation_UnorderedDefinitionsUseTopologicalFallback(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
 	refs := make([]string, len(plan.Steps))
 	for i, step := range plan.Steps {
 		refs[i] = step.StepRef
 	}
 	want := []string{"c", "b", "a"}
 	for i := range want {
-		if refs[i] != want[i] {
-			t.Fatalf("refs = %v, want %v", refs, want)
-		}
+		require.Equal(t, want[i],
+			refs[i])
+
 	}
 }
 
@@ -274,23 +248,17 @@ func TestCompensation_NoCompensationNeeded(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan != nil {
-		t.Errorf("expected nil plan when no steps have compensation, got %v", plan)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, plan)
+
 }
 
 func TestCompensation_EmptySteps(t *testing.T) {
 	t.Parallel()
 	plan, err := BuildCompensationPlan("wfr-1", nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan != nil {
-		t.Error("expected nil plan for empty steps")
-	}
+	require.NoError(t, err)
+	assert.Nil(t, plan)
+
 }
 
 func TestCompensation_TimeoutPropagated(t *testing.T) {
@@ -303,12 +271,11 @@ func TestCompensation_TimeoutPropagated(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan.Steps[0].TimeoutSecs != 60 {
-		t.Errorf("timeout = %d, want 60", plan.Steps[0].TimeoutSecs)
-	}
+	require.NoError(t, err)
+	assert.EqualValues(t, 60, plan.
+		Steps[0].TimeoutSecs,
+	)
+
 }
 
 // FSM transition tests.
@@ -316,79 +283,71 @@ func TestCompensation_TimeoutPropagated(t *testing.T) {
 func TestFSM_FailedToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusFailed, domain.WfStatusCompensating)
-	if err != nil {
-		t.Errorf("failed -> compensating should be valid: %v", err)
-	}
+	assert.NoError(t, err)
+
 }
 
 func TestFSM_CompensatingToCompensated(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompensated)
-	if err != nil {
-		t.Errorf("compensating -> compensated should be valid: %v", err)
-	}
+	assert.NoError(t, err)
+
 }
 
 func TestFSM_CompensatingToCompensationFailed(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompensationFailed)
-	if err != nil {
-		t.Errorf("compensating -> compensation_failed should be valid: %v", err)
-	}
+	assert.NoError(t, err)
+
 }
 
 func TestFSM_CompensatingToCompleted(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCompleted)
-	if err == nil {
-		t.Error("compensating -> completed should be invalid")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestFSM_CompletedToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompleted, domain.WfStatusCompensating)
-	if err == nil {
-		t.Error("completed -> compensating should be invalid")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestFSM_RunningToCompensated(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusRunning, domain.WfStatusCompensated)
-	if err == nil {
-		t.Error("running -> compensated should be invalid")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestFSM_TimedOutToCompensating(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusTimedOut, domain.WfStatusCompensating)
-	if err != nil {
-		t.Errorf("timed_out -> compensating should be valid: %v", err)
-	}
+	assert.NoError(t, err)
+
 }
 
 func TestFSM_CompensatingToCanceled(t *testing.T) {
 	t.Parallel()
 	err := domain.ValidateWorkflowTransition(domain.WfStatusCompensating, domain.WfStatusCanceled)
-	if err != nil {
-		t.Errorf("compensating -> canceled should be valid: %v", err)
-	}
+	assert.NoError(t, err)
+
 }
 
 func TestFSM_CompensatedIsTerminal(t *testing.T) {
 	t.Parallel()
-	if !domain.WfStatusCompensated.IsTerminal() {
-		t.Error("compensated should be terminal")
-	}
+	assert.True(t, domain.WfStatusCompensated.
+		IsTerminal())
+
 }
 
 func TestFSM_CompensationFailedIsTerminal(t *testing.T) {
 	t.Parallel()
-	if !domain.WfStatusCompensationFailed.IsTerminal() {
-		t.Error("compensation_failed should be terminal")
-	}
+	assert.True(t, domain.WfStatusCompensationFailed.
+		IsTerminal())
+
 }
 
 // ValidateCompensationRequest tests.
@@ -396,46 +355,41 @@ func TestFSM_CompensationFailedIsTerminal(t *testing.T) {
 func TestValidateCompensation_FailedRun(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusFailed}
-	if err := ValidateCompensationRequest(run); err != nil {
-		t.Errorf("failed run should be eligible: %v", err)
-	}
+	assert.NoError(t, ValidateCompensationRequest(run))
+
 }
 
 func TestValidateCompensation_TimedOutRun(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusTimedOut}
-	if err := ValidateCompensationRequest(run); err != nil {
-		t.Errorf("timed_out run should be eligible: %v", err)
-	}
+	assert.NoError(t, ValidateCompensationRequest(run))
+
 }
 
 func TestValidateCompensation_RunningRun(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusRunning}
 	err := ValidateCompensationRequest(run)
-	if err == nil {
-		t.Error("running run should not be eligible")
-	}
+	assert.Error(t, err)
+
 }
 
 func TestValidateCompensation_AlreadyCompensating(t *testing.T) {
 	t.Parallel()
 	run := &domain.WorkflowRun{ID: "wfr-1", Status: domain.WfStatusCompensating}
 	err := ValidateCompensationRequest(run)
-	if err == nil {
-		t.Error("already compensating should be rejected")
-	}
-	if !strings.Contains(err.Error(), "already compensating") {
-		t.Errorf("error should mention 'already compensating', got: %v", err)
-	}
+	assert.Error(t, err)
+	assert.True(t, strings.Contains(err.Error(),
+		"already compensating",
+	))
+
 }
 
 func TestValidateCompensation_NilRun(t *testing.T) {
 	t.Parallel()
 	err := ValidateCompensationRequest(nil)
-	if err == nil {
-		t.Error("nil run should be rejected")
-	}
+	assert.Error(t, err)
+
 }
 
 // Fuzz tests.
@@ -503,16 +457,12 @@ func TestCompensation_NilStepOutput(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if plan.Steps[0].OriginalOutput != nil {
-		t.Errorf("expected nil output, got %s", plan.Steps[0].OriginalOutput)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.Nil(t, plan.
+		Steps[0].OriginalOutput,
+	)
+
 }
 
 func TestCompensation_HugeOutput(t *testing.T) {
@@ -528,16 +478,15 @@ func TestCompensation_HugeOutput(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if len(plan.Steps[0].OriginalOutput) < 5*1024*1024 {
-		t.Error("large output should be preserved")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	assert.GreaterOrEqual(t,
+		len(plan.
+			Steps[0].OriginalOutput,
+		), 5*
+			1024*1024,
+	)
+
 }
 
 func TestCompensation_ManySteps(t *testing.T) {
@@ -563,24 +512,23 @@ func TestCompensation_ManySteps(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if plan == nil {
-		t.Fatal("expected non-nil plan")
-		return
-	}
-	if len(plan.Steps) != n {
-		t.Fatalf("expected %d steps, got %d", n, len(plan.Steps))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Len(t, plan.Steps,
+		n)
+	assert.Equal(t, "step-099",
+		plan.
+			Steps[0].StepRef,
+	)
+	assert.Equal(t, "step-000",
+		plan.
+			Steps[n-1].
+			StepRef)
+
 	// First compensated should be step-099 (last in chain).
-	if plan.Steps[0].StepRef != "step-099" {
-		t.Errorf("first compensation = %q, want step-099", plan.Steps[0].StepRef)
-	}
+
 	// Last should be step-000.
-	if plan.Steps[n-1].StepRef != "step-000" {
-		t.Errorf("last compensation = %q, want step-000", plan.Steps[n-1].StepRef)
-	}
+
 }
 
 func TestCompensation_CompensationOfCompensation(t *testing.T) {
@@ -595,13 +543,12 @@ func TestCompensation_CompensationOfCompensation(t *testing.T) {
 	}
 
 	plan, err := BuildCompensationPlan("wfr-1", steps, stepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, plan.Steps,
+		1)
+
 	// Plan should be simple, not recursive.
-	if len(plan.Steps) != 1 {
-		t.Fatalf("expected 1 step, got %d", len(plan.Steps))
-	}
+
 }
 
 func TestBuildTopologicalOrder_Deterministic(t *testing.T) {
@@ -626,7 +573,9 @@ func TestBuildTopologicalOrder_Deterministic(t *testing.T) {
 
 		for i, ref := range order {
 			if ref != sorted[i] {
-				t.Errorf("non-deterministic order: got %v", order)
+				assert.Failf(t, "test failure",
+
+					"non-deterministic order: got %v", order)
 				break
 			}
 		}
@@ -641,7 +590,8 @@ func TestBuildTopologicalOrder_DuplicateDependencyRefs(t *testing.T) {
 	}
 
 	order := buildTopologicalOrder(steps)
-	if strings.Join(order, ",") != "a,b" {
-		t.Fatalf("order = %v, want [a b]", order)
-	}
+	require.Equal(t, "a,b",
+		strings.Join(order,
+			","))
+
 }

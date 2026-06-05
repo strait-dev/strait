@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenderTemplateVars(t *testing.T) {
@@ -15,15 +18,17 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["to"] != "john@example.com" {
-			t.Fatalf("to = %v, want john@example.com", got["to"])
-		}
-		if got["subject"] != "Hello" {
-			t.Fatalf("subject = %v, want Hello", got["subject"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "john@example.com",
+
+			got["to"],
+		)
+		require.Equal(t, "Hello",
+			got["subject"])
+
 	})
 
 	t.Run("preserves number type", func(t *testing.T) {
@@ -33,16 +38,15 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		count, ok := got["count"].(float64)
-		if !ok {
-			t.Fatalf("count should be a number, got %T: %v", got["count"], got["count"])
-		}
-		if count != 42 {
-			t.Fatalf("count = %v, want 42", count)
-		}
+		require.True(t, ok)
+		require.EqualValues(t, 42, count)
+
 	})
 
 	t.Run("preserves boolean type", func(t *testing.T) {
@@ -52,16 +56,15 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		active, ok := got["active"].(bool)
-		if !ok {
-			t.Fatalf("active should be a bool, got %T: %v", got["active"], got["active"])
-		}
-		if !active {
-			t.Fatal("active = false, want true")
-		}
+		require.True(t, ok)
+		require.True(t, active)
+
 	})
 
 	t.Run("preserves object type", func(t *testing.T) {
@@ -71,16 +74,16 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		cfg, ok := got["config"].(map[string]any)
-		if !ok {
-			t.Fatalf("config should be an object, got %T", got["config"])
-		}
-		if cfg["key"] != "value" {
-			t.Fatalf("config.key = %v, want value", cfg["key"])
-		}
+		require.True(t, ok)
+		require.Equal(t, "value",
+			cfg["key"])
+
 	})
 
 	t.Run("embedded variable in string", func(t *testing.T) {
@@ -90,12 +93,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["message"] != "Hello Alice, welcome!" {
-			t.Fatalf("message = %v, want 'Hello Alice, welcome!'", got["message"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "Hello Alice, welcome!",
+
+			got["message"])
+
 	})
 
 	t.Run("embedded number in string", func(t *testing.T) {
@@ -105,12 +110,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["message"] != "You have 5 items" {
-			t.Fatalf("message = %v, want 'You have 5 items'", got["message"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "You have 5 items",
+
+			got["message"])
+
 	})
 
 	t.Run("multiple variables in one string", func(t *testing.T) {
@@ -120,12 +127,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["greeting"] != "Hi Jane Doe!" {
-			t.Fatalf("greeting = %v, want 'Hi Jane Doe!'", got["greeting"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "Hi Jane Doe!",
+			got["greeting"],
+		)
+
 	})
 
 	t.Run("unresolved variables left as-is", func(t *testing.T) {
@@ -135,12 +144,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["to"] != "{{unknown_var}}" {
-			t.Fatalf("to = %v, want {{unknown_var}}", got["to"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "{{unknown_var}}",
+
+			got["to"])
+
 	})
 
 	t.Run("unresolved nested variable returns payload unchanged", func(t *testing.T) {
@@ -149,9 +160,10 @@ func TestRenderTemplateVars(t *testing.T) {
 		vars := json.RawMessage(`{"user":{"id":"u-123"}}`)
 
 		result := renderTemplateVars(payload, vars)
-		if string(result) != string(payload) {
-			t.Fatalf("expected payload unchanged, got %s", string(result))
-		}
+		require.Equal(t, string(
+			payload), string(result),
+		)
+
 	})
 
 	t.Run("dot-path variable resolution", func(t *testing.T) {
@@ -161,12 +173,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["email"] != "nested@example.com" {
-			t.Fatalf("email = %v, want nested@example.com", got["email"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "nested@example.com",
+
+			got["email"])
+
 	})
 
 	t.Run("nested payload objects", func(t *testing.T) {
@@ -176,16 +190,16 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		outer, ok := got["outer"].(map[string]any)
-		if !ok {
-			t.Fatalf("outer should be object, got %T", got["outer"])
-		}
-		if outer["inner"] != "deep" {
-			t.Fatalf("outer.inner = %v, want deep", outer["inner"])
-		}
+		require.True(t, ok)
+		require.Equal(t, "deep",
+			outer["inner"])
+
 	})
 
 	t.Run("deeply nested 5+ levels", func(t *testing.T) {
@@ -195,28 +209,25 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		l1, ok := got["l1"].(map[string]any)
-		if !ok {
-			t.Fatalf("l1 should be object, got %T", got["l1"])
-		}
+		require.True(t, ok)
+
 		l2, ok := l1["l2"].(map[string]any)
-		if !ok {
-			t.Fatalf("l2 should be object, got %T", l1["l2"])
-		}
+		require.True(t, ok)
+
 		l3, ok := l2["l3"].(map[string]any)
-		if !ok {
-			t.Fatalf("l3 should be object, got %T", l2["l3"])
-		}
+		require.True(t, ok)
+
 		l4, ok := l3["l4"].(map[string]any)
-		if !ok {
-			t.Fatalf("l4 should be object, got %T", l3["l4"])
-		}
-		if l4["l5"] != "deep-replaced" {
-			t.Fatalf("l4.l5 = %v, want deep-replaced", l4["l5"])
-		}
+		require.True(t, ok)
+		require.Equal(t, "deep-replaced",
+			l4["l5"])
+
 	})
 
 	t.Run("array values", func(t *testing.T) {
@@ -226,19 +237,18 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		items, ok := got["items"].([]any)
-		if !ok {
-			t.Fatalf("items should be array, got %T", got["items"])
-		}
-		if len(items) != 3 {
-			t.Fatalf("len(items) = %d, want 3", len(items))
-		}
-		if items[0] != "first" || items[1] != "static" || items[2] != "third" {
-			t.Fatalf("items = %v, want [first static third]", items)
-		}
+		require.True(t, ok)
+		require.Len(t, items, 3)
+		require.False(t, items[0] != "first" ||
+			items[1] !=
+				"static" || items[2] != "third")
+
 	})
 
 	t.Run("template in non-string context", func(t *testing.T) {
@@ -248,19 +258,16 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+
 		items, ok := got["items"].([]any)
-		if !ok {
-			t.Fatalf("items should be array, got %T", got["items"])
-		}
-		if len(items) != 3 {
-			t.Fatalf("len(items) = %d, want 3", len(items))
-		}
-		if items[0] != float64(1) || items[1] != "replaced" || items[2] != float64(3) {
-			t.Fatalf("items = %v, want [1 replaced 3]", items)
-		}
+		require.True(t, ok)
+		require.Len(t, items, 3)
+		require.False(t, items[0] != float64(1) || items[1] != "replaced" || items[2] != float64(3))
+
 	})
 
 	t.Run("empty template marker", func(t *testing.T) {
@@ -270,12 +277,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["val"] != "{{}}" {
-			t.Fatalf("val = %v, want {{}}", got["val"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "{{}}",
+			got["val"],
+		)
+
 	})
 
 	t.Run("invalid marker does not block later valid template", func(t *testing.T) {
@@ -285,38 +294,41 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["val"] != "{{}} then done" {
-			t.Fatalf("val = %v, want '{{}} then done'", got["val"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "{{}} then done",
+
+			got["val"])
+
 	})
 
 	t.Run("nil payload returns as-is", func(t *testing.T) {
 		t.Parallel()
 		result := renderTemplateVars(nil, json.RawMessage(`{"a":"b"}`))
-		if result != nil {
-			t.Fatalf("expected nil, got %s", string(result))
-		}
+		require.Nil(t, result)
+
 	})
 
 	t.Run("nil variables returns payload as-is", func(t *testing.T) {
 		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{x}}"}`)
 		result := renderTemplateVars(payload, nil)
-		if string(result) != string(payload) {
-			t.Fatalf("expected payload unchanged, got %s", string(result))
-		}
+		require.Equal(t, string(
+			payload), string(result),
+		)
+
 	})
 
 	t.Run("non-object variables returns payload as-is", func(t *testing.T) {
 		t.Parallel()
 		payload := json.RawMessage(`{"to":"{{x}}"}`)
 		result := renderTemplateVars(payload, json.RawMessage(`"not an object"`))
-		if string(result) != string(payload) {
-			t.Fatalf("expected payload unchanged, got %s", string(result))
-		}
+		require.Equal(t, string(
+			payload), string(result),
+		)
+
 	})
 
 	t.Run("no templates in payload", func(t *testing.T) {
@@ -326,12 +338,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["to"] != "plain@example.com" {
-			t.Fatalf("to = %v, want plain@example.com", got["to"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "plain@example.com",
+
+			got["to"])
+
 	})
 
 	t.Run("null variable value replaces with empty string in embedded", func(t *testing.T) {
@@ -341,12 +355,14 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["msg"] != "value is  here" {
-			t.Fatalf("msg = %q, want 'value is  here'", got["msg"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Equal(t, "value is  here",
+
+			got["msg"])
+
 	})
 
 	t.Run("null variable value preserved for full replacement", func(t *testing.T) {
@@ -356,12 +372,12 @@ func TestRenderTemplateVars(t *testing.T) {
 
 		result := renderTemplateVars(payload, vars)
 		var got map[string]any
-		if err := json.Unmarshal(result, &got); err != nil {
-			t.Fatalf("unmarshal result: %v", err)
-		}
-		if got["val"] != nil {
-			t.Fatalf("val = %v, want nil", got["val"])
-		}
+		require.NoError(t, json.
+			Unmarshal(result,
+				&got,
+			))
+		require.Nil(t, got["val"])
+
 	})
 }
 
@@ -380,49 +396,49 @@ func TestResolveVar(t *testing.T) {
 	t.Run("simple key", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "name")
-		if !ok || val != "Alice" {
-			t.Fatalf("resolveVar(name) = %v, %v, want Alice, true", val, ok)
-		}
+		require.False(t, !ok ||
+			val != "Alice",
+		)
+
 	})
 
 	t.Run("nested path", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "user.email")
-		if !ok || val != "alice@example.com" {
-			t.Fatalf("resolveVar(user.email) = %v, %v, want alice@example.com, true", val, ok)
-		}
+		require.False(t, !ok ||
+			val != "alice@example.com",
+		)
+
 	})
 
 	t.Run("deeply nested path", func(t *testing.T) {
 		t.Parallel()
 		val, ok := resolveVar(vars, "user.address.city")
-		if !ok || val != "SF" {
-			t.Fatalf("resolveVar(user.address.city) = %v, %v, want SF, true", val, ok)
-		}
+		require.False(t, !ok ||
+			val != "SF",
+		)
+
 	})
 
 	t.Run("missing key", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "missing")
-		if ok {
-			t.Fatal("expected missing key to return false")
-		}
+		require.False(t, ok)
+
 	})
 
 	t.Run("missing nested key", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "user.phone")
-		if ok {
-			t.Fatal("expected missing nested key to return false")
-		}
+		require.False(t, ok)
+
 	})
 
 	t.Run("path through non-object", func(t *testing.T) {
 		t.Parallel()
 		_, ok := resolveVar(vars, "name.first")
-		if ok {
-			t.Fatal("expected path through string to return false")
-		}
+		require.False(t, ok)
+
 	})
 }
 
@@ -430,53 +446,54 @@ func TestStringify(t *testing.T) {
 	t.Parallel()
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		if s := stringify("hello"); s != "hello" {
-			t.Fatalf("got %q, want hello", s)
-		}
+		require.Equal(t, "hello",
+			stringify("hello"))
+
 	})
 
 	t.Run("integer float", func(t *testing.T) {
 		t.Parallel()
-		if s := stringify(float64(42)); s != "42" {
-			t.Fatalf("got %q, want 42", s)
-		}
+		require.Equal(t, "42", stringify(float64(42)))
+
 	})
 
 	t.Run("fractional float", func(t *testing.T) {
 		t.Parallel()
 		s := stringify(3.14)
-		if !strings.Contains(s, "3.14") {
-			t.Fatalf("got %q, want contains 3.14", s)
-		}
+		require.True(t, strings.Contains(s,
+			"3.14"))
+
 	})
 
 	t.Run("bool true", func(t *testing.T) {
 		t.Parallel()
-		if s := stringify(true); s != "true" {
-			t.Fatalf("got %q, want true", s)
-		}
+		require.Equal(t, "true",
+			stringify(
+				true))
+
 	})
 
 	t.Run("bool false", func(t *testing.T) {
 		t.Parallel()
-		if s := stringify(false); s != "false" {
-			t.Fatalf("got %q, want false", s)
-		}
+		require.Equal(t, "false",
+			stringify(false))
+
 	})
 
 	t.Run("nil", func(t *testing.T) {
 		t.Parallel()
-		if s := stringify(nil); s != "" {
-			t.Fatalf("got %q, want empty", s)
-		}
+		require.Equal(t, "", stringify(nil))
+
 	})
 
 	t.Run("object", func(t *testing.T) {
 		t.Parallel()
 		s := stringify(map[string]any{"k": "v"})
-		if !strings.Contains(s, `"k"`) || !strings.Contains(s, `"v"`) {
-			t.Fatalf("got %q, want JSON object", s)
-		}
+		require.False(t, !strings.Contains(
+			s, `"k"`) ||
+
+			!strings.Contains(s, `"v"`))
+
 	})
 }
 
@@ -498,20 +515,21 @@ func TestRenderTemplateVars_RepeatedVariablesPreserveBehavior(t *testing.T) {
 	result := renderTemplateVars(payload, vars)
 
 	var got map[string]any
-	if err := json.Unmarshal(result, &got); err != nil {
-		t.Fatalf("unmarshal result: %v", err)
-	}
-	if got["first"] != "ops@example.com" || got["second"] != "ops@example.com" {
-		t.Fatalf("repeated email fields = %v/%v, want ops@example.com", got["first"], got["second"])
-	}
-	if got["message"] != "ops@example.com/42/{{missing}}/ops@example.com" {
-		t.Fatalf("message = %v, want repeated interpolation with missing placeholder preserved", got["message"])
-	}
-	if got["native_count"] != float64(42) {
-		t.Fatalf("native_count = %T(%v), want JSON number 42", got["native_count"], got["native_count"])
-	}
+	require.NoError(t, json.
+		Unmarshal(result,
+			&got,
+		))
+	require.False(t, got["first"] != "ops@example.com" ||
+		got["second"] != "ops@example.com")
+	require.Equal(t, "ops@example.com/42/{{missing}}/ops@example.com",
+
+		got["message"])
+	require.Equal(t, float64(42), got["native_count"])
+
 	if _, ok := got["native_config"].(map[string]any); !ok {
-		t.Fatalf("native_config = %T, want object", got["native_config"])
+		require.Failf(t, "test failure",
+
+			"native_config = %T, want object", got["native_config"])
 	}
 }
 
@@ -520,10 +538,10 @@ func TestRenderStringTemplate_RepeatedVariablesPreserveBehavior(t *testing.T) {
 	variables := json.RawMessage(`{"user":{"email":"ops@example.com"},"count":42}`)
 
 	got := renderStringTemplate("{{user.email}}:{{count}}:{{missing}}:{{user.email}}", variables)
+	require.Equal(t, "ops@example.com:42:{{missing}}:ops@example.com",
 
-	if got != "ops@example.com:42:{{missing}}:ops@example.com" {
-		t.Fatalf("renderStringTemplate repeated vars = %q", got)
-	}
+		got)
+
 }
 
 func BenchmarkRenderTemplateVars(b *testing.B) {
@@ -719,9 +737,9 @@ func TestRenderStringTemplate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := renderStringTemplate(tt.template, tt.variables)
-			if got != tt.want {
-				t.Errorf("renderStringTemplate(%q) = %q, want %q", tt.template, got, tt.want)
-			}
+			assert.Equal(t, tt.want,
+				got)
+
 		})
 	}
 }

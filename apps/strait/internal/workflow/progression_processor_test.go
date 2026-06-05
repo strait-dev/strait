@@ -6,6 +6,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkflowProgression_GroupEventsByWorkflow(t *testing.T) {
@@ -15,12 +17,11 @@ func TestWorkflowProgression_GroupEventsByWorkflow(t *testing.T) {
 		{ID: 3, WorkflowRunID: "wf-a"},
 	}
 	grouped := groupProgressionEventsByWorkflow(events)
-	if len(grouped["wf-a"]) != 2 {
-		t.Fatalf("wf-a group len = %d, want 2", len(grouped["wf-a"]))
-	}
-	if len(grouped["wf-b"]) != 1 {
-		t.Fatalf("wf-b group len = %d, want 1", len(grouped["wf-b"]))
-	}
+	require.Len(t, grouped["wf-a"],
+		2)
+	require.Len(t, grouped["wf-b"],
+		1)
+
 }
 
 type fakeProgressionEventStore struct {
@@ -111,25 +112,29 @@ func TestWorkflowProgression_ProcessOnceBatchesWorkflowContextLoad(t *testing.T)
 	}
 	callback := NewStepCallback(callbackStore, &WorkflowEngine{}, nil)
 	processor := NewProgressionProcessor(eventStore, callback, ProgressionProcessorConfig{Limit: 10})
+	require.NoError(t,
+		processor.
+			ProcessOnce(ctx))
+	require.EqualValues(t, 1,
+		listStepsCalls,
+	)
+	require.EqualValues(t, 1,
+		batchLoadCalls,
+	)
+	require.EqualValues(t, 1,
+		incrementBatchCalls,
+	)
 
-	if err := processor.ProcessOnce(ctx); err != nil {
-		t.Fatalf("ProcessOnce() error = %v", err)
-	}
-	if listStepsCalls != 1 {
-		t.Fatalf("step definition loads = %d, want 1 for workflow batch", listStepsCalls)
-	}
-	if batchLoadCalls != 1 {
-		t.Fatalf("step batch loads = %d, want 1", batchLoadCalls)
-	}
-	if incrementBatchCalls != 1 {
-		t.Fatalf("batch dependency increments = %d, want 1", incrementBatchCalls)
-	}
 	if got := eventStore.processed; len(got) != 2 || got[0] != 1 || got[1] != 2 {
-		t.Fatalf("processed events = %v, want [1 2]", got)
+		require.Failf(t, "test failure",
+
+			"processed events = %v, want [1 2]", got)
 	}
-	if len(eventStore.released) != 0 {
-		t.Fatalf("released events = %v, want none", eventStore.released)
-	}
+	require.Len(t, eventStore.
+		released,
+
+		0)
+
 }
 
 func FuzzWorkflowProgression(f *testing.F) {
@@ -142,12 +147,12 @@ func FuzzWorkflowProgression(f *testing.F) {
 			Status:        status,
 		}}
 		grouped := groupProgressionEventsByWorkflow(events)
-		if len(grouped) != 1 {
-			t.Fatalf("group count = %d, want 1", len(grouped))
-		}
-		if got := grouped[workflowRunID][0].StepRunID; got != stepRunID {
-			t.Fatalf("stepRunID = %q, want %q", got, stepRunID)
-		}
+		require.Len(t, grouped,
+			1)
+		require.Equal(t, stepRunID,
+			grouped[workflowRunID][0].StepRunID,
+		)
+
 	})
 }
 

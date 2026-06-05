@@ -16,6 +16,8 @@ import (
 	"strait/internal/telemetry"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
@@ -83,22 +85,22 @@ func TestAsFloat_Adversarial(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			gotF, gotOK := asFloat(tt.input)
-			if gotOK != tt.wantOK {
-				t.Fatalf("asFloat(%v) ok = %v, want %v", tt.input, gotOK, tt.wantOK)
-			}
+			require.Equal(t, tt.
+				wantOK, gotOK)
+
 			if !gotOK {
 				return
 			}
 			// Special handling for NaN since NaN != NaN.
 			if tt.name == "float64 NaN" || tt.name == "json.Number NaN string" {
-				if !math.IsNaN(gotF) {
-					t.Fatalf("asFloat(NaN) = %v, want NaN", gotF)
-				}
+				require.True(t, math.
+					IsNaN(gotF))
+
 				return
 			}
-			if gotF != tt.wantF {
-				t.Fatalf("asFloat(%v) = %v, want %v", tt.input, gotF, tt.wantF)
-			}
+			require.Equal(t, tt.
+				wantF, gotF)
+
 		})
 	}
 }
@@ -114,27 +116,24 @@ func TestEvaluateCondition_NumericComparisonNonNumeric(t *testing.T) {
 			t.Parallel()
 			cond := mustJSON(`{"type":"` + op + `","left":"abc","right":"def"}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-			if err == nil {
-				t.Fatal("expected error for non-numeric comparison, got nil")
-			}
+			require.Error(t, err)
+
 		})
 
 		t.Run(op+"_bool_operands", func(t *testing.T) {
 			t.Parallel()
 			cond := mustJSON(`{"type":"` + op + `","left":true,"right":false}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-			if err == nil {
-				t.Fatal("expected error for boolean comparison, got nil")
-			}
+			require.Error(t, err)
+
 		})
 
 		t.Run(op+"_null_operand", func(t *testing.T) {
 			t.Parallel()
 			cond := mustJSON(`{"type":"` + op + `","left":null,"right":1}`)
 			_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-			if err == nil {
-				t.Fatal("expected error for null comparison, got nil")
-			}
+			require.Error(t, err)
+
 		})
 	}
 }
@@ -191,9 +190,12 @@ func TestTryReleaseDependencyRuns_AllSatisfied(t *testing.T) {
 			return true, nil
 		},
 		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusWaiting || to != domain.StatusQueued {
-				t.Errorf("unexpected status transition: %s -> %s", from, to)
-			}
+			assert.False(t, from !=
+				domain.StatusWaiting ||
+				to != domain.
+					StatusQueued,
+			)
+
 			queuedIDs = append(queuedIDs, id)
 			return nil
 		},
@@ -201,10 +203,9 @@ func TestTryReleaseDependencyRuns_AllSatisfied(t *testing.T) {
 	cb := newTestCallback(ms)
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
+	require.Len(t, queuedIDs,
+		2)
 
-	if len(queuedIDs) != 2 {
-		t.Fatalf("expected 2 runs queued, got %d", len(queuedIDs))
-	}
 }
 
 func TestTryReleaseDependencyRuns_SomePending(t *testing.T) {
@@ -235,10 +236,10 @@ func TestTryReleaseDependencyRuns_SomePending(t *testing.T) {
 	cb := newTestCallback(ms)
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
+	require.False(t, len(queuedIDs) !=
+		1 || queuedIDs[0] != "wr-1",
+	)
 
-	if len(queuedIDs) != 1 || queuedIDs[0] != "wr-1" {
-		t.Fatalf("expected only wr-1 queued, got %v", queuedIDs)
-	}
 }
 
 func TestTryReleaseDependencyRuns_FailedDependencyNotReleased(t *testing.T) {
@@ -268,10 +269,9 @@ func TestTryReleaseDependencyRuns_FailedDependencyNotReleased(t *testing.T) {
 	// The completing run itself is failed.
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusFailed}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
+	require.Len(t, queuedIDs,
+		0)
 
-	if len(queuedIDs) != 0 {
-		t.Fatalf("expected no runs queued when dependency unsatisfied, got %v", queuedIDs)
-	}
 }
 
 func TestTryReleaseDependencyRuns_DuplicateDependentJobIDs(t *testing.T) {
@@ -294,11 +294,11 @@ func TestTryReleaseDependencyRuns_DuplicateDependentJobIDs(t *testing.T) {
 	cb := newTestCallback(ms)
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
+	require.Len(t, requestedJobIDs,
+		1)
 
 	// Deduplication should result in a single job ID.
-	if len(requestedJobIDs) != 1 {
-		t.Fatalf("expected 1 deduplicated job ID, got %v", requestedJobIDs)
-	}
+
 }
 
 func TestTryReleaseDependencyRuns_ListDependentsError(t *testing.T) {
@@ -344,11 +344,11 @@ func TestTryReleaseDependencyRuns_DependencyCheckError(t *testing.T) {
 	cb := newTestCallback(ms)
 	run := &domain.JobRun{ID: "jr-1", JobID: "j-1", Status: domain.StatusCompleted}
 	cb.tryReleaseDependencyRuns(context.Background(), run)
+	require.EqualValues(t, 1,
+		queuedCount)
 
 	// Only wr-2 should be queued; wr-1 error should be skipped.
-	if queuedCount != 1 {
-		t.Fatalf("expected 1 run queued (skipping errored check), got %d", queuedCount)
-	}
+
 }
 
 func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
@@ -383,12 +383,12 @@ func TestTryReleaseDependencyRuns_ConcurrentAttempts(t *testing.T) {
 		})
 	}
 	wg.Wait()
+	require.EqualValues(t, 10,
+		queuedCount.Load())
 
 	// Each goroutine calls independently; the store mock is stateless so all
 	// 10 should succeed. This tests that no race condition panics occur.
-	if queuedCount.Load() != 10 {
-		t.Fatalf("expected 10 release attempts, got %d", queuedCount.Load())
-	}
+
 }
 
 // 3. enqueueStepAnalytics (callback.go, 22.2% coverage)
@@ -542,9 +542,9 @@ func newTestMetrics(t *testing.T) *telemetry.Metrics {
 	provider := sdkmetric.NewMeterProvider()
 	meter := provider.Meter("test")
 	hist, err := meter.Float64Histogram("test.workflow.step.wait_duration")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t,
+		err)
+
 	return &telemetry.Metrics{
 		WorkflowStepWaitDuration: hist,
 	}
@@ -621,12 +621,11 @@ func TestSkipDependentSteps_NoDependents(t *testing.T) {
 	)
 	// Step "a" has no dependents; nothing should be skipped.
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skippedRefs) != 0 {
-		t.Fatalf("expected no refs skipped, got %v", skippedRefs)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, skippedRefs,
+		0)
+
 }
 
 func TestSkipDependentSteps_DiamondDAG(t *testing.T) {
@@ -653,17 +652,15 @@ func TestSkipDependentSteps_DiamondDAG(t *testing.T) {
 		},
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, ref := range []string{"b", "c", "d"} {
-		if !skippedRefs[ref] {
-			t.Errorf("expected %s to be skipped", ref)
-		}
+		assert.True(t, skippedRefs[ref])
+
 	}
-	if skippedRefs["a"] {
-		t.Error("step a (the failed step) should not be in the skip list")
-	}
+	assert.False(t, skippedRefs["a"])
+
 }
 
 func TestSkipDependentSteps_FanOut(t *testing.T) {
@@ -690,12 +687,11 @@ func TestSkipDependentSteps_FanOut(t *testing.T) {
 		steps,
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(skippedRefs) != 5 {
-		t.Fatalf("expected 5 refs skipped, got %d: %v", len(skippedRefs), skippedRefs)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, skippedRefs,
+		5)
+
 }
 
 func TestSkipDependentSteps_DeepChain(t *testing.T) {
@@ -723,13 +719,12 @@ func TestSkipDependentSteps_DeepChain(t *testing.T) {
 		},
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, ref := range []string{"b", "c", "d", "e"} {
-		if !skippedRefs[ref] {
-			t.Errorf("expected %s to be skipped in chain", ref)
-		}
+		assert.True(t, skippedRefs[ref])
+
 	}
 }
 
@@ -757,18 +752,12 @@ func TestSkipDependentSteps_MiddleNodeFail(t *testing.T) {
 		},
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "b")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !skippedRefs["d"] {
-		t.Error("expected d to be skipped (depends on failed b)")
-	}
-	if skippedRefs["c"] {
-		t.Error("c should not be skipped (independent of b)")
-	}
-	if skippedRefs["a"] {
-		t.Error("a should not be skipped (upstream of b)")
-	}
+	require.NoError(t,
+		err)
+	assert.True(t, skippedRefs["d"])
+	assert.False(t, skippedRefs["c"])
+	assert.False(t, skippedRefs["a"])
+
 }
 
 func TestSkipDependentSteps_StoreError(t *testing.T) {
@@ -787,9 +776,8 @@ func TestSkipDependentSteps_StoreError(t *testing.T) {
 		},
 	)
 	err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a")
-	if err == nil {
-		t.Fatal("expected error from store, got nil")
-	}
+	require.Error(t, err)
+
 }
 
 // 6. Complex condition edge cases via EvaluateCondition
@@ -880,17 +868,15 @@ func TestEvaluateCondition_ConditionalBranch_EdgeValues(t *testing.T) {
 			t.Parallel()
 			got, err := EvaluateCondition(tt.cond, map[string]domain.StepRunStatus{})
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+				require.Error(t, err)
+
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
+			require.NoError(t,
+				err)
+			require.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }
@@ -909,12 +895,10 @@ func TestEvaluateCondition_DeeplyNestedAllOf(t *testing.T) {
 		inner = `{"type":"all_of","conditions":[` + inner + `]}`
 	}
 	got, err := EvaluateCondition(mustJSON(inner), statuses)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !got {
-		t.Fatal("expected deeply nested condition to evaluate to true")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, got)
+
 }
 
 // 7. mapRunStatusToStepStatus edge cases
@@ -945,13 +929,18 @@ func TestMapRunStatusToStepStatus_AllTerminalStatuses(t *testing.T) {
 			t.Parallel()
 			run := &domain.JobRun{Status: tt.runStatus, Result: json.RawMessage(`{"ok":true}`), Error: "test error"}
 			stepStatus, fields := mapRunStatusToStepStatus(run)
-			if stepStatus != tt.wantStep {
-				t.Fatalf("status = %s, want %s", stepStatus, tt.wantStep)
-			}
+			require.Equal(t, tt.
+				wantStep, stepStatus,
+			)
+
 			_, hasError := fields["error"]
-			if hasError != tt.wantError && tt.runStatus != domain.StatusCanceled {
-				t.Fatalf("error field present = %v, want %v", hasError, tt.wantError)
-			}
+			require.False(t, hasError !=
+				tt.wantError &&
+				tt.runStatus !=
+					domain.
+						StatusCanceled,
+			)
+
 		})
 	}
 }
@@ -960,11 +949,15 @@ func TestMapRunStatusToStepStatus_CompletedNoResult(t *testing.T) {
 	t.Parallel()
 	run := &domain.JobRun{Status: domain.StatusCompleted, Result: nil}
 	stepStatus, fields := mapRunStatusToStepStatus(run)
-	if stepStatus != domain.StepCompleted {
-		t.Fatalf("expected StepCompleted, got %s", stepStatus)
-	}
+	require.Equal(t, domain.
+		StepCompleted,
+		stepStatus,
+	)
+
 	if _, ok := fields["output"]; ok {
-		t.Fatal("expected no output field when Result is nil")
+		require.Fail(t,
+
+			"expected no output field when Result is nil")
 	}
 }
 
@@ -972,13 +965,15 @@ func TestMapRunStatusToStepStatus_FailedNoError(t *testing.T) {
 	t.Parallel()
 	run := &domain.JobRun{Status: domain.StatusFailed, Error: ""}
 	stepStatus, fields := mapRunStatusToStepStatus(run)
-	if stepStatus != domain.StepFailed {
-		t.Fatalf("expected StepFailed, got %s", stepStatus)
-	}
+	require.Equal(t, domain.
+		StepFailed,
+		stepStatus,
+	)
+
 	errField, ok := fields["error"].(string)
-	if !ok || errField == "" {
-		t.Fatal("expected a fallback error message when Error is empty")
-	}
+	require.False(t, !ok || errField ==
+		"")
+
 }
 
 // 8. approvalAuditActor edge cases
@@ -1002,12 +997,11 @@ func TestApprovalAuditActor_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			id, typ := approvalAuditActor(tt.actor)
-			if id != tt.wantID {
-				t.Errorf("actor ID = %q, want %q", id, tt.wantID)
-			}
-			if typ != tt.wantType {
-				t.Errorf("actor type = %q, want %q", typ, tt.wantType)
-			}
+			assert.Equal(t, tt.
+				wantID, id)
+			assert.Equal(t, tt.
+				wantType, typ)
+
 		})
 	}
 }
@@ -1016,15 +1010,14 @@ func TestApprovalAuditActor_EdgeCases(t *testing.T) {
 
 func TestEffectiveResourceClass_Adversarial(t *testing.T) {
 	t.Parallel()
-	if got := effectiveResourceClass(""); got != "small" {
-		t.Fatalf("empty should default to small, got %q", got)
-	}
-	if got := effectiveResourceClass("large"); got != "large" {
-		t.Fatalf("expected large, got %q", got)
-	}
-	if got := effectiveResourceClass("custom"); got != "custom" {
-		t.Fatalf("expected custom, got %q", got)
-	}
+	require.Equal(t, "small",
+		effectiveResourceClass(""))
+	require.Equal(t, "large",
+		effectiveResourceClass("large"),
+	)
+	require.Equal(t, "custom",
+		effectiveResourceClass("custom"))
+
 }
 
 func TestHasResourceClassCapacity_Limits(t *testing.T) {
@@ -1032,43 +1025,46 @@ func TestHasResourceClassCapacity_Limits(t *testing.T) {
 
 	// Small: limit 50
 	running := map[string]int{"small": 49}
-	if !hasResourceClassCapacity(running, "") {
-		t.Fatal("should have capacity at 49/50")
-	}
+	require.True(t, hasResourceClassCapacity(running,
+		""))
+
 	running["small"] = 50
-	if hasResourceClassCapacity(running, "") {
-		t.Fatal("should not have capacity at 50/50")
-	}
+	require.False(t, hasResourceClassCapacity(running,
+		""))
 
 	// Medium: limit 20
 	running = map[string]int{"medium": 19}
-	if !hasResourceClassCapacity(running, "medium") {
-		t.Fatal("should have capacity at 19/20")
-	}
+	require.True(t, hasResourceClassCapacity(running,
+		"medium",
+	))
+
 	running["medium"] = 20
-	if hasResourceClassCapacity(running, "medium") {
-		t.Fatal("should not have capacity at 20/20")
-	}
+	require.False(t, hasResourceClassCapacity(running,
+		"medium",
+	))
 
 	// Large: limit 5
 	running = map[string]int{"large": 4}
-	if !hasResourceClassCapacity(running, "large") {
-		t.Fatal("should have capacity at 4/5")
-	}
+	require.True(t, hasResourceClassCapacity(running,
+		"large",
+	))
+
 	running["large"] = 5
-	if hasResourceClassCapacity(running, "large") {
-		t.Fatal("should not have capacity at 5/5")
-	}
+	require.False(t, hasResourceClassCapacity(running,
+		"large",
+	))
 
 	// Unknown class falls back to small limit.
 	running = map[string]int{"small": 49}
-	if !hasResourceClassCapacity(running, "unknown-class") {
-		t.Fatal("unknown class should use small limit")
-	}
+	require.True(t, hasResourceClassCapacity(running,
+		"unknown-class",
+	))
+
 	running["small"] = 50
-	if hasResourceClassCapacity(running, "unknown-class") {
-		t.Fatal("unknown class at small limit should not have capacity")
-	}
+	require.False(t, hasResourceClassCapacity(running,
+		"unknown-class",
+	))
+
 }
 
 // 10. advisoryXactLockIDForStepRun determinism
@@ -1077,17 +1073,16 @@ func TestAdvisoryXactLockIDForStepRun_Deterministic(t *testing.T) {
 	t.Parallel()
 	id1 := advisoryXactLockIDForStepRun("sr-abc")
 	id2 := advisoryXactLockIDForStepRun("sr-abc")
-	if id1 != id2 {
-		t.Fatalf("expected deterministic lock ID, got %d and %d", id1, id2)
-	}
+	require.Equal(t, id2,
+		id1)
+
 	id3 := advisoryXactLockIDForStepRun("sr-xyz")
-	if id1 == id3 {
-		t.Fatal("different step run IDs should produce different lock IDs")
-	}
+	require.NotEqual(t,
+		id3, id1)
+	require.GreaterOrEqual(t, id1, int64(0))
+
 	// Must be non-negative (masked with 0x7fffffffffffffff).
-	if id1 < 0 {
-		t.Fatal("lock ID should be non-negative")
-	}
+
 }
 
 // checkStepRetry boundary tests (callback_retry.go)
@@ -1103,12 +1098,10 @@ func TestCheckStepRetry_MaxAttemptsZero(t *testing.T) {
 		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 0}},
 	)
 	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if shouldRetry {
-		t.Fatal("RetryMaxAttempts=0 should not retry")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, shouldRetry)
+
 }
 
 func TestCheckStepRetry_MaxAttemptsNegative(t *testing.T) {
@@ -1122,12 +1115,10 @@ func TestCheckStepRetry_MaxAttemptsNegative(t *testing.T) {
 		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: -1}},
 	)
 	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if shouldRetry {
-		t.Fatal("RetryMaxAttempts=-1 should not retry")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, shouldRetry)
+
 }
 
 func TestCheckStepRetry_AttemptEqualsMax(t *testing.T) {
@@ -1141,12 +1132,10 @@ func TestCheckStepRetry_AttemptEqualsMax(t *testing.T) {
 		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
 	)
 	shouldRetry, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if shouldRetry {
-		t.Fatal("Attempt=3, MaxAttempts=3 should not retry (exhausted)")
-	}
+	require.NoError(t,
+		err)
+	require.False(t, shouldRetry)
+
 }
 
 func TestCheckStepRetry_AttemptBelowMax(t *testing.T) {
@@ -1160,15 +1149,12 @@ func TestCheckStepRetry_AttemptBelowMax(t *testing.T) {
 		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
 	)
 	shouldRetry, _, newAttempt, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !shouldRetry {
-		t.Fatal("Attempt=2, MaxAttempts=3 should retry")
-	}
-	if newAttempt != 3 {
-		t.Errorf("newAttempt = %d, want 3", newAttempt)
-	}
+	require.NoError(t,
+		err)
+	require.True(t, shouldRetry)
+	assert.EqualValues(t, 3,
+		newAttempt)
+
 }
 
 func TestCheckStepRetry_StepNotFound(t *testing.T) {
@@ -1182,9 +1168,8 @@ func TestCheckStepRetry_StepNotFound(t *testing.T) {
 		[]domain.WorkflowStep{{StepRef: "a", RetryMaxAttempts: 3}},
 	)
 	_, _, _, err := cb.checkStepRetry(context.Background(), stepRun, jobRun, wc)
-	if err == nil {
-		t.Fatal("expected error for missing step definition")
-	}
+	require.Error(t, err)
+
 }
 
 // OnJobRunTerminal OutputTransform tests
@@ -1243,22 +1228,20 @@ func TestOnJobRunTerminal_OutputTransformApplied(t *testing.T) {
 		Status:            domain.StatusCompleted,
 		Result:            json.RawMessage(`{"result":"value","extra":"data"}`),
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if storedFields == nil {
-		t.Fatal("expected fields to be stored")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		storedFields)
+
 	output, ok := storedFields["output"].(json.RawMessage)
-	if !ok {
-		t.Fatal("expected output field in stored fields")
-	}
-	if string(output) == `{"result":"value","extra":"data"}` {
-		t.Error("output should be transformed, not raw")
-	}
-	if len(output) == 0 {
-		t.Error("output should not be empty after transform")
-	}
+	require.True(t, ok)
+	assert.NotEqual(t,
+		`{"result":"value","extra":"data"}`,
+
+		string(output))
+	assert.NotEmpty(t,
+		output)
+
 }
 
 func TestOnJobRunTerminal_NoOutputTransform(t *testing.T) {
@@ -1315,16 +1298,16 @@ func TestOnJobRunTerminal_NoOutputTransform(t *testing.T) {
 		Status:            domain.StatusCompleted,
 		Result:            json.RawMessage(`{"result":"value"}`),
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	output, ok := storedFields["output"].(json.RawMessage)
-	if !ok {
-		t.Fatal("expected output field")
-	}
-	if string(output) != `{"result":"value"}` {
-		t.Errorf("output should be preserved as-is: got %s", string(output))
-	}
+	require.True(t, ok)
+	assert.Equal(t, `{"result":"value"}`,
+
+		string(
+			output))
+
 }
 
 func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
@@ -1381,11 +1364,13 @@ func TestOnJobRunTerminal_EmptyResult_NoTransform(t *testing.T) {
 		Status:            domain.StatusCompleted,
 		Result:            nil,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	if _, hasOutput := storedFields["output"]; hasOutput {
-		t.Error("empty result should not produce output field")
+		assert.Fail(t,
+
+			"empty result should not produce output field")
 	}
 }
 
@@ -1421,9 +1406,8 @@ func TestEmitEventIfConfigured_JobRunSourceType(t *testing.T) {
 	step := &domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "my-event"}
 	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", ProjectID: "proj-1"}
 	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
-	if !requeued {
-		t.Fatal("expected job run to be re-queued via UpdateRunStatus")
-	}
+	require.True(t, requeued)
+
 }
 
 func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
@@ -1452,9 +1436,8 @@ func TestEmitEventIfConfigured_JobRunSourceType_EmptyJobRunID(t *testing.T) {
 	step := &domain.WorkflowStep{StepRef: "emitter", EventEmitKey: "my-event"}
 	wfRun := &domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1"}
 	cb.emitEventIfConfigured(context.Background(), stepRun, step, wfRun)
-	if updateRunCalled {
-		t.Fatal("should not call UpdateRunStatus when JobRunID is empty")
-	}
+	require.False(t, updateRunCalled)
+
 }
 
 // scheduleRunnableSteps concurrency key tests
@@ -1489,13 +1472,13 @@ func TestScheduleRunnableSteps_ConcurrencyKeyBlocking(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{"a": domain.StepRunning}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, jobID := range enqueuedSteps {
-		if jobID == "j-b" {
-			t.Fatal("step b should be blocked by concurrency key ck-1")
-		}
+		require.NotEqual(t,
+			"j-b", jobID)
+
 	}
 }
 
@@ -1529,18 +1512,17 @@ func TestScheduleRunnableSteps_DifferentConcurrencyKeys(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{"a": domain.StepRunning}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	found := false
 	for _, jobID := range enqueuedSteps {
 		if jobID == "j-b" {
 			found = true
 		}
 	}
-	if !found {
-		t.Fatal("step b should NOT be blocked (different concurrency key)")
-	}
+	require.True(t, found)
+
 }
 
 // scheduleRunnableSteps resource class capacity
@@ -1579,13 +1561,13 @@ func TestScheduleRunnableSteps_ResourceClassCapacityExhausted(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, runningSteps, runnableSteps)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	for _, jobID := range enqueuedSteps {
-		if jobID == "j-new" {
-			t.Fatal("new-step should be blocked by large resource class capacity (5/5)")
-		}
+		require.NotEqual(t,
+			"j-new", jobID)
+
 	}
 }
 
@@ -1616,12 +1598,10 @@ func TestScheduleRunnableSteps_NoDependsOn_NoParentOutputs(t *testing.T) {
 	}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, map[string]domain.StepRunStatus{}, nil, runnableSteps)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if getStepOutputsCalled {
-		t.Error("GetStepOutputs should not be called for step with no DependsOn")
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, getStepOutputsCalled)
+
 }
 
 func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
@@ -1630,9 +1610,10 @@ func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
 	ms := &mockCallbackStore{
 		getStepOutputsFn: func(_ context.Context, _ string, refs []string) (map[string]json.RawMessage, error) {
 			getStepOutputsCalled = true
-			if len(refs) != 1 || refs[0] != "parent" {
-				t.Fatalf("unexpected step refs: %v", refs)
-			}
+			require.False(t, len(refs) != 1 ||
+				refs[0] !=
+					"parent")
+
 			return map[string]json.RawMessage{"parent": json.RawMessage(`{"data":"out"}`)}, nil
 		},
 	}
@@ -1656,12 +1637,10 @@ func TestScheduleRunnableSteps_WithDependsOn_GetsParentOutputs(t *testing.T) {
 	statuses := map[string]domain.StepRunStatus{"parent": domain.StepCompleted}
 
 	err := cb.scheduleRunnableSteps(context.Background(), wfRun, steps, statuses, nil, runnableSteps)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !getStepOutputsCalled {
-		t.Fatal("expected GetStepOutputs to be called for step with DependsOn")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, getStepOutputsCalled)
+
 }
 
 // propagateToParent -- direct lookup vs fallback
@@ -1725,12 +1704,10 @@ func TestPropagateToParent_WithParentStepRunID(t *testing.T) {
 		Status:              domain.WfStatusCompleted,
 	}
 	err := cb.propagateToParent(context.Background(), childRun, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !directLookupUsed {
-		t.Fatal("expected direct lookup via ParentStepRunID, not fallback scan")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, directLookupUsed)
+
 }
 
 func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
@@ -1794,12 +1771,10 @@ func TestPropagateToParent_WithoutParentStepRunID_FallbackScan(t *testing.T) {
 		Status:              domain.WfStatusCompleted,
 	}
 	err := cb.propagateToParent(context.Background(), childRun, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !fallbackUsed {
-		t.Fatal("expected fallback scan via step matching when ParentStepRunID is empty")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, fallbackUsed)
+
 }
 
 // propagateToParent output aggregation
@@ -1869,27 +1844,31 @@ func TestPropagateToParent_CompletedWithOutputs(t *testing.T) {
 		{ID: "csr-2", StepRef: "step-b", Output: json.RawMessage(`{"b":"out"}`)},
 	}
 	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if storedOutput == nil {
-		t.Fatal("expected aggregated output on parent step")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		storedOutput)
+
 	var parsed map[string]json.RawMessage
-	if err := json.Unmarshal(storedOutput, &parsed); err != nil {
-		t.Fatalf("failed to parse aggregated output: %v", err)
-	}
+	require.NoError(t,
+		json.Unmarshal(storedOutput,
+
+			&parsed))
+
 	if _, ok := parsed["step-a"]; !ok {
-		t.Error("expected step-a output in aggregated result")
+		assert.Fail(t,
+
+			"expected step-a output in aggregated result")
 	}
 	if _, ok := parsed["step-b"]; !ok {
-		t.Error("expected step-b output in aggregated result")
+		assert.Fail(t,
+
+			"expected step-b output in aggregated result")
 	}
 }
 
 func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 	t.Parallel()
-	var storedOutput json.RawMessage
 	var outputFieldSet bool
 	ms := &mockCallbackStore{
 		getWorkflowRunFn: func(_ context.Context, id string) (*domain.WorkflowRun, error) {
@@ -1909,9 +1888,8 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 			return nil, nil
 		},
 		updateStepRunStatusFn: func(_ context.Context, _ string, _ domain.StepRunStatus, fields map[string]any) error {
-			if out, ok := fields["output"]; ok {
+			if _, ok := fields["output"]; ok {
 				outputFieldSet = true
-				storedOutput = out.(json.RawMessage)
 			}
 			return nil
 		},
@@ -1953,12 +1931,10 @@ func TestPropagateToParent_CompletedNoOutputs(t *testing.T) {
 		{ID: "csr-1", StepRef: "step-a", Output: nil},
 	}
 	err := cb.propagateToParent(context.Background(), childRun, childStepRuns)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if outputFieldSet {
-		t.Errorf("should not set output field when no child step has output, got %s", string(storedOutput))
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, outputFieldSet)
+
 }
 
 // propagateToParent canceled child
@@ -2016,15 +1992,12 @@ func TestPropagateToParent_CanceledChild(t *testing.T) {
 		Status:              domain.WfStatusCanceled,
 	}
 	err := cb.propagateToParent(context.Background(), childRun, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !parentStepFailed {
-		t.Fatal("expected parent step to be failed when child is canceled")
-	}
-	if errorMsg == "" {
-		t.Error("expected error message describing canceled sub-workflow")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, parentStepFailed)
+	assert.NotEqual(t,
+		"", errorMsg)
+
 }
 
 // OnEventReceived tests
@@ -2034,9 +2007,9 @@ func TestOnEventReceived_NilTrigger(t *testing.T) {
 	ms := &mockCallbackStore{}
 	cb := newTestCallback(ms)
 	err := cb.OnEventReceived(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("expected nil error for nil trigger, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestOnEventReceived_NonWorkflowStepSource(t *testing.T) {
@@ -2049,9 +2022,9 @@ func TestOnEventReceived_NonWorkflowStepSource(t *testing.T) {
 		WorkflowStepRunID: "sr-1",
 	}
 	err := cb.OnEventReceived(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("expected nil error for non-workflow-step source, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestOnEventReceived_EmptyStepRunID(t *testing.T) {
@@ -2064,9 +2037,9 @@ func TestOnEventReceived_EmptyStepRunID(t *testing.T) {
 		WorkflowStepRunID: "",
 	}
 	err := cb.OnEventReceived(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("expected nil error for empty WorkflowStepRunID, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestOnEventReceived_TerminalNonCompleted(t *testing.T) {
@@ -2085,9 +2058,9 @@ func TestOnEventReceived_TerminalNonCompleted(t *testing.T) {
 		WorkflowStepRunID: "sr-1",
 	}
 	err := cb.OnEventReceived(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("expected nil error for terminal non-completed step, got: %v", err)
-	}
+	require.NoError(t,
+		err)
+
 }
 
 func TestOnEventReceived_NonTerminalStep_WithPayload(t *testing.T) {
@@ -2140,19 +2113,17 @@ func TestOnEventReceived_NonTerminalStep_WithPayload(t *testing.T) {
 		ResponsePayload:   json.RawMessage(`{"event":"data"}`),
 	}
 	err := cb.OnEventReceived(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if storedFields == nil {
-		t.Fatal("expected step run to be updated")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		storedFields)
+
 	output, ok := storedFields["output"]
-	if !ok {
-		t.Fatal("expected output field when trigger has ResponsePayload")
-	}
-	if string(output.(json.RawMessage)) != `{"event":"data"}` {
-		t.Errorf("unexpected output: %s", string(output.(json.RawMessage)))
-	}
+	require.True(t, ok)
+	assert.Equal(t, `{"event":"data"}`,
+
+		string(output.(json.RawMessage)))
+
 }
 
 func TestOnEventReceived_NonTerminalStep_EmptyPayload(t *testing.T) {
@@ -2205,13 +2176,14 @@ func TestOnEventReceived_NonTerminalStep_EmptyPayload(t *testing.T) {
 		ResponsePayload:   nil,
 	}
 	err := cb.OnEventReceived(context.Background(), trigger)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if storedFields == nil {
-		t.Fatal("expected step run to be updated")
-	}
+	require.NoError(t,
+		err)
+	require.NotNil(t,
+		storedFields)
+
 	if _, hasOutput := storedFields["output"]; hasOutput {
-		t.Error("should not set output field when ResponsePayload is empty")
+		assert.Fail(t,
+
+			"should not set output field when ResponsePayload is empty")
 	}
 }

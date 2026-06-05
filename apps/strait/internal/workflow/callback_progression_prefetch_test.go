@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // prefetchStepOutputs tests.
@@ -49,27 +51,26 @@ func TestPrefetchStepOutputs_BatchesAllDeps(t *testing.T) {
 	}
 
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if callCount != 1 {
-		t.Fatalf("expected exactly 1 GetStepOutputs call, got %d", callCount)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 1,
+		callCount)
+
 	// Verify the unique dep refs: root, step-x, step-y (order may vary).
 	sort.Strings(capturedRefs)
 	want := []string{"root", "step-x", "step-y"}
-	if len(capturedRefs) != len(want) {
-		t.Fatalf("expected refs %v, got %v", want, capturedRefs)
-	}
+	require.Len(t, capturedRefs,
+		len(want))
+
 	for i := range want {
-		if capturedRefs[i] != want[i] {
-			t.Fatalf("ref[%d]: expected %s, got %s", i, want[i], capturedRefs[i])
-		}
+		require.Equal(t, want[i], capturedRefs[i])
+
 	}
+	require.Len(t, outputs,
+		3)
+
 	// Verify outputs contain all 3 keys.
-	if len(outputs) != 3 {
-		t.Fatalf("expected 3 output keys, got %d", len(outputs))
-	}
+
 }
 
 // TestPrefetchStepOutputs_NoDeps_ReturnsNil verifies that when all
@@ -98,15 +99,11 @@ func TestPrefetchStepOutputs_NoDeps_ReturnsNil(t *testing.T) {
 	}
 
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if outputs != nil {
-		t.Fatalf("expected nil outputs, got %v", outputs)
-	}
-	if called {
-		t.Fatal("GetStepOutputs should not have been called")
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, outputs)
+	require.False(t, called)
+
 }
 
 // TestPrefetchStepOutputs_SkipsTerminalAndRunning verifies that
@@ -143,15 +140,14 @@ func TestPrefetchStepOutputs_SkipsTerminalAndRunning(t *testing.T) {
 	}
 
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(capturedRefs) != 1 || capturedRefs[0] != "only-this-dep" {
-		t.Fatalf("expected [only-this-dep], got %v", capturedRefs)
-	}
-	if len(outputs) != 1 {
-		t.Fatalf("expected 1 output, got %d", len(outputs))
-	}
+	require.NoError(t,
+		err)
+	require.False(t, len(capturedRefs) !=
+		1 || capturedRefs[0] != "only-this-dep",
+	)
+	require.Len(t, outputs,
+		1)
+
 }
 
 // TestPrefetchStepOutputs_Error_PropagatedCorrectly verifies that a
@@ -176,12 +172,9 @@ func TestPrefetchStepOutputs_Error_PropagatedCorrectly(t *testing.T) {
 	}
 
 	_, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runnableStepRuns, stepByRef)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, storeErr) {
-		t.Fatalf("expected wrapped store error, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, storeErr))
+
 }
 
 // TestPrefetchStepOutputs_EmptySlice verifies that an empty runnable
@@ -200,15 +193,11 @@ func TestPrefetchStepOutputs_EmptySlice(t *testing.T) {
 	cb := newTestCallback(ms)
 
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if outputs != nil {
-		t.Fatalf("expected nil, got %v", outputs)
-	}
-	if called {
-		t.Fatal("store should not be called for empty slice")
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, outputs)
+	require.False(t, called)
+
 }
 
 // TestPrefetchStepOutputs_AllTerminal verifies that when every step
@@ -236,15 +225,11 @@ func TestPrefetchStepOutputs_AllTerminal(t *testing.T) {
 	}
 
 	outputs, err := cb.prefetchStepOutputs(context.Background(), "wr-1", runs, stepByRef)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if outputs != nil {
-		t.Fatalf("expected nil, got %v", outputs)
-	}
-	if called {
-		t.Fatal("store should not be called when all steps are terminal/running")
-	}
+	require.NoError(t,
+		err)
+	require.Nil(t, outputs)
+	require.False(t, called)
+
 }
 
 // scheduleRunnableSteps — condition evaluates to false → step skipped.
@@ -306,18 +291,19 @@ func TestScheduleRunnableSteps_ConditionFalse_StepSkipped(t *testing.T) {
 		nil, // no running steps
 		runnableStepRuns,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if skippedID != "sr-guarded" {
-		t.Fatalf("expected UpdateStepRunStatus for sr-guarded, got %q", skippedID)
-	}
-	if skippedStatus != domain.StepSkipped {
-		t.Fatalf("expected StepSkipped, got %s", skippedStatus)
-	}
-	if stepStatuses["guarded"] != domain.StepSkipped {
-		t.Fatalf("expected stepStatuses[guarded]=StepSkipped, got %s", stepStatuses["guarded"])
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t, "sr-guarded",
+		skippedID,
+	)
+	require.Equal(t, domain.
+		StepSkipped,
+		skippedStatus,
+	)
+	require.Equal(t, domain.
+		StepSkipped,
+		stepStatuses["guarded"])
+
 }
 
 // Cost gate tests (engine_steps.go L99-119).
@@ -378,11 +364,12 @@ func TestCostGate_BelowThreshold_Proceeds(t *testing.T) {
 		WorkflowID: "wf-1",
 		Status:     domain.WfStatusRunning,
 	}
+	require.NoError(t,
+		engine.startStep(context.Background(), stepRun,
+			step,
+			wfRun, nil,
+		),
+	)
+	require.True(t, enqueued)
 
-	if err := engine.startStep(context.Background(), stepRun, step, wfRun, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !enqueued {
-		t.Fatal("expected job to be enqueued when cost estimate is nil (below threshold)")
-	}
 }

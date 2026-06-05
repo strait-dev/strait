@@ -12,6 +12,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
@@ -45,9 +46,9 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	})
 
 	got, err := engine.listStepsByWorkflowVersion(t.Context(), "wf-1", 7)
-	if err != nil {
-		t.Fatalf("first listStepsByWorkflowVersion() error = %v", err)
-	}
+	require.NoError(t,
+		err)
+
 	got[0].DependsOn[0] = "poisoned"
 	got[0].Condition[0] = '['
 	got[0].Payload[0] = '['
@@ -55,21 +56,18 @@ func TestWorkflowDefinitionCache_EngineCachesAndClonesSteps(t *testing.T) {
 	got[0].StageNotifications[0] = '['
 
 	got, err = engine.listStepsByWorkflowVersion(t.Context(), "wf-1", 7)
-	if err != nil {
-		t.Fatalf("second listStepsByWorkflowVersion() error = %v", err)
-	}
-	if calls.Load() != 1 {
-		t.Fatalf("store calls = %d, want 1", calls.Load())
-	}
-	if got[0].DependsOn[0] != "root" || got[0].ApprovalApprovers[0] != "user-1" {
-		t.Fatalf("cached steps were mutated: %+v", got[0])
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 1,
+		calls.Load())
+	require.False(t, got[0].DependsOn[0] !=
+		"root" || got[0].ApprovalApprovers[0] != "user-1")
+
 	byteFieldsWereCloned := string(got[0].Condition) == `{"if":true}` &&
 		string(got[0].Payload) == `{"payload":true}` &&
 		string(got[0].StageNotifications) == `{"notify":true}`
-	if !byteFieldsWereCloned {
-		t.Fatalf("cached byte fields were mutated: %+v", got[0])
-	}
+	require.True(t, byteFieldsWereCloned)
+
 }
 
 func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
@@ -88,7 +86,9 @@ func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
 		VersionTTL: time.Minute,
 	})
 	if _, err := seed.listStepsByWorkflowVersion(t.Context(), "wf-shared", 3); err != nil {
-		t.Fatalf("seed listStepsByWorkflowVersion() error = %v", err)
+		require.Failf(t, "test failure",
+
+			"seed listStepsByWorkflowVersion() error = %v", err)
 	}
 
 	var callbackStoreCalls atomic.Int32
@@ -107,13 +107,14 @@ func TestWorkflowDefinitionCache_CallbackUsesSharedRedisL2(t *testing.T) {
 		WorkflowID:      "wf-shared",
 		WorkflowVersion: 3,
 	})
-	if err != nil {
-		t.Fatalf("loadStepDefinitions() error = %v", err)
-	}
-	if callbackStoreCalls.Load() != 0 {
-		t.Fatalf("callback store calls = %d, want 0", callbackStoreCalls.Load())
-	}
-	if len(got) != 1 || got[0].StepRef != "first" || got[0].DependsOn[0] != "root" {
-		t.Fatalf("loadStepDefinitions() = %+v, want seeded L2 steps", got)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 0,
+		callbackStoreCalls.
+			Load())
+	require.False(t, len(got) !=
+		1 || got[0].
+		StepRef != "first" ||
+		got[0].DependsOn[0] != "root")
+
 }

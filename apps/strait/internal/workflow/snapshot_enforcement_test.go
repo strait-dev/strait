@@ -8,6 +8,9 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadStepDefinitions_WithSnapshot(t *testing.T) {
@@ -42,9 +45,9 @@ func TestLoadStepDefinitions_WithSnapshot(t *testing.T) {
 	snapshotStore := &snapshotMockCallbackStore{
 		mockCallbackStore: ms,
 		getWorkflowSnapshotFn: func(_ context.Context, id string) (*domain.WorkflowSnapshot, error) {
-			if id != "snap-123" {
-				t.Fatalf("unexpected snapshot ID: %s", id)
-			}
+			require.Equal(t, "snap-123",
+				id)
+
 			return &domain.WorkflowSnapshot{
 				ID:         "snap-123",
 				WorkflowID: "wf-1",
@@ -62,15 +65,15 @@ func TestLoadStepDefinitions_WithSnapshot(t *testing.T) {
 	}
 
 	steps, err := cb.loadStepDefinitions(context.Background(), wfRun)
-	if err != nil {
-		t.Fatalf("loadStepDefinitions() error = %v", err)
-	}
-	if len(steps) != 2 {
-		t.Fatalf("steps count = %d, want 2", len(steps))
-	}
-	if steps[0].StepRef != "build" || steps[1].StepRef != "deploy" {
-		t.Errorf("step refs = [%s, %s], want [build, deploy]", steps[0].StepRef, steps[1].StepRef)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, steps,
+		2)
+	assert.False(t, steps[0].StepRef !=
+		"build" ||
+		steps[1].StepRef !=
+			"deploy")
+
 }
 
 func TestLoadStepDefinitions_WithoutSnapshot_FallsBackToLiveTable(t *testing.T) {
@@ -95,15 +98,14 @@ func TestLoadStepDefinitions_WithoutSnapshot_FallsBackToLiveTable(t *testing.T) 
 	}
 
 	steps, err := cb.loadStepDefinitions(context.Background(), wfRun)
-	if err != nil {
-		t.Fatalf("loadStepDefinitions() error = %v", err)
-	}
-	if len(steps) != 1 {
-		t.Fatalf("steps count = %d, want 1", len(steps))
-	}
-	if steps[0].StepRef != "test" {
-		t.Errorf("step ref = %q, want test", steps[0].StepRef)
-	}
+	require.NoError(t,
+		err)
+	require.Len(t, steps,
+		1)
+	assert.Equal(t, "test",
+		steps[0].StepRef,
+	)
+
 }
 
 func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T) {
@@ -133,12 +135,13 @@ func TestLoadStepDefinitions_SnapshotNotFound_FallsBackToLiveTable(t *testing.T)
 	}
 
 	steps, err := cb.loadStepDefinitions(context.Background(), wfRun)
-	if err != nil {
-		t.Fatalf("loadStepDefinitions() error = %v", err)
-	}
-	if len(steps) != 1 || steps[0].StepRef != "fallback" {
-		t.Errorf("expected fallback to live table, got %v", steps)
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, len(steps) != 1 ||
+		steps[0].StepRef !=
+			"fallback",
+	)
+
 }
 
 func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
@@ -187,32 +190,32 @@ func TestLoadStepDefinitions_SnapshotPreservesAllFields(t *testing.T) {
 	}
 
 	steps, err := cb.loadStepDefinitions(context.Background(), wfRun)
-	if err != nil {
-		t.Fatalf("loadStepDefinitions() error = %v", err)
-	}
+	require.NoError(t,
+		err)
 
 	got := steps[0]
-	if got.RetryMaxAttempts != 5 {
-		t.Errorf("RetryMaxAttempts = %d, want 5", got.RetryMaxAttempts)
-	}
-	if got.TimeoutSecsOverride != 120 {
-		t.Errorf("TimeoutSecsOverride = %d, want 120", got.TimeoutSecsOverride)
-	}
-	if string(got.Condition) != `{"op":"eq"}` {
-		t.Errorf("Condition = %s", got.Condition)
-	}
-	if string(got.Payload) != `{"x":1}` {
-		t.Errorf("Payload = %s", got.Payload)
-	}
-	if got.OnFailure != domain.SkipDependents {
-		t.Errorf("OnFailure = %q, want skip_dependents", got.OnFailure)
-	}
-	if got.OutputTransform != "$.data" {
-		t.Errorf("OutputTransform = %q", got.OutputTransform)
-	}
-	if got.ConcurrencyKey != "ck" {
-		t.Errorf("ConcurrencyKey = %q", got.ConcurrencyKey)
-	}
+	assert.EqualValues(t, 5,
+		got.RetryMaxAttempts,
+	)
+	assert.EqualValues(t, 120,
+		got.TimeoutSecsOverride,
+	)
+	assert.Equal(t, `{"op":"eq"}`,
+		string(got.Condition))
+	assert.Equal(t, `{"x":1}`,
+		string(got.
+			Payload))
+	assert.Equal(t, domain.
+		SkipDependents,
+		got.OnFailure,
+	)
+	assert.Equal(t, "$.data",
+		got.OutputTransform,
+	)
+	assert.Equal(t, "ck",
+		got.ConcurrencyKey,
+	)
+
 }
 
 func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
@@ -236,7 +239,9 @@ func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
 			},
 			// This should NOT be called when snapshot is available.
 			listStepsByWorkflowVerFn: func(_ context.Context, _ string, _ int) ([]domain.WorkflowStep, error) {
-				t.Fatal("ListStepsByWorkflowVersion should not be called when snapshot is available")
+				require.Fail(t,
+
+					"ListStepsByWorkflowVersion should not be called when snapshot is available")
 				return nil, nil
 			},
 		},
@@ -247,14 +252,16 @@ func TestLoadWfCtx_UsesSnapshotSteps(t *testing.T) {
 
 	cb := NewStepCallback(snapshotStore, NewWorkflowEngine(&mockEngineStore{}, &mockEngineQueue{}, slog.Default()), slog.Default())
 	wc, err := cb.loadWfCtx(context.Background(), "wr-1")
-	if err != nil {
-		t.Fatalf("loadWfCtx() error = %v", err)
-	}
-	if len(wc.steps) != 1 || wc.steps[0].StepRef != "snap-step" {
-		t.Errorf("expected snapshot step, got %v", wc.steps)
-	}
+	require.NoError(t,
+		err)
+	assert.False(t, len(wc.steps) != 1 ||
+		wc.steps[0].StepRef !=
+			"snap-step")
+
 	if _, ok := wc.stepByRef["snap-step"]; !ok {
-		t.Error("stepByRef missing snap-step")
+		assert.Fail(t,
+
+			"stepByRef missing snap-step")
 	}
 }
 

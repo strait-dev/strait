@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestProperty_DAG_ValidatedNoCycles generates random valid DAGs, validates
@@ -51,11 +53,8 @@ func TestProperty_DAG_ValidatedNoCycles(t *testing.T) {
 				}
 			}
 		}
+		require.Equal(t, len(steps), visited)
 
-		if visited != len(steps) {
-			t.Fatalf("BFS detected cycle in DAG that ValidateDAG accepted (visited %d of %d)",
-				visited, len(steps))
-		}
 	}
 }
 
@@ -128,20 +127,17 @@ func TestProperty_TemplateRenderIdempotent(t *testing.T) {
 
 		// Re-parse to compare structurally (JSON key order may vary).
 		var firstParsed, secondParsed any
-		if err := json.Unmarshal(first, &firstParsed); err != nil {
-			t.Fatalf("unmarshal first render: %v", err)
-		}
-		if err := json.Unmarshal(second, &secondParsed); err != nil {
-			t.Fatalf("unmarshal second render: %v", err)
-		}
+		require.NoError(t, json.
+			Unmarshal(first, &firstParsed))
+		require.NoError(t, json.
+			Unmarshal(second, &secondParsed))
 
 		firstRe, _ := json.Marshal(firstParsed)
 		secondRe, _ := json.Marshal(secondParsed)
+		require.Equal(t, string(
+			secondRe,
+		), string(firstRe))
 
-		if string(firstRe) != string(secondRe) {
-			t.Fatalf("render not idempotent:\n  payload: %s\n  vars: %s\n  first:  %s\n  second: %s",
-				payloadJSON, varsJSON, first, second)
-		}
 	}
 }
 

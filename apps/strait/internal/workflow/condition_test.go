@@ -9,6 +9,8 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEvaluateCondition(t *testing.T) {
@@ -273,22 +275,16 @@ func TestEvaluateCondition(t *testing.T) {
 			got, err := EvaluateCondition(tt.cond, tt.stepStatuses)
 
 			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
-					t.Fatalf("error %q does not contain %q", err.Error(), tt.errContains)
-				}
+				require.Error(t, err)
+				require.False(t, tt.errContains !=
+					"" && !strings.Contains(err.Error(), tt.errContains))
+
 				return
 			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want,
+				got)
 
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if got != tt.want {
-				t.Fatalf("EvaluateCondition() = %v, want %v", got, tt.want)
-			}
 		})
 	}
 }
@@ -357,12 +353,11 @@ func TestCondition_Regex_PatternLengthLimit(t *testing.T) {
 	cond := mustJSON(`{"type":"regex","left":"hello","right":"` + longPattern + `"}`)
 
 	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-	if err == nil {
-		t.Fatal("expected error for oversized regex pattern, got nil")
-	}
-	if !strings.Contains(err.Error(), "exceeds maximum length") {
-		t.Errorf("unexpected error message: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.
+		Error(), "exceeds maximum length",
+	))
+
 }
 
 func TestCondition_Regex_InputLengthLimit(t *testing.T) {
@@ -373,12 +368,11 @@ func TestCondition_Regex_InputLengthLimit(t *testing.T) {
 	cond := mustJSON(`{"type":"regex","left":"` + longInput + `","right":"a+"}`)
 
 	_, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-	if err == nil {
-		t.Fatal("expected error for oversized regex input, got nil")
-	}
-	if !strings.Contains(err.Error(), "exceeds maximum length") {
-		t.Errorf("unexpected error message: %v", err)
-	}
+	require.Error(t, err)
+	assert.True(t, strings.Contains(err.
+		Error(), "exceeds maximum length",
+	))
+
 }
 
 func TestCondition_Regex_ReDoS_DoesNotHang(t *testing.T) {
@@ -402,7 +396,7 @@ func TestCondition_Regex_ReDoS_DoesNotHang(t *testing.T) {
 	case <-done:
 		// completed without hanging
 	case <-time.After(2 * time.Second):
-		t.Fatal("regex evaluation appears to hang (possible ReDoS)")
+		require.Fail(t, "regex evaluation appears to hang (possible ReDoS)")
 	}
 }
 
@@ -411,10 +405,7 @@ func TestCondition_Regex_ValidPattern(t *testing.T) {
 
 	cond := mustJSON(`{"type":"regex","left":"hello-world-123","right":"^hello-.*-\\d+$"}`)
 	got, err := EvaluateCondition(cond, map[string]domain.StepRunStatus{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !got {
-		t.Error("expected regex match to return true")
-	}
+	require.NoError(t, err)
+	assert.True(t, got)
+
 }

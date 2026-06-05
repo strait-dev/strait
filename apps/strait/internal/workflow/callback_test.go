@@ -12,6 +12,8 @@ import (
 
 	"strait/internal/domain"
 	"strait/internal/store"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newTestCallback(ms *mockCallbackStore) *StepCallback {
@@ -71,15 +73,13 @@ func TestHandleFailedStep_SkipDependentsPolicy(t *testing.T) {
 			{StepRef: "c"},
 		},
 	)
-	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !skippedIDs["sr-b"] {
-		t.Fatal("expected sr-b to be skipped")
-	}
-	if skippedIDs["sr-c"] {
-		t.Fatal("sr-c should not be skipped (not a dependent)")
-	}
+	require.NoError(t,
+		cb.handleFailedStep(context.
+			Background(), stepRun,
+			wc))
+	require.True(t, skippedIDs["sr-b"])
+	require.False(t, skippedIDs["sr-c"])
+
 }
 
 func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
@@ -116,12 +116,12 @@ func TestHandleFailedStep_ContinuePolicy(t *testing.T) {
 			{StepRef: "a", OnFailure: domain.Continue},
 		},
 	)
-	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !workflowChecked {
-		t.Fatal("expected checkWorkflowCompletion to be called")
-	}
+	require.NoError(t,
+		cb.handleFailedStep(context.
+			Background(), stepRun,
+			wc))
+	require.True(t, workflowChecked)
+
 }
 
 func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
@@ -155,12 +155,12 @@ func TestHandleFailedStep_DefaultPolicy(t *testing.T) {
 			{StepRef: "a"},
 		},
 	)
-	if err := cb.handleFailedStep(context.Background(), stepRun, wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !workflowFailed {
-		t.Fatal("expected workflow to fail with default policy")
-	}
+	require.NoError(t,
+		cb.handleFailedStep(context.
+			Background(), stepRun,
+			wc))
+	require.True(t, workflowFailed)
+
 }
 
 func TestCancelRemainingSteps(t *testing.T) {
@@ -184,15 +184,13 @@ func TestCancelRemainingSteps(t *testing.T) {
 	}
 
 	cb := newTestCallback(ms)
-	if err := cb.cancelRemainingSteps(context.Background(), "wr-1"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !canceledIDs["sr-2"] || !canceledIDs["sr-3"] {
-		t.Fatalf("expected sr-2 and sr-3 to be canceled, got %v", canceledIDs)
-	}
-	if canceledIDs["sr-1"] || canceledIDs["sr-4"] {
-		t.Fatal("terminal steps should not be canceled")
-	}
+	require.NoError(t,
+		cb.cancelRemainingSteps(context.
+			Background(),
+			"wr-1"))
+	require.False(t, !canceledIDs["sr-2"] || !canceledIDs["sr-3"])
+	require.False(t, canceledIDs["sr-1"] || canceledIDs["sr-4"])
+
 }
 
 func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
@@ -232,15 +230,22 @@ func TestCheckWorkflowCompletion_AllCompleted(t *testing.T) {
 		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
 		[]domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "s2"}},
 	)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wfStatus != domain.WfStatusCompleted {
-		t.Fatalf("expected workflow completed, got %s", wfStatus)
-	}
-	if hookRunID != "wr-1" || hookFrom != domain.WfStatusRunning || hookTo != domain.WfStatusCompleted {
-		t.Fatalf("status hook = (%q, %s, %s), want wr-1 running completed", hookRunID, hookFrom, hookTo)
-	}
+	require.NoError(t,
+		cb.checkWorkflowCompletion(context.
+			Background(), "wr-1",
+			wc))
+	require.Equal(t, domain.
+		WfStatusCompleted,
+		wfStatus,
+	)
+	require.False(t, hookRunID !=
+		"wr-1" ||
+		hookFrom !=
+			domain.WfStatusRunning ||
+		hookTo !=
+			domain.
+				WfStatusCompleted)
+
 }
 
 func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
@@ -264,12 +269,12 @@ func TestCheckWorkflowCompletion_HasNonTerminal(t *testing.T) {
 		&domain.WorkflowRun{ID: "wr-1", WorkflowID: "wf-1", Status: domain.WfStatusRunning},
 		[]domain.WorkflowStep{{StepRef: "s1"}, {StepRef: "s2"}},
 	)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wfUpdated {
-		t.Fatal("workflow should not be updated when steps are still running")
-	}
+	require.NoError(t,
+		cb.checkWorkflowCompletion(context.
+			Background(), "wr-1",
+			wc))
+	require.False(t, wfUpdated)
+
 }
 
 func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
@@ -305,12 +310,15 @@ func TestCheckWorkflowCompletion_FailedWithContinuePolicy(t *testing.T) {
 			{StepRef: "s2"},
 		},
 	)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wfStatus != domain.WfStatusCompleted {
-		t.Fatalf("expected workflow completed (continue policy), got %s", wfStatus)
-	}
+	require.NoError(t,
+		cb.checkWorkflowCompletion(context.
+			Background(), "wr-1",
+			wc))
+	require.Equal(t, domain.
+		WfStatusCompleted,
+		wfStatus,
+	)
+
 }
 
 func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
@@ -346,12 +354,15 @@ func TestCheckWorkflowCompletion_FailedWithoutContinue(t *testing.T) {
 			{StepRef: "s2"},
 		},
 	)
-	if err := cb.checkWorkflowCompletion(context.Background(), "wr-1", wc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if wfStatus != domain.WfStatusFailed {
-		t.Fatalf("expected workflow failed, got %s", wfStatus)
-	}
+	require.NoError(t,
+		cb.checkWorkflowCompletion(context.
+			Background(), "wr-1",
+			wc))
+	require.Equal(t, domain.
+		WfStatusFailed,
+		wfStatus,
+	)
+
 }
 
 func TestHasBlockingFailedStep(t *testing.T) {
@@ -379,9 +390,9 @@ func TestHasBlockingFailedStep(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := hasBlockingFailedStep(steps, tt.failedStepRefs)
-			if got != tt.want {
-				t.Fatalf("hasBlockingFailedStep() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.
+				want, got)
+
 		})
 	}
 }
@@ -465,22 +476,28 @@ func TestAggregateChildStepOutputs(t *testing.T) {
 		{StepRef: "empty"},
 		{StepRef: "step-b", Output: json.RawMessage(`{"b":2}`)},
 	})
-	if len(output) == 0 {
-		t.Fatal("expected aggregated output")
-	}
+	require.NotEmpty(t,
+		output)
+
 	var parsed map[string]json.RawMessage
-	if err := json.Unmarshal(output, &parsed); err != nil {
-		t.Fatalf("aggregated output is invalid JSON: %v", err)
-	}
-	if string(parsed[`step-"a"`]) != `{"a":1}` {
-		t.Fatalf("escaped step output = %s, want {\"a\":1}", parsed[`step-"a"`])
-	}
+	require.NoError(t,
+		json.Unmarshal(output,
+			&parsed,
+		))
+	require.Equal(t, `{"a":1}`,
+		string(
+			parsed[`step-"a"`]))
+
 	if _, ok := parsed["empty"]; ok {
-		t.Fatal("empty output should not be included")
+		require.Fail(t,
+
+			"empty output should not be included")
 	}
-	if string(parsed["step-b"]) != `{"b":2}` {
-		t.Fatalf("step-b output = %s, want {\"b\":2}", parsed["step-b"])
-	}
+	require.Equal(t, `{"b":2}`,
+		string(
+			parsed["step-b"]),
+	)
+
 }
 
 func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
@@ -489,9 +506,8 @@ func TestAggregateChildStepOutputs_NoOutputs(t *testing.T) {
 		{StepRef: "a"},
 		{StepRef: "b"},
 	})
-	if output != nil {
-		t.Fatalf("expected nil output, got %s", output)
-	}
+	require.Nil(t, output)
+
 }
 
 func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
@@ -535,18 +551,15 @@ func TestSkipDependentSteps_TransitiveSkip(t *testing.T) {
 			{StepRef: "d"},
 		},
 	)
-	if err := cb.skipDependentSteps(context.Background(), "wr-1", wc, "a"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !skippedIDs["sr-b"] {
-		t.Fatal("expected sr-b (direct dependent) to be skipped")
-	}
-	if !skippedIDs["sr-c"] {
-		t.Fatal("expected sr-c (transitive dependent) to be skipped")
-	}
-	if skippedIDs["sr-d"] {
-		t.Fatal("sr-d should not be skipped (independent)")
-	}
+	require.NoError(t,
+		cb.skipDependentSteps(context.
+			Background(), "wr-1",
+			wc,
+			"a"))
+	require.True(t, skippedIDs["sr-b"])
+	require.True(t, skippedIDs["sr-c"])
+	require.False(t, skippedIDs["sr-d"])
+
 }
 
 func TestDependentStepRefs_OrderedChain(t *testing.T) {
@@ -554,16 +567,14 @@ func TestDependentStepRefs_OrderedChain(t *testing.T) {
 	steps := benchmarkSkipDependentChain(1000)
 
 	got := dependentStepRefs(steps, nil, "step-0500")
+	require.Len(t, got,
+		499)
+	require.Equal(t, "step-0501",
+		got[0])
+	require.Equal(t, "step-0999",
+		got[len(got)-1],
+	)
 
-	if len(got) != 499 {
-		t.Fatalf("dependentStepRefs length = %d, want 499", len(got))
-	}
-	if got[0] != "step-0501" {
-		t.Fatalf("first dependent = %q, want step-0501", got[0])
-	}
-	if got[len(got)-1] != "step-0999" {
-		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
-	}
 }
 
 func TestDependentStepRefs_RootFanOut(t *testing.T) {
@@ -571,16 +582,14 @@ func TestDependentStepRefs_RootFanOut(t *testing.T) {
 	steps := benchmarkSkipDependentFanOut(1000)
 
 	got := dependentStepRefs(steps, nil, "root")
+	require.Len(t, got,
+		999)
+	require.Equal(t, "step-0001",
+		got[0])
+	require.Equal(t, "step-0999",
+		got[len(got)-1],
+	)
 
-	if len(got) != 999 {
-		t.Fatalf("dependentStepRefs length = %d, want 999", len(got))
-	}
-	if got[0] != "step-0001" {
-		t.Fatalf("first dependent = %q, want step-0001", got[0])
-	}
-	if got[len(got)-1] != "step-0999" {
-		t.Fatalf("last dependent = %q, want step-0999", got[len(got)-1])
-	}
 }
 
 func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
@@ -592,10 +601,9 @@ func TestDependentStepRefs_UnorderedDAGFallsBack(t *testing.T) {
 
 	got := dependentStepRefs(steps, nil, "root")
 	want := []string{"child"}
+	require.True(t, slices.
+		Equal(got, want))
 
-	if !slices.Equal(got, want) {
-		t.Fatalf("dependentStepRefs = %v, want %v", got, want)
-	}
 }
 
 func BenchmarkSkipDependentSteps(b *testing.B) {
@@ -767,16 +775,16 @@ func TestEmitEventIfConfigured_ResolvesWaitingTrigger(t *testing.T) {
 		},
 	)
 	cb.tryEmitEvent(context.Background(), emitterStepRun, wc)
+	require.Equal(t, "evt-waiter",
+		resolvedTriggerID,
+	)
+	require.Equal(t, `{"data":"result"}`,
 
-	if resolvedTriggerID != "evt-waiter" {
-		t.Fatalf("expected trigger evt-waiter to be resolved, got %q", resolvedTriggerID)
-	}
-	if string(resolvedPayload) != `{"data":"result"}` {
-		t.Fatalf("expected resolved payload to be emitter output, got %s", string(resolvedPayload))
-	}
-	if !targetStepCompleted {
-		t.Fatal("expected the waiting step sr-waiter to be completed via OnEventReceived")
-	}
+		string(
+			resolvedPayload,
+		))
+	require.True(t, targetStepCompleted)
+
 }
 
 func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
@@ -798,9 +806,8 @@ func TestOnJobRunTerminal_UpdateStepStatusError(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-1", WorkflowStepRunID: "sr-1", Status: domain.StatusCompleted})
-	if err == nil {
-		t.Fatal("expected error from update step run status")
-	}
+	require.Error(t, err)
+
 }
 
 func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
@@ -838,10 +845,10 @@ func TestOnStepCompleted_AdvancesWorkflow(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	cb.OnStepCompleted(context.Background(), "wr-1", "sr-1")
+	require.Equal(t, "step-a",
+		incrementedRef,
+	)
 
-	if incrementedRef != "step-a" {
-		t.Fatalf("expected fanIn for step-a, got %q", incrementedRef)
-	}
 }
 
 func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
@@ -878,12 +885,10 @@ func TestFanInAndStartReadyChildren_AcquiresAdvisoryXactLock(t *testing.T) {
 		run:   &domain.WorkflowRun{ID: "wr-1", Status: domain.WfStatusRunning},
 		steps: []domain.WorkflowStep{{StepRef: "step-a"}, {StepRef: "step-b"}},
 	})
-	if err != nil {
-		t.Fatalf("fanInAndStartReadyChildren() error = %v", err)
-	}
-	if !lockCalled {
-		t.Fatal("expected AdvisoryXactLock to be called")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, lockCalled)
+
 }
 
 func TestOnStepCompleted_StepNotFound(t *testing.T) {
@@ -945,10 +950,8 @@ func TestOnStepFailed_RespectsOnFailureContinue(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	cb.OnStepFailed(context.Background(), "wr-1", "sr-1")
+	require.False(t, workflowFailed)
 
-	if workflowFailed {
-		t.Fatal("workflow should NOT fail when on_failure is 'continue'")
-	}
 }
 
 func TestOnStepFailed_StepNotFound(t *testing.T) {
@@ -976,27 +979,33 @@ func TestOnJobRunTerminal_ReleasesWaitingDependencyRuns(t *testing.T) {
 	queuedRunID := ""
 	ms := &mockCallbackStore{
 		listDependentsByDependencyJobFn: func(_ context.Context, dependsOnJobID string) ([]domain.JobDependency, error) {
-			if dependsOnJobID != "job-upstream" {
-				t.Fatalf("dependsOnJobID = %s, want job-upstream", dependsOnJobID)
-			}
+			require.Equal(t, "job-upstream",
+				dependsOnJobID,
+			)
+
 			return []domain.JobDependency{{JobID: "job-downstream", DependsOnJobID: dependsOnJobID, Condition: "completed"}}, nil
 		},
 		listWaitingRunsByJobIDsFn: func(_ context.Context, jobIDs []string, _ int) ([]domain.JobRun, error) {
-			if len(jobIDs) != 1 || jobIDs[0] != "job-downstream" {
-				t.Fatalf("jobIDs = %v, want [job-downstream]", jobIDs)
-			}
+			require.False(t, len(jobIDs) != 1 ||
+				jobIDs[0] != "job-downstream",
+			)
+
 			return []domain.JobRun{{ID: "run-waiting", JobID: "job-downstream", Status: domain.StatusWaiting}}, nil
 		},
 		areJobDependenciesSatisfiedFn: func(_ context.Context, run *domain.JobRun) (bool, error) {
-			if run.ID != "run-waiting" {
-				t.Fatalf("run.ID = %s, want run-waiting", run.ID)
-			}
+			require.Equal(t, "run-waiting",
+				run.
+					ID)
+
 			return true, nil
 		},
 		updateRunStatusFn: func(_ context.Context, id string, from, to domain.RunStatus, _ map[string]any) error {
-			if from != domain.StatusWaiting || to != domain.StatusQueued {
-				t.Fatalf("unexpected transition %s -> %s", from, to)
-			}
+			require.False(t, from !=
+				domain.StatusWaiting ||
+				to !=
+					domain.StatusQueued,
+			)
+
 			queuedRunID = id
 			return nil
 		},
@@ -1004,12 +1013,12 @@ func TestOnJobRunTerminal_ReleasesWaitingDependencyRuns(t *testing.T) {
 
 	cb := newTestCallback(ms)
 	err := cb.OnJobRunTerminal(context.Background(), &domain.JobRun{ID: "run-upstream", JobID: "job-upstream", Status: domain.StatusCompleted})
-	if err != nil {
-		t.Fatalf("OnJobRunTerminal() error = %v", err)
-	}
-	if queuedRunID != "run-waiting" {
-		t.Fatalf("queuedRunID = %q, want run-waiting", queuedRunID)
-	}
+	require.NoError(t,
+		err)
+	require.Equal(t, "run-waiting",
+		queuedRunID,
+	)
+
 }
 
 // emitEventIfConfigured: nil step is a no-op.
@@ -1155,8 +1164,8 @@ func TestEmitEventIfConfigured_JobRunSource(t *testing.T) {
 		&domain.WorkflowStep{StepRef: "step-1", EventEmitKey: "emit:job"},
 		&domain.WorkflowRun{ID: "wr-1", ProjectID: "proj-1"},
 	)
+	require.Equal(t, "run-99",
+		requeuedRunID,
+	)
 
-	if requeuedRunID != "run-99" {
-		t.Fatalf("expected run-99 to be requeued, got %q", requeuedRunID)
-	}
 }
