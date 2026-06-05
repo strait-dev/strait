@@ -60,7 +60,7 @@ func TestHandleCreateEnvironment_StoreError(t *testing.T) {
 func TestHandleGetEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, _ string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, _ string, _ string) (*domain.Environment, error) {
 			return nil, store.ErrEnvironmentNotFound
 		},
 	}
@@ -78,7 +78,7 @@ func TestHandleGetEnvironment_CrossProject(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-other",
@@ -102,7 +102,7 @@ func TestHandleGetEnvironment_CrossProject(t *testing.T) {
 func TestHandleGetEnvironment_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
@@ -220,7 +220,7 @@ func TestHandleUpdateEnvironment_SlugOnly(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-1",
@@ -259,7 +259,7 @@ func TestHandleUpdateEnvironment_CrossProject(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-other",
@@ -283,7 +283,7 @@ func TestHandleUpdateEnvironment_CrossProject(t *testing.T) {
 func TestHandleUpdateEnvironment_EnvironmentScopedCallerCannotMutateOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
 		UpdateEnvironmentFunc: func(_ context.Context, _ *domain.Environment) error {
@@ -309,7 +309,7 @@ func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:         id,
 				ProjectID:  "proj-1",
@@ -320,7 +320,7 @@ func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 				UpdatedAt:  now,
 			}, nil
 		},
-		DeleteEnvironmentFunc: func(_ context.Context, _ string) error {
+		DeleteEnvironmentFunc: func(_ context.Context, _ string, _ string) error {
 			return store.ErrStandardEnvironment
 		},
 	}
@@ -337,10 +337,10 @@ func TestHandleDeleteEnvironment_StandardRejected(t *testing.T) {
 func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
-		DeleteEnvironmentFunc: func(_ context.Context, _ string) error {
+		DeleteEnvironmentFunc: func(_ context.Context, _ string, _ string) error {
 			t.Fatal("DeleteEnvironment should not be called for a mismatched environment")
 			return nil
 		},
@@ -358,7 +358,7 @@ func TestHandleDeleteEnvironment_EnvironmentScopedCallerCannotDeleteOtherEnviron
 func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, _ string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, _ string, _ string) (*domain.Environment, error) {
 			return nil, store.ErrEnvironmentNotFound
 		},
 	}
@@ -375,7 +375,7 @@ func TestHandleGetResolvedVariables_NotFound(t *testing.T) {
 func TestHandleGetResolvedVariables_EnvironmentScopedCallerCannotReadOtherEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 		},
 		GetResolvedEnvironmentVariablesFunc: func(_ context.Context, _ string) (map[string]string, error) {
@@ -397,7 +397,7 @@ func TestHandleGetResolvedVariables_InheritedVariables(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-1",

@@ -817,28 +817,38 @@ func extractPayload(d *domain.WebhookDelivery) json.RawMessage {
 	return fallback
 }
 
-// groupByURL groups deliveries by (org_id, webhook_url). Including the
-// org_id keeps cross-tenant deliveries to the same external URL out of the
+// groupByURL groups deliveries by (tenant scope, webhook_url). Including the
+// tenant scope keeps cross-tenant deliveries to the same external URL out of the
 // same batch and out of the same circuit-breaker bucket — otherwise one
 // tenant's failing endpoint would silently trip the breaker for every other
 // tenant pointing at the same host.
 func groupByURL(deliveries []domain.WebhookDelivery) map[string][]domain.WebhookDelivery {
 	groups := make(map[string][]domain.WebhookDelivery, len(deliveries))
 	for i := range deliveries {
-		key := breakerKey(deliveries[i].OrgID, deliveries[i].WebhookURL)
+		key := breakerKey(deliveryTenantScope(deliveries[i]), deliveries[i].WebhookURL)
 		groups[key] = append(groups[key], deliveries[i])
 	}
 	return groups
 }
 
 // breakerKey composes a tenant-scoped key for circuit-breaker / batching
-// lookups. An empty orgID (only happens in tests / legacy rows) falls
-// back to the URL alone so behaviour matches pre-tenant-scoping code.
-func breakerKey(orgID, url string) string {
-	if orgID == "" {
+// lookups. Callers that lack an org ID should pass a project-scoped fallback
+// rather than collapsing unrelated tenants into one URL-only bucket.
+func breakerKey(tenantScope, url string) string {
+	if tenantScope == "" {
 		return url
 	}
-	return orgID + "|" + url
+	return tenantScope + "|" + url
+}
+
+func deliveryTenantScope(delivery domain.WebhookDelivery) string {
+	if delivery.OrgID != "" {
+		return "org:" + delivery.OrgID
+	}
+	if delivery.ProjectID != "" {
+		return "project:" + delivery.ProjectID
+	}
+	return ""
 }
 
 // batchOrgID returns the OrgID shared by every delivery in a batch.
@@ -1401,18 +1411,7 @@ func (n *DeliveryWorker) recordCircuitBreakerState(ctx context.Context, url stri
 }
 
 func sanitizeHTTPClientError(err error) string {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		if urlErr.Err != nil {
-			var nested *url.Error
-			if errors.As(urlErr.Err, &nested) {
-				return sanitizeHTTPClientError(urlErr.Err)
-			}
-			return fmt.Sprintf("%s: %v", urlErr.Op, urlErr.Err)
-		}
-		return urlErr.Op
-	}
-	return err.Error()
+	return httputil.SanitizeHTTPClientError(err)
 }
 
 func (n *DeliveryWorker) retryPolicyForDelivery(d *domain.WebhookDelivery) string {

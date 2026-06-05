@@ -2,9 +2,13 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"strait/internal/domain"
 	"strait/internal/eventfilter"
@@ -13,6 +17,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 )
+
+const eventSourceSignatureReplayTTL = 5 * time.Minute
 
 type CreateEventSourceRequest struct {
 	ProjectID          string          `json:"project_id" validate:"required"`
@@ -449,7 +455,39 @@ func (s *Server) verifyEventSourceSignature(ctx context.Context, source *domain.
 		slog.Warn("event source signature validation failed", "source_id", source.ID, "error", err)
 		return huma.Error401Unauthorized("signature validation failed")
 	}
+	if err := s.claimEventSourceSignatureReplay(ctx, source, sigHeader); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Server) claimEventSourceSignatureReplay(ctx context.Context, source *domain.EventSource, sigHeader string) error {
+	switch source.SignatureAlgorithm {
+	case "hmac-sha256", "github-sha256":
+	default:
+		return nil
+	}
+	key := eventSourceSignatureReplayKey(source.ID, source.SignatureAlgorithm, sigHeader)
+	status, _, _, _, err := s.store.TryAcquireIdempotencyKey(
+		store.ContextWithoutTx(ctx),
+		source.ProjectID,
+		key,
+		eventSourceSignatureReplayTTL,
+	)
+	if err != nil {
+		slog.Error("event source signature replay guard failed", "source_id", source.ID, "error", err)
+		return huma.Error503ServiceUnavailable("signature replay guard unavailable")
+	}
+	if status != store.IdempotencyAcquired {
+		slog.Warn("event source signature replay rejected", "source_id", source.ID)
+		return huma.Error401Unauthorized("signature replay rejected")
+	}
+	return nil
+}
+
+func eventSourceSignatureReplayKey(sourceID, algorithm, sigHeader string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("event-source-signature:%s:%s:%s", sourceID, algorithm, sigHeader)))
+	return "event-source-signature:" + hex.EncodeToString(sum[:])
 }
 
 func (s *Server) dispatchEventSubscription(

@@ -58,8 +58,8 @@ func newFuzzIsolationStore() *APIStoreMock {
 	}
 
 	origGetEnv := ms.GetEnvironmentFunc
-	ms.GetEnvironmentFunc = func(ctx context.Context, id string) (*domain.Environment, error) {
-		env, err := origGetEnv(ctx, id)
+	ms.GetEnvironmentFunc = func(ctx context.Context, id string, projectID string) (*domain.Environment, error) {
+		env, err := origGetEnv(ctx, id, projectID)
 		if env == nil && err == nil {
 			return nil, store.ErrEnvironmentNotFound
 		}

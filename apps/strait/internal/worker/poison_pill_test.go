@@ -161,15 +161,16 @@ func TestHandleFailure_PoisonPillDetection(t *testing.T) {
 			expectCount:  "2",
 		},
 		{
-			name:         "different error resets count",
-			threshold:    new(3),
-			attempt:      3,
-			maxAttempts:  10,
-			prevHash:     endpointErrHash(500, "500 err"),
-			prevCount:    "2",
-			errInput:     &domain.EndpointError{StatusCode: 500, Body: "connection refused"},
-			expectStatus: domain.StatusQueued,
-			expectCount:  "1",
+			name:           "same endpoint status with different body hits threshold",
+			threshold:      new(3),
+			attempt:        3,
+			maxAttempts:    10,
+			prevHash:       endpointErrHash(500, "500 err"),
+			prevCount:      "2",
+			errInput:       &domain.EndpointError{StatusCode: 500, Body: "connection refused"},
+			expectStatus:   domain.StatusDeadLetter,
+			expectPoisoned: true,
+			expectCount:    "3",
 		},
 		{
 			name:         "threshold nil (disabled)",
@@ -721,8 +722,9 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 		Pool: NewPool(10), Queue: &mockExecQueue{}, Store: st, PollInterval: time.Hour,
 	})
 
-	// Previous error was "500: db timeout" (server class)
-	// Current error is "500: null pointer" (also server class, different message)
+	// Previous and current failures share a stable endpoint status but use
+	// different bodies. The body is attacker-controlled, so it must not reset
+	// poison-pill counting.
 	prevMsg := "500: db timeout"
 	run := &domain.JobRun{
 		ID: "run-1", JobID: "job-1", Attempt: 3,
@@ -737,13 +739,16 @@ func TestPoisonPill_SameClassDifferentMessage(t *testing.T) {
 
 	calls := st.statusUpdates()
 	last := calls[len(calls)-1]
-	// Different messages -> different hashes -> count resets -> retries
-	if last.to != domain.StatusQueued {
-		t.Errorf("expected queued (different message resets count), got %s", last.to)
+	if last.to != domain.StatusDeadLetter {
+		t.Errorf("expected dead_letter (same status reaches threshold), got %s", last.to)
 	}
 	meta, _ := last.fields["metadata"].(map[string]string)
-	if meta["_error_hash_count"] != "1" {
-		t.Errorf("expected count reset to 1, got %q", meta["_error_hash_count"])
+	if meta["_error_hash_count"] != "3" {
+		t.Errorf("expected count 3, got %q", meta["_error_hash_count"])
+	}
+	errField, _ := last.fields["error"].(string)
+	if !strings.Contains(errField, "poison pill detected") {
+		t.Errorf("expected poison pill message, got %q", errField)
 	}
 }
 
@@ -981,7 +986,7 @@ func TestPoisonPill_Integration_SameErrorDLQ(t *testing.T) {
 	}
 }
 
-func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
+func TestPoisonPill_Integration_VaryingEndpointBodiesCannotBypassThreshold(t *testing.T) {
 	t.Parallel()
 	st := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
@@ -995,7 +1000,7 @@ func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
 	meta := map[string]string{}
-	for i := 1; i <= 5; i++ {
+	for i := 1; i <= 3; i++ {
 		errBody := fmt.Sprintf("error variant %d", i)
 		run := &domain.JobRun{
 			ID: "run-1", JobID: "job-1", Attempt: i,
@@ -1005,18 +1010,21 @@ func TestPoisonPill_Integration_VaryingErrorsRetryNormally(t *testing.T) {
 
 		calls := st.statusUpdates()
 		last := calls[len(calls)-1]
-		if last.to != domain.StatusQueued {
-			t.Fatalf("attempt %d: expected queued, got %s", i, last.to)
+		wantStatus := domain.StatusQueued
+		if i == 3 {
+			wantStatus = domain.StatusDeadLetter
 		}
-		// Update meta for next iteration
+		if last.to != wantStatus {
+			t.Fatalf("attempt %d: got %s, want %s", i, last.to, wantStatus)
+		}
 		meta, _ = last.fields["metadata"].(map[string]string)
-		if meta["_error_hash_count"] != "1" {
-			t.Fatalf("attempt %d: expected count=1 (reset), got %q", i, meta["_error_hash_count"])
+		if meta["_error_hash_count"] != fmt.Sprintf("%d", i) {
+			t.Fatalf("attempt %d: expected count=%d, got %q", i, i, meta["_error_hash_count"])
 		}
 	}
 }
 
-func TestPoisonPill_Integration_ErrorThenRecoveryThenSameError(t *testing.T) {
+func TestPoisonPill_Integration_StatusChangeResetsEndpointCount(t *testing.T) {
 	t.Parallel()
 	st := &mockExecutorStore{}
 	exec := NewExecutor(ExecutorConfig{
@@ -1029,27 +1037,33 @@ func TestPoisonPill_Integration_ErrorThenRecoveryThenSameError(t *testing.T) {
 	}
 	policy := executionPolicy{maxAttempts: 10, timeoutSecs: 30}
 
-	// Sequence: error A x2, error B x1, error A x2
-	// Expected counts: 1, 2, 1(reset), 1, 2
-	errors := []string{"error A", "error A", "error B", "error A", "error A"}
-	expectedCounts := []string{"1", "2", "1", "1", "2"}
+	errors := []struct {
+		status int
+		body   string
+		count  string
+	}{
+		{status: 500, body: "error A", count: "1"},
+		{status: 500, body: "error B", count: "2"},
+		{status: 503, body: "error C", count: "1"},
+		{status: 503, body: "error D", count: "2"},
+	}
 
 	meta := map[string]string{}
-	for i, errBody := range errors {
+	for i, failure := range errors {
 		run := &domain.JobRun{
 			ID: "run-1", JobID: "job-1", Attempt: i + 1,
 			Metadata: copyMap(meta),
 		}
-		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: 500, Body: errBody}, nil)
+		exec.handleFailure(context.Background(), run, job, policy, &domain.EndpointError{StatusCode: failure.status, Body: failure.body}, nil)
 
 		calls := st.statusUpdates()
 		last := calls[len(calls)-1]
 		if last.to != domain.StatusQueued {
-			t.Fatalf("step %d (%q): expected queued, got %s", i, errBody, last.to)
+			t.Fatalf("step %d (%q): expected queued, got %s", i, failure.body, last.to)
 		}
 		meta, _ = last.fields["metadata"].(map[string]string)
-		if meta["_error_hash_count"] != expectedCounts[i] {
-			t.Fatalf("step %d (%q): expected count=%s, got %q", i, errBody, expectedCounts[i], meta["_error_hash_count"])
+		if meta["_error_hash_count"] != failure.count {
+			t.Fatalf("step %d (%q): expected count=%s, got %q", i, failure.body, failure.count, meta["_error_hash_count"])
 		}
 	}
 }

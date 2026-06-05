@@ -68,6 +68,7 @@ func TestIdempotency_TryAcquire_Pending_ReturnsPending(t *testing.T) {
 func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "proj-idem-" + newID()
@@ -79,6 +80,16 @@ func TestIdempotency_TryAcquire_Completed_ReturnsCachedResponse(t *testing.T) {
 	wantBody := []byte(`{"id":"abc"}`)
 	if err := q.CompleteIdempotencyKey(ctx, projectID, key, 201, nil, wantBody); err != nil {
 		t.Fatalf("complete: %v", err)
+	}
+	var rawBody []byte
+	if err := testDB.Pool.QueryRow(ctx, `
+		SELECT response_body FROM idempotency_keys WHERE project_id = $1 AND key = $2`,
+		projectID, key,
+	).Scan(&rawBody); err != nil {
+		t.Fatalf("read raw response body: %v", err)
+	}
+	if string(rawBody) == string(wantBody) {
+		t.Fatalf("response_body stored plaintext: %s", rawBody)
 	}
 
 	status, code, _, body, err := q.TryAcquireIdempotencyKey(ctx, projectID, key, time.Hour)
@@ -189,6 +200,7 @@ func TestIdempotency_TryAcquire_RaceBetweenGoroutines(t *testing.T) {
 func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	projectID := "proj-idem-" + newID()
@@ -224,6 +236,7 @@ func TestIdempotency_Complete_UpdatesRow(t *testing.T) {
 func TestIdempotency_Complete_NotFound_NoError(t *testing.T) {
 	ctx := context.Background()
 	q := mustStore(t)
+	q.SetSecretEncryptionKey("0123456789abcdef0123456789abcdef")
 	mustClean(t, ctx)
 
 	// Completing a non-existent key should be a no-op (UPDATE affects 0

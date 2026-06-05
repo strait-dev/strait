@@ -458,13 +458,8 @@ func (h *WebhookHandler) claimWebhookForProcessing(ctx context.Context, eventID 
 
 	ps, ok := h.store.(webhookProcessingStore)
 	if !ok {
-		processed, dbErr := h.store.IsWebhookProcessed(ctx, eventID)
-		if dbErr == nil && processed {
-			h.logger.Info("webhook already processed (DB)", "event_id", eventID)
-			h.replayCache.Store(eventID, time.Now().UnixNano())
-			return claim, true, nil
-		}
-		return claim, false, nil
+		h.replayCache.Delete(eventID)
+		return claim, false, fmt.Errorf("stripe webhook processing claims are not supported")
 	}
 
 	claim.processingStore = ps

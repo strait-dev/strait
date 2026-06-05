@@ -56,7 +56,11 @@ func (q *Queries) CreateJobSecret(ctx context.Context, secret *domain.JobSecret)
 		return fmt.Errorf("create job secret: %w", err)
 	}
 
-	encrypted, err := encryptSecret(secret.EncryptedValue, encryptionKey)
+	plaintext := secret.Value
+	if plaintext == "" {
+		plaintext = secret.EncryptedValue
+	}
+	encrypted, err := encryptSecret(plaintext, encryptionKey)
 	if err != nil {
 		return fmt.Errorf("create job secret: %w", err)
 	}
@@ -84,16 +88,16 @@ func (q *Queries) CreateJobSecret(ctx context.Context, secret *domain.JobSecret)
 	return nil
 }
 
-func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecret, error) {
+func (q *Queries) GetJobSecret(ctx context.Context, id, projectID string) (*domain.JobSecret, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJobSecret")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, job_id, environment, secret_key, encrypted_value, key_version, created_at, updated_at
 		FROM job_secrets
-		WHERE id = $1`
+		WHERE id = $1 AND project_id = $2`
 
-	secret, err := scanJobSecret(q.db.QueryRow(ctx, query, id))
+	secret, err := scanJobSecret(q.db.QueryRow(ctx, query, id, projectID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrJobSecretNotFound
@@ -105,7 +109,7 @@ func (q *Queries) GetJobSecret(ctx context.Context, id string) (*domain.JobSecre
 	if err != nil {
 		return nil, fmt.Errorf("get job secret: %w", err)
 	}
-	secret.EncryptedValue = decrypted
+	secret.Value = decrypted
 
 	return secret, nil
 }
@@ -159,7 +163,7 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 		if decryptErr != nil {
 			return nil, fmt.Errorf("list job secrets decrypt: %w", decryptErr)
 		}
-		secret.EncryptedValue = decrypted
+		secret.Value = decrypted
 
 		secrets = append(secrets, *secret)
 	}
@@ -171,12 +175,12 @@ func (q *Queries) ListJobSecrets(ctx context.Context, projectID, jobID, environm
 	return secrets, nil
 }
 
-func (q *Queries) DeleteJobSecret(ctx context.Context, id string) error {
+func (q *Queries) DeleteJobSecret(ctx context.Context, id, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteJobSecret")
 	defer span.End()
 
-	query := `DELETE FROM job_secrets WHERE id = $1`
-	tag, err := q.db.Exec(ctx, query, id)
+	query := `DELETE FROM job_secrets WHERE id = $1 AND project_id = $2`
+	tag, err := q.db.Exec(ctx, query, id, projectID)
 	if err != nil {
 		return fmt.Errorf("delete job secret: %w", err)
 	}
@@ -228,7 +232,7 @@ func (q *Queries) ListJobSecretsByJob(ctx context.Context, jobID, environment st
 		if decryptErr != nil {
 			return nil, fmt.Errorf("list job secrets by job decrypt: %w", decryptErr)
 		}
-		secret.EncryptedValue = decrypted
+		secret.Value = decrypted
 
 		secrets = append(secrets, *secret)
 	}

@@ -245,12 +245,12 @@ func TestCrossTenant_DeleteEnvironment_OnlyAcceptsByID(t *testing.T) {
 	}
 
 	// Empty id must error, not mass-delete.
-	if err := q.DeleteEnvironment(ctx, ""); err == nil {
+	if err := q.DeleteEnvironment(ctx, "", projA); err == nil {
 		t.Fatal("DeleteEnvironment(\"\") should error")
 	}
 
 	// Sanity: env still exists.
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment: %v", err)
 	}

@@ -39,6 +39,7 @@ type Config struct {
 	OIDCPublicKeyPEM          string        `env:"OIDC_PUBLIC_KEY_PEM"`
 	LogLevel                  string        `env:"LOG_LEVEL" default:"info"`
 	LogFormat                 string        `env:"LOG_FORMAT" default:"json"`
+	DeploymentEnvironment     string        `env:"STRAIT_ENV" default:"production"`
 	HeartbeatInterval         time.Duration `env:"HEARTBEAT_INTERVAL" default:"10s"`
 	ReaperInterval            time.Duration `env:"REAPER_INTERVAL" default:"30s"`
 	StaleThreshold            time.Duration `env:"STALE_THRESHOLD" default:"1m"`
@@ -501,8 +502,8 @@ func validateMigrationConfig(cfg *Config) error {
 }
 
 func validateDatabaseConfig(cfg *Config) error {
-	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
-		if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+	if strings.Contains(strings.ToLower(cfg.DatabaseURL), "sslmode=disable") {
+		if !isRelaxedDeploymentEnvironment(cfg.DeploymentEnvironment) {
 			return &domain.ConfigError{Field: "DATABASE_URL", Message: "sslmode=disable is not allowed in non-development environments"}
 		}
 		slog.Warn("DATABASE_URL has sslmode=disable; connections are not encrypted")
@@ -558,7 +559,7 @@ func validateCORSConfig(cfg *Config) error {
 			}
 		}
 		if origin == "*" {
-			if cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+			if !isRelaxedDeploymentEnvironment(cfg.DeploymentEnvironment) {
 				return &domain.ConfigError{
 					Field:   "CORS_ALLOWED_ORIGINS",
 					Message: "wildcard origin (*) is not allowed in non-development environments",
@@ -568,6 +569,15 @@ func validateCORSConfig(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+func isRelaxedDeploymentEnvironment(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "development", "dev", "test":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateAuditConfig(cfg *Config) error {

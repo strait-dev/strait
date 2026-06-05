@@ -1693,7 +1693,7 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 			t.Fatalf("last_error leaked URL secret %q: %s", leaked, got.LastError)
 		}
 	}
-	if !strings.Contains(got.LastError, "connection refused") {
+	if !strings.Contains(got.LastError, "request failed") {
 		t.Fatalf("last_error omitted sanitized transport reason: %s", got.LastError)
 	}
 }

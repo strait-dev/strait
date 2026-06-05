@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -28,6 +30,12 @@ const (
 // transient failure (serialization_failure, deadlock_detected, lock_timeout)
 // during the advisory-lock-protected insert path.
 const idempotencyMaxAttempts = 3
+
+type encryptedIdempotencyResponseBody struct {
+	Encrypted bool   `json:"encrypted"`
+	Version   int    `json:"version"`
+	Body      string `json:"body"`
+}
 
 // idempotencyBackoff is the per-attempt base sleep before retrying a
 // transient failure. The first attempt has no preceding sleep; the second
@@ -143,7 +151,7 @@ func (q *Queries) TryAcquireIdempotencyKey(ctx context.Context, projectID, key s
 
 	beginner, ok := q.db.(TxBeginner)
 	if !ok {
-		return q.tryAcquireIdempotencyKeyLegacy(ctx, projectID, key, ttl)
+		return "", 0, nil, nil, errors.New("idempotency acquire requires transactional database handle")
 	}
 
 	advisoryKey := idempotencyAdvisoryKey(projectID, key)
@@ -256,7 +264,11 @@ func (q *Queries) tryAcquireWithAdvisoryLock(ctx context.Context, beginner TxBeg
 	if hdrErr != nil {
 		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", hdrErr)
 	}
-	return status, rs, hdr, responseBody, nil
+	body, bodyErr := q.decryptIdempotencyResponseBody(responseBody)
+	if bodyErr != nil {
+		return "", 0, nil, nil, fmt.Errorf("decode idempotency response body: %w", bodyErr)
+	}
+	return status, rs, hdr, body, nil
 }
 
 // replaceExpiredIdempotencyRow handles the rare race where the SELECT inside
@@ -291,75 +303,6 @@ func replaceExpiredIdempotencyRow(ctx context.Context, tx pgx.Tx, projectID, key
 	return "", fmt.Errorf("retry insert idempotency key: %w", err)
 }
 
-// tryAcquireIdempotencyKeyLegacy is the non-transactional fallback used when
-// the underlying DBTX does not implement TxBeginner (unit-test mocks). It
-// preserves the original ON CONFLICT DO NOTHING + RowsAffected behavior.
-func (q *Queries) tryAcquireIdempotencyKeyLegacy(ctx context.Context, projectID, key string, ttl time.Duration) (string, int, http.Header, []byte, error) {
-	expiresAt := time.Now().Add(ttl)
-
-	var status string
-	var responseStatus *int
-	var responseHeaders []byte
-	var responseBody []byte
-
-	tag, err := q.db.Exec(ctx, `
-		INSERT INTO idempotency_keys (project_id, key, status, expires_at)
-		VALUES ($1, $2, 'pending', $3)
-		ON CONFLICT (project_id, key) DO NOTHING`,
-		projectID, key, expiresAt,
-	)
-	if err != nil {
-		return "", 0, nil, nil, fmt.Errorf("insert idempotency key: %w", err)
-	}
-
-	if tag.RowsAffected() == 1 {
-		return IdempotencyAcquired, 0, nil, nil, nil
-	}
-
-	err = q.db.QueryRow(ctx, `
-		SELECT status, response_status, response_headers, response_body
-		FROM idempotency_keys
-		WHERE project_id = $1 AND key = $2
-		  AND expires_at > NOW()`,
-		projectID, key,
-	).Scan(&status, &responseStatus, &responseHeaders, &responseBody)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			if _, delErr := q.db.Exec(ctx, `
-				DELETE FROM idempotency_keys
-				WHERE project_id = $1 AND key = $2 AND expires_at <= NOW()`,
-				projectID, key,
-			); delErr != nil {
-				return "", 0, nil, nil, fmt.Errorf("delete expired idempotency key: %w", delErr)
-			}
-			tag2, retryErr := q.db.Exec(ctx, `
-				INSERT INTO idempotency_keys (project_id, key, status, expires_at)
-				VALUES ($1, $2, 'pending', $3)
-				ON CONFLICT (project_id, key) DO NOTHING`,
-				projectID, key, expiresAt,
-			)
-			if retryErr != nil {
-				return "", 0, nil, nil, fmt.Errorf("retry insert idempotency key: %w", retryErr)
-			}
-			if tag2.RowsAffected() == 1 {
-				return IdempotencyAcquired, 0, nil, nil, nil
-			}
-			return IdempotencyPending, 0, nil, nil, nil
-		}
-		return "", 0, nil, nil, fmt.Errorf("select idempotency key: %w", err)
-	}
-
-	rs := 0
-	if responseStatus != nil {
-		rs = *responseStatus
-	}
-	hdr, hdrErr := unmarshalIdempotencyHeaders(responseHeaders)
-	if hdrErr != nil {
-		return "", 0, nil, nil, fmt.Errorf("decode idempotency headers: %w", hdrErr)
-	}
-	return status, rs, hdr, responseBody, nil
-}
-
 // CompleteIdempotencyKey updates a pending idempotency key with the handler's response.
 // responseHeaders may be nil for legacy callers that have no header
 // snapshot to memoize; the column will be NULL and replays will fall
@@ -373,17 +316,74 @@ func (q *Queries) CompleteIdempotencyKey(ctx context.Context, projectID, key str
 	if err != nil {
 		return fmt.Errorf("encode idempotency headers: %w", err)
 	}
+	bodyJSON, err := q.encryptIdempotencyResponseBody(responseBody)
+	if err != nil {
+		return fmt.Errorf("encode idempotency response body: %w", err)
+	}
 
 	_, err = q.db.Exec(ctx, `
 		UPDATE idempotency_keys
 		SET status = 'completed', response_status = $3, response_headers = $4, response_body = $5
 		WHERE project_id = $1 AND key = $2 AND status = 'pending'`,
-		projectID, key, responseStatus, hdrJSON, responseBody,
+		projectID, key, responseStatus, hdrJSON, bodyJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("complete idempotency key: %w", err)
 	}
 	return nil
+}
+
+func (q *Queries) encryptIdempotencyResponseBody(body []byte) ([]byte, error) {
+	if len(body) == 0 {
+		return nil, nil
+	}
+	if q.secretEncryptionKey == "" {
+		return nil, errors.New("secret encryption key is required")
+	}
+	enc, err := q.secretEncryptor()
+	if err != nil {
+		return nil, err
+	}
+	ciphertext, err := enc.Encrypt(body)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(encryptedIdempotencyResponseBody{
+		Encrypted: true,
+		Version:   1,
+		Body:      base64.StdEncoding.EncodeToString(ciphertext),
+	})
+}
+
+func (q *Queries) decryptIdempotencyResponseBody(raw []byte) ([]byte, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if !bytes.Contains(raw, []byte(`"encrypted"`)) {
+		return raw, nil
+	}
+	var wrapper encryptedIdempotencyResponseBody
+	if err := json.Unmarshal(raw, &wrapper); err != nil {
+		return nil, fmt.Errorf("decode encrypted body wrapper: %w", err)
+	}
+	if !wrapper.Encrypted {
+		return raw, nil
+	}
+	if wrapper.Version != 1 {
+		return nil, fmt.Errorf("unsupported encrypted body version %d", wrapper.Version)
+	}
+	if q.secretEncryptionKey == "" {
+		return nil, errors.New("secret encryption key is required")
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(wrapper.Body)
+	if err != nil {
+		return nil, fmt.Errorf("decode encrypted body: %w", err)
+	}
+	enc, err := q.secretEncryptor()
+	if err != nil {
+		return nil, err
+	}
+	return enc.Decrypt(ciphertext)
 }
 
 // marshalIdempotencyHeaders serializes an http.Header to JSON for the
@@ -393,7 +393,11 @@ func marshalIdempotencyHeaders(h http.Header) ([]byte, error) {
 	if len(h) == 0 {
 		return nil, nil
 	}
-	return json.Marshal(h)
+	safe := sanitizeIdempotencyHeaders(h)
+	if len(safe) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(safe)
 }
 
 // unmarshalIdempotencyHeaders parses the response_headers JSONB into an
@@ -407,7 +411,20 @@ func unmarshalIdempotencyHeaders(raw []byte) (http.Header, error) {
 	if err := json.Unmarshal(raw, &h); err != nil {
 		return nil, err
 	}
-	return h, nil
+	return sanitizeIdempotencyHeaders(h), nil
+}
+
+func sanitizeIdempotencyHeaders(h http.Header) http.Header {
+	out := make(http.Header, len(h))
+	for key, values := range h {
+		switch http.CanonicalHeaderKey(key) {
+		case "Set-Cookie", "Set-Cookie2", "Authorization", "Proxy-Authorization":
+			continue
+		default:
+			out[key] = append([]string(nil), values...)
+		}
+	}
+	return out
 }
 
 // DeleteIdempotencyKey removes a single idempotency key. Used to clean up

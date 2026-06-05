@@ -23,6 +23,7 @@ type TestServer struct {
 	srv          *http.Server
 	addr         string
 	hmacSecret   string
+	unsigned     bool
 	maxBodyBytes int64
 	stats        ServerStats
 	started      time.Time
@@ -39,26 +40,35 @@ func WithTestServerHMACSecret(secret string) TestServerOption {
 	}
 }
 
+// WithUnsignedDispatch explicitly disables dispatch signature verification.
+func WithUnsignedDispatch() TestServerOption {
+	return func(ts *TestServer) {
+		ts.unsigned = true
+	}
+}
+
 // ServerStats tracks request counts across all endpoints.
 type ServerStats struct {
-	FastEcho     atomic.Int64
-	SlowProcess  atomic.Int64
-	VariableLoad atomic.Int64
-	Flaky        atomic.Int64
-	MemoryHeavy  atomic.Int64
-	CostReporter atomic.Int64
-	Total        atomic.Int64
+	FastEcho      atomic.Int64
+	SlowProcess   atomic.Int64
+	VariableLoad  atomic.Int64
+	Flaky         atomic.Int64
+	ErrorScenario atomic.Int64
+	MemoryHeavy   atomic.Int64
+	CostReporter  atomic.Int64
+	Total         atomic.Int64
 }
 
 // ServerStatsSnapshot is a point-in-time snapshot of server stats.
 type ServerStatsSnapshot struct {
-	FastEcho     int64 `json:"fast_echo"`
-	SlowProcess  int64 `json:"slow_process"`
-	VariableLoad int64 `json:"variable_load"`
-	Flaky        int64 `json:"flaky"`
-	MemoryHeavy  int64 `json:"memory_heavy"`
-	CostReporter int64 `json:"cost_reporter"`
-	Total        int64 `json:"total"`
+	FastEcho      int64 `json:"fast_echo"`
+	SlowProcess   int64 `json:"slow_process"`
+	VariableLoad  int64 `json:"variable_load"`
+	Flaky         int64 `json:"flaky"`
+	ErrorScenario int64 `json:"error_scenario"`
+	MemoryHeavy   int64 `json:"memory_heavy"`
+	CostReporter  int64 `json:"cost_reporter"`
+	Total         int64 `json:"total"`
 }
 
 // NewTestServer creates a test HTTP server on localhost for the given port.
@@ -135,6 +145,14 @@ func (ts *TestServer) URL(path string) string {
 func (ts *TestServer) requireDispatchSignature(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ts.hmacSecret == "" {
+			if ts.unsigned {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "dispatch signature verification not configured", http.StatusInternalServerError)
+			return
+		}
+		if ts.unsigned {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -155,13 +173,14 @@ func (ts *TestServer) requireDispatchSignature(next http.Handler) http.Handler {
 // Snapshot returns a point-in-time copy of server stats.
 func (ts *TestServer) Snapshot() ServerStatsSnapshot {
 	return ServerStatsSnapshot{
-		FastEcho:     ts.stats.FastEcho.Load(),
-		SlowProcess:  ts.stats.SlowProcess.Load(),
-		VariableLoad: ts.stats.VariableLoad.Load(),
-		Flaky:        ts.stats.Flaky.Load(),
-		MemoryHeavy:  ts.stats.MemoryHeavy.Load(),
-		CostReporter: ts.stats.CostReporter.Load(),
-		Total:        ts.stats.Total.Load(),
+		FastEcho:      ts.stats.FastEcho.Load(),
+		SlowProcess:   ts.stats.SlowProcess.Load(),
+		VariableLoad:  ts.stats.VariableLoad.Load(),
+		Flaky:         ts.stats.Flaky.Load(),
+		ErrorScenario: ts.stats.ErrorScenario.Load(),
+		MemoryHeavy:   ts.stats.MemoryHeavy.Load(),
+		CostReporter:  ts.stats.CostReporter.Load(),
+		Total:         ts.stats.Total.Load(),
 	}
 }
 
@@ -245,7 +264,7 @@ func (ts *TestServer) handleFlaky(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (ts *TestServer) handleErrorScenario(w http.ResponseWriter, r *http.Request) {
-	ts.stats.Flaky.Add(1)
+	ts.stats.ErrorScenario.Add(1)
 	ts.stats.Total.Add(1)
 
 	var body struct {

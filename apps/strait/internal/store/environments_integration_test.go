@@ -40,7 +40,7 @@ func TestCreateEnvironment(t *testing.T) {
 	}
 
 	// Round-trip.
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment() error = %v", err)
 	}
@@ -93,7 +93,7 @@ func TestCreateEnvironment_WithParent(t *testing.T) {
 		t.Fatalf("CreateEnvironment(child) error = %v", err)
 	}
 
-	got, err := q.GetEnvironment(ctx, child.ID)
+	got, err := q.GetEnvironment(ctx, child.ID, child.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment(child) error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestGetEnvironment_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	_, err := q.GetEnvironment(ctx, newID())
+	_, err := q.GetEnvironment(ctx, newID(), "proj-missing-"+newID())
 	if !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("GetEnvironment(missing) error = %v, want ErrEnvironmentNotFound", err)
 	}
@@ -201,7 +201,7 @@ func TestUpdateEnvironment(t *testing.T) {
 		t.Fatal("UpdatedAt was not advanced")
 	}
 
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment(updated) error = %v", err)
 	}
@@ -283,11 +283,11 @@ func TestDeleteEnvironment(t *testing.T) {
 		t.Fatalf("CreateEnvironment() error = %v", err)
 	}
 
-	if err := q.DeleteEnvironment(ctx, env.ID); err != nil {
+	if err := q.DeleteEnvironment(ctx, env.ID, env.ProjectID); err != nil {
 		t.Fatalf("DeleteEnvironment() error = %v", err)
 	}
 
-	_, err := q.GetEnvironment(ctx, env.ID)
+	_, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("GetEnvironment(deleted) error = %v, want ErrEnvironmentNotFound", err)
 	}
@@ -298,7 +298,7 @@ func TestDeleteEnvironment_NotFound(t *testing.T) {
 	q := mustStore(t)
 	mustClean(t, ctx)
 
-	if err := q.DeleteEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if err := q.DeleteEnvironment(ctx, newID(), "proj-missing-"+newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("DeleteEnvironment(missing) error = %v, want ErrEnvironmentNotFound", err)
 	}
 }
@@ -322,7 +322,7 @@ func TestDeleteEnvironment_StandardProtected(t *testing.T) {
 	}
 
 	// Deleting a standard environment should return ErrStandardEnvironment.
-	if err := q.DeleteEnvironment(ctx, envs[0].ID); !errors.Is(err, store.ErrStandardEnvironment) {
+	if err := q.DeleteEnvironment(ctx, envs[0].ID, projectID); !errors.Is(err, store.ErrStandardEnvironment) {
 		t.Fatalf("DeleteEnvironment(standard) error = %v, want ErrStandardEnvironment", err)
 	}
 }
@@ -448,7 +448,7 @@ func TestEnvironmentVariablesEncryptedWithoutPlaintextCopy(t *testing.T) {
 		t.Fatal("variables_encrypted was not populated")
 	}
 
-	got, err := q.GetEnvironment(ctx, env.ID)
+	got, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment() error = %v", err)
 	}
@@ -483,11 +483,11 @@ func TestEnvironmentVariablesDoNotFallbackToPlaintextOnDecryptFailure(t *testing
 		t.Fatalf("tamper environment variables: %v", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, env.ID); err == nil {
+	if _, err := q.GetEnvironment(ctx, env.ID, env.ProjectID); err == nil {
 		t.Fatal("GetEnvironment() error = nil, want decrypt failure instead of plaintext fallback")
 	}
 	qWithoutKey := mustStore(t)
-	if _, err := qWithoutKey.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+	if _, err := qWithoutKey.GetEnvironment(ctx, env.ID, env.ProjectID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
 		t.Fatalf("GetEnvironment(without key) error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
 	}
 }
@@ -516,7 +516,7 @@ func TestEnvironmentVariablesRejectLegacyPlaintextWithoutCiphertext(t *testing.T
 		t.Fatalf("tamper environment variables: %v", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
+	if _, err := q.GetEnvironment(ctx, env.ID, env.ProjectID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {
 		t.Fatalf("GetEnvironment() error = %v, want ErrEnvironmentVariableEncryptionRequired", err)
 	}
 	if _, err := q.GetResolvedEnvironmentVariables(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentVariableEncryptionRequired) {

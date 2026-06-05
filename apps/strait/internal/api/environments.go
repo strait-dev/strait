@@ -124,7 +124,8 @@ type GetEnvironmentOutput struct {
 }
 
 func (s *Server) handleGetEnvironment(ctx context.Context, input *GetEnvironmentInput) (*GetEnvironmentOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	projectID := projectIDFromContext(ctx)
+	env, err := s.store.GetEnvironment(ctx, input.EnvID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -205,7 +206,8 @@ type UpdateEnvironmentOutput struct {
 }
 
 func (s *Server) handleUpdateEnvironment(ctx context.Context, input *UpdateEnvironmentInput) (*UpdateEnvironmentOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	projectID := projectIDFromContext(ctx)
+	env, err := s.store.GetEnvironment(ctx, input.EnvID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -316,7 +318,8 @@ type DeleteEnvironmentInput struct {
 }
 
 func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvironmentInput) (*struct{}, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	projectID := projectIDFromContext(ctx)
+	env, err := s.store.GetEnvironment(ctx, input.EnvID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -331,7 +334,7 @@ func (s *Server) handleDeleteEnvironment(ctx context.Context, input *DeleteEnvir
 		return nil, huma.Error404NotFound("environment not found")
 	}
 
-	if err := s.store.DeleteEnvironment(ctx, input.EnvID); err != nil {
+	if err := s.store.DeleteEnvironment(ctx, input.EnvID, projectID); err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
 		}
@@ -360,7 +363,8 @@ type GetResolvedVariablesOutput struct {
 }
 
 func (s *Server) handleGetResolvedVariables(ctx context.Context, input *GetResolvedVariablesInput) (*GetResolvedVariablesOutput, error) {
-	env, err := s.store.GetEnvironment(ctx, input.EnvID)
+	projectID := projectIDFromContext(ctx)
+	env, err := s.store.GetEnvironment(ctx, input.EnvID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return nil, huma.Error404NotFound("environment not found")
@@ -396,7 +400,7 @@ func (s *Server) validateEnvironmentParent(ctx context.Context, projectID, envID
 	if callerEnvID := environmentIDFromContext(ctx); callerEnvID != "" && parentID != callerEnvID {
 		return huma.Error404NotFound("parent environment not found")
 	}
-	parent, err := s.store.GetEnvironment(ctx, parentID)
+	parent, err := s.store.GetEnvironment(ctx, parentID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrEnvironmentNotFound) {
 			return huma.Error404NotFound("parent environment not found")

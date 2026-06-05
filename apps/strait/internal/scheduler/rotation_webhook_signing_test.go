@@ -49,7 +49,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		gotSig = r.Header.Get("X-Strait-Signature")
 		gotTS = r.Header.Get("X-Strait-Timestamp")
 		gotDelivery = r.Header.Get("X-Strait-Delivery-ID")
-		gotSig256 = r.Header.Get("X-Signature-256")
+		gotSig256 = r.Header.Get("X-Strait-Signature-256")
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -88,7 +88,7 @@ func TestNotifyRotationWebhook_SignsWithHMACWhenSecretPresent(t *testing.T) {
 		t.Fatalf("X-Strait-Signature: got %q, want %q", gotSig, wantStructured)
 	}
 	if gotSig256 != "sha256="+wantSig {
-		t.Fatalf("X-Signature-256: got %q, want %q", gotSig256, "sha256="+wantSig)
+		t.Fatalf("X-Strait-Signature-256: got %q, want %q", gotSig256, "sha256="+wantSig)
 	}
 	if !bytes.Contains(gotBody, []byte(`"event":"api_key.auto_rotated"`)) {
 		t.Fatalf("unexpected body: %s", gotBody)

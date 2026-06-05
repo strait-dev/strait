@@ -145,6 +145,20 @@ func (s *Server) createWebhookSubscriptionWithLimit(ctx context.Context, sub *do
 		return err
 	}
 	if orgID == "" || maxEndpoints < 0 {
+		if maxProjectSubscriptions >= 0 {
+			if limitedStore, ok := s.store.(webhookSubscriptionLimitsCreator); ok {
+				if err := limitedStore.CreateWebhookSubscriptionWithLimits(ctx, sub, "", -1, maxProjectSubscriptions); err != nil {
+					if errors.Is(err, store.ErrWebhookProjectLimitExceeded) {
+						return huma.Error400BadRequest("webhook subscription limit exceeded")
+					}
+					if errors.Is(err, store.ErrWebhookSubscriptionDuplicate) {
+						return huma.Error409Conflict("a webhook subscription for this URL already exists in this project")
+					}
+					return huma.Error500InternalServerError("failed to create webhook subscription")
+				}
+				return nil
+			}
+		}
 		if err := s.checkWebhookProjectLimit(ctx, projectID, maxProjectSubscriptions); err != nil {
 			return err
 		}

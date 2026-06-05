@@ -166,6 +166,7 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 			return
 		}
 		tokenString := strings.TrimPrefix(auth, "Bearer ")
+		issuerPresent := runTokenIssuerPresent(tokenString)
 		claims := &runTokenClaims{}
 		// jwt.WithExpirationRequired rejects tokens that omit `exp`. Without
 		// it the library silently treats a missing exp as valid forever, so
@@ -226,20 +227,20 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		}
 		if status.IsTerminal() {
 			recordAuthDecision(r.Context(), "jwt", "failure")
-			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "terminal_run", claims.Issuer != "")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "terminal_run", issuerPresent)
 			respondError(w, r, http.StatusGone, "run has reached a terminal state")
 			return
 		}
 		if attempt > 0 && attempt != claims.Attempt {
 			recordAuthDecision(r.Context(), "jwt", "failure")
-			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "stale_attempt", claims.Issuer != "")
+			s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "stale_attempt", issuerPresent)
 			respondError(w, r, http.StatusUnauthorized, "run token attempt is stale")
 			return
 		}
 		if claims.AssignmentID != "" {
 			if err := s.verifyRunTokenAssignment(r.Context(), subject, projectID, claims.AssignmentID); err != nil {
 				recordAuthDecision(r.Context(), "jwt", "failure")
-				s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "assignment_mismatch", claims.Issuer != "")
+				s.emitRunTokenRejectedAudit(r.Context(), subject, projectID, "assignment_mismatch", issuerPresent)
 				respondError(w, r, http.StatusUnauthorized, err.Error())
 				return
 			}
@@ -259,6 +260,12 @@ func (s *Server) runTokenAuth(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, ctxActorIDKey, "run:"+subject)
 		s.serveWithSentryScope(next, w, r.WithContext(ctx))
 	})
+}
+
+func runTokenIssuerPresent(tokenString string) bool {
+	claims := &runTokenClaims{}
+	_, _, err := jwt.NewParser().ParseUnverified(tokenString, claims)
+	return err == nil && claims.Issuer != ""
 }
 
 func (s *Server) emitRunTokenRejectedAudit(ctx context.Context, runID, projectID, reason string, issuerPresent bool) {
@@ -547,31 +554,20 @@ func (s *Server) handleSDKCheckpoint(ctx context.Context, input *SDKCheckpointIn
 	if err := s.validate.Struct(&req); err != nil {
 		return nil, newValidationError(err)
 	}
-	run, err := s.store.GetRun(ctx, runID)
-	if err != nil {
-		if errors.Is(err, store.ErrRunNotFound) {
-			return nil, huma.Error404NotFound("run not found")
-		}
-		return nil, huma.Error500InternalServerError("failed to get run")
-	}
-	if run.Status != domain.StatusExecuting && run.Status != domain.StatusWaiting {
-		return nil, huma.Error409Conflict("run must be executing or waiting to checkpoint")
-	}
 	source := strings.TrimSpace(req.Source)
 	if source == "" {
 		source = "sdk"
 	}
 	checkpoint := &domain.RunCheckpoint{ID: uuid.Must(uuid.NewV7()).String(), RunID: runID, Source: source, State: req.State}
 	if guardedStore, ok := s.store.(activeRunMutationStore); ok {
-		err = guardedStore.CreateRunCheckpointForActiveRun(ctx, checkpoint, runTokenAttemptFromContext(ctx))
-	} else {
-		err = s.store.CreateRunCheckpoint(ctx, checkpoint)
-	}
-	if err != nil {
-		if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
-			return nil, sdkErr
+		err := guardedStore.CreateRunCheckpointForActiveRun(ctx, checkpoint, runTokenAttemptFromContext(ctx))
+		if err != nil {
+			if sdkErr := s.guardedSDKMutationError(ctx, err); sdkErr != nil {
+				return nil, sdkErr
+			}
+			return nil, huma.Error500InternalServerError("failed to create checkpoint")
 		}
-		return nil, huma.Error500InternalServerError("failed to create checkpoint")
+		return &SDKCheckpointOutput{Body: checkpoint}, nil
 	}
-	return &SDKCheckpointOutput{Body: checkpoint}, nil
+	return nil, huma.Error500InternalServerError("active run checkpoint guard unavailable")
 }

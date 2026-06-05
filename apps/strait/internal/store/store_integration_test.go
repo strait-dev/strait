@@ -2734,18 +2734,21 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatal("CreateJobSecret(duplicate) error = nil, want error")
 	}
 
-	gotJobSecret, err := q.GetJobSecret(ctx, jobSecret.ID)
+	gotJobSecret, err := q.GetJobSecret(ctx, jobSecret.ID, jobSecret.ProjectID)
 	if err != nil {
 		t.Fatalf("GetJobSecret() error = %v", err)
 	}
 	if gotJobSecret.ID != jobSecret.ID || gotJobSecret.ProjectID != projectID || gotJobSecret.JobID != job.ID || gotJobSecret.SecretKey != "API_TOKEN" {
 		t.Fatalf("GetJobSecret() mismatch: got %+v", *gotJobSecret)
 	}
-	if gotJobSecret.EncryptedValue != "job-value" {
-		t.Fatalf("GetJobSecret() value = %q, want %q", gotJobSecret.EncryptedValue, "job-value")
+	if gotJobSecret.Value != "job-value" {
+		t.Fatalf("GetJobSecret() value = %q, want %q", gotJobSecret.Value, "job-value")
+	}
+	if gotJobSecret.EncryptedValue == "job-value" {
+		t.Fatal("GetJobSecret() overwrote EncryptedValue with decrypted plaintext")
 	}
 
-	_, err = q.GetJobSecret(ctx, newID())
+	_, err = q.GetJobSecret(ctx, newID(), projectID)
 	if !errors.Is(err, store.ErrJobSecretNotFound) {
 		t.Fatalf("GetJobSecret(not found) error = %v, want ErrJobSecretNotFound", err)
 	}
@@ -2793,15 +2796,15 @@ func TestSecret_JobSecretCRUD(t *testing.T) {
 		t.Fatalf("ListJobSecretsByJob(staging) len = %d, want 0", len(byJobNone))
 	}
 
-	if err := q.DeleteJobSecret(ctx, jobSecret.ID); err != nil {
+	if err := q.DeleteJobSecret(ctx, jobSecret.ID, jobSecret.ProjectID); err != nil {
 		t.Fatalf("DeleteJobSecret() error = %v", err)
 	}
-	_, err = q.GetJobSecret(ctx, jobSecret.ID)
+	_, err = q.GetJobSecret(ctx, jobSecret.ID, jobSecret.ProjectID)
 	if !errors.Is(err, store.ErrJobSecretNotFound) {
 		t.Fatalf("GetJobSecret(after delete) error = %v, want ErrJobSecretNotFound", err)
 	}
 
-	if err := q.DeleteJobSecret(ctx, newID()); !errors.Is(err, store.ErrJobSecretNotFound) {
+	if err := q.DeleteJobSecret(ctx, newID(), projectID); !errors.Is(err, store.ErrJobSecretNotFound) {
 		t.Fatalf("DeleteJobSecret(not found) error = %v, want ErrJobSecretNotFound", err)
 	}
 }
@@ -2830,17 +2833,17 @@ func TestSecret_JobSecretDecryptsWithOldEncryptionKey(t *testing.T) {
 	newQ.SetSecretEncryptionKey("new-secret-encryption-key")
 	newQ.SetOldSecretEncryptionKeys([]string{"old-secret-encryption-key"})
 
-	got, err := newQ.GetJobSecret(ctx, secret.ID)
+	got, err := newQ.GetJobSecret(ctx, secret.ID, secret.ProjectID)
 	if err != nil {
 		t.Fatalf("GetJobSecret(with old key) error = %v", err)
 	}
-	if got.EncryptedValue != "legacy-value" {
-		t.Fatalf("GetJobSecret(with old key) value = %q, want legacy-value", got.EncryptedValue)
+	if got.Value != "legacy-value" {
+		t.Fatalf("GetJobSecret(with old key) value = %q, want legacy-value", got.Value)
 	}
 
 	withoutOld := mustStore(t)
 	withoutOld.SetSecretEncryptionKey("new-secret-encryption-key")
-	if _, err := withoutOld.GetJobSecret(ctx, secret.ID); err == nil {
+	if _, err := withoutOld.GetJobSecret(ctx, secret.ID, secret.ProjectID); err == nil {
 		t.Fatal("GetJobSecret(without old key) error = nil, want decrypt failure")
 	}
 }
@@ -3906,7 +3909,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 		t.Fatal("CreateEnvironment() did not set UpdatedAt")
 	}
 
-	gotEnv, err := q.GetEnvironment(ctx, env.ID)
+	gotEnv, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment() error = %v", err)
 	}
@@ -3938,7 +3941,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 		t.Fatalf("UpdateEnvironment() error = %v", err)
 	}
 
-	updated, err := q.GetEnvironment(ctx, env.ID)
+	updated, err := q.GetEnvironment(ctx, env.ID, env.ProjectID)
 	if err != nil {
 		t.Fatalf("GetEnvironment() after update error = %v", err)
 	}
@@ -3954,14 +3957,14 @@ func TestEnvironment_CRUD(t *testing.T) {
 		}
 	}
 
-	if err := q.DeleteEnvironment(ctx, env.ID); err != nil {
+	if err := q.DeleteEnvironment(ctx, env.ID, env.ProjectID); err != nil {
 		t.Fatalf("DeleteEnvironment() error = %v", err)
 	}
-	if _, err := q.GetEnvironment(ctx, env.ID); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if _, err := q.GetEnvironment(ctx, env.ID, env.ProjectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("GetEnvironment() after delete error = %v, want ErrEnvironmentNotFound", err)
 	}
 
-	if _, err := q.GetEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if _, err := q.GetEnvironment(ctx, newID(), projectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("GetEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
 	}
 
@@ -3970,7 +3973,7 @@ func TestEnvironment_CRUD(t *testing.T) {
 		t.Fatalf("UpdateEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
 	}
 
-	if err := q.DeleteEnvironment(ctx, newID()); !errors.Is(err, store.ErrEnvironmentNotFound) {
+	if err := q.DeleteEnvironment(ctx, newID(), projectID); !errors.Is(err, store.ErrEnvironmentNotFound) {
 		t.Fatalf("DeleteEnvironment() not found error = %v, want ErrEnvironmentNotFound", err)
 	}
 

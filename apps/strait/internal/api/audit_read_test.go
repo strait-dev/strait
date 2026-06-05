@@ -150,7 +150,7 @@ func TestGetSecret_EmitsSecretReadAudit(t *testing.T) {
 		emitted []*domain.AuditEvent
 	)
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, id string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
 			if id != secretID {
 				t.Errorf("GetJobSecret id = %q, want %q", id, secretID)
 			}
@@ -240,7 +240,7 @@ func TestSecretReadAudit_NeverContainsKeyMaterial(t *testing.T) {
 		emitted []*domain.AuditEvent
 	)
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(_ context.Context, _ string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(_ context.Context, _ string, _ string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{
 				ID:             secretID,
 				ProjectID:      projectID,

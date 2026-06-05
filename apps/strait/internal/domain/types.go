@@ -478,6 +478,7 @@ type JobSecret struct {
 	Environment    string    `json:"environment"`
 	SecretKey      string    `json:"secret_key"`
 	EncryptedValue string    `json:"-"`
+	Value          string    `json:"-"`
 	KeyVersion     int       `json:"key_version"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`

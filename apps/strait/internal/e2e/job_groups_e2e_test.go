@@ -263,7 +263,7 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 	created := mustDecodeObject(t, w)
 	envID := asString(t, created, "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get environment status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -271,7 +271,7 @@ func TestE2E_Environment_CreateAndGet(t *testing.T) {
 	if asString(t, env, "id") != envID {
 		t.Fatalf("expected environment id %s", envID)
 	}
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get resolved variables status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -331,7 +331,7 @@ func TestE2E_Environment_Inheritance(t *testing.T) {
 	}
 	childID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+childID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+childID+"/variables", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get resolved variables status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -358,12 +358,12 @@ func TestE2E_Environment_Delete(t *testing.T) {
 	}
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodDelete, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodDelete, "/v1/environments/"+envID, "", projectID)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete environment status = %d, body = %s", w.Code, w.Body.String())
 	}
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID, "", projectID)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("get deleted environment status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -380,7 +380,7 @@ func TestE2E_Environment_Update(t *testing.T) {
 	}
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodPatch, "/v1/environments/"+envID, `{"name":"New","slug":"new-slug","variables":{"LOG_LEVEL":"debug","REGION":"eu"}}`)
+	w = doRequest(t, http.MethodPatch, "/v1/environments/"+envID, `{"name":"New","slug":"new-slug","variables":{"LOG_LEVEL":"debug","REGION":"eu"}}`, projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("update environment status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -388,7 +388,7 @@ func TestE2E_Environment_Update(t *testing.T) {
 	if asString(t, updated, "name") != "New" {
 		t.Fatalf("expected updated name, got %s", asString(t, updated, "name"))
 	}
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get updated variables status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -409,7 +409,7 @@ func TestE2E_Environment_ResolvedVariablesEndpoint(t *testing.T) {
 	}
 	envID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "")
+	w = doRequest(t, http.MethodGet, "/v1/environments/"+envID+"/variables", "", projectID)
 	if w.Code != http.StatusOK {
 		t.Fatalf("get variables status = %d, body = %s", w.Code, w.Body.String())
 	}
@@ -660,7 +660,7 @@ func TestE2E_Secret_Delete(t *testing.T) {
 	}
 	secretID := asString(t, mustDecodeObject(t, w), "id")
 
-	w = doRequest(t, http.MethodDelete, "/v1/secrets/"+secretID, "")
+	w = doRequest(t, http.MethodDelete, "/v1/secrets/"+secretID, "", projectID)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("delete secret status = %d, body = %s", w.Code, w.Body.String())
 	}

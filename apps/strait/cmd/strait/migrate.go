@@ -174,7 +174,7 @@ func openMigratorFromEnv() (*migrate.Migrate, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
-	if err := validateMigrationDatabaseURL(databaseURL, os.Getenv("SENTRY_ENVIRONMENT")); err != nil {
+	if err := validateMigrationDatabaseURL(databaseURL, os.Getenv("STRAIT_ENV")); err != nil {
 		return nil, err
 	}
 
@@ -225,10 +225,7 @@ func parsePositiveInt(raw string) (int, error) {
 }
 
 func validateMigrationDatabaseURL(databaseURL, environment string) error {
-	if environment == "" {
-		environment = "development"
-	}
-	if strings.Contains(databaseURL, "sslmode=disable") && environment != "development" && environment != "test" {
+	if strings.Contains(strings.ToLower(databaseURL), "sslmode=disable") && environment != "development" && environment != "test" {
 		return fmt.Errorf("DATABASE_URL sslmode=disable is not allowed in non-development environments")
 	}
 	return nil

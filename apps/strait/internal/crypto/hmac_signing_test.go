@@ -39,8 +39,11 @@ func TestSignWebhookRequest_GoldenHeaders(t *testing.T) {
 	if got := req.Header.Get("X-Strait-Signature"); got != wantStructured {
 		t.Fatalf("X-Strait-Signature: got %q, want %q", got, wantStructured)
 	}
-	if got := req.Header.Get("X-Signature-256"); got != "sha256="+wantSig {
-		t.Fatalf("X-Signature-256: got %q, want %q", got, "sha256="+wantSig)
+	if got := req.Header.Get("X-Strait-Signature-256"); got != "sha256="+wantSig {
+		t.Fatalf("X-Strait-Signature-256: got %q, want %q", got, "sha256="+wantSig)
+	}
+	if got := req.Header.Get("X-Signature-256"); got != "" {
+		t.Fatalf("legacy X-Signature-256 should be unset, got %q", got)
 	}
 }
 
@@ -50,7 +53,7 @@ func TestSignWebhookRequest_NoSecretIsNoop(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/hook", nil)
 	SignWebhookRequest(req, nil, []byte("body"), "id", "ts")
 	SignWebhookRequest(req, []byte{}, []byte("body"), "id", "ts")
-	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Signature-256"} {
+	for _, h := range []string{"X-Strait-Timestamp", "X-Strait-Delivery-ID", "X-Strait-Signature", "X-Strait-Signature-256", "X-Signature-256"} {
 		if v := req.Header.Get(h); v != "" {
 			t.Fatalf("expected %s unset, got %q", h, v)
 		}

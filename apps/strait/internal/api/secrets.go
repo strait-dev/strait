@@ -167,7 +167,8 @@ type GetSecretOutput struct {
 // project. The secret value is never included in the response. The read is
 // audited as secret.read with secret_id + name (key) — no key material.
 func (s *Server) handleGetSecret(ctx context.Context, input *GetSecretInput) (*GetSecretOutput, error) {
-	secret, err := s.store.GetJobSecret(ctx, input.SecretID)
+	projectID := projectIDFromContext(ctx)
+	secret, err := s.store.GetJobSecret(ctx, input.SecretID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")
@@ -199,7 +200,8 @@ type DeleteSecretInput struct {
 }
 
 func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInput) (*struct{}, error) {
-	secret, err := s.store.GetJobSecret(ctx, input.SecretID)
+	projectID := projectIDFromContext(ctx)
+	secret, err := s.store.GetJobSecret(ctx, input.SecretID, projectID)
 	if err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")
@@ -214,7 +216,7 @@ func (s *Server) handleDeleteSecret(ctx context.Context, input *DeleteSecretInpu
 		return nil, huma.Error404NotFound("secret not found")
 	}
 
-	if err := s.store.DeleteJobSecret(ctx, input.SecretID); err != nil {
+	if err := s.store.DeleteJobSecret(ctx, input.SecretID, projectID); err != nil {
 		if errors.Is(err, store.ErrJobSecretNotFound) {
 			return nil, huma.Error404NotFound("secret not found")
 		}

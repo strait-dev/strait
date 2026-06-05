@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -55,6 +56,7 @@ type WorkerTaskResult struct {
 type ResultChannelRegistry struct {
 	mu       sync.Mutex
 	channels map[string]resultChannelEntry
+	runLocks [256]sync.Mutex
 }
 
 type resultChannelEntry struct {
@@ -93,6 +95,10 @@ func (r *ResultChannelRegistry) Register(runID, projectID, workerID, assignmentI
 // dispatcher.
 func (r *ResultChannelRegistry) TryRegister(runID, projectID, workerID, assignmentID string, attempt int) (chan *workerv1.TaskResult, bool) {
 	ch := make(chan *workerv1.TaskResult, 1)
+	lock := r.lockForRun(runID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.channels[runID]; exists {
@@ -111,6 +117,10 @@ func (r *ResultChannelRegistry) TryRegister(runID, projectID, workerID, assignme
 // Deregister removes the channel for the given run ID. Must be called by
 // WorkerDispatch when the dispatch completes (deferred).
 func (r *ResultChannelRegistry) Deregister(runID string) {
+	lock := r.lockForRun(runID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	r.mu.Lock()
 	delete(r.channels, runID)
 	r.mu.Unlock()
@@ -121,6 +131,10 @@ func (r *ResultChannelRegistry) Deregister(runID string) {
 // Returns true on successful delivery; false on missing channel, project
 // mismatch, or already-buffered duplicate.
 func (r *ResultChannelRegistry) Send(runID, projectID, workerID string, result *workerv1.TaskResult) bool {
+	lock := r.lockForRun(runID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	r.mu.Lock()
 	entry, ok := r.channels[runID]
 	r.mu.Unlock()
@@ -144,10 +158,13 @@ func (r *ResultChannelRegistry) SendAfterHandoff(
 	result *workerv1.TaskResult,
 	handoff func() (bool, error),
 ) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	lock := r.lockForRun(runID)
+	lock.Lock()
+	defer lock.Unlock()
 
+	r.mu.Lock()
 	entry, ok := r.channels[runID]
+	r.mu.Unlock()
 	if !ok || !entry.matches(projectID, workerID, result) {
 		return false, nil
 	}
@@ -166,6 +183,12 @@ func (r *ResultChannelRegistry) SendAfterHandoff(
 	default:
 		return false, nil
 	}
+}
+
+func (r *ResultChannelRegistry) lockForRun(runID string) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(runID))
+	return &r.runLocks[h.Sum32()%uint32(len(r.runLocks))]
 }
 
 func (e resultChannelEntry) matches(projectID, workerID string, result *workerv1.TaskResult) bool {

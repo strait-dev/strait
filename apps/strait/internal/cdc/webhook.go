@@ -101,7 +101,8 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes))
 	if err != nil {
-		if strings.Contains(err.Error(), "request body too large") {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
 			http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -163,6 +164,7 @@ func (wr *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	processed = true
 
 	// Run additional handlers (webhook delivery, notifications, audit, etc.).
 	// Always runs regardless of whether the primary handler used Collect or Handle.

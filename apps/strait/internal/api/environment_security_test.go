@@ -121,7 +121,7 @@ func TestEnvironment_CircularParentID(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID: id, ProjectID: "proj-1", Name: "circular", Slug: "circular",
 				ParentID:  id,
@@ -150,7 +150,7 @@ func TestEnvironment_DeepParentChain(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID: id, ProjectID: "proj-1", Name: "env-" + id, Slug: "env-" + id,
 				Variables: map[string]string{"KEY": id},
@@ -177,7 +177,7 @@ func TestEnvironment_VariableOverrideResolution(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID: id, ProjectID: "proj-1", Name: "child", Slug: "child",
 				ParentID:  "env-parent",
@@ -217,7 +217,7 @@ func TestEnvironment_MetadataResponsesDoNotLeakVariableValues(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{
 				ID:        id,
 				ProjectID: "proj-1",
@@ -307,7 +307,7 @@ func TestEnvironment_RejectsParentOutsideProject(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			return &domain.Environment{ID: id, ProjectID: "proj-other", Name: "Other", Slug: "other"}, nil
 		},
 		CreateEnvironmentFunc: func(context.Context, *domain.Environment) error {
@@ -333,7 +333,7 @@ func TestEnvironment_EnvironmentScopedCallerCannotSetOtherParent(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(_ context.Context, id string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(_ context.Context, id string, _ string) (*domain.Environment, error) {
 			if id == "env-staging" {
 				return &domain.Environment{ID: id, ProjectID: "proj-1", Name: "Staging", Slug: "staging"}, nil
 			}
@@ -362,7 +362,7 @@ func TestEnvironment_VariablesRouteRequiresSecretsRead(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(context.Context, string, string) (*domain.Environment, error) {
 			t.Fatal("GetEnvironment must not be called without secrets:read")
 			return nil, nil
 		},
@@ -409,7 +409,7 @@ func TestEnvironment_UpdateVariablesRequiresSecretsWrite(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(context.Context, string, string) (*domain.Environment, error) {
 			return &domain.Environment{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production"}, nil
 		},
 		UpdateEnvironmentFunc: func(context.Context, *domain.Environment) error {
@@ -439,7 +439,7 @@ func TestEnvironment_UpdateVariablesAllowsSecretsWrite(t *testing.T) {
 
 	updated := false
 	ms := &APIStoreMock{
-		GetEnvironmentFunc: func(context.Context, string) (*domain.Environment, error) {
+		GetEnvironmentFunc: func(context.Context, string, string) (*domain.Environment, error) {
 			return &domain.Environment{ID: "env-prod", ProjectID: "proj-1", Name: "Production", Slug: "production"}, nil
 		},
 		UpdateEnvironmentFunc: func(_ context.Context, env *domain.Environment) error {
@@ -814,10 +814,10 @@ func TestSecret_EnvironmentScopedCallerCannotReadOrDeleteOtherEnvironmentSecret(
 	t.Parallel()
 
 	ms := &APIStoreMock{
-		GetJobSecretFunc: func(context.Context, string) (*domain.JobSecret, error) {
+		GetJobSecretFunc: func(context.Context, string, string) (*domain.JobSecret, error) {
 			return &domain.JobSecret{ID: "sec-prod", ProjectID: "proj-1", Environment: "env-prod", SecretKey: "PROD_TOKEN"}, nil
 		},
-		DeleteJobSecretFunc: func(context.Context, string) error {
+		DeleteJobSecretFunc: func(context.Context, string, string) error {
 			t.Fatal("DeleteJobSecret must not be called for cross-environment secret")
 			return nil
 		},

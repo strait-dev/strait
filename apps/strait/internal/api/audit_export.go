@@ -88,17 +88,19 @@ func (s *Server) handleExportAuditEvents(ctx context.Context, input *ExportAudit
 	// Uses AllowStrict (fail-closed): if Redis is down, deny the request
 	// rather than silently pass it through. A downed rate-limit service
 	// must not open the door for a compromised key to bulk-export the log.
-	if s.rateLimiter != nil {
-		rlKey := fmt.Sprintf("audit_export:%s", projectID)
-		result, rlErr := s.rateLimiter.AllowStrict(ctx, rlKey, maxExportsPerProjectPerHour, time.Hour)
-		if rlErr != nil {
-			slog.Error("audit export rate limit check failed, denying request", "project_id", projectID, "error", rlErr)
-			return nil, huma.Error503ServiceUnavailable("rate limit service unavailable, please retry")
-		}
-		if !result.Allowed {
-			return nil, huma.Error429TooManyRequests(
-				fmt.Sprintf("audit export rate limit exceeded: max %d exports/hour/project", maxExportsPerProjectPerHour))
-		}
+	if s.rateLimiter == nil {
+		slog.Error("audit export rate limiter is not configured; denying request", "project_id", projectID)
+		return nil, huma.Error503ServiceUnavailable("rate limit service unavailable, please retry")
+	}
+	rlKey := fmt.Sprintf("audit_export:%s", projectID)
+	result, rlErr := s.rateLimiter.AllowStrict(ctx, rlKey, maxExportsPerProjectPerHour, time.Hour)
+	if rlErr != nil {
+		slog.Error("audit export rate limit check failed, denying request", "project_id", projectID, "error", rlErr)
+		return nil, huma.Error503ServiceUnavailable("rate limit service unavailable, please retry")
+	}
+	if !result.Allowed {
+		return nil, huma.Error429TooManyRequests(
+			fmt.Sprintf("audit export rate limit exceeded: max %d exports/hour/project", maxExportsPerProjectPerHour))
 	}
 
 	if input.From == "" || input.To == "" {
@@ -297,6 +299,13 @@ func (s *Server) streamAuditCSV(ctx context.Context, w io.Writer, flusher http.F
 			return fmt.Errorf("write csv row: %w", err)
 		}
 		exported++
+		if canFlush && exported%exportFlushInterval == 0 {
+			cw.Flush()
+			if err := cw.Error(); err != nil {
+				return fmt.Errorf("flush csv rows: %w", err)
+			}
+			flusher.Flush()
+		}
 		return nil
 	})
 	if err != nil && !errors.Is(err, errExportCapReached) {

@@ -378,20 +378,11 @@ func TestHandleSDKAnnotate_AnnotationValueTooLong(t *testing.T) {
 
 func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	t.Parallel()
-	created := false
-	ms := &APIStoreMock{
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
-		},
-		CreateRunCheckpointFunc: func(_ context.Context, checkpoint *domain.RunCheckpoint) error {
-			created = true
-			if checkpoint.RunID != "run-123" {
-				t.Fatalf("run_id = %q, want run-123", checkpoint.RunID)
-			}
-			if len(checkpoint.State) == 0 {
-				t.Fatal("expected non-empty checkpoint state")
-			}
-			return nil
+	ms := &checkpointActiveRunMock{
+		APIStoreMock: &APIStoreMock{
+			GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
+				return &domain.JobRun{ID: id, Status: domain.StatusExecuting}, nil
+			},
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, &mockPublisher{})
@@ -403,9 +394,89 @@ func TestHandleSDKCheckpoint_Success(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
-	if !created {
-		t.Fatal("expected CreateRunCheckpoint to be called")
+	if ms.created == nil {
+		t.Fatal("expected CreateRunCheckpointForActiveRun to be called")
 	}
+	if ms.created.RunID != "run-123" {
+		t.Fatalf("run_id = %q, want run-123", ms.created.RunID)
+	}
+	if len(ms.created.State) == 0 {
+		t.Fatal("expected non-empty checkpoint state")
+	}
+}
+
+type checkpointActiveRunMock struct {
+	*APIStoreMock
+	created *domain.RunCheckpoint
+}
+
+func (m *checkpointActiveRunMock) GetRunTokenState(context.Context, string) (domain.RunStatus, int, string, error) {
+	return domain.StatusExecuting, 1, "proj-1", nil
+}
+
+func (m *checkpointActiveRunMock) EnsureRunActiveForAttempt(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) InsertEventForActiveRun(context.Context, *domain.RunEvent, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) UpdateRunMetadataForActiveRun(context.Context, string, map[string]string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) UpdateHeartbeatForActiveRun(context.Context, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) CreateRunCheckpointForActiveRun(_ context.Context, checkpoint *domain.RunCheckpoint, _ int) error {
+	m.created = checkpoint
+	return nil
+}
+
+func (m *checkpointActiveRunMock) UpsertRunStateForActiveRun(context.Context, *domain.RunState, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) GetRunStateForActiveRun(context.Context, string, string, int) (*domain.RunState, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) ListRunStateForActiveRun(context.Context, string, int) ([]domain.RunState, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) DeleteRunStateForActiveRun(context.Context, string, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) UpsertRunOutputForActiveRun(context.Context, *domain.RunOutput, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) UpsertJobMemoryWithQuotaForActiveRun(context.Context, string, *domain.JobMemory, int, int, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) GetJobMemoryForActiveRun(context.Context, string, string, string, int) (*domain.JobMemory, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) ListJobMemoryForActiveRun(context.Context, string, string, int) ([]domain.JobMemory, error) {
+	return nil, store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) DeleteJobMemoryForActiveRun(context.Context, string, string, string, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) CreateRunResourceSnapshotForActiveRun(context.Context, *domain.RunResourceSnapshot, int) error {
+	return store.ErrRunConflict
+}
+
+func (m *checkpointActiveRunMock) UpdateRunStatusForActiveRun(context.Context, string, domain.RunStatus, domain.RunStatus, map[string]any, int) error {
+	return store.ErrRunConflict
 }
 
 func TestSDKUsageRoute_NotRegistered(t *testing.T) {

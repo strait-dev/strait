@@ -361,8 +361,11 @@ func TestValidateMigrationDatabaseURLAllowsDisableSSLInDevelopment(t *testing.T)
 	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", "development"); err != nil {
 		t.Fatalf("development sslmode=disable should be allowed: %v", err)
 	}
-	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", ""); err != nil {
-		t.Fatalf("empty environment should default to development: %v", err)
+	if err := validateMigrationDatabaseURL("postgres://localhost/strait?SSLMODE=disable", "test"); err != nil {
+		t.Fatalf("test sslmode=disable should be allowed case-insensitively: %v", err)
+	}
+	if err := validateMigrationDatabaseURL("postgres://localhost/strait?sslmode=disable", ""); err == nil {
+		t.Fatal("empty environment should reject sslmode=disable")
 	}
 }
 

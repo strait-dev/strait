@@ -379,7 +379,6 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 	if err := s.store.CreateAPIKey(ctx, newKey); err != nil {
 		return nil, huma.Error500InternalServerError("failed to create rotated api key")
 	}
-	s.apiKeyCache.Set(ctx, newKey)
 	graceExpiresAt := time.Now().Add(time.Duration(req.GracePeriodMinutes) * time.Minute)
 	if err := s.store.MarkAPIKeyRotated(ctx, oldKey.ID, newKey.ID, graceExpiresAt); err != nil {
 		if newKey.ID != "" {
@@ -394,6 +393,7 @@ func (s *Server) handleRotateAPIKey(ctx context.Context, input *RotateAPIKeyInpu
 		s.apiKeyCache.Invalidate(ctx, newKey.KeyHash)
 		return nil, huma.Error500InternalServerError("failed to mark old key as rotated")
 	}
+	s.apiKeyCache.Set(ctx, newKey)
 	oldKeyVersion := oldKey.CacheVersion + 1
 	if rotatedOldKey, getErr := s.store.GetAPIKeyByID(ctx, oldKey.ID); getErr == nil && rotatedOldKey != nil && rotatedOldKey.CacheVersion > 0 {
 		oldKeyVersion = rotatedOldKey.CacheVersion

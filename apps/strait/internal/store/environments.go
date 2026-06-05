@@ -94,16 +94,16 @@ func (q *Queries) createEnvironmentWithOrgLimitLocked(ctx context.Context, env *
 	return q.CreateEnvironment(ctx, env)
 }
 
-func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
+func (q *Queries) GetEnvironment(ctx context.Context, id, projectID string) (*domain.Environment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEnvironment")
 	defer span.End()
 
 	query := `
 		SELECT id, project_id, name, slug, parent_id, variables, variables_encrypted, is_standard, created_at, updated_at
 		FROM environments
-		WHERE id = $1`
+		WHERE id = $1 AND project_id = $2`
 
-	env, err := q.scanEnvironment(q.db.QueryRow(ctx, query, id))
+	env, err := q.scanEnvironment(q.db.QueryRow(ctx, query, id, projectID))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrEnvironmentNotFound
@@ -174,7 +174,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 		    variables = $4,
 		    variables_encrypted = $5,
 		    updated_at = NOW()
-		WHERE id = $6
+		WHERE id = $6 AND project_id = $7
 		RETURNING updated_at`
 
 	err = q.db.QueryRow(
@@ -186,6 +186,7 @@ func (q *Queries) UpdateEnvironment(ctx context.Context, env *domain.Environment
 		variablesJSON,
 		variablesEncrypted,
 		env.ID,
+		env.ProjectID,
 	).Scan(&env.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -204,20 +205,20 @@ var ErrStandardEnvironment = errors.New("cannot modify standard environment")
 // persist environment variables without configuring at-rest secret encryption.
 var ErrEnvironmentVariableEncryptionRequired = errors.New("environment variable encryption key is required")
 
-func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
+func (q *Queries) DeleteEnvironment(ctx context.Context, id, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.DeleteEnvironment")
 	defer span.End()
 
 	// Prevent deletion of standard environments.
-	query := `DELETE FROM environments WHERE id = $1 AND is_standard = FALSE`
-	tag, err := q.db.Exec(ctx, query, id)
+	query := `DELETE FROM environments WHERE id = $1 AND project_id = $2 AND is_standard = FALSE`
+	tag, err := q.db.Exec(ctx, query, id, projectID)
 	if err != nil {
 		return fmt.Errorf("delete environment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		// Check if the environment exists but is standard.
 		var isStandard bool
-		checkErr := q.db.QueryRow(ctx, `SELECT is_standard FROM environments WHERE id = $1`, id).Scan(&isStandard)
+		checkErr := q.db.QueryRow(ctx, `SELECT is_standard FROM environments WHERE id = $1 AND project_id = $2`, id, projectID).Scan(&isStandard)
 		if checkErr != nil {
 			return ErrEnvironmentNotFound
 		}

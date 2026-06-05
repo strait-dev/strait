@@ -52,10 +52,10 @@ func TestAuditNegativePath_NoEmitOnStoreFailure(t *testing.T) {
 			path:   "/v1/secrets/sec-1",
 			body:   "",
 			setup: func(ms *APIStoreMock) {
-				ms.GetJobSecretFunc = func(_ context.Context, id string) (*domain.JobSecret, error) {
+				ms.GetJobSecretFunc = func(_ context.Context, id string, _ string) (*domain.JobSecret, error) {
 					return &domain.JobSecret{ID: id, ProjectID: "proj-1"}, nil
 				}
-				ms.DeleteJobSecretFunc = func(_ context.Context, _ string) error {
+				ms.DeleteJobSecretFunc = func(_ context.Context, _ string, _ string) error {
 					return forcedErr
 				}
 			},
