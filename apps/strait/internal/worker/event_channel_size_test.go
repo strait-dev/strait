@@ -98,3 +98,19 @@ func TestShouldLogSaturation_Throttles(t *testing.T) {
 		t.Fatal("after interval, should log again")
 	}
 }
+
+func TestResolveInstanceID_StableAndNonEmpty(t *testing.T) {
+	t.Parallel()
+
+	exec := &Executor{}
+
+	first := exec.resolveInstanceID()
+	second := exec.resolveInstanceID()
+
+	if first == "" {
+		t.Fatal("resolveInstanceID returned empty string")
+	}
+	if second != first {
+		t.Fatalf("resolveInstanceID changed between calls: first=%q second=%q", first, second)
+	}
+}
