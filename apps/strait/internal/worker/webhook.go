@@ -3,15 +3,11 @@ package worker
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"strait/internal/domain"
@@ -151,21 +147,6 @@ func sendWithRetryPolicy(
 	}
 
 	return result
-}
-
-func applyWebhookSignature(req *http.Request, webhookSecret string, body []byte) {
-	if webhookSecret == "" {
-		return
-	}
-	ts := strconv.FormatInt(time.Now().UTC().Unix(), 10)
-	payload := append([]byte(ts+"."), body...)
-	mac := hmac.New(sha256.New, []byte(webhookSecret))
-	_, _ = mac.Write(payload)
-	sig := hex.EncodeToString(mac.Sum(nil))
-
-	req.Header.Set("X-Strait-Timestamp", ts)
-	req.Header.Set("X-Strait-Signature", "v1="+sig)
-	req.Header.Set("X-Webhook-Signature", "v1="+sig)
 }
 
 func sendWebhookOnceWith(ctx context.Context, client *http.Client, job *domain.Job, run *domain.JobRun) WebhookResult {
