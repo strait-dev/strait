@@ -13,7 +13,8 @@ type CatalogResolver struct {
 }
 
 // NewCatalogResolver builds a resolver from the canonical PlanCatalogs and
-// AddonPacks. Empty lookup keys (e.g. Free annual, Enterprise) are skipped.
+// launch-active AddonPacks. Empty lookup keys (e.g. Free annual, Enterprise)
+// and roadmap-only add-ons are skipped.
 func NewCatalogResolver() *CatalogResolver {
 	r := &CatalogResolver{
 		tierByLookupKey:  make(map[string]domain.PlanTier),
@@ -28,6 +29,9 @@ func NewCatalogResolver() *CatalogResolver {
 		}
 	}
 	for _, pack := range AddonPacks {
+		if !IsLaunchActiveAddonType(pack.Type) {
+			continue
+		}
 		if pack.LookupKey != "" {
 			r.addonByLookupKey[pack.LookupKey] = pack.Type
 		}

@@ -364,9 +364,9 @@ const createAuth = () => {
           openidConfig: true,
         },
       }),
-      // SSO disabled: @better-auth/sso has a known ESM incompatibility
-      // (samlify requires camelcase@9 ESM-only from CJS). Re-enable when
-      // https://github.com/better-auth/better-auth/issues/8620 is fixed.
+      // SSO is not a launch entitlement. Keep the Better Auth SSO plugin
+      // disabled until product status changes and its ESM issue is resolved.
+      // See https://github.com/better-auth/better-auth/issues/8620.
       // Stripe billing is handled via standalone server functions (checkout,
       // portal) and a Go backend webhook handler, not through Better Auth plugins.
       tanstackStartCookies(),

@@ -276,8 +276,14 @@ func (b *bulkTriggerState) appendIdempotencyHit(item BulkTriggerItem, itemIdx in
 }
 
 func (b *bulkTriggerState) checkPriority(item BulkTriggerItem, itemIdx int) error {
-	if b.server.billingEnforcer == nil || item.Priority <= 0 {
+	if item.Priority <= 0 {
 		return nil
+	}
+	if !b.server.edition.RequiresHTTPModeGating() {
+		return nil
+	}
+	if b.server.billingEnforcer == nil {
+		return planGateUnavailable("bulk_dispatch_priority_enforcer", errors.New("billing enforcer not configured"))
 	}
 	if err := b.server.billingEnforcer.CheckMaxDispatchPriority(b.ctx, b.job.ProjectID, item.Priority); err != nil {
 		var rse *rawStatusError

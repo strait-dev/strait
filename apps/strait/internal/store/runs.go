@@ -578,24 +578,9 @@ func (q *Queries) CreateRunCheckpoint(ctx context.Context, checkpoint *domain.Ru
 		checkpoint.Source = "sdk"
 	}
 
-	query := `
-		WITH next_seq AS (
-			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
-			FROM run_checkpoints
-			WHERE run_id = $1
-		)
-		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
-		VALUES ($2, $1, (SELECT seq FROM next_seq), $3, $4)
-		RETURNING sequence, created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		checkpoint.RunID,
-		checkpoint.ID,
-		checkpoint.Source,
-		dbscan.NilIfEmptyRawMessage(checkpoint.State),
-	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	err := q.WithTxQueries(ctx, func(txQ *Queries) error {
+		return txQ.createRunCheckpointLocked(ctx, checkpoint, 0, false)
+	})
 	if err != nil {
 		return fmt.Errorf("create run checkpoint: %w", err)
 	}
@@ -614,35 +599,9 @@ func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoin
 		checkpoint.Source = "sdk"
 	}
 
-	query := `
-		WITH active_run AS (
-			SELECT jr.id
-			FROM job_runs jr
-			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-			WHERE jr.id = $1
-			  AND COALESCE(s.attempt, jr.attempt) = $5
-			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
-			FOR UPDATE OF jr
-		),
-		next_seq AS (
-			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
-			FROM run_checkpoints
-			WHERE run_id = $1
-		)
-		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
-		SELECT $2, active_run.id, next_seq.seq, $3, $4
-		FROM active_run, next_seq
-		RETURNING sequence, created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		checkpoint.RunID,
-		checkpoint.ID,
-		checkpoint.Source,
-		dbscan.NilIfEmptyRawMessage(checkpoint.State),
-		attempt,
-	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
+	err := q.WithTxQueries(ctx, func(txQ *Queries) error {
+		return txQ.createRunCheckpointLocked(ctx, checkpoint, attempt, true)
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, checkpoint.RunID, attempt)
@@ -651,6 +610,50 @@ func (q *Queries) CreateRunCheckpointForActiveRun(ctx context.Context, checkpoin
 	}
 
 	return nil
+}
+
+func (q *Queries) createRunCheckpointLocked(ctx context.Context, checkpoint *domain.RunCheckpoint, attempt int, requireActive bool) error {
+	lockQuery := `
+		SELECT id
+		FROM job_runs
+		WHERE id = $1
+		FOR UPDATE`
+	args := []any{checkpoint.RunID}
+	if requireActive {
+		lockQuery = `
+			SELECT jr.id
+			FROM job_runs jr
+			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
+			WHERE jr.id = $1
+			  AND COALESCE(s.attempt, jr.attempt) = $2
+			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
+			FOR UPDATE OF jr`
+		args = append(args, attempt)
+	}
+
+	var lockedRunID string
+	if err := q.db.QueryRow(ctx, lockQuery, args...).Scan(&lockedRunID); err != nil {
+		return err
+	}
+
+	query := `
+		WITH next_seq AS (
+			SELECT COALESCE(MAX(sequence), 0) + 1 AS seq
+			FROM run_checkpoints
+			WHERE run_id = $1
+		)
+		INSERT INTO run_checkpoints (id, run_id, sequence, source, state)
+		VALUES ($2, $1, (SELECT seq FROM next_seq), $3, $4)
+		RETURNING sequence, created_at`
+
+	return q.db.QueryRow(
+		ctx,
+		query,
+		checkpoint.RunID,
+		checkpoint.ID,
+		checkpoint.Source,
+		dbscan.NilIfEmptyRawMessage(checkpoint.State),
+	).Scan(&checkpoint.Sequence, &checkpoint.CreatedAt)
 }
 
 func (q *Queries) ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error) {
@@ -721,257 +724,6 @@ func (q *Queries) GetLatestCheckpoint(ctx context.Context, runID string) (*domai
 	}
 
 	return cp, nil
-}
-
-func (q *Queries) CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsage")
-	defer span.End()
-
-	if usage.ID == "" {
-		usage.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	if usage.CostMicrousd == 0 {
-		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
-		if err != nil {
-			return err
-		}
-		if inputCost > 0 || outputCost > 0 {
-			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
-		}
-	}
-
-	query := `
-		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		usage.ID,
-		usage.RunID,
-		usage.Provider,
-		usage.Model,
-		usage.PromptTokens,
-		usage.CompletionTokens,
-		usage.TotalTokens,
-		usage.CostMicrousd,
-	).Scan(&usage.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create run usage: %w", err)
-	}
-
-	return nil
-}
-
-func (q *Queries) CreateRunUsageForActiveRun(ctx context.Context, usage *domain.RunUsage, attempt int) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunUsageForActiveRun")
-	defer span.End()
-
-	if usage.ID == "" {
-		usage.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	if usage.CostMicrousd == 0 {
-		inputCost, outputCost, err := q.lookupPricing(ctx, usage.Provider, usage.Model)
-		if err != nil {
-			return err
-		}
-		if inputCost > 0 || outputCost > 0 {
-			usage.CostMicrousd = int64(usage.PromptTokens)*inputCost + int64(usage.CompletionTokens)*outputCost
-		}
-	}
-
-	query := `
-		WITH active_run AS (
-			SELECT jr.id
-			FROM job_runs jr
-			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-			WHERE jr.id = $2
-			  AND COALESCE(s.attempt, jr.attempt) = $9
-			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
-		)
-		INSERT INTO run_usage (id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd)
-		SELECT $1, id, $3, $4, $5, $6, $7, $8
-		FROM active_run
-		RETURNING created_at`
-
-	err := q.db.QueryRow(ctx, query, usage.ID, usage.RunID, usage.Provider, usage.Model, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CostMicrousd, attempt).Scan(&usage.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, usage.RunID, attempt)
-		}
-		return fmt.Errorf("create active run usage: %w", err)
-	}
-	return nil
-}
-
-func (q *Queries) ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunUsage")
-	defer span.End()
-
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT id, run_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cost_microusd, created_at
-		FROM run_usage
-		WHERE run_id = $1`
-
-	args := []any{runID}
-	param := 2
-
-	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
-		args = append(args, *cursor)
-		param++
-	}
-
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
-	args = append(args, limit)
-
-	rows, err := q.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list run usage: %w", err)
-	}
-	defer rows.Close()
-
-	usages := make([]domain.RunUsage, 0)
-	for rows.Next() {
-		u, scanErr := scanRunUsage(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("list run usage scan: %w", scanErr)
-		}
-		usages = append(usages, *u)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list run usage rows: %w", err)
-	}
-
-	return usages, nil
-}
-
-func (q *Queries) CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCall")
-	defer span.End()
-
-	if call.ID == "" {
-		call.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if call.Status == "" {
-		call.Status = "completed"
-	}
-
-	query := `
-		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING created_at`
-
-	err := q.db.QueryRow(
-		ctx,
-		query,
-		call.ID,
-		call.RunID,
-		call.ToolName,
-		dbscan.NilIfEmptyRawMessage(call.Input),
-		dbscan.NilIfEmptyRawMessage(call.Output),
-		dbscan.NilIfZeroInt(call.DurationMs),
-		call.Status,
-	).Scan(&call.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create run tool call: %w", err)
-	}
-
-	return nil
-}
-
-func (q *Queries) CreateRunToolCallForActiveRun(ctx context.Context, call *domain.RunToolCall, attempt int) error {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateRunToolCallForActiveRun")
-	defer span.End()
-
-	if call.ID == "" {
-		call.ID = uuid.Must(uuid.NewV7()).String()
-	}
-	if call.Status == "" {
-		call.Status = "completed"
-	}
-
-	query := `
-		WITH active_run AS (
-			SELECT jr.id
-			FROM job_runs jr
-			LEFT JOIN job_run_read_state s ON s.run_id = jr.id
-			WHERE jr.id = $2
-			  AND COALESCE(s.attempt, jr.attempt) = $8
-			  AND COALESCE(s.status, jr.status) IN ('executing', 'waiting')
-		)
-		INSERT INTO run_tool_calls (id, run_id, tool_name, input, output, duration_ms, status)
-		SELECT $1, id, $3, $4, $5, $6, $7
-		FROM active_run
-		RETURNING created_at`
-
-	err := q.db.QueryRow(ctx, query, call.ID, call.RunID, call.ToolName, dbscan.NilIfEmptyRawMessage(call.Input), dbscan.NilIfEmptyRawMessage(call.Output), dbscan.NilIfZeroInt(call.DurationMs), call.Status, attempt).Scan(&call.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("%w: run %s is not active for attempt %d", ErrRunConflict, call.RunID, attempt)
-		}
-		return fmt.Errorf("create active run tool call: %w", err)
-	}
-	return nil
-}
-
-func (q *Queries) ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.ListRunToolCalls")
-	defer span.End()
-
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-		SELECT id, run_id, tool_name, input, output, duration_ms, status, created_at
-		FROM run_tool_calls
-		WHERE run_id = $1`
-
-	args := []any{runID}
-	param := 2
-
-	if cursor != nil {
-		query += fmt.Sprintf(" AND created_at < $%d", param)
-		args = append(args, *cursor)
-		param++
-	}
-
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d", param)
-	args = append(args, limit)
-
-	rows, err := q.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list run tool calls: %w", err)
-	}
-	defer rows.Close()
-
-	calls := make([]domain.RunToolCall, 0)
-	for rows.Next() {
-		c, scanErr := scanRunToolCall(rows)
-		if scanErr != nil {
-			return nil, fmt.Errorf("list run tool calls scan: %w", scanErr)
-		}
-		calls = append(calls, *c)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list run tool calls rows: %w", err)
-	}
-
-	return calls, nil
 }
 
 func (q *Queries) UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error {
@@ -1180,33 +932,15 @@ func (q *Queries) AreAllDescendantsTerminal(ctx context.Context, parentRunID str
 	return nonTerminalCount == 0, nil
 }
 
-func (q *Queries) lookupPricing(ctx context.Context, provider, model string) (int64, int64, error) {
-	query := `
-		SELECT input_cost_microusd, output_cost_microusd
-		FROM pricing_catalog
-		WHERE provider = $1 AND model = $2 AND active = TRUE
-		ORDER BY effective_from DESC
-		LIMIT 1`
-
-	var inputCost int64
-	var outputCost int64
-	err := q.db.QueryRow(ctx, query, provider, model).Scan(&inputCost, &outputCost)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, 0, nil
-		}
-		return 0, 0, fmt.Errorf("lookup pricing: %w", err)
-	}
-
-	return inputCost, outputCost, nil
-}
-
-// SumRunCostMicrousd returns the total cost of all usage records for a single run.
+// SumRunCostMicrousd returns the recorded launch compute cost for a single run.
 func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunCostMicrousd")
 	defer span.End()
 
-	query := `SELECT COALESCE(SUM(cost_microusd), 0) FROM run_usage WHERE run_id = $1`
+	query := `
+		SELECT COALESCE(SUM(compute_cost_microusd), 0)
+		FROM billing_cost_events
+		WHERE idempotency_key = 'strait:cost_recorded:' || $1`
 	var total int64
 	if err := q.db.QueryRow(ctx, query, runID).Scan(&total); err != nil {
 		return 0, fmt.Errorf("sum run cost: %w", err)
@@ -1214,7 +948,7 @@ func (q *Queries) SumRunCostMicrousd(ctx context.Context, runID string) (int64, 
 	return total, nil
 }
 
-// SumProjectDailyCostMicrousd returns the total cost of all usage records for a project today.
+// SumProjectDailyCostMicrousd returns today's launch compute cost for a project.
 func (q *Queries) SumProjectDailyCostMicrousd(ctx context.Context, projectID string, timezone string) (int64, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumProjectDailyCostMicrousd")
 	defer span.End()
@@ -1225,11 +959,11 @@ func (q *Queries) SumProjectDailyCostMicrousd(ctx context.Context, projectID str
 	}
 
 	query := `
-		SELECT COALESCE(SUM(u.cost_microusd), 0)
-		FROM run_usage u
-		JOIN job_runs r ON u.run_id = r.id
-		WHERE r.project_id = $1
-		  AND u.created_at >= date_trunc('day', NOW() AT TIME ZONE $2)
+		SELECT COALESCE(SUM(compute_cost_microusd), 0)
+		FROM billing_cost_events
+		WHERE project_id = $1
+		  AND created_at >= (date_trunc('day', NOW() AT TIME ZONE $2) AT TIME ZONE $2)
+		  AND created_at < ((date_trunc('day', NOW() AT TIME ZONE $2) + INTERVAL '1 day') AT TIME ZONE $2)
 	`
 	var total int64
 	if err := q.db.QueryRow(ctx, query, projectID, tz).Scan(&total); err != nil {
@@ -1249,46 +983,6 @@ func scanRunCheckpoint(scanner scanTarget) (*domain.RunCheckpoint, error) {
 		cp.State = json.RawMessage(state)
 	}
 	return &cp, nil
-}
-
-func scanRunUsage(scanner scanTarget) (*domain.RunUsage, error) {
-	var usage domain.RunUsage
-	err := scanner.Scan(
-		&usage.ID,
-		&usage.RunID,
-		&usage.Provider,
-		&usage.Model,
-		&usage.PromptTokens,
-		&usage.CompletionTokens,
-		&usage.TotalTokens,
-		&usage.CostMicrousd,
-		&usage.CreatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return &usage, nil
-}
-
-func scanRunToolCall(scanner scanTarget) (*domain.RunToolCall, error) {
-	var call domain.RunToolCall
-	var input []byte
-	var output []byte
-	var durationMs *int
-	err := scanner.Scan(&call.ID, &call.RunID, &call.ToolName, &input, &output, &durationMs, &call.Status, &call.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if input != nil {
-		call.Input = json.RawMessage(input)
-	}
-	if output != nil {
-		call.Output = json.RawMessage(output)
-	}
-	if durationMs != nil {
-		call.DurationMs = *durationMs
-	}
-	return &call, nil
 }
 
 func scanRunOutput(scanner scanTarget) (*domain.RunOutput, error) {
@@ -3452,16 +3146,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		return nil, fmt.Errorf("get debug bundle checkpoints: %w", err)
 	}
 
-	usage, err := q.ListRunUsage(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle usage: %w", err)
-	}
-
-	toolCalls, err := q.ListRunToolCalls(ctx, runID, 1000, nil)
-	if err != nil {
-		return nil, fmt.Errorf("get debug bundle tool calls: %w", err)
-	}
-
 	outputs, err := q.ListRunOutputs(ctx, runID, 10000, nil)
 	if err != nil {
 		return nil, fmt.Errorf("get debug bundle outputs: %w", err)
@@ -3476,8 +3160,6 @@ func (q *Queries) GetDebugBundle(ctx context.Context, runID string) (*domain.Deb
 		Run:               run,
 		Events:            events,
 		Checkpoints:       checkpoints,
-		Usage:             usage,
-		ToolCalls:         toolCalls,
 		Outputs:           outputs,
 		ResourceSnapshots: resourceSnapshots,
 	}, nil
@@ -4601,32 +4283,6 @@ func (q *Queries) cancelActiveRunsForJob(ctx context.Context, jobID string, excl
 		return nil, fmt.Errorf("cancel active runs rows: %w", err)
 	}
 	return result, nil
-}
-
-// SumRunTotalTokens returns the total tokens used by a single run.
-func (q *Queries) SumRunTotalTokens(ctx context.Context, runID string) (int64, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.SumRunTotalTokens")
-	defer span.End()
-
-	query := `SELECT COALESCE(SUM(total_tokens), 0) FROM run_usage WHERE run_id = $1`
-	var total int64
-	if err := q.db.QueryRow(ctx, query, runID).Scan(&total); err != nil {
-		return 0, fmt.Errorf("sum run total tokens: %w", err)
-	}
-	return total, nil
-}
-
-// CountRunToolCalls returns the number of tool calls recorded for a run.
-func (q *Queries) CountRunToolCalls(ctx context.Context, runID string) (int, error) {
-	ctx, span := otel.Tracer("strait").Start(ctx, "store.CountRunToolCalls")
-	defer span.End()
-
-	query := `SELECT COUNT(*) FROM run_tool_calls WHERE run_id = $1`
-	var count int
-	if err := q.db.QueryRow(ctx, query, runID).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count run tool calls: %w", err)
-	}
-	return count, nil
 }
 
 // CountRunIterations returns the number of iterations recorded for a run.

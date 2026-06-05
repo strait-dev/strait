@@ -41,6 +41,48 @@ func (q *Queries) CreateLogDrain(ctx context.Context, drain *domain.LogDrain) er
 	return nil
 }
 
+// CreateLogDrainWithOrgLimit serializes org-wide log-drain quota enforcement
+// with row creation. This closes the handler-level check-then-insert race for
+// launch plan caps.
+func (q *Queries) CreateLogDrainWithOrgLimit(ctx context.Context, drain *domain.LogDrain, orgID string, maxDrains int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateLogDrainWithOrgLimit")
+	defer span.End()
+
+	if maxDrains < 0 || orgID == "" {
+		return q.CreateLogDrain(ctx, drain)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createLogDrainWithOrgLimitLocked(ctx, drain, orgID, maxDrains)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createLogDrainWithOrgLimitLocked(ctx, drain, orgID, maxDrains)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.createLogDrainWithOrgLimitLocked(ctx, drain, orgID, maxDrains)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.createLogDrainWithOrgLimitLocked(ctx, drain, orgID, maxDrains)
+	})
+}
+
+func (q *Queries) createLogDrainWithOrgLimitLocked(ctx context.Context, drain *domain.LogDrain, orgID string, maxDrains int) error {
+	if err := q.acquirePlanLimitLock(ctx, "log_drain_limit:"+orgID); err != nil {
+		return err
+	}
+
+	count, err := q.CountLogDrainsByOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("count log drains before create: %w", err)
+	}
+	if count >= maxDrains {
+		return ErrLogDrainLimitExceeded
+	}
+
+	return q.CreateLogDrain(ctx, drain)
+}
+
 func (q *Queries) GetLogDrain(ctx context.Context, drainID, projectID string) (*domain.LogDrain, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetLogDrain")
 	defer span.End()

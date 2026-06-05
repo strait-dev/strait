@@ -193,14 +193,10 @@ type RunLifecycleStore interface {
 	ResetRunIdempotencyKey(ctx context.Context, runID string) error
 }
 
-// RunEventStore handles event, checkpoint, usage, tool-call, and output data.
+// RunEventStore handles event, checkpoint, and output data.
 type RunEventStore interface {
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
-	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
-	ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
-	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
-	ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
 	InsertEvent(ctx context.Context, event *domain.RunEvent) error
@@ -270,17 +266,15 @@ type RunStateStore interface {
 	DeleteRunState(ctx context.Context, runID, key string) error
 }
 
-// RunResourceStore handles AI resource snapshots, iterations, and counters.
+// RunResourceStore handles resource snapshots, iterations, and counters.
 type RunResourceStore interface {
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
-	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
-	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
 
-// RunMemoryStore handles per-job memory records used by SDK AI workflows.
+// RunMemoryStore handles per-job memory records used by SDK workflows.
 type RunMemoryStore interface {
 	UpsertJobMemory(ctx context.Context, mem *domain.JobMemory) error
 	UpsertJobMemoryWithQuota(ctx context.Context, mem *domain.JobMemory, maxPerKey, maxPerJob int) error
@@ -786,9 +780,8 @@ type BillingEnforcer interface {
 	GetProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetActiveProjectOrgID(ctx context.Context, projectID string) (string, error)
 	GetOrgPlanLimits(ctx context.Context, orgID string) (billing.OrgPlanLimits, error)
-	GetDailyRunCount(ctx context.Context, orgID string) (int64, error)
+	GetMonthlyRunCount(ctx context.Context, orgID string) (int64, error)
 	EnsureOrgSubscription(ctx context.Context, orgID string) error
-	CheckDailyAIModelCallLimit(ctx context.Context, orgID string) error
 	DispatchBilling(ctx context.Context, orgID string, planTier domain.PlanTier, eventType string, detail map[string]any)
 }
 
@@ -802,6 +795,7 @@ type UsageService interface {
 	ExportUsagePDF(ctx context.Context, orgID string, from, to time.Time) ([]byte, error)
 	GetSpendingLimit(ctx context.Context, orgID string) (*billing.SpendingLimitResponse, error)
 	SetSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	SetOverageEnabled(ctx context.Context, orgID string, enabled bool) error
 	PreviewDowngrade(ctx context.Context, orgID string, targetTier domain.PlanTier) (*billing.DowngradeImpact, error)
 	DetectAnomalies(ctx context.Context, orgID string) ([]billing.AnomalyAlert, error)
 	GetProjectBudget(ctx context.Context, projectID string) (*billing.ProjectBudgetResponse, error)
@@ -1426,7 +1420,7 @@ func (s *Server) handleStraitJSONSchema(w http.ResponseWriter, _ *http.Request) 
 }
 
 // handleOAuthProtectedResource serves RFC 9728 OAuth Protected Resource
-// Metadata so AI agents can discover how to authenticate with the API.
+// Metadata so API clients can discover how to authenticate with the API.
 func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, _ *http.Request) {
 	if !s.config.OIDCEnabled || s.config.OIDCIssuer == "" {
 		w.WriteHeader(http.StatusNotFound)

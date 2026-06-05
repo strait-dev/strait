@@ -69,7 +69,6 @@ The run context gives your job handler methods to communicate state back to Stra
 | `log(message, level?)` | Send structured logs visible in the dashboard |
 | `heartbeat()` | Signal the job is alive (call every 30s in long-running jobs) |
 | `checkpoint(state)` | Save resumable state; on retry, your handler receives this state |
-| `reportUsage(provider, model, tokens, cost)` | Track AI model usage and costs |
 | `spawnChild(jobName, payload)` | Create a child job run |
 | `progress(percent, message?)` | Report completion percentage |
 | `annotate(key, value)` | Attach metadata (max 50 annotations per run) |

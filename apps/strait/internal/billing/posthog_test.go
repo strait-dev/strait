@@ -25,6 +25,7 @@ func TestNewPostHogClient_DefaultHost(t *testing.T) {
 	c := NewPostHogClient("key", "", nil)
 	if c == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if c.host != "https://us.i.posthog.com" {
 		t.Errorf("host = %q, want https://us.i.posthog.com", c.host)
@@ -36,6 +37,7 @@ func TestNewPostHogClient_CustomHost(t *testing.T) {
 	c := NewPostHogClient("key", "https://eu.posthog.com", nil)
 	if c == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if c.host != "https://eu.posthog.com" {
 		t.Errorf("host = %q, want https://eu.posthog.com", c.host)
@@ -47,6 +49,7 @@ func TestNewPostHogClient_NilLogger(t *testing.T) {
 	c := NewPostHogClient("key", "http://localhost", nil)
 	if c == nil {
 		t.Fatal("expected non-nil client")
+		return
 	}
 	if c.logger == nil {
 		t.Error("logger should default to slog.Default(), not nil")

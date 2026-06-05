@@ -58,7 +58,7 @@ func (m *mockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (bil
 	return billing.GetPlanLimits(domain.PlanFree), nil
 }
 
-func (m *mockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
+func (m *mockBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
 
@@ -67,10 +67,6 @@ func (m *mockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ stri
 }
 
 func (m *mockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
-
-func (m *mockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
-	return nil
-}
 
 func (m *mockBillingEnforcer) DispatchBilling(_ context.Context, _ string, _ domain.PlanTier, _ string, _ map[string]any) {
 }
@@ -157,6 +153,10 @@ func (m *mockUsageService) GetSpendingLimit(_ context.Context, orgID string) (*b
 }
 
 func (m *mockUsageService) SetSpendingLimit(_ context.Context, _ string, _ int64, _ string) error {
+	return nil
+}
+
+func (m *mockUsageService) SetOverageEnabled(_ context.Context, _ string, _ bool) error {
 	return nil
 }
 
@@ -440,10 +440,9 @@ func TestGetSpendingLimit_FreeTierReturns200(t *testing.T) {
 
 	srv := newUsageTestServer(t, &mockBillingEnforcer{}, &mockUsageService{
 		spendingLimit: &billing.SpendingLimitResponse{
-			PlanTier:          "free",
-			LimitAction:       "reject",
-			IsHardCapped:      true,
-			IncludedCreditUsd: 0,
+			PlanTier:     "free",
+			LimitAction:  "reject",
+			IsHardCapped: true,
 		},
 	})
 	req := authedRequest(http.MethodGet, "/v1/spending-limit?org_id=org-free", "")

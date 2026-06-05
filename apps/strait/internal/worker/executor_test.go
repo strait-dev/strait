@@ -803,6 +803,77 @@ func TestExecutor_Dispatch_NonOKStatus(t *testing.T) {
 	}
 }
 
+func TestExecutor_HandleFailure_DLQCapDropOldest(t *testing.T) {
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, http.DefaultClient)
+	dlqStore := newFakeDLQStore()
+	dlqStore.perJob["proj-1:job-1"] = 1
+	dlqStore.perProject["proj-1"] = 1
+	exec.dlqCapEnforcer = NewDLQCapEnforcer(dlqStore, DLQCapConfig{
+		MaxPerJob: 1,
+		Policy:    DLQOverflowDropOldest,
+	}, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("https://example.com", 1, 5)
+	policy := executionPolicy{maxAttempts: 1}
+
+	if ok := exec.handleFailure(context.Background(), run, job, policy, errors.New("terminal failure"), nil); !ok {
+		t.Fatal("handleFailure returned false")
+	}
+	if len(dlqStore.masked) != 1 {
+		t.Fatalf("masked rows = %d, want 1", len(dlqStore.masked))
+	}
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusDeadLetter {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusDeadLetter)
+	}
+}
+
+func TestExecutor_HandleFailure_DLQCapRejectBecomesSystemFailed(t *testing.T) {
+	store := &mockExecutorStore{}
+	exec := newTestExecutor(t, store, &mockExecQueue{}, time.Hour, http.DefaultClient)
+	dlqStore := newFakeDLQStore()
+	dlqStore.perJob["proj-1:job-1"] = 1
+	exec.dlqCapEnforcer = NewDLQCapEnforcer(dlqStore, DLQCapConfig{
+		MaxPerJob: 1,
+		Policy:    DLQOverflowReject,
+	}, nil)
+
+	run := testRun(1)
+	run.Status = domain.StatusExecuting
+	job := testJob("https://example.com", 1, 5)
+	policy := executionPolicy{maxAttempts: 1}
+
+	if ok := exec.handleFailure(context.Background(), run, job, policy, errors.New("terminal failure"), nil); !ok {
+		t.Fatal("handleFailure returned false")
+	}
+	if len(dlqStore.masked) != 0 {
+		t.Fatalf("masked rows = %d, want 0", len(dlqStore.masked))
+	}
+	calls := store.statusUpdates()
+	if len(calls) != 1 {
+		t.Fatalf("status update calls = %d, want 1", len(calls))
+	}
+	if calls[0].to != domain.StatusSystemFailed {
+		t.Fatalf("status = %s, want %s", calls[0].to, domain.StatusSystemFailed)
+	}
+	if got := calls[0].fields["error_class"]; got != "dlq_overflow" {
+		t.Fatalf("error_class = %v, want dlq_overflow", got)
+	}
+	errMsg, _ := calls[0].fields["error"].(string)
+	if !strings.Contains(errMsg, "dlq overflow: cap reached") || !strings.Contains(errMsg, "terminal failure") {
+		t.Fatalf("error = %q, want dlq overflow with original error", errMsg)
+	}
+	if run.Status != domain.StatusSystemFailed {
+		t.Fatalf("run status = %s, want %s", run.Status, domain.StatusSystemFailed)
+	}
+}
+
 func TestExecutor_Dispatch_Timeout(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -3389,6 +3460,7 @@ func TestHandleFailure_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3431,6 +3503,7 @@ func TestHandleFailure_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3470,6 +3543,7 @@ func TestHandleFailure_ZeroBoostNoChange(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	if _, ok := retryCall.fields["priority"]; ok {
 		t.Fatal("expected no priority field when boost is 0")
@@ -3508,6 +3582,7 @@ func TestHandleFailure_DefaultBoostIsOne(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 1 {
@@ -3547,6 +3622,7 @@ func TestHandleFailure_BoostFromMaxPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3586,6 +3662,7 @@ func TestHandleFailure_BoostExactlyToMax(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3625,6 +3702,7 @@ func TestHandleFailure_LargeBoostValue(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {
@@ -3664,6 +3742,7 @@ func TestHandleFailure_BoostOnHighAttempt(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition on high attempt")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 3 {
@@ -3731,6 +3810,7 @@ func TestHandleFailure_BoostAppliedWhenPoisonPillNotTriggered(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition when poison pill doesn't trigger")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3850,6 +3930,7 @@ func TestHandleTimeout_RetryBoostsPriority(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition (executing -> queued)")
+		return
 	}
 	gotPriority, ok := retryCall.fields["priority"].(int)
 	if !ok {
@@ -3885,6 +3966,7 @@ func TestHandleTimeout_RetryPriorityCappedAt10(t *testing.T) {
 	}
 	if retryCall == nil {
 		t.Fatal("expected retry transition")
+		return
 	}
 	gotPriority := retryCall.fields["priority"].(int)
 	if gotPriority != 10 {

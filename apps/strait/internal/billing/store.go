@@ -5,14 +5,10 @@ import (
 	"time"
 )
 
-// SubscriptionAddOns captures per-org optional add-on quantities.
-// Each field holds the number of purchased packs of that add-on type.
-// The zero value means no add-ons purchased.
-type SubscriptionAddOns struct {
-	RetentionPack     int `json:"retention_pack"`
-	PrioritySlotPack  int `json:"priority_slot_pack"`
-	WorkerConnections int `json:"worker_connections"`
-}
+// SubscriptionAddOns captures the legacy organization_subscriptions.add_ons
+// payload. Launch add-ons are stored in organization_addons; this JSONB column
+// is intentionally inert so stale rows cannot grant entitlements.
+type SubscriptionAddOns struct{}
 
 // OrgSubscription represents an organization's subscription state.
 type OrgSubscription struct {
@@ -27,6 +23,7 @@ type OrgSubscription struct {
 	CurrentPeriodEnd           *time.Time
 	SpendingLimitMicrousd      int64
 	LimitAction                string
+	OverageDisabled            bool
 	PendingPlanTier            *string
 	CanceledAt                 *time.Time
 	AnomalyThresholdWarning    float64
@@ -86,8 +83,8 @@ type UsageRecord struct {
 	PeriodDate       time.Time
 	RunsCount        int64
 	ComputeCostMicro int64
-	AITokensTotal    int64
-	AICostMicro      int64
+	UsageTokensTotal int64
+	UsageCostMicro   int64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
@@ -104,6 +101,7 @@ type Store interface {
 	UpdateOrgSubscriptionStatus(ctx context.Context, orgID, status string) error
 	UpdateOrgSubscriptionFull(ctx context.Context, orgID, planTier, status string, periodStart, periodEnd *time.Time) error
 	UpdateSpendingLimit(ctx context.Context, orgID string, limitMicrousd int64, action string) error
+	UpdateOverageDisabled(ctx context.Context, orgID string, disabled bool) error
 	SetPendingPlanTier(ctx context.Context, orgID, tier string) error
 	SetPendingDowngrade(ctx context.Context, orgID, pendingTier string, periodStart, periodEnd *time.Time) error
 	ClearPendingPlanTier(ctx context.Context, orgID string) error
@@ -120,7 +118,6 @@ type Store interface {
 	CountOrgsByUser(ctx context.Context, userID string) (int, error)
 	CountExecutingRunsByOrg(ctx context.Context, orgID string) (int, error)
 	BulkCountExecutingRunsByOrg(ctx context.Context, orgIDs []string) (map[string]int, error)
-	CountAIModelCallsByOrg(ctx context.Context, orgID string, from, to time.Time) (int64, error)
 	SetProjectOrgID(ctx context.Context, projectID, orgID string) error
 
 	// Usage records

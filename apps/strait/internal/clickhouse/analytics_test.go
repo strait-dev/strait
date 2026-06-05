@@ -12,6 +12,7 @@ func TestNewAnalyticsStore(t *testing.T) {
 	store := NewAnalyticsStore(nil, nil)
 	if store == nil {
 		t.Fatal("expected non-nil store")
+		return
 	}
 	if store.client != nil {
 		t.Error("expected nil client")

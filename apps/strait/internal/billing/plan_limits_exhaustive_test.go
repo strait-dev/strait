@@ -308,19 +308,24 @@ func TestSelfHostedEnforcement(t *testing.T) {
 
 	// On self-hosted, the enforcer is nil and getOrgPlanLimits returns nil.
 	// This means all plan gate checks return nil (allowed).
-	// We verify that the enterprise tier (which self-hosted effectively grants)
-	// has all features enabled.
-	t.Run("enterprise_has_all_features", func(t *testing.T) {
+	// We verify that the enterprise tier allows launch-active features while
+	// keeping launch-roadmap features inactive.
+	t.Run("enterprise_has_launch_active_features", func(t *testing.T) {
 		t.Parallel()
 		reg := NewStaticRegistry()
 		features := []Feature{
 			FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 			FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-			FeatureAuditLogs, FeatureSSO, FeatureSLA,
+			FeatureAuditLogs, FeatureSLA,
 		}
 		for _, f := range features {
 			if !reg.AllowsFeature(domain.PlanEnterprise, f) {
 				t.Errorf("Enterprise should have feature %q", f)
+			}
+		}
+		for _, f := range roadmapEnterpriseFeatures {
+			if reg.AllowsFeature(domain.PlanEnterprise, f) {
+				t.Errorf("Enterprise should not have launch-roadmap feature %q", f)
 			}
 		}
 	})
@@ -404,12 +409,13 @@ func TestFeatureAccess_Monotonic(t *testing.T) {
 	reg := NewStaticRegistry()
 	tiers := domain.AllPlanTiers()
 
-	features := []Feature{
+	features := make([]Feature, 0, 10+len(roadmapEnterpriseFeatures))
+	features = append(features,
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-		FeatureAuditLogs, FeatureSSO, FeatureSLA, FeatureRBAC,
-		FeatureAllCronOverlap, FeatureAIAssistantBYOK,
-	}
+		FeatureAuditLogs, FeatureSLA, FeatureRBAC, FeatureAllCronOverlap,
+	)
+	features = append(features, roadmapEnterpriseFeatures...)
 
 	for _, f := range features {
 		t.Run(string(f), func(t *testing.T) {

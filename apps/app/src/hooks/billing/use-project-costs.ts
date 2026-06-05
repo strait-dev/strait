@@ -21,11 +21,9 @@ export type ProjectCostEntry = {
   name: string;
   /** Total runs in the period. */
   runs: number;
-  /** Compute cost in micro-USD. */
-  compute_microusd: number;
-  /** AI cost in micro-USD. */
-  ai_microusd: number;
-  /** Total cost (compute + AI) in micro-USD. */
+  /** Run spend in micro-USD. */
+  spend_microusd: number;
+  /** Total cost in micro-USD. */
   total_microusd: number;
   /** Monthly budget in micro-USD, if set. */
   monthly_budget_microusd?: number;

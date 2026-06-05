@@ -50,7 +50,7 @@ import type { Session } from "@/routes/__root";
 import OrganizationDropdownMenu from "../organization/organization-dropdown-menu";
 import ProjectSwitcher from "../project/project-switcher";
 import PaymentPendingCard from "../subscription/payment-pending-card";
-import TrialUpgradeCard from "../subscription/trial-upgrade-card";
+import TemporaryAccessUpgradeCard from "../subscription/temporary-access-upgrade-card";
 
 type NavItem = {
   title: string;
@@ -297,7 +297,9 @@ const AppSidebar = ({ session }: Props) => {
       </SidebarContent>
 
       {!isCommunityEdition && hasPendingPayment ? <PaymentPendingCard /> : null}
-      {!isCommunityEdition && shouldShowUpgrade ? <TrialUpgradeCard /> : null}
+      {!isCommunityEdition && shouldShowUpgrade ? (
+        <TemporaryAccessUpgradeCard />
+      ) : null}
 
       <SidebarSeparator />
       <SidebarFooter className="flex flex-col">

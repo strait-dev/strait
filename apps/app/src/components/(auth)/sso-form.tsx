@@ -6,9 +6,8 @@ type SsoFormProps = {
   redirectTo?: string;
 };
 
-// SSO is temporarily disabled due to an upstream dependency issue
-// in @better-auth/sso (samlify CJS/ESM incompatibility).
-// Tracking: https://github.com/better-auth/better-auth/issues/8620
+// SSO is not a launch entitlement. Keep this route disabled until it moves
+// from roadmap/contact-sales status to an enforced product capability.
 const SsoForm = (_props: SsoFormProps) => (
   <form
     onSubmit={(e) => {
@@ -33,12 +32,11 @@ const SsoForm = (_props: SsoFormProps) => (
         type="submit"
         variant="brand-solid"
       >
-        SSO coming soon
+        SSO roadmap
       </Button>
 
       <p className="text-center text-muted-foreground text-xs">
-        Enterprise SSO is temporarily unavailable. Please use another sign-in
-        method.
+        SSO is not available in launch plans. Please use another sign-in method.
       </p>
     </div>
   </form>

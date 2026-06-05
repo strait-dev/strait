@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./src/products.ts",
     "./products": "./src/products.ts"
   },
   "scripts": {
     "build": "echo 'No build step for @strait/billing'",
+    "generate": "node ./scripts/generate-catalog.mjs",
+    "check:generated": "node ./scripts/generate-catalog.mjs --check",
     "typecheck": "echo 'No typecheck step for @strait/billing'",
     "clean": "git clean -xdf .turbo node_modules"
   }

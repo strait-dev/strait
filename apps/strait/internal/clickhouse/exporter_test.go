@@ -99,17 +99,6 @@ func TestExporter_EnqueuesNewRecordTypes(t *testing.T) {
 		FlushInterval: time.Minute, // won't auto-flush during test
 	}, slog.Default())
 
-	exporter.Enqueue(RunUsageEventRecord{
-		RunID:        "run-1",
-		JobID:        "job-1",
-		ProjectID:    "proj-1",
-		Provider:     "openai",
-		Model:        "gpt-4",
-		PromptTokens: 100,
-		TotalTokens:  150,
-		CostMicrousd: 5000,
-		CreatedAt:    time.Now(),
-	})
 	exporter.Enqueue(WorkflowApprovalEventRecord{
 		ApprovalID:    "appr-1",
 		WorkflowRunID: "wfr-1",
@@ -124,8 +113,8 @@ func TestExporter_EnqueuesNewRecordTypes(t *testing.T) {
 		Slug:      "my-job",
 	})
 
-	if exporter.PendingCount() != 3 {
-		t.Errorf("expected 3 pending records, got %d", exporter.PendingCount())
+	if exporter.PendingCount() != 2 {
+		t.Errorf("expected 2 pending records, got %d", exporter.PendingCount())
 	}
 }
 

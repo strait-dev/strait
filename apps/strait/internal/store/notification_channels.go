@@ -57,6 +57,47 @@ func (q *Queries) CreateNotificationChannel(ctx context.Context, ch *domain.Noti
 	return nil
 }
 
+// CreateNotificationChannelWithProjectLimit serializes project-scoped channel
+// quota enforcement with row creation.
+func (q *Queries) CreateNotificationChannelWithProjectLimit(ctx context.Context, ch *domain.NotificationChannel, maxChannels int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateNotificationChannelWithProjectLimit")
+	defer span.End()
+
+	if maxChannels < 0 {
+		return q.CreateNotificationChannel(ctx, ch)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createNotificationChannelWithProjectLimitLocked(ctx, ch, maxChannels)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createNotificationChannelWithProjectLimitLocked(ctx, ch, maxChannels)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.createNotificationChannelWithProjectLimitLocked(ctx, ch, maxChannels)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.createNotificationChannelWithProjectLimitLocked(ctx, ch, maxChannels)
+	})
+}
+
+func (q *Queries) createNotificationChannelWithProjectLimitLocked(ctx context.Context, ch *domain.NotificationChannel, maxChannels int) error {
+	if err := q.acquirePlanLimitLock(ctx, "notification_channel_limit:"+ch.ProjectID); err != nil {
+		return err
+	}
+
+	count, err := q.CountNotificationChannelsByProject(ctx, ch.ProjectID)
+	if err != nil {
+		return fmt.Errorf("count notification channels before create: %w", err)
+	}
+	if count >= maxChannels {
+		return ErrNotificationChannelLimitExceeded
+	}
+
+	return q.CreateNotificationChannel(ctx, ch)
+}
+
 func (q *Queries) GetNotificationChannel(ctx context.Context, id, projectID string) (*domain.NotificationChannel, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetNotificationChannel")
 	defer span.End()

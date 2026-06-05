@@ -29,15 +29,13 @@ func (q *Queries) StreamJobs(ctx context.Context, projectID string, fn func(*dom
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
 		       max_concurrency_per_key, rate_limit_keys, default_run_metadata,
 		       retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold,
-		       cron_overlap_policy, result_schema,
-		       debounce_window_secs, batch_window_secs, batch_max_size,
-		       execution_mode, preferred_regions, queue_name,
-		       on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
-		       on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
-		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
-		       allowed_tools, blocked_tools,
-		       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
-		FROM jobs
+			       cron_overlap_policy, result_schema,
+			       debounce_window_secs, batch_window_secs, batch_max_size,
+			       execution_mode, preferred_regions, queue_name,
+			       on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
+			       on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
+			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
+			FROM jobs
 		WHERE project_id = $1
 		ORDER BY created_at ASC
 		LIMIT 1000000`

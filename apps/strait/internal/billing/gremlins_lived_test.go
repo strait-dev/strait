@@ -36,23 +36,21 @@ func TestGetCurrentUsage_DailyRunErrorSilenced(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUsage_DayStartTruncation(t *testing.T) {
+func TestGetCurrentUsage_DoesNotQueryUsageCost(t *testing.T) {
 	t.Parallel()
-	store := &mockBillingStore{
-		aiModelCallCounts: map[string]int64{"org-1": 10},
-	}
+	store := &mockBillingStore{}
 	svc, _ := newUsageServiceTest(t, store)
 
 	resp, err := svc.GetCurrentUsage(context.Background(), "org-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Usage.AIModelCalls.Used != 10 {
-		t.Errorf("AIModelCalls.Used = %d, want 10", resp.Usage.AIModelCalls.Used)
+	if resp.Usage.RetentionDays != RetentionFree {
+		t.Errorf("RetentionDays = %d, want %d", resp.Usage.RetentionDays, RetentionFree)
 	}
 }
 
-func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
+func TestGetCurrentUsage_EnterpriseContractMetadata(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -60,10 +58,10 @@ func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
 		},
 		enterpriseContracts: map[string]*EnterpriseContract{
 			"org-e": {
-				OrgID:                  "org-e",
-				EnterpriseTier:         EnterpriseTierStarter,
-				IncludedCreditMicrousd: 500_000_000,
-				ContractEndDate:        time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
+				OrgID:              "org-e",
+				EnterpriseTier:     EnterpriseTierStarter,
+				OverageDiscountPct: 10,
+				ContractEndDate:    time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 		},
 		periodSpendByOrg: map[string]int64{
@@ -76,18 +74,22 @@ func TestGetCurrentUsage_EnterpriseContractCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Usage.ComputeCredit.Limit != 500_000_000 {
-		t.Errorf("ComputeCredit.Limit = %d, want 500000000 (from contract)", resp.Usage.ComputeCredit.Limit)
+	if resp.EnterpriseTier != string(EnterpriseTierStarter) {
+		t.Errorf("EnterpriseTier = %q, want %q", resp.EnterpriseTier, EnterpriseTierStarter)
 	}
-	if resp.IncludedCreditMicro != 500_000_000 {
-		t.Errorf("IncludedCreditMicro = %d, want 500000000", resp.IncludedCreditMicro)
+	if resp.PeriodSpendMicro != 100_000_000 {
+		t.Errorf("PeriodSpendMicro = %d, want 100000000", resp.PeriodSpendMicro)
+	}
+	if resp.OverageDiscountPct != 10 {
+		t.Errorf("OverageDiscountPct = %d, want 10", resp.OverageDiscountPct)
+	}
+	if resp.OverageMicro != 90_000_000 {
+		t.Errorf("OverageMicro = %d, want 90000000", resp.OverageMicro)
 	}
 }
 
-func TestGetCurrentUsage_CreditRemainingZero_NoIncludedCredit(t *testing.T) {
+func TestGetCurrentUsage_StarterSpendIsOverage(t *testing.T) {
 	t.Parallel()
-	// Orchestration-only: non-enterprise plans have no included compute credit.
-	// CreditRemainingMicro and CreditUsedPercent are always 0.
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
 			"org-s": {OrgID: "org-s", PlanTier: "starter", Status: "active"},
@@ -102,15 +104,13 @@ func TestGetCurrentUsage_CreditRemainingZero_NoIncludedCredit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 (no included credit in orchestration-only mode)", resp.CreditRemainingMicro)
-	}
-	if resp.CreditUsedPercent != 0 {
-		t.Errorf("CreditUsedPercent = %f, want 0 (no included credit in orchestration-only mode)", resp.CreditUsedPercent)
+	want := CreditStarterMicrousd - 1_000_000
+	if resp.OverageMicro != want {
+		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, want)
 	}
 }
 
-func TestGetCurrentUsage_SpendEqualsCreditRemainZero(t *testing.T) {
+func TestGetCurrentUsage_SpendEqualsStarterPriceIsOverage(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -126,12 +126,12 @@ func TestGetCurrentUsage_SpendEqualsCreditRemainZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 when spend == credit", resp.CreditRemainingMicro)
+	if resp.OverageMicro != CreditStarterMicrousd {
+		t.Errorf("OverageMicro = %d, want %d", resp.OverageMicro, CreditStarterMicrousd)
 	}
 }
 
-func TestGetCurrentUsage_SpendAboveCreditRemainZero(t *testing.T) {
+func TestGetCurrentUsage_SpendAboveStarterPriceIsOverage(t *testing.T) {
 	t.Parallel()
 	store := &mockBillingStore{
 		subscriptions: map[string]*OrgSubscription{
@@ -147,10 +147,6 @@ func TestGetCurrentUsage_SpendAboveCreditRemainZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.CreditRemainingMicro != 0 {
-		t.Errorf("CreditRemainingMicro = %d, want 0 when spend > credit", resp.CreditRemainingMicro)
-	}
-	// Orchestration-only: all spend is overage (no included compute credit).
 	if resp.OverageMicro != CreditStarterMicrousd+1 {
 		t.Errorf("OverageMicro = %d, want %d (all spend is overage)", resp.OverageMicro, CreditStarterMicrousd+1)
 	}
@@ -216,8 +212,8 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 	now := time.Now().UTC()
 	store := &mockBillingStore{
 		usageRecords: []UsageRecord{
-			{PeriodDate: now.AddDate(0, 0, -2), RunsCount: 30, ComputeCostMicro: 3_000_000, AICostMicro: 1_000_000},
-			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 30, ComputeCostMicro: 3_000_000, AICostMicro: 1_000_000},
+			{PeriodDate: now.AddDate(0, 0, -2), RunsCount: 30, ComputeCostMicro: 3_000_000},
+			{PeriodDate: now.AddDate(0, 0, -1), RunsCount: 30, ComputeCostMicro: 3_000_000},
 		},
 	}
 	svc, _ := newUsageServiceTest(t, store)
@@ -230,11 +226,10 @@ func TestGetUsageForecast_ArithmeticValues(t *testing.T) {
 	if forecast.ProjectedMonthlyRuns != 30*30 {
 		t.Errorf("ProjectedMonthlyRuns = %d, want %d", forecast.ProjectedMonthlyRuns, 30*30)
 	}
-	assertFloatApprox(t, forecast.ProjectedMonthlyComputeUsd, 90.0)
-	assertFloatApprox(t, forecast.ProjectedMonthlyAICostUsd, 30.0)
+	assertFloatApprox(t, forecast.ProjectedMonthlySpendUsd, 90.0)
 }
 
-func TestGetUsageForecast_DaysUntilLimit_UnlimitedRunsIsZero(t *testing.T) {
+func TestGetUsageForecast_DaysUntilLimit_UsesMonthlyRunAllowance(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	store := &mockBillingStore{
@@ -246,14 +241,17 @@ func TestGetUsageForecast_DaysUntilLimit_UnlimitedRunsIsZero(t *testing.T) {
 			{PeriodDate: now, RunsCount: 10, ComputeCostMicro: 100_000},
 		},
 	}
-	svc, _ := newUsageServiceTest(t, store)
+	svc, enforcer := newUsageServiceTest(t, store)
+	if err := enforcer.rdb.Set(context.Background(), monthlyRunKey("org-s", now), "49980", time.Hour).Err(); err != nil {
+		t.Fatal(err)
+	}
 
 	forecast, err := svc.GetUsageForecast(context.Background(), "org-s")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forecast.DaysUntilLimit != 0 {
-		t.Errorf("DaysUntilLimit = %d, want 0 (all plans have unlimited daily runs)", forecast.DaysUntilLimit)
+	if forecast.DaysUntilLimit != 2 {
+		t.Errorf("DaysUntilLimit = %d, want 2 based on monthly run allowance", forecast.DaysUntilLimit)
 	}
 }
 
@@ -333,6 +331,29 @@ func TestGetUsageForecast_AddonInactive_NotCounted(t *testing.T) {
 	}
 }
 
+func TestGetUsageForecast_RoadmapAddonsNotCounted(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	store := &mockBillingStore{
+		usageRecords: []UsageRecord{
+			{PeriodDate: now, RunsCount: 1, ComputeCostMicro: 100},
+		},
+		activeAddons: []Addon{
+			{AddonType: AddonComplianceArchive, Quantity: 1, Active: true},
+			{AddonType: AddonDedicatedWorkers, Quantity: 1, Active: true},
+		},
+	}
+	svc, _ := newUsageServiceTest(t, store)
+
+	forecast, err := svc.GetUsageForecast(context.Background(), "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forecast.AddonSpendMicro != 0 {
+		t.Errorf("AddonSpendMicro = %d, want 0 for roadmap addons", forecast.AddonSpendMicro)
+	}
+}
+
 func TestGetUsageForecast_ScaleBreakeven(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
@@ -401,16 +422,16 @@ func TestGetUsageForecast_ConfidenceInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if forecast.ProjectedMonthlyComputeLowUsd >= forecast.ProjectedMonthlyComputeUsd {
+	if forecast.ProjectedMonthlySpendLowUsd >= forecast.ProjectedMonthlySpendUsd {
 		t.Errorf("Low = %f should be < Projected = %f",
-			forecast.ProjectedMonthlyComputeLowUsd, forecast.ProjectedMonthlyComputeUsd)
+			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendUsd)
 	}
-	if forecast.ProjectedMonthlyComputeHighUsd <= forecast.ProjectedMonthlyComputeUsd {
+	if forecast.ProjectedMonthlySpendHighUsd <= forecast.ProjectedMonthlySpendUsd {
 		t.Errorf("High = %f should be > Projected = %f",
-			forecast.ProjectedMonthlyComputeHighUsd, forecast.ProjectedMonthlyComputeUsd)
+			forecast.ProjectedMonthlySpendHighUsd, forecast.ProjectedMonthlySpendUsd)
 	}
-	if forecast.ProjectedMonthlyComputeLowUsd < 0 {
-		t.Errorf("Low = %f should be >= 0", forecast.ProjectedMonthlyComputeLowUsd)
+	if forecast.ProjectedMonthlySpendLowUsd < 0 {
+		t.Errorf("Low = %f should be >= 0", forecast.ProjectedMonthlySpendLowUsd)
 	}
 	if forecast.ConfidencePct != 87 {
 		t.Errorf("ConfidencePct = %d, want 87", forecast.ConfidencePct)
@@ -432,9 +453,9 @@ func TestGetUsageForecast_IdenticalDays_ZeroStddev(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forecast.ProjectedMonthlyComputeLowUsd != forecast.ProjectedMonthlyComputeHighUsd {
-		t.Errorf("Low (%f) != High (%f) for identical daily compute",
-			forecast.ProjectedMonthlyComputeLowUsd, forecast.ProjectedMonthlyComputeHighUsd)
+	if forecast.ProjectedMonthlySpendLowUsd != forecast.ProjectedMonthlySpendHighUsd {
+		t.Errorf("Low (%f) != High (%f) for identical daily spend",
+			forecast.ProjectedMonthlySpendLowUsd, forecast.ProjectedMonthlySpendHighUsd)
 	}
 }
 
@@ -672,7 +693,7 @@ func TestStddev_SingleAndEmpty(t *testing.T) {
 func TestExportPDF_SubscriptionAffectsOutput(t *testing.T) {
 	t.Parallel()
 	records := []UsageRecord{
-		{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000, AITokensTotal: 2000, AICostMicro: 3_000_000},
+		{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000},
 	}
 	period := ExportPeriod{
 		From: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
@@ -706,8 +727,8 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 	t.Parallel()
 	store := &mockExportStore{
 		usageRecords: []UsageRecord{
-			{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000, AITokensTotal: 2000, AICostMicro: 3_000_000},
-			{ProjectID: "proj-b", PeriodDate: time.Date(2026, 2, 11, 0, 0, 0, 0, time.UTC), RunsCount: 30, ComputeCostMicro: 3_000_000, AITokensTotal: 500, AICostMicro: 1_000_000},
+			{ProjectID: "proj-a", PeriodDate: time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), RunsCount: 50, ComputeCostMicro: 7_000_000},
+			{ProjectID: "proj-b", PeriodDate: time.Date(2026, 2, 11, 0, 0, 0, 0, time.UTC), RunsCount: 30, ComputeCostMicro: 3_000_000},
 		},
 	}
 	period := ExportPeriod{
@@ -720,11 +741,11 @@ func TestExportCSV_ArithmeticTotals(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "10.000000") {
-		t.Error("CSV should contain row total 10.000000 (compute 7 + AI 3)")
+	if !strings.Contains(content, "7.000000") {
+		t.Error("CSV should contain row total 7.000000")
 	}
-	if !strings.Contains(content, "4.000000") {
-		t.Error("CSV should contain row total 4.000000 (compute 3 + AI 1)")
+	if !strings.Contains(content, "3.000000") {
+		t.Error("CSV should contain row total 3.000000")
 	}
 }
 
@@ -794,20 +815,20 @@ func TestReconcileAllConcurrentCounts_UsesMapValue(t *testing.T) {
 
 // Enterprise LIVED mutant.
 
-func TestApplyComputeDiscount_ZeroDiscountReturnsCost(t *testing.T) {
+func TestApplyOverageDiscount_ZeroDiscountReturnsCost(t *testing.T) {
 	t.Parallel()
-	cost := ApplyComputeDiscount(1_000_000, 0)
+	cost := ApplyOverageDiscount(1_000_000, 0)
 	if cost != 1_000_000 {
-		t.Errorf("ApplyComputeDiscount(1000000, 0) = %d, want 1000000", cost)
+		t.Errorf("ApplyOverageDiscount(1000000, 0) = %d, want 1000000", cost)
 	}
 }
 
-func TestApplyComputeDiscount_OnePercentDiscount(t *testing.T) {
+func TestApplyOverageDiscount_OnePercentDiscount(t *testing.T) {
 	t.Parallel()
-	cost := ApplyComputeDiscount(1_000_000, 1)
+	cost := ApplyOverageDiscount(1_000_000, 1)
 	expected := int64(1_000_000 * 99 / 100)
 	if cost != expected {
-		t.Errorf("ApplyComputeDiscount(1000000, 1) = %d, want %d", cost, expected)
+		t.Errorf("ApplyOverageDiscount(1000000, 1) = %d, want %d", cost, expected)
 	}
 }
 
@@ -844,7 +865,7 @@ func TestEffectiveLimits_ZeroQuantity_Ignored(t *testing.T) {
 
 func TestEffectiveLimits_HistoryAddsAdditively(t *testing.T) {
 	t.Parallel()
-	base := GetPlanLimits(domain.PlanPro)
+	base := GetPlanLimits(domain.PlanScale)
 	pack := AddonPacks[AddonHistory30d]
 	addons := []Addon{
 		{AddonType: AddonHistory30d, Quantity: 3, Active: true},
@@ -942,6 +963,28 @@ func TestEnforcer_CheckProjectSuspended_NotSuspended(t *testing.T) {
 	}
 }
 
+func TestEnforcer_CheckProjectSuspended_ReadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		isProjectSuspendedErr: errors.New("project suspension status unavailable"),
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckProjectSuspended(context.Background(), "proj-read-error")
+	if err == nil {
+		t.Fatal("expected project suspension check to fail closed when status cannot be loaded")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
@@ -962,39 +1005,39 @@ func TestEnforcer_CheckProjectSuspended_FlushCache(t *testing.T) {
 
 // Enterprise boundary LIVED mutants.
 
-func TestApplyComputeDiscount_NegativeCost_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_NegativeCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(-100, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(-100, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(-100, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(-100, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_ExactlyZeroCost_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(0, 10); got != 0 {
-		t.Errorf("ApplyComputeDiscount(0, 10) = %d, want 0", got)
+	if got := ApplyOverageDiscount(0, 10); got != 0 {
+		t.Errorf("ApplyOverageDiscount(0, 10) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_ExactlyHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1_000_000, 100); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000000, 100) = %d, want 0", got)
+	if got := ApplyOverageDiscount(1_000_000, 100); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000000, 100) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
+func TestApplyOverageDiscount_OverHundredPct_ReturnsZero(t *testing.T) {
 	t.Parallel()
-	if got := ApplyComputeDiscount(1_000_000, 150); got != 0 {
-		t.Errorf("ApplyComputeDiscount(1000000, 150) = %d, want 0", got)
+	if got := ApplyOverageDiscount(1_000_000, 150); got != 0 {
+		t.Errorf("ApplyOverageDiscount(1000000, 150) = %d, want 0", got)
 	}
 }
 
-func TestApplyComputeDiscount_OneCost_OnePct(t *testing.T) {
+func TestApplyOverageDiscount_OneCost_OnePct(t *testing.T) {
 	t.Parallel()
-	got := ApplyComputeDiscount(1, 1)
+	got := ApplyOverageDiscount(1, 1)
 	if got < 0 || got > 1 {
-		t.Errorf("ApplyComputeDiscount(1, 1) = %d, want 0 or 1", got)
+		t.Errorf("ApplyOverageDiscount(1, 1) = %d, want 0 or 1", got)
 	}
 }
 
@@ -1159,7 +1202,7 @@ func TestEnforcer_RecordFailOpen_NilMetrics(t *testing.T) {
 	enforcer.recordFailOpen(context.Background(), "test", "db_error")
 }
 
-func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
+func TestPreviewDowngrade_NoRegionImpactInRegressionSuite(t *testing.T) {
 	store := &mockDowngradeStore{
 		mockBillingStore: mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
@@ -1172,24 +1215,9 @@ func TestPreviewDowngrade_RegionCount_MatchesPlanLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	freeLimits := GetPlanLimits(domain.PlanFree)
-	expectedTarget := len(freeLimits.AllowedRegions)
-	if expectedTarget == 0 {
-		expectedTarget = TotalRegions
-	}
-	proLimits := GetPlanLimits(domain.PlanPro)
-	expectedCurrent := len(proLimits.AllowedRegions)
-	if expectedCurrent == 0 {
-		expectedCurrent = TotalRegions
-	}
 	for _, imp := range impact.Impacts {
 		if imp.Resource == "regions" {
-			if imp.Current != int64(expectedCurrent) {
-				t.Errorf("regions.Current = %d, want %d", imp.Current, expectedCurrent)
-			}
-			if imp.Limit != int64(expectedTarget) {
-				t.Errorf("regions.Limit = %d, want %d", imp.Limit, expectedTarget)
-			}
+			t.Fatalf("downgrade preview exposed launch-inactive regions impact: %#v", imp)
 		}
 	}
 }

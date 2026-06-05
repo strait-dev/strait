@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
 	"strait/internal/billing"
 	"strait/internal/domain"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 )
 
@@ -65,27 +68,28 @@ func TestFormatBudgetAlertKey(t *testing.T) {
 	}
 }
 
-func TestBudgetMonitor_PruneAlertedForDate_DropsOldKeys(t *testing.T) {
+func TestBudgetMonitor_PruneAlertedForPeriods_DropsOldKeys(t *testing.T) {
 	t.Parallel()
 
 	bm := NewBudgetMonitor(struct{}{}, nil, time.Minute)
 	bm.alerted = map[string]bool{
 		"spending:org-1:80:2026-04-14":  true,
 		"spending:org-1:100:2026-04-15": true,
-		"run-limit:org-2:2026-04-15":    true,
+		"runlimit:org-2:80:2026-04":     true,
+		"runlimit:org-3:80:2026-03":     true,
 		"malformed":                     true,
 	}
 	bm.alertedDate = "2026-04-14"
 
-	bm.pruneAlertedForDate("2026-04-15")
+	bm.pruneAlertedForPeriods("2026-04-15", "2026-04")
 
 	if bm.alertedDate != "2026-04-15" {
 		t.Fatalf("alertedDate = %q, want 2026-04-15", bm.alertedDate)
 	}
 	if len(bm.alerted) != 2 {
-		t.Fatalf("alerted keys = %v, want 2 current-day keys", bm.alerted)
+		t.Fatalf("alerted keys = %v, want 2 current-period keys", bm.alerted)
 	}
-	for _, key := range []string{"spending:org-1:100:2026-04-15", "run-limit:org-2:2026-04-15"} {
+	for _, key := range []string{"spending:org-1:100:2026-04-15", "runlimit:org-2:80:2026-04"} {
 		if !bm.alerted[key] {
 			t.Fatalf("expected key %q to remain after prune", key)
 		}
@@ -156,6 +160,15 @@ func (m *mockSpendingLimitStore) CreateNotificationDelivery(ctx context.Context,
 		return m.createNotificationDeliveryFn(ctx, d)
 	}
 	return nil
+}
+
+type monthlyWarningBillingStore struct {
+	billing.Store
+	sub *billing.OrgSubscription
+}
+
+func (s *monthlyWarningBillingStore) GetOrgSubscription(context.Context, string) (*billing.OrgSubscription, error) {
+	return s.sub, nil
 }
 
 func newSpendingLimitSub(orgID string, limitMicro int64, planTier string) *billing.OrgSubscription {
@@ -276,6 +289,66 @@ func TestBudgetMonitor_RunLimitPayloadOmitsOrgScopeValues(t *testing.T) {
 	t.Parallel()
 
 	assertProjectScopedBudgetPayload(t, runLimitNotificationPayload())
+}
+
+func TestBudgetMonitor_RunLimitWarningUsesMonthlyAllowance(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() {
+		_ = rdb.Close()
+	})
+
+	limits := billing.GetPlanLimits(domain.PlanFree)
+	limits.MaxRunsPerMonth = 10
+	entitlements, err := json.Marshal(limits)
+	if err != nil {
+		t.Fatalf("marshal entitlements: %v", err)
+	}
+	enforcer := billing.NewEnforcer(&monthlyWarningBillingStore{
+		sub: &billing.OrgSubscription{
+			OrgID:        "org-1",
+			PlanTier:     string(domain.PlanFree),
+			Status:       "active",
+			Entitlements: entitlements,
+		},
+	}, rdb, slog.Default())
+
+	for range 8 {
+		if err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-1"); err != nil {
+			t.Fatalf("seed monthly usage: %v", err)
+		}
+	}
+
+	var deliveries []*domain.NotificationDelivery
+	store := &mockSpendingLimitStore{
+		listAllSubscribedOrgIDsFn: func(context.Context) ([]string, error) {
+			return []string{"org-1"}, nil
+		},
+		listProjectsByOrgFn: func(context.Context, string) ([]string, error) {
+			return []string{"proj-1"}, nil
+		},
+		listEnabledNotificationChannelsFn: func(context.Context, string) ([]domain.NotificationChannel, error) {
+			return []domain.NotificationChannel{{ID: "ch-webhook", ProjectID: "proj-1", ChannelType: domain.ChannelTypeWebhook}}, nil
+		},
+		createNotificationDeliveryFn: func(_ context.Context, d *domain.NotificationDelivery) error {
+			deliveries = append(deliveries, d)
+			return nil
+		},
+	}
+
+	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).
+		WithRunLimitNotifications(store, enforcer)
+	bm.check(context.Background())
+
+	if len(deliveries) != 1 {
+		t.Fatalf("deliveries = %d, want 1 monthly run allowance warning", len(deliveries))
+	}
+	if deliveries[0].EventType != domain.NotificationEventRunLimitApproaching {
+		t.Fatalf("event type = %s, want %s", deliveries[0].EventType, domain.NotificationEventRunLimitApproaching)
+	}
+	assertProjectScopedBudgetPayload(t, deliveries[0].Payload)
 }
 
 func assertProjectScopedBudgetPayload(t *testing.T, payload json.RawMessage) {

@@ -2627,36 +2627,3 @@ func TestHandleUpdateJob_NegativeRetryDelays(t *testing.T) {
 		t.Fatalf("expected 400 for negative retry_delays_secs on update, got %d: %s", w.Code, w.Body.String())
 	}
 }
-
-func TestHandleSDKUsage_CostBudgetCheckBeforeRecord(t *testing.T) {
-	t.Parallel()
-	// Verify that when budget is exceeded, usage is NOT recorded.
-	usageRecorded := false
-	ms := &APIStoreMock{
-		CreateRunUsageFunc: func(_ context.Context, _ *domain.RunUsage) error {
-			usageRecorded = true
-			return nil
-		},
-		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
-			return &domain.JobRun{ID: id, ProjectID: "proj-1"}, nil
-		},
-		GetProjectQuotaFunc: func(_ context.Context, _ string) (*store.ProjectQuota, error) {
-			return &store.ProjectQuota{ProjectID: "proj-1", MaxCostPerRunMicrousd: 1000}, nil
-		},
-		SumRunCostMicrousdFunc: func(_ context.Context, _ string) (int64, error) {
-			return 900, nil // 900 existing + 500 new = 1400 >= 1000 limit
-		},
-	}
-	srv := newTestServer(t, ms, &mockQueue{}, nil)
-
-	w := httptest.NewRecorder()
-	r := sdkRequest(t, http.MethodPost, "/sdk/v1/runs/run-1/usage", "run-1", `{"provider":"openai","model":"gpt-4","prompt_tokens":100,"completion_tokens":50,"cost_microusd":500}`)
-	srv.ServeHTTP(w, r)
-
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
-	}
-	if usageRecorded {
-		t.Fatal("usage should NOT be recorded when budget check fails before recording")
-	}
-}

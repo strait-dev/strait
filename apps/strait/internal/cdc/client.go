@@ -105,6 +105,14 @@ type ackRequest struct {
 	AckIDs []string `json:"ack_ids"`
 }
 
+type sinkConsumerHealthResponse struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Health struct {
+		Status string `json:"status"`
+	} `json:"health"`
+}
+
 // Receive pulls a batch of messages from the Sequin Stream.
 func (c *Client) Receive(ctx context.Context, batchSize, waitForMs int) ([]Message, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "cdc.Receive")
@@ -200,6 +208,49 @@ func (c *Client) Health(ctx context.Context) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("sequin health returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// SinkConsumerHealth verifies the configured pull consumer is active without
+// leasing stream messages from Sequin.
+func (c *Client) SinkConsumerHealth(ctx context.Context) error {
+	endpoint := *c.baseURL
+	endpoint.Path = stdpath.Join(endpoint.Path, "/api/sinks", c.consumerName)
+	if endpoint.Scheme == "" || endpoint.Host == "" {
+		return fmt.Errorf("invalid base url")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create sink consumer health request: %w", err)
+	}
+	if c.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("sequin sink consumer health request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return c.readError(resp)
+	}
+
+	var result sinkConsumerHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decode sink consumer health response: %w", err)
+	}
+	if result.Name != "" && result.Name != c.consumerName {
+		return fmt.Errorf("sequin sink consumer name mismatch: got %q, want %q", result.Name, c.consumerName)
+	}
+	if result.Status != "active" {
+		return fmt.Errorf("sequin sink consumer %q is %s", c.consumerName, result.Status)
+	}
+	if result.Health.Status != "healthy" {
+		return fmt.Errorf("sequin sink consumer %q health is %s", c.consumerName, result.Health.Status)
 	}
 	return nil
 }

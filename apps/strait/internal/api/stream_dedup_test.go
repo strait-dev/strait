@@ -8,7 +8,7 @@ import (
 )
 
 // TestStreamSSEHandlersAreThinWrappers regresses fix #9: the three
-// run-scoped SSE handlers (run, log, llm) used to each carry their own
+// run-scoped SSE handlers (run, log, chunks) used to each carry their own
 // ~70-line copy of the connection-cap acquire, Flusher assertion,
 // header set, pubsub subscribe + cleanup, max-duration timeout, and
 // keepalive ticker. A bug fix in one (e.g. fix #1's flusher promotion,
@@ -27,9 +27,9 @@ func TestStreamSSEHandlersAreThinWrappers(t *testing.T) {
 
 	const maxBodyStmts = 3
 	wrappers := map[string]bool{
-		"handleRunStream":    false,
-		"handleRunLogStream": false,
-		"handleRunLLMStream": false,
+		"handleRunStream":      false,
+		"handleRunLogStream":   false,
+		"handleRunChunkStream": false,
 	}
 
 	for _, decl := range file.Decls {

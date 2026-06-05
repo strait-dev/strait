@@ -3,7 +3,7 @@ title: "Cost Budgets"
 description: "Cap how much a project spends per month and choose what happens when the limit is reached."
 ---
 
-Cost budgets cap how much a project spends on reported usage over a calendar month. Your job code reports what each run costs; Strait totals that spend per project and, when the budget is reached, either stops new runs or simply records that the limit was crossed.
+Cost budgets cap how much a project spends on orchestration runs over a calendar month. Strait totals billable run cost per project and, when the budget is reached, either stops new runs or records that the limit was crossed.
 
 <Note>
 Cost budgets are enforced only when billing enforcement is enabled (Strait Cloud, or self-hosted with `BILLING_ENFORCEMENT_ENABLED=true`). With enforcement off, the budget endpoints return `501 Not Implemented` and no budget is applied.
@@ -11,35 +11,13 @@ Cost budgets are enforced only when billing enforcement is enabled (Strait Cloud
 
 ## When to Use It
 
-You run a summarization job that calls GPT-4o on user-uploaded documents. Spend is hard to predict: most months are quiet, but a burst of large documents runs up the bill fast. A monthly budget caps the project's total spend and lets you decide whether to block new runs or just be notified when it is reached.
+You run a document processing job that calls a paid extraction API on user-uploaded documents. Spend is hard to predict: most months are quiet, but a burst of large documents runs up the bill fast. A monthly budget caps the project's total spend and lets you decide whether to block new runs or just be notified when it is reached.
 
 ## How It Works
 
-1. **Your code reports usage.** After each paid API call, report what it cost through the SDK. Strait records it against the run and rolls it into the project's month-to-date spend.
+1. **Strait records orchestration runs.** Each dispatched run is recorded against the project with the launch run-cost model.
 
-<CodeGroup>
-```typescript TypeScript
-await ctx.reportUsage({
-  provider: "openai",
-  model: "gpt-4o",
-  prompt_tokens: 500,
-  completion_tokens: 200,
-  cost_microusd: 25000, // $0.025
-});
-```
-
-```python Python
-await ctx.report_usage(
-    provider="openai",
-    model="gpt-4o",
-    prompt_tokens=500,
-    completion_tokens=200,
-    cost_microusd=25000,  # $0.025
-)
-```
-</CodeGroup>
-
-2. **Strait totals project spend.** Reported cost is summed per project over the current billing period (a calendar month). Both compute and AI usage count toward the total.
+2. **Strait totals project spend.** Run cost is summed per project over the current billing period (a calendar month).
 
 3. **The budget action decides what happens.** When month-to-date spend reaches the budget, the project's `action` determines the outcome: `reject` and `block` stop new runs from being enqueued; `notify` leaves the budget informational and never blocks.
 
@@ -104,24 +82,11 @@ With a `reject` or `block` action, once month-to-date spend reaches the budget, 
 
 The top-level `code` is always `quota_exceeded`, so clients can branch on a single string; `kind` carries the specific reason (`project_budget_reached`). Other plan limits use the same envelope with a different `kind`. A `notify` budget never returns this error: it only records that the limit was crossed.
 
-## Per-Run and Daily Limits
+## Internal Cost Ceilings
 
-Strait also enforces two finer-grained caps when they are set on a project: a per-run cost ceiling (`max_cost_per_run_microusd`, checked as usage is reported) and a per-day cost ceiling (`max_daily_cost_microusd`, evaluated in the project's timezone before a run is enqueued). Both reject work with `429 Too Many Requests` when exceeded.
+Strait also has internal fields for a per-run cost ceiling (`max_cost_per_run_microusd`) and a per-day cost ceiling (`max_daily_cost_microusd`). These are not configurable in the launch product.
 
-These ceilings are read from project quota settings and have no public API to set them yet, so the monthly budget above is the configurable control today.
-
-## Usage Event Fields
-
-Fields accepted by the usage report (`POST /sdk/v1/runs/{runID}/usage`, which the SDK's `reportUsage` calls):
-
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `provider` | `string` | Provider name (e.g., `openai`, `anthropic`). Required. |
-| `model` | `string` | Model name (e.g., `gpt-4o`). Required. |
-| `prompt_tokens` | `int` | Input tokens. |
-| `completion_tokens` | `int` | Output tokens. |
-| `total_tokens` | `int` | Sum of prompt and completion tokens. |
-| `cost_microusd` | `int64` | Cost in micro-USD. Drives budget tracking. |
+The monthly project budget above is the configurable control today.
 
 ## Related
 

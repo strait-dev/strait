@@ -41,8 +41,6 @@ var auditCoverageExemptHandlers = map[string]string{
 	"handleSDKProgress":          "sdk run-token, self-report only",
 	"handleSDKCheckpoint":        "sdk run-token, self-report only",
 	"handleSDKComplete":          "sdk run-token, self-report only",
-	"handleSDKToolCall":          "sdk run-token, self-report only",
-	"handleSDKUsage":             "sdk run-token, self-report only",
 	"handleSDKOutput":            "sdk run-token, self-report only",
 	"handleSDKEvent":             "sdk run-token, self-report only",
 	"handleSDKWaitEvent":         "sdk run-token, self-report only",

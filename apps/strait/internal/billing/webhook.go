@@ -665,19 +665,18 @@ func (h *WebhookHandler) handleSubscriptionCreated(ctx context.Context, data jso
 			cfg := GetEnterpriseConfig(entTier)
 			now := time.Now()
 			contract := &EnterpriseContract{
-				ID:                     sub.ID + "-contract",
-				OrgID:                  orgID,
-				EnterpriseTier:         entTier,
-				AnnualCommitmentCents:  cfg.AnnualCommitmentCents,
-				IncludedCreditMicrousd: cfg.IncludedCreditMicrousd,
-				ComputeDiscountPct:     cfg.ComputeDiscountPct,
-				ContractStartDate:      now,
-				ContractEndDate:        now.AddDate(1, 0, 0),
-				AutoRenew:              true,
-				BillingCadence:         "annual",
-				StripeSubscriptionID:   &sub.ID,
-				CreatedAt:              now,
-				UpdatedAt:              now,
+				ID:                    sub.ID + "-contract",
+				OrgID:                 orgID,
+				EnterpriseTier:        entTier,
+				AnnualCommitmentCents: cfg.AnnualCommitmentCents,
+				OverageDiscountPct:    cfg.OverageDiscountPct,
+				ContractStartDate:     now,
+				ContractEndDate:       now.AddDate(1, 0, 0),
+				AutoRenew:             true,
+				BillingCadence:        "annual",
+				StripeSubscriptionID:  &sub.ID,
+				CreatedAt:             now,
+				UpdatedAt:             now,
 			}
 			if err := h.store.UpsertEnterpriseContract(ctx, contract); err != nil {
 				return fmt.Errorf("creating enterprise contract: %w", err)
@@ -1425,8 +1424,8 @@ func (h *WebhookHandler) handleSubscriptionResumed(ctx context.Context, data jso
 	return nil
 }
 
-// handleTrialWillEnd fires 3 days before a subscription trial expires.
-// Sends a reminder email so the org can add a payment method.
+// handleTrialWillEnd handles Stripe's trial-ending lifecycle event for legacy
+// or contract-specific temporary access.
 func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMessage) error {
 	var sub stripe.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
@@ -1466,7 +1465,7 @@ func (h *WebhookHandler) handleTrialWillEnd(ctx context.Context, data json.RawMe
 		})
 	}
 
-	h.logger.Info("trial ending soon", "org_id", orgID, "days_remaining", daysRemaining)
+	h.logger.Info("temporary access ending soon", "org_id", orgID, "days_remaining", daysRemaining)
 	return nil
 }
 
@@ -1838,6 +1837,12 @@ func (h *WebhookHandler) logAuditEvent(ctx context.Context, action, orgID string
 // subscription is created. lookupKey is the Stripe lookup_key that resolved to
 // this addon (empty when resolution fell back to per-account price ID).
 func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub *stripe.Subscription, addonType AddonType, lookupKey string) error {
+	if !IsLaunchActiveAddonType(addonType) {
+		h.logger.Warn("roadmap addon not sellable at launch, ignoring addon webhook",
+			"subscription_id", sub.ID, "addon_type", addonType, "lookup_key", lookupKey)
+		return nil
+	}
+
 	orgID, err := h.resolveBoundOrgID(ctx, sub)
 	if err != nil {
 		return err
@@ -1851,20 +1856,29 @@ func (h *WebhookHandler) handleAddonSubscriptionCreated(ctx context.Context, sub
 	// A nil MaxAddonPacks map means addons are not allowed (e.g. Free tier).
 	if h.enforcer != nil {
 		limits, limErr := h.enforcer.GetOrgPlanLimits(ctx, orgID)
-		if limErr == nil {
-			if limits.MaxAddonPacks == nil {
-				h.logger.Warn("addons not allowed on plan, ignoring addon webhook",
-					"org_id", orgID, "plan_tier", limits.PlanTier, "addon_type", addonType)
-				return nil
+		if limErr != nil {
+			return fmt.Errorf("get org plan limits for addon subscription: %w", limErr)
+		}
+		if limits.MaxAddonPacks == nil {
+			h.logger.Warn("addons not allowed on plan, ignoring addon webhook",
+				"org_id", orgID, "plan_tier", limits.PlanTier, "addon_type", addonType)
+			return nil
+		}
+		maxPacks, hasCap := limits.MaxAddonPacks[addonType]
+		if !hasCap {
+			h.logger.Warn("addon not available on plan, ignoring addon webhook",
+				"org_id", orgID, "plan_tier", limits.PlanTier, "addon_type", addonType)
+			return nil
+		}
+		if maxPacks >= 0 {
+			existing, countErr := h.store.CountActiveAddonsByType(ctx, orgID, addonType)
+			if countErr != nil {
+				return fmt.Errorf("count active addons for addon subscription: %w", countErr)
 			}
-			maxPacks, hasCap := limits.MaxAddonPacks[addonType]
-			if hasCap && maxPacks >= 0 {
-				existing, _ := h.store.CountActiveAddonsByType(ctx, orgID, addonType)
-				if existing >= maxPacks {
-					h.logger.Warn("addon cap exceeded, ignoring addon webhook",
-						"org_id", orgID, "addon_type", addonType, "cap", maxPacks, "existing", existing)
-					return nil
-				}
+			if existing >= maxPacks {
+				h.logger.Warn("addon cap exceeded, ignoring addon webhook",
+					"org_id", orgID, "addon_type", addonType, "cap", maxPacks, "existing", existing)
+				return nil
 			}
 		}
 	}

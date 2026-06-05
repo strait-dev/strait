@@ -54,7 +54,6 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name,
 			on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
 			on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
-			max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 			paused, paused_at, pause_reason, endpoint_signing_secret
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 1,
@@ -62,8 +61,7 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 			$32, $33::jsonb, $34::jsonb, $35, $36, $37, $38, $39,
 			$40, $41, $42, $43, $44, $45,
 			$46, $47, $48, $49, $50, $51,
-			$52, $53, $54, $55, $56, $57,
-			$58, $59, $60, $61)
+			$52, $53, $54, $55, $56)
 			RETURNING created_at, updated_at, version, cache_version`
 
 	tagsJSON, err := marshalTags(job.Tags)
@@ -131,11 +129,6 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.OnFailureTriggerJob),
 		dbscan.NilIfEmptyString(job.OnFailureTriggerWorkflow),
 		dbscan.NilIfEmptyRawMessage(job.OnFailurePayloadMapping),
-		dbscan.NilIfZeroInt64(job.MaxTokensPerRun),
-		dbscan.NilIfZeroInt(job.MaxToolCallsPerRun),
-		dbscan.NilIfZeroInt(job.MaxIterationsPerRun),
-		job.AllowedTools,
-		job.BlockedTools,
 		job.Paused,
 		job.PausedAt,
 		dbscan.NilIfEmptyString(job.PauseReason),
@@ -152,6 +145,38 @@ func (q *Queries) CreateJob(ctx context.Context, job *domain.Job) error {
 	return nil
 }
 
+// CreateJobWithCronScheduleLimit serializes org-wide cron schedule quota
+// enforcement with job creation.
+func (q *Queries) CreateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateJobWithCronScheduleLimit")
+	defer span.End()
+
+	if job.Cron == "" || orgID == "" || maxSchedules < 0 {
+		return q.CreateJob(ctx, job)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.createJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	})
+}
+
+func (q *Queries) createJobWithCronScheduleLimitLocked(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	if err := q.EnforceCronScheduleLimit(ctx, orgID, maxSchedules); err != nil {
+		return err
+	}
+	return q.CreateJob(ctx, job)
+}
+
 func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetJob")
 	defer span.End()
@@ -161,7 +186,7 @@ func (q *Queries) GetJob(ctx context.Context, id string) (*domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE id = $1`
@@ -186,7 +211,7 @@ func (q *Queries) GetJobBySlug(ctx context.Context, projectID, slug string) (*do
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE project_id = $1 AND slug = $2`
@@ -211,7 +236,7 @@ func (q *Queries) ListJobs(ctx context.Context, projectID string, limit int, cur
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE project_id = $1`
@@ -263,7 +288,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		WITH current_job AS (
 			SELECT *
 			FROM jobs
-			WHERE id = $25 AND version = $57
+			WHERE id = $25 AND version = $52
 			FOR UPDATE
 		), snapshot AS (
 			INSERT INTO job_versions (id, job_id, version, version_id, name, slug, description, cron, payload_schema,
@@ -275,7 +300,6 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 				execution_mode, preferred_regions, queue_name,
 				on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
 				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
-				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 				paused, paused_at, pause_reason, endpoint_signing_secret)
 			SELECT $29, id, version, version_id, name, slug, description, cron, payload_schema,
 				tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
@@ -286,7 +310,6 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 				COALESCE(execution_mode, 'http'), COALESCE(preferred_regions, '{}'), COALESCE(NULLIF(queue_name, ''), 'default'),
 				on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping,
 				on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
-				max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
 				COALESCE(paused, false), paused_at, pause_reason, COALESCE(endpoint_signing_secret, '')
 			FROM current_job
 		)
@@ -341,12 +364,7 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		    on_failure_trigger_job = $49,
 		    on_failure_trigger_workflow = $50,
 		    on_failure_payload_mapping = $51,
-		    max_tokens_per_run = $52,
-		    max_tool_calls_per_run = $53,
-		    max_iterations_per_run = $54,
-		    allowed_tools = $55,
-		    blocked_tools = $56,
-		    endpoint_signing_secret = $58,
+		    endpoint_signing_secret = $53,
 		    updated_at = NOW()
 		FROM current_job
 		WHERE j.id = current_job.id
@@ -416,11 +434,6 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 		dbscan.NilIfEmptyString(job.OnFailureTriggerJob),
 		dbscan.NilIfEmptyString(job.OnFailureTriggerWorkflow),
 		dbscan.NilIfEmptyRawMessage(job.OnFailurePayloadMapping),
-		dbscan.NilIfZeroInt64(job.MaxTokensPerRun),
-		dbscan.NilIfZeroInt(job.MaxToolCallsPerRun),
-		dbscan.NilIfZeroInt(job.MaxIterationsPerRun),
-		job.AllowedTools,
-		job.BlockedTools,
 		job.Version,
 		job.EndpointSigningSecret,
 	).Scan(&job.UpdatedAt, &job.Version, &job.VersionID, &job.CacheVersion)
@@ -432,6 +445,38 @@ func (q *Queries) UpdateJob(ctx context.Context, job *domain.Job) error {
 	}
 
 	return nil
+}
+
+// UpdateJobWithCronScheduleLimit serializes org-wide cron schedule quota
+// enforcement with a job update that adds a cron expression.
+func (q *Queries) UpdateJobWithCronScheduleLimit(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.UpdateJobWithCronScheduleLimit")
+	defer span.End()
+
+	if job.Cron == "" || orgID == "" || maxSchedules < 0 {
+		return q.UpdateJob(ctx, job)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.updateJobWithCronScheduleLimitLocked(ctx, job, orgID, maxSchedules)
+	})
+}
+
+func (q *Queries) updateJobWithCronScheduleLimitLocked(ctx context.Context, job *domain.Job, orgID string, maxSchedules int) error {
+	if err := q.EnforceCronScheduleLimit(ctx, orgID, maxSchedules); err != nil {
+		return err
+	}
+	return q.UpdateJob(ctx, job)
 }
 
 // ErrJobVersionConflict is returned when an UpdateJob call fails because the
@@ -590,7 +635,7 @@ func (q *Queries) ListCronJobs(ctx context.Context) ([]domain.Job, error) {
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE enabled = TRUE AND NOT paused AND cron IS NOT NULL AND cron <> ''
@@ -625,7 +670,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	query := `
 		SELECT project_id, max_queued_runs, max_executing_runs, max_jobs, timezone, max_cost_per_run_microusd, max_daily_cost_microusd,
 		       rate_limit_requests, rate_limit_window_secs, default_region, plan_tier,
-		       max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run,
 		       max_memory_per_key_bytes, max_memory_per_job_bytes, max_key_lifetime_days, cache_version
 		FROM project_quotas
 		WHERE project_id = $1`
@@ -641,9 +685,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	var rateLimitWindowSecs *int
 	var defaultRegion *string
 	var planTier *string
-	var maxTokensPerRun *int64
-	var maxToolCallsPerRun *int
-	var maxIterationsPerRun *int
 	var maxMemoryPerKeyBytes *int
 	var maxMemoryPerJobBytes *int
 	var maxKeyLifetimeDays *int
@@ -659,9 +700,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 		&rateLimitWindowSecs,
 		&defaultRegion,
 		&planTier,
-		&maxTokensPerRun,
-		&maxToolCallsPerRun,
-		&maxIterationsPerRun,
 		&maxMemoryPerKeyBytes,
 		&maxMemoryPerJobBytes,
 		&maxKeyLifetimeDays,
@@ -703,15 +741,6 @@ func (q *Queries) GetProjectQuota(ctx context.Context, projectID string) (*Proje
 	}
 	if planTier != nil {
 		quota.PlanTier = *planTier
-	}
-	if maxTokensPerRun != nil {
-		quota.MaxTokensPerRun = *maxTokensPerRun
-	}
-	if maxToolCallsPerRun != nil {
-		quota.MaxToolCallsPerRun = *maxToolCallsPerRun
-	}
-	if maxIterationsPerRun != nil {
-		quota.MaxIterationsPerRun = *maxIterationsPerRun
 	}
 	if maxMemoryPerKeyBytes != nil {
 		quota.MaxMemoryPerKeyBytes = *maxMemoryPerKeyBytes
@@ -931,9 +960,6 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 	var onFailureTriggerJob *string
 	var onFailureTriggerWorkflow *string
 	var onFailurePayloadMapping []byte
-	var maxTokensPerRun *int64
-	var maxToolCallsPerRun *int
-	var maxIterationsPerRun *int
 	var pausedAt *time.Time
 	var pauseReason *string
 
@@ -993,11 +1019,6 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		&onFailureTriggerJob,
 		&onFailureTriggerWorkflow,
 		&onFailurePayloadMapping,
-		&maxTokensPerRun,
-		&maxToolCallsPerRun,
-		&maxIterationsPerRun,
-		&job.AllowedTools,
-		&job.BlockedTools,
 		&job.Paused,
 		&pausedAt,
 		&pauseReason,
@@ -1033,8 +1054,6 @@ func scanJob(scanner scanTarget) (*domain.Job, error) {
 		onFailureTriggerJob:       onFailureTriggerJob,
 		onFailureTriggerWorkflow:  onFailureTriggerWorkflow,
 		onFailurePayloadMapping:   onFailurePayloadMapping,
-		maxTokensPerRun:           maxTokensPerRun, maxToolCallsPerRun: maxToolCallsPerRun,
-		maxIterationsPerRun: maxIterationsPerRun,
 	})
 }
 
@@ -1080,9 +1099,6 @@ type scannedJobNullables struct {
 	onFailureTriggerJob       *string
 	onFailureTriggerWorkflow  *string
 	onFailurePayloadMapping   []byte
-	maxTokensPerRun           *int64
-	maxToolCallsPerRun        *int
-	maxIterationsPerRun       *int
 }
 
 //nolint:gocyclo,cyclop,funlen // flat nullable-to-field assignments, not meaningfully splittable.
@@ -1221,15 +1237,6 @@ func applyScannedJobNullables(job *domain.Job, n scannedJobNullables) (*domain.J
 	if n.onFailurePayloadMapping != nil {
 		job.OnFailurePayloadMapping = json.RawMessage(n.onFailurePayloadMapping)
 	}
-	if n.maxTokensPerRun != nil {
-		job.MaxTokensPerRun = *n.maxTokensPerRun
-	}
-	if n.maxToolCallsPerRun != nil {
-		job.MaxToolCallsPerRun = *n.maxToolCallsPerRun
-	}
-	if n.maxIterationsPerRun != nil {
-		job.MaxIterationsPerRun = *n.maxIterationsPerRun
-	}
 
 	return job, nil
 }
@@ -1243,7 +1250,7 @@ func (q *Queries) ListJobsByTag(ctx context.Context, projectID, tagKey, tagValue
 		       tags, endpoint_url, fallback_endpoint_url, max_attempts, timeout_secs, max_concurrency, execution_window_cron, timezone,
 		       rate_limit_max, rate_limit_window_secs, dedup_window_secs,
 		       enabled, webhook_url, webhook_secret, run_ttl_secs, retry_strategy, retry_delays_secs, environment_id, version, version_id, version_policy, backwards_compatible, created_by, updated_by, created_at, updated_at,
-		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping, max_tokens_per_run, max_tool_calls_per_run, max_iterations_per_run, allowed_tools, blocked_tools,
+		       max_concurrency_per_key, rate_limit_keys, default_run_metadata, retry_priority_boost, dlq_alert_threshold, queue_depth_alert_threshold, poison_pill_threshold, cron_overlap_policy, result_schema, debounce_window_secs, batch_window_secs, batch_max_size, execution_mode, preferred_regions, queue_name, on_complete_trigger_workflow, on_complete_trigger_job, on_complete_payload_mapping, on_failure_trigger_job, on_failure_trigger_workflow, on_failure_payload_mapping,
 			       paused, paused_at, pause_reason, endpoint_signing_secret, cache_version
 		FROM jobs
 		WHERE project_id = $1`

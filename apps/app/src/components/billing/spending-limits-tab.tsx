@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@strait/ui/components/select";
+import { Switch } from "@strait/ui/components/switch";
 import { toast } from "@strait/ui/components/toast";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -42,6 +43,7 @@ const SpendingLimitsTab = () => {
   const [selectedAmount, setSelectedAmount] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState("");
   const [action, setAction] = useState("reject");
+  const [overageEnabled, setOverageEnabled] = useState<boolean | null>(null);
 
   if (!spending) {
     return (
@@ -77,6 +79,7 @@ const SpendingLimitsTab = () => {
   };
 
   const resolvedAmount = getResolvedAmount();
+  const effectiveOverageEnabled = overageEnabled ?? spending.overage_enabled;
 
   const handlePresetClick = (amount: number) => {
     setSelectedAmount(amount);
@@ -94,12 +97,17 @@ const SpendingLimitsTab = () => {
     }
 
     updateLimit.mutate(
-      { limitMicrousd: resolvedAmount * MICRO_USD, action },
+      {
+        limitMicrousd: resolvedAmount * MICRO_USD,
+        action,
+        overageEnabled: effectiveOverageEnabled,
+      },
       {
         onSuccess: () => {
           toast.success("Spending limit updated");
           setSelectedAmount(null);
           setCustomAmount("");
+          setOverageEnabled(null);
         },
         onError: () => {
           toast.error("Failed to update spending limit");
@@ -145,9 +153,11 @@ const SpendingLimitsTab = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-muted-foreground text-xs">Included Credit</p>
+              <p className="text-muted-foreground text-xs">
+                Included Allowance
+              </p>
               <p className="mt-1 font-medium text-foreground tabular-nums">
-                ${spending.included_credit_usd.toFixed(2)}
+                Plan run allowance
               </p>
             </div>
             <div>
@@ -156,6 +166,19 @@ const SpendingLimitsTab = () => {
                 ${spending.overage_spend_usd.toFixed(2)}
               </p>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between border-border border-t pt-4">
+            <div>
+              <p className="font-medium text-foreground text-sm">Overage</p>
+              <p className="mt-1 text-muted-foreground text-xs">
+                Allow runs beyond the included monthly allowance.
+              </p>
+            </div>
+            <Switch
+              checked={effectiveOverageEnabled}
+              onCheckedChange={setOverageEnabled}
+            />
           </div>
         </CardContent>
       </Card>

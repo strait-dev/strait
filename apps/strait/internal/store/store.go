@@ -22,31 +22,36 @@ var (
 	ErrJobGroupNotFound             = errors.New("job group not found")
 	ErrWebhookSubscriptionNotFound  = errors.New("webhook subscription not found")
 	ErrWebhookEndpointLimitExceeded = errors.New("webhook endpoint limit exceeded")
+	ErrWebhookProjectLimitExceeded  = errors.New("webhook project subscription limit exceeded")
+	ErrCronScheduleLimitExceeded    = errors.New("cron schedule limit exceeded")
 	// ErrWebhookSubscriptionDuplicate is returned when a CreateWebhookSubscription
 	// would violate the partial unique index on (project_id, webhook_url) where
 	// active=true. Callers must surface a 409 instead of retrying — replaying
 	// the create response would re-expose the one-shot plaintext signing secret.
-	ErrWebhookSubscriptionDuplicate = errors.New("webhook subscription already exists for project and url")
-	ErrEnvironmentNotFound          = errors.New("environment not found")
-	ErrJobSecretNotFound            = errors.New("job secret not found")
-	ErrAuditEventNotFound           = errors.New("audit event not found")
-	ErrMemberLimitReached           = errors.New("member limit reached")
-	ErrRunNotFound                  = errors.New("run not found")
-	ErrRunConflict                  = errors.New("run status update conflict")
-	ErrRunLocked                    = errors.New("run row locked by another transaction")
-	ErrOutboxRowNotFound            = errors.New("outbox row not found")
-	ErrOutboxRowConflict            = errors.New("outbox row conflict")
-	ErrWorkflowNotFound             = errors.New("workflow not found")
-	ErrWorkflowStepNotFound         = errors.New("workflow step not found")
-	ErrWorkflowRunNotFound          = errors.New("workflow run not found")
-	ErrWorkflowStepRunNotFound      = errors.New("workflow step run not found")
-	ErrEventKeyConflict             = errors.New("event key conflict")
-	ErrEventTriggerConflict         = errors.New("event trigger status update conflict")
-	ErrWorkflowVersionNotFound      = errors.New("workflow version not found")
-	ErrDeploymentVersionNotFound    = errors.New("deployment version not found")
-	ErrNotificationChannelNotFound  = errors.New("notification channel not found")
-	ErrJobMemoryPerKeyLimitExceeded = errors.New("job memory per-key limit exceeded")
-	ErrJobMemoryPerJobLimitExceeded = errors.New("job memory per-job limit exceeded")
+	ErrWebhookSubscriptionDuplicate     = errors.New("webhook subscription already exists for project and url")
+	ErrEnvironmentNotFound              = errors.New("environment not found")
+	ErrEnvironmentLimitExceeded         = errors.New("environment limit exceeded")
+	ErrJobSecretNotFound                = errors.New("job secret not found")
+	ErrAuditEventNotFound               = errors.New("audit event not found")
+	ErrMemberLimitReached               = errors.New("member limit reached")
+	ErrRunNotFound                      = errors.New("run not found")
+	ErrRunConflict                      = errors.New("run status update conflict")
+	ErrRunLocked                        = errors.New("run row locked by another transaction")
+	ErrOutboxRowNotFound                = errors.New("outbox row not found")
+	ErrOutboxRowConflict                = errors.New("outbox row conflict")
+	ErrWorkflowNotFound                 = errors.New("workflow not found")
+	ErrWorkflowStepNotFound             = errors.New("workflow step not found")
+	ErrWorkflowRunNotFound              = errors.New("workflow run not found")
+	ErrWorkflowStepRunNotFound          = errors.New("workflow step run not found")
+	ErrEventKeyConflict                 = errors.New("event key conflict")
+	ErrEventTriggerConflict             = errors.New("event trigger status update conflict")
+	ErrWorkflowVersionNotFound          = errors.New("workflow version not found")
+	ErrDeploymentVersionNotFound        = errors.New("deployment version not found")
+	ErrNotificationChannelNotFound      = errors.New("notification channel not found")
+	ErrNotificationChannelLimitExceeded = errors.New("notification channel limit exceeded")
+	ErrLogDrainLimitExceeded            = errors.New("log drain limit exceeded")
+	ErrJobMemoryPerKeyLimitExceeded     = errors.New("job memory per-key limit exceeded")
+	ErrJobMemoryPerJobLimitExceeded     = errors.New("job memory per-job limit exceeded")
 )
 
 type DBTX interface {
@@ -132,10 +137,6 @@ type RunStore interface {
 	CountRunsForJobSince(ctx context.Context, jobID string, since time.Time) (int, error)
 	CreateRunCheckpoint(ctx context.Context, checkpoint *domain.RunCheckpoint) error
 	ListRunCheckpoints(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunCheckpoint, error)
-	CreateRunUsage(ctx context.Context, usage *domain.RunUsage) error
-	ListRunUsage(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunUsage, error)
-	CreateRunToolCall(ctx context.Context, call *domain.RunToolCall) error
-	ListRunToolCalls(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunToolCall, error)
 	UpsertRunOutput(ctx context.Context, output *domain.RunOutput) error
 	ListRunOutputs(ctx context.Context, runID string, limit int, cursor *time.Time) ([]domain.RunOutput, error)
 	AreAllDescendantsTerminal(ctx context.Context, parentRunID string) (bool, error)
@@ -158,8 +159,6 @@ type RunStore interface {
 	BulkCancelByFilter(ctx context.Context, projectID string, f BulkCancelFilter, now time.Time, reason string) ([]string, error)
 	CreateRunResourceSnapshot(ctx context.Context, snapshot *domain.RunResourceSnapshot) error
 	ListRunResourceSnapshots(ctx context.Context, runID string, from, to *time.Time, limit int) ([]domain.RunResourceSnapshot, error)
-	SumRunTotalTokens(ctx context.Context, runID string) (int64, error)
-	CountRunToolCalls(ctx context.Context, runID string) (int, error)
 	CountRunIterations(ctx context.Context, runID string) (int, error)
 	CreateRunIteration(ctx context.Context, iter *domain.RunIteration) error
 }
@@ -177,9 +176,6 @@ type ProjectQuota struct {
 	RateLimitWindowSecs    int
 	DefaultRegion          string
 	PlanTier               string
-	MaxTokensPerRun        int64
-	MaxToolCallsPerRun     int
-	MaxIterationsPerRun    int
 	MaxMemoryPerKeyBytes   int
 	MaxMemoryPerJobBytes   int
 	MaxKeyLifetimeDays     int

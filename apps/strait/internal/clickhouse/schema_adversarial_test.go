@@ -73,7 +73,6 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 	}{
 		{"RunEventsTable", RunEventsTable},
 		{"RunAnalyticsTable", RunAnalyticsTable},
-		{"RunUsageEventsTable", RunUsageEventsTable},
 		{"WorkflowApprovalEventsTable", WorkflowApprovalEventsTable},
 		{"JobMetadataTable", JobMetadataTable},
 		{"EventTriggerEventsTable", EventTriggerEventsTable},
@@ -96,6 +95,29 @@ func TestSchemaDDL_NonEmpty(t *testing.T) {
 				t.Errorf("%s missing IF NOT EXISTS clause", d.name)
 			}
 		})
+	}
+}
+
+func TestSchemaDDL_DoesNotCreateRetiredModelUsageEvents(t *testing.T) {
+	t.Parallel()
+
+	for _, token := range []string{
+		"run_usage_events",
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+		"sum(total_tokens)",
+		"sum(cost_microusd) AS usage_cost_microusd",
+	} {
+		if strings.Contains(CostDailyTable, token) || strings.Contains(CostDailyMV, token) {
+			t.Fatalf("cost daily schema contains retired model usage token %q", token)
+		}
+	}
+	if !strings.Contains(CostDailyMV, "FROM run_analytics") {
+		t.Fatal("cost daily materialized view must use run_analytics")
+	}
+	if !strings.Contains(CostDailyMV, "sum(compute_cost_microusd)") {
+		t.Fatal("cost daily materialized view must use compute cost")
 	}
 }
 

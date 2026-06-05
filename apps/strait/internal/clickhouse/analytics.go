@@ -148,64 +148,36 @@ func (s *AnalyticsStore) GetPerformanceAnalytics(ctx context.Context, projectID 
 // GetCostAnalytics returns aggregated cost data from ClickHouse.
 func (s *AnalyticsStore) GetCostAnalytics(ctx context.Context, projectID string, from, to time.Time) (*store.CostAnalytics, error) {
 	result := &store.CostAnalytics{
-		ByModel: make([]store.CostByModel, 0),
-		ByJob:   make([]store.CostByJob, 0),
+		ByJob: make([]store.CostByJob, 0),
 	}
 
-	// AI cost totals from run_usage_events.
-	aiQuery := `
-		SELECT coalesce(sum(cost_microusd), 0),
-			coalesce(sum(total_tokens), 0),
-			count(DISTINCT run_id)
-		FROM run_usage_events
-		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
-	aiRow, err := s.client.QueryRow(ctx, aiQuery, projectID, from, to)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
-	}
-	if err := aiRow.Scan(
-		&result.TotalAICostMicrousd, &result.TotalTokens, &result.RunCount,
-	); err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics ai totals: %w", err)
-	}
-
-	// By model breakdown.
-	modelQuery := `
-		SELECT model,
-			sum(cost_microusd),
-			sum(total_tokens),
+	usageQuery := `
+		SELECT coalesce(sum(compute_cost_microusd), 0),
 			count()
-		FROM run_usage_events
-		WHERE project_id = ? AND created_at >= ? AND created_at < ?
-		GROUP BY model
-		ORDER BY sum(cost_microusd) DESC`
-	modelRows, err := s.client.Query(ctx, modelQuery, projectID, from, to)
+		FROM run_analytics
+		WHERE project_id = ? AND created_at >= ? AND created_at < ?`
+	usageRow, err := s.client.QueryRow(ctx, usageQuery, projectID, from, to)
 	if err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics by model: %w", err)
+		return nil, fmt.Errorf("clickhouse cost analytics launch totals: %w", err)
 	}
-	defer modelRows.Close()
-	for modelRows.Next() {
-		var m store.CostByModel
-		if err := modelRows.Scan(&m.Model, &m.CostMicrousd, &m.TotalTokens, &m.UsageCount); err != nil {
-			return nil, fmt.Errorf("clickhouse cost analytics by model scan: %w", err)
-		}
-		result.ByModel = append(result.ByModel, m)
-	}
-	if err := modelRows.Err(); err != nil {
-		return nil, fmt.Errorf("clickhouse cost analytics by model rows: %w", err)
+	if err := usageRow.Scan(
+		&result.TotalSpendMicrousd,
+		&result.RunCount,
+	); err != nil {
+		return nil, fmt.Errorf("clickhouse cost analytics launch totals: %w", err)
 	}
 
 	// By job breakdown.
 	jobQuery := `
-		SELECT ru.job_id,
-			coalesce(jm.slug, ru.job_id),
-			sum(ru.cost_microusd),
-			count(DISTINCT ru.run_id)
-		FROM run_usage_events ru
-		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ru.job_id AND jm.project_id = ru.project_id
-		WHERE ru.project_id = ? AND ru.created_at >= ? AND ru.created_at < ?
-		GROUP BY ru.job_id, jm.slug
-		ORDER BY sum(ru.cost_microusd) DESC`
+		SELECT ra.job_id,
+			coalesce(jm.slug, ra.job_id),
+			coalesce(sum(ra.compute_cost_microusd), 0),
+			count()
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		ORDER BY coalesce(sum(ra.compute_cost_microusd), 0) DESC, count() DESC`
 	jobRows, err := s.client.Query(ctx, jobQuery, projectID, from, to)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse cost analytics by job: %w", err)
@@ -240,13 +212,11 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	}
 
 	query := fmt.Sprintf(`
-		SELECT %s(ru.created_at) AS period,
-			coalesce(sum(ru.cost_microusd), 0) AS ai_cost,
-			0 AS compute_cost,
-			coalesce(sum(ru.total_tokens), 0),
-			count(DISTINCT ru.run_id)
-		FROM run_usage_events ru
-		WHERE ru.project_id = ? AND ru.created_at >= ? AND ru.created_at < ?
+		SELECT %s(ra.created_at) AS period,
+			coalesce(sum(ra.compute_cost_microusd), 0) AS compute_cost,
+			count()
+		FROM run_analytics ra
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
 		GROUP BY period
 		ORDER BY period`, truncFn)
 
@@ -260,7 +230,7 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	for rows.Next() {
 		var p store.CostTrendPoint
 		var period time.Time
-		if err := rows.Scan(&period, &p.AICostMicrousd, &p.ComputeCostMicrousd, &p.TotalTokens, &p.RunCount); err != nil {
+		if err := rows.Scan(&period, &p.SpendMicrousd, &p.RunCount); err != nil {
 			return nil, fmt.Errorf("clickhouse cost trends scan: %w", err)
 		}
 		p.Period = period.Format(time.RFC3339)
@@ -269,18 +239,18 @@ func (s *AnalyticsStore) GetCostTrends(ctx context.Context, projectID string, fr
 	return points, rows.Err()
 }
 
-// GetTopCosts returns the top N most expensive jobs by total AI cost from ClickHouse.
+// GetTopCosts returns top-cost entities by recorded compute cost.
 func (s *AnalyticsStore) GetTopCosts(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.TopCostItem, error) {
 	query := `
-		SELECT ru.job_id,
-			coalesce(jm.slug, ru.job_id),
-			sum(ru.cost_microusd),
-			count(DISTINCT ru.run_id)
-		FROM run_usage_events ru
-		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ru.job_id AND jm.project_id = ru.project_id
-		WHERE ru.project_id = ? AND ru.created_at >= ? AND ru.created_at < ?
-		GROUP BY ru.job_id, jm.slug
-		ORDER BY sum(ru.cost_microusd) DESC
+		SELECT ra.job_id,
+			coalesce(jm.slug, ra.job_id),
+			coalesce(sum(ra.compute_cost_microusd), 0) AS cost,
+			count() AS run_count
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		ORDER BY cost DESC, run_count DESC
 		LIMIT ?`
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
@@ -309,8 +279,8 @@ func (s *AnalyticsStore) GetCostOutliers(ctx context.Context, projectID string, 
 			SELECT
 				run_id,
 				job_id,
-				sum(cost_microusd) AS cost_microusd
-			FROM run_usage_events
+				sum(compute_cost_microusd) AS cost_microusd
+			FROM run_analytics
 			WHERE project_id = ?
 				AND created_at >= ?
 				AND created_at < ?
@@ -721,7 +691,7 @@ func (s *AnalyticsStore) GetJobComparison(ctx context.Context, projectID string,
 				ELSE 0
 			END AS success_rate,
 			coalesce(avg(ra.duration_ms), 0) AS avg_duration_ms,
-			coalesce(sum(ra.cost_microusd), 0) AS cost
+			coalesce(sum(ra.compute_cost_microusd), 0) AS cost
 		FROM run_analytics ra
 		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
 		WHERE ra.project_id = ? AND ra.job_id IN ? AND ra.created_at >= ? AND ra.created_at < ?
@@ -816,19 +786,19 @@ func (s *AnalyticsStore) GetRunsByVersion(ctx context.Context, projectID, jobID 
 // GetJobCostRanking ranks jobs by total cost.
 func (s *AnalyticsStore) GetJobCostRanking(ctx context.Context, projectID string, from, to time.Time, limit int) ([]store.JobCostRanking, error) {
 	query := `
-		SELECT ru.job_id,
-			COALESCE(jm.slug, ru.job_id) AS slug,
-			sum(ru.cost_microusd) AS total_cost,
-			count(DISTINCT ru.run_id) AS run_count,
-			CASE WHEN count(DISTINCT ru.run_id) > 0
-				THEN sum(ru.cost_microusd) / count(DISTINCT ru.run_id)
+		SELECT ra.job_id,
+			COALESCE(jm.slug, ra.job_id) AS slug,
+			coalesce(sum(ra.compute_cost_microusd), 0) AS total_cost,
+			count() AS run_count,
+			CASE WHEN count() > 0
+				THEN coalesce(sum(ra.compute_cost_microusd), 0) / count()
 				ELSE 0
 			END AS avg_cost_per_run
-		FROM run_usage_events ru
-		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ru.job_id AND jm.project_id = ru.project_id
-		WHERE ru.project_id = ? AND ru.created_at >= ? AND ru.created_at < ?
-		GROUP BY ru.job_id, jm.slug
-		ORDER BY total_cost DESC
+		FROM run_analytics ra
+		LEFT JOIN job_metadata FINAL jm ON jm.job_id = ra.job_id AND jm.project_id = ra.project_id
+		WHERE ra.project_id = ? AND ra.created_at >= ? AND ra.created_at < ?
+		GROUP BY ra.job_id, jm.slug
+		ORDER BY total_cost DESC, run_count DESC
 		LIMIT ?`
 
 	rows, err := s.client.Query(ctx, query, projectID, from, to, limit)
@@ -965,7 +935,7 @@ func (s *AnalyticsStore) GetTagCost(ctx context.Context, projectID string, from,
 		SELECT
 			tupleElement(kv, 1) AS tag_key,
 			tupleElement(kv, 2) AS tag_value,
-			coalesce(sum(cost_microusd), 0) AS total_cost,
+			coalesce(sum(compute_cost_microusd), 0) AS total_cost,
 			count() AS run_count
 		FROM run_analytics
 		ARRAY JOIN arrayJoin(JSONExtractKeysAndValues(tags, 'String')) AS kv
@@ -1278,8 +1248,8 @@ func (s *AnalyticsStore) GetCostForecast(ctx context.Context, projectID string, 
 	query := `
 		WITH daily AS (
 			SELECT toStartOfDay(created_at) AS day,
-				sum(cost_microusd) AS daily_cost
-			FROM run_usage_events
+				sum(compute_cost_microusd) AS daily_cost
+			FROM run_analytics
 			WHERE project_id = ? AND created_at >= ? AND created_at < ?
 			GROUP BY day
 			ORDER BY day
@@ -1310,7 +1280,7 @@ func (s *AnalyticsStore) GetCostForecast(ctx context.Context, projectID string, 
 func (s *AnalyticsStore) GetCostByTrigger(ctx context.Context, projectID string, from, to time.Time) ([]store.CostByTrigger, error) {
 	query := `
 		SELECT ra.triggered_by,
-			coalesce(sum(ra.cost_microusd), 0) AS cost,
+			coalesce(sum(ra.compute_cost_microusd), 0) AS cost,
 			count() AS run_count,
 			0 AS pct
 		FROM run_analytics ra

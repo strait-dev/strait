@@ -140,6 +140,13 @@ func TestPriorityPromoter_PromotesAgedRuns(t *testing.T) {
 	if priorityEvents != len(runs) {
 		t.Errorf("priority events = %d, want %d", priorityEvents, len(runs))
 	}
+	var maxClaimPri int
+	if err := tdb.Pool.QueryRow(ctx, `SELECT MAX(priority) FROM job_run_queue WHERE job_id = $1`, runs[0].JobID).Scan(&maxClaimPri); err != nil {
+		t.Fatalf("query claim priority: %v", err)
+	}
+	if maxClaimPri != 10 {
+		t.Errorf("max queue priority after promotion = %d, want immutable base value 10", maxClaimPri)
+	}
 }
 
 func TestPriorityPromoter_RespectsCeiling(t *testing.T) {

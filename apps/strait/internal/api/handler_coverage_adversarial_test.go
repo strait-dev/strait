@@ -481,9 +481,9 @@ func TestHandlerListNotificationDeliveries_WithLimitAndCursor(t *testing.T) {
 	}
 }
 
-// 6. handleRunLLMStream (SSE streaming)
+// 6. handleRunChunkStream (SSE streaming)
 
-func llmStreamRequest(runID string) *http.Request {
+func chunkStreamRequest(runID string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "/v1/runs/"+runID+"/stream/chunks", nil)
 	r.Header.Set("X-Internal-Secret", "test-secret-value")
 	rctx := chi.NewRouteContext()
@@ -496,13 +496,13 @@ func llmStreamRequest(runID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-func llmStreamRequestForEnvironment(runID, environmentID string) *http.Request {
-	r := llmStreamRequest(runID)
+func chunkStreamRequestForEnvironment(runID, environmentID string) *http.Request {
+	r := chunkStreamRequest(runID)
 	ctx := context.WithValue(r.Context(), ctxEnvironmentIDKey, environmentID)
 	return r.WithContext(ctx)
 }
 
-func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {
+func TestHandlerRunChunkStream_RunNotFound(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
@@ -512,14 +512,14 @@ func TestHandlerRunLLMStream_RunNotFound(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequest("missing"))
+	srv.handleRunChunkStream(w, chunkStreamRequest("missing"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandlerRunLLMStream_TerminalRun(t *testing.T) {
+func TestHandlerRunChunkStream_TerminalRun(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -532,14 +532,14 @@ func TestHandlerRunLLMStream_TerminalRun(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequest("run-done"))
+	srv.handleRunChunkStream(w, chunkStreamRequest("run-done"))
 
 	if w.Code != http.StatusGone {
 		t.Fatalf("expected 410, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandlerRunLLMStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
+func TestHandlerRunChunkStream_EnvironmentScopedCallerCannotStreamForeignEnvironment(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -561,14 +561,14 @@ func TestHandlerRunLLMStream_EnvironmentScopedCallerCannotStreamForeignEnvironme
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequestForEnvironment("run-1", "env-prod"))
+	srv.handleRunChunkStream(w, chunkStreamRequestForEnvironment("run-1", "env-prod"))
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for environment mismatch, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandlerRunLLMStream_NoPubSub(t *testing.T) {
+func TestHandlerRunChunkStream_NoPubSub(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -581,7 +581,7 @@ func TestHandlerRunLLMStream_NoPubSub(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequest("run-1"))
+	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 (SSE headers), got %d", w.Code)
@@ -592,7 +592,7 @@ func TestHandlerRunLLMStream_NoPubSub(t *testing.T) {
 	}
 }
 
-func TestHandlerRunLLMStream_StoreError(t *testing.T) {
+func TestHandlerRunChunkStream_StoreError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, _ string) (*domain.JobRun, error) {
@@ -602,14 +602,14 @@ func TestHandlerRunLLMStream_StoreError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequest("run-1"))
+	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandlerRunLLMStream_SubscribeError(t *testing.T) {
+func TestHandlerRunChunkStream_SubscribeError(t *testing.T) {
 	t.Parallel()
 	ms := &APIStoreMock{
 		GetRunFunc: func(_ context.Context, id string) (*domain.JobRun, error) {
@@ -627,7 +627,7 @@ func TestHandlerRunLLMStream_SubscribeError(t *testing.T) {
 	srv := newTestServer(t, ms, &mockQueue{}, pub)
 
 	w := httptest.NewRecorder()
-	srv.handleRunLLMStream(w, llmStreamRequest("run-1"))
+	srv.handleRunChunkStream(w, chunkStreamRequest("run-1"))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 (SSE), got %d", w.Code)
@@ -638,7 +638,7 @@ func TestHandlerRunLLMStream_SubscribeError(t *testing.T) {
 	}
 }
 
-func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
+func TestHandlerRunChunkStream_ReceivesMessage(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
 	t.Parallel()
@@ -666,7 +666,7 @@ func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
 	close(dataCh)
 
 	w := httptest.NewRecorder()
-	r := llmStreamRequest("run-1")
+	r := chunkStreamRequest("run-1")
 	ctx, cancel := context.WithCancel(r.Context())
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("runID", "run-1")
@@ -675,7 +675,7 @@ func TestHandlerRunLLMStream_ReceivesMessage(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
 	})
-	srv.handleRunLLMStream(w, r)
+	srv.handleRunChunkStream(w, r)
 
 	body := w.Body.String()
 	if !strings.Contains(body, `{"chunk":"hello"}`) {
@@ -862,13 +862,10 @@ func (m *advMockBillingEnforcer) GetActiveProjectOrgID(ctx context.Context, proj
 func (m *advMockBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
 	return billing.OrgPlanLimits{}, nil
 }
-func (m *advMockBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
+func (m *advMockBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
 func (m *advMockBillingEnforcer) EnsureOrgSubscription(_ context.Context, _ string) error { return nil }
-func (m *advMockBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
-	return nil
-}
 func (m *advMockBillingEnforcer) CheckMaxDispatchPriority(_ context.Context, _ string, _ int) error {
 	return nil
 }
@@ -991,7 +988,7 @@ func TestHandlerCheckOrgLimit_LimitExceeded(t *testing.T) {
 
 func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
 	t.Parallel()
-	// Without billing enforcer, should return allowed.
+	// Community edition has no cloud billing limits.
 	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
 
 	w := httptest.NewRecorder()
@@ -999,6 +996,20 @@ func TestHandlerCheckOrgLimit_NoBillingEnforcer(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandlerCheckOrgLimit_CloudNoBillingEnforcerFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	srv := newTestServer(t, &APIStoreMock{}, &mockQueue{}, nil)
+	srv.edition = domain.EditionCloud
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodGet, "/v1/billing/check-org-limit?user_id=usr-1", ""))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1187,66 +1198,7 @@ func TestHandlerSDKDeleteMemory_DeleteStoreError(t *testing.T) {
 	}
 }
 
-// 11. resolveGuardrailInt (pure function)
-
-func TestHandlerResolveGuardrailInt_JobLimitTakesPrecedence(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt(100, 50)
-	if result != 50 {
-		t.Fatalf("expected job limit 50 to take precedence, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt_FallsBackToQuota(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt(100, 0)
-	if result != 100 {
-		t.Fatalf("expected quota limit 100, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt_BothZero(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt(0, 0)
-	if result != 0 {
-		t.Fatalf("expected 0 when both are zero, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt_NegativeJobLimitFallsBack(t *testing.T) {
-	t.Parallel()
-	// Negative job limit should fall back to quota since it's not > 0.
-	result := resolveGuardrailInt(100, -1)
-	if result != 100 {
-		t.Fatalf("expected quota limit 100 when job limit is negative, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt64_JobLimitTakesPrecedence(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt64(1000, 500)
-	if result != 500 {
-		t.Fatalf("expected 500, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt64_FallsBackToQuota(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt64(1000, 0)
-	if result != 1000 {
-		t.Fatalf("expected 1000, got %d", result)
-	}
-}
-
-func TestHandlerResolveGuardrailInt64_BothZero(t *testing.T) {
-	t.Parallel()
-	result := resolveGuardrailInt64(0, 0)
-	if result != 0 {
-		t.Fatalf("expected 0, got %d", result)
-	}
-}
-
-// 12. orgAdvisoryLockID (pure function)
+// 11. orgAdvisoryLockID (pure function)
 
 func TestHandlerOrgAdvisoryLockID_Deterministic(t *testing.T) {
 	t.Parallel()

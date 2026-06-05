@@ -67,14 +67,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Tags: []string{"Secrets"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
 	}, s.handleDeleteSecret)
 
-	// -- Regions --
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-regions", Method: http.MethodGet, Path: "/v1/regions",
-		Summary: "List available regions", Description: "Returns all supported execution regions with display metadata.",
-		Tags: []string{"Regions"}, Security: bearerSecurity, Errors: []int{401, 500},
-	}, s.handleGetRegions)
-
 	// -- Billing --
+	RegisterTypedOp(api, OpMeta{
+		ID: "list-plans", Method: http.MethodGet, Path: "/v1/plans",
+		Summary: "List plans", Description: "Returns all available plan tiers with their launch limits, pricing, and roadmap metadata.",
+		Tags: []string{"Billing"}, Security: bearerSecurity, Errors: []int{401, 500},
+	}, s.handleGetPlans)
+
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-current-usage", Method: http.MethodGet, Path: "/v1/usage/current",
 		Summary: "Get current usage", Description: "Returns the current billing period's usage metrics.",
@@ -556,18 +555,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	}, s.handleListRunCheckpoints)
 
 	RegisterTypedOp(api, OpMeta{
-		ID: "list-run-usage", Method: http.MethodGet, Path: "/v1/runs/{runID}/usage",
-		Summary: "List run usage", Description: "Returns resource usage records for a specific run.",
-		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleListRunUsage)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "list-run-tool-calls", Method: http.MethodGet, Path: "/v1/runs/{runID}/tool-calls",
-		Summary: "List run tool calls", Description: "Returns all tool calls made during a run's execution.",
-		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
-	}, s.handleListRunToolCalls)
-
-	RegisterTypedOp(api, OpMeta{
 		ID: "list-run-outputs", Method: http.MethodGet, Path: "/v1/runs/{runID}/outputs",
 		Summary: "List run outputs", Description: "Returns all structured outputs produced by a run.",
 		Tags: []string{"Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
@@ -917,7 +904,7 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-approval-stats", Method: http.MethodGet, Path: "/v1/analytics/approvals",
 		Summary: "Get approval statistics", Description: "Returns statistics about workflow approval steps including wait times.",
-		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+		Tags: []string{"Analytics"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleGetApprovalStats)
 
 	RegisterTypedOp(api, OpMeta{
@@ -1267,13 +1254,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-workflow-policy", Method: http.MethodGet, Path: "/v1/workflow-policies/{projectID}",
 		Summary: "Get workflow policy", Description: "Returns the workflow execution policy for a project.",
-		Tags: []string{"Workflow Policies"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+		Tags: []string{"Workflow Policies"}, Security: bearerSecurity, Errors: []int{401, 403, 404, 500},
 	}, s.handleGetWorkflowPolicy)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "upsert-workflow-policy", Method: http.MethodPut, Path: "/v1/workflow-policies/{projectID}",
 		Summary: "Create or update workflow policy", Description: "Creates or updates the workflow execution policy for a project.",
-		Tags: []string{"Workflow Policies"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+		Tags: []string{"Workflow Policies"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleUpsertWorkflowPolicy)
 
 	// -- Workflows --
@@ -1640,13 +1627,13 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	RegisterTypedOp(api, OpMeta{
 		ID: "compensate-workflow-run", Method: http.MethodPost, Path: "/v1/workflow-runs/{workflowRunID}/compensate",
 		Summary: "Compensate a failed workflow run", Description: "Triggers compensation for previously completed steps in reverse topological order. Only valid for failed or timed_out runs.",
-		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleCompensateWorkflowRun)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-compensation-plan", Method: http.MethodGet, Path: "/v1/workflow-runs/{workflowRunID}/compensation-plan",
 		Summary: "Get compensation plan", Description: "Returns the compensation plan for a workflow run without executing it. Shows which steps would be compensated and in what order.",
-		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+		Tags: []string{"Workflow Runs"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleGetCompensationPlan)
 
 	// -- Debug --
@@ -1666,25 +1653,25 @@ func registerAllTypedOps(api huma.API, s *Server) {
 	RegisterTypedOp(api, OpMeta{
 		ID: "create-canary-deployment", Method: http.MethodPost, Path: "/v1/canary-deployments",
 		Summary: "Create canary deployment", Description: "Creates a canary deployment to gradually shift traffic from one workflow version to another.",
-		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 409, 500},
 	}, s.handleCreateCanaryDeployment)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "update-canary-deployment", Method: http.MethodPatch, Path: "/v1/workflows/{workflowID}/canary",
 		Summary: "Update canary traffic", Description: "Adjusts the traffic percentage for an active canary deployment.",
-		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 500},
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{400, 401, 403, 404, 500},
 	}, s.handleUpdateCanaryDeployment)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "rollback-canary-deployment", Method: http.MethodPost, Path: "/v1/workflows/{workflowID}/canary/rollback",
 		Summary: "Rollback canary deployment", Description: "Immediately rolls back a canary deployment to 0% target traffic.",
-		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 403, 404, 500},
 	}, s.handleRollbackCanaryDeployment)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "get-canary-status", Method: http.MethodGet, Path: "/v1/workflows/{workflowID}/canary",
 		Summary: "Get canary deployment status", Description: "Returns the current canary deployment status with version comparison metrics.",
-		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 404, 500},
+		Tags: []string{"Canary Deployments"}, Security: bearerSecurity, Errors: []int{401, 403, 404, 500},
 	}, s.handleGetCanaryStatus)
 
 	// -- SDK --
@@ -1723,18 +1710,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Save a checkpoint", Description: "Saves a checkpoint so the run can resume from this point on retry.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 404, 409, 500},
 	}, s.handleSDKCheckpoint)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-usage", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/usage",
-		Summary: "Report resource usage", Description: "Reports resource usage (tokens, compute time, etc.) for billing.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 429, 500},
-	}, s.handleSDKUsage)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-tool-call", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/tool-call",
-		Summary: "Record a tool call", Description: "Records an LLM tool call for observability and debugging.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
-	}, s.handleSDKToolCall)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-output", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/output",
@@ -1798,7 +1773,7 @@ func registerAllTypedOps(api huma.API, s *Server) {
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-stream-chunk", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/stream",
-		Summary: "Send a stream chunk", Description: "Sends a streaming chunk for real-time output from LLM-powered runs.",
+		Summary: "Send a stream chunk", Description: "Sends a streaming chunk for real-time output from runs.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleSDKStreamChunk)
 
@@ -1813,12 +1788,6 @@ func registerAllTypedOps(api huma.API, s *Server) {
 		Summary: "Save a resource snapshot", Description: "Saves a point-in-time snapshot of resource utilization.",
 		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
 	}, s.handleSDKResourceSnapshot)
-
-	RegisterTypedOp(api, OpMeta{
-		ID: "sdk-iteration", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/iteration",
-		Summary: "Record an iteration", Description: "Records an iteration in a loop-based execution pattern.",
-		Tags: []string{"SDK"}, Security: bearerSecurity, Errors: []int{400, 401, 500},
-	}, s.handleSDKIteration)
 
 	RegisterTypedOp(api, OpMeta{
 		ID: "sdk-set-memory", Method: http.MethodPost, Path: "/sdk/v1/runs/{runID}/memory/{key}",

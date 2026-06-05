@@ -109,17 +109,28 @@ func TestCheckCronMinInterval_EmptyCronIsNoop(t *testing.T) {
 	}
 }
 
-func TestCheckCronMinInterval_FailOpenWhenNoEnforcer(t *testing.T) {
+func TestCheckCronMinInterval_CloudNilEnforcerFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	// Misconfigured cloud deployment (billing offline) must not block job
-	// creation; the rest of validation already ran.
 	s := &Server{
 		edition:         domain.EditionCloud,
 		billingEnforcer: nil,
 	}
+	err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *")
+	if err == nil || !strings.Contains(err.Error(), "billing enforcement unavailable") {
+		t.Fatalf("expected billing enforcement unavailable, got: %v", err)
+	}
+}
+
+func TestCheckCronMinInterval_CommunityNilEnforcerFailsOpen(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		edition:         domain.EditionCommunity,
+		billingEnforcer: nil,
+	}
 	if err := s.checkCronMinInterval(context.Background(), "proj-1", "* * * * *"); err != nil {
-		t.Fatalf("expected fail-open with nil enforcer, got: %v", err)
+		t.Fatalf("expected community nil enforcer to fail open, got: %v", err)
 	}
 }
 

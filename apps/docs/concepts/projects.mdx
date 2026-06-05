@@ -47,6 +47,8 @@ A project has five fields: `id`, `org_id`, `name`, `created_at`, and `updated_at
 
 On Strait Cloud, the dashboard creates projects for you. Self-hosted operators use the internal secret directly, as shown above.
 
+Cloud plans cap projects per organization: Free includes one project, Starter includes three, Pro includes ten, Scale includes fifty, and Business is unlimited. Project add-ons are not sold at launch.
+
 ---
 
 ## Organizations
@@ -74,11 +76,9 @@ Key quota fields:
 | `max_executing_runs` | Maximum runs executing concurrently. |
 | `max_jobs` | Maximum job definitions in the project. |
 | `max_workflows` | Maximum workflow definitions in the project. |
-| `max_cost_per_run_microusd` | Cost ceiling per individual run, in micro-USD. |
-| `max_daily_cost_microusd` | Total daily cost ceiling for the project, in micro-USD. |
 | `rate_limit_requests` | Maximum API requests per second. |
 
-Quotas are tied to your `plan_tier`. When a limit is reached, Strait rejects the operation with a clear error rather than silently dropping work. A trigger that would exceed the queued or executing-run quota returns `429` with the `enqueue_throttled` code:
+Cost ceiling fields are internal and not configurable in the launch product. Quotas are tied to your `plan_tier`. When a limit is reached, Strait rejects the operation with a clear error rather than silently dropping work. A trigger that would exceed the queued or executing-run quota returns `429` with the `enqueue_throttled` code:
 
 ```json
 {

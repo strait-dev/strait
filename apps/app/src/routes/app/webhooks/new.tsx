@@ -73,14 +73,59 @@ const PRO_EVENTS = [
     description: "Fired when a workflow run fails",
   },
   {
-    value: "compute_budget_warning",
-    label: "Compute budget warning",
-    description: "Fired when compute spend approaches the spending limit",
-  },
-  {
     value: "slo.budget_warning",
     label: "SLO budget warning",
     description: "Fired when SLO error budget is running low",
+  },
+  {
+    value: "billing.cap_warning",
+    label: "Billing cap warning",
+    description: "Fired when an organization reaches 80% of its spending cap",
+  },
+  {
+    value: "billing.cap_reached",
+    label: "Billing cap reached",
+    description: "Fired when an organization reaches 100% of its spending cap",
+  },
+  {
+    value: "billing.cap_disabled",
+    label: "Billing cap disabled",
+    description: "Fired when an organization removes its spending cap",
+  },
+  {
+    value: "billing.overage_disabled",
+    label: "Billing overage disabled",
+    description: "Fired when an organization disables paid-plan overage",
+  },
+  {
+    value: "billing.suspended",
+    label: "Billing suspended",
+    description: "Fired when an organization is suspended after dunning",
+  },
+  {
+    value: "billing.delinquent",
+    label: "Billing delinquent",
+    description: "Fired when a suspended organization moves to delinquent",
+  },
+  {
+    value: "billing.payment_succeeded",
+    label: "Billing payment succeeded",
+    description: "Fired when an overdue payment succeeds",
+  },
+  {
+    value: "schedule.suspended",
+    label: "Schedule suspended",
+    description: "Fired when billing or plan limits pause a schedule",
+  },
+  {
+    value: "workflow.registration_rejected",
+    label: "Workflow registration rejected",
+    description: "Fired when a launch plan gate rejects workflow registration",
+  },
+  {
+    value: "sla.credit_issued",
+    label: "SLA credit issued",
+    description: "Fired when an SLA service credit is recorded",
   },
 ] as const;
 

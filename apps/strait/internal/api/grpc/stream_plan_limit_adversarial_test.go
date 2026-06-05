@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"strait/internal/domain"
+
 	"github.com/sourcegraph/conc"
 )
 
@@ -49,7 +51,7 @@ func TestStreamGating_RaceAtCap(t *testing.T) {
 	for range attempts {
 		concWG.Go(func() {
 			defer wg.Done()
-			if _, b := gatingResult(context.Background(), enforcer, r, "proj-a"); b {
+			if _, b := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); b {
 				blocked.Add(1)
 			} else {
 				allowed.Add(1)
@@ -121,7 +123,7 @@ func TestStreamGating_ReconnectStorm(t *testing.T) {
 	if got := r.CountByOrg("org-1"); got != 5 {
 		t.Fatalf("post-storm CountByOrg(org-1) = %d, want 5", got)
 	}
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		t.Fatal("post-storm new connect at cap was allowed; want blocked")
 	}
 }
@@ -155,11 +157,11 @@ func TestStreamGating_OrgScopingCannotBeSpoofedViaProjectID(t *testing.T) {
 	}
 
 	// Connect attempts for saturated org → blocked.
-	if orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-saturated"); !blocked || orgID != "org-saturated" {
+	if orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-saturated"); !blocked || orgID != "org-saturated" {
 		t.Fatalf("saturated org gating: orgID=%q blocked=%v, want org-saturated true", orgID, blocked)
 	}
 	// Connect attempts for spacious org → allowed.
-	if orgID, blocked := gatingResult(context.Background(), enforcer, r, "proj-spacious"); blocked || orgID != "org-spacious" {
+	if orgID, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-spacious"); blocked || orgID != "org-spacious" {
 		t.Fatalf("spacious org gating: orgID=%q blocked=%v, want org-spacious false", orgID, blocked)
 	}
 }
@@ -168,8 +170,8 @@ func TestStreamGating_OrgScopingCannotBeSpoofedViaProjectID(t *testing.T) {
 // does NOT count workers with empty OrgID toward any org's quota. A
 // misbehaving worker that somehow registered with an empty OrgID cannot pad
 // another org's count, but it also cannot be evicted by another org's
-// connect storm. The gate skips entirely when the resolved org is empty —
-// fail-open is intentional (we cannot enforce a per-org cap without an org).
+// connect storm. Cloud registration fails closed before registration when org
+// resolution returns empty; this test covers already-registered empty-org rows.
 func TestStreamGating_EmptyOrgIDCannotBeUsedToBypass(t *testing.T) {
 	t.Parallel()
 
@@ -190,7 +192,7 @@ func TestStreamGating_EmptyOrgIDCannotBeUsedToBypass(t *testing.T) {
 
 	// New connect for org-1: count is 0/1 → allowed (the ghost did not pad
 	// the org's count). This confirms the gate evaluates the real org-1 set.
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); blocked {
 		t.Fatal("empty-org worker should not pad org-1 count; gate must allow")
 	}
 }
@@ -230,7 +232,7 @@ func TestStreamGating_DowngradeMidSession(t *testing.T) {
 	}
 
 	// New connect: 5 active, cap 1 → blocked.
-	if _, blocked := gatingResult(context.Background(), enforcer, r, "proj-a"); !blocked {
+	if _, blocked := gatingResult(context.Background(), domain.EditionCloud, enforcer, r, "proj-a"); !blocked {
 		t.Fatal("post-downgrade new connect was allowed; want blocked")
 	}
 }

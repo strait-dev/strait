@@ -11,7 +11,6 @@ type AddonType string
 
 const (
 	AddonConcurrency100    AddonType = "concurrency_100"
-	AddonLogDrain10GB      AddonType = "log_drain_10gb"
 	AddonHistory30d        AddonType = "history_30d"
 	AddonComplianceArchive AddonType = "compliance_archive"
 	AddonDedicatedWorkers  AddonType = "dedicated_workers"
@@ -20,86 +19,47 @@ const (
 
 // AllAddonTypes returns all known add-on types.
 func AllAddonTypes() []AddonType {
-	return []AddonType{
-		AddonConcurrency100,
-		AddonLogDrain10GB,
-		AddonHistory30d,
-		AddonComplianceArchive,
-		AddonDedicatedWorkers,
-		AddonEnvironments5,
-	}
+	return append([]AddonType(nil), AddonCatalogOrder...)
 }
 
 // IsValidAddonType returns true if the addon type is recognized.
 func IsValidAddonType(t AddonType) bool {
-	switch t {
-	case AddonConcurrency100, AddonLogDrain10GB, AddonHistory30d,
-		AddonComplianceArchive, AddonDedicatedWorkers, AddonEnvironments5:
-		return true
-	}
-	return false
+	_, ok := AddonCatalogs[t]
+	return ok
+}
+
+func IsLaunchActiveAddonType(t AddonType) bool {
+	c, ok := AddonCatalogs[t]
+	return ok && c.Status == "active"
 }
 
 // AddonPackDefinition describes the increment and pricing for an add-on pack.
 type AddonPackDefinition struct {
 	Type        AddonType
 	DisplayName string
-	LookupKey   string // Stripe lookup_key for cross-account resolution
+	LookupKey   string // Stripe lookup_key for launch-active add-ons; empty for roadmap
 	PackSize    int    // units per pack (e.g. +50 concurrent runs)
-	PriceCents  int    // monthly price in cents
-	MaxTotal    int    // maximum total after add-ons; -1 = no cap
+	PriceCents  int    // monthly price in cents; zero for roadmap
+	MaxTotal    int    // catalog maximum total; -1 = no cap
 }
 
 // AddonPacks defines the available add-on packs.
-var AddonPacks = map[AddonType]AddonPackDefinition{
-	AddonConcurrency100: {
-		Type:        AddonConcurrency100,
-		DisplayName: "+100 Concurrent Runs",
-		LookupKey:   "strait_addon_concurrency_100",
-		PackSize:    100,
-		PriceCents:  2000, // $20/mo
-		MaxTotal:    -1,
-	},
-	AddonLogDrain10GB: {
-		Type:        AddonLogDrain10GB,
-		DisplayName: "+10 GB Log Drain",
-		LookupKey:   "strait_addon_log_drain_10gb",
-		PackSize:    10,   // +10 GB
-		PriceCents:  2500, // $25/mo
-		MaxTotal:    -1,
-	},
-	AddonHistory30d: {
-		Type:        AddonHistory30d,
-		DisplayName: "+30 Days History",
-		LookupKey:   "strait_addon_history_30d",
-		PackSize:    30,   // +30 days
-		PriceCents:  4000, // $40/mo
-		MaxTotal:    -1,
-	},
-	AddonComplianceArchive: {
-		Type:        AddonComplianceArchive,
-		DisplayName: "Compliance Archive",
-		LookupKey:   "strait_addon_compliance_archive",
-		PackSize:    1,
-		PriceCents:  5000, // $50/mo
-		MaxTotal:    1,
-	},
-	AddonDedicatedWorkers: {
-		Type:        AddonDedicatedWorkers,
-		DisplayName: "Dedicated Worker Pool",
-		LookupKey:   "strait_addon_dedicated_workers",
-		PackSize:    1,
-		PriceCents:  20000, // $200/mo
-		MaxTotal:    -1,
-	},
-	AddonEnvironments5: {
-		Type:        AddonEnvironments5,
-		DisplayName: "+5 Environments",
-		LookupKey:   "strait_addon_environments_5",
-		PackSize:    5,
-		PriceCents:  3000, // $30/mo
-		MaxTotal:    -1,
-	},
+var AddonPacks = addonPacksFromCatalog()
+
+func addonPacksFromCatalog() map[AddonType]AddonPackDefinition {
+	packs := make(map[AddonType]AddonPackDefinition, len(AddonCatalogs))
+	for _, addonType := range AddonCatalogOrder {
+		c := AddonCatalogs[addonType]
+		packs[addonType] = AddonPackDefinition{
+			Type:        c.Type,
+			DisplayName: c.DisplayName,
+			LookupKey:   c.LookupKey,
+			PackSize:    c.PackSize,
+			PriceCents:  c.PriceCents,
+			MaxTotal:    c.MaxTotal,
+		}
+	}
+	return packs
 }
 
 // Addon represents an active add-on for an organization.
@@ -145,18 +105,15 @@ func EffectiveLimits(base OrgPlanLimits, addons []Addon) OrgPlanLimits {
 			if result.MaxConcurrentRuns != -1 {
 				result.MaxConcurrentRuns += increment
 			}
-		case AddonLogDrain10GB:
-			// LogDrain10GB is marketing-only; GB-level enforcement is intentionally
-			// not implemented (decision 2026-05-15). Drain-count enforcement remains
-			// via MaxLogDrainsPerOrg.
 		case AddonHistory30d:
 			if result.RetentionDays > 0 {
 				result.RetentionDays += increment
 			}
 		case AddonComplianceArchive:
-			result.HasSIEMExport = true
+			// Compliance archive remains roadmap at launch until the export
+			// pipeline is wired end to end.
 		case AddonDedicatedWorkers:
-			result.HasDedicatedCompute = true
+			// Dedicated worker pools remain roadmap at launch.
 		case AddonEnvironments5:
 			if result.MaxEnvironments != -1 {
 				result.MaxEnvironments += increment
@@ -186,12 +143,27 @@ func allowedAddonQuantity(base OrgPlanLimits, addon Addon, applied map[AddonType
 		}
 	}
 	if pack, ok := AddonPacks[addon.AddonType]; ok && pack.MaxTotal >= 0 {
-		remainingTotal := pack.MaxTotal - applied[addon.AddonType]
-		if remainingTotal <= 0 {
-			return 0
-		}
-		if quantity > remainingTotal {
-			quantity = remainingTotal
+		switch addon.AddonType {
+		case AddonHistory30d:
+			if base.RetentionDays <= 0 {
+				return quantity
+			}
+			remainingDays := pack.MaxTotal - base.RetentionDays - applied[addon.AddonType]*pack.PackSize
+			if remainingDays <= 0 {
+				return 0
+			}
+			maxQuantity := remainingDays / pack.PackSize
+			if quantity > maxQuantity {
+				quantity = maxQuantity
+			}
+		default:
+			remainingTotal := pack.MaxTotal - applied[addon.AddonType]
+			if remainingTotal <= 0 {
+				return 0
+			}
+			if quantity > remainingTotal {
+				quantity = remainingTotal
+			}
 		}
 	}
 	return quantity

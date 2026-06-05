@@ -75,16 +75,12 @@ func TestExportCSV_WithRecords(t *testing.T) {
 				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
 				RunsCount:        42,
 				ComputeCostMicro: 5000000,
-				AITokensTotal:    1000,
-				AICostMicro:      2000000,
 			},
 			{
 				ProjectID:        "proj-b",
 				PeriodDate:       time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC),
 				RunsCount:        10,
 				ComputeCostMicro: 1000000,
-				AITokensTotal:    500,
-				AICostMicro:      500000,
 			},
 		},
 	}
@@ -109,7 +105,7 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(records))
 	}
 
-	expectedHeader := []string{"date", "project", "runs", "compute_cost_usd", "ai_tokens", "ai_cost_usd", "total_usd"}
+	expectedHeader := []string{"date", "project", "runs", "orchestration_cost_usd", "total_usd"}
 	for i, col := range expectedHeader {
 		if records[0][i] != col {
 			t.Errorf("header[%d]: expected %s, got %s", i, col, records[0][i])
@@ -126,16 +122,10 @@ func TestExportCSV_WithRecords(t *testing.T) {
 		t.Errorf("expected runs 42, got %s", records[1][2])
 	}
 	if records[1][3] != "5.000000" {
-		t.Errorf("expected compute_cost_usd 5.000000, got %s", records[1][3])
+		t.Errorf("expected orchestration_cost_usd 5.000000, got %s", records[1][3])
 	}
-	if records[1][4] != "1000" {
-		t.Errorf("expected ai_tokens 1000, got %s", records[1][4])
-	}
-	if records[1][5] != "2.000000" {
-		t.Errorf("expected ai_cost_usd 2.000000, got %s", records[1][5])
-	}
-	if records[1][6] != "7.000000" {
-		t.Errorf("expected total_usd 7.000000, got %s", records[1][6])
+	if records[1][4] != "5.000000" {
+		t.Errorf("expected total_usd 5.000000, got %s", records[1][4])
 	}
 }
 
@@ -383,16 +373,12 @@ func TestExportPDF_WithRecords(t *testing.T) {
 				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
 				RunsCount:        42,
 				ComputeCostMicro: 5000000,
-				AITokensTotal:    1000,
-				AICostMicro:      2000000,
 			},
 			{
 				ProjectID:        "proj-b",
 				PeriodDate:       time.Date(2026, 1, 16, 0, 0, 0, 0, time.UTC),
 				RunsCount:        10,
 				ComputeCostMicro: 1000000,
-				AITokensTotal:    500,
-				AICostMicro:      500000,
 			},
 		},
 	}
@@ -431,8 +417,6 @@ func TestExportPDF_NoSubscription(t *testing.T) {
 				PeriodDate:       time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC),
 				RunsCount:        5,
 				ComputeCostMicro: 100000,
-				AITokensTotal:    50,
-				AICostMicro:      50000,
 			},
 		},
 	}
@@ -466,8 +450,6 @@ func TestExportCSV_VerifyAllColumns(t *testing.T) {
 				PeriodDate:       time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
 				RunsCount:        100,
 				ComputeCostMicro: 10000000,
-				AITokensTotal:    5000,
-				AICostMicro:      3000000,
 			},
 		},
 	}
@@ -491,9 +473,8 @@ func TestExportCSV_VerifyAllColumns(t *testing.T) {
 		t.Fatalf("expected 2 rows (header + 1 data), got %d", len(records))
 	}
 
-	// Verify total_usd = compute + AI
-	if records[1][6] != "13.000000" {
-		t.Errorf("expected total_usd 13.000000 (10+3), got %s", records[1][6])
+	if records[1][4] != "10.000000" {
+		t.Errorf("expected total_usd 10.000000, got %s", records[1][4])
 	}
 }
 
@@ -506,8 +487,6 @@ func TestExportPDF_LargeDataSet(t *testing.T) {
 			PeriodDate:       time.Date(2026, 1, 1+(i%28), 0, 0, 0, 0, time.UTC),
 			RunsCount:        int64(i * 10),
 			ComputeCostMicro: int64(i * 100000),
-			AITokensTotal:    int64(i * 50),
-			AICostMicro:      int64(i * 50000),
 		})
 	}
 	store := &mockExportStore{usageRecords: records}

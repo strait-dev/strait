@@ -27,6 +27,7 @@ func TestCollect_AllActions(t *testing.T) {
 			}
 			if pubMsg == nil {
 				t.Fatal("expected non-nil message")
+				return
 			}
 			var event ChangeEvent
 			if err := json.Unmarshal(pubMsg.Data, &event); err != nil {

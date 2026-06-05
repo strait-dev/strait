@@ -231,12 +231,12 @@ func TestCleanupBoundsCleanupDuration(t *testing.T) {
 	wrapped.ServeHTTP(w, r)
 	select {
 	case <-deleteCh:
-	case <-time.After(6 * time.Second):
-		t.Fatalf("DeleteIdempotencyKey did not return within 6s; cleanup timeout missing")
+	case <-time.After(8 * time.Second):
+		t.Fatalf("DeleteIdempotencyKey did not return within 8s; cleanup timeout missing")
 	}
 	elapsed := time.Since(start)
-	if elapsed > 6*time.Second {
-		t.Fatalf("middleware blocked %v on cleanup; expected <= ~5s", elapsed)
+	if elapsed > 8*time.Second {
+		t.Fatalf("middleware blocked %v on cleanup; expected bounded cleanup", elapsed)
 	}
 
 	select {

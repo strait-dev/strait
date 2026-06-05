@@ -23,7 +23,7 @@ Used for project-specific operations. API keys are prefixed with `strait_`.
 - **Header**: `Authorization: Bearer strait_...`
 
 ### OIDC Bearer Tokens (Optional)
-Used for user API access when OIDC verification is enabled.
+Used for user API access when OIDC bearer verification is enabled. This is not hosted dashboard SSO/SAML.
 - **Header**: `Authorization: Bearer <oidc-token>`
 
 ### JWT Run Tokens
@@ -52,8 +52,17 @@ List endpoints use cursor-based pagination.
 
 ## Rate Limiting
 
-Rate limits are applied per IP address:
-- **Global API**: 100 requests per minute.
+Cloud API rate limits are plan-based when the request resolves to a project or API key. API-key and project quota overrides can lower the plan cap, but cannot raise it above the plan limit.
+
+- **Free**: 60 requests per minute.
+- **Starter**: 300 requests per minute.
+- **Pro**: 1,000 requests per minute.
+- **Scale**: 3,000 requests per minute.
+- **Business and Enterprise**: unlimited by plan.
+
+When no project or API key limit can be resolved, Strait falls back to the server-wide IP limit configured by `RATE_LIMIT_REQUESTS` and `RATE_LIMIT_WINDOW`.
+
+Additional endpoint-specific limits:
 - **Job Trigger**: 10 triggers per minute.
 - **Bulk Trigger**: 5 bulk trigger requests per minute.
 
@@ -171,7 +180,7 @@ Every error response follows the same shape:
 
 ### Bulk Operations
 
-- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to the configured `MAX_BULK_TRIGGER_ITEMS` limit in a single request. Supports per-item payload, priority, idempotency keys, and tags. Returns structured results with per-item status. Rate limited to 5 requests per minute.
+- `POST /v1/jobs/{jobID}/trigger/bulk`: Trigger up to the configured `MAX_BULK_TRIGGER_ITEMS` limit in a single request. Supports per-item payload, dispatch priority within the shared platform range, idempotency keys, and tags. This `priority` field is not the roadmap paid priority-queue entitlement. Returns structured results with per-item status. Rate limited to 5 requests per minute.
 - `POST /v1/runs/bulk-cancel`: Cancel up to 100 runs in a single request. Returns per-run cancel status with error details for runs that could not be canceled.
 
 ### Version Analysis

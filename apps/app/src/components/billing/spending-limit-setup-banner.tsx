@@ -13,7 +13,7 @@ import {
 
 const MICRO_USD = 1_000_000;
 const PRESET_AMOUNTS = [25, 50, 100, 250];
-const PAID_PLANS = new Set(["starter", "pro", "scale"]);
+const PAID_PLANS = new Set(["starter", "pro", "scale", "business"]);
 
 const SpendingLimitSetupBanner = () => {
   const { data: usage } = useQuery(orgUsageQueryOptions());
@@ -46,6 +46,7 @@ const SpendingLimitSetupBanner = () => {
     updateLimit.mutate({
       limitMicrousd: dollars * MICRO_USD,
       action: "reject",
+      overageEnabled: spending.overage_enabled,
     });
     handleDismiss();
   };

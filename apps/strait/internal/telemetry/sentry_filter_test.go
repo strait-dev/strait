@@ -160,6 +160,7 @@ func TestBeforeSend_SanitizesEvent(t *testing.T) {
 	got := BeforeSend(event, &sentry.EventHint{OriginalException: errors.New("boom")})
 	if got == nil {
 		t.Fatal("expected event to be kept")
+		return
 	}
 	if got.Request.Headers != nil || got.Request.Cookies != "" || got.Request.Data != "" {
 		t.Fatal("expected request headers, cookies, and data to be stripped")

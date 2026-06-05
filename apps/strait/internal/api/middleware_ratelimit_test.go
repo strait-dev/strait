@@ -2,13 +2,18 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"strait/internal/billing"
 	"strait/internal/config"
 	"strait/internal/domain"
 	"strait/internal/ratelimit"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 // mockRateLimiter wraps a real RedisRateLimiter or provides deterministic behavior.
@@ -42,6 +47,66 @@ func reqWithAPIKey(apiKeyID string, apiKey *domain.APIKey) *http.Request {
 		ctx = context.WithValue(ctx, ctxAuthKeyObjKey, apiKey)
 	}
 	return req.WithContext(ctx)
+}
+
+type rateLimitPlanEnforcer struct {
+	orgID     string
+	orgErr    error
+	limits    billing.OrgPlanLimits
+	limitsErr error
+	used      int64
+}
+
+func (e rateLimitPlanEnforcer) CheckProjectLimit(context.Context, string) error { return nil }
+func (e rateLimitPlanEnforcer) CheckMemberLimit(context.Context, string) error  { return nil }
+func (e rateLimitPlanEnforcer) CheckOrgCreationLimit(context.Context, string, domain.PlanTier) error {
+	return nil
+}
+func (e rateLimitPlanEnforcer) CheckMaxDispatchPriority(context.Context, string, int) error {
+	return nil
+}
+func (e rateLimitPlanEnforcer) GetProjectOrgID(context.Context, string) (string, error) {
+	if e.orgErr != nil {
+		return "", e.orgErr
+	}
+	return e.orgID, nil
+}
+func (e rateLimitPlanEnforcer) GetActiveProjectOrgID(context.Context, string) (string, error) {
+	return e.orgID, nil
+}
+func (e rateLimitPlanEnforcer) GetOrgPlanLimits(context.Context, string) (billing.OrgPlanLimits, error) {
+	if e.limitsErr != nil {
+		return billing.OrgPlanLimits{}, e.limitsErr
+	}
+	return e.limits, nil
+}
+func (e rateLimitPlanEnforcer) GetMonthlyRunCount(context.Context, string) (int64, error) {
+	return e.used, nil
+}
+func (e rateLimitPlanEnforcer) EnsureOrgSubscription(context.Context, string) error { return nil }
+func (e rateLimitPlanEnforcer) DispatchBilling(context.Context, string, domain.PlanTier, string, map[string]any) {
+}
+
+func TestSetUsageHeaders_UsesMonthlyRunAllowance(t *testing.T) {
+	t.Parallel()
+	limits := billing.GetPlanLimits(domain.PlanStarter)
+	srv := &Server{
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-1",
+			limits: limits,
+			used:   1234,
+		},
+	}
+	rr := httptest.NewRecorder()
+
+	srv.setUsageHeaders(context.Background(), rr, &limits, "proj-1")
+
+	if got := rr.Header().Get("X-Strait-Usage-Limit"); got != "50000" {
+		t.Fatalf("usage limit header = %q, want monthly allowance 50000", got)
+	}
+	if got := rr.Header().Get("X-Strait-Usage-Remaining"); got != "48766" {
+		t.Fatalf("usage remaining header = %q, want 48766", got)
+	}
 }
 
 func TestProjectRateLimit_NoRedis_FailsOpen(t *testing.T) {
@@ -145,6 +210,29 @@ func TestProjectRateLimit_Headers_SetWhenLimited(t *testing.T) {
 	}
 }
 
+func TestProjectRateLimit_RedisErrorReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	mr := miniredis.RunT(t)
+	addr := mr.Addr()
+	mr.Close()
+	client := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { _ = client.Close() })
+
+	cfg := &config.Config{
+		DefaultAPIKeyRateLimit:      100,
+		DefaultAPIKeyRateWindowSecs: 60,
+	}
+	ts := newRLTestServer(cfg, ratelimit.NewRedisRateLimiter(client, true))
+
+	rr := httptest.NewRecorder()
+	ts.handler.ServeHTTP(rr, reqWithAPIKey("key-redis-down", &domain.APIKey{}))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
+	}
+}
+
 func TestProjectRateLimit_ZeroDefaultConfig_SkipsRateLimit(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -191,6 +279,159 @@ func TestProjectRateLimit_ProjectFallback_NoAPIKey(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestResolveRateLimit_UsesPlanLimitBeforeGlobalDefault(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+			RateLimitRequests:           1000,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-free",
+			limits: billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.limit != billing.APIRateFree {
+		t.Fatalf("limit = %d, want free plan limit %d", rl.limit, billing.APIRateFree)
+	}
+	if rl.windowSecs != 60 {
+		t.Fatalf("windowSecs = %d, want 60", rl.windowSecs)
+	}
+	if rl.key != "rl:plan:org-free" {
+		t.Fatalf("key = %q, want rl:plan:org-free", rl.key)
+	}
+}
+
+func TestResolveRateLimit_UnlimitedPlanDoesNotFallBackToGlobalDefault(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+			RateLimitRequests:           1000,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-business",
+			limits: billing.GetPlanLimits(domain.PlanBusiness),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-business", "")
+	if rl.limit != 0 || rl.windowSecs != 0 || rl.key != "" {
+		t.Fatalf("unlimited plan resolved rate limit = %+v, want zero-value no limit", rl)
+	}
+}
+
+func TestResolveRateLimit_APIKeyOverrideCannotExceedPlanCap(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:  "org-free",
+			limits: billing.GetPlanLimits(domain.PlanFree),
+		},
+	}
+	req := reqWithAPIKey("key-1", &domain.APIKey{
+		RateLimitRequests:   1000,
+		RateLimitWindowSecs: 60,
+	})
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "key-1")
+	if rl.limit != billing.APIRateFree {
+		t.Fatalf("limit = %d, want key override capped to free plan limit %d", rl.limit, billing.APIRateFree)
+	}
+	if rl.key != "rl:apikey:key-1" {
+		t.Fatalf("key = %q, want rl:apikey:key-1", rl.key)
+	}
+}
+
+func TestResolveRateLimit_ProjectOrgLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgErr: errors.New("database unavailable"),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.err == nil {
+		t.Fatal("expected project org lookup error to fail closed")
+	}
+	if rl.limit != 0 || rl.key != "" {
+		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
+	}
+}
+
+func TestResolveRateLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		billingEnforcer: rateLimitPlanEnforcer{
+			orgID:     "org-free",
+			limitsErr: errors.New("catalog unavailable"),
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+
+	rl := s.resolveRateLimit(req.Context(), req, "proj-free", "")
+	if rl.err == nil {
+		t.Fatal("expected plan limit lookup error to fail closed")
+	}
+	if rl.limit != 0 || rl.key != "" {
+		t.Fatalf("resolved rate limit = %+v, want no fallback limit when plan lookup fails", rl)
+	}
+}
+
+func TestProjectRateLimit_PlanLookupErrorReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &config.Config{
+			DefaultAPIKeyRateLimit:      1000,
+			DefaultAPIKeyRateWindowSecs: 60,
+		},
+		rateLimiter: ratelimit.NewRedisRateLimiter(nil, false),
+		billingEnforcer: rateLimitPlanEnforcer{
+			limitsErr: errors.New("catalog unavailable"),
+			orgID:     "org-free",
+		},
+	}
+	handler := s.projectRateLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+	ctx := context.WithValue(req.Context(), ctxProjectIDKey, "proj-free")
+	req = req.WithContext(ctx)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusServiceUnavailable)
 	}
 }
 

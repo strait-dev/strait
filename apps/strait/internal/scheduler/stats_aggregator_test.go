@@ -28,6 +28,7 @@ func TestStatsAggregator_New(t *testing.T) {
 	a := NewStatsAggregator(&mockStatsStore{})
 	if a == nil {
 		t.Fatal("expected non-nil aggregator")
+		return
 	}
 	if a.store == nil {
 		t.Fatal("expected store to be set")

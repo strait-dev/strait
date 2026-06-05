@@ -8,12 +8,9 @@ import (
 	"strait/internal/domain"
 )
 
-// retentionPackDays is the number of extra retention days granted per retention_pack unit.
-const retentionPackDays = 30
-
 // PlanRetentionResolver implements the scheduler.OrgRetentionResolver interface
 // by looking up each org's plan tier and returning the corresponding retention days.
-// It accounts for add-on retention packs when present.
+// It accounts for active table-backed history add-ons when present.
 type PlanRetentionResolver struct {
 	store Store
 }
@@ -28,8 +25,8 @@ func (r *PlanRetentionResolver) ListAllSubscribedOrgIDs(ctx context.Context) ([]
 	return r.store.ListAllSubscribedOrgIDs(ctx)
 }
 
-// GetOrgRetentionDays returns the retention period for an org based on their plan tier
-// plus any purchased retention packs from add_ons.
+// GetOrgRetentionDays returns the retention period for an org based on their
+// plan tier plus active table-backed history add-ons.
 func (r *PlanRetentionResolver) GetOrgRetentionDays(ctx context.Context, orgID string) (int, error) {
 	if orgID == "" {
 		return 0, errors.New("org id is required")

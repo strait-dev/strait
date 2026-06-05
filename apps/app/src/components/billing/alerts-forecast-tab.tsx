@@ -108,7 +108,7 @@ const AlertsForecastTab = () => {
         <CardContent>
           {forecast ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 <MetricCard
                   size="sm"
                   title="Projected Runs"
@@ -118,13 +118,8 @@ const AlertsForecastTab = () => {
                 />
                 <MetricCard
                   size="sm"
-                  title="Projected Compute"
-                  value={`$${(forecast.projected_monthly_compute_usd ?? 0).toFixed(2)}`}
-                />
-                <MetricCard
-                  size="sm"
-                  title="Projected AI Cost"
-                  value={`$${(forecast.projected_monthly_ai_cost_usd ?? 0).toFixed(2)}`}
+                  title="Projected Spend"
+                  value={`$${(forecast.projected_monthly_spend_usd ?? 0).toFixed(2)}`}
                 />
                 <MetricCard
                   size="sm"

@@ -35,15 +35,25 @@ func TestCatalogResolver_TierLookupKeys_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestCatalogResolver_AddonLookupKeys_RoundTrip walks every entry in
-// AddonPacks and confirms its lookup key resolves back to the same addon
-// type. Same drift-catching purpose as the tier round-trip.
+// TestCatalogResolver_AddonLookupKeys_RoundTrip walks every launch-active
+// entry in AddonPacks and confirms its lookup key resolves back to the same
+// addon type. Roadmap-only add-ons stay in AddonPacks for catalog/docs, but
+// must not resolve through the sellable Stripe lookup-key path.
 func TestCatalogResolver_AddonLookupKeys_RoundTrip(t *testing.T) {
 	t.Parallel()
 	r := NewCatalogResolver()
 
 	for _, pack := range AddonPacks {
 		if pack.LookupKey == "" {
+			continue
+		}
+		if !IsLaunchActiveAddonType(pack.Type) {
+			if _, ok := r.AddonForLookupKey(pack.LookupKey); ok {
+				t.Errorf("roadmap addon %q: lookup key %q must not resolve as sellable addon", pack.Type, pack.LookupKey)
+			}
+			if r.IsAddonLookupKey(pack.LookupKey) {
+				t.Errorf("roadmap addon %q: lookup key %q must not register as addon", pack.Type, pack.LookupKey)
+			}
 			continue
 		}
 		got, ok := r.AddonForLookupKey(pack.LookupKey)

@@ -621,6 +621,7 @@ func TestValidateTriggerRequest_Valid(t *testing.T) {
 	}
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.Job.ID != "job-1" {
 		t.Fatalf("expected job ID job-1, got %q", result.Job.ID)
@@ -1148,7 +1149,7 @@ func (m *adversarialBillingEnforcer) GetOrgPlanLimits(_ context.Context, _ strin
 	return billing.OrgPlanLimits{}, nil
 }
 
-func (m *adversarialBillingEnforcer) GetDailyRunCount(_ context.Context, _ string) (int64, error) {
+func (m *adversarialBillingEnforcer) GetMonthlyRunCount(_ context.Context, _ string) (int64, error) {
 	return 0, nil
 }
 
@@ -1160,10 +1161,6 @@ func (m *adversarialBillingEnforcer) EnsureOrgSubscription(ctx context.Context, 
 	if m.ensureOrgSubscriptionFn != nil {
 		return m.ensureOrgSubscriptionFn(ctx, orgID)
 	}
-	return nil
-}
-
-func (m *adversarialBillingEnforcer) CheckDailyAIModelCallLimit(_ context.Context, _ string) error {
 	return nil
 }
 

@@ -29,7 +29,7 @@ const wrongSigningKey = "99999999999999999999999999999999"
 func TestResolveSDKCapabilities_V1(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("1.0")
-	if caps.Progress || caps.Checkpoint || caps.UsageReport {
+	if caps.Progress || caps.Checkpoint {
 		t.Fatalf("v1 should have no capabilities, got %+v", caps)
 	}
 }
@@ -37,15 +37,15 @@ func TestResolveSDKCapabilities_V1(t *testing.T) {
 func TestResolveSDKCapabilities_V2(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("2.0")
-	if !caps.Progress || !caps.Checkpoint || !caps.UsageReport {
-		t.Fatalf("v2 should have all capabilities, got %+v", caps)
+	if !caps.Progress || !caps.Checkpoint {
+		t.Fatalf("v2 should advertise only launch-active capabilities, got %+v", caps)
 	}
 }
 
 func TestResolveSDKCapabilities_Empty(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("")
-	if caps.Progress || caps.Checkpoint || caps.UsageReport {
+	if caps.Progress || caps.Checkpoint {
 		t.Fatalf("empty version should have no capabilities, got %+v", caps)
 	}
 }
@@ -59,11 +59,11 @@ func TestResolveSDKCapabilities_Malformed(t *testing.T) {
 		// Only numeric majors >= 2 should yield capabilities.
 		if v == "2.x" {
 			// Major part before "." is "2", which parses to 2.
-			if !caps.Progress || !caps.Checkpoint || !caps.UsageReport {
-				t.Fatalf("version %q: expected all capabilities for major=2, got %+v", v, caps)
+			if !caps.Progress || !caps.Checkpoint {
+				t.Fatalf("version %q: expected launch-active capabilities for major=2, got %+v", v, caps)
 			}
 		} else {
-			if caps.Progress || caps.Checkpoint || caps.UsageReport {
+			if caps.Progress || caps.Checkpoint {
 				t.Fatalf("version %q should have no capabilities, got %+v", v, caps)
 			}
 		}
@@ -73,8 +73,8 @@ func TestResolveSDKCapabilities_Malformed(t *testing.T) {
 func TestResolveSDKCapabilities_LargeVersion(t *testing.T) {
 	t.Parallel()
 	caps := resolveSDKCapabilities("99999.0.0")
-	if !caps.Progress || !caps.Checkpoint || !caps.UsageReport {
-		t.Fatalf("large major version should have all capabilities, got %+v", caps)
+	if !caps.Progress || !caps.Checkpoint {
+		t.Fatalf("large major version should advertise only launch-active capabilities, got %+v", caps)
 	}
 }
 
@@ -102,38 +102,28 @@ func TestSDKCapabilitiesHeader_AllCombinations(t *testing.T) {
 	bools := []bool{false, true}
 	for _, p := range bools {
 		for _, c := range bools {
-			for _, u := range bools {
-				caps := SDKCapabilities{Progress: p, Checkpoint: c, UsageReport: u}
-				header := sdkCapabilitiesHeader(caps)
-				if header == "" {
-					t.Fatal("header must never be empty string")
+			caps := SDKCapabilities{Progress: p, Checkpoint: c}
+			header := sdkCapabilitiesHeader(caps)
+			if header == "" {
+				t.Fatal("header must never be empty string")
+			}
+			if !p && !c {
+				if header != "none" {
+					t.Fatalf("all-false should produce 'none', got %q", header)
 				}
-				if !p && !c && !u {
-					if header != "none" {
-						t.Fatalf("all-false should produce 'none', got %q", header)
-					}
-					continue
-				}
-				// Verify each expected part is present.
-				if p && !strings.Contains(header, "progress") {
-					t.Fatalf("expected 'progress' in header %q", header)
-				}
-				if c && !strings.Contains(header, "checkpoint") {
-					t.Fatalf("expected 'checkpoint' in header %q", header)
-				}
-				if u && !strings.Contains(header, "usage") {
-					t.Fatalf("expected 'usage' in header %q", header)
-				}
-				// Verify absent parts are not present.
-				if !p && strings.Contains(header, "progress") {
-					t.Fatalf("unexpected 'progress' in header %q", header)
-				}
-				if !c && strings.Contains(header, "checkpoint") {
-					t.Fatalf("unexpected 'checkpoint' in header %q", header)
-				}
-				if !u && strings.Contains(header, "usage") {
-					t.Fatalf("unexpected 'usage' in header %q", header)
-				}
+				continue
+			}
+			if p && !strings.Contains(header, "progress") {
+				t.Fatalf("expected 'progress' in header %q", header)
+			}
+			if c && !strings.Contains(header, "checkpoint") {
+				t.Fatalf("expected 'checkpoint' in header %q", header)
+			}
+			if !p && strings.Contains(header, "progress") {
+				t.Fatalf("unexpected 'progress' in header %q", header)
+			}
+			if !c && strings.Contains(header, "checkpoint") {
+				t.Fatalf("unexpected 'checkpoint' in header %q", header)
 			}
 		}
 	}
@@ -242,14 +232,6 @@ func (m *racingTerminalSDKStore) UpsertRunStateForActiveRun(context.Context, *do
 }
 
 func (m *racingTerminalSDKStore) DeleteRunStateForActiveRun(context.Context, string, string, int) error {
-	return store.ErrRunConflict
-}
-
-func (m *racingTerminalSDKStore) CreateRunUsageForActiveRun(context.Context, *domain.RunUsage, int) error {
-	return store.ErrRunConflict
-}
-
-func (m *racingTerminalSDKStore) CreateRunToolCallForActiveRun(context.Context, *domain.RunToolCall, int) error {
 	return store.ErrRunConflict
 }
 
@@ -1073,14 +1055,11 @@ func TestSDKMutations_RevalidateAfterAtomicGuardConflict(t *testing.T) {
 		{name: "checkpoint", method: http.MethodPost, path: "/sdk/v1/runs/run-1/checkpoint", body: `{"state":{"cursor":1}}`},
 		{name: "state", method: http.MethodPost, path: "/sdk/v1/runs/run-1/state", body: `{"key":"k","value":{"late":true}}`},
 		{name: "delete-state", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/state/k", body: ""},
-		{name: "usage", method: http.MethodPost, path: "/sdk/v1/runs/run-1/usage", body: `{"provider":"openai","model":"gpt-4","prompt_tokens":1,"completion_tokens":1}`},
-		{name: "tool-call", method: http.MethodPost, path: "/sdk/v1/runs/run-1/tool-call", body: `{"tool_name":"search"}`},
 		{name: "output", method: http.MethodPost, path: "/sdk/v1/runs/run-1/output", body: `{"output_key":"final","value":{"late":true}}`},
 		{name: "memory", method: http.MethodPost, path: "/sdk/v1/runs/run-1/memory/k", body: `{"value":{"late":true}}`},
 		{name: "delete-memory", method: http.MethodDelete, path: "/sdk/v1/runs/run-1/memory/k", body: ""},
 		{name: "stream", method: http.MethodPost, path: "/sdk/v1/runs/run-1/stream", body: `{"chunk":"late"}`},
 		{name: "resource-snapshot", method: http.MethodPost, path: "/sdk/v1/runs/run-1/resource-snapshot", body: `{"cpu_percent":1,"memory_mb":2}`},
-		{name: "iteration", method: http.MethodPost, path: "/sdk/v1/runs/run-1/iteration", body: `{"iteration":1}`},
 		{name: "spawn", method: http.MethodPost, path: "/sdk/v1/runs/run-1/spawn", body: `{"job_slug":"child","project_id":"proj-1"}`},
 		{name: "continue", method: http.MethodPost, path: "/sdk/v1/runs/run-1/continue", body: `{}`},
 	}

@@ -265,13 +265,13 @@ func (re *UsageReportEmailer) finalizeReportSent(ctx context.Context, orgID stri
 func sumUsageRecordSpend(records []billing.UsageRecord) int64 {
 	var total int64
 	for _, record := range records {
-		total += record.ComputeCostMicro + record.AICostMicro
+		total += record.ComputeCostMicro + record.UsageCostMicro
 	}
 	return total
 }
 
 func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Time, creditMicro int64, addonCount int, overageMicro int64) string {
-	creditUsd := fmt.Sprintf("$%.2f", float64(creditMicro)/1_000_000)
+	_ = creditMicro
 	overageUsd := fmt.Sprintf("$%.2f", float64(overageMicro)/1_000_000)
 
 	addonLine := ""
@@ -281,18 +281,18 @@ func buildUsageReportHTML(orgID, planTier string, periodStart, periodEnd time.Ti
 
 	overageLine := ""
 	if overageMicro > 0 {
-		overageLine = fmt.Sprintf(`<p><strong>Overage:</strong> %s (above included credit)</p>`, overageUsd)
+		overageLine = fmt.Sprintf(`<p><strong>Overage:</strong> %s beyond the included run allowance</p>`, overageUsd)
 	}
 
 	return fmt.Sprintf(`<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
 <h2>Monthly Usage Report</h2>
 <p>Here is your usage summary for <strong>%s</strong> (%s plan).</p>
 <p>Period: %s to %s</p>
-<p><strong>Included credit:</strong> %s/mo</p>
+<p><strong>Included allowance:</strong> metered orchestration runs for this billing period</p>
 %s%s<p>Your detailed usage report is attached as a PDF.</p>
 <p>To manage your billing and spending limits, visit your <a href="https://app.strait.dev/app/billing">billing settings</a>.</p>
 <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0">
 <p style="font-size:12px;color:#666">This is an automated email from Strait. You can disable monthly reports in your organization settings.</p>
 </div>`, orgID, planTier, periodStart.Format("Jan 2"), periodEnd.Format("Jan 2, 2006"),
-		creditUsd, addonLine, overageLine)
+		addonLine, overageLine)
 }

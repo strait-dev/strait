@@ -1342,7 +1342,7 @@ func TestWebhook_AuditStoreError(t *testing.T) {
 	}
 }
 
-func TestEnforcer_CheckSpendingLimit_FailOpen(t *testing.T) {
+func TestEnforcer_CheckSpendingLimit_SubscriptionReadFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	store := &errStore{
@@ -1350,10 +1350,13 @@ func TestEnforcer_CheckSpendingLimit_FailOpen(t *testing.T) {
 	}
 	e := NewEnforcer(store, nil, slog.Default())
 
-	// Should fail open (return nil) when DB is unreachable.
 	err := e.CheckSpendingLimit(context.Background(), "org-fail-open")
-	if err != nil {
-		t.Fatalf("expected fail-open (nil error), got %v", err)
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -1852,7 +1855,7 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	impacts := []ResourceImpact{
 		{Resource: "projects", Action: ResourceActionReduce, Current: 10, Limit: 5},
 		{Resource: "members_per_org", Action: ResourceActionReduce, Current: 25, Limit: 10},
-		{Resource: "regions", Action: ResourceActionReduce, Current: 25, Limit: 6},
+		{Resource: "log_drains", Action: ResourceActionReduce, Current: 5, Limit: 1},
 		{Resource: "retention_days", Action: ResourceActionOK, Current: 30, Limit: 30},
 	}
 
@@ -1864,8 +1867,8 @@ func TestAutoDisableResources_Separation(t *testing.T) {
 	if len(auto) != 1 {
 		t.Fatalf("expected 1 auto-disabled, got %d", len(auto))
 	}
-	if auto[0].Resource != "regions" {
-		t.Errorf("expected regions as auto-disabled, got %s", auto[0].Resource)
+	if auto[0].Resource != "log_drains" {
+		t.Errorf("expected log drains as auto-disabled, got %s", auto[0].Resource)
 	}
 }
 
@@ -2116,9 +2119,9 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 
 	store := &mockBillingStore{
 		usageRecords: []UsageRecord{
-			{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000, AICostMicro: 500},
-			{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 600, AICostMicro: 200},
-			{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 300, AICostMicro: 100},
+			{ProjectID: "proj-a", RunsCount: 10, ComputeCostMicro: 1000},
+			{ProjectID: "proj-a", RunsCount: 5, ComputeCostMicro: 600},
+			{ProjectID: "proj-b", RunsCount: 3, ComputeCostMicro: 300},
 		},
 	}
 	e := NewEnforcer(store, nil, slog.Default())
@@ -2144,8 +2147,8 @@ func TestUsageService_GetProjectCosts(t *testing.T) {
 		if a.Runs != 15 {
 			t.Errorf("proj-a runs: expected 15, got %d", a.Runs)
 		}
-		if a.TotalMicro != 2300 {
-			t.Errorf("proj-a total: expected 2300, got %d", a.TotalMicro)
+		if a.TotalMicro != 1600 {
+			t.Errorf("proj-a total: expected 1600, got %d", a.TotalMicro)
 		}
 	} else {
 		t.Fatal("proj-a not found in costs")
@@ -2162,8 +2165,8 @@ func TestUsageService_ExportCSV(t *testing.T) {
 				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 				RunsCount:        100,
 				ComputeCostMicro: 50000,
-				AITokensTotal:    1000,
-				AICostMicro:      2000,
+				UsageTokensTotal: 1000,
+				UsageCostMicro:   2000,
 			},
 		},
 	}
@@ -2202,7 +2205,7 @@ func TestUsageService_ExportPDF(t *testing.T) {
 				PeriodDate:       time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 				RunsCount:        50,
 				ComputeCostMicro: 25000,
-				AICostMicro:      1000,
+				UsageCostMicro:   1000,
 			},
 		},
 	}
@@ -2380,7 +2383,7 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 			ProjectID:        "proj-1",
 			PeriodDate:       today.AddDate(0, 0, -i),
 			ComputeCostMicro: 1000,
-			AICostMicro:      0,
+			UsageCostMicro:   0,
 		})
 	}
 	// Today's spend is 10x the average (spike).
@@ -2389,7 +2392,7 @@ func TestUsageService_DetectAnomalies(t *testing.T) {
 		ProjectID:        "proj-1",
 		PeriodDate:       today,
 		ComputeCostMicro: 10000,
-		AICostMicro:      0,
+		UsageCostMicro:   0,
 	})
 
 	store := &mockBillingStore{

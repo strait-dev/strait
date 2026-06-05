@@ -287,7 +287,7 @@ func (ts *TestServer) handleMemoryHeavy(w http.ResponseWriter, _ *http.Request) 
 	})
 }
 
-// handleCostReporter simulates a job that reports cost metadata.
+// handleCostReporter simulates a job that reports external service cost metadata.
 func (ts *TestServer) handleCostReporter(w http.ResponseWriter, _ *http.Request) {
 	ts.stats.CostReporter.Add(1)
 	ts.stats.Total.Add(1)
@@ -297,11 +297,10 @@ func (ts *TestServer) handleCostReporter(w http.ResponseWriter, _ *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"cost": map[string]any{
-			"provider":          "openai",
-			"model":             "gpt-4o",
-			"prompt_tokens":     800 + rand.IntN(500),       //nolint:gosec // non-cryptographic use for load test simulation
-			"completion_tokens": 200 + rand.IntN(300),       //nolint:gosec // non-cryptographic use for load test simulation
-			"total_cost_usd":    0.01 + rand.Float64()*0.05, //nolint:gosec // non-cryptographic use for load test simulation
+			"provider":       "external_api",
+			"operation":      "document_parse",
+			"units":          800 + rand.IntN(500),       //nolint:gosec // non-cryptographic use for load test simulation
+			"total_cost_usd": 0.01 + rand.Float64()*0.05, //nolint:gosec // non-cryptographic use for load test simulation
 		},
 		"result": "processed",
 	})

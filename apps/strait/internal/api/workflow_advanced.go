@@ -35,6 +35,9 @@ func (s *Server) handleUpsertWorkflowPolicy(ctx context.Context, input *UpsertWo
 	if !isInternalCaller(ctx) && !s.hasProjectPermission(ctx, domain.ScopeRBACManage) {
 		return nil, huma.Error403Forbidden("workflow policy changes require rbac:manage")
 	}
+	if err := s.checkRBACLevel(ctx, input.ProjectID, "advanced", "Workflow policies"); err != nil {
+		return nil, err
+	}
 	policy := &domain.WorkflowPolicy{
 		ProjectID:                input.ProjectID,
 		MaxFanOut:                input.Body.MaxFanOut,
@@ -66,6 +69,9 @@ type GetWorkflowPolicyOutput struct {
 func (s *Server) handleGetWorkflowPolicy(ctx context.Context, input *GetWorkflowPolicyInput) (*GetWorkflowPolicyOutput, error) {
 	if err := requireProjectMatch(ctx, input.ProjectID); err != nil {
 		return nil, huma.Error404NotFound("not found")
+	}
+	if err := s.checkRBACLevel(ctx, input.ProjectID, "advanced", "Workflow policies"); err != nil {
+		return nil, err
 	}
 	policy, err := s.store.GetWorkflowPolicyByProject(ctx, input.ProjectID)
 	if err != nil {

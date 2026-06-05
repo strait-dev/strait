@@ -252,9 +252,6 @@ type Config struct {
 	DefaultRegion          string        `env:"DEFAULT_REGION" default:"iad"`
 	ExternalAPIURL         string        `env:"EXTERNAL_API_URL"`
 
-	// Region gating
-	EnforceRegionGating bool `env:"ENFORCE_REGION_GATING" default:"false"`
-
 	// ClickHouse (optional analytics)
 	ClickHouseEnabled       bool          `env:"CLICKHOUSE_ENABLED" default:"false"`
 	ClickHouseURL           string        `env:"CLICKHOUSE_URL"`
@@ -300,12 +297,6 @@ type Config struct {
 	StripeStarterOveragePriceID string `env:"STRIPE_STARTER_OVERAGE_PRICE_ID"`
 	StripeProOveragePriceID     string `env:"STRIPE_PRO_OVERAGE_PRICE_ID"`
 	StripeScaleOveragePriceID   string `env:"STRIPE_SCALE_OVERAGE_PRICE_ID"`
-	// Add-on price IDs for optional per-org upgrades.
-	StripeRetentionPackPriceID    string `env:"STRIPE_RETENTION_PACK_PRICE_ID"`
-	StripePrioritySlotPackPriceID string `env:"STRIPE_PRIORITY_SLOT_PACK_PRICE_ID"`
-	StripeLogDrainVolumePriceID   string `env:"STRIPE_LOG_DRAIN_VOLUME_PRICE_ID"`
-	StripeWorkerConnectionPriceID string `env:"STRIPE_WORKER_CONNECTION_PRICE_ID"`
-
 	// Prometheus uptime source for the SLA credit calculator. When
 	// PrometheusQueryURL is unset the SLACalculator falls back to a
 	// 100% StaticUptimeSource (no breaches), which keeps community /
@@ -489,8 +480,9 @@ func validateAuthConfig(cfg *Config) error {
 
 func validateRedisConfig(cfg *Config) error {
 	if cfg.RedisURL != "" {
-		if _, err := url.Parse(cfg.RedisURL); err != nil {
-			return &domain.ConfigError{Field: "REDIS_URL", Message: fmt.Sprintf("invalid URL: %v", err)}
+		u, err := url.Parse(cfg.RedisURL)
+		if err != nil || (u.Scheme != "redis" && u.Scheme != "rediss") {
+			return &domain.ConfigError{Field: "REDIS_URL", Message: "must be a valid redis:// or rediss:// URL"}
 		}
 	}
 	if cfg.RedisURL == "" && (cfg.RedisSentinelMaster == "" || len(cfg.RedisSentinelAddrs) == 0) {
@@ -530,6 +522,15 @@ func validateSequinConfig(cfg *Config) error {
 	}
 	if cfg.SequinAPIToken == "" {
 		return &domain.ConfigError{Field: "SEQUIN_API_TOKEN", Message: "is required"}
+	}
+	if cfg.SequinBatchSize <= 0 {
+		return &domain.ConfigError{Field: "SEQUIN_BATCH_SIZE", Message: "must be > 0"}
+	}
+	if cfg.SequinWaitTimeMs <= 0 {
+		return &domain.ConfigError{Field: "SEQUIN_WAIT_TIME_MS", Message: "must be > 0"}
+	}
+	if cfg.SequinWebhookSecret == "" && cfg.SentryEnvironment != "development" && cfg.SentryEnvironment != "test" {
+		return &domain.ConfigError{Field: "SEQUIN_WEBHOOK_SECRET", Message: "is required in non-development environments"}
 	}
 	return nil
 }

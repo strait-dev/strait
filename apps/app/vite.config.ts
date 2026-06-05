@@ -141,8 +141,11 @@ export default defineConfig(({ command }) => ({
     rollupOptions: {
       output: {
         assetFileNames(assetInfo) {
-          if (assetInfo.names.includes("globals.css")) {
-            return "assets/globals.css";
+          if (
+            assetInfo.names.includes("globals.css") ||
+            assetInfo.names.includes("styles.css")
+          ) {
+            return "assets/[name][extname]";
           }
 
           return "assets/[name]-[hash][extname]";

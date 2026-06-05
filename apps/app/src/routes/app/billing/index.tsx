@@ -97,11 +97,9 @@ function RouteComponent() {
 
         {isEnterprise && orgUsage?.enterprise_tier ? (
           <EnterpriseOverview
-            computeDiscountPct={orgUsage.compute_discount_pct ?? 0}
             contractEndDate={orgUsage.contract_end_date ?? ""}
-            creditUsedPercent={orgUsage.credit_used_percent}
             enterpriseTier={orgUsage.enterprise_tier}
-            includedCreditMicro={orgUsage.included_credit_microusd}
+            overageDiscountPct={orgUsage.overage_discount_pct ?? 0}
             periodSpendMicro={orgUsage.period_spend_microusd}
             slaUptimePct={orgUsage.sla_uptime_pct ?? 0}
           />

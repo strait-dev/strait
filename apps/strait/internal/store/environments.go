@@ -53,6 +53,47 @@ func (q *Queries) CreateEnvironment(ctx context.Context, env *domain.Environment
 	return nil
 }
 
+// CreateEnvironmentWithOrgLimit serializes org-wide environment quota
+// enforcement with row creation.
+func (q *Queries) CreateEnvironmentWithOrgLimit(ctx context.Context, env *domain.Environment, orgID string, maxEnvironments int) error {
+	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateEnvironmentWithOrgLimit")
+	defer span.End()
+
+	if maxEnvironments < 0 || orgID == "" {
+		return q.CreateEnvironment(ctx, env)
+	}
+
+	if _, ok := TxFromContext(ctx); ok {
+		return q.createEnvironmentWithOrgLimitLocked(ctx, env, orgID, maxEnvironments)
+	}
+	if _, ok := q.db.(pgx.Tx); ok {
+		return q.createEnvironmentWithOrgLimitLocked(ctx, env, orgID, maxEnvironments)
+	}
+	if _, ok := q.db.(TxBeginner); !ok {
+		return q.createEnvironmentWithOrgLimitLocked(ctx, env, orgID, maxEnvironments)
+	}
+
+	return q.withTx(ctx, func(txq *Queries) error {
+		return txq.createEnvironmentWithOrgLimitLocked(ctx, env, orgID, maxEnvironments)
+	})
+}
+
+func (q *Queries) createEnvironmentWithOrgLimitLocked(ctx context.Context, env *domain.Environment, orgID string, maxEnvironments int) error {
+	if err := q.acquirePlanLimitLock(ctx, "environment_limit:"+orgID); err != nil {
+		return err
+	}
+
+	count, err := q.CountEnvironmentsByOrg(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("count environments before create: %w", err)
+	}
+	if count >= maxEnvironments {
+		return ErrEnvironmentLimitExceeded
+	}
+
+	return q.CreateEnvironment(ctx, env)
+}
+
 func (q *Queries) GetEnvironment(ctx context.Context, id string) (*domain.Environment, error) {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.GetEnvironment")
 	defer span.End()
@@ -189,8 +230,10 @@ func (q *Queries) DeleteEnvironment(ctx context.Context, id string) error {
 	return nil
 }
 
-// CreateStandardEnvironments creates the three standard environments (development,
-// staging, production) for a project. This should be called when a project is created.
+// CreateStandardEnvironments creates the legacy standard environments
+// (development, staging, production) for callers that explicitly request them.
+// Launch project creation does not call this helper because active environments
+// are plan-capped and created on demand.
 func (q *Queries) CreateStandardEnvironments(ctx context.Context, projectID string) error {
 	ctx, span := otel.Tracer("strait").Start(ctx, "store.CreateStandardEnvironments")
 	defer span.End()

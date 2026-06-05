@@ -60,8 +60,8 @@ if [ "$JOB_ID" != "skip" ]; then
 
   if [ "$RUN_ID" != "skip" ]; then
     check "GET run" "$(api_code "$BASE/v1/runs/$RUN_ID")" "200"
-    check "GET run usage" "$(api_code "$BASE/v1/runs/$RUN_ID/usage")" "200"
-    check "GET run tool-calls" "$(api_code "$BASE/v1/runs/$RUN_ID/tool-calls")" "200"
+    check "GET run usage removed" "$(api_code "$BASE/v1/runs/$RUN_ID/usage")" "404"
+    check "GET run tool-calls removed" "$(api_code "$BASE/v1/runs/$RUN_ID/tool-calls")" "404"
     check "GET run outputs" "$(api_code "$BASE/v1/runs/$RUN_ID/outputs")" "200"
     check "GET run events" "$(api_code "$BASE/v1/runs/$RUN_ID/events")" "200"
     check "GET run checkpoints" "$(api_code "$BASE/v1/runs/$RUN_ID/checkpoints")" "200"
@@ -152,7 +152,7 @@ check "Performance analytics" "$(api_code "$BASE/v1/analytics/performance?period
 check "Cost analytics" "$(api_code "$BASE/v1/analytics/costs?from=$HOUR_AGO&to=$NOW")" "200"
 check "Cost trends" "$(api_code "$BASE/v1/analytics/costs/trends?from=$HOUR_AGO&to=$NOW&granularity=hourly")" "200"
 check "Cost top" "$(api_code "$BASE/v1/analytics/costs/top?from=$HOUR_AGO&to=$NOW&limit=10")" "200"
-check "Compute analytics" "$(api_code "$BASE/v1/analytics/compute?from=$HOUR_AGO&to=$NOW")" "200"
+check "Cost insights" "$(api_code "$BASE/v1/analytics/cost-insights?from=$HOUR_AGO&to=$NOW")" "200"
 
 # 9. Stats & other endpoints
 echo "[9] Stats & misc"

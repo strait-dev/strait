@@ -19,14 +19,14 @@ type OverageAlertProps = {
   name: string;
   planName: string;
   overageAmount: string;
-  includedCredit: string;
+  includedAllowance: string;
 };
 
 const OverageAlert = ({
   name,
   planName,
   overageAmount,
-  includedCredit,
+  includedAllowance,
 }: OverageAlertProps) => (
   <Html>
     <Preview>You've entered overage on your plan</Preview>
@@ -74,9 +74,10 @@ const OverageAlert = ({
 
           <Text className="m-0 text-left text-[#8D8D8D] text-sm leading-6">
             {name ? `Hello ${name},` : "Hello,"} your {planName} plan has
-            exceeded its {includedCredit} included credit. Current overage:{" "}
+            exceeded its included allowance of {includedAllowance} orchestration
+            runs. Current overage:{" "}
             <strong style={{ color: "#252525" }}>{overageAmount}</strong>. Set a
-            spending limit to control costs.
+            spending cap to control costs.
           </Text>
 
           <br />
@@ -125,7 +126,7 @@ OverageAlert.PreviewProps = {
   name: "Leonardo Santos",
   planName: "Pro",
   overageAmount: "$12.30",
-  includedCredit: "$49.99",
+  includedAllowance: "1,000,000",
 };
 
 export default OverageAlert;

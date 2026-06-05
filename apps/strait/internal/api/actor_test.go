@@ -125,6 +125,7 @@ func TestNewServerWithActorSyncer(t *testing.T) {
 	srv := newTestServerWithActorSyncer(t, ms, nil, nil, syncer)
 	if srv == nil {
 		t.Fatal("server should not be nil")
+		return
 	}
 	if srv.actorSyncer == nil {
 		t.Fatal("actorSyncer should be set")

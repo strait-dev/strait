@@ -51,7 +51,7 @@ Resolve the underlying SQL error, then restart. Do not edit historical migration
 Real-time run updates, SSE streaming, and gRPC worker-plane signalling depend on Redis and Sequin. If `/health/ready` shows `redis` or `sequin_cdc` as `down`, readiness fails because Strait requires both services at runtime.
 
 - Verify `REDIS_URL` and that Redis is reachable.
-- Verify `SEQUIN_BASE_URL`, `SEQUIN_CONSUMER_NAME`, and that Sequin can connect to PostgreSQL with logical replication enabled. See [Real-time updates](/concepts/real-time).
+- Verify `SEQUIN_BASE_URL`, `SEQUIN_CONSUMER_NAME`, `SEQUIN_API_TOKEN`, and that the configured Sequin sink is active and connected to PostgreSQL with logical replication enabled. See [Real-time updates](/concepts/real-time).
 
 ## Runs are stuck or not progressing
 

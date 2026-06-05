@@ -84,6 +84,7 @@ func TestApproveDeviceCodeAuditCarriesAPIKeyID(t *testing.T) {
 	}
 	if approvedEvent == nil {
 		t.Fatalf("expected audit event with action %q, got %d events", domain.AuditActionDeviceCodeApproved, len(auditEvents))
+		return
 	}
 
 	var details map[string]any

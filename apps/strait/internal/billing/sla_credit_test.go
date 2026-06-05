@@ -337,6 +337,7 @@ func TestSLACalculator_DispatchFailurePersistsAndRetriesUndispatchedCredit(t *te
 	row := store.creditFor(orgID, periodStart, periodEnd)
 	if row == nil {
 		t.Fatal("expected persisted credit row")
+		return
 	}
 	if row.WebhookDispatchedAt != nil {
 		t.Fatal("failed dispatch must not mark webhook_dispatched_at")

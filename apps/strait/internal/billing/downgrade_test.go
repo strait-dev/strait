@@ -136,7 +136,7 @@ func TestPreviewDowngrade_EffectiveDate_NilPeriod_DefaultsToEndOfMonth(t *testin
 	}
 }
 
-func TestPreviewDowngrade_IncludesRegions(t *testing.T) {
+func TestPreviewDowngrade_DoesNotExposeLaunchInactiveRegions(t *testing.T) {
 	store := &mockDowngradeStore{
 		mockBillingStore: mockBillingStore{
 			subscriptions: map[string]*OrgSubscription{
@@ -151,20 +151,10 @@ func TestPreviewDowngrade_IncludesRegions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	var found bool
 	for _, imp := range impact.Impacts {
 		if imp.Resource == "regions" {
-			found = true
-			if imp.Current <= 0 {
-				t.Errorf("expected positive region count, got %d", imp.Current)
-			}
-			if imp.Limit <= 0 {
-				t.Errorf("expected positive region limit, got %d", imp.Limit)
-			}
+			t.Fatalf("downgrade preview exposed launch-inactive regions impact: %#v", imp)
 		}
-	}
-	if !found {
-		t.Error("expected regions impact in downgrade preview")
 	}
 }
 
@@ -206,6 +196,7 @@ func TestPreviewDowngrade_UsesActualPeriodRunsForMonthlyImpact(t *testing.T) {
 	}
 	if runsImpact == nil {
 		t.Fatal("expected runs_per_month impact")
+		return
 	}
 	if runsImpact.Current != 7_000 {
 		t.Fatalf("runs_per_month current = %d, want actual period usage 7000", runsImpact.Current)

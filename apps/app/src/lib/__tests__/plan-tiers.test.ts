@@ -1,8 +1,12 @@
+import { ROADMAP_FEATURES } from "@strait/billing";
 import { describe, expect, it } from "vitest";
 import {
   canUseFeature,
+  getFeatureMinimumPlanLabel,
   isDowngrade,
+  isRoadmapFeature,
   type PlanFeature,
+  ROADMAP_FEATURE_LABELS,
   tierAtLeast,
 } from "../plan-tiers";
 
@@ -122,8 +126,11 @@ describe("tierAtLeast", () => {
 });
 
 describe("canUseFeature", () => {
+  const freeFeatures: PlanFeature[] = ["http_mode"];
+
+  const starterFeatures: PlanFeature[] = ["log_streaming"];
+
   const proFeatures: PlanFeature[] = [
-    "http_mode",
     "approval_gates",
     "sub_workflows",
     "job_chaining",
@@ -132,20 +139,38 @@ describe("canUseFeature", () => {
 
   const scaleFeatures: PlanFeature[] = ["canary_deployments", "audit_logs"];
 
-  const enterpriseFeatures: PlanFeature[] = ["sso", "sla"];
+  const businessFeatures: PlanFeature[] = ["sla"];
 
-  const enterpriseOnlyFeatures: PlanFeature[] = [
-    "dedicated_compute",
+  const roadmapFeatures: PlanFeature[] = [
+    "sso",
+    "dedicated_worker_pool",
     "static_ips",
     "vpc_peering",
     "scim",
     "data_residency",
-    "custom_rbac",
     "ip_allowlisting",
-    "session_management",
-    "secret_rotation",
-    "siem_export",
+    "single_tenant",
+    "byo_cloud",
+    "compliance_archive",
   ];
+
+  it("allows free launch features on all plans", () => {
+    for (const feature of freeFeatures) {
+      expect(canUseFeature("free", feature)).toBe(true);
+      expect(canUseFeature("starter", feature)).toBe(true);
+      expect(canUseFeature("pro", feature)).toBe(true);
+      expect(canUseFeature("enterprise", feature)).toBe(true);
+    }
+  });
+
+  it("allows starter features on starter and above", () => {
+    for (const feature of starterFeatures) {
+      expect(canUseFeature("free", feature)).toBe(false);
+      expect(canUseFeature("starter", feature)).toBe(true);
+      expect(canUseFeature("pro", feature)).toBe(true);
+      expect(canUseFeature("enterprise", feature)).toBe(true);
+    }
+  });
 
   it("blocks pro features on free and starter", () => {
     for (const feature of proFeatures) {
@@ -177,8 +202,8 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("blocks enterprise features below enterprise", () => {
-    for (const feature of enterpriseFeatures) {
+  it("blocks business features below business", () => {
+    for (const feature of businessFeatures) {
       expect(canUseFeature("free", feature)).toBe(false);
       expect(canUseFeature("starter", feature)).toBe(false);
       expect(canUseFeature("pro", feature)).toBe(false);
@@ -186,14 +211,15 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("allows enterprise features on enterprise", () => {
-    for (const feature of enterpriseFeatures) {
+  it("allows business features on business and enterprise", () => {
+    for (const feature of businessFeatures) {
+      expect(canUseFeature("business", feature)).toBe(true);
       expect(canUseFeature("enterprise", feature)).toBe(true);
     }
   });
 
-  it("blocks enterprise-only features below enterprise", () => {
-    for (const feature of enterpriseOnlyFeatures) {
+  it("blocks roadmap-only features below enterprise", () => {
+    for (const feature of roadmapFeatures) {
       expect(canUseFeature("free", feature)).toBe(false);
       expect(canUseFeature("starter", feature)).toBe(false);
       expect(canUseFeature("pro", feature)).toBe(false);
@@ -201,13 +227,36 @@ describe("canUseFeature", () => {
     }
   });
 
-  it("allows enterprise-only features on enterprise", () => {
-    for (const feature of enterpriseOnlyFeatures) {
-      expect(canUseFeature("enterprise", feature)).toBe(true);
+  it("blocks roadmap-only features on enterprise", () => {
+    for (const feature of roadmapFeatures) {
+      expect(canUseFeature("enterprise", feature)).toBe(false);
+      expect(isRoadmapFeature(feature)).toBe(true);
+    }
+  });
+
+  it("keeps roadmap feature labels in sync with the shared catalog", () => {
+    const appLabels = Object.values(ROADMAP_FEATURE_LABELS).sort();
+    expect(appLabels).toEqual([...ROADMAP_FEATURES].sort());
+
+    for (const [feature, label] of Object.entries(ROADMAP_FEATURE_LABELS)) {
+      expect(ROADMAP_FEATURES).toContain(label);
+      expect(canUseFeature("enterprise", feature as PlanFeature)).toBe(false);
     }
   });
 
   it("returns false for undefined tier", () => {
     expect(canUseFeature(undefined, "http_mode")).toBe(false);
+  });
+});
+
+describe("getFeatureMinimumPlanLabel", () => {
+  it("returns the minimum launch tier label", () => {
+    expect(getFeatureMinimumPlanLabel("http_mode")).toBe("Free");
+    expect(getFeatureMinimumPlanLabel("log_streaming")).toBe("Starter");
+    expect(getFeatureMinimumPlanLabel("audit_logs")).toBe("Scale");
+  });
+
+  it("labels roadmap-only features explicitly", () => {
+    expect(getFeatureMinimumPlanLabel("sso")).toBe("Roadmap");
   });
 });

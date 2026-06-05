@@ -1,39 +1,33 @@
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@strait/ui/components/card";
 import { Shell } from "@strait/ui/components/shell";
-import { Skeleton } from "@strait/ui/components/skeleton";
 import { createFileRoute } from "@tanstack/react-router";
-import { Suspense } from "react";
 import DefaultCatchBoundary from "@/components/common/default-catch-boundary";
 import NotFound from "@/components/common/not-found";
-import ProjectSettings from "@/components/project/project-settings";
-import {
-  projectSettingsQueryOptions,
-  regionsQueryOptions,
-} from "@/hooks/api/use-regions";
-import type { AppRouteContext } from "@/routes/app/layout";
 
 export const Route = createFileRoute("/app/projects/$projectId/settings")({
-  loader: async ({ context, params }) => {
-    const ctx = context as AppRouteContext;
-    await Promise.all([
-      ctx.queryClient.ensureQueryData(regionsQueryOptions()),
-      ctx.queryClient.ensureQueryData(
-        projectSettingsQueryOptions(params.projectId)
-      ),
-    ]);
-  },
   errorComponent: DefaultCatchBoundary,
   notFoundComponent: () => <NotFound />,
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  const { projectId } = Route.useParams();
-
   return (
     <Shell>
-      <Suspense fallback={<Skeleton className="h-64" />}>
-        <ProjectSettings projectId={projectId} />
-      </Suspense>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Project settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-sm">
+            No configurable project settings are available at launch.
+          </p>
+        </CardContent>
+      </Card>
     </Shell>
   );
 }

@@ -55,6 +55,7 @@ func TestSetSentryTag_SkipsEmptyAndNormalizes(t *testing.T) {
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return
 	}
 	if got := event.Tags["subsystem"]; got != "worker" {
 		t.Fatalf("subsystem tag = %q, want worker", got)

@@ -38,6 +38,16 @@ func NewJobRunHandler(pub EventPublisher, logger *slog.Logger) *JobRunHandler {
 	return &JobRunHandler{publisher: pub, logger: logger}
 }
 
+// NewRuntimeFanoutHandlers returns the launch-active CDC handlers that publish
+// runtime projection events.
+func NewRuntimeFanoutHandlers(pub EventPublisher, logger *slog.Logger) []Handler {
+	return []Handler{
+		NewJobRunHandler(pub, logger),
+		NewWorkflowRunHandler(pub, logger),
+		NewEventTriggerHandler(pub, logger),
+	}
+}
+
 func (h *JobRunHandler) Table() string { return "job_runs" }
 
 func (h *JobRunHandler) Handle(ctx context.Context, msg Message) error {

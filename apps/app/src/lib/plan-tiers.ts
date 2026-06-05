@@ -1,20 +1,25 @@
-const TIER_RANK: Record<string, number> = {
-  free: 0,
-  starter: 1,
-  pro: 2,
-  scale: 3,
-  business: 4,
-  enterprise: 5,
-};
+import {
+  PLAN_API_RESPONSE,
+  PLAN_KEYS,
+  PLANS,
+  type PlanApiResponse,
+  type PlanKey,
+  ROADMAP_FEATURES,
+} from "@strait/billing";
 
-const TIER_LABEL: Record<string, string> = {
-  free: "Free",
-  starter: "Starter",
-  pro: "Pro",
-  scale: "Scale",
-  business: "Business",
-  enterprise: "Enterprise",
-};
+const TIER_RANK = Object.fromEntries(
+  PLAN_KEYS.map((tier, index) => [tier, index])
+) as Record<PlanKey, number>;
+
+const PLAN_BY_TIER = Object.fromEntries(
+  PLAN_API_RESPONSE.map((plan) => [plan.tier, plan])
+) as Record<PlanKey, PlanApiResponse>;
+
+const isPlanKey = (tier: string | undefined): tier is PlanKey =>
+  !!tier && PLAN_KEYS.includes(tier as PlanKey);
+
+const rankForTier = (tier: string | undefined): number | undefined =>
+  isPlanKey(tier) ? TIER_RANK[tier] : undefined;
 
 /** Returns true if switching from `currentTier` to `targetTier` is a downgrade. */
 export function isDowngrade(
@@ -24,7 +29,7 @@ export function isDowngrade(
   if (!(currentTier && targetTier)) {
     return false;
   }
-  return (TIER_RANK[targetTier] ?? 0) < (TIER_RANK[currentTier] ?? 0);
+  return (rankForTier(targetTier) ?? 0) < (rankForTier(currentTier) ?? 0);
 }
 
 /** Returns true if `tier` is at or above `minimumTier` in the plan hierarchy. */
@@ -35,12 +40,13 @@ export function tierAtLeast(
   if (!tier) {
     return false;
   }
-  return (TIER_RANK[tier] ?? 0) >= (TIER_RANK[minimumTier] ?? 0);
+  return (rankForTier(tier) ?? 0) >= (rankForTier(minimumTier) ?? 0);
 }
 
-/** Plan-gated feature identifiers (mirrors Go billing.Feature). */
+/** Plan-gated feature identifiers shown by the app. */
 export type PlanFeature =
   | "http_mode"
+  | "log_streaming"
   | "approval_gates"
   | "sub_workflows"
   | "job_chaining"
@@ -49,54 +55,74 @@ export type PlanFeature =
   | "audit_logs"
   | "sso"
   | "sla"
-  | "dedicated_compute"
+  | "dedicated_worker_pool"
   | "static_ips"
   | "vpc_peering"
   | "scim"
   | "data_residency"
-  | "custom_rbac"
   | "ip_allowlisting"
-  | "session_management"
-  | "secret_rotation"
-  | "siem_export";
+  | "single_tenant"
+  | "byo_cloud"
+  | "compliance_archive";
 
-/** Minimum tier required for each feature. */
-const FEATURE_MIN_TIER: Record<PlanFeature, string> = {
-  http_mode: "pro",
-  approval_gates: "pro",
-  sub_workflows: "pro",
-  job_chaining: "pro",
-  compensating_txns: "pro",
-  canary_deployments: "scale",
-  audit_logs: "scale",
-  sso: "enterprise",
-  sla: "enterprise",
-  dedicated_compute: "enterprise",
-  static_ips: "enterprise",
-  vpc_peering: "enterprise",
-  scim: "enterprise",
-  data_residency: "enterprise",
-  custom_rbac: "enterprise",
-  ip_allowlisting: "enterprise",
-  session_management: "enterprise",
-  secret_rotation: "enterprise",
-  siem_export: "enterprise",
+const FEATURE_ACCESSORS: Partial<
+  Record<PlanFeature, (plan: PlanApiResponse) => boolean>
+> = {
+  http_mode: (plan) =>
+    PLANS[plan.tier].limits.executionModes.toLowerCase().includes("http"),
+  log_streaming: (plan) => plan.has_log_streaming,
+  approval_gates: (plan) => plan.has_approval_gates,
+  sub_workflows: (plan) => plan.has_sub_workflows,
+  job_chaining: (plan) => plan.has_job_chaining,
+  compensating_txns: (plan) => plan.has_compensating_txns,
+  canary_deployments: (plan) => plan.has_canary_deployments,
+  audit_logs: (plan) => plan.has_audit_logs,
+  sla: (plan) => plan.has_sla,
 };
+
+export const ROADMAP_FEATURE_LABELS: Partial<Record<PlanFeature, string>> = {
+  sso: "SSO/SAML",
+  dedicated_worker_pool: "dedicated worker pool",
+  static_ips: "static IPs",
+  vpc_peering: "VPC peering",
+  scim: "SCIM",
+  data_residency: "data residency",
+  ip_allowlisting: "IP allowlisting",
+  single_tenant: "single-tenant orchestration",
+  byo_cloud: "BYO-cloud",
+  compliance_archive: "compliance archive",
+};
+
+/** Returns true when a feature is shown for roadmap/contact-sales only. */
+export function isRoadmapFeature(feature: PlanFeature): boolean {
+  const label = ROADMAP_FEATURE_LABELS[feature];
+  return !!label && ROADMAP_FEATURES.includes(label);
+}
 
 /** Returns true if `tier` has access to the given feature. */
 export function canUseFeature(
   tier: string | undefined,
   feature: PlanFeature
 ): boolean {
-  const minTier = FEATURE_MIN_TIER[feature];
-  if (!minTier) {
-    return true;
+  if (isRoadmapFeature(feature)) {
+    return false;
   }
-  return tierAtLeast(tier, minTier);
+  if (!isPlanKey(tier)) {
+    return false;
+  }
+  const accessor = FEATURE_ACCESSORS[feature];
+  return accessor ? accessor(PLAN_BY_TIER[tier]) : false;
 }
 
 /** Returns the human-readable minimum tier label for a gated feature. */
 export function getFeatureMinimumPlanLabel(feature: PlanFeature): string {
-  const minTier = FEATURE_MIN_TIER[feature];
-  return TIER_LABEL[minTier] ?? minTier;
+  if (isRoadmapFeature(feature)) {
+    return "Roadmap";
+  }
+  const accessor = FEATURE_ACCESSORS[feature];
+  if (!accessor) {
+    return "Unavailable";
+  }
+  const minimumTier = PLAN_KEYS.find((tier) => accessor(PLAN_BY_TIER[tier]));
+  return minimumTier ? PLANS[minimumTier].name : "Unavailable";
 }

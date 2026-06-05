@@ -4,7 +4,7 @@ description: "Query and export audit logs to investigate incidents, meet complia
 icon: "scroll"
 ---
 
-Audit events record every change in your Strait project. Query them to investigate incidents, meet compliance requirements, or build activity feeds.
+Audit events record every change in your Strait project. Query them to investigate incidents, meet compliance requirements, or build activity feeds. In Strait Cloud, audit log access, export, and chain verification require Scale or above. Self-hosted deployments have no billing gate.
 
 ## What Gets Recorded
 
@@ -22,7 +22,7 @@ Each event includes the actor, timestamp, resource type, resource ID, and a desc
 
 ## Querying Events
 
-List audit events with `GET /v1/audit-events`. Requires the `rbac.manage` permission.
+List audit events with `GET /v1/audit-events`. Requires the `rbac.manage` permission and, in Strait Cloud, the Scale plan or above.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
@@ -77,7 +77,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ## Exporting
 
-Export audit events with `GET /v1/audit-events/export`. Both `from` and `to` are required (maximum 90-day window). The response is streamed.
+Export audit events with `GET /v1/audit-events/export`. Both `from` and `to` are required (maximum 90-day window). The response is streamed. In Strait Cloud, export uses the same Scale+ audit log gate as audit queries.
 
 | Format | Content-Type | Description |
 | :--- | :--- | :--- |

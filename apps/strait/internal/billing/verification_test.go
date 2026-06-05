@@ -131,30 +131,33 @@ func TestDeactivateAddon_DoubleCall_NoError(t *testing.T) {
 	}
 }
 
-// Self-hosted verification: all features available.
+// Self-hosted verification: billing gates are skipped, but the launch catalog
+// still distinguishes active entitlements from roadmap/contact-sales features.
 
-func TestSelfHosted_AllFeaturesAvailable(t *testing.T) {
+func TestSelfHosted_LaunchActiveFeaturesAvailable(t *testing.T) {
 	t.Parallel()
-
-	// Verify that the PlanRegistry allows all features for any tier when
-	// used without enforcement (which is how self-hosted works -- getOrgPlanLimits
-	// returns nil because RequiresHTTPModeGating() returns false).
 
 	// On self-hosted, the enforcer is nil and getOrgPlanLimits short-circuits.
 	// The key invariant: every plan gate check returns nil when limits are nil.
-	// This test verifies the PlanRegistry independently allows features on
-	// enterprise tier (which self-hosted effectively grants).
+	// This test verifies the registry independently allows launch-active
+	// features on Enterprise while keeping roadmap features inactive.
 	reg := NewStaticRegistry()
 
 	enterpriseFeatures := []Feature{
 		FeatureHTTPMode, FeatureApprovalGates, FeatureSubWorkflows,
 		FeatureJobChaining, FeatureCompensatingTxns, FeatureCanaryDeployments,
-		FeatureAuditLogs, FeatureSSO, FeatureSLA,
+		FeatureAuditLogs, FeatureSLA,
 	}
 
 	for _, f := range enterpriseFeatures {
 		if !reg.AllowsFeature(domain.PlanEnterprise, f) {
 			t.Errorf("Enterprise should have feature %q", f)
+		}
+	}
+
+	for _, f := range roadmapEnterpriseFeatures {
+		if reg.AllowsFeature(domain.PlanEnterprise, f) {
+			t.Errorf("Enterprise should not have launch-roadmap feature %q", f)
 		}
 	}
 

@@ -11,11 +11,15 @@ import (
 	"time"
 
 	grpcserver "strait/internal/api/grpc"
+	straitcache "strait/internal/cache"
+	"strait/internal/cdc"
+	"strait/internal/clickhouse"
 	"strait/internal/config"
 	"strait/internal/pubsub"
 	"strait/internal/scheduler"
 	"strait/internal/worker"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/pool"
 )
@@ -106,6 +110,50 @@ func TestShutdownReason(t *testing.T) {
 	}
 	if got := shutdownReason(errors.New("forced")); got != "forced" {
 		t.Fatalf("shutdownReason(other error) = %q, want forced", got)
+	}
+}
+
+func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
+	t.Helper()
+
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:0"})
+	t.Cleanup(func() { _ = rdb.Close() })
+	cacheHandlers := cdc.NewCacheReadModelHandlers(rdb, time.Minute, nil)
+	cacheBus := straitcache.NewBus(noopServicePub{}, straitcache.BusConfig{Origin: "test"})
+	registrar := &recordingCDCRegistrar{}
+
+	registerCDCDeliveryHandlers(registrar, noopServicePub{}, nil, &clickhouse.Exporter{}, cacheHandlers, cacheBus, nil)
+
+	primary := tableCounts(registrar.primary)
+	requireTableCount(t, primary, "job_runs", 1)
+	requireTableCount(t, primary, "workflow_runs", 1)
+	requireTableCount(t, primary, "event_triggers", 1)
+	if got := primary["workflow_step_runs"]; got != 0 {
+		t.Fatalf("workflow_step_runs primary fanout handlers = %d, want 0", got)
+	}
+
+	additional := tableCounts(registrar.additional)
+	requireTableCount(t, additional, "job_runs", 4)
+	requireTableCount(t, additional, "workflow_runs", 1)
+	requireTableCount(t, additional, "workflow_step_runs", 1)
+	for _, table := range []string{
+		"api_keys",
+		"project_roles",
+		"project_member_roles",
+		"resource_policies",
+		"tag_policies",
+		"project_quotas",
+		"organization_subscriptions",
+		"jobs",
+		"job_dependencies",
+	} {
+		requireTableCount(t, additional, table, 1)
+	}
+
+	total := tableCounts(append(append([]string{}, registrar.primary...), registrar.additional...))
+	for _, table := range cdc.RequiredConsumerTables() {
+		table = strings.TrimPrefix(table, "public.")
+		requireTableCount(t, total, table, 1)
 	}
 }
 
@@ -297,4 +345,36 @@ func (p flakyPingPub) Ping(ctx context.Context) error {
 		return p.pingFn(ctx)
 	}
 	return nil
+}
+
+type recordingCDCRegistrar struct {
+	primary    []string
+	additional []string
+}
+
+func (r *recordingCDCRegistrar) RegisterHandler(h cdc.Handler) {
+	if h != nil {
+		r.primary = append(r.primary, h.Table())
+	}
+}
+
+func (r *recordingCDCRegistrar) RegisterAdditionalHandler(h cdc.Handler) {
+	if h != nil {
+		r.additional = append(r.additional, h.Table())
+	}
+}
+
+func tableCounts(tables []string) map[string]int {
+	counts := make(map[string]int, len(tables))
+	for _, table := range tables {
+		counts[table]++
+	}
+	return counts
+}
+
+func requireTableCount(t *testing.T, counts map[string]int, table string, minCount int) {
+	t.Helper()
+	if got := counts[table]; got < minCount {
+		t.Fatalf("%s handlers = %d, want at least %d", table, got, minCount)
+	}
 }

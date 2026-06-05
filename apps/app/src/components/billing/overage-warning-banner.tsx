@@ -36,22 +36,18 @@ const OverageWarningBanner = () => {
   }
 
   const plan = data.plan ?? FREE_PLAN;
-  const creditUsedPercent = data.credit_used_percent ?? 0;
   const overageMicro = data.overage_microusd ?? 0;
-  const includedCreditMicro = data.included_credit_microusd ?? 0;
 
-  // Free tier: hard-capped, no overage possible. Don't show overage banners.
+  // Free orgs do not show paid-plan overage banners here.
   if (plan === FREE_PLAN) {
     return null;
   }
 
-  const includedCreditDollars = (includedCreditMicro / MICRO_USD).toFixed(2);
   const overageDollars = (overageMicro / MICRO_USD).toFixed(2);
 
   const isInOverage = overageMicro > 0;
-  const isApproachingLimit = creditUsedPercent >= 80 && !isInOverage;
 
-  if (!(isInOverage || isApproachingLimit)) {
+  if (!isInOverage) {
     return null;
   }
 
@@ -77,26 +73,16 @@ const OverageWarningBanner = () => {
         }
         dismissible
         onDismiss={handleDismiss}
-        title="Included credit exceeded"
+        title="Included run allowance exceeded"
         variant="destructive"
       >
-        You're <strong>${overageDollars}</strong> over your included credit. Set
-        a spending limit to control costs.
+        You're <strong>${overageDollars}</strong> beyond your included run
+        allowance. Set a spending cap to control costs.
       </NoticeBanner>
     );
   }
 
-  return (
-    <NoticeBanner
-      dismissible
-      onDismiss={handleDismiss}
-      title="Compute credit running low"
-      variant="warning"
-    >
-      You've used <strong>{Math.round(creditUsedPercent)}%</strong> of your $
-      {includedCreditDollars} compute credit this period.
-    </NoticeBanner>
-  );
+  return null;
 };
 
 export default OverageWarningBanner;

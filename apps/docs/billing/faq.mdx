@@ -6,30 +6,30 @@ icon: "circle-question"
 
 <AccordionGroup>
   <Accordion title="Can I try Strait for free?">
-    Yes. The Free plan includes 5,000 runs per day, 5 concurrent runs, and all core features. No credit card required.
+    Yes. The Free plan includes 5,000 orchestration runs per month, 3 concurrent runs, 10 workflow steps, and 7-day run history. No credit card is required.
+  </Accordion>
+  <Accordion title="What is an orchestration run?">
+    An orchestration run is customer work dispatched by Strait. It includes job runs and workflow step runs. Automatic system retries do not add runs. Manual replays do.
   </Accordion>
   <Accordion title="How does billing work?">
-    Plans are billed monthly or annually (save ~17% with annual billing). You can upgrade, downgrade, or cancel at any time.
+    Starter, Pro, Scale, and Business can be billed monthly or annually. Annual plans are billed up front for 12 months. Enterprise is quoted by contract.
   </Accordion>
-  <Accordion title="What happens if I exceed my plan limits?">
-    Runs beyond your daily limit are queued and processed the following day. No overage fees on Free or Starter plans. Pro plan users who regularly exceed limits can contact us for burst pricing.
+  <Accordion title="What happens if I exceed my included monthly runs?">
+    Free without a card is hard-capped at 5,000 orchestration runs per month. Paid plans have overage enabled by default and use the plan's default spending cap unless you change it in billing settings.
+  </Accordion>
+  <Accordion title="Can I disable overage?">
+    Yes. With overage disabled, new runs suspend at the included allowance and schedules pause until the next billing period or until overage is re-enabled.
+  </Accordion>
+  <Accordion title="What happens when I reach my spending cap?">
+    Strait sends a warning at 80 percent and suspends new dispatch at 100 percent. In-flight runs are allowed to finish. Suspension lifts when the cap is raised above current overage spend, the cap action is changed to notify-only, or the next billing period starts. The billing webhook events are `billing.cap_warning` and `billing.cap_reached`.
+  </Accordion>
+  <Accordion title="What is the SSO launch status?">
+    No. SSO/SAML, SCIM, IP allowlisting, static IPs, VPC peering, data residency, single-tenant orchestration, and BYO-cloud are roadmap or contact-sales items for launch.
   </Accordion>
   <Accordion title="Can I self-host instead?">
-    Yes. Strait is fully open-source and self-hosting is free with no feature restrictions. You need PostgreSQL. Redis is also recommended, since live updates, SSE streaming, and the gRPC worker plane all depend on it.
-  </Accordion>
-  <Accordion title="What does 'concurrent runs' mean?">
-    The maximum number of jobs executing at the same time. If all slots are busy, new runs wait in the queue.
-  </Accordion>
-  <Accordion title="Can I change plans mid-month?">
-    Yes. Upgrades take effect immediately. Downgrades take effect at the next billing cycle.
-  </Accordion>
-  <Accordion title="Is there support for self-hosted?">
-    Community support via GitHub Issues and Discussions. For dedicated support on self-hosted deployments, contact us about an Enterprise plan.
+    Yes. The community edition has no cloud billing limits. Self-hosting requires PostgreSQL, Redis, and Sequin. The cloud dashboard, vendor support, hosted cloud orchestration, and BYO-cloud contracts are not included.
   </Accordion>
   <Accordion title="What payment methods do you accept?">
-    Credit card via Stripe. Enterprise plans support invoicing.
-  </Accordion>
-  <Accordion title="Do you offer discounts for startups?">
-    Yes. Contact us at leo@strait.dev for startup pricing.
+    Self-serve plans use credit card payments through Stripe. Enterprise supports contract terms and invoice billing.
   </Accordion>
 </AccordionGroup>

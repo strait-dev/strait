@@ -23,7 +23,7 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
     Retries re-run the same run, so your endpoint should be safe to call more than once. Idempotency keys apply to trigger requests: they stop a retried trigger from creating duplicate runs. The two solve different problems, and production jobs usually want both. See [Idempotency](/guides/idempotency) and [Retry Strategies](/concepts/retry-strategies).
   </Accordion>
   <Accordion title="What is the difference between the community and cloud editions?">
-    The community edition is open source and self-hosted, with the full orchestration feature set. The cloud edition is the hosted service at strait.dev, adding managed infrastructure, usage metering, multi-region, and billing. Your job code runs on your own infrastructure either way. The edition is selected at compile time, not by an environment variable.
+    The community edition is open source and self-hosted, with the full orchestration feature set. The cloud edition is the hosted service at strait.dev, adding managed infrastructure, usage metering, and billing. Your job code runs on your own infrastructure either way. The edition is selected at compile time, not by an environment variable.
   </Accordion>
   <Accordion title="Can I run only the API or only workers?">
     Yes. The binary runs in `api`, `worker`, or `all` mode. Start with `all` for small deployments, then split into separate `api` and `worker` processes as traffic grows. See [Deployment](/guides/deployment).
@@ -38,7 +38,7 @@ Questions about pricing and plans live in the [Billing FAQ](/billing/faq). This 
     Pull the new image and restart. Migrations run automatically on startup. See [Self-Hosting](/guides/self-hosting) for the self-host flow and [Deployment](/guides/deployment) for production.
   </Accordion>
   <Accordion title="Is there an SDK?">
-    Yes, for TypeScript, Python, Go, Ruby, and Rust, plus an MCP server. You can also call the REST API directly. See the [SDKs overview](/sdks/overview).
+    Yes, for TypeScript, Python, Go, Ruby, and Rust. You can also call the REST API directly. See the [SDKs overview](/sdks/overview).
   </Accordion>
   <Accordion title="What happens to a run if a worker dies mid-execution?">
     The run is reaped once the worker stops heartbeating and returned to the queue, then retried according to its retry policy. See [Troubleshooting](/guides/troubleshooting) and [Retry Strategies](/concepts/retry-strategies).

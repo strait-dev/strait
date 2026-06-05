@@ -130,7 +130,7 @@ jobs:
             sleep 1
           done
 
-          asset=$(sed -n 's/.*href="\([^"]*globals[^"]*\.css\)".*/\1/p' /tmp/strait-app-login.html | head -1)
+          asset=$(sed -n 's/.*href="\([^"]*\.css\)".*/\1/p' /tmp/strait-app-login.html | head -1)
           test -n "$asset"
           test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3017${asset}")" = "200"
 

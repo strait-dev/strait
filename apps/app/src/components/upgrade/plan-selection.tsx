@@ -80,8 +80,7 @@ const MESSAGING: Record<
 > = {
   new_user: {
     title: "Choose your plan",
-    description:
-      "All features included on every plan. Start free, upgrade when you need more.",
+    description: "Start free, then upgrade when you need higher launch limits.",
     buttonText: "Get started",
   },
   checkout_recovery: {
@@ -549,12 +548,12 @@ const FAQ_ITEMS = [
   {
     question: "How does billing work?",
     answer:
-      "You are billed monthly or annually based on your chosen plan. Each plan includes a compute credit allowance. Usage beyond the included credit is billed as overage at the plan's per-1K-runs rate.",
+      "You are billed monthly or annually based on your chosen plan. Each plan includes a monthly orchestration-run allowance. Usage beyond that allowance is billed as overage at the plan's per-1K-runs rate.",
   },
   {
     question: "What happens if I exceed my plan limits?",
     answer:
-      "If you set a spending limit, runs will stop when the limit is reached (or you'll be notified, depending on your setting). Daily run limits reset at midnight UTC. You can upgrade at any time to increase your limits.",
+      "If your spending cap uses the reject action, new dispatch stops and schedules pause when the cap is reached. Notify-only caps keep dispatching and alert you instead. Monthly run allowances reset at the start of each billing period.",
   },
   {
     question: "Can I change plans at any time?",
@@ -569,12 +568,12 @@ const FAQ_ITEMS = [
   {
     question: "Is there a spending cap?",
     answer:
-      "Yes. Every paid plan lets you set a spending limit to cap overage charges. Free plan users are always hard-capped at the included allowances with no overage possible.",
+      "Yes. Every paid plan lets you set a spending cap for overage charges. Free plan users are hard-capped at the included allowance unless overage is enabled with a card on file.",
   },
   {
     question: "Do you offer enterprise pricing?",
     answer:
-      "Yes. Enterprise plans include custom pricing, unlimited resources, SSO, SLA guarantees, and dedicated support. Contact us to discuss your needs.",
+      "Yes. Enterprise plans include custom pricing, custom launch limits, non-contractual SLA targets, and dedicated support. SSO and advanced network controls are roadmap/contact-sales items for launch, not included launch entitlements.",
   },
 ];
 

@@ -612,7 +612,7 @@ func (m *covMockRunLimitStore) CreateNotificationDelivery(ctx context.Context, d
 	return nil
 }
 
-// covMockEnforcer is a minimal enforcer that returns controllable results for Check80PercentDailyRunWarning.
+// covMockEnforcer is a minimal enforcer that returns controllable results for Check80PercentMonthlyWarning.
 // Since billing.Enforcer is a concrete type, we use a real enforcer via newTestEnforcer.
 
 func TestBudgetMonitor_WithRunLimitNotifications(t *testing.T) {
@@ -671,7 +671,7 @@ func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 	bm.check(context.Background())
 
-	// The enforcer will return false for Check80PercentDailyRunWarning with the mock store,
+	// The enforcer will return false for Check80PercentMonthlyWarning with the mock store,
 	// so no notifications should be sent.
 	if len(deliveries) != 0 {
 		t.Fatalf("expected no deliveries when run limit is not near, got %d", len(deliveries))
@@ -681,7 +681,7 @@ func TestBudgetMonitor_CheckRunLimitWarnings_NoWarning(t *testing.T) {
 func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
 	t.Parallel()
 
-	today := time.Now().UTC().Format("2006-01-02")
+	currentMonth := time.Now().UTC().Format("2006-01")
 	rl := &covMockRunLimitStore{
 		listAllSubscribedOrgIDsFn: func(_ context.Context) ([]string, error) {
 			return []string{"org-1"}, nil
@@ -691,7 +691,7 @@ func TestBudgetMonitor_CheckRunLimitWarnings_Dedup(t *testing.T) {
 	bm := NewBudgetMonitor(struct{}{}, &mockEnqueuer{}, time.Minute).WithRunLimitNotifications(rl, enforcer)
 
 	// Pre-set the alert key as if it was already alerted.
-	alertKey := fmt.Sprintf("runlimit:%s:80:%s", "org-1", today)
+	alertKey := fmt.Sprintf("runlimit:%s:80:%s", "org-1", currentMonth)
 	bm.alertedMu.Lock()
 	bm.alerted[alertKey] = true
 	bm.alertedMu.Unlock()

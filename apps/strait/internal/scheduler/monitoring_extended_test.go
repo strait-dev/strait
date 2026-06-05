@@ -377,33 +377,6 @@ func TestConcurrentReconciler_Run_StopsOnContextCancel(t *testing.T) {
 	}
 }
 
-func TestConcurrentReconciler_WithDailyRunCounter_Ext(t *testing.T) {
-	t.Parallel()
-
-	enforcer := newTestEnforcer(t)
-	counter := &extMockExecutingRunCounter{}
-	dailyCounter := &extMockDailyRunCounter{}
-
-	r := NewConcurrentReconciler(enforcer, counter, time.Minute).
-		WithDailyRunCounter(dailyCounter)
-
-	if r.dailyCounter == nil {
-		t.Fatal("expected daily counter to be set")
-	}
-}
-
-func TestConcurrentReconciler_NilDailyCounter_NoPanic(t *testing.T) {
-	t.Parallel()
-
-	enforcer := newTestEnforcer(t)
-	counter := &extMockExecutingRunCounter{}
-	r := NewConcurrentReconciler(enforcer, counter, 10*time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	r.Run(ctx) // should not panic with nil daily counter
-}
-
 func TestConcurrentReconciler_ReconcileError_ContinuesLoop(t *testing.T) {
 	t.Parallel()
 
@@ -497,10 +470,4 @@ func (m *extMockExecutingRunCounter) BulkCountExecutingRunsByOrg(_ context.Conte
 
 func (m *extMockExecutingRunCounter) ListOrgsWithExecutingRuns(_ context.Context) ([]string, error) {
 	return nil, m.countErr
-}
-
-type extMockDailyRunCounter struct{}
-
-func (m *extMockDailyRunCounter) CountDailyRunsByOrg(_ context.Context, _ string, _ time.Time) (int64, error) {
-	return 0, nil
 }

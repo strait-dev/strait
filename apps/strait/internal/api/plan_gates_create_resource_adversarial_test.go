@@ -55,7 +55,8 @@ func TestCreateLogDrain_UpdateBypass_NotPossible(t *testing.T) {
 // fail-open semantics do NOT prevent over-allocation; this test documents
 // the boundary the real Postgres implementation must enforce: the count read
 // is a snapshot, and TOCTOU races can let multiple creates through. The
-// plan-bypass integration test verifies the DB constraint catches this.
+// store integration tests verify the Postgres-backed create method serializes
+// count plus insert under an advisory transaction lock.
 func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	var concWG conc.WaitGroup
 	defer concWG.Wait()
@@ -106,13 +107,13 @@ func TestCreateLogDrain_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 	// Boundary: the gate's snapshot read can let multiple creates through
 	// before any of them increment the count, so created can exceed 1.
 	// We assert only that the gate IS invoked and at least one create
-	// happens — the real over-cap protection comes from a DB-level check
+	// happens — the real over-cap protection comes from a store-level check
 	// or distributed lock in production.
 	if created == 0 && rejected == 0 {
 		t.Fatal("no responses recorded")
 	}
 	if rejected == 0 {
-		t.Logf("note: 0 rejected at near-cap with 50 concurrent attempts; documented TOCTOU window — DB constraint is the authoritative gate")
+		t.Logf("note: 0 rejected at near-cap with 50 concurrent attempts; documented TOCTOU window; the Postgres store method is the authoritative gate")
 	}
 }
 
@@ -207,7 +208,7 @@ func TestCreateNotificationChannel_RaceAtCap_DocumentsTOCTOU(t *testing.T) {
 		t.Fatal("no responses recorded")
 	}
 	// We don't assert exact counts — the gate's snapshot semantics permit a
-	// TOCTOU window. The DB constraint is the enforcement boundary.
+	// TOCTOU window. The Postgres store method is the enforcement boundary.
 	_ = saw201
 	_ = saw4xx
 }

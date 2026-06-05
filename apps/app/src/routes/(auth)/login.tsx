@@ -108,7 +108,7 @@ function LoginPage() {
         variant="secondary-outline"
       >
         <HugeiconsIcon className="size-4" icon={BuildingIcon} />
-        Sign in with SSO
+        SSO roadmap
       </Button>
       <p className="text-center text-muted-foreground text-sm">
         Don't have an account?{" "}

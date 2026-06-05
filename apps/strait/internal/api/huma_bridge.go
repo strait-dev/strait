@@ -241,7 +241,7 @@ func stripNullBytesFromStruct(v reflect.Value) {
 		}
 		v = v.Elem()
 	}
-	switch v.Kind() { //nolint:exhaustive // remaining kinds carry no string data to sanitize
+	switch v.Kind() {
 	case reflect.Struct:
 		for i := range v.NumField() { //nolint:modernize // Fields() returns StructField not Value
 			stripNullBytesFromStruct(v.Field(i))
@@ -268,6 +268,8 @@ func stripNullBytesFromStruct(v reflect.Value) {
 				v.SetString(strings.ReplaceAll(s, "\x00", ""))
 			}
 		}
+	default:
+		return
 	}
 }
 

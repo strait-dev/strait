@@ -421,6 +421,78 @@ func TestMigrationRoundtrip_000233_AddEndpointSigningSecret(t *testing.T) {
 	})
 }
 
+func TestMigrationRoundtrip_000313_DeprecateAgentGuardrailColumns(t *testing.T) {
+	runRoundtrip(t, 313, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, stale := range []string{
+			"jobs.max_tokens_per_run",
+			"jobs.max_tool_calls_per_run",
+			"jobs.max_iterations_per_run",
+			"jobs.allowed_tools",
+			"jobs.blocked_tools",
+			"job_versions.max_tokens_per_run",
+			"job_versions.max_tool_calls_per_run",
+			"job_versions.max_iterations_per_run",
+			"job_versions.allowed_tools",
+			"job_versions.blocked_tools",
+			"project_quotas.max_tokens_per_run",
+			"project_quotas.max_tool_calls_per_run",
+			"project_quotas.max_iterations_per_run",
+		} {
+			if postUp.columns[stale] {
+				t.Errorf("post-up: stale agent guardrail column %s should be renamed", stale)
+			}
+		}
+		for _, renamed := range []string{
+			"jobs.deprecated_agent_token_cap",
+			"jobs.deprecated_agent_tool_call_cap",
+			"jobs.deprecated_agent_iteration_cap",
+			"jobs.deprecated_agent_allowed_tool_names",
+			"jobs.deprecated_agent_blocked_tool_names",
+			"job_versions.deprecated_agent_token_cap",
+			"job_versions.deprecated_agent_tool_call_cap",
+			"job_versions.deprecated_agent_iteration_cap",
+			"job_versions.deprecated_agent_allowed_tool_names",
+			"job_versions.deprecated_agent_blocked_tool_names",
+			"project_quotas.deprecated_agent_token_cap",
+			"project_quotas.deprecated_agent_tool_call_cap",
+			"project_quotas.deprecated_agent_iteration_cap",
+		} {
+			if !postUp.columns[renamed] {
+				t.Errorf("post-up: deprecated replacement column %s should exist", renamed)
+			}
+		}
+	})
+}
+
+func TestMigrationRoundtrip_000314_EnterpriseContractOverageTerms(t *testing.T) {
+	runRoundtrip(t, 314, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, stale := range []string{
+			"enterprise_contracts.included_credit_microusd",
+			"enterprise_contracts.compute_discount_pct",
+		} {
+			if postUp.columns[stale] {
+				t.Errorf("post-up: retired enterprise contract column %s should not exist", stale)
+			}
+		}
+		if !postUp.columns["enterprise_contracts.overage_discount_pct"] {
+			t.Error("post-up: enterprise_contracts.overage_discount_pct should exist")
+		}
+	})
+}
+
+func TestMigrationRoundtrip_000315_DropRetiredUsageColumns(t *testing.T) {
+	runRoundtrip(t, 315, func(t *testing.T, postUp schemaState) {
+		t.Helper()
+		for _, retired := range retiredUsageColumnNames() {
+			if postUp.columns[retired] {
+				t.Errorf("post-up: retired launch column %s should not exist", retired)
+			}
+		}
+	})
+}
+
 // TestMigrationRoundtrip_All runs the orchestration migrations as a group on a
 // single shared DB, verifying the combined up→(all-down to 226)→up roundtrip.
 // This catches ordering dependencies across the migration sequence.
@@ -458,6 +530,11 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 	for _, tbl := range []string{"run_compute_usage", "job_preset_recommendations", "code_deployments"} {
 		if postAll.tables[tbl] {
 			t.Errorf("post-all: dropped table %s still present", tbl)
+		}
+	}
+	for _, col := range retiredUsageColumnNames() {
+		if postAll.columns[col] {
+			t.Errorf("post-all: retired launch column %s still present", col)
 		}
 	}
 
@@ -506,5 +583,24 @@ func TestMigrationRoundtrip_All(t *testing.T) {
 			continue
 		}
 		t.Error(d)
+	}
+}
+
+func retiredUsageColumnNames() []string {
+	return []string{
+		"cost_stats_hourly.deprecated_token_count",
+		"jobs.deprecated_agent_token_cap",
+		"jobs.deprecated_agent_tool_call_cap",
+		"jobs.deprecated_agent_iteration_cap",
+		"jobs.deprecated_agent_allowed_tool_names",
+		"jobs.deprecated_agent_blocked_tool_names",
+		"job_versions.deprecated_agent_token_cap",
+		"job_versions.deprecated_agent_tool_call_cap",
+		"job_versions.deprecated_agent_iteration_cap",
+		"job_versions.deprecated_agent_allowed_tool_names",
+		"job_versions.deprecated_agent_blocked_tool_names",
+		"project_quotas.deprecated_agent_token_cap",
+		"project_quotas.deprecated_agent_tool_call_cap",
+		"project_quotas.deprecated_agent_iteration_cap",
 	}
 }

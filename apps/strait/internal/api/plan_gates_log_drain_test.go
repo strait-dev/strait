@@ -19,12 +19,21 @@ import (
 // fixture a real PlanRegistry.
 type tunableLimitsEnforcer struct {
 	mockBillingEnforcer
-	limits  billing.OrgPlanLimits
-	orgID   string
-	getCall atomic.Int64
+	limits    billing.OrgPlanLimits
+	limitsErr error
+	orgID     string
+	orgErr    error
+	emptyOrg  bool
+	getCall   atomic.Int64
 }
 
 func (t *tunableLimitsEnforcer) GetProjectOrgID(_ context.Context, _ string) (string, error) {
+	if t.orgErr != nil {
+		return "", t.orgErr
+	}
+	if t.emptyOrg {
+		return "", nil
+	}
 	if t.orgID == "" {
 		return "org-1", nil
 	}
@@ -37,6 +46,9 @@ func (t *tunableLimitsEnforcer) GetActiveProjectOrgID(ctx context.Context, proje
 
 func (t *tunableLimitsEnforcer) GetOrgPlanLimits(_ context.Context, _ string) (billing.OrgPlanLimits, error) {
 	t.getCall.Add(1)
+	if t.limitsErr != nil {
+		return billing.OrgPlanLimits{}, t.limitsErr
+	}
 	return t.limits, nil
 }
 
@@ -187,6 +199,7 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 		},
 	}
 	srv := newTestServer(t, ms, &mockQueue{}, nil)
+	srv.edition = domain.EditionCommunity
 
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
@@ -196,10 +209,36 @@ func TestCreateLogDrain_NilEnforcer_FailsOpen(t *testing.T) {
 	}
 }
 
-// TestCreateLogDrain_CountQueryFails_FailsOpen ensures a transient store
-// failure on the cap check does not block creates. Billing must never reduce
-// a customer's reliability.
-func TestCreateLogDrain_CountQueryFails_FailsOpen(t *testing.T) {
+func TestCreateLogDrain_CloudEmptyOrgLookupFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	ms := &APIStoreMock{
+		CountLogDrainsByOrgFunc: func(_ context.Context, _ string) (int, error) {
+			t.Fatal("empty org lookup must fail before the count query")
+			return 0, nil
+		},
+		CreateLogDrainFunc: func(_ context.Context, _ *domain.LogDrain) error {
+			t.Fatal("empty org lookup must fail before create")
+			return nil
+		},
+	}
+	enforcer := &tunableLimitsEnforcer{
+		limits:   proLimits(),
+		emptyOrg: true,
+	}
+	srv := newServerWithEnforcer(t, ms, &mockQueue{}, enforcer)
+
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("empty org lookup must fail closed; got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateLogDrain_CountQueryFails_FailsClosed ensures a transient store
+// failure on the cap check does not bypass the paid log-drain cap.
+func TestCreateLogDrain_CountQueryFails_FailsClosed(t *testing.T) {
 	t.Parallel()
 
 	ms := &APIStoreMock{
@@ -216,7 +255,7 @@ func TestCreateLogDrain_CountQueryFails_FailsOpen(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, authedRequest(http.MethodPost, "/v1/log-drains", validLogDrainBody()))
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("count failure must fail open; got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("count failure must fail closed; got %d: %s", w.Code, w.Body.String())
 	}
 }

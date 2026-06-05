@@ -46,6 +46,7 @@ func TestHTTPSentryScope_AttachesActorProjectRouteAndTrace(t *testing.T) {
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return
 	}
 
 	wantTags := map[string]string{
@@ -91,6 +92,7 @@ func TestHTTPSentryScope_AnonymousRequestKeepsRouteAndMethod(t *testing.T) {
 	event := scope.ApplyToEvent(&sentry.Event{}, nil, nil)
 	if event == nil {
 		t.Fatal("expected event")
+		return
 	}
 
 	if event.Tags["method"] != http.MethodGet {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,7 +180,7 @@ func TestEnforcer_CheckConcurrentRunLimit_ActivePaymentGraceStillEnforcesPlanCap
 	}
 }
 
-func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+func TestEnforcer_CheckConcurrentRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
@@ -191,7 +192,31 @@ func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *tes
 
 	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-plan-error")
 	if err == nil {
-		t.Fatal("expected concurrent limit check to fail closed when plan limits cannot be loaded")
+		t.Fatal("expected concurrent limit check to fail closed when payment status cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_AddonLoadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	enforcer := NewEnforcer(&mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org-addon-error": {OrgID: "org-addon-error", PlanTier: "pro", Status: "active"},
+		},
+		listActiveAddonsErr: errors.New("addon store unavailable"),
+	}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-addon-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when active add-ons cannot be loaded")
 	}
 	var le *LimitError
 	if !isLimitError(err, &le) {
@@ -199,6 +224,45 @@ func TestEnforcer_CheckConcurrentRunLimit_PlanLimitLookupErrorFailsClosed(t *tes
 	}
 	if le.Code != "billing_plan_unavailable" {
 		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	enforcer := NewEnforcer(&mockBillingStore{}, rdb, slog.Default())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-redis-error")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestEnforcer_CheckConcurrentRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{}, nil, slog.Default(), WithRequireRedis())
+
+	err := enforcer.CheckConcurrentRunLimit(context.Background(), "org-nil-redis")
+	if err == nil {
+		t.Fatal("expected concurrent limit check to fail closed when required Redis is not configured")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -245,6 +309,25 @@ func TestEnforcer_CheckProjectLimit_PlanLimitLookupErrorFailsClosed(t *testing.T
 	}
 }
 
+func TestEnforcer_CheckProjectLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countProjectsErr: errors.New("project count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckProjectLimit(context.Background(), "org-count-error")
+	if err == nil {
+		t.Fatal("expected project limit check to fail closed when project count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
 func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -255,6 +338,22 @@ func TestEnforcer_CheckSpendingLimit_FreeTierZeroSpend_Passes(t *testing.T) {
 
 	if err := enforcer.CheckSpendingLimit(context.Background(), "org_free"); err != nil {
 		t.Fatalf("free tier with zero spend should pass: %v", err)
+	}
+}
+
+func TestEnforcer_CheckSpendingLimit_FreeTierSpendReadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.sumSpendErr = errors.New("spend aggregation unavailable")
+
+	err := enforcer.CheckSpendingLimit(context.Background(), "org_free")
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -651,6 +750,99 @@ func TestReserveWorkerConnection_EnforcesCapAcrossEnforcers(t *testing.T) {
 	}
 }
 
+func TestReserveWorkerConnection_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { rdb.Close() })
+
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org-plan-error", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when plan limits cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "billing_plan_unavailable" {
+		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
+func TestReserveWorkerConnection_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org_workers", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestReserveWorkerConnection_NilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			"org_workers": {OrgID: "org_workers", PlanTier: string(domain.PlanFree), Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, nil, slog.Default())
+
+	_, err := enforcer.ReserveWorkerConnection(context.Background(), "org_workers", "worker-1", time.Minute)
+	if err == nil {
+		t.Fatal("expected worker reservation to fail closed when Redis is not configured")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckWorkerConnectionLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	enforcer := NewEnforcer(&mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}, nil, slog.Default())
+
+	err := enforcer.CheckWorkerConnectionLimit(context.Background(), "org-plan-error", 0)
+	if err == nil {
+		t.Fatal("expected worker connection check to fail closed when plan limits cannot be loaded")
+	}
+	if !strings.Contains(err.Error(), "resolve worker connection plan limit") {
+		t.Fatalf("error = %v, want worker connection plan-limit context", err)
+	}
+}
+
 // Member limit tests.
 
 func TestCheckMemberLimit_FreeUnderLimit_Passes(t *testing.T) {
@@ -704,6 +896,25 @@ func TestCheckMemberLimit_PlanLimitLookupErrorFailsClosed(t *testing.T) {
 	}
 	if le.Code != "billing_plan_unavailable" {
 		t.Fatalf("Code = %q, want billing_plan_unavailable", le.Code)
+	}
+}
+
+func TestCheckMemberLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countMembersErr: errors.New("member count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckMemberLimit(context.Background(), "org-count-error")
+	if err == nil {
+		t.Fatal("expected member limit check to fail closed when member count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -789,6 +1000,25 @@ func TestCheckOrgCreationLimit_FreeAt1_Blocked(t *testing.T) {
 	}
 	if le.Limit != 1 {
 		t.Errorf("limit = %d, want 1", le.Limit)
+	}
+}
+
+func TestCheckOrgCreationLimit_CountErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{
+		countOrgsByUserErr: errors.New("org count unavailable"),
+	}, nil, slog.Default())
+
+	err := enforcer.CheckOrgCreationLimit(context.Background(), "user-count-error", domain.PlanFree)
+	if err == nil {
+		t.Fatal("expected org creation limit check to fail closed when org count cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
 	}
 }
 
@@ -1407,6 +1637,24 @@ func TestEnforcer_GetOrgPlanLimits_WithAddons(t *testing.T) {
 	}
 }
 
+func TestEnforcer_GetOrgPlanLimits_AddonLoadErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer, store, _ := setupEnforcer(t)
+
+	store.subscriptions = map[string]*OrgSubscription{
+		"org-addon-error": {OrgID: "org-addon-error", PlanTier: "pro", Status: "active"},
+	}
+	store.listActiveAddonsErr = errors.New("addon store unavailable")
+
+	_, err := enforcer.GetOrgPlanLimits(context.Background(), "org-addon-error")
+	if err == nil {
+		t.Fatal("expected add-on lookup error")
+	}
+	if !strings.Contains(err.Error(), "listing active add-ons") {
+		t.Fatalf("error = %v, want active add-on lookup context", err)
+	}
+}
+
 func TestEnforcer_CheckConcurrentRunLimit_UnlimitedEnterprise(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -1499,32 +1747,31 @@ func TestCheckMaxDispatchPriority_PlanLimitsError_FailsClosed(t *testing.T) {
 	}
 }
 
-// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that a valid priority
-// within the plan cap returns nil.
+// TestCheckMaxDispatchPriority_WithinCap_Allows verifies that the shared
+// launch priority range allows positive priorities on every plan.
 func TestCheckMaxDispatchPriority_WithinCap_Allows(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
 
 	store.subscriptions = map[string]*OrgSubscription{
-		"org-pro": {OrgID: "org-pro", PlanTier: "pro", Status: "active"},
+		"org-free": {OrgID: "org-free", PlanTier: "free", Status: "active"},
 	}
 	store.getProjectOrgIDFn = func(_ context.Context, _ string) (string, error) {
-		return "org-pro", nil
+		return "org-free", nil
 	}
 
-	// Pro plan: MaxDispatchPriority = 10. Priority 5 should be allowed.
-	limits := GetPlanLimits("pro")
+	limits := GetPlanLimits("free")
 	if limits.MaxDispatchPriority < 5 {
-		t.Skipf("pro plan MaxDispatchPriority=%d < 5, skipping", limits.MaxDispatchPriority)
+		t.Fatalf("free plan MaxDispatchPriority=%d, want at least 5", limits.MaxDispatchPriority)
 	}
 
-	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-pro", 5); err != nil {
+	if err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 5); err != nil {
 		t.Fatalf("expected nil for priority within cap, got %v", err)
 	}
 }
 
 // TestCheckMaxDispatchPriority_ExceedsCap_Blocks verifies that a priority
-// above the plan cap returns a *LimitError.
+// above the shared platform cap returns a *LimitError.
 func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
 	t.Parallel()
 	enforcer, store, _ := setupEnforcer(t)
@@ -1536,10 +1783,9 @@ func TestCheckMaxDispatchPriority_ExceedsCap_Blocks(t *testing.T) {
 		return "org-free", nil
 	}
 
-	// Free plan: MaxDispatchPriority = 0. Any positive priority should be blocked.
-	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 1)
+	err := enforcer.CheckMaxDispatchPriority(context.Background(), "proj-free", 11)
 	if err == nil {
-		t.Fatal("expected LimitError for priority exceeding free-tier cap")
+		t.Fatal("expected LimitError for priority exceeding platform cap")
 	}
 	var le *LimitError
 	if !isLimitError(err, &le) {
@@ -1600,6 +1846,206 @@ func TestDecrMonthlyRunCount_DecrAfterIncr(t *testing.T) {
 	after, _ := rdb.Get(ctx, key).Int64()
 	if after != 0 {
 		t.Errorf("expected counter=0 after decr, got %d", after)
+	}
+}
+
+func TestCheckMonthlyRunLimit_PaymentLookupErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &mockBillingStore{
+		getOrgSubscriptionFn: func(context.Context, string) (*OrgSubscription, error) {
+			return nil, errors.New("subscription store unavailable")
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-payment-error")
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when payment status cannot be loaded")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckMonthlyRunLimit_RedisErrorFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Close(); err != nil {
+		t.Fatalf("close redis client: %v", err)
+	}
+	orgID := "org-monthly-redis-error"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+		},
+	}
+	enforcer := NewEnforcer(store, rdb, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), orgID)
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when Redis is unavailable")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckMonthlyRunLimit_RequiredNilRedisFailsClosed(t *testing.T) {
+	t.Parallel()
+	enforcer := NewEnforcer(&mockBillingStore{}, nil, slog.Default(), WithRequireRedis())
+
+	err := enforcer.CheckMonthlyRunLimit(context.Background(), "org-monthly-nil-redis")
+	if err == nil {
+		t.Fatal("expected monthly run check to fail closed when required Redis is not configured")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+}
+
+func TestCheckMonthlyRunLimit_PaidOverageDisabledHardCaps(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-paid-overage-disabled"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {OrgID: orgID, PlanTier: "starter", Status: "active", OverageDisabled: true},
+	}
+
+	limits := GetPlanLimits(domain.PlanStarter)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-paid-disabled")
+	if err == nil {
+		t.Fatal("expected paid plan with overage disabled to hard-cap at monthly allowance")
+	}
+	var le *LimitError
+	if !errors.As(err, &le) {
+		t.Fatalf("error = %T %v, want *LimitError", err, err)
+	}
+	if le.Code != "plan_cap_reached" {
+		t.Fatalf("limit code = %q, want plan_cap_reached", le.Code)
+	}
+	if store.pausedOrgID != orgID || store.pausedReason != "quota_exceeded" {
+		t.Fatalf("quota pause = org %q reason %q, want %q quota_exceeded", store.pausedOrgID, store.pausedReason, orgID)
+	}
+}
+
+func TestCheckMonthlyRunLimit_PaidOverageEnabledAllowsPastAllowance(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-paid-overage-enabled"
+	runID := "run-paid-enabled"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+	}
+
+	limits := GetPlanLimits(domain.PlanStarter)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	if err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, runID); err != nil {
+		t.Fatalf("paid plan with overage enabled should allow over allowance: %v", err)
+	}
+	if got := enforcer.IsRunOverage(ctx, runID); !got {
+		t.Fatal("over-allowance run should be marked for Stripe overage metering")
+	}
+}
+
+type overageMarkerFailRedis struct {
+	redis.Cmdable
+}
+
+func (r overageMarkerFailRedis) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
+	cmd := redis.NewStatusCmd(ctx, "set", key, value, expiration)
+	if strings.HasPrefix(key, "billing:run_overage:") {
+		cmd.SetErr(errors.New("simulated overage marker outage"))
+		return cmd
+	}
+	return r.Cmdable.Set(ctx, key, value, expiration)
+}
+
+func TestCheckMonthlyRunLimit_OverageMarkerFailureFailsClosed(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	baseRedis := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { baseRedis.Close() })
+
+	ctx := context.Background()
+	orgID := "org-paid-overage-marker-error"
+	runID := "run-paid-marker-error"
+	store := &mockBillingStore{
+		subscriptions: map[string]*OrgSubscription{
+			orgID: {OrgID: orgID, PlanTier: "starter", Status: "active"},
+		},
+	}
+	limits := GetPlanLimits(domain.PlanStarter)
+	if err := baseRedis.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+	enforcer := NewEnforcer(store, overageMarkerFailRedis{Cmdable: baseRedis}, slog.Default())
+
+	err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, runID)
+	if err == nil {
+		t.Fatal("expected paid overage run to fail closed when overage marker cannot be persisted")
+	}
+	var le *LimitError
+	if !isLimitError(err, &le) {
+		t.Fatalf("expected *LimitError, got %T: %v", err, err)
+	}
+	if le.Code != "service_degraded" {
+		t.Fatalf("Code = %q, want service_degraded", le.Code)
+	}
+	if got := enforcer.IsRunOverage(ctx, runID); got {
+		t.Fatal("failed marker write must not leave a run marked as overage")
+	}
+}
+
+func TestCheckMonthlyRunLimit_FreeCardOverageOptInAllowsPastAllowance(t *testing.T) {
+	t.Parallel()
+	enforcer, store, mr := setupEnforcer(t)
+	ctx := context.Background()
+	orgID := "org-free-card-overage"
+	customerID := "cus_free_card"
+	store.subscriptions = map[string]*OrgSubscription{
+		orgID: {
+			OrgID:            orgID,
+			PlanTier:         "free",
+			Status:           "active",
+			StripeCustomerID: &customerID,
+			OverageDisabled:  false,
+		},
+	}
+
+	limits := GetPlanLimits(domain.PlanFree)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	if err := rdb.Set(ctx, monthlyRunKey(orgID, time.Now()), int64(limits.MaxRunsPerMonth), 0).Err(); err != nil {
+		t.Fatalf("seed monthly counter: %v", err)
+	}
+
+	if err := enforcer.CheckMonthlyRunLimitForRun(ctx, orgID, "run-free-card"); err != nil {
+		t.Fatalf("free plan with card-backed overage enabled should allow over allowance: %v", err)
 	}
 }
 

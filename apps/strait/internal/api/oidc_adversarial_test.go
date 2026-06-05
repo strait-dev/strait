@@ -305,6 +305,7 @@ func TestNewOIDCVerifier_EmptyConfig(t *testing.T) {
 		}
 		if v == nil {
 			t.Fatal("expected non-nil verifier when OIDC disabled")
+			return
 		}
 		if v.enabled {
 			t.Fatal("expected verifier to be disabled")

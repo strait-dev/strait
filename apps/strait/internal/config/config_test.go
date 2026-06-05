@@ -156,7 +156,6 @@ func TestLoad_DefaultBooleans(t *testing.T) {
 		{"WebhookRequireTLS", cfg.WebhookRequireTLS},
 		{"AllowPrivateEndpoints", cfg.AllowPrivateEndpoints},
 		{"GRPCAllowPlaintext", cfg.GRPCAllowPlaintext},
-		{"EnforceRegionGating", cfg.EnforceRegionGating},
 		{"ClickHouseEnabled", cfg.ClickHouseEnabled},
 		{"ClickHouseExportEnabled", cfg.ClickHouseExportEnabled},
 		{"OTLPMetricEnabled", cfg.OTLPMetricEnabled},
@@ -496,7 +495,6 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	t.Setenv("WEBHOOK_REQUIRE_TLS", "true")
 	t.Setenv("ALLOW_PRIVATE_ENDPOINTS", "true")
 	t.Setenv("GRPC_ALLOW_PLAINTEXT", "true")
-	t.Setenv("ENFORCE_REGION_GATING", "true")
 	t.Setenv("OTLP_METRIC_ENABLED", "true")
 	t.Setenv("CORS_ALLOW_CREDENTIALS", "true")
 	t.Setenv("STRAIT_PROFILING_ENABLED", "true")
@@ -530,9 +528,6 @@ func TestLoad_BoolOverrides(t *testing.T) {
 	}
 	if !cfg.GRPCAllowPlaintext {
 		t.Fatal("GRPCAllowPlaintext = false, want true")
-	}
-	if !cfg.EnforceRegionGating {
-		t.Fatal("EnforceRegionGating = false, want true")
 	}
 	if !cfg.OTLPMetricEnabled {
 		t.Fatal("OTLPMetricEnabled = false, want true")

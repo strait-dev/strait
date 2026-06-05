@@ -1,0 +1,454 @@
+{
+  "version": "2026-05-21",
+  "meteredUnit": "orchestration_run",
+  "plans": [
+    {
+      "tier": "free",
+      "displayName": "Free",
+      "description": "For evaluation, demos, and side projects.",
+      "prices": { "monthlyCents": 0, "annualCents": 0 },
+      "lookupKeys": {
+        "monthly": "strait_free_monthly",
+        "annual": "",
+        "overage": "strait_overage_free"
+      },
+      "overage": {
+        "microusdPer1K": 500000,
+        "defaultEnabled": false,
+        "defaultSpendingCapMicrousd": 50000000
+      },
+      "limits": {
+        "orgs": 1,
+        "projects": 1,
+        "members": 1,
+        "runsPerMonth": 5000,
+        "concurrentRuns": 3,
+        "retentionDays": 7,
+        "workflowSteps": 10,
+        "scheduledJobs": 1,
+        "cronMinIntervalSec": 300,
+        "environments": 1,
+        "webhookSubscriptions": 0,
+        "webhookEndpoints": 0,
+        "logDrains": 0,
+        "notificationChannels": 0,
+        "apiRateLimit": 60,
+        "workerConnections": 1,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": false,
+        "rbacLevel": "none",
+        "auditLogs": false,
+        "slaTarget": false,
+        "logStreaming": false,
+        "approvalGates": false,
+        "subWorkflows": false,
+        "jobChaining": false,
+        "compensatingTransactions": false,
+        "canaryDeployments": false
+      },
+      "supportLevel": "community",
+      "creditCardRequired": false,
+      "highlighted": false,
+      "badge": "No credit card required",
+      "featureBullets": [
+        "5,000 orchestration runs/mo",
+        "3 concurrent runs",
+        "10 workflow steps",
+        "1 project, 1 environment, 1 schedule",
+        "Community support"
+      ],
+      "roadmapFeatures": []
+    },
+    {
+      "tier": "starter",
+      "displayName": "Starter",
+      "description": "For solo developers, small projects, and internal tools.",
+      "prices": { "monthlyCents": 1900, "annualCents": 18000 },
+      "lookupKeys": {
+        "monthly": "strait_starter_monthly",
+        "annual": "strait_starter_annual",
+        "overage": "strait_overage_starter"
+      },
+      "overage": {
+        "microusdPer1K": 400000,
+        "defaultEnabled": true,
+        "defaultSpendingCapMicrousd": 100000000
+      },
+      "limits": {
+        "orgs": 2,
+        "projects": 3,
+        "members": 3,
+        "runsPerMonth": 50000,
+        "concurrentRuns": 15,
+        "retentionDays": 14,
+        "workflowSteps": 25,
+        "scheduledJobs": 5,
+        "cronMinIntervalSec": 60,
+        "environments": 1,
+        "webhookSubscriptions": 3,
+        "webhookEndpoints": 3,
+        "logDrains": 1,
+        "notificationChannels": 1,
+        "apiRateLimit": 300,
+        "workerConnections": 5,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": true,
+        "rbacLevel": "basic",
+        "auditLogs": false,
+        "slaTarget": false,
+        "logStreaming": true,
+        "approvalGates": false,
+        "subWorkflows": false,
+        "jobChaining": false,
+        "compensatingTransactions": false,
+        "canaryDeployments": false
+      },
+      "supportLevel": "email_72h",
+      "creditCardRequired": true,
+      "highlighted": false,
+      "badge": "",
+      "featureBullets": [
+        "50,000 orchestration runs/mo",
+        "15 concurrent runs",
+        "25 workflow steps",
+        "3 projects, 3 members",
+        "Email support (72h)"
+      ],
+      "roadmapFeatures": []
+    },
+    {
+      "tier": "pro",
+      "displayName": "Pro",
+      "description": "For production SaaS and mid-market teams.",
+      "prices": { "monthlyCents": 9900, "annualCents": 94800 },
+      "lookupKeys": {
+        "monthly": "strait_pro_monthly",
+        "annual": "strait_pro_annual",
+        "overage": "strait_overage_pro"
+      },
+      "overage": {
+        "microusdPer1K": 200000,
+        "defaultEnabled": true,
+        "defaultSpendingCapMicrousd": 200000000
+      },
+      "limits": {
+        "orgs": 5,
+        "projects": 10,
+        "members": 10,
+        "runsPerMonth": 1000000,
+        "concurrentRuns": 100,
+        "retentionDays": 30,
+        "workflowSteps": 100,
+        "scheduledJobs": 25,
+        "cronMinIntervalSec": 30,
+        "environments": 3,
+        "webhookSubscriptions": 10,
+        "webhookEndpoints": 10,
+        "logDrains": 5,
+        "notificationChannels": 5,
+        "apiRateLimit": 1000,
+        "workerConnections": 25,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": true,
+        "rbacLevel": "full",
+        "auditLogs": false,
+        "slaTarget": false,
+        "logStreaming": true,
+        "approvalGates": true,
+        "subWorkflows": true,
+        "jobChaining": true,
+        "compensatingTransactions": true,
+        "canaryDeployments": false
+      },
+      "supportLevel": "priority_24h",
+      "creditCardRequired": true,
+      "highlighted": true,
+      "badge": "Most popular",
+      "featureBullets": [
+        "1,000,000 orchestration runs/mo",
+        "100 concurrent runs",
+        "100 workflow steps",
+        "Approval gates and sub-workflows",
+        "Priority email support (24h)"
+      ],
+      "roadmapFeatures": []
+    },
+    {
+      "tier": "scale",
+      "displayName": "Scale",
+      "description": "For high-volume products and multi-product platforms.",
+      "prices": { "monthlyCents": 29900, "annualCents": 286800 },
+      "lookupKeys": {
+        "monthly": "strait_scale_monthly",
+        "annual": "strait_scale_annual",
+        "overage": "strait_overage_scale"
+      },
+      "overage": {
+        "microusdPer1K": 60000,
+        "defaultEnabled": true,
+        "defaultSpendingCapMicrousd": 500000000
+      },
+      "limits": {
+        "orgs": 10,
+        "projects": 50,
+        "members": 50,
+        "runsPerMonth": 5000000,
+        "concurrentRuns": 300,
+        "retentionDays": 60,
+        "workflowSteps": 500,
+        "scheduledJobs": 100,
+        "cronMinIntervalSec": 1,
+        "environments": 10,
+        "webhookSubscriptions": 25,
+        "webhookEndpoints": 25,
+        "logDrains": 10,
+        "notificationChannels": 10,
+        "apiRateLimit": 3000,
+        "workerConnections": 100,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": true,
+        "rbacLevel": "full",
+        "auditLogs": true,
+        "slaTarget": false,
+        "logStreaming": true,
+        "approvalGates": true,
+        "subWorkflows": true,
+        "jobChaining": true,
+        "compensatingTransactions": true,
+        "canaryDeployments": true
+      },
+      "supportLevel": "priority_slack_8h",
+      "creditCardRequired": true,
+      "highlighted": false,
+      "badge": "",
+      "featureBullets": [
+        "5,000,000 orchestration runs/mo",
+        "300 concurrent runs",
+        "500 workflow steps",
+        "Audit logs and canary deployments",
+        "Priority Slack support (8h)"
+      ],
+      "roadmapFeatures": []
+    },
+    {
+      "tier": "business",
+      "displayName": "Business",
+      "description": "For enterprise volume and regulated workloads, pre-contract.",
+      "prices": { "monthlyCents": 49900, "annualCents": 478800 },
+      "lookupKeys": {
+        "monthly": "strait_business_monthly",
+        "annual": "strait_business_annual",
+        "overage": "strait_overage_business"
+      },
+      "overage": {
+        "microusdPer1K": 30000,
+        "defaultEnabled": true,
+        "defaultSpendingCapMicrousd": 1500000000
+      },
+      "limits": {
+        "orgs": -1,
+        "projects": -1,
+        "members": -1,
+        "runsPerMonth": 25000000,
+        "concurrentRuns": 500,
+        "retentionDays": 90,
+        "workflowSteps": -1,
+        "scheduledJobs": -1,
+        "cronMinIntervalSec": 0,
+        "environments": -1,
+        "webhookSubscriptions": -1,
+        "webhookEndpoints": -1,
+        "logDrains": -1,
+        "notificationChannels": -1,
+        "apiRateLimit": -1,
+        "workerConnections": -1,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": true,
+        "rbacLevel": "advanced",
+        "auditLogs": true,
+        "slaTarget": true,
+        "logStreaming": true,
+        "approvalGates": true,
+        "subWorkflows": true,
+        "jobChaining": true,
+        "compensatingTransactions": true,
+        "canaryDeployments": true
+      },
+      "supportLevel": "priority_slack_8h",
+      "creditCardRequired": true,
+      "highlighted": false,
+      "badge": "",
+      "featureBullets": [
+        "25,000,000 orchestration runs/mo",
+        "500 concurrent runs",
+        "Unlimited projects, environments, schedules, and members",
+        "Advanced RBAC and audit logs",
+        "SLA target (non-contractual)"
+      ],
+      "roadmapFeatures": [
+        "SSO/SAML",
+        "SCIM",
+        "IP allowlisting",
+        "static IPs",
+        "VPC peering",
+        "data residency"
+      ]
+    },
+    {
+      "tier": "enterprise",
+      "displayName": "Enterprise",
+      "description": "For custom contracts and roadmap isolation options.",
+      "prices": { "monthlyCents": -1, "annualCents": -1 },
+      "lookupKeys": { "monthly": "", "annual": "", "overage": "" },
+      "overage": {
+        "microusdPer1K": 30000,
+        "defaultEnabled": false,
+        "defaultSpendingCapMicrousd": -1
+      },
+      "limits": {
+        "orgs": -1,
+        "projects": -1,
+        "members": -1,
+        "runsPerMonth": -1,
+        "concurrentRuns": -1,
+        "retentionDays": -1,
+        "workflowSteps": -1,
+        "scheduledJobs": -1,
+        "cronMinIntervalSec": 0,
+        "environments": -1,
+        "webhookSubscriptions": -1,
+        "webhookEndpoints": -1,
+        "logDrains": -1,
+        "notificationChannels": -1,
+        "apiRateLimit": -1,
+        "workerConnections": -1,
+        "alertRules": 0,
+        "allowedRegions": ["iad"],
+        "logDrainGB": 0,
+        "dispatchPriority": 10
+      },
+      "features": {
+        "rbac": true,
+        "rbacLevel": "full",
+        "auditLogs": true,
+        "slaTarget": true,
+        "logStreaming": true,
+        "approvalGates": true,
+        "subWorkflows": true,
+        "jobChaining": true,
+        "compensatingTransactions": true,
+        "canaryDeployments": true
+      },
+      "supportLevel": "dedicated",
+      "creditCardRequired": false,
+      "highlighted": false,
+      "badge": "Contact sales",
+      "featureBullets": [
+        "50M+ orchestration runs/mo",
+        "Custom concurrency, step caps, and history",
+        "Multi-org and consolidated invoicing",
+        "Dedicated TAM and named on-call",
+        "99.99% SLA target (non-contractual)"
+      ],
+      "roadmapFeatures": [
+        "SSO/SAML",
+        "SCIM",
+        "IP allowlisting",
+        "static IPs",
+        "VPC peering",
+        "data residency",
+        "single-tenant orchestration",
+        "BYO-cloud"
+      ]
+    }
+  ],
+  "addons": [
+    {
+      "type": "concurrency_100",
+      "displayName": "+100 concurrent runs",
+      "lookupKey": "strait_addon_concurrency_100",
+      "packSize": 100,
+      "priceCents": 2000,
+      "maxTotal": -1,
+      "status": "active",
+      "availableOn": ["pro", "scale", "business"]
+    },
+    {
+      "type": "history_30d",
+      "displayName": "+30 days run history",
+      "lookupKey": "strait_addon_history_30d",
+      "packSize": 30,
+      "priceCents": 4000,
+      "maxTotal": 365,
+      "status": "active",
+      "availableOn": ["scale", "business"]
+    },
+    {
+      "type": "environments_5",
+      "displayName": "+5 active environments",
+      "lookupKey": "strait_addon_environments_5",
+      "packSize": 5,
+      "priceCents": 3000,
+      "maxTotal": -1,
+      "status": "active",
+      "availableOn": ["pro", "scale"]
+    },
+    {
+      "type": "compliance_archive",
+      "displayName": "Compliance archive",
+      "lookupKey": "",
+      "packSize": 1,
+      "priceCents": 0,
+      "maxTotal": 1,
+      "status": "roadmap",
+      "availableOn": []
+    },
+    {
+      "type": "dedicated_workers",
+      "displayName": "Dedicated worker pool",
+      "lookupKey": "",
+      "packSize": 1,
+      "priceCents": 0,
+      "maxTotal": -1,
+      "status": "roadmap",
+      "availableOn": []
+    }
+  ],
+  "roadmapFeatures": [
+    "SSO/SAML",
+    "SCIM",
+    "IP allowlisting",
+    "static IPs",
+    "VPC peering",
+    "data residency",
+    "single-tenant orchestration",
+    "BYO-cloud",
+    "dedicated worker pool",
+    "compliance archive"
+  ]
+}

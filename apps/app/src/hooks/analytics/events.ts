@@ -26,7 +26,6 @@ export const ONBOARDING_EVENTS = {
 export const SUBSCRIPTION_EVENTS = {
   CHECKOUT_STARTED: "subscription_checkout_started",
   CHECKOUT_COMPLETED: "subscription_checkout_completed",
-  TRIAL_STARTED: "subscription_trial_started",
   PLAN_CHANGED: "subscription_plan_changed",
   CANCELLED: "subscription_cancelled",
   BILLING_INTERVAL_CHANGED: "subscription_billing_interval_changed",

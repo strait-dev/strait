@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"strait/internal/billing"
 )
 
 const maxApprovalStatsRange = 90 * 24 * time.Hour
@@ -20,6 +22,10 @@ type ApprovalStatsOutput struct {
 
 func (s *Server) handleGetApprovalStats(ctx context.Context, input *ApprovalStatsInput) (*ApprovalStatsOutput, error) {
 	projectID := projectIDFromContext(ctx)
+
+	if err := s.checkFeatureAllowed(ctx, projectID, billing.FeatureApprovalGates, "Approval gates"); err != nil {
+		return nil, err
+	}
 
 	from, to, err := parseCostTimeRangeTyped(input.From, input.To)
 	if err != nil {

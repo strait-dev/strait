@@ -10,13 +10,11 @@ import (
 
 type ProjectSettingsResponse struct {
 	ProjectID          string `json:"project_id"`
-	DefaultRegion      string `json:"default_region"`
 	PlanTier           string `json:"plan_tier"`
 	MaxKeyLifetimeDays int    `json:"max_key_lifetime_days"`
 }
 type UpdateProjectSettingsRequest struct {
-	DefaultRegion      *string `json:"default_region,omitempty"`
-	MaxKeyLifetimeDays *int    `json:"max_key_lifetime_days,omitempty"`
+	MaxKeyLifetimeDays *int `json:"max_key_lifetime_days,omitempty"`
 }
 
 type GetProjectSettingsInput struct {
@@ -38,7 +36,6 @@ func (s *Server) handleGetProjectSettings(ctx context.Context, input *GetProject
 	}
 	resp := ProjectSettingsResponse{ProjectID: projectID, PlanTier: string(domain.PlanFree)}
 	if quota != nil {
-		resp.DefaultRegion = quota.DefaultRegion
 		resp.MaxKeyLifetimeDays = quota.MaxKeyLifetimeDays
 		if quota.PlanTier != "" {
 			resp.PlanTier = quota.PlanTier
@@ -60,14 +57,6 @@ func (s *Server) handleUpdateProjectSettings(ctx context.Context, input *UpdateP
 	}
 	if err := s.validateProjectBelongsToCallerOrg(ctx, projectID); err != nil {
 		return nil, huma.Error403Forbidden("access denied")
-	}
-	if input.Body.DefaultRegion != nil {
-		if err := s.checkRegionForPlan(ctx, projectID, *input.Body.DefaultRegion); err != nil {
-			return nil, err
-		}
-		if err := s.store.UpdateProjectDefaultRegion(ctx, projectID, *input.Body.DefaultRegion); err != nil {
-			return nil, huma.Error500InternalServerError("failed to update project settings")
-		}
 	}
 	if input.Body.MaxKeyLifetimeDays != nil {
 		days := *input.Body.MaxKeyLifetimeDays

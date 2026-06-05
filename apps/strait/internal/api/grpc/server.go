@@ -39,6 +39,7 @@ type Server struct {
 	apiKeyResolver  apiKeyResolver
 	secretDecryptor SecretDecryptor
 	billingEnforcer planLimitEnforcer
+	edition         domain.Edition
 	readyRunQueue   ReadyRunEnqueuer
 	gs              *grpc.Server
 	version         string
@@ -91,9 +92,9 @@ func WithSecretDecryptor(dec SecretDecryptor) ServerOption {
 	}
 }
 
-// WithBillingEnforcer attaches a plan-limit enforcer used to gate
-// worker registration by tier. May be nil in community / self-hosted
-// builds, in which case the gating is silently skipped.
+// WithBillingEnforcer attaches a plan-limit enforcer used to gate worker
+// registration by tier. Cloud registrations fail closed when this dependency
+// is absent; community/self-hosted builds skip the billing gate.
 func WithBillingEnforcer(enforcer planLimitEnforcer) ServerOption {
 	return func(s *Server) {
 		s.billingEnforcer = enforcer
@@ -127,6 +128,7 @@ func NewServer(cfg *config.Config, queries *store.Queries, pub pubsub.Publisher,
 		registry:       NewConnectionRegistry(),
 		resultChannels: NewResultChannelRegistry(),
 		apiKeyResolver: queryAPIKeyResolver(queries),
+		edition:        domain.ParseEdition(""),
 		version:        "unknown",
 	}
 	for _, opt := range opts {
@@ -218,6 +220,7 @@ func (s *Server) buildServer() (*grpc.Server, error) {
 		authLimiter:     s.authLimiter,
 		apiKeyResolver:  s.apiKeyResolver,
 		billingEnforcer: s.billingEnforcer,
+		edition:         s.edition,
 		readyRunQueue:   s.readyRunQueue,
 	}
 	workerv1.RegisterWorkerServiceServer(gs, svc)

@@ -25,7 +25,7 @@ import { REFETCH_5M } from "./types";
  * Server function that fetches the current billing period's usage data.
  *
  * Returns {@link EMPTY_ORG_USAGE} when no active organization is found.
- * Normalizes the response to ensure AI model call fields are always present.
+ * Normalizes the response shape before it reaches client components.
  */
 const getOrgUsageServerFn = createServerFn({ method: "GET" })
   .middleware([authMiddleware])

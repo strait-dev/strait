@@ -50,9 +50,20 @@ func TestSpendingLimitWarningHTML_ContainsValues(t *testing.T) {
 
 func TestOverageAlertHTML_EscapesHTML(t *testing.T) {
 	t.Parallel()
-	html := overageAlertHTML("<img>", "$10", "$50")
+	html := overageAlertHTML("<img>", "$10", "50000")
 	if strings.Contains(html, "<img>") {
 		t.Fatal("HTML not escaped")
+	}
+}
+
+func TestOverageAlertHTML_UsesRunAllowanceLanguage(t *testing.T) {
+	t.Parallel()
+	html := overageAlertHTML("Starter", "$10", "50000")
+	if !strings.Contains(html, "included allowance of 50000 orchestration runs") {
+		t.Fatal("expected orchestration run allowance language")
+	}
+	if strings.Contains(html, "included credit") {
+		t.Fatal("overage alert must not use compute credit language")
 	}
 }
 
@@ -95,6 +106,7 @@ func TestBillingEmailSender_EmptyRecipients(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	// Empty to slice should not panic or send.
 	s.SendSpendingLimitWarning(context.Background(), []string{}, "Pro", "$50", "$100", "80%")
@@ -110,6 +122,7 @@ func TestNewBillingEmailSender_DefaultFromEmail(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	if s.fromEmail != "billing@strait.dev" {
 		t.Errorf("fromEmail = %q, want billing@strait.dev", s.fromEmail)
@@ -121,6 +134,7 @@ func TestNewBillingEmailSender_CustomFromEmail(t *testing.T) {
 	s := NewBillingEmailSender("re_test_key", "custom@example.com", nil)
 	if s == nil {
 		t.Fatal("expected non-nil sender")
+		return
 	}
 	if s.fromEmail != "custom@example.com" {
 		t.Errorf("fromEmail = %q, want custom@example.com", s.fromEmail)

@@ -151,12 +151,11 @@ func TestNotionLock_AddonPrices(t *testing.T) {
 	t.Parallel()
 
 	want := map[AddonType]int{
-		AddonConcurrency100:    2000,  // $20
-		AddonLogDrain10GB:      2500,  // $25
-		AddonHistory30d:        4000,  // $40
-		AddonComplianceArchive: 5000,  // $50
-		AddonDedicatedWorkers:  20000, // $200
-		AddonEnvironments5:     3000,  // $30
+		AddonConcurrency100:    2000, // $20
+		AddonHistory30d:        4000, // $40
+		AddonComplianceArchive: 0,    // roadmap, not sellable at launch
+		AddonDedicatedWorkers:  0,    // roadmap, not sellable at launch
+		AddonEnvironments5:     3000, // $30
 	}
 	for at, wantCents := range want {
 		pack, ok := AddonPacks[at]

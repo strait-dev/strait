@@ -10,6 +10,7 @@ import (
 
 	"strait/internal/billing"
 	"strait/internal/config"
+	"strait/internal/domain"
 
 	"github.com/spf13/cobra"
 )
@@ -80,6 +81,7 @@ func TestNewServeCommand(t *testing.T) {
 	f := cmd.Flags().Lookup("mode")
 	if f == nil {
 		t.Fatal("expected --mode flag to be registered on serve command")
+		return
 	}
 	if f.DefValue != "" {
 		t.Fatalf("--mode default = %q, want empty string", f.DefValue)
@@ -95,6 +97,120 @@ func TestValidateBillingRedisDependency_FailsClosedWhenEnforcementEnabled(t *tes
 	}
 	if !strings.Contains(err.Error(), "billing enforcement requires Redis") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateBillingEnforcerDependency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		enforcer *billing.Enforcer
+		want     string
+	}{
+		{
+			name: "nil config allowed",
+		},
+		{
+			name: "billing enforcement disabled allows nil enforcer",
+			cfg:  &config.Config{},
+		},
+		{
+			name:     "billing enforcement enabled with enforcer allowed",
+			cfg:      &config.Config{BillingEnforcementEnabled: true},
+			enforcer: &billing.Enforcer{},
+		},
+		{
+			name: "billing enforcement enabled fails without enforcer",
+			cfg:  &config.Config{BillingEnforcementEnabled: true},
+			want: "billing enforcement requires billing enforcer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateBillingEnforcerDependency(tt.cfg, tt.enforcer)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("validateBillingEnforcerDependency() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validateBillingEnforcerDependency() error = %v, want %s", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateCloudBillingConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		edition domain.Edition
+		cfg     *config.Config
+		want    string
+	}{
+		{
+			name:    "community production without billing allowed",
+			edition: domain.EditionCommunity,
+			cfg:     &config.Config{SentryEnvironment: "production"},
+		},
+		{
+			name:    "cloud development without billing allowed",
+			edition: domain.EditionCloud,
+			cfg:     &config.Config{SentryEnvironment: "development"},
+		},
+		{
+			name:    "cloud test without billing allowed",
+			edition: domain.EditionCloud,
+			cfg:     &config.Config{SentryEnvironment: "test"},
+		},
+		{
+			name:    "cloud production requires billing enforcement flag",
+			edition: domain.EditionCloud,
+			cfg:     &config.Config{SentryEnvironment: "production"},
+			want:    "BILLING_ENFORCEMENT_ENABLED",
+		},
+		{
+			name:    "cloud production requires stripe webhook secret",
+			edition: domain.EditionCloud,
+			cfg: &config.Config{
+				SentryEnvironment:         "production",
+				BillingEnforcementEnabled: true,
+			},
+			want: "STRIPE_WEBHOOK_SECRET",
+		},
+		{
+			name:    "cloud production with billing enforcement configured",
+			edition: domain.EditionCloud,
+			cfg: &config.Config{
+				SentryEnvironment:         "production",
+				BillingEnforcementEnabled: true,
+				StripeWebhookSecret:       "whsec_test",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateCloudBillingConfig(tt.edition, tt.cfg)
+			if tt.want == "" {
+				if err != nil {
+					t.Fatalf("validateCloudBillingConfig() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validateCloudBillingConfig() error = %v, want %s", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -128,6 +244,7 @@ func TestNewVersionCommand(t *testing.T) {
 	f := cmd.Flags().Lookup("short")
 	if f == nil {
 		t.Fatal("expected --short flag to be registered on version command")
+		return
 	}
 	if f.DefValue != "false" {
 		t.Fatalf("--short default = %q, want %q", f.DefValue, "false")
@@ -388,6 +505,7 @@ func TestNewMigrateDownCommand_YesFlag(t *testing.T) {
 	f := down.Flags().Lookup("yes")
 	if f == nil {
 		t.Fatal("expected --yes flag on migrate down command")
+		return
 	}
 	if f.DefValue != "false" {
 		t.Fatalf("--yes default = %q, want %q", f.DefValue, "false")
@@ -424,6 +542,7 @@ func TestNewServerStartCommand_ModeFlag(t *testing.T) {
 	f := cmd.Flags().Lookup("mode")
 	if f == nil {
 		t.Fatal("expected --mode flag on server start command")
+		return
 	}
 	if f.DefValue != "" {
 		t.Fatalf("--mode default = %q, want empty string", f.DefValue)

@@ -103,6 +103,7 @@ func TestApplySentryFingerprint_Rules(t *testing.T) {
 			got := BeforeSend(tc.event, &sentry.EventHint{OriginalException: tc.err})
 			if got == nil {
 				t.Fatal("BeforeSend dropped event")
+				return
 			}
 			if !reflect.DeepEqual(got.Fingerprint, tc.want) {
 				t.Fatalf("fingerprint = %#v, want %#v", got.Fingerprint, tc.want)
@@ -120,6 +121,7 @@ func TestApplySentryFingerprint_PreservesExplicitFingerprint(t *testing.T) {
 	})
 	if got == nil {
 		t.Fatal("BeforeSend dropped event")
+		return
 	}
 	if !reflect.DeepEqual(got.Fingerprint, []string{"custom", "fingerprint"}) {
 		t.Fatalf("fingerprint = %#v, want explicit fingerprint", got.Fingerprint)

@@ -33,8 +33,11 @@ func validConfig() *Config {
 		SequinBaseURL:                 "http://localhost:7376",
 		SequinConsumerName:            "strait-cdc",
 		SequinAPIToken:                "sequin-api-token",
+		SequinBatchSize:               200,
+		SequinWaitTimeMs:              5000,
 		DBMaxConns:                    50,
 		DBMinConns:                    10,
+		SentryEnvironment:             "development",
 		ExecutionTraceMode:            "off",
 		DLQMaxPerJob:                  1000,
 		DLQMaxPerProject:              10000,
@@ -45,6 +48,66 @@ func validConfig() *Config {
 func TestValidate_Happy(t *testing.T) {
 	if err := validConfig().Validate(); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
+	}
+}
+
+func TestValidate_SequinWebhookSecretRequiredOutsideDevelopment(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig()
+	c.SentryEnvironment = "production"
+	c.SequinWebhookSecret = ""
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "SEQUIN_WEBHOOK_SECRET") {
+		t.Fatalf("Validate() error = %v, want SEQUIN_WEBHOOK_SECRET error", err)
+	}
+
+	c.SequinWebhookSecret = "sequin-webhook-secret"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate() rejected production Sequin webhook secret: %v", err)
+	}
+}
+
+func TestValidate_RedisURLScheme(t *testing.T) {
+	t.Parallel()
+
+	c := validConfig()
+	c.RedisURL = "http://localhost:6379"
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
+		t.Fatalf("Validate() error = %v, want REDIS_URL scheme error", err)
+	}
+}
+
+func TestValidate_SequinPollingSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mut  func(*Config)
+		want string
+	}{
+		{
+			name: "batch_size_zero",
+			mut:  func(c *Config) { c.SequinBatchSize = 0 },
+			want: "SEQUIN_BATCH_SIZE",
+		},
+		{
+			name: "wait_time_zero",
+			mut:  func(c *Config) { c.SequinWaitTimeMs = 0 },
+			want: "SEQUIN_WAIT_TIME_MS",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := validConfig()
+			tt.mut(c)
+			err := c.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %v, want %s", err, tt.want)
+			}
+		})
 	}
 }
 

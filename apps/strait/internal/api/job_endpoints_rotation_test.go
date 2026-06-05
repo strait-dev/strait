@@ -94,6 +94,7 @@ func TestSetJobEndpoint_URLOnlyUpdatePreservesSecret(t *testing.T) {
 	cap := capture.Load()
 	if cap == nil {
 		t.Fatal("expected UpdateJobEndpoint to be invoked")
+		return
 	}
 	if cap.SigningSecret == "esec_preexisting_secret" {
 		t.Fatalf("signing secret persisted in plaintext")
@@ -132,6 +133,7 @@ func TestSetJobEndpoint_RotateOptInReturnsNewSecret(t *testing.T) {
 	cap := capture.Load()
 	if cap == nil {
 		t.Fatal("expected UpdateJobEndpoint to be invoked")
+		return
 	}
 	if cap.SigningSecret == "esec_preexisting_secret" {
 		t.Fatal("rotation requested but signing secret was not rotated")

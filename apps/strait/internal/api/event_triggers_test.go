@@ -133,21 +133,25 @@ func TestHandleSendEvent_Success(t *testing.T) {
 
 	var updatedStatus string
 	var updatedPayload json.RawMessage
+	getTrigger := func(_ context.Context, key string) (*domain.EventTrigger, error) {
+		if key == "aml-check:app-123" {
+			return &domain.EventTrigger{
+				ID:                "evt-1",
+				EventKey:          "aml-check:app-123",
+				ProjectID:         "proj-1",
+				SourceType:        "workflow_step",
+				WorkflowRunID:     "wr-1",
+				WorkflowStepRunID: "sr-1",
+				Status:            domain.EventTriggerStatusWaiting,
+			}, nil
+		}
+		return nil, nil
+	}
 
 	ms := &APIStoreMock{
-		GetEventTriggerByEventKeyFunc: func(_ context.Context, key string) (*domain.EventTrigger, error) {
-			if key == "aml-check:app-123" {
-				return &domain.EventTrigger{
-					ID:                "evt-1",
-					EventKey:          "aml-check:app-123",
-					ProjectID:         "proj-1",
-					SourceType:        "workflow_step",
-					WorkflowRunID:     "wr-1",
-					WorkflowStepRunID: "sr-1",
-					Status:            domain.EventTriggerStatusWaiting,
-				}, nil
-			}
-			return nil, nil
+		GetEventTriggerByEventKeyFunc: getTrigger,
+		GetEventTriggerByEventKeyForProjectFunc: func(ctx context.Context, key, _ string) (*domain.EventTrigger, error) {
+			return getTrigger(ctx, key)
 		},
 		UpdateEventTriggerStatusFromFunc: func(_ context.Context, _ string, from string, status string, payload json.RawMessage, _ *time.Time, _ string) error {
 			if from != domain.EventTriggerStatusWaiting {
@@ -271,16 +275,20 @@ func TestHandleGetEventTrigger_SuccessInternalSecret(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	getTrigger := func(_ context.Context, key string) (*domain.EventTrigger, error) {
+		return &domain.EventTrigger{
+			ID:          "evt-1",
+			EventKey:    key,
+			ProjectID:   "proj-1",
+			SourceType:  "workflow_step",
+			Status:      domain.EventTriggerStatusWaiting,
+			RequestedAt: now,
+		}, nil
+	}
 	ms := &APIStoreMock{
-		GetEventTriggerByEventKeyFunc: func(_ context.Context, key string) (*domain.EventTrigger, error) {
-			return &domain.EventTrigger{
-				ID:          "evt-1",
-				EventKey:    key,
-				ProjectID:   "proj-1",
-				SourceType:  "workflow_step",
-				Status:      domain.EventTriggerStatusWaiting,
-				RequestedAt: now,
-			}, nil
+		GetEventTriggerByEventKeyFunc: getTrigger,
+		GetEventTriggerByEventKeyForProjectFunc: func(ctx context.Context, key, _ string) (*domain.EventTrigger, error) {
+			return getTrigger(ctx, key)
 		},
 	}
 

@@ -34,7 +34,7 @@ type ExportPeriod struct {
 }
 
 // ExportCSV generates a CSV export of usage data for an org over the given period.
-// The CSV columns are: date, project, runs, compute_cost_usd, ai_tokens, ai_cost_usd, total_usd.
+// The CSV columns are: date, project, runs, orchestration_cost_usd, total_usd.
 func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeriod) ([]byte, error) {
 	if err := validateExportPeriod(period); err != nil {
 		return nil, err
@@ -48,21 +48,18 @@ func ExportCSV(ctx context.Context, store Store, orgID string, period ExportPeri
 	w := csv.NewWriter(&buf)
 
 	// Write header.
-	header := []string{"date", "project", "runs", "compute_cost_usd", "ai_tokens", "ai_cost_usd", "total_usd"}
+	header := []string{"date", "project", "runs", "orchestration_cost_usd", "total_usd"}
 	if err := w.Write(header); err != nil {
 		return nil, fmt.Errorf("writing CSV header: %w", err)
 	}
 
 	for _, r := range records {
-		totalMicro := r.ComputeCostMicro + r.AICostMicro
 		row := []string{
 			r.PeriodDate.Format("2006-01-02"),
 			escapeCSVFormulaCell(r.ProjectID),
 			fmt.Sprintf("%d", r.RunsCount),
 			microToUSDString(r.ComputeCostMicro),
-			fmt.Sprintf("%d", r.AITokensTotal),
-			microToUSDString(r.AICostMicro),
-			microToUSDString(totalMicro),
+			microToUSDString(r.ComputeCostMicro),
 		}
 		if err := w.Write(row); err != nil {
 			return nil, fmt.Errorf("writing CSV row: %w", err)
@@ -114,23 +111,19 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	// Summary box.
 	var totalRuns int64
 	var totalComputeMicro int64
-	var totalAIMicro int64
 	for _, r := range records {
 		totalRuns += r.RunsCount
 		totalComputeMicro += r.ComputeCostMicro
-		totalAIMicro += r.AICostMicro
 	}
-	totalMicro := totalComputeMicro + totalAIMicro
 
 	pdf.Ln(6)
 	pdf.SetFont("Helvetica", "B", 12)
 	pdf.CellFormat(0, 8, "Summary", "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "", 10)
 	pdf.CellFormat(0, 6, fmt.Sprintf("Total Runs: %d", totalRuns), "", 1, "L", false, 0, "")
-	pdf.CellFormat(0, 6, fmt.Sprintf("Compute Cost: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
-	pdf.CellFormat(0, 6, fmt.Sprintf("AI Cost: $%s", microToUSDString(totalAIMicro)), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 6, fmt.Sprintf("Orchestration Cost: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
 	pdf.SetFont("Helvetica", "B", 10)
-	pdf.CellFormat(0, 6, fmt.Sprintf("Total: $%s", microToUSDString(totalMicro)), "", 1, "L", false, 0, "")
+	pdf.CellFormat(0, 6, fmt.Sprintf("Total: $%s", microToUSDString(totalComputeMicro)), "", 1, "L", false, 0, "")
 
 	// Detail table.
 	pdf.Ln(6)
@@ -138,8 +131,8 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	pdf.CellFormat(0, 8, "Detail", "", 1, "L", false, 0, "")
 
 	// Table header.
-	colWidths := []float64{24, 32, 18, 28, 28, 25, 25}
-	headers := []string{"Date", "Project", "Runs", "Compute ($)", "AI Tokens", "AI Cost ($)", "Total ($)"}
+	colWidths := []float64{28, 48, 22, 38, 38}
+	headers := []string{"Date", "Project", "Runs", "Orchestration ($)", "Total ($)"}
 	pdf.SetFont("Helvetica", "B", 9)
 	for i, h := range headers {
 		pdf.CellFormat(colWidths[i], 7, h, "1", 0, "C", false, 0, "")
@@ -149,14 +142,11 @@ func ExportPDF(ctx context.Context, store Store, orgID string, period ExportPeri
 	// Table rows.
 	pdf.SetFont("Helvetica", "", 8)
 	for _, r := range records {
-		rowTotal := r.ComputeCostMicro + r.AICostMicro
 		pdf.CellFormat(colWidths[0], 6, r.PeriodDate.Format("2006-01-02"), "1", 0, "C", false, 0, "")
 		pdf.CellFormat(colWidths[1], 6, r.ProjectID, "1", 0, "L", false, 0, "")
 		pdf.CellFormat(colWidths[2], 6, fmt.Sprintf("%d", r.RunsCount), "1", 0, "R", false, 0, "")
 		pdf.CellFormat(colWidths[3], 6, microToUSDString(r.ComputeCostMicro), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(colWidths[4], 6, fmt.Sprintf("%d", r.AITokensTotal), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(colWidths[5], 6, microToUSDString(r.AICostMicro), "1", 0, "R", false, 0, "")
-		pdf.CellFormat(colWidths[6], 6, microToUSDString(rowTotal), "1", 0, "R", false, 0, "")
+		pdf.CellFormat(colWidths[4], 6, microToUSDString(r.ComputeCostMicro), "1", 0, "R", false, 0, "")
 		pdf.Ln(-1)
 	}
 

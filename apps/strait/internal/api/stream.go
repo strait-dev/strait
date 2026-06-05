@@ -173,8 +173,8 @@ func (s *Server) handleRunLogStream(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRunLLMStream forwards LLM stream chunks to frontend consumers via SSE.
-func (s *Server) handleRunLLMStream(w http.ResponseWriter, r *http.Request) {
+// handleRunChunkStream forwards run stream chunks to frontend consumers via SSE.
+func (s *Server) handleRunChunkStream(w http.ResponseWriter, r *http.Request) {
 	s.streamSSE(w, r, sseStreamOptions{
 		channel:          "run_stream:%s",
 		rejectIfTerminal: true,
