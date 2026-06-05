@@ -2,7 +2,11 @@
 
 package loadtest
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 // TestClockSkewVerdict locks in that the clock-skew chaos scenario fails when
 // fewer than the inserted future-dated rows survive the reaper soak. Previously
@@ -28,12 +32,14 @@ func TestClockSkewVerdict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			err := clockSkewVerdict(tc.remaining, tc.inserted)
-			if tc.wantErr && err == nil {
-				t.Fatalf("clockSkewVerdict(%d, %d) = nil, want error", tc.remaining, tc.inserted)
-			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("clockSkewVerdict(%d, %d) = %v, want nil", tc.remaining, tc.inserted, err)
-			}
+			require.False(t, tc.
+				wantErr && err ==
+
+				nil)
+			require.False(t, !tc.
+				wantErr && err !=
+				nil)
+
 		})
 	}
 }

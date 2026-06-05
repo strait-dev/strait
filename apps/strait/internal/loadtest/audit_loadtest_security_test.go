@@ -10,6 +10,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 type blockingAuditStore struct {
@@ -58,16 +59,18 @@ func TestAuditEmitHarness_WaitDrainWaitsForInFlightEvent(t *testing.T) {
 	select {
 	case <-store.started:
 	case <-time.After(time.Second):
-		t.Fatal("drainer did not start processing event")
+		require.Fail(t, "drainer did not start processing event")
 	}
-	if h.WaitDrain(20 * time.Millisecond) {
-		t.Fatal("WaitDrain returned true while final event was still in flight")
-	}
+	require.False(t, h.
+		WaitDrain(20*
+			time.Millisecond,
+		))
 
 	close(store.release)
-	if !h.WaitDrain(time.Second) {
-		t.Fatal("WaitDrain did not return after in-flight event completed")
-	}
+	require.True(t, h.
+		WaitDrain(time.
+			Second))
+
 }
 
 func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {
@@ -101,6 +104,6 @@ func TestAuditEmitHarness_ConcurrentEmitAndStopDoesNotPanic(t *testing.T) {
 	close(panicCh)
 
 	if panicValue, ok := <-panicCh; ok {
-		t.Fatalf("Emit panicked during concurrent Stop: %v", panicValue)
+		require.Failf(t, "Emit panicked during concurrent Stop", "%v", panicValue)
 	}
 }

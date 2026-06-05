@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"strait/internal/loadtest"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func envOrDefault(key, def string) string {
@@ -45,13 +48,11 @@ func setupHarness(t *testing.T) *loadtest.Harness {
 	})
 
 	ctx := context.Background()
-	if err := h.Setup(ctx); err != nil {
-		t.Fatalf("harness setup: %v", err)
-	}
+	require.NoError(t, h.Setup(ctx))
+
 	t.Cleanup(func() {
-		if err := h.Teardown(); err != nil {
-			t.Errorf("harness teardown: %v", err)
-		}
+		assert.NoError(t, h.Teardown())
+
 	})
 
 	// Create load test jobs once across all test functions
@@ -96,9 +97,7 @@ func TestQuickValidation(t *testing.T) {
 	})
 
 	result, err := engine.Run(context.Background())
-	if err != nil {
-		t.Fatalf("ramp engine failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("max sustained rate: %d jobs/sec", result.MaxRate)
 	t.Logf("breaking rate: %d jobs/sec", result.BreakingRate)
@@ -106,15 +105,17 @@ func TestQuickValidation(t *testing.T) {
 	t.Logf("total operations: %d", result.TotalOperations)
 	t.Logf("total errors: %d", result.TotalErrors)
 	t.Logf("duration: %s", result.Duration)
+	assert.NoError(t, h.WriteResult("quick_validation.json",
 
-	if err := h.WriteResult("quick_validation.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		result))
+	assert.GreaterOrEqual(t,
+
+		result.MaxRate,
+		10,
+	)
 
 	// Basic assertions
-	if result.MaxRate < 10 {
-		t.Errorf("max sustained rate too low: %d (expected >= 10)", result.MaxRate)
-	}
+
 }
 
 // TestThroughputCeiling finds the maximum sustained throughput.
@@ -141,9 +142,7 @@ func TestThroughputCeiling(t *testing.T) {
 	})
 
 	result, err := engine.Run(context.Background())
-	if err != nil {
-		t.Fatalf("throughput ceiling test failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("=== THROUGHPUT CEILING RESULTS ===")
 	t.Logf("max sustained: %d jobs/sec", result.MaxRate)
@@ -158,10 +157,10 @@ func TestThroughputCeiling(t *testing.T) {
 			step.LatencyP50, step.LatencyP95, step.LatencyP99,
 			step.QueueDepth)
 	}
+	assert.NoError(t, h.WriteResult("throughput_ceiling.json",
 
-	if err := h.WriteResult("throughput_ceiling.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		result))
+
 }
 
 // TestConcurrencyCeiling finds the maximum concurrent connections for HTTP-mode dispatch.
@@ -185,9 +184,7 @@ func TestConcurrencyCeiling(t *testing.T) {
 		defer cancel()
 
 		result, err := engine.Run(ctx)
-		if err != nil {
-			t.Fatalf("HTTP concurrency test failed: %v", err)
-		}
+		require.NoError(t, err)
 
 		t.Logf("=== HTTP CONCURRENCY CEILING ===")
 		t.Logf("max sustained: %d concurrent | breaks at: %d | bottleneck: %s",
@@ -198,10 +195,11 @@ func TestConcurrencyCeiling(t *testing.T) {
 				step.Rate, step.Operations, step.Errors,
 				step.ErrorRate*100, step.LatencyP99)
 		}
+		assert.NoError(t, h.WriteResult("concurrency_ceiling_http.json",
 
-		if err := h.WriteResult("concurrency_ceiling_http.json", result); err != nil {
-			t.Errorf("writing result: %v", err)
-		}
+			result,
+		))
+
 	})
 }
 
@@ -249,9 +247,8 @@ func TestProductionSimulation(t *testing.T) {
 	go errorInjector.Run(errorCtx)
 
 	result, err := sim.Run(context.Background())
-	if err != nil {
-		t.Fatalf("production simulation failed: %v", err)
-	}
+	require.NoError(t, err)
+
 	errorCancel()
 
 	t.Logf("=== PRODUCTION SIMULATION RESULTS ===")
@@ -266,10 +263,10 @@ func TestProductionSimulation(t *testing.T) {
 		t.Logf("  tenant=%s runs=%d errors=%d rate=%.1f/sec",
 			id, stats.Runs, stats.Errors, stats.Rate)
 	}
+	assert.NoError(t, h.WriteResult("production_simulation.json",
 
-	if err := h.WriteResult("production_simulation.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		result))
+
 }
 
 // TestBreakingPoint adds tenants until the system degrades.
@@ -315,9 +312,7 @@ func TestBreakingPoint(t *testing.T) {
 		)
 
 		simResult, err := sim.Run(context.Background())
-		if err != nil {
-			t.Fatalf("simulation failed at %d tenants: %v", tenantCount, err)
-		}
+		require.NoError(t, err)
 
 		errorRate := float64(simResult.TotalErrors) / max(float64(simResult.TotalRuns), 1)
 
@@ -344,10 +339,9 @@ func TestBreakingPoint(t *testing.T) {
 	}
 
 	result.MaxTenants = maxTenants
+	assert.NoError(t, h.WriteResult("breaking_point.json",
 
-	if err := h.WriteResult("breaking_point.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		result))
 
 	t.Logf("=== BREAKING POINT RESULTS ===")
 	t.Logf("max sustained tenants: %d", result.MaxTenants)
@@ -400,9 +394,7 @@ func TestEndurance(t *testing.T) {
 	})
 
 	result, alerts, err := runner.Run(context.Background(), h)
-	if err != nil {
-		t.Fatalf("endurance test failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("=== ENDURANCE RESULTS ===")
 	t.Logf("duration: %s", result.Duration)
@@ -414,9 +406,12 @@ func TestEndurance(t *testing.T) {
 	// Report alerts
 	for _, alert := range alerts {
 		t.Logf("ALERT [%s]: %s (hour %d)", alert.Severity, alert.Message, alert.Hour)
-		if alert.Severity == "LEAK" || alert.Severity == "DEGRADATION" {
-			t.Errorf("endurance alert: %s", alert.Message)
-		}
+		assert.False(t, alert.Severity ==
+			"LEAK" ||
+			alert.Severity ==
+				"DEGRADATION",
+		)
+
 	}
 
 	// Check for memory leaks: compare first and last metric snapshots
@@ -429,21 +424,23 @@ func TestEndurance(t *testing.T) {
 
 		t.Logf("heap growth: %.2fx (%d -> %d bytes)", heapGrowth, first.Go.HeapAlloc, last.Go.HeapAlloc)
 		t.Logf("goroutine growth: %.2fx (%d -> %d)", goroutineGrowth, first.Go.Goroutines, last.Go.Goroutines)
+		assert.LessOrEqual(t, heapGrowth,
 
-		if heapGrowth > 3.0 {
-			t.Errorf("potential memory leak: heap grew %.2fx", heapGrowth)
-		}
-		if goroutineGrowth > 2.0 {
-			t.Errorf("potential goroutine leak: count grew %.2fx", goroutineGrowth)
-		}
-	}
+			3.0)
+		assert.LessOrEqual(t, goroutineGrowth,
 
-	if err := h.WriteResult("endurance.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
+			2.0,
+		)
+
 	}
-	if err := h.WriteResult("endurance_alerts.json", alerts); err != nil {
-		t.Errorf("writing alerts: %v", err)
-	}
+	assert.NoError(t, h.WriteResult("endurance.json",
+
+		result,
+	))
+	assert.NoError(t, h.WriteResult("endurance_alerts.json",
+
+		alerts))
+
 }
 
 // TestErrorScenarios runs all error scenarios during production load.
@@ -497,18 +494,18 @@ func TestErrorScenarios(t *testing.T) {
 			t.Logf("scenario=%s passed=%v", sc.name, result.Passed)
 		})
 	}
+	assert.NoError(t, h.WriteResult("error_scenarios.json",
 
-	if err := h.WriteResult("error_scenarios.json", results); err != nil {
-		t.Errorf("writing results: %v", err)
-	}
+		results))
+
 }
 
 // TestTestServerEndpoints validates the test HTTP server works correctly.
 func TestTestServerEndpoints(t *testing.T) {
 	srv := loadtest.NewTestServer(19000)
-	if err := srv.Start(); err != nil {
-		t.Fatalf("starting test server: %v", err)
-	}
+	require.NoError(t, srv.
+		Start())
+
 	defer srv.Close()
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -541,27 +538,28 @@ func TestTestServerEndpoints(t *testing.T) {
 			} else {
 				req, err = http.NewRequest("GET", url, nil)
 			}
-			if err != nil {
-				t.Fatalf("creating request: %v", err)
-			}
+			require.NoError(t, err)
 
 			resp, err := client.Do(req)
-			if err != nil {
-				t.Fatalf("request failed: %v", err)
-			}
+			require.NoError(t, err)
+
 			defer resp.Body.Close()
+			assert.False(t, ep.name !=
+				"flaky" &&
+				resp.
+					StatusCode !=
+					http.StatusOK,
+			)
 
 			// Flaky endpoint may return 500 - that's expected
-			if ep.name != "flaky" && resp.StatusCode != http.StatusOK {
-				t.Errorf("expected 200, got %d", resp.StatusCode)
-			}
+
 		})
 	}
 
 	snap := srv.Snapshot()
-	if snap.Total == 0 {
-		t.Error("expected total > 0 after requests")
-	}
+	assert.NotEqual(t, 0, snap.
+		Total)
+
 	t.Logf("server stats: total=%d", snap.Total)
 }
 
@@ -580,14 +578,16 @@ func TestChaosScenarios(t *testing.T) {
 			t.Logf("Load: ~%d runs/sec | In-flight: %d", result.LoadRate, result.InFlight)
 			t.Logf("Lost: %d | Recovered: %d | Recovery: %s", result.Lost, result.Recovered, result.RecoveryTime)
 			t.Logf("Queue peak: %d | Drain: %s | VERDICT: %s", result.QueuePeak, result.DrainTime, result.Verdict)
+			assert.Equal(t, "PASS",
 
-			if result.Verdict != "PASS" {
-				t.Errorf("chaos test failed: %s", result.Error)
-			}
+				result.Verdict,
+			)
+			assert.NoError(t, h.WriteResult("chaos_"+
+				scenario.
+					Name+
+				".json", result,
+			))
 
-			if err := h.WriteResult("chaos_"+scenario.Name+".json", result); err != nil {
-				t.Errorf("writing result: %v", err)
-			}
 		})
 	}
 }
@@ -599,9 +599,7 @@ func TestChaosAll(t *testing.T) {
 	ce := loadtest.NewChaosEngine(h, 100, loadtestProjectID, resolveJobID("loadtest-fast-echo"))
 
 	results, err := ce.RunAll(context.Background())
-	if err != nil {
-		t.Fatalf("chaos engine failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	passed := 0
 	failed := 0
@@ -612,15 +610,16 @@ func TestChaosAll(t *testing.T) {
 			passed++
 		} else {
 			failed++
-			t.Errorf("  FAILED: %s", r.Error)
+			assert.Fail(t, r.Error)
 		}
 	}
 
 	t.Logf("=== CHAOS SUMMARY: %d/%d passed ===", passed, len(results))
+	assert.NoError(t, h.WriteResult("chaos_all.json",
 
-	if err := h.WriteResult("chaos_all.json", results); err != nil {
-		t.Errorf("writing results: %v", err)
-	}
+		results,
+	))
+
 }
 
 // TestEnduranceWeekend runs at 70% of throughput ceiling for 72 hours.
@@ -664,9 +663,7 @@ func TestEnduranceWeekend(t *testing.T) {
 	})
 
 	result, alerts, err := runner.Run(context.Background(), h)
-	if err != nil {
-		t.Fatalf("weekend endurance test failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("=== 72H ENDURANCE RESULTS ===")
 	t.Logf("duration: %s", result.Duration)
@@ -678,14 +675,17 @@ func TestEnduranceWeekend(t *testing.T) {
 
 	for _, alert := range alerts {
 		t.Logf("ALERT [%s]: %s (hour %d)", alert.Severity, alert.Message, alert.Hour)
-		if alert.Severity == "LEAK" || alert.Severity == "DEGRADATION" {
-			t.Errorf("endurance alert: %s", alert.Message)
-		}
-	}
+		assert.False(t, alert.Severity ==
+			"LEAK" ||
+			alert.Severity ==
+				"DEGRADATION",
+		)
 
-	if err := h.WriteResult("endurance_weekend.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
 	}
+	assert.NoError(t, h.WriteResult("endurance_weekend.json",
+
+		result))
+
 }
 
 // TestProductionValidation runs load tests against a production deployment.
@@ -717,9 +717,7 @@ func TestProductionValidation(t *testing.T) {
 	})
 
 	result, err := engine.Run(context.Background())
-	if err != nil {
-		t.Fatalf("production validation failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Logf("=== PRODUCTION VALIDATION RESULTS ===")
 	t.Logf("max sustained: %d jobs/sec", result.MaxRate)
@@ -734,8 +732,8 @@ func TestProductionValidation(t *testing.T) {
 			step.LatencyP50, step.LatencyP95, step.LatencyP99,
 			step.QueueDepth)
 	}
+	assert.NoError(t, h.WriteResult("production_validation.json",
 
-	if err := h.WriteResult("production_validation.json", result); err != nil {
-		t.Errorf("writing result: %v", err)
-	}
+		result))
+
 }

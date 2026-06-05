@@ -4,47 +4,53 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewTransactionMetric(t *testing.T) {
 	metric := NewTransactionMetric("trigger", 10, 20, 250)
-
-	if metric.TransactionsPerOp != 2 {
-		t.Fatalf("TransactionsPerOp = %f, want 2", metric.TransactionsPerOp)
-	}
-	if metric.StatementsPerOp != 25 {
-		t.Fatalf("StatementsPerOp = %f, want 25", metric.StatementsPerOp)
-	}
+	require.EqualValues(t, 2,
+		metric.TransactionsPerOp,
+	)
+	require.EqualValues(t, 25,
+		metric.StatementsPerOp,
+	)
 
 	zero := NewTransactionMetric("empty", 0, 20, 250)
-	if zero.TransactionsPerOp != 0 || zero.StatementsPerOp != 0 {
-		t.Fatalf("zero operations metric = %+v, want zero ratios", zero)
-	}
+	require.False(t, zero.
+		TransactionsPerOp !=
+		0 || zero.StatementsPerOp != 0)
+
 }
 
 func TestNewRuntimeMetric(t *testing.T) {
 	metric := NewRuntimeMetric("trigger", 10, 50, 4096, 20, 10, 5)
-
-	if metric.AllocsPerOp != 5 {
-		t.Fatalf("AllocsPerOp = %f, want 5", metric.AllocsPerOp)
-	}
-	if metric.BytesPerOp != 409.6 {
-		t.Fatalf("BytesPerOp = %f, want 409.6", metric.BytesPerOp)
-	}
-	if metric.SpansPerOp != 2 {
-		t.Fatalf("SpansPerOp = %f, want 2", metric.SpansPerOp)
-	}
-	if metric.RedisOpsPerOp != 1 {
-		t.Fatalf("RedisOpsPerOp = %f, want 1", metric.RedisOpsPerOp)
-	}
-	if metric.LogLinesPerOp != 0.5 {
-		t.Fatalf("LogLinesPerOp = %f, want 0.5", metric.LogLinesPerOp)
-	}
+	require.EqualValues(t, 5,
+		metric.AllocsPerOp,
+	)
+	require.EqualValues(t, 409.6,
+		metric.
+			BytesPerOp,
+	)
+	require.EqualValues(t, 2,
+		metric.SpansPerOp,
+	)
+	require.EqualValues(t, 1,
+		metric.RedisOpsPerOp,
+	)
+	require.EqualValues(t, 0.5,
+		metric.
+			LogLinesPerOp,
+	)
 
 	zero := NewRuntimeMetric("empty", 0, 50, 4096, 20, 10, 5)
-	if zero.AllocsPerOp != 0 || zero.BytesPerOp != 0 || zero.SpansPerOp != 0 {
-		t.Fatalf("zero operations metric = %+v, want zero ratios", zero)
-	}
+	require.False(t, zero.
+		AllocsPerOp !=
+		0 ||
+		zero.BytesPerOp != 0 || zero.SpansPerOp != 0,
+	)
+
 }
 
 func TestPerformanceBaselineReportMarkdown(t *testing.T) {
@@ -92,29 +98,34 @@ func TestPerformanceBaselineReportMarkdown(t *testing.T) {
 		"Complexity Ledger",
 		"O(job_history)",
 	} {
-		if !strings.Contains(md, want) {
-			t.Fatalf("Markdown missing %q:\n%s", want, md)
-		}
+		require.True(t, strings.Contains(md,
+			want,
+		))
+
 	}
 }
 
 func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 	ledger := DefaultPerformanceComplexityLedger()
-	if len(ledger) < 17 {
-		t.Fatalf("ledger len = %d, want at least 17 hot paths", len(ledger))
-	}
+	require.GreaterOrEqual(t, len(ledger),
+
+		17,
+	)
 
 	byArea := make(map[string]ComplexityLedgerEntry, len(ledger))
 	for _, entry := range ledger {
-		if entry.Area == "" {
-			t.Fatal("ledger entry has empty area")
-		}
-		if entry.Evidence == "" {
-			t.Fatalf("%s evidence is empty", entry.Area)
-		}
-		if entry.ImprovementReason == "" {
-			t.Fatalf("%s improvement reason is empty", entry.Area)
-		}
+		require.NotEqual(t,
+			"", entry.
+				Area)
+		require.NotEqual(t,
+			"", entry.
+				Evidence,
+		)
+		require.NotEqual(t,
+			"", entry.
+				ImprovementReason,
+		)
+
 		byArea[entry.Area] = entry
 	}
 
@@ -134,15 +145,16 @@ func TestDefaultPerformanceComplexityLedger(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.area, func(t *testing.T) {
 			entry, ok := byArea[tt.area]
-			if !ok {
-				t.Fatalf("missing ledger entry %q", tt.area)
-			}
-			if entry.Current != tt.current {
-				t.Fatalf("%s current = %s, want %s", tt.area, entry.Current, tt.current)
-			}
-			if entry.Target != tt.target {
-				t.Fatalf("%s target = %s, want %s", tt.area, entry.Target, tt.target)
-			}
+			require.True(t, ok)
+			require.Equal(t, tt.
+				current,
+				entry.Current,
+			)
+			require.Equal(t, tt.
+				target, entry.
+				Target,
+			)
+
 		})
 	}
 }
@@ -238,33 +250,32 @@ func TestComparePerformanceBaselineReports(t *testing.T) {
 	}
 
 	comparison := ComparePerformanceBaselineReports("delta", baseline, candidate)
-	if len(comparison.ScenarioDeltas) != 1 {
-		t.Fatalf("ScenarioDeltas len = %d, want 1", len(comparison.ScenarioDeltas))
-	}
-	if comparison.ScenarioDeltas[0].RPSDelta != 30 {
-		t.Fatalf("RPSDelta = %f, want 30", comparison.ScenarioDeltas[0].RPSDelta)
-	}
-	if comparison.ScenarioDeltas[0].P95Delta != -640*time.Millisecond {
-		t.Fatalf("P95Delta = %s, want -640ms", comparison.ScenarioDeltas[0].P95Delta)
-	}
-	if comparison.SQLDeltas[0].CallsDelta != -100 {
-		t.Fatalf("SQL calls delta = %d, want -100", comparison.SQLDeltas[0].CallsDelta)
-	}
-	if comparison.WaitDeltas[0].CountDelta != -19 {
-		t.Fatalf("Wait count delta = %d, want -19", comparison.WaitDeltas[0].CountDelta)
-	}
-	if comparison.TransactionDeltas[0].StatementsPerOpDelta != -16 {
-		t.Fatalf("StatementsPerOpDelta = %f, want -16", comparison.TransactionDeltas[0].StatementsPerOpDelta)
-	}
-	if comparison.RuntimeDeltas[0].AllocsPerOpDelta != -4 {
-		t.Fatalf("AllocsPerOpDelta = %f, want -4", comparison.RuntimeDeltas[0].AllocsPerOpDelta)
-	}
-	if comparison.RuntimeDeltas[0].RedisOpsPerOpDelta != -1 {
-		t.Fatalf("RedisOpsPerOpDelta = %f, want -1", comparison.RuntimeDeltas[0].RedisOpsPerOpDelta)
-	}
-	if len(comparison.ComplexityRegressions) != 0 {
-		t.Fatalf("ComplexityRegressions = %+v, want none", comparison.ComplexityRegressions)
-	}
+	require.Len(t, comparison.
+		ScenarioDeltas,
+
+		1)
+	require.EqualValues(t, 30,
+		comparison.
+			ScenarioDeltas[0].RPSDelta)
+	require.Equal(t, -640*time.
+		Millisecond,
+
+		comparison.ScenarioDeltas[0].P95Delta)
+	require.EqualValues(t, -100, comparison.
+		SQLDeltas[0].CallsDelta)
+	require.EqualValues(t, -19, comparison.
+		WaitDeltas[0].CountDelta)
+	require.EqualValues(t, -16, comparison.
+		TransactionDeltas[0].StatementsPerOpDelta)
+	require.EqualValues(t, -4, comparison.
+		RuntimeDeltas[0].AllocsPerOpDelta)
+	require.EqualValues(t, -1, comparison.
+		RuntimeDeltas[0].RedisOpsPerOpDelta)
+	require.Len(t, comparison.
+		ComplexityRegressions,
+
+		0)
+
 }
 
 func TestComparePerformanceBaselineReports_ComplexityRegression(t *testing.T) {
@@ -280,13 +291,15 @@ func TestComparePerformanceBaselineReports_ComplexityRegression(t *testing.T) {
 			Target:  ComplexityConstant,
 		}},
 	})
+	require.Len(t, comparison.
+		ComplexityRegressions,
 
-	if len(comparison.ComplexityRegressions) != 1 {
-		t.Fatalf("ComplexityRegressions len = %d, want 1", len(comparison.ComplexityRegressions))
-	}
-	if comparison.ComplexityRegressions[0].Area != "health stats" {
-		t.Fatalf("regression area = %q, want health stats", comparison.ComplexityRegressions[0].Area)
-	}
+		1)
+	require.Equal(t, "health stats",
+
+		comparison.
+			ComplexityRegressions[0].Area)
+
 }
 
 func BenchmarkPerformanceBaselineReportMarkdown(b *testing.B) {

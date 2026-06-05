@@ -7,6 +7,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRampEngine_MarksBreakingStep(t *testing.T) {
@@ -23,20 +25,26 @@ func TestRampEngine_MarksBreakingStep(t *testing.T) {
 	})
 
 	result, err := engine.Run(context.Background())
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
-	}
-	if result.Bottleneck == "" {
-		t.Fatal("expected stop condition to set a bottleneck")
-	}
-	if len(result.Steps) != 1 {
-		t.Fatalf("steps len = %d, want 1", len(result.Steps))
-	}
+	require.NoError(t,
+
+		err)
+	require.NotEqual(t,
+
+		"", result.
+			Bottleneck,
+	)
+	require.Len(t, result.
+		Steps,
+		1)
+
 	step := result.Steps[0]
-	if !step.StoppedEarly {
-		t.Fatal("breaking step should be marked stopped early")
-	}
-	if step.StopReason != result.Bottleneck {
-		t.Fatalf("step stop reason = %q, want %q", step.StopReason, result.Bottleneck)
-	}
+	require.True(t, step.
+		StoppedEarly,
+	)
+	require.Equal(t, result.
+		Bottleneck,
+		step.
+			StopReason,
+	)
+
 }
