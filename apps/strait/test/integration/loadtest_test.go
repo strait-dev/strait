@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoadTestMassiveParallel(t *testing.T) {
@@ -51,9 +53,11 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 			"timeout_secs": 60,
 			"max_attempts": 1,
 		})
-		if err != nil || resp.StatusCode != 201 {
-			t.Fatalf("create job %d: status=%d body=%s err=%v", i, resp.StatusCode, string(body), err)
-		}
+		require.False(t, err != nil ||
+			resp.
+				StatusCode !=
+				201)
+
 		var job struct {
 			ID string `json:"id"`
 		}
@@ -113,10 +117,7 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 	triggered := len(allRuns)
 	t.Logf("Triggered %d/%d runs (%d trigger failures) in %v",
 		triggered, totalRuns, triggerFailed.Load(), time.Since(startTime).Round(time.Millisecond))
-
-	if triggered == 0 {
-		t.Fatal("no runs triggered")
-	}
+	require.NotEqual(t, 0, triggered)
 
 	// Poll all runs for completion.
 	statusCounts := make(map[string]int)
@@ -209,13 +210,12 @@ func TestLoadTestMassiveParallel(t *testing.T) {
 
 	// Assertions.
 	completed := statusCounts["completed"]
-	if completed < triggered*90/100 {
-		t.Errorf("completion rate too low: %d/%d (%.1f%%, want >= 90%%)",
-			completed, triggered, float64(completed)/float64(triggered)*100)
-	}
-	if statusCounts["timeout"] > 0 {
-		t.Errorf("%d runs timed out", statusCounts["timeout"])
-	}
+	assert.GreaterOrEqual(t, completed,
+
+		triggered*90/
+			100)
+	assert.LessOrEqual(t, statusCounts["timeout"], 0)
+
 }
 
 func TestLoadTestRapidFireSameJob(t *testing.T) {
@@ -236,9 +236,10 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 3,
 	})
-	if resp.StatusCode != 201 {
-		t.Fatalf("create job: %s", string(body))
-	}
+	require.EqualValues(t, 201, resp.
+		StatusCode,
+	)
+
 	var job struct {
 		ID string `json:"id"`
 	}
@@ -318,10 +319,12 @@ func TestLoadTestRapidFireSameJob(t *testing.T) {
 	t.Logf("Endpoint errors:  %d", len(ep.getErrors()))
 
 	completed := statusCounts["completed"]
-	if completed < len(runIDs)*85/100 {
-		t.Errorf("completion rate too low: %d/%d (%.1f%%)",
-			completed, len(runIDs), float64(completed)/float64(len(runIDs))*100)
-	}
+	assert.GreaterOrEqual(t, completed,
+
+		len(runIDs)*
+			85/100,
+	)
+
 }
 
 func TestLoadTestWorkflowFanOut(t *testing.T) {
@@ -345,9 +348,10 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 			"timeout_secs": 30,
 			"max_attempts": 1,
 		})
-		if resp.StatusCode != 201 {
-			t.Fatalf("create job %d: %s", i, string(body))
-		}
+		require.EqualValues(t, 201, resp.
+			StatusCode,
+		)
+
 		var job struct {
 			ID string `json:"id"`
 		}
@@ -369,9 +373,10 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 			{"step_ref": "merge", "step_type": "job", "job_id": jobIDs[0], "depends_on": []string{"fan-a", "fan-b", "fan-c"}},
 		},
 	})
-	if resp.StatusCode != 201 {
-		t.Fatalf("create workflow: %s", string(body))
-	}
+	require.EqualValues(t, 201, resp.
+		StatusCode,
+	)
+
 	var wf struct {
 		ID string `json:"id"`
 	}
@@ -442,9 +447,12 @@ func TestLoadTestWorkflowFanOut(t *testing.T) {
 	}
 
 	completed := statusCounts["completed"]
-	if completed < len(wfRunIDs)*80/100 {
-		t.Errorf("workflow completion rate too low: %d/%d", completed, len(wfRunIDs))
-	}
+	assert.GreaterOrEqual(t, completed,
+
+		len(wfRunIDs)*
+			80/
+			100)
+
 }
 
 func TestLoadTestAPIEndpointStress(t *testing.T) {
@@ -558,15 +566,16 @@ func TestLoadTestAPIEndpointStress(t *testing.T) {
 	t.Logf("Post-stress health: %s", string(healthBody))
 
 	errorRate := float64(totalErrors) / float64(totalReqs) * 100
-	if errorRate > 1.0 {
-		t.Errorf("error rate %.2f%% exceeds 1%% threshold", errorRate)
-	}
+	assert.LessOrEqual(t, errorRate,
+		1.0,
+	)
 
 	// Check no endpoint has p99 > 10s (generous for dev with 25 DB conns under 650 concurrent queries).
 	for _, r := range results {
-		if r.latP99 > 10*time.Second {
-			t.Errorf("%s: p99 latency %v exceeds 10s", r.endpoint, r.latP99)
-		}
+		assert.LessOrEqual(t, r.latP99,
+			10*
+				time.Second)
+
 	}
 }
 

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -141,9 +143,8 @@ func startJobEndpoint(t *testing.T) *jobEndpoint {
 			break
 		}
 	}
-	if listener == nil {
-		t.Fatal("no allowed port available (tried 9000, 4000, 5000, 3000)")
-	}
+	require.NotNil(t, listener)
+
 	hostname, _ := os.Hostname()
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 	ep.addr = hostname + ":" + port
@@ -285,12 +286,9 @@ func TestEndToEndJobExecution(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 1,
 	})
-	if err != nil {
-		t.Fatalf("create job: %v", err)
-	}
-	if resp.StatusCode != 201 {
-		t.Fatalf("create job: status=%d body=%s", resp.StatusCode, string(body))
-	}
+	require.NoError(t, err)
+	require.EqualValues(t, 201, resp.StatusCode)
+
 	var job struct {
 		ID string `json:"id"`
 	}
@@ -304,12 +302,9 @@ func TestEndToEndJobExecution(t *testing.T) {
 		resp, body, err := client.do("POST", fmt.Sprintf("/v1/jobs/%s/trigger", job.ID), map[string]any{
 			"payload": map[string]any{"iteration": i},
 		})
-		if err != nil {
-			t.Fatalf("trigger run %d: %v", i, err)
-		}
-		if resp.StatusCode != 201 {
-			t.Fatalf("trigger run %d: status=%d body=%s", i, resp.StatusCode, string(body))
-		}
+		require.NoError(t, err)
+		require.EqualValues(t, 201, resp.StatusCode)
+
 		var run struct {
 			ID string `json:"id"`
 		}
@@ -321,16 +316,13 @@ func TestEndToEndJobExecution(t *testing.T) {
 	// Poll until all runs reach terminal state.
 	deadline := time.Now().Add(60 * time.Second)
 	for {
-		if time.Now().After(deadline) {
-			t.Fatal("timeout waiting for runs to complete")
-		}
+		require.False(t, time.Now().After(deadline))
 
 		allDone := true
 		for _, id := range runIDs {
 			resp, body, err := client.do("GET", "/v1/runs/"+id, nil)
-			if err != nil {
-				t.Fatalf("get run %s: %v", id, err)
-			}
+			require.NoError(t, err)
+
 			var run struct {
 				Status     string `json:"status"`
 				Error      string `json:"error"`
@@ -349,7 +341,7 @@ func TestEndToEndJobExecution(t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context cancelled waiting for runs")
+			require.Fail(t, "context cancelled waiting for runs")
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -386,21 +378,15 @@ func TestEndToEndJobExecution(t *testing.T) {
 
 			_, resBody, _ := client.do("GET", "/v1/runs/"+id+"/resources", nil)
 			resourcesN := countItems(resBody)
-			if resourcesN == 0 {
-				t.Errorf("run %s: expected resource snapshots", id)
-			}
+			assert.NotEqual(t, 0, resourcesN)
 
 			_, stateBody, _ := client.do("GET", "/v1/runs/"+id+"/state", nil)
 			stateN := countItems(stateBody)
-			if stateN == 0 {
-				t.Errorf("run %s: expected state entries", id)
-			}
+			assert.NotEqual(t, 0, stateN)
 
 			_, outBody, _ := client.do("GET", "/v1/runs/"+id+"/outputs", nil)
 			outputsN := countItems(outBody)
-			if outputsN == 0 {
-				t.Errorf("run %s: expected output entries", id)
-			}
+			assert.NotEqual(t, 0, outputsN)
 
 			t.Logf("run %s: COMPLETED (resources=%d state=%d outputs=%d)",
 				id, resourcesN, stateN, outputsN)
@@ -413,16 +399,16 @@ func TestEndToEndJobExecution(t *testing.T) {
 	// Check endpoint errors.
 	epErrs := ep.getErrors()
 	for _, e := range epErrs {
-		t.Errorf("endpoint error: %s", e)
+		assert.Failf(t, "test failure",
+
+			"endpoint error: %s", e)
 	}
 
 	dispatched := int(ep.received.Load())
 	t.Logf("Endpoint received %d dispatches", dispatched)
 	t.Logf("Results: %d completed, %d failed, %d endpoint errors", completed, failed, len(epErrs))
+	assert.Equal(t, numRuns, completed)
 
-	if completed != numRuns {
-		t.Errorf("expected %d completed runs, got %d", numRuns, completed)
-	}
 }
 
 // TestEndToEndWorkflowExecution tests a 2-step workflow with real execution.
@@ -447,9 +433,8 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 1,
 	})
-	if err != nil || resp.StatusCode != 201 {
-		t.Fatalf("create job: status=%d body=%s err=%v", resp.StatusCode, string(body), err)
-	}
+	require.False(t, err != nil || resp.StatusCode != 201)
+
 	var job struct {
 		ID string `json:"id"`
 	}
@@ -465,9 +450,8 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 			{"step_ref": "step2", "step_type": "job", "job_id": job.ID, "depends_on": []string{"step1"}},
 		},
 	})
-	if err != nil || resp.StatusCode != 201 {
-		t.Fatalf("create workflow: status=%d body=%s err=%v", resp.StatusCode, string(body), err)
-	}
+	require.False(t, err != nil || resp.StatusCode != 201)
+
 	var wf struct {
 		ID string `json:"id"`
 	}
@@ -477,9 +461,8 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 	resp, body, err = client.do("POST", fmt.Sprintf("/v1/workflows/%s/trigger", wf.ID), map[string]any{
 		"payload": map[string]any{"workflow_test": true},
 	})
-	if err != nil || resp.StatusCode != 201 {
-		t.Fatalf("trigger workflow: status=%d body=%s err=%v", resp.StatusCode, string(body), err)
-	}
+	require.False(t, err != nil || resp.StatusCode != 201)
+
 	var wfRun struct {
 		ID string `json:"id"`
 	}
@@ -490,9 +473,7 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 	deadline := time.Now().Add(60 * time.Second)
 	var finalStatus string
 	for {
-		if time.Now().After(deadline) {
-			t.Fatal("timeout waiting for workflow to complete")
-		}
+		require.False(t, time.Now().After(deadline))
 
 		_, body, _ := client.do("GET", "/v1/workflow-runs/"+wfRun.ID, nil)
 		var run struct {
@@ -506,7 +487,7 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatal("context cancelled")
+			require.Fail(t, "context cancelled")
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -527,17 +508,14 @@ func TestEndToEndWorkflowExecution(t *testing.T) {
 
 	dispatched := int(ep.received.Load())
 	t.Logf("Workflow run %s: %s (endpoint dispatches: %d)", wfRun.ID, finalStatus, dispatched)
-
-	if finalStatus != "completed" {
-		t.Errorf("expected workflow completed, got %s", finalStatus)
-	}
-	if dispatched < 2 {
-		t.Errorf("expected at least 2 dispatches (step1 + step2), got %d", dispatched)
-	}
+	assert.Equal(t, "completed", finalStatus)
+	assert.GreaterOrEqual(t, dispatched, 2)
 
 	epErrs := ep.getErrors()
 	for _, e := range epErrs {
-		t.Errorf("endpoint error: %s", e)
+		assert.Failf(t, "test failure",
+
+			"endpoint error: %s", e)
 	}
 }
 
@@ -565,9 +543,8 @@ func TestEndToEndStressLoop(t *testing.T) {
 		"timeout_secs": 30,
 		"max_attempts": 1,
 	})
-	if resp.StatusCode != 201 {
-		t.Fatalf("create job: %s", string(body))
-	}
+	require.EqualValues(t, 201, resp.StatusCode)
+
 	var job struct {
 		ID string `json:"id"`
 	}
@@ -629,10 +606,10 @@ func TestEndToEndStressLoop(t *testing.T) {
 		completed, iterations, failed, dispatched, len(ep.getErrors()))
 
 	for _, e := range ep.getErrors() {
-		t.Errorf("endpoint error: %s", e)
-	}
+		assert.Failf(t, "test failure",
 
-	if completed != iterations {
-		t.Errorf("expected %d completed, got %d", iterations, completed)
+			"endpoint error: %s", e)
 	}
+	assert.Equal(t, iterations, completed)
+
 }
