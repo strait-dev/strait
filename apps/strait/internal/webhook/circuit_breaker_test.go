@@ -13,6 +13,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHashURL_UsesSHA256Hex(t *testing.T) {
@@ -23,12 +24,11 @@ func TestHashURL_UsesSHA256Hex(t *testing.T) {
 	want := hex.EncodeToString(wantSum[:])
 
 	got := hashURL(raw)
-	if got != want {
-		t.Fatalf("hashURL() = %q, want sha256 hex %q", got, want)
-	}
-	if len(got) != 64 {
-		t.Fatalf("hashURL() len = %d, want 64", len(got))
-	}
+	require.Equal(t,
+		want, got)
+	require.Len(t, got,
+		64)
+
 }
 
 type redisProcessFunc func(ctx context.Context, cmd redis.Cmder) error
@@ -181,19 +181,17 @@ func TestRedisWebhookCircuitBreaker_DisabledAllowsDelivery(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when breaker disabled")
+		require.Fail(t, "redis should not be called when breaker disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
 
 	breaker := NewRedisWebhookCircuitBreaker(client, false)
 	canDeliver, err := breaker.CanDeliver(t.Context(), "https://example.com/webhook")
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed when breaker disabled")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_OpensAfterThreshold(t *testing.T) {
@@ -215,12 +213,11 @@ func TestRedisWebhookCircuitBreaker_OpensAfterThreshold(t *testing.T) {
 	breaker.RecordFailure(t.Context(), url)
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery blocked after threshold")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T) {
@@ -235,21 +232,17 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessResetsOpenCircuit(t *testing.T)
 
 	breaker.RecordFailure(t.Context(), url)
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery blocked before reset")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
 
 	breaker.RecordSuccess(t.Context(), url)
 	canDeliver, err = breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver after success error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed after success reset")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_NilClient(t *testing.T) {
@@ -257,31 +250,27 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_NilClient(t *testing.T) {
 
 	breaker := NewRedisWebhookCircuitBreaker(nil, true)
 	canDeliver, err := breaker.CanDeliver(t.Context(), "https://example.com/webhook")
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed when client is nil")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_EmptyURL(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for empty URL")
+		require.Fail(t, "redis should not be called for empty URL")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
 
 	breaker := NewRedisWebhookCircuitBreaker(client, true)
 	canDeliver, err := breaker.CanDeliver(t.Context(), "")
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed for empty URL")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_OpenCircuit(t *testing.T) {
@@ -300,21 +289,18 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_OpenCircuit(t *testing.T) {
 
 	// Circuit should be open now -- CanDeliver returns false.
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery blocked with open circuit")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
 
 	// Second call should also return false (the open key still exists).
 	canDeliver, err = breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver second call error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery still blocked on second call")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_ClosedCircuit(t *testing.T) {
@@ -332,12 +318,10 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_ClosedCircuit(t *testing.T) {
 	breaker.RecordFailure(t.Context(), url)
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed when failures below threshold")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_FailureWindowExpiry(t *testing.T) {
@@ -365,31 +349,26 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_FailureWindowExpiry(t *testing.T)
 
 	// With 2 failures below threshold, delivery is allowed.
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed when failures below threshold")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
 
 	// Move time past the failure window so old failures are pruned by CanDeliver.
 	breaker.now = func() time.Time { return now.Add(2 * time.Minute) }
 
 	// CanDeliver should prune the old failures and see 0 in-window failures.
 	canDeliver, err = breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver after window expiry error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed after all failures expired from window")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccess_DisabledNoOp(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when breaker disabled")
+		require.Fail(t, "redis should not be called when breaker disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -410,7 +389,7 @@ func TestRedisWebhookCircuitBreaker_RecordSuccess_EmptyURL(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for empty URL")
+		require.Fail(t, "redis should not be called for empty URL")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -423,7 +402,7 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_DisabledNoOp(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called when breaker disabled")
+		require.Fail(t, "redis should not be called when breaker disabled")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -444,7 +423,7 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_EmptyURL(t *testing.T) {
 	t.Parallel()
 
 	client := newMockRedisClient(func(context.Context, redis.Cmder) error {
-		t.Fatal("redis should not be called for empty URL")
+		require.Fail(t, "redis should not be called for empty URL")
 		return nil
 	})
 	t.Cleanup(func() { _ = client.Close() })
@@ -462,9 +441,11 @@ func TestWithWebhookCircuitBreakerOpenDuration(t *testing.T) {
 	breaker := NewRedisWebhookCircuitBreaker(client, true,
 		WithWebhookCircuitBreakerOpenDuration(5*time.Minute),
 	)
-	if breaker.openDuration != 5*time.Minute {
-		t.Fatalf("openDuration = %v, want 5m", breaker.openDuration)
-	}
+	require.Equal(t,
+		5*time.Minute,
+		breaker.openDuration,
+	)
+
 }
 
 func TestWithWebhookCircuitBreakerOpenDuration_ZeroIgnored(t *testing.T) {
@@ -476,9 +457,12 @@ func TestWithWebhookCircuitBreakerOpenDuration_ZeroIgnored(t *testing.T) {
 	breaker := NewRedisWebhookCircuitBreaker(client, true,
 		WithWebhookCircuitBreakerOpenDuration(0),
 	)
-	if breaker.openDuration != defaultWebhookOpenDuration {
-		t.Fatalf("openDuration = %v, want default %v", breaker.openDuration, defaultWebhookOpenDuration)
-	}
+	require.Equal(t,
+		defaultWebhookOpenDuration,
+		breaker.
+			openDuration,
+	)
+
 }
 
 func TestWithWebhookCircuitBreakerOpenDuration_NegativeIgnored(t *testing.T) {
@@ -490,9 +474,12 @@ func TestWithWebhookCircuitBreakerOpenDuration_NegativeIgnored(t *testing.T) {
 	breaker := NewRedisWebhookCircuitBreaker(client, true,
 		WithWebhookCircuitBreakerOpenDuration(-time.Second),
 	)
-	if breaker.openDuration != defaultWebhookOpenDuration {
-		t.Fatalf("openDuration = %v, want default %v", breaker.openDuration, defaultWebhookOpenDuration)
-	}
+	require.Equal(t,
+		defaultWebhookOpenDuration,
+		breaker.
+			openDuration,
+	)
+
 }
 
 func TestWithWebhookCircuitBreakerThreshold_ZeroIgnored(t *testing.T) {
@@ -504,9 +491,12 @@ func TestWithWebhookCircuitBreakerThreshold_ZeroIgnored(t *testing.T) {
 	breaker := NewRedisWebhookCircuitBreaker(client, true,
 		WithWebhookCircuitBreakerThreshold(0),
 	)
-	if breaker.failureThreshold != defaultWebhookFailureThreshold {
-		t.Fatalf("failureThreshold = %d, want default %d", breaker.failureThreshold, defaultWebhookFailureThreshold)
-	}
+	require.Equal(t,
+		defaultWebhookFailureThreshold,
+		breaker.
+			failureThreshold,
+	)
+
 }
 
 func TestWithWebhookCircuitBreakerWindow_ZeroIgnored(t *testing.T) {
@@ -518,9 +508,12 @@ func TestWithWebhookCircuitBreakerWindow_ZeroIgnored(t *testing.T) {
 	breaker := NewRedisWebhookCircuitBreaker(client, true,
 		WithWebhookCircuitBreakerWindow(0),
 	)
-	if breaker.failureWindow != defaultWebhookFailureWindow {
-		t.Fatalf("failureWindow = %v, want default %v", breaker.failureWindow, defaultWebhookFailureWindow)
-	}
+	require.Equal(t,
+		defaultWebhookFailureWindow,
+		breaker.
+			failureWindow,
+	)
+
 }
 
 func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testing.T) {
@@ -539,23 +532,19 @@ func TestRedisWebhookCircuitBreaker_RecordSuccessAfterMultipleFailures(t *testin
 	breaker.RecordFailure(t.Context(), url)
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery blocked after threshold failures")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
 
 	// A success resets the circuit.
 	breaker.RecordSuccess(t.Context(), url)
 
 	canDeliver, err = breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver after success error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed after success clears circuit")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_ExactThresholdOpensCircuit(t *testing.T) {
@@ -588,21 +577,18 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_ExactThresholdOpensCircuit(t *tes
 
 	// CanDeliver must detect failures >= threshold and open the circuit.
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected CanDeliver to block delivery when failures == threshold")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
 
 	// Verify the open key was set by CanDeliver (not by RecordFailure).
 	state.mu.Lock()
 	openKey := breaker.openKey(url)
 	isOpen := state.open[openKey]
 	state.mu.Unlock()
-	if !isOpen {
-		t.Fatal("expected CanDeliver to set open key when failures >= threshold")
-	}
+	require.True(t, isOpen)
+
 }
 
 func TestRedisWebhookCircuitBreaker_CanDeliver_BelowThreshold_StaysClosed(t *testing.T) {
@@ -632,20 +618,17 @@ func TestRedisWebhookCircuitBreaker_CanDeliver_BelowThreshold_StaysClosed(t *tes
 	state.mu.Unlock()
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed when failures < threshold")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
 
 	// Verify open key was NOT set.
 	state.mu.Lock()
 	isOpen := state.open[breaker.openKey(url)]
 	state.mu.Unlock()
-	if isOpen {
-		t.Fatal("expected open key not set when failures < threshold")
-	}
+	require.False(t,
+		isOpen)
+
 }
 
 func TestRedisWebhookCircuitBreaker_FailureWindowBoundary(t *testing.T) {
@@ -680,20 +663,16 @@ func TestRedisWebhookCircuitBreaker_FailureWindowBoundary(t *testing.T) {
 	state.mu.Unlock()
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if !canDeliver {
-		t.Fatal("expected delivery allowed: stale failure pruned, only 1 fresh failure < threshold 2")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canDeliver)
 
 	// Verify the stale failure was pruned and only the fresh one remains.
 	state.mu.Lock()
 	remaining := len(state.failures[failureKey])
 	state.mu.Unlock()
-	if remaining != 1 {
-		t.Fatalf("expected 1 remaining failure after pruning, got %d", remaining)
-	}
+	require.EqualValues(t, 1, remaining)
+
 }
 
 func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T) {
@@ -722,9 +701,8 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T
 	state.mu.Lock()
 	isOpen := state.open[openKey]
 	state.mu.Unlock()
-	if isOpen {
-		t.Fatal("expected open key not set after threshold-1 failures")
-	}
+	require.False(t,
+		isOpen)
 
 	// Record the threshold-th failure.
 	breaker.RecordFailure(t.Context(), url)
@@ -733,9 +711,8 @@ func TestRedisWebhookCircuitBreaker_RecordFailure_IntermediateState(t *testing.T
 	state.mu.Lock()
 	isOpen = state.open[openKey]
 	state.mu.Unlock()
-	if !isOpen {
-		t.Fatal("expected open key set after exactly threshold failures")
-	}
+	require.True(t, isOpen)
+
 }
 
 func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *testing.T) {
@@ -759,20 +736,16 @@ func TestRedisWebhookCircuitBreaker_RecordFailureCountsSameTimestampFailures(t *
 	breaker.RecordFailure(t.Context(), url)
 
 	failures, err := client.ZCard(t.Context(), breaker.failureKey(url)).Result()
-	if err != nil {
-		t.Fatalf("ZCard error = %v", err)
-	}
-	if failures != 2 {
-		t.Fatalf("failures = %d, want 2 distinct entries with the same timestamp", failures)
-	}
+	require.NoError(t,
+		err)
+	require.EqualValues(t, 2, failures)
 
 	canDeliver, err := breaker.CanDeliver(t.Context(), url)
-	if err != nil {
-		t.Fatalf("CanDeliver error = %v", err)
-	}
-	if canDeliver {
-		t.Fatal("expected delivery blocked after two same-timestamp failures")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canDeliver)
+
 }
 
 func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
@@ -791,18 +764,14 @@ func TestRedisWebhookCircuitBreaker_DifferentURLsIndependent(t *testing.T) {
 	breaker.RecordFailure(t.Context(), urlA)
 
 	canA, err := breaker.CanDeliver(t.Context(), urlA)
-	if err != nil {
-		t.Fatalf("CanDeliver(A) error = %v", err)
-	}
-	if canA {
-		t.Fatal("expected delivery blocked for URL A")
-	}
+	require.NoError(t,
+		err)
+	require.False(t,
+		canA)
 
 	canB, err := breaker.CanDeliver(t.Context(), urlB)
-	if err != nil {
-		t.Fatalf("CanDeliver(B) error = %v", err)
-	}
-	if !canB {
-		t.Fatal("expected delivery allowed for URL B (independent circuit)")
-	}
+	require.NoError(t,
+		err)
+	require.True(t, canB)
+
 }

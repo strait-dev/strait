@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzValidateSignature(f *testing.F) {
@@ -107,8 +109,8 @@ func FuzzComputeHMACSHA256(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, secret string, body []byte) {
 		result := ComputeHMACSHA256(secret, body)
-		if len(result) != 64 {
-			t.Errorf("expected 64 hex chars, got %d for secret len=%d body len=%d", len(result), len(secret), len(body))
-		}
+		assert.Len(t, result,
+			64)
+
 	})
 }

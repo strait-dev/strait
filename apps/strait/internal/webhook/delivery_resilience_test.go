@@ -21,6 +21,7 @@ import (
 	"strait/internal/domain"
 
 	"github.com/sourcegraph/conc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestWebhookResilience_ExactTimeoutBoundary verifies that a webhook endpoint
@@ -53,23 +54,23 @@ func TestWebhookResilience_ExactTimeoutBoundary(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"timeout"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
-	if len(deliveries) == 0 {
-		t.Fatal("expected at least one delivery")
-	}
+	require.NotEmpty(t, deliveries)
+
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead after timeout, got %s", got.Status)
-	}
-	if !strings.Contains(got.LastError, "http request:") {
-		t.Fatalf("expected timeout error in last_error, got: %s", got.LastError)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		got.Status)
+	require.True(t,
+		strings.Contains(got.LastError,
+			"http request:",
+		))
+
 }
 
 // TestWebhookResilience_PartialResponseHang verifies that an endpoint which
@@ -106,9 +107,7 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"partial"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -116,14 +115,20 @@ func TestWebhookResilience_PartialResponseHang(t *testing.T) {
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
+	require.False(t,
+		got.Status !=
+			domain.WebhookStatusDelivered &&
+			got.Status !=
+				domain.
+					WebhookStatusDead,
+	)
+
 	// The response wrote a 200 header, so the HTTP request itself succeeds.
 	// The delivery should be marked delivered because the status code is 200.
 	// The body drain is limited by maxResponseBodyDrainBytes + LimitReader,
 	// but the client.Timeout on the Transport will cut off the read.
 	// Either outcome is acceptable: delivered (got 200) or dead (timeout draining body).
-	if got.Status != domain.WebhookStatusDelivered && got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status delivered or dead, got %s", got.Status)
-	}
+
 }
 
 // TestWebhookResilience_RedirectToLocalhost verifies that a 301 redirect
@@ -160,27 +165,28 @@ func TestWebhookResilience_RedirectToLocalhost(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"redirect"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
-
-	if hits := redirectTargetHits.Load(); hits != 0 {
-		t.Fatalf("redirect target was hit %d times; redirects must not be followed", hits)
-	}
+	require.EqualValues(t, 0, redirectTargetHits.
+		Load())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead for unfollowed 3xx, got %s", got.Status)
-	}
-	if got.LastStatusCode == nil || *got.LastStatusCode != http.StatusMovedPermanently {
-		t.Fatalf("expected last_status_code=301, got %v", got.LastStatusCode)
-	}
-	if got.LastError == "" {
-		t.Fatal("expected non-empty error message for unfollowed redirect")
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		got.Status)
+	require.False(t,
+		got.LastStatusCode ==
+			nil ||
+			*got.LastStatusCode !=
+				http.
+					StatusMovedPermanently,
+	)
+	require.NotEqual(t, "", got.
+		LastError)
+
 }
 
 // TestWebhookResilience_ResponseBomb verifies that the delivery worker
@@ -221,19 +227,21 @@ func TestWebhookResilience_ResponseBomb(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"bomb"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		got.Status,
+	)
+
 	// 200 is success; the response body drain is capped at maxResponseBodyDrainBytes (1 MB).
 	// The delivery should succeed because the status code was 200.
-	if got.Status != domain.WebhookStatusDelivered {
-		t.Fatalf("expected status=delivered for 200 response, got %s (error: %s)", got.Status, got.LastError)
-	}
+
 }
 
 // TestWebhookResilience_ConnectionCloseMidTransfer verifies that the worker
@@ -273,20 +281,24 @@ func TestWebhookResilience_ConnectionCloseMidTransfer(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"midclose"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
+	require.False(t,
+		got.Status !=
+			domain.WebhookStatusDelivered &&
+			got.Status !=
+				domain.
+					WebhookStatusDead,
+	)
+
 	// The connection closed mid-transfer may result in either:
 	// - delivered (got 200 status before body drain failed, drain error is swallowed)
 	// - dead (HTTP client detected the broken connection)
-	if got.Status != domain.WebhookStatusDelivered && got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status delivered or dead, got %s", got.Status)
-	}
+
 }
 
 // TestWebhookResilience_ValidHTTPThenGarbage verifies that the worker handles
@@ -299,9 +311,8 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 	t.Parallel()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
+	require.NoError(t, err)
+
 	defer ln.Close()
 	concWG.Go(func() {
 		var concWG conc.WaitGroup
@@ -345,19 +356,23 @@ func TestWebhookResilience_ValidHTTPThenGarbage(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"garbage"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
+	require.False(t,
+		got.Status !=
+			domain.WebhookStatusDelivered &&
+			got.Status !=
+				domain.
+					WebhookStatusDead,
+	)
+
 	// The HTTP client parsed the 200 status code. Body drain may hit an unexpected EOF
 	// but that error is discarded. The delivery should be marked as delivered.
-	if got.Status != domain.WebhookStatusDelivered && got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status delivered or dead, got %s", got.Status)
-	}
+
 }
 
 // TestWebhookResilience_OKInvalidJSON verifies that a 200 response with
@@ -386,17 +401,18 @@ func TestWebhookResilience_OKInvalidJSON(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"okjson"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDelivered {
-		t.Fatalf("expected status=delivered for 200 with invalid JSON body, got %s (error: %s)", got.Status, got.LastError)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		got.Status,
+	)
+
 }
 
 // TestWebhookResilience_HMACVerification verifies that the HMAC signature
@@ -430,23 +446,29 @@ func TestWebhookResilience_HMACVerification(t *testing.T) {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	require.NoError(t, ValidateSignature("hmac-sha256",
+		secret,
+		payload, signature,
+	))
+	require.Error(t,
+		ValidateSignature("hmac-sha256",
+			"wrong-secret",
+			payload,
+			signature,
+		))
 
 	// Validate the computed signature.
-	if err := ValidateSignature("hmac-sha256", secret, payload, signature); err != nil {
-		t.Fatalf("expected signature to validate, got: %v", err)
-	}
 
 	// Also verify that a wrong secret fails.
-	if err := ValidateSignature("hmac-sha256", "wrong-secret", payload, signature); err == nil {
-		t.Fatal("expected signature validation to fail with wrong secret")
-	}
 
 	// Also verify that tampering with the body fails.
 	tampered := append([]byte{}, payload...)
 	tampered[0] = '!'
-	if err := ValidateSignature("hmac-sha256", secret, tampered, signature); err == nil {
-		t.Fatal("expected signature validation to fail with tampered body")
-	}
+	require.Error(t,
+		ValidateSignature("hmac-sha256",
+			secret,
+			tampered, signature,
+		))
 
 	// Now deliver to the test server and verify headers are present on the request.
 	store := &mockDeliveryStore{}
@@ -462,30 +484,32 @@ func TestWebhookResilience_HMACVerification(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"event":"job.completed","job_id":"j-1"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDelivered {
-		t.Fatalf("expected status=delivered, got %s", got.Status)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		got.Status,
+	)
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receivedBody) == 0 {
-		t.Fatal("expected non-empty body received by webhook endpoint")
-	}
+	require.NotEmpty(t, receivedBody)
+
 	// Verify the received payload can be used to compute a valid HMAC.
 	verifyMac := hmac.New(sha256.New, []byte(secret))
 	verifyMac.Write(receivedBody)
 	computedSig := "sha256=" + hex.EncodeToString(verifyMac.Sum(nil))
-	if err := ValidateSignature("hmac-sha256", secret, receivedBody, computedSig); err != nil {
-		t.Fatalf("receiver-side HMAC validation failed: %v", err)
-	}
+	require.NoError(t, ValidateSignature("hmac-sha256",
+		secret,
+		receivedBody,
+		computedSig,
+	))
+
 }
 
 // TestWebhookResilience_RetryExhaustion verifies that when the endpoint always
@@ -514,9 +538,7 @@ func TestWebhookResilience_RetryExhaustion(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"exhaust"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	// Process batch multiple times to exhaust retries.
 	// Each processBatch picks up pending deliveries whose NextRetryAt <= now.
@@ -535,19 +557,20 @@ func TestWebhookResilience_RetryExhaustion(t *testing.T) {
 			}
 		}
 	}
-
-	if int(attempts.Load()) != maxAttempts {
-		t.Fatalf("expected %d attempts, got %d", maxAttempts, attempts.Load())
-	}
+	require.Equal(t,
+		maxAttempts,
+		int(attempts.
+			Load()))
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead after exhausting retries, got %s", got.Status)
-	}
-	if got.LastError == "" {
-		t.Fatal("expected non-empty last_error after retry exhaustion")
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		got.Status)
+	require.NotEqual(t, "", got.
+		LastError)
+
 }
 
 // mockCircuitBreaker is a simple in-memory circuit breaker for testing.
@@ -634,18 +657,16 @@ func TestWebhookResilience_CircuitBreakerThreshold(t *testing.T) {
 			NextRetryAt: &now,
 			LastError:   fmt.Sprintf(`{"test":"cb-fail-%d"}`, i),
 		}
-		if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-			t.Fatalf("create delivery: %v", err)
-		}
+		require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
+
 		worker.processBatch(context.Background())
 	}
-
-	if !cb.isOpen(ts.URL) {
-		t.Fatal("expected circuit breaker to be open after 3 failures")
-	}
-	if cb.getFailures(ts.URL) < 3 {
-		t.Fatalf("expected at least 3 failures recorded, got %d", cb.getFailures(ts.URL))
-	}
+	require.True(t,
+		cb.isOpen(
+			ts.URL))
+	require.GreaterOrEqual(t,
+		cb.getFailures(
+			ts.URL), 3)
 
 	// A delivery while the circuit is open should fail without hitting the endpoint.
 	prevCount := requestCount.Load()
@@ -659,20 +680,18 @@ func TestWebhookResilience_CircuitBreakerThreshold(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"cb-blocked"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
-	worker.processBatch(context.Background())
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
-	if requestCount.Load() != prevCount {
-		t.Fatalf("expected no new requests while circuit is open, got %d (was %d)", requestCount.Load(), prevCount)
-	}
+	worker.processBatch(context.Background())
+	require.Equal(t,
+		prevCount,
+		requestCount.
+			Load())
 
 	// Record a success to close the circuit.
 	cb.RecordSuccess(context.Background(), ts.URL)
-	if cb.isOpen(ts.URL) {
-		t.Fatal("expected circuit breaker to be closed after RecordSuccess")
-	}
+	require.False(t,
+		cb.isOpen(ts.URL))
 
 	// Now a delivery should go through and succeed (server returns 200 after count > 3).
 	now = time.Now().Add(-time.Second)
@@ -685,15 +704,18 @@ func TestWebhookResilience_CircuitBreakerThreshold(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"cb-after-close"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d2); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d2))
+
 	worker.processBatch(context.Background())
 
 	for _, dd := range store.getDeliveries() {
-		if dd.ID == "cb-after-close" && dd.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected cb-after-close to be delivered, got %s", dd.Status)
-		}
+		require.False(t,
+			dd.ID ==
+				"cb-after-close" &&
+				dd.Status !=
+					domain.WebhookStatusDelivered,
+		)
+
 	}
 }
 
@@ -726,16 +748,14 @@ func TestWebhookResilience_ConcurrentDeliverySameEndpoint(t *testing.T) {
 			NextRetryAt: &now,
 			LastError:   fmt.Sprintf(`{"index":%d}`, i),
 		}
-		if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-			t.Fatalf("create delivery %d: %v", i, err)
-		}
+		require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
+
 	}
 
 	worker.processBatch(context.Background())
-
-	if received.Load() != count {
-		t.Fatalf("expected %d requests received, got %d", count, received.Load())
-	}
+	require.EqualValues(t,
+		count, received.
+			Load())
 
 	deliveredCount := 0
 	for _, dd := range store.getDeliveries() {
@@ -743,9 +763,10 @@ func TestWebhookResilience_ConcurrentDeliverySameEndpoint(t *testing.T) {
 			deliveredCount++
 		}
 	}
-	if deliveredCount != count {
-		t.Fatalf("expected %d deliveries, got %d", count, deliveredCount)
-	}
+	require.Equal(t,
+		count, deliveredCount,
+	)
+
 }
 
 // TestWebhookResilience_SelfSignedTLS verifies that delivering to an endpoint
@@ -774,20 +795,21 @@ func TestWebhookResilience_SelfSignedTLS(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"test":"tls"}`,
 	}
-	if err := store.CreateWebhookDelivery(context.Background(), d); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, store.CreateWebhookDelivery(context.Background(), d))
 
 	worker.processBatch(context.Background())
 
 	deliveries := store.getDeliveries()
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead for self-signed TLS, got %s", got.Status)
-	}
-	if !strings.Contains(got.LastError, "http request:") {
-		t.Fatalf("expected TLS error in last_error, got: %s", got.LastError)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		got.Status)
+	require.True(t,
+		strings.Contains(got.LastError,
+			"http request:",
+		))
+
 	// Verify the error mentions certificate-related issue.
 	if !strings.Contains(got.LastError, "certificate") && !strings.Contains(got.LastError, "tls") {
 		t.Logf("warning: expected certificate/tls in error but got: %s", got.LastError)

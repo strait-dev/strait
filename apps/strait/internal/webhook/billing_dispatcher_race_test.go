@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestBillingDispatcher_ConcurrentDispatch_NoRaces fans 50 goroutines at the
@@ -81,17 +83,20 @@ func TestBillingDispatcher_ConcurrentDispatch_NoRaces(t *testing.T) {
 	close(errs)
 
 	for err := range errs {
-		t.Errorf("DispatchBillingEvent error: %v", err)
+		assert.Failf(t, "test failure", "DispatchBillingEvent error: %v", err)
 	}
 
 	want := goroutines * dispatchPer * 2 // sub-a and sub-b match; sub-c-skip does not.
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != want {
-		t.Errorf("delivery count = %d, want %d", len(deliveries), want)
-	}
+	assert.Len(t, deliveries,
+
+		want)
+
 	for _, d := range deliveries {
-		if d.SubscriptionID == "sub-c-skip" {
-			t.Errorf("non-matching subscription sub-c-skip got a delivery")
-		}
+		assert.NotEqual(t,
+			"sub-c-skip",
+			d.SubscriptionID,
+		)
+
 	}
 }

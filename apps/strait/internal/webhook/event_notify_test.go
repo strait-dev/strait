@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"strait/internal/clickhouse"
 	"strait/internal/domain"
@@ -80,13 +82,16 @@ func TestApplyWebhookDeadLetterSentryScope(t *testing.T) {
 		"operation":       "dead_letter",
 	}
 	for key, want := range wantTags {
-		if got := event.Tags[key]; got != want {
-			t.Fatalf("tag %s = %q, want %q", key, got, want)
-		}
+		require.Equal(t,
+			want, event.
+				Tags[key])
+
 	}
-	if event.Contexts["webhook.delivery"]["webhook_url_domain"] != "hooks.example.com" {
-		t.Fatalf("webhook_url_domain context = %v, want hooks.example.com", event.Contexts["webhook.delivery"]["webhook_url_domain"])
-	}
+	require.Equal(t,
+		"hooks.example.com",
+		event.
+			Contexts["webhook.delivery"]["webhook_url_domain"])
+
 }
 
 // mockDeliveryStore implements DeliveryStore for testing.
@@ -131,49 +136,49 @@ func TestEnqueueRunWebhook_EnqueuesTerminalRunDelivery(t *testing.T) {
 		Attempt:   2,
 		Result:    json.RawMessage(`{"ok":true}`),
 	}
-
-	if err := worker.EnqueueRunWebhook(context.Background(), job, run); err != nil {
-		t.Fatalf("enqueue run webhook: %v", err)
-	}
+	require.NoError(t, worker.
+		EnqueueRunWebhook(context.Background(), job, run))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t,
+		deliveries,
+		1)
 
 	d := deliveries[0]
-	if d.RunID != run.ID {
-		t.Fatalf("expected run_id=%s, got %s", run.ID, d.RunID)
-	}
-	if d.JobID != job.ID {
-		t.Fatalf("expected job_id=%s, got %s", job.ID, d.JobID)
-	}
-	if d.EventTriggerID != "" {
-		t.Fatalf("expected empty event_trigger_id, got %s", d.EventTriggerID)
-	}
-	if d.WebhookURL != job.WebhookURL {
-		t.Fatalf("expected webhook_url=%s, got %s", job.WebhookURL, d.WebhookURL)
-	}
-	if d.WebhookSecret != job.WebhookSecret {
-		t.Fatalf("expected webhook secret to be preserved")
-	}
-	if d.Status != domain.WebhookStatusPending {
-		t.Fatalf("expected status=pending, got %s", d.Status)
-	}
+	require.Equal(t,
+		run.ID, d.
+			RunID)
+	require.Equal(t,
+		job.ID, d.
+			JobID)
+	require.Equal(t,
+		"", d.EventTriggerID,
+	)
+	require.Equal(t,
+		job.WebhookURL,
+		d.WebhookURL,
+	)
+	require.Equal(t,
+		job.WebhookSecret,
+		d.WebhookSecret,
+	)
+	require.Equal(t,
+		domain.WebhookStatusPending,
 
-	if d.LastError != "" {
-		t.Fatalf("expected last_error empty on enqueue, got %q", d.LastError)
-	}
+		d.Status)
+	require.Equal(t,
+		"", d.LastError,
+	)
+
 	var payload map[string]any
-	if err := json.Unmarshal(d.Payload, &payload); err != nil {
-		t.Fatalf("expected JSON payload on delivery: %v", err)
-	}
-	if payload["run_id"] != run.ID {
-		t.Fatalf("expected payload run_id=%s, got %v", run.ID, payload["run_id"])
-	}
-	if payload["status"] != string(run.Status) {
-		t.Fatalf("expected payload status=%s, got %v", run.Status, payload["status"])
-	}
+	require.NoError(t, json.Unmarshal(d.Payload,
+		&payload))
+	require.Equal(t,
+		run.ID, payload["run_id"])
+	require.Equal(t,
+		string(run.
+			Status), payload["status"])
+
 }
 
 func TestProcessBatch_ConcurrentDelivery(t *testing.T) {
@@ -215,22 +220,22 @@ func TestProcessBatch_ConcurrentDelivery(t *testing.T) {
 			NextRetryAt: &now,
 			LastError:   fmt.Sprintf(`{"delivery_id":"%s"}`, id),
 		}
-		if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-			t.Fatalf("create delivery: %v", err)
-		}
+		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
+
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(total))
 	worker.processBatch(context.Background())
-
-	if maxInFlight.Load() <= 1 {
-		t.Fatalf("expected concurrent processing, max in-flight=%d", maxInFlight.Load())
-	}
+	require.False(t,
+		maxInFlight.
+			Load() <= 1)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected all deliveries to be delivered, got %s for %s", d.Status, d.ID)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -266,25 +271,20 @@ func TestProcessBatch_MixedEventAndRunDeliveries(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-10"}`,
 	}
-
-	if err := ms.CreateWebhookDelivery(context.Background(), eventDelivery); err != nil {
-		t.Fatalf("create event delivery: %v", err)
-	}
-	if err := ms.CreateWebhookDelivery(context.Background(), runDelivery); err != nil {
-		t.Fatalf("create run delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), eventDelivery))
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), runDelivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(2))
 	worker.processBatch(context.Background())
-
-	if requests.Load() != 2 {
-		t.Fatalf("expected 2 webhook requests, got %d", requests.Load())
-	}
+	require.EqualValues(t, 2, requests.
+		Load())
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivery %s to be delivered, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -333,17 +333,16 @@ func TestDeliveryWorker_Shutdown_Idle(t *testing.T) {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
 	defer shutdownCancel()
-	if err := worker.Shutdown(shutdownCtx); err != nil {
-		t.Fatalf("Shutdown() error = %v, want nil", err)
-	}
+	require.NoError(t, worker.
+		Shutdown(shutdownCtx))
 
 	select {
 	case err := <-runDone:
 		if err != nil {
-			t.Fatalf("RunWorker() error = %v, want nil", err)
+			require.Failf(t, "test failure", "RunWorker() error = %v, want nil", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("RunWorker did not stop after shutdown")
+		require.Fail(t, "RunWorker did not stop after shutdown")
 	}
 }
 
@@ -383,7 +382,7 @@ func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
 	select {
 	case <-batchStarted:
 	case <-time.After(time.Second):
-		t.Fatal("batch did not start")
+		require.Fail(t, "batch did not start")
 	}
 
 	shutdownDone := make(chan error, 1)
@@ -395,7 +394,7 @@ func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
 
 	select {
 	case err := <-shutdownDone:
-		t.Fatalf("Shutdown returned early with err=%v", err)
+		require.Failf(t, "test failure", "Shutdown returned early with err=%v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -404,19 +403,19 @@ func TestDeliveryWorker_Shutdown_WaitsForBatch(t *testing.T) {
 	select {
 	case err := <-shutdownDone:
 		if err != nil {
-			t.Fatalf("Shutdown() error = %v, want nil", err)
+			require.Failf(t, "test failure", "Shutdown() error = %v, want nil", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Shutdown did not return after batch completed")
+		require.Fail(t, "Shutdown did not return after batch completed")
 	}
 
 	select {
 	case err := <-runDone:
 		if err != nil {
-			t.Fatalf("RunWorker() error = %v, want nil", err)
+			require.Failf(t, "test failure", "RunWorker() error = %v, want nil", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("RunWorker did not stop after shutdown")
+		require.Fail(t, "RunWorker did not stop after shutdown")
 	}
 }
 
@@ -467,22 +466,25 @@ func TestNotifyAsync_EnqueuesDelivery(t *testing.T) {
 	notifier.NotifyAsync(trigger)
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t,
+		deliveries,
+		1)
+
 	d := deliveries[0]
-	if d.EventTriggerID != "evt-1" {
-		t.Fatalf("expected trigger_id=evt-1, got %s", d.EventTriggerID)
-	}
-	if d.WebhookURL != "http://example.com/hook" {
-		t.Fatalf("expected url=http://example.com/hook, got %s", d.WebhookURL)
-	}
-	if d.Status != domain.WebhookStatusPending {
-		t.Fatalf("expected status=pending, got %s", d.Status)
-	}
-	if d.MaxAttempts != 5 {
-		t.Fatalf("expected max_attempts=5, got %d", d.MaxAttempts)
-	}
+	require.Equal(t,
+		"evt-1",
+		d.EventTriggerID,
+	)
+	require.Equal(t,
+		"http://example.com/hook",
+
+		d.WebhookURL)
+	require.Equal(t,
+		domain.WebhookStatusPending,
+
+		d.Status)
+	require.EqualValues(t, 5, d.MaxAttempts)
+
 }
 
 func TestNotifyAsync_NoURL_Skips(t *testing.T) {
@@ -492,10 +494,9 @@ func TestNotifyAsync_NoURL_Skips(t *testing.T) {
 	notifier := NewEventNotifier(ms, slog.Default())
 
 	notifier.NotifyAsync(&domain.EventTrigger{ID: "evt-2", EventKey: "no-url"})
+	require.Len(t,
+		ms.getDeliveries(), 0)
 
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatal("expected no deliveries for trigger without URL")
-	}
 }
 
 func TestWorker_DeliversSuccessfully(t *testing.T) {
@@ -540,7 +541,7 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 	for !delivered.Load() {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for delivery")
+			require.Fail(t, "timed out waiting for delivery")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -550,21 +551,26 @@ func TestWorker_DeliversSuccessfully(t *testing.T) {
 	for ms.getNotifyStatus() != "sent" {
 		select {
 		case <-deadline2:
-			t.Fatalf("timed out waiting for notify_status=sent, got %s", ms.getNotifyStatus())
+			require.Failf(t, "test failure", "timed out waiting for notify_status=sent, got %s", ms.getNotifyStatus())
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
 
 	mu.Lock()
-	if receivedPayload["event_key"] != "deliver-key" {
-		t.Fatalf("expected event_key=deliver-key, got %v", receivedPayload["event_key"])
-	}
+	require.Equal(t,
+		"deliver-key",
+		receivedPayload["event_key"])
+
 	mu.Unlock()
 
 	for _, d := range ms.getDeliveries() {
-		if d.EventTriggerID == "evt-3" && d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected status=delivered, got %s", d.Status)
-		}
+		require.False(t,
+			d.EventTriggerID ==
+				"evt-3" &&
+				d.Status !=
+					domain.WebhookStatusDelivered,
+		)
+
 	}
 }
 
@@ -604,7 +610,7 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 	for attempts.Load() < 1 {
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for first attempt")
+			require.Fail(t, "timed out waiting for first attempt")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -613,30 +619,31 @@ func TestWorker_ServerError_RetriesWithBackoff(t *testing.T) {
 	// The next retry is 5s in the future, so the worker should be idle.
 	stableAt := time.Now()
 	for time.Since(stableAt) < 300*time.Millisecond {
-		if attempts.Load() > 1 {
-			t.Fatalf("unexpected extra attempt; expected exactly 1")
-		}
+		require.LessOrEqual(t, attempts.
+			Load(), int32(1),
+		)
+
 		time.Sleep(10 * time.Millisecond) // tight poll to detect spurious retry
 	}
 	cancel()
+	require.EqualValues(t, 1, attempts.
+		Load())
 
 	// Should only have had 1 attempt — next retry is 5s in the future.
-	if a := attempts.Load(); a != 1 {
-		t.Fatalf("expected 1 attempt (next retry is in the future), got %d", a)
-	}
 
 	// Delivery should still be pending with increased attempts.
 	for _, d := range ms.getDeliveries() {
 		if d.EventTriggerID == "evt-4" {
-			if d.Attempts != 1 {
-				t.Fatalf("expected 1 attempt recorded, got %d", d.Attempts)
-			}
-			if d.Status != domain.WebhookStatusPending {
-				t.Fatalf("expected status=pending after first failure, got %s", d.Status)
-			}
-			if d.NextRetryAt == nil || d.NextRetryAt.Before(time.Now()) {
-				t.Fatal("expected next_retry_at to be in the future")
-			}
+			require.EqualValues(t, 1, d.Attempts)
+			require.Equal(t,
+				domain.WebhookStatusPending,
+
+				d.Status)
+			require.False(t,
+				d.NextRetryAt ==
+					nil ||
+					d.NextRetryAt.Before(time.Now()))
+
 		}
 	}
 }
@@ -674,16 +681,20 @@ func TestWorker_ClientError_DeadLetters(t *testing.T) {
 	for ms.getNotifyStatus() != "failed" {
 		select {
 		case <-deadline:
-			t.Fatalf("timed out waiting for notify_status=failed, got %s", ms.getNotifyStatus())
+			require.Failf(t, "test failure", "timed out waiting for notify_status=failed, got %s", ms.getNotifyStatus())
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
 	cancel()
 
 	for _, d := range ms.getDeliveries() {
-		if d.EventTriggerID == "evt-5" && d.Status != domain.WebhookStatusDead {
-			t.Fatalf("expected status=dead for client error, got %s", d.Status)
-		}
+		require.False(t,
+			d.EventTriggerID ==
+				"evt-5" &&
+				d.Status !=
+					domain.WebhookStatusDead,
+		)
+
 	}
 }
 
@@ -711,24 +722,23 @@ func TestWorker_PayloadTooLarge_DeadLettersWithoutHTTPCall(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   largePayload,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	notifier := NewEventNotifier(ms, slog.Default(), WithMaxPayloadBytes(1024))
 	notifier.processBatch(context.Background())
-
-	if requests.Load() != 0 {
-		t.Fatalf("expected no HTTP requests, got %d", requests.Load())
-	}
+	require.EqualValues(t, 0, requests.
+		Load())
 
 	updated := ms.getDeliveries()[0]
-	if updated.Status != domain.WebhookStatusDead {
-		t.Fatalf("expected status=dead, got %s", updated.Status)
-	}
-	if !strings.Contains(updated.LastError, "payload too large") {
-		t.Fatalf("expected payload too large error, got %q", updated.LastError)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		updated.Status)
+	require.True(t,
+		strings.Contains(updated.
+			LastError, "payload too large",
+		))
+
 }
 
 func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
@@ -758,16 +768,13 @@ func TestWithChExporter_EnqueuesOnDelivery(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-ch-1"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 1, exporter.
+		PendingCount())
 
-	if exporter.PendingCount() != 1 {
-		t.Fatalf("expected 1 pending ClickHouse record, got %d", exporter.PendingCount())
-	}
 }
 
 func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
@@ -797,16 +804,13 @@ func TestWithChExporter_EnqueuesOnFailure(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-ch-fail"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 1, exporter.
+		PendingCount())
 
-	if exporter.PendingCount() != 1 {
-		t.Fatalf("expected 1 pending ClickHouse record after failure, got %d", exporter.PendingCount())
-	}
 }
 
 func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
@@ -830,9 +834,7 @@ func TestWithChExporter_NilExporter_NoPanic(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-nil-ch"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	// No WithChExporter option -- should not panic
 	worker := NewDeliveryWorker(ms, slog.Default())
@@ -852,9 +854,9 @@ func TestExponentialWebhookBackoff(t *testing.T) {
 		{4, 625 * time.Second},
 	}
 	for _, tc := range cases {
-		if got := exponentialWebhookBackoff(tc.attempts); got != tc.want {
-			t.Errorf("exponentialWebhookBackoff(%d) = %s, want %s", tc.attempts, got, tc.want)
-		}
+		assert.Equal(t,
+			tc.want, exponentialWebhookBackoff(tc.attempts))
+
 	}
 }
 
@@ -865,9 +867,10 @@ func approxBackoff(t *testing.T, got, want time.Duration, label string) {
 	t.Helper()
 	low := want - want/5
 	high := want + want/5
-	if got < low || got > high {
-		t.Fatalf("%s = %s, want within [%s, %s]", label, got, low, high)
-	}
+	require.False(t,
+		got < low ||
+			got > high)
+
 }
 
 func TestBackoffForRetryPolicy_Linear(t *testing.T) {
@@ -898,21 +901,26 @@ func TestEnqueueSubscriptionWebhooks_MatchingSubscription(t *testing.T) {
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r1"}`))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].WebhookURL != "https://example.com/hook" {
-		t.Fatalf("expected webhook URL https://example.com/hook, got %s", deliveries[0].WebhookURL)
-	}
-	if deliveries[0].SubscriptionID != "sub-1" {
-		t.Fatalf("subscription_id = %q, want sub-1", deliveries[0].SubscriptionID)
-	}
-	if deliveries[0].ProjectID != "proj-1" {
-		t.Fatalf("project_id = %q, want proj-1", deliveries[0].ProjectID)
-	}
-	if string(deliveries[0].Payload) != `{"run_id":"r1"}` {
-		t.Fatalf("payload = %s, want original payload", deliveries[0].Payload)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		"https://example.com/hook",
+
+		deliveries[0].
+			WebhookURL)
+	require.Equal(t,
+		"sub-1",
+		deliveries[0].SubscriptionID,
+	)
+	require.Equal(t,
+		"proj-1",
+		deliveries[0].
+			ProjectID)
+	require.Equal(t,
+		`{"run_id":"r1"}`,
+		string(deliveries[0].Payload))
+
 }
 
 func TestEnqueueSubscriptionWebhooks_WildcardMatch(t *testing.T) {
@@ -929,12 +937,14 @@ func TestEnqueueSubscriptionWebhooks_WildcardMatch(t *testing.T) {
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.failed", json.RawMessage(`{"run_id":"r2"}`))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].WebhookURL != "https://example.com/wildcard" {
-		t.Fatalf("expected webhook URL https://example.com/wildcard, got %s", deliveries[0].WebhookURL)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		"https://example.com/wildcard",
+
+		deliveries[0].WebhookURL)
+
 }
 
 func TestEnqueueSubscriptionWebhooks_InactiveSkipped(t *testing.T) {
@@ -949,10 +959,9 @@ func TestEnqueueSubscriptionWebhooks_InactiveSkipped(t *testing.T) {
 	}}
 
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r3"}`))
+	require.Len(t,
+		ms.getDeliveries(), 0)
 
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatalf("expected 0 deliveries for inactive sub, got %d", len(ms.getDeliveries()))
-	}
 }
 
 func TestEnqueueSubscriptionWebhooks_EventTypeMismatch(t *testing.T) {
@@ -967,10 +976,9 @@ func TestEnqueueSubscriptionWebhooks_EventTypeMismatch(t *testing.T) {
 	}}
 
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r4"}`))
+	require.Len(t,
+		ms.getDeliveries(), 0)
 
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatalf("expected 0 deliveries for mismatched event type, got %d", len(ms.getDeliveries()))
-	}
 }
 
 func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
@@ -988,22 +996,24 @@ func TestEnqueueSubscriptionWebhooks_MultipleSubs(t *testing.T) {
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "run.completed", json.RawMessage(`{"run_id":"r5"}`))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].WebhookURL != "https://example.com/match" {
-		t.Fatalf("expected webhook URL https://example.com/match, got %s", deliveries[0].WebhookURL)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		"https://example.com/match",
+
+		deliveries[0].WebhookURL)
+
 }
 
 func TestReplayKeyFromDeliveryID(t *testing.T) {
 	t.Parallel()
-	if got := replayKeyFromDeliveryID(""); got != "" {
-		t.Fatalf("empty delivery id should yield empty key, got %q", got)
-	}
-	if got := replayKeyFromDeliveryID("whd-42"); got != "rk_whd-42" {
-		t.Fatalf("unexpected replay key: %q", got)
-	}
+	require.Equal(t,
+		"", replayKeyFromDeliveryID(""))
+	require.Equal(t,
+		"rk_whd-42",
+		replayKeyFromDeliveryID("whd-42"))
+
 }
 
 // TestComputeReplayKey_HMACDerivation asserts the signed replay key is
@@ -1021,49 +1031,46 @@ func TestComputeReplayKey_HMACDerivation(t *testing.T) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(deliveryID))
 	want := replayKeyPrefix + hex.EncodeToString(mac.Sum(nil))[:replayKeyHexLen]
-
-	if got != want {
-		t.Fatalf("ComputeReplayKey=%q, want %q", got, want)
-	}
-	if !strings.HasPrefix(got, "rk_") {
-		t.Fatalf("expected rk_ prefix, got %q", got)
-	}
-	if len(got) != len("rk_")+replayKeyHexLen {
-		t.Fatalf("expected total length %d, got %d", len("rk_")+replayKeyHexLen, len(got))
-	}
+	require.Equal(t,
+		want, got,
+	)
+	require.True(t,
+		strings.HasPrefix(got, "rk_"))
+	require.Len(t,
+		got, len("rk_")+replayKeyHexLen,
+	)
 
 	// Same inputs must produce the same key (stability across retries).
 	again := ComputeReplayKey(secret, deliveryID)
-	if again != got {
-		t.Fatalf("non-deterministic: %q vs %q", got, again)
-	}
+	require.Equal(t,
+		got, again,
+	)
 
 	// Different secret must yield a different key (HMAC binding).
 	other := ComputeReplayKey([]byte("different_secret"), deliveryID)
-	if other == got {
-		t.Fatalf("key should change with secret")
-	}
+	require.NotEqual(t, got, other)
+	require.Equal(t,
+		"", ComputeReplayKey(secret,
+			""))
 
 	// Empty delivery id returns empty.
-	if ComputeReplayKey(secret, "") != "" {
-		t.Fatalf("empty id must yield empty key")
-	}
 
 	// Empty secret falls back to unsigned helper.
 	unsigned := ComputeReplayKey(nil, deliveryID)
-	if unsigned != ComputeReplayKeyUnsigned(deliveryID) {
-		t.Fatalf("nil secret should match unsigned derivation")
-	}
+	require.Equal(t,
+		ComputeReplayKeyUnsigned(deliveryID), unsigned,
+	)
+
 }
 
 func TestComputeReplayKeyUnsigned(t *testing.T) {
 	t.Parallel()
-	if got := ComputeReplayKeyUnsigned(""); got != "" {
-		t.Fatalf("empty id should yield empty key, got %q", got)
-	}
-	if got := ComputeReplayKeyUnsigned("run-9"); got != "rk_run-9" {
-		t.Fatalf("unexpected unsigned key: %q", got)
-	}
+	require.Equal(t,
+		"", ComputeReplayKeyUnsigned(""))
+	require.Equal(t,
+		"rk_run-9",
+		ComputeReplayKeyUnsigned("run-9"))
+
 }
 
 func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
@@ -1077,19 +1084,18 @@ func TestComputeIdempotencyKey_HMACDerivation(t *testing.T) {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte("whd-signed-1:2"))
 	want := idempotencyKeyPrefix + hex.EncodeToString(mac.Sum(nil))[:replayKeyHexLen]
+	require.Equal(t,
+		want, got,
+	)
+	require.False(t,
+		strings.Contains(got, deliveryID))
+	require.NotEqual(t, ComputeIdempotencyKey(secret, deliveryID,
+		1), got)
+	require.Equal(t,
+		"whd-signed-1:2",
+		ComputeIdempotencyKey(nil,
+			deliveryID, 2))
 
-	if got != want {
-		t.Fatalf("ComputeIdempotencyKey=%q, want %q", got, want)
-	}
-	if strings.Contains(got, deliveryID) {
-		t.Fatalf("signed idempotency key leaked delivery ID: %q", got)
-	}
-	if got == ComputeIdempotencyKey(secret, deliveryID, 1) {
-		t.Fatal("idempotency key must change by attempt")
-	}
-	if unsigned := ComputeIdempotencyKey(nil, deliveryID, 2); unsigned != "whd-signed-1:2" {
-		t.Fatalf("nil secret should preserve legacy unsigned key, got %q", unsigned)
-	}
 }
 
 func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKeys(t *testing.T) {
@@ -1119,25 +1125,28 @@ func TestAttemptDelivery_WithSubscriptionID_AuthenticatesReplayAndIdempotencyKey
 		NextRetryAt:    &now,
 		Payload:        json.RawMessage(`{"event":"run.completed"}`),
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
 
 	wantReplay := ComputeReplayKey([]byte(secret), delivery.ID)
-	if receivedReplayKey != wantReplay {
-		t.Fatalf("replay key = %q, want %q", receivedReplayKey, wantReplay)
-	}
+	require.Equal(t,
+		wantReplay,
+		receivedReplayKey,
+	)
+
 	wantIdempotency := ComputeIdempotencyKey([]byte(secret), delivery.ID, 1)
-	if receivedIdempotencyKey != wantIdempotency {
-		t.Fatalf("idempotency key = %q, want %q", receivedIdempotencyKey, wantIdempotency)
-	}
+	require.Equal(t,
+		wantIdempotency,
+		receivedIdempotencyKey,
+	)
+
 	for _, header := range []string{receivedReplayKey, receivedIdempotencyKey} {
-		if strings.Contains(header, delivery.ID) {
-			t.Fatalf("signed webhook key leaked delivery ID: %q", header)
-		}
+		require.False(t,
+			strings.Contains(header,
+				delivery.ID))
+
 	}
 }
 
@@ -1171,9 +1180,7 @@ func TestAttemptDelivery_ReplayKeyStableAcrossRetries(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-1"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
@@ -1188,14 +1195,16 @@ func TestAttemptDelivery_ReplayKeyStableAcrossRetries(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(replayKeys) < 2 {
-		t.Fatalf("expected at least 2 attempts, got %d", len(replayKeys))
-	}
+	require.GreaterOrEqual(t,
+		len(replayKeys),
+		2)
+
 	want := "rk_whd-replay-1"
-	for i, got := range replayKeys {
-		if got != want {
-			t.Fatalf("attempt %d: X-Strait-Replay-Key=%q, want %q", i, got, want)
-		}
+	for _, got := range replayKeys {
+		require.Equal(t,
+			want, got,
+		)
+
 	}
 }
 
@@ -1229,9 +1238,8 @@ func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
 			NextRetryAt: &now,
 			LastError:   `{"k":"v"}`,
 		}
-		if err := ms.CreateWebhookDelivery(context.Background(), d); err != nil {
-			t.Fatalf("create delivery: %v", err)
-		}
+		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), d))
+
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default())
@@ -1240,9 +1248,10 @@ func TestAttemptDelivery_ReplayKeyDiffersBetweenDeliveries(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, id := range ids {
-		if !seen["rk_"+id] {
-			t.Fatalf("expected replay key rk_%s not observed; saw %v", id, seen)
-		}
+		require.True(t,
+			seen["rk_"+
+				id])
+
 	}
 }
 
@@ -1269,17 +1278,19 @@ func TestAttemptDelivery_IdempotencyKeyHeader(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-1"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
 
-	expected := "whd-idem-1:4" // attempts incremented to 4 before dispatch
-	if receivedHeader != expected {
-		t.Fatalf("expected X-Strait-Idempotency-Key=%s, got %s", expected, receivedHeader)
-	}
+	expected := "whd-idem-1:4"
+	require.Equal(t,
+		expected,
+		receivedHeader,
+	)
+
+	// attempts incremented to 4 before dispatch
+
 }
 
 func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
@@ -1308,9 +1319,7 @@ func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-1"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 
@@ -1330,12 +1339,10 @@ func TestAttemptDelivery_IdempotencyKeyChangesOnRetry(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receivedKeys) < 2 {
-		t.Fatalf("expected at least 2 attempts, got %d", len(receivedKeys))
-	}
-	if receivedKeys[0] == receivedKeys[1] {
-		t.Fatalf("expected different idempotency keys on retry, got %s both times", receivedKeys[0])
-	}
+	require.GreaterOrEqual(t,
+		len(receivedKeys), 2)
+	require.NotEqual(t, receivedKeys[1], receivedKeys[0])
+
 }
 
 func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
@@ -1365,9 +1372,8 @@ func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
 			NextRetryAt: &now,
 			LastError:   `{"run_id":"run-1"}`,
 		}
-		if err := ms.CreateWebhookDelivery(context.Background(), d); err != nil {
-			t.Fatalf("create delivery: %v", err)
-		}
+		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), d))
+
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(2))
@@ -1375,36 +1381,37 @@ func TestAttemptDelivery_DifferentDeliveriesHaveDifferentKeys(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receivedKeys) != 2 {
-		t.Fatalf("expected 2 unique idempotency keys, got %d", len(receivedKeys))
-	}
+	require.Len(t,
+		receivedKeys,
+		2)
+
 }
 
 func TestDeliveryWorker_DefaultConcurrency50(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default())
-	if worker.concurrency != 50 {
-		t.Errorf("default concurrency = %d, want 50", worker.concurrency)
-	}
+	assert.EqualValues(t, 50, worker.
+		concurrency)
+
 }
 
 func TestDeliveryWorker_ConcurrencyFromOption(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(100))
-	if worker.concurrency != 100 {
-		t.Errorf("concurrency = %d, want 100", worker.concurrency)
-	}
+	assert.EqualValues(t, 100, worker.
+		concurrency)
+
 }
 
 func TestDeliveryWorker_ConcurrencyZeroKeepsDefault(t *testing.T) {
 	t.Parallel()
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithConcurrency(0))
-	if worker.concurrency != 50 {
-		t.Errorf("concurrency = %d, want 50 (default)", worker.concurrency)
-	}
+	assert.EqualValues(t, 50, worker.
+		concurrency)
+
 }
 
 func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
@@ -1433,14 +1440,16 @@ func TestDeliveryWorker_TieredTimeout_InitialAttempt(t *testing.T) {
 	start := time.Now()
 	worker.attemptDelivery(context.Background(), d)
 	elapsed := time.Since(start)
+	assert.LessOrEqual(t, elapsed,
+		6*time.Second,
+	)
+	assert.NotEqual(t, domain.
+		WebhookStatusDelivered,
+		d.Status,
+	)
 
 	// Should timeout around 5s, not 10s.
-	if elapsed > 6*time.Second {
-		t.Errorf("initial attempt took %v, expected ~5s timeout", elapsed)
-	}
-	if d.Status == domain.WebhookStatusDelivered {
-		t.Error("expected delivery to fail due to timeout")
-	}
+
 }
 
 func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
@@ -1474,14 +1483,16 @@ func TestDeliveryWorker_TieredTimeout_RetryAttempt(t *testing.T) {
 	start := time.Now()
 	worker.attemptDelivery(context.Background(), d)
 	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed,
+		5*time.
+			Second)
+	assert.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		d.Status)
 
 	// Should succeed because retry timeout is 15s and server responds in ~5.5s.
-	if elapsed < 5*time.Second {
-		t.Errorf("retry attempt returned too fast: %v", elapsed)
-	}
-	if d.Status != domain.WebhookStatusDelivered {
-		t.Errorf("expected delivery to succeed on retry timeout, got status %s", d.Status)
-	}
+
 }
 
 func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
@@ -1524,9 +1535,9 @@ func TestDeliveryWorker_ConcurrentDeliveries50(t *testing.T) {
 	worker.processBatch(context.Background())
 
 	peak := maxConcurrent.Load()
-	if peak < 10 {
-		t.Errorf("peak concurrency = %d, expected higher with 60 deliveries", peak)
-	}
+	assert.GreaterOrEqual(t, peak,
+		int64(10))
+
 }
 
 // HTTP Transport tests.
@@ -1540,24 +1551,27 @@ func TestWithHTTPTransport_SetsCustomTransport(t *testing.T) {
 	)
 
 	transport, ok := worker.client.Transport.(*http.Transport)
-	if !ok {
-		t.Fatal("expected *http.Transport after WithHTTPTransport")
-	}
-	if transport.MaxIdleConns != 200 {
-		t.Errorf("MaxIdleConns = %d, want 200", transport.MaxIdleConns)
-	}
-	if transport.MaxIdleConnsPerHost != 100 {
-		t.Errorf("MaxIdleConnsPerHost = %d, want 100", transport.MaxIdleConnsPerHost)
-	}
-	if transport.IdleConnTimeout != 90*time.Second {
-		t.Errorf("IdleConnTimeout = %v, want 90s", transport.IdleConnTimeout)
-	}
-	if !transport.ForceAttemptHTTP2 {
-		t.Error("expected ForceAttemptHTTP2 = true")
-	}
-	if worker.client.Timeout != 10*time.Second {
-		t.Errorf("client.Timeout = %v, want 10s", worker.client.Timeout)
-	}
+	require.True(t,
+		ok)
+	assert.EqualValues(t, 200, transport.
+		MaxIdleConns,
+	)
+	assert.EqualValues(t, 100, transport.
+		MaxIdleConnsPerHost,
+	)
+	assert.Equal(t,
+		90*time.
+			Second, transport.
+			IdleConnTimeout,
+	)
+	assert.True(t,
+		transport.ForceAttemptHTTP2,
+	)
+	assert.Equal(t,
+		10*time.
+			Second, worker.
+			client.Timeout)
+
 }
 
 func TestWithHTTPTransport_ConnectionReuse(t *testing.T) {
@@ -1600,9 +1614,9 @@ func TestWithHTTPTransport_ConnectionReuse(t *testing.T) {
 
 	// With keep-alive, should have fewer connections than requests.
 	conns := connCount.Load()
-	if conns > 3 {
-		t.Errorf("expected connection reuse, but opened %d connections for 10 requests", conns)
-	}
+	assert.LessOrEqual(t, conns,
+		int32(3))
+
 }
 
 func TestWithHTTPTransport_DefaultValues(t *testing.T) {
@@ -1612,12 +1626,14 @@ func TestWithHTTPTransport_DefaultValues(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 
 	transport, ok := worker.client.Transport.(*http.Transport)
-	if !ok || transport == nil {
-		t.Fatalf("expected default client to use SSRF-safe *http.Transport, got %T", worker.client.Transport)
-	}
-	if worker.client.CheckRedirect == nil {
-		t.Fatal("expected default client to reject redirects")
-	}
+	require.False(t,
+		!ok || transport ==
+			nil)
+	require.NotNil(
+		t, worker.client.
+			CheckRedirect,
+	)
+
 }
 
 func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
@@ -1639,24 +1655,27 @@ func TestWithHTTPTransport_BlocksPrivateDNSAtDeliveryTime(t *testing.T) {
 		MaxAttempts: 3,
 		NextRetryAt: &now,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
+
 	worker := NewDeliveryWorker(ms, slog.Default(), WithHTTPTransport(500*time.Millisecond, time.Second, 2, 2))
 
 	worker.processBatch(context.Background())
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("deliveries = %d, want 1", len(deliveries))
-	}
+	require.Len(t,
+		deliveries,
+		1)
+
 	got := deliveries[0]
-	if got.Status != domain.WebhookStatusPending {
-		t.Fatalf("status = %s, want pending retry", got.Status)
-	}
-	if !strings.Contains(got.LastError, "resolves to private") {
-		t.Fatalf("last_error = %q, want private DNS rejection", got.LastError)
-	}
+	require.Equal(t,
+		domain.WebhookStatusPending,
+
+		got.Status)
+	require.True(t,
+		strings.Contains(got.LastError,
+			"resolves to private",
+		))
+
 }
 
 func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
@@ -1673,9 +1692,7 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"event":"run.failed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.client = &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -1689,13 +1706,16 @@ func TestAttemptDelivery_RedactsSecretURLFromTransportError(t *testing.T) {
 
 	got := ms.getDeliveries()[0]
 	for _, leaked := range []string{"password", "token-123", "secret-value", "api_key"} {
-		if strings.Contains(got.LastError, leaked) {
-			t.Fatalf("last_error leaked URL secret %q: %s", leaked, got.LastError)
-		}
+		require.False(t,
+			strings.Contains(got.LastError,
+				leaked))
+
 	}
-	if !strings.Contains(got.LastError, "connection refused") {
-		t.Fatalf("last_error omitted sanitized transport reason: %s", got.LastError)
-	}
+	require.True(t,
+		strings.Contains(got.LastError,
+			"connection refused",
+		))
+
 }
 
 func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
@@ -1712,25 +1732,29 @@ func TestAttemptDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *tes
 		NextRetryAt: &now,
 		Payload:     json.RawMessage(`{"event":"run.failed"}`),
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
 
 	got := ms.getDeliveries()[0]
-	if got.Status != domain.WebhookStatusDead {
-		t.Fatalf("status = %s, want dead", got.Status)
-	}
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		got.Status)
+
 	for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
-		if strings.Contains(got.LastError, leaked) {
-			t.Fatalf("last_error leaked malformed URL secret %q: %s", leaked, got.LastError)
-		}
+		require.False(t,
+			strings.Contains(got.LastError,
+				leaked))
+
 	}
-	if got.LastError != "create request: invalid webhook URL" {
-		t.Fatalf("last_error = %q, want sanitized create request error", got.LastError)
-	}
+	require.Equal(t,
+		"create request: invalid webhook URL",
+
+		got.
+			LastError)
+
 }
 
 func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t *testing.T) {
@@ -1748,26 +1772,31 @@ func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t
 			NextRetryAt: &now,
 			Payload:     json.RawMessage(`{"event":"run.failed"}`),
 		}
-		if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-			t.Fatalf("create delivery %d: %v", i, err)
-		}
+		require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
+
 	}
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
 	worker.processBatch(context.Background())
 
 	for _, got := range ms.getDeliveries() {
-		if got.Status != domain.WebhookStatusDead {
-			t.Fatalf("status for %s = %s, want dead", got.ID, got.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDead,
+
+			got.Status)
+
 		for _, leaked := range []string{"user", "password", "secret-value", "token", rawURL} {
-			if strings.Contains(got.LastError, leaked) {
-				t.Fatalf("last_error for %s leaked malformed URL secret %q: %s", got.ID, leaked, got.LastError)
-			}
+			require.False(t,
+				strings.Contains(got.LastError,
+					leaked))
+
 		}
-		if got.LastError != "create request: invalid webhook URL" {
-			t.Fatalf("last_error for %s = %q, want sanitized create request error", got.ID, got.LastError)
-		}
+		require.Equal(t,
+			"create request: invalid webhook URL",
+
+			got.
+				LastError)
+
 	}
 }
 
@@ -1776,9 +1805,9 @@ func TestAttemptBatchDelivery_RedactsMalformedWebhookURLFromCreateRequestError(t
 func TestGroupByURL_Empty(t *testing.T) {
 	t.Parallel()
 	result := groupByURL(nil)
-	if len(result) != 0 {
-		t.Fatalf("expected empty map, got %d entries", len(result))
-	}
+	require.Len(t,
+		result, 0)
+
 }
 
 func TestGroupByURL_SingleURL(t *testing.T) {
@@ -1789,12 +1818,11 @@ func TestGroupByURL_SingleURL(t *testing.T) {
 		{ID: "d3", WebhookURL: "https://a.com/hook"},
 	}
 	result := groupByURL(deliveries)
-	if len(result) != 1 {
-		t.Fatalf("expected 1 group, got %d", len(result))
-	}
-	if len(result["https://a.com/hook"]) != 3 {
-		t.Fatalf("expected 3 deliveries in group, got %d", len(result["https://a.com/hook"]))
-	}
+	require.Len(t,
+		result, 1)
+	require.Len(t,
+		result["https://a.com/hook"], 3)
+
 }
 
 func TestGroupByURL_MultipleURLs(t *testing.T) {
@@ -1807,18 +1835,18 @@ func TestGroupByURL_MultipleURLs(t *testing.T) {
 		{ID: "d5", WebhookURL: "https://b.com"},
 	}
 	result := groupByURL(deliveries)
-	if len(result) != 3 {
-		t.Fatalf("expected 3 groups, got %d", len(result))
-	}
-	if len(result["https://a.com"]) != 2 {
-		t.Fatalf("expected 2 for a.com, got %d", len(result["https://a.com"]))
-	}
-	if len(result["https://b.com"]) != 2 {
-		t.Fatalf("expected 2 for b.com, got %d", len(result["https://b.com"]))
-	}
-	if len(result["https://c.com"]) != 1 {
-		t.Fatalf("expected 1 for c.com, got %d", len(result["https://c.com"]))
-	}
+	require.Len(t,
+		result, 3)
+	require.Len(t,
+		result["https://a.com"], 2,
+	)
+	require.Len(t,
+		result["https://b.com"], 2,
+	)
+	require.Len(t,
+		result["https://c.com"], 1,
+	)
+
 }
 
 func TestChunkDeliveries_ExactMultiple(t *testing.T) {
@@ -1828,13 +1856,13 @@ func TestChunkDeliveries_ExactMultiple(t *testing.T) {
 		deliveries[i].ID = fmt.Sprintf("d%d", i)
 	}
 	chunks := chunkDeliveries(deliveries, 3)
-	if len(chunks) != 3 {
-		t.Fatalf("expected 3 chunks, got %d", len(chunks))
-	}
+	require.Len(t,
+		chunks, 3)
+
 	for _, c := range chunks {
-		if len(c) != 3 {
-			t.Fatalf("expected chunk size 3, got %d", len(c))
-		}
+		require.Len(t,
+			c, 3)
+
 	}
 }
 
@@ -1845,12 +1873,12 @@ func TestChunkDeliveries_Remainder(t *testing.T) {
 		deliveries[i].ID = fmt.Sprintf("d%d", i)
 	}
 	chunks := chunkDeliveries(deliveries, 3)
-	if len(chunks) != 4 {
-		t.Fatalf("expected 4 chunks, got %d", len(chunks))
-	}
-	if len(chunks[3]) != 1 {
-		t.Fatalf("expected last chunk size 1, got %d", len(chunks[3]))
-	}
+	require.Len(t,
+		chunks, 4)
+	require.Len(t,
+		chunks[3],
+		1)
+
 }
 
 func TestChunkDeliveries_LargerThanInput(t *testing.T) {
@@ -1860,20 +1888,19 @@ func TestChunkDeliveries_LargerThanInput(t *testing.T) {
 		deliveries[i].ID = fmt.Sprintf("d%d", i)
 	}
 	chunks := chunkDeliveries(deliveries, 10)
-	if len(chunks) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(chunks))
-	}
-	if len(chunks[0]) != 3 {
-		t.Fatalf("expected chunk size 3, got %d", len(chunks[0]))
-	}
+	require.Len(t,
+		chunks, 1)
+	require.Len(t,
+		chunks[0],
+		3)
+
 }
 
 func TestChunkDeliveries_Empty(t *testing.T) {
 	t.Parallel()
 	chunks := chunkDeliveries(nil, 5)
-	if chunks != nil {
-		t.Fatalf("expected nil, got %v", chunks)
-	}
+	require.Nil(t, chunks)
+
 }
 
 // Batch delivery tests.
@@ -1918,17 +1945,18 @@ func TestProcessBatch_BatchByURL_GroupsSameURL(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 2, requestCount.
+		Load())
 
 	// Should be 2 HTTP requests: 1 batch to URL-A, 1 batch to URL-B
-	if got := requestCount.Load(); got != 2 {
-		t.Fatalf("expected 2 HTTP requests (batched), got %d", got)
-	}
 
 	// All deliveries should be marked delivered.
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered, got %s for %s", d.Status, d.ID)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -1953,15 +1981,16 @@ func TestProcessBatch_BatchByURL_SingleDeliveryNotBatched(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "true",
+		receivedBatchHeader,
+	)
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		ms.getDeliveries()[0].Status)
 
 	// Single delivery should use individual path (no batch header).
-	if receivedBatchHeader == "true" {
-		t.Fatal("expected single delivery to not use batch path")
-	}
 
-	if ms.getDeliveries()[0].Status != domain.WebhookStatusDelivered {
-		t.Fatalf("expected delivered, got %s", ms.getDeliveries()[0].Status)
-	}
 }
 
 func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t *testing.T) {
@@ -1998,20 +2027,21 @@ func TestProcessBatch_BatchByURL_SubscriptionDeliveriesStaySignedAndUnbatched(t 
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 2, requestCount.
+		Load())
+	require.False(t,
+		sawBatchHeader.
+			Load())
+	require.False(t,
+		sawUnsigned.
+			Load())
 
-	if got := requestCount.Load(); got != 2 {
-		t.Fatalf("expected subscription deliveries to use individual signed requests, got %d requests", got)
-	}
-	if sawBatchHeader.Load() {
-		t.Fatal("subscription delivery used batch headers")
-	}
-	if sawUnsigned.Load() {
-		t.Fatal("subscription delivery was sent without HMAC signature")
-	}
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered, got %s for %s", d.Status, d.ID)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -2053,16 +2083,15 @@ func TestProcessBatch_BatchByURL_RunWebhookSecretsStaySignedAndUnbatched(t *test
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 2, requestCount.
+		Load())
+	require.False(t,
+		sawBatchHeader.
+			Load())
+	require.False(t,
+		sawUnsigned.
+			Load())
 
-	if got := requestCount.Load(); got != 2 {
-		t.Fatalf("expected signed run deliveries to use individual requests, got %d requests", got)
-	}
-	if sawBatchHeader.Load() {
-		t.Fatal("signed run delivery used batch headers")
-	}
-	if sawUnsigned.Load() {
-		t.Fatal("signed run delivery was sent without HMAC signature")
-	}
 }
 
 func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
@@ -2088,11 +2117,11 @@ func TestProcessBatch_BatchByURL_MaxBatchSize(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithMaxBatchSize(3), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 4, requestCount.
+		Load())
 
 	// 10 deliveries / batch size 3 = 4 batches (3+3+3+1)
-	if got := requestCount.Load(); got != 4 {
-		t.Fatalf("expected 4 HTTP requests (chunked batches), got %d", got)
-	}
+
 }
 
 func TestProcessBatch_BatchByURL_Disabled(t *testing.T) {
@@ -2118,11 +2147,11 @@ func TestProcessBatch_BatchByURL_Disabled(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(false), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 5, requestCount.
+		Load())
 
 	// Without batching, each delivery is a separate request.
-	if got := requestCount.Load(); got != 5 {
-		t.Fatalf("expected 5 individual HTTP requests, got %d", got)
-	}
+
 }
 
 func TestAttemptBatchDelivery_Success_AllMarkedDelivered(t *testing.T) {
@@ -2149,12 +2178,12 @@ func TestAttemptBatchDelivery_Success_AllMarkedDelivered(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
-		if d.Attempts != 1 {
-			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+		require.EqualValues(t, 1, d.Attempts)
+
 	}
 }
 
@@ -2182,15 +2211,16 @@ func TestAttemptBatchDelivery_ServerError_AllRetried(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusPending {
-			t.Fatalf("expected pending (retry) for %s, got %s", d.ID, d.Status)
-		}
-		if d.Attempts != 1 {
-			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
-		}
-		if d.NextRetryAt == nil || d.NextRetryAt.Before(time.Now()) {
-			t.Fatalf("expected next_retry_at in the future for %s", d.ID)
-		}
+		require.Equal(t,
+			domain.WebhookStatusPending,
+
+			d.Status)
+		require.EqualValues(t, 1, d.Attempts)
+		require.False(t,
+			d.NextRetryAt ==
+				nil ||
+				d.NextRetryAt.Before(time.Now()))
+
 	}
 }
 
@@ -2218,9 +2248,11 @@ func TestAttemptBatchDelivery_ClientError_AllDeadLettered(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDead {
-			t.Fatalf("expected dead for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDead,
+
+			d.Status)
+
 	}
 }
 
@@ -2260,20 +2292,18 @@ func TestAttemptBatchDelivery_CircuitBreakerOpen_SkipsBatch(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithCircuitBreaker(breaker))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
-
-	if requestCount.Load() != 0 {
-		t.Fatal("expected no HTTP requests when circuit breaker is open")
-	}
+	require.EqualValues(t, 0, requestCount.
+		Load())
 
 	// Circuit breaker open is retryable, but it is not a delivery attempt:
 	// no outbound HTTP request was made, so attempts must not be consumed.
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusPending {
-			t.Fatalf("expected pending for %s (circuit breaker, retryable), got %s", d.ID, d.Status)
-		}
-		if d.Attempts != 0 {
-			t.Fatalf("expected 0 attempts for %s, got %d", d.ID, d.Attempts)
-		}
+		require.Equal(t,
+			domain.WebhookStatusPending,
+
+			d.Status)
+		require.EqualValues(t, 0, d.Attempts)
+
 	}
 }
 
@@ -2305,16 +2335,17 @@ func TestAttemptBatchDelivery_PayloadTooLarge_FallsBackToIndividual(t *testing.T
 	// Set maxPayloadBytes low enough that batch exceeds it but individual doesn't.
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(500))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.EqualValues(t, 5, requestCount.
+		Load())
 
 	// Should fall back to 5 individual requests.
-	if got := requestCount.Load(); got != 5 {
-		t.Fatalf("expected 5 individual requests (fallback), got %d", got)
-	}
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -2348,15 +2379,17 @@ func TestAttemptBatchDelivery_Headers(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if headers.Get("X-Strait-Batch") != "true" {
-		t.Fatalf("expected X-Strait-Batch=true, got %q", headers.Get("X-Strait-Batch"))
-	}
-	if headers.Get("X-Strait-Batch-Size") != "3" {
-		t.Fatalf("expected X-Strait-Batch-Size=3, got %q", headers.Get("X-Strait-Batch-Size"))
-	}
-	if headers.Get("Content-Type") != "application/json" {
-		t.Fatalf("expected Content-Type=application/json, got %q", headers.Get("Content-Type"))
-	}
+	require.Equal(t,
+		"true", headers.
+			Get("X-Strait-Batch"))
+	require.Equal(t,
+		"3", headers.
+			Get("X-Strait-Batch-Size"))
+	require.Equal(t,
+		"application/json",
+		headers.
+			Get("Content-Type"))
+
 }
 
 func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
@@ -2396,22 +2429,21 @@ func TestAttemptBatchDelivery_PayloadFormat(t *testing.T) {
 	defer mu.Unlock()
 
 	var items []batchPayloadItem
-	if err := json.Unmarshal(receivedBody, &items); err != nil {
-		t.Fatalf("failed to unmarshal batch payload: %v", err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items in batch, got %d", len(items))
-	}
-	if items[0].DeliveryID != "fmt-1" || items[1].DeliveryID != "fmt-2" {
-		t.Fatalf("unexpected delivery IDs: %s, %s", items[0].DeliveryID, items[1].DeliveryID)
-	}
+	require.NoError(t, json.Unmarshal(receivedBody,
+		&items))
+	require.Len(t,
+		items, 2)
+	require.False(t,
+		items[0].
+			DeliveryID != "fmt-1" ||
+			items[1].DeliveryID != "fmt-2",
+	)
+
 	var p1 map[string]string
-	if err := json.Unmarshal(items[0].Payload, &p1); err != nil {
-		t.Fatalf("failed to unmarshal item[0] payload: %v", err)
-	}
-	if p1["key"] != "val1" {
-		t.Fatalf("expected payload key=val1, got %s", p1["key"])
-	}
+	require.NoError(t, json.Unmarshal(items[0].Payload, &p1))
+	require.Equal(t,
+		"val1", p1["key"])
+
 }
 
 func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
@@ -2442,11 +2474,11 @@ func TestAttemptBatchDelivery_ClickHouseEvents(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.EqualValues(t, 3, exporter.
+		PendingCount())
 
 	// One ClickHouse event per delivery in the batch.
-	if exporter.PendingCount() != 3 {
-		t.Fatalf("expected 3 pending ClickHouse records, got %d", exporter.PendingCount())
-	}
+
 }
 
 func TestEnqueueDeliveryEvent_IncludesProjectID(t *testing.T) {
@@ -2471,16 +2503,17 @@ func TestEnqueueDeliveryEvent_IncludesProjectID(t *testing.T) {
 	}, 123, "run_webhook")
 
 	records := exporter.PendingSnapshot()
-	if len(records) != 1 {
-		t.Fatalf("pending records = %d, want 1", len(records))
-	}
+	require.Len(t,
+		records, 1)
+
 	rec, ok := records[0].(clickhouse.WebhookDeliveryEventRecord)
-	if !ok {
-		t.Fatalf("pending record type = %T, want WebhookDeliveryEventRecord", records[0])
-	}
-	if rec.ProjectID != "proj-project" {
-		t.Fatalf("ProjectID = %q, want proj-project", rec.ProjectID)
-	}
+	require.True(t,
+		ok)
+	require.Equal(t,
+		"proj-project",
+		rec.ProjectID,
+	)
+
 }
 
 func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
@@ -2531,17 +2564,18 @@ func TestProcessBatch_BatchAndIndividualMixed(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 2, requestCount.
+		Load())
 
 	// 1 batch request + 1 individual request = 2 total
-	if got := requestCount.Load(); got != 2 {
-		t.Fatalf("expected 2 HTTP requests (1 batch + 1 individual), got %d", got)
-	}
 
 	// All should be delivered.
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -2550,14 +2584,15 @@ func TestWithBatchByURL_Option(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
-	if !worker.batchByURL {
-		t.Error("expected batchByURL=true")
-	}
+	assert.True(t,
+		worker.batchByURL,
+	)
 
 	worker2 := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(false))
-	if worker2.batchByURL {
-		t.Error("expected batchByURL=false")
-	}
+	assert.False(t,
+		worker2.batchByURL,
+	)
+
 }
 
 func TestWithMaxBatchSize_Option(t *testing.T) {
@@ -2565,9 +2600,9 @@ func TestWithMaxBatchSize_Option(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxBatchSize(25))
-	if worker.maxBatchSize != 25 {
-		t.Errorf("maxBatchSize = %d, want 25", worker.maxBatchSize)
-	}
+	assert.EqualValues(t, 25, worker.
+		maxBatchSize)
+
 }
 
 func TestWithMaxBatchSize_ZeroKeepsDefault(t *testing.T) {
@@ -2575,9 +2610,11 @@ func TestWithMaxBatchSize_ZeroKeepsDefault(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxBatchSize(0))
-	if worker.maxBatchSize != defaultMaxBatchSize {
-		t.Errorf("maxBatchSize = %d, want %d (default)", worker.maxBatchSize, defaultMaxBatchSize)
-	}
+	assert.Equal(t,
+		defaultMaxBatchSize,
+		worker.
+			maxBatchSize)
+
 }
 
 func TestExtractPayload_ValidJSON(t *testing.T) {
@@ -2587,15 +2624,15 @@ func TestExtractPayload_ValidJSON(t *testing.T) {
 	payload := extractPayload(d)
 
 	var m map[string]string
-	if err := json.Unmarshal(payload, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if m["key"] != "value" {
-		t.Fatalf("expected key=value, got %s", m["key"])
-	}
-	if d.LastError != "" {
-		t.Fatal("expected LastError to be cleared after extraction")
-	}
+	require.NoError(t, json.Unmarshal(payload,
+		&m))
+	require.Equal(t,
+		"value",
+		m["key"])
+	require.Equal(t,
+		"", d.LastError,
+	)
+
 }
 
 func TestExtractPayload_InvalidJSON_Fallback(t *testing.T) {
@@ -2605,12 +2642,11 @@ func TestExtractPayload_InvalidJSON_Fallback(t *testing.T) {
 	payload := extractPayload(d)
 
 	var m map[string]string
-	if err := json.Unmarshal(payload, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if m["delivery_id"] != "d1" {
-		t.Fatalf("expected delivery_id=d1, got %s", m["delivery_id"])
-	}
+	require.NoError(t, json.Unmarshal(payload,
+		&m))
+	require.Equal(t,
+		"d1", m["delivery_id"])
+
 }
 
 func TestExtractPayload_EmptyLastError_Fallback(t *testing.T) {
@@ -2620,12 +2656,11 @@ func TestExtractPayload_EmptyLastError_Fallback(t *testing.T) {
 	payload := extractPayload(d)
 
 	var m map[string]string
-	if err := json.Unmarshal(payload, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if m["delivery_id"] != "d2" {
-		t.Fatalf("expected delivery_id=d2, got %s", m["delivery_id"])
-	}
+	require.NoError(t, json.Unmarshal(payload,
+		&m))
+	require.Equal(t,
+		"d2", m["delivery_id"])
+
 }
 
 // Adversarial tests: edge cases and failure modes.
@@ -2676,18 +2711,18 @@ func TestAttemptBatchDelivery_PayloadTooLarge_PreservesOriginalPayload(t *testin
 	for i := range 3 {
 		id := fmt.Sprintf("preserve-%d", i)
 		body, ok := receivedPayloads[id]
-		if !ok {
-			t.Fatalf("missing request for delivery %s", id)
-		}
+		require.True(t,
+			ok)
+
 		var payload map[string]string
-		if err := json.Unmarshal([]byte(body), &payload); err != nil {
-			t.Fatalf("delivery %s: failed to unmarshal body: %v", id, err)
-		}
+		require.NoError(t, json.Unmarshal([]byte(
+			body), &payload))
+
 		expected := fmt.Sprintf("value_%d", i)
-		if payload["unique_key"] != expected {
-			t.Fatalf("delivery %s: expected unique_key=%s, got %s (payload was lost on fallback)",
-				id, expected, payload["unique_key"])
-		}
+		require.Equal(t,
+			expected,
+			payload["unique_key"])
+
 	}
 }
 
@@ -2725,10 +2760,10 @@ func TestAttemptBatchDelivery_PayloadTooLarge_FallbackIsConcurrent(t *testing.T)
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(50), WithConcurrency(10))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.False(t,
+		maxInFlight.
+			Load() <= 1)
 
-	if maxInFlight.Load() <= 1 {
-		t.Fatalf("fallback should be concurrent, but max in-flight was %d", maxInFlight.Load())
-	}
 }
 
 func TestAttemptBatchDelivery_EmptyDeliveries(t *testing.T) {
@@ -2784,9 +2819,11 @@ func TestAttemptBatchDelivery_ContextCanceled(t *testing.T) {
 
 	// Deliveries should be scheduled for retry (HTTP error due to canceled context).
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusPending {
-			t.Fatalf("expected pending (retry) for %s after ctx cancel, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusPending,
+
+			d.Status)
+
 	}
 }
 
@@ -2825,12 +2862,12 @@ func TestAttemptBatchDelivery_MaxAttemptsExhausted_DeadLetters(t *testing.T) {
 		case "exhausted":
 			// Attempts goes 4 -> 5, which equals MaxAttempts=5 -> dead.
 			if d.Status != domain.WebhookStatusDead {
-				t.Fatalf("expected dead for exhausted delivery, got %s", d.Status)
+				require.Failf(t, "test failure", "expected dead for exhausted delivery, got %s", d.Status)
 			}
 		case "has-room":
 			// Attempts goes 1 -> 2, still below MaxAttempts=5 -> pending retry.
 			if d.Status != domain.WebhookStatusPending {
-				t.Fatalf("expected pending for delivery with room, got %s", d.Status)
+				require.Failf(t, "test failure", "expected pending for delivery with room, got %s", d.Status)
 			}
 		}
 	}
@@ -2866,12 +2903,12 @@ func TestAttemptBatchDelivery_MixedAttemptCounts(t *testing.T) {
 		case "attempt-0":
 			// Attempts: 0 -> 1, MaxAttempts: 2 -> still has room -> pending.
 			if d.Status != domain.WebhookStatusPending {
-				t.Fatalf("expected pending for attempt-0 (1/2), got %s", d.Status)
+				require.Failf(t, "test failure", "expected pending for attempt-0 (1/2), got %s", d.Status)
 			}
 		case "attempt-1":
 			// Attempts: 1 -> 2, MaxAttempts: 2 -> exhausted -> dead.
 			if d.Status != domain.WebhookStatusDead {
-				t.Fatalf("expected dead for attempt-1 (2/2), got %s", d.Status)
+				require.Failf(t, "test failure", "expected dead for attempt-1 (2/2), got %s", d.Status)
 			}
 		}
 	}
@@ -2897,9 +2934,11 @@ func TestAttemptBatchDelivery_InvalidURL_DeadLettersAll(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), "://invalid", deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDead {
-			t.Fatalf("expected dead for %s (invalid URL, non-retryable), got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDead,
+
+			d.Status)
+
 	}
 }
 
@@ -2929,11 +2968,11 @@ func TestAttemptBatchDelivery_ClickHouseEventsOnAllPaths(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), "://invalid", deliveries)
+	require.EqualValues(t, 2, exporter.
+		PendingCount())
 
 	// ClickHouse events should fire even on request creation failure.
-	if exporter.PendingCount() != 2 {
-		t.Fatalf("expected 2 ClickHouse events on error path, got %d", exporter.PendingCount())
-	}
+
 }
 
 func TestProcessBatch_BatchByURL_ZeroDeliveries(t *testing.T) {
@@ -2998,15 +3037,17 @@ func TestProcessBatch_BatchByURL_MaxBatchSizeOne(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	require.Len(t,
+		batchHeaders,
+		3)
 
 	// 3 deliveries, maxBatchSize=1 -> 3 batch requests (each with X-Strait-Batch: true).
-	if len(batchHeaders) != 3 {
-		t.Fatalf("expected 3 requests, got %d", len(batchHeaders))
-	}
-	for i, h := range batchHeaders {
-		if h != "true" {
-			t.Fatalf("request %d: expected X-Strait-Batch=true, got %q", i, h)
-		}
+
+	for _, h := range batchHeaders {
+		require.Equal(t,
+			"true", h,
+		)
+
 	}
 }
 
@@ -3036,9 +3077,11 @@ func TestAttemptBatchDelivery_ServerSlowResponse(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -3069,12 +3112,17 @@ func TestAttemptBatchDelivery_3xxResponse(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDead {
-			t.Fatalf("expected dead for %s on unfollowed 3xx, got %s", d.ID, d.Status)
-		}
-		if d.LastStatusCode == nil || *d.LastStatusCode != http.StatusFound {
-			t.Fatalf("expected last_status_code=302 for %s, got %v", d.ID, d.LastStatusCode)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDead,
+
+			d.Status)
+		require.False(t,
+			d.LastStatusCode ==
+				nil ||
+				*d.LastStatusCode !=
+					http.StatusFound,
+		)
+
 	}
 }
 
@@ -3106,15 +3154,15 @@ func TestProcessBatch_BatchByURL_AllDifferentURLs(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(10))
 	worker.processBatch(context.Background())
-
-	if got := requestCount.Load(); got != 5 {
-		t.Fatalf("expected 5 individual requests (all different URLs), got %d", got)
-	}
+	require.EqualValues(t, 5, requestCount.
+		Load())
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -3150,19 +3198,17 @@ func TestAttemptBatchDelivery_NonJSONPayloadInLastError(t *testing.T) {
 
 	// Should use fallback payload with delivery_id and trigger_id.
 	var items []batchPayloadItem
-	if err := json.Unmarshal(receivedBody, &items); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
-	}
+	require.NoError(t, json.Unmarshal(receivedBody,
+		&items))
+	require.Len(t,
+		items, 1)
+
 	var payload map[string]string
-	if err := json.Unmarshal(items[0].Payload, &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
-	if payload["trigger_id"] != "evt-99" {
-		t.Fatalf("expected trigger_id=evt-99, got %s", payload["trigger_id"])
-	}
+	require.NoError(t, json.Unmarshal(items[0].Payload, &payload))
+	require.Equal(t,
+		"evt-99",
+		payload["trigger_id"])
+
 }
 
 func TestProcessBatch_BatchByURL_LargeNumberOfURLs(t *testing.T) {
@@ -3194,16 +3240,17 @@ func TestProcessBatch_BatchByURL_LargeNumberOfURLs(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true), WithConcurrency(20))
 	worker.processBatch(context.Background())
+	require.EqualValues(t, 50, requestCount.
+		Load())
 
 	// 50 URLs x 1 batch each = 50 requests.
-	if got := requestCount.Load(); got != 50 {
-		t.Fatalf("expected 50 batch requests, got %d", got)
-	}
 
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -3227,10 +3274,10 @@ func TestAttemptBatchDelivery_EventTriggerNotifyStatusUpdated(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.Equal(t,
+		"sent", ms.
+			getNotifyStatus())
 
-	if ms.getNotifyStatus() != "sent" {
-		t.Fatalf("expected notify status=sent, got %s", ms.getNotifyStatus())
-	}
 }
 
 func TestAttemptBatchDelivery_EventTriggerNotifyStatusFailed(t *testing.T) {
@@ -3253,10 +3300,10 @@ func TestAttemptBatchDelivery_EventTriggerNotifyStatusFailed(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.Equal(t,
+		"failed",
+		ms.getNotifyStatus())
 
-	if ms.getNotifyStatus() != "failed" {
-		t.Fatalf("expected notify status=failed, got %s", ms.getNotifyStatus())
-	}
 }
 
 // Consistency tests: verify behavioral parity between batch and individual paths.
@@ -3295,11 +3342,12 @@ func TestAttemptBatchDelivery_NoDoubleClickHouseOnFallback(t *testing.T) {
 	// maxPayloadBytes=10 forces fallback to individual delivery.
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter), WithMaxPayloadBytes(10))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.Equal(t,
+		count, exporter.
+			PendingCount())
 
 	// Must be exactly 3, not 6 (which would indicate double-counting).
-	if got := exporter.PendingCount(); got != count {
-		t.Fatalf("expected exactly %d ClickHouse events (no double-count), got %d", count, got)
-	}
+
 }
 
 func TestAttemptBatchDelivery_ClickHouseExactCountOnSuccess(t *testing.T) {
@@ -3333,10 +3381,10 @@ func TestAttemptBatchDelivery_ClickHouseExactCountOnSuccess(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.Equal(t,
+		count, exporter.
+			PendingCount())
 
-	if got := exporter.PendingCount(); got != count {
-		t.Fatalf("expected exactly %d ClickHouse events, got %d", count, got)
-	}
 }
 
 func TestAttemptBatchDelivery_ClickHouseExactCountOn5xx(t *testing.T) {
@@ -3370,10 +3418,10 @@ func TestAttemptBatchDelivery_ClickHouseExactCountOn5xx(t *testing.T) {
 
 	worker := NewDeliveryWorker(ms, slog.Default(), WithChExporter(exporter))
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
+	require.Equal(t,
+		count, exporter.
+			PendingCount())
 
-	if got := exporter.PendingCount(); got != count {
-		t.Fatalf("expected exactly %d ClickHouse events on 5xx, got %d", count, got)
-	}
 }
 
 func TestBatchAndIndividual_SameDelivery_SameOutcome(t *testing.T) {
@@ -3431,44 +3479,44 @@ func TestBatchAndIndividual_SameDelivery_SameOutcome(t *testing.T) {
 
 	// Individual sends the raw payload directly.
 	var indParsed map[string]any
-	if err := json.Unmarshal(individualPayload, &indParsed); err != nil {
-		t.Fatalf("individual payload not valid JSON: %v", err)
-	}
-	if indParsed["run_id"] != "run-1" {
-		t.Fatalf("individual payload missing run_id")
-	}
+	require.NoError(t, json.Unmarshal(individualPayload,
+		&indParsed,
+	))
+	require.Equal(t,
+		"run-1",
+		indParsed["run_id"])
 
 	// Batch wraps in array with delivery_id.
 	var batchParsed []batchPayloadItem
-	if err := json.Unmarshal(batchPayload, &batchParsed); err != nil {
-		t.Fatalf("batch payload not valid JSON array: %v", err)
-	}
-	if len(batchParsed) != 1 {
-		t.Fatalf("expected 1 item in batch, got %d", len(batchParsed))
-	}
+	require.NoError(t, json.Unmarshal(batchPayload,
+		&batchParsed,
+	))
+	require.Len(t,
+		batchParsed,
+		1)
+
 	var batchInnerPayload map[string]any
-	if err := json.Unmarshal(batchParsed[0].Payload, &batchInnerPayload); err != nil {
-		t.Fatalf("batch inner payload not valid JSON: %v", err)
-	}
-	if batchInnerPayload["run_id"] != "run-1" {
-		t.Fatalf("batch inner payload missing run_id")
-	}
+	require.NoError(t, json.Unmarshal(batchParsed[0].Payload,
+		&batchInnerPayload),
+	)
+	require.Equal(t,
+		"run-1",
+		batchInnerPayload["run_id"])
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		d1.Status)
+	require.Equal(t,
+		domain.WebhookStatusDelivered,
+
+		batchDeliveries[0].Status)
+	require.EqualValues(t, 1, d1.Attempts)
+	require.EqualValues(t, 1, batchDeliveries[0].Attempts)
 
 	// Both should be delivered.
-	if d1.Status != domain.WebhookStatusDelivered {
-		t.Fatalf("individual: expected delivered, got %s", d1.Status)
-	}
-	if batchDeliveries[0].Status != domain.WebhookStatusDelivered {
-		t.Fatalf("batch: expected delivered, got %s", batchDeliveries[0].Status)
-	}
 
 	// Both should have 1 attempt.
-	if d1.Attempts != 1 {
-		t.Fatalf("individual: expected 1 attempt, got %d", d1.Attempts)
-	}
-	if batchDeliveries[0].Attempts != 1 {
-		t.Fatalf("batch: expected 1 attempt, got %d", batchDeliveries[0].Attempts)
-	}
+
 }
 
 func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
@@ -3504,30 +3552,33 @@ func TestBatchAndIndividual_5xx_SameRetryBehavior(t *testing.T) {
 	batchDeliveries := []domain.WebhookDelivery{d2}
 	w2 := NewDeliveryWorker(ms2, slog.Default())
 	w2.attemptBatchDelivery(context.Background(), ts.URL, batchDeliveries)
+	require.Equal(t,
+		domain.WebhookStatusPending,
+
+		d1.Status)
+	require.Equal(t,
+		domain.WebhookStatusPending,
+
+		batchDeliveries[0].Status)
+	require.EqualValues(t, 1, d1.Attempts)
+	require.EqualValues(t, 1, batchDeliveries[0].Attempts)
+	require.False(t,
+		d1.NextRetryAt ==
+			nil ||
+			!d1.NextRetryAt.
+				After(time.Now()))
+	require.False(t,
+		batchDeliveries[0].NextRetryAt ==
+			nil ||
+			!batchDeliveries[0].
+				NextRetryAt.After(time.Now()))
 
 	// Both should be pending (retry scheduled).
-	if d1.Status != domain.WebhookStatusPending {
-		t.Fatalf("individual: expected pending, got %s", d1.Status)
-	}
-	if batchDeliveries[0].Status != domain.WebhookStatusPending {
-		t.Fatalf("batch: expected pending, got %s", batchDeliveries[0].Status)
-	}
 
 	// Both should have 1 attempt.
-	if d1.Attempts != 1 {
-		t.Fatalf("individual: expected 1 attempt, got %d", d1.Attempts)
-	}
-	if batchDeliveries[0].Attempts != 1 {
-		t.Fatalf("batch: expected 1 attempt, got %d", batchDeliveries[0].Attempts)
-	}
 
 	// Both should have future next_retry_at.
-	if d1.NextRetryAt == nil || !d1.NextRetryAt.After(time.Now()) {
-		t.Fatal("individual: expected next_retry_at in the future")
-	}
-	if batchDeliveries[0].NextRetryAt == nil || !batchDeliveries[0].NextRetryAt.After(time.Now()) {
-		t.Fatal("batch: expected next_retry_at in the future")
-	}
+
 }
 
 func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
@@ -3563,14 +3614,17 @@ func TestBatchAndIndividual_4xx_SameDeadLetterBehavior(t *testing.T) {
 	batchDeliveries := []domain.WebhookDelivery{d2}
 	w2 := NewDeliveryWorker(ms2, slog.Default())
 	w2.attemptBatchDelivery(context.Background(), ts.URL, batchDeliveries)
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		d1.Status)
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		batchDeliveries[0].Status)
 
 	// Both should be dead.
-	if d1.Status != domain.WebhookStatusDead {
-		t.Fatalf("individual: expected dead, got %s", d1.Status)
-	}
-	if batchDeliveries[0].Status != domain.WebhookStatusDead {
-		t.Fatalf("batch: expected dead, got %s", batchDeliveries[0].Status)
-	}
+
 }
 
 func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
@@ -3627,7 +3681,7 @@ func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatal("timed out waiting for batch delivery via RunWorker")
+			require.Fail(t, "timed out waiting for batch delivery via RunWorker")
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -3636,20 +3690,18 @@ func TestProcessBatch_BatchEnabled_RunWorker_IntegrationTest(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+	require.Len(t,
+		receivedBodies,
+		1)
 
 	// Should have received exactly 1 batch request (not 3 individual ones).
-	if len(receivedBodies) != 1 {
-		t.Fatalf("expected 1 batch HTTP request, got %d", len(receivedBodies))
-	}
 
 	// Verify it was a batch payload (JSON array).
 	var items []batchPayloadItem
-	if err := json.Unmarshal(receivedBodies[0], &items); err != nil {
-		t.Fatalf("expected batch JSON array: %v", err)
-	}
-	if len(items) != 3 {
-		t.Fatalf("expected 3 items in batch, got %d", len(items))
-	}
+	require.NoError(t, json.Unmarshal(receivedBodies[0], &items))
+	require.Len(t,
+		items, 3)
+
 }
 
 func TestAttemptBatchDelivery_FallbackAttemptsNotDoubled(t *testing.T) {
@@ -3679,9 +3731,8 @@ func TestAttemptBatchDelivery_FallbackAttemptsNotDoubled(t *testing.T) {
 	worker.attemptBatchDelivery(context.Background(), ts.URL, deliveries)
 
 	for _, d := range ms.getDeliveries() {
-		if d.Attempts != 1 {
-			t.Fatalf("expected exactly 1 attempt for %s after fallback, got %d (double-increment bug)", d.ID, d.Attempts)
-		}
+		require.EqualValues(t, 1, d.Attempts)
+
 	}
 }
 
@@ -3720,15 +3771,15 @@ func TestAttemptBatchDelivery_FallbackRetryPolicyPreserved(t *testing.T) {
 		switch d.ID {
 		case "rp-exp":
 			if d.RetryPolicy != domain.WebhookRetryPolicyExponential {
-				t.Fatalf("expected exponential for %s, got %s", d.ID, d.RetryPolicy)
+				require.Failf(t, "test failure", "expected exponential for %s, got %s", d.ID, d.RetryPolicy)
 			}
 		case "rp-linear":
 			if d.RetryPolicy != domain.WebhookRetryPolicyLinear {
-				t.Fatalf("expected linear for %s, got %s", d.ID, d.RetryPolicy)
+				require.Failf(t, "test failure", "expected linear for %s, got %s", d.ID, d.RetryPolicy)
 			}
 		case "rp-fixed":
 			if d.RetryPolicy != domain.WebhookRetryPolicyFixed {
-				t.Fatalf("expected fixed for %s, got %s", d.ID, d.RetryPolicy)
+				require.Failf(t, "test failure", "expected fixed for %s, got %s", d.ID, d.RetryPolicy)
 			}
 		}
 	}
@@ -3779,14 +3830,18 @@ func TestProcessBatch_IndividualAndBatch_SameStoreUpdates(t *testing.T) {
 
 	// Both should have all deliveries marked delivered.
 	for _, d := range ms1.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("individual: expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 	for _, d := range ms2.getDeliveries() {
-		if d.Status != domain.WebhookStatusDelivered {
-			t.Fatalf("batch: expected delivered for %s, got %s", d.ID, d.Status)
-		}
+		require.Equal(t,
+			domain.WebhookStatusDelivered,
+
+			d.Status)
+
 	}
 }
 
@@ -3799,9 +3854,8 @@ func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
 	// Edge case: server immediately closes connection.
 	// Use a listener that immediately closes connections.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
+	require.NoError(t, err)
+
 	concWG.Go(func() {
 		for {
 			conn, err := listener.Accept()
@@ -3832,15 +3886,16 @@ func TestAttemptBatchDelivery_ConnectionError_RetriesAll(t *testing.T) {
 
 	// All should be scheduled for retry (connection error is retryable).
 	for _, d := range ms.getDeliveries() {
-		if d.Status != domain.WebhookStatusPending {
-			t.Fatalf("expected pending for %s after connection error, got %s", d.ID, d.Status)
-		}
-		if d.Attempts != 1 {
-			t.Fatalf("expected 1 attempt for %s, got %d", d.ID, d.Attempts)
-		}
-		if !strings.Contains(d.LastError, "http request") {
-			t.Fatalf("expected HTTP error in last_error for %s, got %q", d.ID, d.LastError)
-		}
+		require.Equal(t,
+			domain.WebhookStatusPending,
+
+			d.Status)
+		require.EqualValues(t, 1, d.Attempts)
+		require.True(t,
+			strings.Contains(d.LastError,
+				"http request",
+			))
+
 	}
 }
 
@@ -3851,9 +3906,13 @@ func TestWithRetryPolicy_Exponential(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyExponential))
-	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
-		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
-	}
+	require.Equal(t,
+		domain.WebhookRetryPolicyExponential,
+
+		worker.
+			defaultRetryPolicy,
+	)
+
 }
 
 func TestWithRetryPolicy_Linear(t *testing.T) {
@@ -3861,9 +3920,12 @@ func TestWithRetryPolicy_Linear(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyLinear))
-	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyLinear {
-		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyLinear)
-	}
+	require.Equal(t,
+		domain.WebhookRetryPolicyLinear,
+
+		worker.defaultRetryPolicy,
+	)
+
 }
 
 func TestWithRetryPolicy_Fixed(t *testing.T) {
@@ -3871,9 +3933,12 @@ func TestWithRetryPolicy_Fixed(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(domain.WebhookRetryPolicyFixed))
-	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyFixed {
-		t.Fatalf("defaultRetryPolicy = %q, want %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyFixed)
-	}
+	require.Equal(t,
+		domain.WebhookRetryPolicyFixed,
+
+		worker.defaultRetryPolicy,
+	)
+
 }
 
 func TestWithRetryPolicy_InvalidKeepsDefault(t *testing.T) {
@@ -3881,9 +3946,13 @@ func TestWithRetryPolicy_InvalidKeepsDefault(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy("bogus"))
-	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
-		t.Fatalf("defaultRetryPolicy = %q, want default %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
-	}
+	require.Equal(t,
+		domain.WebhookRetryPolicyExponential,
+
+		worker.
+			defaultRetryPolicy,
+	)
+
 }
 
 func TestWithRetryPolicy_EmptyKeepsDefault(t *testing.T) {
@@ -3891,9 +3960,13 @@ func TestWithRetryPolicy_EmptyKeepsDefault(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithRetryPolicy(""))
-	if worker.defaultRetryPolicy != domain.WebhookRetryPolicyExponential {
-		t.Fatalf("defaultRetryPolicy = %q, want default %q", worker.defaultRetryPolicy, domain.WebhookRetryPolicyExponential)
-	}
+	require.Equal(t,
+		domain.WebhookRetryPolicyExponential,
+
+		worker.
+			defaultRetryPolicy,
+	)
+
 }
 
 func TestWithMetrics_SetsMetricsField(t *testing.T) {
@@ -3902,9 +3975,9 @@ func TestWithMetrics_SetsMetricsField(t *testing.T) {
 	ms := &mockDeliveryStore{}
 	// Pass nil metrics -- just verify the option sets the field without panic.
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMetrics(nil))
-	if worker.metrics != nil {
-		t.Fatalf("expected nil metrics when passed nil")
-	}
+	require.Nil(t, worker.
+		metrics)
+
 }
 
 func TestWithCircuitBreaker_SetsField(t *testing.T) {
@@ -3913,9 +3986,11 @@ func TestWithCircuitBreaker_SetsField(t *testing.T) {
 	ms := &mockDeliveryStore{}
 	cb := NewRedisWebhookCircuitBreaker(nil, false)
 	worker := NewDeliveryWorker(ms, slog.Default(), WithCircuitBreaker(cb))
-	if worker.circuitBreaker != cb {
-		t.Fatal("WithCircuitBreaker did not set the circuit breaker")
-	}
+	require.Equal(t,
+		cb, worker.
+			circuitBreaker,
+	)
+
 }
 
 func TestWithMaxPayloadBytes_Positive(t *testing.T) {
@@ -3923,9 +3998,10 @@ func TestWithMaxPayloadBytes_Positive(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(2048))
-	if worker.maxPayloadBytes != 2048 {
-		t.Fatalf("maxPayloadBytes = %d, want 2048", worker.maxPayloadBytes)
-	}
+	require.EqualValues(t, 2048, worker.
+		maxPayloadBytes,
+	)
+
 }
 
 func TestWithMaxPayloadBytes_ZeroKeepsDefault(t *testing.T) {
@@ -3933,9 +4009,12 @@ func TestWithMaxPayloadBytes_ZeroKeepsDefault(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithMaxPayloadBytes(0))
-	if worker.maxPayloadBytes != defaultWebhookMaxPayloadBytes {
-		t.Fatalf("maxPayloadBytes = %d, want default %d", worker.maxPayloadBytes, defaultWebhookMaxPayloadBytes)
-	}
+	require.EqualValues(t,
+		defaultWebhookMaxPayloadBytes,
+
+		worker.maxPayloadBytes,
+	)
+
 }
 
 func TestWithBatchByURL_SetsField(t *testing.T) {
@@ -3943,9 +4022,10 @@ func TestWithBatchByURL_SetsField(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, slog.Default(), WithBatchByURL(true))
-	if !worker.batchByURL {
-		t.Fatal("WithBatchByURL(true) did not set batchByURL")
-	}
+	require.True(t,
+		worker.batchByURL,
+	)
+
 }
 
 // EnqueueRunWebhook edge cases.
@@ -3957,12 +4037,11 @@ func TestEnqueueRunWebhook_NilJob(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 
 	err := worker.EnqueueRunWebhook(context.Background(), nil, &domain.JobRun{})
-	if err == nil {
-		t.Fatal("expected error for nil job")
-	}
-	if !strings.Contains(err.Error(), "job and run are required") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		strings.Contains(err.Error(), "job and run are required"))
+
 }
 
 func TestEnqueueRunWebhook_NilRun(t *testing.T) {
@@ -3972,12 +4051,11 @@ func TestEnqueueRunWebhook_NilRun(t *testing.T) {
 	worker := NewDeliveryWorker(ms, slog.Default())
 
 	err := worker.EnqueueRunWebhook(context.Background(), &domain.Job{WebhookURL: "http://example.com"}, nil)
-	if err == nil {
-		t.Fatal("expected error for nil run")
-	}
-	if !strings.Contains(err.Error(), "job and run are required") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t,
+		err)
+	require.True(t,
+		strings.Contains(err.Error(), "job and run are required"))
+
 }
 
 func TestEnqueueRunWebhook_EmptyWebhookURL(t *testing.T) {
@@ -3990,12 +4068,10 @@ func TestEnqueueRunWebhook_EmptyWebhookURL(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusCompleted}
 
 	err := worker.EnqueueRunWebhook(context.Background(), job, run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatal("expected no deliveries for empty webhook URL")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		ms.getDeliveries(), 0)
+
 }
 
 func TestEnqueueRunWebhook_NonTerminalStatus(t *testing.T) {
@@ -4008,12 +4084,10 @@ func TestEnqueueRunWebhook_NonTerminalStatus(t *testing.T) {
 	run := &domain.JobRun{ID: "run-1", Status: domain.StatusExecuting}
 
 	err := worker.EnqueueRunWebhook(context.Background(), job, run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatal("expected no deliveries for non-terminal run status")
-	}
+	require.NoError(t, err)
+	require.Len(t,
+		ms.getDeliveries(), 0)
+
 }
 
 func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
@@ -4032,22 +4106,19 @@ func TestEnqueueRunWebhook_FailedStatus(t *testing.T) {
 	}
 
 	err := worker.EnqueueRunWebhook(context.Background(), job, run)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t,
+		deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
-	if payload["status"] != "failed" {
-		t.Fatalf("expected status=failed in payload, got %v", payload["status"])
-	}
+	require.NoError(t, json.Unmarshal(deliveries[0].Payload, &payload))
+	require.Equal(t,
+		"failed",
+		payload["status"])
+
 }
 
 func TestEnqueueRunWebhook_UsesDefaultRetryPolicy(t *testing.T) {
@@ -4063,18 +4134,18 @@ func TestEnqueueRunWebhook_UsesDefaultRetryPolicy(t *testing.T) {
 		ProjectID: "proj-1",
 		Status:    domain.StatusCompleted,
 	}
-
-	if err := worker.EnqueueRunWebhook(context.Background(), job, run); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, worker.
+		EnqueueRunWebhook(context.Background(), job, run))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].RetryPolicy != domain.WebhookRetryPolicyFixed {
-		t.Fatalf("expected retry_policy=%s, got %s", domain.WebhookRetryPolicyFixed, deliveries[0].RetryPolicy)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		domain.WebhookRetryPolicyFixed,
+
+		deliveries[0].RetryPolicy)
+
 }
 
 // NotifyAsyncWithContext error paths.
@@ -4089,10 +4160,9 @@ func TestNotifyAsyncWithContext_EmptyNotifyURL(t *testing.T) {
 		ID:       "evt-empty",
 		EventKey: "test",
 	})
+	require.Len(t,
+		ms.getDeliveries(), 0)
 
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatal("expected no deliveries for empty NotifyURL")
-	}
 }
 
 func TestNotifyAsyncWithContext_StoreError(t *testing.T) {
@@ -4108,11 +4178,11 @@ func TestNotifyAsyncWithContext_StoreError(t *testing.T) {
 		ProjectID: "proj-1",
 		NotifyURL: "http://example.com/hook",
 	})
+	require.Len(t,
+		ms.getDeliveries(), 0)
 
 	// Delivery should not have been stored.
-	if len(ms.getDeliveries()) != 0 {
-		t.Fatal("expected no deliveries when store returns error")
-	}
+
 }
 
 func TestNotifyAsyncWithContext_SetsRetryPolicy(t *testing.T) {
@@ -4129,12 +4199,14 @@ func TestNotifyAsyncWithContext_SetsRetryPolicy(t *testing.T) {
 	})
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].RetryPolicy != domain.WebhookRetryPolicyLinear {
-		t.Fatalf("expected retry_policy=%s, got %s", domain.WebhookRetryPolicyLinear, deliveries[0].RetryPolicy)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		domain.WebhookRetryPolicyLinear,
+
+		deliveries[0].RetryPolicy)
+
 }
 
 func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
@@ -4151,18 +4223,18 @@ func TestNotifyAsyncWithContext_PayloadContainsCallbackURL(t *testing.T) {
 	})
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t,
+		deliveries,
+		1)
 
 	var payload map[string]any
-	if err := json.Unmarshal(deliveries[0].Payload, &payload); err != nil {
-		t.Fatalf("unmarshal payload: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(deliveries[0].Payload, &payload))
+
 	expected := "/v1/events/my-event/send"
-	if payload["callback_url"] != expected {
-		t.Fatalf("expected callback_url=%s, got %v", expected, payload["callback_url"])
-	}
+	require.Equal(t,
+		expected,
+		payload["callback_url"])
+
 }
 
 func TestNewDeliveryWorker_NilLogger(t *testing.T) {
@@ -4170,9 +4242,9 @@ func TestNewDeliveryWorker_NilLogger(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	worker := NewDeliveryWorker(ms, nil)
-	if worker == nil {
-		t.Fatal("NewDeliveryWorker returned nil with nil logger")
-	}
+	require.NotNil(
+		t, worker)
+
 }
 
 func TestNewEventNotifier_IsAlias(t *testing.T) {
@@ -4180,9 +4252,10 @@ func TestNewEventNotifier_IsAlias(t *testing.T) {
 
 	ms := &mockDeliveryStore{}
 	notifier := NewEventNotifier(ms, slog.Default())
-	if notifier == nil {
-		t.Fatal("NewEventNotifier returned nil")
-	}
+	require.NotNil(
+		t, notifier,
+	)
+
 }
 
 // errorDeliveryStore returns errors from CreateWebhookDelivery for testing error paths.
@@ -4248,36 +4321,35 @@ func TestAttemptDelivery_WithSubscriptionID_SignsHMAC(t *testing.T) {
 		NextRetryAt:    &now,
 		LastError:      `{"event":"run.completed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(),
 		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
 	)
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "", receivedSigHeader)
+	require.NotEqual(t, "", receivedTimestamp)
+	require.True(t,
+		strings.HasPrefix(receivedSigHeader,
+			"v1=",
+		))
+	require.Equal(t,
+		receivedSigHeader,
+		receivedStraitSigHeader,
+	)
 
-	if receivedSigHeader == "" {
-		t.Fatal("expected X-Webhook-Signature header to be set")
-	}
-	if receivedTimestamp == "" {
-		t.Fatal("expected X-Strait-Timestamp header to be set")
-	}
-	if !strings.HasPrefix(receivedSigHeader, "v1=") {
-		t.Fatalf("expected v1= prefix, got %q", receivedSigHeader)
-	}
-	if receivedStraitSigHeader != receivedSigHeader {
-		t.Fatalf("X-Strait-Signature mismatch: got %q, want %q", receivedStraitSigHeader, receivedSigHeader)
-	}
 	expectedSig := ComputeTimestampedHMACSHA256(secret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader != "v1="+expectedSig {
-		t.Fatalf("signature mismatch: got %q, want v1=%s", receivedSigHeader, expectedSig)
-	}
+	require.Equal(t,
+		"v1="+expectedSig,
+		receivedSigHeader,
+	)
+
 	bodyOnlySig := "v1=" + ComputeHMACSHA256(secret, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader == bodyOnlySig {
-		t.Fatal("signature must bind the timestamp, not only the body")
-	}
+	require.NotEqual(t, bodyOnlySig,
+		receivedSigHeader,
+	)
+
 }
 
 func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
@@ -4307,33 +4379,33 @@ func TestAttemptDelivery_WithRunWebhookSecret_SignsHMAC(t *testing.T) {
 		NextRetryAt:   &now,
 		Payload:       json.RawMessage(`{"event":"run.completed"}`),
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(),
 		WithAllowPrivateEndpoints(true),
 		WithHTTPTransport(5*time.Second, time.Second, 2, 2),
 	)
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "", receivedSigHeader)
+	require.Equal(t,
+		receivedSigHeader,
+		receivedStraitSigHeader,
+	)
 
-	if receivedSigHeader == "" {
-		t.Fatal("expected X-Webhook-Signature header to be set")
-	}
-	if receivedStraitSigHeader != receivedSigHeader {
-		t.Fatalf("X-Strait-Signature mismatch: got %q, want %q", receivedStraitSigHeader, receivedSigHeader)
-	}
 	expectedSig := ComputeTimestampedHMACSHA256(secret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader != "v1="+expectedSig {
-		t.Fatalf("signature mismatch: got %q, want v1=%s", receivedSigHeader, expectedSig)
-	}
+	require.Equal(t,
+		"v1="+expectedSig,
+		receivedSigHeader,
+	)
+
 	expectedReplayKey := ComputeReplayKey([]byte(secret), delivery.ID)
-	if receivedReplayKey != expectedReplayKey {
-		t.Fatalf("replay key = %q, want %q", receivedReplayKey, expectedReplayKey)
-	}
-	if receivedReplayKey == ComputeReplayKeyUnsigned(delivery.ID) {
-		t.Fatal("signed run webhook replay key must be HMAC-bound")
-	}
+	require.Equal(t,
+		expectedReplayKey,
+		receivedReplayKey,
+	)
+	require.NotEqual(t, ComputeReplayKeyUnsigned(delivery.ID),
+		receivedReplayKey)
+
 }
 
 // fakeSecretDecryptor reverses a fixed prefix to simulate AES-GCM decryption
@@ -4384,28 +4456,25 @@ func TestAttemptDelivery_WithSubscriptionID_DecryptsSecretBeforeSigning(t *testi
 		NextRetryAt:    &now,
 		LastError:      `{"event":"run.completed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default(),
 		WithSecretDecryptor(fakeSecretDecryptor{prefix: fakePrefix}))
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "", receivedSigHeader)
+	require.NotEqual(t, "", receivedTimestamp)
 
-	if receivedSigHeader == "" {
-		t.Fatal("expected X-Webhook-Signature header to be set")
-	}
-	if receivedTimestamp == "" {
-		t.Fatal("expected X-Strait-Timestamp header to be set")
-	}
 	expectedSig := "v1=" + ComputeTimestampedHMACSHA256(plaintextSecret, receivedTimestamp, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader != expectedSig {
-		t.Fatalf("signature was not computed over plaintext secret\n  got:  %q\n  want: %q", receivedSigHeader, expectedSig)
-	}
+	require.Equal(t,
+		expectedSig,
+		receivedSigHeader,
+	)
+
 	ciphertextSig := "v1=" + ComputeTimestampedHMACSHA256(storedCiphertext, receivedTimestamp, []byte(`{"event":"run.completed"}`))
-	if receivedSigHeader == ciphertextSig {
-		t.Fatal("signature was computed over ciphertext regression")
-	}
+	require.NotEqual(t, ciphertextSig,
+		receivedSigHeader,
+	)
+
 }
 
 // Regression: tenants with the same external webhook URL must
@@ -4416,12 +4485,12 @@ func TestBreakerKey_PerTenantScoping(t *testing.T) {
 	t.Parallel()
 
 	url := "https://hooks.example.com/in"
-	if breakerKey("orgA", url) == breakerKey("orgB", url) {
-		t.Fatal("breakerKey must produce distinct keys for different orgs on the same URL")
-	}
-	if breakerKey("", url) != url {
-		t.Fatalf("empty orgID must fall through to URL-only key for backwards compat, got %q", breakerKey("", url))
-	}
+	require.NotEqual(t, breakerKey("orgB", url), breakerKey("orgA",
+		url))
+	require.Equal(t,
+		url, breakerKey("", url),
+	)
+
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *testing.T) {
@@ -4454,25 +4523,20 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodActive(t *
 		NextRetryAt:    &now,
 		LastError:      `{"event":"run.completed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "", receivedSig)
+	require.NotEqual(t, "", receivedOldSig)
+	require.True(t,
+		strings.HasPrefix(receivedOldSig,
+			"v1="))
+	require.Equal(t,
+		receivedOldSig,
+		receivedStraitOldSig,
+	)
 
-	if receivedSig == "" {
-		t.Fatal("expected X-Webhook-Signature header")
-	}
-	if receivedOldSig == "" {
-		t.Fatal("expected X-Webhook-Signature-Old header during active grace period")
-	}
-	if !strings.HasPrefix(receivedOldSig, "v1=") {
-		t.Fatalf("expected v1= prefix on old sig, got %q", receivedOldSig)
-	}
-	if receivedStraitOldSig != receivedOldSig {
-		t.Fatalf("X-Strait-Signature-Old mismatch: got %q, want %q", receivedStraitOldSig, receivedOldSig)
-	}
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodExpired(t *testing.T) {
@@ -4502,19 +4566,15 @@ func TestAttemptDelivery_WithSubscriptionID_SecretRotation_GracePeriodExpired(t 
 		NextRetryAt:    &now,
 		LastError:      `{"event":"run.completed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
+	require.NotEqual(t, "", receivedSig)
+	require.Equal(t,
+		"", receivedOldSig,
+	)
 
-	if receivedSig == "" {
-		t.Fatal("expected X-Webhook-Signature header")
-	}
-	if receivedOldSig != "" {
-		t.Fatalf("expected no X-Webhook-Signature-Old after grace period expired, got %q", receivedOldSig)
-	}
 }
 
 func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
@@ -4546,23 +4606,23 @@ func TestAttemptDelivery_WithSubscriptionID_SecretsLookupError(t *testing.T) {
 		NextRetryAt:    &now,
 		LastError:      `{"event":"run.completed"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
+	require.False(t,
+		requestReceived.
+			Load())
 
-	if requestReceived.Load() {
-		t.Fatal("delivery should not be attempted without a subscription signing secret")
-	}
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("deliveries = %d, want 1", len(deliveries))
-	}
-	if deliveries[0].LastError != "webhook subscription signing secret unavailable" {
-		t.Fatalf("last_error = %q, want signing secret error", deliveries[0].LastError)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		"webhook subscription signing secret unavailable",
+
+		deliveries[0].LastError)
+
 }
 
 func TestAttemptDelivery_EmptyFields_NoConditionalHeaders(t *testing.T) {
@@ -4588,25 +4648,22 @@ func TestAttemptDelivery_EmptyFields_NoConditionalHeaders(t *testing.T) {
 		NextRetryAt:    &now,
 		LastError:      `{"test":"data"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
+	require.NotNil(
+		t, headers)
+	require.Equal(t,
+		"", headers.
+			Get("X-Strait-Trigger-ID"))
+	require.Equal(t,
+		"", headers.
+			Get("X-Run-ID"))
+	require.Equal(t,
+		"", headers.
+			Get("X-Job-ID"))
 
-	if headers == nil {
-		t.Fatal("expected request to be received")
-	}
-	if v := headers.Get("X-Strait-Trigger-ID"); v != "" {
-		t.Fatalf("expected no X-Strait-Trigger-ID when EventTriggerID is empty, got %q", v)
-	}
-	if v := headers.Get("X-Run-ID"); v != "" {
-		t.Fatalf("expected no X-Run-ID when RunID is empty, got %q", v)
-	}
-	if v := headers.Get("X-Job-ID"); v != "" {
-		t.Fatalf("expected no X-Job-ID when JobID is empty, got %q", v)
-	}
 }
 
 func TestAttemptDelivery_PopulatedFields_ConditionalHeadersPresent(t *testing.T) {
@@ -4632,25 +4689,22 @@ func TestAttemptDelivery_PopulatedFields_ConditionalHeadersPresent(t *testing.T)
 		NextRetryAt:    &now,
 		LastError:      `{"test":"data"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
+	require.NotNil(
+		t, headers)
+	require.Equal(t,
+		"evt-42",
+		headers.Get("X-Strait-Trigger-ID"))
+	require.Equal(t,
+		"run-42",
+		headers.Get("X-Run-ID"))
+	require.Equal(t,
+		"job-42",
+		headers.Get("X-Job-ID"))
 
-	if headers == nil {
-		t.Fatal("expected request to be received")
-	}
-	if v := headers.Get("X-Strait-Trigger-ID"); v != "evt-42" {
-		t.Fatalf("X-Strait-Trigger-ID = %q, want %q", v, "evt-42")
-	}
-	if v := headers.Get("X-Run-ID"); v != "run-42" {
-		t.Fatalf("X-Run-ID = %q, want %q", v, "run-42")
-	}
-	if v := headers.Get("X-Job-ID"); v != "job-42" {
-		t.Fatalf("X-Job-ID = %q, want %q", v, "job-42")
-	}
 }
 
 func TestAttemptDelivery_RetryExhausted_DeadLetters(t *testing.T) {
@@ -4674,20 +4728,21 @@ func TestAttemptDelivery_RetryExhausted_DeadLetters(t *testing.T) {
 		NextRetryAt: &now,
 		LastError:   `{"run_id":"run-1"}`,
 	}
-	if err := ms.CreateWebhookDelivery(context.Background(), delivery); err != nil {
-		t.Fatalf("create delivery: %v", err)
-	}
+	require.NoError(t, ms.CreateWebhookDelivery(context.Background(), delivery))
 
 	worker := NewDeliveryWorker(ms, slog.Default())
 	worker.processBatch(context.Background())
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
-	if deliveries[0].Status != domain.WebhookStatusDead {
-		t.Fatalf("expected dead status when retryable but exhausted, got %s", deliveries[0].Status)
-	}
+	require.Len(t,
+		deliveries,
+		1)
+	require.Equal(t,
+		domain.WebhookStatusDead,
+
+		deliveries[0].Status,
+	)
+
 }
 
 func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
@@ -4696,9 +4751,10 @@ func TestBackoffForRetryPolicy_ExponentialCapsAt30Min(t *testing.T) {
 	// 5^5 = 3125 seconds = ~52 minutes, exceeds 30-minute cap.
 	got := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 5)
 	approxBackoff(t, got, 30*time.Minute, "exponential attempt 5 (capped)")
-	if got > 30*time.Minute+(30*time.Minute)/5 {
-		t.Fatalf("exponential backoff for attempt 5 = %s, exceeded 30m cap + jitter", got)
-	}
+	require.LessOrEqual(t, got,
+		30*time.Minute+
+			(30*time.Minute)/5)
+
 }
 
 func TestBackoffForRetryPolicy_AttemptsZero_NormalizedToOne(t *testing.T) {
@@ -4717,9 +4773,10 @@ func TestBackoffForRetryPolicy_LinearCapsAt30Min(t *testing.T) {
 
 	got := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, 500)
 	approxBackoff(t, got, 30*time.Minute, "linear attempt 500 (capped)")
-	if got > 30*time.Minute+(30*time.Minute)/5 {
-		t.Fatalf("linear backoff for attempt 500 = %s, exceeded 30m cap + jitter", got)
-	}
+	require.LessOrEqual(t, got,
+		30*time.Minute+
+			(30*time.Minute)/5)
+
 }
 
 func TestBackoffForRetryPolicy_HugeAttemptsDoNotOverflow(t *testing.T) {
@@ -4727,15 +4784,16 @@ func TestBackoffForRetryPolicy_HugeAttemptsDoNotOverflow(t *testing.T) {
 
 	exponential := backoffForRetryPolicy(domain.WebhookRetryPolicyExponential, 1_000_000)
 	approxBackoff(t, exponential, maxWebhookBackoff, "huge exponential attempt")
-	if exponential <= 0 {
-		t.Fatalf("huge exponential backoff = %s, want positive capped duration", exponential)
-	}
+	require.False(t,
+		exponential <=
+			0)
 
 	linear := backoffForRetryPolicy(domain.WebhookRetryPolicyLinear, int(^uint(0)>>1))
 	approxBackoff(t, linear, maxWebhookBackoff, "huge linear attempt")
-	if linear <= 0 {
-		t.Fatalf("huge linear backoff = %s, want positive capped duration", linear)
-	}
+	require.False(t,
+		linear <=
+			0)
+
 }
 
 func TestRecordCircuitBreakerState_AllStates(t *testing.T) {

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func computeHMACSHA256(secret string, data []byte) string {
@@ -25,42 +27,37 @@ func TestValidateSignature_HMACSHA256(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("hmac-sha256", secret, body, "sha256=deadbeef")
-		if err == nil {
-			t.Fatal("expected error for invalid signature")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("missing prefix", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("hmac-sha256", secret, body, sig)
-		if err == nil {
-			t.Fatal("expected error for missing sha256= prefix")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("wrong secret", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("hmac-sha256", "wrong-secret", body, "sha256="+sig)
-		if err == nil {
-			t.Fatal("expected error for wrong secret")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("empty body", func(t *testing.T) {
 		t.Parallel()
 		emptySig := computeHMACSHA256(secret, []byte{})
 		err := ValidateSignature("hmac-sha256", secret, []byte{}, "sha256="+emptySig)
-		if err != nil {
-			t.Fatalf("expected no error for empty body, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 }
 
@@ -80,18 +77,16 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 		sig := signStripe(ts, body)
 		header := fmt.Sprintf("t=%s,v1=%s", ts, sig)
 		err := ValidateSignature("stripe-v1", secret, body, header)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
 		t.Parallel()
 		header := fmt.Sprintf("t=%s,v1=deadbeef", ts)
 		err := ValidateSignature("stripe-v1", secret, body, header)
-		if err == nil {
-			t.Fatal("expected error for invalid signature")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("expired timestamp", func(t *testing.T) {
@@ -100,25 +95,22 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 		sig := signStripe(oldTS, body)
 		header := fmt.Sprintf("t=%s,v1=%s", oldTS, sig)
 		err := ValidateSignature("stripe-v1", secret, body, header)
-		if err == nil {
-			t.Fatal("expected error for expired timestamp")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("missing t component", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("stripe-v1", secret, body, "v1=abc123")
-		if err == nil {
-			t.Fatal("expected error for missing t component")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("missing v1 component", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("stripe-v1", secret, body, "t=12345")
-		if err == nil {
-			t.Fatal("expected error for missing v1 component")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("extra components ignored", func(t *testing.T) {
@@ -126,9 +118,8 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 		sig := signStripe(ts, body)
 		header := fmt.Sprintf("t=%s,v1=%s,v0=oldval", ts, sig)
 		err := ValidateSignature("stripe-v1", secret, body, header)
-		if err != nil {
-			t.Fatalf("expected no error with extra components, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("accepts any matching v1 signature", func(t *testing.T) {
@@ -136,9 +127,8 @@ func TestValidateSignature_StripeV1(t *testing.T) {
 		sig := signStripe(ts, body)
 		header := fmt.Sprintf("t=%s,v1=%s,v1=deadbeef", ts, sig)
 		err := ValidateSignature("stripe-v1", secret, body, header)
-		if err != nil {
-			t.Fatalf("expected valid first v1 signature to be accepted, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 }
 
@@ -151,26 +141,23 @@ func TestValidateSignature_GitHubSHA256(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("github-sha256", secret, body, "sha256="+sig)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
 		t.Parallel()
 		err := ValidateSignature("github-sha256", secret, body, "sha256=badhex")
-		if err == nil {
-			t.Fatal("expected error for invalid signature")
-		}
+		require.Error(t, err)
+
 	})
 }
 
 func TestValidateSignature_UnsupportedAlgorithm(t *testing.T) {
 	t.Parallel()
 	err := ValidateSignature("rsa-sha512", "key", []byte("body"), "sig")
-	if err == nil {
-		t.Fatal("expected error for unsupported algorithm")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateSignature_StripeV1_TimestampBoundary(t *testing.T) {
@@ -184,9 +171,8 @@ func TestValidateSignature_StripeV1_TimestampBoundary(t *testing.T) {
 		signed := append([]byte(ts+"."), body...)
 		sig := computeHMACSHA256(secret, signed)
 		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
-		if err != nil {
-			t.Fatalf("300s should be accepted, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 
 	t.Run("301 seconds old is rejected", func(t *testing.T) {
@@ -195,9 +181,8 @@ func TestValidateSignature_StripeV1_TimestampBoundary(t *testing.T) {
 		signed := append([]byte(ts+"."), body...)
 		sig := computeHMACSHA256(secret, signed)
 		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
-		if err == nil {
-			t.Fatal("301s should be rejected")
-		}
+		require.Error(t, err)
+
 	})
 
 	t.Run("future timestamp is accepted within window", func(t *testing.T) {
@@ -206,9 +191,8 @@ func TestValidateSignature_StripeV1_TimestampBoundary(t *testing.T) {
 		signed := append([]byte(ts+"."), body...)
 		sig := computeHMACSHA256(secret, signed)
 		err := ValidateSignature("stripe-v1", secret, body, fmt.Sprintf("t=%s,v1=%s", ts, sig))
-		if err != nil {
-			t.Fatalf("future timestamp within 5min should be accepted, got %v", err)
-		}
+		require.NoError(t, err)
+
 	})
 }
 
@@ -217,17 +201,15 @@ func TestValidateSignature_HMACSHA256_EmptySecret(t *testing.T) {
 	body := []byte(`test payload`)
 	sig := computeHMACSHA256("", body)
 	err := ValidateSignature("hmac-sha256", "", body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("empty secret should still validate, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestValidateSignature_StripeV1_InvalidTimestamp(t *testing.T) {
 	t.Parallel()
 	err := ValidateSignature("stripe-v1", "secret", []byte(`{}`), "t=notanumber,v1=abc123")
-	if err == nil {
-		t.Fatal("expected error for non-numeric timestamp")
-	}
+	require.Error(t, err)
+
 }
 
 func TestValidateSignature_LargeBody(t *testing.T) {
@@ -239,9 +221,8 @@ func TestValidateSignature_LargeBody(t *testing.T) {
 	}
 	sig := computeHMACSHA256(secret, body)
 	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("large body should validate, got %v", err)
-	}
+	require.NoError(t, err)
+
 }
 
 func TestComputeHMACSHA256_KnownVector(t *testing.T) {
@@ -252,29 +233,26 @@ func TestComputeHMACSHA256_KnownVector(t *testing.T) {
 	got := ComputeHMACSHA256(secret, body)
 	// Verify by computing independently.
 	want := computeHMACSHA256(secret, body)
-	if got != want {
-		t.Fatalf("ComputeHMACSHA256 = %q, want %q", got, want)
-	}
+	require.Equal(t, want,
+		got)
+	require.Len(t, got, 64)
+
 	// Must be 64-char hex.
-	if len(got) != 64 {
-		t.Fatalf("expected 64 hex chars, got %d", len(got))
-	}
+
 }
 
 func TestComputeHMACSHA256_EmptyBody(t *testing.T) {
 	t.Parallel()
 	got := ComputeHMACSHA256("secret", []byte{})
-	if len(got) != 64 {
-		t.Fatalf("expected 64 hex chars for empty body, got %d", len(got))
-	}
+	require.Len(t, got, 64)
+
 }
 
 func TestComputeHMACSHA256_EmptySecret(t *testing.T) {
 	t.Parallel()
 	got := ComputeHMACSHA256("", []byte("body"))
-	if len(got) != 64 {
-		t.Fatalf("expected 64 hex chars for empty secret, got %d", len(got))
-	}
+	require.Len(t, got, 64)
+
 }
 
 func TestComputeHMACSHA256_DifferentSecretsProduceDifferentSignatures(t *testing.T) {
@@ -282,9 +260,9 @@ func TestComputeHMACSHA256_DifferentSecretsProduceDifferentSignatures(t *testing
 	body := []byte(`{"event":"test"}`)
 	sig1 := ComputeHMACSHA256("secret-a", body)
 	sig2 := ComputeHMACSHA256("secret-b", body)
-	if sig1 == sig2 {
-		t.Fatal("different secrets should produce different signatures")
-	}
+	require.NotEqual(t, sig2,
+		sig1)
+
 }
 
 func TestComputeHMACSHA256_ValidatesCorrectly(t *testing.T) {
@@ -294,7 +272,6 @@ func TestComputeHMACSHA256_ValidatesCorrectly(t *testing.T) {
 	sig := ComputeHMACSHA256(secret, body)
 	// The produced signature should be verifiable by ValidateSignature.
 	err := ValidateSignature("hmac-sha256", secret, body, "sha256="+sig)
-	if err != nil {
-		t.Fatalf("ComputeHMACSHA256 output should validate, got %v", err)
-	}
+	require.NoError(t, err)
+
 }

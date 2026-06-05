@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"strait/internal/domain"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Regression guard: EnqueueRunWebhook must not stash the JSON payload in
@@ -32,22 +35,20 @@ func TestEnqueueRunWebhook_DoesNotStashPayloadInLastError(t *testing.T) {
 		Attempt:   1,
 		Result:    json.RawMessage(`{"ok":true}`),
 	}
-
-	if err := worker.EnqueueRunWebhook(context.Background(), job, run); err != nil {
-		t.Fatalf("EnqueueRunWebhook: %v", err)
-	}
+	require.NoError(t,
+		worker.EnqueueRunWebhook(context.
+			Background(), job, run))
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		1)
+
 	d := deliveries[0]
-	if d.LastError != "" {
-		t.Errorf("LastError on enqueue = %q, want empty (payload stashing is gone)", d.LastError)
-	}
-	if len(d.Payload) == 0 {
-		t.Error("Payload is empty; canonical payload column should hold the JSON")
-	}
+	assert.Equal(t, "",
+		d.LastError)
+	assert.NotEmpty(t,
+		d.Payload)
+
 }
 
 // Regression guard: EnqueueSubscriptionWebhooks must not stash the payload in
@@ -72,14 +73,12 @@ func TestEnqueueSubscriptionWebhooks_DoesNotStashPayloadInLastError(t *testing.T
 	worker.EnqueueSubscriptionWebhooks(context.Background(), subs, "billing.cap_warning", payload)
 
 	deliveries := ms.getDeliveries()
-	if len(deliveries) != 1 {
-		t.Fatalf("expected 1 delivery, got %d", len(deliveries))
-	}
+	require.Len(t, deliveries,
+		1)
+
 	d := deliveries[0]
-	if d.LastError != "" {
-		t.Errorf("LastError on enqueue = %q, want empty (payload stashing is gone)", d.LastError)
-	}
-	if string(d.Payload) != string(payload) {
-		t.Errorf("Payload = %q, want %q", string(d.Payload), string(payload))
-	}
+	assert.Equal(t, "",
+		d.LastError)
+	assert.Equal(t, string(payload), string(d.Payload))
+
 }
