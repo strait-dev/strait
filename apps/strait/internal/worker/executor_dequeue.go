@@ -2,8 +2,6 @@ package worker
 
 import (
 	"context"
-	"strconv"
-	"strings"
 	"time"
 
 	"strait/internal/domain"
@@ -124,43 +122,4 @@ func (b *claimedRunBatch) full() bool {
 
 func (b *claimedRunBatch) remaining() int {
 	return max(b.capacity-len(b.runs), 0)
-}
-
-func buildPartitionCycle(partitions []string, weightsRaw string) []string {
-	if len(partitions) == 0 {
-		return nil
-	}
-
-	weights := make(map[string]int)
-	if weightsRaw != "" {
-		for _, token := range strings.FieldsFunc(weightsRaw, func(r rune) bool { return r == ',' }) {
-			token = strings.TrimSpace(token)
-			if token == "" {
-				continue
-			}
-			parts := strings.SplitN(token, ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			key := strings.TrimSpace(parts[0])
-			weight, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-			if err != nil || weight <= 0 {
-				continue
-			}
-			weights[key] = weight
-		}
-	}
-
-	cycle := make([]string, 0, len(partitions))
-	for _, partition := range partitions {
-		w := weights[partition]
-		if w <= 0 {
-			w = 1
-		}
-		for range w {
-			cycle = append(cycle, partition)
-		}
-	}
-
-	return cycle
 }

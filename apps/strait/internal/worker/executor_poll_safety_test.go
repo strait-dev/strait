@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"strait/internal/domain"
-	"strait/internal/testutil"
 )
 
 // TestExecutor_HeartbeatTrackedForShutdown verifies that the heartbeat
@@ -209,15 +208,6 @@ func TestExecutor_Poll_UsesProjectPartitionDequeue(t *testing.T) {
 	if !called {
 		t.Fatal("expected partitioned dequeue to be called")
 	}
-}
-
-func TestBuildPartitionCycle_Weights(t *testing.T) {
-	t.Parallel()
-	cycle := buildPartitionCycle([]string{"proj-a", "proj-b"}, "proj-a:2,proj-b:1")
-	if len(cycle) != 3 {
-		t.Fatalf("cycle len = %d, want 3", len(cycle))
-	}
-	testutil.AssertEqual(t, cycle, []string{"proj-a", "proj-a", "proj-b"})
 }
 
 func BenchmarkExecutorPoll(b *testing.B) {
