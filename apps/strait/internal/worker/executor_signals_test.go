@@ -1,6 +1,8 @@
 package worker
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,5 +194,118 @@ func TestFailedDispatchSignalPayload_Timeout(t *testing.T) {
 	}
 	if payload.result.JobTimeoutMs != 45000 {
 		t.Fatalf("timeout = %v, want 45000", payload.result.JobTimeoutMs)
+	}
+}
+
+func TestDeepSecEndpointStateKeyScopesByProject(t *testing.T) {
+	t.Parallel()
+
+	endpoint := "https://shared.example/run"
+	a := endpointStateKey("proj-a", endpoint)
+	b := endpointStateKey("proj-b", endpoint)
+	if a == b {
+		t.Fatal("endpoint state keys for different projects must differ")
+	}
+	if strings.Contains(a, "\x00") || strings.Contains(b, "\x00") {
+		t.Fatalf("endpoint state keys must be valid Postgres text: %q %q", a, b)
+	}
+	if strings.Contains(a, endpoint) || strings.Contains(b, endpoint) {
+		t.Fatalf("project-scoped endpoint state keys must not store raw endpoint URL: %q %q", a, b)
+	}
+	if endpointStateKey("", endpoint) != endpoint {
+		t.Fatal("empty project should preserve legacy endpoint key")
+	}
+}
+
+func TestHandleSuccess_LatencyAnomalyDetected(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 1.0}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_LatencyNormal(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return &orcstore.JobHealthStats{P95DurationSecs: 10.0}, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-500 * time.Millisecond)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
+	}
+}
+
+func TestHandleSuccess_NoStatsAvailable(t *testing.T) {
+	t.Parallel()
+
+	store := &mockExecutorStore{
+		getJobHealthStatsFn: func(_ context.Context, _ string, _ time.Time) (*orcstore.JobHealthStats, error) {
+			return nil, nil
+		},
+	}
+
+	exec := NewExecutor(ExecutorConfig{
+		Pool:         NewPool(10),
+		Queue:        &mockExecQueue{},
+		Store:        store,
+		PollInterval: time.Hour,
+	})
+
+	startedAt := time.Now().Add(-3 * time.Second)
+	run := &domain.JobRun{ID: "run-1", JobID: "job-1", StartedAt: &startedAt}
+	job := &domain.Job{ID: "job-1", EndpointURL: "http://example.com"}
+
+	exec.handleSuccess(context.Background(), run, job, nil)
+
+	calls := store.statusUpdates()
+	if len(calls) == 0 {
+		t.Fatal("expected status update")
+	}
+	if calls[0].to != domain.StatusCompleted {
+		t.Errorf("expected completed, got %s", calls[0].to)
 	}
 }
