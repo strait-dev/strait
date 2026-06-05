@@ -22,6 +22,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/sourcegraph/conc"
 	"github.com/sourcegraph/conc/pool"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
@@ -42,9 +43,10 @@ func TestWorkerShutdownTelemetryLogsContainExpectedFields(t *testing.T) {
 		"shutdown_completed_at",
 		"runs_drained",
 	} {
-		if !strings.Contains(logs, field) {
-			t.Fatalf("expected logs to contain field %q, got: %s", field, logs)
-		}
+		require.True(t, strings.Contains(
+			logs, field),
+		)
+
 	}
 }
 
@@ -78,13 +80,13 @@ func TestProfilingStartupLogDoesNotLeakSecrets(t *testing.T) {
 		"cpu_profile_max_seconds",
 		"management_bind_addr",
 	} {
-		if !strings.Contains(logs, field) {
-			t.Fatalf("expected profiling log to contain field %q, got: %s", field, logs)
-		}
+		require.True(t, strings.Contains(
+			logs, field),
+		)
+
 	}
-	if strings.Contains(logs, "pprof-secret-value") {
-		t.Fatalf("profiling secret leaked in startup log: %s", logs)
-	}
+	require.False(t, strings.Contains(logs, "pprof-secret-value"))
+
 }
 
 func TestProfilingManagementAddr(t *testing.T) {
@@ -94,23 +96,23 @@ func TestProfilingManagementAddr(t *testing.T) {
 		ProfilingManagementBindAddr: "::1",
 		ProfilingManagementPort:     18080,
 	}
-	if got := profilingManagementAddr(cfg); got != "[::1]:18080" {
-		t.Fatalf("profilingManagementAddr() = %q, want [::1]:18080", got)
-	}
+	require.Equal(t, "[::1]:18080",
+		profilingManagementAddr(
+			cfg))
+
 }
 
 func TestShutdownReason(t *testing.T) {
 	t.Helper()
+	require.Equal(t, "graceful",
+		shutdownReason(nil))
+	require.Equal(t, "timeout",
+		shutdownReason(context.
+			DeadlineExceeded,
+		))
+	require.Equal(t, "forced",
+		shutdownReason(errors.New("forced")))
 
-	if got := shutdownReason(nil); got != "graceful" {
-		t.Fatalf("shutdownReason(nil) = %q, want graceful", got)
-	}
-	if got := shutdownReason(context.DeadlineExceeded); got != "timeout" {
-		t.Fatalf("shutdownReason(DeadlineExceeded) = %q, want timeout", got)
-	}
-	if got := shutdownReason(errors.New("forced")); got != "forced" {
-		t.Fatalf("shutdownReason(other error) = %q, want forced", got)
-	}
 }
 
 func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
@@ -128,9 +130,7 @@ func TestRegisterCDCDeliveryHandlers_WiresLaunchCDCTables(t *testing.T) {
 	requireTableCount(t, primary, "job_runs", 1)
 	requireTableCount(t, primary, "workflow_runs", 1)
 	requireTableCount(t, primary, "event_triggers", 1)
-	if got := primary["workflow_step_runs"]; got != 0 {
-		t.Fatalf("workflow_step_runs primary fanout handlers = %d, want 0", got)
-	}
+	require.EqualValues(t, 0, primary["workflow_step_runs"])
 
 	additional := tableCounts(registrar.additional)
 	requireTableCount(t, additional, "job_runs", 4)
@@ -171,9 +171,9 @@ func TestNotificationWorkerEnabled(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := notificationWorkerEnabled(tt.mode); got != tt.want {
-			t.Fatalf("notificationWorkerEnabled(%q) = %v, want %v", tt.mode, got, tt.want)
-		}
+		require.Equal(t, tt.want,
+			notificationWorkerEnabled(tt.mode))
+
 	}
 }
 
@@ -186,15 +186,14 @@ func TestStartGRPCServer_RequiresPubsubWhenEnabled(t *testing.T) {
 	}
 
 	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
-	if err == nil {
-		t.Fatal("expected error when GRPC is enabled without pubsub")
-	}
-	if srv != nil {
-		t.Fatal("expected nil grpc server when startup fails")
-	}
-	if !strings.Contains(err.Error(), "no pubsub publisher is configured") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.Nil(t, srv)
+	require.True(t, strings.Contains(
+		err.Error(),
+		"no pubsub publisher is configured",
+	),
+	)
+
 }
 
 func TestWaitForPubsubReady_RetriesUntilHealthy(t *testing.T) {
@@ -209,12 +208,12 @@ func TestWaitForPubsubReady_RetriesUntilHealthy(t *testing.T) {
 			return nil
 		},
 	}
-	if err := waitForPubsubReady(context.Background(), pub, time.Second); err != nil {
-		t.Fatalf("waitForPubsubReady() error = %v", err)
-	}
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("ping calls = %d, want 3", got)
-	}
+	require.NoError(t, waitForPubsubReady(context.
+		Background(), pub, time.Second,
+	))
+	require.EqualValues(t, 3, calls.
+		Load())
+
 }
 
 func TestWaitForPubsubReady_TimesOut(t *testing.T) {
@@ -222,12 +221,12 @@ func TestWaitForPubsubReady_TimesOut(t *testing.T) {
 
 	pub := flakyPingPub{pingFn: func(context.Context) error { return errors.New("redis down") }}
 	err := waitForPubsubReady(context.Background(), pub, 20*time.Millisecond)
-	if err == nil {
-		t.Fatal("expected timeout error")
-	}
-	if !strings.Contains(err.Error(), "pubsub readiness timeout") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(
+		err.Error(),
+		"pubsub readiness timeout",
+	))
+
 }
 
 func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
@@ -239,12 +238,9 @@ func TestStartGRPCServer_DisabledReturnsNil(t *testing.T) {
 	}
 
 	srv, err := startGRPCServer(pool.New().WithContext(context.Background()), cfg, nil, nil, nil, nil, nil, "test", nil)
-	if err != nil {
-		t.Fatalf("startGRPCServer() error = %v", err)
-	}
-	if srv != nil {
-		t.Fatal("expected nil grpc server when GRPC is disabled")
-	}
+	require.NoError(t, err)
+	require.Nil(t, srv)
+
 }
 
 func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testing.T) {
@@ -257,23 +253,22 @@ func TestApplyWorkerPlaneToExecutorConfig_WiresDispatcherAndSnapshotter(t *testi
 		GRPCKeepaliveTimeout: 10 * time.Second,
 	}
 	plane, err := grpcserver.NewServer(cfg, nil, noopServicePub{})
-	if err != nil {
-		t.Fatalf("NewServer() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	defer plane.GracefulStop()
 
 	execCfg := workerExecutorConfigForTest()
 	applyWorkerPlaneToExecutorConfig(&execCfg, plane, "jwt-signing-key")
+	require.NotNil(t, execCfg.
+		QueueSnapshotter,
+	)
+	require.NotNil(t, execCfg.
+		WorkerDispatcher,
+	)
+	require.Nil(t, execCfg.
+		QueueSnapshotter.
+		SnapshotWorkerQueues())
 
-	if execCfg.QueueSnapshotter == nil {
-		t.Fatal("QueueSnapshotter was not wired")
-	}
-	if execCfg.WorkerDispatcher == nil {
-		t.Fatal("WorkerDispatcher was not wired")
-	}
-	if got := execCfg.QueueSnapshotter.SnapshotWorkerQueues(); got != nil {
-		t.Fatalf("SnapshotWorkerQueues on empty registry = %v, want nil", got)
-	}
 }
 
 func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testing.T) {
@@ -281,13 +276,13 @@ func TestApplyWorkerPlaneToExecutorConfig_NilPlaneLeavesConfigUntouched(t *testi
 
 	execCfg := workerExecutorConfigForTest()
 	applyWorkerPlaneToExecutorConfig(&execCfg, nil, "jwt-signing-key")
+	require.Nil(t, execCfg.
+		QueueSnapshotter,
+	)
+	require.Nil(t, execCfg.
+		WorkerDispatcher,
+	)
 
-	if execCfg.QueueSnapshotter != nil {
-		t.Fatal("QueueSnapshotter should remain nil without worker plane")
-	}
-	if execCfg.WorkerDispatcher != nil {
-		t.Fatal("WorkerDispatcher should remain nil without worker plane")
-	}
 }
 
 func workerExecutorConfigForTest() worker.ExecutorConfig {
@@ -374,7 +369,8 @@ func tableCounts(tables []string) map[string]int {
 
 func requireTableCount(t *testing.T, counts map[string]int, table string, minCount int) {
 	t.Helper()
-	if got := counts[table]; got < minCount {
-		t.Fatalf("%s handlers = %d, want at least %d", table, got, minCount)
-	}
+	require.GreaterOrEqual(
+		t, counts[table], minCount,
+	)
+
 }

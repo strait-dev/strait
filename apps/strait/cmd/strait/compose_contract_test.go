@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestComposeRuntimeContractIncludesRedisAndSequin(t *testing.T) {
@@ -63,34 +65,35 @@ func readRepoFile(t *testing.T, path string) string {
 	t.Helper()
 
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	require.NoError(t, err)
+
 	return string(raw)
 }
 
 func requireContains(t *testing.T, source, want string) {
 	t.Helper()
+	require.True(t, strings.Contains(
+		source,
+		want))
 
-	if !strings.Contains(source, want) {
-		t.Fatalf("compose contract missing %q", want)
-	}
 }
 
 func requireServiceDependency(t *testing.T, source, service, dependency, condition string) {
 	t.Helper()
 
 	serviceBlock := indentedBlock(source, "  "+service, "  ")
-	if serviceBlock == "" {
-		t.Fatalf("compose contract missing service %q", service)
-	}
+	require.NotEqual(t,
+		"", serviceBlock,
+	)
+
 	dependencyBlock := indentedBlock(serviceBlock, "      "+dependency, "      ")
-	if dependencyBlock == "" {
-		t.Fatalf("service %q missing dependency %q", service, dependency)
-	}
-	if !strings.Contains(dependencyBlock, condition) {
-		t.Fatalf("service %q dependency %q missing %q", service, dependency, condition)
-	}
+	require.NotEqual(t,
+		"", dependencyBlock,
+	)
+	require.True(t, strings.Contains(
+		dependencyBlock,
+		condition))
+
 }
 
 func indentedBlock(source, header, siblingIndent string) string {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockBackfillHistoryStore struct {
@@ -45,22 +47,25 @@ func TestRunBackfillHistoryWithStore_ExecutionUsesRetentionAwareArchive(t *testi
 	shortRetention := 30 * 24 * time.Hour
 	longRetention := 90 * 24 * time.Hour
 	store := &mockBackfillHistoryStore{moved: []int64{100, 0}}
+	require.NoError(t, runBackfillHistoryWithStore(context.Background(), store,
+		shortRetention, longRetention, 100,
+		false))
+	require.EqualValues(t, 2, store.
+		archiveCalls,
+	)
+	require.Equal(
+		t, shortRetention,
 
-	if err := runBackfillHistoryWithStore(context.Background(), store, shortRetention, longRetention, 100, false); err != nil {
-		t.Fatalf("runBackfillHistoryWithStore returned error: %v", err)
-	}
-	if store.archiveCalls != 2 {
-		t.Fatalf("archive calls = %d, want 2", store.archiveCalls)
-	}
-	if store.archiveShortRetention != shortRetention {
-		t.Fatalf("short retention = %s, want %s", store.archiveShortRetention, shortRetention)
-	}
-	if store.archiveLongRetention != longRetention {
-		t.Fatalf("long retention = %s, want %s", store.archiveLongRetention, longRetention)
-	}
-	if store.archiveBatchSize != 100 {
-		t.Fatalf("batch size = %d, want 100", store.archiveBatchSize)
-	}
+		store.
+			archiveShortRetention)
+	require.Equal(
+		t, longRetention,
+		store.
+			archiveLongRetention)
+	require.EqualValues(t, 100, store.
+		archiveBatchSize,
+	)
+
 }
 
 func TestRunBackfillHistoryWithStore_DryRunUsesSameRetentions(t *testing.T) {
@@ -69,17 +74,20 @@ func TestRunBackfillHistoryWithStore_DryRunUsesSameRetentions(t *testing.T) {
 	shortRetention := 30 * 24 * time.Hour
 	longRetention := 90 * 24 * time.Hour
 	store := &mockBackfillHistoryStore{}
+	require.NoError(t, runBackfillHistoryWithStore(context.Background(), store,
+		shortRetention, longRetention, 100,
+		true))
+	require.EqualValues(t, 0, store.
+		archiveCalls,
+	)
+	require.Equal(
+		t, shortRetention,
 
-	if err := runBackfillHistoryWithStore(context.Background(), store, shortRetention, longRetention, 100, true); err != nil {
-		t.Fatalf("runBackfillHistoryWithStore returned error: %v", err)
-	}
-	if store.archiveCalls != 0 {
-		t.Fatalf("dry run archive calls = %d, want 0", store.archiveCalls)
-	}
-	if store.countShortRetention != shortRetention {
-		t.Fatalf("count short retention = %s, want %s", store.countShortRetention, shortRetention)
-	}
-	if store.countLongRetention != longRetention {
-		t.Fatalf("count long retention = %s, want %s", store.countLongRetention, longRetention)
-	}
+		store.
+			countShortRetention)
+	require.Equal(
+		t, longRetention,
+		store.
+			countLongRetention)
+
 }
