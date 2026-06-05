@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"strait/internal/pubsub"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type memoryBusPublisher struct {
@@ -90,9 +93,11 @@ func TestBus_CrossReplicaInvalidateEvictsPeerL1(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := peerTier.Set(t.Context(), "job-1", "cached", 3); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(t, peerTier.Set(
+		t.Context(), "job-1",
+		"cached", 3,
+	))
+
 	registryB := NewRegistry(RegistryConfig{Origin: "node-b"})
 	registryB.Register("job", StringTierHandler[string]{Tier: peerTier})
 	busB := NewBus(publisher, BusConfig{Origin: registryB.Origin()})
@@ -106,11 +111,9 @@ func TestBus_CrossReplicaInvalidateEvictsPeerL1(t *testing.T) {
 		cancel()
 		select {
 		case err := <-errCh:
-			if err != nil {
-				t.Errorf("Run() error = %v", err)
-			}
+			assert.NoError(t, err)
 		case <-time.After(time.Second):
-			t.Error("cachebus Run() did not stop")
+			assert.Fail(t, "cachebus Run() did not stop")
 		}
 	})
 	waitFor(t, time.Second, func() bool {
@@ -118,9 +121,9 @@ func TestBus_CrossReplicaInvalidateEvictsPeerL1(t *testing.T) {
 	})
 
 	busA := NewBus(publisher, BusConfig{Origin: "node-a"})
-	if err := busA.PublishInvalidate(t.Context(), "job", "job-1", 4); err != nil {
-		t.Fatalf("PublishInvalidate() error = %v", err)
-	}
+	require.NoError(t, busA.PublishInvalidate(
+		t.Context(), "job", "job-1",
+		4))
 
 	waitFor(t, time.Second, func() bool {
 		_, ok := peerTier.GetIfPresent("job-1")
@@ -136,9 +139,10 @@ func TestBus_SelfOriginMessageDoesNotEvictOrigin(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(t.Context(), "k", "cached", 1); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(t, tier.Set(t.Context(), "k",
+		"cached",
+		1))
+
 	var suppressed atomic.Int64
 	registry := NewRegistry(RegistryConfig{
 		Origin:       "node-a",
@@ -153,19 +157,16 @@ func TestBus_SelfOriginMessageDoesNotEvictOrigin(t *testing.T) {
 		Origin:    "node-a",
 		SentAt:    time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	registry.Handle(t.Context(), data)
+	require.Equal(t, int64(1), suppressed.Load())
 
-	if suppressed.Load() != 1 {
-		t.Fatalf("suppressed = %d, want 1", suppressed.Load())
-	}
 	got, ok := tier.GetIfPresent("k")
-	if !ok || got != "cached" {
-		t.Fatalf("origin cache entry = %q, %v; want cached,true", got, ok)
-	}
+	require.False(t,
+		!ok || got != "cached",
+	)
+
 }
 
 func TestBus_DuplicateInvalidationMessagesAreIdempotent(t *testing.T) {
@@ -176,9 +177,10 @@ func TestBus_DuplicateInvalidationMessagesAreIdempotent(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(t.Context(), "k", "cached", 1); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(t, tier.Set(t.Context(), "k",
+		"cached",
+		1))
+
 	registry := NewRegistry(RegistryConfig{Origin: "node-b"})
 	registry.Register("job", StringTierHandler[string]{Tier: tier})
 	data, err := json.Marshal(BusMessage{
@@ -189,16 +191,13 @@ func TestBus_DuplicateInvalidationMessagesAreIdempotent(t *testing.T) {
 		Origin:    "node-a",
 		SentAt:    time.Now().UTC(),
 	})
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	registry.Handle(t.Context(), data)
 	registry.Handle(t.Context(), data)
 
-	if _, ok := tier.GetIfPresent("k"); ok {
-		t.Fatal("duplicate invalidations should leave the entry absent")
-	}
+	_, ok := tier.GetIfPresent("k")
+	require.False(t, ok)
 }
 
 func TestBus_UpdateMessageAppliesOnlyMonotonicVersion(t *testing.T) {
@@ -222,9 +221,9 @@ func TestBus_UpdateMessageAppliesOnlyMonotonicVersion(t *testing.T) {
 		Payload:   mustMarshalRaw(t, cacheEntry[string]{Version: 10, Value: "new"}),
 	}))
 	got, ok := tier.GetIfPresent("k")
-	if !ok || got != "new" {
-		t.Fatalf("updated entry = %q, %v; want new,true", got, ok)
-	}
+	require.False(t,
+		!ok || got != "new",
+	)
 
 	registry.Handle(t.Context(), mustMarshalBusMessage(t, BusMessage{
 		Action:    BusActionUpdate,
@@ -235,9 +234,10 @@ func TestBus_UpdateMessageAppliesOnlyMonotonicVersion(t *testing.T) {
 		Payload:   mustMarshalRaw(t, cacheEntry[string]{Version: 9, Value: "stale"}),
 	}))
 	got, ok = tier.GetIfPresent("k")
-	if !ok || got != "new" {
-		t.Fatalf("stale update moved cache backward: %q, %v", got, ok)
-	}
+	require.False(t,
+		!ok || got != "new",
+	)
+
 }
 
 func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
@@ -263,13 +263,9 @@ func TestRegistry_BadNamespaceAndPayloadAreIgnoredAndCounted(t *testing.T) {
 		Key:       "k",
 		Origin:    "node-a",
 	}))
+	require.Equal(t, int64(2), invalid.Load())
+	require.Equal(t, int64(1), unknown.Load())
 
-	if invalid.Load() != 2 {
-		t.Fatalf("invalid count = %d, want 2", invalid.Load())
-	}
-	if unknown.Load() != 1 {
-		t.Fatalf("unknown count = %d, want 1", unknown.Load())
-	}
 }
 
 func TestBus_SubscribeFailureFailsOpen(t *testing.T) {
@@ -278,10 +274,8 @@ func TestBus_SubscribeFailureFailsOpen(t *testing.T) {
 	publisher := newMemoryBusPublisher()
 	publisher.subscribeErr = errors.New("redis down")
 	bus := NewBus(publisher, BusConfig{Origin: "node-a"})
+	require.NoError(t, bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})))
 
-	if err := bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})); err != nil {
-		t.Fatalf("Run() error = %v, want nil fail-open", err)
-	}
 }
 
 func TestBus_ClosedSubscriptionStopsWithoutPanic(t *testing.T) {
@@ -291,10 +285,8 @@ func TestBus_ClosedSubscriptionStopsWithoutPanic(t *testing.T) {
 	close(ch)
 	publisher := &closedSubPublisher{sub: pubsub.NewSubscription(ch, func() {})}
 	bus := NewBus(publisher, BusConfig{Origin: "node-a"})
+	require.NoError(t, bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})))
 
-	if err := bus.Run(t.Context(), NewRegistry(RegistryConfig{Origin: "node-a"})); err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
 }
 
 type closedSubPublisher struct {
@@ -320,18 +312,16 @@ func (c *closedSubPublisher) Close() error {
 func mustMarshalBusMessage(t *testing.T, msg BusMessage) []byte {
 	t.Helper()
 	data, err := json.Marshal(msg)
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	return data
 }
 
 func mustMarshalRaw(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("Marshal() error = %v", err)
-	}
+	require.NoError(t, err)
+
 	return data
 }
 
@@ -344,5 +334,5 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("condition was not met before timeout")
+	require.FailNow(t, "condition was not met before timeout")
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStrict_RedisCompareAndSetRejectsOutOfOrderWrites(t *testing.T) {
@@ -20,26 +21,23 @@ func TestStrict_RedisCompareAndSetRejectsOutOfOrderWrites(t *testing.T) {
 	})
 
 	ok, err := l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 10, Value: "new"}, time.Minute)
-	if err != nil {
-		t.Fatalf("CompareAndSet(new) error = %v", err)
-	}
-	if !ok {
-		t.Fatal("CompareAndSet(new) = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t,
+		ok)
+
 	ok, err = l2.CompareAndSet(t.Context(), "k", cacheEntry[string]{Version: 9, Value: "old"}, time.Minute)
-	if err != nil {
-		t.Fatalf("CompareAndSet(old) error = %v", err)
-	}
-	if ok {
-		t.Fatal("CompareAndSet(old) = true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t,
+		ok)
+
 	entry, err := l2.Get(t.Context(), "k")
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if entry.Version != 10 || entry.Value != "new" {
-		t.Fatalf("entry = %+v, want version 10 value new", entry)
-	}
+	require.NoError(t, err)
+	require.False(t,
+		entry.
+			Version !=
+			10 || entry.Value != "new",
+	)
+
 }
 
 func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
@@ -55,7 +53,7 @@ func TestNewCacheCore_RedisValueSizeCap(t *testing.T) {
 	})
 
 	err := l2.Set(t.Context(), "k", cacheEntry[string]{Value: "this payload is too large"}, time.Minute)
-	if err == nil {
-		t.Fatal("Set() error = nil, want value-size error")
-	}
+	require.Error(t,
+		err)
+
 }

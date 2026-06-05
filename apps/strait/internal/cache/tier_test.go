@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type fakeL2[K comparable, V any] struct {
@@ -114,27 +116,27 @@ func TestNewCacheCore_L1HitAvoidsL2AndLoader(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(t.Context(), "k", "cached", 1); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(t, tier.Set(t.Context(),
+		"k", "cached",
+		1))
+
 	l2.mu.Lock()
 	l2.gets = 0
 	l2.sets = 0
 	l2.mu.Unlock()
 
 	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
-		t.Fatal("loader should not be called on L1 hit")
+		require.Fail(t, "loader should not be called on L1 hit")
 		return "", nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != "cached" {
-		t.Fatalf("Get() = %q, want cached", got)
-	}
-	if l2.gets != 0 {
-		t.Fatalf("L2 gets = %d, want 0", l2.gets)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"cached",
+		got)
+	require.Equal(t,
+		0, l2.gets,
+	)
+
 }
 
 func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
@@ -150,28 +152,26 @@ func TestNewCacheCore_L2HitBackfillsL1(t *testing.T) {
 	})
 
 	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
-		t.Fatal("loader should not be called on L2 hit")
+		require.Fail(t, "loader should not be called on L2 hit")
 		return "", nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != "from-l2" {
-		t.Fatalf("Get() = %q, want from-l2", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"from-l2",
+		got)
+
 	l2.mu.Lock()
 	l2.gets = 0
 	l2.mu.Unlock()
 	got, err = tier.Get(t.Context(), "k", nil)
-	if err != nil {
-		t.Fatalf("Get() second error = %v", err)
-	}
-	if got != "from-l2" {
-		t.Fatalf("Get() second = %q, want from-l2", got)
-	}
-	if l2.gets != 0 {
-		t.Fatalf("L2 gets after L1 backfill = %d, want 0", l2.gets)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"from-l2",
+		got)
+	require.Equal(t,
+		0, l2.gets,
+	)
+
 }
 
 func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
@@ -191,25 +191,17 @@ func TestNewCacheCore_FullMissLoadsAndNegativeCaches(t *testing.T) {
 		loads.Add(1)
 		return nil, nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() = %v, want nil", got)
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+
 	got, err = tier.Get(t.Context(), "missing", func(context.Context, string) (*int, error) {
 		loads.Add(1)
 		return new(int), nil
 	})
-	if err != nil {
-		t.Fatalf("Get() second error = %v", err)
-	}
-	if got != nil {
-		t.Fatalf("Get() second = %v, want negative cached nil", got)
-	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Equal(t, int64(1), loads.Load())
+
 }
 
 func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
@@ -247,11 +239,9 @@ func TestNewCacheCore_SingleflightCoalescesMisses(t *testing.T) {
 	wg.Wait()
 	close(errs)
 	for err := range errs {
-		t.Fatal(err)
+		require.NoError(t, err)
 	}
-	if loads.Load() != 1 {
-		t.Fatalf("loader calls = %d, want 1", loads.Load())
-	}
+	require.Equal(t, int64(1), loads.Load())
 }
 
 func TestNewCacheCore_FailOpenFallsThroughToLoader(t *testing.T) {
@@ -273,15 +263,14 @@ func TestNewCacheCore_FailOpenFallsThroughToLoader(t *testing.T) {
 	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (string, error) {
 		return "db", nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got != "db" {
-		t.Fatalf("Get() = %q, want db", got)
-	}
-	if failOp != "get" {
-		t.Fatalf("fail-open operation = %q, want get", failOp)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"db", got,
+	)
+	require.Equal(t,
+		"get", failOp,
+	)
+
 }
 
 func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
@@ -309,20 +298,19 @@ func TestNewCacheCore_CloneAndSanitizeBoundaries(t *testing.T) {
 	got, err := tier.Get(t.Context(), "k", func(context.Context, string) (authDTO, error) {
 		return authDTO{Scopes: []string{"runs:read"}, Secret: "plaintext"}, nil
 	})
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
-	if got.Secret != "" {
-		t.Fatalf("cached secret = %q, want empty", got.Secret)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"", got.
+			Secret)
+
 	got.Scopes[0] = "mutated"
 	again, err := tier.Get(t.Context(), "k", nil)
-	if err != nil {
-		t.Fatalf("Get() again error = %v", err)
-	}
-	if again.Scopes[0] != "runs:read" {
-		t.Fatalf("cached scopes mutated to %q", again.Scopes[0])
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"runs:read",
+		again.
+			Scopes[0])
+
 }
 
 func TestStrict_CASRejectsEqualAndLowerVersions(t *testing.T) {
@@ -336,22 +324,21 @@ func TestStrict_CASRejectsEqualAndLowerVersions(t *testing.T) {
 		TTL:         time.Minute,
 	})
 
-	if ok, err := tier.CompareAndSet(t.Context(), "k", "v2", 2); err != nil || !ok {
-		t.Fatalf("CompareAndSet(v2) = %v, %v; want true nil", ok, err)
-	}
-	if ok, err := tier.CompareAndSet(t.Context(), "k", "v1", 1); err != nil || ok {
-		t.Fatalf("CompareAndSet(v1) = %v, %v; want false nil", ok, err)
-	}
-	if ok, err := tier.CompareAndSet(t.Context(), "k", "v2-equal", 2); err != nil || ok {
-		t.Fatalf("CompareAndSet(equal) = %v, %v; want false nil", ok, err)
-	}
+	ok, err := tier.CompareAndSet(t.Context(), "k", "v2", 2)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ok, err = tier.CompareAndSet(t.Context(), "k", "v1", 1)
+	require.NoError(t, err)
+	require.False(t, ok)
+	ok, err = tier.CompareAndSet(t.Context(), "k", "v2-equal", 2)
+	require.NoError(t, err)
+	require.False(t, ok)
 	got, err := tier.GetConsistent(t.Context(), "k", 2, nil)
-	if err != nil {
-		t.Fatalf("GetConsistent() error = %v", err)
-	}
-	if got != "v2" {
-		t.Fatalf("GetConsistent() = %q, want v2", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"v2", got,
+	)
+
 }
 
 func TestStrict_GetConsistentIgnoresStaleL1AndL2(t *testing.T) {
@@ -365,24 +352,22 @@ func TestStrict_GetConsistentIgnoresStaleL1AndL2(t *testing.T) {
 		MaximumSize: 10,
 		TTL:         time.Minute,
 	})
-	if err := tier.Set(t.Context(), "k", "stale-l1", 1); err != nil {
-		t.Fatalf("Set() error = %v", err)
-	}
+	require.NoError(t, tier.Set(t.Context(),
+		"k", "stale-l1",
+		1))
 
 	got, err := tier.GetConsistent(t.Context(), "k", 5, func(context.Context, string) (string, error) {
 		return "fresh", nil
 	})
-	if err != nil {
-		t.Fatalf("GetConsistent() error = %v", err)
-	}
-	if got != "fresh" {
-		t.Fatalf("GetConsistent() = %q, want fresh", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t,
+		"fresh",
+		got)
+
 	l2.mu.Lock()
 	defer l2.mu.Unlock()
-	if l2.values["k"].Version != 5 {
-		t.Fatalf("L2 version = %d, want 5", l2.values["k"].Version)
-	}
+	require.Equal(t, int64(5), l2.values["k"].Version)
+
 }
 
 func TestNewCacheCore_TTLJitterBounds(t *testing.T) {
@@ -391,9 +376,13 @@ func TestNewCacheCore_TTLJitterBounds(t *testing.T) {
 	base := 100 * time.Millisecond
 	for range 100 {
 		got := JitterTTL(base, 0.25)
-		if got < base || got >= base+25*time.Millisecond {
-			t.Fatalf("JitterTTL() = %s outside [%s,%s)", got, base, base+25*time.Millisecond)
-		}
+		require.False(t,
+			got < base ||
+				got >=
+					base+
+						25*time.Millisecond,
+		)
+
 	}
 }
 
